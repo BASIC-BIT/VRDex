@@ -1063,6 +1063,25 @@ Acceptance criteria:
 
 ## EPIC-18 Software factory and agentic delivery
 
+### Recommended first-wave issue order
+
+Start with this slice so the repo gets better defaults quickly without overbuilding the whole engine first:
+
+1. Separate repo-wide agent policy from local operator preference
+2. Add repo onboarding skill and docs-backed onboarding flow
+3. Define repo-level definition of ready for feature work
+4. Choose and document product analytics plus feature-flagging direction
+5. Define contributor-friendly, agent-compatible contribution workflow
+6. Define agentic review-recycle loop and trigger model
+7. Define orchestrator/supervisor loop and resumable-session policy
+
+Why this order:
+
+- the first three issues improve day-to-day execution immediately
+- analytics/feature-flag direction should exist before feature implementation speeds up
+- contributor workflow should land early because outside contribution is already a live concern
+- review/recycle and orchestration design can then build on cleaner repo defaults
+
 ### Separate repo-wide agent policy from local operator preference
 
 Problem:

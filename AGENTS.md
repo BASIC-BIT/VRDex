@@ -2,6 +2,15 @@
 
 This file provides repo-level guidance for agents working on `VRDex` planning and, later, implementation.
 
+## Repo at a glance
+
+- `VRDex` is a VRChat-first identity, profile, and events platform for people and communities.
+- The product is open-source, self-hostable, public-docs-first, and intentionally opinionated toward agent-first software-factory delivery.
+- Current stack direction is `Next.js + TypeScript + Convex + AWS + Stripe + Docusaurus + Vercel`.
+- Locked `v0.5` auth target is Discord, Google, and email/password, with verified email required before claim-level actions.
+- Current backend/data default is `Convex`, not `Supabase`.
+- If `Supabase` is proposed for a feature or subsystem, treat it as an explicit architectural change and document the tradeoffs before implementation.
+
 ## Product posture
 
 - `VRDex` is ambitious, but the job is to turn ambition into shippable slices.

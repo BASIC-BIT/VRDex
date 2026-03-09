@@ -120,6 +120,9 @@ Good examples for VRDex:
 - define orchestrator/supervisor loop and resume semantics
 - define verification stack and human validation package expectations
 - define OpenCode task-pool/server direction
+- define repo-level definition of ready
+- choose product analytics and feature-flagging direction
+- define contributor-friendly, agent-compatible contribution workflow
 
 ## Practical recommendation
 
