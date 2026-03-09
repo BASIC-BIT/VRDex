@@ -162,16 +162,15 @@ Current recommendation:
 - when appropriate, define whether the feature should ship behind a feature flag
 - when appropriate, define what analytics or product signals will tell us whether the feature is actually useful
 - include contributor-facing expectations so newer programmers and outside agents know what good looks like without needing tribal knowledge
+- treat `docs/agentic/definition-of-ready.md` as the canonical checklist and workflow reference
 
-Suggested definition-of-ready checklist:
+## Definition of done
 
-- problem statement is clear
-- scope and non-goals are clear
-- dependencies are linked
-- verification plan is defined
-- rollout/feature-flag plan is defined when appropriate
-- success metrics or product analytics intent is defined when appropriate
-- review/recycle expectations are defined for non-trivial work
+Current recommendation:
+
+- before calling non-trivial work finished, verify that implementation, verification, documentation, and rollout posture are all actually complete
+- treat `docs/agentic/definition-of-done.md` as the canonical closeout checklist and handoff reference
+- prefer explicit follow-up issues over quietly shipping with undocumented gaps
 
 ## Product analytics and experimentation
 

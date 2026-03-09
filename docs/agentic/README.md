@@ -2,6 +2,8 @@
 
 ## Core docs
 
+- `docs/agentic/definition-of-done.md` - canonical closeout checklist for non-trivial feature work
+- `docs/agentic/definition-of-ready.md` - canonical readiness checklist for non-trivial feature work
 - `docs/agentic/software-factory.md` - repo-specific software-factory posture, control loops, and meta-loop ideas
 
 ## Working rule

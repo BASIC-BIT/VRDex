@@ -144,15 +144,15 @@ VRDex should plan verification as a layered system, not a single test command.
 
 - every non-trivial feature should define how it will be reviewed, verified, rolled out, and measured before implementation begins
 - definition-of-ready belongs in engineering/docs discipline, not just in a PM tool
+- `docs/agentic/definition-of-ready.md` is the canonical checklist and issue-snippet reference for this repo
 
-Suggested checklist:
+## Definition of done
 
-- problem, scope, and non-goals are clear
-- dependency position is clear
-- verification plan is clear
-- rollout/feature-flag strategy is clear when appropriate
-- analytics/success signals are clear when appropriate
-- human validation package expectations are clear when appropriate
+### Current recommendation
+
+- every non-trivial feature should close with an explicit done check, not just a claim that implementation landed
+- definition-of-done should cover verification completion, documentation updates, rollout posture, and review closure
+- `docs/agentic/definition-of-done.md` is the canonical closeout checklist and handoff-snippet reference for this repo
 
 ## Feature flags and analytics
 

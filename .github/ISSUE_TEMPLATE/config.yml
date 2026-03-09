@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Feature work guidance
+    url: https://github.com/BASIC-BIT/VRDex/blob/main/docs/agentic/definition-of-ready.md
+    about: Use the canonical definition-of-ready guide for non-trivial feature issues.
+  - name: Feature closeout guidance
+    url: https://github.com/BASIC-BIT/VRDex/blob/main/docs/agentic/definition-of-done.md
+    about: Use the canonical definition-of-done guide when closing or handing off non-trivial feature work.
