@@ -188,6 +188,7 @@ Current recommendation:
 - be rigorous about quality bars and review loops without forcing every contributor into one specific agent or IDE workflow
 - optimize for interoperability: contributors can use their preferred agents/tools so long as the work product fits the repo's review, docs, and verification expectations
 - use reviewer/recycler automation to reduce slop, especially for newer contributors, without turning contribution into a hostile process
+- treat `docs/agentic/contributor-workflow.md` as the canonical contributor contract and onboarding pointer
 
 Candidate direction:
 

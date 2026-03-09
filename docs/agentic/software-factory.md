@@ -187,6 +187,7 @@ VRDex should plan verification as a layered system, not a single test command.
 - newer contributors should be helped by the system rather than forced to infer expectations from tribal knowledge
 - reviewer agents and recycle loops should help raise quality without requiring maintainers to hand-police every sloppy draft
 - protected branches, contributor roles, and org-level controls should arrive when collaboration volume justifies them
+- `docs/agentic/contributor-workflow.md` is the canonical contributor contract and onboarding pointer for this repo
 
 ## Backlog direction
 

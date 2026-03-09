@@ -7,6 +7,10 @@ This repo keeps durable markdown under `docs/` so product, engineering, and agen
 - `docs/planning/README.md` - product, architecture, roadmap, backlog, and issue-planning docs
 - `docs/agentic/README.md` - software-factory, onboarding, control-loop, and agent workflow docs
 
+Useful starting points:
+
+- `docs/agentic/contributor-workflow.md` - contributor contract and onboarding pointer
+
 ## Working rule
 
 - use `AGENTS.md` for short durable repo-wide rules

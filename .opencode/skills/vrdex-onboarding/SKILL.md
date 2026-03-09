@@ -17,6 +17,7 @@ Bring a new agent or maintainer into alignment with VRDex's repo conventions wit
 - `docs/README.md`
 - `docs/planning/README.md`
 - `docs/agentic/README.md`
+- `docs/agentic/contributor-workflow.md`
 - `docs/agentic/software-factory.md`
 
 ## Local operator context

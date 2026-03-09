@@ -15,6 +15,7 @@
 
 - product/planning context: `docs/planning/README.md`
 - agentic/software-factory context: `docs/agentic/README.md`
+- contributor workflow contract: `docs/agentic/contributor-workflow.md`
 - repo-wide agent defaults: `AGENTS.md`
 
 ## Current direction
