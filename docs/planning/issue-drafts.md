@@ -1362,6 +1362,8 @@ Why now:
 Scope:
 
 - evaluate integrated analytics/flagging candidates such as `PostHog`
+- evaluate whether `Google Analytics` is needed separately or should be deferred
+- evaluate whether `Langfuse` belongs in the same decision or should be treated as a separate LLM-observability concern
 - evaluate dedicated feature-flag alternatives such as `LaunchDarkly`
 - define what good enough looks like for v0.5
 - define how analytics and flags fit into agent-first feature delivery
@@ -1373,6 +1375,7 @@ Non-goals:
 - implementing the full analytics stack immediately
 - solving every experimentation problem on day one
 - designing the final warehouse/BI architecture
+- adopting multiple overlapping platforms without a clear reason
 
 Current recommendation:
 
@@ -1380,6 +1383,7 @@ Current recommendation:
 - keep the initial standard lightweight enough that contributors can actually use it
 - require teams and agents to consider whether each meaningful feature needs instrumentation, gating, staged rollout, or all three
 - do not let analytics or flagging become an excuse to avoid shipping small, low-risk work
+- treat LLM/agent observability as a separate concern from end-user product analytics
 
 Acceptance criteria:
 
@@ -1388,10 +1392,13 @@ Acceptance criteria:
 - the direction is concrete enough to guide future implementation issues
 - the repo defines a minimum rollout/measurement expectation for non-trivial features
 - the documented direction is small enough to adopt early instead of being permanently deferred
+- the repo explicitly documents when a separate tool is justified versus unnecessary overlap
 
 Current recommendation to document:
 
 - `PostHog` is the strongest first candidate because it can cover analytics, feature flags, and experiments in one place
+- `Google Analytics` should be treated as optional later marketing/site analytics unless a concrete gap appears
+- `Langfuse` should be evaluated separately as LLM/agent observability once VRDex has real agent-facing product flows that need traces/evals
 - `LaunchDarkly` remains a credible later option if feature-flag sophistication outgrows the integrated approach
 - non-trivial features should at least consider feature gating, staged rollout, and success-signal instrumentation
 
