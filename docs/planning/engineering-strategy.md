@@ -179,20 +179,7 @@ Current recommendation:
 - treat product analytics and feature-flagging as part of the engineering system, not bolt-ons after launch
 - prefer a setup that supports feature flags, controlled rollout, and experiments without locking the repo into one vendor too early
 - avoid platform-integration hell by standardizing on one primary tool per concern unless there is a clear gap
-
-Candidate direction:
-
-- `PostHog` is a strong first candidate because it can cover product analytics, feature flags, and experiments in one system
-- `Google Analytics` is more likely to be useful later for marketing/site analytics than as the main product analytics and flagging backbone
-- `Langfuse` is a different category entirely: LLM/agent observability, traces, and evals rather than end-user product analytics or feature flags
-- `LaunchDarkly` or a similar dedicated flagging system is worth considering if rollout sophistication outgrows the integrated approach
-- every meaningful feature should at least consider whether it needs instrumentation, a staged rollout, or experiment support
-
-Interview later:
-
-- whether VRDex should standardize on a single analytics/flagging platform early
-- whether VRDex needs a separate LLM observability layer once agent-powered product features are live
-- which events and product metrics matter enough to capture in v0.5
+- treat `docs/agentic/product-analytics-and-feature-flags.md` as the canonical policy for first-pass tool choice, rollout expectations, and product-signal expectations
 
 ## Contributor workflow posture
 

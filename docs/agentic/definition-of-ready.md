@@ -87,7 +87,7 @@ For non-trivial work, the issue or spec should answer these points before implem
 
 - say how we will know the feature is useful or healthy
 - if formal instrumentation is unnecessary, say what simpler signal is enough
-- until issue `#46` is resolved more fully, a brief placeholder plan is acceptable if it is explicit
+- use `docs/agentic/product-analytics-and-feature-flags.md` for the current repo policy on flags, rollout posture, and product instrumentation
 
 ### Reviewer, recycler, or human-validation expectations
 
@@ -120,6 +120,7 @@ Use this block in non-trivial feature issues:
 ## Relationship to other docs
 
 - `docs/agentic/definition-of-done.md` defines what must be true before non-trivial work is called finished
+- `docs/agentic/product-analytics-and-feature-flags.md` defines the current rollout, feature-flag, and product-signal policy
 - `docs/planning/engineering-strategy.md` explains why VRDex wants this discipline
 - `docs/agentic/software-factory.md` places it in the wider review, recycle, and orchestration model
 - contributor and onboarding docs should link here instead of redefining the checklist in multiple places

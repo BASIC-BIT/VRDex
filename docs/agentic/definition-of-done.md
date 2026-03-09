@@ -57,11 +57,13 @@ For non-trivial work, do not call the issue done until these points are satisfie
 
 - the feature is in the intended release posture: direct ship, flagged, or staged
 - kill-switch or rollback posture is understood when relevant
+- use `docs/agentic/product-analytics-and-feature-flags.md` for the current repo policy on rollout posture and flag expectations
 
 ### Signals or analytics
 
 - required instrumentation or success-signal hooks are present
 - if richer analytics were deferred, the issue makes that visible
+- use `docs/agentic/product-analytics-and-feature-flags.md` for the current repo policy on product instrumentation expectations
 
 ### Review, recycle, and human validation
 
@@ -94,5 +96,6 @@ Use this block in PR descriptions, closeout comments, or agent handoff notes for
 ## Relationship to other docs
 
 - `docs/agentic/definition-of-ready.md` defines what should be clear before implementation starts
+- `docs/agentic/product-analytics-and-feature-flags.md` defines the current rollout, feature-flag, and product-signal policy
 - `docs/planning/engineering-strategy.md` explains why VRDex wants this discipline
 - `docs/agentic/software-factory.md` places done criteria inside the wider review, recycle, and orchestration model

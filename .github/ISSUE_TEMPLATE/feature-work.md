@@ -51,3 +51,4 @@ assignees: ''
 
 - Ready guide: `docs/agentic/definition-of-ready.md`
 - Done guide: `docs/agentic/definition-of-done.md`
+- Analytics and flags guide: `docs/agentic/product-analytics-and-feature-flags.md`

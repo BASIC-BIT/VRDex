@@ -161,13 +161,7 @@ VRDex should plan verification as a layered system, not a single test command.
 - treat feature flags, experimentation, and product analytics as first-class design concerns for feature work
 - default to asking whether a feature should be gated, progressively rolled out, or instrumented
 - avoid stacking overlapping platforms too early; prefer one primary system per concern until a real gap appears
-
-### Candidate direction
-
-- `PostHog` is a strong first candidate because it can cover analytics, feature flags, and experiments in one place
-- `Google Analytics` is more likely to be a later marketing/site analytics supplement than the main product analytics backbone
-- `Langfuse` fits LLM and agent observability, not product analytics or feature flags
-- `LaunchDarkly` or another dedicated flag platform may be worth adopting later if rollout needs become more complex
+- `docs/agentic/product-analytics-and-feature-flags.md` is the canonical policy for tool roles, rollout posture, and product-signal expectations
 
 ## Trigger ideas worth encoding
 
