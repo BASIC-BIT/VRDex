@@ -1,6 +1,6 @@
 # VRDex
 
-Working folder for `VRDex`, a VRChat-first scene directory product centered on people, clubs, and public identity pages.
+Working folder for `VRDex`, a VRChat-first scene directory product centered on people, communities, and public identity pages.
 
 ## What is in here
 
@@ -12,6 +12,8 @@ Working folder for `VRDex`, a VRChat-first scene directory product centered on p
 - `docs-strategy.md` - Docusaurus and source-of-truth documentation plan
 - `epics.md` - phased epic breakdown for v0.5, v1, and v1.5
 - `issue-seeding.md` - how to split epics into GitHub issues and milestones
+- `dependency-map.md` - hard/soft dependency map across the seeded backlog
+- `issue-drafts.md` - drafted GitHub issue bodies captured from planning interviews
 
 ## Current direction
 
@@ -39,10 +41,10 @@ Currently locked product posture:
 
 The strongest opening is not "another event calendar."
 
-The strongest opening is a canonical public profile layer for VRChat people and clubs:
+The strongest opening is a canonical public profile layer for VRChat people and communities:
 
 - person profiles for DJs, VJs, hosts, photographers, performers, and scene staff
-- club profiles for VRChat groups, Discord servers, brands, and venues
+- community profiles for clubs, VRChat groups, Discord servers, brands, and venues
 - community-created entries that can later be claimed by the actual owner
 - Discord and VRChat verification so claimed profiles become trusted
 - export and integration surfaces for Discord bots, booking tools, and event sites
@@ -63,7 +65,7 @@ Do not depend on VRCTL / vrc.tl access from this environment.
 
 ## Suggested first build slice
 
-1. Public person and club profile pages
+1. Public person and community profile pages
 2. Community submission flow
 3. Claim profile with Discord OAuth
 4. Claim profile with VRChat proof code

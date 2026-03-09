@@ -8,13 +8,13 @@ Working domain: `vrdex.net`
 
 ## Product thesis
 
-VRChat scene participants need one canonical, public, claimable profile system for both people and clubs that other people can trust and reuse, with enough customization and link depth to replace ad-hoc link pages.
+VRChat scene participants need one canonical, public, claimable profile system for both people and communities that other people can trust and reuse, with enough customization and link depth to replace ad-hoc link pages.
 
 ## Primary users
 
 ### DJs and performers
 
-They want one link they can send when clubs ask for:
+They want one link they can send when communities ask for:
 
 - logo
 - social links
@@ -29,7 +29,7 @@ They also want:
 - a customizable public page
 - a primary display image and banner
 - optional privacy for sensitive details
-- an appearances list showing where they are playing next
+- an event list showing where they are playing next
 
 ### Club owners and bookers
 
@@ -43,7 +43,7 @@ They want to quickly answer:
 
 They also want to quickly answer:
 
-- what is this club's Discord
+- what is this community's Discord
 - what VRChat group is this tied to
 - who runs it
 - where do I submit events or applications
@@ -53,7 +53,7 @@ They also want to quickly answer:
 
 They want a canonical page for:
 
-- club identity
+- community identity
 - links and contact info
 - Discord server and VRChat group presence
 - lineup style and genres
@@ -73,9 +73,16 @@ They want to add missing performers even before those performers sign up themsel
 3. Verification increases trust but is not required to exist
 4. The product is identity-first, not booking-first
 5. Integrations matter more than lock-in
-6. People and clubs are first-class entities
+6. People and communities are first-class entities
 7. Every profile field can be hidden by its owner after claim
 8. Visual customization should feel expressive without breaking usability
+
+Current recommendation on terminology:
+
+- use a shared identity/profile system for both people and non-person entities
+- internally, `community` is currently the stronger candidate term for the broader non-person bucket
+- publicly, the product does not need to force one rigid umbrella word into the UX everywhere
+- subtype/category choices should stay flexible and not become an over-prescriptive taxonomy in v1
 
 ## MVP scope
 
@@ -83,7 +90,7 @@ They want to add missing performers even before those performers sign up themsel
 
 Each profile should support:
 
-- profile type (`person` or `club`)
+- profile type (`person` or `community`)
 - display name
 - aliases
 - short bio
@@ -107,9 +114,26 @@ Import helpers should support:
 - VRChat profile or group metadata when available
 - manual uploads as the highest-control option
 
+Authentication direction:
+
+- users should not be forced into Discord as the only login path long-term
+- the system should leave room for multiple auth providers and local credentials
+- identity verification and ownership proof should stay source-based rather than tied to one login vendor
+
+Locked v0.5 target:
+
+- support Discord login
+- support Google login
+- support email/password login
+
+Current recommendation:
+
+- email/password accounts should verify email before profile claim actions are allowed
+- AWS-backed email delivery is the likely implementation direction
+
 ### 2. Community-created profiles
 
-Any logged-in community member can create a draft profile for an existing person or club.
+Any logged-in community member can create a draft profile for an existing person or community.
 
 Rules:
 
@@ -142,7 +166,7 @@ Trusted operators should be able to create a richer draft for someone else and h
 
 Use cases:
 
-- onboarding a DJ or club personally
+- onboarding a DJ or community personally
 - preparing a polished starting page before launch
 - importing known basics and giving the owner a guided confirmation flow
 
@@ -161,9 +185,15 @@ Claim methods:
 
 - Discord OAuth for people
 - VRChat proof code placed in bio or another visible profile field for people
-- Discord server ownership or admin verification for clubs
-- VRChat group verification for clubs
+- Discord server ownership or admin verification for communities
+- VRChat group verification for communities
 - moderator/manual override as fallback
+
+Current recommendation:
+
+- Discord can be the strongest first claim path, but not the only long-term login or trust path
+- future auth/login options may include Google, local credentials, X, and native VRChat if a viable OAuth path exists later
+- official VRChat Discord linking, VRCLinking, and direct proof flows should all be treated as distinct trust signals
 
 First-run claim UX should support:
 
@@ -176,7 +206,7 @@ First-run claim UX should support:
 
 Every profile should have a clean shareable page optimized for:
 
-- club staff
+- community staff
 - Discord unfurls
 - mobile viewing
 - "send me your links" moments
@@ -188,7 +218,7 @@ Style expectations:
 - theme presets with accent colors and section ordering
 - no requirement for users to hand-code CSS
 
-Club pages should also support:
+Community pages should also support:
 
 - event submission link
 - staff contact path
@@ -211,8 +241,8 @@ Search by:
 Search and browse should also support:
 
 - who is playing soon
-- clubs by genre / vibe
-- performers by upcoming appearances
+- communities by genre / vibe
+- performers by upcoming events
 
 ### 6. Discord bot integration
 
@@ -224,7 +254,7 @@ First commands should be simple:
 - `/logo <name>`
 - `/genre <name>`
 
-### 7. Basic club intelligence
+### 7. Basic community intelligence
 
 MVP-adjacent but worth designing early:
 
@@ -238,34 +268,42 @@ Club management direction:
 
 - one owner in v1
 - familiar starter roles like `admin` and `mod`
-- unclaimed roster members allowed so clubs can use the system before full ecosystem adoption
+- unclaimed roster members allowed so communities can use the system before full ecosystem adoption
 
-### 8. Upcoming appearances and event history
+Candidate later workflow direction:
+
+- private notes on people or communities for operator-side relationship management
+- invite/accept participation flows for events
+- possible open signup flows for some events
+- these features may be native later or may be better solved through Decked Out integration
+
+### 8. Events and participant history
 
 Person profiles should support:
 
-- upcoming appearances
-- recent appearances / history
-- event cards with club, title, time, and source
-- source attribution for each appearance
+- upcoming events they are associated with
+- recent event history
+- event cards with community, title, time, and source
+- source attribution for each event association
 
 Sources can include:
 
 - self-submitted event links
-- club-submitted appearances
+- community-submitted event associations
 - partner sync from Decked Out or VRC Pop
 - VRChat calendar and group events
-- AI-extracted candidate appearances from event descriptions
+- AI-extracted candidate event associations from event descriptions
 
-Current recommendation for initial appearance fields:
+Current recommendation for initial event fields:
 
 - title
-- club
+- community
 - start time
 - end time optional
 - source
 - link optional
 - notes optional
+- poster/image optional
 
 Important future-aware extensions:
 
@@ -283,10 +321,10 @@ Streaming and media direction:
 
 Notification and consent direction:
 
-- when a claimed person is added to an appearance in v1, they should get a passive in-app notification
+- when a claimed person is added to an event association in v1, they should get a passive in-app notification
 - people should be able to choose a notification-oriented preference in v1
 - stronger approval-before-display settings are desirable later but not required for the first release
-- if an appearance is disputed, a likely interim behavior is to keep the club-side slot while removing the authoritative link to the person's main profile until resolved
+- if an event association is disputed, a likely interim behavior is to keep the community-side slot while removing the authoritative link to the person's main profile until resolved
 
 ### 9. Identity attestation integrations
 
@@ -295,7 +333,7 @@ Strong candidate for early partnership value:
 - accept trusted Discord<->VRChat linkage from VRCLinking where available
 - accept trusted Discord<->VRChat linkage from native VRChat where available
 - use that linkage to reduce manual claim friction for people
-- use it as supporting evidence for club staff and ownership checks
+- use it as supporting evidence for community staff and ownership checks
 - show an attested-link badge separate from native verification
 
 ### 10. Privacy controls
@@ -322,11 +360,11 @@ Suggested default behavior:
 
 ### 10a. Listing opt-out controls
 
-People and clubs should be able to opt out of unwanted third-party listing.
+People and communities should be able to opt out of unwanted third-party listing.
 
 Current recommendation:
 
-- a valid opt-out should prevent that person or club from being surfaced publicly by third parties regardless of format
+- a valid opt-out should prevent that person or community from being surfaced publicly by third parties regardless of format
 - opt-out should be treated separately from normal field privacy because it is about whether the listing should exist at all
 - normal self-service opt-out should require profile ownership/claim
 - pre-claim suppression should be handled as a verified moderation or safety request instead of ordinary self-service account control
@@ -342,7 +380,7 @@ Owners should be able to customize their page with:
 - accent color or theme preset
 - section order
 - featured links
-- featured event or featured club
+- featured event or featured community
 - optional gallery or media blocks later
 
 Customization target:
@@ -376,7 +414,7 @@ Profile model rule:
 
 - a profile exists independently from the user account that may later claim it
 - claims attach authority to an existing profile record rather than redefining the profile itself
-- this allows community-added entries, concierge drafts, roster references, and appearance links to stay stable over time
+- this allows community-added entries, concierge drafts, roster references, and event links to stay stable over time
 
 Search guidance:
 
@@ -384,14 +422,14 @@ Search guidance:
 - they must show a visible unverified/community-submitted badge
 - help text should explain that the profile is based on third-party information until claimed
 - claimed and verified profiles should rank above otherwise similar unclaimed results
-- valid opt-out cases should be excluded from ordinary public discovery flows, including profile pages, public roster displays, and public appearance references
+- valid opt-out cases should be excluded from ordinary public discovery flows, including profile pages, public roster displays, and public event participant references
 
 ### 13. Club role model
 
 Current recommendation:
 
 - `owner` is the only reserved role
-- clubs should start with familiar defaults such as `admin` and `mod`
+- communities should start with familiar defaults such as `admin` and `mod`
 - other role structure should be allowed to evolve instead of being hard-coded forever
 - admins should be able to manage normal billing workflows by default
 - ownership transfer should require acceptance by the new owner
@@ -421,12 +459,12 @@ Candidate direction:
 - prefer a derived viewer format that is harder to rip than delivering the source avatar model directly
 - likely implementation path is closer to an imposter or multi-angle sprite system than a traditional downloadable web 3D model viewer
 
-This is explicitly low priority relative to identity, claims, clubs, and appearances.
+This is explicitly low priority relative to identity, claims, communities, and events.
 
 ## Explicit non-goals for MVP
 
 - full event scheduling platform
-- full club management suite
+- full community management suite
 - replacing Decked Out's booking workflow
 - replacing VRC Pop's live scene visualization
 - replacing VRCLinking's role-sync depth
@@ -457,7 +495,7 @@ This is explicitly low priority relative to identity, claims, clubs, and appeara
 
 ### Club info
 
-- club type (`venue`, `collective`, `brand`, `community`, `agency`)
+- community type (`venue`, `collective`, `brand`, `community`, `agency`)
 - primary genres
 - secondary genres
 - vibe tags
@@ -487,9 +525,9 @@ This is explicitly low priority relative to identity, claims, clubs, and appeara
 - VRChat user id or canonical profile URL if available
 - VRChat display name
 - VRChat group affiliations optional
-- world or club affiliations optional
+- world or community affiliations optional
 
-For clubs:
+For communities:
 
 - VRChat group id
 - VRChat short code if relevant
@@ -541,29 +579,29 @@ Every field or block should support owner-configured visibility and source attri
 2. See verification state, genres, links, logos, contact path
 3. Copy assets or open canonical share page
 
-### Flow D: Club claims its own club profile
+### Flow D: Community claims its own community profile
 
 1. Staff member signs in with Discord
-2. Claims the club page through Discord server ownership/admin path
+2. Claims the community page through Discord server ownership/admin path
 3. Links VRChat group
 4. Adds branding, genres, booking info, and staff contacts
-5. Shares the club profile as the canonical public page
+5. Shares the community profile as the canonical public page
 
 ### Flow E: DJ keeps a public page but hides sensitive details
 
 1. DJ claims profile
 2. Imports Discord avatar and uploads a custom banner
 3. Sets booking email to private
-4. Leaves genres, links, and upcoming appearances public
+4. Leaves genres, links, and upcoming events public
 5. Shares the page publicly without exposing everything
 
-### Flow F: Event appearance gets added from multiple sources
+### Flow F: Event association gets added from multiple sources
 
-1. A club submits an event or a partner sync imports one
+1. A community submits an event or a partner sync imports one
 2. System attaches source metadata
 3. AI optionally extracts likely performer names and set times from the description
-4. Suggested matches are confirmed by a user, club owner, or moderator
-5. The appearance shows on the performer and club pages
+4. Suggested matches are confirmed by a user, community owner, or moderator
+5. The event shows on the community page and on associated person profiles
 
 ## Trust and moderation rules
 
@@ -582,7 +620,7 @@ Public read APIs should eventually support:
 - search by genre / name
 - profile card JSON for bot responses
 - embeddable link previews
-- appearances feed for a person or club
+- events feed for a person or community
 
 Current recommendation:
 
@@ -591,12 +629,12 @@ Current recommendation:
 
 Partner APIs later:
 
-- import performer or club profile seeds
-- sync event appearances
+- import performer or community profile seeds
+- sync events and event-participant associations
 - sync verification hints
-- sync club metadata from trusted partners
+- sync community metadata from trusted partners
 - accept identity attestations from VRCLinking
-- accept event feeds and appearance confirmations from trusted partners
+- accept event feeds and event-participant confirmations from trusted partners
 
 ### Open platform posture
 
@@ -610,9 +648,9 @@ Locked direction:
 ## Success criteria for MVP
 
 - a DJ can send one URL instead of five
-- a club can find and trust a profile quickly
+- a community can find and trust a profile quickly
 - community members can seed the directory without waiting on every performer
-- clubs can use a public page as their identity hub
+- communities can use a public page as their identity hub
 - at least one external bot or site can consume profile data
 - users can hide any claimed profile detail they do not want public
-- fans can visit a profile and see upcoming appearances without leaving the page
+- fans can visit a profile and see upcoming events without leaving the page

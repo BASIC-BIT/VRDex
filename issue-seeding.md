@@ -13,6 +13,13 @@ For each epic:
 - link child issues back to the epic
 - keep acceptance criteria in the epic issue body
 
+Issue sizing rule:
+
+- prefer larger, independently testable vertical slices over many tiny bookkeeping issues
+- avoid excessive nesting and tracking overhead
+- an issue can be fairly long if it still represents one coherent, shippable chunk of work
+- only split further when a slice becomes hard to reason about, hard to review, or blocked by clear dependencies
+
 ## Suggested milestone structure
 
 - `v0.5`
@@ -35,11 +42,22 @@ For each epic:
 - dependencies
 - docs to update
 
+## Deferred-but-important issue policy
+
+If something is explicitly out of scope for the current slice but clearly valuable, prefer filing it as a follow-on issue rather than letting it disappear into a non-goals list.
+
+Good examples for VRDex:
+
+- custom domains
+- slug history redirects
+- SEO optimization for public profiles
+- LLM-assisted moderation and scanning
+
 ## Suggested first v0.5 issue list
 
 ### EPIC-01 Profile foundation
 
-- create base profile schema for people and clubs
+- create base profile schema for people and communities
 - add stable slug generation and uniqueness rules
 - add profile type-aware core fields
 - add profile read/write permissions baseline
@@ -54,7 +72,7 @@ For each epic:
 ### EPIC-03 Public profile experience
 
 - build person public profile page
-- build club public profile page
+- build community public profile page
 - add avatar/banner asset support
 - add short bio and about section UI
 - add theme preset and section ordering basics
@@ -75,15 +93,15 @@ For each epic:
 
 ### EPIC-06 Search and discovery basics
 
-- implement search across people and clubs
+- implement search across people and communities
 - add trust-aware ranking and cards
 - exclude opt-out entities from public discovery
 
-### EPIC-07 Appearances core
+### EPIC-07 Events and profile associations
 
-- add appearance schema and CRUD flows
-- add person and club appearance sections
-- support unclaimed person profiles in appearances
+- add event schema and CRUD flows
+- add community event sections and person event views
+- support unclaimed person profiles in event associations
 - add typed media links with generic fallback
 - add optional world linkage field
 
@@ -103,8 +121,15 @@ Seed issues in this order:
 3. claim flow
 4. community submission + trust labels
 5. privacy + opt-out
-6. appearance core
+6. event core and profile associations
 7. search/discovery
 8. docs foundation
 
 That order keeps the product coherent while still giving you something demoable quickly.
+
+## Suggested follow-on issue bucket
+
+- add custom domain support for profiles
+- add slug history and redirect behavior
+- improve public profile SEO and metadata strategy
+- add LLM-assisted moderation and abuse scanning layer

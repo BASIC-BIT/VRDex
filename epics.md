@@ -28,28 +28,34 @@ Goal: immediate follow-on improvements that make the system smarter, more integr
 
 Purpose:
 
-- establish first-class person and club profiles as independent records
+- establish first-class person and community profiles as independent records
 
 Includes:
 
 - person profiles
-- club profiles
+- community profiles
 - slugs and profile identity
 - basic field model
 - owner-editable core fields
 
+Current recommendation:
+
+- profile slugs should be owner-settable, unique, and validated
+- canonical URLs should not depend on raw VRChat display names
+
 Acceptance criteria:
 
 - a person profile can exist without a linked user
-- a club profile can exist without a linked user
+- a community profile can exist without a linked user
 - profiles have stable URLs and core identity fields
-- the system clearly distinguishes person vs club profiles
+- the system clearly distinguishes person vs community profiles
+- owners can choose a valid custom slug when available
 
 ### EPIC-02 Claim and ownership
 
 Purpose:
 
-- let real people and clubs take authority over existing profile records
+- let real people and communities take authority over existing profile records
 
 Includes:
 
@@ -57,6 +63,15 @@ Includes:
 - VRChat proof-code verification path
 - basic claim state handling
 - owner authority over profile fields
+
+Current recommendation:
+
+- Discord should be treated as the strongest early claim path, not the only login or identity source
+- later work should leave room for additional account providers and trust signals
+
+Locked v0.5 target:
+
+- initial account access should support Discord, Google, and email/password
 
 Acceptance criteria:
 
@@ -79,7 +94,7 @@ Includes:
 
 Acceptance criteria:
 
-- person and club pages are mobile-friendly and visually polished
+- person and community pages are mobile-friendly and visually polished
 - claimed owners can customize their page within bounded rules
 - the pages are good enough to share publicly as a canonical identity page
 
@@ -118,7 +133,7 @@ Includes:
 Acceptance criteria:
 
 - claimed owners can hide individual fields
-- valid opt-out prevents public surfacing across profiles, rosters, and appearances
+- valid opt-out prevents public surfacing across profiles, rosters, and event participant references
 - pre-claim suppression can be tracked through moderation state even if MVP handling is simple
 
 ### EPIC-06 Search and discovery basics
@@ -135,29 +150,29 @@ Includes:
 
 Acceptance criteria:
 
-- users can find people and clubs through search
+- users can find people and communities through search
 - claimed/verified profiles rank above otherwise similar unclaimed entries
 - valid opt-out entities do not appear publicly
 
-### EPIC-07 Appearances core
+### EPIC-07 Events and profile associations
 
 Purpose:
 
-- let people and clubs show where someone is playing next
+- let communities host structured events and let people derive event participation views from those event records
 
 Includes:
 
-- basic appearance records
-- club-side and person-side association
+- basic event records
+- person-to-event associations
 - source attribution
 - optional manual world selection
 - typed media links plus generic links
 
 Acceptance criteria:
 
-- a profile can show upcoming appearances
-- a club can add an appearance involving a claimed or unclaimed person profile
-- appearance records support at least title, club, time, source, link, and notes
+- a community can create an event involving a claimed or unclaimed person profile
+- a person profile can derive an upcoming-events view from event associations
+- event records support at least title, community, time, source, link, and notes
 - world linkage is optional, not required
 
 ### EPIC-08 Open docs and platform foundation
@@ -182,11 +197,11 @@ Acceptance criteria:
 
 ## v1 epics
 
-### EPIC-09 Club management basics
+### EPIC-09 Community management basics
 
 Purpose:
 
-- let clubs actually operate in the system, not just exist as static pages
+- let communities actually operate in the system, not just exist as static pages
 
 Includes:
 
@@ -198,9 +213,9 @@ Includes:
 
 Acceptance criteria:
 
-- a club owner can delegate profile/event/admin work
+- a community owner can delegate profile/event/admin work
 - ownership transfer is explicit and auditable
-- clubs can manage roster entries without requiring every person to sign up first
+- communities can manage roster entries without requiring every person to sign up first
 
 ### EPIC-10 Concierge and onboarding wizard
 
@@ -252,11 +267,11 @@ Includes:
 - documented public read API
 - first-party vs public rate-limiting strategy
 - basic partner-aware limit posture
-- profile and appearance endpoints
+- profile and event endpoints
 
 Acceptance criteria:
 
-- external consumers can read profile and appearance data from a documented API
+- external consumers can read profile and event data from a documented API
 - rate limiting is explicit
 - the product is still operable as a self-hosted/open platform
 
@@ -268,13 +283,13 @@ Purpose:
 
 Includes:
 
-- passive in-app notifications for appearance additions
+- passive in-app notifications for event association additions
 - basic notification settings
 - claim-related awareness hooks
 
 Acceptance criteria:
 
-- a claimed person can be notified when added to an appearance
+- a claimed person can be notified when added to an event association
 - notification behavior is configurable at a basic level
 
 ## v1.5 epics
@@ -301,7 +316,7 @@ Acceptance criteria:
 
 Purpose:
 
-- make appearances much more useful for actual VR event operations
+- make events and participant modeling much more useful for actual VR event operations
 
 Includes:
 
@@ -343,7 +358,7 @@ Purpose:
 
 Includes:
 
-- richer appearance insights
+- richer event and participation insights
 - premium profile presentation polish
 - club-side intelligence improvements
 - premium analytics direction

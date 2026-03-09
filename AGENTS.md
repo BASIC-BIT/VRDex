@@ -20,7 +20,7 @@ Prefer explicit labels in docs:
 
 ## Core product direction
 
-- People and clubs are first-class entities.
+- People and communities are first-class entities.
 - Public profiles are searchable even when unclaimed, but they must be clearly labeled as unverified/community-submitted.
 - Customization target is polished link-page builder flexibility, not raw HTML/CSS.
 - Club collaboration basics should not be paywalled by default.
@@ -48,6 +48,8 @@ Prefer explicit labels in docs:
 - Manage PR review and recycle loops as a normal part of delivery.
 - Parallelize through multiple OpenCode sessions when it materially helps.
 - Do not overcomplicate workflows with subagents unless there is a clear payoff.
+- Prefer fewer, larger, independently testable issues over deeply nested issue trees.
+- Avoid tracking hell; split only when it materially improves execution or review.
 
 ## Documentation rule
 

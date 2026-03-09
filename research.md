@@ -59,6 +59,8 @@ Implication: your claim-and-verify flow is normal for this community, not weird.
 
 Stronger implication: VRCLinking is not just adjacent infrastructure; it may be a key moat if it can act as a trusted identity attestation layer for profile claims, club ownership, and reduced re-verification friction.
 
+Additional implication: Discord should be treated as one important identity and claim signal, not the whole account system. The product should stay flexible enough to support other login providers and other trust sources over time.
+
 ### Official VRChat Discord linking
 
 Observed from `https://docs.vrchat.com/docs/vrchat-202612`:
@@ -72,6 +74,18 @@ Implication: this is both a risk and an opportunity.
 - risk: some of the identity-linking value proposition will become more standardized at the platform level
 - opportunity: the ecosystem is being trained to accept Discord<->VRChat linkage as normal and valuable
 - opportunity: VRDex can become the directory and trust layer that sits on top of that identity graph, whether the linkage signal comes from VRCLinking, native VRChat, or both
+
+## VRChat service-account idea
+
+Observed from ecosystem patterns you described:
+
+- some tools use fleets of VRChat bot/service accounts to support group-linked operational actions such as instance invites
+- the need for multiple accounts can come from platform constraints like group membership limits per account
+
+Implication:
+
+- VRDex could eventually grow a real operational service layer on top of VRChat, not just a directory layer
+- but this is a later specialized capability and should be isolated from the first product slice
 
 ### VRCTL / vrc.tl
 
@@ -133,7 +147,7 @@ That means:
 - media-kit friendly assets
 - APIs, embeds, and bot lookups
 - attribution and claim flows for community-added entries
-- a first-class home for both people and clubs
+- a first-class home for both people and communities
 - a profile page that can double as a customizable link hub
 
 ## Strategic positioning
@@ -155,9 +169,10 @@ Event lists are crowded. A profile graph with verification, ownership, club inte
 3. Verification by Discord OAuth and VRChat proof code
 4. Booking-friendly asset pack on one page: logos, links, contact, genres, time zone, availability notes
 5. Export cards for Discord bots and partner sites
-6. Club intelligence later: events, appearances, lineups, activity, collaborators, references
-7. Upcoming appearances on a DJ page so users can check where someone is playing next
+6. Club intelligence later: events, lineups, activity, collaborators, references
+7. Upcoming events on a DJ page so users can check where someone is playing next
 8. AI-assisted extraction of lineup/set-time data from event descriptions, subject to human confirmation
+9. Longer-term graph discovery based on shared events, shared communities, repeated collaborations, and booking/network history
 
 ## Risks
 
@@ -175,8 +190,8 @@ Then add:
 
 - Discord bot lookups
 - partner import/export
-- event appearance history
+- event participation history
 - club-side talent discovery
-- club profiles and club-owner tooling
+- community profiles and community-owner tooling, with clubs as the main early subtype
 - multi-source trust signals from VRCLinking, native VRChat linking, and direct proof flows
-- upcoming appearances and event-history pages fed by multiple sources
+- upcoming events and event-history pages fed by multiple sources

@@ -33,6 +33,10 @@ Important planning note:
 - `AWS` for assets and surrounding infra that fits better there
 - `Vercel` for fast web previews and frontend deployment ergonomics
 
+Likely adjacent service use:
+
+- AWS email capabilities for verification and transactional mail
+
 Status: locked stack direction.
 
 Why this fits:
@@ -49,28 +53,28 @@ Candidate plan model for later validation:
 
 - free
 - creator pro
-- club pro
+- community pro
 - later: business / agency tier if justified
 
 Current recommendation:
 
-- free should include normal operational collaboration for clubs
+- free should include normal operational collaboration for communities
 - paid tiers should emphasize premium customization and deeper insights
-- avoid charging for the ability to simply run a club profile with staff
+- avoid charging for the ability to simply run a community profile with staff
 
 Possible entitlement examples:
 
 - advanced themes
-- premium appearance analytics
-- advanced club profile modules
+- premium event analytics
+- advanced community profile modules
 - roster management
 - custom links/blocks caps
 - enhanced moderation/support tools
 
 Interview later:
 
-- whether creator and club plans are the right first packaging
-- whether clubs subsidize creator features or vice versa
+- whether creator and community plans are the right first packaging
+- whether communities subsidize creator features or vice versa
 - whether the earliest paid wedge is customization, analytics, staffing, or event tooling
 
 ## Billing architecture
@@ -101,6 +105,17 @@ Infra direction:
 
 - Terraform and/or AWS CDK are both acceptable directions
 - choose one primary IaC path before implementation gets too far
+
+## Follow-on integration ideas
+
+Candidate direction:
+
+- Google Calendar integration and export
+- personalized synced calendars for the events a user cares about
+- optional separate calendars by person/community or one merged calendar depending on user preference
+- a simpler service-account-managed shared-calendar approach may be a good early implementation path before deeper per-user sync
+
+This is a strong workflow feature, but not part of the first product slice.
 
 ## Verification and testing factory
 
