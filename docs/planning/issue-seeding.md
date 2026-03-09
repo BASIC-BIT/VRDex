@@ -112,6 +112,15 @@ Good examples for VRDex:
 - write API posture doc
 - write self-hosting and infra posture doc
 
+### EPIC-18 Software factory and agentic delivery
+
+- separate global repo agent policy from local operator preference
+- add repo onboarding skill and docs-backed onboarding flow
+- define review-recycle workflow and trigger model
+- define orchestrator/supervisor loop and resume semantics
+- define verification stack and human validation package expectations
+- define OpenCode task-pool/server direction
+
 ## Practical recommendation
 
 Seed issues in this order:
@@ -124,6 +133,7 @@ Seed issues in this order:
 6. event core and profile associations
 7. search/discovery
 8. docs foundation
+9. software-factory/meta-loop foundations in parallel where they unblock faster coding
 
 That order keeps the product coherent while still giving you something demoable quickly.
 

@@ -360,13 +360,38 @@ Includes:
 
 - richer event and participation insights
 - premium profile presentation polish
-- club-side intelligence improvements
+- community-side intelligence improvements
 - premium analytics direction
 
 Acceptance criteria:
 
 - the product has a clearer premium value story
 - free usage still covers normal collaboration basics
+
+### EPIC-18 Software factory and agentic delivery
+
+Purpose:
+
+- build the repo, tooling, and control loops that let VRDex move toward highly automated, agent-first software delivery
+
+Includes:
+
+- global vs local agent context conventions
+- onboarding skill and repo setup flow
+- review-recycle loop design
+- orchestrator/supervisor loop design
+- OpenCode task-pool/server direction
+- layered verification and human validation package design
+- mergeability and auto-recovery trigger design
+- definition-of-ready and contributor workflow design
+- product analytics and feature-flagging direction for controlled rollout
+
+Acceptance criteria:
+
+- repo-wide vs local operator context is clearly separated
+- onboarding for new agents is documented and skill-backed
+- software-factory loops are documented as concrete repo work, not just vision
+- a first issue set exists for implementing the meta loop incrementally
 
 ## Suggested issue split strategy
 
@@ -384,15 +409,16 @@ Suggested labels:
 - `phase:v1.5`
 - `area:profiles`
 - `area:claims`
-- `area:clubs`
+- `area:communities`
 - `area:events`
 - `area:api`
 - `area:billing`
 - `area:docs`
 - `area:ux`
+- `area:agentic`
 
 ## Recommended next step
 
-Turn the `v0.5` epics into concrete GitHub issues first.
+Turn the `v0.5` epics into concrete GitHub issues first, while allowing the software-factory epic to start in parallel where it reduces future drag.
 
 That will give you the first real build queue without prematurely exploding the later roadmap.

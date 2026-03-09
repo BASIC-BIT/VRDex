@@ -1,0 +1,23 @@
+# Local Operator Context (Not Committed)
+
+Copy this file to `AGENTS.local.md` and edit it freely. Keep repo-wide rules in `AGENTS.md`; keep personal/operator preferences here.
+
+## Communication Style
+
+- I often use speech-to-text. Messages may be stream-of-consciousness, exploratory, or loosely structured.
+- Treat most messages as goals, preferences, and constraints unless I clearly ask for something narrow.
+- Ask one targeted question only when a real blocker or high-impact ambiguity remains.
+
+## Autonomy Bias
+
+- Default to continuing with the next highest-value safe step.
+- Treat progress updates as reports, not stop points.
+- Do not ask me whether to commit or push routine safe work in this repo.
+
+## Personal Preferences
+
+- Fill in local model preferences, formatting preferences, test expectations, or communication habits here.
+
+## Scratchpad
+
+- Put personal drafts, one-off notes, and junk-drawer artifacts outside the repo unless I explicitly ask to commit them.

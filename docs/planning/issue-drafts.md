@@ -1060,3 +1060,273 @@ Acceptance criteria:
 - animated effects are framed as tasteful, bounded, and optional
 - readability, performance, and mobile behavior are protected by design constraints
 - the premium customization direction is documented clearly enough for later implementation
+
+## EPIC-18 Software factory and agentic delivery
+
+### Separate repo-wide agent policy from local operator preference
+
+Problem:
+
+VRDex is intentionally opinionated, but not every operator preference should become repo policy. The repo needs a clear split between global agent defaults and local personal context.
+
+Scope:
+
+- define what belongs in `AGENTS.md`
+- define what belongs in `AGENTS.local.md`
+- add a gitignored local-context path and example template
+- document when a preference should be promoted from local to repo-wide
+
+Non-goals:
+
+- full onboarding playbook
+- model-routing implementation
+- plugin/tool implementation by itself
+
+Acceptance criteria:
+
+- repo-wide vs local operator context is clearly separated
+- `AGENTS.local.md` is ignored by git and has a template/example
+- the repo documents how to decide whether a rule is global or local
+
+### Add repo onboarding skill and docs-backed onboarding flow
+
+Problem:
+
+New agents should align quickly with VRDex conventions, but onboarding-heavy instructions should not bloat every normal session prompt.
+
+Scope:
+
+- define the onboarding flow for new agents and maintainers
+- add a repo onboarding skill
+- point the skill at canonical docs instead of duplicating everything inline
+- cover setup, supported agent roles, model preferences, documentation habits, and workflow expectations
+
+Non-goals:
+
+- final universal toolbox onboarding across every repo
+- implementing every skill/tool/plugin immediately
+
+Acceptance criteria:
+
+- a new agent can follow one canonical onboarding path
+- the onboarding flow is skill-backed and docs-backed
+- onboarding-heavy guidance stays out of normal-session repo rules unless it must be durable there
+
+### Reorganize repo docs into a Docusaurus-ready `docs/` structure
+
+Problem:
+
+Planning and workflow markdown is becoming too easy to lose in the repo root. VRDex needs a real docs structure early so artifacts stay discoverable and cross-linkable.
+
+Scope:
+
+- move durable markdown under `docs/`
+- establish at least planning and agentic sections
+- update indexes and references
+- keep the structure compatible with future Docusaurus adoption
+
+Non-goals:
+
+- full Docusaurus app implementation
+- perfect final information architecture on the first pass
+
+Acceptance criteria:
+
+- most durable markdown no longer lives at repo root
+- docs have a clear sectioned structure
+- the repo has an obvious starting point for both human and agent onboarding
+
+### Define agentic review-recycle loop and trigger model
+
+Problem:
+
+VRDex wants automated multi-model review and recycle behavior, but the repo needs a concrete loop definition before implementation can be trusted.
+
+Scope:
+
+- define implementer, reviewer, and recycler roles
+- define when recycler work should trigger
+- define how reviewer feedback is triaged and recorded
+- define the minimum gate before the next recycle push
+- include GPT, Codex, GitHub Copilot, and Claude as candidate reviewer sources
+
+Non-goals:
+
+- implementing all reviewers immediately
+- locking the repo to one review vendor
+- full GitHub Actions implementation in one pass
+
+Acceptance criteria:
+
+- the role split is documented clearly
+- trigger conditions are documented clearly
+- the recycle gate is documented clearly
+- the loop is concrete enough to become automation work instead of remaining just an idea
+
+### Define orchestrator/supervisor loop and resumable-session policy
+
+Problem:
+
+Implementer agents naturally stop at turn boundaries. VRDex needs an explicit higher-level control loop that decides whether to continue work, ask the human one question, dispatch another agent, or mark a task done.
+
+Scope:
+
+- define orchestrator/supervisor responsibilities
+- define what delta package should be passed upward from implementer sessions
+- define resume-vs-new-session policy for recycler and follow-on work
+- define how human attention is conserved
+
+Non-goals:
+
+- building the full orchestration runtime immediately
+- final hard-coded arbitration DSL
+
+Acceptance criteria:
+
+- orchestrator responsibilities are documented clearly
+- resumable-session policy is documented clearly
+- the human attention policy is documented clearly
+- the loop is specific enough to guide implementation experiments
+
+### Define OpenCode task-pool/server direction for dispatched agent work
+
+Problem:
+
+VRDex wants to move toward pooled, dispatchable, resumable agent work instead of relying only on ad hoc interactive sessions.
+
+Scope:
+
+- define the desired OpenCode server/task-pool model
+- define atomic jobs vs long-lived sessions as first-class concepts
+- define agent roster/discoverability needs
+- define how agents may request new work through an orchestrator path
+
+Non-goals:
+
+- shipping the hosted server immediately
+- solving every cross-host scheduling concern in one pass
+
+Acceptance criteria:
+
+- the task-pool/server direction is documented clearly
+- atomic jobs vs resumable sessions are differentiated clearly
+- the idea is concrete enough to map into later implementation issues without relying on chat history
+
+### Define layered verification loops and human validation package expectations
+
+Problem:
+
+VRDex wants code to move quickly without losing trust. The repo needs a clear model for how automated and human verification stack together across app code, scripts, UI work, and infrastructure.
+
+Scope:
+
+- define baseline verification layers across lint, types, tests, e2e, visual, and policy checks
+- include scripts/ancillary code and infrastructure verification expectations
+- define when VLM review and screenshot/video evidence are expected
+- define the desired human validation handoff for a nearly mergeable feature
+
+Non-goals:
+
+- implementing every verification layer immediately
+- forcing every feature to have the same heavyweight validation cost
+
+Acceptance criteria:
+
+- the verification stack is documented clearly
+- UI evidence expectations are documented clearly
+- human validation is framed as a final confidence layer, not a substitute for engineering checks
+
+### Detect mergeability regressions and auto-dispatch recovery work
+
+Problem:
+
+PRs can become unmergeable after unrelated changes land. VRDex wants the same recycler logic to recover mergeability issues automatically when practical.
+
+Scope:
+
+- define mergeability-regression detection as an event source
+- define how the original implementer session should be resumed when practical
+- define the expected recovery loop for merge conflicts or stale-branch issues
+
+Non-goals:
+
+- implementing perfect conflict resolution immediately
+- guaranteeing zero human review for risky merges
+
+Acceptance criteria:
+
+- mergeability regression is captured as a first-class trigger
+- resume-the-original-implementer is the default recovery policy when practical
+- the behavior is documented clearly enough to become future automation work
+
+### Define repo-level definition of ready for feature work
+
+Problem:
+
+VRDex wants features to ship quickly, but not without thinking through rollout, verification, and success criteria first. The repo needs a concrete definition of ready so contributors and agents know what must be thought through before implementation starts.
+
+Scope:
+
+- define the repo's definition of ready for non-trivial features
+- include verification, rollout, and success-signal expectations
+- document when feature flags or analytics planning are required
+- make the checklist usable by both humans and agents
+
+Non-goals:
+
+- final project-management process for every issue type
+- forcing trivial fixes through heavyweight ceremony
+
+Acceptance criteria:
+
+- the definition of ready is documented clearly
+- contributors and agents can use the checklist before starting non-trivial work
+- rollout and analytics thinking are explicitly part of feature readiness where appropriate
+
+### Choose and document product analytics plus feature-flagging direction
+
+Problem:
+
+VRDex wants to avoid shipping blind and wants to support controlled rollout and experimentation. The repo needs an intentional direction for analytics and feature flags before feature development accelerates.
+
+Scope:
+
+- evaluate integrated analytics/flagging candidates such as `PostHog`
+- evaluate dedicated feature-flag alternatives such as `LaunchDarkly`
+- define what good enough looks like for v0.5
+- define how analytics and flags fit into agent-first feature delivery
+
+Non-goals:
+
+- implementing the full analytics stack immediately
+- solving every experimentation problem on day one
+
+Acceptance criteria:
+
+- the repo has a documented first-pass analytics/flagging direction
+- the tradeoffs between integrated and dedicated approaches are captured clearly
+- the direction is concrete enough to guide future implementation issues
+
+### Define contributor-friendly, agent-compatible contribution workflow
+
+Problem:
+
+VRDex wants to be rigorous without becoming tool-prescriptive. Contributors, especially newer programmers, need a workflow that is welcoming, quality-oriented, and compatible with different agent/tool choices.
+
+Scope:
+
+- define contribution expectations at a repo level
+- define what contributors must satisfy regardless of which agent/tool they use
+- define where reviewer/recycler automation helps maintain quality
+- define when branch protection, contributor roles, and org-level controls should be introduced
+
+Non-goals:
+
+- forcing all contributors onto one specific agent stack
+- building the full org governance model immediately
+
+Acceptance criteria:
+
+- the repo documents a rigorous but non-prescriptive contributor workflow
+- compatibility with multiple agent/tool choices is explicit
+- review/recycle automation is framed as quality support rather than tool lock-in

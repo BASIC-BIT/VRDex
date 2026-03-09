@@ -191,7 +191,7 @@ Then add:
 - Discord bot lookups
 - partner import/export
 - event participation history
-- club-side talent discovery
+- community-side talent discovery
 - community profiles and community-owner tooling, with clubs as the main early subtype
 - multi-source trust signals from VRCLinking, native VRChat linking, and direct proof flows
 - upcoming events and event-history pages fed by multiple sources

@@ -154,6 +154,56 @@ UI workflow recommendation:
 - automatic feature demo capture as video/GIF
 - VLM-generated summary of screenshot changes for PRs
 
+## Definition of ready
+
+Current recommendation:
+
+- before feature work starts, define the rollout plan, verification plan, and success signals
+- when appropriate, define whether the feature should ship behind a feature flag
+- when appropriate, define what analytics or product signals will tell us whether the feature is actually useful
+- include contributor-facing expectations so newer programmers and outside agents know what good looks like without needing tribal knowledge
+
+Suggested definition-of-ready checklist:
+
+- problem statement is clear
+- scope and non-goals are clear
+- dependencies are linked
+- verification plan is defined
+- rollout/feature-flag plan is defined when appropriate
+- success metrics or product analytics intent is defined when appropriate
+- review/recycle expectations are defined for non-trivial work
+
+## Product analytics and experimentation
+
+Current recommendation:
+
+- treat product analytics and feature-flagging as part of the engineering system, not bolt-ons after launch
+- prefer a setup that supports feature flags, controlled rollout, and experiments without locking the repo into one vendor too early
+
+Candidate direction:
+
+- `PostHog` is a strong first candidate because it can cover product analytics, feature flags, and experiments in one system
+- `LaunchDarkly` or a similar dedicated flagging system is worth considering if rollout sophistication outgrows the integrated approach
+- every meaningful feature should at least consider whether it needs instrumentation, a staged rollout, or experiment support
+
+Interview later:
+
+- whether VRDex should standardize on a single analytics/flagging platform early
+- which events and product metrics matter enough to capture in v0.5
+
+## Contributor workflow posture
+
+Current recommendation:
+
+- be rigorous about quality bars and review loops without forcing every contributor into one specific agent or IDE workflow
+- optimize for interoperability: contributors can use their preferred agents/tools so long as the work product fits the repo's review, docs, and verification expectations
+- use reviewer/recycler automation to reduce slop, especially for newer contributors, without turning contribution into a hostile process
+
+Candidate direction:
+
+- add protected-branch and contributor-role standards once active collaboration justifies it
+- add lightweight contributor onboarding docs and review expectations before there are many outside contributions
+
 ## Agent knowledge architecture
 
 This is the clearest rule set I would use.
