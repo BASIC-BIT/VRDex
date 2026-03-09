@@ -1167,7 +1167,8 @@ Scope:
 - define when recycler work should trigger
 - define how reviewer feedback is triaged and recorded
 - define the minimum gate before the next recycle push
-- include GPT, Codex, GitHub Copilot, and Claude as candidate reviewer sources
+- include Greptile, Codex, GitHub Copilot, and Claude as candidate reviewer sources
+- leave room for custom GitHub Action reviewers and custom OpenCode reviewers that can run outside GitHub
 
 Non-goals:
 
@@ -1187,6 +1188,10 @@ Acceptance criteria:
 Problem:
 
 Implementer agents naturally stop at turn boundaries. VRDex needs an explicit higher-level control loop that decides whether to continue work, ask the human one question, dispatch another agent, or mark a task done.
+
+Related reference:
+
+- `basics-agentic-dogfooding` supervisor-loop concept in `https://github.com/BASIC-BIT/basics-agentic-dogfooding/blob/main/docs/opencode/supervisor-loop.md`
 
 Scope:
 
