@@ -1353,23 +1353,65 @@ Problem:
 
 VRDex wants to avoid shipping blind and wants to support controlled rollout and experimentation. The repo needs an intentional direction for analytics and feature flags before feature development accelerates.
 
+Why now:
+
+- feature work is moving closer to implementation
+- outside contributions need a shared rollout and measurement posture
+- definition-of-ready work depends on knowing what "good enough" analytics and flagging look like
+
 Scope:
 
 - evaluate integrated analytics/flagging candidates such as `PostHog`
 - evaluate dedicated feature-flag alternatives such as `LaunchDarkly`
 - define what good enough looks like for v0.5
 - define how analytics and flags fit into agent-first feature delivery
+- define the minimum expected rollout controls for non-trivial features
+- define the minimum expected product instrumentation for measuring whether a feature is useful
 
 Non-goals:
 
 - implementing the full analytics stack immediately
 - solving every experimentation problem on day one
+- designing the final warehouse/BI architecture
+
+Current recommendation:
+
+- prefer a first-pass platform that can cover product analytics, feature flags, and basic experimentation without too much operational drag
+- keep the initial standard lightweight enough that contributors can actually use it
+- require teams and agents to consider whether each meaningful feature needs instrumentation, gating, staged rollout, or all three
+- do not let analytics or flagging become an excuse to avoid shipping small, low-risk work
 
 Acceptance criteria:
 
 - the repo has a documented first-pass analytics/flagging direction
 - the tradeoffs between integrated and dedicated approaches are captured clearly
 - the direction is concrete enough to guide future implementation issues
+- the repo defines a minimum rollout/measurement expectation for non-trivial features
+- the documented direction is small enough to adopt early instead of being permanently deferred
+
+Current recommendation to document:
+
+- `PostHog` is the strongest first candidate because it can cover analytics, feature flags, and experiments in one place
+- `LaunchDarkly` remains a credible later option if feature-flag sophistication outgrows the integrated approach
+- non-trivial features should at least consider feature gating, staged rollout, and success-signal instrumentation
+
+Likely dependencies:
+
+- soft dependency on `Define repo-level definition of ready for feature work`
+- soft dependency on `Define contributor-friendly, agent-compatible contribution workflow`
+
+Docs to update:
+
+- `docs/planning/engineering-strategy.md`
+- `docs/agentic/software-factory.md`
+- future implementation docs for rollout/measurement conventions
+
+Suggested labels:
+
+- `phase:v0.5`
+- `area:agentic`
+- `area:docs`
+- `area:ux`
 
 ### Define contributor-friendly, agent-compatible contribution workflow
 
