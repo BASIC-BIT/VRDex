@@ -1284,23 +1284,68 @@ Problem:
 
 VRDex wants features to ship quickly, but not without thinking through rollout, verification, and success criteria first. The repo needs a concrete definition of ready so contributors and agents know what must be thought through before implementation starts.
 
+Why now:
+
+- feature work is about to accelerate
+- outside contribution is already a live concern
+- analytics, feature flags, review/recycle, and contributor expectations all depend on a shared readiness bar
+
 Scope:
 
 - define the repo's definition of ready for non-trivial features
 - include verification, rollout, and success-signal expectations
 - document when feature flags or analytics planning are required
 - make the checklist usable by both humans and agents
+- define a lightweight path for trivial fixes so the process does not become drag
+- define where the checklist should live and how it should be referenced from issue workflows
 
 Non-goals:
 
 - final project-management process for every issue type
 - forcing trivial fixes through heavyweight ceremony
+- replacing implementation issue acceptance criteria
+
+Current recommendation:
+
+- use a short checklist that fits naturally into issue drafting and planning docs
+- require the full checklist for non-trivial feature work, not for tiny typo or copy-only fixes
+- explicitly cover verification plan, rollout/flag plan, and success-signal plan
+- make the checklist part of contributor onboarding and agent workflow guidance
 
 Acceptance criteria:
 
 - the definition of ready is documented clearly
 - contributors and agents can use the checklist before starting non-trivial work
 - rollout and analytics thinking are explicitly part of feature readiness where appropriate
+- the distinction between trivial work and non-trivial feature work is documented clearly
+- the checklist is concise enough to be used consistently instead of ignored
+
+Suggested checklist:
+
+- problem statement is clear
+- scope and non-goals are clear
+- dependency position is clear
+- verification plan is clear
+- rollout or feature-flag plan is clear when appropriate
+- analytics or success-signal plan is clear when appropriate
+- reviewer/recycler expectations are clear when appropriate
+
+Likely dependencies:
+
+- soft dependency on `Add repo onboarding skill and docs-backed onboarding flow`
+- soft dependency on `Choose and document product analytics plus feature-flagging direction`
+
+Docs to update:
+
+- `docs/planning/engineering-strategy.md`
+- `docs/agentic/software-factory.md`
+- future contributor/onboarding docs under `docs/agentic/`
+
+Suggested labels:
+
+- `phase:v0.5`
+- `area:agentic`
+- `area:docs`
 
 ### Choose and document product analytics plus feature-flagging direction
 
