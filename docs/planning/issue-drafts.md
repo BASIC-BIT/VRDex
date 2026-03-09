@@ -1363,7 +1363,6 @@ Scope:
 
 - evaluate integrated analytics/flagging candidates such as `PostHog`
 - evaluate whether `Google Analytics` is needed separately or should be deferred
-- evaluate whether `Langfuse` belongs in the same decision or should be treated as a separate LLM-observability concern
 - evaluate dedicated feature-flag alternatives such as `LaunchDarkly`
 - define what good enough looks like for v0.5
 - define how analytics and flags fit into agent-first feature delivery
@@ -1383,7 +1382,6 @@ Current recommendation:
 - keep the initial standard lightweight enough that contributors can actually use it
 - require teams and agents to consider whether each meaningful feature needs instrumentation, gating, staged rollout, or all three
 - do not let analytics or flagging become an excuse to avoid shipping small, low-risk work
-- treat LLM/agent observability as a separate concern from end-user product analytics
 
 Acceptance criteria:
 
@@ -1398,7 +1396,6 @@ Current recommendation to document:
 
 - `PostHog` is the strongest first candidate because it can cover analytics, feature flags, and experiments in one place
 - `Google Analytics` should be treated as optional later marketing/site analytics unless a concrete gap appears
-- `Langfuse` should be evaluated separately as LLM/agent observability once VRDex has real agent-facing product flows that need traces/evals
 - `LaunchDarkly` remains a credible later option if feature-flag sophistication outgrows the integrated approach
 - non-trivial features should at least consider feature gating, staged rollout, and success-signal instrumentation
 
@@ -1426,20 +1423,109 @@ Problem:
 
 VRDex wants to be rigorous without becoming tool-prescriptive. Contributors, especially newer programmers, need a workflow that is welcoming, quality-oriented, and compatible with different agent/tool choices.
 
+Why now:
+
+- at least one outside contributor is already a real near-term scenario
+- newer programmers need explicit support rather than implicit tribal knowledge
+- reviewer/recycler automation and definition-of-ready only help if contributor expectations are clear
+
 Scope:
 
 - define contribution expectations at a repo level
 - define what contributors must satisfy regardless of which agent/tool they use
 - define where reviewer/recycler automation helps maintain quality
 - define when branch protection, contributor roles, and org-level controls should be introduced
+- define the minimum docs, verification, and review expectations for outside contributions
+- define how contributor onboarding should point people to the right repo docs and defaults
 
 Non-goals:
 
 - forcing all contributors onto one specific agent stack
 - building the full org governance model immediately
+- replacing repo quality bars with vague "use whatever works" guidance
+
+Current recommendation:
+
+- be rigorous about output quality, documentation, and verification while staying flexible about local tools and preferred agents
+- define one repo-compatible contribution contract that all contributors satisfy regardless of workflow
+- use reviewer/recycler loops to catch slop and coach quality, especially for newer contributors
+- introduce protected branches and contributor-role standards once collaboration volume makes them worth the overhead
 
 Acceptance criteria:
 
 - the repo documents a rigorous but non-prescriptive contributor workflow
 - compatibility with multiple agent/tool choices is explicit
 - review/recycle automation is framed as quality support rather than tool lock-in
+- the minimum expected docs and verification behavior for contributors is documented clearly
+- contributor onboarding has a clear pointer to the canonical repo workflow/docs
+
+Likely dependencies:
+
+- soft dependency on `Add repo onboarding skill and docs-backed onboarding flow`
+- soft dependency on `Define repo-level definition of ready for feature work`
+- soft dependency on `Define agentic review-recycle loop and trigger model`
+
+Docs to update:
+
+- `docs/planning/engineering-strategy.md`
+- `docs/agentic/software-factory.md`
+- future contributor-facing docs under `docs/agentic/`
+
+Suggested labels:
+
+- `phase:v0.5`
+- `area:agentic`
+- `area:docs`
+
+### Choose and document LLM/agent observability direction
+
+Problem:
+
+VRDex is moving toward agent-heavy implementation and, later, agent-facing product behaviors. The repo needs a separate decision about LLM and agent observability so traces, evals, and prompt/runtime debugging do not get conflated with end-user product analytics.
+
+Why now:
+
+- the repo is actively designing orchestrator, reviewer, and recycler loops
+- observability needs for agent systems are different from product analytics needs
+- separating this concern early avoids shoving too many jobs onto one analytics stack
+
+Scope:
+
+- define what LLM/agent observability means for VRDex
+- evaluate whether `Langfuse` is the right first candidate
+- define what signals matter first: traces, prompts, outcomes, latency, cost, evals, or loop health
+- define when this system is needed for repo workflows versus later product features
+
+Non-goals:
+
+- adopting a full observability platform immediately
+- replacing product analytics or feature-flag decisions
+- solving every logging and metrics concern across the whole stack
+
+Current recommendation:
+
+- treat LLM/agent observability as a separate concern from product analytics and feature flags
+- evaluate a focused tool such as `Langfuse` only if agent workflows reach the point where traces, evals, or loop diagnostics become hard to manage without it
+- start with the minimum useful observability posture instead of introducing another platform by default
+
+Acceptance criteria:
+
+- the repo documents whether and when a dedicated LLM/agent observability tool is justified
+- the relationship between LLM observability and product analytics is clearly separated
+- the first-pass signals worth capturing are defined clearly enough to guide future implementation work
+
+Likely dependencies:
+
+- soft dependency on `Define agentic review-recycle loop and trigger model`
+- soft dependency on `Define orchestrator/supervisor loop and resumable-session policy`
+
+Docs to update:
+
+- `docs/planning/engineering-strategy.md`
+- `docs/agentic/software-factory.md`
+
+Suggested labels:
+
+- `phase:v0.5`
+- `area:agentic`
+- `area:docs`

@@ -123,6 +123,7 @@ Good examples for VRDex:
 - define repo-level definition of ready
 - choose product analytics and feature-flagging direction
 - define contributor-friendly, agent-compatible contribution workflow
+- choose LLM/agent observability direction
 
 ## Practical recommendation
 

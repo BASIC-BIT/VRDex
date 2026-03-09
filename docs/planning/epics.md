@@ -385,6 +385,7 @@ Includes:
 - mergeability and auto-recovery trigger design
 - definition-of-ready and contributor workflow design
 - product analytics and feature-flagging direction for controlled rollout
+- LLM/agent observability direction for traces, evals, and loop health
 
 Acceptance criteria:
 
