@@ -10,6 +10,7 @@ This repo keeps durable markdown under `docs/` so product, engineering, and agen
 Useful starting points:
 
 - `docs/agentic/contributor-workflow.md` - contributor contract and onboarding pointer
+- root `README.md` - current workspace bootstrap commands, including the initial web app
 
 ## Working rule
 
