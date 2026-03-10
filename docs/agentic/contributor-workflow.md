@@ -98,6 +98,8 @@ Then read the issue-specific and area-specific docs that actually apply to the t
 ### Current recommendation
 
 - keep the contribution contract lightweight while collaboration volume is still small
+- require a small baseline PR check set on `main` once the app scaffold exists
+- keep the first required checks narrow and practical: lint, typecheck, and build for the currently bootstrapped surface
 - add stronger protected-branch and contributor-role standards once contribution volume makes them worth the overhead
 
 ### Candidate direction

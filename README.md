@@ -15,10 +15,12 @@
 ## Local app bootstrap
 
 - install workspace dependencies: `pnpm install`
+- install git hooks after dependency changes if needed: `pnpm prepare`
 - run the web app: `pnpm dev:web`
 - lint the web app: `pnpm lint:web`
 - typecheck the web app: `pnpm typecheck:web`
 - build the web app: `pnpm build:web`
+- run the baseline local verification pass: `pnpm verify:web`
 
 ## Start here
 
