@@ -63,6 +63,7 @@ jobs:
   typecheck-backend:
     name: Typecheck Backend
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout

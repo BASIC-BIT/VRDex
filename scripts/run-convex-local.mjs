@@ -21,7 +21,7 @@ const convexBin = path.join(
   repoRoot,
   "node_modules",
   ".bin",
-  process.platform === "win32" ? "convex.CMD" : "convex",
+  process.platform === "win32" ? "convex.cmd" : "convex",
 );
 
 const child = spawn(convexBin, args, {
