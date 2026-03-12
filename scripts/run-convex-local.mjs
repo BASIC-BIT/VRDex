@@ -42,6 +42,9 @@ const child = spawn(convexBin, args, {
     // `--local` and would otherwise try to prompt for cloud auth.
     CONVEX_AGENT_MODE: "anonymous",
     CONVEX_TMPDIR: convexTmp,
+    TMPDIR: convexTmp,
+    TEMP: convexTmp,
+    TMP: convexTmp,
     // Isolate anonymous Convex state from the user's real home directory.
     // This also affects subprocesses spawned by the Convex CLI.
     HOME: convexHome,
