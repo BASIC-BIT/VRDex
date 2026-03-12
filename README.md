@@ -20,7 +20,7 @@
 - install git hooks after dependency changes if needed: `pnpm prepare`
 - bootstrap an anonymous local Convex deployment and run the backend health query: `pnpm bootstrap:backend:local`
 - keep the local Convex backend watcher running: `pnpm dev:backend:local`
-- run the Convex health query against the local backend: `pnpm run:backend:health:local`
+- run the one-shot local Convex health check alias: `pnpm run:backend:health:local`
 - typecheck Convex backend files: `pnpm typecheck:backend`
 - re-run the local backend verification pass: `pnpm verify:backend:local`
 - confirm committed Convex codegen is current: `pnpm check:backend:generated`

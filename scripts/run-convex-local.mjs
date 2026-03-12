@@ -52,6 +52,7 @@ const child = spawn(convexBin, args, {
     XDG_CONFIG_HOME: path.join(convexHome, ".config"),
     XDG_DATA_HOME: path.join(convexHome, ".local", "share"),
     XDG_CACHE_HOME: path.join(convexHome, ".cache"),
+    XDG_STATE_HOME: path.join(convexHome, ".local", "state"),
   },
 });
 

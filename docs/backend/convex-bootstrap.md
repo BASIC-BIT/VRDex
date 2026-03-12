@@ -24,7 +24,7 @@ It is intentionally narrow: enough structure to run Convex locally, generate typ
 1. Install dependencies with `pnpm install`.
 2. Bootstrap an anonymous local deployment and verify the health query with `pnpm bootstrap:backend:local`.
 3. Keep `pnpm dev:backend:local` running while editing backend files.
-4. Run `pnpm run:backend:health:local` from a second terminal when you want to manually confirm the placeholder query result.
+4. Run `pnpm run:backend:health:local` from a second terminal when you want the same one-shot placeholder health check without using the verify script name directly.
 5. Run `pnpm typecheck:backend` before shipping backend edits.
 6. Run `pnpm check:backend:generated` before pushing schema or function changes that may affect `convex/_generated/`.
 
