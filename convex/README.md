@@ -12,5 +12,7 @@ Use the repo-root scripts for local work:
 - `pnpm bootstrap:backend:local`
 - `pnpm dev:backend:local`
 - `pnpm run:backend:health:local`
+- `pnpm typecheck:backend`
+- `pnpm check:backend:generated`
 
 The canonical workflow notes live in `docs/backend/convex-bootstrap.md`.

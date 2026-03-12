@@ -21,14 +21,16 @@
 - bootstrap an anonymous local Convex deployment and run the backend health query: `pnpm bootstrap:backend:local`
 - keep the local Convex backend watcher running: `pnpm dev:backend:local`
 - run the Convex health query against the local backend: `pnpm run:backend:health:local`
+- typecheck Convex backend files: `pnpm typecheck:backend`
 - re-run the local backend verification pass: `pnpm verify:backend:local`
+- confirm committed Convex codegen is current: `pnpm check:backend:generated`
 - run the web app: `pnpm dev:web`
 - lint the web app: `pnpm lint:web`
 - typecheck the web app: `pnpm typecheck:web`
 - build the web app: `pnpm build:web`
 - run the baseline local verification pass: `pnpm verify`
 
-Convex writes repo-root deployment configuration to `.env.local` during local setup and keeps anonymous local state under `.convex-home/` plus `.convex-tmp/`. Keep all of those uncommitted.
+Convex writes repo-root deployment configuration to `.env.local` during local setup and keeps anonymous local state under `.convex-home/` plus `.convex-tmp/`. Keep all of those uncommitted. The committed `convex/_generated/` files are expected to stay clean after `pnpm check:backend:generated`.
 
 ## Start here
 
