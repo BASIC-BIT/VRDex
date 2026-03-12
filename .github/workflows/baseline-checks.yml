@@ -115,6 +115,7 @@ jobs:
     name: Build Web
     needs: [lint-web, typecheck-web, typecheck-backend, verify-backend-local]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout

@@ -30,6 +30,8 @@ const child = spawn(convexBin, args, {
   shell: process.platform === "win32",
   env: {
     ...process.env,
+    // Belt-and-suspenders fallback in case a future script invocation omits
+    // `--local` and would otherwise try to prompt for cloud auth.
     CONVEX_AGENT_MODE: "anonymous",
     CONVEX_TMPDIR: convexTmp,
     // Isolate anonymous Convex state from the user's real home directory.
