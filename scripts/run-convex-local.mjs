@@ -40,7 +40,8 @@ const child = spawn(convexBin, args, {
 });
 
 child.on("error", (error) => {
-  console.error(error.message);
+  const code = error.code ? ` [${error.code}]` : "";
+  console.error(`Failed to spawn Convex CLI (${convexBin})${code}: ${error.message}`);
   process.exit(1);
 });
 
