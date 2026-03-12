@@ -14,7 +14,7 @@
     "verify:backend:local": "node scripts/run-convex-local.mjs dev --local --once --run health:status --tail-logs disable",
     "check:backend:generated": "pnpm verify:backend:local && git diff --exit-code -- convex/_generated",
     "verify:web": "pnpm lint:web && pnpm typecheck:web && pnpm build:web",
-    "verify": "pnpm verify:web && pnpm typecheck:backend && pnpm check:backend:generated",
+    "verify": "pnpm verify:web && pnpm check:backend:generated && pnpm typecheck:backend",
     "prepare": "husky"
   },
   "lint-staged": {
