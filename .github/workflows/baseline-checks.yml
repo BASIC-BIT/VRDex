@@ -17,6 +17,7 @@ jobs:
   lint-web:
     name: Lint Web
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
@@ -40,6 +41,7 @@ jobs:
   typecheck-web:
     name: Typecheck Web
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
@@ -60,10 +62,62 @@ jobs:
       - name: Run typecheck
         run: pnpm typecheck:web
 
+  typecheck-backend:
+    name: Typecheck Backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run backend typecheck
+        run: pnpm typecheck:backend
+
+  verify-backend-local:
+    name: Verify Backend Local
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify backend bootstrap
+        run: pnpm verify:backend:local
+
+      - name: Check generated backend files
+        run: git diff --exit-code -- convex/_generated
+
   build-web:
     name: Build Web
-    needs: [lint-web, typecheck-web]
+    needs: [lint-web, typecheck-web, typecheck-backend, verify-backend-local]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout

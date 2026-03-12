@@ -45,6 +45,13 @@ Why this fits:
 - `meeting-notes-discord-bot` already shows strong Stripe, AWS, Playwright, and visual testing patterns
 - unified typing stays strong across app and backend logic
 
+Current recommendation:
+
+- bootstrap Convex in the repo-root `convex/` directory so backend functions stay easy to discover in a small monorepo
+- keep the first backend slice schema-light with an explicit health query instead of guessing at product tables too early
+- use local-development-friendly Convex setup first, then layer in frontend wiring, auth, billing, and production deployment posture through follow-on issues
+- once the local backend bootstrap is deterministic, include it in the baseline PR verification pass alongside the web checks
+
 ## Monetization direction
 
 VRDex should plan for billing early even if the first paid features are modest.

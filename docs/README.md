@@ -6,6 +6,7 @@ This repo keeps durable markdown under `docs/` so product, engineering, and agen
 
 - `docs/planning/README.md` - product, architecture, roadmap, backlog, and issue-planning docs
 - `docs/agentic/README.md` - software-factory, onboarding, control-loop, and agent workflow docs
+- `docs/backend/convex-bootstrap.md` - backend bootstrap workflow and structure notes
 
 Useful starting points:
 

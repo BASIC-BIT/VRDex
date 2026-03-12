@@ -7,7 +7,7 @@ export default function Home() {
             <div className="flex flex-col gap-8">
               <div className="flex items-center gap-3 text-sm uppercase tracking-[0.28em] text-muted">
                 <span className="rounded-full border border-border px-3 py-1">VRDex</span>
-                <span>Initial web scaffold</span>
+                <span>Web + backend bootstrap</span>
               </div>
 
               <div className="max-w-3xl space-y-5">
@@ -65,7 +65,7 @@ export default function Home() {
                 </div>
                 <div className="flex items-start justify-between gap-4">
                   <dt className="text-muted">Next issues</dt>
-                  <dd className="text-right font-medium">#54, #55, #56, #59</dd>
+                  <dd className="text-right font-medium">#55, #56, #59</dd>
                 </div>
               </dl>
             </aside>
@@ -92,11 +92,13 @@ export default function Home() {
               Deliberately deferred
             </p>
             <h2 className="mt-4 text-2xl font-semibold tracking-[-0.03em]">
-              Backend and auth wiring
+              App integration and auth wiring
             </h2>
             <p className="mt-3 text-sm leading-7 text-muted">
-              Convex, identity providers, billing, and deployment posture stay in
-              their own issues so this bootstrap remains easy to reason about.
+              Convex now has a real backend foothold under{" "}
+              <code className="font-mono text-[0.95em]">convex/</code>, while app
+              integration, identity providers, billing, and deployment posture
+              stay in their own follow-on issues.
             </p>
           </article>
 

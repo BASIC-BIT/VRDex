@@ -3,19 +3,28 @@
   "private": true,
   "packageManager": "pnpm@10.15.1+sha512.34e538c329b5553014ca8e8f4535997f96180a1d0f614339357449935350d924e22f8614682191264ec33d1462ac21561aff97f6bb18065351c162c7e8f6de67",
   "scripts": {
+    "bootstrap:backend:local": "pnpm verify:backend:local",
+    "dev:backend:local": "node scripts/run-convex-local.mjs dev --local",
     "dev:web": "pnpm --filter web dev",
     "build:web": "pnpm --filter web build",
     "lint:web": "pnpm --filter web lint",
+    "typecheck:backend": "tsc --noEmit --project convex/tsconfig.json",
+    "run:backend:health:local": "pnpm verify:backend:local",
     "typecheck:web": "pnpm --filter web typecheck",
+    "verify:backend:local": "node scripts/run-convex-local.mjs dev --local --once --run health:status --tail-logs disable",
+    "check:backend:generated": "pnpm verify:backend:local && git diff --exit-code -- convex/_generated",
     "verify:web": "pnpm lint:web && pnpm typecheck:web && pnpm build:web",
-    "verify": "pnpm verify:web",
+    "verify": "pnpm verify:web && pnpm check:backend:generated && pnpm typecheck:backend",
     "prepare": "husky"
   },
   "lint-staged": {
     "apps/web/**/*.{js,jsx,ts,tsx,mjs,cjs}": "pnpm --filter web exec eslint --fix --max-warnings=0"
   },
   "devDependencies": {
+    "@types/node": "^22.19.15",
+    "convex": "^1.32.0",
     "husky": "^9.1.7",
-    "lint-staged": "^16.3.3"
+    "lint-staged": "^16.3.3",
+    "typescript": "^5.9.3"
   }
 }

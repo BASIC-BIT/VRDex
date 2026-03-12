@@ -2,3 +2,7 @@ AGENTS.local.md
 .opencode/state/
 node_modules/
 .husky/_/
+.convex-home/
+.convex-tmp/
+.env
+.env.local

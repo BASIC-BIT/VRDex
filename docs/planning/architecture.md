@@ -56,12 +56,24 @@ Email infrastructure direction:
 
 ## Monorepo suggestion
 
+Current bootstrap shape:
+
 ```text
 vrdex/
   apps/
     web/
-    api/
+  convex/
+  docs/
+```
+
+Candidate expansion later:
+
+```text
+vrdex/
+  apps/
+    web/
     bot/
+  convex/
   packages/
     shared/
     config/
