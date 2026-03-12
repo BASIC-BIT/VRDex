@@ -7,20 +7,28 @@
 - `AGENTS.md` - repo-wide agent rules and durable workflow defaults
 - `AGENTS.local.md.example` - local operator preference template for `AGENTS.local.md`
 - `apps/web` - initial `Next.js` web application scaffold
+- `convex` - initial Convex backend functions, schema, and generated API types
 - `docs/README.md` - docs entry point
 - `docs/planning/` - product, architecture, roadmap, backlog, and issue-planning docs
 - `docs/agentic/` - software-factory, onboarding, and agent workflow docs
+- `docs/backend/` - backend setup notes and implementation-facing docs
 - `.opencode/skills/` - repo-local skills, including onboarding
 
-## Local app bootstrap
+## Local bootstrap
 
 - install workspace dependencies: `pnpm install`
 - install git hooks after dependency changes if needed: `pnpm prepare`
+- bootstrap an anonymous local Convex deployment and run the backend health query: `pnpm bootstrap:backend:local`
+- keep the local Convex backend watcher running: `pnpm dev:backend:local`
+- run the Convex health query against the local backend: `pnpm run:backend:health:local`
+- re-run the local backend verification pass: `pnpm verify:backend:local`
 - run the web app: `pnpm dev:web`
 - lint the web app: `pnpm lint:web`
 - typecheck the web app: `pnpm typecheck:web`
 - build the web app: `pnpm build:web`
-- run the baseline local verification pass: `pnpm verify:web`
+- run the baseline local verification pass: `pnpm verify`
+
+Convex writes repo-root deployment configuration to `.env.local` during local setup and keeps anonymous local state under `.convex-home/` plus `.convex-tmp/`. Keep all of those uncommitted.
 
 ## Start here
 
@@ -39,6 +47,7 @@ Important planning note:
 Currently locked stack direction:
 
 - `Next.js`
+- `TypeScript`
 - `Convex`
 - `AWS`
 - `Stripe`
