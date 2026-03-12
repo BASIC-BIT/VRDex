@@ -55,6 +55,20 @@ const child = spawn(convexBin, args, {
   },
 });
 
+const forwardSignal = (signal) => {
+  if (!child.killed) {
+    child.kill(signal);
+  }
+};
+
+process.on("SIGINT", () => {
+  forwardSignal("SIGINT");
+});
+
+process.on("SIGTERM", () => {
+  forwardSignal("SIGTERM");
+});
+
 child.on("error", (error) => {
   const code = error.code ? ` [${error.code}]` : "";
   console.error(`Failed to spawn Convex CLI (${convexBin})${code}: ${error.message}`);
