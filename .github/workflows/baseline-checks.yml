@@ -17,6 +17,7 @@ jobs:
   lint-web:
     name: Lint Web
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
@@ -40,6 +41,7 @@ jobs:
   typecheck-web:
     name: Typecheck Web
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
