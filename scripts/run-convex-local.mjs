@@ -49,6 +49,9 @@ const child = spawn(convexBin, args, {
     // This also affects subprocesses spawned by the Convex CLI.
     HOME: convexHome,
     USERPROFILE: convexHome,
+    XDG_CONFIG_HOME: path.join(convexHome, ".config"),
+    XDG_DATA_HOME: path.join(convexHome, ".local", "share"),
+    XDG_CACHE_HOME: path.join(convexHome, ".cache"),
   },
 });
 
@@ -60,7 +63,12 @@ child.on("error", (error) => {
 
 child.on("exit", (code, signal) => {
   if (signal) {
-    process.kill(process.pid, signal);
+    if (process.platform !== "win32") {
+      process.kill(process.pid, signal);
+      return;
+    }
+
+    process.exit(1);
     return;
   }
 
