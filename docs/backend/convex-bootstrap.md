@@ -28,6 +28,8 @@ It is intentionally narrow: enough structure to run Convex locally, generate typ
 5. Run `pnpm typecheck:backend` before shipping backend edits.
 6. Run `pnpm check:backend:generated` before pushing schema or function changes that may affect `convex/_generated/`.
 
+If you want the full repo gate, use `pnpm verify`. If you only need the web app checks, keep using `pnpm verify:web`.
+
 Notes:
 
 - Convex writes deployment configuration to the repo-root `.env.local` file.

@@ -14,8 +14,16 @@ if (args.length === 0) {
   process.exit(1);
 }
 
-mkdirSync(convexHome, { recursive: true });
-mkdirSync(convexTmp, { recursive: true });
+try {
+  mkdirSync(convexHome, { recursive: true });
+  mkdirSync(convexTmp, { recursive: true });
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(
+    `Failed to create Convex isolation directories (${convexHome}, ${convexTmp}): ${message}`,
+  );
+  process.exit(1);
+}
 
 const convexBin = path.join(
   repoRoot,

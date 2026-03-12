@@ -9,7 +9,7 @@
     "build:web": "pnpm --filter web build",
     "lint:web": "pnpm --filter web lint",
     "typecheck:backend": "tsc --noEmit --project convex/tsconfig.json",
-    "run:backend:health:local": "pnpm verify:backend:local",
+    "run:backend:health:local": "node scripts/run-convex-local.mjs dev --local --once --run health:status",
     "typecheck:web": "pnpm --filter web typecheck",
     "verify:backend:local": "node scripts/run-convex-local.mjs dev --local --once --run health:status --tail-logs disable",
     "check:backend:generated": "pnpm verify:backend:local && git diff --exit-code -- convex/_generated",
