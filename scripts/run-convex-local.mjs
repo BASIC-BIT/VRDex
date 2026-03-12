@@ -32,6 +32,8 @@ const child = spawn(convexBin, args, {
     ...process.env,
     CONVEX_AGENT_MODE: "anonymous",
     CONVEX_TMPDIR: convexTmp,
+    // Isolate anonymous Convex state from the user's real home directory.
+    // This also affects subprocesses spawned by the Convex CLI.
     HOME: convexHome,
     USERPROFILE: convexHome,
   },
