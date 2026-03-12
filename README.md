@@ -6,10 +6,21 @@
 
 - `AGENTS.md` - repo-wide agent rules and durable workflow defaults
 - `AGENTS.local.md.example` - local operator preference template for `AGENTS.local.md`
+- `apps/web` - initial `Next.js` web application scaffold
 - `docs/README.md` - docs entry point
 - `docs/planning/` - product, architecture, roadmap, backlog, and issue-planning docs
 - `docs/agentic/` - software-factory, onboarding, and agent workflow docs
 - `.opencode/skills/` - repo-local skills, including onboarding
+
+## Local app bootstrap
+
+- install workspace dependencies: `pnpm install`
+- install git hooks after dependency changes if needed: `pnpm prepare`
+- run the web app: `pnpm dev:web`
+- lint the web app: `pnpm lint:web`
+- typecheck the web app: `pnpm typecheck:web`
+- build the web app: `pnpm build:web`
+- run the baseline local verification pass: `pnpm verify:web`
 
 ## Start here
 

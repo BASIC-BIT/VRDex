@@ -67,6 +67,9 @@ Prefer explicit labels in docs:
 ## Process rule
 
 - Manage PR review and recycle loops as a normal part of delivery.
+- Before pushing a follow-up commit on an open PR, triage every outstanding PR review comment.
+- For each addressed PR review comment, leave a reaction or reply with the disposition, then resolve the thread before pushing.
+- Do not silently resolve review comments; if a comment is rejected or only partially applied, say why in the thread.
 - Parallelize through multiple OpenCode sessions when it materially helps.
 - Do not overcomplicate workflows with subagents unless there is a clear payoff.
 - Prefer fewer, larger, independently testable issues over deeply nested issue trees.

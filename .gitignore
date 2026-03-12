@@ -1,2 +1,4 @@
 AGENTS.local.md
 .opencode/state/
+node_modules/
+.husky/_/
