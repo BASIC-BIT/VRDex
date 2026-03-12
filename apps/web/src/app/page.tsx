@@ -15,9 +15,10 @@ export default function Home() {
                   Profiles, communities, and scene presence for VRChat.
                 </h1>
                 <p className="max-w-2xl text-base leading-7 text-muted sm:text-lg">
-                  This is the first `Next.js` surface for VRDex. It gives the repo a
-                  real app shell without prematurely locking in product flows that still
-                  belong to follow-on issues.
+                  This is the first{" "}
+                  <code className="font-mono text-[0.95em]">Next.js</code> surface for
+                  VRDex. It gives the repo a real app shell without prematurely
+                  locking in product flows that still belong to follow-on issues.
                 </p>
               </div>
 
@@ -80,8 +81,9 @@ export default function Home() {
               A clean frontend baseline
             </h2>
             <p className="mt-3 text-sm leading-7 text-muted">
-              The repo now has a real web surface under `apps/web`, ready for local
-              development, linting, and production builds.
+              The repo now has a real web surface under{" "}
+              <code className="font-mono text-[0.95em]">apps/web</code>, ready for
+              local development, linting, and production builds.
             </p>
           </article>
 

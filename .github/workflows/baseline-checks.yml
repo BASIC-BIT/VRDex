@@ -62,6 +62,7 @@ jobs:
 
   build-web:
     name: Build Web
+    needs: [lint-web, typecheck-web]
     runs-on: ubuntu-latest
 
     steps:
