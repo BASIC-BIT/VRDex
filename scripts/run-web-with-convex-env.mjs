@@ -101,9 +101,12 @@ for (const key of ["CONVEX_DEPLOYMENT", "CONVEX_SITE_URL", "CONVEX_URL"]) {
   }
 }
 
-if (fileEnv.NEXT_PUBLIC_CONVEX_URL) {
+if (
+  Object.prototype.hasOwnProperty.call(fileEnv, "NEXT_PUBLIC_CONVEX_URL") &&
+  fileEnv.NEXT_PUBLIC_CONVEX_URL
+) {
   env.NEXT_PUBLIC_CONVEX_URL = fileEnv.NEXT_PUBLIC_CONVEX_URL;
-} else if (fileEnv.CONVEX_URL) {
+} else if (Object.prototype.hasOwnProperty.call(fileEnv, "CONVEX_URL") && fileEnv.CONVEX_URL) {
   env.NEXT_PUBLIC_CONVEX_URL = fileEnv.CONVEX_URL;
 } else if (!env.NEXT_PUBLIC_CONVEX_URL && env.CONVEX_URL) {
   env.NEXT_PUBLIC_CONVEX_URL = env.CONVEX_URL;
