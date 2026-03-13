@@ -117,6 +117,14 @@ const child = spawn(command, commandArgs, {
   stdio: "inherit",
 });
 
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    if (!child.killed) {
+      child.kill(signal);
+    }
+  });
+}
+
 child.on("error", (error) => {
   const code = error.code ? ` [${error.code}]` : "";
   console.error(`Failed to spawn web command (${command})${code}: ${error.message}`);
