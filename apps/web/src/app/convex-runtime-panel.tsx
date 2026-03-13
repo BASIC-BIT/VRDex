@@ -46,6 +46,7 @@ class ConvexQueryErrorBoundary extends Component<
 
 function ConvexRuntimeStatus({ convexUrl }: { convexUrl: string }) {
   const status = useQuery(api.health.status);
+  const statusHeading = status === undefined ? "Connecting to Convex..." : "The first runtime path is active.";
 
   return (
     <div className="space-y-4">
@@ -54,7 +55,7 @@ function ConvexRuntimeStatus({ convexUrl }: { convexUrl: string }) {
           Live Convex status
         </p>
         <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em]">
-          The first runtime path is active.
+          {statusHeading}
         </h2>
       </div>
 

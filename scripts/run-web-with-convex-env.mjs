@@ -42,10 +42,7 @@ function parseEnvFile(filePath) {
     const key = normalizedLine.slice(0, separatorIndex).trim();
     let value = normalizedLine.slice(separatorIndex + 1).trim();
 
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
+    if (isQuotedValue(value)) {
       value = value.slice(1, -1);
     }
 
@@ -53,6 +50,40 @@ function parseEnvFile(filePath) {
   }
 
   return parsed;
+}
+
+function isQuotedValue(value) {
+  if (value.length < 2) {
+    return false;
+  }
+
+  const quote = value[0];
+
+  if ((quote !== '"' && quote !== "'") || value[value.length - 1] !== quote) {
+    return false;
+  }
+
+  let escaped = false;
+
+  for (let index = 1; index < value.length - 1; index += 1) {
+    const character = value[index];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (character === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    if (character === quote) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 const fileEnv = parseEnvFile(envFilePath);
