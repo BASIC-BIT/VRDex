@@ -1,11 +1,11 @@
 "use client";
 
 import { api } from "@convex/_generated/api";
-import { Component, type ReactNode } from "react";
+import { Component, type ReactNode, useState } from "react";
 import { useQuery } from "convex/react";
 
 class ConvexQueryErrorBoundary extends Component<
-  { children: ReactNode },
+  { children: ReactNode; onRetry: () => void },
   { hasError: boolean }
 > {
   state = { hasError: false };
@@ -36,6 +36,14 @@ class ConvexQueryErrorBoundary extends Component<
             <code className="font-mono">pnpm dev:backend:local</code> and refresh once the local
             backend is healthy again.
           </div>
+
+          <button
+            className="inline-flex w-fit items-center rounded-full border border-border px-4 py-2 text-sm font-medium text-foreground transition hover:bg-surface"
+            onClick={this.props.onRetry}
+            type="button"
+          >
+            Try again
+          </button>
         </div>
       );
     }
@@ -120,6 +128,7 @@ function ConvexRuntimeStatus({ convexUrl }: { convexUrl: string }) {
 
 export function ConvexRuntimePanel() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  const [retryKey, setRetryKey] = useState(0);
 
   if (!convexUrl) {
     return (
@@ -149,7 +158,7 @@ export function ConvexRuntimePanel() {
   }
 
   return (
-    <ConvexQueryErrorBoundary>
+    <ConvexQueryErrorBoundary key={retryKey} onRetry={() => setRetryKey((current) => current + 1)}>
       <ConvexRuntimeStatus convexUrl={convexUrl} />
     </ConvexQueryErrorBoundary>
   );

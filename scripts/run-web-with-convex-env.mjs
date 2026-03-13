@@ -92,7 +92,7 @@ const env = {
 };
 
 for (const key of ["CONVEX_DEPLOYMENT", "CONVEX_SITE_URL", "CONVEX_URL"]) {
-  if (fileEnv[key]) {
+  if (Object.prototype.hasOwnProperty.call(fileEnv, key)) {
     env[key] = fileEnv[key];
   }
 }
