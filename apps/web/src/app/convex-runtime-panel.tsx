@@ -1,7 +1,44 @@
 "use client";
 
 import { api } from "@convex/_generated/api";
+import { Component, type ReactNode } from "react";
 import { useQuery } from "convex/react";
+
+class ConvexQueryErrorBoundary extends Component<
+  { children: ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="space-y-4">
+          <div>
+            <p className="font-mono text-xs uppercase tracking-[0.3em] text-muted">
+              Live Convex status
+            </p>
+            <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em]">
+              Backend query needs attention.
+            </h2>
+          </div>
+
+          <div className="rounded-[1.25rem] border border-dashed border-border bg-surface px-4 py-5 text-sm leading-7 text-foreground">
+            The live Convex panel hit a backend error. Check{" "}
+            <code className="font-mono">pnpm dev:backend:local</code> and refresh once the local
+            backend is healthy again.
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 function ConvexRuntimeStatus({ convexUrl }: { convexUrl: string }) {
   const status = useQuery(api.health.status);
@@ -29,7 +66,16 @@ function ConvexRuntimeStatus({ convexUrl }: { convexUrl: string }) {
         <p className="mt-2 break-all font-mono text-sm text-foreground">{convexUrl}</p>
       </div>
 
-      {status ? (
+      {status === undefined ? (
+        <div className="rounded-[1.25rem] border border-dashed border-border bg-surface px-4 py-5">
+          <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-muted">
+            Query state
+          </p>
+          <p className="mt-2 text-sm leading-7 text-foreground">
+            Connecting to Convex and waiting for the first placeholder payload.
+          </p>
+        </div>
+      ) : status ? (
         <dl className="space-y-3 text-sm">
           <div className="flex items-start justify-between gap-4 border-b border-border pb-3">
             <dt className="text-muted">Status</dt>
@@ -55,10 +101,11 @@ function ConvexRuntimeStatus({ convexUrl }: { convexUrl: string }) {
       ) : (
         <div className="rounded-[1.25rem] border border-dashed border-border bg-surface px-4 py-5">
           <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-muted">
-            Query state
+            Query result
           </p>
           <p className="mt-2 text-sm leading-7 text-foreground">
-            Connecting to Convex and waiting for the first placeholder payload.
+            Convex returned an empty placeholder payload. Refresh after restarting the local
+            backend if this sticks around.
           </p>
         </div>
       )}
@@ -96,5 +143,9 @@ export function ConvexRuntimePanel() {
     );
   }
 
-  return <ConvexRuntimeStatus convexUrl={convexUrl} />;
+  return (
+    <ConvexQueryErrorBoundary>
+      <ConvexRuntimeStatus convexUrl={convexUrl} />
+    </ConvexQueryErrorBoundary>
+  );
 }
