@@ -1,8 +1,12 @@
 "use client";
 
 import { api } from "@convex/_generated/api";
-import { Component, type ReactNode, useState } from "react";
+import { Component, type ReactNode, useState, useSyncExternalStore } from "react";
 import { useQuery } from "convex/react";
+
+function subscribeToClientReady() {
+  return () => {};
+}
 
 class ConvexQueryErrorBoundary extends Component<
   { children: ReactNode; onRetry: () => void },
@@ -128,7 +132,7 @@ function ConvexRuntimeStatus({ convexUrl }: { convexUrl: string }) {
 
 export function ConvexRuntimePanel() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  const isClient = typeof window !== "undefined";
+  const isClient = useSyncExternalStore(subscribeToClientReady, () => true, () => false);
   const [retryKey, setRetryKey] = useState(0);
 
   if (!convexUrl) {
