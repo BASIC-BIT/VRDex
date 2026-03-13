@@ -1,3 +1,5 @@
+import { ConvexRuntimePanel } from "./convex-runtime-panel";
+
 export default function Home() {
   return (
     <main className="min-h-screen px-6 py-10 text-foreground sm:px-10 lg:px-16">
@@ -15,10 +17,10 @@ export default function Home() {
                   Profiles, communities, and scene presence for VRChat.
                 </h1>
                 <p className="max-w-2xl text-base leading-7 text-muted sm:text-lg">
-                  This is the first{" "}
-                  <code className="font-mono text-[0.95em]">Next.js</code> surface for
-                  VRDex. It gives the repo a real app shell without prematurely
-                  locking in product flows that still belong to follow-on issues.
+                  The first <code className="font-mono text-[0.95em]">Next.js</code> runtime
+                  path into <code className="font-mono text-[0.95em]">Convex</code> is now in
+                  place. This landing page stays lightweight while proving the stack is wired end
+                  to end.
                 </p>
               </div>
 
@@ -43,31 +45,7 @@ export default function Home() {
             </div>
 
             <aside className="rounded-[1.5rem] border border-border bg-surface-strong p-5">
-              <p className="font-mono text-xs uppercase tracking-[0.3em] text-muted">
-                Scaffold choices
-              </p>
-              <dl className="mt-5 space-y-4 text-sm">
-                <div className="flex items-start justify-between gap-4 border-b border-border pb-4">
-                  <dt className="text-muted">Framework</dt>
-                  <dd className="text-right font-medium">Next.js 16 App Router</dd>
-                </div>
-                <div className="flex items-start justify-between gap-4 border-b border-border pb-4">
-                  <dt className="text-muted">Language</dt>
-                  <dd className="text-right font-medium">TypeScript</dd>
-                </div>
-                <div className="flex items-start justify-between gap-4 border-b border-border pb-4">
-                  <dt className="text-muted">Styling</dt>
-                  <dd className="text-right font-medium">Tailwind CSS v4</dd>
-                </div>
-                <div className="flex items-start justify-between gap-4 border-b border-border pb-4">
-                  <dt className="text-muted">Package manager</dt>
-                  <dd className="text-right font-medium">pnpm workspace</dd>
-                </div>
-                <div className="flex items-start justify-between gap-4">
-                  <dt className="text-muted">Next issues</dt>
-                  <dd className="text-right font-medium">#55, #56, #59</dd>
-                </div>
-              </dl>
+              <ConvexRuntimePanel />
             </aside>
           </div>
         </section>
@@ -78,12 +56,12 @@ export default function Home() {
               Now in place
             </p>
             <h2 className="mt-4 text-2xl font-semibold tracking-[-0.03em]">
-              A clean frontend baseline
+              A live app-to-backend read
             </h2>
             <p className="mt-3 text-sm leading-7 text-muted">
-              The repo now has a real web surface under{" "}
-              <code className="font-mono text-[0.95em]">apps/web</code>, ready for
-              local development, linting, and production builds.
+              The web app now mounts the minimum Convex client/provider wiring and
+              reads the placeholder <code className="font-mono text-[0.95em]">health:status</code>{" "}
+              query from the real backend bootstrap.
             </p>
           </article>
 
@@ -92,13 +70,12 @@ export default function Home() {
               Deliberately deferred
             </p>
             <h2 className="mt-4 text-2xl font-semibold tracking-[-0.03em]">
-              App integration and auth wiring
+              Schema, auth, and billing depth
             </h2>
             <p className="mt-3 text-sm leading-7 text-muted">
-              Convex now has a real backend foothold under{" "}
-              <code className="font-mono text-[0.95em]">convex/</code>, while app
-              integration, identity providers, billing, and deployment posture
-              stay in their own follow-on issues.
+              This slice avoids inventing product tables, auth flows, or payment
+              posture. The goal is one obvious runtime path, not premature app
+              architecture.
             </p>
           </article>
 
@@ -107,11 +84,11 @@ export default function Home() {
               Immediate follow-on
             </p>
             <h2 className="mt-4 text-2xl font-semibold tracking-[-0.03em]">
-              Connect the real runtime path
+              Add the first server-side pattern
             </h2>
             <p className="mt-3 text-sm leading-7 text-muted">
-              The next meaningful milestone is wiring this app to the first Convex
-              backend path and making the stack visible end to end.
+              The next app/data milestone is the first intentional App Router
+              server-side Convex read path under <code className="font-mono text-[0.95em]">#64</code>.
             </p>
           </article>
         </section>
