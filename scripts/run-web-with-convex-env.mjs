@@ -20,7 +20,16 @@ function parseEnvFile(filePath) {
     return {};
   }
 
-  const contents = readFileSync(filePath, "utf8");
+  let contents;
+
+  try {
+    contents = readFileSync(filePath, "utf8");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[run-web-with-convex-env] Could not read ${filePath}: ${message}`);
+    return {};
+  }
+
   const parsed = {};
 
   for (const rawLine of contents.split(/\r?\n/u)) {

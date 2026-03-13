@@ -128,6 +128,7 @@ function ConvexRuntimeStatus({ convexUrl }: { convexUrl: string }) {
 
 export function ConvexRuntimePanel() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  const isClient = typeof window !== "undefined";
   const [retryKey, setRetryKey] = useState(0);
 
   if (!convexUrl) {
@@ -152,6 +153,25 @@ export function ConvexRuntimePanel() {
           Run <code className="font-mono">pnpm bootstrap:backend:local</code> once, keep{" "}
           <code className="font-mono">pnpm dev:backend:local</code> running, and start the web
           app with <code className="font-mono">pnpm dev:web</code> from the repo root.
+        </div>
+      </div>
+    );
+  }
+
+  if (!isClient) {
+    return (
+      <div className="space-y-4">
+        <div>
+          <p className="font-mono text-xs uppercase tracking-[0.3em] text-muted">
+            Live Convex status
+          </p>
+          <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em]">
+            Connecting to Convex...
+          </h2>
+        </div>
+
+        <div className="rounded-[1.25rem] border border-dashed border-border bg-surface px-4 py-5 text-sm leading-7 text-foreground">
+          Preparing the client-side Convex runtime.
         </div>
       </div>
     );
