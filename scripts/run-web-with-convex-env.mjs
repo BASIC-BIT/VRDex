@@ -120,12 +120,17 @@ const child = spawn(command, commandArgs, {
   stdio: "inherit",
 });
 
+const signalHandlers = new Map();
+
 for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.on(signal, () => {
+  const handler = () => {
     if (!child.killed) {
       child.kill(signal);
     }
-  });
+  };
+
+  signalHandlers.set(signal, handler);
+  process.on(signal, handler);
 }
 
 child.on("error", (error) => {
@@ -137,6 +142,10 @@ child.on("error", (error) => {
 child.on("exit", (code, signal) => {
   if (signal) {
     if (process.platform !== "win32") {
+      for (const [registeredSignal, handler] of signalHandlers) {
+        process.removeListener(registeredSignal, handler);
+      }
+
       process.kill(process.pid, signal);
       return;
     }
