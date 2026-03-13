@@ -83,6 +83,10 @@ function isQuotedValue(value) {
     }
   }
 
+  if (escaped) {
+    return false;
+  }
+
   return true;
 }
 
