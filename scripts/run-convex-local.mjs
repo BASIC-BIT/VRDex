@@ -30,17 +30,26 @@ function syncPublicConvexUrl() {
     return;
   }
 
-  const nextPublicFile = `NEXT_PUBLIC_CONVEX_URL=${convexUrl}\n`;
+  const nextPublicLine = `NEXT_PUBLIC_CONVEX_URL=${convexUrl}`;
 
   if (existsSync(webEnvLocalPath)) {
     const currentWebEnv = readFileSync(webEnvLocalPath, "utf8");
+    const currentLines = currentWebEnv.split(/\r?\n/);
 
-    if (currentWebEnv === nextPublicFile) {
+    if (currentLines.some((line) => line === nextPublicLine)) {
       return;
     }
+
+    const mergedLines = currentLines.filter(
+      (line) => line.length > 0 && !line.startsWith("NEXT_PUBLIC_CONVEX_URL="),
+    );
+
+    mergedLines.push(nextPublicLine);
+    writeFileSync(webEnvLocalPath, `${mergedLines.join("\n")}\n`);
+    return;
   }
 
-  writeFileSync(webEnvLocalPath, nextPublicFile);
+  writeFileSync(webEnvLocalPath, `${nextPublicLine}\n`);
 }
 
 if (args.length === 0) {
