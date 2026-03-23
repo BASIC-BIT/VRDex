@@ -108,11 +108,7 @@ syncPublicConvexUrl();
 let publicUrlWatcher;
 
 try {
-  publicUrlWatcher = watch(repoRoot, (_eventType, filename) => {
-    if (filename && filename !== ".env.local") {
-      return;
-    }
-
+  publicUrlWatcher = watch(repoEnvLocalPath, () => {
     try {
       syncPublicConvexUrl();
     } catch (error) {
@@ -122,7 +118,26 @@ try {
   });
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
-  console.error(`Failed to watch .env.local for NEXT_PUBLIC_CONVEX_URL sync: ${message}`);
+
+  try {
+    publicUrlWatcher = watch(repoRoot, (_eventType, filename) => {
+      if (filename !== ".env.local") {
+        return;
+      }
+
+      try {
+        syncPublicConvexUrl();
+      } catch (watchError) {
+        const watchMessage =
+          watchError instanceof Error ? watchError.message : String(watchError);
+        console.error(`Failed to mirror NEXT_PUBLIC_CONVEX_URL: ${watchMessage}`);
+      }
+    });
+  } catch {
+    console.error(
+      `Failed to watch .env.local for NEXT_PUBLIC_CONVEX_URL sync: ${message}`,
+    );
+  }
 }
 
 const forwardSignal = (signal) => {
