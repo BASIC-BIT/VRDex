@@ -1,5 +1,6 @@
 "use client";
 
+import { Component, type ReactNode } from "react";
 import { makeFunctionReference } from "convex/server";
 import { useQuery } from "convex/react";
 
@@ -19,11 +20,51 @@ const healthStatus = makeFunctionReference<
   HealthStatusResult
 >("health:status");
 
+function StatusCardShell({ children }: { children: ReactNode }) {
+  return (
+    <div className="rounded-[1.25rem] border border-border bg-surface px-4 py-4">
+      {children}
+    </div>
+  );
+}
+
+class StatusCardErrorBoundary extends Component<
+  { children: ReactNode },
+  { error: Error | null }
+> {
+  state = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <StatusCardShell>
+          <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">
+            Runtime check
+          </p>
+          <h3 className="mt-2 text-lg font-semibold tracking-[-0.02em]">
+            Backend unreachable
+          </h3>
+          <p className="mt-3 text-sm leading-6 text-muted">
+            Start <code className="font-mono text-[0.95em]">pnpm dev:backend:local</code>
+            to restore the live status card.
+          </p>
+        </StatusCardShell>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 function LiveBackendStatusCard() {
   const result = useQuery(healthStatus, {});
 
   return (
-    <div className="rounded-[1.25rem] border border-border bg-surface px-4 py-4">
+    <StatusCardShell>
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">
@@ -57,7 +98,7 @@ function LiveBackendStatusCard() {
           <dd className="mt-2 font-medium">{result?.scope ?? "bootstrap"}</dd>
         </div>
       </dl>
-    </div>
+    </StatusCardShell>
   );
 }
 
@@ -81,5 +122,9 @@ export function BackendStatusCard() {
     );
   }
 
-  return <LiveBackendStatusCard />;
+  return (
+    <StatusCardErrorBoundary>
+      <LiveBackendStatusCard />
+    </StatusCardErrorBoundary>
+  );
 }
