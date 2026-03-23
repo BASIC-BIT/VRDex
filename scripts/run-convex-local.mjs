@@ -45,7 +45,7 @@ function syncPublicConvexUrl() {
     }
 
     const mergedLines = currentLines.filter(
-      (line) => line.length > 0 && !line.startsWith("NEXT_PUBLIC_CONVEX_URL="),
+      (line) => !line.startsWith("NEXT_PUBLIC_CONVEX_URL="),
     );
 
     mergedLines.push(nextPublicLine);

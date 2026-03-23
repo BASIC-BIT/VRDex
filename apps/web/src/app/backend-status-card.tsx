@@ -1,24 +1,10 @@
 "use client";
 
 import { Component, type ReactNode } from "react";
-import { makeFunctionReference } from "convex/server";
 import { useQuery } from "convex/react";
-
-type HealthStatusResult = {
-  backend: string;
-  note: string;
-  project: string;
-  scope: string;
-  status: string;
-};
+import { api } from "../../../../convex/_generated/api";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-
-const healthStatus = makeFunctionReference<
-  "query",
-  Record<string, never>,
-  HealthStatusResult
->("health:status");
 
 function StatusCardShell({ children }: { children: ReactNode }) {
   return (
@@ -61,7 +47,7 @@ class StatusCardErrorBoundary extends Component<
 }
 
 function LiveBackendStatusCard() {
-  const result = useQuery(healthStatus, {});
+  const result = useQuery(api.health.status, {});
 
   return (
     <StatusCardShell>
