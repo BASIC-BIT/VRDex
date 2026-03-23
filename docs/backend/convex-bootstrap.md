@@ -35,7 +35,7 @@ If you want the full repo gate, use `pnpm verify`. If you only need the web app 
 Notes:
 
 - Convex writes deployment configuration to the repo-root `.env.local` file.
-- The web app can reuse `CONVEX_URL` from that same repo-root `.env.local` file when the server layout passes it into the client-side Convex provider; `NEXT_PUBLIC_CONVEX_URL` remains an optional explicit override.
+- The local Convex wrapper mirrors the repo-root `CONVEX_URL` into `apps/web/.env.local` as `NEXT_PUBLIC_CONVEX_URL` so the web app can follow the normal client-side Convex + Next.js convention without leaking a non-public variable through server props.
 - Anonymous local backend state for this repo is kept under `.convex-home/` and `.convex-tmp/` so the bootstrap does not collide with other Convex projects on the same machine.
 - The current bootstrap is local-development focused. Production deploy keys, preview deployments, and frontend environment wiring belong to follow-on issues.
 - Committed files in `convex/_generated/` are treated as checked-in build artifacts and should remain diff-free after `pnpm check:backend:generated`.

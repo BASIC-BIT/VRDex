@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { makeFunctionReference } from "convex/server";
+import { useQuery } from "convex/react";
 
 type HealthStatusResult = {
   backend: string;
@@ -10,62 +11,16 @@ type HealthStatusResult = {
   status: string;
 };
 
-function LiveBackendStatusCard({ convexUrl }: { convexUrl: string }) {
-  const [result, setResult] = useState<HealthStatusResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
+const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
-  useEffect(() => {
-    let isActive = true;
+const healthStatus = makeFunctionReference<
+  "query",
+  Record<string, never>,
+  HealthStatusResult
+>("health:status");
 
-    async function loadStatus() {
-      try {
-        const response = await fetch(`${convexUrl}/api/query`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            args: {},
-            format: "json",
-            path: "health:status",
-          }),
-        });
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-
-        const payload = (await response.json()) as {
-          status: "success" | "error";
-          errorMessage?: string;
-          value?: HealthStatusResult;
-        };
-
-        if (payload.status !== "success" || !payload.value) {
-          throw new Error(payload.errorMessage ?? "Unknown Convex response.");
-        }
-
-        if (isActive) {
-          setResult(payload.value);
-          setError(null);
-        }
-      } catch (loadError) {
-        if (isActive) {
-          setError(
-            loadError instanceof Error
-              ? loadError.message
-              : "Unknown Convex error.",
-          );
-        }
-      }
-    }
-
-    void loadStatus();
-
-    return () => {
-      isActive = false;
-    };
-  }, [convexUrl]);
+function LiveBackendStatusCard() {
+  const result = useQuery(healthStatus, {});
 
   return (
     <div className="rounded-[1.25rem] border border-border bg-surface px-4 py-4">
@@ -80,14 +35,12 @@ function LiveBackendStatusCard({ convexUrl }: { convexUrl: string }) {
         </div>
 
         <span className="rounded-full bg-white/70 px-3 py-1 font-mono text-xs uppercase tracking-[0.2em] text-muted">
-          {error ? "error" : result?.status ?? "loading"}
+          {result?.status ?? "loading"}
         </span>
       </div>
 
       <p className="mt-3 text-sm leading-6 text-muted">
-        {error
-          ? `Convex request failed: ${error}`
-          : result?.note ?? "Waiting for the first Convex response from health:status."}
+        {result?.note ?? "Waiting for the first Convex response from health:status."}
       </p>
 
       <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
@@ -108,7 +61,7 @@ function LiveBackendStatusCard({ convexUrl }: { convexUrl: string }) {
   );
 }
 
-export function BackendStatusCard({ convexUrl }: { convexUrl?: string }) {
+export function BackendStatusCard() {
   if (!convexUrl) {
     return (
       <div className="rounded-[1.25rem] border border-dashed border-border bg-surface px-4 py-4">
@@ -120,7 +73,7 @@ export function BackendStatusCard({ convexUrl }: { convexUrl?: string }) {
         </h3>
         <p className="mt-3 text-sm leading-6 text-muted">
           Run the local Convex bootstrap so repo-root <code className="font-mono text-[0.95em]">.env.local</code>
-          includes a deployment URL, or provide <code className="font-mono text-[0.95em]">NEXT_PUBLIC_CONVEX_URL</code>
+          includes <code className="font-mono text-[0.95em]">NEXT_PUBLIC_CONVEX_URL</code>, or provide that value
           explicitly if you want the homepage to render the live <code className="font-mono text-[0.95em]">health:status</code>
           query.
         </p>
@@ -128,5 +81,5 @@ export function BackendStatusCard({ convexUrl }: { convexUrl?: string }) {
     );
   }
 
-  return <LiveBackendStatusCard convexUrl={convexUrl} />;
+  return <LiveBackendStatusCard />;
 }

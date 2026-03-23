@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -7,7 +7,41 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
 const convexHome = path.join(repoRoot, ".convex-home");
 const convexTmp = path.join(repoRoot, ".convex-tmp");
+const repoEnvLocalPath = path.join(repoRoot, ".env.local");
+const webEnvLocalPath = path.join(repoRoot, "apps", "web", ".env.local");
 const args = process.argv.slice(2);
+
+function syncPublicConvexUrl() {
+  if (!existsSync(repoEnvLocalPath)) {
+    return;
+  }
+
+  const file = readFileSync(repoEnvLocalPath, "utf8");
+  const lines = file.split(/\r?\n/);
+  const convexUrlLine = lines.find((line) => line.startsWith("CONVEX_URL="));
+
+  if (!convexUrlLine) {
+    return;
+  }
+
+  const convexUrl = convexUrlLine.slice("CONVEX_URL=".length).trim();
+
+  if (!convexUrl) {
+    return;
+  }
+
+  const nextPublicFile = `NEXT_PUBLIC_CONVEX_URL=${convexUrl}\n`;
+
+  if (existsSync(webEnvLocalPath)) {
+    const currentWebEnv = readFileSync(webEnvLocalPath, "utf8");
+
+    if (currentWebEnv === nextPublicFile) {
+      return;
+    }
+  }
+
+  writeFileSync(webEnvLocalPath, nextPublicFile);
+}
 
 if (args.length === 0) {
   console.error("Usage: node scripts/run-convex-local.mjs <convex args>");
@@ -56,6 +90,17 @@ const child = spawn(convexBin, args, {
   },
 });
 
+syncPublicConvexUrl();
+
+const publicUrlSyncInterval = setInterval(() => {
+  try {
+    syncPublicConvexUrl();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to mirror NEXT_PUBLIC_CONVEX_URL: ${message}`);
+  }
+}, 500);
+
 const forwardSignal = (signal) => {
   if (!child.killed) {
     child.kill(signal);
@@ -77,6 +122,15 @@ child.on("error", (error) => {
 });
 
 child.on("exit", (code, signal) => {
+  clearInterval(publicUrlSyncInterval);
+
+  try {
+    syncPublicConvexUrl();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to finalize NEXT_PUBLIC_CONVEX_URL mirror: ${message}`);
+  }
+
   if (signal) {
     if (process.platform !== "win32") {
       process.kill(process.pid, signal);

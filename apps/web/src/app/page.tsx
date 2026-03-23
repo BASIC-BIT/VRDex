@@ -1,9 +1,6 @@
 import { BackendStatusCard } from "./backend-status-card";
-import { getConvexUrl } from "./get-convex-url";
 
 export default function Home() {
-  const convexUrl = getConvexUrl();
-
   return (
     <main className="min-h-screen px-6 py-10 text-foreground sm:px-10 lg:px-16">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
@@ -76,7 +73,7 @@ export default function Home() {
               </dl>
 
               <div className="mt-5 border-t border-border pt-5">
-                <BackendStatusCard convexUrl={convexUrl} />
+                <BackendStatusCard />
               </div>
             </aside>
           </div>

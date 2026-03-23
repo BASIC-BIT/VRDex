@@ -27,5 +27,5 @@ pnpm build:web
 - framework baseline: `Next.js` App Router
 - language baseline: `TypeScript`
 - styling baseline: `Tailwind CSS`
-- the app mounts a Convex provider baseline and the homepage performs a live `health:status` query when repo-root `.env.local` contains `CONVEX_URL`; `NEXT_PUBLIC_CONVEX_URL` can override it explicitly if needed
+- the app mounts a Convex provider baseline and the homepage performs a live `health:status` query when `apps/web/.env.local` contains `NEXT_PUBLIC_CONVEX_URL`; the local Convex bootstrap now mirrors that value automatically from the repo-root Convex bootstrap output
 - auth, billing, and deployment wiring still belong to follow-on issues

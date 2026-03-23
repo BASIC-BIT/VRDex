@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Space_Grotesk } from "next/font/google";
 import { ConvexClientProvider } from "./ConvexClientProvider";
-import { getConvexUrl } from "./get-convex-url";
 import "./globals.css";
 
 const spaceGrotesk = Space_Grotesk({
@@ -25,14 +24,12 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const convexUrl = getConvexUrl();
-
   return (
     <html lang="en">
       <body
         className={`${spaceGrotesk.variable} ${ibmPlexMono.variable} antialiased`}
       >
-        <ConvexClientProvider convexUrl={convexUrl}>{children}</ConvexClientProvider>
+        <ConvexClientProvider>{children}</ConvexClientProvider>
       </body>
     </html>
   );
