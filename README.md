@@ -32,6 +32,8 @@
 
 Convex writes repo-root deployment configuration to `.env.local` during local setup and keeps anonymous local state under `.convex-home/` plus `.convex-tmp/`. Keep all of those uncommitted. The committed `convex/_generated/` files are expected to stay clean after `pnpm check:backend:generated`.
 
+The web app now reads the placeholder `health:status` query through the Convex client runtime. If you want the homepage to show live backend data instead of the local configuration fallback, run `pnpm bootstrap:backend:local` first and keep `pnpm dev:backend:local` running while you use `pnpm dev:web`.
+
 `pnpm verify` is the full repo verification pass and now includes the local Convex bootstrap checks. If you are iterating on the web app only, use `pnpm verify:web` for the lighter web-only path.
 
 ## Start here

@@ -10,7 +10,7 @@
     "lint:web": "pnpm --filter web lint",
     "typecheck:backend": "tsc --noEmit --project convex/tsconfig.json",
     "run:backend:health:local": "pnpm verify:backend:local",
-    "typecheck:web": "pnpm --filter web typecheck",
+    "typecheck:web": "pnpm --filter web exec next typegen && node apps/web/scripts/ensure-next-type-stubs.mjs && pnpm --filter web exec tsc --noEmit --incremental false",
     "verify:backend:local": "node scripts/run-convex-local.mjs dev --local --once --run health:status --tail-logs disable",
     "check:backend:generated": "pnpm verify:backend:local && git diff --exit-code -- convex/_generated",
     "verify:web": "pnpm lint:web && pnpm typecheck:web && pnpm build:web",

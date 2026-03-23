@@ -1,4 +1,9 @@
+import { BackendStatusCard } from "./backend-status-card";
+import { getConvexUrl } from "./get-convex-url";
+
 export default function Home() {
+  const convexUrl = getConvexUrl();
+
   return (
     <main className="min-h-screen px-6 py-10 text-foreground sm:px-10 lg:px-16">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
@@ -7,7 +12,7 @@ export default function Home() {
             <div className="flex flex-col gap-8">
               <div className="flex items-center gap-3 text-sm uppercase tracking-[0.28em] text-muted">
                 <span className="rounded-full border border-border px-3 py-1">VRDex</span>
-                <span>Web + backend bootstrap</span>
+                <span>Web + Convex runtime path</span>
               </div>
 
               <div className="max-w-3xl space-y-5">
@@ -17,8 +22,9 @@ export default function Home() {
                 <p className="max-w-2xl text-base leading-7 text-muted sm:text-lg">
                   This is the first{" "}
                   <code className="font-mono text-[0.95em]">Next.js</code> surface for
-                  VRDex. It gives the repo a real app shell without prematurely
-                  locking in product flows that still belong to follow-on issues.
+                  VRDex. The app shell is now wired to the initial Convex backend
+                  without prematurely locking in product flows that still belong to
+                  follow-on issues.
                 </p>
               </div>
 
@@ -65,9 +71,13 @@ export default function Home() {
                 </div>
                 <div className="flex items-start justify-between gap-4">
                   <dt className="text-muted">Next issues</dt>
-                  <dd className="text-right font-medium">#55, #56, #59</dd>
+                  <dd className="text-right font-medium">#64, #56, #59</dd>
                 </div>
               </dl>
+
+              <div className="mt-5 border-t border-border pt-5">
+                <BackendStatusCard convexUrl={convexUrl} />
+              </div>
             </aside>
           </div>
         </section>
@@ -83,7 +93,8 @@ export default function Home() {
             <p className="mt-3 text-sm leading-7 text-muted">
               The repo now has a real web surface under{" "}
               <code className="font-mono text-[0.95em]">apps/web</code>, ready for
-              local development, linting, and production builds.
+              local development, Convex integration, linting, and production
+              builds.
             </p>
           </article>
 
@@ -92,13 +103,12 @@ export default function Home() {
               Deliberately deferred
             </p>
             <h2 className="mt-4 text-2xl font-semibold tracking-[-0.03em]">
-              App integration and auth wiring
+              Auth, billing, and deployment wiring
             </h2>
             <p className="mt-3 text-sm leading-7 text-muted">
-              Convex now has a real backend foothold under{" "}
-              <code className="font-mono text-[0.95em]">convex/</code>, while app
-              integration, identity providers, billing, and deployment posture
-              stay in their own follow-on issues.
+              The app now talks to the placeholder backend path, while identity
+              providers, billing posture, and hosted deployment setup stay in
+              their own follow-on issues.
             </p>
           </article>
 
@@ -107,11 +117,12 @@ export default function Home() {
               Immediate follow-on
             </p>
             <h2 className="mt-4 text-2xl font-semibold tracking-[-0.03em]">
-              Connect the real runtime path
+              Add the first server-side data baseline
             </h2>
             <p className="mt-3 text-sm leading-7 text-muted">
-              The next meaningful milestone is wiring this app to the first Convex
-              backend path and making the stack visible end to end.
+              The next meaningful milestone is documenting the first server-side
+              Convex read path so App Router usage stays clean as real features
+              land.
             </p>
           </article>
         </section>
