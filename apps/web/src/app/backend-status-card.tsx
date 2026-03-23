@@ -20,6 +20,10 @@ class StatusCardErrorBoundary extends Component<
 > {
   state = { error: null };
 
+  reset = () => {
+    this.setState({ error: null });
+  };
+
   static getDerivedStateFromError(error: Error) {
     return { error };
   }
@@ -38,6 +42,13 @@ class StatusCardErrorBoundary extends Component<
             Start <code className="font-mono text-[0.95em]">pnpm dev:backend:local</code>
             to restore the live status card.
           </p>
+          <button
+            type="button"
+            className="mt-3 font-mono text-xs uppercase tracking-[0.18em] text-muted underline-offset-4 hover:underline"
+            onClick={this.reset}
+          >
+            Retry
+          </button>
         </StatusCardShell>
       );
     }
