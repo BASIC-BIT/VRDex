@@ -103,7 +103,18 @@ const child = spawn(convexBin, args, {
   },
 });
 
-syncPublicConvexUrl();
+try {
+  syncPublicConvexUrl();
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`Failed to initialize NEXT_PUBLIC_CONVEX_URL mirror: ${message}`);
+
+  if (!child.killed) {
+    child.kill();
+  }
+
+  process.exit(1);
+}
 
 let publicUrlWatcher;
 
