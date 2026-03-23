@@ -48,6 +48,10 @@ function syncPublicConvexUrl() {
       (line) => !line.startsWith("NEXT_PUBLIC_CONVEX_URL="),
     );
 
+    if (mergedLines.at(-1) === "") {
+      mergedLines.pop();
+    }
+
     mergedLines.push(nextPublicLine);
     writeFileSync(webEnvLocalPath, `${mergedLines.join("\n")}\n`);
     return;
