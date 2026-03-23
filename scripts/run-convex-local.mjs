@@ -144,9 +144,13 @@ try {
         console.error(`Failed to mirror NEXT_PUBLIC_CONVEX_URL: ${watchMessage}`);
       }
     });
-  } catch {
+  } catch (fallbackError) {
+    const fallbackMessage =
+      fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+
     console.error(
-      `Failed to watch .env.local for NEXT_PUBLIC_CONVEX_URL sync: ${message}`,
+      "Failed to watch .env.local for NEXT_PUBLIC_CONVEX_URL sync:",
+      `file watcher error: ${message}; directory watcher error: ${fallbackMessage}`,
     );
   }
 }
