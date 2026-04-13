@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, watch, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -7,7 +7,58 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
 const convexHome = path.join(repoRoot, ".convex-home");
 const convexTmp = path.join(repoRoot, ".convex-tmp");
+const repoEnvLocalPath = path.join(repoRoot, ".env.local");
+const webEnvLocalPath = path.join(repoRoot, "apps", "web", ".env.local");
 const args = process.argv.slice(2);
+
+function syncPublicConvexUrl() {
+  if (!existsSync(repoEnvLocalPath)) {
+    return;
+  }
+
+  const file = readFileSync(repoEnvLocalPath, "utf8");
+  const lines = file.split(/\r?\n/);
+  const convexUrlLine = lines.find((line) => line.startsWith("CONVEX_URL="));
+
+  if (!convexUrlLine) {
+    return;
+  }
+
+  const convexUrl = convexUrlLine
+    .slice("CONVEX_URL=".length)
+    .split("#")[0]
+    ?.trim()
+    .replace(/^["']|["']$/g, "");
+
+  if (!convexUrl) {
+    return;
+  }
+
+  const nextPublicLine = `NEXT_PUBLIC_CONVEX_URL=${convexUrl}`;
+
+  if (existsSync(webEnvLocalPath)) {
+    const currentWebEnv = readFileSync(webEnvLocalPath, "utf8");
+    const currentLines = currentWebEnv.split(/\r?\n/);
+
+    if (currentLines.some((line) => line === nextPublicLine)) {
+      return;
+    }
+
+    const mergedLines = currentLines.filter(
+      (line) => !line.startsWith("NEXT_PUBLIC_CONVEX_URL="),
+    );
+
+    if (mergedLines.at(-1) === "") {
+      mergedLines.pop();
+    }
+
+    mergedLines.push(nextPublicLine);
+    writeFileSync(webEnvLocalPath, `${mergedLines.join("\n")}\n`);
+    return;
+  }
+
+  writeFileSync(webEnvLocalPath, `${nextPublicLine}\n`);
+}
 
 if (args.length === 0) {
   console.error("Usage: node scripts/run-convex-local.mjs <convex args>");
@@ -56,6 +107,58 @@ const child = spawn(convexBin, args, {
   },
 });
 
+try {
+  syncPublicConvexUrl();
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`Failed to initialize NEXT_PUBLIC_CONVEX_URL mirror: ${message}`);
+
+  if (!child.killed) {
+    child.kill();
+  }
+
+  process.exit(1);
+}
+
+let publicUrlWatcher;
+
+try {
+  publicUrlWatcher = watch(repoEnvLocalPath, () => {
+    try {
+      syncPublicConvexUrl();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to mirror NEXT_PUBLIC_CONVEX_URL: ${message}`);
+    }
+  });
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+
+  try {
+    publicUrlWatcher = watch(repoRoot, (_eventType, filename) => {
+      if (filename !== ".env.local") {
+        return;
+      }
+
+      try {
+        syncPublicConvexUrl();
+      } catch (watchError) {
+        const watchMessage =
+          watchError instanceof Error ? watchError.message : String(watchError);
+        console.error(`Failed to mirror NEXT_PUBLIC_CONVEX_URL: ${watchMessage}`);
+      }
+    });
+  } catch (fallbackError) {
+    const fallbackMessage =
+      fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+
+    console.error(
+      "Failed to watch .env.local for NEXT_PUBLIC_CONVEX_URL sync:",
+      `file watcher error: ${message}; directory watcher error: ${fallbackMessage}`,
+    );
+  }
+}
+
 const forwardSignal = (signal) => {
   if (!child.killed) {
     child.kill(signal);
@@ -77,6 +180,15 @@ child.on("error", (error) => {
 });
 
 child.on("exit", (code, signal) => {
+  publicUrlWatcher?.close();
+
+  try {
+    syncPublicConvexUrl();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to finalize NEXT_PUBLIC_CONVEX_URL mirror: ${message}`);
+  }
+
   if (signal) {
     if (process.platform !== "win32") {
       process.kill(process.pid, signal);
