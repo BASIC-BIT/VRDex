@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { BackendStatusCard } from "./backend-status-card";
 
 export default function Home() {
@@ -34,6 +35,12 @@ export default function Home() {
                 >
                   Next.js docs
                 </a>
+                <Link
+                  className="inline-flex items-center justify-center rounded-full border border-border bg-surface-strong px-5 py-3 text-sm font-medium transition hover:-translate-y-0.5"
+                  href="/server-status"
+                >
+                  Server-side baseline
+                </Link>
                 <a
                   className="inline-flex items-center justify-center rounded-full border border-border bg-surface-strong px-5 py-3 text-sm font-medium transition hover:-translate-y-0.5"
                   href="https://www.convex.dev/"
@@ -68,7 +75,7 @@ export default function Home() {
                 </div>
                 <div className="flex items-start justify-between gap-4">
                   <dt className="text-muted">Next issues</dt>
-                  <dd className="text-right font-medium">#64, #56, #59</dd>
+                  <dd className="text-right font-medium">#9, #56, #59</dd>
                 </div>
               </dl>
 
@@ -85,13 +92,12 @@ export default function Home() {
               Now in place
             </p>
             <h2 className="mt-4 text-2xl font-semibold tracking-[-0.03em]">
-              A clean frontend baseline
+              Client and server baselines
             </h2>
             <p className="mt-3 text-sm leading-7 text-muted">
-              The repo now has a real web surface under{" "}
-              <code className="font-mono text-[0.95em]">apps/web</code>, ready for
-              local development, Convex integration, linting, and production
-              builds.
+              The repo now has one reactive client read and one explicit server-side
+              read pattern under <code className="font-mono text-[0.95em]">apps/web</code>,
+              ready to support later profile and auth work without mixing patterns.
             </p>
           </article>
 
@@ -114,12 +120,12 @@ export default function Home() {
               Immediate follow-on
             </p>
             <h2 className="mt-4 text-2xl font-semibold tracking-[-0.03em]">
-              Add the first server-side data baseline
+              Define the profile data foundation
             </h2>
             <p className="mt-3 text-sm leading-7 text-muted">
-              The next meaningful milestone is documenting the first server-side
-              Convex read path so App Router usage stays clean as real features
-              land.
+              The next meaningful milestone is establishing the first durable
+              profile schema so public pages and claim flows can build on typed
+              domain records instead of the bootstrap health placeholder.
             </p>
           </article>
         </section>
