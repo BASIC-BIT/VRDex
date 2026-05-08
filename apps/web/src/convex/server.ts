@@ -16,9 +16,10 @@ export async function fetchBackendStatus() {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
 
+    console.error(`Server-side Convex fetchQuery failed: ${message}`);
+
     return {
       kind: "error" as const,
-      message,
     };
   }
 }

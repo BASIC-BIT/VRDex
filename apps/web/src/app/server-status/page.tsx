@@ -107,10 +107,9 @@ export default async function ServerStatusPage() {
                   Convex server read failed
                 </h2>
                 <p className="mt-3 text-sm leading-7 text-muted">
-                  Start <code className="font-mono text-[0.95em]">pnpm dev:backend:local</code> and reload this page.
-                </p>
-                <p className="mt-3 rounded-2xl border border-border bg-surface-strong px-4 py-4 font-mono text-xs leading-6 text-muted">
-                  {status.message}
+                  Start <code className="font-mono text-[0.95em]">pnpm dev:backend:local</code>, confirm
+                  <code className="font-mono text-[0.95em]"> NEXT_PUBLIC_CONVEX_URL</code> is available to the web app,
+                  and reload this page.
                 </p>
               </>
             )}
