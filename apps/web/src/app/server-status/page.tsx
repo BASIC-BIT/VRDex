@@ -97,8 +97,9 @@ export default async function ServerStatusPage() {
                 </h2>
                 <p className="mt-3 text-sm leading-7 text-muted">
                   Run <code className="font-mono text-[0.95em]">pnpm bootstrap:backend:local</code> so the local
-                  bootstrap mirrors <code className="font-mono text-[0.95em]">NEXT_PUBLIC_CONVEX_URL</code> into the
-                  web app before using this server-side route.
+                  bootstrap writes <code className="font-mono text-[0.95em]">NEXT_PUBLIC_CONVEX_URL</code> into
+                  <code className="font-mono text-[0.95em]"> apps/web/.env.local</code> before using this
+                  server-side route.
                 </p>
               </>
             ) : (
