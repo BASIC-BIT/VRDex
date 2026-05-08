@@ -51,6 +51,7 @@ Current recommendation:
 - keep the first backend slice schema-light with an explicit health query instead of guessing at product tables too early
 - use local-development-friendly Convex setup first, then layer in frontend wiring, auth, billing, and production deployment posture through follow-on issues
 - once the local backend bootstrap is deterministic, include it in the baseline PR verification pass alongside the web checks
+- use one explicit server-side App Router baseline once client wiring is stable: `fetchQuery` for server-only reads, with `preloadQuery` deferred until a feature truly needs hydrated reactivity after server render
 
 ## Monetization direction
 

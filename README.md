@@ -34,6 +34,8 @@ Convex writes repo-root deployment configuration to `.env.local` during local se
 
 The local Convex bootstrap now mirrors `CONVEX_URL` into `apps/web/.env.local` as `NEXT_PUBLIC_CONVEX_URL` so the web app can read the placeholder `health:status` query through the Convex client runtime. If you want the homepage to show live backend data instead of the local configuration fallback, run `pnpm bootstrap:backend:local` first and keep `pnpm dev:backend:local` running while you use `pnpm dev:web`.
 
+The first server-side `Next.js -> Convex` baseline now lives at `/server-status`. It uses `fetchQuery` from `convex/nextjs` on a dedicated dynamic route, while the homepage keeps the reactive client-side `useQuery` path.
+
 `pnpm verify` is the full repo verification pass and now includes the local Convex bootstrap checks. If you are iterating on the web app only, use `pnpm verify:web` for the lighter web-only path.
 
 ## Start here
