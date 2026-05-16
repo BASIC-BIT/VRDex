@@ -2,9 +2,9 @@
 
 ## Status note
 
-This doc captures the initial Convex backend slice landed for `#54`.
+This doc captures the initial Convex backend slice landed for `#54`, plus the first product schema slice from `#9`.
 
-It is intentionally narrow: enough structure to run Convex locally, generate typed backend helpers, and prove the backend is wired, without prematurely locking product tables or auth decisions.
+It is intentionally narrow: enough structure to run Convex locally, generate typed backend helpers, prove the backend is wired, and define the first profile table without prematurely locking auth, permissions, slugs, or rich product flows.
 
 ## Locked decision
 
@@ -14,7 +14,7 @@ It is intentionally narrow: enough structure to run Convex locally, generate typ
 
 ## Current implementation
 
-- `convex/schema.ts` defines an explicit empty schema so later table work starts from a typed baseline instead of ad hoc implicit tables
+- `convex/schema.ts` defines the first durable `profiles` table for people and communities
 - `convex/health.ts` exposes a minimal public query, `health:status`, that confirms the backend is reachable without hard-coding early product domain records
 - `convex.json` pins Convex to Node `22` so local backend runtime expectations stay aligned with the repo's current Node baseline
 - `convex/tsconfig.json` provides the TypeScript settings Convex uses to typecheck backend source files
@@ -54,7 +54,8 @@ Keep the initial backend slice simple:
 
 - `#55` wires the web app to the first Convex client/runtime path using `health:status`
 - `#64` adds the first server-side `Next.js -> Convex` data path with `fetchQuery` on `/server-status`
-- schema, auth, billing, and production deployment posture should land in their own issues instead of bloating the bootstrap
+- profile schema, auth, billing, and production deployment posture should land in their own issues instead of bloating the bootstrap
+- `#9` adds the first product table, `profiles`, while keeping slugs, auth/account links, permissions, and type-specific fields deferred
 
 ## App Router baseline
 

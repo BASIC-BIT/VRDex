@@ -7,7 +7,7 @@
 - `AGENTS.md` - repo-wide agent rules and durable workflow defaults
 - `AGENTS.local.md.example` - local operator preference template for `AGENTS.local.md`
 - `apps/web` - initial `Next.js` web application scaffold
-- `convex` - initial Convex backend functions, schema, and generated API types
+- `convex` - initial Convex backend functions, base profile schema, and generated API types
 - `docs/README.md` - docs entry point
 - `docs/planning/` - product, architecture, roadmap, backlog, and issue-planning docs
 - `docs/agentic/` - software-factory, onboarding, and agent workflow docs
@@ -35,6 +35,8 @@ Convex writes repo-root deployment configuration to `.env.local` during local se
 The local Convex bootstrap now mirrors `CONVEX_URL` into `apps/web/.env.local` as `NEXT_PUBLIC_CONVEX_URL` so the web app can read the placeholder `health:status` query through the Convex client runtime. If you want the homepage to show live backend data instead of the local configuration fallback, run `pnpm bootstrap:backend:local` first and keep `pnpm dev:backend:local` running while you use `pnpm dev:web`.
 
 The first server-side `Next.js -> Convex` baseline now lives at `/server-status`. It uses `fetchQuery` from `convex/nextjs` on a dedicated route rendered dynamically, while the homepage keeps the reactive client-side `useQuery` path.
+
+The first product schema table is `profiles`, covering the shared durable record for both people and communities. See `docs/backend/profile-schema.md` for the current field and state contract.
 
 `pnpm verify` is the full repo verification pass and now includes the local Convex bootstrap checks. If you are iterating on the web app only, use `pnpm verify:web` for the lighter web-only path.
 

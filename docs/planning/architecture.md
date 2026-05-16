@@ -87,6 +87,12 @@ vrdex/
 
 One row per person or community.
 
+Implementation status:
+
+- `#9` establishes one shared Convex `profiles` table
+- claim state, publication state, and creation source are split into separate fields
+- account/user links, slug generation, type-specific fields, assets, and search-specific indexes are deferred to follow-on issues
+
 Suggested fields:
 
 - `id`
