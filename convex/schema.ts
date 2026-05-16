@@ -35,12 +35,15 @@ export default defineSchema({
     claimState,
     publicationState,
     creationSource,
+    // Mutations must set claimedAt/publishedAt with state transitions
+    // and patch updatedAt on every profile write.
     claimedAt: v.optional(v.number()),
     publishedAt: v.optional(v.number()),
     updatedAt: v.number(),
   })
     .index("by_profileType_publicationState", ["profileType", "publicationState"])
     .index("by_publicationState_claimState", ["publicationState", "claimState"])
+    .index("by_claimState_profileType", ["claimState", "profileType"])
     .index("by_creationSource_claimState", ["creationSource", "claimState"])
     .index("by_profileType_sortName", ["profileType", "sortName"]),
 });

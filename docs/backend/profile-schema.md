@@ -40,7 +40,7 @@ State fields:
 - `creationSource`: `"self" | "community" | "concierge" | "import" | "moderator"`
 - `claimedAt`: optional claim timestamp, present only after claim authority is established
 - `publishedAt`: optional publication timestamp, present once a profile has been published
-- `updatedAt`: application-maintained update timestamp
+- `updatedAt`: application-maintained update timestamp that every profile mutation must refresh
 
 Convex automatically provides `_id` and `_creationTime`; those are not duplicated in the schema.
 
@@ -59,10 +59,19 @@ Convex automatically provides `_id` and `_creationTime`; those are not duplicate
 
 `creationSource` describes how the record entered the system. It is not an authority marker by itself; authority comes from `claimState` and later claim records.
 
+## Mutation Contracts
+
+Convex schema validation cannot enforce conditional timestamp invariants, so profile mutations must preserve these application-level rules:
+
+- set `claimedAt` when `claimState` leaves `"unclaimed"`
+- set `publishedAt` when `publicationState` becomes `"published"`
+- patch `updatedAt` on every profile write
+
 ## Initial Indexes
 
 - `by_profileType_publicationState`: public page/discovery entry points split by person vs community
 - `by_publicationState_claimState`: public/trust filtering for later profile lists
+- `by_claimState_profileType`: moderation and claim-review flows by claim state, with optional type splitting
 - `by_creationSource_claimState`: moderation and community-submitted/unclaimed review flows
 - `by_profileType_sortName`: deterministic profile listing by type
 
