@@ -8,6 +8,9 @@
  * @module
  */
 
+import type * as _profilePermissions from "../_profilePermissions.js";
+import type * as _profileSlugs from "../_profileSlugs.js";
+import type * as _profileStates from "../_profileStates.js";
 import type * as health from "../health.js";
 
 import type {
@@ -17,6 +20,9 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  _profilePermissions: typeof _profilePermissions;
+  _profileSlugs: typeof _profileSlugs;
+  _profileStates: typeof _profileStates;
   health: typeof health;
 }>;
 

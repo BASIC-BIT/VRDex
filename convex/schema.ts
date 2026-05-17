@@ -1,8 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
-const profileType = v.union(v.literal("person"), v.literal("community"));
-
 const claimState = v.union(
   v.literal("unclaimed"),
   v.literal("claimed_unverified"),
@@ -22,25 +20,48 @@ const creationSource = v.union(
   v.literal("moderator"),
 );
 
+const sharedProfileFields = {
+  slug: v.string(),
+  displayName: v.string(),
+  sortName: v.string(),
+  aliases: v.array(v.string()),
+  tags: v.array(v.string()),
+  headline: v.optional(v.string()),
+  bio: v.optional(v.string()),
+  region: v.optional(v.string()),
+  timezone: v.optional(v.string()),
+  claimState,
+  publicationState,
+  creationSource,
+  // Mutations must set claimedAt/publishedAt with state transitions
+  // and patch updatedAt on every profile write.
+  claimedAt: v.optional(v.number()),
+  publishedAt: v.optional(v.number()),
+  updatedAt: v.number(),
+};
+
 export default defineSchema({
-  profiles: defineTable({
-    profileType,
-    displayName: v.string(),
-    sortName: v.string(),
-    aliases: v.array(v.string()),
-    headline: v.optional(v.string()),
-    bio: v.optional(v.string()),
-    region: v.optional(v.string()),
-    timezone: v.optional(v.string()),
-    claimState,
-    publicationState,
-    creationSource,
-    // Mutations must set claimedAt/publishedAt with state transitions
-    // and patch updatedAt on every profile write.
-    claimedAt: v.optional(v.number()),
-    publishedAt: v.optional(v.number()),
-    updatedAt: v.number(),
-  })
+  profiles: defineTable(
+    v.union(
+      v.object({
+        ...sharedProfileFields,
+        profileType: v.literal("person"),
+        person: v.object({
+          pronouns: v.optional(v.string()),
+          roleTags: v.array(v.string()),
+        }),
+      }),
+      v.object({
+        ...sharedProfileFields,
+        profileType: v.literal("community"),
+        community: v.object({
+          subtype: v.optional(v.string()),
+          categoryTags: v.array(v.string()),
+        }),
+      }),
+    ),
+  )
+    .index("by_slug", ["slug"])
     .index("by_profileType_publicationState", ["profileType", "publicationState"])
     .index("by_publicationState_claimState", ["publicationState", "claimState"])
     .index("by_claimState_profileType", ["claimState", "profileType"])

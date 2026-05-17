@@ -2,9 +2,9 @@
 
 ## Status note
 
-This doc captures the initial Convex backend slice landed for `#54`, plus the first product schema slice from `#9`.
+This doc captures the initial Convex backend slice landed for `#54`, plus the first profile foundation slices from `#9` through `#13`.
 
-It is intentionally narrow: enough structure to run Convex locally, generate typed backend helpers, prove the backend is wired, and define the first profile table without prematurely locking auth, permissions, slugs, or rich product flows.
+It is intentionally narrow: enough structure to run Convex locally, generate typed backend helpers, prove the backend is wired, and define profile identity/authority contracts without prematurely locking auth providers, account links, public write flows, billing, or rich presentation features.
 
 ## Locked decision
 
@@ -55,7 +55,8 @@ Keep the initial backend slice simple:
 - `#55` wires the web app to the first Convex client/runtime path using `health:status`
 - `#64` adds the first server-side `Next.js -> Convex` data path with `fetchQuery` on `/server-status`
 - profile schema, auth, billing, and production deployment posture should land in their own issues instead of bloating the bootstrap
-- `#9` adds the first product table, `profiles`, while keeping slugs, auth/account links, permissions, and type-specific fields deferred
+- `#9` adds the first product table, `profiles`
+- `#10` through `#13` add profile slugs, type-aware fields, permission contracts, and claim-state helpers while keeping auth/account links deferred
 
 ## App Router baseline
 
