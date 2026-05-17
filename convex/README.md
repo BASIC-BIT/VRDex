@@ -3,7 +3,7 @@
 This directory holds the initial Convex backend slice for `VRDex`.
 
 - `health.ts` exposes the placeholder public query `health:status`
-- `schema.ts` keeps the starting schema explicit and intentionally empty
+- `schema.ts` defines the base `profiles` table for people and communities
 - `_generated/` contains committed Convex codegen output and should not be edited by hand
 - `tsconfig.json` is the Convex-managed TypeScript config for backend functions
 
@@ -16,3 +16,5 @@ Use the repo-root scripts for local work:
 - `pnpm check:backend:generated`
 
 The canonical workflow notes live in `docs/backend/convex-bootstrap.md`.
+
+The profile schema contract lives in `docs/backend/profile-schema.md`.
