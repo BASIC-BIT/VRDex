@@ -30,8 +30,9 @@ Initial slug generation starts from a display name or owner-provided text:
 3. convert non-alphanumeric runs to hyphens
 4. trim leading/trailing hyphens
 5. collapse repeated hyphens
-6. append a safe suffix when the base would be too short or reserved
-7. append numeric suffixes such as `-2`, `-3`, and later attempts when a slug is already taken
+6. append and revalidate a safe suffix when the base would be too short or reserved
+7. trim and revalidate overlong bases
+8. append numeric suffixes such as `-2`, `-3`, and later attempts when a slug is already taken
 
 ## Uniqueness
 

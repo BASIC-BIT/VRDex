@@ -86,6 +86,9 @@ jobs:
       - name: Run backend typecheck
         run: pnpm typecheck:backend
 
+      - name: Run backend unit tests
+        run: pnpm test:backend
+
   verify-backend-local:
     name: Verify Backend Local
     runs-on: ubuntu-latest

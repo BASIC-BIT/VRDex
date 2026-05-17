@@ -38,7 +38,7 @@ export function canTransitionProfileClaimState(
   from: ProfileClaimState,
   to: ProfileClaimState,
 ): boolean {
-  return from === to || ALLOWED_CLAIM_STATE_TRANSITIONS[from].includes(to);
+  return ALLOWED_CLAIM_STATE_TRANSITIONS[from].includes(to);
 }
 
 export function requireProfileClaimStateTransition(

@@ -4,6 +4,7 @@ import type { DatabaseReader } from "./_generated/server";
 export const PROFILE_SLUG_MIN_LENGTH = 3;
 export const PROFILE_SLUG_MAX_LENGTH = 64;
 export const PROFILE_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+export const PROFILE_SLUG_FALLBACK_BASE = "profile-page";
 
 export const RESERVED_PROFILE_SLUGS = [
   "about",
@@ -100,22 +101,24 @@ export function toProfileSlug(input: string): ProfileSlugValidationResult {
 }
 
 export function createProfileSlugBase(input: string): string {
-  let slug = normalizeProfileSlugInput(input) || "profile-page";
+  let slug = normalizeProfileSlugInput(input) || PROFILE_SLUG_FALLBACK_BASE;
 
-  if (slug.length < PROFILE_SLUG_MIN_LENGTH) {
-    slug = `${slug}-profile`;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    if (slug.length < PROFILE_SLUG_MIN_LENGTH || RESERVED_PROFILE_SLUG_SET.has(slug)) {
+      slug = `${slug}-profile`;
+    }
+
+    if (slug.length > PROFILE_SLUG_MAX_LENGTH) {
+      slug = slug.slice(0, PROFILE_SLUG_MAX_LENGTH).replace(/-+$/g, "");
+    }
+
+    const validated = validateProfileSlug(slug);
+    if (validated.ok) {
+      return validated.slug;
+    }
   }
 
-  if (RESERVED_PROFILE_SLUG_SET.has(slug)) {
-    slug = `${slug}-profile`;
-  }
-
-  if (slug.length > PROFILE_SLUG_MAX_LENGTH) {
-    slug = slug.slice(0, PROFILE_SLUG_MAX_LENGTH).replace(/-+$/g, "");
-  }
-
-  const validated = validateProfileSlug(slug);
-  return validated.ok ? validated.slug : "profile-page";
+  return PROFILE_SLUG_FALLBACK_BASE;
 }
 
 export function createProfileSlugCandidate(base: string, attempt: number): string {

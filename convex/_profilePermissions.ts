@@ -54,10 +54,14 @@ export function canReadProfile(
 
 export function canEditProfileField(
   subject: ProfilePermissionSubject,
-  profile: Pick<Doc<"profiles">, "claimState" | "profileType">,
+  profile: Pick<Doc<"profiles">, "claimState" | "profileType" | "publicationState">,
   field: ProfileEditableField,
 ): boolean {
   if (!isFieldCompatibleWithProfileType(profile.profileType, field)) {
+    return false;
+  }
+
+  if (!canReadProfile(subject, profile)) {
     return false;
   }
 

@@ -41,7 +41,7 @@ Moderators may override profile fields later for safety, corrections, and abuse 
 
 Claim transitions preserve the same profile record and slug. Claiming a profile should not create a duplicate identity record.
 
-Allowed ordinary transitions:
+Allowed ordinary transitions are real state changes only:
 
 - `unclaimed` -> `claimed_unverified`
 - `unclaimed` -> `claimed_verified`
@@ -65,6 +65,7 @@ These labels are business-logic helpers only. Final UI copy and visual treatment
 Future claim mutations must:
 
 - validate allowed claim-state transitions
+- handle no-op writes outside the claim transition helper
 - set `claimedAt` when `claimState` leaves `"unclaimed"`
 - preserve the profile `_id` and slug when authority changes
 - patch `updatedAt` on every profile write
