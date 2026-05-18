@@ -38,6 +38,8 @@ The first server-side `Next.js -> Convex` baseline now lives at `/server-status`
 
 The first product schema table is `profiles`, covering the shared durable record for both people and communities. See `docs/backend/profile-schema.md` for the current field and state contract.
 
+Profile slug, permission, and claim-state contracts live in `docs/backend/profile-slugs.md` and `docs/backend/profile-access-and-claims.md`.
+
 `pnpm verify` is the full repo verification pass and now includes the local Convex bootstrap checks. If you are iterating on the web app only, use `pnpm verify:web` for the lighter web-only path.
 
 ## Start here

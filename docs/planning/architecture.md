@@ -90,8 +90,11 @@ One row per person or community.
 Implementation status:
 
 - `#9` establishes one shared Convex `profiles` table
-- claim state, publication state, and creation source are split into separate fields
-- account/user links, slug generation, type-specific fields, assets, and search-specific indexes are deferred to follow-on issues
+- `#10` adds globally unique canonical profile slugs and validation helpers
+- `#11` adds discriminated person/community type-specific fields
+- `#12` documents the profile read/write permission baseline
+- `#13` documents claim-state transitions and trust-label helpers
+- account/user links, assets, public profile pages, and search-specific indexes are deferred to follow-on issues
 
 Suggested fields:
 

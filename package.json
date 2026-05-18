@@ -8,13 +8,14 @@
     "dev:web": "pnpm --filter web dev",
     "build:web": "pnpm --filter web build",
     "lint:web": "pnpm --filter web lint",
+    "test:backend": "node --import tsx --test tests/backend/**/*.test.ts",
     "typecheck:backend": "tsc --noEmit --project convex/tsconfig.json",
     "run:backend:health:local": "pnpm verify:backend:local",
     "typecheck:web": "pnpm --filter web typecheck",
     "verify:backend:local": "node scripts/run-convex-local.mjs dev --local --once --run health:status --tail-logs disable",
     "check:backend:generated": "pnpm verify:backend:local && git diff --exit-code -- convex/_generated",
     "verify:web": "pnpm lint:web && pnpm typecheck:web && pnpm build:web",
-    "verify": "pnpm verify:web && pnpm check:backend:generated && pnpm typecheck:backend",
+    "verify": "pnpm verify:web && pnpm check:backend:generated && pnpm typecheck:backend && pnpm test:backend",
     "prepare": "husky"
   },
   "lint-staged": {
@@ -25,6 +26,7 @@
     "convex": "^1.32.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.3.3",
+    "tsx": "^4.22.1",
     "typescript": "^5.9.3"
   }
 }
