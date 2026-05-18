@@ -7,7 +7,7 @@
 - `AGENTS.md` - repo-wide agent rules and durable workflow defaults
 - `AGENTS.local.md.example` - local operator preference template for `AGENTS.local.md`
 - `apps/web` - initial `Next.js` web application scaffold
-- `convex` - initial Convex backend functions, base profile schema, and generated API types
+- `convex` - Convex backend functions, profile schema, community submissions, and generated API types
 - `docs/README.md` - docs entry point
 - `docs/planning/` - product, architecture, roadmap, backlog, and issue-planning docs
 - `docs/agentic/` - software-factory, onboarding, and agent workflow docs
@@ -38,7 +38,9 @@ The first server-side `Next.js -> Convex` baseline now lives at `/server-status`
 
 The first product schema table is `profiles`, covering the shared durable record for both people and communities. See `docs/backend/profile-schema.md` for the current field and state contract.
 
-Profile slug, permission, and claim-state contracts live in `docs/backend/profile-slugs.md` and `docs/backend/profile-access-and-claims.md`.
+Profile slug, permission, claim-state, and community-submission contracts live in `docs/backend/profile-slugs.md`, `docs/backend/profile-access-and-claims.md`, and `docs/backend/community-submissions.md`.
+
+Community-submitted public profiles now start at `/submit`. Person profile pages render at `/p/<slug>` and community profile pages render at `/c/<slug>`.
 
 `pnpm verify` is the full repo verification pass and now includes the local Convex bootstrap checks. If you are iterating on the web app only, use `pnpm verify:web` for the lighter web-only path.
 

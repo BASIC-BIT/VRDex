@@ -28,11 +28,25 @@ const sharedProfileFields = {
   tags: v.array(v.string()),
   headline: v.optional(v.string()),
   bio: v.optional(v.string()),
+  about: v.optional(v.string()),
+  avatarImageUrl: v.optional(v.string()),
+  bannerImageUrl: v.optional(v.string()),
   region: v.optional(v.string()),
   timezone: v.optional(v.string()),
   claimState,
   publicationState,
   creationSource,
+  sourceAttribution: v.optional(
+    v.object({
+      submittedAt: v.number(),
+      submitter: v.object({
+        tokenIdentifier: v.string(),
+        issuer: v.string(),
+        subject: v.string(),
+        displayName: v.optional(v.string()),
+      }),
+    }),
+  ),
   // Mutations must set claimedAt/publishedAt with state transitions
   // and patch updatedAt on every profile write.
   claimedAt: v.optional(v.number()),

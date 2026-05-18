@@ -4,7 +4,7 @@
 
 This doc captures the permission and claim-state baseline for `#12` and `#13`.
 
-It intentionally does not add auth, account records, public write mutations, OAuth claim flows, VRChat proof-code verification, moderation UI, role delegation, or ownership transfer.
+It intentionally does not add account records, OAuth claim flows, VRChat proof-code verification, moderation UI, role delegation, or ownership transfer.
 
 ## Read Baseline
 
@@ -17,7 +17,7 @@ It intentionally does not add auth, account records, public write mutations, OAu
 
 Ordinary public users cannot edit profiles.
 
-Community submitters may populate only a narrow safe field set for unclaimed profiles once submission flows exist:
+Community submitters may populate only a narrow safe field set for unclaimed profiles through `profiles:submitCommunityProfile`:
 
 - `displayName`
 - `aliases`
@@ -26,6 +26,8 @@ Community submitters may populate only a narrow safe field set for unclaimed pro
 - `community` type-specific fields
 
 Community submitters must not set fields that imply verified authority, private contact details, billing state, ownership, custom slugs, or sensitive visibility choices. Profile creation can still generate an initial slug from submitted display text.
+
+The current public mutation requires a Convex authenticated identity and stores source attribution, but it does not introduce a durable account table or ownership link. Freeform bios, about text, avatar URLs, banner URLs, private contact details, and custom slugs are intentionally outside the ordinary community-submission field set.
 
 Claimed owners may edit normal profile fields after a claim attaches authority to the existing profile record. This baseline assumes claimed owners can edit identity, presentation, slug, tags, and type-specific profile fields, subject to future field-level visibility and abuse controls.
 
