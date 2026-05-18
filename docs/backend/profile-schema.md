@@ -14,7 +14,7 @@ The schema is intentionally narrow. It establishes one shared `profiles` table f
 - claim state, publication state, and creation provenance are separate fields
 - community-submitted unclaimed records are represented by `creationSource: "community"` plus `claimState: "unclaimed"`
 - account/user references are deferred until auth and claim issues define the account model
-- public write mutations are deferred until auth and permissions are wired
+- most public write mutations are deferred until auth and permissions are wired; `profiles:submitCommunityProfile` is the current auth-gated exception
 - the community submission mutation requires a Convex authenticated identity before writing
 - normalized alias, link, asset, and rich authored block tables are deferred to later profile presentation issues
 - avatar and banner fields are URL placeholders for later controlled owner or concierge inputs, not ordinary community-submitted fields
