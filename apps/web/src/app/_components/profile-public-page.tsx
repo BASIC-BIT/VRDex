@@ -19,7 +19,6 @@ type PublicProfileBase = {
   bannerImageUrl?: string;
   region?: string;
   timezone?: string;
-  creationSource: string;
   trustLabel: ProfileTrustLabel;
 };
 
@@ -88,7 +87,7 @@ function safeImageBackground(imageUrl: string | undefined, overlay = false) {
   try {
     const url = new URL(imageUrl);
 
-    if (url.protocol !== "https:" && url.protocol !== "http:") {
+    if (url.protocol !== "https:") {
       return undefined;
     }
 
@@ -197,6 +196,7 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
                   <div
                     className="flex size-24 items-center justify-center rounded-[1.75rem] border border-white/35 bg-white/20 bg-cover bg-center text-3xl font-semibold shadow-[0_18px_60px_rgba(0,0,0,0.22)]"
                     style={avatarStyle}
+                    role="img"
                     aria-label={`${profile.displayName} display image`}
                   >
                     {!avatarStyle ? initialsFor(profile.displayName) : null}

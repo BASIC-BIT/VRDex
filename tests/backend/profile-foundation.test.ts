@@ -152,6 +152,11 @@ describe("profile submission helpers", () => {
       }),
       ["House", "Trance"],
     );
+
+    assert.throws(
+      () => sanitizeProfileTextList(["x".repeat(17)], "Tags", { maxItems: 4, maxLength: 16 }),
+      /Tags items must be 16 characters or fewer/,
+    );
   });
 
   it("sanitizes person submissions to the narrow public field set", () => {
@@ -202,14 +207,16 @@ describe("profile submission helpers", () => {
       },
     );
 
-    assert.throws(() =>
-      sanitizeCommunitySubmissionProfileInput({
-        profileType: "person",
-        displayName: "DJ Celine",
-        community: {
-          subtype: "Club",
-        },
-      }),
+    assert.throws(
+      () =>
+        sanitizeCommunitySubmissionProfileInput({
+          profileType: "person",
+          displayName: "DJ Celine",
+          community: {
+            subtype: "x".repeat(50),
+          },
+        }),
+      /Community fields cannot be submitted for a person profile/,
     );
   });
 });
@@ -245,6 +252,7 @@ describe("public profile projection", () => {
     const publicProfile = toPublicProfile(profile);
 
     assert.equal("sourceAttribution" in publicProfile, false);
+    assert.equal("creationSource" in publicProfile, false);
     assert.equal(publicProfile.trustLabel, "community_submitted");
   });
 });

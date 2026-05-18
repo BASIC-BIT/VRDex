@@ -19,6 +19,8 @@ This doc captures the first community-submitted profile flow for `#23`, plus the
 - `/p/<slug>`: public person profile page
 - `/c/<slug>`: public community profile page
 
+The `/submit` UI currently shows a sign-in-required state until Convex auth is wired into the web app. The backend mutation is already auth-gated and can only write for callers with a Convex identity.
+
 Both public profile routes read through `profiles:getPublicBySlug`, require `publicationState: "published"`, verify the requested route type matches the stored `profileType`, and return a public projection that omits source-attribution identifiers.
 
 ## Allowed Submission Fields

@@ -12,7 +12,6 @@ export function toPublicProfile(profile: Doc<"profiles">) {
     displayName: profile.displayName,
     aliases: profile.aliases,
     tags: profile.tags,
-    creationSource: profile.creationSource,
     trustLabel: getProfileTrustLabel(profile.claimState, profile.creationSource),
     ...optionalField("headline", profile.headline),
     ...optionalField("bio", profile.bio),

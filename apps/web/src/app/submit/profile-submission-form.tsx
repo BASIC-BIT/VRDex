@@ -6,6 +6,7 @@ import { useMutation } from "convex/react";
 import { api } from "@convex-generated-api";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+const submissionsAuthReady = process.env.NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY === "true";
 
 type ProfileType = "person" | "community";
 
@@ -20,6 +21,31 @@ type SubmissionStatus =
       };
     }
   | { kind: "error"; message: string };
+
+const userSafeErrorPatterns = [
+  /Profile submissions require a signed-in user\./,
+  /Display name must be at least \d+ characters\./,
+  /Display name must be \d+ characters or fewer\./,
+  /(?:Aliases|Tags|Role tags|Category tags) items must be \d+ characters or fewer\./,
+  /(?:Aliases|Tags|Role tags|Category tags) can include at most \d+ entries\./,
+  /Community subtype must be \d+ characters or fewer\./,
+  /Community fields cannot be submitted for a person profile\./,
+  /Person fields cannot be submitted for a community profile\./,
+];
+
+function submissionErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+
+  for (const pattern of userSafeErrorPatterns) {
+    const match = message.match(pattern);
+
+    if (match) {
+      return match[0];
+    }
+  }
+
+  return "Profile submission failed. Please try again once the backend is reachable.";
+}
 
 function splitList(value: FormDataEntryValue | null): string[] {
   if (typeof value !== "string") {
@@ -47,6 +73,22 @@ function DisabledSubmissionPanel() {
       </h2>
       <p className="mt-3 text-sm leading-7 text-muted">
         Run <code className="font-mono text-[0.95em]">pnpm bootstrap:backend:local</code> before testing profile submission locally. The mutation also requires a signed-in Convex identity, so anonymous writes stay blocked.
+      </p>
+    </div>
+  );
+}
+
+function SignInRequiredSubmissionPanel() {
+  return (
+    <div className="rounded-[1.5rem] border border-dashed border-border bg-surface px-5 py-6">
+      <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">
+        Submission flow
+      </p>
+      <h2 className="mt-4 text-2xl font-semibold tracking-[-0.03em]">
+        Sign-in required
+      </h2>
+      <p className="mt-3 text-sm leading-7 text-muted">
+        The backend submission mutation is ready, but the public form stays locked until Convex auth is wired into the web app. This avoids exposing a form that can only fail for anonymous visitors.
       </p>
     </div>
   );
@@ -97,8 +139,7 @@ function ConnectedSubmissionForm() {
       setProfileType("person");
       startTransition(() => setStatus({ kind: "success", result }));
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      startTransition(() => setStatus({ kind: "error", message }));
+      startTransition(() => setStatus({ kind: "error", message: submissionErrorMessage(error) }));
     }
   }
 
@@ -200,7 +241,7 @@ function ConnectedSubmissionForm() {
             className="inline-flex items-center justify-center rounded-full border border-border bg-surface-strong px-5 py-3 text-sm font-medium"
             href={status.result.profilePath}
           >
-            View /{status.result.slug}
+            View {status.result.profilePath}
           </Link>
         ) : null}
       </div>
@@ -217,6 +258,10 @@ function ConnectedSubmissionForm() {
 export function ProfileSubmissionForm() {
   if (!convexUrl) {
     return <DisabledSubmissionPanel />;
+  }
+
+  if (!submissionsAuthReady) {
+    return <SignInRequiredSubmissionPanel />;
   }
 
   return <ConnectedSubmissionForm />;

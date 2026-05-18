@@ -118,7 +118,7 @@ export function sanitizeProfileTextList(
     }
 
     if (value.length > options.maxLength) {
-      throw new Error(`${fieldName} entries must be ${options.maxLength} characters or fewer.`);
+      throw new Error(`${fieldName} items must be ${options.maxLength} characters or fewer.`);
     }
 
     const key = value.toLowerCase();
@@ -144,8 +144,10 @@ function hasPersonSubmissionFields(input: CommunitySubmissionProfileInput["perso
 function hasCommunitySubmissionFields(
   input: CommunitySubmissionProfileInput["community"],
 ): boolean {
+  const subtype = normalizeProfileInlineText(input?.subtype ?? "");
+
   return (
-    optionalBoundedText(input?.subtype, "Community subtype", PROFILE_SUBTYPE_MAX_LENGTH) !== undefined ||
+    subtype.length > 0 ||
     (input?.categoryTags ?? []).some((value) => normalizeProfileInlineText(value).length > 0)
   );
 }
