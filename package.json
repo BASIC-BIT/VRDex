@@ -8,6 +8,8 @@
     "dev:web": "pnpm --filter web dev",
     "build:web": "pnpm --filter web build",
     "lint:web": "pnpm --filter web lint",
+    "test:e2e": "pnpm --filter web test:e2e",
+    "test:e2e:visual": "pnpm --filter web test:e2e:visual",
     "test:backend": "node --import tsx --test tests/backend/**/*.test.ts",
     "typecheck:backend": "tsc --noEmit --project convex/tsconfig.json",
     "run:backend:health:local": "pnpm verify:backend:local",
