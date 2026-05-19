@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import type { Doc } from "../../convex/_generated/dataModel";
 import {
   createProfileSlugBase,
   createProfileSlugCandidate,
@@ -10,6 +11,12 @@ import {
   validateProfileSlug,
 } from "../../convex/_profileSlugs";
 import { canEditProfileField, canReadProfile } from "../../convex/_profilePermissions";
+import { toPublicProfile } from "../../convex/_profilePublic";
+import {
+  createProfileSortName,
+  sanitizeCommunitySubmissionProfileInput,
+  sanitizeProfileTextList,
+} from "../../convex/_profileSubmissions";
 import {
   canTransitionProfileClaimState,
   getProfileTrustLabel,
@@ -132,5 +139,120 @@ describe("profile claim-state helpers", () => {
   it("throws for invalid claim-state transitions", () => {
     assert.throws(() => requireProfileClaimStateTransition("unclaimed", "unclaimed"));
     assert.throws(() => requireProfileClaimStateTransition("claimed_verified", "unclaimed"));
+  });
+});
+
+describe("profile submission helpers", () => {
+  it("normalizes sort names and community submission lists", () => {
+    assert.equal(createProfileSortName("  DJ Céline  "), "dj celine");
+    assert.deepEqual(
+      sanitizeProfileTextList([" House ", "house", "Trance", ""], "Tags", {
+        maxItems: 4,
+        maxLength: 16,
+      }),
+      ["House", "Trance"],
+    );
+
+    assert.throws(
+      () => sanitizeProfileTextList(["x".repeat(17)], "Tags", { maxItems: 4, maxLength: 16 }),
+      /Tags items must be 16 characters or fewer/,
+    );
+  });
+
+  it("sanitizes person submissions to the narrow public field set", () => {
+    assert.deepEqual(
+      sanitizeCommunitySubmissionProfileInput({
+        profileType: "person",
+        displayName: "  DJ Celine  ",
+        aliases: ["Celine", "celine"],
+        tags: ["House"],
+        person: {
+          roleTags: ["DJ", "VJ"],
+        },
+      }),
+      {
+        profileType: "person",
+        displayName: "DJ Celine",
+        sortName: "dj celine",
+        aliases: ["Celine"],
+        tags: ["House"],
+        person: {
+          roleTags: ["DJ", "VJ"],
+        },
+      },
+    );
+  });
+
+  it("sanitizes community submissions and rejects mismatched type-specific fields", () => {
+    assert.deepEqual(
+      sanitizeCommunitySubmissionProfileInput({
+        profileType: "community",
+        displayName: "Nocturne VR",
+        tags: ["Events"],
+        community: {
+          subtype: " Club ",
+          categoryTags: ["Music", "music"],
+        },
+      }),
+      {
+        profileType: "community",
+        displayName: "Nocturne VR",
+        sortName: "nocturne vr",
+        aliases: [],
+        tags: ["Events"],
+        community: {
+          subtype: "Club",
+          categoryTags: ["Music"],
+        },
+      },
+    );
+
+    assert.throws(
+      () =>
+        sanitizeCommunitySubmissionProfileInput({
+          profileType: "person",
+          displayName: "DJ Celine",
+          community: {
+            subtype: "x".repeat(50),
+          },
+        }),
+      /Community fields cannot be submitted for a person profile/,
+    );
+  });
+});
+
+describe("public profile projection", () => {
+  it("omits source attribution identifiers from public profile results", () => {
+    const profile = {
+      profileType: "person",
+      slug: "dj-celine",
+      displayName: "DJ Celine",
+      sortName: "dj celine",
+      aliases: [],
+      tags: ["House"],
+      claimState: "unclaimed",
+      publicationState: "published",
+      creationSource: "community",
+      publishedAt: 1,
+      updatedAt: 1,
+      sourceAttribution: {
+        submittedAt: 1,
+        submitter: {
+          tokenIdentifier: "issuer|subject",
+          issuer: "issuer",
+          subject: "subject",
+          displayName: "Submitter",
+        },
+      },
+      person: {
+        roleTags: ["DJ"],
+      },
+    } as Doc<"profiles">;
+
+    const publicProfile = toPublicProfile(profile);
+
+    assert.equal("sourceAttribution" in publicProfile, false);
+    assert.equal("creationSource" in publicProfile, false);
+    assert.equal(publicProfile.trustLabel, "community_submitted");
   });
 });

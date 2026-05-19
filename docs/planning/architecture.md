@@ -94,7 +94,10 @@ Implementation status:
 - `#11` adds discriminated person/community type-specific fields
 - `#12` documents the profile read/write permission baseline
 - `#13` documents claim-state transitions and trust-label helpers
-- account/user links, assets, public profile pages, and search-specific indexes are deferred to follow-on issues
+- `#22` adds first owner-authored presentation fields for public pages
+- `#23` adds the authenticated community submission mutation and source attribution baseline
+- `#19` and `#21` add first public person and community profile routes
+- account/user links, asset upload tables, moderation trails, and search-specific indexes are deferred to follow-on issues
 
 Suggested fields:
 

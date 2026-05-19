@@ -18,23 +18,19 @@ export default function Home() {
                   Profiles, communities, and scene presence for VRChat.
                 </h1>
                 <p className="max-w-2xl text-base leading-7 text-muted sm:text-lg">
-                  This is the first{" "}
-                  <code className="font-mono text-[0.95em]">Next.js</code> surface for
-                  VRDex. The app shell is now wired to the initial Convex backend
-                  without prematurely locking in product flows that still belong to
-                  follow-on issues.
+                  VRDex now has the first submit-to-public-profile path: signed-in
+                  community members can seed unclaimed people and communities, and
+                  published profiles render at their canonical URLs.
                 </p>
               </div>
 
               <div className="flex flex-col gap-3 sm:flex-row">
-                <a
+                <Link
                   className="inline-flex items-center justify-center rounded-full bg-accent px-5 py-3 text-sm font-medium text-white transition hover:bg-accent-strong"
-                  href="https://nextjs.org/docs"
-                  target="_blank"
-                  rel="noreferrer"
+                  href="/submit"
                 >
-                  Next.js docs
-                </a>
+                  Add a profile
+                </Link>
                 <Link
                   className="inline-flex items-center justify-center rounded-full border border-border bg-surface-strong px-5 py-3 text-sm font-medium transition hover:-translate-y-0.5"
                   href="/server-status"
@@ -75,7 +71,7 @@ export default function Home() {
                 </div>
                 <div className="flex items-start justify-between gap-4">
                   <dt className="text-muted">Next issues</dt>
-                  <dd className="text-right font-medium">#9, #56, #59</dd>
+                  <dd className="text-right font-medium">#25, #31, #33</dd>
                 </div>
               </dl>
 
@@ -92,12 +88,12 @@ export default function Home() {
               Now in place
             </p>
             <h2 className="mt-4 text-2xl font-semibold tracking-[-0.03em]">
-              Client and server baselines
+              Public profile routes
             </h2>
             <p className="mt-3 text-sm leading-7 text-muted">
-              The repo now has one reactive client read and one explicit server-side
-              read pattern under <code className="font-mono text-[0.95em]">apps/web</code>,
-              ready to support later profile and auth work without mixing patterns.
+              Person pages live under <code className="font-mono text-[0.95em]">/p/&lt;slug&gt;</code>,
+              community pages live under <code className="font-mono text-[0.95em]">/c/&lt;slug&gt;</code>,
+              and both render shared identity, presentation, and trust state.
             </p>
           </article>
 
@@ -106,12 +102,12 @@ export default function Home() {
               Deliberately deferred
             </p>
             <h2 className="mt-4 text-2xl font-semibold tracking-[-0.03em]">
-              Auth, billing, and deployment wiring
+              Owner authority still separate
             </h2>
             <p className="mt-3 text-sm leading-7 text-muted">
-              The app now talks to the placeholder backend path, while identity
-              providers, billing posture, and hosted deployment setup stay in
-              their own follow-on issues.
+              Community submissions create unclaimed profiles only. Rich claim,
+              auth-provider setup, billing posture, and moderation workflows stay
+              in their own follow-on issues.
             </p>
           </article>
 
@@ -120,12 +116,12 @@ export default function Home() {
               Immediate follow-on
             </p>
             <h2 className="mt-4 text-2xl font-semibold tracking-[-0.03em]">
-              Define the profile data foundation
+              Search and trust labels
             </h2>
             <p className="mt-3 text-sm leading-7 text-muted">
-              The next meaningful milestone is establishing the first durable
-              profile schema so public pages and claim flows can build on typed
-              domain records instead of the bootstrap health placeholder.
+              The next meaningful milestone is turning these public records into
+              searchable cards with consistent community-submitted and unverified
+              labeling across discovery surfaces.
             </p>
           </article>
         </section>

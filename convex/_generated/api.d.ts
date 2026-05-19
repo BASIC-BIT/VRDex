@@ -9,9 +9,12 @@
  */
 
 import type * as _profilePermissions from "../_profilePermissions.js";
+import type * as _profilePublic from "../_profilePublic.js";
 import type * as _profileSlugs from "../_profileSlugs.js";
 import type * as _profileStates from "../_profileStates.js";
+import type * as _profileSubmissions from "../_profileSubmissions.js";
 import type * as health from "../health.js";
+import type * as profiles from "../profiles.js";
 
 import type {
   ApiFromModules,
@@ -21,9 +24,12 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   _profilePermissions: typeof _profilePermissions;
+  _profilePublic: typeof _profilePublic;
   _profileSlugs: typeof _profileSlugs;
   _profileStates: typeof _profileStates;
+  _profileSubmissions: typeof _profileSubmissions;
   health: typeof health;
+  profiles: typeof profiles;
 }>;
 
 /**

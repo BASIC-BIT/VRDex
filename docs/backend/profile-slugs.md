@@ -38,7 +38,7 @@ Initial slug generation starts from a display name or owner-provided text:
 
 Convex does not enforce unique indexes at the schema layer. Profile slug uniqueness is enforced by mutations using the `by_slug` index before insert or update.
 
-No public profile write mutations exist yet. Future mutations that create or update profiles must:
+`profiles:submitCommunityProfile` now creates initial public slugs for authenticated community submissions. Mutations that create or update profiles must:
 
 - normalize and validate the candidate slug
 - reject invalid or reserved slugs

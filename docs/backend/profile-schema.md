@@ -2,9 +2,9 @@
 
 ## Status Note
 
-This doc captures the durable profile schema foundation started in `#9` and extended through `#10`, `#11`, `#12`, and `#13`.
+This doc captures the durable profile schema foundation started in `#9` and extended through `#10`, `#11`, `#12`, `#13`, `#22`, and `#23`.
 
-The schema is intentionally narrow. It establishes one shared `profiles` table for people and communities without introducing auth/account links, public write mutations, full claim flows, normalized link tables, asset tables, or public profile pages.
+The schema is intentionally narrow. It establishes one shared `profiles` table for people and communities without introducing account tables, full claim flows, normalized link tables, asset tables, or advanced moderation workflows.
 
 ## Locked Decisions
 
@@ -14,8 +14,10 @@ The schema is intentionally narrow. It establishes one shared `profiles` table f
 - claim state, publication state, and creation provenance are separate fields
 - community-submitted unclaimed records are represented by `creationSource: "community"` plus `claimState: "unclaimed"`
 - account/user references are deferred until auth and claim issues define the account model
-- public write mutations are deferred until auth and permissions are wired
+- most public write mutations are deferred until auth and permissions are wired; `profiles:submitCommunityProfile` is the current auth-gated exception
+- the community submission mutation requires a Convex authenticated identity before writing
 - normalized alias, link, asset, and rich authored block tables are deferred to later profile presentation issues
+- avatar and banner fields are URL placeholders for later controlled owner or concierge inputs, not ordinary community-submitted fields
 
 ## `profiles` Table
 
@@ -32,6 +34,9 @@ Core presentation fields:
 
 - `headline`: optional short label or one-line positioning statement
 - `bio`: optional short public bio
+- `about`: optional longer owner-authored about section
+- `avatarImageUrl`: optional display/avatar image URL for controlled future owner or concierge inputs
+- `bannerImageUrl`: optional banner image URL for controlled future owner or concierge inputs
 - `region`: optional location or scene region text
 - `timezone`: optional time zone text
 
@@ -43,6 +48,7 @@ State fields:
 - `claimedAt`: optional claim timestamp, present only after claim authority is established
 - `publishedAt`: optional publication timestamp, present once a profile has been published
 - `updatedAt`: application-maintained update timestamp that every profile mutation must refresh
+- `sourceAttribution`: optional inline source metadata for community-submitted records
 
 Type-specific fields:
 
@@ -76,6 +82,8 @@ Convex schema validation cannot enforce conditional timestamp invariants, so pro
 - set `publishedAt` when `publicationState` becomes `"published"`
 - patch `updatedAt` on every profile write
 
+The first write path is `profiles:submitCommunityProfile`. It requires `ctx.auth.getUserIdentity()` to return a signed-in identity, generates the slug server-side, publishes the profile as `creationSource: "community"` plus `claimState: "unclaimed"`, and stores narrow source attribution for later moderation and display decisions.
+
 ## Initial Indexes
 
 - `by_slug`: canonical profile lookup and mutation-enforced slug uniqueness
@@ -91,7 +99,7 @@ Convex schema validation cannot enforce conditional timestamp invariants, so pro
 - `#11` adds type-aware person/community fields and documents shared vs type-specific data
 - `#12` defines read/write permission behavior
 - `#13` defines claim-state transitions and trust labeling behavior
-- `#22` adds presentation assets and owner-authored content sections
-- `#23` adds community submission flows and source attribution details
+- `#22` added presentation fields and public-page rendering for avatar/banner, short bio, and longer about content
+- `#23` added the authenticated community submission mutation and source attribution details
 - `#27` adds field-level visibility controls
 - `#31` adds public search behavior and any search-specific indexing
