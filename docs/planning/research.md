@@ -41,17 +41,9 @@ Observed from `https://vrcpop.com/partners/decked-out`:
 - application workflows for clubs
 - optional sync into VRC Pop
 
-Important detail: the bot appears to be distributed manually through Bean on Discord, which suggests it is powerful but not an open public directory by itself.
+Important detail: the bot appears to be distributed manually through direct Discord contact, which suggests it is powerful but not an open public directory by itself.
 
 Implication: your product should probably integrate with Decked Out instead of copying its booking flow first.
-
-### Partner-specific opening as of 2026-05-24
-
-- A warm, actively interested partner has a master DJ links database of roughly 400 DJs and explicit permission for BASIC to use it for product discovery and a reviewed seed path.
-- This is a major validation signal for the profile seed, handoff, and DJ-link-management problem.
-- The raw spreadsheet should stay local-only and should not be committed. Treat it as a permissioned source for reviewed imports, provenance, claim flows, and opt-out behavior.
-- A possible partner path exists through DeckedOut and vrcpop, but should start with learning and integration fit rather than replacement framing.
-- See `docs/planning/partner-opportunity-brief.md` for the current partner brief and conversation targets.
 
 ### VRCLinking / VRify class tools
 

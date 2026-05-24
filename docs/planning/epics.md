@@ -307,7 +307,7 @@ Purpose:
 
 Includes:
 
-- permissioned DJ-list seed import path, starting with a partner-provided list as product discovery input
+- permissioned DJ-list seed import path for reviewed profile imports
 - Decked Out integration paths
 - VRC Pop integration paths
 - VRCLinking attestation paths

@@ -132,4 +132,3 @@ Current recommendation:
 - `docs/planning/product-spec.md`
 - `docs/planning/prd.md`
 - `docs/planning/engineering-strategy.md`
-- `docs/planning/partner-opportunity-brief.md`

@@ -37,7 +37,6 @@ VRDex is a VRChat-first directory and profile platform for people and communitie
 - DJs and communities repeatedly answer the same questions in DMs
 - the scene already accepts Discord<->VRChat linking and verification
 - partner products exist, but public portable identity is still fragmented
-- a warm partner lead has explicitly permitted use of a roughly 400-DJ links database for product discovery and a reviewed seed path, which turns the seed-data and handoff problem from hypothetical into immediate product discovery
 - partner projects in this ecosystem may be built with AI coding agents, so VRDex can create leverage by making those agents VRDex-literate through a portable skill, clear API docs, website navigation guidance, and later MCP tools
 
 ## Problem statement
@@ -525,8 +524,8 @@ These topics should be revisited in later product interviews rather than treated
 - which profile customization options are available to free users
 - what the minimum viable community permission roles should be at launch
 - whether transfer-of-ownership should require one-step transfer, acceptance flow, or admin recovery path
-- which fields in the permissioned DJ list are safe/useful as public profile seeds versus private operator context
-- whether DeckedOut/vrcpop integration should start with profile links, event feeds, media links, or identity/claim signals
+- which imported-list fields are safe/useful as public profile seeds versus private operator context
+- whether event/booking ecosystem integration should start with profile links, event feeds, media links, or identity/claim signals
 - what minimum portable VRDex skill would make an outside AI-coded partner repo productive without bloating the skill with full docs
 - whether the first MCP surface should be standalone VRDex read tools, optional VRChat MCP bridge tools, or both in sequence
 

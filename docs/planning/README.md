@@ -6,7 +6,6 @@
 - `docs/planning/product-spec.md` - MVP scope, user flows, and product rules
 - `docs/planning/architecture.md` - suggested system design, data model, and integrations
 - `docs/planning/prd.md` - product requirements draft for v1 and near-term expansion
-- `docs/planning/partner-opportunity-brief.md` - partner context, seed-data implications, and next conversation targets
 - `docs/planning/agent-integration-surface.md` - external agent-consumable VRDex skill, API, website navigation, and MCP direction
 - `docs/planning/engineering-strategy.md` - stack, testing, verification, and agentic factory plan
 - `docs/planning/docs-strategy.md` - Docusaurus and source-of-truth documentation plan
