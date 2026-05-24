@@ -120,6 +120,8 @@ VRDex becomes the canonical public directory for the VRChat scene:
 
 ### 3c. Partner-assisted seeding
 
+Candidate direction:
+
 - permissioned list imports
 - source/provenance tracking
 - reviewed publication gates

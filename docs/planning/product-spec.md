@@ -76,7 +76,7 @@ They want to add missing performers even before those performers sign up themsel
 6. People and communities are first-class entities
 7. Every profile field can be hidden by its owner after claim
 8. Visual customization should feel expressive without breaking usability
-9. Agents and partner systems should be first-class API/docs consumers, not forced to scrape or infer product rules from vibes
+9. Agents and partner systems should be first-class API/docs consumers, not forced to scrape or infer product rules from undocumented conventions
 
 Current recommendation on terminology:
 
