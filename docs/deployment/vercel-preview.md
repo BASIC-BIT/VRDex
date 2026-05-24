@@ -15,6 +15,8 @@ Create or import one Vercel project for this repository:
 
 `apps/web/vercel.json` records the app-local build command so dashboard and CLI builds use the same deployment validation step.
 
+Run Vercel CLI commands from the repository root once the project root directory is set to `apps/web`; running from `apps/web` will make Vercel resolve the app root twice.
+
 ## Repository secrets
 
 The PR workflow deploys a Vercel preview only when all three repository secrets exist:
@@ -34,6 +36,8 @@ Set these in the Vercel project as needed:
 - `NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY=false`: keep false or unset until web auth lands.
 
 Do not set `VRDEX_ENABLE_PLAYWRIGHT_FIXTURES` in Vercel. Fixture profiles are for Playwright-only local/CI preview screenshots and must not be exposed from hosted previews.
+
+Preview deployment protection must allow unauthenticated reads if the PR preview is meant to be reviewed outside the Vercel dashboard.
 
 ## Validation
 
