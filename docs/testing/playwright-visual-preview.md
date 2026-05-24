@@ -22,10 +22,10 @@ Screenshots are written to `apps/web/playwright-artifacts/screenshots` and attac
 
 ## CI behavior
 
-The `Playwright Public Preview` job is advisory for now. On pull requests it:
+The `Playwright Public Preview` job is required on pull requests. It:
 
 - runs `pnpm test:e2e:visual`
-- uploads `apps/web/playwright-report`, `apps/web/test-results`, and `apps/web/playwright-artifacts`
+- uploads `apps/web/playwright-report`, `apps/web/test-results`, and `apps/web/playwright-artifacts`, failing if no artifact files are found
 - posts or updates a PR comment with the run outcome and artifact link
 
-This intentionally captures review evidence without blocking early UI iteration on pixel diffs. Once the public UI stabilizes, the next step is to add committed baseline snapshots and a separate diff gate.
+This blocks PRs when public route rendering or screenshot capture fails. Pixel review is still artifact-based until committed baseline snapshots and a separate diff gate are added.
