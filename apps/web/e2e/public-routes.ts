@@ -103,6 +103,10 @@ export async function prepareVisualPage(page: Page) {
         }
       }
 
+      if (!document.body) {
+        return;
+      }
+
       for (const element of Array.from(document.body.children)) {
         const box = element.getBoundingClientRect();
         const style = window.getComputedStyle(element);
