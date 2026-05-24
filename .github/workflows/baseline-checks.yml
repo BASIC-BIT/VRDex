@@ -144,6 +144,7 @@ jobs:
   playwright-public-preview:
     name: Playwright Public Preview
     if: github.event_name == 'pull_request'
+    needs: [build-web]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -245,12 +246,20 @@ jobs:
               "This job is required for PR checks; pixel diff baselines are not enabled yet.",
             ].join("\n");
 
-            const { data: comments } = await github.rest.issues.listComments({
-              owner,
-              repo,
-              issue_number,
-              per_page: 100,
-            });
+            let comments = [];
+            let page = 1;
+            while (true) {
+              const { data: pageComments } = await github.rest.issues.listComments({
+                owner,
+                repo,
+                issue_number,
+                per_page: 100,
+                page,
+              });
+              comments = comments.concat(pageComments);
+              if (pageComments.length < 100) break;
+              page++;
+            }
             const existing = comments.find(
               (comment) => comment.user?.type === "Bot" && comment.body?.includes(marker),
             );

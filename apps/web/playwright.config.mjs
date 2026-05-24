@@ -15,7 +15,6 @@ const skipConvexServer = process.env.PLAYWRIGHT_SKIP_CONVEX_DEV === "true";
 
 process.env.CONVEX_URL = convexUrl;
 process.env.NEXT_PUBLIC_CONVEX_URL = convexUrl;
-process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES = "true";
 
 const sharedEnv = {
   ...process.env,
@@ -27,6 +26,7 @@ const sharedEnv = {
 export default defineConfig({
   testDir: "./e2e",
   timeout: 30_000,
+  retries: process.env.CI ? 1 : 0,
   fullyParallel: true,
   reporter: [["list"], ["html", { open: "never", outputFolder: "playwright-report" }]],
   use: {
