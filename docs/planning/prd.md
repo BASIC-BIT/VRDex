@@ -37,6 +37,8 @@ VRDex is a VRChat-first directory and profile platform for people and communitie
 - DJs and communities repeatedly answer the same questions in DMs
 - the scene already accepts Discord<->VRChat linking and verification
 - partner products exist, but public portable identity is still fragmented
+- a warm partner lead has explicitly permitted use of a roughly 400-DJ links database for product discovery and a reviewed seed path, which turns the seed-data and handoff problem from hypothetical into immediate product discovery
+- partner projects in this ecosystem may be built with AI coding agents, so VRDex can create leverage by making those agents VRDex-literate through a portable skill, clear API docs, website navigation guidance, and later MCP tools
 
 ## Problem statement
 
@@ -116,6 +118,13 @@ VRDex becomes the canonical public directory for the VRChat scene:
 - handoff invitations
 - first-run setup wizard
 
+### 3c. Partner-assisted seeding
+
+- permissioned list imports
+- source/provenance tracking
+- reviewed publication gates
+- opt-out and claim paths for seeded people and communities
+
 ### 4. Presence
 
 - upcoming events
@@ -147,6 +156,14 @@ Candidate later direction:
 - invite/accept workflow for event participation
 - optional open signup flows for events
 - likely strong overlap with Decked Out integration territory, so this should be evaluated carefully before building natively
+
+### 5d. Agent-consumable integration kit
+
+- portable VRDex skill for external repos and partner agents
+- public API/OpenAPI examples that are easy for agents to consume
+- website navigation guidance for docs and public pages
+- later standalone VRDex MCP
+- optional VRChat MCP bridge tools where cross-context workflows justify it
 
 ### 6. Monetization
 
@@ -393,6 +410,8 @@ Use LLMs where they help, not where they replace trust:
 - parse event descriptions for possible lineup entities
 - extract likely set times
 - normalize names against known people/communities
+- parse Discord event text into candidate structured events
+- extract likely names and schedule text from event posters/images
 - queue matches for confirmation
 
 Do not auto-publish low-confidence extractions as hard facts.
@@ -402,6 +421,7 @@ Streaming and world-awareness direction:
 - events should eventually support VRChat world linkage
 - world linkage can enable world previews and platform hints such as PC-only or Quest-compatible guidance
 - DJ/media links may need multiple variants, especially VRCDN PC vs Quest behavior
+- a later restreamer or one-link stream-routing workflow may need current/next source status, live checks, operator preview, direct Twitch/watch-link access, and scheduled/manual switching
 - more advanced stream/player knowledge is valuable, but can land after the core event model exists
 
 ## Low-priority R&D ideas
@@ -438,6 +458,7 @@ Recommended direction:
 - public product docs for users and partners
 - internal docs for engineering, moderation, integrations, and agent notes
 - skills remain thin and mostly route agents toward canonical docs pages
+- a product-facing portable VRDex skill should be treated separately from repo-local onboarding skills; its job is to make outside agents good VRDex integrators
 
 ## Open source and public platform approach
 
@@ -452,7 +473,9 @@ Current recommendation:
 
 - frontend/server rendering can use internal server-side data paths where convenient
 - external consumers should still get a documented public API with independent rate limiting and partner-aware limits when justified
-- a public MCP or self-hostable MCP is a promising later extension
+- a public, hosted, or self-hostable VRDex MCP is a promising later extension because VRDex public data does not have VRChat MCP's private-cookie boundary
+- keep a standalone VRDex MCP as the default direction, while leaving room for optional VRChat MCP bridge tools for workflows that start from VRChat context
+- publish a portable VRDex skill before or alongside API/MCP rollout so partner agents can understand product rules, trust states, and integration boundaries
 
 ## Follow-on workflow direction
 
@@ -500,6 +523,10 @@ These topics should be revisited in later product interviews rather than treated
 - which profile customization options are available to free users
 - what the minimum viable community permission roles should be at launch
 - whether transfer-of-ownership should require one-step transfer, acceptance flow, or admin recovery path
+- which fields in the permissioned DJ list are safe/useful as public profile seeds versus private operator context
+- whether DeckedOut/vrcpop integration should start with profile links, event feeds, media links, or identity/claim signals
+- what minimum portable VRDex skill would make an outside AI-coded partner repo productive without bloating the skill with full docs
+- whether the first MCP surface should be standalone VRDex read tools, optional VRChat MCP bridge tools, or both in sequence
 
 ## Success metrics
 
@@ -534,6 +561,7 @@ These topics should be revisited in later product interviews rather than treated
 6. event model and profile associations
 7. partner/event ingestion
 8. AI-assisted matching and confirmation workflow
+9. agent integration kit and MCP prototype after the public API shape stabilizes
 
 ## Phase framing
 

@@ -265,6 +265,10 @@ Purpose:
 Includes:
 
 - documented public read API
+- machine-readable API/schema docs suitable for agent consumption
+- portable VRDex skill direction for external partner repos
+- website navigation guidance for public docs/pages
+- initial standalone VRDex MCP posture
 - first-party vs public rate-limiting strategy
 - basic partner-aware limit posture
 - profile and event endpoints
@@ -272,6 +276,7 @@ Includes:
 Acceptance criteria:
 
 - external consumers can read profile and event data from a documented API
+- external agents have a clear, non-scraping integration path through docs, skill guidance, API, and later MCP
 - rate limiting is explicit
 - the product is still operable as a self-hosted/open platform
 
@@ -302,9 +307,11 @@ Purpose:
 
 Includes:
 
+- permissioned DJ-list seed import path, starting with a partner-provided list as product discovery input
 - Decked Out integration paths
 - VRC Pop integration paths
 - VRCLinking attestation paths
+- partner-facing agent skill/API/MCP guidance so AI-coded partner projects can integrate predictably
 - event feed import/export
 
 Acceptance criteria:
@@ -325,6 +332,7 @@ Includes:
 - richer event-level records
 - world-aware hints
 - stream/media normalization
+- restreamer / one-link watch routing model informed by operator interviews
 
 Acceptance criteria:
 
@@ -340,6 +348,8 @@ Purpose:
 
 Includes:
 
+- Discord event text parsing
+- poster/image lineup extraction
 - event description parsing
 - set-time extraction
 - entity matching suggestions

@@ -828,6 +828,39 @@ Acceptance criteria:
 - the distinction between internal use and public consumer access is clear enough to guide implementation
 - the docs are specific enough to prevent accidental closed-system drift
 
+### Define agent-consumable VRDex integration kit and MCP roadmap
+
+GitHub issue: `#73`.
+
+Problem:
+
+VRDex is meant to be public, API-friendly, and interoperable with partner tools. Some likely partner projects are built with AI coding agents, so VRDex should provide an explicit agent-consumable integration surface instead of making every partner agent infer product rules from the website or scattered docs.
+
+Scope:
+
+- document the portable VRDex skill shape for external repos and partner agents
+- define what belongs in the skill versus public docs, API examples, website navigation guidance, and MCP docs
+- define the first API/OpenAPI documentation expectations for agent consumers
+- define website navigation guidance for public pages and docs without encouraging scraping when API/MCP routes exist
+- define standalone VRDex MCP direction and when optional VRChat MCP bridge tools would make sense
+- incorporate useful patterns from `basics-agentic-dogfooding` portable skill guidance and `vrchat-mcp` curated tool design
+
+Non-goals:
+
+- implementing the full VRDex MCP immediately
+- publishing every agent adapter immediately
+- finalizing every public API endpoint
+- forcing all partners into one coding agent or one integration path
+- coupling VRDex public data and claim operations to private VRChat cookie-based local auth
+
+Acceptance criteria:
+
+- the repo has a clear doc for the external agent integration surface
+- the portable VRDex skill direction is documented clearly enough to become a follow-on implementation issue
+- the API, website navigation, and MCP roles are separated clearly
+- the recommended standalone MCP vs VRChat MCP bridge posture is documented
+- the guidance is specific enough that an AI-coded partner repo can be pointed toward VRDex without relying on chat history
+
 ### Document self-hosting and infrastructure-as-code direction
 
 Problem:

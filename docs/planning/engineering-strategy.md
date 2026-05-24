@@ -107,6 +107,16 @@ Current recommendation:
 - apply explicit rate limiting and client-aware limits
 - keep infra-as-code in the repo
 - design for a later public or self-hostable MCP surface
+- design API docs as both human-readable and agent-consumable, with task examples and machine-readable schema docs
+- treat a portable VRDex skill as a product integration artifact for external repos, separate from repo-local onboarding skills used by VRDex maintainers
+- keep a standalone VRDex MCP as the default long-term direction, with optional VRChat MCP bridge tools only where cross-context workflows justify the coupling
+
+Agent-facing integration direction:
+
+- canonical portable skill source should prefer `skills/vrdex/SKILL.md` plus reference docs/adapters rather than only `.opencode/skills/`
+- public docs should include stable route/API patterns, trust/provenance rules, and examples for partner agents
+- website navigation guidance should exist, but structured data should prefer API or MCP over scraping
+- a future VRDex MCP should use the VRChat MCP pattern of curated tools first, generated API coverage second, compact outputs, and IDs/slugs for follow-up calls
 
 Infra direction:
 
@@ -245,6 +255,12 @@ Good test:
 
 - if you want to explicitly invoke it later, it should probably be a skill
 
+Product-facing distinction:
+
+- repo-local skills help VRDex maintainers and implementation agents work inside this repo
+- a portable VRDex skill would help external partner agents integrate with VRDex from their own repos
+- portable product skills should stay small and route to public docs, API examples, website navigation guidance, and MCP docs instead of duplicating all product knowledge inline
+
 ### Tools
 
 Use for:
@@ -297,10 +313,16 @@ Examples:
 - Langfuse
 - browser automation
 - VRChat
+- VRDex public profile/event/partner integration tools
 
 Good test:
 
 - if the capability exists outside the repo and will be reused often, MCP is a strong candidate
+
+VRDex-specific note:
+
+- standalone VRDex MCP is likely safer and cleaner than folding the whole surface into VRChat MCP because VRDex public data, profile claims, partner sync, and event metadata are not the same auth boundary as a local VRChat account
+- VRChat MCP bridge tools can still be valuable later for resolving VRChat users/groups/worlds/events into VRDex records
 
 ### Docusaurus docs
 
