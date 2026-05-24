@@ -174,6 +174,11 @@ export async function expectServerStatusPage(page: Page) {
   await expect(page.getByText(/Server read reached Convex/i)).toBeVisible();
 }
 
+export async function expectDeploymentPage(page: Page) {
+  await expect(page.getByRole("heading", { name: /Initial Vercel deployment baseline/i })).toBeVisible();
+  await expect(page.getByText(/Deployment facts/i)).toBeVisible();
+}
+
 export async function expectPersonProfilePage(page: Page) {
   await expect(page.getByRole("heading", { name: "DJ Aurora" })).toBeVisible();
   await expect(page.getByText(/Community submitted/i)).toBeVisible();
@@ -199,6 +204,11 @@ export const capturedRoutes: CapturedRoute[] = [
     name: "server-status",
     path: "/server-status",
     expectPage: expectServerStatusPage,
+  },
+  {
+    name: "deployment",
+    path: "/deployment",
+    expectPage: expectDeploymentPage,
   },
   {
     name: "person-profile",

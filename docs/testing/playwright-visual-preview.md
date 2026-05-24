@@ -15,6 +15,7 @@ The visual suite starts a local Convex backend and Next dev server by default. P
 - `/`
 - `/submit`
 - `/server-status`
+- `/deployment`
 - `/p/playwright-dj-aurora`
 - `/c/playwright-afterglow-social`
 

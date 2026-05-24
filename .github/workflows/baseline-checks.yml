@@ -192,6 +192,7 @@ jobs:
           - /
           - /submit
           - /server-status
+          - /deployment
           - /p/playwright-dj-aurora
           - /c/playwright-afterglow-social
 
@@ -240,10 +241,152 @@ jobs:
               "- `/`",
               "- `/submit`",
               "- `/server-status`",
+              "- `/deployment`",
               "- `/p/playwright-dj-aurora`",
               "- `/c/playwright-afterglow-social`",
               "",
               "This job is required for PR checks; pixel diff baselines are not enabled yet.",
+            ].join("\n");
+
+            let comments = [];
+            let page = 1;
+            while (true) {
+              const { data: pageComments } = await github.rest.issues.listComments({
+                owner,
+                repo,
+                issue_number,
+                per_page: 100,
+                page,
+              });
+              comments = comments.concat(pageComments);
+              if (pageComments.length < 100) break;
+              page++;
+            }
+            const existing = comments.find(
+              (comment) => comment.user?.type === "Bot" && comment.body?.includes(marker),
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+  vercel-preview:
+    name: Vercel Preview
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
+    needs: [playwright-public-preview]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check Vercel deployment secrets
+        id: gate
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_ORG_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## Vercel preview"
+              echo "Deployment skipped because one or more required secrets are missing."
+              echo ""
+              echo "Required repository secrets:"
+              echo "- VERCEL_TOKEN"
+              echo "- VERCEL_ORG_ID"
+              echo "- VERCEL_PROJECT_ID"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      - name: Pull Vercel preview environment
+        if: steps.gate.outputs.enabled == 'true'
+        working-directory: apps/web
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: pnpm dlx vercel@latest pull --yes --environment=preview --token "$VERCEL_TOKEN"
+
+      - name: Build Vercel preview output
+        if: steps.gate.outputs.enabled == 'true'
+        working-directory: apps/web
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: pnpm dlx vercel@latest build --token "$VERCEL_TOKEN"
+
+      - name: Deploy Vercel preview output
+        id: deploy
+        if: steps.gate.outputs.enabled == 'true'
+        working-directory: apps/web
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          deployment_url=$(pnpm dlx vercel@latest deploy --prebuilt --token "$VERCEL_TOKEN" | tail -n 1)
+          if [ -z "$deployment_url" ]; then
+            echo "Vercel deployment did not return a URL." >&2
+            exit 1
+          fi
+
+          echo "url=$deployment_url" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Vercel preview"
+            echo "Deployment: $deployment_url"
+            echo "Deployment check page: $deployment_url/deployment"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment with Vercel preview URL
+        if: steps.gate.outputs.enabled == 'true'
+        uses: actions/github-script@v7
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+        with:
+          script: |
+            const marker = "<!-- vrdex-vercel-preview -->";
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.issue.number;
+            const deploymentUrl = process.env.DEPLOYMENT_URL;
+            const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`;
+            const body = [
+              marker,
+              "## Vercel Preview Deployment",
+              `Preview: ${deploymentUrl}`,
+              `Deployment check: ${deploymentUrl}/deployment`,
+              `Run: ${runUrl}`,
             ].join("\n");
 
             let comments = [];
