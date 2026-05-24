@@ -147,3 +147,7 @@ That order keeps the product coherent while still giving you something demoable 
 - add slug history and redirect behavior
 - improve public profile SEO and metadata strategy
 - add LLM-assisted moderation and abuse scanning layer
+- define agent-consumable VRDex integration kit and MCP roadmap (`#73`)
+- publish portable VRDex skill for external partner agents
+- prototype standalone VRDex MCP read tools after public API shape stabilizes
+- evaluate optional VRChat MCP bridge tools for cross-context workflows

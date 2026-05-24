@@ -76,6 +76,7 @@ They want to add missing performers even before those performers sign up themsel
 6. People and communities are first-class entities
 7. Every profile field can be hidden by its owner after claim
 8. Visual customization should feel expressive without breaking usability
+9. Agents and partner systems should be first-class API/docs consumers, not forced to scrape or infer product rules from undocumented conventions
 
 Current recommendation on terminology:
 
@@ -176,6 +177,26 @@ Rules:
 - the recipient gets a first-run wizard rather than being dropped into the full editor immediately
 - prefilled fields should be editable, confirmable, or removable by the owner
 - concierge origin should be tracked for auditability
+
+### 2b. Partner and list seed imports
+
+Trusted operators should be able to turn permissioned external lists into reviewed profile seeds without treating the source as authoritative public truth.
+
+Use cases:
+
+- importing a partner-maintained DJ links list
+- preparing private concierge drafts for DJs before launch
+- seeding unclaimed profiles with safe public fields and visible provenance
+- mapping partner records to existing claimed or unclaimed VRDex profiles
+
+Rules:
+
+- raw partner spreadsheets and raw third-party contact/link exports must not be committed to the repo
+- imports should preserve source, import batch, reviewer, and confidence metadata
+- imported records should default to draft/private or clearly labeled unclaimed states until publication is deliberate
+- sensitive fields should require review before public display
+- DJs and communities need claim, correction, visibility, and opt-out paths
+- partner-provided data should never bypass owner visibility controls after claim
 
 ### 3. Claim flow
 
@@ -291,8 +312,11 @@ Sources can include:
 - self-submitted event links
 - community-submitted event associations
 - partner sync from Decked Out or VRC Pop
+- partner seed imports or permissioned DJ-list records
+- Discord event text pasted or ingested by an operator
 - VRChat calendar and group events
 - AI-extracted candidate event associations from event descriptions
+- AI-extracted candidate event associations from posters or event images
 
 Current recommendation for initial event fields:
 
@@ -318,6 +342,12 @@ Streaming and media direction:
 - examples include VRCDN PC links, VRCDN Quest links, Twitch watch links, and venue camera/watch links
 - v1 should use typed media links for common cases while still allowing generic/other links
 - multiple media links should be supported where operationally useful
+
+Candidate restreamer / one-link routing direction:
+
+- some communities may want one stable public stream/watch link while operators manage per-DJ source links behind it
+- useful operations include manual switching, later time-boundary switching, live checks before switching, current/next source status, preview, and direct Twitch/watch-link access
+- this should inform event media-link modeling and operator-dashboard interviews before becoming first-slice streaming infrastructure
 
 Notification and consent direction:
 
@@ -446,6 +476,8 @@ AI can help with:
 
 - abuse screening on submitted bios and links
 - detecting suspicious impersonation or mismatch signals
+- parsing Discord event text into candidate structured events, set times, DJ names, and media links
+- extracting lineup names and schedule text from event posters/images
 - checking event-description extraction candidates
 - flagging profiles that need manual review
 
@@ -621,11 +653,21 @@ Public read APIs should eventually support:
 - profile card JSON for bot responses
 - embeddable link previews
 - events feed for a person or community
+- agent-oriented compact responses for common profile, event, and media-link lookups
 
 Current recommendation:
 
 - public API and frontend-facing API may share underlying business logic while still having independent rate limiting and client treatment
 - trusted partner clients may later receive different limits than unknown third-party scrapers
+- API docs should be usable by humans and agents, including machine-readable schema docs and short task-oriented examples
+
+Agent integration surface goals:
+
+- publish a portable VRDex skill that other repos can install or point their agents at
+- include API usage guidance, website navigation guidance, trust/provenance rules, and MCP direction in that skill's references
+- consider agent-friendly docs such as `llms.txt`, route maps, and compact API examples once the public docs site exists
+- make AI-coded partner projects better-integrated by default instead of requiring each partner agent to rediscover VRDex conventions
+- see `docs/planning/agent-integration-surface.md`
 
 Partner APIs later:
 
@@ -635,6 +677,15 @@ Partner APIs later:
 - sync community metadata from trusted partners
 - accept identity attestations from VRCLinking
 - accept event feeds and event-participant confirmations from trusted partners
+- support agent/MCP clients with scoped read and write operations where appropriate
+- allow partners to integrate through public API, portable skill guidance, or MCP without being locked into one agent tool
+
+MCP direction:
+
+- a standalone VRDex MCP is a strong later candidate, especially for public profile/event lookup and partner integration workflows
+- optional VRChat MCP bridge tools may also be useful later for resolving VRChat context to VRDex records
+- keep the standalone VRDex surface separate by default so VRDex's public data and claim operations do not become coupled to VRChat cookie-based local auth
+- model the tool design after VRChat MCP's curated-tool philosophy: small explicit tools, human-friendly inputs, compact outputs, IDs for follow-up, and clear not-found guidance
 
 ### Open platform posture
 

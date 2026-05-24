@@ -41,7 +41,7 @@ Observed from `https://vrcpop.com/partners/decked-out`:
 - application workflows for clubs
 - optional sync into VRC Pop
 
-Important detail: the bot appears to be distributed manually through Bean on Discord, which suggests it is powerful but not an open public directory by itself.
+Important detail: the bot appears to be distributed manually through direct Discord contact, which suggests it is powerful but not an open public directory by itself.
 
 Implication: your product should probably integrate with Decked Out instead of copying its booking flow first.
 
