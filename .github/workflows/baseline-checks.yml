@@ -140,3 +140,137 @@ jobs:
 
       - name: Run build
         run: pnpm build:web
+
+  playwright-public-preview:
+    name: Playwright Public Preview
+    if: github.event_name == 'pull_request'
+    needs: [build-web]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        working-directory: apps/web
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Capture public route screenshots
+        id: visual
+        run: pnpm test:e2e:visual
+
+      - name: Write visual summary
+        if: always()
+        env:
+          VISUAL_OUTCOME: ${{ steps.visual.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          mkdir -p apps/web/playwright-artifacts
+          cat > apps/web/playwright-artifacts/visual-summary.md <<EOF
+          ## Playwright public screenshot preview
+
+          Outcome: ${VISUAL_OUTCOME}
+
+          Captured routes:
+          - /
+          - /submit
+          - /server-status
+          - /p/playwright-dj-aurora
+          - /c/playwright-afterglow-social
+
+          Run: ${RUN_URL}
+          EOF
+
+      - name: Upload Playwright artifacts
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-public-preview
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+            apps/web/playwright-artifacts
+
+      - name: Comment with screenshot artifact
+        if: always() && github.event.pull_request.head.repo.fork == false
+        uses: actions/github-script@v7
+        env:
+          VISUAL_OUTCOME: ${{ steps.visual.outcome }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+        with:
+          script: |
+            const marker = "<!-- vrdex-playwright-public-preview -->";
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.issue.number;
+            const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`;
+            const artifactUrl = process.env.ARTIFACT_URL || "";
+            const outcome = process.env.VISUAL_OUTCOME || "unknown";
+            const artifactLine = artifactUrl
+              ? `Artifact: [playwright-public-preview](${artifactUrl})`
+              : "Artifact: not generated";
+            const body = [
+              marker,
+              "## Playwright Public Screenshot Preview",
+              `Outcome: ${outcome}`,
+              `Run: ${runUrl}`,
+              artifactLine,
+              "",
+              "Captured routes:",
+              "- `/`",
+              "- `/submit`",
+              "- `/server-status`",
+              "- `/p/playwright-dj-aurora`",
+              "- `/c/playwright-afterglow-social`",
+              "",
+              "This job is required for PR checks; pixel diff baselines are not enabled yet.",
+            ].join("\n");
+
+            let comments = [];
+            let page = 1;
+            while (true) {
+              const { data: pageComments } = await github.rest.issues.listComments({
+                owner,
+                repo,
+                issue_number,
+                per_page: 100,
+                page,
+              });
+              comments = comments.concat(pageComments);
+              if (pageComments.length < 100) break;
+              page++;
+            }
+            const existing = comments.find(
+              (comment) => comment.user?.type === "Bot" && comment.body?.includes(marker),
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }

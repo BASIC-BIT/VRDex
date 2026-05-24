@@ -4,5 +4,8 @@ node_modules/
 .husky/_/
 .convex-home/
 .convex-tmp/
+apps/web/playwright-report/
+apps/web/playwright-artifacts/
+apps/web/test-results/
 .env
 .env.local

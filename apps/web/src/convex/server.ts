@@ -1,5 +1,6 @@
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@convex-generated-api";
+import { getPlaywrightPublicProfileFixture } from "./playwright-fixtures";
 
 type PublicProfileType = "person" | "community";
 
@@ -27,6 +28,15 @@ export async function fetchBackendStatus() {
 }
 
 export async function fetchPublicProfileBySlug(slug: string, profileType: PublicProfileType) {
+  const fixtureProfile = getPlaywrightPublicProfileFixture(slug, profileType);
+
+  if (fixtureProfile !== null) {
+    return {
+      kind: "live" as const,
+      profile: fixtureProfile,
+    };
+  }
+
   if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
     return { kind: "missing-url" as const };
   }

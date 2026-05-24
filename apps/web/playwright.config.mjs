@@ -1,0 +1,78 @@
+import { defineConfig, devices } from "@playwright/test";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const configDir = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(configDir, "..", "..");
+const parsedPort = Number(process.env.PLAYWRIGHT_TEST_PORT);
+const port = Number.isFinite(parsedPort) ? parsedPort : 3002;
+const baseURL = `http://127.0.0.1:${port}`;
+const convexUrl = process.env.PLAYWRIGHT_CONVEX_URL ?? "http://127.0.0.1:3210";
+const convexPort = Number(new URL(convexUrl).port) || 3210;
+const reuseNextServer = process.env.PLAYWRIGHT_REUSE_SERVER === "true";
+const reuseConvexServer = process.env.PLAYWRIGHT_REUSE_CONVEX === "true";
+const skipConvexServer = process.env.PLAYWRIGHT_SKIP_CONVEX_DEV === "true";
+
+process.env.CONVEX_URL = convexUrl;
+process.env.NEXT_PUBLIC_CONVEX_URL = convexUrl;
+
+const sharedEnv = {
+  ...process.env,
+  CONVEX_URL: convexUrl,
+  NEXT_PUBLIC_CONVEX_URL: convexUrl,
+  VRDEX_ENABLE_PLAYWRIGHT_FIXTURES: "true",
+};
+
+export default defineConfig({
+  testDir: "./e2e",
+  timeout: 30_000,
+  retries: process.env.CI ? 1 : 0,
+  fullyParallel: true,
+  reporter: [["list"], ["html", { open: "never", outputFolder: "playwright-report" }]],
+  use: {
+    baseURL,
+    trace: "on-first-retry",
+    screenshot: "only-on-failure",
+    video: "retain-on-failure",
+    locale: "en-US",
+    timezoneId: "UTC",
+  },
+  webServer: [
+    ...(skipConvexServer
+      ? []
+      : [
+          {
+            command: "node scripts/run-convex-local.mjs dev --local",
+            cwd: repoRoot,
+            port: convexPort,
+            reuseExistingServer: reuseConvexServer,
+            timeout: 300_000,
+            env: sharedEnv,
+          },
+        ]),
+    {
+      command: `node node_modules/next/dist/bin/next dev --hostname 127.0.0.1 --port ${port}`,
+      cwd: configDir,
+      url: baseURL,
+      reuseExistingServer: reuseNextServer,
+      timeout: 300_000,
+      env: sharedEnv,
+    },
+  ],
+  projects: [
+    {
+      name: "desktop-chromium",
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 1280, height: 900 },
+        deviceScaleFactor: 1,
+      },
+    },
+    {
+      name: "mobile-chromium",
+      use: {
+        ...devices["Pixel 7"],
+      },
+    },
+  ],
+});

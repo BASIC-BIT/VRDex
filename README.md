@@ -28,6 +28,8 @@
 - lint the web app: `pnpm lint:web`
 - typecheck the web app: `pnpm typecheck:web`
 - build the web app: `pnpm build:web`
+- smoke public routes with Playwright: `pnpm test:e2e`
+- capture public route screenshots with Playwright: `pnpm test:e2e:visual`
 - run the baseline local verification pass: `pnpm verify`
 
 Convex writes repo-root deployment configuration to `.env.local` during local setup and keeps anonymous local state under `.convex-home/` plus `.convex-tmp/`. Keep all of those uncommitted. The committed `convex/_generated/` files are expected to stay clean after `pnpm check:backend:generated`.
@@ -41,6 +43,8 @@ The first product schema table is `profiles`, covering the shared durable record
 Profile slug, permission, claim-state, and community-submission contracts live in `docs/backend/profile-slugs.md`, `docs/backend/profile-access-and-claims.md`, and `docs/backend/community-submissions.md`.
 
 Community-submitted public profiles now start at `/submit`. Person profile pages render at `/p/<slug>` and community profile pages render at `/c/<slug>`.
+
+Playwright screenshot preview captures desktop and mobile screenshots for `/`, `/submit`, `/server-status`, and deterministic public profile fixtures. See `docs/testing/playwright-visual-preview.md`.
 
 `pnpm verify` is the full repo verification pass and now includes the local Convex bootstrap checks. If you are iterating on the web app only, use `pnpm verify:web` for the lighter web-only path.
 
