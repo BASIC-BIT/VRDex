@@ -292,18 +292,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
       - name: Check Vercel deployment secrets
         id: gate
         env:
@@ -327,13 +315,28 @@ jobs:
 
           echo "enabled=true" >> "$GITHUB_OUTPUT"
 
+      - name: Setup pnpm
+        if: steps.gate.outputs.enabled == 'true'
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        if: steps.gate.outputs.enabled == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.gate.outputs.enabled == 'true'
+        run: pnpm install --frozen-lockfile
+
       - name: Pull Vercel preview environment
         if: steps.gate.outputs.enabled == 'true'
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-        run: pnpm dlx vercel@latest pull --yes --environment=preview --token "$VERCEL_TOKEN"
+        run: pnpm dlx vercel@54.4.1 pull --yes --environment=preview --token "$VERCEL_TOKEN"
 
       - name: Build Vercel preview output
         if: steps.gate.outputs.enabled == 'true'
@@ -341,7 +344,7 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-        run: pnpm dlx vercel@latest build --target=preview --token "$VERCEL_TOKEN"
+        run: pnpm dlx vercel@54.4.1 build --target=preview --token "$VERCEL_TOKEN"
 
       - name: Deploy Vercel preview output
         id: deploy
@@ -352,7 +355,7 @@ jobs:
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
           set -euo pipefail
-          deployment_url=$(pnpm dlx vercel@latest deploy --prebuilt --target=preview --token "$VERCEL_TOKEN" | tail -n 1)
+          deployment_url=$(pnpm dlx vercel@54.4.1 deploy --prebuilt --target=preview --token "$VERCEL_TOKEN" | tail -n 1)
           if [ -z "$deployment_url" ]; then
             echo "Vercel deployment did not return a URL." >&2
             exit 1

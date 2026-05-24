@@ -11,5 +11,3 @@ apps/web/test-results/
 apps/web/.vercel/
 .env
 .env.local
-
-.vercel/
