@@ -1,0 +1,79 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "playwright": {
+      "type": "local",
+      "command": ["npx", "-y", "@playwright/mcp@latest"],
+      "enabled": true
+    },
+    "vercel-vrdex": {
+      "type": "remote",
+      "url": "https://mcp.vercel.com",
+      "oauth": {},
+      "enabled": true
+    },
+    "convex": {
+      "type": "local",
+      "command": ["npx", "convex", "mcp", "start", "--project-dir", "."],
+      "enabled": true
+    },
+    "aws-docs": {
+      "type": "local",
+      "command": ["C:/Users/steve/.local/bin/uvx.exe", "awslabs.aws-documentation-mcp-server@latest"],
+      "environment": {
+        "FASTMCP_LOG_LEVEL": "ERROR",
+        "AWS_DOCUMENTATION_PARTITION": "aws"
+      },
+      "enabled": true
+    },
+    "aws-iac": {
+      "type": "local",
+      "command": ["C:/Users/steve/.local/bin/uvx.exe", "awslabs.aws-iac-mcp-server@latest"],
+      "environment": {
+        "FASTMCP_LOG_LEVEL": "ERROR"
+      },
+      "enabled": true
+    },
+    "aws_terraform": {
+      "type": "local",
+      "command": ["uvx", "awslabs.terraform-mcp-server@latest"],
+      "environment": {
+        "FASTMCP_LOG_LEVEL": "ERROR",
+        "AWS_PROFILE": "default",
+        "AWS_REGION": "us-east-1"
+      },
+      "enabled": true
+    },
+    "aws_mcp": {
+      "type": "local",
+      "command": [
+        "uvx",
+        "--from",
+        "mcp-proxy-for-aws@latest",
+        "mcp-proxy-for-aws.exe",
+        "https://aws-mcp.us-east-1.api.aws/mcp",
+        "--service",
+        "aws-mcp",
+        "--profile",
+        "default",
+        "--region",
+        "us-east-1"
+      ],
+      "enabled": true
+    },
+    "daytona": {
+      "type": "local",
+      "command": ["C:/Users/steve/AppData/Roaming/bin/daytona/daytona.exe", "mcp", "start"],
+      "environment": {
+        "APPDATA": "C:\\Users\\steve\\AppData\\Roaming",
+        "HOME": "C:\\Users\\steve"
+      },
+      "enabled": true
+    }
+  },
+  "permission": {
+    "vercel-vrdex_*": "ask",
+    "aws_mcp_*": "ask",
+    "daytona_*": "ask"
+  }
+}
