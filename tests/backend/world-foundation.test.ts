@@ -183,6 +183,7 @@ describe("public world event context", () => {
     } as unknown as Doc<"eventWorlds">;
 
     const upcomingEvent = {
+      _id: "event123",
       title: "Afterglow Harbor Sessions",
       sortTitle: "afterglow harbor sessions",
       startAt: now + 86_400_000,
@@ -198,6 +199,7 @@ describe("public world event context", () => {
     } as unknown as Doc<"events">;
 
     const recentEvent = {
+      _id: "event456",
       title: "Neon Harbor Opening Night",
       sortTitle: "neon harbor opening night",
       startAt: now - 86_400_000,
@@ -233,9 +235,48 @@ describe("public world event context", () => {
     assert.equal(context.upcoming[0]?.worldAssociation.confirmationState, "confirmed");
   });
 
+  it("deduplicates duplicate confirmed associations for the same world event preview", () => {
+    const now = Date.UTC(2026, 4, 24, 12, 0, 0);
+    const event = {
+      _id: "event123",
+      title: "Afterglow Harbor Sessions",
+      sortTitle: "afterglow harbor sessions",
+      startAt: now + 86_400_000,
+      sourceType: "manual",
+      sourceLabel: "Fixture event listing",
+      publicationState: "published",
+      updatedAt: now,
+    } as unknown as Doc<"events">;
+    const manualAssociation = {
+      eventId: "event123",
+      worldId: "world123",
+      eventStartAt: event.startAt,
+      sourceType: "manual",
+      confidence: 1,
+      confirmationState: "confirmed",
+      updatedAt: now,
+    } as unknown as Doc<"eventWorlds">;
+    const partnerAssociation = {
+      ...manualAssociation,
+      sourceType: "partner",
+    } as unknown as Doc<"eventWorlds">;
+
+    const context = createPublicWorldEventContext(
+      [
+        { event, association: manualAssociation },
+        { event, association: partnerAssociation },
+      ],
+      now,
+    );
+
+    assert.equal(context.upcoming.length, 1);
+    assert.equal(context.upcoming[0]?.title, "Afterglow Harbor Sessions");
+  });
+
   it("omits unconfirmed associations and unpublished events from public world pages", () => {
     const now = Date.UTC(2026, 4, 24, 12, 0, 0);
     const publishedEvent = {
+      _id: "event123",
       title: "Unreviewed Venue Guess",
       sortTitle: "unreviewed venue guess",
       startAt: now + 86_400_000,

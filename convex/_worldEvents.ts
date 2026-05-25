@@ -124,10 +124,17 @@ export function createPublicWorldEventContext(
   records: PublicWorldEventRecord[],
   now: number,
 ): PublicWorldEventContext {
-  const previews = records.flatMap((record) => {
+  const previewsByEventId = new Map<string, PublicWorldEventPreview>();
+
+  for (const record of records) {
     const preview = toPublicWorldEventPreview(record);
-    return preview === null ? [] : [preview];
-  });
+
+    if (preview !== null && !previewsByEventId.has(record.event._id)) {
+      previewsByEventId.set(record.event._id, preview);
+    }
+  }
+
+  const previews = [...previewsByEventId.values()];
 
   const upcoming = previews
     .filter((event) => eventEndsAt(event) >= now)
