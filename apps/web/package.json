@@ -2,9 +2,14 @@
   "name": "web",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22 <25"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:vercel": "pnpm check:vercel-env && next build",
+    "check:vercel-env": "node ./scripts/check-vercel-env.mjs",
     "start": "next start",
     "lint": "eslint",
     "test:e2e": "playwright test --grep-invert @visual",

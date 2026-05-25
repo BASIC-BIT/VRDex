@@ -7,5 +7,7 @@ node_modules/
 apps/web/playwright-report/
 apps/web/playwright-artifacts/
 apps/web/test-results/
+.vercel/
+apps/web/.vercel/
 .env
 .env.local

@@ -28,6 +28,7 @@
 - lint the web app: `pnpm lint:web`
 - typecheck the web app: `pnpm typecheck:web`
 - build the web app: `pnpm build:web`
+- run the Vercel web build validation path: `pnpm build:web:vercel`
 - smoke public routes with Playwright: `pnpm test:e2e`
 - capture public route screenshots with Playwright: `pnpm test:e2e:visual`
 - run the baseline local verification pass: `pnpm verify`
@@ -45,6 +46,8 @@ Profile slug, permission, claim-state, and community-submission contracts live i
 Community-submitted public profiles now start at `/submit`. Person profile pages render at `/p/<slug>` and community profile pages render at `/c/<slug>`.
 
 Playwright screenshot preview captures desktop and mobile screenshots for `/`, `/submit`, `/server-status`, and deterministic public profile fixtures. See `docs/testing/playwright-visual-preview.md`.
+
+The initial hosted preview path targets Vercel with `apps/web` as the project root. See `docs/deployment/vercel-preview.md`; the live deployment check page is `/deployment`.
 
 `pnpm verify` is the full repo verification pass and now includes the local Convex bootstrap checks. If you are iterating on the web app only, use `pnpm verify:web` for the lighter web-only path.
 

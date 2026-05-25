@@ -52,6 +52,7 @@ Current recommendation:
 - use local-development-friendly Convex setup first, then layer in frontend wiring, auth, billing, and production deployment posture through follow-on issues
 - once the local backend bootstrap is deterministic, include it in the baseline PR verification pass alongside the web checks
 - use one explicit server-side App Router baseline once client wiring is stable: `fetchQuery` for server-only reads, with `preloadQuery` deferred until a feature truly needs hydrated reactivity after server render
+- use Vercel previews as the first hosted validation path for the web app, with `apps/web` as the project root and `/deployment` as the live environment check page
 
 ## Monetization direction
 

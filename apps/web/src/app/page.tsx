@@ -37,6 +37,12 @@ export default function Home() {
                 >
                   Server-side baseline
                 </Link>
+                <Link
+                  className="inline-flex items-center justify-center rounded-full border border-border bg-surface-strong px-5 py-3 text-sm font-medium transition hover:-translate-y-0.5"
+                  href="/deployment"
+                >
+                  Deployment check
+                </Link>
                 <a
                   className="inline-flex items-center justify-center rounded-full border border-border bg-surface-strong px-5 py-3 text-sm font-medium transition hover:-translate-y-0.5"
                   href="https://www.convex.dev/"
@@ -71,7 +77,7 @@ export default function Home() {
                 </div>
                 <div className="flex items-start justify-between gap-4">
                   <dt className="text-muted">Next issues</dt>
-                  <dd className="text-right font-medium">#25, #31, #33</dd>
+                  <dd className="text-right font-medium">#18, #59, #61</dd>
                 </div>
               </dl>
 
@@ -113,15 +119,15 @@ export default function Home() {
 
           <article className="rounded-[1.5rem] border border-border bg-surface px-5 py-6">
             <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">
-              Immediate follow-on
+              Initial readiness
             </p>
             <h2 className="mt-4 text-2xl font-semibold tracking-[-0.03em]">
-              Search and trust labels
+              Hosted previews first
             </h2>
             <p className="mt-3 text-sm leading-7 text-muted">
-              The next meaningful milestone is turning these public records into
-              searchable cards with consistent community-submitted and unverified
-              labeling across discovery surfaces.
+              Before deeper product discovery, VRDex needs live Vercel previews,
+              auth wiring, and stronger validation loops so each change can be
+              checked outside a local workstation.
             </p>
           </article>
         </section>
