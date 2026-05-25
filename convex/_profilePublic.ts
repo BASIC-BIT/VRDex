@@ -1,9 +1,6 @@
 import type { Doc } from "./_generated/dataModel";
+import { optionalField, safeHttpsUrl } from "./_publicFields";
 import { getProfileTrustLabel } from "./_profileStates";
-
-function optionalField<T>(key: string, value: T | undefined): Record<string, T> {
-  return value === undefined ? {} : { [key]: value };
-}
 
 export function toPublicProfile(profile: Doc<"profiles">) {
   const shared = {
@@ -13,6 +10,15 @@ export function toPublicProfile(profile: Doc<"profiles">) {
     aliases: profile.aliases,
     tags: profile.tags,
     trustLabel: getProfileTrustLabel(profile.claimState, profile.creationSource),
+    outboundLinks: (profile.outboundLinks ?? []).flatMap((link) => {
+      const linkUrl = safeHttpsUrl(link.url);
+
+      if (linkUrl === undefined) {
+        return [];
+      }
+
+      return [{ ...link, url: linkUrl }];
+    }),
     ...optionalField("headline", profile.headline),
     ...optionalField("bio", profile.bio),
     ...optionalField("about", profile.about),

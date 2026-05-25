@@ -1,6 +1,10 @@
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@convex-generated-api";
-import { getPlaywrightPublicProfileFixture } from "./playwright-fixtures";
+import {
+  getPlaywrightActiveWorldFixtures,
+  getPlaywrightPublicProfileFixture,
+  getPlaywrightPublicWorldFixture,
+} from "./playwright-fixtures";
 
 type PublicProfileType = "person" | "community";
 
@@ -55,6 +59,71 @@ export async function fetchPublicProfileBySlug(slug: string, profileType: Public
 
     return {
       kind: "error" as const,
+    };
+  }
+}
+
+export async function fetchPublicWorldBySlug(slug: string) {
+  const fixtureWorld = getPlaywrightPublicWorldFixture(slug);
+
+  if (fixtureWorld !== null) {
+    return {
+      kind: "live" as const,
+      world: fixtureWorld,
+    };
+  }
+
+  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
+    return { kind: "missing-url" as const };
+  }
+
+  try {
+    const world = await fetchQuery(api.worlds.getPublicBySlug, { slug, now: Date.now() });
+
+    return {
+      kind: "live" as const,
+      world,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    console.error(`Server-side Convex world fetch failed: ${message}`);
+
+    return {
+      kind: "error" as const,
+    };
+  }
+}
+
+export async function fetchHomeActiveWorlds() {
+  const fixtureWorlds = getPlaywrightActiveWorldFixtures();
+
+  if (fixtureWorlds !== null) {
+    return {
+      kind: "live" as const,
+      worlds: fixtureWorlds,
+    };
+  }
+
+  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
+    return { kind: "missing-url" as const, worlds: [] };
+  }
+
+  try {
+    const worlds = await fetchQuery(api.worlds.listHomeActiveWorlds, { now: Date.now(), limit: 3 });
+
+    return {
+      kind: "live" as const,
+      worlds,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    console.error(`Server-side Convex active worlds fetch failed: ${message}`);
+
+    return {
+      kind: "error" as const,
+      worlds: [],
     };
   }
 }

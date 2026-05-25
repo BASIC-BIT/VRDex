@@ -29,7 +29,7 @@ Current recommendation:
 
 ## One-line pitch
 
-VRDex is a VRChat-first directory and profile platform for people and communities, combining verified identity, customizable public pages, and event presence in one place.
+VRDex is a VRChat-first directory and profile platform for people, communities, and the worlds where events happen, combining verified identity, customizable public pages, event presence, and creator attribution in one place.
 
 ## Why now
 
@@ -61,6 +61,7 @@ VRDex becomes the canonical public directory for the VRChat scene:
 - community members can seed missing entries
 - partner systems can point to one canonical page
 - fans can see where someone is playing next
+- world creators and venue operators can get attribution when their spaces host the scene
 
 ## Primary audiences
 
@@ -88,6 +89,13 @@ VRDex becomes the canonical public directory for the VRChat scene:
 - community owners
 - fans
 - community members
+
+### World creators
+
+- world builders
+- venue operators
+- asset and prefab creators
+- creator storefront owners
 
 ## Core product pillars
 
@@ -132,6 +140,17 @@ Candidate direction:
 - recent event participation
 - community activity summaries
 - source-aware event listings
+
+### 4b. World discovery
+
+Candidate direction:
+
+- public world pages
+- event-world associations
+- creator attribution and role labels
+- event-derived active-world and venue discovery
+- owner-authored creator commerce links
+- marketplace API research gated behind consent, privacy, and terms review
 
 ### 5. Integrations
 
@@ -214,6 +233,16 @@ Current recommendation:
 - support handoff invite acceptance flow
 - support a first-run wizard for newly claimed or handed-off profiles
 - support opt-out controls for people or communities that do not want to be listed
+- support typed creator commerce links where owner-authored or reviewed
+
+### Worlds
+
+- create public world records separately from person/community profiles
+- store VRChat world id and canonical world URL when known
+- render public world pages with media, tags, attribution, and outbound links
+- associate worlds with events using source/confidence metadata
+- derive upcoming/recent event views for worlds
+- support correction or review paths for disputed attribution
 
 Current recommendation for ordinary community submissions:
 
@@ -340,6 +369,7 @@ Current recommendation:
 - person-facing event participation views can still exist in the UI where useful
 - minimum event structure should include title, community, start time, optional end time, source, optional link, and optional notes
 - event/location modeling should leave room for VRChat world linkage, platform compatibility hints, and DJ slot breakdowns
+- event-world links should become explicit associations once world pages exist, not only freeform event metadata
 - stream/watch links should use typed media link categories in v1, while still allowing generic/other links and multiple links where needed
 - when a claimed person is added to an event association in v1, they should receive a passive in-app notification
 - claimed people should be able to choose whether they are simply notified when added; stronger approval gates can land later
@@ -357,6 +387,8 @@ Candidate direction:
 - filter by genres / vibe tags
 - filter by verification state
 - browse upcoming events
+- browse worlds hosting upcoming events
+- feature active venues from explicit event-world data or curated/reviewed sources
 
 Candidate later direction:
 
@@ -388,6 +420,8 @@ Examples:
 - Discord handle: public, imported from Discord
 - VRChat group: public, verified by proof code
 - upcoming event: partner-confirmed or AI-suggested pending review
+- world creator attribution: owner-entered, partner-provided, or reviewed
+- commerce link: owner-authored or reviewed, without implying VRDex endorsement or verified sales
 
 Authority levels should also differ by origin:
 
@@ -421,6 +455,8 @@ Streaming and world-awareness direction:
 
 - events should eventually support VRChat world linkage
 - world linkage can enable world previews and platform hints such as PC-only or Quest-compatible guidance
+- world linkage should also power creator attribution, world pages, and event-derived active-world discovery
+- early Hot Worlds / Active Venues surfaces should use explicit event-world associations, curated picks, or partner-provided data with review rather than scraped global popularity
 - DJ/media links may need multiple variants, especially VRCDN PC vs Quest behavior
 - a later restreamer or one-link stream-routing workflow may need current/next source status, live checks, operator preview, direct Twitch/watch-link access, and scheduled/manual switching
 - more advanced stream/player knowledge is valuable, but can land after the core event model exists
@@ -431,6 +467,7 @@ Candidate direction:
 
 - an avatar showcase viewer for profiles, ideally using a non-rippable or harder-to-rip representation instead of shipping a raw avatar model to the browser
 - the most promising direction is likely an imposter-style or sprite-angle-rendered pipeline, potentially generated through a companion creator/VCC workflow
+- live or 3D-rendered world previews for world pages, only after the basic world display and event graph prove useful
 
 Interview later:
 

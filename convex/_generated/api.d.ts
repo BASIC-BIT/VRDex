@@ -13,8 +13,15 @@ import type * as _profilePublic from "../_profilePublic.js";
 import type * as _profileSlugs from "../_profileSlugs.js";
 import type * as _profileStates from "../_profileStates.js";
 import type * as _profileSubmissions from "../_profileSubmissions.js";
+import type * as _profileWorldCredits from "../_profileWorldCredits.js";
+import type * as _publicFields from "../_publicFields.js";
+import type * as _worldEvents from "../_worldEvents.js";
+import type * as _worldIds from "../_worldIds.js";
+import type * as _worldPublic from "../_worldPublic.js";
+import type * as _worldSlugs from "../_worldSlugs.js";
 import type * as health from "../health.js";
 import type * as profiles from "../profiles.js";
+import type * as worlds from "../worlds.js";
 
 import type {
   ApiFromModules,
@@ -28,8 +35,15 @@ declare const fullApi: ApiFromModules<{
   _profileSlugs: typeof _profileSlugs;
   _profileStates: typeof _profileStates;
   _profileSubmissions: typeof _profileSubmissions;
+  _profileWorldCredits: typeof _profileWorldCredits;
+  _publicFields: typeof _publicFields;
+  _worldEvents: typeof _worldEvents;
+  _worldIds: typeof _worldIds;
+  _worldPublic: typeof _worldPublic;
+  _worldSlugs: typeof _worldSlugs;
   health: typeof health;
   profiles: typeof profiles;
+  worlds: typeof worlds;
 }>;
 
 /**

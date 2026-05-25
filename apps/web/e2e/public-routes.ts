@@ -7,6 +7,7 @@ const screenshotDir = path.join(process.cwd(), "playwright-artifacts", "screensh
 export const visualProfilePaths = {
   personPath: "/p/playwright-dj-aurora",
   communityPath: "/c/playwright-afterglow-social",
+  worldPath: "/w/playwright-neon-harbor",
 } as const;
 
 export type CapturedRoute = {
@@ -162,6 +163,9 @@ export async function captureRouteScreenshot(page: Page, testInfo: TestInfo, nam
 
 export async function expectHomePage(page: Page) {
   await expect(page.getByRole("heading", { name: /Profiles, communities/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Worlds hosting events soon" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Neon Harbor", exact: true })).toBeVisible();
+  await expect(page.getByText(/Afterglow Harbor Sessions/i)).toBeVisible();
 }
 
 export async function expectSubmitPage(page: Page) {
@@ -182,11 +186,26 @@ export async function expectDeploymentPage(page: Page) {
 export async function expectPersonProfilePage(page: Page) {
   await expect(page.getByRole("heading", { name: "DJ Aurora" })).toBeVisible();
   await expect(page.getByText(/Community submitted/i)).toBeVisible();
+  await expect(page.getByText(/Creator links/i)).toBeVisible();
+  await expect(page.getByText("DJ Aurora Ko-fi", { exact: true })).toBeVisible();
+  await expect(page.getByText(/World credits/i)).toBeVisible();
+  await expect(page.getByText("Neon Harbor", { exact: true })).toBeVisible();
 }
 
 export async function expectCommunityProfilePage(page: Page) {
   await expect(page.getByRole("heading", { name: "Afterglow Social" })).toBeVisible();
   await expect(page.getByText("Club night", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Afterglow event archive", { exact: true })).toBeVisible();
+  await expect(page.getByText("World Author", { exact: true })).toBeVisible();
+}
+
+export async function expectWorldProfilePage(page: Page) {
+  await expect(page.getByRole("heading", { name: "Neon Harbor", exact: true })).toBeVisible();
+  await expect(page.getByText(/World profile/i)).toBeVisible();
+  await expect(page.getByText(/Fixture owner-authored metadata/i)).toBeVisible();
+  await expect(page.getByText(/Events at this world/i)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Neon Harbor Opening Night" })).toBeVisible();
 }
 
 export const capturedRoutes: CapturedRoute[] = [
@@ -219,5 +238,10 @@ export const capturedRoutes: CapturedRoute[] = [
     name: "community-profile",
     path: visualProfilePaths.communityPath,
     expectPage: expectCommunityProfilePage,
+  },
+  {
+    name: "world-profile",
+    path: visualProfilePaths.worldPath,
+    expectPage: expectWorldProfilePage,
   },
 ];

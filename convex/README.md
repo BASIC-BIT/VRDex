@@ -3,13 +3,17 @@
 This directory holds the initial Convex backend slice for `VRDex`.
 
 - `health.ts` exposes the placeholder public query `health:status`
-- `schema.ts` defines the base `profiles` table for people and communities
-- `_profileSlugs.ts` contains pure slug validation, generation, and lookup helpers
+- `schema.ts` defines the base `profiles` table for people/communities and the first `worlds` table
+- `_profileSlugs.ts` contains pure profile slug validation, generation, and lookup helpers
 - `_profileStates.ts` contains pure claim-state and trust-label helpers
-- `_profilePermissions.ts` contains pure read/write permission baseline helpers
+- `_profilePermissions.ts` contains pure profile read/write permission baseline helpers
 - `_profilePublic.ts` contains public profile projection helpers
 - `_profileSubmissions.ts` contains community submission sanitization helpers
 - `profiles.ts` exposes public profile reads and authenticated community submission mutations
+- `_worldIds.ts` contains VRChat world id and canonical URL helpers
+- `_worldSlugs.ts` contains pure world slug validation, generation, and lookup helpers
+- `_worldPublic.ts` contains public world projection helpers
+- `worlds.ts` exposes public world reads
 - `_generated/` contains committed Convex codegen output and should not be edited by hand
 - `tsconfig.json` is the Convex-managed TypeScript config for backend functions
 
@@ -26,3 +30,5 @@ The canonical workflow notes live in `docs/backend/convex-bootstrap.md`.
 The profile schema and community submission contracts live in `docs/backend/profile-schema.md` and `docs/backend/community-submissions.md`.
 
 The slug, permission, and claim-state contracts live in `docs/backend/profile-slugs.md` and `docs/backend/profile-access-and-claims.md`.
+
+The first world-discovery planning contract lives in `docs/planning/world-discovery.md`.

@@ -151,3 +151,9 @@ That order keeps the product coherent while still giving you something demoable 
 - publish portable VRDex skill for external partner agents
 - prototype standalone VRDex MCP read tools after public API shape stabilizes
 - evaluate optional VRChat MCP bridge tools for cross-context workflows
+- add world discovery and creator attribution lane (`#79`)
+- define world profile schema and public world page (`#84`)
+- connect events to worlds and derive active-world views (`#81`)
+- add Home page Hot Worlds / Active Venues module (`#80`)
+- add creator commerce links to profiles and world pages (`#82`)
+- research marketplace API integrations for creator storefronts (`#83`)
