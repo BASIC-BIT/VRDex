@@ -1,6 +1,10 @@
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@convex-generated-api";
-import { getPlaywrightPublicProfileFixture, getPlaywrightPublicWorldFixture } from "./playwright-fixtures";
+import {
+  getPlaywrightActiveWorldFixtures,
+  getPlaywrightPublicProfileFixture,
+  getPlaywrightPublicWorldFixture,
+} from "./playwright-fixtures";
 
 type PublicProfileType = "person" | "community";
 
@@ -74,7 +78,7 @@ export async function fetchPublicWorldBySlug(slug: string) {
   }
 
   try {
-    const world = await fetchQuery(api.worlds.getPublicBySlug, { slug });
+    const world = await fetchQuery(api.worlds.getPublicBySlug, { slug, now: Date.now() });
 
     return {
       kind: "live" as const,
@@ -87,6 +91,39 @@ export async function fetchPublicWorldBySlug(slug: string) {
 
     return {
       kind: "error" as const,
+    };
+  }
+}
+
+export async function fetchHomeActiveWorlds() {
+  const fixtureWorlds = getPlaywrightActiveWorldFixtures();
+
+  if (fixtureWorlds !== null) {
+    return {
+      kind: "live" as const,
+      worlds: fixtureWorlds,
+    };
+  }
+
+  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
+    return { kind: "missing-url" as const, worlds: [] };
+  }
+
+  try {
+    const worlds = await fetchQuery(api.worlds.listHomeActiveWorlds, { now: Date.now(), limit: 3 });
+
+    return {
+      kind: "live" as const,
+      worlds,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    console.error(`Server-side Convex active worlds fetch failed: ${message}`);
+
+    return {
+      kind: "error" as const,
+      worlds: [],
     };
   }
 }

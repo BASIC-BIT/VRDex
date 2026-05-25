@@ -5,6 +5,7 @@ import { canReadProfile } from "./_profilePermissions";
 import { toPublicProfile } from "./_profilePublic";
 import { findAvailableProfileSlug, getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { sanitizeCommunitySubmissionProfileInput } from "./_profileSubmissions";
+import { getPublicProfileWorldCredits } from "./_profileWorldCredits";
 
 const profileType = v.union(v.literal("person"), v.literal("community"));
 
@@ -44,7 +45,13 @@ export const getPublicBySlug = query({
       return null;
     }
 
-    return toPublicProfile(profile);
+    return {
+      ...toPublicProfile(profile),
+      worldCredits: await getPublicProfileWorldCredits(ctx.db, {
+        profileType: profile.profileType,
+        slug: profile.slug,
+      }),
+    };
   },
 });
 
@@ -93,6 +100,7 @@ export const submitCommunityProfile = mutation({
       sortName: input.sortName,
       aliases: input.aliases,
       tags: input.tags,
+      outboundLinks: [],
       claimState: "unclaimed" as const,
       publicationState: "published" as const,
       creationSource: "community" as const,

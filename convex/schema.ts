@@ -28,6 +28,8 @@ const sourceType = v.union(
   v.literal("import"),
 );
 
+const profileType = v.union(v.literal("person"), v.literal("community"));
+
 const worldVisibilityStatus = v.union(
   v.literal("unknown"),
   v.literal("private"),
@@ -60,10 +62,37 @@ const worldLinkType = v.union(
   v.literal("other"),
 );
 
+const profileLinkType = v.union(
+  v.literal("website"),
+  v.literal("gumroad"),
+  v.literal("jinxxy"),
+  v.literal("payhip"),
+  v.literal("woocommerce"),
+  v.literal("kofi"),
+  v.literal("patreon"),
+  v.literal("commissions"),
+  v.literal("generic_store"),
+  v.literal("other"),
+);
+
 const linkSource = v.union(
   v.literal("owner_authored"),
   v.literal("reviewed"),
   v.literal("partner_provided"),
+);
+
+const eventSourceType = v.union(
+  v.literal("manual"),
+  v.literal("community"),
+  v.literal("partner"),
+  v.literal("import"),
+  v.literal("ai_suggested"),
+);
+
+const eventWorldConfirmationState = v.union(
+  v.literal("unconfirmed"),
+  v.literal("confirmed"),
+  v.literal("disputed"),
 );
 
 const sharedProfileFields = {
@@ -77,6 +106,16 @@ const sharedProfileFields = {
   about: v.optional(v.string()),
   avatarImageUrl: v.optional(v.string()),
   bannerImageUrl: v.optional(v.string()),
+  outboundLinks: v.optional(
+    v.array(
+      v.object({
+        type: profileLinkType,
+        label: v.string(),
+        url: v.string(),
+        source: linkSource,
+      }),
+    ),
+  ),
   region: v.optional(v.string()),
   timezone: v.optional(v.string()),
   claimState,
@@ -183,4 +222,50 @@ export default defineSchema({
     .index("by_slug", ["slug"])
     .index("by_vrchatWorldId", ["vrchatWorldId"])
     .index("by_publicationState_sortName", ["publicationState", "sortName"]),
+  events: defineTable({
+    title: v.string(),
+    sortTitle: v.string(),
+    startAt: v.number(),
+    endAt: v.optional(v.number()),
+    timezone: v.optional(v.string()),
+    communityProfileId: v.optional(v.id("profiles")),
+    communityName: v.optional(v.string()),
+    summary: v.optional(v.string()),
+    sourceType: eventSourceType,
+    sourceLabel: v.string(),
+    sourceUrl: v.optional(v.string()),
+    publicationState,
+    updatedAt: v.number(),
+  })
+    .index("by_publicationState_startAt", ["publicationState", "startAt"])
+    .index("by_communityProfileId_startAt", ["communityProfileId", "startAt"]),
+  eventWorlds: defineTable({
+    eventId: v.id("events"),
+    worldId: v.id("worlds"),
+    eventStartAt: v.number(),
+    sourceType: eventSourceType,
+    confidence: v.number(),
+    confirmationState: eventWorldConfirmationState,
+    confirmedAt: v.optional(v.number()),
+    notes: v.optional(v.string()),
+    updatedAt: v.number(),
+  })
+    .index("by_worldId", ["worldId"])
+    .index("by_eventId", ["eventId"])
+    .index("by_worldId_confirmationState", ["worldId", "confirmationState"])
+    .index("by_worldId_confirmationState_eventStartAt", [
+      "worldId",
+      "confirmationState",
+      "eventStartAt",
+    ]),
+  worldProfileCredits: defineTable({
+    worldId: v.id("worlds"),
+    profileSlug: v.string(),
+    profileType,
+    role: worldCreatorRole,
+    sourceLabel: v.optional(v.string()),
+    updatedAt: v.number(),
+  })
+    .index("by_profileType_profileSlug", ["profileType", "profileSlug"])
+    .index("by_worldId", ["worldId"]),
 });

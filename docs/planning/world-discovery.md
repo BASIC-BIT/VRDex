@@ -71,6 +71,12 @@ Candidate role labels:
 
 Attribution must be owner-entered, partner-provided, or reviewed. Automatic inference from posters, names, screenshots, or event text is not authoritative enough for public creator credit.
 
+Locked decision for the first reciprocal profile slice:
+
+- person and community profile pages can show world credits derived from published world creator attributions
+- reciprocal profile credits require indexed `profileSlug` and `profileType` records; display-name-only credits remain world-local source text
+- draft worlds and non-public world records do not appear on public profile world-credit sections
+
 ## Event-World Graph
 
 Candidate first slice for `#81`:
@@ -80,6 +86,13 @@ Candidate first slice for `#81`:
 - world pages can derive upcoming and recent events from those links
 - active-world queries can sort by upcoming event count, next event time, recency, or curated feature status
 - event-derived activity should be labeled honestly, such as `Upcoming on VRDex`, `Active soon`, `Curated`, or `Partner-provided`
+
+Locked decision for the first implementation slice:
+
+- public world pages only render published events through confirmed event-world associations
+- unconfirmed, disputed, draft, or private event-world records are not public world-page activity
+- event source URLs are filtered to `https` before publication
+- event-world confidence is stored for review/ranking work, but public copy should emphasize confirmation state instead of implying attendance or live popularity
 
 Do not call early results global popularity unless the ranking is backed by safe, documented, permissioned data.
 
@@ -91,6 +104,13 @@ Candidate first slice for `#80`:
 - each card can include world title, media, creator attribution, event context, and a call to action
 - empty states should still make the product feel intentional when there are no world/event records
 - the first ranking rule should be explicit event-world associations, not live VRChat data
+
+Locked decision for the first implementation slice:
+
+- Home labels this module `Worlds hosting events soon`, not `Hot Worlds` or `Live now`
+- cards are built from published events with confirmed event-world links
+- the first sort is earliest next event time, not global popularity or attendance
+- unconfirmed, disputed, draft, or private records do not contribute to Home world activity
 
 Safer labels for v1:
 
@@ -115,6 +135,12 @@ Candidate first slice for `#82`:
 - distinguish owner-authored links from imported, reviewed, or partner-provided links
 - render commerce links without implying VRDex endorsement or verified sales
 
+Locked decision for the first implementation slice:
+
+- person and community profile links are typed external links, not checkout or marketplace sync
+- profile and world link publication filters out non-`https` URLs
+- public copy labels owner-authored, reviewed, or partner-provided links without implying sales verification
+
 Candidate link types:
 
 - Gumroad
@@ -131,6 +157,8 @@ Commerce links are a presentation feature first. Checkout, fulfillment, taxes, r
 ## Marketplace API Research Summary
 
 Current recommendation for `#83`:
+
+Detailed gate: `docs/planning/marketplace-api-research.md`.
 
 - Gumroad is the best first API-sync candidate because it has OAuth scopes and product/listing read endpoints.
 - Use minimum scopes for storefront display. Do not request or store sales, payout, tax, buyer, license, or order data for a public storefront card.

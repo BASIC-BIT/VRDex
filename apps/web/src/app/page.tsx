@@ -1,7 +1,13 @@
 import Link from "next/link";
+import { HomeActiveWorldsSection } from "./_components/home-active-worlds";
 import { BackendStatusCard } from "./backend-status-card";
+import { fetchHomeActiveWorlds } from "@/convex/server";
 
-export default function Home() {
+export const dynamic = "force-dynamic";
+
+export default async function Home() {
+  const activeWorlds = await fetchHomeActiveWorlds();
+
   return (
     <main className="min-h-screen px-6 py-10 text-foreground sm:px-10 lg:px-16">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
@@ -87,6 +93,8 @@ export default function Home() {
             </aside>
           </div>
         </section>
+
+        <HomeActiveWorldsSection status={activeWorlds.kind} worlds={activeWorlds.worlds} />
 
         <section className="grid gap-4 lg:grid-cols-3">
           <article className="rounded-[1.5rem] border border-border bg-surface px-5 py-6">

@@ -5,6 +5,19 @@ function optionalField<T>(key: string, value: T | undefined): Record<string, T> 
   return value === undefined ? {} : { [key]: value };
 }
 
+function safeHttpsUrl(value: string | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function toPublicProfile(profile: Doc<"profiles">) {
   const shared = {
     profileType: profile.profileType,
@@ -13,6 +26,15 @@ export function toPublicProfile(profile: Doc<"profiles">) {
     aliases: profile.aliases,
     tags: profile.tags,
     trustLabel: getProfileTrustLabel(profile.claimState, profile.creationSource),
+    outboundLinks: (profile.outboundLinks ?? []).flatMap((link) => {
+      const linkUrl = safeHttpsUrl(link.url);
+
+      if (linkUrl === undefined) {
+        return [];
+      }
+
+      return [{ ...link, url: linkUrl }];
+    }),
     ...optionalField("headline", profile.headline),
     ...optionalField("bio", profile.bio),
     ...optionalField("about", profile.about),

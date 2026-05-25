@@ -2,7 +2,7 @@
 
 ## Status Note
 
-This doc captures the durable profile schema foundation started in `#9` and extended through `#10`, `#11`, `#12`, `#13`, `#22`, and `#23`.
+This doc captures the durable profile schema foundation started in `#9` and extended through `#10`, `#11`, `#12`, `#13`, `#22`, `#23`, and `#82`.
 
 The schema is intentionally narrow. It establishes one shared `profiles` table for people and communities without introducing account tables, full claim flows, normalized link tables, asset tables, or advanced moderation workflows.
 
@@ -16,7 +16,8 @@ The schema is intentionally narrow. It establishes one shared `profiles` table f
 - account/user references are deferred until auth and claim issues define the account model
 - most public write mutations are deferred until auth and permissions are wired; `profiles:submitCommunityProfile` is the current auth-gated exception
 - the community submission mutation requires a Convex authenticated identity before writing
-- normalized alias, link, asset, and rich authored block tables are deferred to later profile presentation issues
+- normalized alias, asset, and rich authored block tables are deferred to later profile presentation issues
+- profile outbound links are currently inline typed external links; normalized link tables remain a later scaling option
 - avatar and banner fields are URL placeholders for later controlled owner or concierge inputs, not ordinary community-submitted fields
 
 ## `profiles` Table
@@ -39,6 +40,7 @@ Core presentation fields:
 - `bannerImageUrl`: optional banner image URL for controlled future owner or concierge inputs
 - `region`: optional location or scene region text
 - `timezone`: optional time zone text
+- `outboundLinks`: optional inline typed external links for owner-authored, reviewed, or partner-provided profile storefront/contact links
 
 State fields:
 
@@ -101,5 +103,6 @@ The first write path is `profiles:submitCommunityProfile`. It requires `ctx.auth
 - `#13` defines claim-state transitions and trust labeling behavior
 - `#22` added presentation fields and public-page rendering for avatar/banner, short bio, and longer about content
 - `#23` added the authenticated community submission mutation and source attribution details
+- `#82` added inline typed external links for first-slice creator commerce/profile links, with public `https` filtering
 - `#27` adds field-level visibility controls
 - `#31` adds public search behavior and any search-specific indexing

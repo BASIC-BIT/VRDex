@@ -13,6 +13,8 @@ import type * as _profilePublic from "../_profilePublic.js";
 import type * as _profileSlugs from "../_profileSlugs.js";
 import type * as _profileStates from "../_profileStates.js";
 import type * as _profileSubmissions from "../_profileSubmissions.js";
+import type * as _profileWorldCredits from "../_profileWorldCredits.js";
+import type * as _worldEvents from "../_worldEvents.js";
 import type * as _worldIds from "../_worldIds.js";
 import type * as _worldPublic from "../_worldPublic.js";
 import type * as _worldSlugs from "../_worldSlugs.js";
@@ -32,6 +34,8 @@ declare const fullApi: ApiFromModules<{
   _profileSlugs: typeof _profileSlugs;
   _profileStates: typeof _profileStates;
   _profileSubmissions: typeof _profileSubmissions;
+  _profileWorldCredits: typeof _profileWorldCredits;
+  _worldEvents: typeof _worldEvents;
   _worldIds: typeof _worldIds;
   _worldPublic: typeof _worldPublic;
   _worldSlugs: typeof _worldSlugs;

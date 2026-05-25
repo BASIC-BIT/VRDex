@@ -5,6 +5,25 @@ type ProfileTrustLabel =
   | "unclaimed"
   | "claimed_unverified"
   | "claimed_verified";
+type ProfileLinkType =
+  | "website"
+  | "gumroad"
+  | "jinxxy"
+  | "payhip"
+  | "woocommerce"
+  | "kofi"
+  | "patreon"
+  | "commissions"
+  | "generic_store"
+  | "other";
+type LinkSource = "owner_authored" | "reviewed" | "partner_provided";
+type WorldCreatorRole =
+  | "world_author"
+  | "builder"
+  | "venue_operator"
+  | "community_operator"
+  | "media_credit"
+  | "storefront_owner";
 
 type PublicProfileBase = {
   profileType: "person" | "community";
@@ -20,6 +39,20 @@ type PublicProfileBase = {
   region?: string;
   timezone?: string;
   trustLabel: ProfileTrustLabel;
+  outboundLinks: Array<{
+    type: ProfileLinkType;
+    label: string;
+    url: string;
+    source: LinkSource;
+  }>;
+  worldCredits: Array<{
+    slug: string;
+    displayName: string;
+    roles: WorldCreatorRole[];
+    tags: string[];
+    summary?: string;
+    sourceLabel?: string;
+  }>;
 };
 
 type PublicPersonProfile = PublicProfileBase & {
@@ -101,6 +134,34 @@ function safeImageBackground(imageUrl: string | undefined, overlay = false) {
   } catch {
     return undefined;
   }
+}
+
+function safeHttpsUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" ? parsed.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function linkSourceLabel(source: LinkSource): string {
+  if (source === "owner_authored") {
+    return "Owner-authored";
+  }
+
+  if (source === "partner_provided") {
+    return "Partner-provided";
+  }
+
+  return "Reviewed";
+}
+
+function roleLabel(role: WorldCreatorRole): string {
+  return role
+    .split("_")
+    .map((word) => `${word[0]?.toUpperCase() ?? ""}${word.slice(1)}`)
+    .join(" ");
 }
 
 function PillList({ items }: { items: string[] }) {
@@ -277,6 +338,103 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
               )}
             </dl>
           </aside>
+        </section>
+
+        <section className="rounded-[1.5rem] border border-border bg-surface px-5 py-6 sm:px-6">
+          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+            <div>
+              <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">
+                Creator links
+              </p>
+              <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em]">
+                Stores, commissions, and external work
+              </h2>
+            </div>
+            <p className="max-w-md text-sm leading-6 text-muted">
+              Owner-authored or reviewed links only. VRDex does not verify sales, fulfillment, or creator endorsement.
+            </p>
+          </div>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {profile.outboundLinks.length === 0 ? (
+              <p className="text-sm leading-6 text-muted">No public creator/store links yet.</p>
+            ) : (
+              profile.outboundLinks.map((link) => {
+                const href = safeHttpsUrl(link.url);
+
+                if (!href) {
+                  return null;
+                }
+
+                return (
+                  <a
+                    className="rounded-2xl border border-border bg-surface-strong px-4 py-3 text-sm transition hover:-translate-y-0.5"
+                    href={href}
+                    key={`${link.type}-${link.url}`}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    <span className="block font-medium">{link.label}</span>
+                    <span className="mt-1 block text-xs text-muted">
+                      {linkSourceLabel(link.source)} external link
+                    </span>
+                  </a>
+                );
+              })
+            )}
+          </div>
+        </section>
+
+        <section className="rounded-[1.5rem] border border-border bg-surface px-5 py-6 sm:px-6">
+          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+            <div>
+              <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">
+                World credits
+              </p>
+              <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em]">
+                Worlds linked to this profile
+              </h2>
+            </div>
+            <p className="max-w-md text-sm leading-6 text-muted">
+              Credits come from published world profiles with explicit person/community attribution.
+            </p>
+          </div>
+          <div className="mt-5 grid gap-3 lg:grid-cols-2">
+            {profile.worldCredits.length === 0 ? (
+              <p className="text-sm leading-6 text-muted">No public world credits yet.</p>
+            ) : (
+              profile.worldCredits.map((world) => (
+                <Link
+                  className="rounded-2xl border border-border bg-surface-strong px-4 py-4 text-sm transition hover:-translate-y-0.5"
+                  href={`/w/${world.slug}`}
+                  key={world.slug}
+                >
+                  <span className="block text-lg font-semibold tracking-[-0.03em]">
+                    {world.displayName}
+                  </span>
+                  <span className="mt-2 block text-muted">
+                    {world.roles.map(roleLabel).join(", ")}
+                  </span>
+                  {world.summary ? (
+                    <span className="mt-3 line-clamp-2 block leading-6 text-muted">
+                      {world.summary}
+                    </span>
+                  ) : null}
+                  {world.tags.length > 0 ? (
+                    <span className="mt-4 flex flex-wrap gap-2">
+                      {world.tags.slice(0, 3).map((tag) => (
+                        <span
+                          className="rounded-full border border-border bg-white px-3 py-1 text-xs"
+                          key={tag}
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </span>
+                  ) : null}
+                </Link>
+              ))
+            )}
+          </div>
         </section>
 
         <section className="grid gap-4 lg:grid-cols-3">

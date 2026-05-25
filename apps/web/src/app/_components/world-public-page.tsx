@@ -22,6 +22,26 @@ type WorldLinkType =
   | "generic_store"
   | "other";
 type WorldLinkSource = "owner_authored" | "reviewed" | "partner_provided";
+type EventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested";
+
+type PublicWorldEventPreview = {
+  title: string;
+  startAt: number;
+  endAt?: number;
+  timezone?: string;
+  communityName?: string;
+  summary?: string;
+  source: {
+    sourceType: EventSourceType;
+    label: string;
+    url?: string;
+  };
+  worldAssociation: {
+    sourceType: EventSourceType;
+    confirmationState: "confirmed";
+    confirmedAt?: number;
+  };
+};
 
 export type PublicWorld = {
   slug: string;
@@ -59,6 +79,10 @@ export type PublicWorld = {
     label: string;
     url?: string;
     confirmedAt?: number;
+  };
+  eventContext: {
+    upcoming: PublicWorldEventPreview[];
+    recent: PublicWorldEventPreview[];
   };
 };
 
@@ -142,6 +166,35 @@ function linkSourceLabel(source: WorldLinkSource): string {
   return "Reviewed";
 }
 
+function eventSourceLabel(source: EventSourceType): string {
+  if (source === "ai_suggested") {
+    return "AI-suggested";
+  }
+
+  return source
+    .split("_")
+    .map((word) => `${word[0]?.toUpperCase() ?? ""}${word.slice(1)}`)
+    .join(" ");
+}
+
+function formatEventDate(timestamp: number, timezone: string | undefined): string {
+  const baseOptions: Intl.DateTimeFormatOptions = {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  };
+
+  try {
+    return new Intl.DateTimeFormat("en", {
+      ...baseOptions,
+      ...(timezone ? { timeZone: timezone } : {}),
+    }).format(new Date(timestamp));
+  } catch {
+    return new Intl.DateTimeFormat("en", baseOptions).format(new Date(timestamp));
+  }
+}
+
 function initialsFor(name: string): string {
   const initials = name
     .split(/\s+/)
@@ -168,6 +221,63 @@ function PillList({ items }: { items: string[] }) {
           {item}
         </span>
       ))}
+    </div>
+  );
+}
+
+function EventList({
+  emptyLabel,
+  events,
+}: {
+  emptyLabel: string;
+  events: PublicWorldEventPreview[];
+}) {
+  if (events.length === 0) {
+    return <p className="text-sm leading-6 text-muted">{emptyLabel}</p>;
+  }
+
+  return (
+    <div className="grid gap-3">
+      {events.map((event) => {
+        const sourceUrl = event.source.url ? safeHttpsUrl(event.source.url) : null;
+
+        return (
+          <article
+            className="rounded-2xl border border-cyan-950/10 bg-surface px-4 py-4 text-sm"
+            key={`${event.title}-${event.startAt}`}
+          >
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+              <time dateTime={new Date(event.startAt).toISOString()}>
+                {formatEventDate(event.startAt, event.timezone)}
+              </time>
+              <span aria-hidden="true">/</span>
+              <span>Confirmed venue</span>
+            </div>
+            <h3 className="mt-3 text-lg font-semibold tracking-[-0.03em]">{event.title}</h3>
+            {event.communityName ? <p className="mt-1 text-muted">Hosted by {event.communityName}</p> : null}
+            {event.summary ? <p className="mt-3 leading-6 text-muted">{event.summary}</p> : null}
+            <div className="mt-4 flex flex-wrap gap-2 text-xs">
+              <span className="rounded-full bg-cyan-50 px-3 py-1 text-cyan-950">
+                {eventSourceLabel(event.worldAssociation.sourceType)} association
+              </span>
+              {sourceUrl ? (
+                <a
+                  className="rounded-full border border-border bg-white px-3 py-1 font-medium"
+                  href={sourceUrl}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  {event.source.label}
+                </a>
+              ) : (
+                <span className="rounded-full border border-border bg-white px-3 py-1">
+                  {event.source.label}
+                </span>
+              )}
+            </div>
+          </article>
+        );
+      })}
     </div>
   );
 }
@@ -300,6 +410,44 @@ export function WorldPublicPage({ world }: { world: PublicWorld }) {
               </div>
             </dl>
           </aside>
+        </section>
+
+        <section className="rounded-[1.5rem] border border-border bg-white/80 px-5 py-6 shadow-sm sm:px-6">
+          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+            <div>
+              <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">
+                Events at this world
+              </p>
+              <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em]">
+                Confirmed event context
+              </h2>
+            </div>
+            <p className="max-w-md text-sm leading-6 text-muted">
+              These previews come from explicit event-world links, not live VRChat presence or scraped popularity.
+            </p>
+          </div>
+          <div className="mt-6 grid gap-4 lg:grid-cols-2">
+            <article>
+              <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted">
+                Upcoming and active
+              </h3>
+              <div className="mt-4">
+                <EventList
+                  emptyLabel="No confirmed upcoming events are linked to this world yet."
+                  events={world.eventContext.upcoming}
+                />
+              </div>
+            </article>
+            <article>
+              <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted">Recent</h3>
+              <div className="mt-4">
+                <EventList
+                  emptyLabel="No confirmed recent events are linked to this world yet."
+                  events={world.eventContext.recent}
+                />
+              </div>
+            </article>
+          </div>
         </section>
 
         <section className="grid gap-4 lg:grid-cols-3">

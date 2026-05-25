@@ -17,6 +17,7 @@ import {
   sanitizeCommunitySubmissionProfileInput,
   sanitizeProfileTextList,
 } from "../../convex/_profileSubmissions";
+import { createPublicProfileWorldCredits } from "../../convex/_profileWorldCredits";
 import {
   canTransitionProfileClaimState,
   getProfileTrustLabel,
@@ -230,6 +231,20 @@ describe("public profile projection", () => {
       sortName: "dj celine",
       aliases: [],
       tags: ["House"],
+      outboundLinks: [
+        {
+          type: "kofi",
+          label: "DJ Celine Ko-fi",
+          url: "https://example.invalid/dj-celine-kofi",
+          source: "owner_authored",
+        },
+        {
+          type: "other",
+          label: "Unsafe link",
+          url: "http://example.invalid/unsafe",
+          source: "reviewed",
+        },
+      ],
       claimState: "unclaimed",
       publicationState: "published",
       creationSource: "community",
@@ -254,5 +269,58 @@ describe("public profile projection", () => {
     assert.equal("sourceAttribution" in publicProfile, false);
     assert.equal("creationSource" in publicProfile, false);
     assert.equal(publicProfile.trustLabel, "community_submitted");
+    assert.equal(publicProfile.outboundLinks.length, 1);
+    assert.equal(publicProfile.outboundLinks[0]?.url, "https://example.invalid/dj-celine-kofi");
+  });
+});
+
+describe("public profile world credits", () => {
+  it("derives reciprocal credits from indexed published-world attribution records", () => {
+    const publishedWorld = {
+      slug: "neon-harbor",
+      displayName: "Neon Harbor",
+      sortName: "neon harbor",
+      tags: ["Club world"],
+      summary: "A VRChat venue.",
+      visibilityStatus: "public",
+      platformCompatibility: ["pc"],
+      media: [],
+      creatorAttributions: [],
+      outboundLinks: [],
+      publicationState: "published",
+      creationSource: "self",
+      updatedAt: 1,
+    } as Doc<"worlds">;
+    const draftWorld = {
+      ...publishedWorld,
+      slug: "draft-world",
+      displayName: "Draft World",
+      publicationState: "draft_private",
+    } as Doc<"worlds">;
+    const worldAuthorCredit = {
+      worldId: "world123",
+      profileSlug: "afterglow-social",
+      profileType: "community",
+      role: "world_author",
+      sourceLabel: "Reviewed attribution",
+      updatedAt: 1,
+    } as unknown as Doc<"worldProfileCredits">;
+    const storefrontCredit = {
+      ...worldAuthorCredit,
+      role: "storefront_owner",
+    } as unknown as Doc<"worldProfileCredits">;
+
+    const credits = createPublicProfileWorldCredits(
+      [
+        { credit: worldAuthorCredit, world: draftWorld },
+        { credit: worldAuthorCredit, world: publishedWorld },
+        { credit: storefrontCredit, world: publishedWorld },
+      ],
+    );
+
+    assert.equal(credits.length, 1);
+    assert.equal(credits[0]?.slug, "neon-harbor");
+    assert.deepEqual(credits[0]?.roles, ["world_author", "storefront_owner"]);
+    assert.equal(credits[0]?.sourceLabel, "Reviewed attribution");
   });
 });
