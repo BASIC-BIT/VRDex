@@ -386,11 +386,14 @@ Includes:
 - set-time extraction
 - entity matching suggestions
 - moderation/confirmation workflow
+- auditable moderation/intelligence event ledger
+- scoped adjudication decisions for false positives, test artifacts, policy exemptions, reversals, and non-countable history
 
 Acceptance criteria:
 
 - AI can propose useful matches and extracted structure
 - uncertain AI output is never silently treated as verified fact
+- prior detections that reviewers marked non-countable do not continue to count as suspicious history
 
 ### EPIC-17 Insights and premium polish
 

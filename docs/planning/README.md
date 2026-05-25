@@ -9,6 +9,7 @@
 - `docs/planning/agent-integration-surface.md` - external agent-consumable VRDex skill, API, website navigation, and MCP direction
 - `docs/planning/world-discovery.md` - world pages, creator attribution, active-world discovery, and creator-commerce boundaries
 - `docs/planning/marketplace-api-research.md` - marketplace sync gate, provider posture, and disallowed storefront data
+- `docs/planning/moderation-audit-and-adjudication.md` - auditable moderation/intelligence ledger and scoped false-positive overrides
 - `docs/planning/engineering-strategy.md` - stack, testing, verification, and agentic factory plan
 - `docs/planning/docs-strategy.md` - Docusaurus and source-of-truth documentation plan
 - `docs/planning/epics.md` - phased epic breakdown for v0.5, v1, and v1.5

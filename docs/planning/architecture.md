@@ -373,6 +373,20 @@ Current recommendation:
 
 - abuse, impersonation, suspicious link, toxic content, or mismatch signals
 - can be raised by rules, LLM review, user reports, or admin actions
+- should be backed by append-only moderation events and adjudications so false positives, test artifacts, reversals, and ignored signals are auditable instead of deleted
+- see `docs/planning/moderation-audit-and-adjudication.md`
+
+### `moderation_events` later
+
+- immutable ledger for detections, reviews, restrictions, bans, reversals, dismissals, appeals, and other moderation/intelligence facts
+- scoped globally, per server, per community, or future product scope
+- used as the raw evidence source for moderation history and trust/risk accounting
+
+### `moderation_adjudications` later
+
+- append-only reviewer decisions attached to one or more moderation events
+- records whether an event should count for future scoring in a given scope
+- supports decisions such as false positive, test artifact, policy exempt, locally ignored, globally ignored, upheld, reversed, or stale
 
 ### `profile_revisions`
 

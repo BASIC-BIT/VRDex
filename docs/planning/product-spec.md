@@ -685,6 +685,9 @@ Every field or block should support owner-configured visibility and source attri
 - restrict certain sensitive fields after claim
 - allow report / correction requests
 - clearly mark AI-extracted event links as suggested, confirmed, or disputed
+- keep an auditable ledger for detections, reviews, restrictions, bans, dismissals, reversals, and false-positive decisions
+- allow authorized global and server-scoped admins to mark prior detections or actions as non-countable for future trust/risk accounting without deleting history
+- see `docs/planning/moderation-audit-and-adjudication.md`
 
 ## API goals
 
