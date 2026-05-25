@@ -146,6 +146,27 @@ describe("public world projection", () => {
     assert.equal(publicWorld.media.length, 1);
     assert.equal(publicWorld.outboundLinks.length, 1);
   });
+
+  it("omits source instead of returning undefined when source attribution is absent", () => {
+    const world = {
+      slug: "neon-harbor",
+      displayName: "Neon Harbor",
+      sortName: "neon harbor",
+      tags: [],
+      visibilityStatus: "public",
+      platformCompatibility: ["pc"],
+      media: [],
+      creatorAttributions: [],
+      outboundLinks: [],
+      publicationState: "published",
+      creationSource: "self",
+      updatedAt: 1,
+    } as Doc<"worlds">;
+
+    const publicWorld = toPublicWorld(world);
+
+    assert.equal("source" in publicWorld, false);
+  });
 });
 
 describe("public world event context", () => {
@@ -283,6 +304,7 @@ describe("public active world previews", () => {
       updatedAt: now,
     } as unknown as Doc<"eventWorlds">;
     const laterEvent = {
+      _id: "event456",
       title: "Afterglow Late Set",
       sortTitle: "afterglow late set",
       startAt: now + 172_800_000,
@@ -293,6 +315,7 @@ describe("public active world previews", () => {
     } as unknown as Doc<"events">;
     const nextEvent = {
       ...laterEvent,
+      _id: "event123",
       title: "Afterglow Harbor Sessions",
       sortTitle: "afterglow harbor sessions",
       startAt: now + 86_400_000,
@@ -318,6 +341,59 @@ describe("public active world previews", () => {
     assert.equal("url" in previews[0]!.nextEvent.source, false);
   });
 
+  it("deduplicates duplicate event-world association rows for the same event and world", () => {
+    const now = Date.UTC(2026, 4, 24, 12, 0, 0);
+    const world = {
+      slug: "neon-harbor",
+      displayName: "Neon Harbor",
+      sortName: "neon harbor",
+      tags: [],
+      visibilityStatus: "public",
+      platformCompatibility: ["pc"],
+      media: [],
+      creatorAttributions: [],
+      outboundLinks: [],
+      publicationState: "published",
+      creationSource: "self",
+      updatedAt: now,
+    } as unknown as Doc<"worlds">;
+    const event = {
+      _id: "event123",
+      title: "Afterglow Harbor Sessions",
+      sortTitle: "afterglow harbor sessions",
+      startAt: now + 86_400_000,
+      sourceType: "manual",
+      sourceLabel: "Fixture event listing",
+      publicationState: "published",
+      updatedAt: now,
+    } as unknown as Doc<"events">;
+    const manualAssociation = {
+      eventId: "event123",
+      worldId: "world123",
+      eventStartAt: event.startAt,
+      sourceType: "manual",
+      confidence: 1,
+      confirmationState: "confirmed",
+      updatedAt: now,
+    } as unknown as Doc<"eventWorlds">;
+    const partnerAssociation = {
+      ...manualAssociation,
+      sourceType: "partner",
+    } as unknown as Doc<"eventWorlds">;
+
+    const previews = createPublicActiveWorldPreviews(
+      [
+        { association: manualAssociation, event, world },
+        { association: partnerAssociation, event, world },
+      ],
+      now,
+      3,
+    );
+
+    assert.equal(previews.length, 1);
+    assert.equal(previews[0]?.upcomingEventCount, 1);
+  });
+
   it("excludes draft worlds, draft events, past events, and unconfirmed associations", () => {
     const now = Date.UTC(2026, 4, 24, 12, 0, 0);
     const world = {
@@ -335,6 +411,7 @@ describe("public active world previews", () => {
       updatedAt: now,
     } as unknown as Doc<"worlds">;
     const event = {
+      _id: "event123",
       title: "Unreviewed Venue Guess",
       sortTitle: "unreviewed venue guess",
       startAt: now + 86_400_000,

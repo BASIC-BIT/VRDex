@@ -148,7 +148,7 @@ export function createPublicActiveWorldPreviews(
   limit: number,
 ): PublicActiveWorldPreview[] {
   const limitWithinBounds = Math.max(1, Math.min(limit, ACTIVE_WORLD_MAX_LIMIT));
-  const groups = new Map<string, { world: Doc<"worlds">; events: Doc<"events">[] }>();
+  const groups = new Map<string, { world: Doc<"worlds">; events: Map<string, Doc<"events">> }>();
 
   for (const { association, event, world } of records) {
     if (
@@ -160,14 +160,14 @@ export function createPublicActiveWorldPreviews(
       continue;
     }
 
-    const current = groups.get(world.slug) ?? { world, events: [] };
-    current.events.push(event);
+    const current = groups.get(world.slug) ?? { world, events: new Map<string, Doc<"events">>() };
+    current.events.set(event._id, event);
     groups.set(world.slug, current);
   }
 
   return [...groups.values()]
     .flatMap(({ events, world }) => {
-      const sortedEvents = [...events].sort((first, second) => first.startAt - second.startAt);
+      const sortedEvents = [...events.values()].sort((first, second) => first.startAt - second.startAt);
       const nextEvent = sortedEvents[0];
 
       if (nextEvent === undefined) {

@@ -22,6 +22,14 @@ export function toPublicWorld(world: Doc<"worlds">) {
   const heroImageUrl = safeHttpsUrl(world.heroImageUrl);
   const canonicalVrchatWorldUrl = safeHttpsUrl(world.canonicalVrchatWorldUrl);
   const sourceAttributionUrl = safeHttpsUrl(world.sourceAttribution?.url);
+  const source = world.sourceAttribution
+    ? {
+        sourceType: world.sourceAttribution.sourceType,
+        label: world.sourceAttribution.label,
+        ...optionalField("url", sourceAttributionUrl),
+        ...optionalField("confirmedAt", world.sourceAttribution.confirmedAt),
+      }
+    : undefined;
 
   return {
     slug: world.slug,
@@ -54,14 +62,7 @@ export function toPublicWorld(world: Doc<"worlds">) {
 
       return [{ ...link, url: linkUrl }];
     }),
-    source: world.sourceAttribution
-      ? {
-          sourceType: world.sourceAttribution.sourceType,
-          label: world.sourceAttribution.label,
-          ...optionalField("url", sourceAttributionUrl),
-          ...optionalField("confirmedAt", world.sourceAttribution.confirmedAt),
-        }
-      : undefined,
+    ...optionalField("source", source),
     ...optionalField("summary", world.summary),
     ...optionalField("description", world.description),
     ...optionalField("vrchatWorldId", world.vrchatWorldId),
