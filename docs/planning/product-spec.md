@@ -8,7 +8,7 @@ Working domain: `vrdex.net`
 
 ## Product thesis
 
-VRChat scene participants need one canonical, public, claimable profile system for both people and communities that other people can trust and reuse, with enough customization and link depth to replace ad-hoc link pages.
+VRChat scene participants need one canonical, public, claimable profile system for both people and communities that other people can trust and reuse, with enough customization and link depth to replace ad-hoc link pages. World discovery extends that identity graph by showing where events happen, who built those spaces, and how creators can link to their work.
 
 ## Primary users
 
@@ -66,6 +66,15 @@ They want a canonical page for:
 
 They want to add missing performers even before those performers sign up themselves.
 
+### World builders and venue operators
+
+They want people to understand:
+
+- what world or venue an event uses
+- who built or operates that world
+- what other events happen there
+- where to find store, commission, product, or portfolio links
+
 ## Product principles
 
 1. Profiles are public by default; ownership is explicit
@@ -77,6 +86,7 @@ They want to add missing performers even before those performers sign up themsel
 7. Every profile field can be hidden by its owner after claim
 8. Visual customization should feel expressive without breaking usability
 9. Agents and partner systems should be first-class API/docs consumers, not forced to scrape or infer product rules from undocumented conventions
+10. Worlds can become a first-class discovery lane without becoming unreviewed popularity scraping
 
 Current recommendation on terminology:
 
@@ -264,6 +274,8 @@ Search and browse should also support:
 - who is playing soon
 - communities by genre / vibe
 - performers by upcoming events
+- worlds hosting upcoming events
+- curated or event-derived active venues
 
 ### 6. Discord bot integration
 
@@ -335,6 +347,33 @@ Important future-aware extensions:
 - platform compatibility hints
 - DJ slot breakdowns within a larger event
 - stream/watch link modeling
+
+Event-world direction:
+
+- worlds should become separate public records rather than being stored only as event text
+- event-world links need source, confidence, and confirmation metadata
+- world pages can derive upcoming and recent event views from those links
+- active-world surfaces should start from explicit event-world associations, curated picks, or reviewed partner data instead of scraped popularity
+
+### 8a. World discovery and creator attribution
+
+World pages should support:
+
+- display name, summary, tags, and media
+- VRChat world id and canonical VRChat world URL when known
+- creator attribution to people or communities with role labels
+- venue/community association where appropriate
+- upcoming or recent events derived from event-world associations
+- owner-authored outbound links
+- source/provenance for every imported or submitted fact
+
+Current recommendation:
+
+- keep `world` as a separate domain object, not a third profile type inside person/community profile assumptions
+- preserve provenance and review state for creator attribution
+- avoid live instance/player-count claims in the first slice
+- avoid copying creator media unless rights/source policy is clear
+- see `docs/planning/world-discovery.md`
 
 Streaming and media direction:
 
@@ -501,6 +540,8 @@ This is explicitly low priority relative to identity, claims, communities, and e
 - replacing VRC Pop's live scene visualization
 - replacing VRCLinking's role-sync depth
 - any dependency on VRCTL / vrc.tl access
+- scraped world popularity, private instance presence, or user-level attendance tracking
+- marketplace API sync, sales analytics, or checkout inside VRDex before a separate privacy-reviewed integration design exists
 - unconstrained HTML/CSS profile editing in v1
 
 ## Suggested profile fields
@@ -551,6 +592,7 @@ This is explicitly low priority relative to identity, claims, communities, and e
 - Bandcamp
 - X / Bluesky / Instagram optional
 - custom links with labels
+- creator commerce links such as Gumroad, Jinxxy/Jinxie, Payhip, WooCommerce/personal store, Ko-fi, Patreon, commissions, or generic product/store links
 
 ### VRChat-specific
 
@@ -653,6 +695,8 @@ Public read APIs should eventually support:
 - profile card JSON for bot responses
 - embeddable link previews
 - events feed for a person or community
+- world lookup by slug or VRChat world id
+- event-derived active-world and world-event feeds
 - agent-oriented compact responses for common profile, event, and media-link lookups
 
 Current recommendation:

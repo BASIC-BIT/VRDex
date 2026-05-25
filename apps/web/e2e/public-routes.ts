@@ -7,6 +7,7 @@ const screenshotDir = path.join(process.cwd(), "playwright-artifacts", "screensh
 export const visualProfilePaths = {
   personPath: "/p/playwright-dj-aurora",
   communityPath: "/c/playwright-afterglow-social",
+  worldPath: "/w/playwright-neon-harbor",
 } as const;
 
 export type CapturedRoute = {
@@ -189,6 +190,12 @@ export async function expectCommunityProfilePage(page: Page) {
   await expect(page.getByText("Club night", { exact: true }).first()).toBeVisible();
 }
 
+export async function expectWorldProfilePage(page: Page) {
+  await expect(page.getByRole("heading", { name: "Neon Harbor" })).toBeVisible();
+  await expect(page.getByText(/World profile/i)).toBeVisible();
+  await expect(page.getByText(/Fixture owner-authored metadata/i)).toBeVisible();
+}
+
 export const capturedRoutes: CapturedRoute[] = [
   {
     name: "home",
@@ -219,5 +226,10 @@ export const capturedRoutes: CapturedRoute[] = [
     name: "community-profile",
     path: visualProfilePaths.communityPath,
     expectPage: expectCommunityProfilePage,
+  },
+  {
+    name: "world-profile",
+    path: visualProfilePaths.worldPath,
+    expectPage: expectWorldProfilePage,
   },
 ];

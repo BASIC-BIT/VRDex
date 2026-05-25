@@ -1,7 +1,9 @@
 import type { PublicProfile } from "@/app/_components/profile-public-page";
+import type { PublicWorld } from "@/app/_components/world-public-page";
 
 const personSlug = "playwright-dj-aurora";
 const communitySlug = "playwright-afterglow-social";
+const worldSlug = "playwright-neon-harbor";
 
 const personProfile: PublicProfile = {
   profileType: "person",
@@ -39,6 +41,57 @@ const communityProfile: PublicProfile = {
   },
 };
 
+const worldProfile: PublicWorld = {
+  slug: worldSlug,
+  displayName: "Neon Harbor",
+  tags: ["Club world", "Cyberpunk", "Dance floor"],
+  summary: "A fixture VRChat venue page for world discovery visual review.",
+  description:
+    "Neon Harbor is a deterministic fixture world used to exercise world metadata, creator attribution, public VRChat links, and owner-authored creator commerce links.",
+  vrchatWorldId: "wrld_00000000-0000-4000-8000-000000000001",
+  canonicalVrchatWorldUrl:
+    "https://vrchat.com/home/world/wrld_00000000-0000-4000-8000-000000000001",
+  sourceUrl: "https://vrchat.com/home/world/wrld_00000000-0000-4000-8000-000000000001",
+  visibilityStatus: "public",
+  platformCompatibility: ["pc", "android"],
+  creatorAttributions: [
+    {
+      role: "world_author",
+      displayName: "Afterglow Social",
+      profileSlug: communitySlug,
+      profileType: "community",
+      sourceLabel: "Fixture attribution",
+    },
+    {
+      role: "media_credit",
+      displayName: "DJ Aurora",
+      profileSlug: personSlug,
+      profileType: "person",
+      sourceLabel: "Fixture attribution",
+    },
+  ],
+  media: [],
+  outboundLinks: [
+    {
+      type: "gumroad",
+      label: "Example prefab pack",
+      url: "https://example.invalid/neon-harbor-prefab",
+      source: "owner_authored",
+    },
+    {
+      type: "commissions",
+      label: "World commissions",
+      url: "https://example.invalid/world-commissions",
+      source: "reviewed",
+    },
+  ],
+  source: {
+    sourceType: "owner",
+    label: "Fixture owner-authored metadata",
+    confirmedAt: Date.UTC(2025, 0, 1, 12, 0, 0),
+  },
+};
+
 export function getPlaywrightPublicProfileFixture(
   slug: string,
   profileType: "person" | "community",
@@ -61,7 +114,23 @@ export function getPlaywrightPublicProfileFixture(
   return null;
 }
 
+export function getPlaywrightPublicWorldFixture(slug: string): PublicWorld | null {
+  if (
+    process.env.NODE_ENV === "production" ||
+    process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES !== "true"
+  ) {
+    return null;
+  }
+
+  if (slug === worldSlug) {
+    return worldProfile;
+  }
+
+  return null;
+}
+
 export const playwrightPublicProfilePaths = {
   personPath: `/p/${personSlug}`,
   communityPath: `/c/${communitySlug}`,
+  worldPath: `/w/${worldSlug}`,
 };

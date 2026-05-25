@@ -340,6 +340,38 @@ Acceptance criteria:
 - stream and world metadata can power better event presentation
 - the data model supports common VR club operational patterns
 
+### EPIC-15b World discovery and creator attribution
+
+Purpose:
+
+- make event worlds and venue spaces visible as first-class discovery surfaces
+
+Includes:
+
+- public world pages
+- creator attribution and role labels
+- event-world associations
+- event-derived active-world and venue discovery
+- owner-authored creator commerce links
+- marketplace integration research before API sync
+
+Acceptance criteria:
+
+- a world can have a public page with provenance-backed metadata
+- events can link to worlds and worlds can derive upcoming/recent event views
+- Home can feature active worlds from explicit event data or curated/reviewed sources
+- creator commerce links are displayed without implying endorsement or verified sales
+- marketplace API sync is gated by terms, consent, auth, and privacy review
+
+Related issues:
+
+- `#79`
+- `#84`
+- `#81`
+- `#80`
+- `#82`
+- `#83`
+
 ### EPIC-16 AI-assisted extraction and matching
 
 Purpose:

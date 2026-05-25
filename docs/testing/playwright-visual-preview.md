@@ -18,6 +18,7 @@ The visual suite starts a local Convex backend and Next dev server by default. P
 - `/deployment`
 - `/p/playwright-dj-aurora`
 - `/c/playwright-afterglow-social`
+- `/w/playwright-neon-harbor`
 
 Screenshots are written to `apps/web/playwright-artifacts/screenshots` and attached to the Playwright report.
 

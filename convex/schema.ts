@@ -20,6 +20,52 @@ const creationSource = v.union(
   v.literal("moderator"),
 );
 
+const sourceType = v.union(
+  v.literal("owner"),
+  v.literal("community"),
+  v.literal("partner"),
+  v.literal("moderator"),
+  v.literal("import"),
+);
+
+const worldVisibilityStatus = v.union(
+  v.literal("unknown"),
+  v.literal("private"),
+  v.literal("community_labs"),
+  v.literal("public"),
+);
+
+const platformCompatibility = v.union(v.literal("pc"), v.literal("android"), v.literal("ios"));
+
+const worldCreatorRole = v.union(
+  v.literal("world_author"),
+  v.literal("builder"),
+  v.literal("venue_operator"),
+  v.literal("community_operator"),
+  v.literal("media_credit"),
+  v.literal("storefront_owner"),
+);
+
+const worldLinkType = v.union(
+  v.literal("vrchat_world"),
+  v.literal("website"),
+  v.literal("gumroad"),
+  v.literal("jinxxy"),
+  v.literal("payhip"),
+  v.literal("woocommerce"),
+  v.literal("kofi"),
+  v.literal("patreon"),
+  v.literal("commissions"),
+  v.literal("generic_store"),
+  v.literal("other"),
+);
+
+const linkSource = v.union(
+  v.literal("owner_authored"),
+  v.literal("reviewed"),
+  v.literal("partner_provided"),
+);
+
 const sharedProfileFields = {
   slug: v.string(),
   displayName: v.string(),
@@ -81,4 +127,60 @@ export default defineSchema({
     .index("by_claimState_profileType", ["claimState", "profileType"])
     .index("by_creationSource_claimState", ["creationSource", "claimState"])
     .index("by_profileType_sortName", ["profileType", "sortName"]),
+  worlds: defineTable({
+    slug: v.string(),
+    displayName: v.string(),
+    sortName: v.string(),
+    tags: v.array(v.string()),
+    summary: v.optional(v.string()),
+    description: v.optional(v.string()),
+    vrchatWorldId: v.optional(v.string()),
+    canonicalVrchatWorldUrl: v.optional(v.string()),
+    sourceUrl: v.optional(v.string()),
+    visibilityStatus: worldVisibilityStatus,
+    platformCompatibility: v.array(platformCompatibility),
+    heroImageUrl: v.optional(v.string()),
+    media: v.array(
+      v.object({
+        kind: v.union(v.literal("image"), v.literal("video"), v.literal("link")),
+        url: v.string(),
+        label: v.optional(v.string()),
+        credit: v.optional(v.string()),
+      }),
+    ),
+    creatorAttributions: v.array(
+      v.object({
+        role: worldCreatorRole,
+        displayName: v.string(),
+        profileId: v.optional(v.id("profiles")),
+        profileSlug: v.optional(v.string()),
+        profileType: v.optional(v.union(v.literal("person"), v.literal("community"))),
+        sourceLabel: v.optional(v.string()),
+      }),
+    ),
+    outboundLinks: v.array(
+      v.object({
+        type: worldLinkType,
+        label: v.string(),
+        url: v.string(),
+        source: linkSource,
+      }),
+    ),
+    publicationState,
+    creationSource,
+    sourceAttribution: v.optional(
+      v.object({
+        sourceType,
+        label: v.string(),
+        url: v.optional(v.string()),
+        submittedAt: v.optional(v.number()),
+        confirmedAt: v.optional(v.number()),
+      }),
+    ),
+    publishedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_slug", ["slug"])
+    .index("by_vrchatWorldId", ["vrchatWorldId"])
+    .index("by_publicationState_sortName", ["publicationState", "sortName"]),
 });

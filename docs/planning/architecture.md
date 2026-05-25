@@ -9,9 +9,11 @@ Build a small platform, not just a website:
 - Discord bot for lookup commands
 - background workers for verification and sync jobs
 
-Design assumption: the core directory has two first-class record types, `person` and `community`.
+Design assumption: the profile directory has two first-class profile types, `person` and `community`.
 
 Design assumption: profiles are both identity records and customizable public pages.
+
+Design assumption: worlds are separate domain records that can link to profiles, events, media, and creator-commerce links without becoming a third profile type.
 
 ## Suggested stack
 
@@ -152,7 +154,7 @@ Slug rule:
 ### `profile_links`
 
 - normalized list of external links
-- type examples: `twitch`, `soundcloud`, `mixcloud`, `booking_email`, `discord_user`, `discord_server`, `website`, `vrchat_group`
+- type examples: `twitch`, `soundcloud`, `mixcloud`, `booking_email`, `discord_user`, `discord_server`, `website`, `vrchat_group`, `gumroad`, `jinxxy`, `payhip`, `woocommerce`, `commissions`, `generic_store`
 
 ### `profile_blocks`
 
@@ -258,6 +260,36 @@ Related policy recommendation:
 - owner-entered and concierge-confirmed data can support richer fields
 - freeform public-submitted bio text should be avoided or strongly constrained in v1
 
+### `worlds`
+
+- public world records for VRChat worlds and event venues
+- separate from `profiles` so person/community profile assumptions stay simple
+- likely fields: `slug`, `displayName`, `sortName`, `summary`, `description`, `vrchatWorldId`, `canonicalVrchatWorldUrl`, `sourceUrl`, `visibilityStatus`, `platformCompatibility`, `publicationState`, `creationSource`, `createdAt`, and `updatedAt`
+- supports public route `/w/<slug>`
+
+### `world_media`
+
+- hero image, screenshots, trailer/video links, or embeds
+- should preserve source and permission policy
+- avoid copying VRChat or creator media without a clear rights/source decision
+
+### `world_links`
+
+- owner-authored or reviewed outbound links for a world
+- supports social, website, VRChat world link, and commerce/storefront links
+- should not imply VRDex endorsement or verified sales
+
+### `world_creator_attributions`
+
+- connects worlds to person/community profiles or source text
+- role labels can include `world_author`, `builder`, `venue_operator`, `community_operator`, `media_credit`, and `storefront_owner`
+- attribution needs provenance, confidence, review state, and correction/dispute paths
+
+### `world_sources`
+
+- records whether world facts came from owner entry, community submission, concierge setup, partner data, manual review, or future API-compatible sync
+- all imported/submitted facts should retain source and confirmation metadata
+
 ### `events`
 
 - canonical event records shown on community pages and derived into person-facing participation views
@@ -269,6 +301,10 @@ Likely near-term additions:
 - linked VRChat world id when known
 - platform compatibility hints
 - optional canonical event-level stream/watch metadata
+
+Current recommendation:
+
+- once world pages exist, prefer an explicit event-world association over storing world context only as a raw event field
 
 ### `billing_customers`
 
@@ -291,6 +327,13 @@ Likely near-term additions:
 
 - raw source references from partner sync, manual entry, VRChat calendar, or AI extraction
 - preserves provenance for trust and debugging
+
+### `event_worlds`
+
+- associates events to world records
+- includes source, confidence, confirmation/review metadata, and optional notes
+- enables world pages to derive upcoming/recent event views
+- enables Home discovery modules to feature active worlds from VRDex event data without live presence tracking
 
 ### `event_participants`
 
@@ -640,6 +683,7 @@ AI should assist matching and extraction, not silently publish uncertain facts.
 - Do not make the product depend on VRCTL / vrc.tl access
 - Do not plan around scraping blocked sites
 - Treat third-party event data as optional enrichment only
+- Do not base world discovery on private instance presence, scraped live player counts, or fixed-interval VRChat API polling
 
 ## Public surfaces to build early
 
@@ -647,6 +691,7 @@ AI should assist matching and extraction, not silently publish uncertain facts.
 
 - `/p/<slug>` for people
 - `/c/<slug>` for communities
+- `/w/<slug>` for worlds
 
 Optional later:
 
@@ -658,6 +703,9 @@ Optional later:
 - `GET /api/search?q=`
 - `GET /api/cards/:slug`
 - `GET /api/communities/:slug`
+- `GET /api/worlds/:slug`
+- `GET /api/worlds/:slug/events`
+- `GET /api/worlds/active`
 - `GET /api/people/:slug`
 - `GET /api/people/:slug/events`
 - `GET /api/communities/:slug/events`
@@ -746,6 +794,8 @@ Deferred from this slice:
 - notifications and approval settings
 - richer event and participant structure
 - world linkage and previews
+- world pages, creator attribution, and event-derived active-world discovery
+- creator commerce links and marketplace integration research
 - stream/media normalization
 - premium insights polish
 

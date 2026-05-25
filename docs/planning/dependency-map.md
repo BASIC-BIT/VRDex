@@ -48,6 +48,11 @@ This file records the current hard and soft dependency assumptions across the dr
 
 - hard dependents: #37, #38, #39, #40, #42
 
+### #79 World discovery and creator attribution lane
+
+- soft dependencies: #7, #35, #36, #39, #76, #77, #78
+- hard dependents: #84, #81, #80, #82, #83
+
 ## Core issues
 
 ### #9 Create base profile schema for people and communities
@@ -226,3 +231,29 @@ This file records the current hard and soft dependency assumptions across the dr
 
 - hard dependencies: #37
 - soft dependencies: #39
+
+## World discovery issues
+
+### #84 Define world profile schema and public world page
+
+- soft dependencies: #36, #79
+- hard dependents: #81, #80
+
+### #81 Connect events to worlds and derive active-world views
+
+- hard dependencies: #84
+- soft dependencies: #7, #35, #36, #79
+- hard dependents: #80
+
+### #80 Add Home page Hot Worlds / Active Venues module
+
+- hard dependencies: #81
+- soft dependencies: #84
+
+### #82 Add creator commerce links to profiles and world pages
+
+- soft dependencies: #22, #36, #79, #84
+
+### #83 Research marketplace API integrations for creator storefronts
+
+- soft dependencies: #39, #77, #79, #82
