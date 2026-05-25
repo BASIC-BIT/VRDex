@@ -1,5 +1,6 @@
 import type { Doc } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
+import { optionalField } from "./_publicFields";
 
 const PROFILE_WORLD_CREDIT_LIMIT = 6;
 const PROFILE_WORLD_CREDIT_QUERY_LIMIT = 50;
@@ -31,10 +32,6 @@ type ProfileWorldCreditRecord = {
   credit: Doc<"worldProfileCredits">;
   world: Doc<"worlds">;
 };
-
-function optionalField<T>(key: string, value: T | undefined): Record<string, T> {
-  return value === undefined ? {} : { [key]: value };
-}
 
 export function createPublicProfileWorldCredits(
   records: ProfileWorldCreditRecord[],

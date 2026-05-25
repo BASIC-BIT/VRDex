@@ -1,5 +1,6 @@
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
+import { optionalField, safeHttpsUrl } from "./_publicFields";
 
 const WORLD_EVENT_SECTION_LIMIT = 4;
 const ACTIVE_WORLD_QUERY_EVENT_LIMIT = 50;
@@ -63,23 +64,6 @@ export type PublicActiveWorldPreview = {
     };
   };
 };
-
-function optionalField<T>(key: string, value: T | undefined): Record<string, T> {
-  return value === undefined ? {} : { [key]: value };
-}
-
-function safeHttpsUrl(value: string | undefined): string | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" ? url.href : undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 function eventEndsAt(event: PublicWorldEventPreview): number {
   return event.endAt ?? event.startAt;

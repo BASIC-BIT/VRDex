@@ -1,22 +1,6 @@
 import type { Doc } from "./_generated/dataModel";
+import { optionalField, safeHttpsUrl } from "./_publicFields";
 import { getProfileTrustLabel } from "./_profileStates";
-
-function optionalField<T>(key: string, value: T | undefined): Record<string, T> {
-  return value === undefined ? {} : { [key]: value };
-}
-
-function safeHttpsUrl(value: string | undefined): string | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" ? url.href : undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 export function toPublicProfile(profile: Doc<"profiles">) {
   const shared = {

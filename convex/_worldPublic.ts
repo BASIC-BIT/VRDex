@@ -1,21 +1,5 @@
 import type { Doc } from "./_generated/dataModel";
-
-function optionalField<T>(key: string, value: T | undefined): Record<string, T> {
-  return value === undefined ? {} : { [key]: value };
-}
-
-function safeHttpsUrl(value: string | undefined): string | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" ? url.href : undefined;
-  } catch {
-    return undefined;
-  }
-}
+import { optionalField, safeHttpsUrl } from "./_publicFields";
 
 export function toPublicWorld(world: Doc<"worlds">) {
   const sourceUrl = safeHttpsUrl(world.sourceUrl);
