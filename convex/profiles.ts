@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 
 import { mutation, query } from "./_generated/server";
+import { getPublicCommunityHostedEvents, getPublicPersonUpcomingEvents } from "./_eventPublic";
 import { canReadProfile } from "./_profilePermissions";
 import { toPublicProfile } from "./_profilePublic";
 import { findAvailableProfileSlug, getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
@@ -23,6 +24,7 @@ export const getPublicBySlug = query({
   args: {
     slug: v.string(),
     profileType: v.optional(profileType),
+    now: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const validation = validateProfileSlug(args.slug);
@@ -45,12 +47,25 @@ export const getPublicBySlug = query({
       return null;
     }
 
+    const now = args.now ?? Date.now();
+    const eventContext =
+      profile.profileType === "person"
+        ? {
+            upcomingEvents: await getPublicPersonUpcomingEvents(ctx.db, profile._id, now),
+            hostedEvents: [],
+          }
+        : {
+            upcomingEvents: [],
+            hostedEvents: await getPublicCommunityHostedEvents(ctx.db, profile._id, now),
+          };
+
     return {
       ...toPublicProfile(profile),
       worldCredits: await getPublicProfileWorldCredits(ctx.db, {
         profileType: profile.profileType,
         slug: profile.slug,
       }),
+      ...eventContext,
     };
   },
 });

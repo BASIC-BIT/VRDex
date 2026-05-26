@@ -341,6 +341,15 @@ Current recommendation for initial event fields:
 - notes optional
 - poster/image optional
 
+Implementation status for the first event foundation slice:
+
+- events use editable readable slugs under `/e/<slug>`
+- generated durable `/l/<code>` short links are deferred to `#92`
+- public person pages derive upcoming events from confirmed `eventParticipants` links
+- public community pages derive hosted upcoming events from canonical event records
+- participant role labels are freeform text for now; reusable vocabulary memory is deferred to `#90`
+- approval, dispute, notification, RSVP/interested, recurring event, and friend-aware discovery flows are deferred to follow-up issues
+
 Important future-aware extensions:
 
 - VRChat world linkage

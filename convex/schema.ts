@@ -89,11 +89,46 @@ const eventSourceType = v.union(
   v.literal("ai_suggested"),
 );
 
+const eventMediaLinkType = v.union(
+  v.literal("event_page"),
+  v.literal("watch"),
+  v.literal("stream"),
+  v.literal("vrcdn"),
+  v.literal("discord"),
+  v.literal("ticket"),
+  v.literal("other"),
+);
+
+const eventMediaLinkPresentation = v.union(v.literal("open"), v.literal("copy"));
+
 const eventWorldConfirmationState = v.union(
   v.literal("unconfirmed"),
   v.literal("confirmed"),
   v.literal("disputed"),
 );
+
+const eventParticipantConfirmationState = v.union(
+  v.literal("unconfirmed"),
+  v.literal("confirmed"),
+  v.literal("disputed"),
+);
+
+const communityCapability = v.union(
+  v.literal("manage_profile"),
+  v.literal("manage_events"),
+  v.literal("manage_staff"),
+  v.literal("manage_integrations"),
+  v.literal("manage_billing"),
+);
+
+const communityAuthorityState = v.union(v.literal("active"), v.literal("revoked"));
+
+const authSubject = v.object({
+  tokenIdentifier: v.string(),
+  issuer: v.string(),
+  subject: v.string(),
+  displayName: v.optional(v.string()),
+});
 
 const sharedProfileFields = {
   slug: v.string(),
@@ -223,6 +258,7 @@ export default defineSchema({
     .index("by_vrchatWorldId", ["vrchatWorldId"])
     .index("by_publicationState_sortName", ["publicationState", "sortName"]),
   events: defineTable({
+    slug: v.optional(v.string()),
     title: v.string(),
     sortTitle: v.string(),
     startAt: v.number(),
@@ -231,12 +267,28 @@ export default defineSchema({
     communityProfileId: v.optional(v.id("profiles")),
     communityName: v.optional(v.string()),
     summary: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    posterImageUrl: v.optional(v.string()),
+    mediaLinks: v.optional(
+      v.array(
+        v.object({
+          type: eventMediaLinkType,
+          label: v.string(),
+          url: v.string(),
+          presentation: eventMediaLinkPresentation,
+        }),
+      ),
+    ),
     sourceType: eventSourceType,
     sourceLabel: v.string(),
     sourceUrl: v.optional(v.string()),
+    submitter: v.optional(authSubject),
     publicationState,
+    publishedAt: v.optional(v.number()),
+    createdAt: v.optional(v.number()),
     updatedAt: v.number(),
   })
+    .index("by_slug", ["slug"])
     .index("by_publicationState_startAt", ["publicationState", "startAt"])
     .index("by_communityProfileId_startAt", ["communityProfileId", "startAt"]),
   eventWorlds: defineTable({
@@ -268,4 +320,37 @@ export default defineSchema({
   })
     .index("by_profileType_profileSlug", ["profileType", "profileSlug"])
     .index("by_worldId", ["worldId"]),
+  eventParticipants: defineTable({
+    eventId: v.id("events"),
+    personProfileId: v.id("profiles"),
+    eventStartAt: v.number(),
+    roleLabel: v.string(),
+    sourceType: eventSourceType,
+    sourceLabel: v.string(),
+    sourceUrl: v.optional(v.string()),
+    confirmationState: eventParticipantConfirmationState,
+    confirmedAt: v.optional(v.number()),
+    notes: v.optional(v.string()),
+    updatedAt: v.number(),
+  })
+    .index("by_eventId", ["eventId"])
+    .index("by_personProfileId_confirmationState_eventStartAt", [
+      "personProfileId",
+      "confirmationState",
+      "eventStartAt",
+    ]),
+  communityAuthorities: defineTable({
+    communityProfileId: v.id("profiles"),
+    subjectTokenIdentifier: v.string(),
+    subject: authSubject,
+    roleKey: v.string(),
+    roleLabel: v.string(),
+    capabilities: v.array(communityCapability),
+    state: communityAuthorityState,
+    grantedAt: v.number(),
+    revokedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_communityProfileId_state", ["communityProfileId", "state"])
+    .index("by_subjectTokenIdentifier_state", ["subjectTokenIdentifier", "state"]),
 });

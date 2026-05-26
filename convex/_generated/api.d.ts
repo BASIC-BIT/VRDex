@@ -8,6 +8,10 @@
  * @module
  */
 
+import type * as _communityAuthority from "../_communityAuthority.js";
+import type * as _eventInputs from "../_eventInputs.js";
+import type * as _eventPublic from "../_eventPublic.js";
+import type * as _eventSlugs from "../_eventSlugs.js";
 import type * as _profilePermissions from "../_profilePermissions.js";
 import type * as _profilePublic from "../_profilePublic.js";
 import type * as _profileSlugs from "../_profileSlugs.js";
@@ -19,6 +23,7 @@ import type * as _worldEvents from "../_worldEvents.js";
 import type * as _worldIds from "../_worldIds.js";
 import type * as _worldPublic from "../_worldPublic.js";
 import type * as _worldSlugs from "../_worldSlugs.js";
+import type * as events from "../events.js";
 import type * as health from "../health.js";
 import type * as profiles from "../profiles.js";
 import type * as worlds from "../worlds.js";
@@ -30,6 +35,10 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  _communityAuthority: typeof _communityAuthority;
+  _eventInputs: typeof _eventInputs;
+  _eventPublic: typeof _eventPublic;
+  _eventSlugs: typeof _eventSlugs;
   _profilePermissions: typeof _profilePermissions;
   _profilePublic: typeof _profilePublic;
   _profileSlugs: typeof _profileSlugs;
@@ -41,6 +50,7 @@ declare const fullApi: ApiFromModules<{
   _worldIds: typeof _worldIds;
   _worldPublic: typeof _worldPublic;
   _worldSlugs: typeof _worldSlugs;
+  events: typeof events;
   health: typeof health;
   profiles: typeof profiles;
   worlds: typeof worlds;

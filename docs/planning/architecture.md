@@ -296,6 +296,14 @@ Related policy recommendation:
 - includes start/end, title, source, confidence, and linked entities
 - should support a primary event poster/image asset when available
 
+Implementation status:
+
+- `events` stores canonical event data and readable `/e/<slug>` routing slugs
+- `eventParticipants` links published person profiles to events with source and confirmation metadata
+- `eventWorlds` links events to world records with source, confidence, and confirmation metadata
+- `communityAuthorities` reserves a small capability-based seam for community-owned event management without implementing the full staff-role product yet
+- `docs/backend/event-schema.md` is the backend reference for the first event foundation slice
+
 Likely near-term additions:
 
 - linked VRChat world id when known
