@@ -43,14 +43,13 @@ export async function subjectHasCommunityCapability(
 ): Promise<boolean> {
   const authorities = await db
     .query("communityAuthorities")
-    .withIndex("by_subjectTokenIdentifier_state", (query) =>
-      query.eq("subjectTokenIdentifier", subject.tokenIdentifier).eq("state", "active"),
+    .withIndex("by_subjectTokenIdentifier_state_communityProfileId", (query) =>
+      query
+        .eq("subjectTokenIdentifier", subject.tokenIdentifier)
+        .eq("state", "active")
+        .eq("communityProfileId", communityProfileId),
     )
-    .take(20);
+    .take(1);
 
-  return authorities.some(
-    (authority) =>
-      authority.communityProfileId === communityProfileId &&
-      authority.capabilities.includes(capability),
-  );
+  return authorities.some((authority) => authority.capabilities.includes(capability));
 }

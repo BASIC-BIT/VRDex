@@ -352,5 +352,10 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_communityProfileId_state", ["communityProfileId", "state"])
-    .index("by_subjectTokenIdentifier_state", ["subjectTokenIdentifier", "state"]),
+    .index("by_subjectTokenIdentifier_state", ["subjectTokenIdentifier", "state"])
+    .index("by_subjectTokenIdentifier_state_communityProfileId", [
+      "subjectTokenIdentifier",
+      "state",
+      "communityProfileId",
+    ]),
 });

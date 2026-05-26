@@ -243,7 +243,7 @@ export function EventBackendNotice({ kind }: { kind: "missing-url" | "error" }) 
   );
 }
 
-export function EventPublicPage({ event }: { event: PublicEvent }) {
+export function EventPublicPage({ event, showEditLink = false }: { event: PublicEvent; showEditLink?: boolean }) {
   const posterStyle = safeImageBackground(event.posterImageUrl, true);
   const sourceUrl = safeHttpsUrl(event.source.url);
 
@@ -258,9 +258,11 @@ export function EventPublicPage({ event }: { event: PublicEvent }) {
             <Link className="rounded-full border border-border bg-white/80 px-4 py-2 font-medium" href="/events/new">
               Add event
             </Link>
-            <Link className="rounded-full border border-border bg-white/80 px-4 py-2 font-medium" href={`/events/${event.slug}/edit`}>
-              Edit event
-            </Link>
+            {showEditLink ? (
+              <Link className="rounded-full border border-border bg-white/80 px-4 py-2 font-medium" href={`/events/${event.slug}/edit`}>
+                Edit event
+              </Link>
+            ) : null}
           </div>
         </nav>
 

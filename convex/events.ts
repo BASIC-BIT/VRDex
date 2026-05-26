@@ -337,12 +337,19 @@ export const updateCommunityEvent = mutation({
       throw new Error("Event was not found.");
     }
 
+    const isSubmitter = isSameAuthSubject(event.submitter, subject);
+
     if (!(await canUpdateEvent(ctx.db, event, subject))) {
       throw new Error("You do not have permission to update this event.");
     }
 
     const input = sanitizeEventDraftInput(args);
     const community = await getPublishedCommunityBySlug(ctx.db, input.communitySlug);
+
+    if (!isSubmitter && community?._id !== event.communityProfileId) {
+      throw new Error("You do not have permission to move this event to another community.");
+    }
+
     const world = await getPublishedWorldBySlug(ctx.db, input.worldSlug);
     const now = Date.now();
     const slug = await findAvailableEventSlug(

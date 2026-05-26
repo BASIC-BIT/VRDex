@@ -89,13 +89,7 @@ function ActiveWorldCard({ world }: { world: PublicActiveWorld }) {
         </p>
         <div className="mt-5 rounded-2xl border border-white/16 bg-white/12 p-4 backdrop-blur">
           <p className="font-mono text-xs uppercase tracking-[0.2em] text-white/62">Next event</p>
-          <p className="mt-2 font-medium">
-            {world.nextEvent.slug ? (
-              <span className="underline-offset-4 group-hover:underline">{world.nextEvent.title}</span>
-            ) : (
-              world.nextEvent.title
-            )}
-          </p>
+          <p className="mt-2 font-medium">{world.nextEvent.title}</p>
           <p className="mt-1 text-sm text-white/72">
             {formatEventDate(world.nextEvent.startAt, world.nextEvent.timezone)}
             {world.nextEvent.communityName ? ` by ${world.nextEvent.communityName}` : ""}

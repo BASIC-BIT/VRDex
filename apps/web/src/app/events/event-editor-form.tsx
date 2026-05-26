@@ -21,6 +21,7 @@ type EventEditorStatus =
 
 const userSafeErrorPatterns = [
   /Event changes require a signed-in user\./,
+  /Event start time must be a valid timestamp\./,
   /Event title must be at least \d+ characters\./,
   /Event title must be \d+ characters or fewer\./,
   /Event end time must be after the start time\./,
@@ -29,6 +30,7 @@ const userSafeErrorPatterns = [
   /World profile was not found or is not published\./,
   /Person profile ".+" was not found\./,
   /You do not have permission to update this event\./,
+  /You do not have permission to move this event to another community\./,
 ];
 
 function eventEditorErrorMessage(error: unknown): string {
@@ -169,28 +171,28 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
     submitEvent.preventDefault();
     const form = submitEvent.currentTarget;
     const formData = new FormData(form);
-    const startAt = fromLocalInputValue(stringField(formData.get("startAt")));
     const endAtInput = optionalString(stringField(formData.get("endAt")));
-    const payload = {
-      title: stringField(formData.get("title")),
-      preferredSlug: optionalString(stringField(formData.get("preferredSlug"))),
-      communitySlug: optionalString(stringField(formData.get("communitySlug"))),
-      worldSlug: optionalString(stringField(formData.get("worldSlug"))),
-      startAt,
-      ...(endAtInput ? { endAt: fromLocalInputValue(endAtInput) } : {}),
-      timezone: optionalString(stringField(formData.get("timezone"))),
-      summary: optionalString(stringField(formData.get("summary"))),
-      notes: optionalString(stringField(formData.get("notes"))),
-      sourceLabel: optionalString(stringField(formData.get("sourceLabel"))),
-      sourceUrl: optionalString(stringField(formData.get("sourceUrl"))),
-      posterImageUrl: optionalString(stringField(formData.get("posterImageUrl"))),
-      mediaLinks: parseMediaLinks(stringField(formData.get("mediaLinks"))),
-      participantLinks: parseParticipantLinks(stringField(formData.get("participantLinks"))),
-    };
 
     setStatus({ kind: "submitting" });
 
     try {
+      const startAt = fromLocalInputValue(stringField(formData.get("startAt")));
+      const payload = {
+        title: stringField(formData.get("title")),
+        preferredSlug: optionalString(stringField(formData.get("preferredSlug"))),
+        communitySlug: optionalString(stringField(formData.get("communitySlug"))),
+        worldSlug: optionalString(stringField(formData.get("worldSlug"))),
+        startAt,
+        ...(endAtInput ? { endAt: fromLocalInputValue(endAtInput) } : {}),
+        timezone: optionalString(stringField(formData.get("timezone"))),
+        summary: optionalString(stringField(formData.get("summary"))),
+        notes: optionalString(stringField(formData.get("notes"))),
+        sourceLabel: optionalString(stringField(formData.get("sourceLabel"))),
+        sourceUrl: optionalString(stringField(formData.get("sourceUrl"))),
+        posterImageUrl: optionalString(stringField(formData.get("posterImageUrl"))),
+        mediaLinks: parseMediaLinks(stringField(formData.get("mediaLinks"))),
+        participantLinks: parseParticipantLinks(stringField(formData.get("participantLinks"))),
+      };
       const result = event
         ? await updateEvent({ currentSlug: event.slug, ...payload })
         : await createEvent(payload);
