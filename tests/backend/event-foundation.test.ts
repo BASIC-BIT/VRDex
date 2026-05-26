@@ -2,8 +2,13 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import type { Doc } from "../../convex/_generated/dataModel";
+import type { DatabaseReader } from "../../convex/_generated/server";
 import { sanitizeEventDraftInput } from "../../convex/_eventInputs";
-import { toPublicEvent, toPublicEventPreviewFromRecord } from "../../convex/_eventPublic";
+import {
+  getPublicEventPreviews,
+  toPublicEvent,
+  toPublicEventPreviewFromRecord,
+} from "../../convex/_eventPublic";
 import {
   createEventSlugBase,
   createEventSlugCandidate,
@@ -103,6 +108,21 @@ describe("event draft input", () => {
 });
 
 describe("public event projection", () => {
+  function createEmptyEventAssociationDb() {
+    const query = {
+      withIndex: () => ({
+        filter: () => ({
+          take: async () => [],
+        }),
+      }),
+    };
+
+    return {
+      get: async () => null,
+      query: () => query,
+    } as unknown as DatabaseReader;
+  }
+
   it("projects event details with safe URLs and public participant links", () => {
     const now = Date.UTC(2026, 4, 24, 12, 0, 0);
     const event = {
@@ -216,5 +236,31 @@ describe("public event projection", () => {
     assert.equal(preview.slug, "afterglow-harbor-sessions-2026-06-14");
     assert.equal(preview.participantCount, 0);
     assert.deepEqual(preview.worlds, []);
+  });
+
+  it("allows explicit preview limits above the compact section default", async () => {
+    const now = Date.UTC(2026, 4, 24, 12, 0, 0);
+    const events = Array.from(
+      { length: 8 },
+      (_, index) =>
+        ({
+          slug: `afterglow-harbor-${index + 1}`,
+          title: `Afterglow Harbor ${index + 1}`,
+          sortTitle: `afterglow harbor ${index + 1}`,
+          startAt: now + index * 3_600_000,
+          sourceType: "community",
+          sourceLabel: "Community listing",
+          publicationState: "published",
+          updatedAt: now,
+        }) as unknown as Doc<"events">,
+    );
+    const db = createEmptyEventAssociationDb();
+
+    const defaultPreviews = await getPublicEventPreviews(db, events, { now });
+    const expandedPreviews = await getPublicEventPreviews(db, events, { now, limit: 8 });
+
+    assert.equal(defaultPreviews.length, 6);
+    assert.equal(expandedPreviews.length, 8);
+    assert.equal(expandedPreviews[7]?.title, "Afterglow Harbor 8");
   });
 });

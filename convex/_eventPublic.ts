@@ -4,8 +4,9 @@ import { optionalField, safeHttpsUrl } from "./_publicFields";
 import { canReadProfile } from "./_profilePermissions";
 import { getProfileTrustLabel } from "./_profileStates";
 
-const EVENT_PREVIEW_LIMIT = 6;
+const EVENT_PREVIEW_DEFAULT_LIMIT = 6;
 const EVENT_ASSOCIATION_LIMIT = 80;
+const EVENT_PREVIEW_MAX_LIMIT = EVENT_ASSOCIATION_LIMIT;
 
 type PublicEventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested";
 type PublicEventMediaLinkType =
@@ -280,7 +281,10 @@ export async function getPublicEventPreviews(
   options: { now?: number; limit?: number } = {},
 ): Promise<PublicEventPreview[]> {
   const now = options.now;
-  const limit = Math.max(1, Math.min(options.limit ?? EVENT_PREVIEW_LIMIT, EVENT_PREVIEW_LIMIT));
+  const limit = Math.max(
+    1,
+    Math.min(options.limit ?? EVENT_PREVIEW_DEFAULT_LIMIT, EVENT_PREVIEW_MAX_LIMIT),
+  );
   const records = (
     await Promise.all(events.map((event) => getPublicEventRecord(db, event)))
   ).filter((record): record is PublicEventRecord => record !== null);
@@ -296,7 +300,7 @@ export async function getPublicCommunityHostedEvents(
   db: DatabaseReader,
   communityProfileId: Id<"profiles">,
   now: number,
-  limit = EVENT_PREVIEW_LIMIT,
+  limit = EVENT_PREVIEW_DEFAULT_LIMIT,
 ): Promise<PublicEventPreview[]> {
   const events = await db
     .query("events")
@@ -312,7 +316,7 @@ export async function getPublicPersonUpcomingEvents(
   db: DatabaseReader,
   personProfileId: Id<"profiles">,
   now: number,
-  limit = EVENT_PREVIEW_LIMIT,
+  limit = EVENT_PREVIEW_DEFAULT_LIMIT,
 ): Promise<PublicEventPreview[]> {
   const participantLinks = await db
     .query("eventParticipants")
