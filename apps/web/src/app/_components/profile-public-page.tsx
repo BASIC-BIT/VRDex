@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { EventPreviewCard, type PublicEventPreview } from "./event-public-page";
+
 type ProfileTrustLabel =
   | "community_submitted"
   | "unclaimed"
@@ -53,6 +55,8 @@ type PublicProfileBase = {
     summary?: string;
     sourceLabel?: string;
   }>;
+  upcomingEvents: PublicEventPreview[];
+  hostedEvents: PublicEventPreview[];
 };
 
 type PublicPersonProfile = PublicProfileBase & {
@@ -338,6 +342,33 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
               )}
             </dl>
           </aside>
+        </section>
+
+        <section className="rounded-[1.5rem] border border-border bg-surface px-5 py-6 sm:px-6">
+          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+            <div>
+              <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">
+                {isPerson ? "Upcoming events" : "Hosted events"}
+              </p>
+              <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em]">
+                {isPerson ? "Where this profile appears next" : "Upcoming community events"}
+              </h2>
+            </div>
+            <p className="max-w-md text-sm leading-6 text-muted">
+              {isPerson
+                ? "Derived from confirmed person-event links on published event records."
+                : "Published events linked to this community profile."}
+            </p>
+          </div>
+          <div className="mt-5 grid gap-3 lg:grid-cols-2">
+            {(isPerson ? profile.upcomingEvents : profile.hostedEvents).length === 0 ? (
+              <p className="text-sm leading-6 text-muted">No public upcoming events yet.</p>
+            ) : (
+              (isPerson ? profile.upcomingEvents : profile.hostedEvents).map((event) => (
+                <EventPreviewCard event={event} key={`${event.slug ?? event.title}-${event.startAt}`} />
+              ))
+            )}
+          </div>
         </section>
 
         <section className="rounded-[1.5rem] border border-border bg-surface px-5 py-6 sm:px-6">

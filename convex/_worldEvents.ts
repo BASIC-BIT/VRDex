@@ -20,12 +20,20 @@ type PublicActiveWorldRecord = PublicWorldEventRecord & {
 };
 
 export type PublicWorldEventPreview = {
+  slug?: string;
   title: string;
   startAt: number;
   endAt?: number;
   timezone?: string;
   communityName?: string;
   summary?: string;
+  posterImageUrl?: string;
+  mediaLinks: Array<{
+    type: "event_page" | "watch" | "stream" | "vrcdn" | "discord" | "ticket" | "other";
+    label: string;
+    url: string;
+    presentation: "open" | "copy";
+  }>;
   source: {
     sourceType: PublicEventSourceType;
     label: string;
@@ -53,6 +61,7 @@ export type PublicActiveWorldPreview = {
   activityLabel: "Hosting upcoming events";
   nextEvent: {
     title: string;
+    slug?: string;
     startAt: number;
     endAt?: number;
     timezone?: string;
@@ -83,10 +92,21 @@ function toPublicWorldEventPreview(
   }
 
   const sourceUrl = safeHttpsUrl(event.sourceUrl);
+  const posterImageUrl = safeHttpsUrl(event.posterImageUrl);
 
   return {
+    ...optionalField("slug", event.slug),
     title: event.title,
     startAt: event.startAt,
+    mediaLinks: (event.mediaLinks ?? []).flatMap((link) => {
+      const linkUrl = safeHttpsUrl(link.url);
+
+      if (linkUrl === undefined) {
+        return [];
+      }
+
+      return [{ ...link, url: linkUrl }];
+    }),
     source: {
       sourceType: event.sourceType,
       label: event.sourceLabel,
@@ -101,6 +121,7 @@ function toPublicWorldEventPreview(
     ...optionalField("timezone", event.timezone),
     ...optionalField("communityName", event.communityName),
     ...optionalField("summary", event.summary),
+    ...optionalField("posterImageUrl", posterImageUrl),
   };
 }
 
@@ -176,6 +197,7 @@ export function createPublicActiveWorldPreviews(
           upcomingEventCount: sortedEvents.length,
           activityLabel: "Hosting upcoming events" as const,
           nextEvent: {
+            ...optionalField("slug", nextEvent.slug),
             title: nextEvent.title,
             startAt: nextEvent.startAt,
             source: {

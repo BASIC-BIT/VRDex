@@ -12,6 +12,7 @@ export type PublicActiveWorld = {
   activityLabel: "Hosting upcoming events";
   nextEvent: {
     title: string;
+    slug?: string;
     startAt: number;
     endAt?: number;
     timezone?: string;

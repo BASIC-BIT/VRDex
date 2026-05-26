@@ -1,10 +1,36 @@
 import type { PublicProfile } from "@/app/_components/profile-public-page";
 import type { PublicActiveWorld } from "@/app/_components/home-active-worlds";
+import type { PublicEvent } from "@/app/_components/event-public-page";
 import type { PublicWorld } from "@/app/_components/world-public-page";
 
 const personSlug = "playwright-dj-aurora";
 const communitySlug = "playwright-afterglow-social";
 const worldSlug = "playwright-neon-harbor";
+const eventSlug = "playwright-afterglow-harbor-sessions";
+
+const eventPreview = {
+  slug: eventSlug,
+  title: "Afterglow Harbor Sessions",
+  startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
+  endAt: Date.UTC(2026, 5, 15, 1, 0, 0),
+  timezone: "UTC",
+  communityName: "Afterglow Social",
+  communitySlug,
+  summary: "A fixture venue night that keeps event-profile context visible in screenshots.",
+  posterImageUrl: "https://example.invalid/events/afterglow-harbor-poster.png",
+  source: {
+    sourceType: "manual" as const,
+    label: "Fixture event listing",
+    url: "https://example.invalid/events/afterglow-harbor-sessions",
+  },
+  worlds: [
+    {
+      slug: worldSlug,
+      displayName: "Neon Harbor",
+    },
+  ],
+  participantCount: 1,
+};
 
 const personProfile: PublicProfile = {
   profileType: "person",
@@ -42,6 +68,8 @@ const personProfile: PublicProfile = {
       sourceLabel: "Fixture attribution",
     },
   ],
+  upcomingEvents: [eventPreview],
+  hostedEvents: [],
   person: {
     pronouns: "she/they",
     roleTags: ["DJ", "Producer", "Host"],
@@ -78,6 +106,8 @@ const communityProfile: PublicProfile = {
       sourceLabel: "Fixture attribution",
     },
   ],
+  upcomingEvents: [],
+  hostedEvents: [eventPreview],
   community: {
     subtype: "Club night",
     categoryTags: ["Music", "Dancing", "Social"],
@@ -136,12 +166,22 @@ const worldProfile: PublicWorld = {
   eventContext: {
     upcoming: [
       {
+        slug: eventSlug,
         title: "Afterglow Harbor Sessions",
         startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
         endAt: Date.UTC(2026, 5, 15, 1, 0, 0),
         timezone: "UTC",
         communityName: "Afterglow Social",
         summary: "A fixture venue night that keeps world-event context visible in screenshots.",
+        posterImageUrl: "https://example.invalid/events/afterglow-harbor-poster.png",
+        mediaLinks: [
+          {
+            type: "watch",
+            label: "Fixture watch link",
+            url: "https://example.invalid/events/afterglow-watch",
+            presentation: "open",
+          },
+        ],
         source: {
           sourceType: "manual",
           label: "Fixture event listing",
@@ -161,6 +201,7 @@ const worldProfile: PublicWorld = {
         timezone: "UTC",
         communityName: "Afterglow Social",
         summary: "A past fixture event used to exercise recent world activity presentation.",
+        mediaLinks: [],
         source: {
           sourceType: "community",
           label: "Community-submitted event",
@@ -184,6 +225,7 @@ const activeWorlds: PublicActiveWorld[] = [
     upcomingEventCount: 2,
     activityLabel: "Hosting upcoming events",
     nextEvent: {
+      slug: eventSlug,
       title: "Afterglow Harbor Sessions",
       startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
       timezone: "UTC",
@@ -196,6 +238,51 @@ const activeWorlds: PublicActiveWorld[] = [
     },
   },
 ];
+
+const publicEvent: PublicEvent = {
+  ...eventPreview,
+  slug: eventSlug,
+  notes: "Fixture event notes make the standalone event route useful during visual review.",
+  mediaLinks: [
+    {
+      type: "watch",
+      label: "Fixture watch link",
+      url: "https://example.invalid/events/afterglow-watch",
+      presentation: "open",
+    },
+    {
+      type: "vrcdn",
+      label: "Fixture VRCDN copy link",
+      url: "https://example.invalid/events/afterglow-vrcdn",
+      presentation: "copy",
+    },
+  ],
+  worlds: [
+    {
+      slug: worldSlug,
+      displayName: "Neon Harbor",
+      tags: ["Club world", "Cyberpunk", "Dance floor"],
+      summary: "A fixture VRChat venue page for world discovery visual review.",
+      association: {
+        sourceType: "manual",
+        confirmationState: "confirmed",
+        confirmedAt: Date.UTC(2026, 4, 1, 12, 0, 0),
+      },
+    },
+  ],
+  participants: [
+    {
+      slug: personSlug,
+      displayName: "DJ Aurora",
+      roleLabel: "Performer",
+      trustLabel: "community_submitted",
+      source: {
+        sourceType: "community",
+        label: "Fixture lineup",
+      },
+    },
+  ],
+};
 
 export function getPlaywrightPublicProfileFixture(
   slug: string,
@@ -234,6 +321,21 @@ export function getPlaywrightPublicWorldFixture(slug: string): PublicWorld | nul
   return null;
 }
 
+export function getPlaywrightPublicEventFixture(slug: string): PublicEvent | null {
+  if (
+    process.env.NODE_ENV === "production" ||
+    process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES !== "true"
+  ) {
+    return null;
+  }
+
+  if (slug === eventSlug) {
+    return publicEvent;
+  }
+
+  return null;
+}
+
 export function getPlaywrightActiveWorldFixtures(): PublicActiveWorld[] | null {
   if (
     process.env.NODE_ENV === "production" ||
@@ -249,4 +351,5 @@ export const playwrightPublicProfilePaths = {
   personPath: `/p/${personSlug}`,
   communityPath: `/c/${communitySlug}`,
   worldPath: `/w/${worldSlug}`,
+  eventPath: `/e/${eventSlug}`,
 };

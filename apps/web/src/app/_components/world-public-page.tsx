@@ -25,12 +25,20 @@ type WorldLinkSource = "owner_authored" | "reviewed" | "partner_provided";
 type EventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested";
 
 type PublicWorldEventPreview = {
+  slug?: string;
   title: string;
   startAt: number;
   endAt?: number;
   timezone?: string;
   communityName?: string;
   summary?: string;
+  posterImageUrl?: string;
+  mediaLinks: Array<{
+    type: "event_page" | "watch" | "stream" | "vrcdn" | "discord" | "ticket" | "other";
+    label: string;
+    url: string;
+    presentation: "open" | "copy";
+  }>;
   source: {
     sourceType: EventSourceType;
     label: string;
@@ -240,40 +248,56 @@ function EventList({
     <div className="grid gap-3">
       {events.map((event) => {
         const sourceUrl = event.source.url ? safeHttpsUrl(event.source.url) : null;
+        const posterStyle = safeImageBackground(event.posterImageUrl, true);
+        const posterTextClass = posterStyle ? "text-white/76" : "text-muted";
 
         return (
           <article
-            className="rounded-2xl border border-cyan-950/10 bg-surface px-4 py-4 text-sm"
+            className="overflow-hidden rounded-2xl border border-cyan-950/10 bg-surface text-sm"
             key={`${event.title}-${event.startAt}`}
           >
-            <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
-              <time dateTime={new Date(event.startAt).toISOString()}>
-                {formatEventDate(event.startAt, event.timezone)}
-              </time>
-              <span aria-hidden="true">/</span>
-              <span>Confirmed venue</span>
+            <div
+              className="bg-[radial-gradient(circle_at_top_left,rgba(9,189,214,0.18),transparent_36%),linear-gradient(135deg,#ecfeff,#ffffff)] bg-cover bg-center px-4 py-4"
+              style={posterStyle}
+            >
+              <div className={`flex flex-wrap items-center gap-2 text-xs ${posterTextClass}`}>
+                <time dateTime={new Date(event.startAt).toISOString()}>
+                  {formatEventDate(event.startAt, event.timezone)}
+                </time>
+                <span aria-hidden="true">/</span>
+                <span>Confirmed venue</span>
+              </div>
+              <h3 className={`mt-3 text-lg font-semibold tracking-[-0.03em] ${posterStyle ? "text-white" : ""}`}>
+                {event.slug ? <Link href={`/e/${event.slug}`}>{event.title}</Link> : event.title}
+              </h3>
+              {event.communityName ? <p className={`mt-1 ${posterTextClass}`}>Hosted by {event.communityName}</p> : null}
             </div>
-            <h3 className="mt-3 text-lg font-semibold tracking-[-0.03em]">{event.title}</h3>
-            {event.communityName ? <p className="mt-1 text-muted">Hosted by {event.communityName}</p> : null}
-            {event.summary ? <p className="mt-3 leading-6 text-muted">{event.summary}</p> : null}
-            <div className="mt-4 flex flex-wrap gap-2 text-xs">
-              <span className="rounded-full bg-cyan-50 px-3 py-1 text-cyan-950">
-                {eventSourceLabel(event.worldAssociation.sourceType)} association
-              </span>
-              {sourceUrl ? (
-                <a
-                  className="rounded-full border border-border bg-white px-3 py-1 font-medium"
-                  href={sourceUrl}
-                  rel="noreferrer"
-                  target="_blank"
-                >
-                  {event.source.label}
-                </a>
-              ) : (
-                <span className="rounded-full border border-border bg-white px-3 py-1">
-                  {event.source.label}
+            <div className="px-4 py-4">
+              {event.summary ? <p className="leading-6 text-muted">{event.summary}</p> : null}
+              <div className="mt-4 flex flex-wrap gap-2 text-xs">
+                <span className="rounded-full bg-cyan-50 px-3 py-1 text-cyan-950">
+                  {eventSourceLabel(event.worldAssociation.sourceType)} association
                 </span>
-              )}
+                {event.mediaLinks.length > 0 ? (
+                  <span className="rounded-full border border-border bg-white px-3 py-1">
+                    {event.mediaLinks.length} media link{event.mediaLinks.length === 1 ? "" : "s"}
+                  </span>
+                ) : null}
+                {sourceUrl ? (
+                  <a
+                    className="rounded-full border border-border bg-white px-3 py-1 font-medium"
+                    href={sourceUrl}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    {event.source.label}
+                  </a>
+                ) : (
+                  <span className="rounded-full border border-border bg-white px-3 py-1">
+                    {event.source.label}
+                  </span>
+                )}
+              </div>
             </div>
           </article>
         );

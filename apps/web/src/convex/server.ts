@@ -2,6 +2,7 @@ import { fetchQuery } from "convex/nextjs";
 import { api } from "@convex-generated-api";
 import {
   getPlaywrightActiveWorldFixtures,
+  getPlaywrightPublicEventFixture,
   getPlaywrightPublicProfileFixture,
   getPlaywrightPublicWorldFixture,
 } from "./playwright-fixtures";
@@ -46,7 +47,11 @@ export async function fetchPublicProfileBySlug(slug: string, profileType: Public
   }
 
   try {
-    const profile = await fetchQuery(api.profiles.getPublicBySlug, { slug, profileType });
+    const profile = await fetchQuery(api.profiles.getPublicBySlug, {
+      slug,
+      profileType,
+      now: Date.now(),
+    });
 
     return {
       kind: "live" as const,
@@ -56,6 +61,38 @@ export async function fetchPublicProfileBySlug(slug: string, profileType: Public
     const message = error instanceof Error ? error.message : String(error);
 
     console.error(`Server-side Convex profile fetch failed: ${message}`);
+
+    return {
+      kind: "error" as const,
+    };
+  }
+}
+
+export async function fetchPublicEventBySlug(slug: string) {
+  const fixtureEvent = getPlaywrightPublicEventFixture(slug);
+
+  if (fixtureEvent !== null) {
+    return {
+      kind: "live" as const,
+      event: fixtureEvent,
+    };
+  }
+
+  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
+    return { kind: "missing-url" as const };
+  }
+
+  try {
+    const event = await fetchQuery(api.events.getPublicBySlug, { slug });
+
+    return {
+      kind: "live" as const,
+      event,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    console.error(`Server-side Convex event fetch failed: ${message}`);
 
     return {
       kind: "error" as const,

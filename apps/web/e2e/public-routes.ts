@@ -8,6 +8,7 @@ export const visualProfilePaths = {
   personPath: "/p/playwright-dj-aurora",
   communityPath: "/c/playwright-afterglow-social",
   worldPath: "/w/playwright-neon-harbor",
+  eventPath: "/e/playwright-afterglow-harbor-sessions",
 } as const;
 
 export type CapturedRoute = {
@@ -186,17 +187,29 @@ export async function expectDeploymentPage(page: Page) {
 export async function expectPersonProfilePage(page: Page) {
   await expect(page.getByRole("heading", { name: "DJ Aurora" })).toBeVisible();
   await expect(page.getByText(/Community submitted/i)).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Where this profile appears next/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions" })).toBeVisible();
   await expect(page.getByText(/Creator links/i)).toBeVisible();
   await expect(page.getByText("DJ Aurora Ko-fi", { exact: true })).toBeVisible();
   await expect(page.getByText(/World credits/i)).toBeVisible();
-  await expect(page.getByText("Neon Harbor", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Neon Harbor Media Credit A/i })).toBeVisible();
 }
 
 export async function expectCommunityProfilePage(page: Page) {
   await expect(page.getByRole("heading", { name: "Afterglow Social" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Upcoming community events/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions" })).toBeVisible();
   await expect(page.getByText("Club night", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Afterglow event archive", { exact: true })).toBeVisible();
   await expect(page.getByText("World Author", { exact: true })).toBeVisible();
+}
+
+export async function expectEventPage(page: Page) {
+  await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions" })).toBeVisible();
+  await expect(page.getByText(/People associated with this event/i)).toBeVisible();
+  await expect(page.getByText("DJ Aurora", { exact: true })).toBeVisible();
+  await expect(page.getByText("Neon Harbor", { exact: true })).toBeVisible();
+  await expect(page.getByText("Fixture watch link", { exact: true })).toBeVisible();
 }
 
 export async function expectWorldProfilePage(page: Page) {
@@ -243,5 +256,10 @@ export const capturedRoutes: CapturedRoute[] = [
     name: "world-profile",
     path: visualProfilePaths.worldPath,
     expectPage: expectWorldProfilePage,
+  },
+  {
+    name: "event-profile",
+    path: visualProfilePaths.eventPath,
+    expectPage: expectEventPage,
   },
 ];

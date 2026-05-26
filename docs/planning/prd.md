@@ -374,6 +374,14 @@ Current recommendation:
 - when a claimed person is added to an event association in v1, they should receive a passive in-app notification
 - claimed people should be able to choose whether they are simply notified when added; stronger approval gates can land later
 
+Locked decision for the first implementation slice:
+
+- event pages use readable `/e/<slug>` routes
+- editable slugs and future generated short links are separate concepts
+- participant role labels start as freeform text rather than a fixed dropdown
+- person-event links can appear immediately when they reference published profiles and published events
+- notifications, approval gates, disputes, RSVP/interested state, recurring events, and friend-aware discovery stay out of the first event CRUD PR and remain tracked as follow-up work
+
 Candidate direction:
 
 - disputed event associations may need the community page and person page to diverge temporarily

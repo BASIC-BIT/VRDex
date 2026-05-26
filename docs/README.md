@@ -7,6 +7,7 @@ This repo keeps durable markdown under `docs/` so product, engineering, and agen
 - `docs/planning/README.md` - product, architecture, roadmap, backlog, and issue-planning docs
 - `docs/agentic/README.md` - software-factory, onboarding, control-loop, and agent workflow docs
 - `docs/backend/convex-bootstrap.md` - backend bootstrap workflow and structure notes
+- `docs/backend/event-schema.md` - event records, participant links, media links, and world-association notes
 - `docs/deployment/vercel-preview.md` - initial Vercel hosted-preview setup and validation path
 
 Useful starting points:
