@@ -12,6 +12,12 @@ const publicationState = v.union(
   v.literal("published"),
 );
 
+const publicSurfacingState = v.union(
+  v.literal("public"),
+  v.literal("opted_out"),
+  v.literal("suppressed"),
+);
+
 const creationSource = v.union(
   v.literal("self"),
   v.literal("community"),
@@ -89,6 +95,16 @@ const eventSourceType = v.union(
   v.literal("ai_suggested"),
 );
 
+const discoverySourceType = v.union(
+  v.literal("owner"),
+  v.literal("community"),
+  v.literal("partner"),
+  v.literal("moderator"),
+  v.literal("import"),
+  v.literal("manual"),
+  v.literal("ai_suggested"),
+);
+
 const eventMediaLinkType = v.union(
   v.literal("event_page"),
   v.literal("watch"),
@@ -123,6 +139,54 @@ const communityCapability = v.union(
 
 const communityAuthorityState = v.union(v.literal("active"), v.literal("revoked"));
 
+const suppressionRequestType = v.union(
+  v.literal("owner_opt_out"),
+  v.literal("pre_claim_safety"),
+);
+
+const suppressionRequestState = v.union(
+  v.literal("submitted"),
+  v.literal("under_review"),
+  v.literal("accepted"),
+  v.literal("rejected"),
+);
+
+const vocabularyScope = v.union(
+  v.literal("profile_tag"),
+  v.literal("person_role"),
+  v.literal("community_category"),
+  v.literal("community_subtype"),
+  v.literal("event_participant_role"),
+  v.literal("event_tag"),
+  v.literal("world_tag"),
+  v.literal("world_creator_role"),
+  v.literal("discovery_facet"),
+);
+
+const vocabularySource = v.union(
+  v.literal("seeded"),
+  v.literal("user_created"),
+  v.literal("reviewed"),
+  v.literal("imported"),
+);
+
+const searchEntityType = v.union(
+  v.literal("profile"),
+  v.literal("world"),
+  v.literal("event"),
+);
+
+const searchPublicState = v.union(v.literal("public"), v.literal("hidden"));
+
+const featuredPlacementSlot = v.union(
+  v.literal("home_hero"),
+  v.literal("home_event_wall"),
+  v.literal("discover_hero"),
+  v.literal("discover_rail"),
+);
+
+const featuredPlacementState = v.union(v.literal("active"), v.literal("inactive"));
+
 const authSubject = v.object({
   tokenIdentifier: v.string(),
   issuer: v.string(),
@@ -155,6 +219,9 @@ const sharedProfileFields = {
   timezone: v.optional(v.string()),
   claimState,
   publicationState,
+  publicSurfacingState,
+  publicSurfacingUpdatedAt: v.optional(v.number()),
+  publicSurfacingReason: v.optional(v.string()),
   creationSource,
   sourceAttribution: v.optional(
     v.object({
@@ -198,6 +265,10 @@ export default defineSchema({
     .index("by_slug", ["slug"])
     .index("by_profileType_publicationState", ["profileType", "publicationState"])
     .index("by_publicationState_claimState", ["publicationState", "claimState"])
+    .index("by_publicSurfacingState_publicationState", [
+      "publicSurfacingState",
+      "publicationState",
+    ])
     .index("by_claimState_profileType", ["claimState", "profileType"])
     .index("by_creationSource_claimState", ["creationSource", "claimState"])
     .index("by_profileType_sortName", ["profileType", "sortName"]),
@@ -358,4 +429,120 @@ export default defineSchema({
       "state",
       "communityProfileId",
     ]),
+  profileSuppressionRequests: defineTable({
+    profileId: v.optional(v.id("profiles")),
+    profileSlug: v.optional(v.string()),
+    profileType: v.optional(profileType),
+    displayName: v.optional(v.string()),
+    requestType: suppressionRequestType,
+    state: suppressionRequestState,
+    requester: v.optional(authSubject),
+    requesterContact: v.optional(v.string()),
+    requesterNote: v.optional(v.string()),
+    resolutionNote: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_state_createdAt", ["state", "createdAt"])
+    .index("by_profileId_state", ["profileId", "state"])
+    .index("by_profileSlug_state", ["profileSlug", "state"]),
+  profileAuditEvents: defineTable({
+    profileId: v.id("profiles"),
+    action: v.string(),
+    actor: v.optional(authSubject),
+    sourceType,
+    note: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_profileId_createdAt", ["profileId", "createdAt"])
+    .index("by_action_createdAt", ["action", "createdAt"]),
+  vocabularyTerms: defineTable({
+    scope: vocabularyScope,
+    key: v.string(),
+    label: v.string(),
+    aliases: v.array(v.string()),
+    source: vocabularySource,
+    usageCount: v.number(),
+    rank: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_scope_key", ["scope", "key"])
+    .index("by_scope_rank", ["scope", "rank"])
+    .searchIndex("search_label", {
+      searchField: "label",
+      filterFields: ["scope"],
+    }),
+  searchDocuments: defineTable({
+    entityType: searchEntityType,
+    publicState: searchPublicState,
+    profileId: v.optional(v.id("profiles")),
+    worldId: v.optional(v.id("worlds")),
+    eventId: v.optional(v.id("events")),
+    profileType: v.optional(profileType),
+    slug: v.string(),
+    routePath: v.string(),
+    title: v.string(),
+    subtitle: v.optional(v.string()),
+    summary: v.optional(v.string()),
+    imageUrl: v.optional(v.string()),
+    searchText: v.string(),
+    exactTokens: v.array(v.string()),
+    vocabularyKeys: v.array(v.string()),
+    trustRank: v.number(),
+    freshnessAt: v.optional(v.number()),
+    featuredRank: v.number(),
+    sourceType: v.optional(discoverySourceType),
+    sourceLabel: v.optional(v.string()),
+    startsAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_entityType_slug", ["entityType", "slug"])
+    .index("by_profileId", ["profileId"])
+    .index("by_worldId", ["worldId"])
+    .index("by_eventId", ["eventId"])
+    .index("by_publicState_entityType_featuredRank", [
+      "publicState",
+      "entityType",
+      "featuredRank",
+    ])
+    .index("by_publicState_startsAt", ["publicState", "startsAt"])
+    .searchIndex("search_text", {
+      searchField: "searchText",
+      filterFields: ["publicState", "entityType"],
+    }),
+  searchEmbeddings: defineTable({
+    searchDocumentId: v.id("searchDocuments"),
+    entityType: searchEntityType,
+    publicState: searchPublicState,
+    embedding: v.array(v.float64()),
+    model: v.string(),
+    dimensions: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_searchDocumentId", ["searchDocumentId"])
+    .vectorIndex("by_embedding", {
+      vectorField: "embedding",
+      dimensions: 1536,
+      filterFields: ["publicState", "entityType"],
+    }),
+  featuredPlacements: defineTable({
+    slot: featuredPlacementSlot,
+    state: featuredPlacementState,
+    targetEntityType: searchEntityType,
+    targetProfileId: v.optional(v.id("profiles")),
+    targetWorldId: v.optional(v.id("worlds")),
+    targetEventId: v.optional(v.id("events")),
+    label: v.string(),
+    reason: v.string(),
+    weight: v.number(),
+    startsAt: v.optional(v.number()),
+    endsAt: v.optional(v.number()),
+    sourceType: discoverySourceType,
+    sourceLabel: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_slot_state_weight", ["slot", "state", "weight"])
+    .index("by_state_startsAt", ["state", "startsAt"]),
 });

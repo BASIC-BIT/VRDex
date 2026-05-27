@@ -16,6 +16,7 @@ This directory holds the initial Convex backend slice for `VRDex`.
 - `worlds.ts` exposes public world reads
 - `_eventSlugs.ts`, `_eventInputs.ts`, and `_eventPublic.ts` contain event slug, input, and public projection helpers
 - `events.ts` exposes public event reads and authenticated event editor mutations
+- `_searchDocuments.ts`, `_vocabulary.ts`, `search.ts`, and `suppressions.ts` contain public discovery, vocabulary, and suppression helpers
 - `_generated/` contains committed Convex codegen output and should not be edited by hand
 - `tsconfig.json` is the Convex-managed TypeScript config for backend functions
 
@@ -36,3 +37,5 @@ The slug, permission, and claim-state contracts live in `docs/backend/profile-sl
 The first world-discovery planning contract lives in `docs/planning/world-discovery.md`.
 
 The event schema and profile-association contracts live in `docs/backend/event-schema.md`.
+
+Search, discovery, and vocabulary contracts live in `docs/backend/search-discovery.md` and `docs/backend/vocabulary-model.md`.

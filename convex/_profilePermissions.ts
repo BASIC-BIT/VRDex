@@ -43,18 +43,21 @@ function isFieldCompatibleWithProfileType(
 
 export function canReadProfile(
   subject: ProfilePermissionSubject,
-  profile: Pick<Doc<"profiles">, "publicationState">,
+  profile: Pick<Doc<"profiles">, "publicationState" | "publicSurfacingState">,
 ): boolean {
   if (subject === "claimed_owner" || subject === "moderator") {
     return true;
   }
 
-  return profile.publicationState === "published";
+  return profile.publicationState === "published" && profile.publicSurfacingState === "public";
 }
 
 export function canEditProfileField(
   subject: ProfilePermissionSubject,
-  profile: Pick<Doc<"profiles">, "claimState" | "profileType" | "publicationState">,
+  profile: Pick<
+    Doc<"profiles">,
+    "claimState" | "profileType" | "publicationState" | "publicSurfacingState"
+  >,
   field: ProfileEditableField,
 ): boolean {
   if (!isFieldCompatibleWithProfileType(profile.profileType, field)) {

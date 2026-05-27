@@ -19,6 +19,8 @@ import type * as _profileStates from "../_profileStates.js";
 import type * as _profileSubmissions from "../_profileSubmissions.js";
 import type * as _profileWorldCredits from "../_profileWorldCredits.js";
 import type * as _publicFields from "../_publicFields.js";
+import type * as _searchDocuments from "../_searchDocuments.js";
+import type * as _vocabulary from "../_vocabulary.js";
 import type * as _worldEvents from "../_worldEvents.js";
 import type * as _worldIds from "../_worldIds.js";
 import type * as _worldPublic from "../_worldPublic.js";
@@ -26,6 +28,8 @@ import type * as _worldSlugs from "../_worldSlugs.js";
 import type * as events from "../events.js";
 import type * as health from "../health.js";
 import type * as profiles from "../profiles.js";
+import type * as search from "../search.js";
+import type * as suppressions from "../suppressions.js";
 import type * as worlds from "../worlds.js";
 
 import type {
@@ -46,6 +50,8 @@ declare const fullApi: ApiFromModules<{
   _profileSubmissions: typeof _profileSubmissions;
   _profileWorldCredits: typeof _profileWorldCredits;
   _publicFields: typeof _publicFields;
+  _searchDocuments: typeof _searchDocuments;
+  _vocabulary: typeof _vocabulary;
   _worldEvents: typeof _worldEvents;
   _worldIds: typeof _worldIds;
   _worldPublic: typeof _worldPublic;
@@ -53,6 +59,8 @@ declare const fullApi: ApiFromModules<{
   events: typeof events;
   health: typeof health;
   profiles: typeof profiles;
+  search: typeof search;
+  suppressions: typeof suppressions;
   worlds: typeof worlds;
 }>;
 

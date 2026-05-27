@@ -2,7 +2,7 @@
 
 ## Status Note
 
-This doc captures the durable profile schema foundation started in `#9` and extended through `#10`, `#11`, `#12`, `#13`, `#22`, `#23`, and `#82`.
+This doc captures the durable profile schema foundation started in `#9` and extended through `#10`, `#11`, `#12`, `#13`, `#22`, `#23`, `#25`, `#26`, `#30`, `#31`, `#32`, `#33`, `#82`, and `#90`.
 
 The schema is intentionally narrow. It establishes one shared `profiles` table for people and communities without introducing account tables, full claim flows, normalized link tables, asset tables, or advanced moderation workflows.
 
@@ -13,6 +13,7 @@ The schema is intentionally narrow. It establishes one shared `profiles` table f
 - every profile has a canonical `slug` that is globally unique across people and communities
 - claim state, publication state, and creation provenance are separate fields
 - community-submitted unclaimed records are represented by `creationSource: "community"` plus `claimState: "unclaimed"`
+- public surfacing state is separate from ordinary publication state so valid opt-out and suppression can hide otherwise-published profiles
 - account/user references are deferred until auth and claim issues define the account model
 - most public write mutations are deferred until auth and permissions are wired; `profiles:submitCommunityProfile` is the current auth-gated exception
 - the community submission mutation requires a Convex authenticated identity before writing
@@ -47,6 +48,9 @@ State fields:
 - `claimState`: `"unclaimed" | "claimed_unverified" | "claimed_verified"`
 - `publicationState`: `"draft_private" | "published"`
 - `creationSource`: `"self" | "community" | "concierge" | "import" | "moderator"`
+- `publicSurfacingState`: `"public" | "opted_out" | "suppressed"`
+- `publicSurfacingUpdatedAt`: optional timestamp for the latest public-surfacing state change
+- `publicSurfacingReason`: optional short reason for opt-out or suppression state
 - `claimedAt`: optional claim timestamp, present only after claim authority is established
 - `publishedAt`: optional publication timestamp, present once a profile has been published
 - `updatedAt`: application-maintained update timestamp that every profile mutation must refresh
@@ -74,6 +78,12 @@ Convex automatically provides `_id` and `_creationTime`; those are not duplicate
 - `draft_private`: not public and not searchable
 - `published`: eligible for public profile pages and later discovery flows, subject to permission, trust, and opt-out rules
 
+`publicSurfacingState` describes whether an otherwise-published profile is allowed to appear on ordinary public surfaces:
+
+- `public`: profile can appear on profile pages, search, discovery, event participant references, and linked attribution surfaces
+- `opted_out`: valid owner opt-out; hide from ordinary public surfaces
+- `suppressed`: moderation/safety suppression; hide from ordinary public surfaces
+
 `creationSource` describes how the record entered the system. It is not an authority marker by itself; authority comes from `claimState` and later claim records.
 
 ## Mutation Contracts
@@ -91,6 +101,7 @@ The first write path is `profiles:submitCommunityProfile`. It requires `ctx.auth
 - `by_slug`: canonical profile lookup and mutation-enforced slug uniqueness
 - `by_profileType_publicationState`: public page/discovery entry points split by person vs community
 - `by_publicationState_claimState`: public/trust filtering for later profile lists
+- `by_publicSurfacingState_publicationState`: public suppression and opt-out enforcement
 - `by_claimState_profileType`: moderation and claim-review flows by claim state, with optional type splitting
 - `by_creationSource_claimState`: moderation and community-submitted/unclaimed review flows
 - `by_profileType_sortName`: deterministic profile listing by type
@@ -103,6 +114,10 @@ The first write path is `profiles:submitCommunityProfile`. It requires `ctx.auth
 - `#13` defines claim-state transitions and trust labeling behavior
 - `#22` added presentation fields and public-page rendering for avatar/banner, short bio, and longer about content
 - `#23` added the authenticated community submission mutation and source attribution details
+- `#25` and `#26` add public trust/source labeling and the first audit trail
+- `#30` adds public surfacing suppression enforcement
+- `#31`, `#32`, and `#33` add universal public search/discovery surfaces
 - `#82` added inline typed external links for first-slice creator commerce/profile links, with public `https` filtering
+- `#90` adds scoped vocabulary normalization for tags, roles, categories, and discovery facets
 - `#27` adds field-level visibility controls
 - `#31` adds public search behavior and any search-specific indexing

@@ -474,6 +474,9 @@ Recommended search behavior:
 - community-submitted profiles are searchable and discoverable
 - claimed and verified profiles get higher ranking weight
 - unclaimed profiles must carry clear trust labels in search cards and profile headers
+- universal search uses `searchDocuments` across profiles, worlds, and events rather than scanning source tables directly
+- deterministic reranking starts with exact, alias, tag, trust, freshness, and featured-placement signals
+- `searchEmbeddings` creates a provider-neutral seam for later semantic/vector search provider evaluation
 
 This prevents public seed data from feeling identical to owner-endorsed identity.
 

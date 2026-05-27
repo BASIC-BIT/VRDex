@@ -277,6 +277,15 @@ Search and browse should also support:
 - worlds hosting upcoming events
 - curated or event-derived active venues
 
+Implementation status for the first discovery engine slice:
+
+- home is moving toward search-first discovery instead of treating search as a secondary directory link
+- universal search is backed by `searchDocuments` for profiles, worlds, and events
+- search ranking starts with deterministic exact, alias, tag, trust, freshness, and featured signals
+- `searchEmbeddings` is a provider-neutral seam for later semantic/vector search
+- featured placements can front event posters, festivals, worlds, communities, and profiles without unsupported global popularity claims
+- PostHog discovery events are optional and no-op when analytics config is absent
+
 ### 6. Discord bot integration
 
 First commands should be simple:

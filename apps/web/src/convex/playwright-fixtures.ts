@@ -1,5 +1,9 @@
 import type { PublicProfile } from "@/app/_components/profile-public-page";
 import type { PublicActiveWorld } from "@/app/_components/home-active-worlds";
+import type {
+  PublicDiscoveryData,
+  PublicSearchResult,
+} from "@/app/_components/discovery-public-page";
 import type { PublicEvent } from "@/app/_components/event-public-page";
 import type { PublicWorld } from "@/app/_components/world-public-page";
 
@@ -44,6 +48,11 @@ const personProfile: PublicProfile = {
   region: "EU",
   timezone: "UTC+1",
   trustLabel: "community_submitted",
+  source: {
+    sourceType: "community",
+    label: "Community submitted",
+    submittedAt: Date.UTC(2025, 0, 1, 12, 0, 0),
+  },
   outboundLinks: [
     {
       type: "kofi",
@@ -88,6 +97,11 @@ const communityProfile: PublicProfile = {
   region: "Global",
   timezone: "UTC",
   trustLabel: "community_submitted",
+  source: {
+    sourceType: "community",
+    label: "Community submitted",
+    submittedAt: Date.UTC(2025, 0, 1, 12, 0, 0),
+  },
   outboundLinks: [
     {
       type: "website",
@@ -284,6 +298,79 @@ const publicEvent: PublicEvent = {
   ],
 };
 
+const discoveryResults: PublicSearchResult[] = [
+  {
+    entityType: "event",
+    slug: eventSlug,
+    routePath: `/e/${eventSlug}`,
+    title: "Afterglow Harbor Sessions",
+    subtitle: "Afterglow Social",
+    summary: "A poster-forward fixture event for tonight-and-soon discovery.",
+    imageUrl: "https://example.invalid/events/afterglow-harbor-poster.png",
+    startsAt: Date.UTC(2026, 5, 14, 22, 0, 0),
+    source: {
+      sourceType: "manual",
+      label: "Fixture event listing",
+    },
+    score: 280,
+  },
+  {
+    entityType: "profile",
+    profileType: "person",
+    slug: personSlug,
+    routePath: `/p/${personSlug}`,
+    title: "DJ Aurora",
+    subtitle: "Person profile",
+    summary: "Melodic house sets for late-night VRChat floors.",
+    source: {
+      sourceType: "community",
+      label: "Community submitted",
+    },
+    score: 170,
+  },
+  {
+    entityType: "profile",
+    profileType: "community",
+    slug: communitySlug,
+    routePath: `/c/${communitySlug}`,
+    title: "Afterglow Social",
+    subtitle: "Community profile",
+    summary: "A warm VRChat club night for music-first communities.",
+    source: {
+      sourceType: "community",
+      label: "Community submitted",
+    },
+    score: 160,
+  },
+  {
+    entityType: "world",
+    slug: worldSlug,
+    routePath: `/w/${worldSlug}`,
+    title: "Neon Harbor",
+    subtitle: "World",
+    summary: "A fixture VRChat venue page for world discovery visual review.",
+    source: {
+      sourceType: "owner",
+      label: "Fixture owner-authored metadata",
+    },
+    score: 150,
+  },
+];
+
+const discoveryData: PublicDiscoveryData = {
+  featured: [discoveryResults[0]!, discoveryResults[3]!],
+  upcomingEvents: [discoveryResults[0]!],
+  people: [discoveryResults[1]!],
+  communities: [discoveryResults[2]!],
+  worlds: [discoveryResults[3]!],
+  terms: [
+    { scope: "profile_tag", key: "melodic_house", label: "Melodic House", usageCount: 2 },
+    { scope: "event_tag", key: "tonight", label: "Tonight", usageCount: 1 },
+    { scope: "world_tag", key: "club_world", label: "Club world", usageCount: 1 },
+    { scope: "community_subtype", key: "club", label: "Club", usageCount: 1 },
+  ],
+};
+
 export function getPlaywrightPublicProfileFixture(
   slug: string,
   profileType: "person" | "community",
@@ -304,6 +391,40 @@ export function getPlaywrightPublicProfileFixture(
   }
 
   return null;
+}
+
+export function getPlaywrightDiscoveryFixture(): PublicDiscoveryData | null {
+  if (
+    process.env.NODE_ENV === "production" ||
+    process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES !== "true"
+  ) {
+    return null;
+  }
+
+  return discoveryData;
+}
+
+export function searchPlaywrightDiscoveryFixture(query: string): PublicSearchResult[] | null {
+  if (
+    process.env.NODE_ENV === "production" ||
+    process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES !== "true"
+  ) {
+    return null;
+  }
+
+  const normalized = query.trim().toLowerCase();
+
+  if (!normalized) {
+    return [];
+  }
+
+  return discoveryResults.filter((result) =>
+    [result.title, result.subtitle, result.summary, result.source?.label]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase()
+      .includes(normalized),
+  );
 }
 
 export function getPlaywrightPublicWorldFixture(slug: string): PublicWorld | null {

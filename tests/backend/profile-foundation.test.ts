@@ -82,6 +82,7 @@ describe("profile permission helpers", () => {
     claimState: "unclaimed",
     profileType: "person",
     publicationState: "published",
+    publicSurfacingState: "public",
   } as const;
 
   const privateUnclaimedPerson = {
@@ -247,6 +248,7 @@ describe("public profile projection", () => {
       ],
       claimState: "unclaimed",
       publicationState: "published",
+      publicSurfacingState: "public",
       creationSource: "community",
       publishedAt: 1,
       updatedAt: 1,
@@ -268,6 +270,7 @@ describe("public profile projection", () => {
 
     assert.equal("sourceAttribution" in publicProfile, false);
     assert.equal("creationSource" in publicProfile, false);
+    assert.equal(publicProfile.source?.label, "Community submitted");
     assert.equal(publicProfile.trustLabel, "community_submitted");
     assert.equal(publicProfile.outboundLinks.length, 1);
     assert.equal(publicProfile.outboundLinks[0]?.url, "https://example.invalid/dj-celine-kofi");
@@ -288,6 +291,7 @@ describe("public profile world credits", () => {
       creatorAttributions: [],
       outboundLinks: [],
       publicationState: "published",
+      publicSurfacingState: "public",
       creationSource: "self",
       updatedAt: 1,
     } as Doc<"worlds">;
@@ -296,6 +300,7 @@ describe("public profile world credits", () => {
       slug: "draft-world",
       displayName: "Draft World",
       publicationState: "draft_private",
+      publicSurfacingState: "public",
     } as Doc<"worlds">;
     const worldAuthorCredit = {
       worldId: "world123",

@@ -3,6 +3,13 @@ import { optionalField, safeHttpsUrl } from "./_publicFields";
 import { getProfileTrustLabel } from "./_profileStates";
 
 export function toPublicProfile(profile: Doc<"profiles">) {
+  const source = profile.sourceAttribution
+    ? {
+        sourceType: "community" as const,
+        label: "Community submitted",
+        submittedAt: profile.sourceAttribution.submittedAt,
+      }
+    : undefined;
   const shared = {
     profileType: profile.profileType,
     slug: profile.slug,
@@ -10,6 +17,7 @@ export function toPublicProfile(profile: Doc<"profiles">) {
     aliases: profile.aliases,
     tags: profile.tags,
     trustLabel: getProfileTrustLabel(profile.claimState, profile.creationSource),
+    ...optionalField("source", source),
     outboundLinks: (profile.outboundLinks ?? []).flatMap((link) => {
       const linkUrl = safeHttpsUrl(link.url);
 

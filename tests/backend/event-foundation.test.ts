@@ -188,6 +188,7 @@ describe("public event projection", () => {
       tags: [],
       claimState: "unclaimed",
       publicationState: "published",
+      publicSurfacingState: "public",
       creationSource: "community",
       updatedAt: now,
       profileType: "person",

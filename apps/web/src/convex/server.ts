@@ -2,9 +2,11 @@ import { fetchQuery } from "convex/nextjs";
 import { api } from "@convex-generated-api";
 import {
   getPlaywrightActiveWorldFixtures,
+  getPlaywrightDiscoveryFixture,
   getPlaywrightPublicEventFixture,
   getPlaywrightPublicProfileFixture,
   getPlaywrightPublicWorldFixture,
+  searchPlaywrightDiscoveryFixture,
 } from "./playwright-fixtures";
 
 type PublicProfileType = "person" | "community";
@@ -163,4 +165,81 @@ export async function fetchHomeActiveWorlds() {
       worlds: [],
     };
   }
+}
+
+export async function fetchDiscovery() {
+  const fixtureDiscovery = getPlaywrightDiscoveryFixture();
+
+  if (fixtureDiscovery !== null) {
+    return {
+      kind: "live" as const,
+      data: fixtureDiscovery,
+    };
+  }
+
+  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
+    return { kind: "missing-url" as const, data: emptyDiscoveryData() };
+  }
+
+  try {
+    const data = await fetchQuery(api.search.listDiscovery, { now: Date.now() });
+
+    return {
+      kind: "live" as const,
+      data,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    console.error(`Server-side Convex discovery fetch failed: ${message}`);
+
+    return {
+      kind: "error" as const,
+      data: emptyDiscoveryData(),
+    };
+  }
+}
+
+export async function fetchDiscoverySearch(query: string) {
+  const fixtureResults = searchPlaywrightDiscoveryFixture(query);
+
+  if (fixtureResults !== null) {
+    return {
+      kind: "live" as const,
+      results: fixtureResults,
+    };
+  }
+
+  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
+    return { kind: "missing-url" as const, results: [] };
+  }
+
+  try {
+    const results = await fetchQuery(api.search.searchUniversal, { query, limit: 24 });
+
+    return {
+      kind: "live" as const,
+      results,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    console.error(`Server-side Convex search fetch failed: ${message}`);
+
+    return {
+      kind: "error" as const,
+      results: [],
+    };
+  }
+}
+
+function emptyDiscoveryData() {
+  return {
+    featured: [],
+    upcomingEvents: [],
+    people: [],
+    communities: [],
+    worlds: [],
+    terms: [],
+  };
 }

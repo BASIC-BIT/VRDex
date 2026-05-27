@@ -1,0 +1,124 @@
+import { v } from "convex/values";
+
+import { mutation, query, type QueryCtx } from "./_generated/server";
+import {
+  normalizeSearchQuery,
+  sortSearchResults,
+  toPublicSearchResult,
+  type SearchEntityType,
+} from "./_searchDocuments";
+import { SEEDED_VOCABULARY_TERMS, recordVocabularyTerms } from "./_vocabulary";
+
+const SEARCH_RESULT_LIMIT = 24;
+const DISCOVERY_SECTION_LIMIT = 8;
+
+const searchEntityType = v.union(
+  v.literal("profile"),
+  v.literal("world"),
+  v.literal("event"),
+);
+
+function boundedLimit(value: number | undefined, fallback: number, max: number): number {
+  return Math.max(1, Math.min(value ?? fallback, max));
+}
+
+export const searchUniversal = query({
+  args: {
+    query: v.string(),
+    entityType: v.optional(searchEntityType),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const searchText = normalizeSearchQuery(args.query);
+    const limit = boundedLimit(args.limit, SEARCH_RESULT_LIMIT, 50);
+
+    if (!searchText) {
+      return [];
+    }
+
+    const documents = await ctx.db
+      .query("searchDocuments")
+      .withSearchIndex("search_text", (search) => {
+        const filtered = search.search("searchText", searchText).eq("publicState", "public");
+
+        return args.entityType === undefined ? filtered : filtered.eq("entityType", args.entityType);
+      })
+      .take(limit * 2);
+
+    return sortSearchResults(documents.map((document) => toPublicSearchResult(document, searchText))).slice(
+      0,
+      limit,
+    );
+  },
+});
+
+async function listDocumentsByType(ctx: QueryCtx, entityType: SearchEntityType) {
+  return await ctx.db
+    .query("searchDocuments")
+    .withIndex("by_publicState_entityType_featuredRank", (index) =>
+      index.eq("publicState", "public").eq("entityType", entityType),
+    )
+    .take(40);
+}
+
+export const listDiscovery = query({
+  args: {
+    now: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const now = args.now ?? Date.now();
+    const [profiles, worlds, events, vocabulary] = await Promise.all([
+      listDocumentsByType(ctx, "profile"),
+      listDocumentsByType(ctx, "world"),
+      listDocumentsByType(ctx, "event"),
+      ctx.db.query("vocabularyTerms").take(60),
+    ]);
+    const profileResults = sortSearchResults(
+      profiles.map((document) => toPublicSearchResult(document, undefined)),
+    );
+    const worldResults = sortSearchResults(worlds.map((document) => toPublicSearchResult(document, undefined)));
+    const eventResults = sortSearchResults(events.map((document) => toPublicSearchResult(document, undefined)));
+    const upcomingEvents = eventResults
+      .filter((event) => event.startsAt !== undefined && event.startsAt >= now)
+      .slice(0, DISCOVERY_SECTION_LIMIT);
+
+    return {
+      featured: sortSearchResults([...eventResults, ...profileResults, ...worldResults]).slice(0, 5),
+      upcomingEvents,
+      people: profileResults.filter((result) => result.profileType === "person").slice(0, DISCOVERY_SECTION_LIMIT),
+      communities: profileResults
+        .filter((result) => result.profileType === "community")
+        .slice(0, DISCOVERY_SECTION_LIMIT),
+      worlds: worldResults.slice(0, DISCOVERY_SECTION_LIMIT),
+      terms: vocabulary
+        .sort((first, second) => second.rank - first.rank || first.label.localeCompare(second.label))
+        .slice(0, 18)
+        .map((term) => ({
+          scope: term.scope,
+          key: term.key,
+          label: term.label,
+          usageCount: term.usageCount,
+        })),
+    };
+  },
+});
+
+export const seedVocabulary = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+
+    await recordVocabularyTerms(
+      ctx.db,
+      SEEDED_VOCABULARY_TERMS.map((term) => ({
+        scope: term.scope,
+        label: term.label,
+        source: "seeded",
+        rank: term.rank,
+      })),
+      now,
+    );
+
+    return { seeded: SEEDED_VOCABULARY_TERMS.length };
+  },
+});
