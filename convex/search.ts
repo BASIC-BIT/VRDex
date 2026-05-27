@@ -1,11 +1,15 @@
 import { v } from "convex/values";
 
-import { mutation, query, type QueryCtx } from "./_generated/server";
+import { internalMutation, query, type QueryCtx } from "./_generated/server";
 import {
+  createWorldSearchDocument,
+  getHiddenWorldAttributionProfileKeys,
   normalizeSearchQuery,
   sortSearchResults,
   toPublicSearchResult,
   type SearchEntityType,
+  upsertSearchDocument,
+  vocabularyForWorld,
 } from "./_searchDocuments";
 import { SEEDED_VOCABULARY_TERMS, recordVocabularyTerms } from "./_vocabulary";
 
@@ -58,6 +62,7 @@ async function listDocumentsByType(ctx: QueryCtx, entityType: SearchEntityType) 
     .withIndex("by_publicState_entityType_featuredRank", (index) =>
       index.eq("publicState", "public").eq("entityType", entityType),
     )
+    .order("desc")
     .take(40);
 }
 
@@ -103,7 +108,7 @@ export const listDiscovery = query({
   },
 });
 
-export const seedVocabulary = mutation({
+export const seedVocabulary = internalMutation({
   args: {},
   handler: async (ctx) => {
     const now = Date.now();
@@ -120,5 +125,23 @@ export const seedVocabulary = mutation({
     );
 
     return { seeded: SEEDED_VOCABULARY_TERMS.length };
+  },
+});
+
+export const rebuildWorldSearchDocuments = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const worlds = await ctx.db.query("worlds").collect();
+
+    for (const world of worlds) {
+      const hiddenProfileKeys = await getHiddenWorldAttributionProfileKeys(ctx.db, world);
+      await Promise.all([
+        upsertSearchDocument(ctx.db, createWorldSearchDocument(world, { hiddenProfileKeys })),
+        recordVocabularyTerms(ctx.db, vocabularyForWorld(world, { hiddenProfileKeys }), now),
+      ]);
+    }
+
+    return { indexed: worlds.length };
   },
 });

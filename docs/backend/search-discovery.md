@@ -30,6 +30,8 @@ Each document stores:
 
 The first live implementation uses Convex full-text search. Convex supports relevance ordering and prefix/typeahead behavior. Fuzzy typo matching should not be reimplemented with ad hoc regex piles or one-off Levenshtein hacks in app code.
 
+Profile and event mutations update their own search documents. Worlds do not yet have a public write mutation, so `search.rebuildWorldSearchDocuments` is an internal backfill hook for keeping world search documents populated until that write path exists.
+
 ## Semantic And Vector Search Seam
 
 `searchEmbeddings` is a provider-neutral vector seam keyed to `searchDocuments`.
@@ -78,7 +80,7 @@ Profiles carry `publicSurfacingState`:
 - `opted_out`: valid owner opt-out, hidden from ordinary public surfaces
 - `suppressed`: moderation/safety suppression, hidden from ordinary public surfaces
 
-Public profile reads, search documents, event participants, and linked world attributions must respect this state.
+Public profile reads, search documents, event participants, and linked world attributions must respect this state. World search documents must not index linked profile attribution names unless the linked profile is publicly readable.
 
 ## Analytics Events
 

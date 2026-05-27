@@ -1,34 +1,10 @@
 import { v } from "convex/values";
 
-import { query, type QueryCtx } from "./_generated/server";
-import { canReadProfile } from "./_profilePermissions";
-import { getProfileBySlug } from "./_profileSlugs";
+import { query } from "./_generated/server";
+import { getHiddenWorldAttributionProfileKeys } from "./_searchDocuments";
 import { getPublicActiveWorlds, getPublicWorldEventContext } from "./_worldEvents";
 import { toPublicWorld } from "./_worldPublic";
 import { getWorldBySlug, validateWorldSlug } from "./_worldSlugs";
-
-async function getHiddenProfileKeys(ctx: QueryCtx, world: Awaited<ReturnType<typeof getWorldBySlug>>) {
-  const keys = new Set<string>();
-
-  if (world === null) {
-    return keys;
-  }
-
-  await Promise.all(
-    world.creatorAttributions.map(async (attribution) => {
-      if (!attribution.profileSlug || !attribution.profileType) {
-        return;
-      }
-
-      const profile = await getProfileBySlug(ctx.db, attribution.profileSlug);
-      if (profile === null || !canReadProfile("public", profile)) {
-        keys.add(`${attribution.profileType}:${attribution.profileSlug}`);
-      }
-    }),
-  );
-
-  return keys;
-}
 
 export const getPublicBySlug = query({
   args: {
@@ -48,7 +24,7 @@ export const getPublicBySlug = query({
       return null;
     }
 
-    const hiddenProfileKeys = await getHiddenProfileKeys(ctx, world);
+    const hiddenProfileKeys = await getHiddenWorldAttributionProfileKeys(ctx.db, world);
 
     return {
       ...toPublicWorld(world, { hiddenProfileKeys }),

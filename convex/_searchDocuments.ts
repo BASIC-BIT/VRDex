@@ -1,7 +1,8 @@
 import type { Doc } from "./_generated/dataModel";
-import type { DatabaseWriter } from "./_generated/server";
+import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
 import { optionalField, safeHttpsUrl } from "./_publicFields";
 import { canReadProfile } from "./_profilePermissions";
+import { getProfileBySlug } from "./_profileSlugs";
 import { getProfileTrustLabel } from "./_profileStates";
 import {
   collectVocabularyKeys,
@@ -30,6 +31,9 @@ export type PublicSearchResult = {
 };
 
 type SearchDocumentInput = Omit<Doc<"searchDocuments">, "_id" | "_creationTime">;
+type WorldSearchDocumentOptions = {
+  hiddenProfileKeys?: Set<string>;
+};
 
 const ENTITY_TYPE_WEIGHT: Record<SearchEntityType, number> = {
   event: 18,
@@ -184,21 +188,74 @@ export function createProfileSearchDocument(profile: Doc<"profiles">): SearchDoc
   };
 }
 
-export function vocabularyForWorld(world: Doc<"worlds">): VocabularyCandidate[] {
+function worldAttributionKey(attribution: Doc<"worlds">["creatorAttributions"][number]): string | undefined {
+  if (!attribution.profileSlug || !attribution.profileType) {
+    return undefined;
+  }
+
+  return `${attribution.profileType}:${attribution.profileSlug}`;
+}
+
+function searchableWorldAttributions(
+  world: Doc<"worlds">,
+  options: WorldSearchDocumentOptions = {},
+): Doc<"worlds">["creatorAttributions"] {
+  return world.creatorAttributions.filter((attribution) => {
+    const key = worldAttributionKey(attribution);
+
+    if (key === undefined) {
+      return true;
+    }
+
+    return options.hiddenProfileKeys !== undefined && !options.hiddenProfileKeys.has(key);
+  });
+}
+
+export async function getHiddenWorldAttributionProfileKeys(db: DatabaseReader, world: Doc<"worlds">) {
+  const keys = new Set<string>();
+
+  await Promise.all(
+    world.creatorAttributions.map(async (attribution) => {
+      const key = worldAttributionKey(attribution);
+
+      if (key === undefined || attribution.profileSlug === undefined) {
+        return;
+      }
+
+      const profile = await getProfileBySlug(db, attribution.profileSlug);
+      if (profile === null || !canReadProfile("public", profile)) {
+        keys.add(key);
+      }
+    }),
+  );
+
+  return keys;
+}
+
+export function vocabularyForWorld(
+  world: Doc<"worlds">,
+  options: WorldSearchDocumentOptions = {},
+): VocabularyCandidate[] {
+  const attributions = searchableWorldAttributions(world, options);
+
   return [
     ...createVocabularyCandidates("world_tag", world.tags),
     ...createVocabularyCandidates(
       "world_creator_role",
-      world.creatorAttributions.map((attribution) => attribution.role),
+      attributions.map((attribution) => attribution.role),
     ),
   ];
 }
 
-export function createWorldSearchDocument(world: Doc<"worlds">): SearchDocumentInput {
+export function createWorldSearchDocument(
+  world: Doc<"worlds">,
+  options: WorldSearchDocumentOptions = {},
+): SearchDocumentInput {
   const source = world.sourceAttribution;
-  const creatorNames = world.creatorAttributions.map((attribution) => attribution.displayName);
-  const creatorRoles = world.creatorAttributions.map((attribution) => attribution.role);
-  const vocabulary = vocabularyForWorld(world);
+  const attributions = searchableWorldAttributions(world, options);
+  const creatorNames = attributions.map((attribution) => attribution.displayName);
+  const creatorRoles = attributions.map((attribution) => attribution.role);
+  const vocabulary = vocabularyForWorld(world, options);
 
   return {
     entityType: "world",
@@ -331,6 +388,28 @@ export function sortSearchResults(results: PublicSearchResult[]): PublicSearchRe
 }
 
 export async function upsertSearchDocument(db: DatabaseWriter, input: SearchDocumentInput) {
+  const existingById = input.profileId
+    ? await db
+        .query("searchDocuments")
+        .withIndex("by_profileId", (query) => query.eq("profileId", input.profileId))
+        .unique()
+    : input.worldId
+      ? await db
+          .query("searchDocuments")
+          .withIndex("by_worldId", (query) => query.eq("worldId", input.worldId))
+          .unique()
+      : input.eventId
+        ? await db
+            .query("searchDocuments")
+            .withIndex("by_eventId", (query) => query.eq("eventId", input.eventId))
+            .unique()
+        : null;
+
+  if (existingById) {
+    await db.patch(existingById._id, input);
+    return existingById._id;
+  }
+
   const existing = await db
     .query("searchDocuments")
     .withIndex("by_entityType_slug", (query) =>

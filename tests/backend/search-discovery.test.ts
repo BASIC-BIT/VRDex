@@ -94,10 +94,11 @@ describe("search document projection", () => {
       updatedAt: 1,
     } as unknown as Doc<"events">;
 
-    const worldDocument = createWorldSearchDocument(world);
+    const worldDocument = createWorldSearchDocument(world, { hiddenProfileKeys: new Set() });
     const eventDocument = createEventSearchDocument(event, { world, roleLabels: ["Headliner"] });
 
     assert.equal(worldDocument.entityType, "world");
+    assert.ok(worldDocument.searchText.includes("Afterglow Social"));
     assert.equal(eventDocument.entityType, "event");
     assert.equal(eventDocument.publicState, "public");
     assert.ok(eventDocument.searchText.includes("Neon Harbor"));
@@ -106,6 +107,44 @@ describe("search document projection", () => {
       "event_tag:afterglow_social",
       "event_tag:upcoming",
     ]);
+  });
+
+  it("omits hidden linked profile attribution names from world search documents", () => {
+    const world = {
+      _id: "world123",
+      slug: "neon-harbor",
+      displayName: "Neon Harbor",
+      sortName: "neon harbor",
+      tags: ["Club world"],
+      summary: "A VRChat venue.",
+      visibilityStatus: "public",
+      platformCompatibility: ["pc"],
+      media: [],
+      creatorAttributions: [
+        {
+          role: "world_author",
+          displayName: "Suppressed Creator",
+          profileSlug: "suppressed-creator",
+          profileType: "person",
+        },
+        {
+          role: "builder",
+          displayName: "Unlinked Builder",
+        },
+      ],
+      outboundLinks: [],
+      publicationState: "published",
+      creationSource: "self",
+      updatedAt: 1,
+    } as unknown as Doc<"worlds">;
+
+    const document = createWorldSearchDocument(world, {
+      hiddenProfileKeys: new Set(["person:suppressed-creator"]),
+    });
+
+    assert.equal(document.searchText.includes("Suppressed Creator"), false);
+    assert.equal(document.exactTokens.includes("suppressed creator"), false);
+    assert.ok(document.searchText.includes("Unlinked Builder"));
   });
 
   it("reranks exact and event results above weaker matches", () => {
