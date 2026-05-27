@@ -66,23 +66,39 @@ async function listDocumentsByType(ctx: QueryCtx, entityType: SearchEntityType) 
     .take(40);
 }
 
+async function listUpcomingEventDocuments(ctx: QueryCtx, now: number) {
+  return await ctx.db
+    .query("searchDocuments")
+    .withIndex("by_publicState_startsAt", (index) => index.eq("publicState", "public").gte("startsAt", now))
+    .filter((query) => query.eq(query.field("entityType"), "event"))
+    .order("asc")
+    .take(40);
+}
+
 export const listDiscovery = query({
   args: {
     now: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const now = args.now ?? Date.now();
-    const [profiles, worlds, events, vocabulary] = await Promise.all([
+    const [profiles, worlds, events, upcomingEventDocuments, vocabulary] = await Promise.all([
       listDocumentsByType(ctx, "profile"),
       listDocumentsByType(ctx, "world"),
       listDocumentsByType(ctx, "event"),
+      listUpcomingEventDocuments(ctx, now),
       ctx.db.query("vocabularyTerms").take(60),
     ]);
     const profileResults = sortSearchResults(
       profiles.map((document) => toPublicSearchResult(document, undefined)),
     );
     const worldResults = sortSearchResults(worlds.map((document) => toPublicSearchResult(document, undefined)));
-    const eventResults = sortSearchResults(events.map((document) => toPublicSearchResult(document, undefined)));
+    const eventDocuments = new Map(events.map((document) => [document._id, document]));
+    for (const document of upcomingEventDocuments) {
+      eventDocuments.set(document._id, document);
+    }
+    const eventResults = sortSearchResults(
+      [...eventDocuments.values()].map((document) => toPublicSearchResult(document, undefined)),
+    );
     const upcomingEvents = eventResults
       .filter((event) => event.startsAt !== undefined && event.startsAt >= now)
       .slice(0, DISCOVERY_SECTION_LIMIT);

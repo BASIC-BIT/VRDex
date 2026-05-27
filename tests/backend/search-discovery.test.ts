@@ -180,4 +180,35 @@ describe("search document projection", () => {
 
     assert.equal(results[0]?.slug, "house-night");
   });
+
+  it("caps stale event featured rank after an event has passed", () => {
+    const pastEvent = {
+      entityType: "event",
+      slug: "past-house-night",
+      routePath: "/e/past-house-night",
+      title: "Past House Night",
+      searchText: "House",
+      exactTokens: ["house"],
+      vocabularyKeys: ["event_tag:house"],
+      trustRank: 30,
+      featuredRank: 42,
+      startsAt: Date.now() - 3_600_000,
+      publicState: "public",
+      updatedAt: 1,
+    } as unknown as Doc<"searchDocuments">;
+    const upcomingEvent = {
+      ...pastEvent,
+      slug: "upcoming-house-night",
+      routePath: "/e/upcoming-house-night",
+      title: "Upcoming House Night",
+      startsAt: Date.now() + 3_600_000,
+    } as unknown as Doc<"searchDocuments">;
+
+    const results = sortSearchResults([
+      toPublicSearchResult(pastEvent, "House"),
+      toPublicSearchResult(upcomingEvent, "House"),
+    ]);
+
+    assert.equal(results[0]?.slug, "upcoming-house-night");
+  });
 });

@@ -3,7 +3,6 @@ import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
 import { optionalField, safeHttpsUrl } from "./_publicFields";
 import { canReadProfile } from "./_profilePermissions";
 import { getProfileBySlug } from "./_profileSlugs";
-import { getProfileTrustLabel } from "./_profileStates";
 import {
   collectVocabularyKeys,
   createVocabularyCandidates,
@@ -21,7 +20,6 @@ export type PublicSearchResult = {
   subtitle?: string;
   summary?: string;
   imageUrl?: string;
-  trustLabel?: "community_submitted" | "unclaimed" | "claimed_unverified" | "claimed_verified";
   source?: {
     sourceType: Doc<"searchDocuments">["sourceType"];
     label: string;
@@ -107,6 +105,14 @@ function trustRankForProfile(profile: Doc<"profiles">): number {
 
 function publicStateForProfile(profile: Doc<"profiles">): Doc<"searchDocuments">["publicState"] {
   return canReadProfile("public", profile) ? "public" : "hidden";
+}
+
+function effectiveFeaturedRank(document: Doc<"searchDocuments">): number {
+  if (document.entityType === "event" && document.startsAt !== undefined && document.startsAt < Date.now()) {
+    return Math.min(document.featuredRank, 8);
+  }
+
+  return document.featuredRank;
 }
 
 function sourceForProfile(profile: Doc<"profiles">): Pick<SearchDocumentInput, "sourceType" | "sourceLabel"> {
@@ -356,7 +362,7 @@ export function toPublicSearchResult(
     vocabularyBoost +
     freshnessBoost +
     document.trustRank +
-    document.featuredRank +
+    effectiveFeaturedRank(document) +
     ENTITY_TYPE_WEIGHT[document.entityType];
 
   return {
