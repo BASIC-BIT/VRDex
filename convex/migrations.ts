@@ -1,4 +1,7 @@
-import type { Doc } from "./_generated/dataModel";
+import { Migrations } from "@convex-dev/migrations";
+
+import { components, internal } from "./_generated/api";
+import type { DataModel, Doc } from "./_generated/dataModel";
 import { internalMutation } from "./_generated/server";
 
 type LegacyProfile = Doc<"profiles"> & {
@@ -6,30 +9,35 @@ type LegacyProfile = Doc<"profiles"> & {
   publicSurfacingUpdatedAt?: number;
 };
 
-export const backfillProfilePublicSurfacingState = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    const now = Date.now();
-    const profiles = await ctx.db.query("profiles").collect();
-    let updated = 0;
+export const migrations = new Migrations<DataModel>(components.migrations, {
+  internalMutation,
+  defaultBatchSize: 50,
+  migrationsLocationPrefix: "migrations:",
+});
 
-    for (const profile of profiles) {
-      const legacyProfile = profile as LegacyProfile;
+export const backfillProfilePublicSurfacingState = migrations.define({
+  table: "profiles",
+  migrateOne: async (_ctx, profile) => {
+    const legacyProfile = profile as LegacyProfile;
 
-      if (
-        legacyProfile.publicSurfacingState !== undefined &&
-        legacyProfile.publicSurfacingUpdatedAt !== undefined
-      ) {
-        continue;
-      }
-
-      await ctx.db.patch(profile._id, {
-        publicSurfacingState: legacyProfile.publicSurfacingState ?? "public",
-        publicSurfacingUpdatedAt: legacyProfile.publicSurfacingUpdatedAt ?? now,
-      });
-      updated += 1;
+    if (
+      legacyProfile.publicSurfacingState !== undefined &&
+      legacyProfile.publicSurfacingUpdatedAt !== undefined
+    ) {
+      return;
     }
 
-    return { scanned: profiles.length, updated };
+    return {
+      publicSurfacingState: legacyProfile.publicSurfacingState ?? "public",
+      publicSurfacingUpdatedAt: legacyProfile.publicSurfacingUpdatedAt ?? Date.now(),
+    };
   },
 });
+
+export const runBackfillProfilePublicSurfacingState = migrations.runner(
+  internal.migrations.backfillProfilePublicSurfacingState,
+);
+
+export const runAll = migrations.runner([
+  internal.migrations.backfillProfilePublicSurfacingState,
+]);

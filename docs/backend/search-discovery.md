@@ -9,6 +9,7 @@ Current recommendation and first implementation for the expanded public discover
 - public discovery starts from explicit VRDex records, not scraped popularity or private presence
 - search is a first-class product surface, not a secondary directory page
 - search and discovery must enforce `publicationState` and `publicSurfacingState`
+- search and discovery must enforce profile field visibility; `unlisted` direct-page fields are not indexed or shown on cards
 - community-submitted and unverified records can be discoverable only with visible trust and source labels
 - events, worlds, people, and communities participate in universal search through search documents
 - PostHog is the first-pass analytics target for discovery instrumentation when configured
@@ -31,6 +32,8 @@ Each document stores:
 The first live implementation uses Convex full-text search. Convex supports relevance ordering and prefix/typeahead behavior. Fuzzy typo matching should not be reimplemented with ad hoc regex piles or one-off Levenshtein hacks in app code.
 
 Profile and event mutations update their own search documents. Worlds do not yet have a public write mutation, so `search.rebuildWorldSearchDocuments` is an internal backfill hook for keeping world search documents populated until that write path exists.
+
+Profile search documents always include public identity basics such as display name, slug, profile type, and route. Optional profile fields only participate when their `fieldVisibility` is `public`; `unlisted` fields remain visible on direct profile pages but are omitted from search text, exact tokens, vocabulary keys, summaries, and image cards.
 
 ## Semantic And Vector Search Seam
 

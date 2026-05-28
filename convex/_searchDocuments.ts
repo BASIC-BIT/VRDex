@@ -1,5 +1,6 @@
 import type { Doc } from "./_generated/dataModel";
 import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
+import { visibleProfileField, visibleProfileList } from "./_profileFieldVisibility";
 import { optionalField, safeHttpsUrl } from "./_publicFields";
 import { canReadProfile } from "./_profilePermissions";
 import { getProfileBySlug } from "./_profileSlugs";
@@ -107,6 +108,13 @@ function publicStateForProfile(profile: Doc<"profiles">): Doc<"searchDocuments">
   return canReadProfile("public", profile) ? "public" : "hidden";
 }
 
+function publicProfileImageUrl(profile: Doc<"profiles">): string | undefined {
+  return (
+    safeHttpsUrl(visibleProfileField(profile, "avatarImageUrl", profile.avatarImageUrl, "discovery")) ??
+    safeHttpsUrl(visibleProfileField(profile, "bannerImageUrl", profile.bannerImageUrl, "discovery"))
+  );
+}
+
 function effectiveFeaturedRank(document: Doc<"searchDocuments">): number {
   if (document.entityType === "event" && document.startsAt !== undefined && document.startsAt < Date.now()) {
     return Math.min(document.featuredRank, 8);
@@ -144,25 +152,53 @@ function sourceForProfile(profile: Doc<"profiles">): Pick<SearchDocumentInput, "
 }
 
 export function vocabularyForProfile(profile: Doc<"profiles">): VocabularyCandidate[] {
-  const shared = createVocabularyCandidates("profile_tag", profile.tags);
+  const shared = createVocabularyCandidates(
+    "profile_tag",
+    visibleProfileList(profile, "tags", profile.tags, "discovery"),
+  );
 
   if (profile.profileType === "person") {
-    return [...shared, ...createVocabularyCandidates("person_role", profile.person.roleTags)];
+    return [
+      ...shared,
+      ...createVocabularyCandidates(
+        "person_role",
+        visibleProfileList(profile, "personRoleTags", profile.person.roleTags, "discovery"),
+      ),
+    ];
   }
 
   return [
     ...shared,
-    ...createVocabularyCandidates("community_subtype", [profile.community.subtype]),
-    ...createVocabularyCandidates("community_category", profile.community.categoryTags),
+    ...createVocabularyCandidates("community_subtype", [
+      visibleProfileField(profile, "communitySubtype", profile.community.subtype, "discovery"),
+    ]),
+    ...createVocabularyCandidates(
+      "community_category",
+      visibleProfileList(profile, "communityCategoryTags", profile.community.categoryTags, "discovery"),
+    ),
   ];
 }
 
 export function createProfileSearchDocument(profile: Doc<"profiles">): SearchDocumentInput {
   const typeLabel = profile.profileType === "person" ? "Person profile" : "Community profile";
+  const aliases = visibleProfileList(profile, "aliases", profile.aliases, "discovery");
+  const tags = visibleProfileList(profile, "tags", profile.tags, "discovery");
+  const headline = visibleProfileField(profile, "headline", profile.headline, "discovery");
+  const bio = visibleProfileField(profile, "bio", profile.bio, "discovery");
+  const region = visibleProfileField(profile, "region", profile.region, "discovery");
+  const timezone = visibleProfileField(profile, "timezone", profile.timezone, "discovery");
   const typeSpecific =
     profile.profileType === "person"
-      ? profile.person.roleTags
-      : compact([profile.community.subtype, ...profile.community.categoryTags]);
+      ? visibleProfileList(profile, "personRoleTags", profile.person.roleTags, "discovery")
+      : compact([
+          visibleProfileField(profile, "communitySubtype", profile.community.subtype, "discovery"),
+          ...visibleProfileList(
+            profile,
+            "communityCategoryTags",
+            profile.community.categoryTags,
+            "discovery",
+          ),
+        ]);
   const source = sourceForProfile(profile);
   const vocabulary = vocabularyForProfile(profile);
 
@@ -175,16 +211,16 @@ export function createProfileSearchDocument(profile: Doc<"profiles">): SearchDoc
     routePath: profile.profileType === "person" ? `/p/${profile.slug}` : `/c/${profile.slug}`,
     title: profile.displayName,
     subtitle: typeLabel,
-    ...optionalField("summary", profile.headline ?? profile.bio),
-    ...optionalField("imageUrl", safeHttpsUrl(profile.avatarImageUrl ?? profile.bannerImageUrl)),
+    ...optionalField("summary", headline ?? bio),
+    ...optionalField("imageUrl", publicProfileImageUrl(profile)),
     searchText: weightedCorpus([
       { values: [profile.displayName, profile.slug], weight: 8 },
-      { values: profile.aliases, weight: 5 },
-      { values: profile.tags, weight: 4 },
+      { values: aliases, weight: 5 },
+      { values: tags, weight: 4 },
       { values: typeSpecific, weight: 4 },
-      { values: [profile.headline, profile.bio, profile.region, profile.timezone, typeLabel], weight: 1 },
+      { values: [headline, bio, region, timezone, typeLabel], weight: 1 },
     ]),
-    exactTokens: exactTokens([profile.displayName, profile.slug, ...profile.aliases, ...profile.tags, ...typeSpecific]),
+    exactTokens: exactTokens([profile.displayName, profile.slug, ...aliases, ...tags, ...typeSpecific]),
     vocabularyKeys: collectVocabularyKeys(vocabulary),
     trustRank: trustRankForProfile(profile),
     featuredRank: trustRankForProfile(profile),

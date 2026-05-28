@@ -12,6 +12,8 @@ import type * as _communityAuthority from "../_communityAuthority.js";
 import type * as _eventInputs from "../_eventInputs.js";
 import type * as _eventPublic from "../_eventPublic.js";
 import type * as _eventSlugs from "../_eventSlugs.js";
+import type * as _profileFieldVisibility from "../_profileFieldVisibility.js";
+import type * as _profileOwnership from "../_profileOwnership.js";
 import type * as _profilePermissions from "../_profilePermissions.js";
 import type * as _profilePublic from "../_profilePublic.js";
 import type * as _profileSlugs from "../_profileSlugs.js";
@@ -25,9 +27,13 @@ import type * as _worldEvents from "../_worldEvents.js";
 import type * as _worldIds from "../_worldIds.js";
 import type * as _worldPublic from "../_worldPublic.js";
 import type * as _worldSlugs from "../_worldSlugs.js";
+import type * as accounts from "../accounts.js";
+import type * as auth from "../auth.js";
 import type * as events from "../events.js";
 import type * as health from "../health.js";
+import type * as http from "../http.js";
 import type * as migrations from "../migrations.js";
+import type * as profileClaims from "../profileClaims.js";
 import type * as profiles from "../profiles.js";
 import type * as search from "../search.js";
 import type * as suppressions from "../suppressions.js";
@@ -44,6 +50,8 @@ declare const fullApi: ApiFromModules<{
   _eventInputs: typeof _eventInputs;
   _eventPublic: typeof _eventPublic;
   _eventSlugs: typeof _eventSlugs;
+  _profileFieldVisibility: typeof _profileFieldVisibility;
+  _profileOwnership: typeof _profileOwnership;
   _profilePermissions: typeof _profilePermissions;
   _profilePublic: typeof _profilePublic;
   _profileSlugs: typeof _profileSlugs;
@@ -57,9 +65,13 @@ declare const fullApi: ApiFromModules<{
   _worldIds: typeof _worldIds;
   _worldPublic: typeof _worldPublic;
   _worldSlugs: typeof _worldSlugs;
+  accounts: typeof accounts;
+  auth: typeof auth;
   events: typeof events;
   health: typeof health;
+  http: typeof http;
   migrations: typeof migrations;
+  profileClaims: typeof profileClaims;
   profiles: typeof profiles;
   search: typeof search;
   suppressions: typeof suppressions;
@@ -92,4 +104,92 @@ export declare const internal: FilterApi<
   FunctionReference<any, "internal">
 >;
 
-export declare const components: {};
+export declare const components: {
+  migrations: {
+    lib: {
+      cancel: FunctionReference<
+        "mutation",
+        "internal",
+        { name: string },
+        {
+          batchSize?: number;
+          cursor?: string | null;
+          error?: string;
+          isDone: boolean;
+          latestEnd?: number;
+          latestStart: number;
+          name: string;
+          next?: Array<string>;
+          processed: number;
+          state: "inProgress" | "success" | "failed" | "canceled" | "unknown";
+        }
+      >;
+      cancelAll: FunctionReference<
+        "mutation",
+        "internal",
+        { sinceTs?: number },
+        Array<{
+          batchSize?: number;
+          cursor?: string | null;
+          error?: string;
+          isDone: boolean;
+          latestEnd?: number;
+          latestStart: number;
+          name: string;
+          next?: Array<string>;
+          processed: number;
+          state: "inProgress" | "success" | "failed" | "canceled" | "unknown";
+        }>
+      >;
+      clearAll: FunctionReference<
+        "mutation",
+        "internal",
+        { before?: number },
+        null
+      >;
+      getStatus: FunctionReference<
+        "query",
+        "internal",
+        { limit?: number; names?: Array<string> },
+        Array<{
+          batchSize?: number;
+          cursor?: string | null;
+          error?: string;
+          isDone: boolean;
+          latestEnd?: number;
+          latestStart: number;
+          name: string;
+          next?: Array<string>;
+          processed: number;
+          state: "inProgress" | "success" | "failed" | "canceled" | "unknown";
+        }>
+      >;
+      migrate: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          batchSize?: number;
+          cursor?: string | null;
+          dryRun: boolean;
+          fnHandle: string;
+          name: string;
+          next?: Array<{ fnHandle: string; name: string }>;
+          oneBatchOnly?: boolean;
+          reset?: boolean;
+        },
+        {
+          batchSize?: number;
+          cursor?: string | null;
+          error?: string;
+          isDone: boolean;
+          latestEnd?: number;
+          latestStart: number;
+          name: string;
+          next?: Array<string>;
+          processed: number;
+          state: "inProgress" | "success" | "failed" | "canceled" | "unknown";
+        }
+      >;
+    };
+  };
+};

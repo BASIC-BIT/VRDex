@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ConvexAuthNextjsServerProvider } from "@convex-dev/auth/nextjs/server";
 import { IBM_Plex_Mono, Space_Grotesk } from "next/font/google";
 import { ConvexClientProvider } from "./ConvexClientProvider";
 import { PostHogProvider } from "./PostHogProvider";
@@ -25,7 +26,7 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  return (
+  const shell = (
     <html lang="en">
       <body
         className={`${spaceGrotesk.variable} ${ibmPlexMono.variable} antialiased`}
@@ -36,4 +37,10 @@ export default function RootLayout({
       </body>
     </html>
   );
+
+  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
+    return shell;
+  }
+
+  return <ConvexAuthNextjsServerProvider>{shell}</ConvexAuthNextjsServerProvider>;
 }

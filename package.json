@@ -35,5 +35,11 @@
     "lint-staged": "^16.3.3",
     "tsx": "^4.22.1",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@auth/core": "^0.37.4",
+    "@aws-sdk/client-ses": "^3.1055.0",
+    "@convex-dev/auth": "^0.0.92",
+    "@convex-dev/migrations": "^0.3.4"
   }
 }

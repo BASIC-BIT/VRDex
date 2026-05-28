@@ -1,0 +1,15 @@
+aws_region  = "us-east-1"
+domain_name = "vrdex.net"
+from_email  = "no-reply@vrdex.net"
+
+# Set one of these when using Route 53 DNS automation.
+# hosted_zone_name = "vrdex.net"
+# route53_zone_id  = "Z0000000000000000000"
+
+create_route53_records       = true
+wait_for_domain_verification = false
+create_iam_access_key        = true
+
+tags = {
+  Environment = "production"
+}

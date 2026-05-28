@@ -141,6 +141,60 @@ jobs:
       - name: Run build
         run: pnpm build:web
 
+  deploy-convex-production:
+    name: Deploy Convex Production
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [build-web]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check Convex deploy key
+        id: gate
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_PROD }}
+        run: |
+          if [ -z "$CONVEX_DEPLOY_KEY" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## Convex production deploy"
+              echo "Skipped because CONVEX_DEPLOY_KEY_PROD is not configured."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      - name: Setup pnpm
+        if: steps.gate.outputs.enabled == 'true'
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        if: steps.gate.outputs.enabled == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.gate.outputs.enabled == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Deploy Convex functions and schema
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_PROD }}
+        run: pnpm exec convex deploy --yes --typecheck=enable
+
+      - name: Run deploy-time migrations
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_PROD }}
+        run: pnpm exec convex run migrations:runAll --prod
+
   playwright-public-preview:
     name: Playwright Public Preview
     if: github.event_name == 'pull_request'
