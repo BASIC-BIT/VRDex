@@ -1,7 +1,10 @@
 import type { Doc } from "./_generated/dataModel";
 import { optionalField, safeHttpsUrl } from "./_publicFields";
 
-export function toPublicWorld(world: Doc<"worlds">) {
+export function toPublicWorld(
+  world: Doc<"worlds">,
+  options: { hiddenProfileKeys?: Set<string> } = {},
+) {
   const sourceUrl = safeHttpsUrl(world.sourceUrl);
   const heroImageUrl = safeHttpsUrl(world.heroImageUrl);
   const canonicalVrchatWorldUrl = safeHttpsUrl(world.canonicalVrchatWorldUrl);
@@ -30,13 +33,21 @@ export function toPublicWorld(world: Doc<"worlds">) {
 
       return [{ ...media, url: mediaUrl }];
     }),
-    creatorAttributions: world.creatorAttributions.map((attribution) => ({
-      role: attribution.role,
-      displayName: attribution.displayName,
-      ...optionalField("profileSlug", attribution.profileSlug),
-      ...optionalField("profileType", attribution.profileType),
-      ...optionalField("sourceLabel", attribution.sourceLabel),
-    })),
+    creatorAttributions: world.creatorAttributions
+      .filter((attribution) => {
+        if (!attribution.profileSlug || !attribution.profileType) {
+          return true;
+        }
+
+        return !options.hiddenProfileKeys?.has(`${attribution.profileType}:${attribution.profileSlug}`);
+      })
+      .map((attribution) => ({
+        role: attribution.role,
+        displayName: attribution.displayName,
+        ...optionalField("profileSlug", attribution.profileSlug),
+        ...optionalField("profileType", attribution.profileType),
+        ...optionalField("sourceLabel", attribution.sourceLabel),
+      })),
     outboundLinks: world.outboundLinks.flatMap((link) => {
       const linkUrl = safeHttpsUrl(link.url);
 

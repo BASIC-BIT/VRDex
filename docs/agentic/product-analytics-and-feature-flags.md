@@ -123,6 +123,20 @@ Examples:
 - add a reusable implementation helper layer so contributors do not hand-roll flag or event calls inconsistently
 - define environment defaults such as local-dev behavior, preview behavior, and production-safe fallbacks once the app exists
 
+## First Discovery Event Taxonomy
+
+Current discovery instrumentation uses PostHog when `NEXT_PUBLIC_POSTHOG_KEY` is configured and otherwise no-ops safely.
+
+Initial events:
+
+- `search_submitted`
+- `search_result_clicked`
+- `discovery_filter_selected`
+- `event_card_clicked`
+- `featured_card_clicked`
+
+Discovery events should avoid private profile fields, raw authentication identifiers, and unsupported popularity claims. Search terms are intentionally captured as product-learning data when PostHog is enabled; revisit retention and privacy copy before broad public launch.
+
 ## Interview later
 
 - whether public marketing pages eventually justify a separate `Google Analytics` installation

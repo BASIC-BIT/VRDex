@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 
 import { query } from "./_generated/server";
+import { getHiddenWorldAttributionProfileKeys } from "./_searchDocuments";
 import { getPublicActiveWorlds, getPublicWorldEventContext } from "./_worldEvents";
 import { toPublicWorld } from "./_worldPublic";
 import { getWorldBySlug, validateWorldSlug } from "./_worldSlugs";
@@ -23,8 +24,10 @@ export const getPublicBySlug = query({
       return null;
     }
 
+    const hiddenProfileKeys = await getHiddenWorldAttributionProfileKeys(ctx.db, world);
+
     return {
-      ...toPublicWorld(world),
+      ...toPublicWorld(world, { hiddenProfileKeys }),
       eventContext: await getPublicWorldEventContext(ctx.db, world._id, args.now),
     };
   },

@@ -163,10 +163,19 @@ export async function captureRouteScreenshot(page: Page, testInfo: TestInfo, nam
 }
 
 export async function expectHomePage(page: Page) {
-  await expect(page.getByRole("heading", { name: /Profiles, communities/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Find what is happening/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Search VRDex/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Worlds hosting events soon" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Neon Harbor", exact: true })).toBeVisible();
-  await expect(page.getByText(/Afterglow Harbor Sessions/i)).toBeVisible();
+  await expect(page.getByRole("link", { name: /Afterglow Harbor Sessions/i }).first()).toBeVisible();
+}
+
+export async function expectDiscoverPage(page: Page) {
+  await expect(page.getByRole("heading", { name: /Find the night/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Search VRDex/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Events worth checking first/i })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Afterglow Harbor Sessions/i }).first()).toBeVisible();
+  await expect(page.getByRole("link", { name: /DJ Aurora/i })).toBeVisible();
 }
 
 export async function expectSubmitPage(page: Page) {
@@ -186,7 +195,7 @@ export async function expectDeploymentPage(page: Page) {
 
 export async function expectPersonProfilePage(page: Page) {
   await expect(page.getByRole("heading", { name: "DJ Aurora" })).toBeVisible();
-  await expect(page.getByText(/Community submitted/i)).toBeVisible();
+  await expect(page.getByText(/Source: Community submitted on Jan 1, 2025/i)).toBeVisible();
   await expect(page.getByRole("heading", { name: /Where this profile appears next/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions" })).toBeVisible();
   await expect(page.getByText(/Creator links/i)).toBeVisible();
@@ -231,6 +240,11 @@ export const capturedRoutes: CapturedRoute[] = [
     name: "submit",
     path: "/submit",
     expectPage: expectSubmitPage,
+  },
+  {
+    name: "discover",
+    path: "/discover?q=afterglow",
+    expectPage: expectDiscoverPage,
   },
   {
     name: "server-status",

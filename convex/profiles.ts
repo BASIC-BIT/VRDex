@@ -7,6 +7,8 @@ import { toPublicProfile } from "./_profilePublic";
 import { findAvailableProfileSlug, getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { sanitizeCommunitySubmissionProfileInput } from "./_profileSubmissions";
 import { getPublicProfileWorldCredits } from "./_profileWorldCredits";
+import { createProfileSearchDocument, upsertSearchDocument, vocabularyForProfile } from "./_searchDocuments";
+import { recordVocabularyTerms } from "./_vocabulary";
 
 const profileType = v.union(v.literal("person"), v.literal("community"));
 
@@ -118,6 +120,8 @@ export const submitCommunityProfile = mutation({
       outboundLinks: [],
       claimState: "unclaimed" as const,
       publicationState: "published" as const,
+      publicSurfacingState: "public" as const,
+      publicSurfacingUpdatedAt: now,
       creationSource: "community" as const,
       publishedAt: now,
       updatedAt: now,
@@ -133,6 +137,22 @@ export const submitCommunityProfile = mutation({
         },
       });
 
+      const profile = await ctx.db.get(profileId);
+      if (profile !== null) {
+        await Promise.all([
+          upsertSearchDocument(ctx.db, createProfileSearchDocument(profile)),
+          recordVocabularyTerms(ctx.db, vocabularyForProfile(profile), now),
+          ctx.db.insert("profileAuditEvents", {
+            profileId,
+            action: "community_profile_submitted",
+            actor: sourceAttribution.submitter,
+            sourceType: "community",
+            note: "Community-submitted person profile created.",
+            createdAt: now,
+          }),
+        ]);
+      }
+
       return {
         profileId,
         profileType: "person" as const,
@@ -146,6 +166,22 @@ export const submitCommunityProfile = mutation({
       profileType: "community",
       community: input.community,
     });
+
+    const profile = await ctx.db.get(profileId);
+    if (profile !== null) {
+      await Promise.all([
+        upsertSearchDocument(ctx.db, createProfileSearchDocument(profile)),
+        recordVocabularyTerms(ctx.db, vocabularyForProfile(profile), now),
+        ctx.db.insert("profileAuditEvents", {
+          profileId,
+          action: "community_profile_submitted",
+          actor: sourceAttribution.submitter,
+          sourceType: "community",
+          note: "Community-submitted community profile created.",
+          createdAt: now,
+        }),
+      ]);
+    }
 
     return {
       profileId,

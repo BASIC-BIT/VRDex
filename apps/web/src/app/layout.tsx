@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Space_Grotesk } from "next/font/google";
 import { ConvexClientProvider } from "./ConvexClientProvider";
+import { PostHogProvider } from "./PostHogProvider";
 import "./globals.css";
 
 const spaceGrotesk = Space_Grotesk({
@@ -29,7 +30,9 @@ export default function RootLayout({
       <body
         className={`${spaceGrotesk.variable} ${ibmPlexMono.variable} antialiased`}
       >
-        <ConvexClientProvider>{children}</ConvexClientProvider>
+        <PostHogProvider>
+          <ConvexClientProvider>{children}</ConvexClientProvider>
+        </PostHogProvider>
       </body>
     </html>
   );

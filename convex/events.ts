@@ -11,7 +11,10 @@ import {
 import { sanitizeEventDraftInput } from "./_eventInputs";
 import { getPublicCommunityHostedEvents, getPublicEventBySlug } from "./_eventPublic";
 import { findAvailableEventSlug, getEventBySlug, validateEventSlug } from "./_eventSlugs";
+import { canReadProfile } from "./_profilePermissions";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
+import { createEventSearchDocument, upsertSearchDocument, vocabularyForEvent } from "./_searchDocuments";
+import { recordVocabularyTerms } from "./_vocabulary";
 import { getWorldBySlug, validateWorldSlug } from "./_worldSlugs";
 
 const eventMediaLinkType = v.union(
@@ -98,7 +101,7 @@ async function getPublishedCommunityBySlug(
     throw new Error("Community profile was not found.");
   }
 
-  if (profile.publicationState !== "published") {
+  if (!canReadProfile("public", profile)) {
     throw new Error("Community profile must be published before events can be linked.");
   }
 
@@ -139,7 +142,7 @@ async function getPublishedPersonBySlug(db: DatabaseReader, slug: string) {
     throw new Error(`Person profile "${slug}" was not found.`);
   }
 
-  if (profile.publicationState !== "published") {
+  if (!canReadProfile("public", profile)) {
     throw new Error(`Person profile "${slug}" must be published before event association.`);
   }
 
@@ -262,7 +265,7 @@ export const listHostedByCommunitySlug = query({
     if (
       community === null ||
       community.profileType !== "community" ||
-      community.publicationState !== "published"
+      !canReadProfile("public", community)
     ) {
       return [];
     }
@@ -309,6 +312,18 @@ export const createCommunityEvent = mutation({
 
     await replaceEventWorldLink(ctx.db, eventId, input.startAt, world, now);
     await replaceEventParticipants(ctx.db, eventId, input.startAt, input.participantLinks, now);
+
+    const event = await ctx.db.get(eventId);
+    if (event !== null) {
+      const roleLabels = input.participantLinks.map((participant) => participant.roleLabel);
+      await Promise.all([
+        upsertSearchDocument(
+          ctx.db,
+          createEventSearchDocument(event, { community, world, roleLabels }),
+        ),
+        recordVocabularyTerms(ctx.db, vocabularyForEvent(event, roleLabels), now),
+      ]);
+    }
 
     return {
       eventId,
@@ -382,6 +397,18 @@ export const updateCommunityEvent = mutation({
 
     await replaceEventWorldLink(ctx.db, event._id, input.startAt, world, now);
     await replaceEventParticipants(ctx.db, event._id, input.startAt, input.participantLinks, now);
+
+    const updatedEvent = await ctx.db.get(event._id);
+    if (updatedEvent !== null) {
+      const roleLabels = input.participantLinks.map((participant) => participant.roleLabel);
+      await Promise.all([
+        upsertSearchDocument(
+          ctx.db,
+          createEventSearchDocument(updatedEvent, { community, world, roleLabels }),
+        ),
+        recordVocabularyTerms(ctx.db, vocabularyForEvent(updatedEvent, roleLabels), now),
+      ]);
+    }
 
     return {
       eventId: event._id,

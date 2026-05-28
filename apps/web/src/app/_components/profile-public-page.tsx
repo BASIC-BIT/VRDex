@@ -41,6 +41,11 @@ type PublicProfileBase = {
   region?: string;
   timezone?: string;
   trustLabel: ProfileTrustLabel;
+  source?: {
+    sourceType: "community";
+    label: string;
+    submittedAt?: number;
+  };
   outboundLinks: Array<{
     type: ProfileLinkType;
     label: string;
@@ -159,6 +164,16 @@ function linkSourceLabel(source: LinkSource): string {
   }
 
   return "Reviewed";
+}
+
+function formatSubmittedAt(value: number | undefined): string | null {
+  if (value === undefined) {
+    return null;
+  }
+
+  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" }).format(
+    new Date(value),
+  );
 }
 
 function roleLabel(role: WorldCreatorRole): string {
@@ -291,6 +306,14 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
                   <p className="mt-2 max-w-xs text-sm leading-6 text-white/76">
                     {trust.description}
                   </p>
+                  {profile.source ? (
+                    <p className="mt-3 text-xs leading-5 text-white/64">
+                      Source: {profile.source.label}
+                      {formatSubmittedAt(profile.source.submittedAt)
+                        ? ` on ${formatSubmittedAt(profile.source.submittedAt)}`
+                        : ""}
+                    </p>
+                  ) : null}
                 </aside>
               </div>
             </div>

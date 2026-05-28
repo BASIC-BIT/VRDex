@@ -1,99 +1,94 @@
 import Link from "next/link";
+import { DiscoverySearchForm } from "./_components/discovery-analytics";
 import { HomeActiveWorldsSection } from "./_components/home-active-worlds";
 import { BackendStatusCard } from "./backend-status-card";
-import { fetchHomeActiveWorlds } from "@/convex/server";
+import { fetchDiscovery, fetchHomeActiveWorlds } from "@/convex/server";
 
 export const dynamic = "force-dynamic";
 
+function formatHomeEventTime(value: number | undefined): string | null {
+  if (value === undefined) {
+    return null;
+  }
+
+  return new Intl.DateTimeFormat("en", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
 export default async function Home() {
-  const activeWorlds = await fetchHomeActiveWorlds();
+  const [activeWorlds, discovery] = await Promise.all([fetchHomeActiveWorlds(), fetchDiscovery()]);
+  const featuredEvents = discovery.data.upcomingEvents.slice(0, 3);
 
   return (
     <main className="min-h-screen px-6 py-10 text-foreground sm:px-10 lg:px-16">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
-        <section className="overflow-hidden rounded-[2rem] border border-border bg-surface shadow-[0_24px_80px_rgba(64,40,24,0.12)] backdrop-blur">
-          <div className="grid gap-10 px-6 py-8 sm:px-8 lg:grid-cols-[1.4fr_0.9fr] lg:px-10 lg:py-10">
+        <section className="overflow-hidden rounded-[2rem] bg-[#221512] text-white shadow-[0_24px_80px_rgba(64,40,24,0.18)]">
+          <div className="grid gap-10 bg-[radial-gradient(circle_at_top_left,rgba(214,106,77,0.34),transparent_34%),linear-gradient(135deg,#221512,#7c321f)] px-6 py-8 sm:px-8 lg:grid-cols-[1.35fr_0.9fr] lg:px-10 lg:py-12">
             <div className="flex flex-col gap-8">
-              <div className="flex items-center gap-3 text-sm uppercase tracking-[0.28em] text-muted">
-                <span className="rounded-full border border-border px-3 py-1">VRDex</span>
-                <span>Web + Convex runtime path</span>
+              <div className="flex items-center gap-3 text-sm uppercase tracking-[0.28em] text-white/68">
+                <span className="rounded-full border border-white/25 px-3 py-1">VRDex</span>
+                <span>Search-first discovery</span>
               </div>
 
               <div className="max-w-3xl space-y-5">
-                <h1 className="text-4xl leading-none font-semibold tracking-[-0.04em] sm:text-6xl">
-                  Profiles, communities, and scene presence for VRChat.
+                <h1 className="text-5xl leading-none font-semibold tracking-[-0.055em] sm:text-7xl">
+                  Find what is happening in VRChat tonight.
                 </h1>
-                <p className="max-w-2xl text-base leading-7 text-muted sm:text-lg">
-                  VRDex now has the first submit-to-public-profile path: signed-in
-                  community members can seed unclaimed people and communities, and
-                  published profiles render at their canonical URLs.
+                <p className="max-w-2xl text-base leading-7 text-white/76 sm:text-lg">
+                  Search people, communities, worlds, and events with trust labels, source-aware ranking, and featured posters built for the VRChat scene.
                 </p>
               </div>
 
+              <DiscoverySearchForm />
+
               <div className="flex flex-col gap-3 sm:flex-row">
                 <Link
-                  className="inline-flex items-center justify-center rounded-full bg-accent px-5 py-3 text-sm font-medium text-white transition hover:bg-accent-strong"
-                  href="/submit"
+                  className="inline-flex items-center justify-center rounded-full bg-white px-5 py-3 text-sm font-semibold text-foreground transition hover:-translate-y-0.5"
+                  href="/discover"
                 >
-                  Add a profile
+                  Explore discovery
                 </Link>
                 <Link
-                  className="inline-flex items-center justify-center rounded-full border border-border bg-surface-strong px-5 py-3 text-sm font-medium transition hover:-translate-y-0.5"
+                  className="inline-flex items-center justify-center rounded-full border border-white/25 bg-white/12 px-5 py-3 text-sm font-medium text-white transition hover:-translate-y-0.5"
                   href="/events/new"
                 >
                   Add an event
                 </Link>
                 <Link
-                  className="inline-flex items-center justify-center rounded-full border border-border bg-surface-strong px-5 py-3 text-sm font-medium transition hover:-translate-y-0.5"
-                  href="/server-status"
+                  className="inline-flex items-center justify-center rounded-full border border-white/25 bg-white/12 px-5 py-3 text-sm font-medium text-white transition hover:-translate-y-0.5"
+                  href="/submit"
                 >
-                  Server-side baseline
+                  Add a profile
                 </Link>
-                <Link
-                  className="inline-flex items-center justify-center rounded-full border border-border bg-surface-strong px-5 py-3 text-sm font-medium transition hover:-translate-y-0.5"
-                  href="/deployment"
-                >
-                  Deployment check
-                </Link>
-                <a
-                  className="inline-flex items-center justify-center rounded-full border border-border bg-surface-strong px-5 py-3 text-sm font-medium transition hover:-translate-y-0.5"
-                  href="https://www.convex.dev/"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Convex next
-                </a>
               </div>
             </div>
 
-            <aside className="rounded-[1.5rem] border border-border bg-surface-strong p-5">
-              <p className="font-mono text-xs uppercase tracking-[0.3em] text-muted">
-                Scaffold choices
+            <aside className="rounded-[1.5rem] border border-white/18 bg-white/14 p-5 backdrop-blur">
+              <p className="font-mono text-xs uppercase tracking-[0.3em] text-white/64">
+                Tonight and soon
               </p>
-              <dl className="mt-5 space-y-4 text-sm">
-                <div className="flex items-start justify-between gap-4 border-b border-border pb-4">
-                  <dt className="text-muted">Framework</dt>
-                  <dd className="text-right font-medium">Next.js 16 App Router</dd>
-                </div>
-                <div className="flex items-start justify-between gap-4 border-b border-border pb-4">
-                  <dt className="text-muted">Language</dt>
-                  <dd className="text-right font-medium">TypeScript</dd>
-                </div>
-                <div className="flex items-start justify-between gap-4 border-b border-border pb-4">
-                  <dt className="text-muted">Styling</dt>
-                  <dd className="text-right font-medium">Tailwind CSS v4</dd>
-                </div>
-                <div className="flex items-start justify-between gap-4 border-b border-border pb-4">
-                  <dt className="text-muted">Package manager</dt>
-                  <dd className="text-right font-medium">pnpm workspace</dd>
-                </div>
-                <div className="flex items-start justify-between gap-4">
-                  <dt className="text-muted">Next issues</dt>
-                  <dd className="text-right font-medium">#18, #59, #61</dd>
-                </div>
-              </dl>
+              <div className="mt-5 grid gap-3">
+                {featuredEvents.length === 0 ? (
+                  <p className="text-sm leading-6 text-white/74">Public event posters will land here as events are added.</p>
+                ) : (
+                  featuredEvents.map((event) => (
+                    <Link
+                      className="rounded-[1.2rem] border border-white/14 bg-white/12 px-4 py-4 transition hover:-translate-y-0.5"
+                      href={event.routePath}
+                      key={`${event.entityType}-${event.slug}`}
+                    >
+                      <span className="block text-lg font-semibold tracking-[-0.03em]">{event.title}</span>
+                      <span className="mt-1 block text-sm text-white/70">{formatHomeEventTime(event.startsAt) ?? event.subtitle}</span>
+                    </Link>
+                  ))
+                )}
+              </div>
 
-              <div className="mt-5 border-t border-border pt-5">
+              <div className="mt-5 border-t border-white/15 pt-5 text-foreground">
                 <BackendStatusCard />
               </div>
             </aside>
