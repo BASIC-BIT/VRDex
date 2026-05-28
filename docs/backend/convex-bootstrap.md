@@ -39,7 +39,8 @@ Notes:
 - The local Convex wrapper mirrors the repo-root `CONVEX_URL` into `apps/web/.env.local` as `NEXT_PUBLIC_CONVEX_URL` so the web app can follow the normal client-side Convex + Next.js convention without leaking a non-public variable through server props.
 - That same `NEXT_PUBLIC_CONVEX_URL` value is also what `fetchQuery` uses for the current server-side baseline route, so local client and server reads share one deployment setting.
 - Anonymous local backend state for this repo is kept under `.convex-home/` and `.convex-tmp/` so the bootstrap does not collide with other Convex projects on the same machine.
-- The current bootstrap is local-development focused. Production deploy keys, preview deployments, and frontend environment wiring belong to follow-on issues.
+- Production Convex deploys run from the baseline GitHub Actions workflow when `CONVEX_DEPLOY_KEY` is configured; otherwise the deploy job records a skip summary and exits cleanly.
+- Deploy-time data backfills are declared with `@convex-dev/migrations` and run through `migrations:runAll` after production function deploys.
 - Committed files in `convex/_generated/` are treated as checked-in build artifacts and should remain diff-free after `pnpm check:backend:generated`.
 
 ## Structure rule

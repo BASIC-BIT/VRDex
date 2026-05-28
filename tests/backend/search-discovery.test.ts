@@ -56,6 +56,50 @@ describe("search document projection", () => {
     assert.deepEqual(document.vocabularyKeys, ["person_role:dj", "profile_tag:melodic_house"]);
   });
 
+  it("omits unlisted and private profile fields from discovery documents", () => {
+    const profile = {
+      _id: "profile123",
+      slug: "dj-aurora",
+      displayName: "DJ Aurora",
+      sortName: "dj aurora",
+      aliases: ["Private Alias"],
+      tags: ["Unlisted Tag"],
+      headline: "Private headline",
+      bio: "Public bio",
+      avatarImageUrl: "https://example.invalid/private-avatar.png",
+      bannerImageUrl: "https://example.invalid/public-banner.png",
+      claimState: "claimed_verified",
+      publicationState: "published",
+      publicSurfacingState: "public",
+      creationSource: "self",
+      updatedAt: 1,
+      fieldVisibility: {
+        aliases: "private",
+        tags: "unlisted",
+        headline: "private",
+        bio: "public",
+        avatarImageUrl: "private",
+        bannerImageUrl: "public",
+        personRoleTags: "unlisted",
+      },
+      profileType: "person",
+      person: {
+        roleTags: ["Unlisted Role"],
+      },
+    } as unknown as Doc<"profiles">;
+
+    const document = createProfileSearchDocument(profile);
+
+    assert.equal(document.summary, "Public bio");
+    assert.equal(document.imageUrl, "https://example.invalid/public-banner.png");
+    assert.equal(document.searchText.includes("Private Alias"), false);
+    assert.equal(document.searchText.includes("Unlisted Tag"), false);
+    assert.equal(document.searchText.includes("Private headline"), false);
+    assert.equal(document.searchText.includes("Unlisted Role"), false);
+    assert.deepEqual(document.vocabularyKeys, []);
+    assert.deepEqual(document.exactTokens, ["dj aurora"]);
+  });
+
   it("builds world and event documents for universal search", () => {
     const world = {
       _id: "world123",

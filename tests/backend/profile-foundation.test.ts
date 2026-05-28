@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import type { Doc } from "../../convex/_generated/dataModel";
+import type { Doc, Id } from "../../convex/_generated/dataModel";
+import { isProfileFieldVisible } from "../../convex/_profileFieldVisibility";
+import { grantProfileOwner } from "../../convex/_profileOwnership";
 import {
   createProfileSlugBase,
   createProfileSlugCandidate,
@@ -144,6 +146,90 @@ describe("profile claim-state helpers", () => {
   });
 });
 
+describe("profile ownership helpers", () => {
+  function createOwnerDb(existingOwners: Array<Record<string, unknown>>) {
+    const inserted: Array<{ table: string; document: Record<string, unknown> }> = [];
+
+    return {
+      inserted,
+      db: {
+        query(table: string) {
+          assert.equal(table, "profileOwners");
+
+          return {
+            withIndex(_index: string, builder: (query: unknown) => unknown) {
+              const values: Record<string, unknown> = {};
+              const query = {
+                eq(field: string, value: unknown) {
+                  values[field] = value;
+                  return query;
+                },
+              };
+
+              builder(query);
+
+              return {
+                async take(limit: number) {
+                  return existingOwners
+                    .filter((owner) =>
+                      Object.entries(values).every(([field, value]) => owner[field] === value),
+                    )
+                    .slice(0, limit);
+                },
+              };
+            },
+          };
+        },
+        async insert(table: string, document: Record<string, unknown>) {
+          inserted.push({ table, document });
+          return "owner-new" as Id<"profileOwners">;
+        },
+      },
+    };
+  }
+
+  it("keeps profile owner authority as a singleton", async () => {
+    const profileId = "profile123" as Id<"profiles">;
+    const userId = "user123" as Id<"users">;
+    const existingOwner = {
+      _id: "owner-existing" as Id<"profileOwners">,
+      profileId,
+      userId,
+      roleKey: "owner",
+      state: "active",
+      grantedAt: 1,
+      updatedAt: 1,
+    };
+    const sameOwnerDb = createOwnerDb([existingOwner]);
+
+    assert.equal(
+      await grantProfileOwner(sameOwnerDb.db as never, { profileId, userId, now: 2 }),
+      existingOwner._id,
+    );
+    assert.equal(sameOwnerDb.inserted.length, 0);
+
+    const newOwnerDb = createOwnerDb([]);
+    assert.equal(await grantProfileOwner(newOwnerDb.db as never, { profileId, userId, now: 2 }), "owner-new");
+    assert.deepEqual(newOwnerDb.inserted[0], {
+      table: "profileOwners",
+      document: {
+        profileId,
+        userId,
+        roleKey: "owner",
+        state: "active",
+        grantedAt: 2,
+        updatedAt: 2,
+      },
+    });
+
+    const conflictingOwnerDb = createOwnerDb([{ ...existingOwner, userId: "otherUser" }]);
+    await assert.rejects(
+      () => grantProfileOwner(conflictingOwnerDb.db as never, { profileId, userId, now: 2 }),
+      /already has an active owner/,
+    );
+  });
+});
+
 describe("profile submission helpers", () => {
   it("normalizes sort names and community submission lists", () => {
     assert.equal(createProfileSortName("  DJ Céline  "), "dj celine");
@@ -274,6 +360,61 @@ describe("public profile projection", () => {
     assert.equal(publicProfile.trustLabel, "community_submitted");
     assert.equal(publicProfile.outboundLinks.length, 1);
     assert.equal(publicProfile.outboundLinks[0]?.url, "https://example.invalid/dj-celine-kofi");
+  });
+
+  it("keeps unlisted fields on direct profiles and hides private fields", () => {
+    const profile = {
+      profileType: "person",
+      slug: "dj-celine",
+      displayName: "DJ Celine",
+      sortName: "dj celine",
+      aliases: ["Celine"],
+      tags: ["House"],
+      headline: "Private headline",
+      bio: "Unlisted bio",
+      avatarImageUrl: "https://example.invalid/private-avatar.png",
+      bannerImageUrl: "https://example.invalid/banner.png",
+      outboundLinks: [
+        {
+          type: "website",
+          label: "Website",
+          url: "https://example.invalid",
+          source: "owner_authored",
+        },
+      ],
+      claimState: "claimed_unverified",
+      publicationState: "published",
+      publicSurfacingState: "public",
+      creationSource: "self",
+      publishedAt: 1,
+      updatedAt: 1,
+      fieldVisibility: {
+        aliases: "private",
+        tags: "unlisted",
+        headline: "private",
+        bio: "unlisted",
+        avatarImageUrl: "private",
+        bannerImageUrl: "public",
+        outboundLinks: "private",
+        personRoleTags: "private",
+      },
+      person: {
+        roleTags: ["DJ"],
+      },
+    } as Doc<"profiles">;
+
+    const publicProfile = toPublicProfile(profile);
+
+    assert.equal(isProfileFieldVisible(profile, "tags", "profile_page"), true);
+    assert.equal(isProfileFieldVisible(profile, "tags", "discovery"), false);
+    assert.deepEqual(publicProfile.aliases, []);
+    assert.deepEqual(publicProfile.tags, ["House"]);
+    assert.equal(publicProfile.headline, undefined);
+    assert.equal(publicProfile.bio, "Unlisted bio");
+    assert.equal(publicProfile.avatarImageUrl, undefined);
+    assert.equal(publicProfile.bannerImageUrl, "https://example.invalid/banner.png");
+    assert.deepEqual(publicProfile.outboundLinks, []);
+    assert.deepEqual(publicProfile.person.roleTags, []);
   });
 });
 

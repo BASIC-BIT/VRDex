@@ -4,7 +4,7 @@
 
 This doc captures the durable profile schema foundation started in `#9` and extended through `#10`, `#11`, `#12`, `#13`, `#22`, `#23`, `#25`, `#26`, `#30`, `#31`, `#32`, `#33`, `#82`, and `#90`.
 
-The schema is intentionally narrow. It establishes one shared `profiles` table for people and communities without introducing account tables, full claim flows, normalized link tables, asset tables, or advanced moderation workflows.
+The schema is intentionally narrow. It establishes one shared `profiles` table for people and communities plus first-slice account ownership, claim request, verification attempt, and field visibility tables without introducing normalized link tables, asset tables, or advanced moderation workflows.
 
 ## Locked Decisions
 
@@ -14,7 +14,7 @@ The schema is intentionally narrow. It establishes one shared `profiles` table f
 - claim state, publication state, and creation provenance are separate fields
 - community-submitted unclaimed records are represented by `creationSource: "community"` plus `claimState: "unclaimed"`
 - public surfacing state is separate from ordinary publication state so valid opt-out and suppression can hide otherwise-published profiles
-- account/user references are deferred until auth and claim issues define the account model
+- account/user ownership references live in `profileOwners`; provider login alone is not ownership
 - most public write mutations are deferred until auth and permissions are wired; `profiles:submitCommunityProfile` is the current auth-gated exception
 - the community submission mutation requires a Convex authenticated identity before writing
 - normalized alias, asset, and rich authored block tables are deferred to later profile presentation issues
@@ -51,6 +51,7 @@ State fields:
 - `publicSurfacingState`: `"public" | "opted_out" | "suppressed"`
 - `publicSurfacingUpdatedAt`: optional timestamp for the latest public-surfacing state change
 - `publicSurfacingReason`: optional short reason for opt-out or suppression state
+- `fieldVisibility`: optional per-field visibility map using `"public" | "unlisted" | "private"`
 - `claimedAt`: optional claim timestamp, present only after claim authority is established
 - `publishedAt`: optional publication timestamp, present once a profile has been published
 - `updatedAt`: application-maintained update timestamp that every profile mutation must refresh
@@ -64,6 +65,24 @@ Type-specific fields:
 - `community.categoryTags`: flexible category tags for community discovery and presentation
 
 Convex automatically provides `_id` and `_creationTime`; those are not duplicated in the schema.
+
+## Ownership And Claim Tables
+
+Convex Auth provides the `users` and `authAccounts` tables used by account and provider-link flows.
+
+`profileOwners` stores durable profile authority:
+
+- `profileId`: profile receiving ownership
+- `userId`: Convex Auth user that owns the profile
+- `roleKey`: currently the singleton literal `owner`
+- `state`: `"active" | "revoked"`
+- `grantedByClaimRequestId`: optional claim request that granted ownership
+
+`profileClaimRequests` stores claim review state for Discord, VRChat, VRCLinking, and manual methods.
+
+`profileVerificationAttempts` stores proof-code attempts for external proof readers. Attempts have a proof code, target type, target external id, state, expiry, and optional evidence summary.
+
+The first automated proof reader is an adapter action configured by `VRCHAT_PROOF_ADAPTER_URL`; it avoids hard-coding guessed VRChat or VRCLinking API behavior into the product backend.
 
 ## State Semantics
 
@@ -86,6 +105,14 @@ Convex automatically provides `_id` and `_creationTime`; those are not duplicate
 
 `creationSource` describes how the record entered the system. It is not an authority marker by itself; authority comes from `claimState` and later claim records.
 
+`fieldVisibility` controls public projection surfaces:
+
+- `public`: direct profile page plus discovery/search/card projections
+- `unlisted`: direct profile page only
+- `private`: hidden from public projections
+
+`displayName`, `slug`, `profileType`, and trust labels remain public while the profile itself is public.
+
 ## Mutation Contracts
 
 Convex schema validation cannot enforce conditional timestamp invariants, so profile mutations must preserve these application-level rules:
@@ -98,6 +125,8 @@ The first write path is `profiles:submitCommunityProfile`. It requires `ctx.auth
 
 The `migrations:backfillProfilePublicSurfacingState` internal mutation sets missing legacy `publicSurfacingState` values to `"public"` and fills `publicSurfacingUpdatedAt` so previously-written profiles keep their existing publication behavior after the surfacing-state schema addition.
 
+Deploy-time migrations use `@convex-dev/migrations` and are run by `migrations:runAll` after production function deploys when `CONVEX_DEPLOY_KEY` is configured.
+
 ## Initial Indexes
 
 - `by_slug`: canonical profile lookup and mutation-enforced slug uniqueness
@@ -107,6 +136,10 @@ The `migrations:backfillProfilePublicSurfacingState` internal mutation sets miss
 - `by_claimState_profileType`: moderation and claim-review flows by claim state, with optional type splitting
 - `by_creationSource_claimState`: moderation and community-submitted/unclaimed review flows
 - `by_profileType_sortName`: deterministic profile listing by type
+- `profileOwners.by_profileId_roleKey_state`: active owner singleton enforcement
+- `profileOwners.by_userId_state`: account profile ownership lookup
+- `profileClaimRequests.by_profileId_state`: profile claim review lookup
+- `profileVerificationAttempts.by_state_expiresAt`: pending proof attempt expiry scans
 
 ## Follow-On Boundaries
 

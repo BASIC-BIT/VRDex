@@ -17,6 +17,7 @@
     "typecheck": "next typegen && node ./scripts/ensure-next-type-stubs.mjs && tsc --noEmit --incremental false"
   },
   "dependencies": {
+    "@convex-dev/auth": "^0.0.92",
     "convex": "^1.32.0",
     "next": "16.1.6",
     "posthog-js": "^1.376.2",

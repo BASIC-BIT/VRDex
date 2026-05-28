@@ -2,11 +2,10 @@
 
 import Link from "next/link";
 import { FormEvent, useState, useTransition } from "react";
-import { useMutation } from "convex/react";
+import { useConvexAuth, useMutation } from "convex/react";
 import { api } from "@convex-generated-api";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-const submissionsAuthReady = process.env.NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY === "true";
 
 type ProfileType = "person" | "community";
 
@@ -88,8 +87,11 @@ function SignInRequiredSubmissionPanel() {
         Sign-in required
       </h2>
       <p className="mt-3 text-sm leading-7 text-muted">
-        The backend submission mutation is ready, but the public form stays locked until Convex auth is wired into the web app. This avoids exposing a form that can only fail for anonymous visitors.
+        Sign in before submitting profile records. Community submissions create unclaimed profiles with narrow source attribution and safe public fields.
       </p>
+      <Link className="mt-5 inline-flex rounded-full bg-accent px-5 py-3 text-sm font-medium text-white" href="/sign-in">
+        Sign in
+      </Link>
     </div>
   );
 }
@@ -256,11 +258,17 @@ function ConnectedSubmissionForm() {
 }
 
 export function ProfileSubmissionForm() {
+  const { isAuthenticated, isLoading } = useConvexAuth();
+
   if (!convexUrl) {
     return <DisabledSubmissionPanel />;
   }
 
-  if (!submissionsAuthReady) {
+  if (isLoading) {
+    return <p className="text-sm text-muted">Loading sign-in state...</p>;
+  }
+
+  if (!isAuthenticated) {
     return <SignInRequiredSubmissionPanel />;
   }
 

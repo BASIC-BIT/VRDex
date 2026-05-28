@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { authTables } from "@convex-dev/auth/server";
 
 const claimState = v.union(
   v.literal("unclaimed"),
@@ -16,6 +17,12 @@ const publicSurfacingState = v.union(
   v.literal("public"),
   v.literal("opted_out"),
   v.literal("suppressed"),
+);
+
+const fieldVisibilityState = v.union(
+  v.literal("public"),
+  v.literal("unlisted"),
+  v.literal("private"),
 );
 
 const creationSource = v.union(
@@ -139,6 +146,44 @@ const communityCapability = v.union(
 
 const communityAuthorityState = v.union(v.literal("active"), v.literal("revoked"));
 
+const profileOwnerState = v.union(v.literal("active"), v.literal("revoked"));
+
+const profileClaimMethod = v.union(
+  v.literal("discord_person"),
+  v.literal("discord_community_admin"),
+  v.literal("vrchat_user_proof"),
+  v.literal("vrchat_group_proof"),
+  v.literal("vrclinking_attestation"),
+  v.literal("manual"),
+);
+
+const profileClaimRequestState = v.union(
+  v.literal("pending"),
+  v.literal("approved"),
+  v.literal("rejected"),
+  v.literal("expired"),
+);
+
+const profileVerificationTargetType = v.union(
+  v.literal("vrchat_user"),
+  v.literal("vrchat_group"),
+  v.literal("vrclinking"),
+);
+
+const profileVerificationAttemptState = v.union(
+  v.literal("pending"),
+  v.literal("verified"),
+  v.literal("failed"),
+  v.literal("expired"),
+);
+
+const profileVerificationEvidenceSource = v.union(
+  v.literal("discord_api"),
+  v.literal("vrchat_api"),
+  v.literal("vrclinking"),
+  v.literal("manual"),
+);
+
 const suppressionRequestType = v.union(
   v.literal("owner_opt_out"),
   v.literal("pre_claim_safety"),
@@ -194,6 +239,23 @@ const authSubject = v.object({
   displayName: v.optional(v.string()),
 });
 
+const fieldVisibility = v.object({
+  aliases: v.optional(fieldVisibilityState),
+  tags: v.optional(fieldVisibilityState),
+  headline: v.optional(fieldVisibilityState),
+  bio: v.optional(fieldVisibilityState),
+  about: v.optional(fieldVisibilityState),
+  avatarImageUrl: v.optional(fieldVisibilityState),
+  bannerImageUrl: v.optional(fieldVisibilityState),
+  outboundLinks: v.optional(fieldVisibilityState),
+  region: v.optional(fieldVisibilityState),
+  timezone: v.optional(fieldVisibilityState),
+  personPronouns: v.optional(fieldVisibilityState),
+  personRoleTags: v.optional(fieldVisibilityState),
+  communitySubtype: v.optional(fieldVisibilityState),
+  communityCategoryTags: v.optional(fieldVisibilityState),
+});
+
 const sharedProfileFields = {
   slug: v.string(),
   displayName: v.string(),
@@ -222,6 +284,7 @@ const sharedProfileFields = {
   publicSurfacingState,
   publicSurfacingUpdatedAt: v.optional(v.number()),
   publicSurfacingReason: v.optional(v.string()),
+  fieldVisibility: v.optional(fieldVisibility),
   creationSource,
   sourceAttribution: v.optional(
     v.object({
@@ -242,6 +305,7 @@ const sharedProfileFields = {
 };
 
 export default defineSchema({
+  ...authTables,
   profiles: defineTable(
     v.union(
       v.object({
@@ -429,6 +493,59 @@ export default defineSchema({
       "state",
       "communityProfileId",
     ]),
+  profileOwners: defineTable({
+    profileId: v.id("profiles"),
+    userId: v.id("users"),
+    roleKey: v.literal("owner"),
+    state: profileOwnerState,
+    grantedByClaimRequestId: v.optional(v.id("profileClaimRequests")),
+    grantedAt: v.number(),
+    revokedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_profileId_state", ["profileId", "state"])
+    .index("by_userId_state", ["userId", "state"])
+    .index("by_profileId_roleKey_state", ["profileId", "roleKey", "state"]),
+  profileClaimRequests: defineTable({
+    profileId: v.optional(v.id("profiles")),
+    profileSlug: v.optional(v.string()),
+    profileType,
+    requestedDisplayName: v.optional(v.string()),
+    userId: v.id("users"),
+    method: profileClaimMethod,
+    state: profileClaimRequestState,
+    discordGuildId: v.optional(v.string()),
+    discordGuildName: v.optional(v.string()),
+    vrchatTargetId: v.optional(v.string()),
+    evidenceSource: v.optional(profileVerificationEvidenceSource),
+    evidenceSummary: v.optional(v.string()),
+    rejectionReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    verifiedAt: v.optional(v.number()),
+    reviewedAt: v.optional(v.number()),
+  })
+    .index("by_profileId_state", ["profileId", "state"])
+    .index("by_userId_state", ["userId", "state"])
+    .index("by_method_state", ["method", "state"]),
+  profileVerificationAttempts: defineTable({
+    profileId: v.id("profiles"),
+    userId: v.id("users"),
+    method: profileClaimMethod,
+    targetType: profileVerificationTargetType,
+    targetExternalId: v.string(),
+    proofCode: v.string(),
+    state: profileVerificationAttemptState,
+    evidenceSource: v.optional(profileVerificationEvidenceSource),
+    evidenceSummary: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    expiresAt: v.number(),
+    verifiedAt: v.optional(v.number()),
+  })
+    .index("by_profileId_state", ["profileId", "state"])
+    .index("by_userId_state", ["userId", "state"])
+    .index("by_state_expiresAt", ["state", "expiresAt"]),
   profileSuppressionRequests: defineTable({
     profileId: v.optional(v.id("profiles")),
     profileSlug: v.optional(v.string()),

@@ -2,9 +2,9 @@
 
 ## Status Note
 
-This doc captures the permission and claim-state baseline for `#12` and `#13`.
+This doc captures the permission and claim-state baseline for `#12` and `#13`, extended by the first auth, ownership, field-visibility, Discord claim, and VRChat proof-code slice.
 
-It intentionally does not add account records, OAuth claim flows, VRChat proof-code verification, moderation UI, role delegation, or ownership transfer.
+It intentionally does not add moderation UI, role delegation, ownership transfer, contested-claim resolution, or a hard-coded VRCLinking API integration.
 
 ## Read Baseline
 
@@ -27,11 +27,21 @@ Community submitters may populate only a narrow safe field set for unclaimed pro
 
 Community submitters must not set fields that imply verified authority, private contact details, billing state, ownership, custom slugs, or sensitive visibility choices. Profile creation can still generate an initial slug from submitted display text.
 
-The current public mutation requires a Convex authenticated identity and stores source attribution, but it does not introduce a durable account table or ownership link. Freeform bios, about text, avatar URLs, banner URLs, private contact details, and custom slugs are intentionally outside the ordinary community-submission field set.
+The current public mutation requires a Convex authenticated identity and stores source attribution. Freeform bios, about text, avatar URLs, banner URLs, private contact details, and custom slugs are intentionally outside the ordinary community-submission field set.
 
 Claimed owners may edit normal profile fields after a claim attaches authority to the existing profile record. This baseline assumes claimed owners can edit identity, presentation, slug, tags, and type-specific profile fields, subject to future field-level visibility and abuse controls.
 
 Moderators may override profile fields later for safety, corrections, and abuse handling. The moderation UI and detailed audit model are deferred.
+
+## Ownership Records
+
+`profileOwners` records are the durable owner authority link between Convex Auth `users` and `profiles`.
+
+- `roleKey` is currently the singleton literal `owner`
+- only one active owner may exist for a profile at a time
+- repeated grants for the same active owner are idempotent
+- grants to a different active owner must fail until a future transfer or moderation flow revokes the old owner
+- claim approval must update the profile search document because trust rank and public trust labels can change
 
 ## Claim States
 
@@ -50,6 +60,30 @@ Allowed ordinary transitions are real state changes only:
 - `claimed_unverified` -> `claimed_verified`
 
 Downgrades, contested claims, transfer flows, and suppression flows require explicit moderation or ownership workflows later.
+
+A weaker approval method must not downgrade an already verified profile. For example, a later Discord person claim leaves an existing `claimed_verified` profile verified instead of moving it back to `claimed_unverified`.
+
+## Claim Methods
+
+Current claim-level actions require a signed-in Convex Auth user with a verified email address.
+
+- Discord person claims require a linked Discord provider account and grant `claimed_unverified` owner control for an existing person profile.
+- Discord community claims require a linked Discord provider account and create a pending `discord_community_admin` request. The profile is not granted until a Discord adapter verifies full Administrator permission.
+- VRChat user proof requires a person profile and creates a proof-code attempt with `targetType: "vrchat_user"`.
+- VRChat group proof requires a community profile and creates a proof-code attempt with `targetType: "vrchat_group"`.
+- VRCLinking currently uses the same proof-code attempt table and adapter seam with `targetType: "vrclinking"` until a stable API contract is confirmed.
+
+The automated proof reader lives behind `profileClaims:verifyVrchatProofViaAdapter` and calls `VRCHAT_PROOF_ADAPTER_URL`. The adapter receives the target type, target external id, proof code, and safe profile context, then returns whether the code was found plus an evidence summary.
+
+## Field Visibility
+
+Profile field visibility supports three states:
+
+- `public`: visible on direct profile pages and eligible for discovery/search/card projections
+- `unlisted`: visible on direct profile pages but omitted from discovery/search/card projections
+- `private`: omitted from all public projections
+
+`displayName`, `slug`, `profileType`, and trust labels remain public while the profile itself is public.
 
 ## Trust Labels
 
@@ -71,3 +105,4 @@ Future claim mutations must:
 - set `claimedAt` when `claimState` leaves `"unclaimed"`
 - preserve the profile `_id` and slug when authority changes
 - patch `updatedAt` on every profile write
+- use `profileOwners` for durable owner authority instead of interpreting provider login as ownership by itself
