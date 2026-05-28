@@ -3,7 +3,7 @@
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
-import { FormEvent, useState, useTransition } from "react";
+import { Component, FormEvent, ReactNode, useState, useTransition } from "react";
 
 import { api } from "@convex-generated-api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
@@ -364,6 +364,29 @@ function ConnectedAccountPanel() {
   );
 }
 
+class AccountPanelErrorBoundary extends Component<
+  { children: ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="rounded-[1.5rem] border border-dashed border-border bg-surface-strong px-5 py-5 text-sm leading-7 text-muted">
+          Account state is temporarily unavailable because the backend query failed. Try again after the Convex deployment finishes.
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 export function AccountPanel() {
   if (!convexUrl) {
     return (
@@ -373,5 +396,9 @@ export function AccountPanel() {
     );
   }
 
-  return <ConnectedAccountPanel />;
+  return (
+    <AccountPanelErrorBoundary>
+      <ConnectedAccountPanel />
+    </AccountPanelErrorBoundary>
+  );
 }
