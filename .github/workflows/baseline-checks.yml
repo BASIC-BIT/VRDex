@@ -249,7 +249,9 @@ jobs:
 
           Captured flow:
           - test-gated profile submission form
+          - gated helper rejection without the Playwright token
           - Convex profile creation
+          - submission success state
           - public profile page readback
           - discovery search readback
 
@@ -296,7 +298,9 @@ jobs:
               "",
               "Captured flow:",
               "- test-gated profile submission form",
+              "- gated helper rejection without the Playwright token",
               "- Convex profile creation",
+              "- submission success state",
               "- public profile page readback",
               "- discovery search readback",
               "",
@@ -382,10 +386,19 @@ jobs:
           Captured routes:
           - /
           - /submit
+          - /sign-in
+          - /account
+          - /discover?q=afterglow
+          - /search?q=aurora
+          - /privacy/suppression
+          - /events/new
+          - /events/playwright-afterglow-harbor-sessions/edit
           - /server-status
           - /deployment
           - /p/playwright-dj-aurora
           - /c/playwright-afterglow-social
+          - /w/playwright-neon-harbor
+          - /e/playwright-afterglow-harbor-sessions
 
           Run: ${RUN_URL}
           EOF
@@ -431,10 +444,19 @@ jobs:
               "Captured routes:",
               "- `/`",
               "- `/submit`",
+              "- `/sign-in`",
+              "- `/account`",
+              "- `/discover?q=afterglow`",
+              "- `/search?q=aurora`",
+              "- `/privacy/suppression`",
+              "- `/events/new`",
+              "- `/events/playwright-afterglow-harbor-sessions/edit`",
               "- `/server-status`",
               "- `/deployment`",
               "- `/p/playwright-dj-aurora`",
               "- `/c/playwright-afterglow-social`",
+              "- `/w/playwright-neon-harbor`",
+              "- `/e/playwright-afterglow-harbor-sessions`",
               "",
               "This job is required for PR checks; pixel diff baselines are not enabled yet.",
             ].join("\n");

@@ -178,8 +178,48 @@ export async function expectDiscoverPage(page: Page) {
   await expect(page.getByRole("link", { name: /DJ Aurora/i })).toBeVisible();
 }
 
+export async function expectSearchPage(page: Page) {
+  await expect(page.getByRole("heading", { name: /Find the night/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Search VRDex/i })).toBeVisible();
+  await expect(page.getByRole("link", { name: /DJ Aurora/i }).first()).toBeVisible();
+  await expect(page.getByRole("link", { name: /Neon Harbor/i }).first()).toBeVisible();
+}
+
 export async function expectSubmitPage(page: Page) {
   await expect(page.getByRole("heading", { name: /Add a missing VRChat scene profile/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sign-in required" })).toBeVisible();
+}
+
+export async function expectSignInPage(page: Page) {
+  await expect(page.getByRole("heading", { name: /Sign in to claim and manage profiles/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue with Discord" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible();
+  await expect(page.getByLabel("Email")).toBeVisible();
+  await expect(page.getByLabel("Password")).toBeVisible();
+}
+
+export async function expectAccountPage(page: Page) {
+  await expect(page.getByRole("heading", { name: /Your VRDex account and claim readiness/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Not signed in" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Sign in" }).last()).toBeVisible();
+}
+
+export async function expectSuppressionPage(page: Page) {
+  await expect(page.getByRole("heading", { name: /Request review of a public listing/i })).toBeVisible();
+  await expect(page.getByLabel("Request type")).toBeVisible();
+  await expect(page.getByLabel("Profile slug")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Submit request" })).toBeVisible();
+}
+
+export async function expectNewEventPage(page: Page) {
+  await expect(page.getByRole("heading", { name: /Add a VRDex event/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sign-in required" })).toBeVisible();
+  await expect(page.getByText(/event mutations and form are wired/i)).toBeVisible();
+}
+
+export async function expectEditEventPage(page: Page) {
+  await expect(page.getByRole("heading", { name: /Update Afterglow Harbor Sessions/i })).toBeVisible();
+  await expect(page.getByRole("link", { name: "View event" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Sign-in required" })).toBeVisible();
 }
 
@@ -242,9 +282,39 @@ export const capturedRoutes: CapturedRoute[] = [
     expectPage: expectSubmitPage,
   },
   {
+    name: "sign-in",
+    path: "/sign-in",
+    expectPage: expectSignInPage,
+  },
+  {
+    name: "account-signed-out",
+    path: "/account",
+    expectPage: expectAccountPage,
+  },
+  {
     name: "discover",
     path: "/discover?q=afterglow",
     expectPage: expectDiscoverPage,
+  },
+  {
+    name: "search-compat",
+    path: "/search?q=aurora",
+    expectPage: expectSearchPage,
+  },
+  {
+    name: "privacy-suppression",
+    path: "/privacy/suppression",
+    expectPage: expectSuppressionPage,
+  },
+  {
+    name: "event-new-signed-out",
+    path: "/events/new",
+    expectPage: expectNewEventPage,
+  },
+  {
+    name: "event-edit-signed-out",
+    path: "/events/playwright-afterglow-harbor-sessions/edit",
+    expectPage: expectEditEventPage,
   },
   {
     name: "server-status",

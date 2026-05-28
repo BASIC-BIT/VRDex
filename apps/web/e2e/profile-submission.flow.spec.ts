@@ -31,6 +31,7 @@ test("profile submission writes through to public profile and discovery @flow", 
     const href = await profileLink.getAttribute("href");
     createdSlug = href?.split("/").filter(Boolean).at(-1);
     expect(createdSlug).toBeTruthy();
+    await captureRouteScreenshot(page, testInfo, "profile-submission-flow-submit-success");
 
     await profileLink.click();
     await expect(page.getByRole("heading", { name: displayName })).toBeVisible();
@@ -50,4 +51,35 @@ test("profile submission writes through to public profile and discovery @flow", 
       await expect(cleanupResponse).toBeOK();
     }
   }
+});
+
+test("E2E profile helper stays gated without the browser token @flow", async ({ page, request }) => {
+  const payload = {
+    runId: "playwright-negative-gate",
+    profileType: "person",
+    displayName: "Playwright Negative Gate",
+    aliases: [],
+    tags: [],
+    roleTags: [],
+  };
+
+  const missingTokenResponse = await request.post("/api/e2e/profile-submissions", {
+    data: payload,
+  });
+  expect(missingTokenResponse.status()).toBe(403);
+
+  const wrongTokenResponse = await request.post("/api/e2e/profile-submissions", {
+    headers: { "x-vrdex-e2e-token": "wrong-token" },
+    data: payload,
+  });
+  expect(wrongTokenResponse.status()).toBe(403);
+
+  const missingDeleteTokenResponse = await request.delete("/api/e2e/profile-submissions", {
+    data: { slug: "playwright-negative-gate" },
+  });
+  expect(missingDeleteTokenResponse.status()).toBe(403);
+
+  await page.goto("/submit");
+  await expect(page.getByRole("heading", { name: "Sign-in required" })).toBeVisible();
+  await expect(page.getByText(/server-side test gate/i)).toHaveCount(0);
 });

@@ -26,11 +26,19 @@ The visual suite starts a local Convex backend and Next dev server by default. P
 
 - `/`
 - `/submit`
+- `/sign-in`
+- `/account`
+- `/discover?q=afterglow`
+- `/search?q=aurora`
+- `/privacy/suppression`
+- `/events/new`
+- `/events/playwright-afterglow-harbor-sessions/edit`
 - `/server-status`
 - `/deployment`
 - `/p/playwright-dj-aurora`
 - `/c/playwright-afterglow-social`
 - `/w/playwright-neon-harbor`
+- `/e/playwright-afterglow-harbor-sessions`
 
 Screenshots are written to `apps/web/playwright-artifacts/screenshots` and attached to the Playwright report.
 
@@ -39,8 +47,10 @@ Screenshots are written to `apps/web/playwright-artifacts/screenshots` and attac
 The `@flow` Playwright test is the first mutation-backed journey. It:
 
 - opens `/submit` with a test-only cookie
+- verifies helper POST/DELETE calls are rejected without the Playwright token
 - submits a person profile through the browser
 - writes the profile into Convex through the server-gated E2E route
+- captures the post-submit success state
 - reads the generated public profile page
 - searches discovery for the submitted display name
 - captures screenshots for both readback pages
