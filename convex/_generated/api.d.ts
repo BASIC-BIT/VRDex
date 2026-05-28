@@ -29,6 +29,7 @@ import type * as _worldPublic from "../_worldPublic.js";
 import type * as _worldSlugs from "../_worldSlugs.js";
 import type * as accounts from "../accounts.js";
 import type * as auth from "../auth.js";
+import type * as e2e from "../e2e.js";
 import type * as events from "../events.js";
 import type * as health from "../health.js";
 import type * as http from "../http.js";
@@ -67,6 +68,7 @@ declare const fullApi: ApiFromModules<{
   _worldSlugs: typeof _worldSlugs;
   accounts: typeof accounts;
   auth: typeof auth;
+  e2e: typeof e2e;
   events: typeof events;
   health: typeof health;
   http: typeof http;

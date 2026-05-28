@@ -12,6 +12,7 @@ const convexPort = Number(new URL(convexUrl).port) || 3210;
 const reuseNextServer = process.env.PLAYWRIGHT_REUSE_SERVER === "true";
 const reuseConvexServer = process.env.PLAYWRIGHT_REUSE_CONVEX === "true";
 const skipConvexServer = process.env.PLAYWRIGHT_SKIP_CONVEX_DEV === "true";
+const recordVideo = process.env.PLAYWRIGHT_RECORD_VIDEO === "true";
 
 process.env.CONVEX_URL = convexUrl;
 process.env.NEXT_PUBLIC_CONVEX_URL = convexUrl;
@@ -33,7 +34,7 @@ export default defineConfig({
     baseURL,
     trace: "on-first-retry",
     screenshot: "only-on-failure",
-    video: "retain-on-failure",
+    video: recordVideo ? "on" : "retain-on-failure",
     locale: "en-US",
     timezoneId: "UTC",
   },

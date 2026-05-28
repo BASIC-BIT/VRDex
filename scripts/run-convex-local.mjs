@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, watch, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,6 +10,7 @@ const convexTmp = path.join(repoRoot, ".convex-tmp");
 const repoEnvLocalPath = path.join(repoRoot, ".env.local");
 const webEnvLocalPath = path.join(repoRoot, "apps", "web", ".env.local");
 const args = process.argv.slice(2);
+const localConvexEnvNames = ["VRDEX_ENABLE_E2E_HELPERS", "VRDEX_E2E_CONVEX_SECRET"];
 
 function syncPublicConvexUrl() {
   if (!existsSync(repoEnvLocalPath)) {
@@ -60,6 +61,60 @@ function syncPublicConvexUrl() {
   writeFileSync(webEnvLocalPath, `${nextPublicLine}\n`);
 }
 
+function convexEnv() {
+  return {
+    ...process.env,
+    CONVEX_AGENT_MODE: "anonymous",
+    CONVEX_TMPDIR: convexTmp,
+    TMPDIR: convexTmp,
+    TEMP: convexTmp,
+    TMP: convexTmp,
+    HOME: convexHome,
+    USERPROFILE: convexHome,
+    XDG_CONFIG_HOME: path.join(convexHome, ".config"),
+    XDG_DATA_HOME: path.join(convexHome, ".local", "share"),
+    XDG_CACHE_HOME: path.join(convexHome, ".cache"),
+    XDG_STATE_HOME: path.join(convexHome, ".local", "state"),
+  };
+}
+
+function setLocalConvexEnvVarsOnce() {
+  const entries = localConvexEnvNames
+    .map((name) => [name, process.env[name]])
+    .filter((entry) => entry[1] !== undefined && entry[1] !== "");
+
+  for (const [name, value] of entries) {
+    const result = spawnSync(convexBin, ["env", "set", name, value], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      env: convexEnv(),
+      shell: process.platform === "win32",
+    });
+
+    if (result.status !== 0) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+async function syncLocalConvexEnvVars() {
+  if (!localConvexEnvNames.some((name) => process.env[name])) {
+    return;
+  }
+
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    if (setLocalConvexEnvVarsOnce()) {
+      return;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  console.error("Failed to sync E2E helper env vars into the local Convex deployment.");
+}
+
 if (args.length === 0) {
   console.error("Usage: node scripts/run-convex-local.mjs <convex args>");
   process.exit(1);
@@ -87,25 +142,10 @@ const child = spawn(convexBin, args, {
   cwd: repoRoot,
   stdio: "inherit",
   shell: process.platform === "win32",
-  env: {
-    ...process.env,
-    // Belt-and-suspenders fallback in case a future script invocation omits
-    // `--local` and would otherwise try to prompt for cloud auth.
-    CONVEX_AGENT_MODE: "anonymous",
-    CONVEX_TMPDIR: convexTmp,
-    TMPDIR: convexTmp,
-    TEMP: convexTmp,
-    TMP: convexTmp,
-    // Isolate anonymous Convex state from the user's real home directory.
-    // This also affects subprocesses spawned by the Convex CLI.
-    HOME: convexHome,
-    USERPROFILE: convexHome,
-    XDG_CONFIG_HOME: path.join(convexHome, ".config"),
-    XDG_DATA_HOME: path.join(convexHome, ".local", "share"),
-    XDG_CACHE_HOME: path.join(convexHome, ".cache"),
-    XDG_STATE_HOME: path.join(convexHome, ".local", "state"),
-  },
+  env: convexEnv(),
 });
+
+void syncLocalConvexEnvVars();
 
 try {
   syncPublicConvexUrl();

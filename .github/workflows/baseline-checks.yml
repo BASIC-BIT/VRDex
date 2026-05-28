@@ -195,6 +195,143 @@ jobs:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_PROD }}
         run: pnpm exec convex run migrations:runAll --prod
 
+  playwright-data-flow:
+    name: Playwright Data Flow
+    if: github.event_name == 'pull_request'
+    needs: [build-web]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        working-directory: apps/web
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run mutation-backed profile submission flow
+        id: flow
+        env:
+          PLAYWRIGHT_RECORD_VIDEO: "true"
+          VRDEX_ENABLE_E2E_HELPERS: "true"
+          VRDEX_E2E_BROWSER_TOKEN: local-playwright-token
+          VRDEX_E2E_CONVEX_SECRET: local-convex-e2e-secret
+        run: pnpm --filter web exec playwright test --grep @flow --project=desktop-chromium
+
+      - name: Write data-flow summary
+        if: always()
+        env:
+          FLOW_OUTCOME: ${{ steps.flow.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          mkdir -p apps/web/playwright-artifacts
+          cat > apps/web/playwright-artifacts/data-flow-summary.md <<EOF
+          ## Playwright data-flow preview
+
+          Outcome: ${FLOW_OUTCOME}
+
+          Captured flow:
+          - test-gated profile submission form
+          - Convex profile creation
+          - public profile page readback
+          - discovery search readback
+
+          Run: ${RUN_URL}
+          EOF
+
+      - name: Upload Playwright data-flow artifacts
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-data-flow
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+            apps/web/playwright-artifacts
+
+      - name: Comment with data-flow artifact
+        if: always() && github.event.pull_request.head.repo.fork == false
+        uses: actions/github-script@v7
+        env:
+          FLOW_OUTCOME: ${{ steps.flow.outcome }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+        with:
+          script: |
+            const marker = "<!-- vrdex-playwright-data-flow -->";
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.issue.number;
+            const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`;
+            const artifactUrl = process.env.ARTIFACT_URL || "";
+            const outcome = process.env.FLOW_OUTCOME || "unknown";
+            const artifactLine = artifactUrl
+              ? `Artifact: [playwright-data-flow](${artifactUrl})`
+              : "Artifact: not generated";
+            const body = [
+              marker,
+              "## Playwright Data-Flow Preview",
+              `Outcome: ${outcome}`,
+              `Run: ${runUrl}`,
+              artifactLine,
+              "",
+              "Captured flow:",
+              "- test-gated profile submission form",
+              "- Convex profile creation",
+              "- public profile page readback",
+              "- discovery search readback",
+              "",
+              "Artifacts include screenshots, traces, and recorded video for the flow run.",
+            ].join("\n");
+
+            let comments = [];
+            let page = 1;
+            while (true) {
+              const { data: pageComments } = await github.rest.issues.listComments({
+                owner,
+                repo,
+                issue_number,
+                per_page: 100,
+                page,
+              });
+              comments = comments.concat(pageComments);
+              if (pageComments.length < 100) break;
+              page++;
+            }
+            const existing = comments.find(
+              (comment) => comment.user?.type === "Bot" && comment.body?.includes(marker),
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
   playwright-public-preview:
     name: Playwright Public Preview
     if: github.event_name == 'pull_request'
@@ -391,6 +528,39 @@ jobs:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: pnpm dlx vercel@54.4.1 pull --yes --environment=preview --token "$VERCEL_TOKEN"
+
+      - name: Check Convex preview deploy key
+        if: steps.gate.outputs.enabled == 'true'
+        id: convex-preview-gate
+        env:
+          CONVEX_DEPLOY_KEY_PREVIEW: ${{ secrets.CONVEX_DEPLOY_KEY_PREVIEW }}
+        run: |
+          if [ -z "$CONVEX_DEPLOY_KEY_PREVIEW" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## Convex preview deploy"
+              echo "Skipped because CONVEX_DEPLOY_KEY_PREVIEW is not configured."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy Convex preview functions
+        if: steps.gate.outputs.enabled == 'true' && steps.convex-preview-gate.outputs.enabled == 'true'
+        id: convex-preview
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_PREVIEW }}
+          PREVIEW_NAME: pr-${{ github.event.pull_request.number }}
+        run: pnpm exec convex deploy --yes --typecheck=enable --preview-create "$PREVIEW_NAME" --cmd "node scripts/write-convex-preview-output.mjs" --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL
+
+      - name: Use Convex preview URL for Vercel build
+        if: steps.gate.outputs.enabled == 'true' && steps.convex-preview.outputs.convex_url != ''
+        env:
+          CONVEX_PREVIEW_URL: ${{ steps.convex-preview.outputs.convex_url }}
+        run: |
+          echo "NEXT_PUBLIC_CONVEX_URL=$CONVEX_PREVIEW_URL" >> "$GITHUB_ENV"
+          echo "CONVEX_URL=$CONVEX_PREVIEW_URL" >> "$GITHUB_ENV"
 
       - name: Build Vercel preview output
         if: steps.gate.outputs.enabled == 'true'

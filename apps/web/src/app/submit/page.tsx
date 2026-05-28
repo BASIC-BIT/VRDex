@@ -1,8 +1,19 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 
 import { ProfileSubmissionForm } from "./profile-submission-form";
 
-export default function SubmitProfilePage() {
+async function isE2eSubmissionMode() {
+  const expectedToken = process.env.VRDEX_E2E_BROWSER_TOKEN?.trim();
+  const cookieStore = await cookies();
+  const requestToken = cookieStore.get("vrdex_e2e_token")?.value;
+
+  return process.env.VRDEX_ENABLE_E2E_HELPERS === "true" && Boolean(expectedToken) && requestToken === expectedToken;
+}
+
+export default async function SubmitProfilePage() {
+  const e2eMode = await isE2eSubmissionMode();
+
   return (
     <main className="min-h-screen px-6 py-10 text-foreground sm:px-10 lg:px-16">
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
@@ -38,13 +49,15 @@ export default function SubmitProfilePage() {
                   Safe by default
                 </p>
                 <p className="mt-3 text-sm leading-7 text-muted">
-                  Submission requires Convex auth, stores source attribution for later moderation, generates the canonical slug server-side, and publishes with an unclaimed trust state.
+                  {e2eMode
+                    ? "This Playwright run uses a server-side test gate to exercise the same public submission data path without an interactive login."
+                    : "Submission requires Convex auth, stores source attribution for later moderation, generates the canonical slug server-side, and publishes with an unclaimed trust state."}
                 </p>
               </div>
             </div>
 
             <div className="rounded-[1.5rem] border border-border bg-white/45 px-5 py-6 sm:px-6">
-              <ProfileSubmissionForm />
+              <ProfileSubmissionForm e2eMode={e2eMode} />
             </div>
           </div>
         </section>

@@ -418,13 +418,15 @@ export function searchPlaywrightDiscoveryFixture(query: string): PublicSearchRes
     return [];
   }
 
-  return discoveryResults.filter((result) =>
+  const matches = discoveryResults.filter((result) =>
     [result.title, result.subtitle, result.summary, result.source?.label]
       .filter(Boolean)
       .join(" ")
       .toLowerCase()
       .includes(normalized),
   );
+
+  return matches.length > 0 ? matches : null;
 }
 
 export function getPlaywrightPublicWorldFixture(slug: string): PublicWorld | null {
