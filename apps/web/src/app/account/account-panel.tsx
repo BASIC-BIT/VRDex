@@ -78,7 +78,10 @@ function ClaimActions({ emailVerified, hasDiscord }: { emailVerified: boolean; h
       startTransition(() =>
         setStatus({
           kind: "success",
-          message: `Person profile claimed as ${result.claimState.replace(/_/g, " ")}.`,
+          message:
+            "state" in result && result.state === "already_owned"
+              ? "You already own this person profile."
+              : `Person profile claimed as ${result.claimState.replace(/_/g, " ")}.`,
           href: result.profilePath,
         }),
       );

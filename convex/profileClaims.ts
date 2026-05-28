@@ -215,6 +215,21 @@ export const claimExistingPersonWithDiscord = mutation({
       getClaimableProfileBySlug(ctx.db, args.profileSlug, "person"),
       requireLinkedDiscordAccount(ctx, user._id),
     ]);
+    const activeOwner = await getActiveProfileOwner(ctx.db, profile._id);
+
+    if (activeOwner !== null && activeOwner.userId !== user._id) {
+      throw new Error("This profile already has an active owner.");
+    }
+
+    if (activeOwner !== null) {
+      return {
+        profileId: profile._id,
+        claimState: profile.claimState,
+        profilePath: `/p/${profile.slug}`,
+        state: "already_owned" as const,
+      };
+    }
+
     const now = Date.now();
     const claimRequestId = await ctx.db.insert("profileClaimRequests", {
       profileId: profile._id,
@@ -516,10 +531,15 @@ export const getVerificationAttemptForAdapter = internalQuery({
     attemptId: v.id("profileVerificationAttempts"),
   },
   handler: async (ctx, args) => {
+    const user = await requireVerifiedEmailUser(ctx);
     const attempt = await ctx.db.get(args.attemptId);
 
     if (attempt === null) {
       return null;
+    }
+
+    if (attempt.userId !== user._id) {
+      throw new Error("Verification attempt does not belong to the signed-in user.");
     }
 
     const profile = await ctx.db.get(attempt.profileId);

@@ -58,7 +58,7 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
     Discord({
       authorization: {
         params: {
-          scope: "identify email guilds",
+          scope: "identify email",
         },
       },
       profile(profile) {
@@ -106,7 +106,7 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
   ],
   callbacks: {
     async redirect({ redirectTo }) {
-      if (redirectTo.startsWith("/")) {
+      if (redirectTo.startsWith("/") && !redirectTo.startsWith("//")) {
         return redirectTo;
       }
 
