@@ -35,19 +35,11 @@ function stringField(value: FormDataEntryValue | null): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-export function SignInForm() {
+function ConnectedSignInForm() {
   const { signIn } = useAuthActions();
   const [mode, setMode] = useState<PasswordMode>("signIn");
   const [status, setStatus] = useState<AuthStatus>({ kind: "idle" });
   const [, startTransition] = useTransition();
-
-  if (!convexUrl) {
-    return (
-      <div className="rounded-[1.25rem] border border-dashed border-border bg-surface px-4 py-5 text-sm leading-7 text-muted">
-        Convex is not configured in this environment, so sign-in is disabled.
-      </div>
-    );
-  }
 
   async function submitPassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -184,4 +176,16 @@ export function SignInForm() {
       </form>
     </div>
   );
+}
+
+export function SignInForm() {
+  if (!convexUrl) {
+    return (
+      <div className="rounded-[1.25rem] border border-dashed border-border bg-surface px-4 py-5 text-sm leading-7 text-muted">
+        Convex is not configured in this environment, so sign-in is disabled.
+      </div>
+    );
+  }
+
+  return <ConnectedSignInForm />;
 }

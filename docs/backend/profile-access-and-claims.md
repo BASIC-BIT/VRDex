@@ -68,12 +68,12 @@ A weaker approval method must not downgrade an already verified profile. For exa
 Current claim-level actions require a signed-in Convex Auth user with a verified email address.
 
 - Discord person claims require a linked Discord provider account and grant `claimed_unverified` owner control for an existing person profile.
-- Discord community claims require a linked Discord provider account and create a pending `discord_community_admin` request. The profile is not granted until a Discord adapter verifies full Administrator permission.
+- Discord community claims require a linked Discord provider account and create a pending `discord_community_admin` request. The profile is not granted until `profileClaims:verifyDiscordCommunityAdminClaim` verifies full Administrator permission through a Discord bot token.
 - VRChat user proof requires a person profile and creates a proof-code attempt with `targetType: "vrchat_user"`.
 - VRChat group proof requires a community profile and creates a proof-code attempt with `targetType: "vrchat_group"`.
 - VRCLinking currently uses the same proof-code attempt table and adapter seam with `targetType: "vrclinking"` until a stable API contract is confirmed.
 
-The automated proof reader lives behind `profileClaims:verifyVrchatProofViaAdapter` and calls `VRCHAT_PROOF_ADAPTER_URL`. The adapter receives the target type, target external id, proof code, and safe profile context, then returns whether the code was found plus an evidence summary.
+The automated proof reader lives behind `profileClaims:verifyVrchatProofViaAdapter`. It calls `VRCHAT_PROOF_ADAPTER_URL` for VRChat user/group proofs and `VRCLINKING_PROOF_ADAPTER_URL` for VRCLinking proofs. The adapter receives the target type, target external id, proof code, and safe profile context, then returns whether the code was found plus an evidence summary.
 
 ## Field Visibility
 

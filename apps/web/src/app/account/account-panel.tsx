@@ -1,18 +1,27 @@
 "use client";
 
 import { useAuthActions } from "@convex-dev/auth/react";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { FormEvent, useState, useTransition } from "react";
 
 import { api } from "@convex-generated-api";
+import type { Id } from "../../../../../convex/_generated/dataModel";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
 type ClaimStatus =
   | { kind: "idle" }
   | { kind: "submitting"; label: string }
-  | { kind: "success"; message: string; href?: string; proofCode?: string; expiresAt?: number }
+  | {
+      kind: "success";
+      message: string;
+      href?: string;
+      proofCode?: string;
+      expiresAt?: number;
+      claimRequestId?: Id<"profileClaimRequests">;
+      attemptId?: Id<"profileVerificationAttempts">;
+    }
   | { kind: "error"; message: string };
 
 const claimErrorPatterns = [
@@ -25,6 +34,10 @@ const claimErrorPatterns = [
   /VRChat user proof requires a person profile\./,
   /VRChat group proof requires a community profile\./,
   /A VRChat or VRCLinking target id is required\./,
+  /DISCORD_BOT_TOKEN is not configured\./,
+  /Discord API returned HTTP \d+\./,
+  /VRCHAT_PROOF_ADAPTER_URL is not configured\./,
+  /VRCLINKING_PROOF_ADAPTER_URL is not configured\./,
 ];
 
 function stringField(value: FormDataEntryValue | null): string {
@@ -46,6 +59,8 @@ function claimErrorMessage(error: unknown): string {
 }
 
 function ClaimActions({ emailVerified, hasDiscord }: { emailVerified: boolean; hasDiscord: boolean }) {
+  const verifyDiscordAdmin = useAction(api.profileClaims.verifyDiscordCommunityAdminClaim);
+  const verifyVrchatProof = useAction(api.profileClaims.verifyVrchatProofViaAdapter);
   const claimPerson = useMutation(api.profileClaims.claimExistingPersonWithDiscord);
   const requestCommunityClaim = useMutation(api.profileClaims.requestCommunityDiscordAdminClaim);
   const startVrchatProof = useMutation(api.profileClaims.startVrchatProof);
@@ -93,6 +108,7 @@ function ClaimActions({ emailVerified, hasDiscord }: { emailVerified: boolean; h
               ? "You already own this community profile."
               : "Community claim request created. Administrator verification still needs the Discord adapter.",
           href: result.profilePath,
+          ...("claimRequestId" in result ? { claimRequestId: result.claimRequestId } : {}),
         }),
       );
       event.currentTarget.reset();
@@ -119,9 +135,48 @@ function ClaimActions({ emailVerified, hasDiscord }: { emailVerified: boolean; h
           message: "Proof code created. Put this code where the configured adapter can read it.",
           proofCode: result.proofCode,
           expiresAt: result.expiresAt,
+          attemptId: result.attemptId,
         }),
       );
       event.currentTarget.reset();
+    } catch (error) {
+      startTransition(() => setStatus({ kind: "error", message: claimErrorMessage(error) }));
+    }
+  }
+
+  async function verifyPendingDiscordAdminClaim(claimRequestId: Id<"profileClaimRequests">) {
+    setStatus({ kind: "submitting", label: "Checking Discord Administrator permission..." });
+
+    try {
+      const result = await verifyDiscordAdmin({ claimRequestId });
+      startTransition(() =>
+        setStatus({
+          kind: "success",
+          message:
+            "claimState" in result
+              ? `Community claim verified as ${result.claimState.replace(/_/g, " ")}.`
+              : "Discord Administrator permission was not verified.",
+        }),
+      );
+    } catch (error) {
+      startTransition(() => setStatus({ kind: "error", message: claimErrorMessage(error) }));
+    }
+  }
+
+  async function verifyPendingVrchatProof(attemptId: Id<"profileVerificationAttempts">) {
+    setStatus({ kind: "submitting", label: "Checking proof code..." });
+
+    try {
+      const result = await verifyVrchatProof({ attemptId });
+      startTransition(() =>
+        setStatus({
+          kind: "success",
+          message:
+            "claimState" in result
+              ? `Proof verified as ${result.claimState.replace(/_/g, " ")}.`
+              : `Proof check finished with state ${result.state}.`,
+        }),
+      );
     } catch (error) {
       startTransition(() => setStatus({ kind: "error", message: claimErrorMessage(error) }));
     }
@@ -201,6 +256,24 @@ function ClaimActions({ emailVerified, hasDiscord }: { emailVerified: boolean; h
           <p>{status.message}</p>
           {status.proofCode ? <p className="mt-2 font-mono text-base text-foreground">{status.proofCode}</p> : null}
           {status.expiresAt ? <p className="mt-1 text-xs">Expires {new Date(status.expiresAt).toLocaleString()}</p> : null}
+          {status.claimRequestId ? (
+            <button
+              className="mt-3 mr-3 inline-flex rounded-full border border-border bg-surface px-4 py-2 text-sm font-medium text-foreground"
+              type="button"
+              onClick={() => void verifyPendingDiscordAdminClaim(status.claimRequestId!)}
+            >
+              Check Discord admin
+            </button>
+          ) : null}
+          {status.attemptId ? (
+            <button
+              className="mt-3 mr-3 inline-flex rounded-full border border-border bg-surface px-4 py-2 text-sm font-medium text-foreground"
+              type="button"
+              onClick={() => void verifyPendingVrchatProof(status.attemptId!)}
+            >
+              Check proof now
+            </button>
+          ) : null}
           {status.href ? (
             <Link className="mt-3 inline-flex rounded-full border border-border bg-surface px-4 py-2 text-sm font-medium text-foreground" href={status.href}>
               View profile
@@ -212,17 +285,9 @@ function ClaimActions({ emailVerified, hasDiscord }: { emailVerified: boolean; h
   );
 }
 
-export function AccountPanel() {
+function ConnectedAccountPanel() {
   const viewer = useQuery(api.accounts.viewer);
   const { signOut } = useAuthActions();
-
-  if (!convexUrl) {
-    return (
-      <div className="rounded-[1.5rem] border border-dashed border-border bg-surface-strong px-5 py-5 text-sm leading-7 text-muted">
-        Convex is not configured in this environment, so account state is unavailable.
-      </div>
-    );
-  }
 
   if (viewer === undefined) {
     return <p className="text-sm text-muted">Loading account...</p>;
@@ -297,4 +362,16 @@ export function AccountPanel() {
       />
     </div>
   );
+}
+
+export function AccountPanel() {
+  if (!convexUrl) {
+    return (
+      <div className="rounded-[1.5rem] border border-dashed border-border bg-surface-strong px-5 py-5 text-sm leading-7 text-muted">
+        Convex is not configured in this environment, so account state is unavailable.
+      </div>
+    );
+  }
+
+  return <ConnectedAccountPanel />;
 }

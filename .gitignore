@@ -11,3 +11,10 @@ apps/web/test-results/
 apps/web/.vercel/
 .env
 .env.local
+.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+terraform.tfvars.json
+tfplan
+tfplan.*

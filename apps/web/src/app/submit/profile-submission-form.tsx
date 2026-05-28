@@ -257,12 +257,8 @@ function ConnectedSubmissionForm() {
   );
 }
 
-export function ProfileSubmissionForm() {
+function AuthenticatedProfileSubmissionForm() {
   const { isAuthenticated, isLoading } = useConvexAuth();
-
-  if (!convexUrl) {
-    return <DisabledSubmissionPanel />;
-  }
 
   if (isLoading) {
     return <p className="text-sm text-muted">Loading sign-in state...</p>;
@@ -273,4 +269,12 @@ export function ProfileSubmissionForm() {
   }
 
   return <ConnectedSubmissionForm />;
+}
+
+export function ProfileSubmissionForm() {
+  if (!convexUrl) {
+    return <DisabledSubmissionPanel />;
+  }
+
+  return <AuthenticatedProfileSubmissionForm />;
 }

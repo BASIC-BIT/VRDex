@@ -10,6 +10,7 @@ import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { createProfileSearchDocument, upsertSearchDocument } from "./_searchDocuments";
 
 const DAY_MS = 86_400_000;
+const DISCORD_ADMINISTRATOR_PERMISSION = BigInt(8);
 const vrchatTargetType = v.union(
   v.literal("vrchat_user"),
   v.literal("vrchat_group"),
@@ -26,6 +27,10 @@ type VerificationAttemptAdapterContext = {
     displayName: string;
   };
 };
+type DiscordCommunityClaimAdapterContext = {
+  claimRequest: Doc<"profileClaimRequests">;
+  discordUserId: string;
+};
 type VerifyAdapterResult =
   | { state: Doc<"profileVerificationAttempts">["state"] }
   | {
@@ -33,6 +38,47 @@ type VerifyAdapterResult =
       profileId: Id<"profiles">;
       claimState: Doc<"profiles">["claimState"];
     };
+type DiscordAdminAdapterResult =
+  | { state: Doc<"profileClaimRequests">["state"] }
+  | {
+      profileId: Id<"profiles">;
+      claimState: Doc<"profiles">["claimState"];
+    };
+type DiscordGuild = {
+  id: string;
+  name?: string;
+  owner_id?: string;
+};
+type DiscordGuildMember = {
+  user?: { id?: string };
+  roles?: string[];
+};
+type DiscordRole = {
+  id: string;
+  name?: string;
+  permissions: string;
+};
+type ProofAdapterResponse = {
+  verified?: boolean;
+  evidenceSource?: "vrchat_api" | "vrclinking" | "manual";
+  evidenceSummary?: string;
+};
+
+function optionalEnv(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+
+  return value || undefined;
+}
+
+function requiredEnv(name: string): string {
+  const value = optionalEnv(name);
+
+  if (!value) {
+    throw new Error(`${name} is not configured.`);
+  }
+
+  return value;
+}
 
 async function requireLinkedDiscordAccount(ctx: Parameters<typeof getLinkedProviderAccount>[0], userId: Parameters<typeof getLinkedProviderAccount>[1]) {
   const account = await getLinkedProviderAccount(ctx, userId, "discord");
@@ -94,14 +140,66 @@ function createProofCode(): string {
   return `VRDEX-${crypto.randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase()}`;
 }
 
-function requiredAdapterUrl(): string {
-  const value = process.env.VRCHAT_PROOF_ADAPTER_URL?.trim();
-
-  if (!value) {
-    throw new Error("VRCHAT_PROOF_ADAPTER_URL is not configured.");
+function proofAdapterUrl(targetType: VrchatTargetType): string {
+  if (targetType === "vrclinking") {
+    return requiredEnv("VRCLINKING_PROOF_ADAPTER_URL");
   }
 
-  return value;
+  return requiredEnv("VRCHAT_PROOF_ADAPTER_URL");
+}
+
+function proofAdapterHeaders(): Record<string, string> {
+  const token = optionalEnv("VRCHAT_PROOF_ADAPTER_BEARER_TOKEN");
+
+  return {
+    "content-type": "application/json",
+    ...(token !== undefined ? { authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+async function fetchDiscordJson<T>(path: string): Promise<T> {
+  const baseUrl = optionalEnv("DISCORD_API_BASE_URL") ?? "https://discord.com/api/v10";
+  const response = await fetch(`${baseUrl}${path}`, {
+    headers: {
+      authorization: `Bot ${requiredEnv("DISCORD_BOT_TOKEN")}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Discord API returned HTTP ${response.status}.`);
+  }
+
+  return (await response.json()) as T;
+}
+
+async function verifyDiscordAdministratorPermission(discordGuildId: string, discordUserId: string) {
+  const [guild, member, roles] = await Promise.all([
+    fetchDiscordJson<DiscordGuild>(`/guilds/${encodeURIComponent(discordGuildId)}`),
+    fetchDiscordJson<DiscordGuildMember>(
+      `/guilds/${encodeURIComponent(discordGuildId)}/members/${encodeURIComponent(discordUserId)}`,
+    ),
+    fetchDiscordJson<DiscordRole[]>(`/guilds/${encodeURIComponent(discordGuildId)}/roles`),
+  ]);
+
+  if (guild.owner_id === discordUserId) {
+    return {
+      verified: true,
+      evidenceSummary: `Discord user ${discordUserId} owns guild ${guild.name ?? discordGuildId}.`,
+    };
+  }
+
+  const roleIds = new Set([discordGuildId, ...(member.roles ?? [])]);
+  const permissions = roles
+    .filter((role) => roleIds.has(role.id))
+    .reduce((combined, role) => combined | BigInt(role.permissions), BigInt(0));
+  const verified = (permissions & DISCORD_ADMINISTRATOR_PERMISSION) !== BigInt(0);
+
+  return {
+    verified,
+    evidenceSummary: verified
+      ? `Discord user ${discordUserId} has Administrator permission in guild ${guild.name ?? discordGuildId}.`
+      : `Discord user ${discordUserId} does not have Administrator permission in guild ${guild.name ?? discordGuildId}.`,
+  };
 }
 
 export const claimExistingPersonWithDiscord = mutation({
@@ -265,6 +363,98 @@ export const recordDiscordCommunityAdminApproval = internalMutation({
       profileId: profile._id,
       claimState: updatedProfile?.claimState ?? profile.claimState,
     };
+  },
+});
+
+export const getDiscordCommunityClaimForAdapter = internalQuery({
+  args: {
+    claimRequestId: v.id("profileClaimRequests"),
+  },
+  handler: async (ctx, args) => {
+    const user = await requireVerifiedEmailUser(ctx);
+    const claimRequest = await ctx.db.get(args.claimRequestId);
+
+    if (claimRequest === null) {
+      throw new Error("Claim request not found.");
+    }
+
+    if (claimRequest.userId !== user._id) {
+      throw new Error("Claim request does not belong to the signed-in user.");
+    }
+
+    if (claimRequest.method !== "discord_community_admin" || claimRequest.state !== "pending") {
+      throw new Error("Only pending Discord community admin claims can be verified this way.");
+    }
+
+    if (claimRequest.discordGuildId === undefined) {
+      throw new Error("Claim request is missing a Discord guild id.");
+    }
+
+    const discordAccount = await requireLinkedDiscordAccount(ctx, user._id);
+
+    return {
+      claimRequest,
+      discordUserId: discordAccount.providerAccountId,
+    } satisfies DiscordCommunityClaimAdapterContext;
+  },
+});
+
+export const recordDiscordCommunityAdminRejection = internalMutation({
+  args: {
+    claimRequestId: v.id("profileClaimRequests"),
+    evidenceSummary: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const claimRequest = await ctx.db.get(args.claimRequestId);
+
+    if (claimRequest === null) {
+      throw new Error("Claim request not found.");
+    }
+
+    if (claimRequest.method !== "discord_community_admin" || claimRequest.state !== "pending") {
+      return { state: claimRequest.state };
+    }
+
+    const now = Date.now();
+    await ctx.db.patch(claimRequest._id, {
+      state: "rejected",
+      evidenceSummary: args.evidenceSummary,
+      rejectionReason: "Discord Administrator permission was not verified.",
+      reviewedAt: now,
+      updatedAt: now,
+    });
+
+    return { state: "rejected" as const };
+  },
+});
+
+export const verifyDiscordCommunityAdminClaim = action({
+  args: {
+    claimRequestId: v.id("profileClaimRequests"),
+  },
+  handler: async (ctx, args): Promise<DiscordAdminAdapterResult> => {
+    const claimContext = (await ctx.runQuery(internal.profileClaims.getDiscordCommunityClaimForAdapter, {
+      claimRequestId: args.claimRequestId,
+    })) as DiscordCommunityClaimAdapterContext;
+    const guildId = claimContext.claimRequest.discordGuildId;
+
+    if (guildId === undefined) {
+      throw new Error("Claim request is missing a Discord guild id.");
+    }
+
+    const result = await verifyDiscordAdministratorPermission(guildId, claimContext.discordUserId);
+
+    if (!result.verified) {
+      return await ctx.runMutation(internal.profileClaims.recordDiscordCommunityAdminRejection, {
+        claimRequestId: args.claimRequestId,
+        evidenceSummary: result.evidenceSummary,
+      });
+    }
+
+    return await ctx.runMutation(internal.profileClaims.recordDiscordCommunityAdminApproval, {
+      claimRequestId: args.claimRequestId,
+      evidenceSummary: result.evidenceSummary,
+    });
   },
 });
 
@@ -471,12 +661,10 @@ export const verifyVrchatProofViaAdapter = action({
       return { state: attemptContext.attempt.state };
     }
 
-    const adapterUrl = requiredAdapterUrl();
+    const adapterUrl = proofAdapterUrl(attemptContext.attempt.targetType);
     const response = await fetch(adapterUrl, {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
+      headers: proofAdapterHeaders(),
       body: JSON.stringify({
         targetType: attemptContext.attempt.targetType,
         targetExternalId: attemptContext.attempt.targetExternalId,
@@ -495,11 +683,7 @@ export const verifyVrchatProofViaAdapter = action({
       return { state: "failed" as const };
     }
 
-    const result = (await response.json()) as {
-      verified?: boolean;
-      evidenceSource?: "vrchat_api" | "vrclinking" | "manual";
-      evidenceSummary?: string;
-    };
+    const result = (await response.json()) as ProofAdapterResponse;
 
     if (result.verified !== true) {
       await ctx.runMutation(internal.profileClaims.recordVrchatProofFailure, {
