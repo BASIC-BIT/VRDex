@@ -213,7 +213,7 @@ function searchableWorldAttributions(
       return true;
     }
 
-    return options.hiddenProfileKeys !== undefined && !options.hiddenProfileKeys.has(key);
+    return options.hiddenProfileKeys === undefined || !options.hiddenProfileKeys.has(key);
   });
 }
 

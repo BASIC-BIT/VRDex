@@ -94,7 +94,7 @@ describe("search document projection", () => {
       updatedAt: 1,
     } as unknown as Doc<"events">;
 
-    const worldDocument = createWorldSearchDocument(world, { hiddenProfileKeys: new Set() });
+    const worldDocument = createWorldSearchDocument(world);
     const eventDocument = createEventSearchDocument(event, { world, roleLabels: ["Headliner"] });
 
     assert.equal(worldDocument.entityType, "world");

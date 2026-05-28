@@ -27,6 +27,7 @@ import type * as _worldPublic from "../_worldPublic.js";
 import type * as _worldSlugs from "../_worldSlugs.js";
 import type * as events from "../events.js";
 import type * as health from "../health.js";
+import type * as migrations from "../migrations.js";
 import type * as profiles from "../profiles.js";
 import type * as search from "../search.js";
 import type * as suppressions from "../suppressions.js";
@@ -58,6 +59,7 @@ declare const fullApi: ApiFromModules<{
   _worldSlugs: typeof _worldSlugs;
   events: typeof events;
   health: typeof health;
+  migrations: typeof migrations;
   profiles: typeof profiles;
   search: typeof search;
   suppressions: typeof suppressions;

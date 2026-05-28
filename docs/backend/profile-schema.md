@@ -96,6 +96,8 @@ Convex schema validation cannot enforce conditional timestamp invariants, so pro
 
 The first write path is `profiles:submitCommunityProfile`. It requires `ctx.auth.getUserIdentity()` to return a signed-in identity, generates the slug server-side, publishes the profile as `creationSource: "community"` plus `claimState: "unclaimed"`, and stores narrow source attribution for later moderation and display decisions.
 
+The `migrations:backfillProfilePublicSurfacingState` internal mutation sets missing legacy `publicSurfacingState` values to `"public"` and fills `publicSurfacingUpdatedAt` so previously-written profiles keep their existing publication behavior after the surfacing-state schema addition.
+
 ## Initial Indexes
 
 - `by_slug`: canonical profile lookup and mutation-enforced slug uniqueness
