@@ -23,10 +23,10 @@ References:
 - Playwright configuration tolerances: `https://playwright.dev/docs/test-configuration`
 - GitHub non-zipped artifacts changelog: `https://github.blog/changelog/2026-02-26-github-actions-now-supports-uploading-and-downloading-non-zipped-artifacts/`
 
-## Recommended workflow
+## Current workflow
 
 1. Keep the current `Playwright Public Preview` job.
-2. Add a separate `Playwright Image Diff` job that runs committed snapshot comparisons.
+2. Run a separate `Playwright Image Diff` job that performs committed snapshot comparisons.
 3. Commit approved baseline PNGs under an explicit screenshot baseline directory.
 4. Fail the image diff job when a UI change is not accompanied by updated baselines.
 5. Post inline only the screenshot baselines that are added or modified in the PR.
@@ -34,9 +34,9 @@ References:
 
 ## Baseline layout
 
-`Current recommendation`: use an explicit path rather than Playwright's default adjacent `*-snapshots` directories.
+`Locked decision`: use an explicit path rather than Playwright's default adjacent `*-snapshots` directories.
 
-Proposed directory:
+Baseline directory:
 
 ```text
 apps/web/e2e/__screenshots__/<project-name>/<route-name>.png
@@ -50,7 +50,7 @@ Reasons:
 
 ## Test design
 
-Add a dedicated snapshot spec, for example `apps/web/e2e/public-routes.snapshots.spec.ts`:
+The dedicated snapshot spec lives at `apps/web/e2e/public-routes.snapshots.spec.ts`:
 
 ```ts
 import { expect, test } from "@playwright/test";
@@ -73,7 +73,7 @@ for (const route of capturedRoutes) {
 }
 ```
 
-Then configure `snapshotPathTemplate` in `apps/web/playwright.config.mjs` so snapshots land in the baseline directory.
+`apps/web/playwright.config.mjs` configures `expect.toHaveScreenshot.pathTemplate` so snapshots land in the baseline directory.
 
 ## Update command
 
@@ -93,9 +93,9 @@ pnpm --filter web exec playwright test --grep @snapshot --update-snapshots
 
 ## CI behavior
 
-`Playwright Image Diff` should:
+`Playwright Image Diff`:
 
-1. Run `pnpm --filter web exec playwright test --grep @snapshot` without `--update-snapshots`.
+1. Runs `pnpm test:e2e:snapshots` without `--update-snapshots`.
 2. Upload the Playwright report and `test-results` artifacts on success or failure.
 3. If the test passes, find added/modified PNG baselines in the PR diff.
 4. Post or update a single PR comment with inline images for those added/modified baselines.
@@ -148,12 +148,12 @@ Preview screenshots are still useful before baselines exist for every route and 
 
 `Candidate direction`: use `actions/upload-artifact@v7` with `archive: false` later for easier browsing of generated failure images, while keeping committed baseline PNGs as the inline PR comment source.
 
-## Rollout plan
+## Implemented rollout
 
-1. Add the snapshot spec and baseline directory for the existing public route set.
-2. Generate and commit baseline PNGs for desktop and mobile Chromium.
-3. Add `test:e2e:snapshots` and `test:e2e:snapshots:update` package scripts.
-4. Add the `Playwright Image Diff` CI job.
-5. Add a `github-script` step that comments inline changed/added baseline PNGs after the snapshot job passes.
-6. Keep the current preview job artifact-only until the image diff job has stable baselines.
-7. Tighten or loosen `maxDiffPixelRatio` based on CI noise after a few PRs.
+1. Added the snapshot spec and baseline directory for the existing public route set.
+2. Generated and committed baseline PNGs for desktop and mobile Chromium.
+3. Added `test:e2e:snapshots` and `test:e2e:snapshots:update` package scripts.
+4. Added the `Playwright Image Diff` CI job.
+5. Added a `github-script` step that comments inline changed/added baseline PNGs.
+6. Kept the current preview job artifact-only.
+7. Tune `maxDiffPixelRatio` only if CI noise appears after real PR traffic.

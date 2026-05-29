@@ -36,6 +36,11 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   fullyParallel: true,
   reporter: [["list"], ["html", { open: "never", outputFolder: "playwright-report" }]],
+  expect: {
+    toHaveScreenshot: {
+      pathTemplate: "{testDir}/__screenshots__{/projectName}/{arg}{ext}",
+    },
+  },
   use: {
     baseURL,
     trace: "on-first-retry",

@@ -1,13 +1,15 @@
 # Playwright visual preview
 
-Playwright gives VRDex a lightweight screenshot loop before full visual regression gates exist.
+Playwright gives VRDex a lightweight screenshot loop and a committed-baseline visual regression gate.
 
-See `docs/testing/playwright-image-diffing.md` for the planned committed-baseline image diff workflow. Screenshot preview and image diffing are intentionally separate checks.
+See `docs/testing/playwright-image-diffing.md` for the committed-baseline image diff workflow. Screenshot preview and image diffing are intentionally separate checks.
 
 ## Local commands
 
 - Smoke public routes: `pnpm test:e2e`
 - Capture public route screenshots: `pnpm test:e2e:visual`
+- Compare public route screenshots against baselines: `pnpm test:e2e:snapshots`
+- Update public route screenshot baselines: `pnpm test:e2e:snapshots:update`
 - Reuse already-running local services: set `PLAYWRIGHT_REUSE_SERVER=true` and `PLAYWRIGHT_REUSE_CONVEX=true`
 
 PowerShell data-flow run with video:
@@ -62,7 +64,7 @@ The helper route is disabled unless all of these are true:
 
 - `VRDEX_ENABLE_E2E_HELPERS=true`
 - `VRDEX_E2E_BROWSER_TOKEN` is configured and matches the request cookie or header
-- `VRDEX_E2E_CONVEX_SECRET` is configured and matches the Convex helper mutation secret
+- `VRDEX_E2E_CONVEX_SECRET` is configured for the server route and Convex helper deployment
 
 Do not enable these helpers in production. They are for local, CI, and disposable preview/dev deployments.
 
@@ -75,5 +77,7 @@ The `Playwright Public Preview` job is required on pull requests. It:
 - posts or updates a PR comment with the run outcome and artifact link
 
 This blocks PRs when public route rendering or screenshot capture fails. Pixel review is still artifact-based until committed baseline snapshots and a separate diff gate are added.
+
+The `Playwright Image Diff` job is also required on pull requests. It runs the `@snapshot` suite against committed PNG baselines under `apps/web/e2e/__screenshots__`, uploads expected/actual/diff artifacts on failure, and comments with only the added or modified committed baseline images.
 
 The `Playwright Data Flow` job is also required on pull requests. It runs the `@flow` test against local Convex and the local Next dev server with `PLAYWRIGHT_RECORD_VIDEO=true`, then uploads screenshots, traces, and videos as the `playwright-data-flow` artifact and posts a PR comment with the artifact link.
