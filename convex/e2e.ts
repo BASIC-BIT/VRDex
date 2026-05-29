@@ -7,17 +7,16 @@ import { createProfileSearchDocument, upsertSearchDocument } from "./_searchDocu
 
 const profileType = v.union(v.literal("person"), v.literal("community"));
 
-function requireE2eHelper(secret: string) {
+function requireE2eHelper() {
   const expectedSecret = process.env.VRDEX_E2E_CONVEX_SECRET?.trim();
 
-  if (process.env.VRDEX_ENABLE_E2E_HELPERS !== "true" || !expectedSecret || secret !== expectedSecret) {
+  if (process.env.VRDEX_ENABLE_E2E_HELPERS !== "true" || !expectedSecret) {
     throw new Error("E2E helpers are not enabled for this deployment.");
   }
 }
 
 export const submitProfile = mutation({
   args: {
-    secret: v.string(),
     runId: v.string(),
     profileType,
     displayName: v.string(),
@@ -36,7 +35,7 @@ export const submitProfile = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    requireE2eHelper(args.secret);
+    requireE2eHelper();
 
     const input = sanitizeCommunitySubmissionProfileInput(args);
     const now = Date.now();
@@ -108,11 +107,10 @@ export const submitProfile = mutation({
 
 export const cleanupProfileBySlug = mutation({
   args: {
-    secret: v.string(),
     slug: v.string(),
   },
   handler: async (ctx, args) => {
-    requireE2eHelper(args.secret);
+    requireE2eHelper();
 
     const profile = await getProfileBySlug(ctx.db, args.slug);
 

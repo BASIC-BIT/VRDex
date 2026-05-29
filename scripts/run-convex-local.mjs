@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, watch, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,7 +10,6 @@ const convexTmp = path.join(repoRoot, ".convex-tmp");
 const repoEnvLocalPath = path.join(repoRoot, ".env.local");
 const webEnvLocalPath = path.join(repoRoot, "apps", "web", ".env.local");
 const args = process.argv.slice(2);
-const localConvexEnvNames = ["VRDEX_ENABLE_E2E_HELPERS", "VRDEX_E2E_CONVEX_SECRET"];
 
 function syncPublicConvexUrl() {
   if (!existsSync(repoEnvLocalPath)) {
@@ -78,43 +77,6 @@ function convexEnv() {
   };
 }
 
-function setLocalConvexEnvVarsOnce() {
-  const entries = localConvexEnvNames
-    .map((name) => [name, process.env[name]])
-    .filter((entry) => entry[1] !== undefined && entry[1] !== "");
-
-  for (const [name, value] of entries) {
-    const result = spawnSync(convexBin, ["env", "set", name, value], {
-      cwd: repoRoot,
-      encoding: "utf8",
-      env: convexEnv(),
-      shell: process.platform === "win32",
-    });
-
-    if (result.status !== 0) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-async function syncLocalConvexEnvVars() {
-  if (!localConvexEnvNames.some((name) => process.env[name])) {
-    return;
-  }
-
-  for (let attempt = 0; attempt < 80; attempt += 1) {
-    if (setLocalConvexEnvVarsOnce()) {
-      return;
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-
-  console.error("Failed to sync E2E helper env vars into the local Convex deployment.");
-}
-
 if (args.length === 0) {
   console.error("Usage: node scripts/run-convex-local.mjs <convex args>");
   process.exit(1);
@@ -144,8 +106,6 @@ const child = spawn(convexBin, args, {
   shell: process.platform === "win32",
   env: convexEnv(),
 });
-
-void syncLocalConvexEnvVars();
 
 try {
   syncPublicConvexUrl();

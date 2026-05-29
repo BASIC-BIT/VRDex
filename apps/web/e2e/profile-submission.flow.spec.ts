@@ -54,6 +54,7 @@ test("profile submission writes through to public profile and discovery @flow", 
 });
 
 test("E2E profile helper stays gated without the browser token @flow", async ({ page, request }) => {
+  const e2eToken = process.env.VRDEX_E2E_BROWSER_TOKEN ?? "local-playwright-token";
   const payload = {
     runId: "playwright-negative-gate",
     profileType: "person",
@@ -74,10 +75,22 @@ test("E2E profile helper stays gated without the browser token @flow", async ({ 
   });
   expect(wrongTokenResponse.status()).toBe(403);
 
+  const malformedPostResponse = await request.post("/api/e2e/profile-submissions", {
+    headers: { "content-type": "application/json", "x-vrdex-e2e-token": e2eToken },
+    data: "{not-json",
+  });
+  expect(malformedPostResponse.status()).toBe(400);
+
   const missingDeleteTokenResponse = await request.delete("/api/e2e/profile-submissions", {
     data: { slug: "playwright-negative-gate" },
   });
   expect(missingDeleteTokenResponse.status()).toBe(403);
+
+  const malformedDeleteResponse = await request.delete("/api/e2e/profile-submissions", {
+    headers: { "content-type": "application/json", "x-vrdex-e2e-token": e2eToken },
+    data: "{not-json",
+  });
+  expect(malformedDeleteResponse.status()).toBe(400);
 
   await page.goto("/submit");
   await expect(page.getByRole("heading", { name: "Sign-in required" })).toBeVisible();

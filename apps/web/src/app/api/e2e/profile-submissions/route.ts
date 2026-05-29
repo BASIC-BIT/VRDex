@@ -18,7 +18,7 @@ function requireE2eRequest(request: NextRequest) {
     return null;
   }
 
-  return convexSecret;
+  return true;
 }
 
 function convexClient() {
@@ -32,15 +32,19 @@ function convexClient() {
 }
 
 export async function POST(request: NextRequest) {
-  const secret = requireE2eRequest(request);
+  const allowed = requireE2eRequest(request);
 
-  if (secret === null) {
+  if (allowed === null) {
     return e2eError("E2E helpers are not enabled for this request.");
   }
 
-  const body = await request.json();
+  const rawBody = await request.json().catch(() => null);
+  if (!rawBody || typeof rawBody !== "object") {
+    return e2eError("Invalid JSON body.", 400);
+  }
+  const body = rawBody as Record<string, unknown>;
+
   const result = await convexClient().mutation(api.e2e.submitProfile, {
-    secret,
     runId: String(body.runId ?? "playwright"),
     profileType: body.profileType === "community" ? "community" : "person",
     displayName: String(body.displayName ?? ""),
@@ -60,15 +64,19 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const secret = requireE2eRequest(request);
+  const allowed = requireE2eRequest(request);
 
-  if (secret === null) {
+  if (allowed === null) {
     return e2eError("E2E helpers are not enabled for this request.");
   }
 
-  const body = await request.json();
+  const rawBody = await request.json().catch(() => null);
+  if (!rawBody || typeof rawBody !== "object") {
+    return e2eError("Invalid JSON body.", 400);
+  }
+  const body = rawBody as Record<string, unknown>;
+
   const result = await convexClient().mutation(api.e2e.cleanupProfileBySlug, {
-    secret,
     slug: String(body.slug ?? ""),
   });
 
