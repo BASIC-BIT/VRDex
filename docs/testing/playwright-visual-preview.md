@@ -2,6 +2,8 @@
 
 Playwright gives VRDex a lightweight screenshot loop before full visual regression gates exist.
 
+See `docs/testing/playwright-image-diffing.md` for the planned committed-baseline image diff workflow. Screenshot preview and image diffing are intentionally separate checks.
+
 ## Local commands
 
 - Smoke public routes: `pnpm test:e2e`

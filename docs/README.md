@@ -9,6 +9,8 @@ This repo keeps durable markdown under `docs/` so product, engineering, and agen
 - `docs/backend/convex-bootstrap.md` - backend bootstrap workflow and structure notes
 - `docs/backend/event-schema.md` - event records, participant links, media links, and world-association notes
 - `docs/deployment/vercel-preview.md` - initial Vercel hosted-preview setup and validation path
+- `docs/testing/playwright-visual-preview.md` - current Playwright screenshot preview and data-flow artifact workflow
+- `docs/testing/playwright-image-diffing.md` - planned committed-baseline image diff workflow
 
 Useful starting points:
 

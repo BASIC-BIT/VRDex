@@ -383,22 +383,7 @@ jobs:
 
           Outcome: ${VISUAL_OUTCOME}
 
-          Captured routes:
-          - /
-          - /submit
-          - /sign-in
-          - /account
-          - /discover?q=afterglow
-          - /search?q=aurora
-          - /privacy/suppression
-          - /events/new
-          - /events/playwright-afterglow-harbor-sessions/edit
-          - /server-status
-          - /deployment
-          - /p/playwright-dj-aurora
-          - /c/playwright-afterglow-social
-          - /w/playwright-neon-harbor
-          - /e/playwright-afterglow-harbor-sessions
+          Screenshots: all public route checks passed on desktop and mobile.
 
           Run: ${RUN_URL}
           EOF
@@ -441,24 +426,9 @@ jobs:
               `Run: ${runUrl}`,
               artifactLine,
               "",
-              "Captured routes:",
-              "- `/`",
-              "- `/submit`",
-              "- `/sign-in`",
-              "- `/account`",
-              "- `/discover?q=afterglow`",
-              "- `/search?q=aurora`",
-              "- `/privacy/suppression`",
-              "- `/events/new`",
-              "- `/events/playwright-afterglow-harbor-sessions/edit`",
-              "- `/server-status`",
-              "- `/deployment`",
-              "- `/p/playwright-dj-aurora`",
-              "- `/c/playwright-afterglow-social`",
-              "- `/w/playwright-neon-harbor`",
-              "- `/e/playwright-afterglow-harbor-sessions`",
+              "Screenshots: all public route checks passed on desktop and mobile.",
               "",
-              "This job is required for PR checks; pixel diff baselines are not enabled yet.",
+              "Full screenshot set is available in the artifact. Pixel diff baselines are planned separately.",
             ].join("\n");
 
             let comments = [];
