@@ -62,8 +62,14 @@ Locked decision: `staging` is the shared non-production Vercel custom environmen
 - target name: `staging`
 - type: Preview custom environment
 - branch tracking: `staging`
-- stable alias: `https://vr-dex-web-env-staging-basicbit.vercel.app`
+- primary URL: `https://staging.vrdex.net`
+- Vercel environment alias: `https://vr-dex-web-env-staging-basicbit.vercel.app`
 - deploy command from the repository root: `pnpm dlx vercel@54.4.1 deploy --target=staging --yes`
+
+DNS for `staging.vrdex.net` is managed in the Route 53 public hosted zone for `vrdex.net`:
+
+- record: `staging.vrdex.net CNAME 0d67c3b757aeccf9.vercel-dns-016.com`
+- Vercel domain binding: project `vr-dex-web`, custom environment `staging`
 
 The `staging` Vercel environment points at the shared Convex development deployment:
 
@@ -77,7 +83,7 @@ The `staging` Vercel environment points at the shared Convex development deploym
 
 GitHub Actions uses these repository settings for hosted mutation health:
 
-- variable `VRDEX_HOSTED_E2E_BASE_URL=https://vr-dex-web-env-staging-basicbit.vercel.app`
+- variable `VRDEX_HOSTED_E2E_BASE_URL=https://staging.vrdex.net`
 - secret `VRDEX_HOSTED_E2E_BROWSER_TOKEN`
 
 ## Validation
