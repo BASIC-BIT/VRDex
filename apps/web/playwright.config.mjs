@@ -6,19 +6,23 @@ const configDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(configDir, "..", "..");
 const parsedPort = Number(process.env.PLAYWRIGHT_TEST_PORT);
 const port = Number.isFinite(parsedPort) ? parsedPort : 3002;
-const baseURL = `http://127.0.0.1:${port}`;
+const hostedBaseURL = process.env.PLAYWRIGHT_BASE_URL?.trim().replace(/\/+$/, "");
+const baseURL = hostedBaseURL || `http://127.0.0.1:${port}`;
 const convexUrl = process.env.PLAYWRIGHT_CONVEX_URL ?? "http://127.0.0.1:3210";
 const convexPort = Number(new URL(convexUrl).port) || 3210;
 const reuseNextServer = process.env.PLAYWRIGHT_REUSE_SERVER === "true";
 const reuseConvexServer = process.env.PLAYWRIGHT_REUSE_CONVEX === "true";
-const skipConvexServer = process.env.PLAYWRIGHT_SKIP_CONVEX_DEV === "true";
+const skipWebServers = process.env.PLAYWRIGHT_SKIP_WEBSERVERS === "true" || Boolean(hostedBaseURL);
+const skipConvexServer = skipWebServers || process.env.PLAYWRIGHT_SKIP_CONVEX_DEV === "true";
 const recordVideo = process.env.PLAYWRIGHT_RECORD_VIDEO === "true";
 const allowFixtureSearchFallthrough =
   process.env.VRDEX_ALLOW_PLAYWRIGHT_FIXTURE_SEARCH_FALLTHROUGH === "true" ||
   process.env.VRDEX_ENABLE_E2E_HELPERS === "true";
 
-process.env.CONVEX_URL = convexUrl;
-process.env.NEXT_PUBLIC_CONVEX_URL = convexUrl;
+if (!hostedBaseURL) {
+  process.env.CONVEX_URL = convexUrl;
+  process.env.NEXT_PUBLIC_CONVEX_URL = convexUrl;
+}
 
 const sharedEnv = {
   ...process.env,
@@ -62,14 +66,18 @@ export default defineConfig({
             env: sharedEnv,
           },
         ]),
-    {
-      command: `node ../../scripts/sync-convex-local-env.mjs && node node_modules/next/dist/bin/next dev --hostname 127.0.0.1 --port ${port}`,
-      cwd: configDir,
-      url: baseURL,
-      reuseExistingServer: reuseNextServer,
-      timeout: 300_000,
-      env: sharedEnv,
-    },
+    ...(skipWebServers
+      ? []
+      : [
+          {
+            command: `node ../../scripts/sync-convex-local-env.mjs && node node_modules/next/dist/bin/next dev --hostname 127.0.0.1 --port ${port}`,
+            cwd: configDir,
+            url: baseURL,
+            reuseExistingServer: reuseNextServer,
+            timeout: 300_000,
+            env: sharedEnv,
+          },
+        ]),
   ],
   projects: [
     {

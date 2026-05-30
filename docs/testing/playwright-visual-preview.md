@@ -11,6 +11,8 @@ See `docs/testing/playwright-image-diffing.md` for the committed-baseline image 
 - Compare public route screenshots against baselines: `pnpm test:e2e:snapshots`
 - Update public route screenshot baselines: `pnpm test:e2e:snapshots:update`
 - Reuse already-running local services: set `PLAYWRIGHT_REUSE_SERVER=true` and `PLAYWRIGHT_REUSE_CONVEX=true`
+- Run the mutation-backed flow against a hosted dev/staging target: set `PLAYWRIGHT_BASE_URL` and `VRDEX_E2E_BROWSER_TOKEN`, then run `pnpm test:e2e:hosted`
+- Run read-only smoke against a hosted production target: set `PLAYWRIGHT_BASE_URL`, then run `pnpm test:e2e:hosted:smoke`
 
 PowerShell data-flow run with video:
 
@@ -24,7 +26,31 @@ POSIX shell data-flow run with video:
 VRDEX_ENABLE_E2E_HELPERS=true VRDEX_E2E_BROWSER_TOKEN=local-playwright-token VRDEX_E2E_CONVEX_SECRET=local-convex-e2e-secret PLAYWRIGHT_RECORD_VIDEO=true pnpm --filter web exec playwright test --grep @flow --project=desktop-chromium
 ```
 
-The visual suite starts a local Convex backend and Next dev server by default. Profile screenshots use deterministic Next-server fixtures when `VRDEX_ENABLE_PLAYWRIGHT_FIXTURES=true`, while `/server-status` still exercises the real local Convex health query. Fixture profiles are disabled when `NODE_ENV=production`.
+PowerShell hosted dev/staging data-flow run:
+
+```powershell
+$env:PLAYWRIGHT_BASE_URL="https://dev.example.test"; $env:PLAYWRIGHT_SKIP_WEBSERVERS="true"; $env:VRDEX_E2E_BROWSER_TOKEN="<browser-token>"; $env:VRDEX_E2E_RUN_ID="manual-$(Get-Date -Format yyyyMMddHHmmss)"; pnpm test:e2e:hosted
+```
+
+POSIX shell hosted dev/staging data-flow run:
+
+```sh
+PLAYWRIGHT_BASE_URL=https://dev.example.test PLAYWRIGHT_SKIP_WEBSERVERS=true VRDEX_E2E_BROWSER_TOKEN=<browser-token> VRDEX_E2E_RUN_ID="manual-$(date +%Y%m%d%H%M%S)" pnpm test:e2e:hosted
+```
+
+PowerShell hosted production smoke run:
+
+```powershell
+$env:PLAYWRIGHT_BASE_URL="https://vrdex.net"; $env:PLAYWRIGHT_SKIP_WEBSERVERS="true"; pnpm test:e2e:hosted:smoke
+```
+
+POSIX shell hosted production smoke run:
+
+```sh
+PLAYWRIGHT_BASE_URL=https://vrdex.net PLAYWRIGHT_SKIP_WEBSERVERS=true pnpm test:e2e:hosted:smoke
+```
+
+The visual suite starts a local Convex backend and Next dev server by default. Setting `PLAYWRIGHT_BASE_URL` switches Playwright to hosted mode and disables local web servers. Profile screenshots use deterministic Next-server fixtures when `VRDEX_ENABLE_PLAYWRIGHT_FIXTURES=true`, while `/server-status` still exercises the real local Convex health query. Fixture profiles are disabled when `NODE_ENV=production`.
 
 ## Captured routes
 
@@ -68,6 +94,18 @@ The helper route is disabled unless all of these are true:
 
 Do not enable these helpers in production. They are for local, CI, and disposable preview/dev deployments.
 
+Hosted dev/staging targets must be configured outside this repository before running `pnpm test:e2e:hosted`:
+
+- Next/Vercel env: `VRDEX_ENABLE_E2E_HELPERS=true`
+- Next/Vercel env: `VRDEX_E2E_BROWSER_TOKEN=<same value used by Playwright>`
+- Next/Vercel env: `VRDEX_E2E_CONVEX_SECRET=<non-empty sentinel>`
+- Convex env: `VRDEX_ENABLE_E2E_HELPERS=true`
+- Convex env: `VRDEX_E2E_CONVEX_SECRET=<non-empty sentinel>`
+
+`VERCEL_ENV=production` blocks the E2E route unless `VRDEX_ALLOW_PRODUCTION_E2E_HELPERS=true` is explicitly set. Keep that override unset for VRDex production.
+
+Each data-flow run uses a unique `VRDEX_E2E_RUN_ID` prefix and creates only `e2e:`-attributed profiles. Cleanup deletes by slug on the happy path and can fall back to deleting profiles for the run ID if the slug was not captured.
+
 ## CI behavior
 
 The `Playwright Public Preview` job is required on pull requests. It:
@@ -81,3 +119,17 @@ This blocks PRs when public route rendering or screenshot capture fails. Pixel r
 The `Playwright Image Diff` job is also required on pull requests. It runs the `@snapshot` suite against committed PNG baselines under `apps/web/e2e/__screenshots__`, uploads expected/actual/diff artifacts on failure, and comments with only the added or modified committed baseline images.
 
 The `Playwright Data Flow` job is also required on pull requests. It runs the `@flow` test against local Convex and the local Next dev server with `PLAYWRIGHT_RECORD_VIDEO=true`, then uploads screenshots, traces, and videos as the `playwright-data-flow` artifact and posts a PR comment with the artifact link.
+
+The optional `Playwright Hosted Data Flow` job runs on pull requests only when both repository settings are present:
+
+- repository variable `VRDEX_HOSTED_E2E_BASE_URL`
+- repository secret `VRDEX_HOSTED_E2E_BROWSER_TOKEN`
+
+When configured, the job runs `pnpm test:e2e:hosted` with `PLAYWRIGHT_BASE_URL`, `PLAYWRIGHT_SKIP_WEBSERVERS=true`, `PLAYWRIGHT_RECORD_VIDEO=true`, and a GitHub Actions run-scoped `VRDEX_E2E_RUN_ID`.
+
+The `Deployed Health Checks` workflow runs after merges to `main`, after successful GitHub deployment status events for production deployments, on a daily schedule, and through manual dispatch. It has two independent checks:
+
+- `Hosted Data Flow Health` uses `VRDEX_HOSTED_E2E_BASE_URL` and `VRDEX_HOSTED_E2E_BROWSER_TOKEN` to run the mutation-backed hosted flow against a dev/staging target.
+- `Production Smoke Health` uses the production deployment status URL when the workflow was triggered by a successful production deployment, otherwise `VRDEX_PRODUCTION_SMOKE_BASE_URL`, to run read-only public route smoke against production.
+
+Manual dispatch can run `all`, `staging-mutation`, or `production-smoke`. The optional `base_url` override applies only when dispatching a single selected target. The deployed health workflow uploads artifacts and fails the workflow on test failure, but it does not create GitHub issues automatically.

@@ -292,7 +292,20 @@ function ConnectedSubmissionForm() {
 }
 
 function E2eSubmissionForm() {
-  const [runId] = useState(() => `playwright-${crypto.randomUUID()}`);
+  const [runId] = useState(() => {
+    if (typeof document === "undefined") {
+      return `playwright-${crypto.randomUUID()}`;
+    }
+
+    const cookieName = "vrdex_e2e_run_id=";
+    const cookieRunId = document.cookie
+      .split(";")
+      .map((cookie) => cookie.trim())
+      .find((cookie) => cookie.startsWith(cookieName))
+      ?.slice(cookieName.length);
+
+    return cookieRunId ? decodeURIComponent(cookieRunId) : `playwright-${crypto.randomUUID()}`;
+  });
 
   return (
     <SubmissionFormFields

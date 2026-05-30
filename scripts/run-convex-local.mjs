@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, watch, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -10,13 +10,56 @@ const convexTmp = path.join(repoRoot, ".convex-tmp");
 const repoEnvLocalPath = path.join(repoRoot, ".env.local");
 const webEnvLocalPath = path.join(repoRoot, "apps", "web", ".env.local");
 const args = process.argv.slice(2);
+const usesLocalDeployment = args.includes("--local");
+const isLocalDevCommand = args[0] === "dev" && usesLocalDeployment;
+const localDeploymentName = process.env.CONVEX_LOCAL_DEPLOYMENT_NAME || "anonymous-agent";
+const localCloudPort = process.env.CONVEX_LOCAL_CLOUD_PORT || "3210";
+const localSitePort = process.env.CONVEX_LOCAL_SITE_PORT || "3211";
+const localConvexUrl = process.env.CONVEX_LOCAL_URL || `http://127.0.0.1:${localCloudPort}`;
+const shouldRestoreRepoEnvLocal = usesLocalDeployment && (!process.stdin.isTTY || process.env.CI === "true");
+const repoEnvLocalSnapshot = shouldRestoreRepoEnvLocal
+  ? existsSync(repoEnvLocalPath)
+    ? readFileSync(repoEnvLocalPath, "utf8")
+    : null
+  : undefined;
+
+function hasArg(name) {
+  return args.some((arg) => arg === name || arg.startsWith(`${name}=`));
+}
+
+function convexCliArgs() {
+  if (!isLocalDevCommand) {
+    return args;
+  }
+
+  const localFlags = [];
+
+  if (!hasArg("--local-cloud-port") && !hasArg("--local-site-port")) {
+    localFlags.push("--local-cloud-port", localCloudPort, "--local-site-port", localSitePort);
+  }
+
+  if (!hasArg("--local-force-upgrade") && (!process.stdin.isTTY || process.env.CI === "true")) {
+    localFlags.push("--local-force-upgrade");
+  }
+
+  return [args[0], ...localFlags, ...args.slice(1)];
+}
+
+const convexArgs = convexCliArgs();
 
 function syncPublicConvexUrl() {
-  if (!existsSync(repoEnvLocalPath)) {
+  if (usesLocalDeployment) {
+    writeNextPublicConvexUrl(localConvexUrl);
     return;
   }
 
-  const file = readFileSync(repoEnvLocalPath, "utf8");
+  const sourceEnvPath = repoEnvLocalPath;
+
+  if (!existsSync(sourceEnvPath)) {
+    return;
+  }
+
+  const file = readFileSync(sourceEnvPath, "utf8");
   const lines = file.split(/\r?\n/);
   const convexUrlLine = lines.find((line) => line.startsWith("CONVEX_URL="));
 
@@ -34,6 +77,10 @@ function syncPublicConvexUrl() {
     return;
   }
 
+  writeNextPublicConvexUrl(convexUrl);
+}
+
+function writeNextPublicConvexUrl(convexUrl) {
   const nextPublicLine = `NEXT_PUBLIC_CONVEX_URL=${convexUrl}`;
 
   if (existsSync(webEnvLocalPath)) {
@@ -60,11 +107,33 @@ function syncPublicConvexUrl() {
   writeFileSync(webEnvLocalPath, `${nextPublicLine}\n`);
 }
 
+function restoreRepoEnvLocal() {
+  if (!shouldRestoreRepoEnvLocal) {
+    return;
+  }
+
+  if (repoEnvLocalSnapshot === null) {
+    rmSync(repoEnvLocalPath, { force: true });
+    return;
+  }
+
+  writeFileSync(repoEnvLocalPath, repoEnvLocalSnapshot);
+}
+
 function convexEnv() {
   return {
     ...process.env,
     CONVEX_AGENT_MODE: "anonymous",
     CONVEX_TMPDIR: convexTmp,
+    ...(usesLocalDeployment
+      ? {
+          CONVEX_DEPLOYMENT: `local:${localDeploymentName}`,
+          CONVEX_DEPLOY_KEY: "",
+          CONVEX_SELF_HOSTED_ADMIN_KEY: "",
+          CONVEX_SELF_HOSTED_URL: "",
+          CONVEX_URL: localConvexUrl,
+        }
+      : {}),
     TMPDIR: convexTmp,
     TEMP: convexTmp,
     TMP: convexTmp,
@@ -100,7 +169,7 @@ const convexBin = path.join(
   process.platform === "win32" ? "convex.cmd" : "convex",
 );
 
-const child = spawn(convexBin, args, {
+const child = spawn(convexBin, convexArgs, {
   cwd: repoRoot,
   stdio: "inherit",
   shell: process.platform === "win32",
@@ -117,6 +186,7 @@ try {
     child.kill();
   }
 
+  restoreRepoEnvLocal();
   process.exit(1);
 }
 
@@ -135,8 +205,11 @@ try {
   const message = error instanceof Error ? error.message : String(error);
 
   try {
-    publicUrlWatcher = watch(repoRoot, (_eventType, filename) => {
-      if (filename !== ".env.local") {
+    const watchDir = repoRoot;
+    const watchedFileName = path.basename(repoEnvLocalPath);
+
+    publicUrlWatcher = watch(watchDir, (_eventType, filename) => {
+      if (filename !== watchedFileName) {
         return;
       }
 
@@ -176,6 +249,7 @@ process.on("SIGTERM", () => {
 child.on("error", (error) => {
   const code = error.code ? ` [${error.code}]` : "";
   console.error(`Failed to spawn Convex CLI (${convexBin})${code}: ${error.message}`);
+  restoreRepoEnvLocal();
   process.exit(1);
 });
 
@@ -188,6 +262,8 @@ child.on("exit", (code, signal) => {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`Failed to finalize NEXT_PUBLIC_CONVEX_URL mirror: ${message}`);
   }
+
+  restoreRepoEnvLocal();
 
   if (signal) {
     if (process.platform !== "win32") {
