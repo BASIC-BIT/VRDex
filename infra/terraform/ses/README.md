@@ -27,7 +27,7 @@ Terraform state for this stack is stored in the S3 backend declared in `versions
 - region: `us-east-1`
 - locking: S3 native lockfile (`use_lockfile = true`)
 
-The backend bucket has versioning, default SSE-S3 encryption, blocked public access, and a policy that denies non-TLS requests. The previous DynamoDB lock table `vrdex-terraform-locks` is no longer used by this backend and can be considered for removal only after confirming no other Terraform stack still references it.
+The backend bucket has versioning, default SSE-S3 encryption, blocked public access, and a policy that denies non-TLS requests. The previous DynamoDB lock table `vrdex-terraform-locks` was removed on 2026-05-30 after confirming this repo uses S3 native lockfiles and the table had no active Terraform lock item.
 
 Convex env values after apply:
 
