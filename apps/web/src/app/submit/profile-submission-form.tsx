@@ -297,11 +297,12 @@ function E2eSubmissionForm() {
       return `playwright-${crypto.randomUUID()}`;
     }
 
+    const cookieName = "vrdex_e2e_run_id=";
     const cookieRunId = document.cookie
       .split(";")
       .map((cookie) => cookie.trim())
-      .find((cookie) => cookie.startsWith("vrdex_e2e_run_id="))
-      ?.split("=")[1];
+      .find((cookie) => cookie.startsWith(cookieName))
+      ?.slice(cookieName.length);
 
     return cookieRunId ? decodeURIComponent(cookieRunId) : `playwright-${crypto.randomUUID()}`;
   });
