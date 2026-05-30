@@ -40,6 +40,12 @@ Development/staging Convex env names:
 
 The browser-facing token stays in the web host and GitHub Actions as `VRDEX_E2E_BROWSER_TOKEN` / `VRDEX_HOSTED_E2E_BROWSER_TOKEN`; it is not needed by Convex.
 
+The shared development deployment `scrupulous-corgi-247` is the current hosted E2E backend for Vercel `staging`. If new Convex functions are required for hosted E2E, push them to the dev deployment before rerunning deployed health:
+
+```powershell
+$env:CONVEX_DEPLOYMENT="dev:scrupulous-corgi-247"; $env:CONVEX_SELF_HOSTED_URL=""; pnpm exec convex dev --once --typecheck=try --tail-logs=disable
+```
+
 ## Notes
 
 There are two similarly named Convex projects in the account history: `vrdex` and `vrdex-85631`. Current recommendation is to keep the `vrdex` line of deployments and archive/delete the other only after confirming no dashboard, env, or deployment history still depends on it.
