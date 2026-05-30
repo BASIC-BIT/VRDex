@@ -1,0 +1,136 @@
+name: Staging Deploy
+
+on:
+  workflow_run:
+    workflows:
+      - Baseline Checks
+    types:
+      - completed
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-deploy-main
+  cancel-in-progress: false
+
+jobs:
+  deploy-staging:
+    name: Deploy Staging
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Check staging deploy configuration
+        id: gate
+        env:
+          CONVEX_DEPLOY_KEY_DEV: ${{ secrets.CONVEX_DEPLOY_KEY_DEV }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          HOSTED_BASE_URL: ${{ vars.VRDEX_HOSTED_E2E_BASE_URL }}
+          HOSTED_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          missing=()
+          if [ -z "$CONVEX_DEPLOY_KEY_DEV" ]; then missing+=("CONVEX_DEPLOY_KEY_DEV"); fi
+          if [ -z "$VERCEL_TOKEN" ]; then missing+=("VERCEL_TOKEN"); fi
+          if [ -z "$VERCEL_ORG_ID" ]; then missing+=("VERCEL_ORG_ID"); fi
+          if [ -z "$VERCEL_PROJECT_ID" ]; then missing+=("VERCEL_PROJECT_ID"); fi
+          if [ -z "$HOSTED_BASE_URL" ]; then missing+=("VRDEX_HOSTED_E2E_BASE_URL"); fi
+          if [ -z "$HOSTED_BROWSER_TOKEN" ]; then missing+=("VRDEX_HOSTED_E2E_BROWSER_TOKEN"); fi
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## Staging deploy"
+              echo "Skipped because required staging deployment settings are missing:"
+              printf -- '- %s\n' "${missing[@]}"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+          echo "hosted_base_url=$HOSTED_BASE_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Setup pnpm
+        if: steps.gate.outputs.enabled == 'true'
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        if: steps.gate.outputs.enabled == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.gate.outputs.enabled == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Deploy Convex development functions
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_DEV }}
+        run: pnpm exec convex deploy --yes --typecheck=enable
+
+      - name: Deploy Vercel staging
+        if: steps.gate.outputs.enabled == 'true'
+        id: vercel
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          deployment_url=$(pnpm dlx vercel@54.4.1 deploy --target=staging --yes --token "$VERCEL_TOKEN" | tail -n 1)
+          if [ -z "$deployment_url" ]; then
+            echo "Vercel staging deployment did not return a URL." >&2
+            exit 1
+          fi
+
+          echo "url=$deployment_url" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Staging deploy"
+            echo "Convex development functions deployed."
+            echo "Vercel staging deployment: $deployment_url"
+            echo "Hosted health target: ${{ steps.gate.outputs.hosted_base_url }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install Playwright Chromium
+        if: steps.gate.outputs.enabled == 'true'
+        working-directory: apps/web
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run hosted staging data-flow health
+        if: steps.gate.outputs.enabled == 'true'
+        id: health
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ steps.gate.outputs.hosted_base_url }}
+          PLAYWRIGHT_RECORD_VIDEO: "true"
+          PLAYWRIGHT_SKIP_WEBSERVERS: "true"
+          VRDEX_E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
+          VRDEX_E2E_RUN_ID: staging-deploy-${{ github.run_id }}-${{ github.run_attempt }}
+        run: pnpm test:e2e:hosted
+
+      - name: Upload staging deploy artifacts
+        if: always() && steps.gate.outputs.enabled == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-deploy-health
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+            apps/web/playwright-artifacts

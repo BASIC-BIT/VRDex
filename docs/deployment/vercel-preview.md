@@ -86,6 +86,15 @@ GitHub Actions uses these repository settings for hosted mutation health:
 - variable `VRDEX_HOSTED_E2E_BASE_URL=https://staging.vrdex.net`
 - secret `VRDEX_HOSTED_E2E_BROWSER_TOKEN`
 
+The `Staging Deploy` workflow runs after `Baseline Checks` succeeds on `main` and can also be run manually. It requires these settings:
+
+- secret `CONVEX_DEPLOY_KEY_DEV`: deploys functions/schema to `scrupulous-corgi-247`
+- secrets `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`: deploy Vercel `staging`
+- variable `VRDEX_HOSTED_E2E_BASE_URL`: hosted health target, currently `https://staging.vrdex.net`
+- secret `VRDEX_HOSTED_E2E_BROWSER_TOKEN`: browser token for hosted E2E helper calls
+
+If any required setting is missing, the workflow writes a skip summary and exits successfully instead of partially deploying staging. When enabled, the workflow deploys Convex development functions first, then deploys Vercel `staging`, then runs `pnpm test:e2e:hosted` against `VRDEX_HOSTED_E2E_BASE_URL`.
+
 ## Validation
 
 The Vercel build runs `pnpm build:vercel`, which executes `apps/web/scripts/check-vercel-env.mjs` before `next build`.
