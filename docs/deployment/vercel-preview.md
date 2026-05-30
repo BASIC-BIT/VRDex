@@ -55,6 +55,31 @@ Production should keep `VRDEX_ENABLE_E2E_HELPERS=false` or unset, and should not
 
 Preview deployment protection must allow unauthenticated reads if the PR preview is meant to be reviewed outside the Vercel dashboard.
 
+## Staging Hosted E2E Environment
+
+Locked decision: `staging` is the shared non-production Vercel custom environment for deployed mutation-backed Playwright health checks.
+
+- target name: `staging`
+- type: Preview custom environment
+- branch tracking: `staging`
+- stable alias: `https://vr-dex-web-env-staging-basicbit.vercel.app`
+- deploy command from the repository root: `pnpm dlx vercel@54.4.1 deploy --target=staging --yes`
+
+The `staging` Vercel environment points at the shared Convex development deployment:
+
+- `NEXT_PUBLIC_CONVEX_URL=https://scrupulous-corgi-247.convex.cloud`
+- `CONVEX_URL=https://scrupulous-corgi-247.convex.cloud`
+- `VRDEX_REQUIRE_CONVEX_URL=true`
+- `NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY=false`
+- `VRDEX_ENABLE_E2E_HELPERS=true`
+- `VRDEX_E2E_BROWSER_TOKEN`: sensitive value matching GitHub Actions secret `VRDEX_HOSTED_E2E_BROWSER_TOKEN`
+- `VRDEX_E2E_CONVEX_SECRET`: sensitive value matching Convex dev env `VRDEX_E2E_CONVEX_SECRET`
+
+GitHub Actions uses these repository settings for hosted mutation health:
+
+- variable `VRDEX_HOSTED_E2E_BASE_URL=https://vr-dex-web-env-staging-basicbit.vercel.app`
+- secret `VRDEX_HOSTED_E2E_BROWSER_TOKEN`
+
 ## Validation
 
 The Vercel build runs `pnpm build:vercel`, which executes `apps/web/scripts/check-vercel-env.mjs` before `next build`.

@@ -133,3 +133,5 @@ The `Deployed Health Checks` workflow runs after merges to `main`, after success
 - `Production Smoke Health` uses the production deployment status URL when the workflow was triggered by a successful production deployment, otherwise `VRDEX_PRODUCTION_SMOKE_BASE_URL`, to run read-only public route smoke against production.
 
 Manual dispatch can run `all`, `staging-mutation`, or `production-smoke`. The optional `base_url` override applies only when dispatching a single selected target. The deployed health workflow uploads artifacts and fails the workflow on test failure, but it does not create GitHub issues automatically.
+
+Current hosted mutation target: `https://vr-dex-web-env-staging-basicbit.vercel.app`, backed by the shared Convex development deployment. The deployed health workflow run `26682711966` passed `staging-mutation` after the Vercel staging environment and Convex dev E2E helper variables were configured.
