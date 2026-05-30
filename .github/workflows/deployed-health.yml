@@ -1,0 +1,230 @@
+name: Deployed Health Checks
+
+on:
+  deployment_status:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Which deployed health check to run
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - staging-mutation
+          - production-smoke
+      base_url:
+        description: Optional URL override for the selected target
+        required: false
+        type: string
+  schedule:
+    - cron: "17 11 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deployed-health-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  hosted-data-flow:
+    name: Hosted Data Flow Health
+    if: github.event_name == 'push' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.target == 'all' || inputs.target == 'staging-mutation'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check hosted data-flow configuration
+        id: gate
+        env:
+          HOSTED_BASE_URL_OVERRIDE: ${{ github.event_name == 'workflow_dispatch' && inputs.target == 'staging-mutation' && inputs.base_url || '' }}
+          HOSTED_BASE_URL_VAR: ${{ vars.VRDEX_HOSTED_E2E_BASE_URL }}
+          HOSTED_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          HOSTED_BASE_URL="${HOSTED_BASE_URL_OVERRIDE:-${HOSTED_BASE_URL_VAR:-}}"
+
+          if [ -z "$HOSTED_BASE_URL" ] || [ -z "$HOSTED_BROWSER_TOKEN" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## Hosted data-flow health"
+              echo "Skipped because VRDEX_HOSTED_E2E_BASE_URL or VRDEX_HOSTED_E2E_BROWSER_TOKEN is not configured."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+          echo "base_url=$HOSTED_BASE_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Setup pnpm
+        if: steps.gate.outputs.enabled == 'true'
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        if: steps.gate.outputs.enabled == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.gate.outputs.enabled == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        if: steps.gate.outputs.enabled == 'true'
+        working-directory: apps/web
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run hosted mutation-backed profile submission flow
+        if: steps.gate.outputs.enabled == 'true'
+        id: hosted
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ steps.gate.outputs.base_url }}
+          PLAYWRIGHT_RECORD_VIDEO: "true"
+          PLAYWRIGHT_SKIP_WEBSERVERS: "true"
+          VRDEX_E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
+          VRDEX_E2E_RUN_ID: deployed-${{ github.run_id }}-${{ github.run_attempt }}
+        run: pnpm test:e2e:hosted
+
+      - name: Write hosted data-flow summary
+        if: always() && steps.gate.outputs.enabled == 'true'
+        env:
+          HOSTED_OUTCOME: ${{ steps.hosted.outcome }}
+          HOSTED_BASE_URL: ${{ steps.gate.outputs.base_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          mkdir -p apps/web/playwright-artifacts
+          cat > apps/web/playwright-artifacts/hosted-data-flow-health-summary.md <<EOF
+          ## Hosted data-flow health
+
+          Outcome: ${HOSTED_OUTCOME}
+
+          Target: ${HOSTED_BASE_URL}
+
+          Captured flow:
+          - hosted test-gated profile submission form
+          - hosted Convex profile creation
+          - hosted public profile page readback
+          - hosted discovery search readback
+          - hosted E2E cleanup
+
+          Run: ${RUN_URL}
+          EOF
+
+      - name: Upload hosted data-flow health artifacts
+        if: always() && steps.gate.outputs.enabled == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-hosted-data-flow-health
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+            apps/web/playwright-artifacts
+
+  production-smoke:
+    name: Production Smoke Health
+    if: (github.event_name == 'deployment_status' && github.event.deployment_status.state == 'success' && (github.event.deployment.environment == 'Production' || github.event.deployment.environment == 'production')) || github.event_name == 'push' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.target == 'all' || inputs.target == 'production-smoke'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check production smoke configuration
+        id: gate
+        env:
+          DEPLOYMENT_STATUS_BASE_URL: ${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url || '' }}
+          PRODUCTION_BASE_URL_OVERRIDE: ${{ github.event_name == 'workflow_dispatch' && inputs.target == 'production-smoke' && inputs.base_url || '' }}
+          PRODUCTION_BASE_URL_VAR: ${{ vars.VRDEX_PRODUCTION_SMOKE_BASE_URL }}
+        run: |
+          set -euo pipefail
+
+          PRODUCTION_BASE_URL="${DEPLOYMENT_STATUS_BASE_URL:-${PRODUCTION_BASE_URL_OVERRIDE:-${PRODUCTION_BASE_URL_VAR:-}}}"
+
+          if [ -z "$PRODUCTION_BASE_URL" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## Production smoke health"
+              echo "Skipped because VRDEX_PRODUCTION_SMOKE_BASE_URL is not configured."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+          echo "base_url=$PRODUCTION_BASE_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Setup pnpm
+        if: steps.gate.outputs.enabled == 'true'
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        if: steps.gate.outputs.enabled == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.gate.outputs.enabled == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        if: steps.gate.outputs.enabled == 'true'
+        working-directory: apps/web
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run production read-only route smoke
+        if: steps.gate.outputs.enabled == 'true'
+        id: smoke
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ steps.gate.outputs.base_url }}
+          PLAYWRIGHT_RECORD_VIDEO: "true"
+          PLAYWRIGHT_SKIP_WEBSERVERS: "true"
+        run: pnpm test:e2e:hosted:smoke
+
+      - name: Write production smoke summary
+        if: always() && steps.gate.outputs.enabled == 'true'
+        env:
+          SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+          PRODUCTION_BASE_URL: ${{ steps.gate.outputs.base_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          mkdir -p apps/web/playwright-artifacts
+          cat > apps/web/playwright-artifacts/production-smoke-health-summary.md <<EOF
+          ## Production smoke health
+
+          Outcome: ${SMOKE_OUTCOME}
+
+          Target: ${PRODUCTION_BASE_URL}
+
+          Captured flow:
+          - hosted public route smoke checks
+          - hosted deployment and server-status pages
+          - no mutation-backed E2E helpers
+
+          Run: ${RUN_URL}
+          EOF
+
+      - name: Upload production smoke health artifacts
+        if: always() && steps.gate.outputs.enabled == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-production-smoke-health
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+            apps/web/playwright-artifacts

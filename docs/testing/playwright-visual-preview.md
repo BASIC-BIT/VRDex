@@ -12,6 +12,7 @@ See `docs/testing/playwright-image-diffing.md` for the committed-baseline image 
 - Update public route screenshot baselines: `pnpm test:e2e:snapshots:update`
 - Reuse already-running local services: set `PLAYWRIGHT_REUSE_SERVER=true` and `PLAYWRIGHT_REUSE_CONVEX=true`
 - Run the mutation-backed flow against a hosted dev/staging target: set `PLAYWRIGHT_BASE_URL` and `VRDEX_E2E_BROWSER_TOKEN`, then run `pnpm test:e2e:hosted`
+- Run read-only smoke against a hosted production target: set `PLAYWRIGHT_BASE_URL`, then run `pnpm test:e2e:hosted:smoke`
 
 PowerShell data-flow run with video:
 
@@ -35,6 +36,18 @@ POSIX shell hosted dev/staging data-flow run:
 
 ```sh
 PLAYWRIGHT_BASE_URL=https://dev.example.test PLAYWRIGHT_SKIP_WEBSERVERS=true VRDEX_E2E_BROWSER_TOKEN=<browser-token> VRDEX_E2E_RUN_ID="manual-$(date +%Y%m%d%H%M%S)" pnpm test:e2e:hosted
+```
+
+PowerShell hosted production smoke run:
+
+```powershell
+$env:PLAYWRIGHT_BASE_URL="https://vrdex.net"; $env:PLAYWRIGHT_SKIP_WEBSERVERS="true"; pnpm test:e2e:hosted:smoke
+```
+
+POSIX shell hosted production smoke run:
+
+```sh
+PLAYWRIGHT_BASE_URL=https://vrdex.net PLAYWRIGHT_SKIP_WEBSERVERS=true pnpm test:e2e:hosted:smoke
 ```
 
 The visual suite starts a local Convex backend and Next dev server by default. Setting `PLAYWRIGHT_BASE_URL` switches Playwright to hosted mode and disables local web servers. Profile screenshots use deterministic Next-server fixtures when `VRDEX_ENABLE_PLAYWRIGHT_FIXTURES=true`, while `/server-status` still exercises the real local Convex health query. Fixture profiles are disabled when `NODE_ENV=production`.
@@ -113,3 +126,10 @@ The optional `Playwright Hosted Data Flow` job runs on pull requests only when b
 - repository secret `VRDEX_HOSTED_E2E_BROWSER_TOKEN`
 
 When configured, the job runs `pnpm test:e2e:hosted` with `PLAYWRIGHT_BASE_URL`, `PLAYWRIGHT_SKIP_WEBSERVERS=true`, `PLAYWRIGHT_RECORD_VIDEO=true`, and a GitHub Actions run-scoped `VRDEX_E2E_RUN_ID`.
+
+The `Deployed Health Checks` workflow runs after merges to `main`, after successful GitHub deployment status events for production deployments, on a daily schedule, and through manual dispatch. It has two independent checks:
+
+- `Hosted Data Flow Health` uses `VRDEX_HOSTED_E2E_BASE_URL` and `VRDEX_HOSTED_E2E_BROWSER_TOKEN` to run the mutation-backed hosted flow against a dev/staging target.
+- `Production Smoke Health` uses the production deployment status URL when the workflow was triggered by a successful production deployment, otherwise `VRDEX_PRODUCTION_SMOKE_BASE_URL`, to run read-only public route smoke against production.
+
+Manual dispatch can run `all`, `staging-mutation`, or `production-smoke`. The optional `base_url` override applies only when dispatching a single selected target. The deployed health workflow uploads artifacts and fails the workflow on test failure, but it does not create GitHub issues automatically.
