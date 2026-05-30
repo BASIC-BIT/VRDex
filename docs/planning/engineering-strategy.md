@@ -124,6 +124,9 @@ Infra direction:
 
 - Terraform and/or AWS CDK are both acceptable directions
 - choose one primary IaC path before implementation gets too far
+- prefer infrastructure-as-code or checked-in config for infrastructure, CI settings, and environment variable definitions whenever the platform supports it
+- for secrets that must remain in provider secret stores, commit the expected variable name, environment scope, owning service, and rotation/recreation path instead of relying on dashboard-only tribal knowledge
+- treat manual dashboard changes as bootstrap or emergency operations that need a follow-up reproducibility artifact
 
 ## Follow-on integration ideas
 

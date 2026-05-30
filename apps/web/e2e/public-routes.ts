@@ -347,3 +347,9 @@ export const capturedRoutes: CapturedRoute[] = [
     expectPage: expectEventPage,
   },
 ];
+
+export const productionSmokeRoutes: CapturedRoute[] = capturedRoutes.filter((route) =>
+  ["submit", "sign-in", "privacy-suppression", "event-new-signed-out", "server-status", "deployment"].includes(
+    route.name,
+  ),
+);
