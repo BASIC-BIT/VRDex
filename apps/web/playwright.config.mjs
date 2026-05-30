@@ -15,9 +15,17 @@ const reuseConvexServer = process.env.PLAYWRIGHT_REUSE_CONVEX === "true";
 const skipWebServers = process.env.PLAYWRIGHT_SKIP_WEBSERVERS === "true" || Boolean(hostedBaseURL);
 const skipConvexServer = skipWebServers || process.env.PLAYWRIGHT_SKIP_CONVEX_DEV === "true";
 const recordVideo = process.env.PLAYWRIGHT_RECORD_VIDEO === "true";
+const e2eHelpersEnabled = process.env.VRDEX_ENABLE_E2E_HELPERS ?? (hostedBaseURL ? undefined : "true");
 const allowFixtureSearchFallthrough =
   process.env.VRDEX_ALLOW_PLAYWRIGHT_FIXTURE_SEARCH_FALLTHROUGH === "true" ||
-  process.env.VRDEX_ENABLE_E2E_HELPERS === "true";
+  e2eHelpersEnabled === "true";
+const localE2eHelperEnv = hostedBaseURL
+  ? {}
+  : {
+      VRDEX_ENABLE_E2E_HELPERS: e2eHelpersEnabled ?? "true",
+      VRDEX_E2E_BROWSER_TOKEN: process.env.VRDEX_E2E_BROWSER_TOKEN ?? "local-playwright-token",
+      VRDEX_E2E_CONVEX_SECRET: process.env.VRDEX_E2E_CONVEX_SECRET ?? "local-convex-e2e-secret",
+    };
 
 if (!hostedBaseURL) {
   process.env.CONVEX_URL = convexUrl;
@@ -29,6 +37,7 @@ const sharedEnv = {
   CONVEX_URL: convexUrl,
   NEXT_PUBLIC_CONVEX_URL: convexUrl,
   VRDEX_ENABLE_PLAYWRIGHT_FIXTURES: "true",
+  ...localE2eHelperEnv,
   ...(allowFixtureSearchFallthrough
     ? { VRDEX_ALLOW_PLAYWRIGHT_FIXTURE_SEARCH_FALLTHROUGH: "true" }
     : {}),

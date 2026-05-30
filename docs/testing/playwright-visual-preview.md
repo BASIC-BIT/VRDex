@@ -6,7 +6,7 @@ See `docs/testing/playwright-image-diffing.md` for the committed-baseline image 
 
 ## Local commands
 
-- Smoke public routes: `pnpm test:e2e`
+- Smoke public routes and run the local mutation-backed data flow: `pnpm test:e2e`
 - Capture public route screenshots: `pnpm test:e2e:visual`
 - Compare public route screenshots against baselines: `pnpm test:e2e:snapshots`
 - Update public route screenshot baselines: `pnpm test:e2e:snapshots:update`
@@ -50,7 +50,7 @@ POSIX shell hosted production smoke run:
 PLAYWRIGHT_BASE_URL=https://vrdex.net PLAYWRIGHT_SKIP_WEBSERVERS=true pnpm test:e2e:hosted:smoke
 ```
 
-The visual suite starts a local Convex backend and Next dev server by default. Setting `PLAYWRIGHT_BASE_URL` switches Playwright to hosted mode and disables local web servers. Profile screenshots use deterministic Next-server fixtures when `VRDEX_ENABLE_PLAYWRIGHT_FIXTURES=true`, while `/server-status` still exercises the real local Convex health query. Fixture profiles are disabled when `NODE_ENV=production`.
+The local Playwright suite starts a local Convex backend and Next dev server by default. Setting `PLAYWRIGHT_BASE_URL` switches Playwright to hosted mode and disables local web servers. Local webserver runs set token-gated E2E helper defaults so `pnpm test:e2e` includes the mutation-backed `@flow` journey without additional env setup. Profile screenshots use deterministic Next-server fixtures when `VRDEX_ENABLE_PLAYWRIGHT_FIXTURES=true`, while `/server-status` still exercises the real local Convex health query. Fixture profiles are disabled when `NODE_ENV=production`.
 
 ## Captured routes
 
