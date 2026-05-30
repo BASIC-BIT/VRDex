@@ -46,6 +46,15 @@ The shared development deployment `scrupulous-corgi-247` is the current hosted E
 $env:CONVEX_DEPLOYMENT="dev:scrupulous-corgi-247"; $env:CONVEX_SELF_HOSTED_URL=""; pnpm exec convex dev --once --typecheck=try --tail-logs=disable
 ```
 
+## Custom Domain Plan
+
+Candidate direction: use readable Convex Cloud custom domains once the deployment settings are configured in the Convex dashboard:
+
+- development/staging Convex API: `convex.staging.vrdex.net`
+- production Convex API: `convex.vrdex.net`
+
+Convex Cloud custom domains are configured from each deployment's dashboard settings and require a Convex Pro plan. Do not create Route 53 records alone; Convex must first provide the deployment-specific DNS records and certificate binding. After binding a custom Convex function domain, update the matching Vercel environment `NEXT_PUBLIC_CONVEX_URL` and `CONVEX_URL`, then redeploy the web app and rerun deployed health.
+
 ## Notes
 
 There are two similarly named Convex projects in the account history: `vrdex` and `vrdex-85631`. Current recommendation is to keep the `vrdex` line of deployments and archive/delete the other only after confirming no dashboard, env, or deployment history still depends on it.

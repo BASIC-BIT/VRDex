@@ -2,6 +2,8 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { ConvexHttpClient } from "convex/browser";
+import { makeFunctionReference } from "convex/server";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
@@ -11,6 +13,9 @@ const localConvexEnvNames = ["VRDEX_ENABLE_E2E_HELPERS", "VRDEX_E2E_CONVEX_SECRE
 const localDeploymentName = process.env.CONVEX_LOCAL_DEPLOYMENT_NAME || "anonymous-agent";
 const localCloudPort = process.env.CONVEX_LOCAL_CLOUD_PORT || "3210";
 const localConvexUrl = process.env.CONVEX_LOCAL_URL || `http://127.0.0.1:${localCloudPort}`;
+const readyTimeoutMs = Number(process.env.CONVEX_LOCAL_READY_TIMEOUT_MS || 180_000);
+const readyPollMs = Number(process.env.CONVEX_LOCAL_READY_POLL_MS || 500);
+const healthStatus = makeFunctionReference("health:status");
 const convexBin = path.join(
   repoRoot,
   "node_modules",
@@ -40,6 +45,40 @@ function convexEnv() {
   };
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function runConvex(args) {
+  return spawnSync(convexBin, args, {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: convexEnv(),
+    shell: process.platform === "win32",
+    timeout: 10_000,
+  });
+}
+
+async function waitForFunctionsReady() {
+  const startedAt = Date.now();
+  let lastError = "Convex functions are not ready yet.";
+  const client = new ConvexHttpClient(localConvexUrl);
+
+  while (Date.now() - startedAt < readyTimeoutMs) {
+    try {
+      await client.query(healthStatus, {});
+      return true;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+
+    await sleep(readyPollMs);
+  }
+
+  console.error(`Timed out waiting for local Convex functions to become ready: ${lastError}`);
+  return false;
+}
+
 function syncEnvVarsOnce() {
   const entries = localConvexEnvNames
     .map((name) => [name, process.env[name]])
@@ -59,6 +98,10 @@ function syncEnvVarsOnce() {
   }
 
   return true;
+}
+
+if (!(await waitForFunctionsReady())) {
+  process.exit(1);
 }
 
 if (!localConvexEnvNames.some((name) => process.env[name])) {
