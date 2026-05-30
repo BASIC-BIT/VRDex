@@ -14,12 +14,30 @@ type SubmissionStatus =
   | { kind: "submitting" }
   | {
       kind: "success";
-      result: {
-        profilePath: string;
-        slug: string;
-      };
+      result: ProfileSubmissionResult;
     }
   | { kind: "error"; message: string };
+
+type ProfileSubmissionResult = {
+  profilePath: string;
+  slug: string;
+};
+
+type ProfileSubmissionPayload =
+  | {
+      profileType: "person";
+      displayName: string;
+      aliases: string[];
+      tags: string[];
+      person: { roleTags: string[] };
+    }
+  | {
+      profileType: "community";
+      displayName: string;
+      aliases: string[];
+      tags: string[];
+      community: { subtype: string; categoryTags: string[] };
+    };
 
 const userSafeErrorPatterns = [
   /Profile submissions require a signed-in user\./,
@@ -61,6 +79,34 @@ function stringField(value: FormDataEntryValue | null): string {
   return typeof value === "string" ? value : "";
 }
 
+function payloadFromFormData(formData: FormData): ProfileSubmissionPayload {
+  const selectedType = stringField(formData.get("profileType")) as ProfileType;
+  const sharedPayload = {
+    displayName: stringField(formData.get("displayName")),
+    aliases: splitList(formData.get("aliases")),
+    tags: splitList(formData.get("tags")),
+  };
+
+  if (selectedType === "community") {
+    return {
+      ...sharedPayload,
+      profileType: "community",
+      community: {
+        subtype: stringField(formData.get("subtype")),
+        categoryTags: splitList(formData.get("categoryTags")),
+      },
+    };
+  }
+
+  return {
+    ...sharedPayload,
+    profileType: "person",
+    person: {
+      roleTags: splitList(formData.get("roleTags")),
+    },
+  };
+}
+
 function DisabledSubmissionPanel() {
   return (
     <div className="rounded-[1.5rem] border border-dashed border-border bg-surface px-5 py-6">
@@ -96,8 +142,13 @@ function SignInRequiredSubmissionPanel() {
   );
 }
 
-function ConnectedSubmissionForm() {
-  const submitProfile = useMutation(api.profiles.submitCommunityProfile);
+function SubmissionFormFields({
+  submitProfile,
+  helperText,
+}: {
+  submitProfile: (payload: ProfileSubmissionPayload) => Promise<ProfileSubmissionResult>;
+  helperText?: string;
+}) {
   const [profileType, setProfileType] = useState<ProfileType>("person");
   const [status, setStatus] = useState<SubmissionStatus>({ kind: "idle" });
   const [, startTransition] = useTransition();
@@ -107,35 +158,11 @@ function ConnectedSubmissionForm() {
 
     const form = event.currentTarget;
     const formData = new FormData(form);
-    const selectedType = stringField(formData.get("profileType")) as ProfileType;
 
     setStatus({ kind: "submitting" });
 
     try {
-      const sharedPayload = {
-        profileType: selectedType,
-        displayName: stringField(formData.get("displayName")),
-        aliases: splitList(formData.get("aliases")),
-        tags: splitList(formData.get("tags")),
-      };
-      const result = await submitProfile(
-        selectedType === "person"
-          ? {
-              ...sharedPayload,
-              profileType: "person",
-              person: {
-                roleTags: splitList(formData.get("roleTags")),
-              },
-            }
-          : {
-              ...sharedPayload,
-              profileType: "community",
-              community: {
-                subtype: stringField(formData.get("subtype")),
-                categoryTags: splitList(formData.get("categoryTags")),
-              },
-            },
-      );
+      const result = await submitProfile(payloadFromFormData(formData));
 
       form.reset();
       setProfileType("person");
@@ -226,7 +253,8 @@ function ConnectedSubmissionForm() {
       )}
 
       <div className="rounded-[1.25rem] border border-border bg-surface-strong px-4 py-4 text-sm leading-6 text-muted">
-        Community submissions intentionally skip custom slugs, freeform bios, about text, image URLs, private contact details, and claim signals. VRDex generates the slug and marks the profile as unclaimed until an owner claim flow exists.
+        {helperText ??
+          "Community submissions intentionally skip custom slugs, freeform bios, about text, image URLs, private contact details, and claim signals. VRDex generates the slug and marks the profile as unclaimed until an owner claim flow exists."}
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -257,6 +285,48 @@ function ConnectedSubmissionForm() {
   );
 }
 
+function ConnectedSubmissionForm() {
+  const submitProfile = useMutation(api.profiles.submitCommunityProfile);
+
+  return <SubmissionFormFields submitProfile={submitProfile} />;
+}
+
+function E2eSubmissionForm() {
+  const [runId] = useState(() => `playwright-${crypto.randomUUID()}`);
+
+  return (
+    <SubmissionFormFields
+      helperText="E2E mode is enabled for this test run. The form still writes to Convex and public discovery, but the request is guarded by a server-side Playwright token instead of an interactive user session."
+      submitProfile={async (payload) => {
+        const response = await fetch("/api/e2e/profile-submissions", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            runId,
+            profileType: payload.profileType,
+            displayName: payload.displayName,
+            aliases: payload.aliases,
+            tags: payload.tags,
+            ...(payload.profileType === "person"
+              ? { roleTags: payload.person.roleTags }
+              : {
+                  subtype: payload.community.subtype,
+                  categoryTags: payload.community.categoryTags,
+                }),
+          }),
+        });
+
+        if (!response.ok) {
+          const errorBody = (await response.json().catch(() => null)) as { error?: string } | null;
+          throw new Error(errorBody?.error ?? "E2E profile submission failed.");
+        }
+
+        return (await response.json()) as ProfileSubmissionResult;
+      }}
+    />
+  );
+}
+
 function AuthenticatedProfileSubmissionForm() {
   const { isAuthenticated, isLoading } = useConvexAuth();
 
@@ -271,7 +341,11 @@ function AuthenticatedProfileSubmissionForm() {
   return <ConnectedSubmissionForm />;
 }
 
-export function ProfileSubmissionForm() {
+export function ProfileSubmissionForm({ e2eMode = false }: { e2eMode?: boolean }) {
+  if (e2eMode) {
+    return <E2eSubmissionForm />;
+  }
+
   if (!convexUrl) {
     return <DisabledSubmissionPanel />;
   }

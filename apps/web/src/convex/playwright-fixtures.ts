@@ -371,6 +371,11 @@ const discoveryData: PublicDiscoveryData = {
   ],
 };
 
+type PlaywrightDiscoverySearchFixture =
+  | { kind: "disabled" }
+  | { kind: "fallthrough" }
+  | { kind: "handled"; results: PublicSearchResult[] };
+
 export function getPlaywrightPublicProfileFixture(
   slug: string,
   profileType: "person" | "community",
@@ -404,27 +409,37 @@ export function getPlaywrightDiscoveryFixture(): PublicDiscoveryData | null {
   return discoveryData;
 }
 
-export function searchPlaywrightDiscoveryFixture(query: string): PublicSearchResult[] | null {
+export function searchPlaywrightDiscoveryFixture(query: string): PlaywrightDiscoverySearchFixture {
   if (
     process.env.NODE_ENV === "production" ||
     process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES !== "true"
   ) {
-    return null;
+    return { kind: "disabled" };
   }
 
   const normalized = query.trim().toLowerCase();
 
   if (!normalized) {
-    return [];
+    return { kind: "handled", results: [] };
   }
 
-  return discoveryResults.filter((result) =>
+  const matches = discoveryResults.filter((result) =>
     [result.title, result.subtitle, result.summary, result.source?.label]
       .filter(Boolean)
       .join(" ")
       .toLowerCase()
       .includes(normalized),
   );
+
+  if (matches.length > 0) {
+    return { kind: "handled", results: matches };
+  }
+
+  if (process.env.VRDEX_ALLOW_PLAYWRIGHT_FIXTURE_SEARCH_FALLTHROUGH === "true") {
+    return { kind: "fallthrough" };
+  }
+
+  return { kind: "handled", results: [] };
 }
 
 export function getPlaywrightPublicWorldFixture(slug: string): PublicWorld | null {

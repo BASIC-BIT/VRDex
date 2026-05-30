@@ -195,6 +195,147 @@ jobs:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_PROD }}
         run: pnpm exec convex run migrations:runAll --prod
 
+  playwright-data-flow:
+    name: Playwright Data Flow
+    if: github.event_name == 'pull_request'
+    needs: [build-web]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        working-directory: apps/web
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run mutation-backed profile submission flow
+        id: flow
+        env:
+          PLAYWRIGHT_RECORD_VIDEO: "true"
+          VRDEX_ENABLE_E2E_HELPERS: "true"
+          VRDEX_E2E_BROWSER_TOKEN: local-playwright-token
+          VRDEX_E2E_CONVEX_SECRET: local-convex-e2e-secret
+        run: pnpm --filter web exec playwright test --grep @flow --project=desktop-chromium
+
+      - name: Write data-flow summary
+        if: always()
+        env:
+          FLOW_OUTCOME: ${{ steps.flow.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          mkdir -p apps/web/playwright-artifacts
+          cat > apps/web/playwright-artifacts/data-flow-summary.md <<EOF
+          ## Playwright data-flow preview
+
+          Outcome: ${FLOW_OUTCOME}
+
+          Captured flow:
+          - test-gated profile submission form
+          - gated helper rejection without the Playwright token
+          - Convex profile creation
+          - submission success state
+          - public profile page readback
+          - discovery search readback
+
+          Run: ${RUN_URL}
+          EOF
+
+      - name: Upload Playwright data-flow artifacts
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-data-flow
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+            apps/web/playwright-artifacts
+
+      - name: Comment with data-flow artifact
+        if: always() && github.event.pull_request.head.repo.fork == false
+        uses: actions/github-script@v7
+        env:
+          FLOW_OUTCOME: ${{ steps.flow.outcome }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+        with:
+          script: |
+            const marker = "<!-- vrdex-playwright-data-flow -->";
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.issue.number;
+            const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`;
+            const artifactUrl = process.env.ARTIFACT_URL || "";
+            const outcome = process.env.FLOW_OUTCOME || "unknown";
+            const artifactLine = artifactUrl
+              ? `Artifact: [playwright-data-flow](${artifactUrl})`
+              : "Artifact: not generated";
+            const body = [
+              marker,
+              "## Playwright Data-Flow Preview",
+              `Outcome: ${outcome}`,
+              `Run: ${runUrl}`,
+              artifactLine,
+              "",
+              "Captured flow:",
+              "- test-gated profile submission form",
+              "- gated helper rejection without the Playwright token",
+              "- Convex profile creation",
+              "- submission success state",
+              "- public profile page readback",
+              "- discovery search readback",
+              "",
+              "Artifacts include screenshots, traces, and recorded video for the flow run.",
+            ].join("\n");
+
+            let comments = [];
+            let page = 1;
+            while (true) {
+              const { data: pageComments } = await github.rest.issues.listComments({
+                owner,
+                repo,
+                issue_number,
+                per_page: 100,
+                page,
+              });
+              comments = comments.concat(pageComments);
+              if (pageComments.length < 100) break;
+              page++;
+            }
+            const existing = comments.find(
+              (comment) => comment.user?.type === "Bot" && comment.body?.includes(marker),
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
   playwright-public-preview:
     name: Playwright Public Preview
     if: github.event_name == 'pull_request'
@@ -242,13 +383,7 @@ jobs:
 
           Outcome: ${VISUAL_OUTCOME}
 
-          Captured routes:
-          - /
-          - /submit
-          - /server-status
-          - /deployment
-          - /p/playwright-dj-aurora
-          - /c/playwright-afterglow-social
+          Screenshots: all public route checks passed on desktop and mobile.
 
           Run: ${RUN_URL}
           EOF
@@ -291,15 +426,186 @@ jobs:
               `Run: ${runUrl}`,
               artifactLine,
               "",
-              "Captured routes:",
-              "- `/`",
-              "- `/submit`",
-              "- `/server-status`",
-              "- `/deployment`",
-              "- `/p/playwright-dj-aurora`",
-              "- `/c/playwright-afterglow-social`",
+              "Screenshots: all public route checks passed on desktop and mobile.",
               "",
-              "This job is required for PR checks; pixel diff baselines are not enabled yet.",
+              "Full screenshot set is available in the artifact. Pixel diff baselines are handled by the separate Playwright Image Diff check.",
+            ].join("\n");
+
+            let comments = [];
+            let page = 1;
+            while (true) {
+              const { data: pageComments } = await github.rest.issues.listComments({
+                owner,
+                repo,
+                issue_number,
+                per_page: 100,
+                page,
+              });
+              comments = comments.concat(pageComments);
+              if (pageComments.length < 100) break;
+              page++;
+            }
+            const existing = comments.find(
+              (comment) => comment.user?.type === "Bot" && comment.body?.includes(marker),
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+  playwright-image-diff:
+    name: Playwright Image Diff
+    if: github.event_name == 'pull_request'
+    needs: [build-web]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        working-directory: apps/web
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Compare public route screenshots to baselines
+        id: snapshots
+        run: pnpm test:e2e:snapshots
+
+      - name: Write image-diff summary
+        if: always()
+        env:
+          DIFF_OUTCOME: ${{ steps.snapshots.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          mkdir -p apps/web/playwright-artifacts
+          cat > apps/web/playwright-artifacts/image-diff-summary.md <<EOF
+          ## Playwright image diff
+
+          Outcome: ${DIFF_OUTCOME}
+
+          Baselines: committed public route screenshots for desktop and mobile Chromium.
+
+          Run: ${RUN_URL}
+          EOF
+
+      - name: Find changed baseline images
+        if: always()
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+          git fetch --no-tags --depth=1 origin "pull/${PR_NUMBER}/head:refs/remotes/origin/pr-head"
+          git diff --name-status "refs/remotes/origin/${BASE_REF}" "refs/remotes/origin/pr-head" -- 'apps/web/e2e/__screenshots__/**/*.png' > apps/web/playwright-artifacts/changed-baselines.txt
+          cat apps/web/playwright-artifacts/changed-baselines.txt
+
+      - name: Upload Playwright image-diff artifacts
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-image-diff
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+            apps/web/playwright-artifacts
+            apps/web/e2e/__screenshots__
+
+      - name: Comment with image-diff artifact
+        if: always() && github.event.pull_request.head.repo.fork == false
+        uses: actions/github-script@v7
+        env:
+          DIFF_OUTCOME: ${{ steps.snapshots.outcome }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        with:
+          script: |
+            const fs = require("fs");
+            const marker = "<!-- vrdex-playwright-image-diff -->";
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.issue.number;
+            const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`;
+            const artifactUrl = process.env.ARTIFACT_URL || "";
+            const outcome = process.env.DIFF_OUTCOME || "unknown";
+            const headSha = process.env.HEAD_SHA;
+            const artifactLine = artifactUrl
+              ? `Artifact: [playwright-image-diff](${artifactUrl})`
+              : "Artifact: not generated";
+            const changedPath = "apps/web/playwright-artifacts/changed-baselines.txt";
+            const changedLines = fs.existsSync(changedPath)
+              ? fs.readFileSync(changedPath, "utf8").split("\n").map((line) => line.trim()).filter(Boolean)
+              : [];
+            const changedImages = changedLines
+              .map((line) => {
+                const parts = line.split(/\s+/);
+                const status = parts[0];
+                const file = parts[parts.length - 1];
+                if (!["A", "M"].includes(status) || !file.endsWith(".png")) return null;
+                const match = file.match(/^apps\/web\/e2e\/__screenshots__\/([^/]+)\/(.+)\.png$/);
+                if (!match) return null;
+                return { file, project: match[1], route: match[2] };
+              })
+              .filter(Boolean);
+            const shownImages = changedImages.slice(0, 12);
+            const imageBlocks = shownImages.flatMap(({ file, project, route }) => {
+              const rawPath = file.split("/").map(encodeURIComponent).join("/");
+              const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${headSha}/${rawPath}`;
+              return [
+                `<details open>`,
+                `<summary>${project} / ${route}</summary>`,
+                "",
+                `![${project} ${route}](${rawUrl})`,
+                "</details>",
+              ];
+            });
+            const imageSummary = changedImages.length === 0
+              ? ["Changed screenshot baselines: none in this PR."]
+              : [
+                  `Changed screenshot baselines: ${changedImages.length}`,
+                  "",
+                  ...imageBlocks,
+                  ...(changedImages.length > shownImages.length
+                    ? ["", `Showing ${shownImages.length} of ${changedImages.length}; see the artifact for the rest.`]
+                    : []),
+                ];
+            const body = [
+              marker,
+              "## Playwright Image Diff",
+              `Outcome: ${outcome}`,
+              `Run: ${runUrl}`,
+              artifactLine,
+              "",
+              ...imageSummary,
+              "",
+              "This check compares public route screenshots against committed baselines. Inline images show only added or modified baseline PNGs.",
             ].join("\n");
 
             let comments = [];
@@ -391,6 +697,39 @@ jobs:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: pnpm dlx vercel@54.4.1 pull --yes --environment=preview --token "$VERCEL_TOKEN"
+
+      - name: Check Convex preview deploy key
+        if: steps.gate.outputs.enabled == 'true'
+        id: convex-preview-gate
+        env:
+          CONVEX_DEPLOY_KEY_PREVIEW: ${{ secrets.CONVEX_DEPLOY_KEY_PREVIEW }}
+        run: |
+          if [ -z "$CONVEX_DEPLOY_KEY_PREVIEW" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## Convex preview deploy"
+              echo "Skipped because CONVEX_DEPLOY_KEY_PREVIEW is not configured."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy Convex preview functions
+        if: steps.gate.outputs.enabled == 'true' && steps.convex-preview-gate.outputs.enabled == 'true'
+        id: convex-preview
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_PREVIEW }}
+          PREVIEW_NAME: pr-${{ github.event.pull_request.number }}
+        run: pnpm exec convex deploy --yes --typecheck=enable --preview-create "$PREVIEW_NAME" --cmd "node scripts/write-convex-preview-output.mjs" --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL
+
+      - name: Use Convex preview URL for Vercel build
+        if: steps.gate.outputs.enabled == 'true' && steps.convex-preview.outputs.convex_url != ''
+        env:
+          CONVEX_PREVIEW_URL: ${{ steps.convex-preview.outputs.convex_url }}
+        run: |
+          echo "NEXT_PUBLIC_CONVEX_URL=$CONVEX_PREVIEW_URL" >> "$GITHUB_ENV"
+          echo "CONVEX_URL=$CONVEX_PREVIEW_URL" >> "$GITHUB_ENV"
 
       - name: Build Vercel preview output
         if: steps.gate.outputs.enabled == 'true'

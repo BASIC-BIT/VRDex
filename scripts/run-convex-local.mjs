@@ -60,6 +60,23 @@ function syncPublicConvexUrl() {
   writeFileSync(webEnvLocalPath, `${nextPublicLine}\n`);
 }
 
+function convexEnv() {
+  return {
+    ...process.env,
+    CONVEX_AGENT_MODE: "anonymous",
+    CONVEX_TMPDIR: convexTmp,
+    TMPDIR: convexTmp,
+    TEMP: convexTmp,
+    TMP: convexTmp,
+    HOME: convexHome,
+    USERPROFILE: convexHome,
+    XDG_CONFIG_HOME: path.join(convexHome, ".config"),
+    XDG_DATA_HOME: path.join(convexHome, ".local", "share"),
+    XDG_CACHE_HOME: path.join(convexHome, ".cache"),
+    XDG_STATE_HOME: path.join(convexHome, ".local", "state"),
+  };
+}
+
 if (args.length === 0) {
   console.error("Usage: node scripts/run-convex-local.mjs <convex args>");
   process.exit(1);
@@ -87,24 +104,7 @@ const child = spawn(convexBin, args, {
   cwd: repoRoot,
   stdio: "inherit",
   shell: process.platform === "win32",
-  env: {
-    ...process.env,
-    // Belt-and-suspenders fallback in case a future script invocation omits
-    // `--local` and would otherwise try to prompt for cloud auth.
-    CONVEX_AGENT_MODE: "anonymous",
-    CONVEX_TMPDIR: convexTmp,
-    TMPDIR: convexTmp,
-    TEMP: convexTmp,
-    TMP: convexTmp,
-    // Isolate anonymous Convex state from the user's real home directory.
-    // This also affects subprocesses spawned by the Convex CLI.
-    HOME: convexHome,
-    USERPROFILE: convexHome,
-    XDG_CONFIG_HOME: path.join(convexHome, ".config"),
-    XDG_DATA_HOME: path.join(convexHome, ".local", "share"),
-    XDG_CACHE_HOME: path.join(convexHome, ".cache"),
-    XDG_STATE_HOME: path.join(convexHome, ".local", "state"),
-  },
+  env: convexEnv(),
 });
 
 try {

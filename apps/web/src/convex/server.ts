@@ -201,12 +201,12 @@ export async function fetchDiscovery() {
 }
 
 export async function fetchDiscoverySearch(query: string) {
-  const fixtureResults = searchPlaywrightDiscoveryFixture(query);
+  const fixtureSearch = searchPlaywrightDiscoveryFixture(query);
 
-  if (fixtureResults !== null) {
+  if (fixtureSearch.kind === "handled") {
     return {
       kind: "live" as const,
-      results: fixtureResults,
+      results: fixtureSearch.results,
     };
   }
 

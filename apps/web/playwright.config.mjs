@@ -12,6 +12,10 @@ const convexPort = Number(new URL(convexUrl).port) || 3210;
 const reuseNextServer = process.env.PLAYWRIGHT_REUSE_SERVER === "true";
 const reuseConvexServer = process.env.PLAYWRIGHT_REUSE_CONVEX === "true";
 const skipConvexServer = process.env.PLAYWRIGHT_SKIP_CONVEX_DEV === "true";
+const recordVideo = process.env.PLAYWRIGHT_RECORD_VIDEO === "true";
+const allowFixtureSearchFallthrough =
+  process.env.VRDEX_ALLOW_PLAYWRIGHT_FIXTURE_SEARCH_FALLTHROUGH === "true" ||
+  process.env.VRDEX_ENABLE_E2E_HELPERS === "true";
 
 process.env.CONVEX_URL = convexUrl;
 process.env.NEXT_PUBLIC_CONVEX_URL = convexUrl;
@@ -21,6 +25,9 @@ const sharedEnv = {
   CONVEX_URL: convexUrl,
   NEXT_PUBLIC_CONVEX_URL: convexUrl,
   VRDEX_ENABLE_PLAYWRIGHT_FIXTURES: "true",
+  ...(allowFixtureSearchFallthrough
+    ? { VRDEX_ALLOW_PLAYWRIGHT_FIXTURE_SEARCH_FALLTHROUGH: "true" }
+    : {}),
 };
 
 export default defineConfig({
@@ -29,11 +36,16 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   fullyParallel: true,
   reporter: [["list"], ["html", { open: "never", outputFolder: "playwright-report" }]],
+  expect: {
+    toHaveScreenshot: {
+      pathTemplate: "{testDir}/__screenshots__{/projectName}/{arg}{ext}",
+    },
+  },
   use: {
     baseURL,
     trace: "on-first-retry",
     screenshot: "only-on-failure",
-    video: "retain-on-failure",
+    video: recordVideo ? "on" : "retain-on-failure",
     locale: "en-US",
     timezoneId: "UTC",
   },
@@ -51,7 +63,7 @@ export default defineConfig({
           },
         ]),
     {
-      command: `node node_modules/next/dist/bin/next dev --hostname 127.0.0.1 --port ${port}`,
+      command: `node ../../scripts/sync-convex-local-env.mjs && node node_modules/next/dist/bin/next dev --hostname 127.0.0.1 --port ${port}`,
       cwd: configDir,
       url: baseURL,
       reuseExistingServer: reuseNextServer,

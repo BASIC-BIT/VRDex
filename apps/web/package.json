@@ -12,7 +12,9 @@
     "check:vercel-env": "node ./scripts/check-vercel-env.mjs",
     "start": "next start",
     "lint": "eslint",
-    "test:e2e": "playwright test --grep-invert @visual",
+    "test:e2e": "playwright test --grep-invert \"@visual|@flow|@snapshot\"",
+    "test:e2e:snapshots": "playwright test --grep @snapshot",
+    "test:e2e:snapshots:update": "playwright test --grep @snapshot --update-snapshots",
     "test:e2e:visual": "playwright test --grep @visual",
     "typecheck": "next typegen && node ./scripts/ensure-next-type-stubs.mjs && tsc --noEmit --incremental false"
   },

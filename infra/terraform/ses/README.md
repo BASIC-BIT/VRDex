@@ -18,6 +18,17 @@ It creates:
 4. Apply only after confirming the DNS zone and sender domain.
 5. Store the sensitive outputs in Convex env, not in git.
 
+## State Backend
+
+Terraform state for this stack is stored in the S3 backend declared in `versions.tf`:
+
+- bucket: `vrdex-terraform-state`
+- key: `ses/terraform.tfstate`
+- region: `us-east-1`
+- lock table: `vrdex-terraform-locks`
+
+The backend bucket has versioning, default SSE-S3 encryption, blocked public access, and a policy that denies non-TLS requests. The DynamoDB table uses on-demand billing with `LockID` as the partition key.
+
 Convex env values after apply:
 
 - `AWS_SES_REGION`: `terraform output -raw aws_ses_region`
@@ -27,4 +38,4 @@ Convex env values after apply:
 
 SES accounts can remain in sandbox mode even after domain verification. If production sending is still sandboxed, request SES production access in the AWS console before relying on real user emails.
 
-Use a secure Terraform backend for this stack before applying with `create_iam_access_key = true`; the access key secret is stored in Terraform state.
+The IAM access key secret is stored in Terraform state. Do not run this stack against a local backend.
