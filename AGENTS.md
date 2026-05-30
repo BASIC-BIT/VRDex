@@ -58,6 +58,12 @@ Prefer explicit labels in docs:
 - If the user intent is clear and the step is ship-safe, continue to commit and push without asking again.
 - Ask before pushing only for risky/destructive/security/billing posture changes, or when the user explicitly asks to hold.
 
+## Infrastructure and environment rule
+
+- Prefer infrastructure-as-code or checked-in configuration for infrastructure, CI settings, and environment variable definitions whenever the platform supports it.
+- Especially avoid undocumented dashboard-only environment variables; if a secret value must stay in a provider secret store, commit the expected variable name, scope, owner, and rotation/recreation path.
+- Manual provider changes are acceptable only as a bootstrap or emergency step, and should be followed by docs, scripts, Terraform, or workflow changes that make the desired state reproducible.
+
 ## Global vs local agent context
 
 - Put repo-wide defaults, durable workflow rules, and opinionated project conventions in `AGENTS.md`.

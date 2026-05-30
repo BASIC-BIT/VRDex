@@ -19,6 +19,8 @@ Run Vercel CLI commands from the repository root once the project root directory
 
 ## Repository secrets
 
+Current recommendation: keep repository Actions variables and secrets reproducible through checked-in workflows/docs first, and provider APIs or CLI scripts where practical. Secret values still belong in GitHub/Vercel/Convex secret stores, but their names, scopes, and recreation path should be documented here.
+
 The PR workflow deploys a Vercel preview only when all three repository secrets exist:
 
 - `VERCEL_TOKEN`
@@ -42,6 +44,14 @@ Set these in the Vercel project as needed:
 - `NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY=false`: legacy flag; auth-backed submissions now rely on Convex Auth configuration.
 
 Do not set `VRDEX_ENABLE_PLAYWRIGHT_FIXTURES` in Vercel. Fixture profiles are for Playwright-only local/CI preview screenshots and must not be exposed from hosted previews.
+
+Hosted dev/staging E2E targets must set these only on the dev/staging environment, not production:
+
+- `VRDEX_ENABLE_E2E_HELPERS=true`
+- `VRDEX_E2E_BROWSER_TOKEN`: same value as the GitHub Actions secret `VRDEX_HOSTED_E2E_BROWSER_TOKEN`
+- `VRDEX_E2E_CONVEX_SECRET`: non-empty sentinel matching the Convex deployment secret name
+
+Production should keep `VRDEX_ENABLE_E2E_HELPERS=false` or unset, and should not set `VRDEX_ALLOW_PRODUCTION_E2E_HELPERS` unless a human explicitly approves a temporary incident/debug window.
 
 Preview deployment protection must allow unauthenticated reads if the PR preview is meant to be reviewed outside the Vercel dashboard.
 

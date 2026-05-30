@@ -18,3 +18,4 @@ terraform.tfvars
 terraform.tfvars.json
 tfplan
 tfplan.*
+.vercel
