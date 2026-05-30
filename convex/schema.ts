@@ -333,6 +333,9 @@ export default defineSchema({
       "publicSurfacingState",
       "publicationState",
     ])
+    .index("by_sourceSubmitterTokenIdentifier", [
+      "sourceAttribution.submitter.tokenIdentifier",
+    ])
     .index("by_claimState_profileType", ["claimState", "profileType"])
     .index("by_creationSource_claimState", ["creationSource", "claimState"])
     .index("by_profileType_sortName", ["profileType", "sortName"]),

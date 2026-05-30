@@ -13,6 +13,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:e2e": "playwright test --grep-invert \"@visual|@flow|@snapshot\"",
+    "test:e2e:hosted": "playwright test --grep @flow --project=desktop-chromium",
     "test:e2e:snapshots": "playwright test --grep @snapshot",
     "test:e2e:snapshots:update": "playwright test --grep @snapshot --update-snapshots",
     "test:e2e:visual": "playwright test --grep @visual",

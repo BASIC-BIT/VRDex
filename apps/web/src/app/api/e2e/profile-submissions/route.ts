@@ -13,8 +13,9 @@ function requireE2eRequest(request: NextRequest) {
   const browserToken = process.env.VRDEX_E2E_BROWSER_TOKEN?.trim();
   const convexSecret = process.env.VRDEX_E2E_CONVEX_SECRET?.trim();
   const requestToken = request.headers.get("x-vrdex-e2e-token") ?? request.cookies.get("vrdex_e2e_token")?.value;
+  const productionBlocked = process.env.VERCEL_ENV === "production" && process.env.VRDEX_ALLOW_PRODUCTION_E2E_HELPERS !== "true";
 
-  if (process.env.VRDEX_ENABLE_E2E_HELPERS !== "true" || !browserToken || !convexSecret || requestToken !== browserToken) {
+  if (productionBlocked || process.env.VRDEX_ENABLE_E2E_HELPERS !== "true" || !browserToken || !convexSecret || requestToken !== browserToken) {
     return null;
   }
 
@@ -76,9 +77,16 @@ export async function DELETE(request: NextRequest) {
   }
   const body = rawBody as Record<string, unknown>;
 
-  const result = await convexClient().mutation(api.e2e.cleanupProfileBySlug, {
-    slug: String(body.slug ?? ""),
-  });
+  const slug = typeof body.slug === "string" ? body.slug.trim() : "";
+  const runId = typeof body.runId === "string" ? body.runId.trim() : "";
+
+  if (!slug && !runId) {
+    return e2eError("Cleanup requires a slug or runId.", 400);
+  }
+
+  const result = slug
+    ? await convexClient().mutation(api.e2e.cleanupProfileBySlug, { slug })
+    : await convexClient().mutation(api.e2e.cleanupProfilesByRunId, { runId });
 
   return NextResponse.json(result);
 }

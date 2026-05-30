@@ -8,6 +8,9 @@ const repoRoot = path.resolve(scriptDir, "..");
 const convexHome = path.join(repoRoot, ".convex-home");
 const convexTmp = path.join(repoRoot, ".convex-tmp");
 const localConvexEnvNames = ["VRDEX_ENABLE_E2E_HELPERS", "VRDEX_E2E_CONVEX_SECRET"];
+const localDeploymentName = process.env.CONVEX_LOCAL_DEPLOYMENT_NAME || "anonymous-agent";
+const localCloudPort = process.env.CONVEX_LOCAL_CLOUD_PORT || "3210";
+const localConvexUrl = process.env.CONVEX_LOCAL_URL || `http://127.0.0.1:${localCloudPort}`;
 const convexBin = path.join(
   repoRoot,
   "node_modules",
@@ -19,6 +22,11 @@ function convexEnv() {
   return {
     ...process.env,
     CONVEX_AGENT_MODE: "anonymous",
+    CONVEX_DEPLOYMENT: `local:${localDeploymentName}`,
+    CONVEX_DEPLOY_KEY: "",
+    CONVEX_SELF_HOSTED_ADMIN_KEY: "",
+    CONVEX_SELF_HOSTED_URL: "",
+    CONVEX_URL: localConvexUrl,
     CONVEX_TMPDIR: convexTmp,
     TMPDIR: convexTmp,
     TEMP: convexTmp,

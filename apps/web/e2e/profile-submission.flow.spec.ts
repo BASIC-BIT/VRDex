@@ -2,9 +2,29 @@ import { expect, test } from "@playwright/test";
 
 import { captureRouteScreenshot } from "./public-routes";
 
+function e2eBrowserToken() {
+  const token = process.env.VRDEX_E2E_BROWSER_TOKEN ?? (process.env.PLAYWRIGHT_BASE_URL ? undefined : "local-playwright-token");
+
+  if (!token) {
+    throw new Error("VRDEX_E2E_BROWSER_TOKEN must be set for hosted Playwright data-flow runs.");
+  }
+
+  return token;
+}
+
+function e2eRunId(testInfo: { project: { name: string }; workerIndex: number; repeatEachIndex: number }) {
+  const prefix = process.env.VRDEX_E2E_RUN_ID ?? "playwright";
+
+  return `${prefix}-${testInfo.project.name}-${testInfo.workerIndex}-${testInfo.repeatEachIndex}-${Date.now()}`
+    .replace(/[^a-z0-9]+/gi, "-")
+    .toLowerCase()
+    .slice(0, 120);
+}
+
 test("profile submission writes through to public profile and discovery @flow", async ({ page, request, baseURL }, testInfo) => {
-  const e2eToken = process.env.VRDEX_E2E_BROWSER_TOKEN ?? "local-playwright-token";
-  const runSuffix = `${testInfo.project.name}-${testInfo.workerIndex}-${Date.now()}`.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+  const e2eToken = e2eBrowserToken();
+  const runId = e2eRunId(testInfo);
+  const runSuffix = runId.replace(/^playwright-?/, "").slice(0, 48);
   const displayName = `Playwright Flow ${runSuffix}`;
   let createdSlug: string | undefined;
 
@@ -12,6 +32,11 @@ test("profile submission writes through to public profile and discovery @flow", 
     {
       name: "vrdex_e2e_token",
       value: e2eToken,
+      url: baseURL ?? "http://127.0.0.1:3002",
+    },
+    {
+      name: "vrdex_e2e_run_id",
+      value: runId,
       url: baseURL ?? "http://127.0.0.1:3002",
     },
   ]);
@@ -42,10 +67,10 @@ test("profile submission writes through to public profile and discovery @flow", 
     await expect(page.getByText(displayName, { exact: true }).first()).toBeVisible();
     await captureRouteScreenshot(page, testInfo, "profile-submission-flow-discovery");
   } finally {
-    if (createdSlug) {
+    if (createdSlug || runId) {
       const cleanupResponse = await request.delete("/api/e2e/profile-submissions", {
         headers: { "x-vrdex-e2e-token": e2eToken },
-        data: { slug: createdSlug },
+        data: createdSlug ? { slug: createdSlug, runId } : { runId },
       });
 
       await expect(cleanupResponse).toBeOK();
@@ -54,7 +79,7 @@ test("profile submission writes through to public profile and discovery @flow", 
 });
 
 test("E2E profile helper stays gated without the browser token @flow", async ({ page, request }) => {
-  const e2eToken = process.env.VRDEX_E2E_BROWSER_TOKEN ?? "local-playwright-token";
+  const e2eToken = e2eBrowserToken();
   const payload = {
     runId: "playwright-negative-gate",
     profileType: "person",

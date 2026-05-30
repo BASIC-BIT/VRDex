@@ -1,12 +1,12 @@
 terraform {
-  required_version = ">= 1.6.0"
+  required_version = ">= 1.10.0"
 
   backend "s3" {
-    bucket         = "vrdex-terraform-state"
-    key            = "ses/terraform.tfstate"
-    region         = "us-east-1"
-    dynamodb_table = "vrdex-terraform-locks"
-    encrypt        = true
+    bucket       = "vrdex-terraform-state"
+    key          = "ses/terraform.tfstate"
+    region       = "us-east-1"
+    encrypt      = true
+    use_lockfile = true
   }
 
   required_providers {

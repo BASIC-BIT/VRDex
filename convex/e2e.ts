@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 
-import { mutation } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
+import { mutation, type MutationCtx } from "./_generated/server";
 import { findAvailableProfileSlug, getProfileBySlug } from "./_profileSlugs";
 import { sanitizeCommunitySubmissionProfileInput } from "./_profileSubmissions";
 import { createProfileSearchDocument, upsertSearchDocument } from "./_searchDocuments";
@@ -13,6 +14,23 @@ function requireE2eHelper() {
   if (process.env.VRDEX_ENABLE_E2E_HELPERS !== "true" || !expectedSecret) {
     throw new Error("E2E helpers are not enabled for this deployment.");
   }
+}
+
+async function deleteE2eProfile(ctx: MutationCtx, profile: Doc<"profiles">) {
+  if (!profile.sourceAttribution?.submitter.tokenIdentifier.startsWith("e2e:")) {
+    throw new Error("Only E2E-created profiles can be cleaned up by this helper.");
+  }
+
+  const [searchDocuments, auditEvents] = await Promise.all([
+    ctx.db.query("searchDocuments").withIndex("by_profileId", (query) => query.eq("profileId", profile._id)).collect(),
+    ctx.db.query("profileAuditEvents").withIndex("by_profileId_createdAt", (query) => query.eq("profileId", profile._id)).collect(),
+  ]);
+
+  await Promise.all([
+    ...searchDocuments.map((document) => ctx.db.delete(document._id)),
+    ...auditEvents.map((event) => ctx.db.delete(event._id)),
+    ctx.db.delete(profile._id),
+  ]);
 }
 
 export const submitProfile = mutation({
@@ -118,21 +136,34 @@ export const cleanupProfileBySlug = mutation({
       return { deleted: false };
     }
 
-    if (!profile.sourceAttribution?.submitter.tokenIdentifier.startsWith("e2e:")) {
-      throw new Error("Only E2E-created profiles can be cleaned up by this helper.");
-    }
-
-    const [searchDocuments, auditEvents] = await Promise.all([
-      ctx.db.query("searchDocuments").withIndex("by_profileId", (query) => query.eq("profileId", profile._id)).collect(),
-      ctx.db.query("profileAuditEvents").withIndex("by_profileId_createdAt", (query) => query.eq("profileId", profile._id)).collect(),
-    ]);
-
-    await Promise.all([
-      ...searchDocuments.map((document) => ctx.db.delete(document._id)),
-      ...auditEvents.map((event) => ctx.db.delete(event._id)),
-      ctx.db.delete(profile._id),
-    ]);
+    await deleteE2eProfile(ctx, profile);
 
     return { deleted: true };
+  },
+});
+
+export const cleanupProfilesByRunId = mutation({
+  args: {
+    runId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireE2eHelper();
+
+    const runId = args.runId.trim().slice(0, 120);
+
+    if (!runId) {
+      throw new Error("E2E cleanup requires a runId.");
+    }
+
+    const sourceToken = `e2e:${runId.slice(0, 80)}`;
+    const profiles = await ctx.db
+      .query("profiles")
+      .withIndex("by_sourceSubmitterTokenIdentifier", (query) => query.eq("sourceAttribution.submitter.tokenIdentifier", sourceToken))
+      .collect();
+    const matchingProfiles = profiles.filter((profile) => profile.sourceAttribution?.submitter.subject === runId);
+
+    await Promise.all(matchingProfiles.map((profile) => deleteE2eProfile(ctx, profile)));
+
+    return { deleted: matchingProfiles.length };
   },
 });

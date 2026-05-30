@@ -14,6 +14,7 @@
     "check:web:vercel-env": "pnpm --filter web check:vercel-env",
     "lint:web": "pnpm --filter web lint",
     "test:e2e": "pnpm --filter web test:e2e",
+    "test:e2e:hosted": "pnpm --filter web test:e2e:hosted",
     "test:e2e:snapshots": "pnpm --filter web test:e2e:snapshots",
     "test:e2e:snapshots:update": "pnpm --filter web test:e2e:snapshots:update",
     "test:e2e:visual": "pnpm --filter web test:e2e:visual",
