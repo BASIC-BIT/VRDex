@@ -102,3 +102,47 @@ test("verified email account with linked Discord can claim an E2E person profile
     });
   }
 });
+
+test("E2E auth helper stays gated without the browser token @flow", async ({ request }) => {
+  test.skip(
+    Boolean(process.env.PLAYWRIGHT_BASE_URL) && process.env.VRDEX_ENABLE_E2E_AUTH_HELPERS !== "true",
+    "Hosted auth E2E helpers are not enabled for this target.",
+  );
+
+  const e2eToken = e2eBrowserToken();
+  const payload = { action: "consume-code", email: "negative-gate@e2e.vrdex.local" };
+
+  const missingTokenResponse = await request.post("/api/e2e/auth", {
+    data: payload,
+  });
+  expect(missingTokenResponse.status()).toBe(403);
+
+  const wrongTokenResponse = await request.post("/api/e2e/auth", {
+    headers: { "x-vrdex-e2e-token": "wrong-token" },
+    data: payload,
+  });
+  expect(wrongTokenResponse.status()).toBe(403);
+
+  const malformedPostResponse = await request.post("/api/e2e/auth", {
+    headers: { "content-type": "application/json", "x-vrdex-e2e-token": e2eToken },
+    data: "{not-json",
+  });
+  expect(malformedPostResponse.status()).toBe(400);
+
+  const unsupportedActionResponse = await request.post("/api/e2e/auth", {
+    headers: { "x-vrdex-e2e-token": e2eToken },
+    data: { action: "unsupported", email: "negative-gate@e2e.vrdex.local" },
+  });
+  expect(unsupportedActionResponse.status()).toBe(400);
+
+  const missingDeleteTokenResponse = await request.delete("/api/e2e/auth", {
+    data: { email: "negative-gate@e2e.vrdex.local" },
+  });
+  expect(missingDeleteTokenResponse.status()).toBe(403);
+
+  const malformedDeleteResponse = await request.delete("/api/e2e/auth", {
+    headers: { "content-type": "application/json", "x-vrdex-e2e-token": e2eToken },
+    data: "{not-json",
+  });
+  expect(malformedDeleteResponse.status()).toBe(400);
+});
