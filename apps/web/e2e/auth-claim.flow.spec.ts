@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 
 function e2eBrowserToken() {
   const token = process.env.VRDEX_E2E_BROWSER_TOKEN ?? (process.env.PLAYWRIGHT_BASE_URL ? undefined : "local-playwright-token");
@@ -19,6 +19,118 @@ function e2eRunId(testInfo: { project: { name: string }; workerIndex: number; re
     .slice(0, 120);
 }
 
+async function createE2eProfile({
+  request,
+  e2eToken,
+  runId,
+  profileType,
+  displayName,
+  aliases = [],
+  tags = [],
+  roleTags = [],
+  subtype,
+  categoryTags = [],
+}: {
+  request: APIRequestContext;
+  e2eToken: string;
+  runId: string;
+  profileType: "person" | "community";
+  displayName: string;
+  aliases?: string[];
+  tags?: string[];
+  roleTags?: string[];
+  subtype?: string;
+  categoryTags?: string[];
+}) {
+  const profileResponse = await request.post("/api/e2e/profile-submissions", {
+    headers: { "x-vrdex-e2e-token": e2eToken },
+    data: {
+      runId,
+      profileType,
+      displayName,
+      aliases,
+      tags,
+      roleTags,
+      subtype,
+      categoryTags,
+    },
+  });
+  await expect(profileResponse).toBeOK();
+  const profile = (await profileResponse.json()) as { slug?: string };
+  expect(profile.slug).toBeTruthy();
+
+  return profile.slug!;
+}
+
+async function createVerifiedE2eAccount({
+  page,
+  request,
+  e2eToken,
+  email,
+  password,
+}: {
+  page: Page;
+  request: APIRequestContext;
+  e2eToken: string;
+  email: string;
+  password: string;
+}) {
+  await page.goto("/sign-in");
+  await page.getByRole("button", { name: "Create account" }).click();
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill(password);
+  await page.getByRole("button", { name: "Create account" }).click();
+  await expect(page.getByText(new RegExp(`Check ${email} for a verification code`, "i"))).toBeVisible();
+
+  const codeResponse = await request.post("/api/e2e/auth", {
+    headers: { "x-vrdex-e2e-token": e2eToken },
+    data: { action: "consume-code", email },
+  });
+  await expect(codeResponse).toBeOK();
+  const authCode = (await codeResponse.json()) as { code?: string };
+  expect(authCode.code).toBeTruthy();
+
+  await page.getByLabel("Verification code").fill(authCode.code!);
+  await Promise.all([
+    page.waitForURL(/\/account$/),
+    page.getByRole("button", { name: "Verify email" }).click(),
+  ]);
+  await expect(page.getByRole("heading", { name: email })).toBeVisible();
+  await expect(page.getByText("Verified", { exact: true })).toBeVisible();
+}
+
+async function linkDiscordAccount(request: APIRequestContext, e2eToken: string, email: string, providerAccountId: string) {
+  const linkResponse = await request.post("/api/e2e/auth", {
+    headers: { "x-vrdex-e2e-token": e2eToken },
+    data: { action: "link-discord", email, providerAccountId },
+  });
+
+  await expect(linkResponse).toBeOK();
+}
+
+async function cleanupAuthAndProfiles(request: APIRequestContext, e2eToken: string, email: string, slugs: Array<string | undefined>, runId: string) {
+  for (const slug of slugs) {
+    if (slug !== undefined) {
+      await request.delete("/api/e2e/profile-submissions", {
+        headers: { "x-vrdex-e2e-token": e2eToken },
+        data: { slug, runId },
+      });
+    }
+  }
+
+  if (slugs.every((slug) => slug === undefined)) {
+    await request.delete("/api/e2e/profile-submissions", {
+      headers: { "x-vrdex-e2e-token": e2eToken },
+      data: { runId },
+    });
+  }
+
+  await request.delete("/api/e2e/auth", {
+    headers: { "x-vrdex-e2e-token": e2eToken },
+    data: { email },
+  });
+}
+
 test("verified email account with linked Discord can claim an E2E person profile @flow", async ({ page, request }, testInfo) => {
   test.skip(
     Boolean(process.env.PLAYWRIGHT_BASE_URL) && process.env.VRDEX_ENABLE_E2E_AUTH_HELPERS !== "true",
@@ -34,50 +146,18 @@ test("verified email account with linked Discord can claim an E2E person profile
   let createdSlug: string | undefined;
 
   try {
-    const profileResponse = await request.post("/api/e2e/profile-submissions", {
-      headers: { "x-vrdex-e2e-token": e2eToken },
-      data: {
-        runId,
-        profileType: "person",
-        displayName,
-        aliases: [`Claim ${runSuffix}`],
-        tags: ["playwright", "claim-flow"],
-        roleTags: ["Claim test profile"],
-      },
+    createdSlug = await createE2eProfile({
+      request,
+      e2eToken,
+      runId,
+      profileType: "person",
+      displayName,
+      aliases: [`Claim ${runSuffix}`],
+      tags: ["playwright", "claim-flow"],
+      roleTags: ["Claim test profile"],
     });
-    await expect(profileResponse).toBeOK();
-    const profile = (await profileResponse.json()) as { slug?: string };
-    createdSlug = profile.slug;
-    expect(createdSlug).toBeTruthy();
-
-    await page.goto("/sign-in");
-    await page.getByRole("button", { name: "Create account" }).click();
-    await page.getByLabel("Email").fill(email);
-    await page.getByLabel("Password").fill(password);
-    await page.getByRole("button", { name: "Create account" }).click();
-    await expect(page.getByText(new RegExp(`Check ${email} for a verification code`, "i"))).toBeVisible();
-
-    const codeResponse = await request.post("/api/e2e/auth", {
-      headers: { "x-vrdex-e2e-token": e2eToken },
-      data: { action: "consume-code", email },
-    });
-    await expect(codeResponse).toBeOK();
-    const authCode = (await codeResponse.json()) as { code?: string };
-    expect(authCode.code).toBeTruthy();
-
-    await page.getByLabel("Verification code").fill(authCode.code!);
-    await Promise.all([
-      page.waitForURL(/\/account$/),
-      page.getByRole("button", { name: "Verify email" }).click(),
-    ]);
-    await expect(page.getByRole("heading", { name: email })).toBeVisible();
-    await expect(page.getByText("Verified", { exact: true })).toBeVisible();
-
-    const linkResponse = await request.post("/api/e2e/auth", {
-      headers: { "x-vrdex-e2e-token": e2eToken },
-      data: { action: "link-discord", email, providerAccountId: `discord-${runSuffix}` },
-    });
-    await expect(linkResponse).toBeOK();
+    await createVerifiedE2eAccount({ page, request, e2eToken, email, password });
+    await linkDiscordAccount(request, e2eToken, email, `discord-${runSuffix}`);
 
     await page.goto("/account");
     await expect(page.getByText("discord", { exact: true })).toBeVisible();
@@ -89,17 +169,111 @@ test("verified email account with linked Discord can claim an E2E person profile
     await expect(page.getByRole("heading", { name: displayName })).toBeVisible();
     await expect(page.getByText("Claimed", { exact: true })).toBeVisible();
   } finally {
-    if (createdSlug || runId) {
-      await request.delete("/api/e2e/profile-submissions", {
-        headers: { "x-vrdex-e2e-token": e2eToken },
-        data: createdSlug ? { slug: createdSlug, runId } : { runId },
-      });
-    }
+    await cleanupAuthAndProfiles(request, e2eToken, email, [createdSlug], runId);
+  }
+});
 
-    await request.delete("/api/e2e/auth", {
-      headers: { "x-vrdex-e2e-token": e2eToken },
-      data: { email },
+test("verified email account can complete community and VRChat adapter claims @flow", async ({ page, request }, testInfo) => {
+  test.skip(
+    Boolean(process.env.PLAYWRIGHT_BASE_URL) && process.env.VRDEX_ENABLE_E2E_AUTH_HELPERS !== "true",
+    "Hosted auth E2E helpers are not enabled for this target.",
+  );
+  test.skip(
+    Boolean(process.env.PLAYWRIGHT_BASE_URL) && process.env.VRDEX_ENABLE_E2E_ADAPTER_HELPERS !== "true",
+    "Hosted adapter E2E helpers are not enabled for this target.",
+  );
+
+  const e2eToken = e2eBrowserToken();
+  const runId = e2eRunId(testInfo);
+  const runSuffix = runId.replace(/^playwright-auth-?/, "").slice(0, 48);
+  const email = `adapter-${runSuffix}@e2e.vrdex.local`;
+  const password = `VRDex-${runSuffix}-adapter-password-12345`;
+  let communitySlug: string | undefined;
+  let vrchatPersonSlug: string | undefined;
+  let vrcLinkingPersonSlug: string | undefined;
+
+  try {
+    communitySlug = await createE2eProfile({
+      request,
+      e2eToken,
+      runId,
+      profileType: "community",
+      displayName: `Playwright Community ${runSuffix}`,
+      aliases: [`Adapter Community ${runSuffix}`],
+      tags: ["playwright", "adapter-flow"],
+      subtype: "VRChat group",
+      categoryTags: ["Adapter verified"],
     });
+    vrchatPersonSlug = await createE2eProfile({
+      request,
+      e2eToken,
+      runId,
+      profileType: "person",
+      displayName: `Playwright VRChat Proof ${runSuffix}`,
+      tags: ["playwright", "vrchat-proof"],
+      roleTags: ["Proof test profile"],
+    });
+    vrcLinkingPersonSlug = await createE2eProfile({
+      request,
+      e2eToken,
+      runId,
+      profileType: "person",
+      displayName: `Playwright VRCLinking Proof ${runSuffix}`,
+      tags: ["playwright", "vrclinking-proof"],
+      roleTags: ["Proof test profile"],
+    });
+
+    await createVerifiedE2eAccount({ page, request, e2eToken, email, password });
+    await linkDiscordAccount(request, e2eToken, email, `discord-${runSuffix}`);
+
+    await page.goto("/account");
+    await page.getByLabel("Community slug").fill(communitySlug!);
+    await page.getByLabel("Discord guild ID").fill(`e2e-guild-${runSuffix}`);
+    await page.getByLabel("Guild name").fill(`E2E Guild ${runSuffix}`);
+    await page.getByRole("button", { name: "Request admin claim" }).click();
+    await expect(page.getByText(/Community claim request created/i)).toBeVisible();
+    await page.getByRole("button", { name: "Check Discord admin" }).click();
+    await expect(page.getByText(/Community claim verified as claimed verified/i)).toBeVisible();
+
+    await page.goto(`/c/${communitySlug}`);
+    await expect(page.getByRole("heading", { name: `Playwright Community ${runSuffix}` })).toBeVisible();
+    await expect(page.getByText("Verified owner", { exact: true })).toBeVisible();
+
+    await page.goto("/account");
+    await page.getByLabel("Profile slug").fill(vrchatPersonSlug!);
+    await page.getByLabel("Target type").selectOption("vrchat_user");
+    await page.getByLabel("Target ID").fill(`e2e-vrchat-${runSuffix}`);
+    await page.getByRole("button", { name: "Create proof code" }).click();
+    await expect(page.getByText(/Proof code created/i)).toBeVisible();
+    await expect(page.getByText(/VRDEX-/)).toBeVisible();
+    await page.getByRole("button", { name: "Check proof now" }).click();
+    await expect(page.getByText(/Proof verified as claimed verified/i)).toBeVisible();
+
+    await page.goto(`/p/${vrchatPersonSlug}`);
+    await expect(page.getByRole("heading", { name: `Playwright VRChat Proof ${runSuffix}` })).toBeVisible();
+    await expect(page.getByText("Verified owner", { exact: true })).toBeVisible();
+
+    await page.goto("/account");
+    await page.getByLabel("Profile slug").fill(vrcLinkingPersonSlug!);
+    await page.getByLabel("Target type").selectOption("vrclinking");
+    await page.getByLabel("Target ID").fill(`e2e-vrclinking-${runSuffix}`);
+    await page.getByRole("button", { name: "Create proof code" }).click();
+    await expect(page.getByText(/Proof code created/i)).toBeVisible();
+    await expect(page.getByText(/VRDEX-/)).toBeVisible();
+    await page.getByRole("button", { name: "Check proof now" }).click();
+    await expect(page.getByText(/Proof verified as claimed verified/i)).toBeVisible();
+
+    await page.goto(`/p/${vrcLinkingPersonSlug}`);
+    await expect(page.getByRole("heading", { name: `Playwright VRCLinking Proof ${runSuffix}` })).toBeVisible();
+    await expect(page.getByText("Verified owner", { exact: true })).toBeVisible();
+  } finally {
+    await cleanupAuthAndProfiles(
+      request,
+      e2eToken,
+      email,
+      [communitySlug, vrchatPersonSlug, vrcLinkingPersonSlug],
+      runId,
+    );
   }
 });
 

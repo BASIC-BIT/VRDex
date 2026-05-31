@@ -37,8 +37,14 @@ const localE2eHelperEnv = hostedBaseURL
   : {
       VRDEX_ENABLE_E2E_HELPERS: e2eHelpersEnabled ?? "true",
       VRDEX_ENABLE_E2E_AUTH_HELPERS: process.env.VRDEX_ENABLE_E2E_AUTH_HELPERS ?? "true",
+      VRDEX_ENABLE_E2E_ADAPTER_HELPERS: process.env.VRDEX_ENABLE_E2E_ADAPTER_HELPERS ?? "true",
       VRDEX_E2E_BROWSER_TOKEN: process.env.VRDEX_E2E_BROWSER_TOKEN ?? "local-playwright-token",
       VRDEX_E2E_CONVEX_SECRET: process.env.VRDEX_E2E_CONVEX_SECRET ?? "local-convex-e2e-secret",
+      DISCORD_API_BASE_URL: process.env.DISCORD_API_BASE_URL ?? `${baseURL}/api/e2e/adapters/discord`,
+      DISCORD_BOT_TOKEN: process.env.DISCORD_BOT_TOKEN ?? "local-discord-adapter-token",
+      VRCHAT_PROOF_ADAPTER_URL: process.env.VRCHAT_PROOF_ADAPTER_URL ?? `${baseURL}/api/e2e/adapters/vrchat-proof`,
+      VRCLINKING_PROOF_ADAPTER_URL: process.env.VRCLINKING_PROOF_ADAPTER_URL ?? `${baseURL}/api/e2e/adapters/vrchat-proof`,
+      VRCHAT_PROOF_ADAPTER_BEARER_TOKEN: process.env.VRCHAT_PROOF_ADAPTER_BEARER_TOKEN ?? "local-proof-adapter-token",
     };
 
 if (!hostedBaseURL) {

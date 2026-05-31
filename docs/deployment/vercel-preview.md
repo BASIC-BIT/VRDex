@@ -42,6 +42,8 @@ Set these in the Vercel project as needed:
 - `NEXT_PUBLIC_CONVEX_URL`: optional for a shell-only preview; set to the hosted Convex deployment URL for live backend reads.
 - `VRDEX_REQUIRE_CONVEX_URL=true`: optional; use when previews must fail instead of showing missing-backend states.
 - `NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY=false`: legacy flag; auth-backed submissions now rely on Convex Auth configuration.
+- `NEXT_PUBLIC_POSTHOG_KEY`: optional public PostHog project key; BASIC BIT hosted deployments should set this through `infra/terraform/vercel` for PostHog project `447783`.
+- `NEXT_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com`: optional PostHog ingestion host; also managed through `infra/terraform/vercel` for hosted deployments.
 
 Do not set `VRDEX_ENABLE_PLAYWRIGHT_FIXTURES` in Vercel. Fixture profiles are for Playwright-only local/CI preview screenshots and must not be exposed from hosted previews.
 
@@ -51,8 +53,11 @@ Hosted dev/staging E2E targets must set these only on the dev/staging environmen
 - `VRDEX_E2E_BROWSER_TOKEN`: same value as the GitHub Actions secret `VRDEX_HOSTED_E2E_BROWSER_TOKEN`
 - `VRDEX_E2E_CONVEX_SECRET`: non-empty sentinel matching the Convex deployment secret name
 - `VRDEX_ENABLE_E2E_AUTH_HELPERS=true`: optional staging-only switch for auth/claim E2E helper routes; keep unset until that flow is intentionally enabled
+- `VRDEX_ENABLE_E2E_ADAPTER_HELPERS=true`: optional staging-only switch for Discord and VRChat/VRCLinking adapter stubs; keep unset until that flow is intentionally enabled
+- `DISCORD_BOT_TOKEN`: optional staging-only adapter token when hosted adapter E2E is enabled
+- `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`: optional staging-only adapter token when hosted adapter E2E is enabled
 
-Production should keep `VRDEX_ENABLE_E2E_HELPERS=false` or unset, should keep `VRDEX_ENABLE_E2E_AUTH_HELPERS` unset, and should not set `VRDEX_ALLOW_PRODUCTION_E2E_HELPERS` unless a human explicitly approves a temporary incident/debug window.
+Production should keep `VRDEX_ENABLE_E2E_HELPERS=false` or unset, should keep `VRDEX_ENABLE_E2E_AUTH_HELPERS` and `VRDEX_ENABLE_E2E_ADAPTER_HELPERS` unset, and should not set `VRDEX_ALLOW_PRODUCTION_E2E_HELPERS` unless a human explicitly approves a temporary incident/debug window.
 
 Preview deployment protection must allow unauthenticated reads if the PR preview is meant to be reviewed outside the Vercel dashboard.
 
@@ -82,10 +87,16 @@ The `staging` Vercel environment points at the shared Convex development deploym
 - `VRDEX_E2E_BROWSER_TOKEN`: sensitive value matching GitHub Actions secret `VRDEX_HOSTED_E2E_BROWSER_TOKEN`
 - `VRDEX_E2E_CONVEX_SECRET`: sensitive value matching Convex dev env `VRDEX_E2E_CONVEX_SECRET`
 - `VRDEX_ENABLE_E2E_AUTH_HELPERS`: unset until hosted auth/claim E2E is intentionally enabled
+- `VRDEX_ENABLE_E2E_ADAPTER_HELPERS`: unset until hosted adapter E2E is intentionally enabled
+- `DISCORD_BOT_TOKEN`: unset until hosted adapter E2E is intentionally enabled
+- `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`: unset until hosted adapter E2E is intentionally enabled
 
 GitHub Actions uses these repository settings for hosted mutation health:
 
 - variable `VRDEX_HOSTED_E2E_BASE_URL=https://staging.vrdex.net`
+- variable `VRDEX_HOSTED_E2E_EXTENDED_PROFILE_FLOW=true`: optional, only after staging has deployed the E2E profile helper route version that accepts extended profile fields
+- variable `VRDEX_HOSTED_E2E_AUTH_HELPERS=true`: optional, only after hosted auth helpers are enabled in Vercel staging and Convex dev
+- variable `VRDEX_HOSTED_E2E_ADAPTER_HELPERS=true`: optional, only after hosted adapter helpers are enabled in Vercel staging and Convex dev
 - secret `VRDEX_HOSTED_E2E_BROWSER_TOKEN`
 
 The `Staging Deploy` workflow runs after `Baseline Checks` succeeds on `main` and can also be run manually. It requires these settings:
@@ -104,6 +115,7 @@ The Vercel build runs `pnpm build:vercel`, which executes `apps/web/scripts/chec
 The validation fails when:
 
 - Playwright fixtures are enabled.
+- Any E2E helper switch is enabled for a production Vercel build.
 - public submissions are marked auth-ready before auth exists.
 - `NEXT_PUBLIC_CONVEX_URL` is invalid.
 - `NEXT_PUBLIC_CONVEX_URL` points at localhost during a Vercel build.

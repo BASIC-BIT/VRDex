@@ -7,6 +7,29 @@ import { sanitizeCommunitySubmissionProfileInput } from "./_profileSubmissions";
 import { createProfileSearchDocument, upsertSearchDocument } from "./_searchDocuments";
 
 const profileType = v.union(v.literal("person"), v.literal("community"));
+const fieldVisibilityState = v.union(v.literal("public"), v.literal("unlisted"), v.literal("private"));
+const fieldVisibility = v.object({
+  aliases: v.optional(fieldVisibilityState),
+  tags: v.optional(fieldVisibilityState),
+  headline: v.optional(fieldVisibilityState),
+  bio: v.optional(fieldVisibilityState),
+  about: v.optional(fieldVisibilityState),
+  avatarImageUrl: v.optional(fieldVisibilityState),
+  bannerImageUrl: v.optional(fieldVisibilityState),
+  outboundLinks: v.optional(fieldVisibilityState),
+  region: v.optional(fieldVisibilityState),
+  timezone: v.optional(fieldVisibilityState),
+  personPronouns: v.optional(fieldVisibilityState),
+  personRoleTags: v.optional(fieldVisibilityState),
+  communitySubtype: v.optional(fieldVisibilityState),
+  communityCategoryTags: v.optional(fieldVisibilityState),
+});
+
+function optionalText(value: string | undefined, maxLength = 500) {
+  const trimmed = value?.trim();
+
+  return trimmed ? trimmed.slice(0, maxLength) : undefined;
+}
 
 function requireE2eHelper(secret?: string) {
   const expectedSecret = process.env.VRDEX_E2E_CONVEX_SECRET?.trim();
@@ -219,8 +242,15 @@ export const submitProfile = mutation({
     displayName: v.string(),
     aliases: v.optional(v.array(v.string())),
     tags: v.optional(v.array(v.string())),
+    headline: v.optional(v.string()),
+    bio: v.optional(v.string()),
+    about: v.optional(v.string()),
+    region: v.optional(v.string()),
+    timezone: v.optional(v.string()),
+    fieldVisibility: v.optional(fieldVisibility),
     person: v.optional(
       v.object({
+        pronouns: v.optional(v.string()),
         roleTags: v.optional(v.array(v.string())),
       }),
     ),
@@ -246,12 +276,24 @@ export const submitProfile = mutation({
         displayName: "Playwright E2E",
       },
     };
+    const headline = optionalText(args.headline, 160);
+    const bio = optionalText(args.bio, 600);
+    const about = optionalText(args.about, 1_200);
+    const region = optionalText(args.region, 80);
+    const timezone = optionalText(args.timezone, 80);
+    const pronouns = optionalText(args.person?.pronouns, 80);
     const sharedFields = {
       slug,
       displayName: input.displayName,
       sortName: input.sortName,
       aliases: input.aliases,
       tags: input.tags,
+      ...(headline !== undefined ? { headline } : {}),
+      ...(bio !== undefined ? { bio } : {}),
+      ...(about !== undefined ? { about } : {}),
+      ...(region !== undefined ? { region } : {}),
+      ...(timezone !== undefined ? { timezone } : {}),
+      ...(args.fieldVisibility !== undefined ? { fieldVisibility: args.fieldVisibility } : {}),
       outboundLinks: [],
       claimState: "unclaimed" as const,
       publicationState: "published" as const,
@@ -269,7 +311,10 @@ export const submitProfile = mutation({
         ? {
             ...sharedFields,
             profileType: "person",
-            person: { roleTags: input.person.roleTags },
+            person: {
+              ...(pronouns !== undefined ? { pronouns } : {}),
+              roleTags: input.person.roleTags,
+            },
           }
         : {
             ...sharedFields,

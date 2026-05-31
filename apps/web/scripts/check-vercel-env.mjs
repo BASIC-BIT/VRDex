@@ -1,5 +1,6 @@
 const isVercel = process.env.VERCEL === "1" || process.env.VERCEL === "true";
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+const posthogHost = process.env.NEXT_PUBLIC_POSTHOG_HOST;
 const requireConvexUrl = process.env.VRDEX_REQUIRE_CONVEX_URL === "true";
 
 const errors = [];
@@ -24,6 +25,18 @@ if (process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES === "true") {
   errors.push("VRDEX_ENABLE_PLAYWRIGHT_FIXTURES must not be enabled for Vercel builds.");
 }
 
+if (isVercel && process.env.VERCEL_ENV === "production") {
+  for (const name of [
+    "VRDEX_ENABLE_E2E_HELPERS",
+    "VRDEX_ENABLE_E2E_AUTH_HELPERS",
+    "VRDEX_ENABLE_E2E_ADAPTER_HELPERS",
+  ]) {
+    if (process.env[name] === "true") {
+      errors.push(`${name} must not be enabled for production Vercel builds.`);
+    }
+  }
+}
+
 if (process.env.NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY === "true") {
   errors.push("NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY must stay false until web auth is wired.");
 }
@@ -41,6 +54,17 @@ if (convexUrl) {
   errors.push("NEXT_PUBLIC_CONVEX_URL is required because VRDEX_REQUIRE_CONVEX_URL=true.");
 } else if (isVercel) {
   warnings.push("NEXT_PUBLIC_CONVEX_URL is not set; the hosted app will render missing-backend states.");
+}
+
+if (posthogHost) {
+  const parsedPosthogHost = parseUrl("NEXT_PUBLIC_POSTHOG_HOST", posthogHost);
+
+  if (isVercel && parsedPosthogHost) {
+    const host = parsedPosthogHost.hostname.toLowerCase();
+    if (host === "localhost" || host === "127.0.0.1" || host.endsWith(".local")) {
+      errors.push("NEXT_PUBLIC_POSTHOG_HOST must not point at a local backend for Vercel builds.");
+    }
+  }
 }
 
 for (const warning of warnings) {

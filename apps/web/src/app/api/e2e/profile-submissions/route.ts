@@ -32,6 +32,25 @@ function convexClient() {
   return new ConvexHttpClient(convexUrl);
 }
 
+function stringArray(value: unknown) {
+  return Array.isArray(value) ? value.map(String) : [];
+}
+
+function optionalString(value: unknown) {
+  return typeof value === "string" ? value : undefined;
+}
+
+function fieldVisibility(value: unknown) {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const allowed = new Set(["public", "unlisted", "private"]);
+  const entries = Object.entries(value).filter((entry): entry is [string, "public" | "unlisted" | "private"] => allowed.has(String(entry[1])));
+
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
 export async function POST(request: NextRequest) {
   const convexSecret = requireE2eRequest(request);
 
@@ -50,14 +69,20 @@ export async function POST(request: NextRequest) {
     runId: String(body.runId ?? "playwright"),
     profileType: body.profileType === "community" ? "community" : "person",
     displayName: String(body.displayName ?? ""),
-    aliases: Array.isArray(body.aliases) ? body.aliases.map(String) : [],
-    tags: Array.isArray(body.tags) ? body.tags.map(String) : [],
-    person: body.profileType === "community" ? undefined : { roleTags: Array.isArray(body.roleTags) ? body.roleTags.map(String) : [] },
+    aliases: stringArray(body.aliases),
+    tags: stringArray(body.tags),
+    headline: optionalString(body.headline),
+    bio: optionalString(body.bio),
+    about: optionalString(body.about),
+    region: optionalString(body.region),
+    timezone: optionalString(body.timezone),
+    fieldVisibility: fieldVisibility(body.fieldVisibility),
+    person: body.profileType === "community" ? undefined : { pronouns: optionalString(body.pronouns), roleTags: stringArray(body.roleTags) },
     community:
       body.profileType === "community"
         ? {
-            subtype: typeof body.subtype === "string" ? body.subtype : undefined,
-            categoryTags: Array.isArray(body.categoryTags) ? body.categoryTags.map(String) : [],
+            subtype: optionalString(body.subtype),
+            categoryTags: stringArray(body.categoryTags),
           }
         : undefined,
   });

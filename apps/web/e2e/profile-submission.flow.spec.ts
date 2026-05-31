@@ -78,6 +78,76 @@ test("profile submission writes through to public profile and discovery @flow", 
   }
 });
 
+test("profile field visibility keeps unlisted fields on profiles and out of discovery @flow", async ({ page, request }, testInfo) => {
+  test.skip(
+    Boolean(process.env.PLAYWRIGHT_BASE_URL) && process.env.VRDEX_ENABLE_E2E_EXTENDED_PROFILE_FLOW !== "true",
+    "Hosted extended profile flow is not enabled for this target.",
+  );
+
+  const e2eToken = e2eBrowserToken();
+  const runId = e2eRunId(testInfo);
+  const runSuffix = runId.replace(/^playwright-?/, "").slice(0, 48);
+  const displayName = `Playwright Visibility ${runSuffix}`;
+  const directOnlyToken = runSuffix.replace(/-/g, "").split("").reverse().join("").slice(0, 20);
+  const directOnlyAlias = `AliasOnly ${directOnlyToken}`;
+  const directOnlyBio = `DirectOnlyBio ${directOnlyToken}`;
+  const privateRole = `role-${runSuffix.slice(0, 20)}`;
+  const publicTag = `vis-${runSuffix.slice(0, 20)}`;
+  let createdSlug: string | undefined;
+
+  try {
+    const profileResponse = await request.post("/api/e2e/profile-submissions", {
+      headers: { "x-vrdex-e2e-token": e2eToken },
+      data: {
+        runId,
+        profileType: "person",
+        displayName,
+        aliases: [directOnlyAlias],
+        tags: [publicTag],
+        roleTags: [privateRole],
+        bio: directOnlyBio,
+        fieldVisibility: {
+          aliases: "unlisted",
+          bio: "unlisted",
+          personRoleTags: "private",
+        },
+      },
+    });
+    await expect(profileResponse).toBeOK();
+    const profile = (await profileResponse.json()) as { slug?: string };
+    createdSlug = profile.slug;
+    expect(createdSlug).toBeTruthy();
+
+    await page.goto(`/p/${createdSlug}`);
+    await expect(page.getByRole("heading", { name: displayName })).toBeVisible();
+    await expect(page.getByText(directOnlyAlias)).toBeVisible();
+    await expect(page.getByText(directOnlyBio).first()).toBeVisible();
+    await expect(page.getByText(privateRole)).toHaveCount(0);
+
+    await page.goto(`/discover?q=${encodeURIComponent(directOnlyAlias)}`);
+    await expect(page.getByText("No public results matched that search yet.")).toBeVisible();
+    await expect(page.getByText(displayName, { exact: true })).toHaveCount(0);
+
+    await page.goto(`/discover?q=${encodeURIComponent(directOnlyBio)}`);
+    await expect(page.getByText("No public results matched that search yet.")).toBeVisible();
+    await expect(page.getByText(displayName, { exact: true })).toHaveCount(0);
+
+    await page.goto(`/discover?q=${encodeURIComponent(publicTag)}`);
+    await expect(page.getByText(displayName, { exact: true })).toBeVisible();
+    await expect(page.getByText(directOnlyBio)).toHaveCount(0);
+    await expect(page.getByText(privateRole)).toHaveCount(0);
+  } finally {
+    if (createdSlug || runId) {
+      const cleanupResponse = await request.delete("/api/e2e/profile-submissions", {
+        headers: { "x-vrdex-e2e-token": e2eToken },
+        data: createdSlug ? { slug: createdSlug, runId } : { runId },
+      });
+
+      await expect(cleanupResponse).toBeOK();
+    }
+  }
+});
+
 test("E2E profile helper stays gated without the browser token @flow", async ({ page, request }) => {
   const e2eToken = e2eBrowserToken();
   const payload = {

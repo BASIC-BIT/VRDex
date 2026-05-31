@@ -1,0 +1,5 @@
+posthog_host            = "https://us.posthog.com"
+posthog_organization_id = "019e59b2-c822-0000-8123-12efe322af2d"
+posthog_project_id      = 447783
+posthog_project_name    = "VRDex Analytics"
+posthog_timezone        = "UTC"

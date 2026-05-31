@@ -38,6 +38,12 @@ Development/staging Convex env names:
 - `VRDEX_ENABLE_E2E_HELPERS=true`
 - `VRDEX_E2E_CONVEX_SECRET`: non-empty sentinel also configured in the hosted app environment
 - `VRDEX_ENABLE_E2E_AUTH_HELPERS=true`: optional, only when hosted auth/claim E2E is intentionally enabled
+- `VRDEX_ENABLE_E2E_ADAPTER_HELPERS=true`: optional, only when hosted adapter E2E is intentionally enabled
+- `DISCORD_API_BASE_URL`: optional hosted adapter stub base URL, usually `https://staging.vrdex.net/api/e2e/adapters/discord`
+- `DISCORD_BOT_TOKEN`: staging-only adapter token matching the hosted app environment
+- `VRCHAT_PROOF_ADAPTER_URL`: optional hosted adapter stub URL, usually `https://staging.vrdex.net/api/e2e/adapters/vrchat-proof`
+- `VRCLINKING_PROOF_ADAPTER_URL`: optional hosted adapter stub URL, usually `https://staging.vrdex.net/api/e2e/adapters/vrchat-proof`
+- `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`: staging-only adapter token matching the hosted app environment
 
 The browser-facing token stays in the web host and GitHub Actions as `VRDEX_E2E_BROWSER_TOKEN` / `VRDEX_HOSTED_E2E_BROWSER_TOKEN`; it is not needed by Convex.
 
@@ -56,7 +62,16 @@ Candidate direction: use readable Convex Cloud custom domains once the deploymen
 - development/staging Convex API: `convex.staging.vrdex.net`
 - production Convex API: `convex.vrdex.net`
 
-Convex Cloud custom domains are configured from each deployment's dashboard settings and require a Convex Pro plan. Do not create Route 53 records alone; Convex must first provide the deployment-specific DNS records and certificate binding. After binding a custom Convex function domain, update the matching Vercel environment `NEXT_PUBLIC_CONVEX_URL` and `CONVEX_URL`, then redeploy the web app and rerun deployed health.
+Convex Cloud custom domains are configured from each deployment's dashboard settings and require a Convex Pro plan. Do not create Route 53 records alone; Convex must first provide the deployment-specific DNS records and certificate binding.
+
+Runbook once Convex Pro is enabled:
+
+1. In the Convex dashboard for `scrupulous-corgi-247`, request `convex.staging.vrdex.net` as the development/staging custom domain.
+2. In the Convex dashboard for `superb-pig-954`, request `convex.vrdex.net` as the production custom domain.
+3. Copy the exact DNS records Convex provides into Route 53 for the public hosted zone `vrdex.net`.
+4. Wait for Convex certificate/domain status to become active.
+5. Update the matching Vercel environment `NEXT_PUBLIC_CONVEX_URL` and `CONVEX_URL` values.
+6. Rerun `Staging Deploy` for staging and deployed health for production.
 
 ## Notes
 

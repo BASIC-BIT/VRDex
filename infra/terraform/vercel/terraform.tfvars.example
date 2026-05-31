@@ -1,0 +1,15 @@
+vercel_team_id      = "team_GoHh5xUc96fAIAqJoG55A71S"
+vercel_project_name = "vr-dex-web"
+
+posthog_project_id   = 447783
+posthog_project_name = "VRDex Analytics"
+posthog_host         = "https://us.i.posthog.com"
+
+# Set this in local terraform.tfvars from the PostHog project settings.
+posthog_public_key = "phc_REPLACE_WITH_VRDEX_ANALYTICS_PROJECT_KEY"
+
+manage_production_environment = true
+manage_preview_environment    = true
+
+# Add the Vercel custom environment ID for staging after discovering it from Vercel.
+# staging_custom_environment_ids = ["env_REPLACE_WITH_STAGING_CUSTOM_ENVIRONMENT_ID"]

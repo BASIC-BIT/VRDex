@@ -127,6 +127,16 @@ Examples:
 
 Current discovery instrumentation uses PostHog when `NEXT_PUBLIC_POSTHOG_KEY` is configured and otherwise no-ops safely.
 
+Locked hosted project:
+
+- organization: `BASIC BIT LLC`
+- project: `VRDex Analytics`
+- project ID: `447783`
+- app host: `https://us.posthog.com/project/447783/home`
+- ingestion host: `https://us.i.posthog.com`
+
+The hosted PostHog project is managed/imported through `infra/terraform/posthog`. Hosted Vercel env vars for this project are managed by `infra/terraform/vercel`. Keep the public project key out of committed defaults so forks and self-hosted installs do not accidentally send analytics into the BASIC BIT project.
+
 Initial events:
 
 - `search_submitted`
