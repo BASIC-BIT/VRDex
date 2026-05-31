@@ -69,7 +69,8 @@ function ClaimActions({ emailVerified, hasDiscord }: { emailVerified: boolean; h
 
   async function submitDiscordPersonClaim(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const formData = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const formData = new FormData(form);
 
     setStatus({ kind: "submitting", label: "Claiming person profile..." });
 
@@ -85,7 +86,7 @@ function ClaimActions({ emailVerified, hasDiscord }: { emailVerified: boolean; h
           href: result.profilePath,
         }),
       );
-      event.currentTarget.reset();
+      form.reset();
     } catch (error) {
       startTransition(() => setStatus({ kind: "error", message: claimErrorMessage(error) }));
     }
@@ -93,7 +94,8 @@ function ClaimActions({ emailVerified, hasDiscord }: { emailVerified: boolean; h
 
   async function submitCommunityDiscordClaim(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const formData = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const formData = new FormData(form);
 
     setStatus({ kind: "submitting", label: "Requesting community claim..." });
 
@@ -114,7 +116,7 @@ function ClaimActions({ emailVerified, hasDiscord }: { emailVerified: boolean; h
           ...("claimRequestId" in result ? { claimRequestId: result.claimRequestId } : {}),
         }),
       );
-      event.currentTarget.reset();
+      form.reset();
     } catch (error) {
       startTransition(() => setStatus({ kind: "error", message: claimErrorMessage(error) }));
     }
@@ -122,7 +124,8 @@ function ClaimActions({ emailVerified, hasDiscord }: { emailVerified: boolean; h
 
   async function submitVrchatProof(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const formData = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const formData = new FormData(form);
 
     setStatus({ kind: "submitting", label: "Creating proof code..." });
 
@@ -141,7 +144,7 @@ function ClaimActions({ emailVerified, hasDiscord }: { emailVerified: boolean; h
           attemptId: result.attemptId,
         }),
       );
-      event.currentTarget.reset();
+      form.reset();
     } catch (error) {
       startTransition(() => setStatus({ kind: "error", message: claimErrorMessage(error) }));
     }

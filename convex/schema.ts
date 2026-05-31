@@ -576,6 +576,12 @@ export default defineSchema({
   })
     .index("by_profileId_createdAt", ["profileId", "createdAt"])
     .index("by_action_createdAt", ["action", "createdAt"]),
+  e2eAuthCodes: defineTable({
+    email: v.string(),
+    code: v.string(),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+  }).index("by_email", ["email"]),
   vocabularyTerms: defineTable({
     scope: vocabularyScope,
     key: v.string(),

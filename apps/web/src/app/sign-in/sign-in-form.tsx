@@ -1,6 +1,7 @@
 "use client";
 
 import { useAuthActions } from "@convex-dev/auth/react";
+import { useRouter } from "next/navigation";
 import { FormEvent, useState, useTransition } from "react";
 
 type PasswordMode = "signIn" | "signUp" | "email-verification";
@@ -37,6 +38,7 @@ function stringField(value: FormDataEntryValue | null): string {
 
 function ConnectedSignInForm() {
   const { signIn } = useAuthActions();
+  const router = useRouter();
   const [mode, setMode] = useState<PasswordMode>("signIn");
   const [status, setStatus] = useState<AuthStatus>({ kind: "idle" });
   const [, startTransition] = useTransition();
@@ -51,19 +53,31 @@ function ConnectedSignInForm() {
 
     try {
       if (mode === "email-verification") {
-        await signIn("password", {
+        const result = await signIn("password", {
           email,
           code: stringField(formData.get("code")),
           flow: "email-verification",
         });
+
+        if (!result.signingIn) {
+          startTransition(() => setStatus({ kind: "error", message: "Verification code did not match or expired." }));
+          return;
+        }
+
+        router.replace("/account");
         return;
       }
 
-      await signIn("password", {
+      const result = await signIn("password", {
         email,
         password: stringField(formData.get("password")),
         flow: mode,
       });
+
+      if (result.signingIn) {
+        router.replace("/account");
+        return;
+      }
 
       startTransition(() => setStatus({ kind: "verify-email", email }));
       setMode("email-verification");
