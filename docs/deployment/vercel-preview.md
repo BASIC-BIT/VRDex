@@ -92,6 +92,7 @@ The `staging` Vercel environment points at the shared Convex development deploym
 GitHub Actions uses these repository settings for hosted mutation health:
 
 - variable `VRDEX_HOSTED_E2E_BASE_URL=https://staging.vrdex.net`
+- variable `VRDEX_HOSTED_E2E_EXTENDED_PROFILE_FLOW=true`: optional, only after staging has deployed the E2E profile helper route version that accepts extended profile fields
 - variable `VRDEX_HOSTED_E2E_AUTH_HELPERS=true`: optional, only after hosted auth helpers are enabled in Vercel staging and Convex dev
 - variable `VRDEX_HOSTED_E2E_ADAPTER_HELPERS=true`: optional, only after hosted adapter helpers are enabled in Vercel staging and Convex dev
 - secret `VRDEX_HOSTED_E2E_BROWSER_TOKEN`

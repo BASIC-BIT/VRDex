@@ -118,6 +118,8 @@ Hosted dev/staging targets must be configured outside this repository before run
 - Convex env: `VRDEX_ENABLE_E2E_HELPERS=true`
 - Convex env: `VRDEX_E2E_CONVEX_SECRET=<non-empty sentinel>`
 
+Hosted extended profile field-visibility E2E additionally requires repository variable `VRDEX_HOSTED_E2E_EXTENDED_PROFILE_FLOW=true`. Keep it unset until the hosted target has deployed the E2E profile helper version that accepts aliases, bio, role tags, and `fieldVisibility` in helper payloads.
+
 Hosted auth/claim E2E additionally requires `VRDEX_ENABLE_E2E_AUTH_HELPERS=true` in both the hosted app and Convex deployment. Keep it unset until the staging auth flow is intentionally enabled; production must never enable it.
 
 Hosted adapter E2E additionally requires `VRDEX_ENABLE_E2E_ADAPTER_HELPERS=true` in the hosted app and these Convex env values on the shared development deployment:
@@ -128,7 +130,7 @@ Hosted adapter E2E additionally requires `VRDEX_ENABLE_E2E_ADAPTER_HELPERS=true`
 - `VRCLINKING_PROOF_ADAPTER_URL=<hosted app URL>/api/e2e/adapters/vrchat-proof`
 - `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN=<staging-only adapter token>`
 
-GitHub Actions only runs hosted auth and adapter flows when repository variables `VRDEX_HOSTED_E2E_AUTH_HELPERS=true` and `VRDEX_HOSTED_E2E_ADAPTER_HELPERS=true` are set. Keep both unset until the matching hosted app and Convex env values are configured.
+GitHub Actions only runs hosted extended profile, auth, and adapter flows when repository variables `VRDEX_HOSTED_E2E_EXTENDED_PROFILE_FLOW=true`, `VRDEX_HOSTED_E2E_AUTH_HELPERS=true`, and `VRDEX_HOSTED_E2E_ADAPTER_HELPERS=true` are set. Keep the optional variables unset until the matching hosted app and Convex capabilities are configured.
 
 `VERCEL_ENV=production` blocks the E2E route unless `VRDEX_ALLOW_PRODUCTION_E2E_HELPERS=true` is explicitly set. Keep that override unset for VRDex production.
 
@@ -153,7 +155,7 @@ The optional `Playwright Hosted Data Flow` job runs on pull requests only when b
 - repository variable `VRDEX_HOSTED_E2E_BASE_URL`
 - repository secret `VRDEX_HOSTED_E2E_BROWSER_TOKEN`
 
-When configured, the job runs `pnpm test:e2e:hosted` with `PLAYWRIGHT_BASE_URL`, `PLAYWRIGHT_SKIP_WEBSERVERS=true`, `PLAYWRIGHT_RECORD_VIDEO=true`, and a GitHub Actions run-scoped `VRDEX_E2E_RUN_ID`. Auth and adapter flows skip unless `VRDEX_HOSTED_E2E_AUTH_HELPERS` and `VRDEX_HOSTED_E2E_ADAPTER_HELPERS` are explicitly set to `true`.
+When configured, the job runs `pnpm test:e2e:hosted` with `PLAYWRIGHT_BASE_URL`, `PLAYWRIGHT_SKIP_WEBSERVERS=true`, `PLAYWRIGHT_RECORD_VIDEO=true`, and a GitHub Actions run-scoped `VRDEX_E2E_RUN_ID`. Extended profile, auth, and adapter flows skip unless `VRDEX_HOSTED_E2E_EXTENDED_PROFILE_FLOW`, `VRDEX_HOSTED_E2E_AUTH_HELPERS`, and `VRDEX_HOSTED_E2E_ADAPTER_HELPERS` are explicitly set to `true`.
 
 The `Deployed Health Checks` workflow runs after merges to `main`, after successful GitHub deployment status events for production deployments, on a daily schedule, and through manual dispatch. It has two independent checks:
 

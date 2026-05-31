@@ -79,6 +79,11 @@ test("profile submission writes through to public profile and discovery @flow", 
 });
 
 test("profile field visibility keeps unlisted fields on profiles and out of discovery @flow", async ({ page, request }, testInfo) => {
+  test.skip(
+    Boolean(process.env.PLAYWRIGHT_BASE_URL) && process.env.VRDEX_ENABLE_E2E_EXTENDED_PROFILE_FLOW !== "true",
+    "Hosted extended profile flow is not enabled for this target.",
+  );
+
   const e2eToken = e2eBrowserToken();
   const runId = e2eRunId(testInfo);
   const runSuffix = runId.replace(/^playwright-?/, "").slice(0, 48);
