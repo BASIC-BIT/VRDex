@@ -19,7 +19,7 @@ function requireE2eRequest(request: NextRequest) {
     return null;
   }
 
-  return true;
+  return convexSecret;
 }
 
 function convexClient() {
@@ -33,9 +33,9 @@ function convexClient() {
 }
 
 export async function POST(request: NextRequest) {
-  const allowed = requireE2eRequest(request);
+  const convexSecret = requireE2eRequest(request);
 
-  if (allowed === null) {
+  if (convexSecret === null) {
     return e2eError("E2E helpers are not enabled for this request.");
   }
 
@@ -46,6 +46,7 @@ export async function POST(request: NextRequest) {
   const body = rawBody as Record<string, unknown>;
 
   const result = await convexClient().mutation(api.e2e.submitProfile, {
+    secret: convexSecret,
     runId: String(body.runId ?? "playwright"),
     profileType: body.profileType === "community" ? "community" : "person",
     displayName: String(body.displayName ?? ""),
@@ -65,9 +66,9 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const allowed = requireE2eRequest(request);
+  const convexSecret = requireE2eRequest(request);
 
-  if (allowed === null) {
+  if (convexSecret === null) {
     return e2eError("E2E helpers are not enabled for this request.");
   }
 
@@ -85,8 +86,8 @@ export async function DELETE(request: NextRequest) {
   }
 
   const result = slug
-    ? await convexClient().mutation(api.e2e.cleanupProfileBySlug, { slug })
-    : await convexClient().mutation(api.e2e.cleanupProfilesByRunId, { runId });
+    ? await convexClient().mutation(api.e2e.cleanupProfileBySlug, { secret: convexSecret, slug })
+    : await convexClient().mutation(api.e2e.cleanupProfilesByRunId, { secret: convexSecret, runId });
 
   return NextResponse.json(result);
 }

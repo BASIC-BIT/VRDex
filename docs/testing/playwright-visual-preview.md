@@ -102,6 +102,8 @@ The helper route is disabled unless all of these are true:
 - `VRDEX_E2E_BROWSER_TOKEN` is configured and matches the request cookie or header
 - `VRDEX_E2E_CONVEX_SECRET` is configured for the server route and Convex helper deployment
 
+The browser token gates the Next.js helper route. The Convex secret is never sent to the browser; the server route passes it to the public Convex E2E mutations so direct Convex calls also need the matching deployment secret.
+
 Auth helper routes also require `VRDEX_ENABLE_E2E_AUTH_HELPERS=true` and only accept `@e2e.vrdex.local` emails. Local Playwright webserver runs set this automatically; hosted staging must opt in explicitly before hosted auth/claim flows run.
 
 Do not enable these helpers in production. They are for local, CI, and disposable preview/dev deployments.

@@ -8,16 +8,20 @@ import { createProfileSearchDocument, upsertSearchDocument } from "./_searchDocu
 
 const profileType = v.union(v.literal("person"), v.literal("community"));
 
-function requireE2eHelper() {
+function requireE2eHelper(secret?: string) {
   const expectedSecret = process.env.VRDEX_E2E_CONVEX_SECRET?.trim();
 
   if (process.env.VRDEX_ENABLE_E2E_HELPERS !== "true" || !expectedSecret) {
     throw new Error("E2E helpers are not enabled for this deployment.");
   }
+
+  if (secret !== undefined && secret !== expectedSecret) {
+    throw new Error("E2E helper secret did not match this deployment.");
+  }
 }
 
-function requireE2eAuthHelper() {
-  requireE2eHelper();
+function requireE2eAuthHelper(secret?: string) {
+  requireE2eHelper(secret);
 
   if (process.env.VRDEX_ENABLE_E2E_AUTH_HELPERS !== "true") {
     throw new Error("E2E auth helpers are not enabled for this deployment.");
@@ -127,10 +131,11 @@ export const recordAuthCode = internalMutation({
 
 export const consumeAuthCode = mutation({
   args: {
+    secret: v.string(),
     email: v.string(),
   },
   handler: async (ctx, args) => {
-    requireE2eAuthHelper();
+    requireE2eAuthHelper(args.secret);
 
     const email = normalizeE2eEmail(args.email);
     const codes = await ctx.db.query("e2eAuthCodes").withIndex("by_email", (query) => query.eq("email", email)).collect();
@@ -148,11 +153,12 @@ export const consumeAuthCode = mutation({
 
 export const linkDiscordAccountByEmail = mutation({
   args: {
+    secret: v.string(),
     email: v.string(),
     providerAccountId: v.string(),
   },
   handler: async (ctx, args) => {
-    requireE2eAuthHelper();
+    requireE2eAuthHelper(args.secret);
 
     const email = normalizeE2eEmail(args.email);
     const user = await userByEmail(ctx, email);
@@ -193,10 +199,11 @@ export const linkDiscordAccountByEmail = mutation({
 
 export const cleanupAuthUserByEmail = mutation({
   args: {
+    secret: v.string(),
     email: v.string(),
   },
   handler: async (ctx, args) => {
-    requireE2eAuthHelper();
+    requireE2eAuthHelper(args.secret);
 
     const email = normalizeE2eEmail(args.email);
 
@@ -206,6 +213,7 @@ export const cleanupAuthUserByEmail = mutation({
 
 export const submitProfile = mutation({
   args: {
+    secret: v.string(),
     runId: v.string(),
     profileType,
     displayName: v.string(),
@@ -224,7 +232,7 @@ export const submitProfile = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    requireE2eHelper();
+    requireE2eHelper(args.secret);
 
     const input = sanitizeCommunitySubmissionProfileInput(args);
     const now = Date.now();
@@ -296,10 +304,11 @@ export const submitProfile = mutation({
 
 export const cleanupProfileBySlug = mutation({
   args: {
+    secret: v.string(),
     slug: v.string(),
   },
   handler: async (ctx, args) => {
-    requireE2eHelper();
+    requireE2eHelper(args.secret);
 
     const profile = await getProfileBySlug(ctx.db, args.slug);
 
@@ -315,10 +324,11 @@ export const cleanupProfileBySlug = mutation({
 
 export const cleanupProfilesByRunId = mutation({
   args: {
+    secret: v.string(),
     runId: v.string(),
   },
   handler: async (ctx, args) => {
-    requireE2eHelper();
+    requireE2eHelper(args.secret);
 
     const runId = args.runId.trim().slice(0, 120);
 

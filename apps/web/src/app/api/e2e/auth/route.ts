@@ -26,7 +26,7 @@ function requireE2eAuthRequest(request: NextRequest) {
     return null;
   }
 
-  return true;
+  return convexSecret;
 }
 
 function convexClient() {
@@ -40,9 +40,9 @@ function convexClient() {
 }
 
 export async function POST(request: NextRequest) {
-  const allowed = requireE2eAuthRequest(request);
+  const convexSecret = requireE2eAuthRequest(request);
 
-  if (allowed === null) {
+  if (convexSecret === null) {
     return e2eError("E2E auth helpers are not enabled for this request.");
   }
 
@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
   const email = typeof body.email === "string" ? body.email : "";
 
   if (action === "consume-code") {
-    const result = await convexClient().mutation(api.e2e.consumeAuthCode, { email });
+    const result = await convexClient().mutation(api.e2e.consumeAuthCode, { secret: convexSecret, email });
 
     return NextResponse.json(result);
   }
@@ -63,6 +63,7 @@ export async function POST(request: NextRequest) {
   if (action === "link-discord") {
     const providerAccountId = typeof body.providerAccountId === "string" ? body.providerAccountId : "";
     const result = await convexClient().mutation(api.e2e.linkDiscordAccountByEmail, {
+      secret: convexSecret,
       email,
       providerAccountId,
     });
@@ -74,9 +75,9 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const allowed = requireE2eAuthRequest(request);
+  const convexSecret = requireE2eAuthRequest(request);
 
-  if (allowed === null) {
+  if (convexSecret === null) {
     return e2eError("E2E auth helpers are not enabled for this request.");
   }
 
@@ -86,7 +87,7 @@ export async function DELETE(request: NextRequest) {
   }
   const body = rawBody as Record<string, unknown>;
   const email = typeof body.email === "string" ? body.email : "";
-  const result = await convexClient().mutation(api.e2e.cleanupAuthUserByEmail, { email });
+  const result = await convexClient().mutation(api.e2e.cleanupAuthUserByEmail, { secret: convexSecret, email });
 
   return NextResponse.json(result);
 }
