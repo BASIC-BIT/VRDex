@@ -1,5 +1,6 @@
 const isVercel = process.env.VERCEL === "1" || process.env.VERCEL === "true";
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+const posthogHost = process.env.NEXT_PUBLIC_POSTHOG_HOST;
 const requireConvexUrl = process.env.VRDEX_REQUIRE_CONVEX_URL === "true";
 
 const errors = [];
@@ -53,6 +54,17 @@ if (convexUrl) {
   errors.push("NEXT_PUBLIC_CONVEX_URL is required because VRDEX_REQUIRE_CONVEX_URL=true.");
 } else if (isVercel) {
   warnings.push("NEXT_PUBLIC_CONVEX_URL is not set; the hosted app will render missing-backend states.");
+}
+
+if (posthogHost) {
+  const parsedPosthogHost = parseUrl("NEXT_PUBLIC_POSTHOG_HOST", posthogHost);
+
+  if (isVercel && parsedPosthogHost) {
+    const host = parsedPosthogHost.hostname.toLowerCase();
+    if (host === "localhost" || host === "127.0.0.1" || host.endsWith(".local")) {
+      errors.push("NEXT_PUBLIC_POSTHOG_HOST must not point at a local backend for Vercel builds.");
+    }
+  }
 }
 
 for (const warning of warnings) {

@@ -42,6 +42,8 @@ Set these in the Vercel project as needed:
 - `NEXT_PUBLIC_CONVEX_URL`: optional for a shell-only preview; set to the hosted Convex deployment URL for live backend reads.
 - `VRDEX_REQUIRE_CONVEX_URL=true`: optional; use when previews must fail instead of showing missing-backend states.
 - `NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY=false`: legacy flag; auth-backed submissions now rely on Convex Auth configuration.
+- `NEXT_PUBLIC_POSTHOG_KEY`: optional public PostHog project key; BASIC BIT hosted deployments should set this through `infra/terraform/vercel` for PostHog project `447783`.
+- `NEXT_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com`: optional PostHog ingestion host; also managed through `infra/terraform/vercel` for hosted deployments.
 
 Do not set `VRDEX_ENABLE_PLAYWRIGHT_FIXTURES` in Vercel. Fixture profiles are for Playwright-only local/CI preview screenshots and must not be exposed from hosted previews.
 
