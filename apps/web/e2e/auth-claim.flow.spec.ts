@@ -259,6 +259,7 @@ test("verified email account can complete community and VRChat adapter claims @f
     await page.getByLabel("Target ID").fill(`e2e-vrclinking-${runSuffix}`);
     await page.getByRole("button", { name: "Create proof code" }).click();
     await expect(page.getByText(/Proof code created/i)).toBeVisible();
+    await expect(page.getByText(/VRDEX-/)).toBeVisible();
     await page.getByRole("button", { name: "Check proof now" }).click();
     await expect(page.getByText(/Proof verified as claimed verified/i)).toBeVisible();
 

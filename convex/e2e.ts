@@ -276,17 +276,23 @@ export const submitProfile = mutation({
         displayName: "Playwright E2E",
       },
     };
+    const headline = optionalText(args.headline, 160);
+    const bio = optionalText(args.bio, 600);
+    const about = optionalText(args.about, 1_200);
+    const region = optionalText(args.region, 80);
+    const timezone = optionalText(args.timezone, 80);
+    const pronouns = optionalText(args.person?.pronouns, 80);
     const sharedFields = {
       slug,
       displayName: input.displayName,
       sortName: input.sortName,
       aliases: input.aliases,
       tags: input.tags,
-      ...(optionalText(args.headline, 160) !== undefined ? { headline: optionalText(args.headline, 160) } : {}),
-      ...(optionalText(args.bio, 600) !== undefined ? { bio: optionalText(args.bio, 600) } : {}),
-      ...(optionalText(args.about, 1_200) !== undefined ? { about: optionalText(args.about, 1_200) } : {}),
-      ...(optionalText(args.region, 80) !== undefined ? { region: optionalText(args.region, 80) } : {}),
-      ...(optionalText(args.timezone, 80) !== undefined ? { timezone: optionalText(args.timezone, 80) } : {}),
+      ...(headline !== undefined ? { headline } : {}),
+      ...(bio !== undefined ? { bio } : {}),
+      ...(about !== undefined ? { about } : {}),
+      ...(region !== undefined ? { region } : {}),
+      ...(timezone !== undefined ? { timezone } : {}),
       ...(args.fieldVisibility !== undefined ? { fieldVisibility: args.fieldVisibility } : {}),
       outboundLinks: [],
       claimState: "unclaimed" as const,
@@ -306,9 +312,7 @@ export const submitProfile = mutation({
             ...sharedFields,
             profileType: "person",
             person: {
-              ...(optionalText(args.person?.pronouns, 80) !== undefined
-                ? { pronouns: optionalText(args.person?.pronouns, 80) }
-                : {}),
+              ...(pronouns !== undefined ? { pronouns } : {}),
               roleTags: input.person.roleTags,
             },
           }
