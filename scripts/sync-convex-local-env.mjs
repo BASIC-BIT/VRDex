@@ -86,6 +86,7 @@ function syncEnvVarsOnce() {
     .filter((entry) => entry[1] !== undefined && entry[1] !== "");
 
   for (const [name, value] of entries) {
+    // Convex CLI documents `convex env set NAME` as reading the value from stdin.
     const result = spawnSync(process.execPath, [convexCli, "env", "set", name], {
       cwd: repoRoot,
       encoding: "utf8",

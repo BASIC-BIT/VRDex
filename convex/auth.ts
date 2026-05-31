@@ -62,12 +62,12 @@ function isE2eEmail(email: string) {
 }
 
 const SesOtp = Email({
-  async sendVerificationRequest(params) {
-    const ctx = arguments[1] as
-      | {
-          runMutation: (mutation: unknown, args: unknown) => Promise<unknown>;
-        }
-      | undefined;
+  async sendVerificationRequest(
+    params,
+    ctx?: {
+      runMutation: (mutation: unknown, args: unknown) => Promise<unknown>;
+    },
+  ) {
     const { identifier, token, expires } = params;
     const email = identifier.trim().toLowerCase();
 
