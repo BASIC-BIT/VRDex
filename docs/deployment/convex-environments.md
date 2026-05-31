@@ -37,6 +37,7 @@ Development/staging Convex env names:
 
 - `VRDEX_ENABLE_E2E_HELPERS=true`
 - `VRDEX_E2E_CONVEX_SECRET`: non-empty sentinel also configured in the hosted app environment
+- `VRDEX_ENABLE_E2E_AUTH_HELPERS=true`: optional, only when hosted auth/claim E2E is intentionally enabled
 
 The browser-facing token stays in the web host and GitHub Actions as `VRDEX_E2E_BROWSER_TOKEN` / `VRDEX_HOSTED_E2E_BROWSER_TOKEN`; it is not needed by Convex.
 

@@ -9,19 +9,21 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
 const convexHome = path.join(repoRoot, ".convex-home");
 const convexTmp = path.join(repoRoot, ".convex-tmp");
-const localConvexEnvNames = ["VRDEX_ENABLE_E2E_HELPERS", "VRDEX_E2E_CONVEX_SECRET"];
+const localConvexEnvNames = [
+  "SITE_URL",
+  "JWT_PRIVATE_KEY",
+  "JWKS",
+  "VRDEX_ENABLE_E2E_HELPERS",
+  "VRDEX_ENABLE_E2E_AUTH_HELPERS",
+  "VRDEX_E2E_CONVEX_SECRET",
+];
 const localDeploymentName = process.env.CONVEX_LOCAL_DEPLOYMENT_NAME || "anonymous-agent";
 const localCloudPort = process.env.CONVEX_LOCAL_CLOUD_PORT || "3210";
 const localConvexUrl = process.env.CONVEX_LOCAL_URL || `http://127.0.0.1:${localCloudPort}`;
 const readyTimeoutMs = Number(process.env.CONVEX_LOCAL_READY_TIMEOUT_MS || 180_000);
 const readyPollMs = Number(process.env.CONVEX_LOCAL_READY_POLL_MS || 500);
 const healthStatus = makeFunctionReference("health:status");
-const convexBin = path.join(
-  repoRoot,
-  "node_modules",
-  ".bin",
-  process.platform === "win32" ? "convex.cmd" : "convex",
-);
+const convexCli = path.join(repoRoot, "node_modules", "convex", "bin", "main.js");
 
 function convexEnv() {
   return {
@@ -50,11 +52,10 @@ function sleep(ms) {
 }
 
 function runConvex(args) {
-  return spawnSync(convexBin, args, {
+  return spawnSync(process.execPath, [convexCli, ...args], {
     cwd: repoRoot,
     encoding: "utf8",
     env: convexEnv(),
-    shell: process.platform === "win32",
     timeout: 10_000,
   });
 }
@@ -85,19 +86,19 @@ function syncEnvVarsOnce() {
     .filter((entry) => entry[1] !== undefined && entry[1] !== "");
 
   for (const [name, value] of entries) {
-    const result = spawnSync(convexBin, ["env", "set", name, value], {
+    const result = spawnSync(process.execPath, [convexCli, "env", "set", name], {
       cwd: repoRoot,
       encoding: "utf8",
       env: convexEnv(),
-      shell: process.platform === "win32",
+      input: value,
     });
 
     if (result.status !== 0) {
-      return false;
+      return { ok: false, name, result };
     }
   }
 
-  return true;
+  return { ok: true };
 }
 
 if (!(await waitForFunctionsReady())) {
@@ -111,13 +112,27 @@ if (!localConvexEnvNames.some((name) => process.env[name])) {
 mkdirSync(convexHome, { recursive: true });
 mkdirSync(convexTmp, { recursive: true });
 
+let lastFailure;
 for (let attempt = 0; attempt < 80; attempt += 1) {
-  if (syncEnvVarsOnce()) {
+  const syncResult = syncEnvVarsOnce();
+  if (syncResult.ok) {
     process.exit(0);
   }
+
+  lastFailure = syncResult;
 
   await new Promise((resolve) => setTimeout(resolve, 250));
 }
 
 console.error("Failed to sync E2E helper env vars into the local Convex deployment.");
+if (lastFailure) {
+  const output = `${lastFailure.result.stdout || ""}${lastFailure.result.stderr || ""}`.trim();
+  console.error(`Last failed variable: ${lastFailure.name}`);
+  if (lastFailure.result.error) {
+    console.error(lastFailure.result.error.message);
+  }
+  if (output) {
+    console.error(output);
+  }
+}
 process.exit(1);

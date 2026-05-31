@@ -86,11 +86,23 @@ The `@flow` Playwright test is the first mutation-backed journey. It:
 - captures screenshots for both readback pages
 - cleans up the E2E-created profile, search document, and audit event by slug
 
+The local `@flow` suite also covers the first auth/claim path without real OAuth or SES:
+
+- creates an `@e2e.vrdex.local` email/password account through the sign-in UI
+- captures the one-time verification code through a token-gated E2E auth helper
+- verifies the email with Convex Auth
+- links a Discord account through a token-gated E2E helper
+- claims an E2E-created person profile through the account UI
+- verifies the public profile moves to the `Claimed` trust label
+- cleans up the test user, auth records, profile owner, claim request, and E2E profile
+
 The helper route is disabled unless all of these are true:
 
 - `VRDEX_ENABLE_E2E_HELPERS=true`
 - `VRDEX_E2E_BROWSER_TOKEN` is configured and matches the request cookie or header
 - `VRDEX_E2E_CONVEX_SECRET` is configured for the server route and Convex helper deployment
+
+Auth helper routes also require `VRDEX_ENABLE_E2E_AUTH_HELPERS=true` and only accept `@e2e.vrdex.local` emails. Local Playwright webserver runs set this automatically; hosted staging must opt in explicitly before hosted auth/claim flows run.
 
 Do not enable these helpers in production. They are for local, CI, and disposable preview/dev deployments.
 
@@ -101,6 +113,8 @@ Hosted dev/staging targets must be configured outside this repository before run
 - Next/Vercel env: `VRDEX_E2E_CONVEX_SECRET=<non-empty sentinel>`
 - Convex env: `VRDEX_ENABLE_E2E_HELPERS=true`
 - Convex env: `VRDEX_E2E_CONVEX_SECRET=<non-empty sentinel>`
+
+Hosted auth/claim E2E additionally requires `VRDEX_ENABLE_E2E_AUTH_HELPERS=true` in both the hosted app and Convex deployment. Keep it unset until the staging auth flow is intentionally enabled; production must never enable it.
 
 `VERCEL_ENV=production` blocks the E2E route unless `VRDEX_ALLOW_PRODUCTION_E2E_HELPERS=true` is explicitly set. Keep that override unset for VRDex production.
 

@@ -5,6 +5,8 @@ import { Email } from "@convex-dev/auth/providers/Email";
 import { Password } from "@convex-dev/auth/providers/Password";
 import { convexAuth } from "@convex-dev/auth/server";
 
+import { internal } from "./_generated/api";
+
 function requiredEnv(name: string): string {
   const value = process.env[name]?.trim();
 
@@ -47,9 +49,38 @@ async function sendSesVerificationCode(email: string, token: string) {
   );
 }
 
+function e2eAuthHelpersEnabled() {
+  return (
+    process.env.VRDEX_ENABLE_E2E_HELPERS === "true" &&
+    process.env.VRDEX_ENABLE_E2E_AUTH_HELPERS === "true" &&
+    Boolean(process.env.VRDEX_E2E_CONVEX_SECRET?.trim())
+  );
+}
+
+function isE2eEmail(email: string) {
+  return email.toLowerCase().endsWith("@e2e.vrdex.local");
+}
+
 const SesOtp = Email({
-  async sendVerificationRequest({ identifier, token }) {
-    await sendSesVerificationCode(identifier, token);
+  async sendVerificationRequest(params) {
+    const ctx = arguments[1] as
+      | {
+          runMutation: (mutation: unknown, args: unknown) => Promise<unknown>;
+        }
+      | undefined;
+    const { identifier, token, expires } = params;
+    const email = identifier.trim().toLowerCase();
+
+    if (ctx !== undefined && e2eAuthHelpersEnabled() && isE2eEmail(email)) {
+      await ctx.runMutation(internal.e2e.recordAuthCode, {
+        email,
+        code: token,
+        expiresAt: expires.getTime(),
+      });
+      return;
+    }
+
+    await sendSesVerificationCode(email, token);
   },
 });
 

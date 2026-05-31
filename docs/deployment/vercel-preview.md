@@ -50,8 +50,9 @@ Hosted dev/staging E2E targets must set these only on the dev/staging environmen
 - `VRDEX_ENABLE_E2E_HELPERS=true`
 - `VRDEX_E2E_BROWSER_TOKEN`: same value as the GitHub Actions secret `VRDEX_HOSTED_E2E_BROWSER_TOKEN`
 - `VRDEX_E2E_CONVEX_SECRET`: non-empty sentinel matching the Convex deployment secret name
+- `VRDEX_ENABLE_E2E_AUTH_HELPERS=true`: optional staging-only switch for auth/claim E2E helper routes; keep unset until that flow is intentionally enabled
 
-Production should keep `VRDEX_ENABLE_E2E_HELPERS=false` or unset, and should not set `VRDEX_ALLOW_PRODUCTION_E2E_HELPERS` unless a human explicitly approves a temporary incident/debug window.
+Production should keep `VRDEX_ENABLE_E2E_HELPERS=false` or unset, should keep `VRDEX_ENABLE_E2E_AUTH_HELPERS` unset, and should not set `VRDEX_ALLOW_PRODUCTION_E2E_HELPERS` unless a human explicitly approves a temporary incident/debug window.
 
 Preview deployment protection must allow unauthenticated reads if the PR preview is meant to be reviewed outside the Vercel dashboard.
 
@@ -80,6 +81,7 @@ The `staging` Vercel environment points at the shared Convex development deploym
 - `VRDEX_ENABLE_E2E_HELPERS=true`
 - `VRDEX_E2E_BROWSER_TOKEN`: sensitive value matching GitHub Actions secret `VRDEX_HOSTED_E2E_BROWSER_TOKEN`
 - `VRDEX_E2E_CONVEX_SECRET`: sensitive value matching Convex dev env `VRDEX_E2E_CONVEX_SECRET`
+- `VRDEX_ENABLE_E2E_AUTH_HELPERS`: unset until hosted auth/claim E2E is intentionally enabled
 
 GitHub Actions uses these repository settings for hosted mutation health:
 
