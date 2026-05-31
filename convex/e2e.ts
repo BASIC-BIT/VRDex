@@ -7,6 +7,29 @@ import { sanitizeCommunitySubmissionProfileInput } from "./_profileSubmissions";
 import { createProfileSearchDocument, upsertSearchDocument } from "./_searchDocuments";
 
 const profileType = v.union(v.literal("person"), v.literal("community"));
+const fieldVisibilityState = v.union(v.literal("public"), v.literal("unlisted"), v.literal("private"));
+const fieldVisibility = v.object({
+  aliases: v.optional(fieldVisibilityState),
+  tags: v.optional(fieldVisibilityState),
+  headline: v.optional(fieldVisibilityState),
+  bio: v.optional(fieldVisibilityState),
+  about: v.optional(fieldVisibilityState),
+  avatarImageUrl: v.optional(fieldVisibilityState),
+  bannerImageUrl: v.optional(fieldVisibilityState),
+  outboundLinks: v.optional(fieldVisibilityState),
+  region: v.optional(fieldVisibilityState),
+  timezone: v.optional(fieldVisibilityState),
+  personPronouns: v.optional(fieldVisibilityState),
+  personRoleTags: v.optional(fieldVisibilityState),
+  communitySubtype: v.optional(fieldVisibilityState),
+  communityCategoryTags: v.optional(fieldVisibilityState),
+});
+
+function optionalText(value: string | undefined, maxLength = 500) {
+  const trimmed = value?.trim();
+
+  return trimmed ? trimmed.slice(0, maxLength) : undefined;
+}
 
 function requireE2eHelper(secret?: string) {
   const expectedSecret = process.env.VRDEX_E2E_CONVEX_SECRET?.trim();
@@ -219,8 +242,15 @@ export const submitProfile = mutation({
     displayName: v.string(),
     aliases: v.optional(v.array(v.string())),
     tags: v.optional(v.array(v.string())),
+    headline: v.optional(v.string()),
+    bio: v.optional(v.string()),
+    about: v.optional(v.string()),
+    region: v.optional(v.string()),
+    timezone: v.optional(v.string()),
+    fieldVisibility: v.optional(fieldVisibility),
     person: v.optional(
       v.object({
+        pronouns: v.optional(v.string()),
         roleTags: v.optional(v.array(v.string())),
       }),
     ),
@@ -252,6 +282,12 @@ export const submitProfile = mutation({
       sortName: input.sortName,
       aliases: input.aliases,
       tags: input.tags,
+      ...(optionalText(args.headline, 160) !== undefined ? { headline: optionalText(args.headline, 160) } : {}),
+      ...(optionalText(args.bio, 600) !== undefined ? { bio: optionalText(args.bio, 600) } : {}),
+      ...(optionalText(args.about, 1_200) !== undefined ? { about: optionalText(args.about, 1_200) } : {}),
+      ...(optionalText(args.region, 80) !== undefined ? { region: optionalText(args.region, 80) } : {}),
+      ...(optionalText(args.timezone, 80) !== undefined ? { timezone: optionalText(args.timezone, 80) } : {}),
+      ...(args.fieldVisibility !== undefined ? { fieldVisibility: args.fieldVisibility } : {}),
       outboundLinks: [],
       claimState: "unclaimed" as const,
       publicationState: "published" as const,
@@ -269,7 +305,12 @@ export const submitProfile = mutation({
         ? {
             ...sharedFields,
             profileType: "person",
-            person: { roleTags: input.person.roleTags },
+            person: {
+              ...(optionalText(args.person?.pronouns, 80) !== undefined
+                ? { pronouns: optionalText(args.person?.pronouns, 80) }
+                : {}),
+              roleTags: input.person.roleTags,
+            },
           }
         : {
             ...sharedFields,

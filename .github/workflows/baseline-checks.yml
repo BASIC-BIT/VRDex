@@ -395,6 +395,8 @@ jobs:
           PLAYWRIGHT_BASE_URL: ${{ vars.VRDEX_HOSTED_E2E_BASE_URL }}
           PLAYWRIGHT_RECORD_VIDEO: "true"
           PLAYWRIGHT_SKIP_WEBSERVERS: "true"
+          VRDEX_ENABLE_E2E_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
+          VRDEX_ENABLE_E2E_ADAPTER_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_ADAPTER_HELPERS }}
           VRDEX_E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
           VRDEX_E2E_RUN_ID: pr-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
         run: pnpm test:e2e:hosted
@@ -404,6 +406,8 @@ jobs:
         env:
           HOSTED_OUTCOME: ${{ steps.hosted.outcome }}
           HOSTED_BASE_URL: ${{ vars.VRDEX_HOSTED_E2E_BASE_URL }}
+          HOSTED_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
+          HOSTED_ADAPTER_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_ADAPTER_HELPERS }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           mkdir -p apps/web/playwright-artifacts
@@ -413,6 +417,10 @@ jobs:
           Outcome: ${HOSTED_OUTCOME}
 
           Target: ${HOSTED_BASE_URL}
+
+          Hosted auth helpers: ${HOSTED_AUTH_HELPERS:-skipped}
+
+          Hosted adapter helpers: ${HOSTED_ADAPTER_HELPERS:-skipped}
 
           Captured flow:
           - hosted test-gated profile submission form
@@ -443,6 +451,8 @@ jobs:
         env:
           HOSTED_OUTCOME: ${{ steps.hosted.outcome }}
           HOSTED_BASE_URL: ${{ vars.VRDEX_HOSTED_E2E_BASE_URL }}
+          HOSTED_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
+          HOSTED_ADAPTER_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_ADAPTER_HELPERS }}
           ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
         with:
           script: |
@@ -454,6 +464,8 @@ jobs:
             const artifactUrl = process.env.ARTIFACT_URL || "";
             const outcome = process.env.HOSTED_OUTCOME || "unknown";
             const target = process.env.HOSTED_BASE_URL || "not configured";
+            const authHelpers = process.env.HOSTED_AUTH_HELPERS === "true" ? "enabled" : "skipped";
+            const adapterHelpers = process.env.HOSTED_ADAPTER_HELPERS === "true" ? "enabled" : "skipped";
             const artifactLine = artifactUrl
               ? `Artifact: [playwright-hosted-data-flow](${artifactUrl})`
               : "Artifact: not generated";
@@ -462,6 +474,8 @@ jobs:
               "## Playwright Hosted Data-Flow",
               `Outcome: ${outcome}`,
               `Target: ${target}`,
+              `Hosted auth helpers: ${authHelpers}`,
+              `Hosted adapter helpers: ${adapterHelpers}`,
               `Run: ${runUrl}`,
               artifactLine,
               "",

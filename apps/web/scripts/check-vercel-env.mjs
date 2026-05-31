@@ -24,6 +24,18 @@ if (process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES === "true") {
   errors.push("VRDEX_ENABLE_PLAYWRIGHT_FIXTURES must not be enabled for Vercel builds.");
 }
 
+if (isVercel && process.env.VERCEL_ENV === "production") {
+  for (const name of [
+    "VRDEX_ENABLE_E2E_HELPERS",
+    "VRDEX_ENABLE_E2E_AUTH_HELPERS",
+    "VRDEX_ENABLE_E2E_ADAPTER_HELPERS",
+  ]) {
+    if (process.env[name] === "true") {
+      errors.push(`${name} must not be enabled for production Vercel builds.`);
+    }
+  }
+}
+
 if (process.env.NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY === "true") {
   errors.push("NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY must stay false until web auth is wired.");
 }

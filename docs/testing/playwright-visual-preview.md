@@ -106,6 +106,8 @@ The browser token gates the Next.js helper route. The Convex secret is never sen
 
 Auth helper routes also require `VRDEX_ENABLE_E2E_AUTH_HELPERS=true` and only accept `@e2e.vrdex.local` emails. Local Playwright webserver runs set this automatically; hosted staging must opt in explicitly before hosted auth/claim flows run.
 
+Adapter helper routes require `VRDEX_ENABLE_E2E_ADAPTER_HELPERS=true` and are used only by Convex actions during E2E tests. Local Playwright webserver runs point Convex at local Discord and VRChat/VRCLinking adapter stubs so the UI exercises the real claim actions without real Discord, VRChat, or VRCLinking calls.
+
 Do not enable these helpers in production. They are for local, CI, and disposable preview/dev deployments.
 
 Hosted dev/staging targets must be configured outside this repository before running `pnpm test:e2e:hosted`:
@@ -117,6 +119,16 @@ Hosted dev/staging targets must be configured outside this repository before run
 - Convex env: `VRDEX_E2E_CONVEX_SECRET=<non-empty sentinel>`
 
 Hosted auth/claim E2E additionally requires `VRDEX_ENABLE_E2E_AUTH_HELPERS=true` in both the hosted app and Convex deployment. Keep it unset until the staging auth flow is intentionally enabled; production must never enable it.
+
+Hosted adapter E2E additionally requires `VRDEX_ENABLE_E2E_ADAPTER_HELPERS=true` in the hosted app and these Convex env values on the shared development deployment:
+
+- `DISCORD_API_BASE_URL=<hosted app URL>/api/e2e/adapters/discord`
+- `DISCORD_BOT_TOKEN=<staging-only adapter token>`
+- `VRCHAT_PROOF_ADAPTER_URL=<hosted app URL>/api/e2e/adapters/vrchat-proof`
+- `VRCLINKING_PROOF_ADAPTER_URL=<hosted app URL>/api/e2e/adapters/vrchat-proof`
+- `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN=<staging-only adapter token>`
+
+GitHub Actions only runs hosted auth and adapter flows when repository variables `VRDEX_HOSTED_E2E_AUTH_HELPERS=true` and `VRDEX_HOSTED_E2E_ADAPTER_HELPERS=true` are set. Keep both unset until the matching hosted app and Convex env values are configured.
 
 `VERCEL_ENV=production` blocks the E2E route unless `VRDEX_ALLOW_PRODUCTION_E2E_HELPERS=true` is explicitly set. Keep that override unset for VRDex production.
 
@@ -141,7 +153,7 @@ The optional `Playwright Hosted Data Flow` job runs on pull requests only when b
 - repository variable `VRDEX_HOSTED_E2E_BASE_URL`
 - repository secret `VRDEX_HOSTED_E2E_BROWSER_TOKEN`
 
-When configured, the job runs `pnpm test:e2e:hosted` with `PLAYWRIGHT_BASE_URL`, `PLAYWRIGHT_SKIP_WEBSERVERS=true`, `PLAYWRIGHT_RECORD_VIDEO=true`, and a GitHub Actions run-scoped `VRDEX_E2E_RUN_ID`.
+When configured, the job runs `pnpm test:e2e:hosted` with `PLAYWRIGHT_BASE_URL`, `PLAYWRIGHT_SKIP_WEBSERVERS=true`, `PLAYWRIGHT_RECORD_VIDEO=true`, and a GitHub Actions run-scoped `VRDEX_E2E_RUN_ID`. Auth and adapter flows skip unless `VRDEX_HOSTED_E2E_AUTH_HELPERS` and `VRDEX_HOSTED_E2E_ADAPTER_HELPERS` are explicitly set to `true`.
 
 The `Deployed Health Checks` workflow runs after merges to `main`, after successful GitHub deployment status events for production deployments, on a daily schedule, and through manual dispatch. It has two independent checks:
 

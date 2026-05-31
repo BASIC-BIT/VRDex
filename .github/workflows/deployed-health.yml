@@ -91,6 +91,8 @@ jobs:
           PLAYWRIGHT_BASE_URL: ${{ steps.gate.outputs.base_url }}
           PLAYWRIGHT_RECORD_VIDEO: "true"
           PLAYWRIGHT_SKIP_WEBSERVERS: "true"
+          VRDEX_ENABLE_E2E_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
+          VRDEX_ENABLE_E2E_ADAPTER_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_ADAPTER_HELPERS }}
           VRDEX_E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
           VRDEX_E2E_RUN_ID: deployed-${{ github.run_id }}-${{ github.run_attempt }}
         run: pnpm test:e2e:hosted
@@ -100,6 +102,8 @@ jobs:
         env:
           HOSTED_OUTCOME: ${{ steps.hosted.outcome }}
           HOSTED_BASE_URL: ${{ steps.gate.outputs.base_url }}
+          HOSTED_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
+          HOSTED_ADAPTER_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_ADAPTER_HELPERS }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           mkdir -p apps/web/playwright-artifacts
@@ -109,6 +113,10 @@ jobs:
           Outcome: ${HOSTED_OUTCOME}
 
           Target: ${HOSTED_BASE_URL}
+
+          Hosted auth helpers: ${HOSTED_AUTH_HELPERS:-skipped}
+
+          Hosted adapter helpers: ${HOSTED_ADAPTER_HELPERS:-skipped}
 
           Captured flow:
           - hosted test-gated profile submission form
