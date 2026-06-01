@@ -33,6 +33,8 @@ The workflow can also deploy a matching Convex preview backend when this optiona
 
 If any are missing, the `Vercel Preview` job passes and writes a step summary explaining that deployment is skipped. This keeps baseline CI green before the hosted project is linked, while making the missing live-deploy blocker explicit.
 
+`VERCEL_TOKEN` must be a Vercel account access token created from Vercel account settings. The local Vercel CLI session token from `auth.json` is not accepted by `vercel --token` in GitHub Actions and should not be stored as this secret.
+
 When `CONVEX_DEPLOY_KEY_PREVIEW` exists, the workflow runs `convex deploy --preview-create pr-<number>` before the Vercel build and writes the resulting `NEXT_PUBLIC_CONVEX_URL` into the Vercel build environment. This keeps PR previews from accidentally pointing at stale shared dev/prod Convex functions.
 
 ## Web environment
@@ -86,17 +88,17 @@ The `staging` Vercel environment points at the shared Convex development deploym
 - `VRDEX_ENABLE_E2E_HELPERS=true`
 - `VRDEX_E2E_BROWSER_TOKEN`: sensitive value matching GitHub Actions secret `VRDEX_HOSTED_E2E_BROWSER_TOKEN`
 - `VRDEX_E2E_CONVEX_SECRET`: sensitive value matching Convex dev env `VRDEX_E2E_CONVEX_SECRET`
-- `VRDEX_ENABLE_E2E_AUTH_HELPERS`: unset until hosted auth/claim E2E is intentionally enabled
-- `VRDEX_ENABLE_E2E_ADAPTER_HELPERS`: unset until hosted adapter E2E is intentionally enabled
-- `DISCORD_BOT_TOKEN`: unset until hosted adapter E2E is intentionally enabled
-- `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`: unset until hosted adapter E2E is intentionally enabled
+- `VRDEX_ENABLE_E2E_AUTH_HELPERS=true`: enabled for hosted auth/claim E2E
+- `VRDEX_ENABLE_E2E_ADAPTER_HELPERS=true`: enabled for hosted adapter E2E
+- `DISCORD_BOT_TOKEN`: staging-only adapter token matching Convex dev env `DISCORD_BOT_TOKEN`
+- `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`: staging-only adapter token matching Convex dev env `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`
 
 GitHub Actions uses these repository settings for hosted mutation health:
 
 - variable `VRDEX_HOSTED_E2E_BASE_URL=https://staging.vrdex.net`
-- variable `VRDEX_HOSTED_E2E_EXTENDED_PROFILE_FLOW=true`: optional, only after staging has deployed the E2E profile helper route version that accepts extended profile fields
-- variable `VRDEX_HOSTED_E2E_AUTH_HELPERS=true`: optional, only after hosted auth helpers are enabled in Vercel staging and Convex dev
-- variable `VRDEX_HOSTED_E2E_ADAPTER_HELPERS=true`: optional, only after hosted adapter helpers are enabled in Vercel staging and Convex dev
+- variable `VRDEX_HOSTED_E2E_EXTENDED_PROFILE_FLOW=true`
+- variable `VRDEX_HOSTED_E2E_AUTH_HELPERS=true`
+- variable `VRDEX_HOSTED_E2E_ADAPTER_HELPERS=true`
 - secret `VRDEX_HOSTED_E2E_BROWSER_TOKEN`
 
 The `Staging Deploy` workflow runs after `Baseline Checks` succeeds on `main` and can also be run manually. It requires these settings:

@@ -39,6 +39,9 @@ Development/staging Convex env names:
 - `VRDEX_E2E_CONVEX_SECRET`: non-empty sentinel also configured in the hosted app environment
 - `VRDEX_ENABLE_E2E_AUTH_HELPERS=true`: optional, only when hosted auth/claim E2E is intentionally enabled
 - `VRDEX_ENABLE_E2E_ADAPTER_HELPERS=true`: optional, only when hosted adapter E2E is intentionally enabled
+- `SITE_URL=https://staging.vrdex.net`: required by Convex Auth email/password redirects for hosted auth E2E
+- `JWT_PRIVATE_KEY`: Convex Auth RS256 private key, generated for the shared development deployment and never printed
+- `JWKS`: Convex Auth public key set matching `JWT_PRIVATE_KEY`
 - `DISCORD_API_BASE_URL`: optional hosted adapter stub base URL, usually `https://staging.vrdex.net/api/e2e/adapters/discord`
 - `DISCORD_BOT_TOKEN`: staging-only adapter token matching the hosted app environment
 - `VRCHAT_PROOF_ADAPTER_URL`: optional hosted adapter stub URL, usually `https://staging.vrdex.net/api/e2e/adapters/vrchat-proof`
@@ -48,6 +51,8 @@ Development/staging Convex env names:
 The browser-facing token stays in the web host and GitHub Actions as `VRDEX_E2E_BROWSER_TOKEN` / `VRDEX_HOSTED_E2E_BROWSER_TOKEN`; it is not needed by Convex.
 
 The shared development deployment `scrupulous-corgi-247` is the current hosted E2E backend for Vercel `staging`. The `Staging Deploy` GitHub Actions workflow deploys Convex development functions with `CONVEX_DEPLOY_KEY_DEV` before deploying Vercel `staging` and running hosted data-flow health.
+
+Current recommendation: generate Convex Auth JWT keys through a non-printing command path and set them with `convex env set -- NAME VALUE`, because PEM values begin with dashes and can be parsed as CLI options if passed in the wrong position.
 
 Manual fallback if the workflow is unavailable:
 
