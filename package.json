@@ -9,9 +9,7 @@
     "bootstrap:backend:local": "pnpm verify:backend:local",
     "dev:backend:local": "node scripts/run-convex-local.mjs dev --local",
     "dev:web": "pnpm --filter web dev",
-    "dev:docs": "pnpm --filter docs start",
     "build:web": "pnpm --filter web build",
-    "build:docs": "pnpm --filter docs build",
     "build:web:vercel": "pnpm --filter web build:vercel",
     "check:web:vercel-env": "pnpm --filter web check:vercel-env",
     "lint:web": "pnpm --filter web lint",
@@ -33,11 +31,6 @@
   },
   "lint-staged": {
     "apps/web/**/*.{js,jsx,ts,tsx,mjs,cjs}": "pnpm --filter web exec eslint --fix --max-warnings=0"
-  },
-  "pnpm": {
-    "overrides": {
-      "webpack": "5.99.9"
-    }
   },
   "devDependencies": {
     "@types/node": "^22.19.15",

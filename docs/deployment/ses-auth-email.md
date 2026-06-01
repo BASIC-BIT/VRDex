@@ -6,16 +6,6 @@ Use Amazon SES for Convex Auth password and email verification messages.
 
 The Terraform stack at `infra/terraform/ses` provisions the SES domain identity, DKIM, custom MAIL FROM records, and an optional least-privilege IAM access key for Convex.
 
-Current hosted baseline:
-
-- domain identity: `vrdex.net`
-- sender: `no-reply@vrdex.net`
-- region: `us-east-1`
-- Route 53 hosted zone: `Z0797984WGKSLWFLGV6V`
-- Terraform state key: `ses/terraform.tfstate`
-
-As of the AWS baseline pass, SES identity verification and DKIM verification are both `Success`, and Terraform reports no drift for the hosted SES stack.
-
 ## Convex Environment Variables
 
 Set these in each Convex deployment that sends email:
@@ -46,9 +36,3 @@ Proof adapters receive JSON with `targetType`, `targetExternalId`, `proofCode`, 
 ## Sandbox Note
 
 SES domain verification and DKIM do not automatically move an AWS account out of SES sandbox mode. Request SES production access in AWS before relying on real user emails outside verified recipient addresses.
-
-The hosted AWS account currently has a production-shaped SES quota. Keep this documented status current if the SES region, sender domain, or account changes.
-
-## Relationship To AWS Baseline
-
-The broader AWS baseline, including future private S3 profile assets, lives in `docs/deployment/aws-baseline.md`.

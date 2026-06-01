@@ -46,7 +46,7 @@ Useful pattern:
 
 Candidate direction:
 
-- use the canonical portable skill at `skills/vrdex/SKILL.md`, not only an OpenCode-local `.opencode` skill
+- create a canonical portable skill at `skills/vrdex/SKILL.md`, not only an OpenCode-local `.opencode` skill
 - keep the skill short and point to public docs, API reference, navigation guide, and MCP docs
 - include adapter docs for OpenCode, Claude Code, Codex, Cursor, Copilot/VS Code, and other common agent tools as they become practical
 - make the installation story simple enough for partner repos: copy, vendor, submodule, package, or point an agent at the hosted skill URL
@@ -86,8 +86,6 @@ Candidate direction:
 - authenticated write or claim tools should still use normal VRDex auth, scoped tokens, approvals, and audit trails
 - the MCP should expose curated tools first and optionally generated API coverage later
 - MCP resources could expose common read surfaces such as profile cards, upcoming events, and partner documentation
-
-The documentation-only first read-tool contract lives in `docs/platform/vrdex-mcp-read-tools.md`.
 
 Candidate curated tools:
 

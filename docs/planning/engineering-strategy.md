@@ -32,12 +32,10 @@ Important planning note:
 - `Stripe` for payments and billing portal
 - `AWS` for assets and surrounding infra that fits better there
 - `Vercel` for fast web previews and frontend deployment ergonomics
-- `Docusaurus` for browsable public/internal docs sourced from repo markdown
 
 Likely adjacent service use:
 
 - AWS email capabilities for verification and transactional mail
-- AWS S3 for private owner-authored profile assets once asset uploads are implemented
 
 Status: locked stack direction.
 
@@ -55,7 +53,6 @@ Current recommendation:
 - once the local backend bootstrap is deterministic, include it in the baseline PR verification pass alongside the web checks
 - use one explicit server-side App Router baseline once client wiring is stable: `fetchQuery` for server-only reads, with `preloadQuery` deferred until a feature truly needs hydrated reactivity after server render
 - use Vercel previews as the first hosted validation path for the web app, with `apps/web` as the project root and `/deployment` as the live environment check page
-- use `apps/docs` as the Docusaurus shell over canonical repo-root `docs/` markdown, with `pnpm build:docs` as the static docs verification path
 
 ## Monetization direction
 
@@ -125,13 +122,11 @@ Agent-facing integration direction:
 
 Infra direction:
 
-- Terraform is the current primary IaC path for hosted bootstrap stacks
+- Terraform and/or AWS CDK are both acceptable directions
+- choose one primary IaC path before implementation gets too far
 - prefer infrastructure-as-code or checked-in config for infrastructure, CI settings, and environment variable definitions whenever the platform supports it
 - for secrets that must remain in provider secret stores, commit the expected variable name, environment scope, owning service, and rotation/recreation path instead of relying on dashboard-only tribal knowledge
 - treat manual dashboard changes as bootstrap or emergency operations that need a follow-up reproducibility artifact
-- use `docs/deployment/self-hosting-and-iac.md` as the current hosted vs self-hosted deployment reference
-- use `docs/deployment/aws-baseline.md` as the current SES and future S3 asset-storage baseline
-- keep profile asset storage narrow: private S3, Block Public Access, server-side encryption, and app-generated presigned URLs before any CDN or image-processing layer
 
 ## Follow-on integration ideas
 

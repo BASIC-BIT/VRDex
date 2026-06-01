@@ -2,8 +2,6 @@
 
 This stack provisions the SES sender identity VRDex needs for Convex Auth password and email verification messages.
 
-Hosted baseline context and verification status are documented in `docs/deployment/aws-baseline.md` and `docs/deployment/ses-auth-email.md`.
-
 It creates:
 
 - SES domain identity

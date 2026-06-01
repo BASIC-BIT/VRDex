@@ -72,7 +72,7 @@ Observed from `https://docs.vrchat.com/docs/vrchat-202612`:
 Implication: this is both a risk and an opportunity.
 
 - risk: some of the identity-linking value proposition will become more standardized at the platform level
-- opportunity: the ecosystem is being trained to accept Discord-to-VRChat linkage as normal and valuable
+- opportunity: the ecosystem is being trained to accept Discord<->VRChat linkage as normal and valuable
 - opportunity: VRDex can become the directory and trust layer that sits on top of that identity graph, whether the linkage signal comes from VRCLinking, native VRChat, or both
 
 ## VRChat service-account idea
