@@ -365,6 +365,7 @@ Important future-aware extensions:
 - platform compatibility hints
 - DJ slot breakdowns within a larger event
 - stream/watch link modeling
+- calendar export and sync, preserving both static `.ics` export and later Google Calendar sync; see `docs/planning/calendar-integration.md`
 
 Event-world direction:
 
@@ -417,8 +418,8 @@ Notification and consent direction:
 
 Strong candidate for early partnership value:
 
-- accept trusted Discord<->VRChat linkage from VRCLinking where available
-- accept trusted Discord<->VRChat linkage from native VRChat where available
+- accept trusted Discord-to-VRChat linkage from VRCLinking where available
+- accept trusted Discord-to-VRChat linkage from native VRChat where available
 - use that linkage to reduce manual claim friction for people
 - use it as supporting evidence for community staff and ownership checks
 - show an attested-link badge separate from native verification

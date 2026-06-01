@@ -7,6 +7,8 @@ node_modules/
 apps/web/playwright-report/
 apps/web/playwright-artifacts/
 apps/web/test-results/
+apps/docs/.docusaurus/
+apps/docs/build/
 .vercel/
 apps/web/.vercel/
 .env

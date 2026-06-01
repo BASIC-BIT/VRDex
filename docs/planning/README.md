@@ -7,6 +7,8 @@
 - `docs/planning/architecture.md` - suggested system design, data model, and integrations
 - `docs/planning/prd.md` - product requirements draft for v1 and near-term expansion
 - `docs/planning/agent-integration-surface.md` - external agent-consumable VRDex skill, API, website navigation, and MCP direction
+- `docs/planning/calendar-integration.md` - Google Calendar export/sync direction for event workflows
+- `docs/planning/seed-import-model.md` - reviewed partner/list seed-import model and fake fixture shape
 - `docs/planning/world-discovery.md` - world pages, creator attribution, active-world discovery, and creator-commerce boundaries
 - `docs/planning/marketplace-api-research.md` - marketplace sync gate, provider posture, and disallowed storefront data
 - `docs/planning/engineering-strategy.md` - stack, testing, verification, and agentic factory plan

@@ -85,11 +85,35 @@ The VRDex onboarding skill should cover:
 - treat review-recycle as a first-class normal development loop, not an exception
 - use a fresh-context reviewer and a recycler that resumes the original implementer context when possible
 - trigger recycler work on PR creation, draft->ready transitions, new review comments, failing checks, and mergeability regressions
+- triage every outstanding review comment before pushing a follow-up commit on an open PR
+- reply or react with disposition before resolving review threads; do not silently resolve rejected or partially applied feedback
+- use GitHub Copilot automatic follow-up reviews and CI for ordinary iteration; reserve paid/manual reviewer reruns for substantial change sets
 
 ### Candidate direction
 
 - run first-pass reviewer/recycler loops outside GitHub when practical, then reflect the result back into GitHub once the branch is in better shape
 - allow agents to request reviewer and recycler jobs from the common task pool directly
+- encode reviewer source, confidence, false-positive disposition, and recycler outcome as structured metadata once the task-pool model is real
+
+### Trigger model
+
+- PR opened ready for review
+- draft PR marked ready
+- substantial new commit pushed to a PR branch
+- baseline check, deploy check, CodeQL, or hosted E2E failure
+- new blocking reviewer comment from a human or AI reviewer
+- mergeability regression after base branch movement
+- stale branch that blocks otherwise-ready merge
+
+### Recycle gate
+
+Before the next recycle push:
+
+- gather all outstanding review comments and failing checks
+- decide for each item: apply, reject with reason, split follow-up, or ask one human question
+- make the smallest correct patch set
+- rerun the relevant verification
+- record dispositions in the PR or issue when review context would otherwise be lost
 
 ## Orchestrator / supervisor loop
 
@@ -98,11 +122,21 @@ The VRDex onboarding skill should cover:
 - add an orchestrator or executive-assistant layer that sits above implementer sessions
 - the orchestrator should decide one next action when an implementer stops: continue, ask one human question, dispatch another agent, or mark done
 - prefer checkpointed incremental deltas over replaying giant transcripts
+- conserve human attention by asking one concrete decision at a time, with the recommended option first when there is a clear default
+- keep supervisor messages bounded to task state, blocker, evidence, and next-action choices instead of forwarding full transcripts by default
 
 ### Candidate direction
 
 - keep implementer sessions persistent and resumable
 - treat recycler work as resuming the original implementer session rather than spinning up a brand-new deep-context worker each time
+- use `.opencode/plugins/supervisor-loop.ts` and `.opencode/commands/supervisor.md` as the current local experiment path for supervisor-loop controls
+
+### Resume policy
+
+- resume the same session when the task needs preserved implementation context, review history, or partial local state
+- start a fresh session when the job is independent, benefits from cold review, or needs reduced context bloat
+- pass a compact delta package upward: goal, files changed, verification run, blockers, open decisions, and proposed next action
+- do not use resumability to hide stale assumptions; reread changed files before editing after a long pause
 
 ## OpenCode server / task-pool direction
 
@@ -111,11 +145,32 @@ The VRDex onboarding skill should cover:
 - move toward a common hosted OpenCode server that acts as a shared task pool
 - prefer atomic jobs/tasks over thread-subscribed chats when that improves dispatch, accounting, and re-entry
 - track active, idle, completed, and resumable agent sessions as discoverable system state
+- distinguish atomic jobs from resumable sessions explicitly
+- keep dispatch through an orchestrator path instead of uncontrolled recursive agent spawning
 
 ### Candidate direction
 
 - let agents request new agents through an orchestrator-facing interface instead of directly spawning uncontrolled work
 - expose parallelism ceilings, roster visibility, and resume-vs-new-session policy as explicit system controls
+- eventually expose task type, required tools, repo path, branch, risk level, and expected verification as dispatch metadata
+
+## Mergeability recovery
+
+### Current recommendation
+
+- treat mergeability regression as a first-class recycler trigger
+- default to resuming the original implementer session when practical
+- let automation update from base or resolve straightforward conflicts only when the intended behavior remains clear
+- ask for human input before risky conflict resolution that changes product, security, billing, trust, or migration behavior
+
+### Recovery loop
+
+1. Detect unmergeable or stale PR state.
+2. Gather base branch, changed files, failing checks, and outstanding reviews.
+3. Resume the original implementer when context is useful and available.
+4. Apply the smallest conflict or stale-branch fix.
+5. Rerun affected checks.
+6. Leave a concise PR comment if the recovery changed behavior or deferred work.
 
 ## Verification loops
 
@@ -162,6 +217,29 @@ VRDex should plan verification as a layered system, not a single test command.
 - default to asking whether a feature should be gated, progressively rolled out, or instrumented
 - avoid stacking overlapping platforms too early; prefer one primary system per concern until a real gap appears
 - `docs/agentic/product-analytics-and-feature-flags.md` is the canonical policy for tool roles, rollout posture, and product-signal expectations
+
+## LLM and agent observability
+
+### Current recommendation
+
+- keep LLM/agent observability separate from product analytics and feature flags
+- do not add a dedicated LLM observability platform until traces, evals, prompt quality, cost, or loop diagnostics are hard to manage with current artifacts
+- treat `Langfuse` as the first candidate to evaluate if dedicated traces/evals become necessary
+- consider signed action receipts or similar provenance/accountability artifacts as a separate concern from tracing
+
+### First signals worth capturing
+
+- task goal and issue/PR linkage
+- model/agent role at a coarse level
+- tool categories used, without secrets
+- review findings, false-positive dispositions, and recycler outcomes
+- checks run and pass/fail state
+- human decisions requested and answered
+- cost/latency only when the platform exposes it safely and usefully
+
+### Boundary
+
+Product analytics answers whether VRDex users are succeeding in the product. LLM/agent observability answers whether repo/product agents are producing reliable work. Do not force both jobs into one telemetry system by default.
 
 ## Trigger ideas worth encoding
 
