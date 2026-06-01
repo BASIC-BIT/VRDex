@@ -35,7 +35,7 @@ VRDex is a VRChat-first directory and profile platform for people, communities, 
 
 - VRChat scenes already run on fragmented identity packets: links, logos, bios, contact info, Discord servers, and group pages
 - DJs and communities repeatedly answer the same questions in DMs
-- the scene already accepts Discord<->VRChat linking and verification
+- the scene already accepts Discord-to-VRChat linking and verification
 - partner products exist, but public portable identity is still fragmented
 - partner projects in this ecosystem may be built with AI coding agents, so VRDex can create leverage by making those agents VRDex-literate through a portable skill, clear API docs, website navigation guidance, and later MCP tools
 

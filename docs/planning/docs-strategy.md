@@ -89,3 +89,20 @@ This keeps humans and agents on the same source of truth.
 Start with Docusaurus on day one.
 
 Even if internal docs are not private at first, the structure is still worth it. You can tighten privacy later without rethinking the whole documentation model.
+
+## Current Scaffold
+
+Locked decision:
+
+- canonical markdown stays under repo-root `docs/`
+- the Docusaurus app lives under `apps/docs`
+- `apps/docs` reads `../../docs` directly instead of duplicating content into a second docs tree
+
+Current recommendation:
+
+- treat Docusaurus as the browse/build shell
+- keep product, platform, deployment, backend, testing, and agentic decisions in `docs/`
+- add public/private deployment controls later rather than pretending Docusaurus route organization is access control
+- use `pnpm dev:docs` for local browsing and `pnpm build:docs` for static build verification
+
+This satisfies the first docs scaffold and seed-content direction while preserving room for a separate internal deployment or auth-gated docs surface later.
