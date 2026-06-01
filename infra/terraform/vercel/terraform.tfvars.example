@@ -11,5 +11,5 @@ posthog_public_key = "phc_REPLACE_WITH_VRDEX_ANALYTICS_PROJECT_KEY"
 manage_production_environment = true
 manage_preview_environment    = true
 
-# Add the Vercel custom environment ID for staging after discovering it from Vercel.
-# staging_custom_environment_ids = ["env_REPLACE_WITH_STAGING_CUSTOM_ENVIRONMENT_ID"]
+# Vercel custom environment ID for the shared `staging` environment.
+staging_custom_environment_ids = ["env_1iR8Tk53UMEhsbEgONsgGhzl9hX9"]
