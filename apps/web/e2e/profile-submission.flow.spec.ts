@@ -125,17 +125,20 @@ test("profile field visibility keeps unlisted fields on profiles and out of disc
     await expect(page.getByText(privateRole)).toHaveCount(0);
 
     await page.goto(`/discover?q=${encodeURIComponent(directOnlyAlias)}`);
-    await expect(page.getByText("No public results matched that search yet.")).toBeVisible();
-    await expect(page.getByText(displayName, { exact: true })).toHaveCount(0);
+    let searchResults = page.locator("section").filter({ hasText: "Search results" }).first();
+    await expect(searchResults.getByText("No public results matched that search yet.")).toBeVisible();
+    await expect(searchResults.getByText(displayName, { exact: true })).toHaveCount(0);
 
     await page.goto(`/discover?q=${encodeURIComponent(directOnlyBio)}`);
-    await expect(page.getByText("No public results matched that search yet.")).toBeVisible();
-    await expect(page.getByText(displayName, { exact: true })).toHaveCount(0);
+    searchResults = page.locator("section").filter({ hasText: "Search results" }).first();
+    await expect(searchResults.getByText("No public results matched that search yet.")).toBeVisible();
+    await expect(searchResults.getByText(displayName, { exact: true })).toHaveCount(0);
 
     await page.goto(`/discover?q=${encodeURIComponent(publicTag)}`);
-    await expect(page.getByText(displayName, { exact: true })).toBeVisible();
-    await expect(page.getByText(directOnlyBio)).toHaveCount(0);
-    await expect(page.getByText(privateRole)).toHaveCount(0);
+    searchResults = page.locator("section").filter({ hasText: "Search results" }).first();
+    await expect(searchResults.getByText(displayName, { exact: true })).toBeVisible();
+    await expect(searchResults.getByText(directOnlyBio)).toHaveCount(0);
+    await expect(searchResults.getByText(privateRole)).toHaveCount(0);
   } finally {
     if (createdSlug || runId) {
       const cleanupResponse = await request.delete("/api/e2e/profile-submissions", {
