@@ -199,7 +199,7 @@ test("verified email account can complete community and VRChat adapter claims @f
       runId,
       profileType: "community",
       displayName: `Playwright Community ${runSuffix}`,
-      aliases: [`Adapter Community ${runSuffix}`],
+      aliases: [`Adapter ${runSuffix}`],
       tags: ["playwright", "adapter-flow"],
       subtype: "VRChat group",
       categoryTags: ["Adapter verified"],
