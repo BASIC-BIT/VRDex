@@ -93,6 +93,8 @@ The `staging` Vercel environment points at the shared Convex development deploym
 - `DISCORD_BOT_TOKEN`: staging-only adapter token matching Convex dev env `DISCORD_BOT_TOKEN`
 - `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`: staging-only adapter token matching Convex dev env `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`
 
+Current ownership: these staging E2E environment variables are bootstrap-managed manual Vercel settings, not Terraform-owned. The `infra/terraform/vercel` stack currently owns only hosted PostHog client environment variables (`NEXT_PUBLIC_POSTHOG_KEY` and `NEXT_PUBLIC_POSTHOG_HOST`) for production, default preview, and configured staging custom environment IDs. Until E2E helper variables are explicitly added to or imported into Terraform, update this document and the Vercel secret store together, and never commit secret values.
+
 GitHub Actions uses these repository settings for hosted mutation health:
 
 - variable `VRDEX_HOSTED_E2E_BASE_URL=https://staging.vrdex.net`
