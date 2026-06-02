@@ -12,6 +12,8 @@ const sidebars = {
       label: "Developer Docs",
       items: [
         "developers/README",
+        "developers/partner-agent-skill",
+        "developers/opencode-skill-adapter",
         "developers/public-api",
         "developers/self-hosting-and-iac",
         "developers/vrdex-mcp-read-tools",
@@ -27,6 +29,7 @@ const sidebars = {
       label: "Engineering Docs",
       items: [
         "engineering/README",
+        "engineering/service-map",
         {
           type: "category",
           label: "Planning",

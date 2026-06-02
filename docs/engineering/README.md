@@ -31,3 +31,5 @@ Audience:
 Many existing docs still live in historical folders such as `docs/planning/`, `docs/backend/`, `docs/agentic/`, and `docs/testing/`. Treat those as engineering docs unless they are intentionally promoted into `docs/public/` or `docs/developers/`.
 
 When a document mixes audiences, prefer extracting the public/developer surface into the appropriate lane and leaving alternatives, caveats, and implementation detail here.
+
+Start with the [service cross-link map](./service-map.md) when reviewing how hosted services, docs, APIs, and implementation surfaces relate.

@@ -118,7 +118,7 @@ Current recommendation:
 
 Agent-facing integration direction:
 
-- canonical portable skill source should prefer `skills/vrdex/SKILL.md` plus reference docs/adapters rather than only `.opencode/skills/`
+- canonical portable skill guidance should live in Docusaurus-visible docs, with `skills/vrdex/SKILL.md` acting as a compatibility pointer for agent tooling
 - public docs should include stable route/API patterns, trust/provenance rules, and examples for partner agents
 - website navigation guidance should exist, but structured data should prefer API or MCP over scraping
 - a future VRDex MCP should use the VRChat MCP pattern of curated tools first, generated API coverage second, compact outputs, and IDs/slugs for follow-up calls

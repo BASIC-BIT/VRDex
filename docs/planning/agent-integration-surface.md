@@ -46,8 +46,8 @@ Useful pattern:
 
 Candidate direction:
 
-- use the canonical portable skill at `skills/vrdex/SKILL.md`, not only an OpenCode-local `.opencode` skill
-- keep the skill short and point to public docs, API reference, navigation guide, and MCP docs
+- use the Docusaurus-visible canonical guidance at `docs/developers/partner-agent-skill.md`, not only an OpenCode-local `.opencode` skill
+- keep tool-specific skill files short and pointed at public docs, API reference, navigation guide, and MCP docs
 - include adapter docs for OpenCode, Claude Code, Codex, Cursor, Copilot/VS Code, and other common agent tools as they become practical
 - make the installation story simple enough for partner repos: copy, vendor, submodule, package, or point an agent at the hosted skill URL
 

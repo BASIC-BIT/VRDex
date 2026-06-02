@@ -29,9 +29,21 @@ Audience:
 
 ## Current Entry Points
 
+- [VRDex partner-agent skill](./partner-agent-skill.md)
+- [OpenCode skill adapter](./opencode-skill-adapter.md)
+- [Public API posture](./public-api.md)
+- [Self-hosting and IaC](./self-hosting-and-iac.md)
+- [VRDex MCP read tools](./vrdex-mcp-read-tools.md)
+- [Service cross-link map](../engineering/service-map.md)
+
+Source paths:
+
+- `docs/developers/partner-agent-skill.md`
+- `docs/developers/opencode-skill-adapter.md`
 - `docs/developers/public-api.md`
 - `docs/developers/self-hosting-and-iac.md`
 - `docs/developers/vrdex-mcp-read-tools.md`
-- `skills/vrdex/SKILL.md`
+- `docs/engineering/service-map.md`
+- `skills/vrdex/SKILL.md`, compatibility pointer only
 
 Deployment docs under `docs/deployment/` are currently developer/operator docs too. Move or mirror only when that improves clarity instead of creating duplicated maintenance.

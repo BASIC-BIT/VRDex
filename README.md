@@ -93,7 +93,7 @@ Current infrastructure and platform references:
 - self-hosting and IaC direction: `docs/developers/self-hosting-and-iac.md`
 - AWS service baseline: `docs/deployment/aws-baseline.md`
 - public API posture: `docs/developers/public-api.md`
-- portable partner-agent skill: `skills/vrdex/SKILL.md`
+- portable partner-agent guidance: `docs/developers/partner-agent-skill.md`
 
 The strongest opening is not another event calendar.
 

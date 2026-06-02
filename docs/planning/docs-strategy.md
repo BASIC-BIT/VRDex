@@ -84,8 +84,11 @@ Good pattern:
 - skill points agent to canonical docs page(s)
 - docs hold the evolving truth
 - skill provides workflow framing, not duplicated content
+- Docusaurus-visible docs are the canonical review surface for skill content that humans should maintain
 
 This keeps humans and agents on the same source of truth.
+
+Cross-linking matters: service pages, API pages, deployment pages, skill pages, and implementation notes should link to adjacent docs whenever behavior crosses boundaries.
 
 ## Good internal doc categories
 
