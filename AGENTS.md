@@ -88,6 +88,8 @@ Prefer explicit labels in docs:
 - Keep most durable markdown under `docs/` instead of letting the repo root sprawl.
 - Skills should stay thin and mostly route to canonical docs.
 - Update docs when behavior, architecture, workflows, or policies change.
+- Avoid docs drift as part of every PR: while editing code/config/tests, actively look for docs that need the same update and patch them alongside the implementation, not as an afterthought.
+- Before pushing a PR update, check whether changed behavior affects public docs, developer docs, engineering docs, deployment docs, skills, README files, or issue-linked planning docs.
 
 ## Testing rule
 
