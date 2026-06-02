@@ -14,6 +14,7 @@
     "build:docs": "pnpm --filter docs build",
     "build:web:vercel": "pnpm --filter web build:vercel",
     "check:web:vercel-env": "pnpm --filter web check:vercel-env",
+    "lint:markdown": "markdownlint-cli2",
     "lint:web": "pnpm --filter web lint",
     "test:e2e": "pnpm --filter web test:e2e",
     "test:e2e:hosted": "pnpm --filter web test:e2e:hosted",
@@ -28,10 +29,12 @@
     "verify:backend:local": "node scripts/run-convex-local.mjs dev --local --once --run health:status --tail-logs disable",
     "check:backend:generated": "pnpm verify:backend:local && git diff --exit-code -- convex/_generated",
     "verify:web": "pnpm lint:web && pnpm typecheck:web && pnpm build:web",
-    "verify": "pnpm verify:web && pnpm check:backend:generated && pnpm typecheck:backend && pnpm test:backend",
+    "verify:docs": "pnpm lint:markdown && pnpm build:docs",
+    "verify": "pnpm verify:docs && pnpm verify:web && pnpm check:backend:generated && pnpm typecheck:backend && pnpm test:backend",
     "prepare": "husky"
   },
   "lint-staged": {
+    "**/*.{md,mdx}": "markdownlint-cli2 --fix",
     "apps/web/**/*.{js,jsx,ts,tsx,mjs,cjs}": "pnpm --filter web exec eslint --fix --max-warnings=0"
   },
   "pnpm": {
@@ -44,6 +47,7 @@
     "convex": "^1.32.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.3.3",
+    "markdownlint-cli2": "^0.22.1",
     "tsx": "^4.22.1",
     "typescript": "^5.9.3"
   },
