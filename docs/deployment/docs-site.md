@@ -22,13 +22,14 @@ Create or import a Vercel project for docs only:
 | --- | --- |
 | Vercel project name | `vr-dex-docs` |
 | Repository | `BASIC-BIT/VRDex` |
-| Root directory | `apps/docs` |
+| Vercel project root directory | repository root (`.`) |
+| Docs app directory | `apps/docs`, selected by workflow `--cwd apps/docs` flags |
 | Framework preset | Docusaurus or Other |
-| Build command | `pnpm build` |
-| Output directory | `build` |
+| Build command | `pnpm build`, from `apps/docs/vercel.json` |
+| Output directory | `build`, from `apps/docs/vercel.json` |
 | Production domain | `docs.vrdex.net` |
 
-`apps/docs/vercel.json` records the docs-local build command and output directory. The `Docs Deploy` workflow runs Vercel CLI commands from the repository root with `--cwd apps/docs`, which keeps the deploy path reproducible even if the provider project root setting is still `.`.
+`apps/docs/vercel.json` records the docs-local build command and output directory. The `Docs Deploy` workflow runs Vercel CLI commands from the repository root with `--cwd apps/docs`, so the Vercel project root should stay at the repository root instead of also being set to `apps/docs`.
 
 Use root-level `pnpm verify:docs` in CI before deployment, but keep the Vercel project build command relative to the docs app root.
 
