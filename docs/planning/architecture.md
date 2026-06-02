@@ -29,7 +29,7 @@ Current likely stack direction based on adjacent repos and your preference:
 
 - `Next.js` app on Vercel for web UX and preview environments
 - `Convex` for backend data model, functions, auth-adjacent app logic, and scheduling
-- `AWS` for asset storage and any surrounding infrastructure that fits better there
+- `AWS` for SES auth email, private S3 asset storage, DNS-adjacent infrastructure, and surrounding infrastructure that fits better there
 - `Stripe` for subscriptions, billing portal, and webhook-backed entitlement updates
 
 ### Auth
@@ -49,7 +49,11 @@ Current recommendation:
 
 Email infrastructure direction:
 
-- AWS email delivery capabilities are the likely default for verification and transactional mail
+- Amazon SES is the current default for verification and transactional mail; see `docs/deployment/ses-auth-email.md`
+
+Asset infrastructure direction:
+
+- private Amazon S3 is the first-pass direction for owner-authored profile assets; see `docs/deployment/aws-baseline.md`
 
 ### Billing
 
@@ -547,7 +551,7 @@ Also useful:
 
 Best integration stance:
 
-- accept proven Discord<->VRChat identity links when available
+- accept proven Discord-to-VRChat identity links when available
 - do not force users to verify twice if a trusted integration can attest linkage
 
 High-value uses:
@@ -710,17 +714,22 @@ Optional later:
 
 ### Lightweight API
 
-- `GET /api/profiles/:slug`
-- `GET /api/search?q=`
-- `GET /api/cards/:slug`
-- `GET /api/communities/:slug`
-- `GET /api/worlds/:slug`
-- `GET /api/worlds/:slug/events`
-- `GET /api/worlds/active`
-- `GET /api/people/:slug`
-- `GET /api/people/:slug/events`
-- `GET /api/communities/:slug/events`
-- `POST /api/event-suggestions/:id/confirm`
+Canonical public API posture lives in `docs/developers/public-api.md`. This architecture sketch should not be used to add unversioned public routes.
+
+Candidate read-only routes use the `/api/v0/...` prefix:
+
+- `GET /api/v0/profiles/:slug`
+- `GET /api/v0/search?q=`
+- `GET /api/v0/cards/:slug`
+- `GET /api/v0/communities/:slug`
+- `GET /api/v0/worlds/:slug`
+- `GET /api/v0/worlds/:slug/events`
+- `GET /api/v0/worlds/active`
+- `GET /api/v0/people/:slug`
+- `GET /api/v0/people/:slug/events`
+- `GET /api/v0/communities/:slug/events`
+
+Public write routes remain out of scope until auth, rate limits, audit, and abuse handling are designed in a linked issue.
 
 Public API posture:
 

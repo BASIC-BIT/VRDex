@@ -6,6 +6,7 @@
 
 - `AGENTS.md` - repo-wide agent rules and durable workflow defaults
 - `AGENTS.local.md.example` - local operator preference template for `AGENTS.local.md`
+- `apps/docs` - Docusaurus docs site scaffold reading canonical markdown from `docs/`
 - `apps/web` - initial `Next.js` web application scaffold
 - `convex` - Convex backend functions, profile schema, community submissions, and generated API types
 - `docs/README.md` - docs entry point
@@ -25,9 +26,11 @@
 - re-run the local backend verification pass: `pnpm verify:backend:local`
 - confirm committed Convex codegen is current: `pnpm check:backend:generated`
 - run the web app: `pnpm dev:web`
+- run the docs site: `pnpm dev:docs`
 - lint the web app: `pnpm lint:web`
 - typecheck the web app: `pnpm typecheck:web`
 - build the web app: `pnpm build:web`
+- build the docs site: `pnpm build:docs`
 - run the Vercel web build validation path: `pnpm build:web:vercel`
 - smoke public routes with Playwright: `pnpm test:e2e`
 - capture public route screenshots with Playwright: `pnpm test:e2e:visual`
@@ -48,6 +51,8 @@ Community-submitted public profiles now start at `/submit`. Person profile pages
 Playwright screenshot preview captures desktop and mobile screenshots for `/`, `/submit`, `/server-status`, and deterministic public profile fixtures. See `docs/testing/playwright-visual-preview.md`.
 
 The initial hosted preview path targets Vercel with `apps/web` as the project root. See `docs/deployment/vercel-preview.md`; the live deployment check page is `/deployment`.
+
+The docs site scaffold lives in `apps/docs` and reads the existing `docs/` tree directly. Canonical markdown stays under `docs/`; the Docusaurus app is the browsable shell.
 
 `pnpm verify` is the full repo verification pass and now includes the local Convex bootstrap checks. If you are iterating on the web app only, use `pnpm verify:web` for the lighter web-only path.
 
@@ -82,6 +87,13 @@ Currently locked product posture:
 - public documentation
 - public-facing API with clear rate limiting
 - infrastructure as code in the repo
+
+Current infrastructure and platform references:
+
+- self-hosting and IaC direction: `docs/developers/self-hosting-and-iac.md`
+- AWS service baseline: `docs/deployment/aws-baseline.md`
+- public API posture: `docs/developers/public-api.md`
+- portable partner-agent guidance: `docs/developers/partner-agent-skill.md`
 
 The strongest opening is not another event calendar.
 

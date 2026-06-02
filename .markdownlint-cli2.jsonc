@@ -1,0 +1,25 @@
+{
+  "globs": ["**/*.{md,mdx}"],
+  "ignores": [
+    "node_modules/**",
+    "**/node_modules/**",
+    ".next/**",
+    "**/.terraform/**",
+    ".turbo/**",
+    ".vercel/**",
+    ".playwright-mcp/**",
+    "apps/docs/.docusaurus/**",
+    "apps/docs/build/**",
+    "apps/web/.next/**",
+    "apps/web/playwright-report/**",
+    "apps/web/test-results/**",
+    "apps/web/playwright-artifacts/**"
+  ],
+  "config": {
+    "default": true,
+    "MD013": false,
+    "MD024": false,
+    "MD033": false,
+    "MD041": false
+  }
+}

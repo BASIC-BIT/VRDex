@@ -29,6 +29,18 @@ Local ignored env names:
 - `CONVEX_URL_DEV`
 - `CONVEX_URL_PROD`
 
+## Auth Email Environment
+
+Convex deployments that send password or email verification messages through SES must set:
+
+- `AWS_SES_REGION`
+- `AWS_SES_FROM_EMAIL`
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
+- `VRDEX_APP_NAME` optional display name
+
+The hosted SES baseline is documented in `docs/deployment/ses-auth-email.md` and `docs/deployment/aws-baseline.md`. Store secret values in Convex env, never in git.
+
 ## Hosted E2E Helpers
 
 Hosted mutation-backed Playwright runs use only the shared development/staging target. Do not enable these helpers in production.

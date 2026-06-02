@@ -32,10 +32,12 @@ Important planning note:
 - `Stripe` for payments and billing portal
 - `AWS` for assets and surrounding infra that fits better there
 - `Vercel` for fast web previews and frontend deployment ergonomics
+- `Docusaurus` for browsable public/internal docs sourced from repo markdown
 
 Likely adjacent service use:
 
 - AWS email capabilities for verification and transactional mail
+- AWS S3 for private owner-authored profile assets once asset uploads are implemented by [#115](https://github.com/BASIC-BIT/VRDex/issues/115)
 
 Status: locked stack direction.
 
@@ -53,6 +55,7 @@ Current recommendation:
 - once the local backend bootstrap is deterministic, include it in the baseline PR verification pass alongside the web checks
 - use one explicit server-side App Router baseline once client wiring is stable: `fetchQuery` for server-only reads, with `preloadQuery` deferred until a feature truly needs hydrated reactivity after server render
 - use Vercel previews as the first hosted validation path for the web app, with `apps/web` as the project root and `/deployment` as the live environment check page
+- use `apps/docs` as the Docusaurus shell over canonical repo-root `docs/` markdown, with `pnpm build:docs` as the static docs verification path
 
 ## Monetization direction
 
@@ -115,18 +118,20 @@ Current recommendation:
 
 Agent-facing integration direction:
 
-- canonical portable skill source should prefer `skills/vrdex/SKILL.md` plus reference docs/adapters rather than only `.opencode/skills/`
+- canonical portable skill guidance should live in Docusaurus-visible docs, with `skills/vrdex/SKILL.md` acting as a compatibility pointer for agent tooling
 - public docs should include stable route/API patterns, trust/provenance rules, and examples for partner agents
 - website navigation guidance should exist, but structured data should prefer API or MCP over scraping
 - a future VRDex MCP should use the VRChat MCP pattern of curated tools first, generated API coverage second, compact outputs, and IDs/slugs for follow-up calls
 
 Infra direction:
 
-- Terraform and/or AWS CDK are both acceptable directions
-- choose one primary IaC path before implementation gets too far
+- Terraform is the current primary IaC path for hosted bootstrap stacks
 - prefer infrastructure-as-code or checked-in config for infrastructure, CI settings, and environment variable definitions whenever the platform supports it
 - for secrets that must remain in provider secret stores, commit the expected variable name, environment scope, owning service, and rotation/recreation path instead of relying on dashboard-only tribal knowledge
 - treat manual dashboard changes as bootstrap or emergency operations that need a follow-up reproducibility artifact
+- use `docs/developers/self-hosting-and-iac.md` as the current hosted vs self-hosted deployment reference
+- use `docs/deployment/aws-baseline.md` as the current SES and future S3 asset-storage baseline
+- keep profile asset storage narrow: private S3, Block Public Access, server-side encryption, and app-generated presigned URLs before any CDN or image-processing layer
 
 ## Follow-on integration ideas
 
@@ -219,7 +224,7 @@ Candidate direction:
 
 ## Agent knowledge architecture
 
-This is the clearest rule set I would use.
+Use this rule set for placing agent-facing knowledge without over-promoting long workflow detail into every session.
 
 ### `AGENTS.md`
 
@@ -329,6 +334,22 @@ VRDex-specific note:
 - standalone VRDex MCP is likely safer and cleaner than folding the whole surface into VRChat MCP because VRDex public data, profile claims, partner sync, and event metadata are not the same auth boundary as a local VRChat account
 - VRChat MCP bridge tools can still be valuable later for resolving VRChat users/groups/worlds/events into VRDex records
 
+### LLM / Agent Observability
+
+Use for:
+
+- traces, evals, prompt-quality analysis, cost/latency, and loop diagnostics for repo/product agents
+- review/recycle outcomes and false-positive disposition tracking
+
+Current recommendation:
+
+- keep LLM/agent observability separate from product analytics and feature flags
+- do not adopt a dedicated platform until current artifacts stop being enough for traces, evals, or loop diagnostics
+- treat `Langfuse` as the first candidate to evaluate if a dedicated platform becomes necessary
+- do not capture prompt text by default until redaction, privacy, and retention rules exist
+
+Canonical details live in `docs/agentic/software-factory.md` under `LLM and agent observability`.
+
 ### Docusaurus docs
 
 Use for:
@@ -374,7 +395,7 @@ Default posture:
 - avoid prematurely building the most granular or most abstract system possible
 - call out when a simpler role model, entitlement model, or UX flow is likely good enough for v1
 
-## Suggested VRDex repo setup
+## Historical VRDex repo setup guidance
 
 ### Documentation
 
@@ -402,12 +423,12 @@ Default posture:
 - testing protocol
 - docs strategy
 
-## Immediate recommendation
+## Remaining setup references
 
-Before implementation starts in earnest, create:
+Keep these references current as product implementation fills in the remaining gaps:
 
-1. a stronger issue/epic breakdown from the PRD
-2. a trust-state / badge-state document
-3. a billing and entitlement document
-4. a testing protocol doc
-5. a first-pass Docusaurus structure
+1. issue/epic breakdown from the PRD: `docs/planning/dependency-map.md`, `docs/planning/epics.md`, and GitHub issues
+2. trust-state / badge-state docs: `docs/backend/profile-access-and-claims.md` and related public trust docs once promoted
+3. billing and entitlement docs: create/update when billing work starts
+4. testing protocol docs: `docs/testing/` and `docs/agentic/definition-of-done.md`
+5. Docusaurus structure: `apps/docs`, `docs/README.md`, and `docs/planning/docs-strategy.md`

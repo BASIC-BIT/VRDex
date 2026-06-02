@@ -1,3 +1,6 @@
+# BASIC BIT hosted example values. Self-hosted operators should replace these
+# with their own AWS region, sender domain, and sender address.
+
 aws_region  = "us-east-1"
 domain_name = "vrdex.net"
 from_email  = "no-reply@vrdex.net"

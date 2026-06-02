@@ -1,6 +1,6 @@
 # Vercel preview deployment
 
-This is the first hosted deployment path for `apps/web`. It is intentionally narrow: get a live Vercel URL for every pull request, keep unsafe public states locked, and leave production-hardening for later issues.
+This is the first hosted deployment path for `apps/web`. It is intentionally narrow: get a live Vercel URL for every pull request and keep unsafe public states locked. Production-hardening work needs explicit follow-up issues before it belongs in this doc.
 
 ## Vercel project
 
