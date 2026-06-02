@@ -19,6 +19,7 @@ This repo keeps durable markdown under `docs/` so product, developer, engineerin
 - `docs/developers/vrdex-mcp-read-tools.md` - documentation-only first pass for standalone read-only VRDex MCP tools
 - `docs/engineering/service-map.md` - cross-link map for services, docs, and implementation surfaces
 - `docs/deployment/aws-baseline.md` - first-pass AWS service baseline for SES and future S3 assets
+- `docs/deployment/docs-site.md` - Docusaurus docs deployment runbook for `docs.vrdex.net`
 - `docs/developers/self-hosting-and-iac.md` - self-hosting, hosted deployment, and IaC ownership direction
 - `docs/deployment/vercel-preview.md` - initial Vercel hosted-preview setup and validation path
 - `docs/deployment/ses-auth-email.md` - SES auth email and Convex environment variables

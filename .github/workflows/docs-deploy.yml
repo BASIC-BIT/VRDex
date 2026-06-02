@@ -1,0 +1,112 @@
+name: Docs Deploy
+
+on:
+  workflow_run:
+    workflows:
+      - Baseline Checks
+    types:
+      - completed
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-deploy-main
+  cancel-in-progress: false
+
+jobs:
+  deploy-docs:
+    name: Deploy Docs
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Check docs deploy configuration
+        id: gate
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_DOCS_PROJECT_ID: ${{ secrets.VERCEL_DOCS_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+
+          missing=()
+          if [ -z "$VERCEL_TOKEN" ]; then missing+=("VERCEL_TOKEN"); fi
+          if [ -z "$VERCEL_ORG_ID" ]; then missing+=("VERCEL_ORG_ID"); fi
+          if [ -z "$VERCEL_DOCS_PROJECT_ID" ]; then missing+=("VERCEL_DOCS_PROJECT_ID"); fi
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## Docs deploy"
+              echo "Skipped because required docs deployment settings are missing:"
+              printf -- '- %s\n' "${missing[@]}"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      - name: Setup pnpm
+        if: steps.gate.outputs.enabled == 'true'
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        if: steps.gate.outputs.enabled == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.gate.outputs.enabled == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify docs
+        if: steps.gate.outputs.enabled == 'true'
+        run: pnpm verify:docs
+
+      - name: Pull Vercel docs production environment
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_DOCS_PROJECT_ID }}
+        run: pnpm dlx vercel@54.4.1 pull --yes --environment=production --token "$VERCEL_TOKEN"
+
+      - name: Build Vercel docs output
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_DOCS_PROJECT_ID }}
+        run: pnpm dlx vercel@54.4.1 build --prod --token "$VERCEL_TOKEN"
+
+      - name: Deploy Vercel docs output
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_DOCS_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          deployment_url=$(pnpm dlx vercel@54.4.1 deploy --prebuilt --prod --token "$VERCEL_TOKEN" | tail -n 1)
+          if [ -z "$deployment_url" ]; then
+            echo "Vercel docs deployment did not return a URL." >&2
+            exit 1
+          fi
+
+          {
+            echo "## Docs deploy"
+            echo "Vercel docs deployment: $deployment_url"
+            echo "Expected custom domain after provider setup: https://docs.vrdex.net"
+          } >> "$GITHUB_STEP_SUMMARY"

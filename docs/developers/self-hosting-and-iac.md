@@ -26,7 +26,7 @@ The BASIC BIT hosted deployment currently uses:
 - PostHog project `447783` for hosted product analytics
 - Terraform stacks under `infra/terraform/`
 - GitHub Actions for baseline checks, deployed health, CodeQL, and staging deploys
-- Docusaurus scaffold under `apps/docs`, reading canonical markdown from `docs/`
+- Docusaurus scaffold under `apps/docs`, reading canonical markdown from `docs/`; [#125](https://github.com/BASIC-BIT/VRDex/issues/125) owns deployment to `docs.vrdex.net`
 
 ## IaC Ownership Table
 
@@ -37,6 +37,7 @@ The BASIC BIT hosted deployment currently uses:
 | PostHog project metadata | `infra/terraform/posthog` | Imports hosted project `447783`; sensitive project token output feeds Vercel stack locally. |
 | Hosted Vercel PostHog env vars | `infra/terraform/vercel` | Owns `NEXT_PUBLIC_POSTHOG_KEY` and `NEXT_PUBLIC_POSTHOG_HOST` for production, default preview, and configured staging custom environment IDs. |
 | Vercel project, staging environment, and E2E helper vars | manual bootstrap plus docs | Documented in `docs/deployment/vercel-preview.md`; not Terraform-owned yet. |
+| Docs Vercel project and `docs.vrdex.net` domain | planned manual bootstrap plus workflow | Runbook lives in `docs/deployment/docs-site.md`; [#125](https://github.com/BASIC-BIT/VRDex/issues/125) owns provider setup. |
 | Convex deployment keys and env vars | provider secret store plus docs | Documented in `docs/deployment/convex-environments.md` and `docs/deployment/ses-auth-email.md`. |
 | Convex custom domains | deferred manual provider setup | Runbook lives in `docs/deployment/convex-environments.md`; requires Convex Pro and dashboard-provided DNS records before Route 53 records. |
 | Profile asset storage | planned follow-up | Direction documented in `docs/deployment/aws-baseline.md`; [#115](https://github.com/BASIC-BIT/VRDex/issues/115) owns the S3 Terraform/runtime baseline. |
