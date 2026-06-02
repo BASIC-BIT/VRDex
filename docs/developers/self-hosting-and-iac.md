@@ -62,7 +62,7 @@ Self-hosting docs should distinguish required product configuration from BASIC B
 - Prefer docs plus exact provider object names when provider APIs are awkward or risky for the first bootstrap.
 - Do not commit secret values, local Terraform state, local provider caches, or generated access-key secrets.
 - When a secret must be manually set, document the variable name, target provider, intended environment, and how to recreate or rotate it.
-- Keep docs close to the owning system: deployment docs under `docs/deployment/`, product/platform posture under `docs/platform/`, and long-term planning under `docs/planning/`.
+- Keep docs close to the owning audience: public product behavior under `docs/public/`, developer/operator contracts under `docs/developers/`, deployment implementation notes under `docs/deployment/`, and planning or alternatives under engineering-oriented docs.
 
 ## Hosted Vs Self-Hosted Expectations
 

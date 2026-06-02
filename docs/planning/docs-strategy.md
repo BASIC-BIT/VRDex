@@ -20,19 +20,33 @@ Purpose:
 
 - product docs
 - user guides
-- partner integration docs
-- public API docs
 - trust and privacy explanations
+- current user-facing behavior
 
 Suggested route:
 
-- `/docs` or site root in docs-only mode
+- `/docs/public`
 
-### Internal docs
+### Developer docs
+
+Purpose:
+
+- public API docs
+- partner integration docs
+- self-hosting and deployment docs
+- provider variable names and recreation paths
+- agent-facing integration contracts such as portable skills and MCP read tools
+
+Suggested route:
+
+- `/docs/developers`
+
+### Engineering docs
 
 Purpose:
 
 - engineering decisions
+- alternatives considered
 - moderation playbooks
 - rollout plans
 - AI/operator notes
@@ -40,11 +54,11 @@ Purpose:
 
 Suggested route:
 
-- `/internal`
+- `/docs/engineering`
 
 ## Important caveat
 
-Docusaurus can organize docs into public and internal sections, but it does not magically make a route private.
+Docusaurus can organize docs into public, developer, and engineering sections, but it does not magically make a route private.
 
 For actual privacy, use one of these:
 
@@ -58,8 +72,8 @@ Recommended default:
 
 - same repo
 - Docusaurus for canonical docs
-- public docs deployed publicly
-- internal docs either excluded from public deploy or shipped behind auth later
+- public and developer docs deployed publicly when they describe stable current behavior
+- engineering docs either deployed publicly when safe, excluded from public deploy, or shipped behind auth later
 
 ## Agent strategy
 
@@ -101,7 +115,8 @@ Locked decision:
 Current recommendation:
 
 - treat Docusaurus as the browse/build shell
-- keep product, platform, deployment, backend, testing, and agentic decisions in `docs/`
+- use `docs/public/`, `docs/developers/`, and `docs/engineering/` as the durable audience lanes
+- keep legacy product planning, backend, testing, and agentic decisions in `docs/` until they are promoted into a lane
 - add public/private deployment controls later rather than pretending Docusaurus route organization is access control
 - use `pnpm dev:docs` for local browsing and `pnpm build:docs` for static build verification
 

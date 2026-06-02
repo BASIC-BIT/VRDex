@@ -87,7 +87,7 @@ Candidate direction:
 - the MCP should expose curated tools first and optionally generated API coverage later
 - MCP resources could expose common read surfaces such as profile cards, upcoming events, and partner documentation
 
-The documentation-only first read-tool contract lives in `docs/platform/vrdex-mcp-read-tools.md`.
+The documentation-only first read-tool contract lives in `docs/developers/vrdex-mcp-read-tools.md`.
 
 Candidate curated tools:
 

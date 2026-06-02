@@ -43,9 +43,9 @@ const config = {
       title: "VRDex Docs",
       items: [
         { to: "/docs/", label: "Docs", position: "left" },
-        { to: "/docs/planning/", label: "Planning", position: "left" },
-        { to: "/docs/platform/public-api", label: "Platform", position: "left" },
-        { to: "/docs/agentic/", label: "Agentic", position: "left" },
+        { to: "/docs/public/", label: "Public", position: "left" },
+        { to: "/docs/developers/", label: "Developers", position: "left" },
+        { to: "/docs/engineering/", label: "Engineering", position: "left" },
         { href: "https://github.com/BASIC-BIT/VRDex", label: "GitHub", position: "right" },
       ],
     },
@@ -56,8 +56,9 @@ const config = {
           title: "Start",
           items: [
             { label: "Docs Home", to: "/docs/" },
-            { label: "Planning", to: "/docs/planning/" },
-            { label: "Deployment", to: "/docs/deployment/self-hosting-and-iac" },
+            { label: "Public Docs", to: "/docs/public/" },
+            { label: "Developer Docs", to: "/docs/developers/" },
+            { label: "Engineering Docs", to: "/docs/engineering/" },
           ],
         },
         {

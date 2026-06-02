@@ -17,8 +17,8 @@ This is the portable product-facing skill. It is separate from repo-local mainta
 - `docs/backend/profile-schema.md` for profile fields, trust states, visibility, and source attribution
 - `docs/backend/profile-access-and-claims.md` for claim, ownership, and field-visibility rules
 - `docs/backend/search-discovery.md` for public discovery behavior
-- `docs/platform/public-api.md` for API posture and rate-limit expectations
-- `docs/platform/vrdex-mcp-read-tools.md` for planned read-only MCP tools
+- `docs/developers/public-api.md` for API posture and rate-limit expectations
+- `docs/developers/vrdex-mcp-read-tools.md` for planned read-only MCP tools
 - `docs/planning/seed-import-model.md` for partner seed-import boundaries
 
 ## Core Nouns

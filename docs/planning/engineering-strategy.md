@@ -129,7 +129,7 @@ Infra direction:
 - prefer infrastructure-as-code or checked-in config for infrastructure, CI settings, and environment variable definitions whenever the platform supports it
 - for secrets that must remain in provider secret stores, commit the expected variable name, environment scope, owning service, and rotation/recreation path instead of relying on dashboard-only tribal knowledge
 - treat manual dashboard changes as bootstrap or emergency operations that need a follow-up reproducibility artifact
-- use `docs/deployment/self-hosting-and-iac.md` as the current hosted vs self-hosted deployment reference
+- use `docs/developers/self-hosting-and-iac.md` as the current hosted vs self-hosted deployment reference
 - use `docs/deployment/aws-baseline.md` as the current SES and future S3 asset-storage baseline
 - keep profile asset storage narrow: private S3, Block Public Access, server-side encryption, and app-generated presigned URLs before any CDN or image-processing layer
 

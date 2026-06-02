@@ -9,6 +9,8 @@ VRDex is intended to have a documented public API, but the current Convex functi
 ## Locked Direction
 
 - Public API behavior and limits should be documented before outside consumers depend on them.
+- Public API routes should be versioned from the start.
+- The first unstable public surface should use `/api/v0/...` so pre-launch breaking changes are honest and easy to isolate.
 - Public API responses must preserve trust, provenance, claim, visibility, and opt-out semantics.
 - First-party web usage and public consumer usage may share business logic while still using different transport, auth, and rate-limit layers.
 - Structured integrations should prefer public API or MCP tools over website scraping.
@@ -18,18 +20,18 @@ VRDex is intended to have a documented public API, but the current Convex functi
 
 Candidate first public API endpoints remain:
 
-- `GET /api/profiles/:slug`
-- `GET /api/people/:slug`
-- `GET /api/communities/:slug`
-- `GET /api/search?q=`
-- `GET /api/cards/:slug`
-- `GET /api/worlds/:slug`
-- `GET /api/worlds/:slug/events`
-- `GET /api/worlds/active`
-- `GET /api/people/:slug/events`
-- `GET /api/communities/:slug/events`
+- `GET /api/v0/profiles/:slug`
+- `GET /api/v0/people/:slug`
+- `GET /api/v0/communities/:slug`
+- `GET /api/v0/search?q=`
+- `GET /api/v0/cards/:slug`
+- `GET /api/v0/worlds/:slug`
+- `GET /api/v0/worlds/:slug/events`
+- `GET /api/v0/worlds/active`
+- `GET /api/v0/people/:slug/events`
+- `GET /api/v0/communities/:slug/events`
 
-The first public API should be read-only unless a specific write flow has an auth, rate-limit, audit, and abuse-handling design.
+The first public API should be read-only unless a specific write flow has an auth, rate-limit, audit, and abuse-handling design. `v0` can be replaced or deprecated before public launch if the implementation reveals a better shape.
 
 ## Client Classes
 

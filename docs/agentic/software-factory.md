@@ -2,7 +2,9 @@
 
 ## Status note
 
-This document captures VRDex's repo-specific software-factory direction so the engine and the product can be designed together.
+This is an engineering operating note, not public product documentation and not a universal contributor mandate. It captures repo-specific agent, review, and verification patterns that are already shaping how maintainers deliver VRDex.
+
+Promote only proven reusable patterns into `basics-agentic-dogfooding` or global agent context. Keep speculative workflow ideas here until they have repeated value.
 
 ## Locked decisions
 
@@ -19,6 +21,7 @@ This document captures VRDex's repo-specific software-factory direction so the e
 - when the agent behaves badly or asks a low-value question, finish the immediate task and then capture the process fix before moving on
 - bias toward stronger human and agent onboarding so new sessions converge quickly on repo norms
 - prefer discoverable, cross-linked artifacts over chat-only decisions
+- avoid turning local process experiments into public product promises
 
 ## Rigorous, not prescriptive
 
