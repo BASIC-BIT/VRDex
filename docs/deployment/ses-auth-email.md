@@ -11,7 +11,7 @@ Current hosted baseline:
 - domain identity: `vrdex.net`
 - sender: `no-reply@vrdex.net`
 - region: `us-east-1`
-- Route 53 hosted zone: `Z0797984WGKSLWFLGV6V`
+- Route 53 hosted zone: `vrdex.net` hosted zone; provider-generated hosted zone IDs stay in provider configuration, Terraform state, or operator records rather than public docs
 - Terraform state key: `ses/terraform.tfstate`
 
 As of the AWS baseline pass, SES identity verification and DKIM verification are both `Success`, and Terraform reports no drift for the hosted SES stack.

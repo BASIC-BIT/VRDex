@@ -30,11 +30,11 @@ Locked decision: use Amazon SES for auth verification and transactional email.
 
 Current hosted baseline:
 
-- AWS account: `079358094174`
+- AWS account: BASIC BIT hosted production account; provider account IDs stay in provider configuration, Terraform state, or operator records rather than public docs
 - SES region: `us-east-1`
 - sending domain identity: `vrdex.net`
 - sender address: `no-reply@vrdex.net`
-- Route 53 hosted zone: `Z0797984WGKSLWFLGV6V`
+- Route 53 hosted zone: `vrdex.net` hosted zone; provider-generated hosted zone IDs stay in provider configuration, Terraform state, or operator records rather than public docs
 - Terraform stack: `infra/terraform/ses`
 - Terraform state key: `ses/terraform.tfstate`
 

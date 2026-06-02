@@ -2,7 +2,7 @@
 
 ## Status
 
-Current recommendation for `#41`.
+Current recommendation for [#41](https://github.com/BASIC-BIT/VRDex/issues/41).
 
 Calendar integration is a valuable follow-on workflow feature for events, but it should not be forced into the first profile/discovery slice.
 
