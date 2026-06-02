@@ -28,7 +28,9 @@ Create or import a Vercel project for docs only:
 | Output directory | `build` |
 | Production domain | `docs.vrdex.net` |
 
-Run Vercel CLI commands from the repository root once the project root directory is set to `apps/docs`; running from `apps/docs` can make Vercel resolve the app root twice. Use root-level `pnpm verify:docs` in CI before deployment, but keep the Vercel project build command relative to the docs app root.
+`apps/docs/vercel.json` records the docs-local build command and output directory. The `Docs Deploy` workflow runs Vercel CLI commands from the repository root with `--cwd apps/docs`, which keeps the deploy path reproducible even if the provider project root setting is still `.`.
+
+Use root-level `pnpm verify:docs` in CI before deployment, but keep the Vercel project build command relative to the docs app root.
 
 ## GitHub Actions Settings
 
