@@ -65,7 +65,7 @@ The first asset-storage implementation should use:
 - S3 Block Public Access enabled at the bucket level
 - server-side encryption; SSE-S3 is acceptable for the first slice because S3 encrypts new object uploads by default
 - app-generated presigned upload URLs for controlled browser uploads
-- app-generated reads or a later controlled delivery layer instead of public bucket objects
+- app-generated reads, or a controlled delivery layer owned by [#115](https://github.com/BASIC-BIT/VRDex/issues/115), instead of public bucket objects
 - deterministic object prefixes keyed by environment and asset owner/profile context
 - metadata sufficient to connect uploaded objects to profile records, uploader, upload time, and moderation/review state
 
@@ -81,7 +81,7 @@ Deferred follow-on work:
 - CloudFront or image optimization
 - lifecycle rules and deletion/retention policy
 
-Candidate future environment/config names:
+Candidate environment/config names for [#115](https://github.com/BASIC-BIT/VRDex/issues/115):
 
 - `AWS_ASSET_REGION`
 - `AWS_ASSET_BUCKET`
@@ -102,6 +102,6 @@ Keep stack state, plans, local provider caches, and `terraform.tfvars` uncommitt
 
 ## Self-Hosting Boundary
 
-Self-hosted operators should be able to use their own AWS account, domain, SES region, Route 53 zone, and future S3 bucket.
+Self-hosted AWS usage is limited to the values this repo documents by name: SES sender identity, DNS zone, Terraform state location, and the S3 asset bucket tracked by [#115](https://github.com/BASIC-BIT/VRDex/issues/115).
 
-The repo should document required variable names and setup paths, but the first pass does not promise one-click self-hosting. Alternative S3-compatible stores can be evaluated later only after the product has a stable asset abstraction; do not build provider-switching complexity before the first S3 implementation exists.
+This baseline does not claim complete self-hosting support. Alternative S3-compatible stores are out of scope until [#115](https://github.com/BASIC-BIT/VRDex/issues/115) creates the first asset abstraction and a follow-up issue or ADR evaluates provider portability.

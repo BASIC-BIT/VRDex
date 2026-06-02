@@ -101,6 +101,16 @@ Examples:
 
 If there is no owning artifact, either create one or rewrite the sentence so it is clearly an uncommitted candidate direction rather than a silent obligation.
 
+## Docs Faux Pas To Avoid
+
+- Do not write generic hosted-vs-self-hosted platitudes such as "hosted can move faster" or "self-hosted should be able to reproduce the product shape." Say what is supported now, what configuration is required, and which issue owns the gap.
+- Do not use `Not Yet Promised` laundry lists. Use `Out of scope for <issue/doc>` only when the boundary helps readers avoid a concrete misunderstanding.
+- Do not add broad warnings such as "do not hard-code secrets" as filler. Tie them to exact variables, config files, provider objects, or tests.
+- Do not leave canonical guidance in hidden tool folders when humans should review it. Docusaurus-visible docs are the canonical source; tool files should point back to them.
+- Do not use `eventually`, `later`, `future`, `not yet`, or `once implemented` unless the sentence links to the owning issue, ADR, or decision artifact.
+- Do not mix public product claims with implementation caveats. Put current user-facing behavior in public docs, external contracts in developer docs, and alternatives or constraints in engineering docs.
+- Do not duplicate the same policy across pages. Prefer one canonical page and cross-link it from adjacent docs.
+
 ## Good internal doc categories
 
 - product requirements
@@ -116,7 +126,7 @@ If there is no owning artifact, either create one or rewrite the sentence so it 
 
 Start with Docusaurus on day one.
 
-Even if internal docs are not private at first, the structure is still worth it. You can tighten privacy later without rethinking the whole documentation model.
+Even if internal docs are not private at first, the structure is still worth it. Privacy or access-control changes need an owning issue, ADR, or deployment decision before they become implementation claims.
 
 ## Current Scaffold
 
@@ -131,7 +141,7 @@ Current recommendation:
 - treat Docusaurus as the browse/build shell
 - use `docs/public/`, `docs/developers/`, and `docs/engineering/` as the durable audience lanes
 - keep legacy product planning, backend, testing, and agentic decisions in `docs/` until they are promoted into a lane
-- add public/private deployment controls later rather than pretending Docusaurus route organization is access control
+- add public/private deployment controls only after an owning issue, ADR, or deployment decision exists; route organization is not access control
 - use `pnpm dev:docs` for local browsing and `pnpm build:docs` for static build verification
 
-This satisfies the first docs scaffold and seed-content direction while preserving room for a separate internal deployment or auth-gated docs surface later.
+This satisfies the first docs scaffold and seed-content direction without claiming a separate internal deployment or auth-gated docs surface exists today.

@@ -4,13 +4,13 @@
 
 Documentation-only first pass for [#78](https://github.com/BASIC-BIT/VRDex/issues/78).
 
-The standalone VRDex MCP should wait for stable public API/query behavior. This contract defines the intended read-only surface so future implementation does not depend on website scraping or private VRChat cookies.
+The standalone VRDex MCP should wait for stable public API/query behavior. This contract defines the intended read-only surface for [#78](https://github.com/BASIC-BIT/VRDex/issues/78) so implementation does not depend on website scraping or private VRChat cookies.
 
 ## Locked Direction
 
 - Default to a standalone VRDex MCP for VRDex public data.
-- Keep optional VRChat MCP bridge tools as later follow-on work.
-- Build curated tools first; generated API coverage can come later if useful.
+- Keep optional VRChat MCP bridge tools out of scope unless a linked follow-up issue justifies them.
+- Build curated tools first; generated API coverage needs its own linked issue or ADR before implementation.
 - Use compact outputs with stable IDs/slugs for follow-up calls.
 - Preserve public visibility, opt-out, trust, and provenance rules.
 - Do not expose authenticated claim/write operations in the first read-only slice.

@@ -64,17 +64,13 @@ Self-hosting docs should distinguish required product configuration from BASIC B
 - When a secret must be manually set, document the variable name, target provider, intended environment, and how to recreate or rotate it.
 - Keep docs close to the owning audience: public product behavior under `docs/public/`, developer/operator contracts under `docs/developers/`, deployment implementation notes under `docs/deployment/`, and planning or alternatives under engineering-oriented docs.
 
-## Hosted Vs Self-Hosted Expectations
+## Scope Boundary For This Doc
 
-Hosted BASIC BIT deployment can move faster by using Vercel, Convex Cloud, PostHog Cloud, Route 53, and SES directly.
+This page is not a complete self-hosting guide yet. For [#42](https://github.com/BASIC-BIT/VRDex/issues/42), it only needs to make hosted provider choices and reproducibility gaps visible enough that follow-up implementation work has an owning doc, stack, or issue.
 
-Self-hosted deployment should be able to reproduce the product shape with its own accounts and domains, but early self-hosting can require manual setup. The important v0.5 boundary is that implementation must not hard-code BASIC BIT project IDs, analytics keys, domains, or provider secrets as universal defaults.
+Concrete boundary:
 
-## Not Yet Promised
-
-- one-command production self-hosting
-- cloud-agnostic replacements for every managed service
-- final Kubernetes/container deployment story
-- final local-only replacement for Convex Cloud
-- public asset CDN topology
-- production compliance hardening checklist
+- committed defaults must not contain BASIC BIT-only provider IDs, analytics keys, domains, or secret names as if they are universal settings
+- required provider values should be listed by name and environment when they exist
+- manually bootstrapped provider objects should link to their owning docs, Terraform stack, or follow-up issue
+- unsupported deployment shapes should be omitted unless a linked issue or ADR owns the path

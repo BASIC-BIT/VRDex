@@ -51,4 +51,4 @@ The hosted AWS account currently has a production-shaped SES quota. Keep this do
 
 ## Relationship To AWS Baseline
 
-The broader AWS baseline, including future private S3 profile assets, lives in `docs/deployment/aws-baseline.md`.
+The broader AWS baseline, including private S3 profile assets tracked by [#115](https://github.com/BASIC-BIT/VRDex/issues/115), lives in `docs/deployment/aws-baseline.md`.

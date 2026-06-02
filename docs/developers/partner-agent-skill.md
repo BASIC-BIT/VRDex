@@ -49,13 +49,13 @@ This is the canonical Docusaurus-visible version of the portable partner-agent s
 
 ### Profile Lookup
 
-- Search by name, alias, tag, or slug through the public API once available.
+- Search by name, alias, tag, or slug through the public API once [#39](https://github.com/BASIC-BIT/VRDex/issues/39) lands.
 - Return canonical URL, display name, profile type, trust label, and compact public summary.
 - Include stable slug/ID for follow-up lookups.
 
 ### Event Lookup
 
-- Use public event reads or future MCP event tools.
+- Use public event reads or MCP event tools once [#78](https://github.com/BASIC-BIT/VRDex/issues/78) lands.
 - Preserve public host, participant, world, and media-link provenance.
 - Do not imply live VRChat attendance unless VRDex has a documented safe source.
 

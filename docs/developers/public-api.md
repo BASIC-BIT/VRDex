@@ -4,7 +4,7 @@
 
 Current direction for [#39](https://github.com/BASIC-BIT/VRDex/issues/39).
 
-VRDex is intended to have a documented public API, but the current Convex functions, Next.js route handlers, and E2E helper routes are not yet the stable public product API.
+[#39](https://github.com/BASIC-BIT/VRDex/issues/39) owns the first documented public API direction. Current Convex functions, Next.js route handlers, and E2E helper routes are implementation surfaces, not the stable public product API.
 
 ## Locked Direction
 
@@ -70,7 +70,7 @@ Public API responses must:
 
 ## Documentation Shape
 
-The public API docs should eventually include:
+The first implementation issue for the public API should add:
 
 - endpoint reference
 - auth and rate-limit behavior

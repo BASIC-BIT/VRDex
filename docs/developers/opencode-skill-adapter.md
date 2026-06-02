@@ -16,4 +16,4 @@ Do not copy `.opencode/skills/vrdex-onboarding/` into partner repos. That skill 
 
 ## Public Data Only
 
-Partner agents should use the portable skill with public docs, public API routes, and future public MCP tools. They should not depend on BASIC BIT secrets, local Convex deployments, Vercel project IDs, or private partner notes.
+Partner agents should use the portable skill with public docs, public API routes from [#39](https://github.com/BASIC-BIT/VRDex/issues/39), and public MCP tools from [#78](https://github.com/BASIC-BIT/VRDex/issues/78). They should not depend on BASIC BIT secrets, local Convex deployments, Vercel project IDs, or private partner notes.
