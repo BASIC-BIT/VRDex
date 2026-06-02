@@ -45,6 +45,12 @@ This is the canonical Docusaurus-visible version of the portable partner-agent s
 4. Keep partner imports as reviewed candidate data until VRDex explicitly publishes or links them.
 5. Ask for a product decision before adding a new trust state, provider-specific sync path, or public write behavior.
 
+## Reference Options
+
+- Read the Docusaurus page when working inside VRDex or when the public docs site is reachable.
+- Vendor `skills/vrdex/SKILL.md` only as a thin compatibility entry point for agent tools that expect a skill file.
+- If this guidance is copied into another repo, keep links pointed at the canonical VRDex docs instead of duplicating full product docs.
+
 ## Common Tasks
 
 ### Profile Lookup
@@ -55,9 +61,15 @@ This is the canonical Docusaurus-visible version of the portable partner-agent s
 
 ### Event Lookup
 
-- Use public event reads or MCP event tools once [#78](https://github.com/BASIC-BIT/VRDex/issues/78) lands.
+- Use public event reads or MCP event tools once the [#78](https://github.com/BASIC-BIT/VRDex/issues/78) prototype lands.
 - Preserve public host, participant, world, and media-link provenance.
 - Do not imply live VRChat attendance unless VRDex has a documented safe source.
+
+### Media Links
+
+- Treat profile and event media links as public only when they pass visibility, review, and provenance checks.
+- Preserve source labels such as owner-authored, reviewed, partner-provided, or community-submitted.
+- Do not rehost private source media, raw exports, or unreviewed third-party assets through partner integrations.
 
 ### Partner Seed Validation
 

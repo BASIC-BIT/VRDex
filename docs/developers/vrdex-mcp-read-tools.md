@@ -2,9 +2,9 @@
 
 ## Status
 
-Documentation-only first pass for [#78](https://github.com/BASIC-BIT/VRDex/issues/78).
+Documentation-only contract draft feeding [#78](https://github.com/BASIC-BIT/VRDex/issues/78). This page does not implement or close the MCP prototype.
 
-The standalone VRDex MCP should wait for stable public API/query behavior. This contract defines the intended read-only surface for [#78](https://github.com/BASIC-BIT/VRDex/issues/78) so implementation does not depend on website scraping or private VRChat cookies.
+The standalone VRDex MCP should wait for stable public API/query behavior. This contract defines the intended read-only surface so [#78](https://github.com/BASIC-BIT/VRDex/issues/78) does not depend on website scraping or private VRChat cookies.
 
 ## Locked Direction
 
@@ -144,4 +144,4 @@ Candidate direction:
 
 ## Follow-On Implementation Gate
 
-Do not implement the standalone package until the public API/query shape can support these tools without scraping. The first implementation issue should choose package name, transport, auth posture, API dependencies, test fixtures, and distribution path.
+Do not implement the standalone package until the public API/query shape can support these tools without scraping. [#78](https://github.com/BASIC-BIT/VRDex/issues/78) remains the prototype issue and should choose package name, transport, auth posture, API dependencies, test fixtures, and distribution path.

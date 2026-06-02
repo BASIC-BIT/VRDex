@@ -92,11 +92,25 @@ The VRDex onboarding skill should cover:
 - reply or react with disposition before resolving review threads; do not silently resolve rejected or partially applied feedback
 - use GitHub Copilot automatic follow-up reviews and CI for ordinary iteration; reserve paid/manual reviewer reruns for substantial change sets
 
+### Roles
+
+- `implementer`: writes the change, runs relevant verification, and keeps enough context to make minimal follow-up patches.
+- `reviewer`: inspects the change from a fresh context and returns source-linked findings, confidence, uncertainty, and test gaps without editing files.
+- `recycler`: triages review findings and failing checks, decides apply/reject/split/ask, patches confirmed issues, reruns verification, and records dispositions.
+
+### Candidate Reviewer Sources
+
+- GitHub Copilot: automatic or low-friction PR review and follow-up comments.
+- Greptile: paid/manual review for coherent change sets where cost is justified.
+- Codex, Claude, or other fresh-context agents: parallel source-linked review lanes outside GitHub when a cold read helps.
+- Custom GitHub Action reviewers: deterministic or model-backed checks that produce PR comments or artifacts.
+- Custom OpenCode reviewers: repo-local reviewer sessions that can inspect working trees, artifacts, and docs before feedback is reflected into GitHub.
+
 ### Candidate direction
 
 - run first-pass reviewer/recycler loops outside GitHub when practical, then reflect the result back into GitHub once the branch is in better shape
-- allow agents to request reviewer and recycler jobs from the common task pool directly
-- encode reviewer source, confidence, false-positive disposition, and recycler outcome as structured metadata once the task-pool model is real
+- allow agents to request reviewer and recycler jobs from the common task pool defined by [#50](https://github.com/BASIC-BIT/VRDex/issues/50)
+- encode reviewer source, confidence, false-positive disposition, and recycler outcome as structured metadata when [#50](https://github.com/BASIC-BIT/VRDex/issues/50) moves from direction to implementation
 
 ### Trigger model
 
@@ -132,7 +146,7 @@ Before the next recycle push:
 
 - keep implementer sessions persistent and resumable
 - treat recycler work as resuming the original implementer session rather than spinning up a brand-new deep-context worker each time
-- use `.opencode/plugins/supervisor-loop.ts` and `.opencode/commands/supervisor.md` as the current local experiment path for supervisor-loop controls
+- treat `.opencode/plugins/supervisor-loop.ts` and `.opencode/commands/supervisor.md` as local experiment files until restart/tool-discovery behavior is validated in a follow-up issue under [#43](https://github.com/BASIC-BIT/VRDex/issues/43)
 
 ### Resume policy
 
@@ -140,6 +154,14 @@ Before the next recycle push:
 - start a fresh session when the job is independent, benefits from cold review, or needs reduced context bloat
 - pass a compact delta package upward: goal, files changed, verification run, blockers, open decisions, and proposed next action
 - do not use resumability to hide stale assumptions; reread changed files before editing after a long pause
+
+Delta package template:
+
+- goal and linked issue/PR
+- branch, files changed, and verification already run
+- blocker or reason the implementer stopped
+- open decisions, with recommended option first when possible
+- proposed next action: continue, ask, dispatch, recycle, or mark done
 
 ## OpenCode server / task-pool direction
 
@@ -151,11 +173,27 @@ Before the next recycle push:
 - distinguish atomic jobs from resumable sessions explicitly
 - keep dispatch through an orchestrator path instead of uncontrolled recursive agent spawning
 
+### Concepts
+
+- `atomic job`: a bounded task with a clear input package, expected output, and completion state. Example: review one issue closure, recycle one confirmed finding, or recover one stale PR.
+- `resumable session`: an agent session with useful retained context that can continue implementation, recycle review feedback, or recover mergeability without replaying the whole history.
+- `task pool/server`: the roster and queue layer that tracks jobs, sessions, states, assignments, and re-entry metadata.
+- `orchestrator request`: a controlled request for new work or a resumed session; agents should not recursively spawn uncontrolled work.
+
+Lifecycle states worth preserving:
+
+- requested
+- queued
+- dispatched
+- active
+- checkpointed/resumable
+- completed, failed, or cancelled
+
 ### Candidate direction
 
 - let agents request new agents through an orchestrator-facing interface instead of directly spawning uncontrolled work
 - expose parallelism ceilings, roster visibility, and resume-vs-new-session policy as explicit system controls
-- eventually expose task type, required tools, repo path, branch, risk level, and expected verification as dispatch metadata
+- expose task type, required tools, repo path, branch, risk level, and expected verification as dispatch metadata when a follow-up [#50](https://github.com/BASIC-BIT/VRDex/issues/50) implementation issue exists
 
 ## Mergeability recovery
 
@@ -174,6 +212,27 @@ Before the next recycle push:
 4. Apply the smallest conflict or stale-branch fix.
 5. Rerun affected checks.
 6. Leave a concise PR comment if the recovery changed behavior or deferred work.
+
+Detection sources:
+
+- GitHub PR mergeability state or branch protection state
+- base/head SHA mismatch indicating a stale branch
+- required check failures after base branch movement
+- failed update-from-base or merge attempts
+- scheduled or webhook-based stale-PR scans once automation exists
+
+Dispatch package:
+
+- PR number, base/head refs, and base/head SHAs
+- changed files and conflict files when known
+- failing checks and outstanding review threads
+- preferred session ID or original implementer identity when available
+- risk flags for product, security, billing, trust, migration, or data behavior
+
+Automation boundary examples:
+
+- straightforward: stale base update with no conflicts, formatting-only conflict, or test snapshot conflict with unchanged product behavior
+- human required: conflicts that alter product behavior, auth, billing, trust labels, migrations, data retention, or public API contracts
 
 ## Verification loops
 
@@ -229,6 +288,7 @@ VRDex should plan verification as a layered system, not a single test command.
 - do not add a dedicated LLM observability platform until traces, evals, prompt quality, cost, or loop diagnostics are hard to manage with current artifacts
 - treat `Langfuse` as the first candidate to evaluate if dedicated traces/evals become necessary
 - consider signed action receipts or similar provenance/accountability artifacts as a separate concern from tracing
+- prompt text is not captured by default until a redaction, privacy, and retention policy exists
 
 ### First signals worth capturing
 
@@ -240,18 +300,11 @@ VRDex should plan verification as a layered system, not a single test command.
 - human decisions requested and answered
 - cost/latency only when the platform exposes it safely and usefully
 
+Implementation ownership: [#45](https://github.com/BASIC-BIT/VRDex/issues/45) only chooses direction. Any dedicated tracing platform, prompt capture, eval harness, or signed action receipt implementation needs a follow-up issue under [#43](https://github.com/BASIC-BIT/VRDex/issues/43).
+
 ### Boundary
 
 Product analytics answers whether VRDex users are succeeding in the product. LLM/agent observability answers whether repo/product agents are producing reliable work. Do not force both jobs into one telemetry system by default.
-
-## Trigger ideas worth encoding
-
-- PR created in ready state
-- PR moved from draft to ready
-- new commit pushed to PR branch
-- build/check failure on a PR
-- new AI reviewer comments
-- mergeability regression caused by base-branch movement or another PR merging
 
 ## Cross-repo promotion model
 
@@ -272,4 +325,4 @@ Product analytics answers whether VRDex users are succeeding in the product. LLM
 
 ## Backlog direction
 
-These ideas should be tracked as a distinct software-factory epic and linked child issues, separate from product features but allowed to start immediately.
+Software-factory implementation ideas should be tracked under [#43](https://github.com/BASIC-BIT/VRDex/issues/43) or linked child issues, separate from product features.

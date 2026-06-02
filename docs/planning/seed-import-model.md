@@ -71,6 +71,12 @@ Suggested fields:
 
 Default to `draft_private` for imported candidates until the batch has an explicit review decision.
 
+`Permissioned source` means a partner, moderator, or maintainer-provided source that VRDex is allowed to review for candidate profile creation. It does not mean the source is owner-confirmed or safe to publish without review.
+
+`Safe public fields` are fields that are already designed for public profile display, such as display name, public role tags, public summary, and public `https` outbound links. Private contacts, raw provider IDs, private notes, and unreviewed third-party assertions are not safe public fields.
+
+An explicit review decision must exist at the batch, candidate, and field level before publication. Batch approval alone does not automatically accept every candidate field.
+
 Publishing an imported profile should create an unclaimed public profile only when:
 
 - the source is permissioned
@@ -92,6 +98,13 @@ Imported profiles must support:
 - audit trail that preserves source and review decisions
 
 After claim, owner visibility controls apply to imported facts. If an owner hides a field, public API, search, cards, profile pages, and partner exports must respect that choice.
+
+## Interactions With Existing Profiles
+
+- Existing claimed profile: imports create proposed fields only. They must not overwrite owner-authored fields, owner-hidden fields, private fields, or claim state. Owner visibility wins after claim.
+- Existing unclaimed or community-submitted profile: `matchedProfileId` can connect the candidate to the existing profile. Review decides whether to merge, preserve both community and import provenance labels, or reject the candidate.
+- Concierge or handoff draft: imported fields may seed a `draft_private` profile prepared for handoff. Fields become `owner_confirmed` only after the recipient confirms them through a real claim or handoff flow.
+- Existing opted-out or suppressed entity: public publication is blocked. Internal review/audit state can remain only as needed for suppression, dispute handling, or abuse prevention.
 
 ## Fake Fixture Shape
 

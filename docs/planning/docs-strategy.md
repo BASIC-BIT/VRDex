@@ -73,7 +73,7 @@ Recommended default:
 - same repo
 - Docusaurus for canonical docs
 - public and developer docs deployed publicly when they describe stable current behavior
-- engineering docs either deployed publicly when safe, excluded from public deploy, or shipped behind auth later
+- engineering docs may be deployed publicly only when safe; excluding or auth-gating them needs an owning issue, ADR, or deployment decision
 
 ## Agent strategy
 

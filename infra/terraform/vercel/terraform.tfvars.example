@@ -1,3 +1,6 @@
+# BASIC BIT hosted example values. Self-hosted operators should replace these
+# with their own Vercel team/project and PostHog project values.
+
 vercel_team_id      = "team_GoHh5xUc96fAIAqJoG55A71S"
 vercel_project_name = "vr-dex-web"
 

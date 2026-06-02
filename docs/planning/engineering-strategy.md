@@ -224,7 +224,7 @@ Candidate direction:
 
 ## Agent knowledge architecture
 
-This is the clearest rule set I would use.
+Use this rule set for placing agent-facing knowledge without over-promoting long workflow detail into every session.
 
 ### `AGENTS.md`
 
@@ -334,6 +334,22 @@ VRDex-specific note:
 - standalone VRDex MCP is likely safer and cleaner than folding the whole surface into VRChat MCP because VRDex public data, profile claims, partner sync, and event metadata are not the same auth boundary as a local VRChat account
 - VRChat MCP bridge tools can still be valuable later for resolving VRChat users/groups/worlds/events into VRDex records
 
+### LLM / Agent Observability
+
+Use for:
+
+- traces, evals, prompt-quality analysis, cost/latency, and loop diagnostics for repo/product agents
+- review/recycle outcomes and false-positive disposition tracking
+
+Current recommendation:
+
+- keep LLM/agent observability separate from product analytics and feature flags
+- do not adopt a dedicated platform until current artifacts stop being enough for traces, evals, or loop diagnostics
+- treat `Langfuse` as the first candidate to evaluate if a dedicated platform becomes necessary
+- do not capture prompt text by default until redaction, privacy, and retention rules exist
+
+Canonical details live in `docs/agentic/software-factory.md` under `LLM and agent observability`.
+
 ### Docusaurus docs
 
 Use for:
@@ -379,7 +395,7 @@ Default posture:
 - avoid prematurely building the most granular or most abstract system possible
 - call out when a simpler role model, entitlement model, or UX flow is likely good enough for v1
 
-## Suggested VRDex repo setup
+## Historical VRDex repo setup guidance
 
 ### Documentation
 
@@ -407,12 +423,12 @@ Default posture:
 - testing protocol
 - docs strategy
 
-## Immediate recommendation
+## Remaining setup references
 
-Before implementation starts in earnest, create:
+Keep these references current as product implementation fills in the remaining gaps:
 
-1. a stronger issue/epic breakdown from the PRD
-2. a trust-state / badge-state document
-3. a billing and entitlement document
-4. a testing protocol doc
-5. a first-pass Docusaurus structure
+1. issue/epic breakdown from the PRD: `docs/planning/dependency-map.md`, `docs/planning/epics.md`, and GitHub issues
+2. trust-state / badge-state docs: `docs/backend/profile-access-and-claims.md` and related public trust docs once promoted
+3. billing and entitlement docs: create/update when billing work starts
+4. testing protocol docs: `docs/testing/` and `docs/agentic/definition-of-done.md`
+5. Docusaurus structure: `apps/docs`, `docs/README.md`, and `docs/planning/docs-strategy.md`

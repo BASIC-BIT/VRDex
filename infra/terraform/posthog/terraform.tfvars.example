@@ -1,3 +1,6 @@
+# BASIC BIT hosted example values. Self-hosted operators should replace these
+# with their own PostHog organization/project values.
+
 posthog_host            = "https://us.posthog.com"
 posthog_organization_id = "019e59b2-c822-0000-8123-12efe322af2d"
 posthog_project_id      = 447783
