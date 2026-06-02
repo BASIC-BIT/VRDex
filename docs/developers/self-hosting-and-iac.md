@@ -2,7 +2,7 @@
 
 ## Status
 
-Current direction for `#42`.
+Current direction for [#42](https://github.com/BASIC-BIT/VRDex/issues/42).
 
 VRDex should be open-source, self-hostable, and reproducible from the repo. The hosted BASIC BIT deployment is the first operating path, not the only intended deployment shape.
 
@@ -39,7 +39,7 @@ The BASIC BIT hosted deployment currently uses:
 | Vercel project, staging environment, and E2E helper vars | manual bootstrap plus docs | Documented in `docs/deployment/vercel-preview.md`; not Terraform-owned yet. |
 | Convex deployment keys and env vars | provider secret store plus docs | Documented in `docs/deployment/convex-environments.md` and `docs/deployment/ses-auth-email.md`. |
 | Convex custom domains | deferred manual provider setup | Requires Convex Pro and dashboard-provided DNS records before Route 53 records. |
-| Profile asset storage | planned follow-up | Direction documented in `docs/deployment/aws-baseline.md`; S3 implementation issue should own Terraform and runtime wiring. |
+| Profile asset storage | planned follow-up | Direction documented in `docs/deployment/aws-baseline.md`; [#115](https://github.com/BASIC-BIT/VRDex/issues/115) owns the S3 Terraform/runtime baseline. |
 
 ## Self-Hosted Minimum Components
 
@@ -49,7 +49,7 @@ A self-hosted operator should expect to provide:
 - a Convex deployment or compatible backend path supported by the repo at that time
 - a domain and DNS host
 - an SES sender identity or documented transactional email substitute once supported
-- an asset object store once profile uploads are implemented
+- an asset object store once profile uploads are implemented by [#115](https://github.com/BASIC-BIT/VRDex/issues/115)
 - OAuth provider applications for enabled login providers
 - a product analytics choice, with BASIC BIT hosted PostHog keys intentionally omitted from committed defaults
 - secret storage for provider tokens, deploy keys, OAuth secrets, and email credentials

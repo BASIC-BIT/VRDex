@@ -37,7 +37,7 @@ Important planning note:
 Likely adjacent service use:
 
 - AWS email capabilities for verification and transactional mail
-- AWS S3 for private owner-authored profile assets once asset uploads are implemented
+- AWS S3 for private owner-authored profile assets once asset uploads are implemented by [#115](https://github.com/BASIC-BIT/VRDex/issues/115)
 
 Status: locked stack direction.
 

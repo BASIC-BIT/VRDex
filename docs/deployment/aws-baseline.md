@@ -2,7 +2,7 @@
 
 ## Status
 
-Locked first-pass direction for `#57`.
+Locked first-pass direction for [#57](https://github.com/BASIC-BIT/VRDex/issues/57).
 
 VRDex uses AWS narrowly for early supporting infrastructure. The current baseline is intentionally small: transactional auth email first, private profile asset storage next, and no broad AWS application platform before the product needs it.
 
@@ -13,7 +13,7 @@ The first AWS baseline covers:
 - Amazon SES for Convex Auth password and email verification messages
 - Route 53 DNS records for the SES sender domain
 - IAM credentials scoped to SES sending for Convex
-- a planned S3 private asset bucket for owner-authored profile assets
+- a planned S3 private asset bucket for owner-authored profile assets, tracked by [#115](https://github.com/BASIC-BIT/VRDex/issues/115)
 - Terraform state in S3 for checked-in infrastructure stacks
 
 Non-goals for this baseline:
@@ -73,7 +73,7 @@ Do not make profile asset buckets public. Public profile pages should render thr
 
 Deferred follow-on work:
 
-- `#115` S3 bucket Terraform/runtime baseline
+- [#115](https://github.com/BASIC-BIT/VRDex/issues/115) S3 bucket Terraform/runtime baseline
 - Convex asset metadata schema
 - presigned upload endpoint/mutation
 - image validation and size limits

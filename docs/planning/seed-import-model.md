@@ -2,7 +2,7 @@
 
 ## Status
 
-Current direction for `#76`.
+Current direction for [#76](https://github.com/BASIC-BIT/VRDex/issues/76).
 
 VRDex may import permissioned seed lists for DJs, communities, worlds, or events, but imported data must not become authoritative public truth by default.
 
@@ -138,4 +138,4 @@ Use fake fixtures only:
 
 ## Implementation Boundary
 
-This document defines the model. It does not authorize importing real partner data or committing real partner fixtures. A future implementation issue should define schema, review UI, import tooling, and test fixtures using fake data only.
+This document defines the model for [#76](https://github.com/BASIC-BIT/VRDex/issues/76). It does not authorize importing real partner data or committing real partner fixtures. [#117](https://github.com/BASIC-BIT/VRDex/issues/117) owns the follow-up implementation work for schema, review UI/workflow, import tooling, and fake-data test fixtures.

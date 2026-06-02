@@ -2,7 +2,7 @@
 
 ## Status
 
-Current direction for `#39`.
+Current direction for [#39](https://github.com/BASIC-BIT/VRDex/issues/39).
 
 VRDex is intended to have a documented public API, but the current Convex functions, Next.js route handlers, and E2E helper routes are not yet the stable public product API.
 

@@ -90,6 +90,17 @@ This keeps humans and agents on the same source of truth.
 
 Cross-linking matters: service pages, API pages, deployment pages, skill pages, and implementation notes should link to adjacent docs whenever behavior crosses boundaries.
 
+## Future Work Link Rule
+
+Any docs statement that says work is deferred, planned, future, or blocked on something that will be implemented later should link to an issue, ADR, project decision, or owning docs page.
+
+Examples:
+
+- `planned S3 private asset bucket ([#115](https://github.com/BASIC-BIT/VRDex/issues/115))`
+- `public API route once the v0 API issue lands ([#39](https://github.com/BASIC-BIT/VRDex/issues/39))`
+
+If there is no owning artifact, either create one or rewrite the sentence so it is clearly an uncommitted candidate direction rather than a silent obligation.
+
 ## Good internal doc categories
 
 - product requirements

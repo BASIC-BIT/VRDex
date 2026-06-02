@@ -2,7 +2,7 @@
 
 ## Status
 
-Documentation-only first pass for `#78`.
+Documentation-only first pass for [#78](https://github.com/BASIC-BIT/VRDex/issues/78).
 
 The standalone VRDex MCP should wait for stable public API/query behavior. This contract defines the intended read-only surface so future implementation does not depend on website scraping or private VRChat cookies.
 
