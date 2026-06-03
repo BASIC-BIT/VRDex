@@ -76,6 +76,7 @@ Prefer explicit labels in docs:
 - Before pushing a follow-up commit on an open PR, triage every outstanding PR review comment.
 - For each addressed PR review comment, leave a reaction or reply with the disposition, then resolve the thread before pushing.
 - Do not silently resolve review comments; if a comment is rejected or only partially applied, say why in the thread.
+- PR descriptions should not list routine branch-policy verification every time; include only non-obvious, manual, risk-specific, or otherwise useful verification notes beyond the checks required for merge.
 - Parallelize through multiple OpenCode sessions when it materially helps.
 - Do not overcomplicate workflows with subagents unless there is a clear payoff.
 - Prefer fewer, larger, independently testable issues over deeply nested issue trees.
