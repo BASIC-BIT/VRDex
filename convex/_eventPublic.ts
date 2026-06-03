@@ -1,5 +1,6 @@
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
+import { createDiscordTimestampSet, type DiscordTimestampSet } from "./_discordTimestamps";
 import { optionalField, safeHttpsUrl } from "./_publicFields";
 import { canReadProfile } from "./_profilePermissions";
 import { getProfileTrustLabel } from "./_profileStates";
@@ -24,11 +25,17 @@ export type PublicEventRecord = {
   community?: Doc<"profiles">;
   worlds: Array<{ association: Doc<"eventWorlds">; world: Doc<"worlds"> }>;
   participants: PublicEventParticipantRecord[];
+  slots: PublicEventSlotRecord[];
 };
 
 type PublicEventParticipantRecord = {
   association: Doc<"eventParticipants">;
   profile: Doc<"profiles">;
+};
+
+type PublicEventSlotRecord = {
+  slot: Doc<"eventSlots">;
+  profile?: Doc<"profiles">;
 };
 
 export type PublicEventPreview = {
@@ -51,6 +58,7 @@ export type PublicEventPreview = {
     displayName: string;
   }>;
   participantCount: number;
+  slotCount: number;
 };
 
 export type PublicEvent = PublicEventPreview & {
@@ -85,6 +93,24 @@ export type PublicEvent = PublicEventPreview & {
       url?: string;
     };
   }>;
+  slots: Array<{
+    position: number;
+    startAt: number;
+    endAt?: number;
+    displayLabel: string;
+    roleLabel: string;
+    discord: DiscordTimestampSet;
+    performer?: {
+      slug: string;
+      displayName: string;
+      trustLabel: "community_submitted" | "unclaimed" | "claimed_unverified" | "claimed_verified";
+    };
+    source: {
+      sourceType: PublicEventSourceType;
+      label: string;
+      url?: string;
+    };
+  }>;
 };
 
 function eventEndsAt(event: Pick<Doc<"events">, "startAt" | "endAt">): number {
@@ -104,7 +130,7 @@ function createPublicEventMediaLinks(event: Doc<"events">): PublicEvent["mediaLi
 }
 
 export function toPublicEventPreviewFromRecord(record: PublicEventRecord): PublicEventPreview {
-  const { community, event, participants, worlds } = record;
+  const { community, event, participants, slots, worlds } = record;
   const sourceUrl = safeHttpsUrl(event.sourceUrl);
   const posterImageUrl = safeHttpsUrl(event.posterImageUrl);
 
@@ -122,6 +148,7 @@ export function toPublicEventPreviewFromRecord(record: PublicEventRecord): Publi
       displayName: world.displayName,
     })),
     participantCount: participants.length,
+    slotCount: slots.length,
     ...optionalField("endAt", event.endAt),
     ...optionalField("timezone", event.timezone),
     ...optionalField("communityName", community?.displayName ?? event.communityName),
@@ -173,6 +200,34 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
         },
       };
     }),
+    slots: record.slots
+      .sort((first, second) => first.slot.startAt - second.slot.startAt || first.slot.position - second.slot.position)
+      .map(({ profile, slot }) => {
+        const sourceUrl = safeHttpsUrl(slot.sourceUrl);
+
+        return {
+          position: slot.position,
+          startAt: slot.startAt,
+          ...optionalField("endAt", slot.endAt),
+          displayLabel: slot.displayLabel,
+          roleLabel: slot.roleLabel,
+          discord: createDiscordTimestampSet(slot.startAt),
+          ...(profile === undefined
+            ? {}
+            : {
+                performer: {
+                  slug: profile.slug,
+                  displayName: profile.displayName,
+                  trustLabel: getProfileTrustLabel(profile.claimState, profile.creationSource),
+                },
+              }),
+          source: {
+            sourceType: slot.sourceType,
+            label: slot.sourceLabel,
+            ...optionalField("url", sourceUrl),
+          },
+        };
+      }),
     ...optionalField("notes", record.event.notes),
   };
 }
@@ -245,6 +300,37 @@ async function getPublicEventParticipantRecords(db: DatabaseReader, event: Doc<"
   return records.filter((record): record is PublicEventParticipantRecord => record !== null);
 }
 
+async function getPublicEventSlotRecords(db: DatabaseReader, event: Doc<"events">) {
+  const slots = await db
+    .query("eventSlots")
+    .withIndex("by_eventId_reviewState_startAt", (query) =>
+      query.eq("eventId", event._id).eq("reviewState", "confirmed"),
+    )
+    .take(EVENT_ASSOCIATION_LIMIT);
+
+  const records: Array<PublicEventSlotRecord | null> = await Promise.all(
+    slots.map(async (slot) => {
+      if (slot.personProfileId === undefined) {
+        return { slot };
+      }
+
+      const profile = await db.get(slot.personProfileId);
+
+      if (
+        profile === null ||
+        profile.profileType !== "person" ||
+        !canReadProfile("public", profile)
+      ) {
+        return { slot };
+      }
+
+      return { slot, profile };
+    }),
+  );
+
+  return records.filter((record): record is PublicEventSlotRecord => record !== null);
+}
+
 async function getPublicEventRecord(
   db: DatabaseReader,
   event: Doc<"events">,
@@ -253,13 +339,14 @@ async function getPublicEventRecord(
     return null;
   }
 
-  const [community, worlds, participants] = await Promise.all([
+  const [community, worlds, participants, slots] = await Promise.all([
     getPublishedCommunity(db, event),
     getPublicEventWorldRecords(db, event),
     getPublicEventParticipantRecords(db, event),
+    getPublicEventSlotRecords(db, event),
   ]);
 
-  return { event, worlds, participants, ...optionalField("community", community) };
+  return { event, worlds, participants, slots, ...optionalField("community", community) };
 }
 
 export async function getPublicEventBySlug(

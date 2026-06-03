@@ -6,6 +6,7 @@ export type VocabularyScope = Doc<"vocabularyTerms">["scope"];
 export type VocabularyCandidate = {
   scope: VocabularyScope;
   label: string | undefined;
+  aliases?: string[];
   source?: Doc<"vocabularyTerms">["source"];
   rank?: number;
 };
@@ -29,9 +30,9 @@ export const SEEDED_VOCABULARY_TERMS: Array<{
   { scope: "profile_tag", label: "House", aliases: ["House music"], rank: 100 },
   { scope: "profile_tag", label: "Trance", rank: 94 },
   { scope: "profile_tag", label: "Techno", rank: 92 },
-  { scope: "event_participant_role", label: "Headliner", rank: 100 },
+  { scope: "event_participant_role", label: "DJ set", aliases: ["Set", "Headliner"], rank: 100 },
   { scope: "event_participant_role", label: "Performer", aliases: ["Artist"], rank: 92 },
-  { scope: "event_participant_role", label: "Opener", rank: 80 },
+  { scope: "event_participant_role", label: "Host", aliases: ["MC", "Opener"], rank: 80 },
   { scope: "event_tag", label: "Tonight", rank: 100 },
   { scope: "event_tag", label: "Festival", rank: 96 },
   { scope: "world_tag", label: "Club world", aliases: ["Club", "Venue"], rank: 100 },
@@ -81,6 +82,20 @@ export function collectVocabularyKeys(candidates: VocabularyCandidate[]): string
   return [...keys].sort();
 }
 
+function normalizeVocabularyAliases(aliases: string[] | undefined): string[] {
+  const normalized = new Set<string>();
+
+  for (const alias of aliases ?? []) {
+    const label = normalizeVocabularyLabel(alias);
+
+    if (label) {
+      normalized.add(label);
+    }
+  }
+
+  return [...normalized].sort((first, second) => first.localeCompare(second));
+}
+
 export async function recordVocabularyTerms(
   db: DatabaseWriter,
   candidates: VocabularyCandidate[],
@@ -94,6 +109,8 @@ export async function recordVocabularyTerms(
       continue;
     }
 
+    const aliases = normalizeVocabularyAliases(candidate.aliases);
+
     const existing = await db
       .query("vocabularyTerms")
       .withIndex("by_scope_key", (query) => query.eq("scope", candidate.scope).eq("key", key))
@@ -101,7 +118,9 @@ export async function recordVocabularyTerms(
 
     if (existing) {
       await db.patch(existing._id, {
-        label: existing.source === "seeded" ? existing.label : label,
+        label: candidate.source === "seeded" ? label : existing.source === "seeded" ? existing.label : label,
+        aliases: candidate.source === "seeded" ? aliases : existing.aliases,
+        rank: candidate.source === "seeded" && candidate.rank !== undefined ? candidate.rank : existing.rank,
         usageCount: existing.usageCount + 1,
         updatedAt: now,
       });
@@ -112,7 +131,7 @@ export async function recordVocabularyTerms(
       scope: candidate.scope,
       key,
       label,
-      aliases: [],
+      aliases,
       source: candidate.source ?? "user_created",
       usageCount: 1,
       rank: candidate.rank ?? 10,

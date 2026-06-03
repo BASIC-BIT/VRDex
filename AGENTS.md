@@ -50,6 +50,9 @@ Prefer explicit labels in docs:
 - Use screenshot evidence and VLM review before declaring UI work complete.
 - Aim for slick, intentional design, not generic boilerplate.
 - Prefer calm, minimal, trustworthy UX over noisy spectacle.
+- Prefer shared design-system primitives and tokens over one-off Tailwind bubbles; if the shared primitive does not exist yet, keep new styling easy to promote into one.
+- Default borders and controls to subtle radii; avoid pill/bubble shapes unless the design purpose is explicit.
+- Cut AI-generated explanatory copy. Prefer crisp labels, direct data presentation, and intuitive structure over paragraphs describing every surface.
 
 ## Repo opinionation
 
@@ -76,6 +79,7 @@ Prefer explicit labels in docs:
 - Before pushing a follow-up commit on an open PR, triage every outstanding PR review comment.
 - For each addressed PR review comment, leave a reaction or reply with the disposition, then resolve the thread before pushing.
 - Do not silently resolve review comments; if a comment is rejected or only partially applied, say why in the thread.
+- PR descriptions should not list routine branch-policy verification every time; include only non-obvious, manual, risk-specific, or otherwise useful verification notes beyond the checks required for merge.
 - Parallelize through multiple OpenCode sessions when it materially helps.
 - Do not overcomplicate workflows with subagents unless there is a clear payoff.
 - Prefer fewer, larger, independently testable issues over deeply nested issue trees.

@@ -34,6 +34,7 @@ const eventPreview = {
     },
   ],
   participantCount: 1,
+  slotCount: 2,
 };
 
 const personProfile: PublicProfile = {
@@ -290,6 +291,53 @@ const publicEvent: PublicEvent = {
       displayName: "DJ Aurora",
       roleLabel: "Performer",
       trustLabel: "community_submitted",
+      source: {
+        sourceType: "community",
+        label: "Fixture lineup",
+      },
+    },
+  ],
+  slots: [
+    {
+      position: 0,
+      startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
+      endAt: Date.UTC(2026, 5, 14, 22, 45, 0),
+      displayLabel: "DJ Aurora",
+      roleLabel: "House",
+      discord: {
+        shortTime: "<t:1781474400:t>",
+        longTime: "<t:1781474400:T>",
+        shortDate: "<t:1781474400:d>",
+        longDate: "<t:1781474400:D>",
+        shortDateTime: "<t:1781474400:f>",
+        longDateTime: "<t:1781474400:F>",
+        relative: "<t:1781474400:R>",
+      },
+      performer: {
+        slug: personSlug,
+        displayName: "DJ Aurora",
+        trustLabel: "community_submitted",
+      },
+      source: {
+        sourceType: "community",
+        label: "Fixture lineup",
+      },
+    },
+    {
+      position: 1,
+      startAt: Date.UTC(2026, 5, 14, 22, 45, 0),
+      endAt: Date.UTC(2026, 5, 14, 23, 30, 0),
+      displayLabel: "DJ Lumen",
+      roleLabel: "Trance",
+      discord: {
+        shortTime: "<t:1781477100:t>",
+        longTime: "<t:1781477100:T>",
+        shortDate: "<t:1781477100:d>",
+        longDate: "<t:1781477100:D>",
+        shortDateTime: "<t:1781477100:f>",
+        longDateTime: "<t:1781477100:F>",
+        relative: "<t:1781477100:R>",
+      },
       source: {
         sourceType: "community",
         label: "Fixture lineup",

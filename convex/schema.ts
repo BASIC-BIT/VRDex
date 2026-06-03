@@ -136,6 +136,12 @@ const eventParticipantConfirmationState = v.union(
   v.literal("disputed"),
 );
 
+const eventSlotReviewState = v.union(
+  v.literal("draft"),
+  v.literal("confirmed"),
+  v.literal("disputed"),
+);
+
 const communityCapability = v.union(
   v.literal("manage_profile"),
   v.literal("manage_events"),
@@ -476,6 +482,32 @@ export default defineSchema({
       "personProfileId",
       "confirmationState",
       "eventStartAt",
+    ]),
+  eventSlots: defineTable({
+    eventId: v.id("events"),
+    eventStartAt: v.number(),
+    position: v.number(),
+    startAt: v.number(),
+    endAt: v.optional(v.number()),
+    personProfileId: v.optional(v.id("profiles")),
+    displayLabel: v.string(),
+    roleLabel: v.string(),
+    sourceType: eventSourceType,
+    sourceLabel: v.string(),
+    sourceUrl: v.optional(v.string()),
+    confidence: v.number(),
+    reviewState: eventSlotReviewState,
+    notes: v.optional(v.string()),
+    createdAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_eventId", ["eventId"])
+    .index("by_eventId_startAt", ["eventId", "startAt"])
+    .index("by_eventId_reviewState_startAt", ["eventId", "reviewState", "startAt"])
+    .index("by_personProfileId_reviewState_startAt", [
+      "personProfileId",
+      "reviewState",
+      "startAt",
     ]),
   communityAuthorities: defineTable({
     communityProfileId: v.id("profiles"),

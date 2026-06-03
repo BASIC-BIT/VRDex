@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState, useTransition } from "react";
+import { FormEvent, useEffect, useState, useTransition } from "react";
 import { useMutation } from "convex/react";
 import { api } from "@convex-generated-api";
 import type { PublicEvent } from "../_components/event-public-page";
@@ -22,10 +22,23 @@ type EventEditorStatus =
 const userSafeErrorPatterns = [
   /Event changes require a signed-in user\./,
   /Event start time must be a valid timestamp\./,
+  /Event end time must be a valid timestamp\./,
+  /Event (?:start|end) time must be a valid local time in .+\./,
   /Event title must be at least \d+ characters\./,
   /Event title must be \d+ characters or fewer\./,
   /Event end time must be after the start time\./,
-  /(?:Event source URL|Poster image URL|Media link URL|Participant source URL) must (?:use https|be a valid URL)\./,
+  /Time zone must be a valid IANA time zone\./,
+  /Time zone is required when event slots are provided\./,
+  /(?:Event source URL|Poster image URL|Media link URL|Participant source URL|Slot source URL) must (?:use https|be a valid URL)\./,
+  /(?:Slot start time|Slot end time) must be a valid timestamp\./,
+  /(?:Slot count|Slot offset minutes|Slot duration minutes|Break duration minutes) must be a whole number\./,
+  /Slot end time must be after the start time\./,
+  /Slot start time must be at or after the event start time\./,
+  /Slot end time must be at or before the event end time\./,
+  /Slot display label must be at least \d+ characters\./,
+  /(?:Slot display label|Slot role|Slot source label|Slot notes) must be \d+ characters or fewer\./,
+  /Event slots can include at most \d+ entries\./,
+  /Participant links can include at most \d+ unique profiles including linked slot performers\./,
   /Community profile was not found\./,
   /World profile was not found or is not published\./,
   /Person profile ".+" was not found\./,
@@ -56,24 +69,122 @@ function optionalString(value: string): string | undefined {
   return trimmed.length === 0 ? undefined : trimmed;
 }
 
-function toLocalInputValue(timestamp: number | undefined): string {
+type DateTimeLocalParts = {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+};
+
+function padDatePart(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+function parseDateTimeLocalParts(value: string, fieldName: string): DateTimeLocalParts {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
+
+  if (match === null) {
+    throw new Error(`${fieldName} must be a valid timestamp.`);
+  }
+
+  return {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3]),
+    hour: Number(match[4]),
+    minute: Number(match[5]),
+  };
+}
+
+function formatDateTimeLocalParts(parts: DateTimeLocalParts): string {
+  return `${parts.year}-${padDatePart(parts.month)}-${padDatePart(parts.day)}T${padDatePart(parts.hour)}:${padDatePart(parts.minute)}`;
+}
+
+function getZonedDateTimeParts(timestamp: number, timeZone: string): DateTimeLocalParts {
+  let parts: Intl.DateTimeFormatPart[];
+
+  try {
+    parts = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(new Date(timestamp));
+  } catch {
+    throw new Error("Time zone must be a valid IANA time zone.");
+  }
+
+  const valueByType = new Map(parts.map((part) => [part.type, part.value]));
+
+  return {
+    year: Number(valueByType.get("year")),
+    month: Number(valueByType.get("month")),
+    day: Number(valueByType.get("day")),
+    hour: Number(valueByType.get("hour")),
+    minute: Number(valueByType.get("minute")),
+  };
+}
+
+function toZonedInputValue(timestamp: number | undefined, timeZone: string | undefined): string {
   if (timestamp === undefined) {
     return "";
   }
 
-  const date = new Date(timestamp);
-  const offsetMs = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+  return formatDateTimeLocalParts(getZonedDateTimeParts(timestamp, timeZone ?? getBrowserTimezone()));
 }
 
-function fromLocalInputValue(value: string): number {
-  const timestamp = new Date(value).getTime();
+function dateTimePartsToUtc(parts: DateTimeLocalParts): number {
+  return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute);
+}
+
+function fromZonedInputValue(value: string, timeZone: string, fieldName: string): number {
+  const parts = parseDateTimeLocalParts(value, fieldName);
+  const wallTimeUtc = dateTimePartsToUtc(parts);
+  let timestamp = wallTimeUtc;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const zonedParts = getZonedDateTimeParts(timestamp, timeZone);
+    const zonedWallTimeUtc = dateTimePartsToUtc(zonedParts);
+    const nextTimestamp = timestamp + wallTimeUtc - zonedWallTimeUtc;
+
+    if (nextTimestamp === timestamp) {
+      break;
+    }
+
+    timestamp = nextTimestamp;
+  }
 
   if (!Number.isFinite(timestamp)) {
-    throw new Error("Event start time must be a valid timestamp.");
+    throw new Error(`${fieldName} must be a valid timestamp.`);
+  }
+
+  if (formatDateTimeLocalParts(getZonedDateTimeParts(timestamp, timeZone)) !== formatDateTimeLocalParts(parts)) {
+    throw new Error(`${fieldName} must be a valid local time in ${timeZone}.`);
   }
 
   return timestamp;
+}
+
+function getBrowserTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch {
+    return "UTC";
+  }
+}
+
+function parseInteger(value: string, fieldName: string): number {
+  const parsed = Number(value.trim());
+
+  if (!Number.isInteger(parsed)) {
+    throw new Error(`${fieldName} must be a whole number.`);
+  }
+
+  return parsed;
 }
 
 function parseMediaLinks(value: string) {
@@ -125,6 +236,29 @@ function parseParticipantLinks(value: string) {
     });
 }
 
+function parseSlotLinks(value: string, eventStartAt: number) {
+  return value
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line, index) => {
+      const [offsetInput = "", durationInput = "", personSlugInput = "", displayLabelInput = "", roleLabelInput = "Performer"] = line
+        .split("|")
+        .map((part) => part.trim());
+      const offsetMinutes = parseInteger(offsetInput, "Slot offset minutes");
+      const durationMinutes = optionalString(durationInput) === undefined ? undefined : parseInteger(durationInput, "Slot duration minutes");
+      const startAt = eventStartAt + offsetMinutes * 60_000;
+
+      return {
+        personSlug: optionalString(personSlugInput),
+        displayLabel: optionalString(displayLabelInput) ?? optionalString(personSlugInput) ?? `Slot ${index + 1}`,
+        roleLabel: optionalString(roleLabelInput) ?? "Performer",
+        startAt,
+        ...(durationMinutes === undefined ? {} : { endAt: startAt + durationMinutes * 60_000 }),
+      };
+    });
+}
+
 function serializeMediaLinks(event: PublicEvent | undefined): string {
   return (event?.mediaLinks ?? [])
     .map((link) => `${link.type} | ${link.label} | ${link.url} | ${link.presentation}`)
@@ -135,6 +269,30 @@ function serializeParticipants(event: PublicEvent | undefined): string {
   return (event?.participants ?? [])
     .map((participant) => `${participant.slug} | ${participant.roleLabel}`)
     .join("\n");
+}
+
+function serializeSlots(event: PublicEvent | undefined): string {
+  return (event?.slots ?? [])
+    .map((slot) => {
+      const offsetMinutes = Math.round((slot.startAt - event!.startAt) / 60_000);
+      const durationMinutes = slot.endAt === undefined ? "" : String(Math.round((slot.endAt - slot.startAt) / 60_000));
+
+      return [
+        offsetMinutes,
+        durationMinutes,
+        slot.performer?.slug ?? "",
+        slot.displayLabel,
+        slot.roleLabel,
+      ].join(" | ");
+    })
+    .join("\n");
+}
+
+function createGeneratedSlotText(count: number, durationMinutes: number, breakMinutes: number): string {
+  return Array.from({ length: count }, (_, index) => {
+    const offsetMinutes = index * (durationMinutes + breakMinutes);
+    return `${offsetMinutes} | ${durationMinutes} |  | Slot ${index + 1} | DJ set`;
+  }).join("\n");
 }
 
 function DisabledEventEditorPanel() {
@@ -165,7 +323,33 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
   const createEvent = useMutation(api.events.createCommunityEvent);
   const updateEvent = useMutation(api.events.updateCommunityEvent);
   const [status, setStatus] = useState<EventEditorStatus>({ kind: "idle" });
+  const [timezone, setTimezone] = useState(event?.timezone ?? "UTC");
+  const [slotText, setSlotText] = useState(() => serializeSlots(event));
+  const [slotTemplate, setSlotTemplate] = useState({ count: "4", duration: "45", break: "0" });
   const [, startTransition] = useTransition();
+
+  useEffect(() => {
+    if (event === undefined) {
+      setTimezone(getBrowserTimezone());
+    }
+  }, [event]);
+
+  function onGenerateSlots() {
+    try {
+      const count = parseInteger(slotTemplate.count, "Slot count");
+      const duration = parseInteger(slotTemplate.duration, "Slot duration minutes");
+      const breakDuration = parseInteger(slotTemplate.break, "Break duration minutes");
+
+      if (count <= 0 || duration <= 0 || breakDuration < 0) {
+        setStatus({ kind: "error", message: "Slot count and duration must be positive, and break duration cannot be negative." });
+        return;
+      }
+
+      setSlotText(createGeneratedSlotText(count, duration, breakDuration));
+    } catch (error) {
+      setStatus({ kind: "error", message: eventEditorErrorMessage(error) });
+    }
+  }
 
   async function onSubmit(submitEvent: FormEvent<HTMLFormElement>) {
     submitEvent.preventDefault();
@@ -176,15 +360,17 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
     setStatus({ kind: "submitting" });
 
     try {
-      const startAt = fromLocalInputValue(stringField(formData.get("startAt")));
+      const submittedTimezone = optionalString(stringField(formData.get("timezone")));
+      const timeZoneForParsing = submittedTimezone ?? getBrowserTimezone();
+      const startAt = fromZonedInputValue(stringField(formData.get("startAt")), timeZoneForParsing, "Event start time");
       const payload = {
         title: stringField(formData.get("title")),
         preferredSlug: optionalString(stringField(formData.get("preferredSlug"))),
         communitySlug: optionalString(stringField(formData.get("communitySlug"))),
         worldSlug: optionalString(stringField(formData.get("worldSlug"))),
         startAt,
-        ...(endAtInput ? { endAt: fromLocalInputValue(endAtInput) } : {}),
-        timezone: optionalString(stringField(formData.get("timezone"))),
+        ...(endAtInput ? { endAt: fromZonedInputValue(endAtInput, timeZoneForParsing, "Event end time") } : {}),
+        timezone: submittedTimezone,
         summary: optionalString(stringField(formData.get("summary"))),
         notes: optionalString(stringField(formData.get("notes"))),
         sourceLabel: optionalString(stringField(formData.get("sourceLabel"))),
@@ -192,6 +378,7 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
         posterImageUrl: optionalString(stringField(formData.get("posterImageUrl"))),
         mediaLinks: parseMediaLinks(stringField(formData.get("mediaLinks"))),
         participantLinks: parseParticipantLinks(stringField(formData.get("participantLinks"))),
+        slotLinks: parseSlotLinks(slotText, startAt),
       };
       const result = event
         ? await updateEvent({ currentSlug: event.slug, ...payload })
@@ -232,15 +419,15 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
       <div className="grid gap-4 sm:grid-cols-3">
         <label className="grid gap-2 text-sm font-medium">
           Start
-          <input className="rounded-2xl border border-border bg-surface-strong px-4 py-3 font-normal outline-none transition focus:border-accent" defaultValue={toLocalInputValue(event?.startAt)} name="startAt" required type="datetime-local" />
+          <input className="rounded-2xl border border-border bg-surface-strong px-4 py-3 font-normal outline-none transition focus:border-accent" defaultValue={toZonedInputValue(event?.startAt, event?.timezone)} name="startAt" required type="datetime-local" />
         </label>
         <label className="grid gap-2 text-sm font-medium">
           End
-          <input className="rounded-2xl border border-border bg-surface-strong px-4 py-3 font-normal outline-none transition focus:border-accent" defaultValue={toLocalInputValue(event?.endAt)} name="endAt" type="datetime-local" />
+          <input className="rounded-2xl border border-border bg-surface-strong px-4 py-3 font-normal outline-none transition focus:border-accent" defaultValue={toZonedInputValue(event?.endAt, event?.timezone)} name="endAt" type="datetime-local" />
         </label>
         <label className="grid gap-2 text-sm font-medium">
           Time zone
-          <input className="rounded-2xl border border-border bg-surface-strong px-4 py-3 font-normal outline-none transition focus:border-accent" defaultValue={event?.timezone} name="timezone" placeholder="America/New_York" />
+          <input className="rounded-2xl border border-border bg-surface-strong px-4 py-3 font-normal outline-none transition focus:border-accent" name="timezone" onChange={(changeEvent) => setTimezone(changeEvent.currentTarget.value)} placeholder="America/New_York" value={timezone} />
         </label>
       </div>
 
@@ -280,6 +467,38 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
         <textarea className="min-h-28 rounded-2xl border border-border bg-surface-strong px-4 py-3 font-normal outline-none transition focus:border-accent" defaultValue={serializeParticipants(event)} name="participantLinks" placeholder="dj-aurora | Performer&#10;vj-lumen | Staff" />
         <span className="text-xs leading-5 text-muted">One per line: person slug | freeform role label.</span>
       </label>
+
+      <section className="grid gap-4 rounded-lg border border-border bg-surface-strong px-4 py-4">
+        <div>
+          <p className="font-mono text-xs uppercase tracking-[0.24em] text-muted">DJ slots</p>
+          <h3 className="mt-3 text-xl font-semibold tracking-[-0.03em]">Generate a set-time scaffold</h3>
+          <p className="mt-2 text-xs leading-5 text-muted">
+            Slots use minute offsets from the event start, so changing the event start keeps the lineup shape intact. Save requires a valid IANA time zone such as <code>America/New_York</code> or <code>UTC</code>.
+          </p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
+          <label className="grid gap-2 text-xs font-medium text-muted">
+            Slot count
+            <input className="rounded-md border border-border bg-white px-4 py-3 font-normal text-foreground outline-none transition focus:border-accent" inputMode="numeric" onChange={(changeEvent) => setSlotTemplate((current) => ({ ...current, count: changeEvent.currentTarget.value }))} value={slotTemplate.count} />
+          </label>
+          <label className="grid gap-2 text-xs font-medium text-muted">
+            Duration minutes
+            <input className="rounded-md border border-border bg-white px-4 py-3 font-normal text-foreground outline-none transition focus:border-accent" inputMode="numeric" onChange={(changeEvent) => setSlotTemplate((current) => ({ ...current, duration: changeEvent.currentTarget.value }))} value={slotTemplate.duration} />
+          </label>
+          <label className="grid gap-2 text-xs font-medium text-muted">
+            Break minutes
+            <input className="rounded-md border border-border bg-white px-4 py-3 font-normal text-foreground outline-none transition focus:border-accent" inputMode="numeric" onChange={(changeEvent) => setSlotTemplate((current) => ({ ...current, break: changeEvent.currentTarget.value }))} value={slotTemplate.break} />
+          </label>
+          <button className="rounded-md border border-border bg-white px-4 py-3 text-sm font-medium transition hover:border-accent" onClick={onGenerateSlots} type="button">
+            Generate
+          </button>
+        </div>
+        <label className="grid gap-2 text-sm font-medium">
+          Slot rows
+          <textarea className="min-h-36 rounded-md border border-border bg-white px-4 py-3 font-normal outline-none transition focus:border-accent" name="slotLinks" onChange={(changeEvent) => setSlotText(changeEvent.currentTarget.value)} placeholder="0 | 45 | dj-aurora | DJ Aurora | House&#10;45 | 45 | dj-lumen | DJ Lumen | Trance" value={slotText} />
+          <span className="text-xs leading-5 text-muted">One per line: start offset minutes | duration minutes | optional person slug | billing name | style or role. Linked slot performers are also deduped into event participants.</span>
+        </label>
+      </section>
 
       <div className="rounded-[1.25rem] border border-border bg-surface-strong px-4 py-4 text-sm leading-6 text-muted">
         Event links publish immediately when saved. Approval, disputes, RSVP/interested state, recurring events, and friend-aware discovery are tracked as follow-on issues.
