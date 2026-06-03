@@ -94,9 +94,11 @@ Terraform stacks use the S3 backend bucket `vrdex-terraform-state` in `us-east-1
 
 Current stacks:
 
+- `infra/terraform/state-mgmt`: local-state bootstrap stack for the shared S3 Terraform state bucket
 - `infra/terraform/ses`: SES domain identity, DKIM, MAIL FROM, Route 53 records, and optional IAM sender key
 - `infra/terraform/posthog`: hosted PostHog project metadata
 - `infra/terraform/vercel`: hosted Vercel PostHog client environment variables
+- `infra/terraform/docs-site`: hosted docs Vercel project/domain and Route 53 DNS
 
 Keep stack state, plans, local provider caches, and `terraform.tfvars` uncommitted.
 

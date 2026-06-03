@@ -1,0 +1,17 @@
+# BASIC BIT hosted example values. Self-hosted operators should replace these
+# with their own Vercel team/project and Route 53 zone values.
+
+aws_region                = "us-east-1"
+hosted_zone_name          = "vrdex.net"
+docs_domain               = "docs.vrdex.net"
+vercel_a_record_value     = "76.76.21.21"
+vercel_team_id            = "team_GoHh5xUc96fAIAqJoG55A71S"
+vercel_docs_project_name  = "vr-dex-docs"
+docs_dns_record_ttl       = 300
+
+# Set this when the hosted zone name is ambiguous.
+# route53_zone_id = "Z0000000000000000000"
+
+tags = {
+  Environment = "production"
+}

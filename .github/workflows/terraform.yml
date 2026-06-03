@@ -1,0 +1,278 @@
+name: Terraform
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/terraform.yml
+      - infra/terraform/**
+  workflow_run:
+    workflows:
+      - Baseline Checks
+    types:
+      - completed
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      stack:
+        description: Terraform stack to run.
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - state-mgmt
+          - docs-site
+          - ses
+          - posthog
+          - vercel
+      apply:
+        description: Apply the selected stack after a successful plan.
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  AWS_REGION: us-east-1
+  AWS_TERRAFORM_ROLE_ARN: ${{ vars.AWS_TERRAFORM_ROLE_ARN || secrets.AWS_TERRAFORM_ROLE_ARN }}
+  VERCEL_API_TOKEN: ${{ secrets.VERCEL_API_TOKEN || secrets.VERCEL_TOKEN }}
+  POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+  TERRAFORM_POSTHOG_PUBLIC_KEY: ${{ secrets.TERRAFORM_POSTHOG_PUBLIC_KEY }}
+  TERRAFORM_SES_DOMAIN_NAME: ${{ vars.TERRAFORM_SES_DOMAIN_NAME }}
+  TERRAFORM_SES_FROM_EMAIL: ${{ vars.TERRAFORM_SES_FROM_EMAIL }}
+  TERRAFORM_ROUTE53_ZONE_ID: ${{ vars.TERRAFORM_ROUTE53_ZONE_ID }}
+
+jobs:
+  terraform-fmt:
+    name: Terraform Format
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+          terraform_wrapper: false
+
+      - name: Check formatting
+        run: terraform fmt -check -recursive infra/terraform
+
+  terraform-stack:
+    name: Terraform ${{ matrix.stack.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        stack:
+          - name: state-mgmt
+            path: infra/terraform/state-mgmt
+            backend: "false"
+            plan: "false"
+            auto_apply: "false"
+            manual_apply: "false"
+            requires_aws: "false"
+            requires_vercel: "false"
+            requires_posthog: "false"
+            requires_posthog_public_key: "false"
+            requires_ses_domain: "false"
+          - name: docs-site
+            path: infra/terraform/docs-site
+            backend: "true"
+            plan: "true"
+            auto_apply: "true"
+            manual_apply: "true"
+            requires_aws: "true"
+            requires_vercel: "true"
+            requires_posthog: "false"
+            requires_posthog_public_key: "false"
+            requires_ses_domain: "false"
+          - name: ses
+            path: infra/terraform/ses
+            backend: "true"
+            plan: "true"
+            auto_apply: "true"
+            manual_apply: "true"
+            requires_aws: "true"
+            requires_vercel: "false"
+            requires_posthog: "false"
+            requires_posthog_public_key: "false"
+            requires_ses_domain: "true"
+          - name: posthog
+            path: infra/terraform/posthog
+            backend: "true"
+            plan: "true"
+            auto_apply: "true"
+            manual_apply: "true"
+            requires_aws: "true"
+            requires_vercel: "false"
+            requires_posthog: "true"
+            requires_posthog_public_key: "false"
+            requires_ses_domain: "false"
+          - name: vercel
+            path: infra/terraform/vercel
+            backend: "true"
+            plan: "true"
+            auto_apply: "true"
+            manual_apply: "true"
+            requires_aws: "true"
+            requires_vercel: "true"
+            requires_posthog: "false"
+            requires_posthog_public_key: "true"
+            requires_ses_domain: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+          terraform_wrapper: false
+
+      - name: Check stack selection
+        id: selection
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          SELECTED_STACK: ${{ github.event_name == 'workflow_dispatch' && inputs.stack || 'all' }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$SELECTED_STACK" != "all" ] && [ "$SELECTED_STACK" != "${{ matrix.stack.name }}" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## Terraform ${{ matrix.stack.name }}"
+              echo "Skipped because workflow dispatch selected \`$SELECTED_STACK\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "run=true" >> "$GITHUB_OUTPUT"
+
+      - name: Initialize for validation
+        if: steps.selection.outputs.run == 'true'
+        working-directory: ${{ matrix.stack.path }}
+        run: terraform init -backend=false
+
+      - name: Validate
+        if: steps.selection.outputs.run == 'true'
+        working-directory: ${{ matrix.stack.path }}
+        run: terraform validate
+
+      - name: Check plan gate
+        if: steps.selection.outputs.run == 'true'
+        id: gate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_RUN_CONCLUSION: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion || '' }}
+          APPLY_REQUESTED: ${{ github.event_name == 'workflow_dispatch' && inputs.apply || false }}
+        run: |
+          set -euo pipefail
+
+          if [ "${{ matrix.stack.plan }}" != "true" ]; then
+            echo "plan_enabled=false" >> "$GITHUB_OUTPUT"
+            echo "apply_enabled=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## Terraform ${{ matrix.stack.name }}"
+              echo "Plan skipped because this stack is validation-only in CI."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          missing=()
+          if [ "${{ matrix.stack.requires_aws }}" = "true" ] && [ -z "$AWS_TERRAFORM_ROLE_ARN" ]; then missing+=("AWS_TERRAFORM_ROLE_ARN"); fi
+          if [ "${{ matrix.stack.requires_vercel }}" = "true" ] && [ -z "$VERCEL_API_TOKEN" ]; then missing+=("VERCEL_API_TOKEN or VERCEL_TOKEN"); fi
+          if [ "${{ matrix.stack.requires_posthog }}" = "true" ] && [ -z "$POSTHOG_API_KEY" ]; then missing+=("POSTHOG_API_KEY"); fi
+          if [ "${{ matrix.stack.requires_posthog_public_key }}" = "true" ] && [ -z "$TERRAFORM_POSTHOG_PUBLIC_KEY" ]; then missing+=("TERRAFORM_POSTHOG_PUBLIC_KEY"); fi
+          if [ "${{ matrix.stack.requires_ses_domain }}" = "true" ] && [ -z "$TERRAFORM_SES_DOMAIN_NAME" ]; then missing+=("TERRAFORM_SES_DOMAIN_NAME"); fi
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "plan_enabled=false" >> "$GITHUB_OUTPUT"
+            echo "apply_enabled=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## Terraform ${{ matrix.stack.name }}"
+              echo "Plan skipped because required settings are missing:"
+              printf -- '- %s\n' "${missing[@]}"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          apply_enabled=false
+          if [ "$EVENT_NAME" = "workflow_run" ] && [ "$WORKFLOW_RUN_CONCLUSION" = "success" ] && [ "${{ matrix.stack.auto_apply }}" = "true" ]; then
+            apply_enabled=true
+          fi
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$APPLY_REQUESTED" = "true" ] && [ "${{ matrix.stack.manual_apply }}" = "true" ]; then
+            apply_enabled=true
+          fi
+
+          echo "plan_enabled=true" >> "$GITHUB_OUTPUT"
+          echo "apply_enabled=$apply_enabled" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials
+        if: steps.selection.outputs.run == 'true' && steps.gate.outputs.plan_enabled == 'true' && matrix.stack.requires_aws == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_TERRAFORM_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Initialize remote backend
+        if: steps.selection.outputs.run == 'true' && steps.gate.outputs.plan_enabled == 'true' && matrix.stack.backend == 'true'
+        working-directory: ${{ matrix.stack.path }}
+        run: terraform init -reconfigure
+
+      - name: Plan
+        if: steps.selection.outputs.run == 'true' && steps.gate.outputs.plan_enabled == 'true'
+        working-directory: ${{ matrix.stack.path }}
+        env:
+          TF_VAR_posthog_public_key: ${{ env.TERRAFORM_POSTHOG_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+
+          args=()
+          case "${{ matrix.stack.name }}" in
+            docs-site)
+              if [ -n "$TERRAFORM_ROUTE53_ZONE_ID" ]; then args+=("-var=route53_zone_id=$TERRAFORM_ROUTE53_ZONE_ID"); fi
+              ;;
+            ses)
+              args+=("-var=domain_name=$TERRAFORM_SES_DOMAIN_NAME")
+              if [ -n "$TERRAFORM_SES_FROM_EMAIL" ]; then args+=("-var=from_email=$TERRAFORM_SES_FROM_EMAIL"); fi
+              if [ -n "$TERRAFORM_ROUTE53_ZONE_ID" ]; then args+=("-var=route53_zone_id=$TERRAFORM_ROUTE53_ZONE_ID"); fi
+              ;;
+          esac
+
+          terraform plan -input=false -out=tfplan "${args[@]}"
+
+      - name: Apply
+        if: steps.selection.outputs.run == 'true' && steps.gate.outputs.apply_enabled == 'true'
+        working-directory: ${{ matrix.stack.path }}
+        run: terraform apply -input=false -auto-approve tfplan
+
+      - name: Summarize
+        if: always()
+        run: |
+          {
+            echo "## Terraform ${{ matrix.stack.name }}"
+            echo "Path: \`${{ matrix.stack.path }}\`"
+            echo "Plan enabled: \`${{ steps.gate.outputs.plan_enabled || 'false' }}\`"
+            echo "Apply enabled: \`${{ steps.gate.outputs.apply_enabled || 'false' }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
