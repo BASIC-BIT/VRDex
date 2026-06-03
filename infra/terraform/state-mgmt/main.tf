@@ -163,6 +163,16 @@ data "aws_iam_policy_document" "github_actions_terraform" {
   }
 
   statement {
+    sid = "Route53ChangePolling"
+
+    actions = [
+      "route53:GetChange",
+    ]
+
+    resources = ["arn:aws:route53:::change/*"]
+  }
+
+  statement {
     sid = "SesDomainIdentityManagement"
 
     actions = [
