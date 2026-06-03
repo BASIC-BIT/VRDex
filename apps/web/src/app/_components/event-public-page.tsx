@@ -205,22 +205,6 @@ function formatSlotTimeRange(slot: PublicEvent["slots"][number], timezone: strin
   return `${start} - ${formatEventTime(slot.endAt, timezone)}`;
 }
 
-function trustLabel(label: ProfileTrustLabel): string {
-  if (label === "claimed_verified") {
-    return "Verified owner";
-  }
-
-  if (label === "claimed_unverified") {
-    return "Claimed";
-  }
-
-  if (label === "community_submitted") {
-    return "Community submitted";
-  }
-
-  return "Unclaimed";
-}
-
 export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
   const sourceUrl = safeHttpsUrl(event.source.url);
   const posterStyle = safeImageBackground(event.posterImageUrl, true);
@@ -328,66 +312,27 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
 
         <section className="overflow-hidden rounded-lg border border-purple-950/10 bg-slate-950 shadow-[0_24px_90px_rgba(41,20,61,0.18)]">
           <div
-            className="min-h-72 bg-[radial-gradient(circle_at_top_right,rgba(198,153,255,0.32),transparent_30%),linear-gradient(135deg,#17111f,#5d3b8e_52%,#20142f)] bg-cover bg-center p-6 text-white sm:p-8 lg:p-10"
+            className="relative min-h-56 bg-[radial-gradient(circle_at_top_right,rgba(198,153,255,0.32),transparent_30%),linear-gradient(135deg,#17111f,#5d3b8e_52%,#20142f)] bg-cover bg-center p-5 text-white sm:p-6 lg:p-8"
             style={posterStyle}
           >
-            <div className="flex min-h-60 flex-col justify-between gap-10">
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="rounded-md bg-white/15 px-3 py-1 font-mono text-xs uppercase tracking-[0.22em] text-white/82">
-                  Event
-                </span>
-                <span className="rounded-md bg-white/15 px-3 py-1 font-mono text-xs uppercase tracking-[0.22em] text-white/82">
-                  /e/{event.slug}
-                </span>
-              </div>
-
-              <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-end">
-                <div className="max-w-4xl">
-                  <time className="text-sm uppercase tracking-[0.24em] text-white/70" dateTime={new Date(event.startAt).toISOString()}>
-                    {formatEventDate(event.startAt, event.timezone)}
-                  </time>
-                  <h1 className="mt-4 text-5xl leading-none font-semibold tracking-[-0.05em] sm:text-7xl">
-                    {event.title}
-                  </h1>
-                  {event.summary ? <p className="mt-4 max-w-2xl text-base leading-7 text-white/82 sm:text-lg">{event.summary}</p> : null}
-                </div>
-
-                <aside className="rounded-lg border border-white/20 bg-white/14 p-4 backdrop-blur">
-                  <p className="font-mono text-xs uppercase tracking-[0.24em] text-white/70">Source</p>
-                  <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em]">
-                    {eventSourceLabel(event.source.sourceType)}
-                  </h2>
-                  <p className="mt-2 max-w-xs text-sm leading-6 text-white/76">{event.source.label}</p>
-                </aside>
+            <span className="absolute top-4 right-4 rounded-md bg-white/15 px-3 py-1 font-mono text-xs uppercase tracking-[0.22em] text-white/82">
+              Event
+            </span>
+            <div className="flex min-h-44 flex-col justify-end pr-16">
+              <div className="max-w-4xl">
+                <time className="text-sm uppercase tracking-[0.24em] text-white/70" dateTime={new Date(event.startAt).toISOString()}>
+                  {formatEventDate(event.startAt, event.timezone)}
+                </time>
+                <h1 className="mt-4 text-5xl leading-none font-semibold tracking-[-0.05em] sm:text-7xl">
+                  {event.title}
+                </h1>
+                {event.summary ? <p className="mt-4 max-w-2xl text-base leading-7 text-white/82 sm:text-lg">{event.summary}</p> : null}
               </div>
             </div>
           </div>
         </section>
 
-        <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-          <article className="rounded-lg border border-border bg-white/80 px-5 py-6 shadow-sm sm:px-6">
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Host / world</p>
-            <div className="mt-5 grid gap-3 text-sm">
-              {event.communitySlug ? (
-                <Link className="rounded-md border border-border bg-surface px-4 py-3 font-medium" href={`/c/${event.communitySlug}`}>
-                  {event.communityName ?? "Community profile"}
-                </Link>
-              ) : event.communityName ? (
-                <div className="rounded-md border border-border bg-surface px-4 py-3 font-medium">
-                  {event.communityName}
-                </div>
-              ) : (
-                <p className="leading-6 text-muted">No public host community is linked yet.</p>
-              )}
-              {event.worlds.map((world) => (
-                <Link className="rounded-md border border-border bg-surface px-4 py-3" href={`/w/${world.slug}`} key={world.slug}>
-                  <span className="block font-medium">{world.displayName}</span>
-                  {world.summary ? <span className="mt-1 block text-muted">{world.summary}</span> : null}
-                </Link>
-              ))}
-            </div>
-          </article>
-
+        <section className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
           <aside className="rounded-lg border border-border bg-white/80 px-5 py-6 shadow-sm sm:px-6">
             <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Details</p>
             <dl className="mt-5 space-y-4 text-sm">
@@ -407,6 +352,35 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
               </div>
             </dl>
           </aside>
+
+          <article className="rounded-lg border border-border bg-white/80 px-5 py-6 shadow-sm sm:px-6">
+            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Host / world</p>
+            <div className="mt-5 grid gap-3 text-sm">
+              {event.communitySlug ? (
+                <Link className="rounded-md border border-border bg-white px-4 py-3 transition hover:border-accent" href={`/c/${event.communitySlug}`}>
+                  <span className="block font-medium underline decoration-border underline-offset-4 hover:decoration-accent">
+                    {event.communityName ?? "Community profile"}
+                  </span>
+                  <span className="mt-2 block text-xs text-muted">View community</span>
+                </Link>
+              ) : event.communityName ? (
+                <div className="rounded-md border border-border bg-surface px-4 py-3 font-medium">
+                  {event.communityName}
+                </div>
+              ) : (
+                <p className="leading-6 text-muted">No public host community is linked yet.</p>
+              )}
+              {event.worlds.map((world) => (
+                <Link className="rounded-md border border-border bg-white px-4 py-3 transition hover:border-accent" href={`/w/${world.slug}`} key={world.slug}>
+                  <span className="block font-medium underline decoration-border underline-offset-4 hover:decoration-accent">
+                    {world.displayName}
+                  </span>
+                  {world.summary ? <span className="mt-1 block text-muted">{world.summary}</span> : null}
+                  <span className="mt-2 block text-xs text-muted">View world</span>
+                </Link>
+              ))}
+            </div>
+          </article>
         </section>
 
         <section className="rounded-lg border border-border bg-white/80 px-5 py-6 shadow-sm sm:px-6">
@@ -421,8 +395,7 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
                     <tr>
                       <th className="px-4 py-3 font-medium">Time</th>
                       <th className="px-4 py-3 font-medium">Artist</th>
-                      <th className="px-4 py-3 font-medium">Style</th>
-                      <th className="px-4 py-3 font-medium">Discord</th>
+                      <th className="px-4 py-3 font-medium">Style(s)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
@@ -431,7 +404,7 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
                         <td className="whitespace-nowrap px-4 py-3 font-medium">{formatSlotTimeRange(slot, event.timezone)}</td>
                         <td className="px-4 py-3">
                           {slot.performer ? (
-                            <Link className="font-semibold tracking-[-0.02em] hover:text-accent" href={`/p/${slot.performer.slug}`}>
+                            <Link className="font-semibold tracking-[-0.02em] underline decoration-border underline-offset-4 hover:text-accent hover:decoration-accent" href={`/p/${slot.performer.slug}`}>
                               {slot.displayLabel}
                             </Link>
                           ) : (
@@ -439,14 +412,6 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
                           )}
                         </td>
                         <td className="px-4 py-3 text-muted">{slot.roleLabel}</td>
-                        <td className="px-4 py-3">
-                          <details>
-                            <summary className="cursor-pointer text-xs font-medium text-muted underline-offset-2 hover:text-foreground">Token</summary>
-                            <code className="mt-2 block w-max max-w-56 overflow-x-auto rounded-md border border-border bg-white px-2 py-1 font-mono text-xs text-foreground">
-                              {slot.discord.longDateTime}
-                            </code>
-                          </details>
-                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -463,12 +428,12 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
               <p className="text-sm leading-6 text-muted">No public participant links yet.</p>
             ) : (
               event.participants.map((participant) => (
-                <Link className="rounded-md border border-border bg-surface px-4 py-4 text-sm" href={`/p/${participant.slug}`} key={participant.slug}>
-                  <span className="block text-lg font-semibold tracking-[-0.03em]">{participant.displayName}</span>
-                  <span className="mt-2 block text-muted">{participant.roleLabel}</span>
-                  <span className="mt-3 inline-flex rounded-md border border-border bg-white px-3 py-1 text-xs">
-                    {trustLabel(participant.trustLabel)}
+                <Link className="rounded-md border border-border bg-white px-4 py-4 text-sm transition hover:border-accent" href={`/p/${participant.slug}`} key={participant.slug}>
+                  <span className="block text-lg font-semibold tracking-[-0.03em] underline decoration-border underline-offset-4 hover:decoration-accent">
+                    {participant.displayName}
                   </span>
+                  <span className="mt-2 block text-muted">{participant.roleLabel}</span>
+                  <span className="mt-3 block text-xs text-muted">View profile</span>
                 </Link>
               ))
             )}
@@ -483,13 +448,18 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
                 <p className="text-sm leading-6 text-muted">No public event media links yet.</p>
               ) : null}
               {sourceUrl ? (
-                <a className="rounded-md border border-border bg-surface px-4 py-3 text-sm font-medium" href={sourceUrl} rel="noreferrer" target="_blank">
-                  {event.source.label}
+                <a className="rounded-md border border-border bg-white px-4 py-3 text-sm transition hover:border-accent" href={sourceUrl} rel="noreferrer" target="_blank">
+                  <span className="block font-medium underline decoration-border underline-offset-4 hover:decoration-accent">
+                    {event.source.label}
+                  </span>
+                  <span className="mt-1 block text-xs text-muted">Source</span>
                 </a>
               ) : null}
               {event.mediaLinks.map((link) => (
-                <a className="rounded-md border border-border bg-surface px-4 py-3 text-sm" href={link.url} key={`${link.type}-${link.url}`} rel="noreferrer" target="_blank">
-                  <span className="block font-medium">{link.label}</span>
+                <a className="rounded-md border border-border bg-white px-4 py-3 text-sm transition hover:border-accent" href={link.url} key={`${link.type}-${link.url}`} rel="noreferrer" target="_blank">
+                  <span className="block font-medium underline decoration-border underline-offset-4 hover:decoration-accent">
+                    {link.label}
+                  </span>
                   <span className="mt-1 block text-xs text-muted">
                     {mediaLinkTypeLabel(link.type)} {link.presentation === "copy" ? "copyable link" : "external link"}
                   </span>
