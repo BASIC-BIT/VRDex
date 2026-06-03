@@ -34,7 +34,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: terraform-${{ github.event_name }}-${{ github.ref }}
@@ -76,6 +75,9 @@ jobs:
     name: Terraform ${{ matrix.stack.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -119,7 +121,7 @@ jobs:
             plan: "true"
             auto_apply: "true"
             manual_apply: "true"
-            requires_aws: "false"
+            requires_aws: "true"
             requires_vercel: "false"
             requires_posthog: "true"
             requires_posthog_public_key: "false"
@@ -130,7 +132,7 @@ jobs:
             plan: "true"
             auto_apply: "true"
             manual_apply: "true"
-            requires_aws: "false"
+            requires_aws: "true"
             requires_vercel: "true"
             requires_posthog: "false"
             requires_posthog_public_key: "true"
@@ -234,7 +236,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Initialize remote backend
-        if: steps.selection.outputs.run == 'true' && steps.gate.outputs.plan_enabled == 'true'
+        if: steps.selection.outputs.run == 'true' && steps.gate.outputs.plan_enabled == 'true' && matrix.stack.backend == 'true'
         working-directory: ${{ matrix.stack.path }}
         run: terraform init -reconfigure
 

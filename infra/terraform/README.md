@@ -23,7 +23,7 @@ Required CI settings by provider:
 
 | Setting | Type | Used by |
 | --- | --- | --- |
-| `AWS_TERRAFORM_ROLE_ARN` | repository variable or secret | `docs-site`, `ses` |
+| `AWS_TERRAFORM_ROLE_ARN` | repository variable or secret | all S3-backed stacks: `docs-site`, `ses`, `posthog`, `vercel` |
 | `VERCEL_TOKEN` or `VERCEL_API_TOKEN` | repository secret | `docs-site`, `vercel` |
 | `POSTHOG_API_KEY` | repository secret | `posthog` |
 | `TERRAFORM_POSTHOG_PUBLIC_KEY` | repository secret | `vercel` |
