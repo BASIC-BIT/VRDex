@@ -9,7 +9,7 @@ import {
   sortSearchResults,
   toPublicSearchResult,
 } from "../../convex/_searchDocuments";
-import { createVocabularyKey, collectVocabularyKeys } from "../../convex/_vocabulary";
+import { createVocabularyKey, collectVocabularyKeys, SEEDED_VOCABULARY_TERMS } from "../../convex/_vocabulary";
 
 describe("vocabulary normalization", () => {
   it("normalizes obvious duplicate terms into stable keys", () => {
@@ -23,6 +23,18 @@ describe("vocabulary normalization", () => {
       ]),
       ["person_role:dj", "profile_tag:house"],
     );
+  });
+
+  it("keeps legacy event role labels as aliases", () => {
+    const djSet = SEEDED_VOCABULARY_TERMS.find(
+      (term) => term.scope === "event_participant_role" && term.label === "DJ set",
+    );
+    const host = SEEDED_VOCABULARY_TERMS.find(
+      (term) => term.scope === "event_participant_role" && term.label === "Host",
+    );
+
+    assert.ok(djSet?.aliases?.includes("Headliner"));
+    assert.ok(host?.aliases?.includes("Opener"));
   });
 });
 

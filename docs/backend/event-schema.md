@@ -69,7 +69,7 @@ Slot records support:
 
 Confirmed slot performers are also deduped into `eventParticipants` on event save so person profile upcoming-event views continue to work from broad profile-event associations. The combined explicit participants plus linked slot performers must stay within the event participant cap. The slot record remains the ordered set-time detail; the participant record remains the profile-event relationship.
 
-Slot start times must be at or after the event start. When an event end time is provided, slot end times must stay within that event window. Public projection suppresses a linked slot row if the linked performer profile is no longer publicly readable instead of falling back to the stored label and exposing a private profile reference.
+Slot start times must be at or after the event start. When an event end time is provided, slot end times must stay within that event window. Public projection keeps the slot row when a linked performer profile is no longer publicly readable, but drops the performer link and falls back to the public slot display label.
 
 Canonical slot times are stored as timestamps. Discord timestamp tokens such as `<t:1781474400:F>` are generated from saved event/slot timestamps for display or export; they are not canonical storage.
 

@@ -36,6 +36,7 @@ const userSafeErrorPatterns = [
   /Slot start time must be at or after the event start time\./,
   /Slot end time must be at or before the event end time\./,
   /Slot display label must be at least \d+ characters\./,
+  /(?:Slot display label|Slot role|Slot source label|Slot notes) must be \d+ characters or fewer\./,
   /Event slots can include at most \d+ entries\./,
   /Participant links can include at most \d+ unique profiles including linked slot performers\./,
   /Community profile was not found\./,

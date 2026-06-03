@@ -321,7 +321,7 @@ async function getPublicEventSlotRecords(db: DatabaseReader, event: Doc<"events"
         profile.profileType !== "person" ||
         !canReadProfile("public", profile)
       ) {
-        return null;
+        return { slot };
       }
 
       return { slot, profile };

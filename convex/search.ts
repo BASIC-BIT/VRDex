@@ -134,6 +134,7 @@ export const seedVocabulary = internalMutation({
       SEEDED_VOCABULARY_TERMS.map((term) => ({
         scope: term.scope,
         label: term.label,
+        aliases: term.aliases,
         source: "seeded",
         rank: term.rank,
       })),

@@ -418,6 +418,40 @@ describe("public event projection", () => {
     assert.equal("url" in publicEvent!.source, false);
   });
 
+  it("keeps public slot labels when performer profiles are not projected", () => {
+    const now = Date.UTC(2026, 4, 24, 12, 0, 0);
+    const event = {
+      slug: "afterglow-harbor-sessions-2026-06-14",
+      title: "Afterglow Harbor Sessions",
+      sortTitle: "afterglow harbor sessions",
+      startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
+      sourceType: "community",
+      sourceLabel: "Fixture event listing",
+      publicationState: "published",
+      updatedAt: now,
+    } as unknown as Doc<"events">;
+    const slot = {
+      eventId: "event123",
+      eventStartAt: event.startAt,
+      position: 0,
+      startAt: event.startAt,
+      personProfileId: "profile123",
+      displayLabel: "DJ Aurora",
+      roleLabel: "House",
+      sourceType: "community",
+      sourceLabel: "Fixture lineup",
+      confidence: 1,
+      reviewState: "confirmed",
+      updatedAt: now,
+    } as unknown as Doc<"eventSlots">;
+
+    const publicEvent = toPublicEvent({ event, worlds: [], participants: [], slots: [{ slot }] });
+
+    assert.equal(publicEvent?.slots.length, 1);
+    assert.equal(publicEvent?.slots[0]?.displayLabel, "DJ Aurora");
+    assert.equal(publicEvent?.slots[0]?.performer, undefined);
+  });
+
   it("creates compact previews for profile and community event sections", () => {
     const event = {
       slug: "afterglow-harbor-sessions-2026-06-14",
