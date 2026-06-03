@@ -2,7 +2,7 @@
 
 ## Status Note
 
-Current recommendation and first implementation for the expanded public discovery engine bundle covering `#25`, `#30`, `#31`, `#32`, `#33`, `#95`, `#96`, and `#97`.
+Current recommendation and first implementation for expanded public discovery, covering `#25`, `#30`, `#31`, `#32`, `#33`, `#95`, `#96`, and `#97`.
 
 ## Locked Decisions
 
@@ -97,7 +97,7 @@ Optional PostHog instrumentation emits:
 
 Missing PostHog configuration must not break local, preview, self-hosted, or production reads.
 
-## Follow-On Work
+## Out of Scope
 
 - choose the long-term semantic/vector provider after real query testing
 - add personalized ranking once auth, consent, and analytics history exist

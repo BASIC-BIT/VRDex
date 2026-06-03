@@ -1,6 +1,6 @@
 # Vercel preview deployment
 
-This is the first hosted deployment path for `apps/web`. It is intentionally narrow: get a live Vercel URL for every pull request and keep unsafe public states locked. Production-hardening work needs explicit follow-up issues before it belongs in this doc.
+This is the first hosted deployment path for `apps/web`. It is intentionally narrow: get a live Vercel URL for every pull request and keep unsafe public states locked. Production hardening belongs here only after an explicit follow-up issue owns it.
 
 ## Vercel project
 
@@ -17,7 +17,7 @@ Create or import one Vercel project for this repository:
 
 Run Vercel CLI commands from the repository root once the project root directory is set to `apps/web`; running from `apps/web` will make Vercel resolve the app root twice.
 
-## Repository secrets
+## Repository variables and secrets
 
 Current recommendation: keep repository Actions variables and secrets reproducible through checked-in workflows/docs first, and provider APIs or CLI scripts where practical. Secret values still belong in GitHub/Vercel/Convex secret stores, but their names, scopes, and recreation path should be documented here.
 
@@ -63,7 +63,7 @@ Production should keep `VRDEX_ENABLE_E2E_HELPERS=false` or unset, should keep `V
 
 Preview deployment protection must allow unauthenticated reads if the PR preview is meant to be reviewed outside the Vercel dashboard.
 
-## Staging Hosted E2E Environment
+## Hosted staging E2E environment
 
 Locked decision: `staging` is the shared non-production Vercel custom environment for deployed mutation-backed Playwright health checks.
 

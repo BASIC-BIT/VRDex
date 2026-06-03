@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Use this page as the high-level map between VRDex services, docs, and implementation surfaces. Cross-link aggressively from service-specific pages back to this map when a reader needs to understand how one area affects another.
+Use this page as the high-level map between VRDex services, docs, and implementation surfaces. Link from service-specific pages back to this map when readers need to understand how one area affects another.
 
 ## Public Product Surfaces
 

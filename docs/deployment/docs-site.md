@@ -4,7 +4,7 @@
 
 Current deployment runbook for [#125](https://github.com/BASIC-BIT/VRDex/issues/125).
 
-The Docusaurus docs app exists and builds. Provider setup is represented by `infra/terraform/docs-site`, and `https://docs.vrdex.net` is not live until that stack is imported or applied, the GitHub secret is set, and DNS propagates.
+The Docusaurus docs app builds and deploys to `https://docs.vrdex.net`. `infra/terraform/docs-site` owns the Vercel docs project, domain binding, and Route 53 DNS record.
 
 ## Current State
 
@@ -16,7 +16,7 @@ The Docusaurus docs app exists and builds. Provider setup is represented by `inf
 
 ## Target Hosted Shape
 
-Create or import a Vercel project for docs only through `infra/terraform/docs-site`:
+Create or import the docs-only Vercel project through `infra/terraform/docs-site`:
 
 | Setting | Value |
 | --- | --- |
@@ -86,8 +86,8 @@ After provider setup:
 - `Docs Deploy` workflow succeeds on `main`
 - `https://docs.vrdex.net/` loads the Docusaurus landing page
 - `https://docs.vrdex.net/docs/` loads the canonical docs index
-- `https://docs.vrdex.net/docs/developers/` loads the developer lane
-- `https://docs.vrdex.net/docs/engineering/` loads the engineering lane
+- `https://docs.vrdex.net/docs/developers/` loads the developer docs
+- `https://docs.vrdex.net/docs/engineering/` loads the engineering docs
 
 ## Safety Rules
 

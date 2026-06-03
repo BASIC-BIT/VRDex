@@ -1,4 +1,4 @@
-# OpenCode Adapter For The VRDex Partner Agent Skill
+# OpenCode adapter for the VRDex partner-agent skill
 
 ## Reference Pattern
 
@@ -10,7 +10,7 @@ When integrating with VRDex, read the VRDex partner-agent guidance first. Treat 
 
 Canonical guidance lives in [VRDex Partner Agent Skill](./partner-agent-skill.md).
 
-## Install / Reference Options
+## Reference options
 
 - Preferred: add a short local `AGENTS.md` or project instruction that links to the canonical VRDex partner-agent guidance.
 - Compatibility mode: vendor `skills/vrdex/SKILL.md` when the agent tool expects a skill file, but keep that file pointer-heavy.

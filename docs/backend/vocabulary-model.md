@@ -6,7 +6,7 @@ Current recommendation and first implementation for `#90`.
 
 ## Purpose
 
-VRDex needs flexible scene language without forcing everyone into one rigid taxonomy. The vocabulary model normalizes and remembers terms that appear in profiles, worlds, events, and discovery facets.
+VRDex needs flexible scene language without forcing everyone into one rigid taxonomy. The vocabulary model normalizes and stores terms that appear in profiles, worlds, events, and discovery facets.
 
 ## Scopes
 
@@ -51,7 +51,7 @@ Vocabulary terms feed:
 - weighted search document fields
 - browse chips on discovery surfaces
 - future typeahead suggestions
-- future moderation/merge workflows
+- moderation and merge workflows outside the first slice
 
 ## Non-Goals
 
@@ -60,7 +60,7 @@ Vocabulary terms feed:
 - broad ad hoc language-to-intent mappings in code
 - moderation dashboard for vocabulary abuse in the first slice
 
-## Follow-On Work
+## Out of Scope
 
 - reviewed aliases and merges
 - admin curation UI

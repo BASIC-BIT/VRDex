@@ -4,7 +4,7 @@
 
 This document is the canonical repo-level definition of done for feature work.
 
-Use it to decide whether work is actually finished, not just coded.
+Use it to decide whether work is finished, not merely coded.
 
 ## Locked decision
 

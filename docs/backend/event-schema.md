@@ -10,7 +10,7 @@ Events are the primary scheduling object. They are not modeled as appearances, s
 
 Current event fields include:
 
-- editable readable slug for `/e/<slug>` public routes
+- human-readable editable slug for `/e/<slug>` public routes
 - title and sort title
 - start time and optional end time
 - optional time zone

@@ -96,7 +96,7 @@ pnpm --filter web exec playwright test --grep @snapshot --update-snapshots
 `Playwright Image Diff`:
 
 1. Runs `pnpm test:e2e:snapshots` without `--update-snapshots`.
-2. Upload the Playwright report and `test-results` artifacts on success or failure.
+2. Uploads the Playwright report and `test-results` artifacts on success or failure.
 3. If the test passes, find added/modified PNG baselines in the PR diff.
 4. Post or update a single PR comment with inline images for those added/modified baselines.
 5. If no baseline PNGs changed, say that no baseline images changed instead of listing every route.
@@ -156,4 +156,4 @@ Preview screenshots are still useful before baselines exist for every route and 
 4. Added the `Playwright Image Diff` CI job.
 5. Added a `github-script` step that comments inline changed/added baseline PNGs.
 6. Kept the current preview job artifact-only.
-7. Tune `maxDiffPixelRatio` only if CI noise appears after real PR traffic.
+7. Keep `maxDiffPixelRatio` unchanged unless CI noise appears after real PR traffic.

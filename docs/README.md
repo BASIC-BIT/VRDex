@@ -1,6 +1,6 @@
 # Docs
 
-This repo keeps durable markdown under `docs/` so product, developer, engineering, and agentic knowledge stays structured and discoverable.
+This repo keeps durable markdown under `docs/` so product, developer, engineering, and agent workflow knowledge stays structured and discoverable.
 
 ## Lanes
 

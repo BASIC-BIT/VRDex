@@ -1,4 +1,4 @@
-# Self-Hosting And Infrastructure As Code
+# Self-hosting and infrastructure as code
 
 ## Status
 
@@ -11,12 +11,12 @@ VRDex should be open-source, self-hostable, and reproducible from the repo. The 
 - Infrastructure and provider configuration should be represented as code or checked-in documentation whenever the platform supports it.
 - Secret values belong in provider secret stores, not in git.
 - The repo should commit expected variable names, scopes, owners, and recreation paths so hosted deployment state does not become dashboard-only tribal knowledge.
-- Manual dashboard changes are acceptable for bootstrap or emergency work, but they need a follow-up docs, script, Terraform, or workflow artifact.
+- Manual dashboard changes are acceptable for bootstrap or emergencies, but must be followed by docs, scripts, Terraform, or workflow updates.
 - Self-hosting should stay real, but it does not mean v0.5 needs one-click automation for every provider.
 
 ## Current Hosted Deployment Shape
 
-The BASIC BIT hosted deployment currently uses:
+The hosted BASIC BIT deployment uses:
 
 - `Next.js` web app in `apps/web`
 - Vercel project `vr-dex-web` for web hosting and staging deploys

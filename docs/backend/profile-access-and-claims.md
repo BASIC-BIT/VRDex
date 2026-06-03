@@ -2,7 +2,7 @@
 
 ## Status Note
 
-This doc captures the permission and claim-state baseline for `#12` and `#13`, extended by the first auth, ownership, field-visibility, Discord claim, and VRChat proof-code slice.
+This doc captures the permission and claim-state baseline for `#12` and `#13`, plus later auth, ownership, field-visibility, Discord claim, and VRChat proof-code slices.
 
 It intentionally does not add moderation UI, role delegation, ownership transfer, contested-claim resolution, or a hard-coded VRCLinking API integration.
 

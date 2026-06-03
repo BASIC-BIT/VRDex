@@ -142,6 +142,6 @@ Candidate direction:
 - local MCP remains useful for self-hosted deployments and development
 - authenticated write/claim tools, if ever added, need normal VRDex auth, scoped tokens, approvals, and audit trails
 
-## Follow-On Implementation Gate
+## Implementation Gate
 
-Do not implement the standalone package until the public API/query shape can support these tools without scraping. [#78](https://github.com/BASIC-BIT/VRDex/issues/78) remains the prototype issue and should choose package name, transport, auth posture, API dependencies, test fixtures, and distribution path.
+Do not implement the standalone package until the public API/query shape supports these tools without scraping. [#78](https://github.com/BASIC-BIT/VRDex/issues/78) remains the prototype issue and should choose package name, transport, auth posture, API dependencies, test fixtures, and distribution path.
