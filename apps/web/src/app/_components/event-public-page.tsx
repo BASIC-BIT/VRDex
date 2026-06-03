@@ -226,7 +226,7 @@ export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
   const posterStyle = safeImageBackground(event.posterImageUrl, true);
 
   return (
-    <article className="group overflow-hidden rounded-2xl border border-border bg-surface-strong text-sm transition hover:-translate-y-0.5">
+    <article className="group overflow-hidden rounded-lg border border-border bg-surface-strong text-sm transition hover:-translate-y-0.5">
       <div
         className="min-h-28 bg-[radial-gradient(circle_at_top_left,rgba(214,106,77,0.22),transparent_34%),linear-gradient(135deg,#2c1d29,#60429a)] bg-cover bg-center px-4 py-4 text-white"
         style={posterStyle}
@@ -245,23 +245,23 @@ export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
         {event.summary ? <p className="leading-6 text-muted">{event.summary}</p> : null}
         <div className="flex flex-wrap gap-2 text-xs">
           {event.participantCount > 0 ? (
-            <span className="rounded-full border border-border bg-white px-3 py-1">
+            <span className="rounded-md border border-border bg-white px-3 py-1">
               {event.participantCount} linked profile{event.participantCount === 1 ? "" : "s"}
             </span>
           ) : null}
           {event.slotCount > 0 ? (
-            <span className="rounded-full border border-border bg-white px-3 py-1">
+            <span className="rounded-md border border-border bg-white px-3 py-1">
               {event.slotCount} set time{event.slotCount === 1 ? "" : "s"}
             </span>
           ) : null}
           {event.worlds.map((world) => (
-            <span className="rounded-full border border-border bg-white px-3 py-1" key={world.slug}>
+            <span className="rounded-md border border-border bg-white px-3 py-1" key={world.slug}>
               {world.displayName}
             </span>
           ))}
           {sourceUrl ? (
             <a
-              className="rounded-full border border-border bg-white px-3 py-1 font-medium"
+              className="rounded-md border border-border bg-white px-3 py-1 font-medium"
               href={sourceUrl}
               rel="noreferrer"
               target="_blank"
@@ -269,7 +269,7 @@ export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
               {event.source.label}
             </a>
           ) : (
-            <span className="rounded-full border border-border bg-white px-3 py-1">
+            <span className="rounded-md border border-border bg-white px-3 py-1">
               {event.source.label}
             </span>
           )}
@@ -282,7 +282,7 @@ export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
 export function EventBackendNotice({ kind }: { kind: "missing-url" | "error" }) {
   return (
     <main className="min-h-screen px-6 py-10 text-foreground sm:px-10 lg:px-16">
-      <section className="mx-auto max-w-3xl rounded-[2rem] border border-border bg-surface px-6 py-8 shadow-[0_24px_80px_rgba(64,40,24,0.12)] sm:px-8">
+      <section className="mx-auto max-w-3xl rounded-lg border border-border bg-surface px-6 py-8 shadow-[0_24px_80px_rgba(64,40,24,0.12)] sm:px-8">
         <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Event page</p>
         <h1 className="mt-4 text-4xl font-semibold tracking-[-0.04em]">
           {kind === "missing-url" ? "Convex URL not configured" : "Event read failed"}
@@ -293,7 +293,7 @@ export function EventBackendNotice({ kind }: { kind: "missing-url" | "error" }) 
             : "Start the local Convex backend and reload this page once the event query is reachable."}
         </p>
         <Link
-          className="mt-6 inline-flex rounded-full border border-border bg-surface-strong px-5 py-3 text-sm font-medium"
+          className="mt-6 inline-flex rounded-md border border-border bg-surface-strong px-5 py-3 text-sm font-medium"
           href="/"
         >
           Back to homepage
@@ -315,28 +315,28 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
             VRDex
           </Link>
           <div className="flex flex-wrap gap-2">
-            <Link className="rounded-full border border-border bg-white/80 px-4 py-2 font-medium" href="/events/new">
+            <Link className="rounded-md border border-border bg-white/80 px-4 py-2 font-medium" href="/events/new">
               Add event
             </Link>
             {showEditLink ? (
-              <Link className="rounded-full border border-border bg-white/80 px-4 py-2 font-medium" href={`/events/${event.slug}/edit`}>
+              <Link className="rounded-md border border-border bg-white/80 px-4 py-2 font-medium" href={`/events/${event.slug}/edit`}>
                 Edit event
               </Link>
             ) : null}
           </div>
         </nav>
 
-        <section className="overflow-hidden rounded-[2rem] border border-purple-950/10 bg-slate-950 shadow-[0_24px_90px_rgba(41,20,61,0.18)]">
+        <section className="overflow-hidden rounded-lg border border-purple-950/10 bg-slate-950 shadow-[0_24px_90px_rgba(41,20,61,0.18)]">
           <div
             className="min-h-72 bg-[radial-gradient(circle_at_top_right,rgba(198,153,255,0.32),transparent_30%),linear-gradient(135deg,#17111f,#5d3b8e_52%,#20142f)] bg-cover bg-center p-6 text-white sm:p-8 lg:p-10"
             style={posterStyle}
           >
             <div className="flex min-h-60 flex-col justify-between gap-10">
               <div className="flex flex-wrap items-center gap-3">
-                <span className="rounded-full bg-white/15 px-3 py-1 font-mono text-xs uppercase tracking-[0.22em] text-white/82">
+                <span className="rounded-md bg-white/15 px-3 py-1 font-mono text-xs uppercase tracking-[0.22em] text-white/82">
                   Event
                 </span>
-                <span className="rounded-full bg-white/15 px-3 py-1 font-mono text-xs uppercase tracking-[0.22em] text-white/82">
+                <span className="rounded-md bg-white/15 px-3 py-1 font-mono text-xs uppercase tracking-[0.22em] text-white/82">
                   /e/{event.slug}
                 </span>
               </div>
@@ -349,19 +349,15 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
                   <h1 className="mt-4 text-5xl leading-none font-semibold tracking-[-0.05em] sm:text-7xl">
                     {event.title}
                   </h1>
-                  <p className="mt-4 max-w-2xl text-base leading-7 text-white/82 sm:text-lg">
-                    {event.summary ?? "A published VRDex event with source-aware community, world, and profile context."}
-                  </p>
+                  {event.summary ? <p className="mt-4 max-w-2xl text-base leading-7 text-white/82 sm:text-lg">{event.summary}</p> : null}
                 </div>
 
-                <aside className="rounded-[1.5rem] border border-white/20 bg-white/14 p-4 backdrop-blur">
+                <aside className="rounded-lg border border-white/20 bg-white/14 p-4 backdrop-blur">
                   <p className="font-mono text-xs uppercase tracking-[0.24em] text-white/70">Source</p>
                   <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em]">
                     {eventSourceLabel(event.source.sourceType)}
                   </h2>
-                  <p className="mt-2 max-w-xs text-sm leading-6 text-white/76">
-                    {event.source.label}. Participant and world links are source-attributed and reviewable.
-                  </p>
+                  <p className="mt-2 max-w-xs text-sm leading-6 text-white/76">{event.source.label}</p>
                 </aside>
               </div>
             </div>
@@ -369,23 +365,22 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
         </section>
 
         <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-          <article className="rounded-[1.5rem] border border-border bg-white/80 px-5 py-6 shadow-sm sm:px-6">
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Event context</p>
-            <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em]">Hosted by and happening at</h2>
+          <article className="rounded-lg border border-border bg-white/80 px-5 py-6 shadow-sm sm:px-6">
+            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Host / world</p>
             <div className="mt-5 grid gap-3 text-sm">
               {event.communitySlug ? (
-                <Link className="rounded-2xl border border-border bg-surface px-4 py-3 font-medium" href={`/c/${event.communitySlug}`}>
+                <Link className="rounded-md border border-border bg-surface px-4 py-3 font-medium" href={`/c/${event.communitySlug}`}>
                   {event.communityName ?? "Community profile"}
                 </Link>
               ) : event.communityName ? (
-                <div className="rounded-2xl border border-border bg-surface px-4 py-3 font-medium">
+                <div className="rounded-md border border-border bg-surface px-4 py-3 font-medium">
                   {event.communityName}
                 </div>
               ) : (
                 <p className="leading-6 text-muted">No public host community is linked yet.</p>
               )}
               {event.worlds.map((world) => (
-                <Link className="rounded-2xl border border-border bg-surface px-4 py-3" href={`/w/${world.slug}`} key={world.slug}>
+                <Link className="rounded-md border border-border bg-surface px-4 py-3" href={`/w/${world.slug}`} key={world.slug}>
                   <span className="block font-medium">{world.displayName}</span>
                   {world.summary ? <span className="mt-1 block text-muted">{world.summary}</span> : null}
                 </Link>
@@ -393,8 +388,8 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
             </div>
           </article>
 
-          <aside className="rounded-[1.5rem] border border-border bg-white/80 px-5 py-6 shadow-sm sm:px-6">
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Public details</p>
+          <aside className="rounded-lg border border-border bg-white/80 px-5 py-6 shadow-sm sm:px-6">
+            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Details</p>
             <dl className="mt-5 space-y-4 text-sm">
               <div className="border-b border-border pb-4">
                 <dt className="text-muted">Start</dt>
@@ -414,74 +409,64 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
           </aside>
         </section>
 
-        <section className="rounded-[1.5rem] border border-border bg-white/80 px-5 py-6 shadow-sm sm:px-6">
-          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
-            <div>
-              <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Lineup</p>
-              <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em]">Set times and Discord timestamps</h2>
-            </div>
-            <p className="max-w-md text-sm leading-6 text-muted">
-              Slots are ordered schedule details under the canonical event. Discord tokens are generated from the saved slot timestamps for chat posts and exports.
-            </p>
-          </div>
-          <div className="mt-5 grid gap-3">
+        <section className="rounded-lg border border-border bg-white/80 px-5 py-6 shadow-sm sm:px-6">
+          <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Set times</p>
+          <div className="mt-5">
             {event.slots.length === 0 ? (
               <p className="text-sm leading-6 text-muted">No public set times yet.</p>
             ) : (
-              event.slots.map((slot) => (
-                <article className="grid gap-4 rounded-2xl border border-border bg-surface px-4 py-4 text-sm sm:grid-cols-[8rem_1fr]" key={`${slot.position}-${slot.startAt}-${slot.displayLabel}`}>
-                  <div>
-                    <p className="font-mono text-xs uppercase tracking-[0.2em] text-muted">Slot {slot.position + 1}</p>
-                    <p className="mt-2 text-lg font-semibold tracking-[-0.03em]">{formatSlotTimeRange(slot, event.timezone)}</p>
-                  </div>
-                  <div className="grid gap-3">
-                    <div>
-                      {slot.performer ? (
-                        <Link className="text-xl font-semibold tracking-[-0.03em] hover:text-accent" href={`/p/${slot.performer.slug}`}>
-                          {slot.displayLabel}
-                        </Link>
-                      ) : (
-                        <h3 className="text-xl font-semibold tracking-[-0.03em]">{slot.displayLabel}</h3>
-                      )}
-                      <p className="mt-1 text-muted">{slot.roleLabel}</p>
-                    </div>
-                    <div className="flex flex-wrap gap-2 text-xs">
-                      <code className="rounded-full border border-border bg-white px-3 py-1 font-mono text-foreground">
-                        {slot.discord.shortTime}
-                      </code>
-                      <code className="rounded-full border border-border bg-white px-3 py-1 font-mono text-foreground">
-                        {slot.discord.longDateTime}
-                      </code>
-                      <code className="rounded-full border border-border bg-white px-3 py-1 font-mono text-foreground">
-                        {slot.discord.relative}
-                      </code>
-                    </div>
-                  </div>
-                </article>
-              ))
+              <div className="overflow-x-auto rounded-md border border-border bg-surface">
+                <table className="w-full border-collapse text-left text-sm">
+                  <thead className="border-b border-border bg-white/70 text-xs uppercase tracking-[0.18em] text-muted">
+                    <tr>
+                      <th className="px-4 py-3 font-medium">Time</th>
+                      <th className="px-4 py-3 font-medium">Artist</th>
+                      <th className="px-4 py-3 font-medium">Style</th>
+                      <th className="px-4 py-3 font-medium">Discord</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {event.slots.map((slot) => (
+                      <tr className="align-top" key={`${slot.position}-${slot.startAt}-${slot.displayLabel}`}>
+                        <td className="whitespace-nowrap px-4 py-3 font-medium">{formatSlotTimeRange(slot, event.timezone)}</td>
+                        <td className="px-4 py-3">
+                          {slot.performer ? (
+                            <Link className="font-semibold tracking-[-0.02em] hover:text-accent" href={`/p/${slot.performer.slug}`}>
+                              {slot.displayLabel}
+                            </Link>
+                          ) : (
+                            <span className="font-semibold tracking-[-0.02em]">{slot.displayLabel}</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-muted">{slot.roleLabel}</td>
+                        <td className="px-4 py-3">
+                          <details>
+                            <summary className="cursor-pointer text-xs font-medium text-muted underline-offset-2 hover:text-foreground">Token</summary>
+                            <code className="mt-2 block w-max max-w-56 overflow-x-auto rounded-md border border-border bg-white px-2 py-1 font-mono text-xs text-foreground">
+                              {slot.discord.longDateTime}
+                            </code>
+                          </details>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         </section>
 
-        <section className="rounded-[1.5rem] border border-border bg-white/80 px-5 py-6 shadow-sm sm:px-6">
-          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
-            <div>
-              <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Linked profiles</p>
-              <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em]">People associated with this event</h2>
-            </div>
-            <p className="max-w-md text-sm leading-6 text-muted">
-              These links can point at claimed or unclaimed published profiles. Approval and dispute workflows are tracked separately.
-            </p>
-          </div>
+        <section className="rounded-lg border border-border bg-white/80 px-5 py-6 shadow-sm sm:px-6">
+          <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Profiles</p>
           <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {event.participants.length === 0 ? (
               <p className="text-sm leading-6 text-muted">No public participant links yet.</p>
             ) : (
               event.participants.map((participant) => (
-                <Link className="rounded-2xl border border-border bg-surface px-4 py-4 text-sm" href={`/p/${participant.slug}`} key={participant.slug}>
+                <Link className="rounded-md border border-border bg-surface px-4 py-4 text-sm" href={`/p/${participant.slug}`} key={participant.slug}>
                   <span className="block text-lg font-semibold tracking-[-0.03em]">{participant.displayName}</span>
                   <span className="mt-2 block text-muted">{participant.roleLabel}</span>
-                  <span className="mt-3 inline-flex rounded-full border border-border bg-white px-3 py-1 text-xs">
+                  <span className="mt-3 inline-flex rounded-md border border-border bg-white px-3 py-1 text-xs">
                     {trustLabel(participant.trustLabel)}
                   </span>
                 </Link>
@@ -491,19 +476,19 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
         </section>
 
         <section className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-          <article className="rounded-[1.5rem] border border-border bg-white/80 px-5 py-6 shadow-sm">
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Media and links</p>
+          <article className="rounded-lg border border-border bg-white/80 px-5 py-6 shadow-sm">
+            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Links</p>
             <div className="mt-4 grid gap-3">
               {event.mediaLinks.length === 0 && !sourceUrl ? (
                 <p className="text-sm leading-6 text-muted">No public event media links yet.</p>
               ) : null}
               {sourceUrl ? (
-                <a className="rounded-2xl border border-border bg-surface px-4 py-3 text-sm font-medium" href={sourceUrl} rel="noreferrer" target="_blank">
+                <a className="rounded-md border border-border bg-surface px-4 py-3 text-sm font-medium" href={sourceUrl} rel="noreferrer" target="_blank">
                   {event.source.label}
                 </a>
               ) : null}
               {event.mediaLinks.map((link) => (
-                <a className="rounded-2xl border border-border bg-surface px-4 py-3 text-sm" href={link.url} key={`${link.type}-${link.url}`} rel="noreferrer" target="_blank">
+                <a className="rounded-md border border-border bg-surface px-4 py-3 text-sm" href={link.url} key={`${link.type}-${link.url}`} rel="noreferrer" target="_blank">
                   <span className="block font-medium">{link.label}</span>
                   <span className="mt-1 block text-xs text-muted">
                     {mediaLinkTypeLabel(link.type)} {link.presentation === "copy" ? "copyable link" : "external link"}
@@ -513,7 +498,7 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
             </div>
           </article>
 
-          <article className="rounded-[1.5rem] border border-border bg-white/80 px-5 py-6 shadow-sm">
+          <article className="rounded-lg border border-border bg-white/80 px-5 py-6 shadow-sm">
             <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Notes</p>
             <div className="mt-4 space-y-4 text-sm leading-7 text-muted">
               {event.notes ? <p>{event.notes}</p> : <p>No public event notes yet.</p>}

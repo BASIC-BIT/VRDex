@@ -50,6 +50,9 @@ Prefer explicit labels in docs:
 - Use screenshot evidence and VLM review before declaring UI work complete.
 - Aim for slick, intentional design, not generic boilerplate.
 - Prefer calm, minimal, trustworthy UX over noisy spectacle.
+- Prefer shared design-system primitives and tokens over one-off Tailwind bubbles; if the shared primitive does not exist yet, keep new styling easy to promote into one.
+- Default borders and controls to subtle radii; avoid pill/bubble shapes unless the design purpose is explicit.
+- Cut AI-generated explanatory copy. Prefer crisp labels, direct data presentation, and intuitive structure over paragraphs describing every surface.
 
 ## Repo opinionation
 

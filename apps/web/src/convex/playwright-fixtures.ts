@@ -303,7 +303,7 @@ const publicEvent: PublicEvent = {
       startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
       endAt: Date.UTC(2026, 5, 14, 22, 45, 0),
       displayLabel: "DJ Aurora",
-      roleLabel: "Opener",
+      roleLabel: "House",
       discord: {
         shortTime: "<t:1781474400:t>",
         longTime: "<t:1781474400:T>",
@@ -328,7 +328,7 @@ const publicEvent: PublicEvent = {
       startAt: Date.UTC(2026, 5, 14, 22, 45, 0),
       endAt: Date.UTC(2026, 5, 14, 23, 30, 0),
       displayLabel: "DJ Lumen",
-      roleLabel: "Headliner",
+      roleLabel: "Trance",
       discord: {
         shortTime: "<t:1781477100:t>",
         longTime: "<t:1781477100:T>",

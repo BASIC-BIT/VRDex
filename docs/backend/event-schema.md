@@ -63,7 +63,7 @@ Slot records support:
 - start time and optional end time
 - optional linked person profile
 - public display label for unlinked or tentative performers
-- freeform role label such as `Opener`, `Headliner`, `VJ`, or `Host`
+- freeform style or role label such as `House`, `Trance`, `VJ`, or `Host`
 - source type, source label, optional source URL, confidence, and review state
 - optional notes
 

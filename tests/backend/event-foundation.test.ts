@@ -85,14 +85,14 @@ describe("event draft input", () => {
       participantLinks: [
         {
           personSlug: "dj-aurora",
-          roleLabel: " Headliner ",
+          roleLabel: " House ",
         },
       ],
       slotLinks: [
         {
           personSlug: "dj-aurora",
           displayLabel: " DJ Aurora ",
-          roleLabel: " Opener ",
+          roleLabel: " House ",
           startAt,
           endAt: startAt + 2_700_000,
         },
@@ -103,9 +103,9 @@ describe("event draft input", () => {
     assert.equal(input.sortTitle, "afterglow harbor sessions");
     assert.equal(input.mediaLinks[0]?.presentation, "open");
     assert.equal(input.mediaLinks[1]?.presentation, "copy");
-    assert.equal(input.participantLinks[0]?.roleLabel, "Headliner");
+    assert.equal(input.participantLinks[0]?.roleLabel, "House");
     assert.equal(input.slotLinks[0]?.displayLabel, "DJ Aurora");
-    assert.equal(input.slotLinks[0]?.roleLabel, "Opener");
+    assert.equal(input.slotLinks[0]?.roleLabel, "House");
   });
 
   it("rejects non-https public URLs", () => {
@@ -178,7 +178,7 @@ describe("event slot helpers", () => {
       [
         {
           displayLabel: " DJ Lumen ",
-          roleLabel: " Headliner ",
+          roleLabel: " Trance ",
           startAt: startAt + 2_700_000,
           endAt: startAt + 5_400_000,
         },
@@ -393,7 +393,7 @@ describe("public event projection", () => {
       endAt: event.startAt + 2_700_000,
       personProfileId: "profile123",
       displayLabel: "DJ Aurora",
-      roleLabel: "Opener",
+      roleLabel: "House",
       sourceType: "community",
       sourceLabel: "Fixture lineup",
       confidence: 1,

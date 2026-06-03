@@ -290,7 +290,7 @@ function serializeSlots(event: PublicEvent | undefined): string {
 function createGeneratedSlotText(count: number, durationMinutes: number, breakMinutes: number): string {
   return Array.from({ length: count }, (_, index) => {
     const offsetMinutes = index * (durationMinutes + breakMinutes);
-    return `${offsetMinutes} | ${durationMinutes} |  | Slot ${index + 1} | Performer`;
+    return `${offsetMinutes} | ${durationMinutes} |  | Slot ${index + 1} | DJ set`;
   }).join("\n");
 }
 
@@ -467,7 +467,7 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
         <span className="text-xs leading-5 text-muted">One per line: person slug | freeform role label.</span>
       </label>
 
-      <section className="grid gap-4 rounded-[1.5rem] border border-border bg-surface-strong px-4 py-4">
+      <section className="grid gap-4 rounded-lg border border-border bg-surface-strong px-4 py-4">
         <div>
           <p className="font-mono text-xs uppercase tracking-[0.24em] text-muted">DJ slots</p>
           <h3 className="mt-3 text-xl font-semibold tracking-[-0.03em]">Generate a set-time scaffold</h3>
@@ -478,24 +478,24 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
         <div className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
           <label className="grid gap-2 text-xs font-medium text-muted">
             Slot count
-            <input className="rounded-2xl border border-border bg-white px-4 py-3 font-normal text-foreground outline-none transition focus:border-accent" inputMode="numeric" onChange={(changeEvent) => setSlotTemplate((current) => ({ ...current, count: changeEvent.currentTarget.value }))} value={slotTemplate.count} />
+            <input className="rounded-md border border-border bg-white px-4 py-3 font-normal text-foreground outline-none transition focus:border-accent" inputMode="numeric" onChange={(changeEvent) => setSlotTemplate((current) => ({ ...current, count: changeEvent.currentTarget.value }))} value={slotTemplate.count} />
           </label>
           <label className="grid gap-2 text-xs font-medium text-muted">
             Duration minutes
-            <input className="rounded-2xl border border-border bg-white px-4 py-3 font-normal text-foreground outline-none transition focus:border-accent" inputMode="numeric" onChange={(changeEvent) => setSlotTemplate((current) => ({ ...current, duration: changeEvent.currentTarget.value }))} value={slotTemplate.duration} />
+            <input className="rounded-md border border-border bg-white px-4 py-3 font-normal text-foreground outline-none transition focus:border-accent" inputMode="numeric" onChange={(changeEvent) => setSlotTemplate((current) => ({ ...current, duration: changeEvent.currentTarget.value }))} value={slotTemplate.duration} />
           </label>
           <label className="grid gap-2 text-xs font-medium text-muted">
             Break minutes
-            <input className="rounded-2xl border border-border bg-white px-4 py-3 font-normal text-foreground outline-none transition focus:border-accent" inputMode="numeric" onChange={(changeEvent) => setSlotTemplate((current) => ({ ...current, break: changeEvent.currentTarget.value }))} value={slotTemplate.break} />
+            <input className="rounded-md border border-border bg-white px-4 py-3 font-normal text-foreground outline-none transition focus:border-accent" inputMode="numeric" onChange={(changeEvent) => setSlotTemplate((current) => ({ ...current, break: changeEvent.currentTarget.value }))} value={slotTemplate.break} />
           </label>
-          <button className="rounded-full border border-border bg-white px-4 py-3 text-sm font-medium transition hover:border-accent" onClick={onGenerateSlots} type="button">
+          <button className="rounded-md border border-border bg-white px-4 py-3 text-sm font-medium transition hover:border-accent" onClick={onGenerateSlots} type="button">
             Generate
           </button>
         </div>
         <label className="grid gap-2 text-sm font-medium">
           Slot rows
-          <textarea className="min-h-36 rounded-2xl border border-border bg-white px-4 py-3 font-normal outline-none transition focus:border-accent" name="slotLinks" onChange={(changeEvent) => setSlotText(changeEvent.currentTarget.value)} placeholder="0 | 45 | dj-aurora | DJ Aurora | Opener&#10;45 | 45 | dj-lumen | DJ Lumen | Headliner" value={slotText} />
-          <span className="text-xs leading-5 text-muted">One per line: start offset minutes | duration minutes | optional person slug | display label | role. Linked slot performers are also deduped into event participants.</span>
+          <textarea className="min-h-36 rounded-md border border-border bg-white px-4 py-3 font-normal outline-none transition focus:border-accent" name="slotLinks" onChange={(changeEvent) => setSlotText(changeEvent.currentTarget.value)} placeholder="0 | 45 | dj-aurora | DJ Aurora | House&#10;45 | 45 | dj-lumen | DJ Lumen | Trance" value={slotText} />
+          <span className="text-xs leading-5 text-muted">One per line: start offset minutes | duration minutes | optional person slug | billing name | style or role. Linked slot performers are also deduped into event participants.</span>
         </label>
       </section>
 

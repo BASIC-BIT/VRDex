@@ -139,7 +139,7 @@ describe("search document projection", () => {
     } as unknown as Doc<"events">;
 
     const worldDocument = createWorldSearchDocument(world);
-    const eventDocument = createEventSearchDocument(event, { world, roleLabels: ["Headliner"] });
+    const eventDocument = createEventSearchDocument(event, { world, roleLabels: ["House"] });
 
     assert.equal(worldDocument.entityType, "world");
     assert.ok(worldDocument.searchText.includes("Afterglow Social"));
@@ -147,7 +147,7 @@ describe("search document projection", () => {
     assert.equal(eventDocument.publicState, "public");
     assert.ok(eventDocument.searchText.includes("Neon Harbor"));
     assert.deepEqual(eventDocument.vocabularyKeys, [
-      "event_participant_role:headliner",
+      "event_participant_role:house",
       "event_tag:afterglow_social",
       "event_tag:upcoming",
     ]);
