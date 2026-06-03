@@ -350,7 +350,8 @@ Current recommendation:
 ### `event_participants`
 
 - associates person profiles to events
-- supports optional labels/notes now and richer slot structure later
+- supports optional labels/notes
+- remains the broad profile-event association layer even when detailed slot records exist
 - enables person-facing derived event views without making "appearance" the core object
 
 ### `event_participant_notifications` later
@@ -363,10 +364,13 @@ Current recommendation:
 - tracks when a person disputes an event association
 - should allow temporary de-linking from the person's authoritative profile while preserving community-side source history
 
-### `event_slots` later
+### `event_slots`
 
 - structured performer slots within a larger event
 - supports templated schedules like repeated 45-minute DJ sets or custom per-slot times
+- stores canonical timestamps while Discord timestamp tokens are generated for display/export
+- links to person profiles when known, but keeps a display label for unlinked or tentative performers
+- confirmed slot performers are deduped into `event_participants` so person profile event views keep working
 
 ### `event_media_links` later
 

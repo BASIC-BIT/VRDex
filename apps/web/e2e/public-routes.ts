@@ -255,8 +255,10 @@ export async function expectCommunityProfilePage(page: Page) {
 
 export async function expectEventPage(page: Page) {
   await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Set times and Discord timestamps/i })).toBeVisible();
+  await expect(page.getByText("<t:1781474400:F>", { exact: true })).toBeVisible();
   await expect(page.getByText(/People associated with this event/i)).toBeVisible();
-  await expect(page.getByText("DJ Aurora", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "DJ Aurora", exact: true })).toBeVisible();
   await expect(page.getByText("Neon Harbor", { exact: true })).toBeVisible();
   await expect(page.getByText("Fixture watch link", { exact: true })).toBeVisible();
 }

@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import type { Doc } from "../../convex/_generated/dataModel";
 import type { DatabaseReader } from "../../convex/_generated/server";
+import { createDiscordTimestampSet, toDiscordTimestamp } from "../../convex/_discordTimestamps";
 import { sanitizeEventDraftInput } from "../../convex/_eventInputs";
 import {
   getPublicEventPreviews,
@@ -15,6 +16,7 @@ import {
   toEventSlug,
   validateEventSlug,
 } from "../../convex/_eventSlugs";
+import { generateSequentialEventSlots, sanitizeEventSlotInputs } from "../../convex/_eventSlots";
 
 describe("event slug helpers", () => {
   it("normalizes event names into dated readable slugs", () => {
@@ -64,6 +66,7 @@ describe("event draft input", () => {
       worldSlug: "neon-harbor",
       startAt,
       endAt: startAt + 10_800_000,
+      timezone: "UTC",
       sourceLabel: " Fixture listing ",
       sourceUrl: "https://example.invalid/events/afterglow",
       posterImageUrl: "https://example.invalid/poster.png",
@@ -85,6 +88,15 @@ describe("event draft input", () => {
           roleLabel: " Headliner ",
         },
       ],
+      slotLinks: [
+        {
+          personSlug: "dj-aurora",
+          displayLabel: " DJ Aurora ",
+          roleLabel: " Opener ",
+          startAt,
+          endAt: startAt + 2_700_000,
+        },
+      ],
     });
 
     assert.equal(input.title, "Afterglow Harbor Sessions");
@@ -92,6 +104,8 @@ describe("event draft input", () => {
     assert.equal(input.mediaLinks[0]?.presentation, "open");
     assert.equal(input.mediaLinks[1]?.presentation, "copy");
     assert.equal(input.participantLinks[0]?.roleLabel, "Headliner");
+    assert.equal(input.slotLinks[0]?.displayLabel, "DJ Aurora");
+    assert.equal(input.slotLinks[0]?.roleLabel, "Opener");
   });
 
   it("rejects non-https public URLs", () => {
@@ -105,16 +119,180 @@ describe("event draft input", () => {
       /Event source URL must use https\./,
     );
   });
+
+  it("rejects invalid event time zones", () => {
+    assert.throws(
+      () =>
+        sanitizeEventDraftInput({
+          title: "Afterglow Harbor Sessions",
+          startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
+          timezone: "UTC+1",
+        }),
+      /Time zone must be a valid IANA time zone\./,
+    );
+  });
+
+  it("requires a time zone when event slots are provided", () => {
+    const startAt = Date.UTC(2026, 5, 14, 22, 0, 0);
+
+    assert.throws(
+      () =>
+        sanitizeEventDraftInput({
+          title: "Afterglow Harbor Sessions",
+          startAt,
+          slotLinks: [{ displayLabel: "DJ Aurora", startAt }],
+        }),
+      /Time zone is required when event slots are provided\./,
+    );
+  });
+
+  it("caps unique participants after deriving linked slot performers", () => {
+    const startAt = Date.UTC(2026, 5, 14, 22, 0, 0);
+
+    assert.throws(
+      () =>
+        sanitizeEventDraftInput({
+          title: "Afterglow Harbor Sessions",
+          startAt,
+          timezone: "UTC",
+          participantLinks: Array.from({ length: 80 }, (_, index) => ({
+            personSlug: `person-${index + 1}`,
+          })),
+          slotLinks: [
+            {
+              personSlug: "person-81",
+              displayLabel: "Person 81",
+              startAt,
+            },
+          ],
+        }),
+      /Participant links can include at most 80 unique profiles including linked slot performers\./,
+    );
+  });
+});
+
+describe("event slot helpers", () => {
+  it("sanitizes and orders event slots", () => {
+    const startAt = Date.UTC(2026, 5, 14, 22, 0, 0);
+    const slots = sanitizeEventSlotInputs(
+      [
+        {
+          displayLabel: " DJ Lumen ",
+          roleLabel: " Headliner ",
+          startAt: startAt + 2_700_000,
+          endAt: startAt + 5_400_000,
+        },
+        {
+          personSlug: "dj-aurora",
+          displayLabel: " DJ Aurora ",
+          startAt,
+          endAt: startAt + 2_700_000,
+          sourceUrl: "https://example.invalid/lineup",
+        },
+      ],
+      "Fixture lineup",
+    );
+
+    assert.equal(slots[0]?.displayLabel, "DJ Aurora");
+    assert.equal(slots[0]?.position, 0);
+    assert.equal(slots[0]?.personSlug, "dj-aurora");
+    assert.equal(slots[0]?.roleLabel, "Performer");
+    assert.equal(slots[1]?.displayLabel, "DJ Lumen");
+    assert.equal(slots[1]?.position, 1);
+  });
+
+  it("rejects invalid slot times", () => {
+    const startAt = Date.UTC(2026, 5, 14, 22, 0, 0);
+
+    assert.throws(
+      () =>
+        sanitizeEventSlotInputs(
+          [
+            {
+              displayLabel: "DJ Aurora",
+              startAt,
+              endAt: startAt,
+            },
+          ],
+          "Fixture lineup",
+        ),
+      /Slot end time must be after the start time\./,
+    );
+  });
+
+  it("rejects slot times outside the event window", () => {
+    const startAt = Date.UTC(2026, 5, 14, 22, 0, 0);
+
+    assert.throws(
+      () =>
+        sanitizeEventSlotInputs(
+          [
+            {
+              displayLabel: "DJ Aurora",
+              startAt: startAt - 60_000,
+            },
+          ],
+          "Fixture lineup",
+          { startAt },
+        ),
+      /Slot start time must be at or after the event start time\./,
+    );
+
+    assert.throws(
+      () =>
+        sanitizeEventSlotInputs(
+          [
+            {
+              displayLabel: "DJ Aurora",
+              startAt,
+              endAt: startAt + 120_000,
+            },
+          ],
+          "Fixture lineup",
+          { startAt, endAt: startAt + 60_000 },
+        ),
+      /Slot end time must be at or before the event end time\./,
+    );
+  });
+
+  it("generates sequential slots from an event start", () => {
+    const startAt = Date.UTC(2026, 5, 14, 22, 0, 0);
+    const slots = generateSequentialEventSlots({
+      eventStartAt: startAt,
+      slotCount: 3,
+      slotDurationMinutes: 45,
+      breakMinutes: 5,
+    });
+
+    assert.deepEqual(
+      slots.map((slot) => ({ position: slot.position, startOffsetMinutes: slot.startOffsetMinutes })),
+      [
+        { position: 0, startOffsetMinutes: 0 },
+        { position: 1, startOffsetMinutes: 50 },
+        { position: 2, startOffsetMinutes: 100 },
+      ],
+    );
+    assert.equal(slots[0]?.endAt, startAt + 45 * 60_000);
+  });
+});
+
+describe("Discord timestamp helpers", () => {
+  it("formats timestamps into Discord token styles", () => {
+    const timestamp = Date.UTC(2026, 5, 14, 22, 0, 0);
+
+    assert.equal(toDiscordTimestamp(timestamp, "t"), "<t:1781474400:t>");
+    assert.equal(createDiscordTimestampSet(timestamp).longDateTime, "<t:1781474400:F>");
+  });
 });
 
 describe("public event projection", () => {
   function createEmptyEventAssociationDb() {
+    const indexedQuery = {
+      take: async () => [],
+      filter: () => indexedQuery,
+    };
     const query = {
-      withIndex: () => ({
-        filter: () => ({
-          take: async () => [],
-        }),
-      }),
+      withIndex: () => indexedQuery,
     };
 
     return {
@@ -207,10 +385,27 @@ describe("public event projection", () => {
       updatedAt: now,
     } as unknown as Doc<"eventParticipants">;
 
+    const slot = {
+      eventId: "event123",
+      eventStartAt: event.startAt,
+      position: 0,
+      startAt: event.startAt,
+      endAt: event.startAt + 2_700_000,
+      personProfileId: "profile123",
+      displayLabel: "DJ Aurora",
+      roleLabel: "Opener",
+      sourceType: "community",
+      sourceLabel: "Fixture lineup",
+      confidence: 1,
+      reviewState: "confirmed",
+      updatedAt: now,
+    } as unknown as Doc<"eventSlots">;
+
     const publicEvent = toPublicEvent({
       event,
       worlds: [{ association: worldAssociation, world }],
       participants: [{ association: participant, profile: person }],
+      slots: [{ slot, profile: person }],
     });
 
     assert.notEqual(publicEvent, null);
@@ -218,6 +413,8 @@ describe("public event projection", () => {
     assert.equal(publicEvent?.mediaLinks.length, 1);
     assert.equal(publicEvent?.worlds[0]?.displayName, "Neon Harbor");
     assert.equal(publicEvent?.participants[0]?.displayName, "DJ Aurora");
+    assert.equal(publicEvent?.slots[0]?.displayLabel, "DJ Aurora");
+    assert.equal(publicEvent?.slots[0]?.discord.shortTime, "<t:1779710400:t>");
     assert.equal("url" in publicEvent!.source, false);
   });
 
@@ -232,7 +429,7 @@ describe("public event projection", () => {
       publicationState: "published",
       updatedAt: 1,
     } as unknown as Doc<"events">;
-    const preview = toPublicEventPreviewFromRecord({ event, worlds: [], participants: [] });
+    const preview = toPublicEventPreviewFromRecord({ event, worlds: [], participants: [], slots: [] });
 
     assert.equal(preview.slug, "afterglow-harbor-sessions-2026-06-14");
     assert.equal(preview.participantCount, 0);

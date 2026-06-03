@@ -16,6 +16,16 @@ type ProfileTrustLabel =
   | "claimed_unverified"
   | "claimed_verified";
 
+type DiscordTimestampSet = {
+  shortTime: string;
+  longTime: string;
+  shortDate: string;
+  longDate: string;
+  shortDateTime: string;
+  longDateTime: string;
+  relative: string;
+};
+
 export type PublicEventPreview = {
   slug?: string;
   title: string;
@@ -36,6 +46,7 @@ export type PublicEventPreview = {
     displayName: string;
   }>;
   participantCount: number;
+  slotCount: number;
 };
 
 export type PublicEvent = Omit<PublicEventPreview, "worlds"> & {
@@ -64,6 +75,24 @@ export type PublicEvent = Omit<PublicEventPreview, "worlds"> & {
     displayName: string;
     roleLabel: string;
     trustLabel: ProfileTrustLabel;
+    source: {
+      sourceType: EventSourceType;
+      label: string;
+      url?: string;
+    };
+  }>;
+  slots: Array<{
+    position: number;
+    startAt: number;
+    endAt?: number;
+    displayLabel: string;
+    roleLabel: string;
+    discord: DiscordTimestampSet;
+    performer?: {
+      slug: string;
+      displayName: string;
+      trustLabel: ProfileTrustLabel;
+    };
     source: {
       sourceType: EventSourceType;
       label: string;
@@ -150,6 +179,32 @@ function formatEventDate(timestamp: number, timezone: string | undefined): strin
   }
 }
 
+function formatEventTime(timestamp: number, timezone: string | undefined): string {
+  const baseOptions: Intl.DateTimeFormatOptions = {
+    hour: "numeric",
+    minute: "2-digit",
+  };
+
+  try {
+    return new Intl.DateTimeFormat("en", {
+      ...baseOptions,
+      ...(timezone ? { timeZone: timezone } : {}),
+    }).format(new Date(timestamp));
+  } catch {
+    return new Intl.DateTimeFormat("en", baseOptions).format(new Date(timestamp));
+  }
+}
+
+function formatSlotTimeRange(slot: PublicEvent["slots"][number], timezone: string | undefined): string {
+  const start = formatEventTime(slot.startAt, timezone);
+
+  if (slot.endAt === undefined) {
+    return start;
+  }
+
+  return `${start} - ${formatEventTime(slot.endAt, timezone)}`;
+}
+
 function trustLabel(label: ProfileTrustLabel): string {
   if (label === "claimed_verified") {
     return "Verified owner";
@@ -192,6 +247,11 @@ export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
           {event.participantCount > 0 ? (
             <span className="rounded-full border border-border bg-white px-3 py-1">
               {event.participantCount} linked profile{event.participantCount === 1 ? "" : "s"}
+            </span>
+          ) : null}
+          {event.slotCount > 0 ? (
+            <span className="rounded-full border border-border bg-white px-3 py-1">
+              {event.slotCount} set time{event.slotCount === 1 ? "" : "s"}
             </span>
           ) : null}
           {event.worlds.map((world) => (
@@ -352,6 +412,55 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
               </div>
             </dl>
           </aside>
+        </section>
+
+        <section className="rounded-[1.5rem] border border-border bg-white/80 px-5 py-6 shadow-sm sm:px-6">
+          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+            <div>
+              <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Lineup</p>
+              <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em]">Set times and Discord timestamps</h2>
+            </div>
+            <p className="max-w-md text-sm leading-6 text-muted">
+              Slots are ordered schedule details under the canonical event. Discord tokens are generated from the saved slot timestamps for chat posts and exports.
+            </p>
+          </div>
+          <div className="mt-5 grid gap-3">
+            {event.slots.length === 0 ? (
+              <p className="text-sm leading-6 text-muted">No public set times yet.</p>
+            ) : (
+              event.slots.map((slot) => (
+                <article className="grid gap-4 rounded-2xl border border-border bg-surface px-4 py-4 text-sm sm:grid-cols-[8rem_1fr]" key={`${slot.position}-${slot.startAt}-${slot.displayLabel}`}>
+                  <div>
+                    <p className="font-mono text-xs uppercase tracking-[0.2em] text-muted">Slot {slot.position + 1}</p>
+                    <p className="mt-2 text-lg font-semibold tracking-[-0.03em]">{formatSlotTimeRange(slot, event.timezone)}</p>
+                  </div>
+                  <div className="grid gap-3">
+                    <div>
+                      {slot.performer ? (
+                        <Link className="text-xl font-semibold tracking-[-0.03em] hover:text-accent" href={`/p/${slot.performer.slug}`}>
+                          {slot.displayLabel}
+                        </Link>
+                      ) : (
+                        <h3 className="text-xl font-semibold tracking-[-0.03em]">{slot.displayLabel}</h3>
+                      )}
+                      <p className="mt-1 text-muted">{slot.roleLabel}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2 text-xs">
+                      <code className="rounded-full border border-border bg-white px-3 py-1 font-mono text-foreground">
+                        {slot.discord.shortTime}
+                      </code>
+                      <code className="rounded-full border border-border bg-white px-3 py-1 font-mono text-foreground">
+                        {slot.discord.longDateTime}
+                      </code>
+                      <code className="rounded-full border border-border bg-white px-3 py-1 font-mono text-foreground">
+                        {slot.discord.relative}
+                      </code>
+                    </div>
+                  </div>
+                </article>
+              ))
+            )}
+          </div>
         </section>
 
         <section className="rounded-[1.5rem] border border-border bg-white/80 px-5 py-6 shadow-sm sm:px-6">

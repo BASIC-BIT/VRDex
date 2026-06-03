@@ -359,13 +359,16 @@ Implementation status for the first event foundation slice:
 - public person pages derive upcoming events from confirmed `eventParticipants` links
 - public community pages derive hosted upcoming events from canonical event records
 - participant role labels are freeform text for now; reusable vocabulary memory is deferred to `#90`
+- `eventSlots` adds ordered DJ/set-time records under canonical events for `#119`
+- first-pass slot generation uses minute offsets from the event start, slot count, slot duration, and optional break duration
+- Discord timestamp tokens are generated from canonical event/slot timestamps for display/export, not stored as canonical time data
 - approval, dispute, notification, RSVP/interested, recurring event, and friend-aware discovery flows are deferred to follow-up issues
 
 Important future-aware extensions:
 
 - VRChat world linkage
 - platform compatibility hints
-- DJ slot breakdowns within a larger event
+- richer DJ slot breakdowns and booking-manager UX beyond the first `#119` slot editor
 - stream/watch link modeling
 - calendar export and sync, preserving both static `.ics` export and later Google Calendar sync; see `docs/planning/calendar-integration.md`
 

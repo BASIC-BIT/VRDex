@@ -1567,3 +1567,394 @@ Suggested labels:
 - `phase:v0.5`
 - `area:agentic`
 - `area:docs`
+
+## v1.5 event automation and agentic scheduling drafts
+
+### Add DJ slot modeling and Discord timestamp helpers
+
+GitHub issue: `#119`.
+
+Locked planning decisions:
+
+- ship `#119` as its own PR, then pause before `#120`/`#121` so the agentic ingestion/export infrastructure is designed deliberately
+- use a separate slot model instead of overloading `eventParticipants`
+- keep `eventParticipants` as broad profile-event association, and derive/dedupe confirmed slot performers into participants
+- use relative offsets from the event start for the first slot generator UI, inspired by Slot-O-Matic-style sequential scheduling
+- keep canonical times as event/slot timestamps; Discord timestamp tokens are display/export output only
+- first UI should include both a pragmatic booking-manager surface and agent-friendly/tool-friendly primitives, while keeping the data model ready for a much more polished future scheduler experience
+- VRC Pop and Slot-O-Matic are useful prior-art references, but implementation should still favor VRDex's canonical event/slot model
+
+Problem:
+
+Multi-DJ events need a structured slot layer rather than only person-to-event associations. VRDex should also support the Discord timestamp workflows that event operators already use for sequential DJ slots.
+
+Research note:
+
+- `discord-time-app` / HammerOverlay is the closest owned reference for natural-language time parsing into Discord timestamps
+- `slot-o-matic` should be researched with a direct link or operator interview before copying assumptions about its UX
+- `vrc-in-world-schedule` is a useful reference for stable event/slot endpoints and VRChat-world-safe schedule consumption
+
+Scope:
+
+- define `event_slots` or equivalent slot records under a canonical event
+- support performer/profile association, display label, role, start time, optional end time, source, and confidence/review state
+- support templated slot generation from event start time, slot duration, slot count, timezone, and optional breaks
+- generate or preview Discord timestamp formats for each slot
+- keep slot generation deterministic once the operator confirms the interpreted schedule
+- document how slot records relate to existing `eventParticipants`
+
+Non-goals:
+
+- replacing full booking workflows
+- auto-claiming performer identities from text
+- Discord bot posting
+- AI poster/text extraction
+- restream automation
+
+Acceptance criteria:
+
+- the slot model is documented clearly enough for implementation
+- a multi-DJ event can represent ordered set times without losing event-level associations
+- generated sequential slots can be reviewed before saving
+- Discord timestamp output is treated as a presentation/export format, not the canonical time model
+- source/provenance and confidence rules are explicit
+
+Likely dependencies:
+
+- hard dependency on `#34`
+- hard dependency on `#35`
+- soft dependency on `#36`
+- soft dependency on `#90`
+
+Docs to update:
+
+- `docs/planning/architecture.md`
+- `docs/planning/product-spec.md`
+- `docs/backend/event-schema.md`
+
+Suggested labels:
+
+- `phase:v1.5`
+- `area:events`
+- `area:discord`
+
+### Add AI-assisted event ingestion from Discord text and posters
+
+GitHub issue: `#120`.
+
+Locked planning decisions:
+
+- ship `#120` together with `#121` after `#119`, not before the slot trunk lands
+- implement full server-side text extraction when this slice starts
+- use the user's future prior art for agentic app workflows when available
+- likely implementation direction is OpenAI plus LangGraph, with deterministic validation and human review gates around the agent output
+- handle posters for real rather than treating poster support as only a URL note
+- use S3 or equivalent object storage for poster assets, with privacy, retention, and source-permission policy decided before implementation
+- use OpenAI VLM support for poster extraction in the real ingestion slice
+- AI output creates reviewable candidates, not canonical published facts
+
+Problem:
+
+Operators should be able to paste a Discord event post or upload/provide a poster image and get a proposed structured VRDex event with times, lineup, media links, and candidate profile matches. The AI should help with extraction while preserving human confirmation and provenance.
+
+Scope:
+
+- parse Discord event text into candidate event fields, slot times, performer names, community names, and media links
+- extract likely schedule text and lineup entities from poster images with OCR/VLM support
+- normalize natural-language times against explicit timezone, event locale, or operator-confirmed fallback timezone
+- suggest matches to existing people, communities, worlds, and events without treating them as verified facts
+- present candidates for operator review before publishing or linking to profiles
+- retain source text/image references, confidence, extraction model/tool, and review state
+
+Non-goals:
+
+- auto-publishing low-confidence extracted facts
+- making AI output authoritative for identity, ownership, or creator attribution
+- scraping third-party sites without explicit permission or a documented source path
+- full Discord bot workflow
+
+Acceptance criteria:
+
+- Discord text ingestion can produce a reviewable structured event candidate
+- poster/image ingestion can produce reviewable lineup and schedule candidates
+- candidate profile/community/world matches are visibly tentative until confirmed
+- timezone handling has an explicit confirmation path
+- extraction provenance is documented and stored or queued for storage
+
+Likely dependencies:
+
+- hard dependency on `#34`
+- hard dependency on `#35`
+- soft dependency on `#36`
+- soft dependency on `#90`
+- soft dependency on `#95`
+
+Docs to update:
+
+- `docs/planning/product-spec.md`
+- `docs/planning/prd.md`
+- `docs/planning/architecture.md`
+- `docs/backend/event-schema.md`
+
+Suggested labels:
+
+- `phase:v1.5`
+- `area:events`
+- `area:ai`
+- `area:discord`
+
+### Add Discord event post templating and publish/export workflow
+
+GitHub issue: `#121`.
+
+Locked planning decisions:
+
+- ship `#121` together with `#120` after `#119`
+- start with a Discord-ready textbox / copy-to-clipboard export flow
+- scope direct Discord bot posting as follow-up work rather than first-slice behavior
+- use templates as deterministic rendering rules over canonical event data, not arbitrary executable code and not prompt-only formatting behavior
+- revisit community-authored or agent-authored templates after the first default export path is clear
+
+Problem:
+
+Event text should be bidirectional. VRDex should be able to ingest Discord posts into structured events, but it should also help operators turn structured VRDex events back into Discord-ready posts or bot-published messages.
+
+Scope:
+
+- define a template model for event posts and slot lineups
+- support generated Discord timestamp tokens from canonical event/slot times
+- support previewing Discord-ready output before publishing
+- allow communities to define or refine templates with an assistant-backed workflow
+- support export-to-clipboard first, with direct Discord posting as a later gated path
+- preserve generated short links and canonical URLs where available
+
+Non-goals:
+
+- replacing Discord event management entirely
+- posting to Discord without explicit operator approval
+- broad arbitrary-template code execution
+- paid newsletter or cross-platform campaign tooling
+
+Acceptance criteria:
+
+- a structured VRDex event can produce a Discord-ready text preview
+- templates can include event fields, slot fields, canonical links, and Discord timestamps
+- operator approval is required before any external posting path
+- template behavior is documented well enough to avoid hidden prompt-only formatting rules
+
+Likely dependencies:
+
+- hard dependency on `#34`
+- soft dependency on `#36`
+- soft dependency on `#92`
+- soft dependency on `Add DJ slot modeling and Discord timestamp helpers`
+
+Docs to update:
+
+- `docs/planning/product-spec.md`
+- `docs/planning/architecture.md`
+- future developer docs for Discord integration
+
+Suggested labels:
+
+- `phase:v1.5`
+- `area:events`
+- `area:discord`
+
+### Define tool-first website scheduling assistant
+
+GitHub issue: `#118`.
+
+Problem:
+
+VRDex should eventually support a website assistant that can help schedule DJ events, parse event text, build slot rosters, and prepare Discord posts. The assistant should use the same underlying product tools as forms, API routes, MCP tools, and at-home agents instead of becoming a separate hidden workflow.
+
+Scope:
+
+- define the first assistant-backed event scheduling use cases
+- identify product actions that should become small reusable tools
+- keep forms and chat backed by the same validation and mutation paths
+- require human confirmation for writes, external posting, identity links, and low-confidence extraction results
+- define how website assistant capabilities relate to future VRDex MCP tools
+
+Non-goals:
+
+- replacing all event UI with chat
+- giving the assistant unrestricted write access
+- implementing every tool before core event workflows are stable
+- building a general-purpose support bot unrelated to event operations
+
+Acceptance criteria:
+
+- the assistant roadmap names concrete first event tools and confirmation gates
+- tool boundaries are reusable across website UI, API, MCP, and agent workflows
+- fuzzy interpretation stays in the LLM layer while deterministic code validates selected times, entities, templates, and write operations
+- the first scheduling assistant slice is small enough to implement after event/slot foundations
+
+Likely dependencies:
+
+- soft dependency on `#78`
+- hard dependency on core event write paths
+- soft dependency on `Add DJ slot modeling and Discord timestamp helpers`
+- soft dependency on `Add AI-assisted event ingestion from Discord text and posters`
+- soft dependency on `Add Discord event post templating and publish/export workflow`
+
+Docs to update:
+
+- `docs/planning/agent-integration-surface.md`
+- `docs/planning/product-spec.md`
+- `docs/planning/engineering-strategy.md`
+
+Suggested labels:
+
+- `phase:v1.5`
+- `area:agentic`
+- `area:events`
+
+### Define restream and one-link event media control model
+
+GitHub issue: `#124`.
+
+Problem:
+
+Some events need one stable watch link while operators manage per-performer source links behind it. VRDex should explore a controlled restream or one-link routing model before building streaming infrastructure.
+
+Scope:
+
+- define how an event can store performer/source media links for a restream workflow
+- define operator-owned manual controls such as next, previous, custom source, preview, and hold current source
+- define candidate automatic switching rules such as next performer live plus previous performer offline, or previous performer over time by a configured grace period and next performer live
+- define fallback behavior when the next source is not live or status is unknown
+- define source status concepts such as current, next, live, offline, stale, and unknown
+- define how a VRDex event key or scoped token would authorize media-control operations
+
+Non-goals:
+
+- implementing a production restream server immediately
+- bypassing platform or performer consent requirements
+- guaranteeing source liveness across every stream provider in the first slice
+- replacing human operator control for complex events
+
+Acceptance criteria:
+
+- restream/one-link routing is documented as an event media-control model
+- manual control and automatic rule options are separated clearly
+- source liveness and uncertainty states are defined
+- authorization, audit, and operator ownership boundaries are explicit
+- implementation can start with manual or preview-only controls before automatic switching
+
+Likely dependencies:
+
+- hard dependency on `#36`
+- soft dependency on `#93`
+- soft dependency on `Add DJ slot modeling and Discord timestamp helpers`
+- soft dependency on `Add event operations command roster and performer status panel`
+
+Docs to update:
+
+- `docs/planning/product-spec.md`
+- `docs/planning/prd.md`
+- `docs/backend/event-schema.md`
+
+Suggested labels:
+
+- `phase:v1.5`
+- `area:events`
+- `area:media`
+
+### Add event operations command roster and performer status panel
+
+GitHub issue: `#123`.
+
+Problem:
+
+Event operators need a live command view that shows the current slot, next slot, performer readiness, source status, and manual actions during an event. This should be modeled separately from the public event page.
+
+Scope:
+
+- define an operator-facing event command panel
+- show ordered slots, current/next performer, scheduled times, and overrun state
+- show performer/source status such as ready, live, offline, unknown, and needs attention
+- support manual operator actions that can later feed restream control or Discord updates
+- leave room for VRChat context signals such as whether a performer appears to be in the relevant instance when a local bridge is available
+
+Non-goals:
+
+- exposing private presence data publicly
+- requiring VRChat MCP or VRCDex data for the first panel
+- automating stream switching before the operator model is understood
+- replacing community staff permissions with a giant permission matrix
+
+Acceptance criteria:
+
+- the operator panel model distinguishes public event data from private operational status
+- current and next slot status can be shown from structured slot data
+- manual actions and automatic signals are separated clearly
+- role/permission requirements are documented at a pragmatic starter level
+
+Likely dependencies:
+
+- hard dependency on `Add DJ slot modeling and Discord timestamp helpers`
+- soft dependency on `#93`
+- soft dependency on `Define restream and one-link event media control model`
+- soft dependency on `Evaluate optional VRChat MCP bridge tools for event workflows`
+
+Docs to update:
+
+- `docs/planning/product-spec.md`
+- `docs/planning/architecture.md`
+- future operator-facing docs
+
+Suggested labels:
+
+- `phase:v1.5`
+- `area:events`
+- `area:ui`
+
+### Evaluate optional VRChat MCP bridge tools for event workflows
+
+GitHub issue: `#122`.
+
+Problem:
+
+Standalone VRDex MCP should remain the default product surface, but some event operations may benefit from local VRChat context. VRDex needs a separate follow-on issue to evaluate bridge tools without expanding the standalone read-only MCP issue beyond its intended scope.
+
+Scope:
+
+- evaluate local-only bridge workflows inspired by `vrchat-mcp`
+- consider resolving VRChat users, groups, worlds, or events to VRDex records
+- consider operator-only checks such as whether a performer appears to be in a relevant instance
+- define consent, visibility, and privacy boundaries for any VRChat-derived signal
+- define whether bridge tools belong in `vrchat-mcp`, `vrdex-mcp`, or a thin integration between them
+
+Non-goals:
+
+- coupling VRDex public data or claim operations to private VRChat cookies
+- hosting VRChat credential-backed tools as a public service
+- making local presence checks authoritative public facts
+- blocking standalone VRDex MCP read tools
+
+Acceptance criteria:
+
+- the bridge evaluation has a clear yes/no or phased recommendation
+- local credential and privacy boundaries match the `vrchat-mcp` safety posture
+- any proposed bridge tool has a concrete event/profile workflow, not a vague integration label
+- `#78` remains scoped to standalone VRDex MCP read tools unless a later issue intentionally changes that
+
+Likely dependencies:
+
+- hard dependency on `#78`
+- soft dependency on `Add event operations command roster and performer status panel`
+- reference `BASIC-BIT/vrchat-mcp`
+
+Docs to update:
+
+- `docs/planning/agent-integration-surface.md`
+- `docs/developers/vrdex-mcp-read-tools.md`
+- `docs/planning/engineering-strategy.md`
+
+Suggested labels:
+
+- `phase:v1.5`
+- `area:mcp`
+- `area:events`

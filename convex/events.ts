@@ -61,6 +61,20 @@ const eventDraftArgs = {
       }),
     ),
   ),
+  slotLinks: v.optional(
+    v.array(
+      v.object({
+        personSlug: v.optional(v.string()),
+        displayLabel: v.string(),
+        roleLabel: v.optional(v.string()),
+        startAt: v.number(),
+        endAt: v.optional(v.number()),
+        sourceLabel: v.optional(v.string()),
+        sourceUrl: v.optional(v.string()),
+        notes: v.optional(v.string()),
+      }),
+    ),
+  ),
   worldSlug: v.optional(v.string()),
   preferredSlug: v.optional(v.string()),
 };
@@ -205,7 +219,7 @@ async function replaceEventParticipants(
   const existing = await db
     .query("eventParticipants")
     .withIndex("by_eventId", (query) => query.eq("eventId", eventId))
-    .take(100);
+    .collect();
 
   await Promise.all(existing.map((participant) => db.delete(participant._id)));
 
@@ -226,6 +240,71 @@ async function replaceEventParticipants(
       updatedAt: now,
     });
   }
+}
+
+async function replaceEventSlots(
+  db: DatabaseWriter,
+  eventId: Id<"events">,
+  eventStartAt: number,
+  slots: ReturnType<typeof sanitizeEventDraftInput>["slotLinks"],
+  now: number,
+) {
+  const existing = await db
+    .query("eventSlots")
+    .withIndex("by_eventId", (query) => query.eq("eventId", eventId))
+    .collect();
+
+  await Promise.all(existing.map((slot) => db.delete(slot._id)));
+
+  for (const slot of slots) {
+    const profile = slot.personSlug === undefined ? undefined : await getPublishedPersonBySlug(db, slot.personSlug);
+
+    await db.insert("eventSlots", {
+      eventId,
+      eventStartAt,
+      position: slot.position,
+      startAt: slot.startAt,
+      ...optionalValue("endAt", slot.endAt),
+      ...optionalValue("personProfileId", profile?._id),
+      displayLabel: slot.displayLabel,
+      roleLabel: slot.roleLabel,
+      sourceType: "community",
+      sourceLabel: slot.sourceLabel,
+      ...optionalValue("sourceUrl", slot.sourceUrl),
+      confidence: 1,
+      reviewState: "confirmed",
+      ...optionalValue("notes", slot.notes),
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+}
+
+function participantLinksWithSlotPerformers(input: ReturnType<typeof sanitizeEventDraftInput>) {
+  const links = [...input.participantLinks];
+  const seenSlugs = new Set(links.map((link) => link.personSlug.toLowerCase()));
+
+  for (const slot of input.slotLinks) {
+    if (slot.personSlug === undefined) {
+      continue;
+    }
+
+    const key = slot.personSlug.toLowerCase();
+    if (seenSlugs.has(key)) {
+      continue;
+    }
+
+    seenSlugs.add(key);
+    links.push({
+      personSlug: slot.personSlug,
+      roleLabel: slot.roleLabel,
+      sourceLabel: slot.sourceLabel,
+      ...(slot.sourceUrl ? { sourceUrl: slot.sourceUrl } : {}),
+      ...(slot.notes ? { notes: slot.notes } : {}),
+    });
+  }
+
+  return links;
 }
 
 function optionalValue<T>(key: string, value: T | undefined): Record<string, T> {
@@ -311,11 +390,13 @@ export const createCommunityEvent = mutation({
     });
 
     await replaceEventWorldLink(ctx.db, eventId, input.startAt, world, now);
-    await replaceEventParticipants(ctx.db, eventId, input.startAt, input.participantLinks, now);
+    await replaceEventSlots(ctx.db, eventId, input.startAt, input.slotLinks, now);
+    const participantLinks = participantLinksWithSlotPerformers(input);
+    await replaceEventParticipants(ctx.db, eventId, input.startAt, participantLinks, now);
 
     const event = await ctx.db.get(eventId);
     if (event !== null) {
-      const roleLabels = input.participantLinks.map((participant) => participant.roleLabel);
+      const roleLabels = participantLinks.map((participant) => participant.roleLabel);
       await Promise.all([
         upsertSearchDocument(
           ctx.db,
@@ -396,11 +477,13 @@ export const updateCommunityEvent = mutation({
     });
 
     await replaceEventWorldLink(ctx.db, event._id, input.startAt, world, now);
-    await replaceEventParticipants(ctx.db, event._id, input.startAt, input.participantLinks, now);
+    await replaceEventSlots(ctx.db, event._id, input.startAt, input.slotLinks, now);
+    const participantLinks = participantLinksWithSlotPerformers(input);
+    await replaceEventParticipants(ctx.db, event._id, input.startAt, participantLinks, now);
 
     const updatedEvent = await ctx.db.get(event._id);
     if (updatedEvent !== null) {
-      const roleLabels = input.participantLinks.map((participant) => participant.roleLabel);
+      const roleLabels = participantLinks.map((participant) => participant.roleLabel);
       await Promise.all([
         upsertSearchDocument(
           ctx.db,

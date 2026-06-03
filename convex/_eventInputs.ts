@@ -1,4 +1,9 @@
 import { normalizeProfileInlineText, sanitizeProfileTextList } from "./_profileSubmissions";
+import {
+  sanitizeEventSlotInputs,
+  type EventSlotInput,
+  type SanitizedEventSlotInput,
+} from "./_eventSlots";
 
 export const EVENT_TITLE_MIN_LENGTH = 2;
 export const EVENT_TITLE_MAX_LENGTH = 120;
@@ -8,7 +13,7 @@ export const EVENT_TIMEZONE_MAX_LENGTH = 64;
 export const EVENT_SOURCE_LABEL_MAX_LENGTH = 120;
 export const EVENT_MEDIA_LINK_MAX_COUNT = 8;
 export const EVENT_MEDIA_LABEL_MAX_LENGTH = 80;
-export const EVENT_PARTICIPANT_MAX_COUNT = 40;
+export const EVENT_PARTICIPANT_MAX_COUNT = 80;
 export const EVENT_PARTICIPANT_ROLE_MAX_LENGTH = 48;
 
 type EventMediaLinkType =
@@ -65,6 +70,7 @@ export type EventDraftInput = {
   posterImageUrl?: string;
   mediaLinks?: EventMediaLinkInput[];
   participantLinks?: EventParticipantInput[];
+  slotLinks?: EventSlotInput[];
   worldSlug?: string;
   preferredSlug?: string;
 };
@@ -83,6 +89,7 @@ export type SanitizedEventDraftInput = {
   posterImageUrl?: string;
   mediaLinks: SanitizedEventMediaLink[];
   participantLinks: SanitizedEventParticipantInput[];
+  slotLinks: SanitizedEventSlotInput[];
   worldSlug?: string;
   preferredSlug?: string;
 };
@@ -156,6 +163,22 @@ function requireValidTimestamp(input: number, fieldName: string): number {
   }
 
   return input;
+}
+
+function optionalIanaTimezone(input: string | undefined): string | undefined {
+  const value = optionalBoundedText(input, "Time zone", EVENT_TIMEZONE_MAX_LENGTH);
+
+  if (value === undefined) {
+    return undefined;
+  }
+
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: value }).format(new Date(0));
+  } catch {
+    throw new Error("Time zone must be a valid IANA time zone.");
+  }
+
+  return value;
 }
 
 function optionalHttpsUrl(input: string | undefined, fieldName: string): string | undefined {
@@ -271,6 +294,23 @@ function sanitizeParticipantLinks(
   return links;
 }
 
+function assertDerivedParticipantLimit(
+  participantLinks: SanitizedEventParticipantInput[],
+  slotLinks: SanitizedEventSlotInput[],
+) {
+  const seenSlugs = new Set(participantLinks.map((link) => link.personSlug.toLowerCase()));
+
+  for (const slot of slotLinks) {
+    if (slot.personSlug !== undefined) {
+      seenSlugs.add(slot.personSlug.toLowerCase());
+    }
+  }
+
+  if (seenSlugs.size > EVENT_PARTICIPANT_MAX_COUNT) {
+    throw new Error(`Participant links can include at most ${EVENT_PARTICIPANT_MAX_COUNT} unique profiles including linked slot performers.`);
+  }
+}
+
 export function sanitizeEventDraftInput(input: EventDraftInput): SanitizedEventDraftInput {
   const title = requireBoundedText(
     input.title,
@@ -290,13 +330,21 @@ export function sanitizeEventDraftInput(input: EventDraftInput): SanitizedEventD
     "Event source label",
     EVENT_SOURCE_LABEL_MAX_LENGTH,
   ) ?? "Community-submitted event";
+  const timezone = optionalIanaTimezone(input.timezone);
+  const participantLinks = sanitizeParticipantLinks(input.participantLinks, sourceLabel);
+  const slotLinks = sanitizeEventSlotInputs(input.slotLinks, sourceLabel, { startAt, endAt });
+  assertDerivedParticipantLimit(participantLinks, slotLinks);
+
+  if (slotLinks.length > 0 && timezone === undefined) {
+    throw new Error("Time zone is required when event slots are provided.");
+  }
 
   return {
     title,
     sortTitle: createEventSortTitle(title),
     startAt,
     ...(endAt ? { endAt } : {}),
-    ...optionalObjectField("timezone", optionalBoundedText(input.timezone, "Time zone", EVENT_TIMEZONE_MAX_LENGTH)),
+    ...optionalObjectField("timezone", timezone),
     ...optionalObjectField("communitySlug", optionalBoundedText(input.communitySlug, "Community slug", 64)),
     ...optionalObjectField("summary", optionalBoundedText(input.summary, "Event summary", EVENT_SUMMARY_MAX_LENGTH)),
     ...optionalObjectField("notes", optionalBoundedText(input.notes, "Event notes", EVENT_NOTES_MAX_LENGTH)),
@@ -304,7 +352,8 @@ export function sanitizeEventDraftInput(input: EventDraftInput): SanitizedEventD
     ...optionalObjectField("sourceUrl", optionalHttpsUrl(input.sourceUrl, "Event source URL")),
     ...optionalObjectField("posterImageUrl", optionalHttpsUrl(input.posterImageUrl, "Poster image URL")),
     mediaLinks: sanitizeEventMediaLinks(input.mediaLinks),
-    participantLinks: sanitizeParticipantLinks(input.participantLinks, sourceLabel),
+    participantLinks,
+    slotLinks,
     ...optionalObjectField("worldSlug", optionalBoundedText(input.worldSlug, "World slug", 64)),
     ...optionalObjectField("preferredSlug", optionalBoundedText(input.preferredSlug, "Event slug", 64)),
   };
