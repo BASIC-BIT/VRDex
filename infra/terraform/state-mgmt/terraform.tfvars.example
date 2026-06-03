@@ -1,0 +1,9 @@
+# BASIC BIT hosted example values. Self-hosted operators should replace these
+# with their own state bucket name and AWS region.
+
+aws_region        = "us-east-1"
+state_bucket_name = "vrdex-terraform-state"
+
+tags = {
+  Environment = "production"
+}
