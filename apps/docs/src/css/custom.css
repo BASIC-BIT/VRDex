@@ -58,6 +58,7 @@
   background-size: 44px 44px;
   content: "";
   inset: 0;
+  -webkit-mask-image: linear-gradient(to bottom, black, transparent 75%);
   mask-image: linear-gradient(to bottom, black, transparent 75%);
   opacity: 0.28;
   pointer-events: none;
@@ -87,6 +88,7 @@
   --ifm-button-background-color: rgba(255, 255, 255, 0.04);
   --ifm-button-border-color: rgba(225, 232, 255, 0.78);
   --ifm-button-color: #edf2ff;
+  -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
 }
 
@@ -125,6 +127,7 @@ html[data-theme="dark"] #__docusaurus,
 
 [data-theme="dark"] .navbar {
   border-bottom: 1px solid rgba(185, 195, 255, 0.14);
+  -webkit-backdrop-filter: blur(18px);
   backdrop-filter: blur(18px);
   box-shadow: 0 16px 44px rgba(3, 7, 18, 0.22);
 }
@@ -156,10 +159,14 @@ html[data-theme="dark"] #__docusaurus,
 
 [data-theme="dark"] .pagination-nav__link,
 [data-theme="dark"] .card,
-[data-theme="dark"] .theme-admonition,
 [data-theme="dark"] .docs-lane {
   background: linear-gradient(145deg, rgba(24, 36, 61, 0.9), rgba(19, 27, 48, 0.74));
   border: 1px solid rgba(186, 201, 255, 0.14);
+  box-shadow: 0 18px 50px rgba(3, 7, 18, 0.24);
+}
+
+[data-theme="dark"] .theme-admonition {
+  background: linear-gradient(145deg, rgba(24, 36, 61, 0.9), rgba(19, 27, 48, 0.74));
   box-shadow: 0 18px 50px rgba(3, 7, 18, 0.24);
 }
 

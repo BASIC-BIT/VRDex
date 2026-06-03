@@ -4,7 +4,7 @@
 
 Current deployment runbook for [#125](https://github.com/BASIC-BIT/VRDex/issues/125).
 
-The Docusaurus docs app builds and deploys to `https://docs.vrdex.net`. `infra/terraform/docs-site` owns the Vercel docs project, domain binding, and Route 53 DNS record.
+The Docusaurus docs app builds and the hosted docs site has been confirmed live at `https://docs.vrdex.net`. `infra/terraform/docs-site` owns the Vercel docs project, domain binding, and Route 53 DNS record.
 
 ## Current State
 
@@ -13,6 +13,7 @@ The Docusaurus docs app builds and deploys to `https://docs.vrdex.net`. `infra/t
 - `pnpm verify:docs` runs `markdownlint-cli2` and `docusaurus build`.
 - `apps/docs/docusaurus.config.js` uses `url: "https://docs.vrdex.net"` and `baseUrl: "/"`.
 - `infra/terraform/docs-site` owns the Vercel docs project, Vercel domain binding, and Route 53 DNS record.
+- `https://docs.vrdex.net` has been verified live after Terraform stack application and DNS propagation.
 
 ## Target Hosted Shape
 

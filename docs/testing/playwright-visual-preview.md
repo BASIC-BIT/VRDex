@@ -146,7 +146,7 @@ Each data-flow run uses a unique `VRDEX_E2E_RUN_ID` prefix and creates only `e2e
 
 The required pull-request Playwright jobs are:
 
-The `Playwright Public Preview` job:
+The required `Playwright Public Preview` job:
 
 - runs `pnpm test:e2e:visual`
 - uploads `apps/web/playwright-report`, `apps/web/test-results`, and `apps/web/playwright-artifacts`, failing if no artifact files are found
@@ -154,9 +154,9 @@ The `Playwright Public Preview` job:
 
 This blocks PRs when public route rendering or screenshot capture fails. Pixel review is still artifact-based until committed baseline snapshots and a separate diff gate are added.
 
-The `Playwright Image Diff` job runs the `@snapshot` suite against committed PNG baselines under `apps/web/e2e/__screenshots__`, uploads expected/actual/diff artifacts on failure, and comments with only the added or modified committed baseline images.
+The required `Playwright Image Diff` job runs the `@snapshot` suite against committed PNG baselines under `apps/web/e2e/__screenshots__`, uploads expected/actual/diff artifacts on failure, and comments with only the added or modified committed baseline images.
 
-The `Playwright Data Flow` job runs the `@flow` test against local Convex and the local Next dev server with `PLAYWRIGHT_RECORD_VIDEO=true`, then uploads screenshots, traces, and videos as the `playwright-data-flow` artifact and posts a PR comment with the artifact link.
+The required `Playwright Data Flow` job runs the `@flow` test against local Convex and the local Next dev server with `PLAYWRIGHT_RECORD_VIDEO=true`, then uploads screenshots, traces, and videos as the `playwright-data-flow` artifact and posts a PR comment with the artifact link.
 
 The optional `Playwright Hosted Data Flow` job runs on pull requests only when both repository settings are present:
 
