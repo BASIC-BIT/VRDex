@@ -205,6 +205,16 @@ function formatSlotTimeRange(slot: PublicEvent["slots"][number], timezone: strin
   return `${start} - ${formatEventTime(slot.endAt, timezone)}`;
 }
 
+const actionCardClassName =
+  "group rounded-md border border-accent/35 bg-accent/10 px-4 py-3 text-sm transition hover:border-accent hover:bg-accent/15";
+const actionCardLooseClassName =
+  "group rounded-md border border-accent/35 bg-accent/10 px-4 py-4 text-sm transition hover:border-accent hover:bg-accent/15";
+const actionLabelClassName =
+  "block font-medium text-accent-strong underline decoration-accent/45 underline-offset-4 group-hover:decoration-accent";
+const actionMetaClassName = "mt-1 block text-xs text-muted";
+const inlineActionClassName =
+  "font-semibold tracking-[-0.02em] text-accent-strong underline decoration-accent/45 underline-offset-4 hover:decoration-accent";
+
 export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
   const sourceUrl = safeHttpsUrl(event.source.url);
   const posterStyle = safeImageBackground(event.posterImageUrl, true);
@@ -334,7 +344,7 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
 
         <section className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
           <aside className="rounded-lg border border-border bg-white/80 px-5 py-6 shadow-sm sm:px-6">
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Details</p>
+            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">When</p>
             <dl className="mt-5 space-y-4 text-sm">
               <div className="border-b border-border pb-4">
                 <dt className="text-muted">Start</dt>
@@ -346,37 +356,36 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
                   {event.endAt ? formatEventDate(event.endAt, event.timezone) : "Not listed"}
                 </dd>
               </div>
-              <div>
-                <dt className="text-muted">Time zone</dt>
-                <dd className="mt-1 font-medium">{event.timezone ?? "Not listed"}</dd>
-              </div>
             </dl>
+            <p className="mt-4 text-xs leading-5 text-muted">
+              Time zone: {event.timezone ?? "not listed"}
+            </p>
           </aside>
 
           <article className="rounded-lg border border-border bg-white/80 px-5 py-6 shadow-sm sm:px-6">
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Host / world</p>
+            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Place</p>
             <div className="mt-5 grid gap-3 text-sm">
               {event.communitySlug ? (
-                <Link className="rounded-md border border-border bg-white px-4 py-3 transition hover:border-accent" href={`/c/${event.communitySlug}`}>
-                  <span className="block font-medium underline decoration-border underline-offset-4 hover:decoration-accent">
+                <Link className={actionCardClassName} href={`/c/${event.communitySlug}`}>
+                  <span className={actionLabelClassName}>
                     {event.communityName ?? "Community profile"}
                   </span>
-                  <span className="mt-2 block text-xs text-muted">View community</span>
+                  <span className={actionMetaClassName}>Host</span>
                 </Link>
               ) : event.communityName ? (
                 <div className="rounded-md border border-border bg-surface px-4 py-3 font-medium">
                   {event.communityName}
                 </div>
               ) : (
-                <p className="leading-6 text-muted">No public host community is linked yet.</p>
+                <p className="leading-6 text-muted">No host listed.</p>
               )}
               {event.worlds.map((world) => (
-                <Link className="rounded-md border border-border bg-white px-4 py-3 transition hover:border-accent" href={`/w/${world.slug}`} key={world.slug}>
-                  <span className="block font-medium underline decoration-border underline-offset-4 hover:decoration-accent">
+                <Link className={actionCardClassName} href={`/w/${world.slug}`} key={world.slug}>
+                  <span className={actionLabelClassName}>
                     {world.displayName}
                   </span>
                   {world.summary ? <span className="mt-1 block text-muted">{world.summary}</span> : null}
-                  <span className="mt-2 block text-xs text-muted">View world</span>
+                  <span className={actionMetaClassName}>World</span>
                 </Link>
               ))}
             </div>
@@ -387,10 +396,29 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
           <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Set times</p>
           <div className="mt-5">
             {event.slots.length === 0 ? (
-              <p className="text-sm leading-6 text-muted">No public set times yet.</p>
+              <p className="text-sm leading-6 text-muted">No set times yet.</p>
             ) : (
               <div className="overflow-x-auto rounded-md border border-border bg-surface">
-                <table className="w-full border-collapse text-left text-sm">
+                <div className="grid divide-y divide-border text-sm sm:hidden">
+                  {event.slots.map((slot) => (
+                    <div className="grid gap-2 px-4 py-3" key={`${slot.position}-${slot.startAt}-${slot.displayLabel}-mobile`}>
+                      <time className="font-medium" dateTime={new Date(slot.startAt).toISOString()}>
+                        {formatSlotTimeRange(slot, event.timezone)}
+                      </time>
+                      <div>
+                        {slot.performer ? (
+                          <Link className={inlineActionClassName} href={`/p/${slot.performer.slug}`}>
+                            {slot.displayLabel}
+                          </Link>
+                        ) : (
+                          <span className="font-semibold tracking-[-0.02em]">{slot.displayLabel}</span>
+                        )}
+                      </div>
+                      <div className="text-muted">{slot.roleLabel}</div>
+                    </div>
+                  ))}
+                </div>
+                <table className="hidden w-full border-collapse text-left text-sm sm:table">
                   <thead className="border-b border-border bg-white/70 text-xs uppercase tracking-[0.18em] text-muted">
                     <tr>
                       <th className="px-4 py-3 font-medium">Time</th>
@@ -404,7 +432,7 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
                         <td className="whitespace-nowrap px-4 py-3 font-medium">{formatSlotTimeRange(slot, event.timezone)}</td>
                         <td className="px-4 py-3">
                           {slot.performer ? (
-                            <Link className="font-semibold tracking-[-0.02em] underline decoration-border underline-offset-4 hover:text-accent hover:decoration-accent" href={`/p/${slot.performer.slug}`}>
+                            <Link className={inlineActionClassName} href={`/p/${slot.performer.slug}`}>
                               {slot.displayLabel}
                             </Link>
                           ) : (
@@ -422,18 +450,18 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
         </section>
 
         <section className="rounded-lg border border-border bg-white/80 px-5 py-6 shadow-sm sm:px-6">
-          <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Profiles</p>
+          <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Lineup</p>
           <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {event.participants.length === 0 ? (
-              <p className="text-sm leading-6 text-muted">No public participant links yet.</p>
+              <p className="text-sm leading-6 text-muted">No lineup yet.</p>
             ) : (
               event.participants.map((participant) => (
-                <Link className="rounded-md border border-border bg-white px-4 py-4 text-sm transition hover:border-accent" href={`/p/${participant.slug}`} key={participant.slug}>
-                  <span className="block text-lg font-semibold tracking-[-0.03em] underline decoration-border underline-offset-4 hover:decoration-accent">
+                <Link className={actionCardLooseClassName} href={`/p/${participant.slug}`} key={participant.slug}>
+                  <span className="block text-lg font-semibold tracking-[-0.03em] text-accent-strong underline decoration-accent/45 underline-offset-4 group-hover:decoration-accent">
                     {participant.displayName}
                   </span>
                   <span className="mt-2 block text-muted">{participant.roleLabel}</span>
-                  <span className="mt-3 block text-xs text-muted">View profile</span>
+                  <span className={actionMetaClassName}>Profile</span>
                 </Link>
               ))
             )}
@@ -445,23 +473,23 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
             <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Links</p>
             <div className="mt-4 grid gap-3">
               {event.mediaLinks.length === 0 && !sourceUrl ? (
-                <p className="text-sm leading-6 text-muted">No public event media links yet.</p>
+                <p className="text-sm leading-6 text-muted">No links yet.</p>
               ) : null}
               {sourceUrl ? (
-                <a className="rounded-md border border-border bg-white px-4 py-3 text-sm transition hover:border-accent" href={sourceUrl} rel="noreferrer" target="_blank">
-                  <span className="block font-medium underline decoration-border underline-offset-4 hover:decoration-accent">
+                <a className={actionCardClassName} href={sourceUrl} rel="noreferrer" target="_blank">
+                  <span className={actionLabelClassName}>
                     {event.source.label}
                   </span>
-                  <span className="mt-1 block text-xs text-muted">Source</span>
+                  <span className={actionMetaClassName}>Source</span>
                 </a>
               ) : null}
               {event.mediaLinks.map((link) => (
-                <a className="rounded-md border border-border bg-white px-4 py-3 text-sm transition hover:border-accent" href={link.url} key={`${link.type}-${link.url}`} rel="noreferrer" target="_blank">
-                  <span className="block font-medium underline decoration-border underline-offset-4 hover:decoration-accent">
+                <a className={actionCardClassName} href={link.url} key={`${link.type}-${link.url}`} rel="noreferrer" target="_blank">
+                  <span className={actionLabelClassName}>
                     {link.label}
                   </span>
                   <span className="mt-1 block text-xs text-muted">
-                    {mediaLinkTypeLabel(link.type)} {link.presentation === "copy" ? "copyable link" : "external link"}
+                    {mediaLinkTypeLabel(link.type)} / {link.presentation === "copy" ? "Copy link" : "Open"}
                   </span>
                 </a>
               ))}
@@ -471,7 +499,7 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
           <article className="rounded-lg border border-border bg-white/80 px-5 py-6 shadow-sm">
             <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Notes</p>
             <div className="mt-4 space-y-4 text-sm leading-7 text-muted">
-              {event.notes ? <p>{event.notes}</p> : <p>No public event notes yet.</p>}
+              {event.notes ? <p>{event.notes}</p> : <p>No notes yet.</p>}
             </div>
           </article>
         </section>

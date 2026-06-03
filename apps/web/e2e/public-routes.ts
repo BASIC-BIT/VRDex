@@ -255,12 +255,25 @@ export async function expectCommunityProfilePage(page: Page) {
 
 export async function expectEventPage(page: Page) {
   await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions" })).toBeVisible();
+  await expect(page.getByText("When", { exact: true })).toBeVisible();
+  await expect(page.getByText("Place", { exact: true })).toBeVisible();
   await expect(page.getByText("Set times", { exact: true })).toBeVisible();
-  await expect(page.getByRole("columnheader", { name: "Artist" })).toBeVisible();
-  await expect(page.getByRole("columnheader", { name: "Style(s)" })).toBeVisible();
-  await expect(page.getByText("House", { exact: true })).toBeVisible();
-  await expect(page.getByText("Profiles", { exact: true })).toBeVisible();
-  await expect(page.getByRole("link", { name: "DJ Aurora", exact: true })).toBeVisible();
+  const isMobile = (page.viewportSize()?.width ?? 0) < 640;
+  const setTimes = page.locator("section").filter({ hasText: "Set times" });
+
+  if (isMobile) {
+    await expect(page.getByRole("columnheader", { name: "Artist" })).toHaveCount(0);
+    await expect(setTimes.getByText("10:00 PM - 10:45 PM", { exact: true }).first()).toBeVisible();
+    await expect(setTimes.getByText("House", { exact: true }).first()).toBeVisible();
+  } else {
+    const setTimesTable = page.getByRole("table");
+    await expect(setTimesTable.getByRole("columnheader", { name: "Artist" })).toBeVisible();
+    await expect(setTimesTable.getByRole("columnheader", { name: "Style(s)" })).toBeVisible();
+    await expect(setTimesTable.getByRole("cell", { name: "House" })).toBeVisible();
+  }
+
+  await expect(page.getByText("Lineup", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "DJ Aurora", exact: true }).first()).toBeVisible();
   await expect(page.getByText("Neon Harbor", { exact: true })).toBeVisible();
   await expect(page.getByText("Fixture watch link", { exact: true })).toBeVisible();
 }
