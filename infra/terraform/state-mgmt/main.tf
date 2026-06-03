@@ -144,6 +144,7 @@ data "aws_iam_policy_document" "github_actions_terraform" {
     actions = [
       "route53:ChangeResourceRecordSets",
       "route53:GetHostedZone",
+      "route53:ListTagsForResource",
       "route53:ListResourceRecordSets",
     ]
 
