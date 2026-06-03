@@ -45,9 +45,9 @@ Convex does not enforce unique indexes at the schema layer. Profile slug uniquen
 - query `by_slug` to reject collisions outside the current profile
 - patch `updatedAt` with the slug write
 
-## Follow-On Boundaries
+## Out of Scope
 
-- slug history and redirects are deferred
-- custom domains are deferred
-- SEO metadata is deferred
-- public pages and API routes that consume slugs are deferred
+- slug history and redirects
+- custom domains
+- SEO metadata
+- public pages and API routes that consume slugs

@@ -2,7 +2,7 @@
 
 ## Status Note
 
-This doc captures the durable profile schema foundation started in `#9` and extended through `#10`, `#11`, `#12`, `#13`, `#22`, `#23`, `#25`, `#26`, `#30`, `#31`, `#32`, `#33`, `#82`, and `#90`.
+This doc captures the durable profile schema foundation from `#9` through `#13`, plus later extensions in `#22`, `#23`, `#25`, `#26`, `#30`, `#31`, `#32`, `#33`, `#82`, and `#90`.
 
 The schema is intentionally narrow. It establishes one shared `profiles` table for people and communities plus first-slice account ownership, claim request, verification attempt, and field visibility tables without introducing normalized link tables, asset tables, or advanced moderation workflows.
 
@@ -141,7 +141,7 @@ Deploy-time migrations use `@convex-dev/migrations` and are run by `migrations:r
 - `profileClaimRequests.by_profileId_state`: profile claim review lookup
 - `profileVerificationAttempts.by_state_expiresAt`: pending proof attempt expiry scans
 
-## Follow-On Boundaries
+## Implementation Boundaries
 
 - `#10` adds canonical slugs, validation, and uniqueness rules
 - `#11` adds type-aware person/community fields and documents shared vs type-specific data

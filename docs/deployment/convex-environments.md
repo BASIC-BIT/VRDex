@@ -64,7 +64,7 @@ The browser-facing token stays in the web host and GitHub Actions as `VRDEX_E2E_
 
 The shared development deployment `scrupulous-corgi-247` is the current hosted E2E backend for Vercel `staging`. The `Staging Deploy` GitHub Actions workflow deploys Convex development functions with `CONVEX_DEPLOY_KEY_DEV` before deploying Vercel `staging` and running hosted data-flow health.
 
-Current recommendation: generate Convex Auth JWT keys through a non-printing command path and set them with `convex env set -- NAME VALUE`, because PEM values begin with dashes and can be parsed as CLI options if passed in the wrong position.
+Generate Convex Auth JWT keys through a non-printing command path and set them with `convex env set -- NAME VALUE`, because PEM values begin with dashes and can be parsed as CLI options if passed in the wrong position.
 
 Manual fallback if the workflow is unavailable:
 

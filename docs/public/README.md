@@ -1,8 +1,8 @@
-# Public Docs
+# Public Product Docs
 
 ## Purpose
 
-Public docs explain the current user-facing VRDex product surface in plain language.
+Public product docs explain current user-facing VRDex behavior in plain language.
 
 Audience:
 
@@ -30,4 +30,4 @@ Audience:
 
 ## Current State
 
-Most existing docs are still planning or engineering-heavy. Move material into this lane only when it describes current behavior that a normal user or public partner should rely on.
+Most existing docs are still planning or engineering-heavy. Move material here only when it describes behavior a normal user or public partner can rely on.

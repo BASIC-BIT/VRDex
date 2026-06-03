@@ -53,9 +53,9 @@ The schema supports these owner-authored presentation fields for public pages:
 - `avatarImageUrl`
 - `bannerImageUrl`
 
-Ordinary community submissions do not set those fields in this slice. Future owner, concierge, moderation, import, or claim flows can populate them with stricter validation and audit behavior.
+Ordinary community submissions do not set those fields in this slice. Owner, concierge, moderation, import, or claim flows can populate them only with stricter validation and audit behavior.
 
-## Follow-On Boundaries
+## Implementation Boundaries
 
 - `#25` should make community-submitted and unverified labels consistent across cards and pages
 - `#26` expands attribution into a first rollback-capable moderation trail

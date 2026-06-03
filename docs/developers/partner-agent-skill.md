@@ -12,7 +12,7 @@ This is the canonical Docusaurus-visible version of the portable partner-agent s
 - [Profile schema](../backend/profile-schema.md) for profile fields, trust states, visibility, and source attribution
 - [Profile access and claims](../backend/profile-access-and-claims.md) for claim, ownership, and field-visibility rules
 - [Search discovery](../backend/search-discovery.md) for public discovery behavior
-- [Public API posture](./public-api.md) for API posture and rate-limit expectations
+- [Public API posture](./public-api.md) for API direction and rate-limit expectations
 - [VRDex MCP read tools](./vrdex-mcp-read-tools.md) for planned read-only MCP tools
 - [Seed import model](../planning/seed-import-model.md) for partner seed-import boundaries
 
@@ -45,7 +45,7 @@ This is the canonical Docusaurus-visible version of the portable partner-agent s
 4. Keep partner imports as reviewed candidate data until VRDex explicitly publishes or links them.
 5. Ask for a product decision before adding a new trust state, provider-specific sync path, or public write behavior.
 
-## Reference Options
+## How to reference this guidance
 
 - Read the Docusaurus page when working inside VRDex or when the public docs site is reachable.
 - Vendor `skills/vrdex/SKILL.md` only as a thin compatibility entry point for agent tools that expect a skill file.

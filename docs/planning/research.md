@@ -43,7 +43,7 @@ Observed from `https://vrcpop.com/partners/decked-out`:
 
 Important detail: the bot appears to be distributed manually through direct Discord contact, which suggests it is powerful but not an open public directory by itself.
 
-Implication: your product should probably integrate with Decked Out instead of copying its booking flow first.
+Implication: VRDex should probably integrate with Decked Out instead of copying its booking flow first.
 
 ### VRCLinking / VRify class tools
 
@@ -55,7 +55,7 @@ Observed from `https://vrclinking.com/` and `https://buddelbubi.xyz/vrify/`:
 
 Important detail: VRCLinking markets itself around creators, groups, role sync, age verification, and API access. VRify also describes linking Discord users to VRChat accounts and exposing user/world lookups.
 
-Implication: your claim-and-verify flow is normal for this community, not weird. The real opportunity is to apply that pattern to performer identity and booking metadata.
+Implication: VRDex's claim-and-verify flow is normal for this community, not weird. The real opportunity is to apply that pattern to performer identity and booking metadata.
 
 Stronger implication: VRCLinking is not just adjacent infrastructure; it may be a key moat if it can act as a trusted identity attestation layer for profile claims, club ownership, and reduced re-verification friction.
 

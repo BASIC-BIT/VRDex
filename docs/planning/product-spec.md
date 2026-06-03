@@ -8,7 +8,9 @@ Working domain: `vrdex.net`
 
 ## Product thesis
 
-VRChat scene participants need one canonical, public, claimable profile system for both people and communities that other people can trust and reuse, with enough customization and link depth to replace ad-hoc link pages. World discovery extends that identity graph by showing where events happen, who built those spaces, and how creators can link to their work.
+VRChat scene participants need one canonical, public, claimable profile system for people and communities. VRDex should make those profiles trustworthy and reusable, with enough customization and link depth to replace ad-hoc link pages.
+
+World discovery extends that identity graph by showing where events happen, who built those spaces, and how creators can link to their work.
 
 ## Primary users
 

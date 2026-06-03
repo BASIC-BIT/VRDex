@@ -106,4 +106,4 @@ Keep stack state, plans, local provider caches, and `terraform.tfvars` uncommitt
 
 Self-hosted AWS usage is limited to the values this repo documents by name: SES sender identity, DNS zone, Terraform state location, and the S3 asset bucket tracked by [#115](https://github.com/BASIC-BIT/VRDex/issues/115).
 
-This baseline does not claim complete self-hosting support. Alternative S3-compatible stores are out of scope until [#115](https://github.com/BASIC-BIT/VRDex/issues/115) creates the first asset abstraction and a follow-up issue or ADR evaluates provider portability.
+This baseline does not claim complete self-hosting support. Alternative S3-compatible stores are out of scope until [#115](https://github.com/BASIC-BIT/VRDex/issues/115) creates the first asset abstraction and a follow-up issue or ADR covers provider portability.

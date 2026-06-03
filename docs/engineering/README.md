@@ -22,7 +22,7 @@ Audience:
 
 ## What Does Not Belong Here
 
-- normie user docs that should be stable and concise
+- end-user docs that should be stable and concise
 - developer-facing API contracts that outside consumers should follow directly
 - private secrets or raw partner data
 

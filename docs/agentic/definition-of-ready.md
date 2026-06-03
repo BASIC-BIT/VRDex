@@ -4,7 +4,7 @@
 
 This document is the canonical repo-level definition of ready for feature work.
 
-Use it before starting non-trivial implementation so contributors and agents do not skip rollout, verification, or success-thinking by accident.
+Use it before starting non-trivial implementation so contributors and agents do not accidentally skip rollout, verification, or success criteria.
 
 ## Locked decision
 
@@ -32,7 +32,7 @@ Common examples:
 
 ## Lightweight path for trivial work
 
-Do not require the full ready check for small changes where extra process would be pure drag.
+Do not require the full ready check for small changes where extra process adds no value.
 
 Common examples:
 

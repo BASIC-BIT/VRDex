@@ -1,5 +1,7 @@
 # Planning Docs
 
+Planning docs capture product, architecture, roadmap, and backlog decisions before they are promoted into stable public, developer, or engineering docs.
+
 ## Core planning set
 
 - `docs/planning/research.md` - ecosystem scan and adjacent-code notes

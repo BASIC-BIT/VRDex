@@ -2,7 +2,7 @@
 
 ## Status note
 
-This is an engineering operating note, not public product documentation and not a universal contributor mandate. It captures repo-specific agent, review, and verification patterns that are already shaping how maintainers deliver VRDex.
+This engineering note captures repo-specific agent, review, and verification patterns shaping VRDex delivery. It is not public product documentation or a universal contributor mandate.
 
 Promote only proven reusable patterns into `basics-agentic-dogfooding` or global agent context. Keep speculative workflow ideas here until they have repeated value.
 
@@ -18,7 +18,7 @@ Promote only proven reusable patterns into `basics-agentic-dogfooding` or global
 ## Current recommendation
 
 - treat product design and software-factory design as parallel workstreams
-- when the agent behaves badly or asks a low-value question, finish the immediate task and then capture the process fix before moving on
+- when an agent takes a poor path or asks a low-value question, finish the immediate task and then capture the process fix before moving on
 - bias toward stronger human and agent onboarding so new sessions converge quickly on repo norms
 - prefer discoverable, cross-linked artifacts over chat-only decisions
 - avoid turning local process experiments into public product promises
@@ -33,7 +33,7 @@ Promote only proven reusable patterns into `basics-agentic-dogfooding` or global
 ### Current recommendation
 
 - optimize for compatibility with multiple agents so long as they can operate inside the repo's review and verification system
-- use the repo's review/recycle loops to catch slop and train quality without over-policing how people work locally
+- use the repo's review/recycle loops to catch slop and improve quality without over-policing how people work locally
 
 ## Global vs local context model
 

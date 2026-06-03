@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Developer docs explain how external developers, self-hosted operators, and partner agents integrate with or run VRDex.
+Developer docs explain how external developers, self-hosted operators, and partner agents integrate with VRDex or run it themselves.
 
 Audience:
 
@@ -36,7 +36,7 @@ Audience:
 - [VRDex MCP read tools](./vrdex-mcp-read-tools.md)
 - [Service cross-link map](../engineering/service-map.md)
 
-Source paths:
+Files:
 
 - `docs/developers/partner-agent-skill.md`
 - `docs/developers/opencode-skill-adapter.md`
@@ -46,4 +46,4 @@ Source paths:
 - `docs/engineering/service-map.md`
 - `skills/vrdex/SKILL.md`, compatibility pointer only
 
-Deployment docs under `docs/deployment/` are currently developer/operator docs too. Move or mirror only when that improves clarity instead of creating duplicated maintenance.
+Deployment docs under `docs/deployment/` also serve developers and operators today. Move or mirror them only when that improves clarity without creating duplicated maintenance.

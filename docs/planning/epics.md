@@ -20,7 +20,7 @@ Goal: a real public release with stronger ownership, club operations basics, and
 
 ### v1.5
 
-Goal: immediate follow-on improvements that make the system smarter, more integrated, and more operationally useful.
+Goal: immediate follow-on improvements for stronger discovery, integrations, and operational workflows.
 
 ## v0.5 epics
 

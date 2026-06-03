@@ -50,7 +50,13 @@ POSIX shell hosted production smoke run:
 PLAYWRIGHT_BASE_URL=https://vrdex.net PLAYWRIGHT_SKIP_WEBSERVERS=true pnpm test:e2e:hosted:smoke
 ```
 
-The local Playwright suite starts a local Convex backend and Next dev server by default. Setting `PLAYWRIGHT_BASE_URL` switches Playwright to hosted mode and disables local web servers. Local webserver runs set token-gated E2E helper defaults so `pnpm test:e2e` includes the mutation-backed `@flow` journey without additional env setup. Profile screenshots use deterministic Next-server fixtures when `VRDEX_ENABLE_PLAYWRIGHT_FIXTURES=true`, while `/server-status` still exercises the real local Convex health query. Fixture profiles are disabled when `NODE_ENV=production`.
+The local Playwright suite starts a local Convex backend and Next dev server by default.
+
+Setting `PLAYWRIGHT_BASE_URL` switches Playwright to hosted mode and disables local web servers.
+
+Local webserver runs set token-gated E2E helper defaults so `pnpm test:e2e` includes the mutation-backed `@flow` journey without additional env setup.
+
+Profile screenshots use deterministic Next-server fixtures when `VRDEX_ENABLE_PLAYWRIGHT_FIXTURES=true`. `/server-status` still exercises the real local Convex health query. Fixture profiles are disabled when `NODE_ENV=production`.
 
 ## Captured routes
 
@@ -138,7 +144,9 @@ Each data-flow run uses a unique `VRDEX_E2E_RUN_ID` prefix and creates only `e2e
 
 ## CI behavior
 
-The `Playwright Public Preview` job is required on pull requests. It:
+The required pull-request Playwright jobs are:
+
+The required `Playwright Public Preview` job:
 
 - runs `pnpm test:e2e:visual`
 - uploads `apps/web/playwright-report`, `apps/web/test-results`, and `apps/web/playwright-artifacts`, failing if no artifact files are found
@@ -146,9 +154,9 @@ The `Playwright Public Preview` job is required on pull requests. It:
 
 This blocks PRs when public route rendering or screenshot capture fails. Pixel review is still artifact-based until committed baseline snapshots and a separate diff gate are added.
 
-The `Playwright Image Diff` job is also required on pull requests. It runs the `@snapshot` suite against committed PNG baselines under `apps/web/e2e/__screenshots__`, uploads expected/actual/diff artifacts on failure, and comments with only the added or modified committed baseline images.
+The required `Playwright Image Diff` job runs the `@snapshot` suite against committed PNG baselines under `apps/web/e2e/__screenshots__`, uploads expected/actual/diff artifacts on failure, and comments with only the added or modified committed baseline images.
 
-The `Playwright Data Flow` job is also required on pull requests. It runs the `@flow` test against local Convex and the local Next dev server with `PLAYWRIGHT_RECORD_VIDEO=true`, then uploads screenshots, traces, and videos as the `playwright-data-flow` artifact and posts a PR comment with the artifact link.
+The required `Playwright Data Flow` job runs the `@flow` test against local Convex and the local Next dev server with `PLAYWRIGHT_RECORD_VIDEO=true`, then uploads screenshots, traces, and videos as the `playwright-data-flow` artifact and posts a PR comment with the artifact link.
 
 The optional `Playwright Hosted Data Flow` job runs on pull requests only when both repository settings are present:
 

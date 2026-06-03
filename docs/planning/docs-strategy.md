@@ -6,11 +6,10 @@ Use documentation as a real product asset from day one, for both humans and agen
 
 ## Why Docusaurus
 
-- good for structured docs
-- works well in-repo
-- supports multiple doc sections
-- easy for humans to browse
-- easy for agents to cite and revisit
+- serves repo-root markdown through a browsable docs site
+- supports separate public, developer, and engineering sections
+- keeps docs easy for humans to browse and agents to cite
+- fits the current in-repo source-of-truth model
 
 ## Recommended split
 

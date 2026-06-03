@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define how VRDex should become easy for other people's AI coding agents to understand and integrate with, without forcing every partner to reverse-engineer the website, API, or product model from scratch.
+Define how VRDex helps external AI coding agents understand and integrate with the product without reverse-engineering the website, API, or product model.
 
 Tracking issue: `#73`.
 

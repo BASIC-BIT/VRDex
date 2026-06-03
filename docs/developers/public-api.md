@@ -18,7 +18,7 @@ Current direction for [#39](https://github.com/BASIC-BIT/VRDex/issues/39).
 
 ## First Public Read Surface
 
-Candidate first public API endpoints remain:
+Candidate first public API endpoints:
 
 - `GET /api/v0/profiles/:slug`
 - `GET /api/v0/people/:slug`
@@ -35,7 +35,7 @@ The first public API should be read-only unless a specific write flow has an aut
 
 ## Client Classes
 
-Use client classes to avoid one blunt limit model:
+Use client classes instead of one global rate-limit model:
 
 - first-party web app: normal product traffic, protected by app/session behavior and platform controls
 - anonymous public clients: conservative unauthenticated read limits and cache-friendly responses
@@ -78,7 +78,7 @@ The first implementation issue for the public API should add:
 - task-oriented examples for profile lookup, search, event lookup, profile cards, and partner-safe seed validation
 - clear guidance to use API or MCP for structured reads instead of scraping public pages
 
-## Non-Goals For This Direction Pass
+## Non-goals for this pass
 
 - implementing the public API now
 - finalizing every endpoint

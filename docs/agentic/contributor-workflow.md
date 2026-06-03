@@ -77,7 +77,7 @@ Then read the issue-specific and area-specific docs that actually apply to the t
 - enforce the repo contract consistently without becoming tool-prescriptive
 - prefer pointing contributors to canonical docs over inventing one-off expectations in review comments
 - when rejecting or recycling work, explain which contract item is missing: readiness, docs, verification, rollout posture, or closeout quality
-- use follow-up issues for intentional gaps instead of forcing every change into one giant scope blob
+- use follow-up issues for intentional gaps instead of forcing every change into one oversized scope
 
 ## Verification expectations
 
