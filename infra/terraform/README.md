@@ -31,7 +31,7 @@ Required CI settings by provider:
 | `TERRAFORM_SES_FROM_EMAIL` | optional repository variable | `ses` |
 | `TERRAFORM_ROUTE53_ZONE_ID` | optional repository variable | `docs-site`, `ses` |
 
-`state-mgmt/` is validation-only in CI because it intentionally uses local bootstrap state. Apply it manually when changing the shared state bucket.
+`state-mgmt/` is validation-only in CI because it intentionally uses local bootstrap state and owns the GitHub Actions AWS role used by the provider-backed stacks. Apply it manually when changing the shared state bucket or Terraform CI role, then store `terraform output -raw github_actions_terraform_role_arn` in GitHub variable `AWS_TERRAFORM_ROLE_ARN`.
 
 ## Stack Boundaries
 
