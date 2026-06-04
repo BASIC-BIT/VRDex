@@ -33,3 +33,5 @@ Many existing docs still live in historical folders such as `docs/planning/`, `d
 When a document mixes audiences, prefer extracting the public/developer surface into the appropriate lane and leaving alternatives, caveats, and implementation detail here.
 
 Start with the [service cross-link map](./service-map.md) when reviewing how hosted services, docs, APIs, and implementation surfaces relate.
+
+Use the [web design system](./design-system.md) when reviewing or extending shared UI primitives, Tailwind tokens, and visual consistency rules.

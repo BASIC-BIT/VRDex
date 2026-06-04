@@ -1,4 +1,8 @@
 import Link from "next/link";
+import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
+import { Card, Eyebrow } from "@/components/ui/card";
+import { PageContainer, PageShell } from "@/components/ui/page-shell";
 import { fetchBackendStatus } from "@/convex/server";
 
 export const dynamic = "force-dynamic";
@@ -7,12 +11,12 @@ export default async function ServerStatusPage() {
   const status = await fetchBackendStatus();
 
   return (
-    <main className="min-h-screen px-6 py-10 text-foreground sm:px-10 lg:px-16">
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-8">
-        <section className="overflow-hidden rounded-[2rem] border border-border bg-surface shadow-[0_24px_80px_rgba(64,40,24,0.12)] backdrop-blur">
+    <PageShell className="py-10">
+      <PageContainer className="gap-8" max="4xl">
+        <section className="overflow-hidden rounded-hero border border-border bg-surface shadow-hero backdrop-blur">
           <div className="flex flex-col gap-8 px-6 py-8 sm:px-8 lg:px-10 lg:py-10">
             <div className="flex items-center gap-3 text-sm uppercase tracking-[0.28em] text-muted">
-              <span className="rounded-full border border-border px-3 py-1">VRDex</span>
+              <Badge shape="pill">VRDex</Badge>
               <span>Server-side Convex baseline</span>
             </div>
 
@@ -30,13 +34,13 @@ export default async function ServerStatusPage() {
 
             <div className="flex flex-col gap-3 sm:flex-row">
               <Link
-                className="inline-flex items-center justify-center rounded-full bg-accent px-5 py-3 text-sm font-medium text-white transition hover:bg-accent-strong"
+                className={buttonVariants({ size: "lg", variant: "primary" })}
                 href="/"
               >
                 Back to homepage
               </Link>
               <a
-                className="inline-flex items-center justify-center rounded-full border border-border bg-surface-strong px-5 py-3 text-sm font-medium transition hover:-translate-y-0.5"
+                className={buttonVariants({ size: "lg", variant: "secondary" })}
                 href="https://docs.convex.dev/client/nextjs/app-router/server-rendering"
                 target="_blank"
                 rel="noreferrer"
@@ -48,10 +52,8 @@ export default async function ServerStatusPage() {
         </section>
 
         <section className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-          <article className="rounded-[1.5rem] border border-border bg-surface px-5 py-6">
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">
-              Live result
-            </p>
+          <Card>
+            <Eyebrow>Live result</Eyebrow>
 
             {status.kind === "live" ? (
               <>
@@ -64,25 +66,25 @@ export default async function ServerStatusPage() {
                 </p>
 
                 <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
-                  <div className="rounded-2xl border border-border bg-surface-strong px-4 py-4">
+                  <div className="rounded-card border border-border bg-surface-strong px-4 py-4">
                     <dt className="font-mono text-[11px] uppercase tracking-[0.24em] text-muted">
                       Status
                     </dt>
                     <dd className="mt-2 font-medium">{status.data.status}</dd>
                   </div>
-                  <div className="rounded-2xl border border-border bg-surface-strong px-4 py-4">
+                  <div className="rounded-card border border-border bg-surface-strong px-4 py-4">
                     <dt className="font-mono text-[11px] uppercase tracking-[0.24em] text-muted">
                       Scope
                     </dt>
                     <dd className="mt-2 font-medium">{status.data.scope}</dd>
                   </div>
-                  <div className="rounded-2xl border border-border bg-surface-strong px-4 py-4">
+                  <div className="rounded-card border border-border bg-surface-strong px-4 py-4">
                     <dt className="font-mono text-[11px] uppercase tracking-[0.24em] text-muted">
                       Backend
                     </dt>
                     <dd className="mt-2 font-medium">{status.data.backend}</dd>
                   </div>
-                  <div className="rounded-2xl border border-border bg-surface-strong px-4 py-4">
+                  <div className="rounded-card border border-border bg-surface-strong px-4 py-4">
                     <dt className="font-mono text-[11px] uppercase tracking-[0.24em] text-muted">
                       Note
                     </dt>
@@ -114,12 +116,10 @@ export default async function ServerStatusPage() {
                 </p>
               </>
             )}
-          </article>
+          </Card>
 
-          <aside className="rounded-[1.5rem] border border-border bg-surface px-5 py-6">
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">
-              Pattern rule
-            </p>
+          <Card>
+            <Eyebrow>Pattern rule</Eyebrow>
             <dl className="mt-5 space-y-4 text-sm">
               <div className="border-b border-border pb-4">
                 <dt className="font-medium">Use <code className="font-mono text-[0.95em]">fetchQuery</code></dt>
@@ -140,9 +140,9 @@ export default async function ServerStatusPage() {
                 </dd>
               </div>
             </dl>
-          </aside>
+          </Card>
         </section>
-      </div>
-    </main>
+      </PageContainer>
+    </PageShell>
   );
 }

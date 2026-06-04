@@ -2,6 +2,9 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 
 import { ProfileSubmissionForm } from "./profile-submission-form";
+import { buttonVariants } from "@/components/ui/button";
+import { Card, Eyebrow } from "@/components/ui/card";
+import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 
 async function isE2eSubmissionMode() {
   const expectedToken = process.env.VRDEX_E2E_BROWSER_TOKEN?.trim();
@@ -15,27 +18,23 @@ export default async function SubmitProfilePage() {
   const e2eMode = await isE2eSubmissionMode();
 
   return (
-    <main className="min-h-screen px-6 py-10 text-foreground sm:px-10 lg:px-16">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
-        <nav className="flex flex-wrap items-center justify-between gap-3 text-sm">
-          <Link className="font-mono uppercase tracking-[0.28em] text-muted" href="/">
-            VRDex
-          </Link>
+    <PageShell className="py-10">
+      <PageContainer max="5xl">
+        <PageNav>
+          <BrandLink />
           <Link
-            className="rounded-full border border-border bg-surface px-4 py-2 font-medium"
+            className={buttonVariants({ variant: "secondary" })}
             href="/server-status"
           >
             Server status
           </Link>
-        </nav>
+        </PageNav>
 
-        <section className="overflow-hidden rounded-[2rem] border border-border bg-surface shadow-[0_24px_80px_rgba(64,40,24,0.12)] backdrop-blur">
+        <section className="overflow-hidden rounded-hero border border-border bg-surface shadow-hero backdrop-blur">
           <div className="grid gap-8 px-6 py-8 sm:px-8 lg:grid-cols-[0.85fr_1.15fr] lg:px-10 lg:py-10">
             <div className="flex flex-col justify-between gap-8">
               <div>
-                <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">
-                  Community submissions
-                </p>
+                <Eyebrow>Community submissions</Eyebrow>
                 <h1 className="mt-5 text-4xl leading-none font-semibold tracking-[-0.04em] sm:text-6xl">
                   Add a missing VRChat scene profile.
                 </h1>
@@ -44,24 +43,22 @@ export default async function SubmitProfilePage() {
                 </p>
               </div>
 
-              <div className="rounded-[1.5rem] border border-border bg-surface-strong px-5 py-5">
-                <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">
-                  Safe by default
-                </p>
+              <Card surface="strong">
+                <Eyebrow>Safe by default</Eyebrow>
                 <p className="mt-3 text-sm leading-7 text-muted">
                   {e2eMode
                     ? "This Playwright run uses a server-side test gate to exercise the same public submission data path without an interactive login."
                     : "Submission requires Convex auth, stores source attribution for later moderation, generates the canonical slug server-side, and publishes with an unclaimed trust state."}
                 </p>
-              </div>
+              </Card>
             </div>
 
-            <div className="rounded-[1.5rem] border border-border bg-white/45 px-5 py-6 sm:px-6">
+            <Card surface="glass">
               <ProfileSubmissionForm e2eMode={e2eMode} />
-            </div>
+            </Card>
           </div>
         </section>
-      </div>
-    </main>
+      </PageContainer>
+    </PageShell>
   );
 }

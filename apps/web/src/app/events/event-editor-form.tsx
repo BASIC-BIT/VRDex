@@ -5,6 +5,10 @@ import { FormEvent, useEffect, useState, useTransition } from "react";
 import { useMutation } from "convex/react";
 import { api } from "@convex-generated-api";
 import type { PublicEvent } from "../_components/event-public-page";
+import { buttonVariants, Button } from "@/components/ui/button";
+import { Card, Eyebrow, SectionTitle } from "@/components/ui/card";
+import { Field, FieldText, Input, Textarea } from "@/components/ui/field";
+import { Notice } from "@/components/ui/notice";
 
 type EventMediaLinkType = PublicEvent["mediaLinks"][number]["type"];
 
@@ -297,25 +301,25 @@ function createGeneratedSlotText(count: number, durationMinutes: number, breakMi
 
 function DisabledEventEditorPanel() {
   return (
-    <div className="rounded-[1.5rem] border border-dashed border-border bg-surface px-5 py-6">
-      <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Event editor</p>
-      <h2 className="mt-4 text-2xl font-semibold tracking-[-0.03em]">Convex URL not configured</h2>
+    <Card surface="dashed">
+      <Eyebrow>Event editor</Eyebrow>
+      <SectionTitle className="mt-4 text-2xl tracking-[-0.03em]">Convex URL not configured</SectionTitle>
       <p className="mt-3 text-sm leading-7 text-muted">
         Run <code className="font-mono text-[0.95em]">pnpm bootstrap:backend:local</code> before testing event creation locally.
       </p>
-    </div>
+    </Card>
   );
 }
 
 function SignInRequiredEventEditorPanel() {
   return (
-    <div className="rounded-[1.5rem] border border-dashed border-border bg-surface px-5 py-6">
-      <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Event editor</p>
-      <h2 className="mt-4 text-2xl font-semibold tracking-[-0.03em]">Sign-in required</h2>
+    <Card surface="dashed">
+      <Eyebrow>Event editor</Eyebrow>
+      <SectionTitle className="mt-4 text-2xl tracking-[-0.03em]">Sign-in required</SectionTitle>
       <p className="mt-3 text-sm leading-7 text-muted">
         The event mutations and form are wired, but the public editor stays locked until Convex auth is enabled for the web app.
       </p>
-    </div>
+    </Card>
   );
 }
 
@@ -395,130 +399,130 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
   return (
     <form className="grid gap-5" onSubmit={onSubmit}>
       <div className="grid gap-4 sm:grid-cols-2">
-        <label className="grid gap-2 text-sm font-medium">
+        <Field>
           Event title
-          <input className="rounded-2xl border border-border bg-surface-strong px-4 py-3 font-normal outline-none transition focus:border-accent" defaultValue={event?.title} name="title" placeholder="Afterglow Harbor Sessions" required />
-        </label>
-        <label className="grid gap-2 text-sm font-medium">
+          <Input defaultValue={event?.title} name="title" placeholder="Afterglow Harbor Sessions" required />
+        </Field>
+        <Field>
           Optional slug
-          <input className="rounded-2xl border border-border bg-surface-strong px-4 py-3 font-normal outline-none transition focus:border-accent" defaultValue={event?.slug} name="preferredSlug" placeholder="afterglow-harbor-sessions" />
-        </label>
+          <Input defaultValue={event?.slug} name="preferredSlug" placeholder="afterglow-harbor-sessions" />
+        </Field>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <label className="grid gap-2 text-sm font-medium">
+        <Field>
           Community slug
-          <input className="rounded-2xl border border-border bg-surface-strong px-4 py-3 font-normal outline-none transition focus:border-accent" defaultValue={event?.communitySlug} name="communitySlug" placeholder="afterglow-social" />
-        </label>
-        <label className="grid gap-2 text-sm font-medium">
+          <Input defaultValue={event?.communitySlug} name="communitySlug" placeholder="afterglow-social" />
+        </Field>
+        <Field>
           Optional world slug
-          <input className="rounded-2xl border border-border bg-surface-strong px-4 py-3 font-normal outline-none transition focus:border-accent" defaultValue={event?.worlds[0]?.slug} name="worldSlug" placeholder="neon-harbor" />
-        </label>
+          <Input defaultValue={event?.worlds[0]?.slug} name="worldSlug" placeholder="neon-harbor" />
+        </Field>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <label className="grid gap-2 text-sm font-medium">
+        <Field>
           Start
-          <input className="rounded-2xl border border-border bg-surface-strong px-4 py-3 font-normal outline-none transition focus:border-accent" defaultValue={toZonedInputValue(event?.startAt, event?.timezone)} name="startAt" required type="datetime-local" />
-        </label>
-        <label className="grid gap-2 text-sm font-medium">
+          <Input defaultValue={toZonedInputValue(event?.startAt, event?.timezone)} name="startAt" required type="datetime-local" />
+        </Field>
+        <Field>
           End
-          <input className="rounded-2xl border border-border bg-surface-strong px-4 py-3 font-normal outline-none transition focus:border-accent" defaultValue={toZonedInputValue(event?.endAt, event?.timezone)} name="endAt" type="datetime-local" />
-        </label>
-        <label className="grid gap-2 text-sm font-medium">
+          <Input defaultValue={toZonedInputValue(event?.endAt, event?.timezone)} name="endAt" type="datetime-local" />
+        </Field>
+        <Field>
           Time zone
-          <input className="rounded-2xl border border-border bg-surface-strong px-4 py-3 font-normal outline-none transition focus:border-accent" name="timezone" onChange={(changeEvent) => setTimezone(changeEvent.currentTarget.value)} placeholder="America/New_York" value={timezone} />
-        </label>
+          <Input name="timezone" onChange={(changeEvent) => setTimezone(changeEvent.currentTarget.value)} placeholder="America/New_York" value={timezone} />
+        </Field>
       </div>
 
-      <label className="grid gap-2 text-sm font-medium">
+      <Field>
         Summary
-        <input className="rounded-2xl border border-border bg-surface-strong px-4 py-3 font-normal outline-none transition focus:border-accent" defaultValue={event?.summary} name="summary" placeholder="Short public event summary" />
-      </label>
+        <Input defaultValue={event?.summary} name="summary" placeholder="Short public event summary" />
+      </Field>
 
-      <label className="grid gap-2 text-sm font-medium">
+      <Field>
         Public notes
-        <textarea className="min-h-28 rounded-2xl border border-border bg-surface-strong px-4 py-3 font-normal outline-none transition focus:border-accent" defaultValue={event?.notes} name="notes" placeholder="Door notes, schedule notes, or other public context" />
-      </label>
+        <Textarea className="min-h-28" defaultValue={event?.notes} name="notes" placeholder="Door notes, schedule notes, or other public context" />
+      </Field>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <label className="grid gap-2 text-sm font-medium sm:col-span-1">
+        <Field className="sm:col-span-1">
           Source label
-          <input className="rounded-2xl border border-border bg-surface-strong px-4 py-3 font-normal outline-none transition focus:border-accent" defaultValue={event?.source.label} name="sourceLabel" placeholder="Community event listing" />
-        </label>
-        <label className="grid gap-2 text-sm font-medium sm:col-span-1">
+          <Input defaultValue={event?.source.label} name="sourceLabel" placeholder="Community event listing" />
+        </Field>
+        <Field className="sm:col-span-1">
           Source URL
-          <input className="rounded-2xl border border-border bg-surface-strong px-4 py-3 font-normal outline-none transition focus:border-accent" defaultValue={event?.source.url} name="sourceUrl" placeholder="https://..." />
-        </label>
-        <label className="grid gap-2 text-sm font-medium sm:col-span-1">
+          <Input defaultValue={event?.source.url} name="sourceUrl" placeholder="https://..." />
+        </Field>
+        <Field className="sm:col-span-1">
           Poster image URL
-          <input className="rounded-2xl border border-border bg-surface-strong px-4 py-3 font-normal outline-none transition focus:border-accent" defaultValue={event?.posterImageUrl} name="posterImageUrl" placeholder="https://..." />
-        </label>
+          <Input defaultValue={event?.posterImageUrl} name="posterImageUrl" placeholder="https://..." />
+        </Field>
       </div>
 
-      <label className="grid gap-2 text-sm font-medium">
+      <Field>
         Media links
-        <textarea className="min-h-28 rounded-2xl border border-border bg-surface-strong px-4 py-3 font-normal outline-none transition focus:border-accent" defaultValue={serializeMediaLinks(event)} name="mediaLinks" placeholder="watch | Twitch watch link | https://... | open&#10;vrcdn | VRCDN PC link | https://... | copy" />
-        <span className="text-xs leading-5 text-muted">One per line: type | label | https URL | open or copy.</span>
-      </label>
+        <Textarea className="min-h-28" defaultValue={serializeMediaLinks(event)} name="mediaLinks" placeholder="watch | Twitch watch link | https://... | open&#10;vrcdn | VRCDN PC link | https://... | copy" />
+        <FieldText>One per line: type | label | https URL | open or copy.</FieldText>
+      </Field>
 
-      <label className="grid gap-2 text-sm font-medium">
+      <Field>
         Linked person profiles
-        <textarea className="min-h-28 rounded-2xl border border-border bg-surface-strong px-4 py-3 font-normal outline-none transition focus:border-accent" defaultValue={serializeParticipants(event)} name="participantLinks" placeholder="dj-aurora | Performer&#10;vj-lumen | Staff" />
-        <span className="text-xs leading-5 text-muted">One per line: person slug | freeform role label.</span>
-      </label>
+        <Textarea className="min-h-28" defaultValue={serializeParticipants(event)} name="participantLinks" placeholder="dj-aurora | Performer&#10;vj-lumen | Staff" />
+        <FieldText>One per line: person slug | freeform role label.</FieldText>
+      </Field>
 
-      <section className="grid gap-4 rounded-lg border border-border bg-surface-strong px-4 py-4">
+      <Card className="grid gap-4" padding="sm" surface="strong">
         <div>
-          <p className="font-mono text-xs uppercase tracking-[0.24em] text-muted">DJ slots</p>
+          <Eyebrow>DJ slots</Eyebrow>
           <h3 className="mt-3 text-xl font-semibold tracking-[-0.03em]">Generate a set-time scaffold</h3>
           <p className="mt-2 text-xs leading-5 text-muted">
             Slots use minute offsets from the event start, so changing the event start keeps the lineup shape intact. Save requires a valid IANA time zone such as <code>America/New_York</code> or <code>UTC</code>.
           </p>
         </div>
         <div className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
-          <label className="grid gap-2 text-xs font-medium text-muted">
+          <Field className="text-xs text-muted">
             Slot count
-            <input className="rounded-md border border-border bg-white px-4 py-3 font-normal text-foreground outline-none transition focus:border-accent" inputMode="numeric" onChange={(changeEvent) => setSlotTemplate((current) => ({ ...current, count: changeEvent.currentTarget.value }))} value={slotTemplate.count} />
-          </label>
-          <label className="grid gap-2 text-xs font-medium text-muted">
+            <Input className="bg-white text-foreground" inputMode="numeric" onChange={(changeEvent) => setSlotTemplate((current) => ({ ...current, count: changeEvent.currentTarget.value }))} value={slotTemplate.count} />
+          </Field>
+          <Field className="text-xs text-muted">
             Duration minutes
-            <input className="rounded-md border border-border bg-white px-4 py-3 font-normal text-foreground outline-none transition focus:border-accent" inputMode="numeric" onChange={(changeEvent) => setSlotTemplate((current) => ({ ...current, duration: changeEvent.currentTarget.value }))} value={slotTemplate.duration} />
-          </label>
-          <label className="grid gap-2 text-xs font-medium text-muted">
+            <Input className="bg-white text-foreground" inputMode="numeric" onChange={(changeEvent) => setSlotTemplate((current) => ({ ...current, duration: changeEvent.currentTarget.value }))} value={slotTemplate.duration} />
+          </Field>
+          <Field className="text-xs text-muted">
             Break minutes
-            <input className="rounded-md border border-border bg-white px-4 py-3 font-normal text-foreground outline-none transition focus:border-accent" inputMode="numeric" onChange={(changeEvent) => setSlotTemplate((current) => ({ ...current, break: changeEvent.currentTarget.value }))} value={slotTemplate.break} />
-          </label>
-          <button className="rounded-md border border-border bg-white px-4 py-3 text-sm font-medium transition hover:border-accent" onClick={onGenerateSlots} type="button">
+            <Input className="bg-white text-foreground" inputMode="numeric" onChange={(changeEvent) => setSlotTemplate((current) => ({ ...current, break: changeEvent.currentTarget.value }))} value={slotTemplate.break} />
+          </Field>
+          <Button className="bg-white" onClick={onGenerateSlots} type="button">
             Generate
-          </button>
+          </Button>
         </div>
-        <label className="grid gap-2 text-sm font-medium">
+        <Field>
           Slot rows
-          <textarea className="min-h-36 rounded-md border border-border bg-white px-4 py-3 font-normal outline-none transition focus:border-accent" name="slotLinks" onChange={(changeEvent) => setSlotText(changeEvent.currentTarget.value)} placeholder="0 | 45 | dj-aurora | DJ Aurora | House&#10;45 | 45 | dj-lumen | DJ Lumen | Trance" value={slotText} />
-          <span className="text-xs leading-5 text-muted">One per line: start offset minutes | duration minutes | optional person slug | billing name | style or role. Linked slot performers are also deduped into event participants.</span>
-        </label>
-      </section>
+          <Textarea className="min-h-36 bg-white" name="slotLinks" onChange={(changeEvent) => setSlotText(changeEvent.currentTarget.value)} placeholder="0 | 45 | dj-aurora | DJ Aurora | House&#10;45 | 45 | dj-lumen | DJ Lumen | Trance" value={slotText} />
+          <FieldText>One per line: start offset minutes | duration minutes | optional person slug | billing name | style or role. Linked slot performers are also deduped into event participants.</FieldText>
+        </Field>
+      </Card>
 
-      <div className="rounded-[1.25rem] border border-border bg-surface-strong px-4 py-4 text-sm leading-6 text-muted">
+      <Notice>
         Event links publish immediately when saved. Approval, disputes, RSVP/interested state, recurring events, and friend-aware discovery are tracked as follow-on issues.
-      </div>
+      </Notice>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <button className="inline-flex items-center justify-center rounded-full bg-accent px-5 py-3 text-sm font-medium text-white transition hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-60" disabled={isSubmitting} type="submit">
+        <Button disabled={isSubmitting} size="lg" type="submit" variant="primary">
           {isSubmitting ? "Saving..." : event ? "Update event" : "Create event"}
-        </button>
+        </Button>
         {status.kind === "success" ? (
-          <Link className="inline-flex items-center justify-center rounded-full border border-border bg-surface-strong px-5 py-3 text-sm font-medium" href={status.result.eventPath}>
+          <Link className={buttonVariants({ size: "lg", variant: "secondary" })} href={status.result.eventPath}>
             View {status.result.eventPath}
           </Link>
         ) : null}
       </div>
 
       {status.kind === "error" ? (
-        <p className="rounded-[1rem] border border-accent/35 bg-accent/10 px-4 py-3 text-sm leading-6 text-accent-strong">
+        <Notice variant="error">
           {status.message}
-        </p>
+        </Notice>
       ) : null}
     </form>
   );

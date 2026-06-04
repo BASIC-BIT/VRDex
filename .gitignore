@@ -5,8 +5,10 @@ node_modules/
 .convex-home/
 .convex-tmp/
 apps/web/playwright-report/
+apps/web/playwright-report-storybook/
 apps/web/playwright-artifacts/
 apps/web/test-results/
+apps/web/storybook-static/
 apps/docs/.docusaurus/
 apps/docs/build/
 .vercel/

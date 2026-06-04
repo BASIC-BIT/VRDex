@@ -2,6 +2,10 @@ import Link from "next/link";
 import { DiscoverySearchForm } from "./_components/discovery-analytics";
 import { HomeActiveWorldsSection } from "./_components/home-active-worlds";
 import { BackendStatusCard } from "./backend-status-card";
+import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
+import { Card, Eyebrow, SectionTitle } from "@/components/ui/card";
+import { PageContainer, PageShell } from "@/components/ui/page-shell";
 import { fetchDiscovery, fetchHomeActiveWorlds } from "@/convex/server";
 
 export const dynamic = "force-dynamic";
@@ -24,13 +28,13 @@ export default async function Home() {
   const featuredEvents = discovery.data.upcomingEvents.slice(0, 3);
 
   return (
-    <main className="min-h-screen px-6 py-10 text-foreground sm:px-10 lg:px-16">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
-        <section className="overflow-hidden rounded-[2rem] bg-[#221512] text-white shadow-[0_24px_80px_rgba(64,40,24,0.18)]">
+    <PageShell className="py-10">
+      <PageContainer className="gap-8">
+        <section className="overflow-hidden rounded-hero bg-[#221512] text-white shadow-hero">
           <div className="grid gap-10 bg-[radial-gradient(circle_at_top_left,rgba(214,106,77,0.34),transparent_34%),linear-gradient(135deg,#221512,#7c321f)] px-6 py-8 sm:px-8 lg:grid-cols-[1.35fr_0.9fr] lg:px-10 lg:py-12">
             <div className="flex flex-col gap-8">
               <div className="flex items-center gap-3 text-sm uppercase tracking-[0.28em] text-white/68">
-                <span className="rounded-full border border-white/25 px-3 py-1">VRDex</span>
+                <Badge className="border-white/25 bg-transparent" shape="pill" variant="inverseMuted">VRDex</Badge>
                 <span>Search-first discovery</span>
               </div>
 
@@ -47,19 +51,19 @@ export default async function Home() {
 
               <div className="flex flex-col gap-3 sm:flex-row">
                 <Link
-                  className="inline-flex items-center justify-center rounded-full bg-white px-5 py-3 text-sm font-semibold text-foreground transition hover:-translate-y-0.5"
+                  className={buttonVariants({ size: "lg", variant: "inversePrimary" })}
                   href="/discover"
                 >
                   Explore discovery
                 </Link>
                 <Link
-                  className="inline-flex items-center justify-center rounded-full border border-white/25 bg-white/12 px-5 py-3 text-sm font-medium text-white transition hover:-translate-y-0.5"
+                  className={buttonVariants({ size: "lg", variant: "inverse" })}
                   href="/events/new"
                 >
                   Add an event
                 </Link>
                 <Link
-                  className="inline-flex items-center justify-center rounded-full border border-white/25 bg-white/12 px-5 py-3 text-sm font-medium text-white transition hover:-translate-y-0.5"
+                  className={buttonVariants({ size: "lg", variant: "inverse" })}
                   href="/submit"
                 >
                   Add a profile
@@ -67,8 +71,8 @@ export default async function Home() {
               </div>
             </div>
 
-            <aside className="rounded-[1.5rem] border border-white/18 bg-white/14 p-5 backdrop-blur">
-              <p className="font-mono text-xs uppercase tracking-[0.3em] text-white/64">
+            <aside className="rounded-panel border border-white/18 bg-white/14 p-5 backdrop-blur">
+              <p className="font-mono text-xs uppercase tracking-[0.24em] text-white/64">
                 Tonight and soon
               </p>
               <div className="mt-5 grid gap-3">
@@ -77,7 +81,7 @@ export default async function Home() {
                 ) : (
                   featuredEvents.map((event) => (
                     <Link
-                      className="rounded-[1.2rem] border border-white/14 bg-white/12 px-4 py-4 transition hover:-translate-y-0.5"
+                      className="rounded-card border border-white/14 bg-white/12 px-4 py-4 transition hover:-translate-y-0.5"
                       href={event.routePath}
                       key={`${event.entityType}-${event.slug}`}
                     >
@@ -98,49 +102,43 @@ export default async function Home() {
         <HomeActiveWorldsSection status={activeWorlds.kind} worlds={activeWorlds.worlds} />
 
         <section className="grid gap-4 lg:grid-cols-3">
-          <article className="rounded-[1.5rem] border border-border bg-surface px-5 py-6">
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">
-              Now in place
-            </p>
-            <h2 className="mt-4 text-2xl font-semibold tracking-[-0.03em]">
+          <Card>
+            <Eyebrow>Now in place</Eyebrow>
+            <SectionTitle className="mt-4 text-2xl tracking-[-0.03em]">
               Public profile routes
-            </h2>
+            </SectionTitle>
             <p className="mt-3 text-sm leading-7 text-muted">
               Person pages live under <code className="font-mono text-[0.95em]">/p/&lt;slug&gt;</code>,
               community pages live under <code className="font-mono text-[0.95em]">/c/&lt;slug&gt;</code>,
               and both render shared identity, presentation, and trust state.
             </p>
-          </article>
+          </Card>
 
-          <article className="rounded-[1.5rem] border border-border bg-surface px-5 py-6">
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">
-              Deliberately deferred
-            </p>
-            <h2 className="mt-4 text-2xl font-semibold tracking-[-0.03em]">
+          <Card>
+            <Eyebrow>Deliberately deferred</Eyebrow>
+            <SectionTitle className="mt-4 text-2xl tracking-[-0.03em]">
               Owner authority still separate
-            </h2>
+            </SectionTitle>
             <p className="mt-3 text-sm leading-7 text-muted">
               Community submissions create unclaimed profiles only. Rich claim,
               auth-provider setup, billing posture, and moderation workflows stay
               in their own follow-on issues.
             </p>
-          </article>
+          </Card>
 
-          <article className="rounded-[1.5rem] border border-border bg-surface px-5 py-6">
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">
-              Initial readiness
-            </p>
-            <h2 className="mt-4 text-2xl font-semibold tracking-[-0.03em]">
+          <Card>
+            <Eyebrow>Initial readiness</Eyebrow>
+            <SectionTitle className="mt-4 text-2xl tracking-[-0.03em]">
               Hosted previews first
-            </h2>
+            </SectionTitle>
             <p className="mt-3 text-sm leading-7 text-muted">
               Before deeper product discovery, VRDex needs live Vercel previews,
               auth wiring, and stronger validation loops so each change can be
               checked outside a local workstation.
             </p>
-          </article>
+          </Card>
         </section>
-      </div>
-    </main>
+      </PageContainer>
+    </PageShell>
   );
 }

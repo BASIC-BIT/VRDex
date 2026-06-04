@@ -1,5 +1,19 @@
 import Link from "next/link";
 
+import {
+  actionCardVariants,
+  actionLabelClassName,
+  actionMetaClassName,
+  inlineActionClassName,
+} from "@/components/ui/action-card";
+import { Badge, badgeVariants } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
+import { Card, Eyebrow } from "@/components/ui/card";
+import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
+import { Table, TableCell, TableFrame, TableHead, TableHeaderCell } from "@/components/ui/table";
+import { cn } from "@/lib/cn";
+import { safeImageBackground } from "@/lib/safe-image";
+
 type EventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested";
 type EventMediaLinkType =
   | "event_page"
@@ -101,29 +115,7 @@ export type PublicEvent = Omit<PublicEventPreview, "worlds"> & {
   }>;
 };
 
-function safeImageBackground(imageUrl: string | undefined, overlay = false) {
-  if (!imageUrl) {
-    return undefined;
-  }
-
-  try {
-    const url = new URL(imageUrl);
-
-    if (url.protocol !== "https:") {
-      return undefined;
-    }
-
-    const image = `url(${JSON.stringify(url.href)})`;
-
-    return {
-      backgroundImage: overlay
-        ? `linear-gradient(135deg, rgba(25, 17, 31, 0.72), rgba(105, 56, 169, 0.2)), ${image}`
-        : image,
-    };
-  } catch {
-    return undefined;
-  }
-}
+const eventPosterOverlay = "linear-gradient(135deg, rgba(25, 17, 31, 0.72), rgba(105, 56, 169, 0.2))";
 
 function safeHttpsUrl(url: string | undefined): string | null {
   if (!url) {
@@ -205,22 +197,12 @@ function formatSlotTimeRange(slot: PublicEvent["slots"][number], timezone: strin
   return `${start} - ${formatEventTime(slot.endAt, timezone)}`;
 }
 
-const actionCardClassName =
-  "group rounded-md border border-accent/35 bg-accent/10 px-4 py-3 text-sm transition hover:border-accent hover:bg-accent/15";
-const actionCardLooseClassName =
-  "group rounded-md border border-accent/35 bg-accent/10 px-4 py-4 text-sm transition hover:border-accent hover:bg-accent/15";
-const actionLabelClassName =
-  "block font-medium text-accent-strong underline decoration-accent/45 underline-offset-4 group-hover:decoration-accent";
-const actionMetaClassName = "mt-1 block text-xs text-muted";
-const inlineActionClassName =
-  "font-semibold tracking-[-0.02em] text-accent-strong underline decoration-accent/45 underline-offset-4 hover:decoration-accent";
-
 export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
   const sourceUrl = safeHttpsUrl(event.source.url);
-  const posterStyle = safeImageBackground(event.posterImageUrl, true);
+  const posterStyle = safeImageBackground(event.posterImageUrl, eventPosterOverlay);
 
   return (
-    <article className="group overflow-hidden rounded-lg border border-border bg-surface-strong text-sm transition hover:-translate-y-0.5">
+    <article className="group overflow-hidden rounded-card border border-border bg-surface-strong text-sm transition hover:-translate-y-0.5">
       <div
         className="min-h-28 bg-[radial-gradient(circle_at_top_left,rgba(214,106,77,0.22),transparent_34%),linear-gradient(135deg,#2c1d29,#60429a)] bg-cover bg-center px-4 py-4 text-white"
         style={posterStyle}
@@ -239,23 +221,23 @@ export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
         {event.summary ? <p className="leading-6 text-muted">{event.summary}</p> : null}
         <div className="flex flex-wrap gap-2 text-xs">
           {event.participantCount > 0 ? (
-            <span className="rounded-md border border-border bg-white px-3 py-1">
+            <Badge variant="muted">
               {event.participantCount} linked profile{event.participantCount === 1 ? "" : "s"}
-            </span>
+            </Badge>
           ) : null}
           {event.slotCount > 0 ? (
-            <span className="rounded-md border border-border bg-white px-3 py-1">
+            <Badge variant="muted">
               {event.slotCount} set time{event.slotCount === 1 ? "" : "s"}
-            </span>
+            </Badge>
           ) : null}
           {event.worlds.map((world) => (
-            <span className="rounded-md border border-border bg-white px-3 py-1" key={world.slug}>
+            <Badge variant="muted" key={world.slug}>
               {world.displayName}
-            </span>
+            </Badge>
           ))}
           {sourceUrl ? (
             <a
-              className="rounded-md border border-border bg-white px-3 py-1 font-medium"
+              className={cn(badgeVariants({ variant: "muted" }), "font-medium")}
               href={sourceUrl}
               rel="noreferrer"
               target="_blank"
@@ -263,9 +245,7 @@ export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
               {event.source.label}
             </a>
           ) : (
-            <span className="rounded-md border border-border bg-white px-3 py-1">
-              {event.source.label}
-            </span>
+            <Badge variant="muted">{event.source.label}</Badge>
           )}
         </div>
       </div>
@@ -275,9 +255,10 @@ export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
 
 export function EventBackendNotice({ kind }: { kind: "missing-url" | "error" }) {
   return (
-    <main className="min-h-screen px-6 py-10 text-foreground sm:px-10 lg:px-16">
-      <section className="mx-auto max-w-3xl rounded-lg border border-border bg-surface px-6 py-8 shadow-[0_24px_80px_rgba(64,40,24,0.12)] sm:px-8">
-        <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Event page</p>
+    <PageShell className="py-10">
+      <PageContainer max="3xl">
+      <Card className="shadow-panel" padding="lg">
+        <Eyebrow>Event page</Eyebrow>
         <h1 className="mt-4 text-4xl font-semibold tracking-[-0.04em]">
           {kind === "missing-url" ? "Convex URL not configured" : "Event read failed"}
         </h1>
@@ -287,47 +268,46 @@ export function EventBackendNotice({ kind }: { kind: "missing-url" | "error" }) 
             : "Start the local Convex backend and reload this page once the event query is reachable."}
         </p>
         <Link
-          className="mt-6 inline-flex rounded-md border border-border bg-surface-strong px-5 py-3 text-sm font-medium"
+          className={cn(buttonVariants({ size: "lg", variant: "secondary" }), "mt-6")}
           href="/"
         >
           Back to homepage
         </Link>
-      </section>
-    </main>
+      </Card>
+      </PageContainer>
+    </PageShell>
   );
 }
 
 export function EventPublicPage({ event, showEditLink = false }: { event: PublicEvent; showEditLink?: boolean }) {
-  const posterStyle = safeImageBackground(event.posterImageUrl, true);
+  const posterStyle = safeImageBackground(event.posterImageUrl, eventPosterOverlay);
   const sourceUrl = safeHttpsUrl(event.source.url);
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(125,74,202,0.14),transparent_32%),linear-gradient(180deg,#faf7fb,#f3efe8)] px-6 py-8 text-foreground sm:px-10 lg:px-16">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
-        <nav className="flex flex-wrap items-center justify-between gap-3 text-sm">
-          <Link className="font-mono uppercase tracking-[0.28em] text-muted" href="/">
-            VRDex
-          </Link>
+    <PageShell tone="event">
+      <PageContainer>
+        <PageNav>
+          <BrandLink />
           <div className="flex flex-wrap gap-2">
-            <Link className="rounded-md border border-border bg-white/80 px-4 py-2 font-medium" href="/events/new">
+            <Link className={buttonVariants({ variant: "surface" })} href="/events/new">
               Add event
             </Link>
             {showEditLink ? (
-              <Link className="rounded-md border border-border bg-white/80 px-4 py-2 font-medium" href={`/events/${event.slug}/edit`}>
+              <Link className={buttonVariants({ variant: "surface" })} href={`/events/${event.slug}/edit`}>
                 Edit event
               </Link>
             ) : null}
           </div>
-        </nav>
+        </PageNav>
 
-        <section className="overflow-hidden rounded-lg border border-purple-950/10 bg-slate-950 shadow-[0_24px_90px_rgba(41,20,61,0.18)]">
+        <section className="overflow-hidden rounded-hero border border-purple-950/10 bg-slate-950 shadow-hero">
           <div
             className="relative min-h-56 bg-[radial-gradient(circle_at_top_right,rgba(198,153,255,0.32),transparent_30%),linear-gradient(135deg,#17111f,#5d3b8e_52%,#20142f)] bg-cover bg-center p-5 text-white sm:p-6 lg:p-8"
             style={posterStyle}
           >
-            <span className="absolute top-4 right-4 rounded-md bg-white/15 px-3 py-1 font-mono text-xs uppercase tracking-[0.22em] text-white/82">
+            <Badge className="absolute top-4 right-4" mono variant="inverse">
               Event
-            </span>
+            </Badge>
             <div className="flex min-h-44 flex-col justify-end pr-16">
               <div className="max-w-4xl">
                 <time className="text-sm uppercase tracking-[0.24em] text-white/70" dateTime={new Date(event.startAt).toISOString()}>
@@ -343,8 +323,8 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
         </section>
 
         <section className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
-          <aside className="rounded-lg border border-border bg-white/80 px-5 py-6 shadow-sm sm:px-6">
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">When</p>
+          <Card surface="white">
+            <Eyebrow>When</Eyebrow>
             <dl className="mt-5 space-y-4 text-sm">
               <div className="border-b border-border pb-4">
                 <dt className="text-muted">Start</dt>
@@ -360,27 +340,27 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
             <p className="mt-4 text-xs leading-5 text-muted">
               Time zone: {event.timezone ?? "not listed"}
             </p>
-          </aside>
+          </Card>
 
-          <article className="rounded-lg border border-border bg-white/80 px-5 py-6 shadow-sm sm:px-6">
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Place</p>
+          <Card surface="white">
+            <Eyebrow>Place</Eyebrow>
             <div className="mt-5 grid gap-3 text-sm">
               {event.communitySlug ? (
-                <Link className={actionCardClassName} href={`/c/${event.communitySlug}`}>
+                <Link className={actionCardVariants({ variant: "accent" })} href={`/c/${event.communitySlug}`}>
                   <span className={actionLabelClassName}>
                     {event.communityName ?? "Community profile"}
                   </span>
                   <span className={actionMetaClassName}>Host</span>
                 </Link>
               ) : event.communityName ? (
-                <div className="rounded-md border border-border bg-surface px-4 py-3 font-medium">
+                <div className="rounded-control border border-border bg-surface px-4 py-3 font-medium">
                   {event.communityName}
                 </div>
               ) : (
                 <p className="leading-6 text-muted">No host listed.</p>
               )}
               {event.worlds.map((world) => (
-                <Link className={actionCardClassName} href={`/w/${world.slug}`} key={world.slug}>
+                <Link className={actionCardVariants({ variant: "accent" })} href={`/w/${world.slug}`} key={world.slug}>
                   <span className={actionLabelClassName}>
                     {world.displayName}
                   </span>
@@ -389,16 +369,16 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
                 </Link>
               ))}
             </div>
-          </article>
+          </Card>
         </section>
 
-        <section className="rounded-lg border border-border bg-white/80 px-5 py-6 shadow-sm sm:px-6">
-          <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Set times</p>
+        <Card surface="white">
+          <Eyebrow>Set times</Eyebrow>
           <div className="mt-5">
             {event.slots.length === 0 ? (
               <p className="text-sm leading-6 text-muted">No set times yet.</p>
             ) : (
-              <div className="overflow-x-auto rounded-md border border-border bg-surface">
+              <TableFrame>
                 <div className="grid divide-y divide-border text-sm sm:hidden">
                   {event.slots.map((slot) => (
                     <div className="grid gap-2 px-4 py-3" key={`${slot.position}-${slot.startAt}-${slot.displayLabel}-mobile`}>
@@ -418,19 +398,19 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
                     </div>
                   ))}
                 </div>
-                <table className="hidden w-full border-collapse text-left text-sm sm:table">
-                  <thead className="border-b border-border bg-white/70 text-xs uppercase tracking-[0.18em] text-muted">
+                <Table className="hidden sm:table">
+                  <TableHead>
                     <tr>
-                      <th className="px-4 py-3 font-medium">Time</th>
-                      <th className="px-4 py-3 font-medium">Artist</th>
-                      <th className="px-4 py-3 font-medium">Style(s)</th>
+                      <TableHeaderCell>Time</TableHeaderCell>
+                      <TableHeaderCell>Artist</TableHeaderCell>
+                      <TableHeaderCell>Style(s)</TableHeaderCell>
                     </tr>
-                  </thead>
+                  </TableHead>
                   <tbody className="divide-y divide-border">
                     {event.slots.map((slot) => (
                       <tr className="align-top" key={`${slot.position}-${slot.startAt}-${slot.displayLabel}`}>
-                        <td className="whitespace-nowrap px-4 py-3 font-medium">{formatSlotTimeRange(slot, event.timezone)}</td>
-                        <td className="px-4 py-3">
+                        <TableCell className="whitespace-nowrap font-medium">{formatSlotTimeRange(slot, event.timezone)}</TableCell>
+                        <TableCell>
                           {slot.performer ? (
                             <Link className={inlineActionClassName} href={`/p/${slot.performer.slug}`}>
                               {slot.displayLabel}
@@ -438,25 +418,25 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
                           ) : (
                             <span className="font-semibold tracking-[-0.02em]">{slot.displayLabel}</span>
                           )}
-                        </td>
-                        <td className="px-4 py-3 text-muted">{slot.roleLabel}</td>
+                        </TableCell>
+                        <TableCell className="text-muted">{slot.roleLabel}</TableCell>
                       </tr>
                     ))}
                   </tbody>
-                </table>
-              </div>
+                </Table>
+              </TableFrame>
             )}
           </div>
-        </section>
+        </Card>
 
-        <section className="rounded-lg border border-border bg-white/80 px-5 py-6 shadow-sm sm:px-6">
-          <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Lineup</p>
+        <Card surface="white">
+          <Eyebrow>Lineup</Eyebrow>
           <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {event.participants.length === 0 ? (
               <p className="text-sm leading-6 text-muted">No lineup yet.</p>
             ) : (
               event.participants.map((participant) => (
-                <Link className={actionCardLooseClassName} href={`/p/${participant.slug}`} key={participant.slug}>
+                <Link className={actionCardVariants({ padding: "lg", variant: "accent" })} href={`/p/${participant.slug}`} key={participant.slug}>
                   <span className="block text-lg font-semibold tracking-[-0.03em] text-accent-strong underline decoration-accent/45 underline-offset-4 group-hover:decoration-accent">
                     {participant.displayName}
                   </span>
@@ -466,17 +446,17 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
               ))
             )}
           </div>
-        </section>
+        </Card>
 
         <section className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-          <article className="rounded-lg border border-border bg-white/80 px-5 py-6 shadow-sm">
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Links</p>
+          <Card surface="white">
+            <Eyebrow>Links</Eyebrow>
             <div className="mt-4 grid gap-3">
               {event.mediaLinks.length === 0 && !sourceUrl ? (
                 <p className="text-sm leading-6 text-muted">No links yet.</p>
               ) : null}
               {sourceUrl ? (
-                <a className={actionCardClassName} href={sourceUrl} rel="noreferrer" target="_blank">
+                <a className={actionCardVariants({ variant: "accent" })} href={sourceUrl} rel="noreferrer" target="_blank">
                   <span className={actionLabelClassName}>
                     {event.source.label}
                   </span>
@@ -484,7 +464,7 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
                 </a>
               ) : null}
               {event.mediaLinks.map((link) => (
-                <a className={actionCardClassName} href={link.url} key={`${link.type}-${link.url}`} rel="noreferrer" target="_blank">
+                <a className={actionCardVariants({ variant: "accent" })} href={link.url} key={`${link.type}-${link.url}`} rel="noreferrer" target="_blank">
                   <span className={actionLabelClassName}>
                     {link.label}
                   </span>
@@ -494,16 +474,16 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
                 </a>
               ))}
             </div>
-          </article>
+          </Card>
 
-          <article className="rounded-lg border border-border bg-white/80 px-5 py-6 shadow-sm">
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Notes</p>
+          <Card surface="white">
+            <Eyebrow>Notes</Eyebrow>
             <div className="mt-4 space-y-4 text-sm leading-7 text-muted">
               {event.notes ? <p>{event.notes}</p> : <p>No notes yet.</p>}
             </div>
-          </article>
+          </Card>
         </section>
-      </div>
-    </main>
+      </PageContainer>
+    </PageShell>
   );
 }

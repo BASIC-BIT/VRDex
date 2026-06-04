@@ -1,6 +1,12 @@
 import Link from "next/link";
 
 import { EventPreviewCard, type PublicEventPreview } from "./event-public-page";
+import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
+import { Card, Eyebrow, SectionHeading, SectionTitle } from "@/components/ui/card";
+import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
+import { cn } from "@/lib/cn";
+import { safeImageBackground } from "@/lib/safe-image";
 
 type ProfileTrustLabel =
   | "community_submitted"
@@ -121,29 +127,7 @@ function initialsFor(name: string): string {
   return initials || "VR";
 }
 
-function safeImageBackground(imageUrl: string | undefined, overlay = false) {
-  if (!imageUrl) {
-    return undefined;
-  }
-
-  try {
-    const url = new URL(imageUrl);
-
-    if (url.protocol !== "https:") {
-      return undefined;
-    }
-
-    const image = `url(${JSON.stringify(url.href)})`;
-
-    return {
-      backgroundImage: overlay
-        ? `linear-gradient(135deg, rgba(22, 17, 15, 0.58), rgba(214, 106, 77, 0.2)), ${image}`
-        : image,
-    };
-  } catch {
-    return undefined;
-  }
-}
+const profileBannerOverlay = "linear-gradient(135deg, rgba(22, 17, 15, 0.58), rgba(214, 106, 77, 0.2))";
 
 function safeHttpsUrl(url: string): string | null {
   try {
@@ -191,12 +175,9 @@ function PillList({ items }: { items: string[] }) {
   return (
     <div className="flex flex-wrap gap-2">
       {items.map((item) => (
-        <span
-          className="rounded-full border border-border bg-surface-strong px-3 py-1 text-sm"
-          key={item}
-        >
+        <Badge className="text-sm" key={item}>
           {item}
-        </span>
+        </Badge>
       ))}
     </div>
   );
@@ -204,11 +185,10 @@ function PillList({ items }: { items: string[] }) {
 
 export function ProfileBackendNotice({ kind }: { kind: "missing-url" | "error" }) {
   return (
-    <main className="min-h-screen px-6 py-10 text-foreground sm:px-10 lg:px-16">
-      <section className="mx-auto max-w-3xl rounded-[2rem] border border-border bg-surface px-6 py-8 shadow-[0_24px_80px_rgba(64,40,24,0.12)] sm:px-8">
-        <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">
-          Public profile
-        </p>
+    <PageShell className="py-10">
+      <PageContainer max="3xl">
+      <Card className="shadow-panel" padding="lg">
+        <Eyebrow>Public profile</Eyebrow>
         <h1 className="mt-4 text-4xl font-semibold tracking-[-0.04em]">
           {kind === "missing-url" ? "Convex URL not configured" : "Profile read failed"}
         </h1>
@@ -218,13 +198,14 @@ export function ProfileBackendNotice({ kind }: { kind: "missing-url" | "error" }
             : "Start the local Convex backend and reload this page once the profile query is reachable."}
         </p>
         <Link
-          className="mt-6 inline-flex rounded-full border border-border bg-surface-strong px-5 py-3 text-sm font-medium"
+          className={cn(buttonVariants({ size: "lg", variant: "secondary" }), "mt-6")}
           href="/"
         >
           Back to homepage
         </Link>
-      </section>
-    </main>
+      </Card>
+      </PageContainer>
+    </PageShell>
   );
 }
 
@@ -238,43 +219,41 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
     : [profile.community.subtype, ...profile.community.categoryTags].filter(
         (item): item is string => Boolean(item),
       );
-  const bannerStyle = safeImageBackground(profile.bannerImageUrl, true);
+  const bannerStyle = safeImageBackground(profile.bannerImageUrl, profileBannerOverlay);
   const avatarStyle = safeImageBackground(profile.avatarImageUrl);
 
   return (
-    <main className="min-h-screen px-6 py-8 text-foreground sm:px-10 lg:px-16">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
-        <nav className="flex flex-wrap items-center justify-between gap-3 text-sm">
-          <Link className="font-mono uppercase tracking-[0.28em] text-muted" href="/">
-            VRDex
-          </Link>
+    <PageShell>
+      <PageContainer>
+        <PageNav>
+          <BrandLink />
           <Link
-            className="rounded-full border border-border bg-surface px-4 py-2 font-medium"
+            className={buttonVariants({ variant: "secondary" })}
             href="/submit"
           >
             Add a missing profile
           </Link>
-        </nav>
+        </PageNav>
 
-        <section className="overflow-hidden rounded-[2rem] border border-border bg-surface shadow-[0_24px_80px_rgba(64,40,24,0.12)] backdrop-blur">
+        <section className="overflow-hidden rounded-hero border border-border bg-surface shadow-hero backdrop-blur">
           <div
             className="min-h-64 bg-[radial-gradient(circle_at_top_left,rgba(214,106,77,0.26),transparent_34%),linear-gradient(135deg,#2f211b,#9f3f27)] bg-cover bg-center p-6 text-white sm:p-8 lg:p-10"
             style={bannerStyle}
           >
             <div className="flex min-h-52 flex-col justify-between gap-10">
               <div className="flex flex-wrap items-center gap-3">
-                <span className="rounded-full bg-white/15 px-3 py-1 font-mono text-xs uppercase tracking-[0.22em] text-white/82">
+                <Badge mono variant="inverse">
                   {typeLabel}
-                </span>
-                <span className="rounded-full bg-white/15 px-3 py-1 font-mono text-xs uppercase tracking-[0.22em] text-white/82">
+                </Badge>
+                <Badge mono variant="inverse">
                   /{routePrefix}/{profile.slug}
-                </span>
+                </Badge>
               </div>
 
               <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-end">
                 <div className="flex flex-col gap-4">
                   <div
-                    className="flex size-24 items-center justify-center rounded-[1.75rem] border border-white/35 bg-white/20 bg-cover bg-center text-3xl font-semibold shadow-[0_18px_60px_rgba(0,0,0,0.22)]"
+                    className="flex size-24 items-center justify-center rounded-panel border border-white/35 bg-white/20 bg-cover bg-center text-3xl font-semibold shadow-panel"
                     style={avatarStyle}
                     role="img"
                     aria-label={`${profile.displayName} display image`}
@@ -296,10 +275,8 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
                   </div>
                 </div>
 
-                <aside className="rounded-[1.5rem] border border-white/20 bg-white/14 p-4 backdrop-blur">
-                  <p className="font-mono text-xs uppercase tracking-[0.24em] text-white/70">
-                    Trust state
-                  </p>
+                <aside className="rounded-panel border border-white/20 bg-white/14 p-4 backdrop-blur">
+                  <Eyebrow tone="inverse">Trust state</Eyebrow>
                   <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em]">
                     {trust.title}
                   </h2>
@@ -321,13 +298,11 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
         </section>
 
         <section className="grid gap-4 lg:grid-cols-[1.25fr_0.75fr]">
-          <article className="rounded-[1.5rem] border border-border bg-surface px-5 py-6 sm:px-6">
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">
-              About
-            </p>
-            <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em]">
+          <Card>
+            <Eyebrow>About</Eyebrow>
+            <SectionTitle className="mt-4">
               {isPerson ? "Public identity" : "Community home"}
-            </h2>
+            </SectionTitle>
             <div className="mt-4 space-y-4 text-sm leading-7 text-muted sm:text-base">
               {profile.bio ? <p>{profile.bio}</p> : null}
               {profile.about ? <p>{profile.about}</p> : null}
@@ -337,12 +312,10 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
                 </p>
               ) : null}
             </div>
-          </article>
+          </Card>
 
-          <aside className="rounded-[1.5rem] border border-border bg-surface px-5 py-6 sm:px-6">
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">
-              Basics
-            </p>
+          <Card>
+            <Eyebrow>Basics</Eyebrow>
             <dl className="mt-5 space-y-4 text-sm">
               <div className="border-b border-border pb-4">
                 <dt className="text-muted">Region</dt>
@@ -364,25 +337,18 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
                 </div>
               )}
             </dl>
-          </aside>
+          </Card>
         </section>
 
-        <section className="rounded-[1.5rem] border border-border bg-surface px-5 py-6 sm:px-6">
-          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
-            <div>
-              <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">
-                {isPerson ? "Upcoming events" : "Hosted events"}
-              </p>
-              <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em]">
-                {isPerson ? "Where this profile appears next" : "Upcoming community events"}
-              </h2>
-            </div>
-            <p className="max-w-md text-sm leading-6 text-muted">
-              {isPerson
-                ? "Derived from confirmed person-event links on published event records."
-                : "Published events linked to this community profile."}
-            </p>
-          </div>
+        <Card>
+          <SectionHeading
+            description={isPerson
+              ? "Derived from confirmed person-event links on published event records."
+              : "Published events linked to this community profile."}
+            eyebrow={isPerson ? "Upcoming events" : "Hosted events"}
+          >
+            {isPerson ? "Where this profile appears next" : "Upcoming community events"}
+          </SectionHeading>
           <div className="mt-5 grid gap-3 lg:grid-cols-2">
             {(isPerson ? profile.upcomingEvents : profile.hostedEvents).length === 0 ? (
               <p className="text-sm leading-6 text-muted">No public upcoming events yet.</p>
@@ -392,22 +358,15 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
               ))
             )}
           </div>
-        </section>
+        </Card>
 
-        <section className="rounded-[1.5rem] border border-border bg-surface px-5 py-6 sm:px-6">
-          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
-            <div>
-              <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">
-                Creator links
-              </p>
-              <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em]">
-                Stores, commissions, and external work
-              </h2>
-            </div>
-            <p className="max-w-md text-sm leading-6 text-muted">
-              Owner-authored or reviewed links only. VRDex does not verify sales, fulfillment, or creator endorsement.
-            </p>
-          </div>
+        <Card>
+          <SectionHeading
+            description="Owner-authored or reviewed links only. VRDex does not verify sales, fulfillment, or creator endorsement."
+            eyebrow="Creator links"
+          >
+            Stores, commissions, and external work
+          </SectionHeading>
           <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {profile.outboundLinks.length === 0 ? (
               <p className="text-sm leading-6 text-muted">No public creator/store links yet.</p>
@@ -421,7 +380,7 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
 
                 return (
                   <a
-                    className="rounded-2xl border border-border bg-surface-strong px-4 py-3 text-sm transition hover:-translate-y-0.5"
+                    className="rounded-card border border-border bg-surface-strong px-4 py-3 text-sm transition hover:-translate-y-0.5"
                     href={href}
                     key={`${link.type}-${link.url}`}
                     rel="noreferrer"
@@ -436,29 +395,22 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
               })
             )}
           </div>
-        </section>
+        </Card>
 
-        <section className="rounded-[1.5rem] border border-border bg-surface px-5 py-6 sm:px-6">
-          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
-            <div>
-              <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">
-                World credits
-              </p>
-              <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em]">
-                Worlds linked to this profile
-              </h2>
-            </div>
-            <p className="max-w-md text-sm leading-6 text-muted">
-              Credits come from published world profiles with explicit person/community attribution.
-            </p>
-          </div>
+        <Card>
+          <SectionHeading
+            description="Credits come from published world profiles with explicit person/community attribution."
+            eyebrow="World credits"
+          >
+            Worlds linked to this profile
+          </SectionHeading>
           <div className="mt-5 grid gap-3 lg:grid-cols-2">
             {profile.worldCredits.length === 0 ? (
               <p className="text-sm leading-6 text-muted">No public world credits yet.</p>
             ) : (
               profile.worldCredits.map((world) => (
                 <Link
-                  className="rounded-2xl border border-border bg-surface-strong px-4 py-4 text-sm transition hover:-translate-y-0.5"
+                  className="rounded-card border border-border bg-surface-strong px-4 py-4 text-sm transition hover:-translate-y-0.5"
                   href={`/w/${world.slug}`}
                   key={world.slug}
                 >
@@ -476,12 +428,9 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
                   {world.tags.length > 0 ? (
                     <span className="mt-4 flex flex-wrap gap-2">
                       {world.tags.slice(0, 3).map((tag) => (
-                        <span
-                          className="rounded-full border border-border bg-white px-3 py-1 text-xs"
-                          key={tag}
-                        >
+                        <Badge variant="muted" key={tag}>
                           {tag}
-                        </span>
+                        </Badge>
                       ))}
                     </span>
                   ) : null}
@@ -489,37 +438,31 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
               ))
             )}
           </div>
-        </section>
+        </Card>
 
         <section className="grid gap-4 lg:grid-cols-3">
-          <article className="rounded-[1.5rem] border border-border bg-surface px-5 py-6">
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">
-              {isPerson ? "Roles" : "Community focus"}
-            </p>
+          <Card>
+            <Eyebrow>{isPerson ? "Roles" : "Community focus"}</Eyebrow>
             <div className="mt-4">
               <PillList items={typeItems} />
             </div>
-          </article>
+          </Card>
 
-          <article className="rounded-[1.5rem] border border-border bg-surface px-5 py-6">
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">
-              Tags
-            </p>
+          <Card>
+            <Eyebrow>Tags</Eyebrow>
             <div className="mt-4">
               <PillList items={profile.tags} />
             </div>
-          </article>
+          </Card>
 
-          <article className="rounded-[1.5rem] border border-border bg-surface px-5 py-6">
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">
-              Aliases
-            </p>
+          <Card>
+            <Eyebrow>Aliases</Eyebrow>
             <div className="mt-4">
               <PillList items={profile.aliases} />
             </div>
-          </article>
+          </Card>
         </section>
-      </div>
-    </main>
+      </PageContainer>
+    </PageShell>
   );
 }
