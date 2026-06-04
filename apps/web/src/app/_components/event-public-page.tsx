@@ -393,7 +393,7 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
                   <span className={actionLabelClassName}>
                     {event.source.label}
                   </span>
-                  <span className={actionMetaClassName}>Source</span>
+                  <span className={actionMetaClassName}>Reference link</span>
                 </a>
               ) : null}
               {event.mediaLinks.map((link) => (

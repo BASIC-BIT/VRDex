@@ -229,7 +229,8 @@ export async function expectDeploymentPage(page: Page) {
 
 export async function expectPersonProfilePage(page: Page) {
   await expect(page.getByRole("heading", { name: "DJ Aurora" })).toBeVisible();
-  await expect(page.getByText(/Source: Community submitted on Jan 1, 2025/i)).toBeVisible();
+  await expect(page.getByText(/Jan 1, 2025/i)).toBeVisible();
+  await expect(page.getByText(/Source:/i)).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Upcoming events" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions" })).toBeVisible();
   await expect(page.getByText(/Creator links/i)).toBeVisible();
@@ -279,10 +280,9 @@ export async function expectEventPage(page: Page) {
 
 export async function expectEventWatchPage(page: Page) {
   await expect(page.getByRole("heading", { name: "Afterglow Watch Room" })).toBeVisible();
-  await expect(page.getByText("Watch now", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Event stream" })).toBeVisible();
   await expect(page.locator('iframe[title="VRCDN player for Event stream"]')).toBeVisible();
-  await expect(page.getByRole("link", { name: "Open watch link" }).first()).toHaveAttribute(
+  await expect(page.getByRole("link", { name: "Open stream" }).first()).toHaveAttribute(
     "href",
     "https://vrcdn.live/playwright-afterglow-watch-room",
   );
@@ -292,8 +292,9 @@ export async function expectEventWatchPage(page: Page) {
 
 export async function expectWorldProfilePage(page: Page) {
   await expect(page.getByRole("heading", { name: "Neon Harbor", exact: true })).toBeVisible();
-  await expect(page.getByText(/World profile/i)).toBeVisible();
-  await expect(page.getByText(/Neon Harbor creator notes/i)).toBeVisible();
+  await expect(page.getByText(/World profile/i)).toHaveCount(0);
+  await expect(page.getByText(/wrld_/i)).toHaveCount(0);
+  await expect(page.getByText(/Neon Harbor mixes warm booth lighting/i)).toBeVisible();
   await expect(page.getByText(/Events at this world/i)).toBeVisible();
   await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Neon Harbor Opening Night" })).toBeVisible();

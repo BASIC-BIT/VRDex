@@ -371,7 +371,7 @@ const publicWatchEvent: PublicEvent = {
   doorsOpenAt: watchEventDoorsOpenAt,
   endAt: watchEventEndAt,
   summary: "Live room for the Afterglow set stream.",
-  notes: "Use the player during the event, or open the source link in a new tab.",
+  notes: "Use the player during the event, or open the stream in a new tab.",
   mediaLinks: [
     {
       type: "watch",

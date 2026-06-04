@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { Badge, badgeVariants } from "@/components/ui/badge";
+import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, Eyebrow, SectionHeading, SectionTitle } from "@/components/ui/card";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
@@ -161,17 +161,6 @@ function linkSourceLabel(source: WorldLinkSource): string {
   return "Reviewed";
 }
 
-function eventSourceLabel(source: EventSourceType): string {
-  if (source === "ai_suggested") {
-    return "AI-suggested";
-  }
-
-  return source
-    .split("_")
-    .map((word) => `${word[0]?.toUpperCase() ?? ""}${word.slice(1)}`)
-    .join(" ");
-}
-
 function initialsFor(name: string): string {
   const initials = name
     .split(/\s+/)
@@ -238,18 +227,15 @@ function EventList({
             </div>
             <div className="px-4 py-4">
               {event.summary ? <p className="leading-6 text-muted">{event.summary}</p> : null}
-              <div className="mt-4 flex flex-wrap gap-2 text-xs">
-                <Badge variant="cyan">
-                  {eventSourceLabel(event.worldAssociation.sourceType)} association
-                </Badge>
+              <div className="mt-4 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
                 {event.mediaLinks.length > 0 ? (
-                  <Badge variant="muted">
+                  <span>
                     {event.mediaLinks.length} media link{event.mediaLinks.length === 1 ? "" : "s"}
-                  </Badge>
+                  </span>
                 ) : null}
                 {sourceUrl ? (
                   <a
-                    className={cn(badgeVariants({ variant: "muted" }), "font-medium")}
+                    className="font-medium text-accent-strong underline decoration-accent/35 underline-offset-4"
                     href={sourceUrl}
                     rel="noreferrer"
                     target="_blank"
@@ -257,9 +243,7 @@ function EventList({
                     {event.source.label}
                   </a>
                 ) : (
-                  <Badge variant="muted">
-                    {event.source.label}
-                  </Badge>
+                  <span>{event.source.label}</span>
                 )}
               </div>
             </div>
@@ -302,10 +286,6 @@ export function WorldPublicPage({ world }: { world: PublicWorld }) {
     ? safeHttpsUrl(world.canonicalVrchatWorldUrl)
     : null;
   const sourceUrl = world.sourceUrl ? safeHttpsUrl(world.sourceUrl) : null;
-  const sourceTitle = world.source?.label ?? "Unverified metadata";
-  const sourceDescription = world.source
-    ? "World metadata is source-attributed. Creator credits and commerce links should remain reviewable."
-    : "World metadata is source-attributed when available.";
 
   return (
     <PageShell tone="world">
@@ -322,17 +302,8 @@ export function WorldPublicPage({ world }: { world: PublicWorld }) {
             className="min-h-72 bg-[radial-gradient(circle_at_top_right,rgba(53,216,230,0.32),transparent_30%),linear-gradient(135deg,#09111f,#155e75_52%,#0f172a)] bg-cover bg-center p-6 text-white sm:p-8 lg:p-10"
             style={heroStyle}
           >
-            <div className="flex min-h-60 flex-col justify-between gap-10">
-              <div className="flex flex-wrap items-center gap-3">
-                <Badge mono variant="inverse">
-                  World profile
-                </Badge>
-                <Badge mono variant="inverse">
-                  /w/{world.slug}
-                </Badge>
-              </div>
-
-              <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-end">
+            <div className="flex min-h-60 flex-col justify-end">
+              <div className="grid gap-6 lg:items-end">
                 <div className="flex flex-col gap-4">
                   <div className="flex size-24 items-center justify-center rounded-panel border border-white/30 bg-white/15 text-3xl font-semibold shadow-panel">
                     {initialsFor(world.displayName)}
@@ -342,21 +313,13 @@ export function WorldPublicPage({ world }: { world: PublicWorld }) {
                     <h1 className="text-5xl leading-none font-semibold tracking-[-0.05em] sm:text-7xl">
                       {world.displayName}
                     </h1>
-                    <p className="mt-4 max-w-2xl text-base leading-7 text-white/82 sm:text-lg">
-                      {world.summary ?? "A public VRDex page for a VRChat world or venue."}
-                    </p>
+                    {world.summary ? (
+                      <p className="mt-4 max-w-2xl text-base leading-7 text-white/82 sm:text-lg">
+                        {world.summary}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
-
-                <aside className="rounded-panel border border-white/20 bg-white/14 p-4 backdrop-blur">
-                  <Eyebrow tone="inverse">Source</Eyebrow>
-                  <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em]">
-                    {sourceTitle}
-                  </h2>
-                  <p className="mt-2 max-w-xs text-sm leading-6 text-white/76">
-                    {sourceDescription}
-                  </p>
-                </aside>
               </div>
             </div>
           </div>
@@ -370,20 +333,13 @@ export function WorldPublicPage({ world }: { world: PublicWorld }) {
               {world.description ? (
                 <p>{world.description}</p>
               ) : (
-                <p>
-                  Owner-authored world descriptions are supported by the world model and will appear here once populated.
-                </p>
+                <p>No public description yet.</p>
               )}
             </div>
           </Card>
 
           <Card surface="white">
-            <Eyebrow>World details</Eyebrow>
-            <dl className="mt-5 space-y-4 text-sm">
-              <div className="border-b border-border pb-4">
-                <dt className="text-muted">VRChat world id</dt>
-                <dd className="mt-1 font-medium">{world.vrchatWorldId ?? "Not listed"}</dd>
-              </div>
+            <dl className="space-y-4 text-sm">
               <div className="border-b border-border pb-4">
                 <dt className="text-muted">Visibility</dt>
                 <dd className="mt-1 font-medium">{visibilityLabel(world.visibilityStatus)}</dd>
@@ -399,12 +355,7 @@ export function WorldPublicPage({ world }: { world: PublicWorld }) {
         </section>
 
         <Card surface="white">
-          <SectionHeading
-            description="These previews come from explicit event-world links, not live VRChat presence or scraped popularity."
-            eyebrow="Events at this world"
-          >
-            Confirmed event context
-          </SectionHeading>
+          <SectionHeading>Events at this world</SectionHeading>
           <div className="mt-6 grid gap-4 lg:grid-cols-2">
             <article>
               <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted">
@@ -498,7 +449,7 @@ export function WorldPublicPage({ world }: { world: PublicWorld }) {
                   rel="noreferrer"
                   target="_blank"
                 >
-                  Source link
+                  Reference link
                 </a>
               ) : null}
               {!canonicalWorldUrl && !sourceUrl ? (

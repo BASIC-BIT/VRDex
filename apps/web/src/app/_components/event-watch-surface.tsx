@@ -3,7 +3,7 @@
 import { useSyncExternalStore } from "react";
 
 import { buttonVariants } from "@/components/ui/button";
-import { Card, Eyebrow } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/cn";
 
 type EventMediaLinkType = "event_page" | "watch" | "stream" | "vrcdn" | "discord" | "ticket" | "other";
@@ -308,11 +308,15 @@ function createWatchEmbed(link: EventWatchMediaLink, browserHostname: string | u
   return createYouTubeEmbed(url, link.label) ?? createTwitchEmbed(url, link.label, browserHostname) ?? createVrcdnEmbed(url, link.label);
 }
 
-function WatchFallback({ link }: { link: EventWatchMediaLink }) {
+function WatchFallback() {
   return (
-    <div className="flex h-full min-h-64 flex-col justify-end bg-[radial-gradient(circle_at_top_left,rgba(124,58,237,0.35),transparent_32%),linear-gradient(135deg,#111827,#312e81_58%,#0f172a)] p-5 text-white">
-      <p className="font-mono text-xs tracking-[0.22em] text-white/68 uppercase">Watch link</p>
-      <h2 className="mt-4 max-w-xl text-3xl font-semibold tracking-[-0.04em]">{link.label}</h2>
+    <div className="flex aspect-video min-h-64 items-center justify-center bg-[radial-gradient(circle_at_top_left,rgba(124,58,237,0.35),transparent_32%),linear-gradient(135deg,#111827,#312e81_58%,#0f172a)] p-5 text-white">
+      <div className="flex size-16 items-center justify-center rounded-control border border-white/30 bg-white/16 shadow-panel">
+        <span
+          aria-hidden="true"
+          className="ml-1 h-0 w-0 border-y-[9px] border-l-[14px] border-y-transparent border-l-white"
+        />
+      </div>
     </div>
   );
 }
@@ -373,24 +377,19 @@ export function EventWatchSurface({
 
   return (
     <Card className="overflow-hidden" padding="none" surface="white">
-      <div className="grid items-stretch gap-0 lg:grid-cols-[1.35fr_0.65fr]">
-        <div className="bg-slate-950">
-          {embed ? <WatchEmbedFrame embed={embed} /> : <WatchFallback link={primaryWatchLink} />}
-        </div>
-        <div className="flex flex-col justify-between gap-6 px-5 py-6 sm:px-6">
-          <div>
-            <Eyebrow>Watch now</Eyebrow>
-            <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em]">{primaryWatchLink.label}</h2>
-          </div>
-          <a
-            className={cn(buttonVariants({ size: "lg", variant: "primary" }), "w-full sm:w-fit")}
-            href={primaryWatchUrl.href}
-            rel="noreferrer"
-            target="_blank"
-          >
-            Open watch link
-          </a>
-        </div>
+      <div className="bg-slate-950">
+        {embed ? <WatchEmbedFrame embed={embed} /> : <WatchFallback />}
+      </div>
+      <div className="flex flex-col gap-3 border-t border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+        <h2 className="text-xl font-semibold tracking-[-0.03em]">{primaryWatchLink.label}</h2>
+        <a
+          className={cn(buttonVariants({ variant: "primary" }), "w-full sm:w-fit")}
+          href={primaryWatchUrl.href}
+          rel="noreferrer"
+          target="_blank"
+        >
+          Open stream
+        </a>
       </div>
     </Card>
   );

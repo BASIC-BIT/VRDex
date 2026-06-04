@@ -189,7 +189,6 @@ export function ProfileBackendNotice({ kind }: { kind: "missing-url" | "error" }
 export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
   const trust = trustLabelCopy(profile.trustLabel);
   const isPerson = profile.profileType === "person";
-  const typeLabel = isPerson ? "Person profile" : "Community profile";
   const focusItems: string[] = isPerson
     ? Array.from(new Set([...profile.person.roleTags, ...profile.tags]))
     : [profile.community.subtype, ...profile.community.categoryTags].filter(
@@ -197,6 +196,11 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
       );
   const bannerStyle = safeImageBackground(profile.bannerImageUrl, profileBannerOverlay);
   const avatarStyle = safeImageBackground(profile.avatarImageUrl);
+  const sourceSubmittedAt = formatSubmittedAt(profile.source?.submittedAt);
+  const sourceDetails = [
+    profile.source && profile.source.label !== trust ? profile.source.label : null,
+    sourceSubmittedAt,
+  ].filter((value): value is string => Boolean(value));
 
   return (
     <PageShell>
@@ -229,9 +233,6 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
                   </div>
 
                   <div className="max-w-3xl">
-                    <p className="mb-3 font-mono text-xs tracking-[0.22em] text-white/68 uppercase">
-                      {typeLabel} / {trust}
-                    </p>
                     <h1 className="text-5xl leading-none font-semibold tracking-[-0.05em] sm:text-7xl">
                       {profile.displayName}
                     </h1>
@@ -263,18 +264,14 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
           </Card>
 
           <Card>
-            <Eyebrow>Basics</Eyebrow>
-            <dl className="mt-5 space-y-4 text-sm">
+            <dl className="space-y-4 text-sm">
               <div className="border-b border-border pb-4">
-                <dt className="text-muted">Listing</dt>
+                <dt className="text-muted">Status</dt>
                 <dd className="mt-1 font-medium">
                   {trust}
-                  {profile.source ? (
+                  {sourceDetails.length > 0 ? (
                     <span className="mt-1 block text-xs font-normal text-muted">
-                      Source: {profile.source.label}
-                      {formatSubmittedAt(profile.source.submittedAt)
-                        ? ` on ${formatSubmittedAt(profile.source.submittedAt)}`
-                        : ""}
+                      {sourceDetails.join(" / ")}
                     </span>
                   ) : null}
                 </dd>
