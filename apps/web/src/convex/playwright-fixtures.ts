@@ -11,6 +11,7 @@ const personSlug = "playwright-dj-aurora";
 const communitySlug = "playwright-afterglow-social";
 const worldSlug = "playwright-neon-harbor";
 const eventSlug = "playwright-afterglow-harbor-sessions";
+const eventWatchSlug = "playwright-afterglow-watch-room";
 const eventTimezone = "America/New_York";
 const eventDoorsOpenAt = Date.UTC(2026, 5, 15, 1, 30, 0);
 const eventStartAt = Date.UTC(2026, 5, 15, 2, 0, 0);
@@ -356,6 +357,34 @@ const publicEvent: PublicEvent = {
   ],
 };
 
+const publicWatchEvent: PublicEvent = {
+  ...publicEvent,
+  slug: eventWatchSlug,
+  title: "Afterglow Watch Room",
+  summary: "A deterministic fixture event for the public watch surface and VRCDN embed chrome.",
+  notes: "This route keeps watch/embed behavior separate from the canonical event-profile route.",
+  mediaLinks: [
+    {
+      type: "watch",
+      label: "VRCDN event player",
+      url: "https://vrcdn.live/playwright-afterglow-watch-room",
+      presentation: "open",
+    },
+    {
+      type: "watch",
+      label: "YouTube archive link",
+      url: "https://www.youtube.com/watch?v=M7lc1UVf-VE",
+      presentation: "open",
+    },
+    {
+      type: "stream",
+      label: "Twitch channel link",
+      url: "https://www.twitch.tv/twitchdev",
+      presentation: "open",
+    },
+  ],
+};
+
 const discoveryResults: PublicSearchResult[] = [
   {
     entityType: "event",
@@ -527,6 +556,10 @@ export function getPlaywrightPublicEventFixture(slug: string): PublicEvent | nul
     return publicEvent;
   }
 
+  if (slug === eventWatchSlug) {
+    return publicWatchEvent;
+  }
+
   return null;
 }
 
@@ -546,4 +579,5 @@ export const playwrightPublicProfilePaths = {
   communityPath: `/c/${communitySlug}`,
   worldPath: `/w/${worldSlug}`,
   eventPath: `/e/${eventSlug}`,
+  eventWatchPath: `/e/${eventWatchSlug}`,
 };

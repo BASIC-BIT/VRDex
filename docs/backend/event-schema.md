@@ -2,7 +2,7 @@
 
 ## Status
 
-Current recommendation and implementation note for `#34`, `#35`, `#36`, `#119`, and `#132`.
+Current recommendation and implementation note for `#34`, `#35`, `#36`, `#119`, `#132`, and `#134`.
 
 ## Event Records
 
@@ -105,6 +105,26 @@ Each media link has a label, HTTPS URL, and presentation hint:
 - `copy` for operational links such as VRCDN links that may need to be pasted into a world or tool
 
 Future smart labeling, remembered vocabularies, URL-derived icons, and platform-specific UX are tracked in `#90`.
+
+## Public Watch Surface
+
+Public event pages promote one primary watch source above the normal link list when an event has a `watch`, `stream`, or `vrcdn` media link.
+
+Selection order is deterministic:
+
+1. first `watch` link in saved media-link order
+2. first `stream` link in saved media-link order
+3. first `vrcdn` link in saved media-link order
+
+The promoted link remains visible in the normal links section so viewers can still scan the complete event link set.
+
+Embeds are limited to explicitly supported HTTPS providers:
+
+- YouTube watch, live, shorts, and embed URLs render through a `youtube-nocookie.com` iframe.
+- Twitch channel, video, collection, and clip URLs render through Twitch's player or clips iframe with the current browser hostname passed as the required `parent` parameter.
+- VRCDN `vrcdn.live` player pages render in an iframe; direct `.mp4`, `.webm`, `.ogg`, and `.m3u8` VRCDN URLs render as a controlled video element when the browser supports the source.
+
+Unsupported watch URLs fall back to a prominent outbound watch card. VRDex does not claim a source is live until a provider status adapter confirms liveness. Source liveness checks, operator status, and restream switching remain part of the larger media-control model tracked in `#124`.
 
 ## Event-World Links
 

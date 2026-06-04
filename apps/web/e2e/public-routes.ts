@@ -9,6 +9,7 @@ export const visualProfilePaths = {
   communityPath: "/c/playwright-afterglow-social",
   worldPath: "/w/playwright-neon-harbor",
   eventPath: "/e/playwright-afterglow-harbor-sessions",
+  eventWatchPath: "/e/playwright-afterglow-watch-room",
 } as const;
 
 export type CapturedRoute = {
@@ -279,7 +280,25 @@ export async function expectEventPage(page: Page) {
   await expect(page.getByText("Lineup", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "DJ Aurora", exact: true }).first()).toBeVisible();
   await expect(page.getByText("Neon Harbor", { exact: true })).toBeVisible();
-  await expect(page.getByText("Fixture watch link", { exact: true })).toBeVisible();
+  await expect(page.getByText("Watch event", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Fixture watch link" }).first()).toBeVisible();
+  await expect(page.getByText("Live status not verified", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open watch link" }).first()).toBeVisible();
+}
+
+export async function expectEventWatchPage(page: Page) {
+  await expect(page.getByRole("heading", { name: "Afterglow Watch Room" })).toBeVisible();
+  await expect(page.getByText("Watch event", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "VRCDN event player" })).toBeVisible();
+  await expect(page.getByText("VRCDN", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Live status not verified", { exact: true }).first()).toBeVisible();
+  await expect(page.locator('iframe[title="VRCDN player for VRCDN event player"]')).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open watch link" }).first()).toHaveAttribute(
+    "href",
+    "https://vrcdn.live/playwright-afterglow-watch-room",
+  );
+  await expect(page.getByText("YouTube archive link", { exact: true })).toBeVisible();
+  await expect(page.getByText("Twitch channel link", { exact: true })).toBeVisible();
 }
 
 export async function expectWorldProfilePage(page: Page) {
@@ -366,6 +385,11 @@ export const capturedRoutes: CapturedRoute[] = [
     name: "event-profile",
     path: visualProfilePaths.eventPath,
     expectPage: expectEventPage,
+  },
+  {
+    name: "event-watch-surface",
+    path: visualProfilePaths.eventWatchPath,
+    expectPage: expectEventWatchPage,
   },
 ];
 

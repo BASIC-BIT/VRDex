@@ -372,12 +372,15 @@ Current recommendation:
 - links to person profiles when known, but keeps a display label for unlinked or tentative performers
 - confirmed slot performers are deduped into `event_participants` so person profile event views keep working
 
-### `event_media_links` later
+### `event_media_links`
 
 - opinionated media/watch links for an event or slot
 - examples: VRCDN PC, VRCDN Quest, Twitch, venue camera/watch feed
 - should support typed common cases plus generic/other links
 - should allow multiple links per event or slot
+- public event pages promote a primary `watch`, `stream`, or `vrcdn` link into a watch surface before the generic link list
+- provider embeds are allow-listed for YouTube, Twitch, and VRCDN; unsupported watch links remain outbound cards
+- verified live/offline status requires provider-specific adapters and belongs to the later restream/media-control model in `#124`
 
 ### `entity_match_suggestions`
 

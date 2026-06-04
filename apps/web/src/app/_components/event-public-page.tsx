@@ -13,6 +13,7 @@ import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/pa
 import { Table, TableCell, TableFrame, TableHead, TableHeaderCell } from "@/components/ui/table";
 import { cn } from "@/lib/cn";
 import { safeImageBackground } from "@/lib/safe-image";
+import { EventWatchSurface } from "./event-watch-surface";
 import { ViewerLocalEventTimes } from "./viewer-local-event-times";
 
 type EventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested";
@@ -335,6 +336,8 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
             </div>
           </div>
         </section>
+
+        <EventWatchSurface mediaLinks={event.mediaLinks} />
 
         <section className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
           <Card surface="white">
