@@ -2,7 +2,6 @@
 
 import { useSyncExternalStore } from "react";
 
-import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, Eyebrow } from "@/components/ui/card";
 import { cn } from "@/lib/cn";
@@ -54,6 +53,16 @@ function subscribeToLocation(callback: () => void) {
   };
 }
 
+function subscribeToNow(callback: () => void) {
+  const timeoutId = window.setTimeout(callback, 0);
+  const intervalId = window.setInterval(callback, 60_000);
+
+  return () => {
+    window.clearTimeout(timeoutId);
+    window.clearInterval(intervalId);
+  };
+}
+
 function getBrowserHostname() {
   return window.location.hostname;
 }
@@ -62,8 +71,41 @@ function getServerHostname() {
   return undefined;
 }
 
+function getBrowserNow() {
+  return Date.now();
+}
+
+function getServerNow() {
+  return null;
+}
+
 function useBrowserHostname() {
   return useSyncExternalStore(subscribeToLocation, getBrowserHostname, getServerHostname);
+}
+
+function useCurrentTimestamp() {
+  return useSyncExternalStore(subscribeToNow, getBrowserNow, getServerNow);
+}
+
+function isInScheduledWatchWindow({
+  doorsOpenAt,
+  endAt,
+  now,
+  startAt,
+}: {
+  doorsOpenAt?: number;
+  endAt?: number;
+  now: number | null;
+  startAt: number;
+}) {
+  if (now === null) {
+    return false;
+  }
+
+  const opensAt = doorsOpenAt ?? startAt;
+  const closesAt = endAt ?? startAt + 6 * 60 * 60 * 1000;
+
+  return now >= opensAt && now <= closesAt;
 }
 
 function parseHttpsUrl(url: string): URL | null {
@@ -284,14 +326,9 @@ function providerLabelForLink(link: EventWatchMediaLink, embed: WatchEmbed | nul
 
 function WatchFallback({ link }: { link: EventWatchMediaLink }) {
   return (
-    <div className="flex min-h-64 flex-col justify-end bg-[radial-gradient(circle_at_top_left,rgba(124,58,237,0.35),transparent_32%),linear-gradient(135deg,#111827,#312e81_58%,#0f172a)] p-5 text-white">
-      <Badge className="w-fit" mono variant="inverse">
-        Outbound
-      </Badge>
+    <div className="flex h-full min-h-64 flex-col justify-end bg-[radial-gradient(circle_at_top_left,rgba(124,58,237,0.35),transparent_32%),linear-gradient(135deg,#111827,#312e81_58%,#0f172a)] p-5 text-white">
+      <p className="font-mono text-xs tracking-[0.22em] text-white/68 uppercase">Watch link</p>
       <h2 className="mt-4 max-w-xl text-3xl font-semibold tracking-[-0.04em]">{link.label}</h2>
-      <p className="mt-3 max-w-xl text-sm leading-6 text-white/72">
-        This watch source is not one of the providers VRDex can embed safely yet.
-      </p>
     </div>
   );
 }
@@ -323,11 +360,22 @@ function WatchEmbedFrame({ embed }: { embed: WatchEmbed }) {
   );
 }
 
-export function EventWatchSurface({ mediaLinks }: { mediaLinks: EventWatchMediaLink[] }) {
+export function EventWatchSurface({
+  doorsOpenAt,
+  endAt,
+  mediaLinks,
+  startAt,
+}: {
+  doorsOpenAt?: number;
+  endAt?: number;
+  mediaLinks: EventWatchMediaLink[];
+  startAt: number;
+}) {
   const browserHostname = useBrowserHostname();
+  const currentTimestamp = useCurrentTimestamp();
   const primaryWatchLink = selectPrimaryWatchLink(mediaLinks);
 
-  if (!primaryWatchLink) {
+  if (!primaryWatchLink || !isInScheduledWatchWindow({ doorsOpenAt, endAt, now: currentTimestamp, startAt })) {
     return null;
   }
 
@@ -342,21 +390,15 @@ export function EventWatchSurface({ mediaLinks }: { mediaLinks: EventWatchMediaL
 
   return (
     <Card className="overflow-hidden" padding="none" surface="white">
-      <div className="grid gap-0 lg:grid-cols-[1.35fr_0.65fr]">
+      <div className="grid items-stretch gap-0 lg:grid-cols-[1.35fr_0.65fr]">
         <div className="bg-slate-950">
           {embed ? <WatchEmbedFrame embed={embed} /> : <WatchFallback link={primaryWatchLink} />}
         </div>
         <div className="flex flex-col justify-between gap-6 px-5 py-6 sm:px-6">
           <div>
-            <Eyebrow>Watch event</Eyebrow>
+            <Eyebrow>Watch now</Eyebrow>
             <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em]">{primaryWatchLink.label}</h2>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Badge variant="accent">{providerLabel}</Badge>
-              <Badge variant="muted">Live status not verified</Badge>
-            </div>
-            <p className="mt-4 text-sm leading-6 text-muted">
-              Use this as the primary watch surface. VRDex does not mark a source live until a provider status adapter confirms it.
-            </p>
+            <p className="mt-2 text-sm leading-6 text-muted">{providerLabel}</p>
           </div>
           <a
             className={cn(buttonVariants({ size: "lg", variant: "primary" }), "w-full sm:w-fit")}

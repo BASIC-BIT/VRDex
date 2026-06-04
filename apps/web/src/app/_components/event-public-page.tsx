@@ -6,7 +6,6 @@ import {
   actionMetaClassName,
   inlineActionClassName,
 } from "@/components/ui/action-card";
-import { Badge, badgeVariants } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, Eyebrow } from "@/components/ui/card";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
@@ -14,7 +13,7 @@ import { Table, TableCell, TableFrame, TableHead, TableHeaderCell } from "@/comp
 import { cn } from "@/lib/cn";
 import { safeImageBackground } from "@/lib/safe-image";
 import { EventWatchSurface } from "./event-watch-surface";
-import { ViewerLocalEventTimes } from "./viewer-local-event-times";
+import { ViewerLocalEventTime } from "./viewer-local-event-times";
 
 type EventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested";
 type EventMediaLinkType =
@@ -162,6 +161,7 @@ function formatEventDate(timestamp: number, timezone: string | undefined): strin
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZoneName: "short",
   };
 
   try {
@@ -202,10 +202,11 @@ function formatSlotTimeRange(slot: PublicEvent["slots"][number], timezone: strin
 
 function EventTimeDefinition({ label, timestamp, timezone }: { label: string; timestamp: number; timezone: string | undefined }) {
   return (
-    <div className="border-b border-border pb-4">
+    <div className="grid gap-1 border-b border-border pb-4 sm:grid-cols-[7rem_1fr] sm:gap-4">
       <dt className="text-muted">{label}</dt>
-      <dd className="mt-1 font-medium">
+      <dd className="font-medium">
         <time dateTime={new Date(timestamp).toISOString()}>{formatEventDate(timestamp, timezone)}</time>
+        <ViewerLocalEventTime eventTimezone={timezone} timestamp={timestamp} />
       </dd>
     </div>
   );
@@ -214,6 +215,13 @@ function EventTimeDefinition({ label, timestamp, timezone }: { label: string; ti
 export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
   const sourceUrl = safeHttpsUrl(event.source.url);
   const posterStyle = safeImageBackground(event.posterImageUrl, eventPosterOverlay);
+  const details = [
+    event.participantCount > 0
+      ? `${event.participantCount} linked profile${event.participantCount === 1 ? "" : "s"}`
+      : null,
+    event.slotCount > 0 ? `${event.slotCount} set time${event.slotCount === 1 ? "" : "s"}` : null,
+    ...event.worlds.map((world) => world.displayName),
+  ].filter((detail): detail is string => Boolean(detail));
 
   return (
     <article className="group overflow-hidden rounded-card border border-border bg-surface-strong text-sm transition hover:-translate-y-0.5">
@@ -234,25 +242,13 @@ export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
       </div>
       <div className="grid gap-3 px-4 py-4">
         {event.summary ? <p className="leading-6 text-muted">{event.summary}</p> : null}
-        <div className="flex flex-wrap gap-2 text-xs">
-          {event.participantCount > 0 ? (
-            <Badge variant="muted">
-              {event.participantCount} linked profile{event.participantCount === 1 ? "" : "s"}
-            </Badge>
-          ) : null}
-          {event.slotCount > 0 ? (
-            <Badge variant="muted">
-              {event.slotCount} set time{event.slotCount === 1 ? "" : "s"}
-            </Badge>
-          ) : null}
-          {event.worlds.map((world) => (
-            <Badge variant="muted" key={world.slug}>
-              {world.displayName}
-            </Badge>
+        <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
+          {details.map((detail) => (
+            <span key={detail}>{detail}</span>
           ))}
           {sourceUrl ? (
             <a
-              className={cn(badgeVariants({ variant: "muted" }), "font-medium")}
+              className="font-medium text-accent-strong underline decoration-accent/35 underline-offset-4"
               href={sourceUrl}
               rel="noreferrer"
               target="_blank"
@@ -260,7 +256,7 @@ export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
               {event.source.label}
             </a>
           ) : (
-            <Badge variant="muted">{event.source.label}</Badge>
+            <span>{event.source.label}</span>
           )}
         </div>
       </div>
@@ -320,10 +316,7 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
             className="relative min-h-56 bg-[radial-gradient(circle_at_top_right,rgba(198,153,255,0.32),transparent_30%),linear-gradient(135deg,#17111f,#5d3b8e_52%,#20142f)] bg-cover bg-center p-5 text-white sm:p-6 lg:p-8"
             style={posterStyle}
           >
-            <Badge className="absolute top-4 right-4" mono variant="inverse">
-              Event
-            </Badge>
-            <div className="flex min-h-44 flex-col justify-end pr-16">
+            <div className="flex min-h-44 flex-col justify-end">
               <div className="max-w-4xl">
                 <time className="text-sm uppercase tracking-[0.24em] text-white/70" dateTime={new Date(event.startAt).toISOString()}>
                   {formatEventDate(event.startAt, event.timezone)}
@@ -337,7 +330,12 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
           </div>
         </section>
 
-        <EventWatchSurface mediaLinks={event.mediaLinks} />
+        <EventWatchSurface
+          doorsOpenAt={event.doorsOpenAt}
+          endAt={event.endAt}
+          mediaLinks={event.mediaLinks}
+          startAt={event.startAt}
+        />
 
         <section className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
           <Card surface="white">
@@ -345,22 +343,14 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
             <dl className="mt-5 space-y-4 text-sm">
               {event.doorsOpenAt === undefined ? null : <EventTimeDefinition label="Doors open" timestamp={event.doorsOpenAt} timezone={event.timezone} />}
               <EventTimeDefinition label="Start" timestamp={event.startAt} timezone={event.timezone} />
-              <div className="border-b border-border pb-4">
+              <div className="grid gap-1 border-b border-border pb-4 sm:grid-cols-[7rem_1fr] sm:gap-4">
                 <dt className="text-muted">End</dt>
-                <dd className="mt-1 font-medium">
+                <dd className="font-medium">
                   {event.endAt ? <time dateTime={new Date(event.endAt).toISOString()}>{formatEventDate(event.endAt, event.timezone)}</time> : "Not listed"}
+                  {event.endAt ? <ViewerLocalEventTime eventTimezone={event.timezone} timestamp={event.endAt} /> : null}
                 </dd>
               </div>
             </dl>
-            <ViewerLocalEventTimes
-              doorsOpenAt={event.doorsOpenAt}
-              endAt={event.endAt}
-              eventTimezone={event.timezone}
-              startAt={event.startAt}
-            />
-            <p className="mt-4 text-xs leading-5 text-muted">
-              Canonical event time zone: {event.timezone ?? "not listed"}
-            </p>
           </Card>
 
           <Card surface="white">

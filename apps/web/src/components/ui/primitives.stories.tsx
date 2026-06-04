@@ -207,11 +207,11 @@ export const ShellAndActions: Story = {
           </p>
           <div className="mt-6 grid gap-3 sm:grid-cols-3">
             <ActionCard variant="accent">
-              <span className={actionLabelClassName}>Fixture event listing</span>
+              <span className={actionLabelClassName}>Afterglow event listing</span>
               <span className={actionMetaClassName}>Source</span>
             </ActionCard>
             <ActionCard variant="surface">
-              <span className={actionLabelClassName}>Fixture watch link</span>
+              <span className={actionLabelClassName}>Afterglow watch link</span>
               <span className={actionMetaClassName}>Watch / Open</span>
             </ActionCard>
             <ActionCard variant="white">

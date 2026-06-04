@@ -237,17 +237,17 @@ export async function expectDeploymentPage(page: Page) {
 export async function expectPersonProfilePage(page: Page) {
   await expect(page.getByRole("heading", { name: "DJ Aurora" })).toBeVisible();
   await expect(page.getByText(/Source: Community submitted on Jan 1, 2025/i)).toBeVisible();
-  await expect(page.getByRole("heading", { name: /Where this profile appears next/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Upcoming events" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions" })).toBeVisible();
   await expect(page.getByText(/Creator links/i)).toBeVisible();
   await expect(page.getByText("DJ Aurora Ko-fi", { exact: true })).toBeVisible();
   await expect(page.getByText(/World credits/i)).toBeVisible();
-  await expect(page.getByRole("link", { name: /Neon Harbor Media Credit A/i })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Neon Harbor/i })).toBeVisible();
 }
 
 export async function expectCommunityProfilePage(page: Page) {
   await expect(page.getByRole("heading", { name: "Afterglow Social" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: /Upcoming community events/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Hosted events" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions" })).toBeVisible();
   await expect(page.getByText("Club night", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Afterglow event archive", { exact: true })).toBeVisible();
@@ -258,9 +258,8 @@ export async function expectEventPage(page: Page) {
   await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions" })).toBeVisible();
   await expect(page.getByText("When", { exact: true })).toBeVisible();
   await expect(page.getByText("Doors open", { exact: true }).first()).toBeVisible();
-  await expect(page.getByText("Your local time", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Your time/i).first()).toBeVisible();
   await expect(page.getByText(/Jun 15, 2:00 AM UTC/i)).toBeVisible();
-  await expect(page.getByText("Canonical event time zone: America/New_York", { exact: true })).toBeVisible();
   await expect(page.getByText("Place", { exact: true })).toBeVisible();
   await expect(page.getByText("Set times", { exact: true })).toBeVisible();
   const isMobile = (page.viewportSize()?.width ?? 0) < 640;
@@ -280,18 +279,15 @@ export async function expectEventPage(page: Page) {
   await expect(page.getByText("Lineup", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "DJ Aurora", exact: true }).first()).toBeVisible();
   await expect(page.getByText("Neon Harbor", { exact: true })).toBeVisible();
-  await expect(page.getByText("Watch event", { exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Fixture watch link" }).first()).toBeVisible();
-  await expect(page.getByText("Live status not verified", { exact: true }).first()).toBeVisible();
-  await expect(page.getByRole("link", { name: "Open watch link" }).first()).toBeVisible();
+  await expect(page.getByText("Afterglow watch link", { exact: true })).toBeVisible();
+  await expect(page.getByText("Watch now", { exact: true })).toHaveCount(0);
 }
 
 export async function expectEventWatchPage(page: Page) {
   await expect(page.getByRole("heading", { name: "Afterglow Watch Room" })).toBeVisible();
-  await expect(page.getByText("Watch event", { exact: true })).toBeVisible();
+  await expect(page.getByText("Watch now", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "VRCDN event player" })).toBeVisible();
   await expect(page.getByText("VRCDN", { exact: true }).first()).toBeVisible();
-  await expect(page.getByText("Live status not verified", { exact: true }).first()).toBeVisible();
   await expect(page.locator('iframe[title="VRCDN player for VRCDN event player"]')).toBeVisible();
   await expect(page.getByRole("link", { name: "Open watch link" }).first()).toHaveAttribute(
     "href",
@@ -304,7 +300,7 @@ export async function expectEventWatchPage(page: Page) {
 export async function expectWorldProfilePage(page: Page) {
   await expect(page.getByRole("heading", { name: "Neon Harbor", exact: true })).toBeVisible();
   await expect(page.getByText(/World profile/i)).toBeVisible();
-  await expect(page.getByText(/Fixture owner-authored metadata/i)).toBeVisible();
+  await expect(page.getByText(/Neon Harbor creator notes/i)).toBeVisible();
   await expect(page.getByText(/Events at this world/i)).toBeVisible();
   await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Neon Harbor Opening Night" })).toBeVisible();

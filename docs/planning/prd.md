@@ -371,8 +371,8 @@ Current recommendation:
 - event/location modeling should leave room for VRChat world linkage, platform compatibility hints, and DJ slot breakdowns
 - event-world links should become explicit associations once world pages exist, not only freeform event metadata
 - stream/watch links should use typed media link categories in v1, while still allowing generic/other links and multiple links where needed
-- event pages should promote one primary watch source and support safe YouTube, Twitch, and VRCDN embeds before larger restream controls exist
-- public watch surfaces should not claim source liveness until VRDex has provider-specific status checks
+- event pages should promote one primary watch source during the scheduled watch window and support safe YouTube, Twitch, and VRCDN embeds before larger restream controls exist
+- watch surfaces should stay contextual and minimal; provider status limitations belong in implementation notes, not viewer-facing copy
 - when a claimed person is added to an event association in v1, they should receive a passive in-app notification
 - claimed people should be able to choose whether they are simply notified when added; stronger approval gates can land later
 
