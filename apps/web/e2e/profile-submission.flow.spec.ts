@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { captureRouteScreenshot } from "./public-routes";
 
@@ -19,6 +19,13 @@ function e2eRunId(testInfo: { project: { name: string }; workerIndex: number; re
     .replace(/[^a-z0-9]+/gi, "-")
     .toLowerCase()
     .slice(0, 120);
+}
+
+function searchResultsSection(page: Page) {
+  return page
+    .locator('section[aria-label="Search results"]')
+    .or(page.locator("section").filter({ hasText: "Search results" }))
+    .first();
 }
 
 test("profile submission writes through to public profile and discovery @flow", async ({ page, request, baseURL }, testInfo) => {
@@ -125,17 +132,17 @@ test("profile field visibility keeps unlisted fields on profiles and out of disc
     await expect(page.getByText(privateRole)).toHaveCount(0);
 
     await page.goto(`/search?q=${encodeURIComponent(directOnlyAlias)}`);
-    let searchResults = page.locator('section[aria-label="Search results"]');
+    let searchResults = searchResultsSection(page);
     await expect(searchResults.getByText("No public results matched that search yet.")).toBeVisible();
     await expect(searchResults.getByText(displayName, { exact: true })).toHaveCount(0);
 
     await page.goto(`/search?q=${encodeURIComponent(directOnlyBio)}`);
-    searchResults = page.locator('section[aria-label="Search results"]');
+    searchResults = searchResultsSection(page);
     await expect(searchResults.getByText("No public results matched that search yet.")).toBeVisible();
     await expect(searchResults.getByText(displayName, { exact: true })).toHaveCount(0);
 
     await page.goto(`/search?q=${encodeURIComponent(publicTag)}`);
-    searchResults = page.locator('section[aria-label="Search results"]');
+    searchResults = searchResultsSection(page);
     await expect(searchResults.getByText(displayName, { exact: true })).toBeVisible();
     await expect(searchResults.getByText(directOnlyBio)).toHaveCount(0);
     await expect(searchResults.getByText(privateRole)).toHaveCount(0);
