@@ -125,17 +125,17 @@ test("profile field visibility keeps unlisted fields on profiles and out of disc
     await expect(page.getByText(privateRole)).toHaveCount(0);
 
     await page.goto(`/search?q=${encodeURIComponent(directOnlyAlias)}`);
-    let searchResults = page.locator("main");
+    let searchResults = page.locator('section[aria-label="Search results"]');
     await expect(searchResults.getByText("No public results matched that search yet.")).toBeVisible();
     await expect(searchResults.getByText(displayName, { exact: true })).toHaveCount(0);
 
     await page.goto(`/search?q=${encodeURIComponent(directOnlyBio)}`);
-    searchResults = page.locator("main");
+    searchResults = page.locator('section[aria-label="Search results"]');
     await expect(searchResults.getByText("No public results matched that search yet.")).toBeVisible();
     await expect(searchResults.getByText(displayName, { exact: true })).toHaveCount(0);
 
     await page.goto(`/search?q=${encodeURIComponent(publicTag)}`);
-    searchResults = page.locator("main");
+    searchResults = page.locator('section[aria-label="Search results"]');
     await expect(searchResults.getByText(displayName, { exact: true })).toBeVisible();
     await expect(searchResults.getByText(directOnlyBio)).toHaveCount(0);
     await expect(searchResults.getByText(privateRole)).toHaveCount(0);

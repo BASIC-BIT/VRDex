@@ -368,7 +368,7 @@ export function SearchResultsPage({
         {status === "live" ? null : <Card surface="dashed">{status === "missing-url" ? "Search data is not available in this environment yet." : "Search data is temporarily unavailable."}</Card>}
 
         {hasQuery ? (
-          <section className="space-y-5">
+          <section aria-label="Search results" className="space-y-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap gap-2">
                 {filters.map((filter) => {
