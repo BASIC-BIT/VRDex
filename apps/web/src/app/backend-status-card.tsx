@@ -103,7 +103,7 @@ export function BackendStatusCard() {
     return (
       <Notice variant="dashed">
         <Eyebrow>Runtime check</Eyebrow>
-        <h3 className="mt-2 text-lg font-semibold tracking-[-0.02em]">
+        <h3 className="mt-2 text-lg font-semibold tracking-[-0.02em] text-foreground">
           Convex URL not configured
         </h3>
         <p className="mt-3 text-sm leading-6 text-muted">
