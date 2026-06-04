@@ -90,8 +90,7 @@ export function HomeActiveWorldsSection({
   return (
     <Card className="lg:px-8" surface="white">
       <SectionHeading
-        description="Event-derived venue cards use confirmed VRDex event-world links. They are not live VRChat popularity, private presence, or scraped attendance."
-        eyebrow="World discovery"
+        description="Confirmed event-world links surface venues with upcoming context."
       >
         Worlds hosting events soon
       </SectionHeading>

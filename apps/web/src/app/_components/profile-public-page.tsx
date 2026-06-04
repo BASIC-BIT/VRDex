@@ -303,9 +303,7 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
         </section>
 
         <Card>
-          <SectionHeading
-            eyebrow="Events"
-          >
+          <SectionHeading>
             {isPerson ? "Upcoming events" : "Hosted events"}
           </SectionHeading>
           <div className="mt-5 grid gap-3 lg:grid-cols-2">
@@ -320,9 +318,7 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
         </Card>
 
         <Card>
-          <SectionHeading
-            eyebrow="Links"
-          >
+          <SectionHeading>
             Creator links
           </SectionHeading>
           <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -356,9 +352,7 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
         </Card>
 
         <Card>
-          <SectionHeading
-            eyebrow="World credits"
-          >
+          <SectionHeading>
             Worlds
           </SectionHeading>
           <div className="mt-5 grid gap-3 lg:grid-cols-2">

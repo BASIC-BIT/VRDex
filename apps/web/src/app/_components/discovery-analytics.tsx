@@ -9,8 +9,21 @@ import { cn } from "@/lib/cn";
 
 type DiscoveryEventProperties = Record<string, string | number | boolean | undefined>;
 
-export function DiscoverySearchForm({ defaultQuery }: { defaultQuery?: string }) {
+export function DiscoverySearchForm({
+  action = "/search",
+  className,
+  defaultQuery,
+  surface = "search",
+  tone = "inverse",
+}: {
+  action?: string;
+  className?: string;
+  defaultQuery?: string;
+  surface?: string;
+  tone?: "default" | "inverse";
+}) {
   const posthog = usePostHog();
+  const isInverse = tone === "inverse";
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     const formData = new FormData(event.currentTarget);
@@ -19,21 +32,29 @@ export function DiscoverySearchForm({ defaultQuery }: { defaultQuery?: string })
     if (query) {
       posthog?.capture("search_submitted", {
         query,
-        surface: "discover",
+        surface,
       });
     }
   }
 
   return (
-    <form className="mt-8 flex flex-col gap-3 sm:flex-row" action="/discover" onSubmit={onSubmit}>
+    <form className={cn("flex flex-col gap-3 sm:flex-row", className)} action={action} onSubmit={onSubmit}>
       <input
-        className="min-h-14 flex-1 rounded-control border border-white/25 bg-white/16 px-5 text-base text-white outline-none placeholder:text-white/62 focus:border-white/70 focus-visible:ring-2 focus-visible:ring-white/25"
+        className={cn(
+          "min-h-14 flex-1 rounded-control border px-5 text-base outline-none focus-visible:ring-2",
+          isInverse
+            ? "border-white/25 bg-white/16 text-white placeholder:text-white/62 focus:border-white/70 focus-visible:ring-white/25"
+            : "border-border bg-surface text-foreground placeholder:text-muted focus:border-accent focus-visible:ring-accent/20",
+        )}
         defaultValue={defaultQuery}
         name="q"
         placeholder="Search DJs, communities, worlds, events, genres..."
       />
       <button
-        className={cn(buttonVariants({ size: "lg", variant: "inversePrimary" }), "min-h-14 px-6 font-semibold")}
+        className={cn(
+          buttonVariants({ size: "lg", variant: isInverse ? "inversePrimary" : "primary" }),
+          "min-h-14 px-6 font-semibold",
+        )}
         type="submit"
       >
         Search VRDex

@@ -164,26 +164,19 @@ export async function captureRouteScreenshot(page: Page, testInfo: TestInfo, nam
 }
 
 export async function expectHomePage(page: Page) {
-  await expect(page.getByRole("heading", { name: /Find what is happening/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Find the night/i })).toBeVisible();
   await expect(page.getByRole("button", { name: /Search VRDex/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Events worth checking first/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Worlds hosting events soon" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Neon Harbor", exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: /Afterglow Harbor Sessions/i }).first()).toBeVisible();
 }
 
-export async function expectDiscoverPage(page: Page) {
-  await expect(page.getByRole("heading", { name: /Find the night/i })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Search VRDex/i })).toBeVisible();
-  await expect(page.getByRole("heading", { name: /Events worth checking first/i })).toBeVisible();
-  await expect(page.getByRole("link", { name: /Afterglow Harbor Sessions/i }).first()).toBeVisible();
-  await expect(page.getByRole("link", { name: /DJ Aurora/i })).toBeVisible();
-}
-
 export async function expectSearchPage(page: Page) {
-  await expect(page.getByRole("heading", { name: /Find the night/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Results for aurora/i })).toBeVisible();
   await expect(page.getByRole("button", { name: /Search VRDex/i })).toBeVisible();
   await expect(page.getByRole("link", { name: /DJ Aurora/i }).first()).toBeVisible();
-  await expect(page.getByRole("link", { name: /Neon Harbor/i }).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Events worth checking first/i })).toHaveCount(0);
 }
 
 export async function expectSubmitPage(page: Page) {
@@ -241,7 +234,7 @@ export async function expectPersonProfilePage(page: Page) {
   await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions" })).toBeVisible();
   await expect(page.getByText(/Creator links/i)).toBeVisible();
   await expect(page.getByText("DJ Aurora Ko-fi", { exact: true })).toBeVisible();
-  await expect(page.getByText(/World credits/i)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Worlds" })).toBeVisible();
   await expect(page.getByRole("link", { name: /Neon Harbor/i })).toBeVisible();
 }
 
@@ -328,12 +321,7 @@ export const capturedRoutes: CapturedRoute[] = [
     expectPage: expectAccountPage,
   },
   {
-    name: "discover",
-    path: "/discover?q=afterglow",
-    expectPage: expectDiscoverPage,
-  },
-  {
-    name: "search-compat",
+    name: "search",
     path: "/search?q=aurora",
     expectPage: expectSearchPage,
   },
