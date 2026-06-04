@@ -308,22 +308,6 @@ function createWatchEmbed(link: EventWatchMediaLink, browserHostname: string | u
   return createYouTubeEmbed(url, link.label) ?? createTwitchEmbed(url, link.label, browserHostname) ?? createVrcdnEmbed(url, link.label);
 }
 
-function providerLabelForLink(link: EventWatchMediaLink, embed: WatchEmbed | null): string {
-  if (embed) {
-    return embed.provider;
-  }
-
-  if (link.type === "vrcdn") {
-    return "VRCDN";
-  }
-
-  if (link.type === "stream") {
-    return "Stream";
-  }
-
-  return "Watch link";
-}
-
 function WatchFallback({ link }: { link: EventWatchMediaLink }) {
   return (
     <div className="flex h-full min-h-64 flex-col justify-end bg-[radial-gradient(circle_at_top_left,rgba(124,58,237,0.35),transparent_32%),linear-gradient(135deg,#111827,#312e81_58%,#0f172a)] p-5 text-white">
@@ -386,7 +370,6 @@ export function EventWatchSurface({
   }
 
   const embed = createWatchEmbed(primaryWatchLink, browserHostname);
-  const providerLabel = providerLabelForLink(primaryWatchLink, embed);
 
   return (
     <Card className="overflow-hidden" padding="none" surface="white">
@@ -398,7 +381,6 @@ export function EventWatchSurface({
           <div>
             <Eyebrow>Watch now</Eyebrow>
             <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em]">{primaryWatchLink.label}</h2>
-            <p className="mt-2 text-sm leading-6 text-muted">{providerLabel}</p>
           </div>
           <a
             className={cn(buttonVariants({ size: "lg", variant: "primary" }), "w-full sm:w-fit")}

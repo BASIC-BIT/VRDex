@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { DiscoverySearchForm, TrackedDiscoveryLink } from "./discovery-analytics";
-import { Badge, badgeVariants } from "@/components/ui/badge";
+import { badgeVariants } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, Eyebrow, SectionTitle } from "@/components/ui/card";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
@@ -52,6 +52,21 @@ function entityLabel(result: PublicSearchResult): string {
   return result.entityType === "event" ? "Event" : "World";
 }
 
+const discoveryThumbOverlay = "linear-gradient(135deg, rgba(47, 33, 27, 0.74), rgba(214, 106, 77, 0.7))";
+const featuredPosterOverlay = "radial-gradient(circle at top left, rgba(214, 106, 77, 0.45), transparent 34%), linear-gradient(145deg, #221512, #74311f)";
+
+function resultSubtitle(result: PublicSearchResult): string | undefined {
+  const subtitle = result.subtitle?.trim();
+
+  if (!subtitle) {
+    return undefined;
+  }
+
+  const redundantLabels = [entityLabel(result), `${entityLabel(result)} profile`].map((label) => label.toLowerCase());
+
+  return redundantLabels.includes(subtitle.toLowerCase()) ? undefined : subtitle;
+}
+
 function formatEventTime(value: number | undefined): string | null {
   if (value === undefined) {
     return null;
@@ -75,12 +90,13 @@ function initialsFor(name: string): string {
 }
 
 function DiscoveryCard({ result, surface }: { result: PublicSearchResult; surface: string }) {
-  const imageStyle = safeImageBackground(result.imageUrl);
+  const imageStyle = safeImageBackground(result.imageUrl, discoveryThumbOverlay);
   const time = formatEventTime(result.startsAt);
+  const subtitle = resultSubtitle(result);
 
   return (
     <TrackedDiscoveryLink
-      className="group grid gap-4 rounded-panel border border-border bg-surface px-4 py-4 transition hover:-translate-y-1 hover:shadow-panel sm:grid-cols-[8rem_1fr]"
+      className="group flex gap-4 rounded-panel border border-border bg-surface px-4 py-4 transition hover:-translate-y-1 hover:shadow-panel"
       eventName={result.entityType === "event" ? "event_card_clicked" : "search_result_clicked"}
       href={result.routePath}
       properties={{
@@ -91,26 +107,17 @@ function DiscoveryCard({ result, surface }: { result: PublicSearchResult; surfac
       }}
     >
       <span
-        className="flex aspect-[4/3] items-center justify-center rounded-card bg-[linear-gradient(135deg,#2f211b,#d66a4d)] bg-cover bg-center text-2xl font-semibold text-white"
+        className="flex size-14 shrink-0 items-center justify-center rounded-card bg-[linear-gradient(135deg,#2f211b,#d66a4d)] bg-cover bg-center text-lg font-semibold text-white"
         style={imageStyle}
       >
         {!imageStyle ? initialsFor(result.title) : null}
       </span>
-      <span className="flex min-w-0 flex-col gap-3">
-        <span className="flex flex-wrap items-center gap-2">
-          <Badge mono variant="default">
-            {entityLabel(result)}
-          </Badge>
-          {time ? (
-            <Badge variant="accent">
-              {time}
-            </Badge>
-          ) : null}
-        </span>
+      <span className="flex min-w-0 flex-col gap-2">
+        {time ? <span className="text-sm font-medium text-accent-strong">{time}</span> : null}
         <span className="text-xl font-semibold tracking-[-0.03em] group-hover:text-accent-strong">
           {result.title}
         </span>
-        {result.subtitle ? <span className="text-sm text-muted">{result.subtitle}</span> : null}
+        {subtitle ? <span className="text-sm text-muted">{subtitle}</span> : null}
         {result.summary ? (
           <span className="line-clamp-2 text-sm leading-6 text-muted">{result.summary}</span>
         ) : null}
@@ -123,22 +130,22 @@ function DiscoveryCard({ result, surface }: { result: PublicSearchResult; surfac
 }
 
 function PosterCard({ result }: { result: PublicSearchResult }) {
-  const imageStyle = safeImageBackground(result.imageUrl);
+  const imageStyle = safeImageBackground(result.imageUrl, featuredPosterOverlay);
 
   return (
     <TrackedDiscoveryLink
-      className="group min-h-80 overflow-hidden rounded-hero border border-white/15 bg-[#241814] text-white shadow-hero"
+      className="group h-full min-h-80 overflow-hidden rounded-hero border border-white/15 bg-[#241814] text-white shadow-hero"
       eventName="featured_card_clicked"
       href={result.routePath}
       properties={{ entity_type: result.entityType, result_slug: result.slug, surface: "featured" }}
     >
       <span
-        className="flex min-h-80 flex-col justify-end bg-[radial-gradient(circle_at_top_left,rgba(214,106,77,0.45),transparent_34%),linear-gradient(145deg,#221512,#74311f)] bg-cover bg-center p-5"
+        className="flex h-full min-h-80 flex-col justify-end bg-[radial-gradient(circle_at_top_left,rgba(214,106,77,0.45),transparent_34%),linear-gradient(145deg,#221512,#74311f)] bg-cover bg-center p-5"
         style={imageStyle}
       >
-        <Badge mono variant="inverse">
+        <span className="font-mono text-xs uppercase tracking-[0.18em] text-white/72">
           Featured {entityLabel(result)}
-        </Badge>
+        </span>
         <span className="mt-4 block text-3xl font-semibold tracking-[-0.04em]">
           {result.title}
         </span>
@@ -156,18 +163,20 @@ function Section({
   title,
   eyebrow,
   empty,
+  columns = "responsive",
   results,
 }: {
   title: string;
   eyebrow: string;
   empty: string;
+  columns?: "responsive" | "single";
   results: PublicSearchResult[];
 }) {
   return (
     <Card className="backdrop-blur" surface="glass">
-      <Eyebrow>{eyebrow}</Eyebrow>
-      <SectionTitle className="mt-3">{title}</SectionTitle>
-      <div className="mt-5 grid gap-4 lg:grid-cols-2">
+      {eyebrow === title ? null : <Eyebrow>{eyebrow}</Eyebrow>}
+      <SectionTitle className={eyebrow === title ? undefined : "mt-3"}>{title}</SectionTitle>
+      <div className={cn("mt-5 grid gap-4", columns === "responsive" ? "lg:grid-cols-2" : undefined)}>
         {results.length === 0 ? (
           <p className="text-sm leading-6 text-muted">{empty}</p>
         ) : (
@@ -270,14 +279,15 @@ export function DiscoveryPublicPage({
         />
 
         <section className="grid gap-5 xl:grid-cols-3">
-          <Section empty="No people are discoverable yet." eyebrow="People" results={data.people} title="People" />
+          <Section columns="single" empty="No people are discoverable yet." eyebrow="People" results={data.people} title="People" />
           <Section
+            columns="single"
             empty="No communities are discoverable yet."
             eyebrow="Communities"
             results={data.communities}
             title="Communities"
           />
-          <Section empty="No worlds are discoverable yet." eyebrow="Worlds" results={data.worlds} title="Worlds" />
+          <Section columns="single" empty="No worlds are discoverable yet." eyebrow="Worlds" results={data.worlds} title="Worlds" />
         </section>
       </PageContainer>
     </PageShell>

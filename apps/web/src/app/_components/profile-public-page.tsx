@@ -190,8 +190,8 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
   const trust = trustLabelCopy(profile.trustLabel);
   const isPerson = profile.profileType === "person";
   const typeLabel = isPerson ? "Person profile" : "Community profile";
-  const typeItems: string[] = isPerson
-    ? profile.person.roleTags
+  const focusItems: string[] = isPerson
+    ? Array.from(new Set([...profile.person.roleTags, ...profile.tags]))
     : [profile.community.subtype, ...profile.community.categoryTags].filter(
         (item): item is string => Boolean(item),
       );
@@ -391,20 +391,22 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
           </div>
         </Card>
 
-        <section className="grid gap-4 lg:grid-cols-3">
+        <section className={cn("grid gap-4", isPerson ? "lg:grid-cols-2" : "lg:grid-cols-3")}>
           <Card>
-            <Eyebrow>{isPerson ? "Roles" : "Community focus"}</Eyebrow>
+            <Eyebrow>{isPerson ? "Focus" : "Community focus"}</Eyebrow>
             <div className="mt-4">
-              <PillList items={typeItems} />
+              <PillList items={focusItems} />
             </div>
           </Card>
 
-          <Card>
-            <Eyebrow>Tags</Eyebrow>
-            <div className="mt-4">
-              <PillList items={profile.tags} />
-            </div>
-          </Card>
+          {isPerson ? null : (
+            <Card>
+              <Eyebrow>Tags</Eyebrow>
+              <div className="mt-4">
+                <PillList items={profile.tags} />
+              </div>
+            </Card>
+          )}
 
           <Card>
             <Eyebrow>Aliases</Eyebrow>

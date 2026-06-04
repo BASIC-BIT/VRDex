@@ -375,7 +375,7 @@ const publicWatchEvent: PublicEvent = {
   mediaLinks: [
     {
       type: "watch",
-      label: "VRCDN event player",
+      label: "Event stream",
       url: "https://vrcdn.live/playwright-afterglow-watch-room",
       presentation: "open",
     },

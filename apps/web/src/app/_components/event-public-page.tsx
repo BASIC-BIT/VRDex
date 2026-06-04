@@ -132,29 +132,6 @@ function safeHttpsUrl(url: string | undefined): string | null {
   }
 }
 
-function eventSourceLabel(source: EventSourceType): string {
-  if (source === "ai_suggested") {
-    return "AI-suggested";
-  }
-
-  return source
-    .split("_")
-    .map((word) => `${word[0]?.toUpperCase() ?? ""}${word.slice(1)}`)
-    .join(" ");
-}
-
-function mediaLinkTypeLabel(type: EventMediaLinkType): string {
-  if (type === "event_page") {
-    return "Event page";
-  }
-
-  if (type === "vrcdn") {
-    return "VRCDN";
-  }
-
-  return eventSourceLabel(type as EventSourceType);
-}
-
 function formatEventDate(timestamp: number, timezone: string | undefined): string {
   const baseOptions: Intl.DateTimeFormatOptions = {
     month: "short",
@@ -215,13 +192,7 @@ function EventTimeDefinition({ label, timestamp, timezone }: { label: string; ti
 export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
   const sourceUrl = safeHttpsUrl(event.source.url);
   const posterStyle = safeImageBackground(event.posterImageUrl, eventPosterOverlay);
-  const details = [
-    event.participantCount > 0
-      ? `${event.participantCount} linked profile${event.participantCount === 1 ? "" : "s"}`
-      : null,
-    event.slotCount > 0 ? `${event.slotCount} set time${event.slotCount === 1 ? "" : "s"}` : null,
-    ...event.worlds.map((world) => world.displayName),
-  ].filter((detail): detail is string => Boolean(detail));
+  const details = event.worlds.map((world) => world.displayName);
 
   return (
     <article className="group overflow-hidden rounded-card border border-border bg-surface-strong text-sm transition hover:-translate-y-0.5">
@@ -229,7 +200,7 @@ export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
         className="min-h-28 bg-[radial-gradient(circle_at_top_left,rgba(214,106,77,0.22),transparent_34%),linear-gradient(135deg,#2c1d29,#60429a)] bg-cover bg-center px-4 py-4 text-white"
         style={posterStyle}
       >
-        <div className="flex flex-wrap items-center gap-2 text-xs text-white/80">
+        <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-white/84">
           <time dateTime={new Date(event.startAt).toISOString()}>
             {formatEventDate(event.startAt, event.timezone)}
           </time>
@@ -295,8 +266,8 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
   const sourceUrl = safeHttpsUrl(event.source.url);
 
   return (
-    <PageShell tone="event">
-      <PageContainer>
+    <PageShell className="py-5 sm:py-6 lg:py-7" tone="event">
+      <PageContainer className="gap-5">
         <PageNav>
           <BrandLink />
           <div className="flex flex-wrap gap-2">
@@ -480,7 +451,7 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
                     {link.label}
                   </span>
                   <span className="mt-1 block text-xs text-muted">
-                    {mediaLinkTypeLabel(link.type)} / {link.presentation === "copy" ? "Copy link" : "Open"}
+                    {link.presentation === "copy" ? "Copy link" : "Open link"}
                   </span>
                 </a>
               ))}
