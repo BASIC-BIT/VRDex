@@ -67,7 +67,10 @@ test("profile submission writes through to public profile and discovery @flow", 
 
     await profileLink.click();
     await expect(page.getByRole("heading", { name: displayName })).toBeVisible();
-    await expect(page.getByText(/Source: Community submitted/i)).toBeVisible();
+    await expect(
+      page.locator("dl").filter({ hasText: "Status" }).locator("dd").filter({ hasText: "Community submitted" }).first(),
+    ).toBeVisible();
+    await expect(page.getByText(/Source:/i)).toHaveCount(0);
     await captureRouteScreenshot(page, testInfo, "profile-submission-flow-profile");
 
     await page.goto(`/search?q=${encodeURIComponent(displayName)}`);

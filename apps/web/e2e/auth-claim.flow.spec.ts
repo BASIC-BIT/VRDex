@@ -113,7 +113,7 @@ async function expectCurrentOrHostedLagTrustCopy(currentCopy: Locator, hostedLag
 }
 
 function profileStatusCopy(page: Page, label: string) {
-  return page.locator("dl").filter({ hasText: "Status" }).getByText(label, { exact: true });
+  return page.locator("dl").filter({ hasText: "Status" }).locator("dd").filter({ hasText: label }).first();
 }
 
 async function cleanupAuthAndProfiles(request: APIRequestContext, e2eToken: string, email: string, slugs: Array<string | undefined>, runId: string) {
