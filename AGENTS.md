@@ -57,7 +57,7 @@ Prefer explicit labels in docs:
 - Keep public profile and event pages owner-centered. Do not fill hero space with slugs, disclaimers, trust essays, or explanatory filler; use minimal metadata and let creator/community content carry the page.
 - Use badges sparingly. Do not use badges as the default way to show slugs, status, taxonomy, or reassurance; prefer plain text, layout, and hierarchy first.
 - Contextual surfaces should appear only when they match the moment. A watch surface belongs to an event that is currently watchable, not every event that happens to have a stream link.
-- Time displays should feel seamless. Show canonical event time and viewer-local equivalents together in the same row when both matter; avoid separate explanatory cards for the same timestamp.
+- Time displays should feel seamless. Public event schedule times should render in the viewer's local timezone across the app, including event cards, event pages, and set times; do not show a separate canonical event-timezone value or a duplicate "Your time" line unless the user explicitly needs timezone-authoring context.
 
 ## Repo opinionation
 

@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, Eyebrow, SectionHeading } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
 import { safeImageBackground } from "@/lib/safe-image";
+import { ViewerLocalEventDateTime } from "./viewer-local-event-times";
 
 type EventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested";
 
@@ -30,24 +31,6 @@ export type PublicActiveWorld = {
     };
   };
 };
-
-function formatEventDate(timestamp: number, timezone: string | undefined): string {
-  const baseOptions: Intl.DateTimeFormatOptions = {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  };
-
-  try {
-    return new Intl.DateTimeFormat("en", {
-      ...baseOptions,
-      ...(timezone ? { timeZone: timezone } : {}),
-    }).format(new Date(timestamp));
-  } catch {
-    return new Intl.DateTimeFormat("en", baseOptions).format(new Date(timestamp));
-  }
-}
 
 const activeWorldOverlay = "linear-gradient(135deg, rgba(8, 18, 32, 0.72), rgba(8, 145, 178, 0.2))";
 
@@ -79,7 +62,7 @@ function ActiveWorldCard({ world }: { world: PublicActiveWorld }) {
           <Eyebrow className="text-white/62" tone="inverse">Next event</Eyebrow>
           <p className="mt-2 font-medium text-white">{world.nextEvent.title}</p>
           <p className="mt-1 text-sm text-white/72">
-            {formatEventDate(world.nextEvent.startAt, world.nextEvent.timezone)}
+            <ViewerLocalEventDateTime timestamp={world.nextEvent.startAt} />
             {world.nextEvent.communityName ? ` by ${world.nextEvent.communityName}` : ""}
           </p>
         </div>

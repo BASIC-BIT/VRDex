@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { DiscoverySearchForm } from "./_components/discovery-analytics";
 import { HomeActiveWorldsSection } from "./_components/home-active-worlds";
+import { ViewerLocalEventDateTime } from "./_components/viewer-local-event-times";
 import { BackendStatusCard } from "./backend-status-card";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
@@ -9,19 +10,6 @@ import { PageContainer, PageShell } from "@/components/ui/page-shell";
 import { fetchDiscovery, fetchHomeActiveWorlds } from "@/convex/server";
 
 export const dynamic = "force-dynamic";
-
-function formatHomeEventTime(value: number | undefined): string | null {
-  if (value === undefined) {
-    return null;
-  }
-
-  return new Intl.DateTimeFormat("en", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
-}
 
 export default async function Home() {
   const [activeWorlds, discovery] = await Promise.all([fetchHomeActiveWorlds(), fetchDiscovery()]);
@@ -86,7 +74,9 @@ export default async function Home() {
                       key={`${event.entityType}-${event.slug}`}
                     >
                       <span className="block text-lg font-semibold tracking-[-0.03em]">{event.title}</span>
-                      <span className="mt-1 block text-sm text-white/70">{formatHomeEventTime(event.startsAt) ?? event.subtitle}</span>
+                      <span className="mt-1 block text-sm text-white/70">
+                        {event.startsAt === undefined ? event.subtitle : <ViewerLocalEventDateTime timestamp={event.startsAt} />}
+                      </span>
                     </Link>
                   ))
                 )}

@@ -6,6 +6,7 @@ import { Card, Eyebrow, SectionHeading, SectionTitle } from "@/components/ui/car
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 import { cn } from "@/lib/cn";
 import { safeImageBackground } from "@/lib/safe-image";
+import { ViewerLocalEventDateTime } from "./viewer-local-event-times";
 
 type WorldVisibilityStatus = "unknown" | "private" | "community_labs" | "public";
 type PlatformCompatibility = "pc" | "android" | "ios";
@@ -171,24 +172,6 @@ function eventSourceLabel(source: EventSourceType): string {
     .join(" ");
 }
 
-function formatEventDate(timestamp: number, timezone: string | undefined): string {
-  const baseOptions: Intl.DateTimeFormatOptions = {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  };
-
-  try {
-    return new Intl.DateTimeFormat("en", {
-      ...baseOptions,
-      ...(timezone ? { timeZone: timezone } : {}),
-    }).format(new Date(timestamp));
-  } catch {
-    return new Intl.DateTimeFormat("en", baseOptions).format(new Date(timestamp));
-  }
-}
-
 function initialsFor(name: string): string {
   const initials = name
     .split(/\s+/)
@@ -244,9 +227,7 @@ function EventList({
               style={posterStyle}
             >
               <div className={`flex flex-wrap items-center gap-2 text-xs ${posterTextClass}`}>
-                <time dateTime={new Date(event.startAt).toISOString()}>
-                  {formatEventDate(event.startAt, event.timezone)}
-                </time>
+                <ViewerLocalEventDateTime timestamp={event.startAt} />
                 <span aria-hidden="true">/</span>
                 <span>Confirmed venue</span>
               </div>

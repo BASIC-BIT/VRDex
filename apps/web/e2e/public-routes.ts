@@ -258,8 +258,8 @@ export async function expectEventPage(page: Page) {
   await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions" })).toBeVisible();
   await expect(page.getByText("When", { exact: true })).toBeVisible();
   await expect(page.getByText("Doors open", { exact: true }).first()).toBeVisible();
-  await expect(page.getByText(/Your time/i).first()).toBeVisible();
-  await expect(page.getByText(/Jun 15, 2:00 AM UTC/i)).toBeVisible();
+  await expect(page.getByText(/Jun 15, 2:00 AM UTC/i).first()).toBeVisible();
+  await expect(page.getByText(/Your time/i)).toHaveCount(0);
   await expect(page.getByText("Place", { exact: true })).toBeVisible();
   await expect(page.getByText("Set times", { exact: true })).toBeVisible();
   const isMobile = (page.viewportSize()?.width ?? 0) < 640;
@@ -267,12 +267,13 @@ export async function expectEventPage(page: Page) {
 
   if (isMobile) {
     await expect(page.getByRole("columnheader", { name: "Artist" })).toHaveCount(0);
-    await expect(setTimes.getByText("10:00 PM - 10:45 PM", { exact: true }).first()).toBeVisible();
+    await expect(setTimes.getByText("2:00 AM - 2:45 AM", { exact: true }).first()).toBeVisible();
     await expect(setTimes.getByText("House", { exact: true }).first()).toBeVisible();
   } else {
     const setTimesTable = page.getByRole("table");
     await expect(setTimesTable.getByRole("columnheader", { name: "Artist" })).toBeVisible();
     await expect(setTimesTable.getByRole("columnheader", { name: "Style(s)" })).toBeVisible();
+    await expect(setTimesTable.getByRole("cell", { name: "2:00 AM - 2:45 AM" })).toBeVisible();
     await expect(setTimesTable.getByRole("cell", { name: "House" })).toBeVisible();
   }
 

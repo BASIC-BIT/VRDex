@@ -2,9 +2,17 @@
 
 import { useSyncExternalStore } from "react";
 
+import { cn } from "@/lib/cn";
+
 type ViewerLocalEventTimesProps = {
   timestamp: number;
-  eventTimezone?: string;
+  className?: string;
+};
+
+type ViewerLocalEventTimeRangeProps = {
+  className?: string;
+  endAt?: number;
+  startAt: number;
 };
 
 const dateTimeOptions: Intl.DateTimeFormatOptions = {
@@ -15,11 +23,16 @@ const dateTimeOptions: Intl.DateTimeFormatOptions = {
   timeZoneName: "short",
 };
 
-function formatEventDate(timestamp: number, timeZone: string): string {
+const timeOptions: Intl.DateTimeFormatOptions = {
+  hour: "numeric",
+  minute: "2-digit",
+};
+
+function formatTimestamp(timestamp: number, timeZone: string, options: Intl.DateTimeFormatOptions): string {
   try {
-    return new Intl.DateTimeFormat("en", { ...dateTimeOptions, timeZone }).format(new Date(timestamp));
+    return new Intl.DateTimeFormat("en", { ...options, timeZone }).format(new Date(timestamp));
   } catch {
-    return new Intl.DateTimeFormat("en", dateTimeOptions).format(new Date(timestamp));
+    return new Intl.DateTimeFormat("en", options).format(new Date(timestamp));
   }
 }
 
@@ -37,19 +50,45 @@ function getBrowserTimeZone(): string | null {
 }
 
 function getServerTimeZone(): string | null {
-  return null;
+  return "UTC";
 }
 
-export function ViewerLocalEventTime({ eventTimezone, timestamp }: ViewerLocalEventTimesProps) {
+function useViewerTimeZone(): string {
   const timeZone = useSyncExternalStore(subscribeToTimeZone, getBrowserTimeZone, getServerTimeZone);
 
-  if (timeZone === null || !eventTimezone || eventTimezone === timeZone) {
-    return null;
-  }
+  return timeZone ?? "UTC";
+}
+
+export function ViewerLocalEventDateTime({ className, timestamp }: ViewerLocalEventTimesProps) {
+  const timeZone = useViewerTimeZone();
 
   return (
-    <span className="mt-1 block text-xs leading-5 text-muted">
-      Your time: <time dateTime={new Date(timestamp).toISOString()}>{formatEventDate(timestamp, timeZone)}</time>
+    <time className={className} dateTime={new Date(timestamp).toISOString()}>
+      {formatTimestamp(timestamp, timeZone, dateTimeOptions)}
+    </time>
+  );
+}
+
+export function ViewerLocalEventTime({ className, timestamp }: ViewerLocalEventTimesProps) {
+  const timeZone = useViewerTimeZone();
+
+  return (
+    <time className={className} dateTime={new Date(timestamp).toISOString()}>
+      {formatTimestamp(timestamp, timeZone, timeOptions)}
+    </time>
+  );
+}
+
+export function ViewerLocalEventTimeRange({ className, endAt, startAt }: ViewerLocalEventTimeRangeProps) {
+  return (
+    <span className={cn(className)}>
+      <ViewerLocalEventTime timestamp={startAt} />
+      {endAt === undefined ? null : (
+        <>
+          {" - "}
+          <ViewerLocalEventTime timestamp={endAt} />
+        </>
+      )}
     </span>
   );
 }

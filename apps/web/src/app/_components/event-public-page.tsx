@@ -13,7 +13,11 @@ import { Table, TableCell, TableFrame, TableHead, TableHeaderCell } from "@/comp
 import { cn } from "@/lib/cn";
 import { safeImageBackground } from "@/lib/safe-image";
 import { EventWatchSurface } from "./event-watch-surface";
-import { ViewerLocalEventTime } from "./viewer-local-event-times";
+import {
+  ViewerLocalEventDateTime,
+  ViewerLocalEventTime,
+  ViewerLocalEventTimeRange,
+} from "./viewer-local-event-times";
 
 type EventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested";
 type EventMediaLinkType =
@@ -132,58 +136,12 @@ function safeHttpsUrl(url: string | undefined): string | null {
   }
 }
 
-function formatEventDate(timestamp: number, timezone: string | undefined): string {
-  const baseOptions: Intl.DateTimeFormatOptions = {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    timeZoneName: "short",
-  };
-
-  try {
-    return new Intl.DateTimeFormat("en", {
-      ...baseOptions,
-      ...(timezone ? { timeZone: timezone } : {}),
-    }).format(new Date(timestamp));
-  } catch {
-    return new Intl.DateTimeFormat("en", baseOptions).format(new Date(timestamp));
-  }
-}
-
-function formatEventTime(timestamp: number, timezone: string | undefined): string {
-  const baseOptions: Intl.DateTimeFormatOptions = {
-    hour: "numeric",
-    minute: "2-digit",
-  };
-
-  try {
-    return new Intl.DateTimeFormat("en", {
-      ...baseOptions,
-      ...(timezone ? { timeZone: timezone } : {}),
-    }).format(new Date(timestamp));
-  } catch {
-    return new Intl.DateTimeFormat("en", baseOptions).format(new Date(timestamp));
-  }
-}
-
-function formatSlotTimeRange(slot: PublicEvent["slots"][number], timezone: string | undefined): string {
-  const start = formatEventTime(slot.startAt, timezone);
-
-  if (slot.endAt === undefined) {
-    return start;
-  }
-
-  return `${start} - ${formatEventTime(slot.endAt, timezone)}`;
-}
-
-function EventTimeDefinition({ label, timestamp, timezone }: { label: string; timestamp: number; timezone: string | undefined }) {
+function EventTimeDefinition({ label, timestamp }: { label: string; timestamp: number }) {
   return (
     <div className="grid gap-1 border-b border-border pb-4 sm:grid-cols-[7rem_1fr] sm:gap-4">
       <dt className="text-muted">{label}</dt>
       <dd className="font-medium">
-        <time dateTime={new Date(timestamp).toISOString()}>{formatEventDate(timestamp, timezone)}</time>
-        <ViewerLocalEventTime eventTimezone={timezone} timestamp={timestamp} />
+        <ViewerLocalEventDateTime timestamp={timestamp} />
       </dd>
     </div>
   );
@@ -201,10 +159,8 @@ export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
         style={posterStyle}
       >
         <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-white/84">
-          <time dateTime={new Date(event.startAt).toISOString()}>
-            {formatEventDate(event.startAt, event.timezone)}
-          </time>
-          {event.doorsOpenAt === undefined ? null : <span>Doors {formatEventTime(event.doorsOpenAt, event.timezone)}</span>}
+          <ViewerLocalEventDateTime timestamp={event.startAt} />
+          {event.doorsOpenAt === undefined ? null : <span>Doors <ViewerLocalEventTime timestamp={event.doorsOpenAt} /></span>}
           {event.communityName ? <span>/ {event.communityName}</span> : null}
         </div>
         <h3 className="mt-4 text-2xl font-semibold tracking-[-0.04em]">
@@ -289,9 +245,7 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
           >
             <div className="flex min-h-44 flex-col justify-end">
               <div className="max-w-4xl">
-                <time className="text-sm uppercase tracking-[0.24em] text-white/70" dateTime={new Date(event.startAt).toISOString()}>
-                  {formatEventDate(event.startAt, event.timezone)}
-                </time>
+                <ViewerLocalEventDateTime className="text-sm uppercase tracking-[0.24em] text-white/70" timestamp={event.startAt} />
                 <h1 className="mt-4 text-5xl leading-none font-semibold tracking-[-0.05em] sm:text-7xl">
                   {event.title}
                 </h1>
@@ -312,13 +266,12 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
           <Card surface="white">
             <Eyebrow>When</Eyebrow>
             <dl className="mt-5 space-y-4 text-sm">
-              {event.doorsOpenAt === undefined ? null : <EventTimeDefinition label="Doors open" timestamp={event.doorsOpenAt} timezone={event.timezone} />}
-              <EventTimeDefinition label="Start" timestamp={event.startAt} timezone={event.timezone} />
+              {event.doorsOpenAt === undefined ? null : <EventTimeDefinition label="Doors open" timestamp={event.doorsOpenAt} />}
+              <EventTimeDefinition label="Start" timestamp={event.startAt} />
               <div className="grid gap-1 border-b border-border pb-4 sm:grid-cols-[7rem_1fr] sm:gap-4">
                 <dt className="text-muted">End</dt>
                 <dd className="font-medium">
-                  {event.endAt ? <time dateTime={new Date(event.endAt).toISOString()}>{formatEventDate(event.endAt, event.timezone)}</time> : "Not listed"}
-                  {event.endAt ? <ViewerLocalEventTime eventTimezone={event.timezone} timestamp={event.endAt} /> : null}
+                  {event.endAt ? <ViewerLocalEventDateTime timestamp={event.endAt} /> : "Not listed"}
                 </dd>
               </div>
             </dl>
@@ -364,9 +317,7 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
                 <div className="grid divide-y divide-border text-sm sm:hidden">
                   {event.slots.map((slot) => (
                     <div className="grid gap-2 px-4 py-3" key={`${slot.position}-${slot.startAt}-${slot.displayLabel}-mobile`}>
-                      <time className="font-medium" dateTime={new Date(slot.startAt).toISOString()}>
-                        {formatSlotTimeRange(slot, event.timezone)}
-                      </time>
+                      <ViewerLocalEventTimeRange className="font-medium" endAt={slot.endAt} startAt={slot.startAt} />
                       <div>
                         {slot.performer ? (
                           <Link className={inlineActionClassName} href={`/p/${slot.performer.slug}`}>
@@ -391,7 +342,7 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
                   <tbody className="divide-y divide-border">
                     {event.slots.map((slot) => (
                       <tr className="align-top" key={`${slot.position}-${slot.startAt}-${slot.displayLabel}`}>
-                        <TableCell className="whitespace-nowrap font-medium">{formatSlotTimeRange(slot, event.timezone)}</TableCell>
+                        <TableCell className="whitespace-nowrap font-medium"><ViewerLocalEventTimeRange endAt={slot.endAt} startAt={slot.startAt} /></TableCell>
                         <TableCell>
                           {slot.performer ? (
                             <Link className={inlineActionClassName} href={`/p/${slot.performer.slug}`}>

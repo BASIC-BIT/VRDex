@@ -7,6 +7,7 @@ import { Card, Eyebrow, SectionTitle } from "@/components/ui/card";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 import { cn } from "@/lib/cn";
 import { safeImageBackground } from "@/lib/safe-image";
+import { ViewerLocalEventDateTime } from "./viewer-local-event-times";
 
 type EntityType = "profile" | "world" | "event";
 type ProfileType = "person" | "community";
@@ -67,19 +68,6 @@ function resultSubtitle(result: PublicSearchResult): string | undefined {
   return redundantLabels.includes(subtitle.toLowerCase()) ? undefined : subtitle;
 }
 
-function formatEventTime(value: number | undefined): string | null {
-  if (value === undefined) {
-    return null;
-  }
-
-  return new Intl.DateTimeFormat("en", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
-}
-
 function initialsFor(name: string): string {
   return name
     .split(/\s+/)
@@ -91,7 +79,6 @@ function initialsFor(name: string): string {
 
 function DiscoveryCard({ result, surface }: { result: PublicSearchResult; surface: string }) {
   const imageStyle = safeImageBackground(result.imageUrl, discoveryThumbOverlay);
-  const time = formatEventTime(result.startsAt);
   const subtitle = resultSubtitle(result);
 
   return (
@@ -113,7 +100,7 @@ function DiscoveryCard({ result, surface }: { result: PublicSearchResult; surfac
         {!imageStyle ? initialsFor(result.title) : null}
       </span>
       <span className="flex min-w-0 flex-col gap-2">
-        {time ? <span className="text-sm font-medium text-accent-strong">{time}</span> : null}
+        {result.startsAt === undefined ? null : <ViewerLocalEventDateTime className="text-sm font-medium text-accent-strong" timestamp={result.startsAt} />}
         <span className="text-xl font-semibold tracking-[-0.03em] group-hover:text-accent-strong">
           {result.title}
         </span>
