@@ -1,6 +1,12 @@
 import Link from "next/link";
 
 import { DiscoverySearchForm, TrackedDiscoveryLink } from "./discovery-analytics";
+import { Badge, badgeVariants } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
+import { Card, Eyebrow, SectionTitle } from "@/components/ui/card";
+import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
+import { cn } from "@/lib/cn";
+import { safeImageBackground } from "@/lib/safe-image";
 
 type EntityType = "profile" | "world" | "event";
 type ProfileType = "person" | "community";
@@ -68,30 +74,13 @@ function initialsFor(name: string): string {
     .join("") || "VR";
 }
 
-function resultImageStyle(imageUrl: string | undefined) {
-  if (!imageUrl) {
-    return undefined;
-  }
-
-  try {
-    const url = new URL(imageUrl);
-    if (url.protocol !== "https:") {
-      return undefined;
-    }
-
-    return { backgroundImage: `url(${JSON.stringify(url.href)})` };
-  } catch {
-    return undefined;
-  }
-}
-
 function DiscoveryCard({ result, surface }: { result: PublicSearchResult; surface: string }) {
-  const imageStyle = resultImageStyle(result.imageUrl);
+  const imageStyle = safeImageBackground(result.imageUrl);
   const time = formatEventTime(result.startsAt);
 
   return (
     <TrackedDiscoveryLink
-      className="group grid gap-4 rounded-[1.5rem] border border-border bg-surface px-4 py-4 transition hover:-translate-y-1 hover:shadow-[0_18px_60px_rgba(64,40,24,0.12)] sm:grid-cols-[8rem_1fr]"
+      className="group grid gap-4 rounded-panel border border-border bg-surface px-4 py-4 transition hover:-translate-y-1 hover:shadow-panel sm:grid-cols-[8rem_1fr]"
       eventName={result.entityType === "event" ? "event_card_clicked" : "search_result_clicked"}
       href={result.routePath}
       properties={{
@@ -102,20 +91,20 @@ function DiscoveryCard({ result, surface }: { result: PublicSearchResult; surfac
       }}
     >
       <span
-        className="flex aspect-[4/3] items-center justify-center rounded-[1.15rem] bg-[linear-gradient(135deg,#2f211b,#d66a4d)] bg-cover bg-center text-2xl font-semibold text-white"
+        className="flex aspect-[4/3] items-center justify-center rounded-card bg-[linear-gradient(135deg,#2f211b,#d66a4d)] bg-cover bg-center text-2xl font-semibold text-white"
         style={imageStyle}
       >
         {!imageStyle ? initialsFor(result.title) : null}
       </span>
       <span className="flex min-w-0 flex-col gap-3">
         <span className="flex flex-wrap items-center gap-2">
-          <span className="rounded-full border border-border bg-surface-strong px-3 py-1 font-mono text-[0.68rem] uppercase tracking-[0.2em] text-muted">
+          <Badge mono variant="default">
             {entityLabel(result)}
-          </span>
+          </Badge>
           {time ? (
-            <span className="rounded-full bg-accent/10 px-3 py-1 text-xs font-medium text-accent-strong">
+            <Badge variant="accent">
               {time}
-            </span>
+            </Badge>
           ) : null}
         </span>
         <span className="text-xl font-semibold tracking-[-0.03em] group-hover:text-accent-strong">
@@ -134,11 +123,11 @@ function DiscoveryCard({ result, surface }: { result: PublicSearchResult; surfac
 }
 
 function PosterCard({ result }: { result: PublicSearchResult }) {
-  const imageStyle = resultImageStyle(result.imageUrl);
+  const imageStyle = safeImageBackground(result.imageUrl);
 
   return (
     <TrackedDiscoveryLink
-      className="group min-h-80 overflow-hidden rounded-[1.6rem] border border-white/15 bg-[#241814] text-white shadow-[0_24px_80px_rgba(20,12,8,0.18)]"
+      className="group min-h-80 overflow-hidden rounded-hero border border-white/15 bg-[#241814] text-white shadow-hero"
       eventName="featured_card_clicked"
       href={result.routePath}
       properties={{ entity_type: result.entityType, result_slug: result.slug, surface: "featured" }}
@@ -147,9 +136,9 @@ function PosterCard({ result }: { result: PublicSearchResult }) {
         className="flex min-h-80 flex-col justify-end bg-[radial-gradient(circle_at_top_left,rgba(214,106,77,0.45),transparent_34%),linear-gradient(145deg,#221512,#74311f)] bg-cover bg-center p-5"
         style={imageStyle}
       >
-        <span className="rounded-full bg-white/16 px-3 py-1 font-mono text-[0.68rem] uppercase tracking-[0.22em] text-white/78">
+        <Badge mono variant="inverse">
           Featured {entityLabel(result)}
-        </span>
+        </Badge>
         <span className="mt-4 block text-3xl font-semibold tracking-[-0.04em]">
           {result.title}
         </span>
@@ -175,9 +164,9 @@ function Section({
   results: PublicSearchResult[];
 }) {
   return (
-    <section className="rounded-[1.8rem] border border-border bg-white/34 px-5 py-6 backdrop-blur sm:px-6">
-      <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">{eyebrow}</p>
-      <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em]">{title}</h2>
+    <Card className="backdrop-blur" surface="glass">
+      <Eyebrow>{eyebrow}</Eyebrow>
+      <SectionTitle className="mt-3">{title}</SectionTitle>
       <div className="mt-5 grid gap-4 lg:grid-cols-2">
         {results.length === 0 ? (
           <p className="text-sm leading-6 text-muted">{empty}</p>
@@ -187,13 +176,13 @@ function Section({
           ))
         )}
       </div>
-    </section>
+    </Card>
   );
 }
 
 export function DiscoveryBackendNotice({ kind }: { kind: "missing-url" | "error" }) {
   return (
-    <div className="rounded-[1.5rem] border border-dashed border-white/25 bg-white/14 px-5 py-4 text-sm leading-6 text-white/78">
+    <div className="rounded-panel border border-dashed border-white/25 bg-white/14 px-5 py-4 text-sm leading-6 text-white/78">
       {kind === "missing-url"
         ? "Convex is not configured, so this page is showing fixture discovery content when available."
         : "Discovery reads failed; check the local Convex backend and retry."}
@@ -215,28 +204,24 @@ export function DiscoveryPublicPage({
   const hasQuery = Boolean(query?.trim());
 
   return (
-    <main className="min-h-screen px-6 py-8 text-foreground sm:px-10 lg:px-16">
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-8">
-        <nav className="flex flex-wrap items-center justify-between gap-3 text-sm">
-          <Link className="font-mono uppercase tracking-[0.28em] text-muted" href="/">
-            VRDex
-          </Link>
+    <PageShell>
+      <PageContainer className="gap-8" max="7xl">
+        <PageNav>
+          <BrandLink />
           <div className="flex flex-wrap gap-2">
-            <Link className="rounded-full border border-border bg-surface px-4 py-2 font-medium" href="/submit">
+            <Link className={buttonVariants({ variant: "secondary" })} href="/submit">
               Add profile
             </Link>
-            <Link className="rounded-full border border-border bg-surface px-4 py-2 font-medium" href="/events/new">
+            <Link className={buttonVariants({ variant: "secondary" })} href="/events/new">
               Add event
             </Link>
           </div>
-        </nav>
+        </PageNav>
 
-        <section className="overflow-hidden rounded-[2.2rem] bg-[#221512] text-white shadow-[0_28px_90px_rgba(64,40,24,0.18)]">
+        <section className="overflow-hidden rounded-hero bg-[#221512] text-white shadow-hero">
           <div className="grid gap-8 bg-[radial-gradient(circle_at_top_left,rgba(214,106,77,0.34),transparent_34%),linear-gradient(135deg,#221512,#7c321f)] px-6 py-8 sm:px-8 lg:grid-cols-[1.1fr_0.9fr] lg:px-10 lg:py-12">
             <div>
-              <p className="font-mono text-xs uppercase tracking-[0.3em] text-white/68">
-                Search the VRChat scene
-              </p>
+              <Eyebrow tone="inverse">Search the VRChat scene</Eyebrow>
               <h1 className="mt-4 text-5xl leading-none font-semibold tracking-[-0.055em] sm:text-7xl">
                 Find the night, the people, and the worlds behind it.
               </h1>
@@ -247,7 +232,7 @@ export function DiscoveryPublicPage({
               <div className="mt-5 flex flex-wrap gap-2">
                 {data.terms.slice(0, 8).map((term) => (
                   <TrackedDiscoveryLink
-                    className="rounded-full bg-white/14 px-3 py-1 text-xs text-white/78 transition hover:bg-white/22"
+                    className={cn(badgeVariants({ variant: "inverseMuted" }), "transition hover:bg-white/22")}
                     eventName="discovery_filter_selected"
                     href={`/discover?q=${encodeURIComponent(term.label)}`}
                     key={`${term.scope}-${term.key}`}
@@ -294,7 +279,7 @@ export function DiscoveryPublicPage({
           />
           <Section empty="No worlds are discoverable yet." eyebrow="Worlds" results={data.worlds} title="Worlds" />
         </section>
-      </div>
-    </main>
+      </PageContainer>
+    </PageShell>
   );
 }

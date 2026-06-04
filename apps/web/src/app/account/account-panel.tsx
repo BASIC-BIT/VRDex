@@ -6,6 +6,12 @@ import Link from "next/link";
 import { Component, FormEvent, ReactNode, useState, useTransition } from "react";
 
 import { api } from "@convex-generated-api";
+import { Badge } from "@/components/ui/badge";
+import { buttonVariants, Button } from "@/components/ui/button";
+import { Card, cardVariants, Eyebrow } from "@/components/ui/card";
+import { Field, Input, Select } from "@/components/ui/field";
+import { Notice } from "@/components/ui/notice";
+import { cn } from "@/lib/cn";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -191,80 +197,80 @@ function ClaimActions({ emailVerified, hasDiscord }: { emailVerified: boolean; h
   const disabled = !emailVerified;
 
   return (
-    <div className="rounded-[1.5rem] border border-border bg-white/45 px-5 py-5 lg:col-span-2">
-      <p className="font-mono text-xs uppercase tracking-[0.22em] text-muted">Profile claims</p>
-      <div className="mt-3 rounded-[1rem] border border-border bg-surface-strong px-4 py-3 text-sm leading-6 text-muted">
+    <Card className="lg:col-span-2" surface="glass">
+      <Eyebrow>Profile claims</Eyebrow>
+      <Notice className="mt-3">
         Claim actions require a verified email. Discord community ownership is recorded as a pending request until the Discord Administrator adapter verifies full Administrator permission.
-      </div>
+      </Notice>
 
       <div className="mt-5 grid gap-5 lg:grid-cols-3">
-        <form className="grid gap-3 rounded-[1.25rem] border border-border bg-surface-strong px-4 py-4" onSubmit={submitDiscordPersonClaim}>
+        <form className={cn(cardVariants({ padding: "sm", surface: "strong" }), "grid gap-3")} onSubmit={submitDiscordPersonClaim}>
           <h3 className="font-semibold tracking-[-0.02em]">Discord person claim</h3>
-          <label className="grid gap-2 text-sm font-medium">
+          <Field>
             Person slug
-            <input className="rounded-2xl border border-border bg-surface px-4 py-3 font-normal outline-none focus:border-accent" name="profileSlug" placeholder="dj-celine" required />
-          </label>
-          <button className="rounded-full bg-accent px-4 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60" disabled={disabled || !hasDiscord} type="submit">
+            <Input className="bg-surface" name="profileSlug" placeholder="dj-celine" required />
+          </Field>
+          <Button disabled={disabled || !hasDiscord} size="lg" type="submit" variant="primary">
             Claim with Discord
-          </button>
+          </Button>
           {!hasDiscord ? <p className="text-xs leading-5 text-muted">Link Discord before using this method.</p> : null}
         </form>
 
-        <form className="grid gap-3 rounded-[1.25rem] border border-border bg-surface-strong px-4 py-4" onSubmit={submitCommunityDiscordClaim}>
+        <form className={cn(cardVariants({ padding: "sm", surface: "strong" }), "grid gap-3")} onSubmit={submitCommunityDiscordClaim}>
           <h3 className="font-semibold tracking-[-0.02em]">Discord community claim</h3>
-          <label className="grid gap-2 text-sm font-medium">
+          <Field>
             Community slug
-            <input className="rounded-2xl border border-border bg-surface px-4 py-3 font-normal outline-none focus:border-accent" name="profileSlug" placeholder="afterglow-social" required />
-          </label>
-          <label className="grid gap-2 text-sm font-medium">
+            <Input className="bg-surface" name="profileSlug" placeholder="afterglow-social" required />
+          </Field>
+          <Field>
             Discord guild ID
-            <input className="rounded-2xl border border-border bg-surface px-4 py-3 font-normal outline-none focus:border-accent" name="discordGuildId" required />
-          </label>
-          <label className="grid gap-2 text-sm font-medium">
+            <Input className="bg-surface" name="discordGuildId" required />
+          </Field>
+          <Field>
             Guild name
-            <input className="rounded-2xl border border-border bg-surface px-4 py-3 font-normal outline-none focus:border-accent" name="discordGuildName" placeholder="Optional" />
-          </label>
-          <button className="rounded-full bg-accent px-4 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60" disabled={disabled || !hasDiscord} type="submit">
+            <Input className="bg-surface" name="discordGuildName" placeholder="Optional" />
+          </Field>
+          <Button disabled={disabled || !hasDiscord} size="lg" type="submit" variant="primary">
             Request admin claim
-          </button>
+          </Button>
         </form>
 
-        <form className="grid gap-3 rounded-[1.25rem] border border-border bg-surface-strong px-4 py-4" onSubmit={submitVrchatProof}>
+        <form className={cn(cardVariants({ padding: "sm", surface: "strong" }), "grid gap-3")} onSubmit={submitVrchatProof}>
           <h3 className="font-semibold tracking-[-0.02em]">VRChat proof code</h3>
-          <label className="grid gap-2 text-sm font-medium">
+          <Field>
             Profile slug
-            <input className="rounded-2xl border border-border bg-surface px-4 py-3 font-normal outline-none focus:border-accent" name="profileSlug" placeholder="dj-celine" required />
-          </label>
-          <label className="grid gap-2 text-sm font-medium">
+            <Input className="bg-surface" name="profileSlug" placeholder="dj-celine" required />
+          </Field>
+          <Field>
             Target type
-            <select className="rounded-2xl border border-border bg-surface px-4 py-3 font-normal outline-none focus:border-accent" name="targetType" required>
+            <Select className="bg-surface" name="targetType" required>
               <option value="vrchat_user">VRChat user</option>
               <option value="vrchat_group">VRChat group</option>
               <option value="vrclinking">VRCLinking</option>
-            </select>
-          </label>
-          <label className="grid gap-2 text-sm font-medium">
+            </Select>
+          </Field>
+          <Field>
             Target ID
-            <input className="rounded-2xl border border-border bg-surface px-4 py-3 font-normal outline-none focus:border-accent" name="targetExternalId" required />
-          </label>
-          <button className="rounded-full bg-accent px-4 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60" disabled={disabled} type="submit">
+            <Input className="bg-surface" name="targetExternalId" required />
+          </Field>
+          <Button disabled={disabled} size="lg" type="submit" variant="primary">
             Create proof code
-          </button>
+          </Button>
         </form>
       </div>
 
       {status.kind === "submitting" ? <p className="mt-4 text-sm text-muted">{status.label}</p> : null}
       {status.kind === "error" ? (
-        <p className="mt-4 rounded-[1rem] border border-accent/35 bg-accent/10 px-4 py-3 text-sm leading-6 text-accent-strong">{status.message}</p>
+        <Notice className="mt-4" variant="error">{status.message}</Notice>
       ) : null}
       {status.kind === "success" ? (
-        <div className="mt-4 rounded-[1rem] border border-border bg-surface-strong px-4 py-3 text-sm leading-6 text-muted">
+        <Notice className="mt-4">
           <p>{status.message}</p>
           {status.proofCode ? <p className="mt-2 font-mono text-base text-foreground">{status.proofCode}</p> : null}
           {status.expiresAt ? <p className="mt-1 text-xs">Expires {new Date(status.expiresAt).toLocaleString()}</p> : null}
           {status.claimRequestId ? (
             <button
-              className="mt-3 mr-3 inline-flex rounded-full border border-border bg-surface px-4 py-2 text-sm font-medium text-foreground"
+              className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "mt-3 mr-3")}
               type="button"
               onClick={() => void verifyPendingDiscordAdminClaim(status.claimRequestId!)}
             >
@@ -273,7 +279,7 @@ function ClaimActions({ emailVerified, hasDiscord }: { emailVerified: boolean; h
           ) : null}
           {status.attemptId ? (
             <button
-              className="mt-3 mr-3 inline-flex rounded-full border border-border bg-surface px-4 py-2 text-sm font-medium text-foreground"
+              className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "mt-3 mr-3")}
               type="button"
               onClick={() => void verifyPendingVrchatProof(status.attemptId!)}
             >
@@ -281,13 +287,13 @@ function ClaimActions({ emailVerified, hasDiscord }: { emailVerified: boolean; h
             </button>
           ) : null}
           {status.href ? (
-            <Link className="mt-3 inline-flex rounded-full border border-border bg-surface px-4 py-2 text-sm font-medium text-foreground" href={status.href}>
+            <Link className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "mt-3")} href={status.href}>
               View profile
             </Link>
           ) : null}
-        </div>
+        </Notice>
       ) : null}
-    </div>
+    </Card>
   );
 }
 
@@ -301,24 +307,24 @@ function ConnectedAccountPanel() {
 
   if (viewer === null) {
     return (
-      <div className="rounded-[1.5rem] border border-border bg-surface-strong px-5 py-5">
+      <Card surface="strong">
         <h2 className="text-2xl font-semibold tracking-[-0.03em]">Not signed in</h2>
         <p className="mt-3 text-sm leading-7 text-muted">
           Sign in before submitting profiles, claiming ownership, or changing field privacy.
         </p>
         <Link
-          className="mt-5 inline-flex rounded-full bg-accent px-5 py-3 text-sm font-medium text-white"
+          className={cn(buttonVariants({ size: "lg", variant: "primary" }), "mt-5")}
           href="/sign-in"
         >
           Sign in
         </Link>
-      </div>
+      </Card>
     );
   }
 
   return (
     <div className="grid gap-5 lg:grid-cols-[1fr_0.8fr]">
-      <div className="rounded-[1.5rem] border border-border bg-surface-strong px-5 py-5">
+      <Card surface="strong">
         <h2 className="text-2xl font-semibold tracking-[-0.03em]">
           {viewer.user.name ?? viewer.user.email ?? "Signed-in account"}
         </h2>
@@ -332,35 +338,31 @@ function ConnectedAccountPanel() {
             <dd className="mt-1">{viewer.user.emailVerified ? "Verified" : "Not verified"}</dd>
           </div>
         </dl>
-        <button
-          className="mt-5 rounded-full border border-border bg-surface px-5 py-3 text-sm font-medium"
-          type="button"
-          onClick={() => void signOut()}
-        >
+        <Button className="mt-5" size="lg" type="button" onClick={() => void signOut()}>
           Sign out
-        </button>
-      </div>
+        </Button>
+      </Card>
 
-      <div className="rounded-[1.5rem] border border-border bg-white/45 px-5 py-5">
-        <p className="font-mono text-xs uppercase tracking-[0.22em] text-muted">Linked providers</p>
+      <Card surface="glass">
+        <Eyebrow>Linked providers</Eyebrow>
         <div className="mt-4 grid gap-3">
           {viewer.linkedProviders.length === 0 ? (
             <p className="text-sm text-muted">No providers linked yet.</p>
           ) : (
             viewer.linkedProviders.map((account) => (
               <div
-                className="rounded-2xl border border-border bg-surface-strong px-4 py-3 text-sm"
+                className="rounded-control border border-border bg-surface-strong px-4 py-3 text-sm"
                 key={`${account.provider}:${account.providerAccountId}`}
               >
                 <span className="font-medium capitalize">{account.provider}</span>
-                <span className="ml-2 text-muted">
+                <Badge className="ml-2" variant="muted">
                   {account.emailVerified ? "email verified" : "linked"}
-                </span>
+                </Badge>
               </div>
             ))
           )}
         </div>
-      </div>
+      </Card>
 
       <ClaimActions
         emailVerified={viewer.user.emailVerified}
@@ -383,9 +385,9 @@ class AccountPanelErrorBoundary extends Component<
   render() {
     if (this.state.hasError) {
       return (
-        <div className="rounded-[1.5rem] border border-dashed border-border bg-surface-strong px-5 py-5 text-sm leading-7 text-muted">
+        <Notice className="leading-7" variant="dashed">
           Account state is temporarily unavailable because the backend query failed. Try again after the Convex deployment finishes.
-        </div>
+        </Notice>
       );
     }
 
@@ -396,9 +398,9 @@ class AccountPanelErrorBoundary extends Component<
 export function AccountPanel() {
   if (!convexUrl) {
     return (
-      <div className="rounded-[1.5rem] border border-dashed border-border bg-surface-strong px-5 py-5 text-sm leading-7 text-muted">
+      <Notice className="leading-7" variant="dashed">
         Convex is not configured in this environment, so account state is unavailable.
-      </div>
+      </Notice>
     );
   }
 

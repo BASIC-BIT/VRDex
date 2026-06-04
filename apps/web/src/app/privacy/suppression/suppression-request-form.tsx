@@ -3,6 +3,9 @@
 import { FormEvent, useState, useTransition } from "react";
 import { useMutation } from "convex/react";
 import { api } from "@convex-generated-api";
+import { Button } from "@/components/ui/button";
+import { Field, Input, Select, Textarea } from "@/components/ui/field";
+import { Notice } from "@/components/ui/notice";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
@@ -23,9 +26,9 @@ export function SuppressionRequestForm() {
 
   if (!convexUrl) {
     return (
-      <div className="rounded-[1.5rem] border border-dashed border-border bg-surface px-5 py-6 text-sm leading-7 text-muted">
+      <Notice className="px-5 py-6 leading-7" variant="dashed">
         Convex is not configured. Run the local backend before submitting suppression requests.
-      </div>
+      </Notice>
     );
   }
 
@@ -63,88 +66,62 @@ export function SuppressionRequestForm() {
   return (
     <form className="grid gap-5" onSubmit={onSubmit}>
       <div className="grid gap-4 sm:grid-cols-2">
-        <label className="grid gap-2 text-sm font-medium">
+        <Field>
           Request type
-          <select
-            className="rounded-2xl border border-border bg-surface-strong px-4 py-3 font-normal outline-none transition focus:border-accent"
-            name="requestType"
-          >
+          <Select name="requestType">
             <option value="owner_opt_out">I own this listing and want it opted out</option>
             <option value="pre_claim_safety">This unclaimed listing needs safety review</option>
-          </select>
-        </label>
+          </Select>
+        </Field>
 
-        <label className="grid gap-2 text-sm font-medium">
+        <Field>
           Profile type
-          <select
-            className="rounded-2xl border border-border bg-surface-strong px-4 py-3 font-normal outline-none transition focus:border-accent"
-            name="profileType"
-          >
+          <Select name="profileType">
             <option value="person">Person</option>
             <option value="community">Community</option>
-          </select>
-        </label>
+          </Select>
+        </Field>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <label className="grid gap-2 text-sm font-medium">
+        <Field>
           Profile slug
-          <input
-            className="rounded-2xl border border-border bg-surface-strong px-4 py-3 font-normal outline-none transition placeholder:text-muted/65 focus:border-accent"
-            name="profileSlug"
-            placeholder="dj-aurora"
-          />
-        </label>
+          <Input name="profileSlug" placeholder="dj-aurora" />
+        </Field>
 
-        <label className="grid gap-2 text-sm font-medium">
+        <Field>
           Display name if slug is unknown
-          <input
-            className="rounded-2xl border border-border bg-surface-strong px-4 py-3 font-normal outline-none transition placeholder:text-muted/65 focus:border-accent"
-            name="displayName"
-            placeholder="DJ Aurora"
-          />
-        </label>
+          <Input name="displayName" placeholder="DJ Aurora" />
+        </Field>
       </div>
 
-      <label className="grid gap-2 text-sm font-medium">
+      <Field>
         Contact for follow-up
-        <input
-          className="rounded-2xl border border-border bg-surface-strong px-4 py-3 font-normal outline-none transition placeholder:text-muted/65 focus:border-accent"
-          name="requesterContact"
-          placeholder="Email or Discord handle"
-        />
-      </label>
+        <Input name="requesterContact" placeholder="Email or Discord handle" />
+      </Field>
 
-      <label className="grid gap-2 text-sm font-medium">
+      <Field>
         Note
-        <textarea
-          className="min-h-32 rounded-2xl border border-border bg-surface-strong px-4 py-3 font-normal outline-none transition placeholder:text-muted/65 focus:border-accent"
-          name="requesterNote"
-          placeholder="Briefly explain the request. Do not include sensitive proof in this first form."
-        />
-      </label>
+        <Textarea className="min-h-32" name="requesterNote" placeholder="Briefly explain the request. Do not include sensitive proof in this first form." />
+      </Field>
 
-      <div className="rounded-[1.25rem] border border-border bg-surface-strong px-4 py-4 text-sm leading-6 text-muted">
+      <Notice>
         Submitted requests do not automatically hide a listing. Accepted opt-out or suppression states are enforced across profile pages, search, and event/person references.
-      </div>
+      </Notice>
 
-      <button
-        className="inline-flex w-fit items-center justify-center rounded-full bg-accent px-5 py-3 text-sm font-medium text-white transition hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-60"
-        disabled={status.kind === "submitting"}
-        type="submit"
-      >
+      <Button className="w-fit" disabled={status.kind === "submitting"} size="lg" type="submit" variant="primary">
         {status.kind === "submitting" ? "Submitting..." : "Submit request"}
-      </button>
+      </Button>
 
       {status.kind === "success" ? (
-        <p className="rounded-[1rem] border border-green-700/20 bg-green-700/10 px-4 py-3 text-sm leading-6 text-green-900">
+        <Notice variant="success">
           Request submitted for review.
-        </p>
+        </Notice>
       ) : null}
       {status.kind === "error" ? (
-        <p className="rounded-[1rem] border border-accent/35 bg-accent/10 px-4 py-3 text-sm leading-6 text-accent-strong">
+        <Notice variant="error">
           {status.message}
-        </p>
+        </Notice>
       ) : null}
     </form>
   );

@@ -1,0 +1,18 @@
+:root {
+  --font-space-grotesk: "Space Grotesk", "Inter", "Segoe UI", sans-serif;
+  --font-ibm-plex-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+html,
+body,
+#storybook-root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+}
+
+.story-stage {
+  min-height: 100vh;
+}

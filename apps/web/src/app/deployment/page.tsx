@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { buttonVariants } from "@/components/ui/button";
+import { Card, Eyebrow } from "@/components/ui/card";
+import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 
 export const dynamic = "force-dynamic";
 
@@ -73,24 +76,20 @@ export default function DeploymentPage() {
   ];
 
   return (
-    <main className="min-h-screen px-6 py-10 text-foreground sm:px-10 lg:px-16">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
-        <nav className="flex items-center justify-between gap-4 text-sm">
-          <Link className="font-mono uppercase tracking-[0.28em]" href="/">
-            VRDex
-          </Link>
+    <PageShell className="py-10">
+      <PageContainer className="gap-8" max="5xl">
+        <PageNav>
+          <BrandLink />
           <Link
-            className="rounded-full border border-border bg-surface px-4 py-2 font-medium"
+            className={buttonVariants({ variant: "secondary" })}
             href="/server-status"
           >
             Server status
           </Link>
-        </nav>
+        </PageNav>
 
-        <section className="rounded-[2rem] border border-border bg-surface px-6 py-8 shadow-[0_24px_80px_rgba(64,40,24,0.12)] sm:px-8 lg:px-10">
-          <p className="font-mono text-xs uppercase tracking-[0.3em] text-muted">
-            Hosted readiness
-          </p>
+        <Card className="shadow-hero" padding="lg">
+          <Eyebrow>Hosted readiness</Eyebrow>
           <div className="mt-5 max-w-3xl space-y-4">
             <h1 className="text-4xl leading-none font-semibold tracking-[-0.04em] sm:text-6xl">
               Initial Vercel deployment baseline
@@ -99,24 +98,20 @@ export default function DeploymentPage() {
               This page exists so every preview has a simple live URL that reports whether it is running on Vercel, which commit is deployed, and whether the backend URL is configured.
             </p>
           </div>
-        </section>
+        </Card>
 
         <section className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
-          <div className="rounded-[1.5rem] border border-border bg-surface px-5 py-6">
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">
-              Deployment facts
-            </p>
+          <Card>
+            <Eyebrow>Deployment facts</Eyebrow>
             <dl className="mt-4">
               {deploymentItems.map((item) => (
                 <DeploymentRow item={item} key={item.label} />
               ))}
             </dl>
-          </div>
+          </Card>
 
-          <aside className="rounded-[1.5rem] border border-border bg-surface-strong px-5 py-6">
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">
-              First-live checklist
-            </p>
+          <Card surface="strong">
+            <Eyebrow>First-live checklist</Eyebrow>
             <div className="mt-4 space-y-4 text-sm leading-7 text-muted">
               <p>
                 A shell-only Vercel preview may run without Convex. Set <code className="font-mono text-[0.95em]">NEXT_PUBLIC_CONVEX_URL</code> to a hosted Convex deployment when you want the homepage and server baseline to read live backend data.
@@ -128,9 +123,9 @@ export default function DeploymentPage() {
                 See <code className="font-mono text-[0.95em]">docs/deployment/vercel-preview.md</code> for the repository and Vercel setup contract.
               </p>
             </div>
-          </aside>
+          </Card>
         </section>
-      </div>
-    </main>
+      </PageContainer>
+    </PageShell>
   );
 }

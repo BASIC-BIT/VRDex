@@ -4,6 +4,10 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState, useTransition } from "react";
 
+import { Button } from "@/components/ui/button";
+import { Field, Input } from "@/components/ui/field";
+import { Notice } from "@/components/ui/notice";
+
 type PasswordMode = "signIn" | "signUp" | "email-verification";
 
 type AuthStatus =
@@ -92,19 +96,15 @@ function ConnectedSignInForm() {
     <div className="grid gap-5">
       <div className="grid gap-3 sm:grid-cols-2">
         <button
-          className="rounded-full bg-[#5865f2] px-5 py-3 text-sm font-medium text-white transition hover:brightness-95"
+          className="rounded-control bg-[#5865f2] px-5 py-3 text-sm font-medium text-white transition hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5865f2]/35"
           type="button"
           onClick={() => void signIn("discord", { redirectTo: "/account" })}
         >
           Continue with Discord
         </button>
-        <button
-          className="rounded-full border border-border bg-surface-strong px-5 py-3 text-sm font-medium transition hover:border-accent"
-          type="button"
-          onClick={() => void signIn("google", { redirectTo: "/account" })}
-        >
+        <Button size="lg" type="button" onClick={() => void signIn("google", { redirectTo: "/account" })}>
           Continue with Google
-        </button>
+        </Button>
       </div>
 
       <div className="flex items-center gap-3 text-xs font-mono uppercase tracking-[0.22em] text-muted">
@@ -115,57 +115,41 @@ function ConnectedSignInForm() {
 
       <form className="grid gap-4" onSubmit={submitPassword}>
         <input name="flow" type="hidden" value={mode} />
-        <label className="grid gap-2 text-sm font-medium">
+        <Field>
           Email
-          <input
-            className="rounded-2xl border border-border bg-surface-strong px-4 py-3 font-normal outline-none transition placeholder:text-muted/65 focus:border-accent"
+          <Input
             name="email"
             placeholder="you@example.com"
             required
             type="email"
             defaultValue={status.kind === "verify-email" ? status.email : undefined}
           />
-        </label>
+        </Field>
 
         {mode === "email-verification" ? (
-          <label className="grid gap-2 text-sm font-medium">
+          <Field>
             Verification code
-            <input
-              className="rounded-2xl border border-border bg-surface-strong px-4 py-3 font-normal outline-none transition placeholder:text-muted/65 focus:border-accent"
-              name="code"
-              placeholder="12345678"
-              required
-            />
-          </label>
+            <Input name="code" placeholder="12345678" required />
+          </Field>
         ) : (
-          <label className="grid gap-2 text-sm font-medium">
+          <Field>
             Password
-            <input
-              className="rounded-2xl border border-border bg-surface-strong px-4 py-3 font-normal outline-none transition placeholder:text-muted/65 focus:border-accent"
-              name="password"
-              minLength={12}
-              required
-              type="password"
-            />
-          </label>
+            <Input name="password" minLength={12} required type="password" />
+          </Field>
         )}
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <button
-            className="inline-flex items-center justify-center rounded-full bg-accent px-5 py-3 text-sm font-medium text-white transition hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={isSubmitting}
-            type="submit"
-          >
+          <Button disabled={isSubmitting} size="lg" type="submit" variant="primary">
             {isSubmitting
               ? "Working..."
               : mode === "signUp"
                 ? "Create account"
                 : mode === "email-verification"
-                  ? "Verify email"
-                  : "Sign in"}
-          </button>
-          <button
-            className="rounded-full border border-border bg-surface-strong px-5 py-3 text-sm font-medium"
+                ? "Verify email"
+                : "Sign in"}
+          </Button>
+          <Button
+            size="lg"
             type="button"
             onClick={() => {
               setStatus({ kind: "idle" });
@@ -173,19 +157,19 @@ function ConnectedSignInForm() {
             }}
           >
             {mode === "signIn" ? "Create account" : "Use existing account"}
-          </button>
+          </Button>
         </div>
 
         {status.kind === "verify-email" ? (
-          <p className="rounded-[1rem] border border-border bg-surface-strong px-4 py-3 text-sm leading-6 text-muted">
+          <Notice>
             Check {status.email} for a verification code before claim-level actions.
-          </p>
+          </Notice>
         ) : null}
 
         {status.kind === "error" ? (
-          <p className="rounded-[1rem] border border-accent/35 bg-accent/10 px-4 py-3 text-sm leading-6 text-accent-strong">
+          <Notice variant="error">
             {status.message}
-          </p>
+          </Notice>
         ) : null}
       </form>
     </div>
@@ -195,9 +179,9 @@ function ConnectedSignInForm() {
 export function SignInForm() {
   if (!convexUrl) {
     return (
-      <div className="rounded-[1.25rem] border border-dashed border-border bg-surface px-4 py-5 text-sm leading-7 text-muted">
+      <Notice className="py-5 leading-7" variant="dashed">
         Convex is not configured in this environment, so sign-in is disabled.
-      </div>
+      </Notice>
     );
   }
 

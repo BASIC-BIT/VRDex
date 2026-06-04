@@ -1,5 +1,12 @@
 import Link from "next/link";
 
+import { Badge, badgeVariants } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
+import { Card, Eyebrow, SectionHeading, SectionTitle } from "@/components/ui/card";
+import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
+import { cn } from "@/lib/cn";
+import { safeImageBackground } from "@/lib/safe-image";
+
 type WorldVisibilityStatus = "unknown" | "private" | "community_labs" | "public";
 type PlatformCompatibility = "pc" | "android" | "ios";
 type WorldCreatorRole =
@@ -94,29 +101,7 @@ export type PublicWorld = {
   };
 };
 
-function safeImageBackground(imageUrl: string | undefined, overlay = false) {
-  if (!imageUrl) {
-    return undefined;
-  }
-
-  try {
-    const url = new URL(imageUrl);
-
-    if (url.protocol !== "https:") {
-      return undefined;
-    }
-
-    const image = `url(${JSON.stringify(url.href)})`;
-
-    return {
-      backgroundImage: overlay
-        ? `linear-gradient(135deg, rgba(11, 18, 32, 0.72), rgba(18, 95, 118, 0.22)), ${image}`
-        : image,
-    };
-  } catch {
-    return undefined;
-  }
-}
+const worldHeroOverlay = "linear-gradient(135deg, rgba(11, 18, 32, 0.72), rgba(18, 95, 118, 0.22))";
 
 function safeHttpsUrl(url: string): string | null {
   try {
@@ -222,12 +207,9 @@ function PillList({ items }: { items: string[] }) {
   return (
     <div className="flex flex-wrap gap-2">
       {items.map((item) => (
-        <span
-          className="rounded-full border border-cyan-900/15 bg-cyan-50 px-3 py-1 text-sm text-cyan-950"
-          key={item}
-        >
+        <Badge className="border-cyan-900/15 text-sm" variant="cyan" key={item}>
           {item}
-        </span>
+        </Badge>
       ))}
     </div>
   );
@@ -248,12 +230,12 @@ function EventList({
     <div className="grid gap-3">
       {events.map((event) => {
         const sourceUrl = event.source.url ? safeHttpsUrl(event.source.url) : null;
-        const posterStyle = safeImageBackground(event.posterImageUrl, true);
+        const posterStyle = safeImageBackground(event.posterImageUrl, worldHeroOverlay);
         const posterTextClass = posterStyle ? "text-white/76" : "text-muted";
 
         return (
           <article
-            className="overflow-hidden rounded-2xl border border-cyan-950/10 bg-surface text-sm"
+            className="overflow-hidden rounded-card border border-cyan-950/10 bg-surface text-sm"
             key={`${event.title}-${event.startAt}`}
           >
             <div
@@ -275,17 +257,17 @@ function EventList({
             <div className="px-4 py-4">
               {event.summary ? <p className="leading-6 text-muted">{event.summary}</p> : null}
               <div className="mt-4 flex flex-wrap gap-2 text-xs">
-                <span className="rounded-full bg-cyan-50 px-3 py-1 text-cyan-950">
+                <Badge variant="cyan">
                   {eventSourceLabel(event.worldAssociation.sourceType)} association
-                </span>
+                </Badge>
                 {event.mediaLinks.length > 0 ? (
-                  <span className="rounded-full border border-border bg-white px-3 py-1">
+                  <Badge variant="muted">
                     {event.mediaLinks.length} media link{event.mediaLinks.length === 1 ? "" : "s"}
-                  </span>
+                  </Badge>
                 ) : null}
                 {sourceUrl ? (
                   <a
-                    className="rounded-full border border-border bg-white px-3 py-1 font-medium"
+                    className={cn(badgeVariants({ variant: "muted" }), "font-medium")}
                     href={sourceUrl}
                     rel="noreferrer"
                     target="_blank"
@@ -293,9 +275,9 @@ function EventList({
                     {event.source.label}
                   </a>
                 ) : (
-                  <span className="rounded-full border border-border bg-white px-3 py-1">
+                  <Badge variant="muted">
                     {event.source.label}
-                  </span>
+                  </Badge>
                 )}
               </div>
             </div>
@@ -308,9 +290,10 @@ function EventList({
 
 export function WorldBackendNotice({ kind }: { kind: "missing-url" | "error" }) {
   return (
-    <main className="min-h-screen px-6 py-10 text-foreground sm:px-10 lg:px-16">
-      <section className="mx-auto max-w-3xl rounded-[2rem] border border-border bg-surface px-6 py-8 shadow-[0_24px_80px_rgba(64,40,24,0.12)] sm:px-8">
-        <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">World page</p>
+    <PageShell className="py-10">
+      <PageContainer max="3xl">
+      <Card className="shadow-panel" padding="lg">
+        <Eyebrow>World page</Eyebrow>
         <h1 className="mt-4 text-4xl font-semibold tracking-[-0.04em]">
           {kind === "missing-url" ? "Convex URL not configured" : "World read failed"}
         </h1>
@@ -320,18 +303,19 @@ export function WorldBackendNotice({ kind }: { kind: "missing-url" | "error" }) 
             : "Start the local Convex backend and reload this page once the world query is reachable."}
         </p>
         <Link
-          className="mt-6 inline-flex rounded-full border border-border bg-surface-strong px-5 py-3 text-sm font-medium"
+          className={cn(buttonVariants({ size: "lg", variant: "secondary" }), "mt-6")}
           href="/"
         >
           Back to homepage
         </Link>
-      </section>
-    </main>
+      </Card>
+      </PageContainer>
+    </PageShell>
   );
 }
 
 export function WorldPublicPage({ world }: { world: PublicWorld }) {
-  const heroStyle = safeImageBackground(world.heroImageUrl, true);
+  const heroStyle = safeImageBackground(world.heroImageUrl, worldHeroOverlay);
   const canonicalWorldUrl = world.canonicalVrchatWorldUrl
     ? safeHttpsUrl(world.canonicalVrchatWorldUrl)
     : null;
@@ -342,35 +326,33 @@ export function WorldPublicPage({ world }: { world: PublicWorld }) {
     : "World metadata is source-attributed when available.";
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(9,189,214,0.14),transparent_32%),linear-gradient(180deg,#f7fbfb,#f3efe8)] px-6 py-8 text-foreground sm:px-10 lg:px-16">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
-        <nav className="flex flex-wrap items-center justify-between gap-3 text-sm">
-          <Link className="font-mono uppercase tracking-[0.28em] text-muted" href="/">
-            VRDex
-          </Link>
-          <Link className="rounded-full border border-border bg-white/80 px-4 py-2 font-medium" href="/submit">
+    <PageShell tone="world">
+      <PageContainer>
+        <PageNav>
+          <BrandLink />
+          <Link className={buttonVariants({ variant: "surface" })} href="/submit">
             Add a missing profile
           </Link>
-        </nav>
+        </PageNav>
 
-        <section className="overflow-hidden rounded-[2rem] border border-cyan-950/10 bg-slate-950 shadow-[0_24px_90px_rgba(8,37,53,0.18)]">
+        <section className="overflow-hidden rounded-hero border border-cyan-950/10 bg-slate-950 shadow-hero">
           <div
             className="min-h-72 bg-[radial-gradient(circle_at_top_right,rgba(53,216,230,0.32),transparent_30%),linear-gradient(135deg,#09111f,#155e75_52%,#0f172a)] bg-cover bg-center p-6 text-white sm:p-8 lg:p-10"
             style={heroStyle}
           >
             <div className="flex min-h-60 flex-col justify-between gap-10">
               <div className="flex flex-wrap items-center gap-3">
-                <span className="rounded-full bg-white/15 px-3 py-1 font-mono text-xs uppercase tracking-[0.22em] text-white/82">
+                <Badge mono variant="inverse">
                   World profile
-                </span>
-                <span className="rounded-full bg-white/15 px-3 py-1 font-mono text-xs uppercase tracking-[0.22em] text-white/82">
+                </Badge>
+                <Badge mono variant="inverse">
                   /w/{world.slug}
-                </span>
+                </Badge>
               </div>
 
               <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-end">
                 <div className="flex flex-col gap-4">
-                  <div className="flex size-24 items-center justify-center rounded-[1.75rem] border border-white/30 bg-white/15 text-3xl font-semibold shadow-[0_18px_60px_rgba(0,0,0,0.22)]">
+                  <div className="flex size-24 items-center justify-center rounded-panel border border-white/30 bg-white/15 text-3xl font-semibold shadow-panel">
                     {initialsFor(world.displayName)}
                   </div>
 
@@ -384,10 +366,8 @@ export function WorldPublicPage({ world }: { world: PublicWorld }) {
                   </div>
                 </div>
 
-                <aside className="rounded-[1.5rem] border border-white/20 bg-white/14 p-4 backdrop-blur">
-                  <p className="font-mono text-xs uppercase tracking-[0.24em] text-white/70">
-                    Source
-                  </p>
+                <aside className="rounded-panel border border-white/20 bg-white/14 p-4 backdrop-blur">
+                  <Eyebrow tone="inverse">Source</Eyebrow>
                   <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em]">
                     {sourceTitle}
                   </h2>
@@ -401,9 +381,9 @@ export function WorldPublicPage({ world }: { world: PublicWorld }) {
         </section>
 
         <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-          <article className="rounded-[1.5rem] border border-border bg-white/80 px-5 py-6 shadow-sm sm:px-6">
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">About this world</p>
-            <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em]">Place, vibe, context</h2>
+          <Card surface="white">
+            <Eyebrow>About this world</Eyebrow>
+            <SectionTitle className="mt-4">Place, vibe, context</SectionTitle>
             <div className="mt-4 space-y-4 text-sm leading-7 text-muted sm:text-base">
               {world.description ? (
                 <p>{world.description}</p>
@@ -413,10 +393,10 @@ export function WorldPublicPage({ world }: { world: PublicWorld }) {
                 </p>
               )}
             </div>
-          </article>
+          </Card>
 
-          <aside className="rounded-[1.5rem] border border-border bg-white/80 px-5 py-6 shadow-sm sm:px-6">
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">World details</p>
+          <Card surface="white">
+            <Eyebrow>World details</Eyebrow>
             <dl className="mt-5 space-y-4 text-sm">
               <div className="border-b border-border pb-4">
                 <dt className="text-muted">VRChat world id</dt>
@@ -433,23 +413,16 @@ export function WorldPublicPage({ world }: { world: PublicWorld }) {
                 </dd>
               </div>
             </dl>
-          </aside>
+          </Card>
         </section>
 
-        <section className="rounded-[1.5rem] border border-border bg-white/80 px-5 py-6 shadow-sm sm:px-6">
-          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
-            <div>
-              <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">
-                Events at this world
-              </p>
-              <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em]">
-                Confirmed event context
-              </h2>
-            </div>
-            <p className="max-w-md text-sm leading-6 text-muted">
-              These previews come from explicit event-world links, not live VRChat presence or scraped popularity.
-            </p>
-          </div>
+        <Card surface="white">
+          <SectionHeading
+            description="These previews come from explicit event-world links, not live VRChat presence or scraped popularity."
+            eyebrow="Events at this world"
+          >
+            Confirmed event context
+          </SectionHeading>
           <div className="mt-6 grid gap-4 lg:grid-cols-2">
             <article>
               <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted">
@@ -472,18 +445,18 @@ export function WorldPublicPage({ world }: { world: PublicWorld }) {
               </div>
             </article>
           </div>
-        </section>
+        </Card>
 
         <section className="grid gap-4 lg:grid-cols-3">
-          <article className="rounded-[1.5rem] border border-border bg-white/80 px-5 py-6 shadow-sm">
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Tags</p>
+          <Card surface="white">
+            <Eyebrow>Tags</Eyebrow>
             <div className="mt-4">
               <PillList items={world.tags} />
             </div>
-          </article>
+          </Card>
 
-          <article className="rounded-[1.5rem] border border-border bg-white/80 px-5 py-6 shadow-sm lg:col-span-2">
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Creator attribution</p>
+          <Card className="lg:col-span-2" surface="white">
+            <Eyebrow>Creator attribution</Eyebrow>
             <div className="mt-4 space-y-3">
               {world.creatorAttributions.length === 0 ? (
                 <p className="text-sm leading-6 text-muted">No public creator credits yet.</p>
@@ -501,7 +474,7 @@ export function WorldPublicPage({ world }: { world: PublicWorld }) {
 
                   return href ? (
                     <Link
-                      className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-surface px-4 py-3 text-sm"
+                      className="flex items-center justify-between gap-4 rounded-card border border-border bg-surface px-4 py-3 text-sm"
                       href={href}
                       key={`${attribution.role}-${attribution.displayName}`}
                     >
@@ -509,7 +482,7 @@ export function WorldPublicPage({ world }: { world: PublicWorld }) {
                     </Link>
                   ) : (
                     <div
-                      className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-surface px-4 py-3 text-sm"
+                      className="flex items-center justify-between gap-4 rounded-card border border-border bg-surface px-4 py-3 text-sm"
                       key={`${attribution.role}-${attribution.displayName}`}
                     >
                       {content}
@@ -518,16 +491,16 @@ export function WorldPublicPage({ world }: { world: PublicWorld }) {
                 })
               )}
             </div>
-          </article>
+          </Card>
         </section>
 
         <section className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
-          <article className="rounded-[1.5rem] border border-border bg-white/80 px-5 py-6 shadow-sm">
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Primary links</p>
+          <Card surface="white">
+            <Eyebrow>Primary links</Eyebrow>
             <div className="mt-4 flex flex-wrap gap-3">
               {canonicalWorldUrl ? (
                 <a
-                  className="rounded-full border border-cyan-900/20 bg-cyan-950 px-4 py-2 text-sm font-medium text-white"
+                  className={buttonVariants({ variant: "primary" })}
                   href={canonicalWorldUrl}
                   rel="noreferrer"
                   style={{ color: "#fff" }}
@@ -538,7 +511,7 @@ export function WorldPublicPage({ world }: { world: PublicWorld }) {
               ) : null}
               {sourceUrl ? (
                 <a
-                  className="rounded-full border border-border bg-surface px-4 py-2 text-sm font-medium"
+                  className={buttonVariants({ variant: "secondary" })}
                   href={sourceUrl}
                   rel="noreferrer"
                   target="_blank"
@@ -550,10 +523,10 @@ export function WorldPublicPage({ world }: { world: PublicWorld }) {
                 <p className="text-sm leading-6 text-muted">No public world links yet.</p>
               ) : null}
             </div>
-          </article>
+          </Card>
 
-          <article className="rounded-[1.5rem] border border-border bg-white/80 px-5 py-6 shadow-sm">
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">Creator links</p>
+          <Card surface="white">
+            <Eyebrow>Creator links</Eyebrow>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               {world.outboundLinks.length === 0 ? (
                 <p className="text-sm leading-6 text-muted">No public creator/store links yet.</p>
@@ -566,7 +539,7 @@ export function WorldPublicPage({ world }: { world: PublicWorld }) {
 
                   return (
                     <a
-                      className="rounded-2xl border border-border bg-surface px-4 py-3 text-sm"
+                      className="rounded-card border border-border bg-surface px-4 py-3 text-sm"
                       href={href}
                       key={`${link.type}-${link.url}`}
                       rel="noreferrer"
@@ -579,9 +552,9 @@ export function WorldPublicPage({ world }: { world: PublicWorld }) {
                 })
               )}
             </div>
-          </article>
+          </Card>
         </section>
-      </div>
-    </main>
+      </PageContainer>
+    </PageShell>
   );
 }

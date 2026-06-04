@@ -3,14 +3,17 @@
 import { Component, type ReactNode } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@convex-generated-api";
+import { Badge } from "@/components/ui/badge";
+import { Card, Eyebrow } from "@/components/ui/card";
+import { Notice } from "@/components/ui/notice";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
 function StatusCardShell({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-[1.25rem] border border-border bg-surface px-4 py-4">
+    <Card padding="sm">
       {children}
-    </div>
+    </Card>
   );
 }
 
@@ -32,9 +35,7 @@ class StatusCardErrorBoundary extends Component<
     if (this.state.error) {
       return (
         <StatusCardShell>
-          <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">
-            Runtime check
-          </p>
+          <Eyebrow>Runtime check</Eyebrow>
           <h3 className="mt-2 text-lg font-semibold tracking-[-0.02em]">
             Backend unreachable
           </h3>
@@ -64,17 +65,15 @@ function LiveBackendStatusCard() {
     <StatusCardShell>
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">
-            Runtime check
-          </p>
+          <Eyebrow>Runtime check</Eyebrow>
           <h3 className="mt-2 text-lg font-semibold tracking-[-0.02em]">
             Live backend status
           </h3>
         </div>
 
-        <span className="rounded-full bg-white/70 px-3 py-1 font-mono text-xs uppercase tracking-[0.2em] text-muted">
+        <Badge mono shape="pill" variant="muted">
           {result?.status ?? "loading"}
-        </span>
+        </Badge>
       </div>
 
       <p className="mt-3 text-sm leading-6 text-muted">
@@ -82,13 +81,13 @@ function LiveBackendStatusCard() {
       </p>
 
       <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-        <div className="rounded-2xl border border-border bg-surface-strong px-3 py-3">
+        <div className="rounded-card border border-border bg-surface-strong px-3 py-3">
           <dt className="font-mono text-[11px] uppercase tracking-[0.24em] text-muted">
             Backend
           </dt>
           <dd className="mt-2 font-medium">{result?.backend ?? "convex"}</dd>
         </div>
-        <div className="rounded-2xl border border-border bg-surface-strong px-3 py-3">
+        <div className="rounded-card border border-border bg-surface-strong px-3 py-3">
           <dt className="font-mono text-[11px] uppercase tracking-[0.24em] text-muted">
             Scope
           </dt>
@@ -102,10 +101,8 @@ function LiveBackendStatusCard() {
 export function BackendStatusCard() {
   if (!convexUrl) {
     return (
-      <div className="rounded-[1.25rem] border border-dashed border-border bg-surface px-4 py-4">
-        <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted">
-          Runtime check
-        </p>
+      <Notice variant="dashed">
+        <Eyebrow>Runtime check</Eyebrow>
         <h3 className="mt-2 text-lg font-semibold tracking-[-0.02em]">
           Convex URL not configured
         </h3>
@@ -115,7 +112,7 @@ export function BackendStatusCard() {
           explicitly if you want the homepage to render the live <code className="font-mono text-[0.95em]">health:status</code>
           query.
         </p>
-      </div>
+      </Notice>
     );
   }
 
