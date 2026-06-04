@@ -167,7 +167,7 @@ test("verified email account with linked Discord can claim an E2E person profile
 
     await page.goto(`/p/${createdSlug}`);
     await expect(page.getByRole("heading", { name: displayName })).toBeVisible();
-    await expect(page.getByText("Claimed", { exact: true })).toBeVisible();
+    await expect(page.getByText("Person profile / Claimed", { exact: true })).toBeVisible();
   } finally {
     await cleanupAuthAndProfiles(request, e2eToken, email, [createdSlug], runId);
   }
@@ -237,7 +237,7 @@ test("verified email account can complete community and VRChat adapter claims @f
 
     await page.goto(`/c/${communitySlug}`);
     await expect(page.getByRole("heading", { name: `Playwright Community ${runSuffix}` })).toBeVisible();
-    await expect(page.getByText("Verified owner", { exact: true })).toBeVisible();
+    await expect(page.getByText("Community profile / Verified", { exact: true })).toBeVisible();
 
     await page.goto("/account");
     await page.getByLabel("Profile slug").fill(vrchatPersonSlug!);
@@ -251,7 +251,7 @@ test("verified email account can complete community and VRChat adapter claims @f
 
     await page.goto(`/p/${vrchatPersonSlug}`);
     await expect(page.getByRole("heading", { name: `Playwright VRChat Proof ${runSuffix}` })).toBeVisible();
-    await expect(page.getByText("Verified owner", { exact: true })).toBeVisible();
+    await expect(page.getByText("Person profile / Verified", { exact: true })).toBeVisible();
 
     await page.goto("/account");
     await page.getByLabel("Profile slug").fill(vrcLinkingPersonSlug!);
@@ -265,7 +265,7 @@ test("verified email account can complete community and VRChat adapter claims @f
 
     await page.goto(`/p/${vrcLinkingPersonSlug}`);
     await expect(page.getByRole("heading", { name: `Playwright VRCLinking Proof ${runSuffix}` })).toBeVisible();
-    await expect(page.getByText("Verified owner", { exact: true })).toBeVisible();
+    await expect(page.getByText("Person profile / Verified", { exact: true })).toBeVisible();
   } finally {
     await cleanupAuthAndProfiles(
       request,
