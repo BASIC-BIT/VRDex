@@ -19,6 +19,7 @@ export type PublicActiveWorld = {
     title: string;
     slug?: string;
     startAt: number;
+    doorsOpenAt?: number;
     endAt?: number;
     timezone?: string;
     communityName?: string;

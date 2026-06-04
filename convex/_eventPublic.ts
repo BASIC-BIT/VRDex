@@ -42,6 +42,7 @@ export type PublicEventPreview = {
   slug?: string;
   title: string;
   startAt: number;
+  doorsOpenAt?: number;
   endAt?: number;
   timezone?: string;
   communityName?: string;
@@ -149,6 +150,7 @@ export function toPublicEventPreviewFromRecord(record: PublicEventRecord): Publi
     })),
     participantCount: participants.length,
     slotCount: slots.length,
+    ...optionalField("doorsOpenAt", event.doorsOpenAt),
     ...optionalField("endAt", event.endAt),
     ...optionalField("timezone", event.timezone),
     ...optionalField("communityName", community?.displayName ?? event.communityName),

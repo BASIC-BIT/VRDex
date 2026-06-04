@@ -256,6 +256,10 @@ export async function expectCommunityProfilePage(page: Page) {
 export async function expectEventPage(page: Page) {
   await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions" })).toBeVisible();
   await expect(page.getByText("When", { exact: true })).toBeVisible();
+  await expect(page.getByText("Doors open", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Your local time", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Jun 15, 2:00 AM UTC/i)).toBeVisible();
+  await expect(page.getByText("Canonical event time zone: America/New_York", { exact: true })).toBeVisible();
   await expect(page.getByText("Place", { exact: true })).toBeVisible();
   await expect(page.getByText("Set times", { exact: true })).toBeVisible();
   const isMobile = (page.viewportSize()?.width ?? 0) < 640;

@@ -35,6 +35,7 @@ type PublicWorldEventPreview = {
   slug?: string;
   title: string;
   startAt: number;
+  doorsOpenAt?: number;
   endAt?: number;
   timezone?: string;
   communityName?: string;

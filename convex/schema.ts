@@ -406,6 +406,7 @@ export default defineSchema({
     title: v.string(),
     sortTitle: v.string(),
     startAt: v.number(),
+    doorsOpenAt: v.optional(v.number()),
     endAt: v.optional(v.number()),
     timezone: v.optional(v.string()),
     communityProfileId: v.optional(v.id("profiles")),

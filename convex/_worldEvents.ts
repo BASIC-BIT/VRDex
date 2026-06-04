@@ -23,6 +23,7 @@ export type PublicWorldEventPreview = {
   slug?: string;
   title: string;
   startAt: number;
+  doorsOpenAt?: number;
   endAt?: number;
   timezone?: string;
   communityName?: string;
@@ -63,6 +64,7 @@ export type PublicActiveWorldPreview = {
     title: string;
     slug?: string;
     startAt: number;
+    doorsOpenAt?: number;
     endAt?: number;
     timezone?: string;
     communityName?: string;
@@ -117,6 +119,7 @@ function toPublicWorldEventPreview(
       confirmationState: "confirmed",
       ...optionalField("confirmedAt", association.confirmedAt),
     },
+    ...optionalField("doorsOpenAt", event.doorsOpenAt),
     ...optionalField("endAt", event.endAt),
     ...optionalField("timezone", event.timezone),
     ...optionalField("communityName", event.communityName),
@@ -205,6 +208,7 @@ export function createPublicActiveWorldPreviews(
               label: nextEvent.sourceLabel,
               ...optionalField("url", sourceUrl),
             },
+            ...optionalField("doorsOpenAt", nextEvent.doorsOpenAt),
             ...optionalField("endAt", nextEvent.endAt),
             ...optionalField("timezone", nextEvent.timezone),
             ...optionalField("communityName", nextEvent.communityName),

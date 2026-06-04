@@ -13,6 +13,7 @@ import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/pa
 import { Table, TableCell, TableFrame, TableHead, TableHeaderCell } from "@/components/ui/table";
 import { cn } from "@/lib/cn";
 import { safeImageBackground } from "@/lib/safe-image";
+import { ViewerLocalEventTimes } from "./viewer-local-event-times";
 
 type EventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested";
 type EventMediaLinkType =
@@ -44,6 +45,7 @@ export type PublicEventPreview = {
   slug?: string;
   title: string;
   startAt: number;
+  doorsOpenAt?: number;
   endAt?: number;
   timezone?: string;
   communityName?: string;
@@ -197,6 +199,17 @@ function formatSlotTimeRange(slot: PublicEvent["slots"][number], timezone: strin
   return `${start} - ${formatEventTime(slot.endAt, timezone)}`;
 }
 
+function EventTimeDefinition({ label, timestamp, timezone }: { label: string; timestamp: number; timezone: string | undefined }) {
+  return (
+    <div className="border-b border-border pb-4">
+      <dt className="text-muted">{label}</dt>
+      <dd className="mt-1 font-medium">
+        <time dateTime={new Date(timestamp).toISOString()}>{formatEventDate(timestamp, timezone)}</time>
+      </dd>
+    </div>
+  );
+}
+
 export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
   const sourceUrl = safeHttpsUrl(event.source.url);
   const posterStyle = safeImageBackground(event.posterImageUrl, eventPosterOverlay);
@@ -211,6 +224,7 @@ export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
           <time dateTime={new Date(event.startAt).toISOString()}>
             {formatEventDate(event.startAt, event.timezone)}
           </time>
+          {event.doorsOpenAt === undefined ? null : <span>Doors {formatEventTime(event.doorsOpenAt, event.timezone)}</span>}
           {event.communityName ? <span>/ {event.communityName}</span> : null}
         </div>
         <h3 className="mt-4 text-2xl font-semibold tracking-[-0.04em]">
@@ -326,19 +340,23 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
           <Card surface="white">
             <Eyebrow>When</Eyebrow>
             <dl className="mt-5 space-y-4 text-sm">
-              <div className="border-b border-border pb-4">
-                <dt className="text-muted">Start</dt>
-                <dd className="mt-1 font-medium">{formatEventDate(event.startAt, event.timezone)}</dd>
-              </div>
+              {event.doorsOpenAt === undefined ? null : <EventTimeDefinition label="Doors open" timestamp={event.doorsOpenAt} timezone={event.timezone} />}
+              <EventTimeDefinition label="Start" timestamp={event.startAt} timezone={event.timezone} />
               <div className="border-b border-border pb-4">
                 <dt className="text-muted">End</dt>
                 <dd className="mt-1 font-medium">
-                  {event.endAt ? formatEventDate(event.endAt, event.timezone) : "Not listed"}
+                  {event.endAt ? <time dateTime={new Date(event.endAt).toISOString()}>{formatEventDate(event.endAt, event.timezone)}</time> : "Not listed"}
                 </dd>
               </div>
             </dl>
+            <ViewerLocalEventTimes
+              doorsOpenAt={event.doorsOpenAt}
+              endAt={event.endAt}
+              eventTimezone={event.timezone}
+              startAt={event.startAt}
+            />
             <p className="mt-4 text-xs leading-5 text-muted">
-              Time zone: {event.timezone ?? "not listed"}
+              Canonical event time zone: {event.timezone ?? "not listed"}
             </p>
           </Card>
 

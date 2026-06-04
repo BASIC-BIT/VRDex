@@ -65,6 +65,7 @@ describe("event draft input", () => {
       communitySlug: "afterglow-social",
       worldSlug: "neon-harbor",
       startAt,
+      doorsOpenAt: startAt - 1_800_000,
       endAt: startAt + 10_800_000,
       timezone: "UTC",
       sourceLabel: " Fixture listing ",
@@ -101,6 +102,7 @@ describe("event draft input", () => {
 
     assert.equal(input.title, "Afterglow Harbor Sessions");
     assert.equal(input.sortTitle, "afterglow harbor sessions");
+    assert.equal(input.doorsOpenAt, startAt - 1_800_000);
     assert.equal(input.mediaLinks[0]?.presentation, "open");
     assert.equal(input.mediaLinks[1]?.presentation, "copy");
     assert.equal(input.participantLinks[0]?.roleLabel, "House");
@@ -129,6 +131,20 @@ describe("event draft input", () => {
           timezone: "UTC+1",
         }),
       /Time zone must be a valid IANA time zone\./,
+    );
+  });
+
+  it("rejects doors-open times after event start", () => {
+    const startAt = Date.UTC(2026, 5, 14, 22, 0, 0);
+
+    assert.throws(
+      () =>
+        sanitizeEventDraftInput({
+          title: "Afterglow Harbor Sessions",
+          startAt,
+          doorsOpenAt: startAt + 60_000,
+        }),
+      /Doors-open time must be at or before the event start time\./,
     );
   });
 
@@ -309,6 +325,7 @@ describe("public event projection", () => {
       title: "Afterglow Harbor Sessions",
       sortTitle: "afterglow harbor sessions",
       startAt: now + 86_400_000,
+      doorsOpenAt: now + 84_600_000,
       endAt: now + 90_000_000,
       timezone: "UTC",
       communityName: "Afterglow Social",
@@ -410,6 +427,7 @@ describe("public event projection", () => {
 
     assert.notEqual(publicEvent, null);
     assert.equal(publicEvent?.slug, "afterglow-harbor-sessions-2026-06-14");
+    assert.equal(publicEvent?.doorsOpenAt, now + 84_600_000);
     assert.equal(publicEvent?.mediaLinks.length, 1);
     assert.equal(publicEvent?.worlds[0]?.displayName, "Neon Harbor");
     assert.equal(publicEvent?.participants[0]?.displayName, "DJ Aurora");
@@ -425,6 +443,7 @@ describe("public event projection", () => {
       title: "Afterglow Harbor Sessions",
       sortTitle: "afterglow harbor sessions",
       startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
+      doorsOpenAt: Date.UTC(2026, 5, 14, 21, 30, 0),
       sourceType: "community",
       sourceLabel: "Fixture event listing",
       publicationState: "published",
@@ -458,6 +477,7 @@ describe("public event projection", () => {
       title: "Afterglow Harbor Sessions",
       sortTitle: "afterglow harbor sessions",
       startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
+      doorsOpenAt: Date.UTC(2026, 5, 14, 21, 30, 0),
       sourceType: "community",
       sourceLabel: "Community listing",
       publicationState: "published",
@@ -466,6 +486,7 @@ describe("public event projection", () => {
     const preview = toPublicEventPreviewFromRecord({ event, worlds: [], participants: [], slots: [] });
 
     assert.equal(preview.slug, "afterglow-harbor-sessions-2026-06-14");
+    assert.equal(preview.doorsOpenAt, Date.UTC(2026, 5, 14, 21, 30, 0));
     assert.equal(preview.participantCount, 0);
     assert.deepEqual(preview.worlds, []);
   });

@@ -11,13 +11,21 @@ const personSlug = "playwright-dj-aurora";
 const communitySlug = "playwright-afterglow-social";
 const worldSlug = "playwright-neon-harbor";
 const eventSlug = "playwright-afterglow-harbor-sessions";
+const eventTimezone = "America/New_York";
+const eventDoorsOpenAt = Date.UTC(2026, 5, 15, 1, 30, 0);
+const eventStartAt = Date.UTC(2026, 5, 15, 2, 0, 0);
+const eventEndAt = Date.UTC(2026, 5, 15, 5, 0, 0);
+const firstSlotEndAt = Date.UTC(2026, 5, 15, 2, 45, 0);
+const secondSlotStartAt = Date.UTC(2026, 5, 15, 2, 45, 0);
+const secondSlotEndAt = Date.UTC(2026, 5, 15, 3, 30, 0);
 
 const eventPreview = {
   slug: eventSlug,
   title: "Afterglow Harbor Sessions",
-  startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
-  endAt: Date.UTC(2026, 5, 15, 1, 0, 0),
-  timezone: "UTC",
+  startAt: eventStartAt,
+  doorsOpenAt: eventDoorsOpenAt,
+  endAt: eventEndAt,
+  timezone: eventTimezone,
   communityName: "Afterglow Social",
   communitySlug,
   summary: "A fixture venue night that keeps event-profile context visible in screenshots.",
@@ -183,9 +191,10 @@ const worldProfile: PublicWorld = {
       {
         slug: eventSlug,
         title: "Afterglow Harbor Sessions",
-        startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
-        endAt: Date.UTC(2026, 5, 15, 1, 0, 0),
-        timezone: "UTC",
+        startAt: eventStartAt,
+        doorsOpenAt: eventDoorsOpenAt,
+        endAt: eventEndAt,
+        timezone: eventTimezone,
         communityName: "Afterglow Social",
         summary: "A fixture venue night that keeps world-event context visible in screenshots.",
         posterImageUrl: "https://example.invalid/events/afterglow-harbor-poster.png",
@@ -242,8 +251,9 @@ const activeWorlds: PublicActiveWorld[] = [
     nextEvent: {
       slug: eventSlug,
       title: "Afterglow Harbor Sessions",
-      startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
-      timezone: "UTC",
+      startAt: eventStartAt,
+      doorsOpenAt: eventDoorsOpenAt,
+      timezone: eventTimezone,
       communityName: "Afterglow Social",
       source: {
         sourceType: "manual",
@@ -300,18 +310,18 @@ const publicEvent: PublicEvent = {
   slots: [
     {
       position: 0,
-      startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
-      endAt: Date.UTC(2026, 5, 14, 22, 45, 0),
+      startAt: eventStartAt,
+      endAt: firstSlotEndAt,
       displayLabel: "DJ Aurora",
       roleLabel: "House",
       discord: {
-        shortTime: "<t:1781474400:t>",
-        longTime: "<t:1781474400:T>",
-        shortDate: "<t:1781474400:d>",
-        longDate: "<t:1781474400:D>",
-        shortDateTime: "<t:1781474400:f>",
-        longDateTime: "<t:1781474400:F>",
-        relative: "<t:1781474400:R>",
+        shortTime: "<t:1781488800:t>",
+        longTime: "<t:1781488800:T>",
+        shortDate: "<t:1781488800:d>",
+        longDate: "<t:1781488800:D>",
+        shortDateTime: "<t:1781488800:f>",
+        longDateTime: "<t:1781488800:F>",
+        relative: "<t:1781488800:R>",
       },
       performer: {
         slug: personSlug,
@@ -325,18 +335,18 @@ const publicEvent: PublicEvent = {
     },
     {
       position: 1,
-      startAt: Date.UTC(2026, 5, 14, 22, 45, 0),
-      endAt: Date.UTC(2026, 5, 14, 23, 30, 0),
+      startAt: secondSlotStartAt,
+      endAt: secondSlotEndAt,
       displayLabel: "DJ Lumen",
       roleLabel: "Trance",
       discord: {
-        shortTime: "<t:1781477100:t>",
-        longTime: "<t:1781477100:T>",
-        shortDate: "<t:1781477100:d>",
-        longDate: "<t:1781477100:D>",
-        shortDateTime: "<t:1781477100:f>",
-        longDateTime: "<t:1781477100:F>",
-        relative: "<t:1781477100:R>",
+        shortTime: "<t:1781491500:t>",
+        longTime: "<t:1781491500:T>",
+        shortDate: "<t:1781491500:d>",
+        longDate: "<t:1781491500:D>",
+        shortDateTime: "<t:1781491500:f>",
+        longDateTime: "<t:1781491500:F>",
+        relative: "<t:1781491500:R>",
       },
       source: {
         sourceType: "community",
@@ -355,7 +365,7 @@ const discoveryResults: PublicSearchResult[] = [
     subtitle: "Afterglow Social",
     summary: "A poster-forward fixture event for tonight-and-soon discovery.",
     imageUrl: "https://example.invalid/events/afterglow-harbor-poster.png",
-    startsAt: Date.UTC(2026, 5, 14, 22, 0, 0),
+    startsAt: eventStartAt,
     source: {
       sourceType: "manual",
       label: "Fixture event listing",

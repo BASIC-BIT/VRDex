@@ -2,7 +2,7 @@
 
 ## Status
 
-Current recommendation and implementation note for `#34`, `#35`, `#36`, and `#119`.
+Current recommendation and implementation note for `#34`, `#35`, `#36`, `#119`, and `#132`.
 
 ## Event Records
 
@@ -12,8 +12,8 @@ Current event fields include:
 
 - human-readable editable slug for `/e/<slug>` public routes
 - title and sort title
-- start time and optional end time
-- optional time zone
+- start time, optional doors-open time, and optional end time
+- optional canonical event time zone
 - optional linked community profile
 - optional public summary and notes
 - optional primary poster image URL
@@ -23,6 +23,16 @@ Current event fields include:
 - submitter identity for first-slice edit authority
 
 Generated durable short links such as `/l/<code>` are tracked separately in `#92`. Event slugs are readable and may become owner-editable; short links should remain stable after slug edits.
+
+## Event Times
+
+Event `startAt`, `doorsOpenAt`, and `endAt` are stored as timestamps. The optional `timezone` field is the canonical event timezone used by operators for public schedule display and by the event editor when parsing local `datetime-local` inputs.
+
+`doorsOpenAt` is public and optional. When provided, it must be at or before `startAt`; it does not change the event start, slot offsets, participant associations, or event-world association timestamps.
+
+Public event pages render the canonical event timezone first, then render viewer-local equivalents from the browser timezone when available. This keeps the operator schedule authoritative while making the event understandable to viewers outside the event timezone.
+
+Slot rows remain canonical event-time schedule rows. The first slot editor template still uses relative minute offsets from `startAt`, not `doorsOpenAt`, so set-time storage and Discord timestamp generation remain tied to the canonical event/slot timestamps.
 
 ## Community Authority
 
