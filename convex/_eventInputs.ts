@@ -60,6 +60,7 @@ export type SanitizedEventParticipantInput = {
 export type EventDraftInput = {
   title: string;
   startAt: number;
+  doorsOpenAt?: number;
   endAt?: number;
   timezone?: string;
   communitySlug?: string;
@@ -79,6 +80,7 @@ export type SanitizedEventDraftInput = {
   title: string;
   sortTitle: string;
   startAt: number;
+  doorsOpenAt?: number;
   endAt?: number;
   timezone?: string;
   communitySlug?: string;
@@ -319,7 +321,12 @@ export function sanitizeEventDraftInput(input: EventDraftInput): SanitizedEventD
     EVENT_TITLE_MAX_LENGTH,
   );
   const startAt = requireValidTimestamp(input.startAt, "Event start time");
+  const doorsOpenAt = input.doorsOpenAt === undefined ? undefined : requireValidTimestamp(input.doorsOpenAt, "Doors-open time");
   const endAt = input.endAt === undefined ? undefined : requireValidTimestamp(input.endAt, "Event end time");
+
+  if (doorsOpenAt !== undefined && doorsOpenAt > startAt) {
+    throw new Error("Doors-open time must be at or before the event start time.");
+  }
 
   if (endAt !== undefined && endAt <= startAt) {
     throw new Error("Event end time must be after the start time.");
@@ -343,6 +350,7 @@ export function sanitizeEventDraftInput(input: EventDraftInput): SanitizedEventD
     title,
     sortTitle: createEventSortTitle(title),
     startAt,
+    ...optionalObjectField("doorsOpenAt", doorsOpenAt),
     ...(endAt ? { endAt } : {}),
     ...optionalObjectField("timezone", timezone),
     ...optionalObjectField("communitySlug", optionalBoundedText(input.communitySlug, "Community slug", 64)),

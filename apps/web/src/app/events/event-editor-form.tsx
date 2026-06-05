@@ -26,10 +26,12 @@ type EventEditorStatus =
 const userSafeErrorPatterns = [
   /Event changes require a signed-in user\./,
   /Event start time must be a valid timestamp\./,
+  /Doors-open time must be a valid timestamp\./,
   /Event end time must be a valid timestamp\./,
-  /Event (?:start|end) time must be a valid local time in .+\./,
+  /(?:Event start|Event end|Doors-open) time must be a valid local time in .+\./,
   /Event title must be at least \d+ characters\./,
   /Event title must be \d+ characters or fewer\./,
+  /Doors-open time must be at or before the event start time\./,
   /Event end time must be after the start time\./,
   /Time zone must be a valid IANA time zone\./,
   /Time zone is required when event slots are provided\./,
@@ -359,6 +361,7 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
     submitEvent.preventDefault();
     const form = submitEvent.currentTarget;
     const formData = new FormData(form);
+    const doorsOpenAtInput = optionalString(stringField(formData.get("doorsOpenAt")));
     const endAtInput = optionalString(stringField(formData.get("endAt")));
 
     setStatus({ kind: "submitting" });
@@ -373,6 +376,7 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
         communitySlug: optionalString(stringField(formData.get("communitySlug"))),
         worldSlug: optionalString(stringField(formData.get("worldSlug"))),
         startAt,
+        ...(doorsOpenAtInput ? { doorsOpenAt: fromZonedInputValue(doorsOpenAtInput, timeZoneForParsing, "Doors-open time") } : {}),
         ...(endAtInput ? { endAt: fromZonedInputValue(endAtInput, timeZoneForParsing, "Event end time") } : {}),
         timezone: submittedTimezone,
         summary: optionalString(stringField(formData.get("summary"))),
@@ -420,7 +424,12 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
         </Field>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Field>
+          Doors open
+          <Input defaultValue={toZonedInputValue(event?.doorsOpenAt, event?.timezone)} name="doorsOpenAt" type="datetime-local" />
+          <FieldText>Optional public time, at or before event start.</FieldText>
+        </Field>
         <Field>
           Start
           <Input defaultValue={toZonedInputValue(event?.startAt, event?.timezone)} name="startAt" required type="datetime-local" />

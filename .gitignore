@@ -4,6 +4,7 @@ node_modules/
 .husky/_/
 .convex-home/
 .convex-tmp/
+.tmp-gh-artifacts/
 apps/web/playwright-report/
 apps/web/playwright-report-storybook/
 apps/web/playwright-artifacts/

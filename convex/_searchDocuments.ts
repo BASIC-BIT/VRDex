@@ -342,7 +342,7 @@ export function createEventSearchDocument(
   const sourceUrl = safeHttpsUrl(event.sourceUrl);
   const vocabulary = vocabularyForEvent(event, context.roleLabels ?? []);
   const worldTerms = context.world ? [context.world.displayName, ...context.world.tags] : [];
-  const routePath = event.slug === undefined ? "/discover" : `/e/${event.slug}`;
+  const routePath = event.slug === undefined ? "/" : `/e/${event.slug}`;
   const isUpcoming = event.startAt >= Date.now();
 
   return {

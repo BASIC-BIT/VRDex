@@ -53,6 +53,12 @@ Prefer explicit labels in docs:
 - Prefer shared design-system primitives and tokens over one-off Tailwind bubbles; if the shared primitive does not exist yet, keep new styling easy to promote into one.
 - Default borders and controls to subtle radii; avoid pill/bubble shapes unless the design purpose is explicit.
 - Cut AI-generated explanatory copy. Prefer crisp labels, direct data presentation, and intuitive structure over paragraphs describing every surface.
+- Avoid redundant eyebrow/kicker labels above obvious headings, especially inside cards and public content sections. Use them only when they add new orientation that the heading, navigation, or layout cannot already provide.
+- Do not expose implementation uncertainty as user-facing copy. Avoid phrases about adapters, provider checks, internal verification mechanics, or what VRDex cannot yet do unless the user must act on that detail.
+- Keep public profile and event pages owner-centered. Do not fill hero space with slugs, disclaimers, trust essays, or explanatory filler; use minimal metadata and let creator/community content carry the page.
+- Use badges sparingly. Do not use badges as the default way to show slugs, status, taxonomy, or reassurance; prefer plain text, layout, and hierarchy first.
+- Contextual surfaces should appear only when they match the moment. A watch surface belongs to an event that is currently watchable, not every event that happens to have a stream link.
+- Time displays should feel seamless. Public event schedule times should render in the viewer's local timezone across the app, including event cards, event pages, and set times; do not show a separate canonical event-timezone value or a duplicate "Your time" line unless the user explicitly needs timezone-authoring context.
 
 ## Repo opinionation
 
@@ -80,6 +86,7 @@ Prefer explicit labels in docs:
 - For each addressed PR review comment, leave a reaction or reply with the disposition, then resolve the thread before pushing.
 - Do not silently resolve review comments; if a comment is rejected or only partially applied, say why in the thread.
 - PR descriptions should not list routine branch-policy verification every time; include only non-obvious, manual, risk-specific, or otherwise useful verification notes beyond the checks required for merge.
+- When a final message reports PR readiness, cleanliness, green checks, mergeability, or review readiness, include the PR URL.
 - Parallelize through multiple OpenCode sessions when it materially helps.
 - Do not overcomplicate workflows with subagents unless there is a clear payoff.
 - Prefer fewer, larger, independently testable issues over deeply nested issue trees.

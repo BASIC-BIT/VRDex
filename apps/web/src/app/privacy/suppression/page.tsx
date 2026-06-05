@@ -13,7 +13,7 @@ export default function SuppressionRequestPage() {
       <PageContainer max="4xl">
         <PageNav>
           <BrandLink />
-          <Link className={buttonVariants({ variant: "secondary" })} href="/discover">
+          <Link className={buttonVariants({ variant: "secondary" })} href="/">
             Back to discovery
           </Link>
         </PageNav>

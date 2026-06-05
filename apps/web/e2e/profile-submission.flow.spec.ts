@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { captureRouteScreenshot } from "./public-routes";
 
@@ -19,6 +19,13 @@ function e2eRunId(testInfo: { project: { name: string }; workerIndex: number; re
     .replace(/[^a-z0-9]+/gi, "-")
     .toLowerCase()
     .slice(0, 120);
+}
+
+function searchResultsSection(page: Page) {
+  return page
+    .locator('section[aria-label="Search results"]')
+    .or(page.locator("section").filter({ hasText: "Search results" }))
+    .first();
 }
 
 test("profile submission writes through to public profile and discovery @flow", async ({ page, request, baseURL }, testInfo) => {
@@ -60,12 +67,21 @@ test("profile submission writes through to public profile and discovery @flow", 
 
     await profileLink.click();
     await expect(page.getByRole("heading", { name: displayName })).toBeVisible();
-    await expect(page.getByText(/Source: Community submitted/i)).toBeVisible();
+    await expect(
+      page
+        .locator("dl")
+        .filter({ hasText: "Status" })
+        .locator("dd")
+        .filter({ hasText: "Community submitted" })
+        .first()
+        .or(page.getByText(/Source: Community submitted/i))
+        .first(),
+    ).toBeVisible();
     await captureRouteScreenshot(page, testInfo, "profile-submission-flow-profile");
 
-    await page.goto(`/discover?q=${encodeURIComponent(displayName)}`);
+    await page.goto(`/search?q=${encodeURIComponent(displayName)}`);
     await expect(page.getByText(displayName, { exact: true }).first()).toBeVisible();
-    await captureRouteScreenshot(page, testInfo, "profile-submission-flow-discovery");
+    await captureRouteScreenshot(page, testInfo, "profile-submission-flow-search");
   } finally {
     if (createdSlug || runId) {
       const cleanupResponse = await request.delete("/api/e2e/profile-submissions", {
@@ -124,18 +140,18 @@ test("profile field visibility keeps unlisted fields on profiles and out of disc
     await expect(page.getByText(directOnlyBio).first()).toBeVisible();
     await expect(page.getByText(privateRole)).toHaveCount(0);
 
-    await page.goto(`/discover?q=${encodeURIComponent(directOnlyAlias)}`);
-    let searchResults = page.locator("section").filter({ hasText: "Search results" }).first();
+    await page.goto(`/search?q=${encodeURIComponent(directOnlyAlias)}`);
+    let searchResults = searchResultsSection(page);
     await expect(searchResults.getByText("No public results matched that search yet.")).toBeVisible();
     await expect(searchResults.getByText(displayName, { exact: true })).toHaveCount(0);
 
-    await page.goto(`/discover?q=${encodeURIComponent(directOnlyBio)}`);
-    searchResults = page.locator("section").filter({ hasText: "Search results" }).first();
+    await page.goto(`/search?q=${encodeURIComponent(directOnlyBio)}`);
+    searchResults = searchResultsSection(page);
     await expect(searchResults.getByText("No public results matched that search yet.")).toBeVisible();
     await expect(searchResults.getByText(displayName, { exact: true })).toHaveCount(0);
 
-    await page.goto(`/discover?q=${encodeURIComponent(publicTag)}`);
-    searchResults = page.locator("section").filter({ hasText: "Search results" }).first();
+    await page.goto(`/search?q=${encodeURIComponent(publicTag)}`);
+    searchResults = searchResultsSection(page);
     await expect(searchResults.getByText(displayName, { exact: true })).toBeVisible();
     await expect(searchResults.getByText(directOnlyBio)).toHaveCount(0);
     await expect(searchResults.getByText(privateRole)).toHaveCount(0);

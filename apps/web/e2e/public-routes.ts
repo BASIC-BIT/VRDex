@@ -9,6 +9,7 @@ export const visualProfilePaths = {
   communityPath: "/c/playwright-afterglow-social",
   worldPath: "/w/playwright-neon-harbor",
   eventPath: "/e/playwright-afterglow-harbor-sessions",
+  eventWatchPath: "/e/playwright-afterglow-watch-room",
 } as const;
 
 export type CapturedRoute = {
@@ -163,26 +164,19 @@ export async function captureRouteScreenshot(page: Page, testInfo: TestInfo, nam
 }
 
 export async function expectHomePage(page: Page) {
-  await expect(page.getByRole("heading", { name: /Find what is happening/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Find the night/i })).toBeVisible();
   await expect(page.getByRole("button", { name: /Search VRDex/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Events worth checking first/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Worlds hosting events soon" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Neon Harbor", exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: /Afterglow Harbor Sessions/i }).first()).toBeVisible();
 }
 
-export async function expectDiscoverPage(page: Page) {
-  await expect(page.getByRole("heading", { name: /Find the night/i })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Search VRDex/i })).toBeVisible();
-  await expect(page.getByRole("heading", { name: /Events worth checking first/i })).toBeVisible();
-  await expect(page.getByRole("link", { name: /Afterglow Harbor Sessions/i }).first()).toBeVisible();
-  await expect(page.getByRole("link", { name: /DJ Aurora/i })).toBeVisible();
-}
-
 export async function expectSearchPage(page: Page) {
-  await expect(page.getByRole("heading", { name: /Find the night/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Results for aurora/i })).toBeVisible();
   await expect(page.getByRole("button", { name: /Search VRDex/i })).toBeVisible();
   await expect(page.getByRole("link", { name: /DJ Aurora/i }).first()).toBeVisible();
-  await expect(page.getByRole("link", { name: /Neon Harbor/i }).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Events worth checking first/i })).toHaveCount(0);
 }
 
 export async function expectSubmitPage(page: Page) {
@@ -235,18 +229,19 @@ export async function expectDeploymentPage(page: Page) {
 
 export async function expectPersonProfilePage(page: Page) {
   await expect(page.getByRole("heading", { name: "DJ Aurora" })).toBeVisible();
-  await expect(page.getByText(/Source: Community submitted on Jan 1, 2025/i)).toBeVisible();
-  await expect(page.getByRole("heading", { name: /Where this profile appears next/i })).toBeVisible();
+  await expect(page.getByText(/Jan 1, 2025/i)).toBeVisible();
+  await expect(page.getByText(/Source:/i)).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Upcoming events" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions" })).toBeVisible();
   await expect(page.getByText(/Creator links/i)).toBeVisible();
   await expect(page.getByText("DJ Aurora Ko-fi", { exact: true })).toBeVisible();
-  await expect(page.getByText(/World credits/i)).toBeVisible();
-  await expect(page.getByRole("link", { name: /Neon Harbor Media Credit A/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Worlds" })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Neon Harbor/i })).toBeVisible();
 }
 
 export async function expectCommunityProfilePage(page: Page) {
   await expect(page.getByRole("heading", { name: "Afterglow Social" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: /Upcoming community events/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Hosted events" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions" })).toBeVisible();
   await expect(page.getByText("Club night", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Afterglow event archive", { exact: true })).toBeVisible();
@@ -256,6 +251,9 @@ export async function expectCommunityProfilePage(page: Page) {
 export async function expectEventPage(page: Page) {
   await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions" })).toBeVisible();
   await expect(page.getByText("When", { exact: true })).toBeVisible();
+  await expect(page.getByText("Doors open", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText(/Jun 15, 2:00 AM UTC/i).first()).toBeVisible();
+  await expect(page.getByText(/Your time/i)).toHaveCount(0);
   await expect(page.getByText("Place", { exact: true })).toBeVisible();
   await expect(page.getByText("Set times", { exact: true })).toBeVisible();
   const isMobile = (page.viewportSize()?.width ?? 0) < 640;
@@ -263,25 +261,40 @@ export async function expectEventPage(page: Page) {
 
   if (isMobile) {
     await expect(page.getByRole("columnheader", { name: "Artist" })).toHaveCount(0);
-    await expect(setTimes.getByText("10:00 PM - 10:45 PM", { exact: true }).first()).toBeVisible();
+    await expect(setTimes.getByText("2:00 AM - 2:45 AM", { exact: true }).first()).toBeVisible();
     await expect(setTimes.getByText("House", { exact: true }).first()).toBeVisible();
   } else {
     const setTimesTable = page.getByRole("table");
     await expect(setTimesTable.getByRole("columnheader", { name: "Artist" })).toBeVisible();
     await expect(setTimesTable.getByRole("columnheader", { name: "Style(s)" })).toBeVisible();
+    await expect(setTimesTable.getByRole("cell", { name: "2:00 AM - 2:45 AM" })).toBeVisible();
     await expect(setTimesTable.getByRole("cell", { name: "House" })).toBeVisible();
   }
 
   await expect(page.getByText("Lineup", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "DJ Aurora", exact: true }).first()).toBeVisible();
   await expect(page.getByText("Neon Harbor", { exact: true })).toBeVisible();
-  await expect(page.getByText("Fixture watch link", { exact: true })).toBeVisible();
+  await expect(page.getByText("Afterglow watch link", { exact: true })).toBeVisible();
+  await expect(page.getByText("Watch now", { exact: true })).toHaveCount(0);
+}
+
+export async function expectEventWatchPage(page: Page) {
+  await expect(page.getByRole("heading", { name: "Afterglow Watch Room" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Event stream" })).toBeVisible();
+  await expect(page.locator('iframe[title="VRCDN player for Event stream"]')).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open stream" }).first()).toHaveAttribute(
+    "href",
+    "https://vrcdn.live/playwright-afterglow-watch-room",
+  );
+  await expect(page.getByText("YouTube archive link", { exact: true })).toBeVisible();
+  await expect(page.getByText("Twitch channel link", { exact: true })).toBeVisible();
 }
 
 export async function expectWorldProfilePage(page: Page) {
   await expect(page.getByRole("heading", { name: "Neon Harbor", exact: true })).toBeVisible();
-  await expect(page.getByText(/World profile/i)).toBeVisible();
-  await expect(page.getByText(/Fixture owner-authored metadata/i)).toBeVisible();
+  await expect(page.getByText(/World profile/i)).toHaveCount(0);
+  await expect(page.getByText(/wrld_/i)).toHaveCount(0);
+  await expect(page.getByText(/Neon Harbor mixes warm booth lighting/i)).toBeVisible();
   await expect(page.getByText(/Events at this world/i)).toBeVisible();
   await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Neon Harbor Opening Night" })).toBeVisible();
@@ -309,12 +322,7 @@ export const capturedRoutes: CapturedRoute[] = [
     expectPage: expectAccountPage,
   },
   {
-    name: "discover",
-    path: "/discover?q=afterglow",
-    expectPage: expectDiscoverPage,
-  },
-  {
-    name: "search-compat",
+    name: "search",
     path: "/search?q=aurora",
     expectPage: expectSearchPage,
   },
@@ -362,6 +370,11 @@ export const capturedRoutes: CapturedRoute[] = [
     name: "event-profile",
     path: visualProfilePaths.eventPath,
     expectPage: expectEventPage,
+  },
+  {
+    name: "event-watch-surface",
+    path: visualProfilePaths.eventWatchPath,
+    expectPage: expectEventWatchPage,
   },
 ];
 

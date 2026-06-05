@@ -32,6 +32,7 @@ const eventMediaLinkPresentation = v.union(v.literal("open"), v.literal("copy"))
 const eventDraftArgs = {
   title: v.string(),
   startAt: v.number(),
+  doorsOpenAt: v.optional(v.number()),
   endAt: v.optional(v.number()),
   timezone: v.optional(v.string()),
   communitySlug: v.optional(v.string()),
@@ -371,6 +372,7 @@ export const createCommunityEvent = mutation({
       title: input.title,
       sortTitle: input.sortTitle,
       startAt: input.startAt,
+      ...optionalValue("doorsOpenAt", input.doorsOpenAt),
       ...optionalValue("endAt", input.endAt),
       ...optionalValue("timezone", input.timezone),
       ...optionalValue("communityProfileId", community?._id),
@@ -463,6 +465,7 @@ export const updateCommunityEvent = mutation({
       title: input.title,
       sortTitle: input.sortTitle,
       startAt: input.startAt,
+      doorsOpenAt: input.doorsOpenAt,
       endAt: input.endAt,
       timezone: input.timezone,
       communityProfileId: community?._id,

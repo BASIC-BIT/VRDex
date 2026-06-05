@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 
 function e2eBrowserToken() {
   const token = process.env.VRDEX_E2E_BROWSER_TOKEN ?? (process.env.PLAYWRIGHT_BASE_URL ? undefined : "local-playwright-token");
@@ -108,6 +108,14 @@ async function linkDiscordAccount(request: APIRequestContext, e2eToken: string, 
   await expect(linkResponse).toBeOK();
 }
 
+async function expectCurrentOrHostedLagTrustCopy(currentCopy: Locator, hostedLagCopy: Locator) {
+  await expect(currentCopy.or(hostedLagCopy).first()).toBeVisible();
+}
+
+function profileStatusCopy(page: Page, label: string) {
+  return page.locator("dl").filter({ hasText: "Status" }).locator("dd").filter({ hasText: label }).first();
+}
+
 async function cleanupAuthAndProfiles(request: APIRequestContext, e2eToken: string, email: string, slugs: Array<string | undefined>, runId: string) {
   for (const slug of slugs) {
     if (slug !== undefined) {
@@ -167,7 +175,10 @@ test("verified email account with linked Discord can claim an E2E person profile
 
     await page.goto(`/p/${createdSlug}`);
     await expect(page.getByRole("heading", { name: displayName })).toBeVisible();
-    await expect(page.getByText("Claimed", { exact: true })).toBeVisible();
+    await expectCurrentOrHostedLagTrustCopy(
+      profileStatusCopy(page, "Claimed"),
+      page.getByRole("heading", { name: "Claimed", exact: true }).or(page.getByText("Person profile / Claimed", { exact: true })),
+    );
   } finally {
     await cleanupAuthAndProfiles(request, e2eToken, email, [createdSlug], runId);
   }
@@ -237,7 +248,10 @@ test("verified email account can complete community and VRChat adapter claims @f
 
     await page.goto(`/c/${communitySlug}`);
     await expect(page.getByRole("heading", { name: `Playwright Community ${runSuffix}` })).toBeVisible();
-    await expect(page.getByText("Verified owner", { exact: true })).toBeVisible();
+    await expectCurrentOrHostedLagTrustCopy(
+      profileStatusCopy(page, "Verified"),
+      page.getByRole("heading", { name: "Verified owner", exact: true }).or(page.getByText("Community profile / Verified", { exact: true })),
+    );
 
     await page.goto("/account");
     await page.getByLabel("Profile slug").fill(vrchatPersonSlug!);
@@ -251,7 +265,10 @@ test("verified email account can complete community and VRChat adapter claims @f
 
     await page.goto(`/p/${vrchatPersonSlug}`);
     await expect(page.getByRole("heading", { name: `Playwright VRChat Proof ${runSuffix}` })).toBeVisible();
-    await expect(page.getByText("Verified owner", { exact: true })).toBeVisible();
+    await expectCurrentOrHostedLagTrustCopy(
+      profileStatusCopy(page, "Verified"),
+      page.getByRole("heading", { name: "Verified owner", exact: true }).or(page.getByText("Person profile / Verified", { exact: true })),
+    );
 
     await page.goto("/account");
     await page.getByLabel("Profile slug").fill(vrcLinkingPersonSlug!);
@@ -265,7 +282,10 @@ test("verified email account can complete community and VRChat adapter claims @f
 
     await page.goto(`/p/${vrcLinkingPersonSlug}`);
     await expect(page.getByRole("heading", { name: `Playwright VRCLinking Proof ${runSuffix}` })).toBeVisible();
-    await expect(page.getByText("Verified owner", { exact: true })).toBeVisible();
+    await expectCurrentOrHostedLagTrustCopy(
+      profileStatusCopy(page, "Verified"),
+      page.getByRole("heading", { name: "Verified owner", exact: true }).or(page.getByText("Person profile / Verified", { exact: true })),
+    );
   } finally {
     await cleanupAuthAndProfiles(
       request,

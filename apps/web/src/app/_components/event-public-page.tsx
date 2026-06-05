@@ -6,13 +6,18 @@ import {
   actionMetaClassName,
   inlineActionClassName,
 } from "@/components/ui/action-card";
-import { Badge, badgeVariants } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, Eyebrow } from "@/components/ui/card";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 import { Table, TableCell, TableFrame, TableHead, TableHeaderCell } from "@/components/ui/table";
 import { cn } from "@/lib/cn";
 import { safeImageBackground } from "@/lib/safe-image";
+import { EventWatchSurface } from "./event-watch-surface";
+import {
+  ViewerLocalEventDateTime,
+  ViewerLocalEventTime,
+  ViewerLocalEventTimeRange,
+} from "./viewer-local-event-times";
 
 type EventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested";
 type EventMediaLinkType =
@@ -44,6 +49,7 @@ export type PublicEventPreview = {
   slug?: string;
   title: string;
   startAt: number;
+  doorsOpenAt?: number;
   endAt?: number;
   timezone?: string;
   communityName?: string;
@@ -130,76 +136,21 @@ function safeHttpsUrl(url: string | undefined): string | null {
   }
 }
 
-function eventSourceLabel(source: EventSourceType): string {
-  if (source === "ai_suggested") {
-    return "AI-suggested";
-  }
-
-  return source
-    .split("_")
-    .map((word) => `${word[0]?.toUpperCase() ?? ""}${word.slice(1)}`)
-    .join(" ");
-}
-
-function mediaLinkTypeLabel(type: EventMediaLinkType): string {
-  if (type === "event_page") {
-    return "Event page";
-  }
-
-  if (type === "vrcdn") {
-    return "VRCDN";
-  }
-
-  return eventSourceLabel(type as EventSourceType);
-}
-
-function formatEventDate(timestamp: number, timezone: string | undefined): string {
-  const baseOptions: Intl.DateTimeFormatOptions = {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  };
-
-  try {
-    return new Intl.DateTimeFormat("en", {
-      ...baseOptions,
-      ...(timezone ? { timeZone: timezone } : {}),
-    }).format(new Date(timestamp));
-  } catch {
-    return new Intl.DateTimeFormat("en", baseOptions).format(new Date(timestamp));
-  }
-}
-
-function formatEventTime(timestamp: number, timezone: string | undefined): string {
-  const baseOptions: Intl.DateTimeFormatOptions = {
-    hour: "numeric",
-    minute: "2-digit",
-  };
-
-  try {
-    return new Intl.DateTimeFormat("en", {
-      ...baseOptions,
-      ...(timezone ? { timeZone: timezone } : {}),
-    }).format(new Date(timestamp));
-  } catch {
-    return new Intl.DateTimeFormat("en", baseOptions).format(new Date(timestamp));
-  }
-}
-
-function formatSlotTimeRange(slot: PublicEvent["slots"][number], timezone: string | undefined): string {
-  const start = formatEventTime(slot.startAt, timezone);
-
-  if (slot.endAt === undefined) {
-    return start;
-  }
-
-  return `${start} - ${formatEventTime(slot.endAt, timezone)}`;
+function EventTimeDefinition({ label, timestamp }: { label: string; timestamp: number }) {
+  return (
+    <div className="grid gap-1 border-b border-border pb-4 sm:grid-cols-[7rem_1fr] sm:gap-4">
+      <dt className="text-muted">{label}</dt>
+      <dd className="font-medium">
+        <ViewerLocalEventDateTime timestamp={timestamp} />
+      </dd>
+    </div>
+  );
 }
 
 export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
   const sourceUrl = safeHttpsUrl(event.source.url);
   const posterStyle = safeImageBackground(event.posterImageUrl, eventPosterOverlay);
+  const details = event.worlds.map((world) => world.displayName);
 
   return (
     <article className="group overflow-hidden rounded-card border border-border bg-surface-strong text-sm transition hover:-translate-y-0.5">
@@ -207,10 +158,9 @@ export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
         className="min-h-28 bg-[radial-gradient(circle_at_top_left,rgba(214,106,77,0.22),transparent_34%),linear-gradient(135deg,#2c1d29,#60429a)] bg-cover bg-center px-4 py-4 text-white"
         style={posterStyle}
       >
-        <div className="flex flex-wrap items-center gap-2 text-xs text-white/80">
-          <time dateTime={new Date(event.startAt).toISOString()}>
-            {formatEventDate(event.startAt, event.timezone)}
-          </time>
+        <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-white/84">
+          <ViewerLocalEventDateTime timestamp={event.startAt} />
+          {event.doorsOpenAt !== undefined && event.doorsOpenAt < event.startAt ? <span>Doors <ViewerLocalEventTime timestamp={event.doorsOpenAt} /></span> : null}
           {event.communityName ? <span>/ {event.communityName}</span> : null}
         </div>
         <h3 className="mt-4 text-2xl font-semibold tracking-[-0.04em]">
@@ -219,25 +169,13 @@ export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
       </div>
       <div className="grid gap-3 px-4 py-4">
         {event.summary ? <p className="leading-6 text-muted">{event.summary}</p> : null}
-        <div className="flex flex-wrap gap-2 text-xs">
-          {event.participantCount > 0 ? (
-            <Badge variant="muted">
-              {event.participantCount} linked profile{event.participantCount === 1 ? "" : "s"}
-            </Badge>
-          ) : null}
-          {event.slotCount > 0 ? (
-            <Badge variant="muted">
-              {event.slotCount} set time{event.slotCount === 1 ? "" : "s"}
-            </Badge>
-          ) : null}
-          {event.worlds.map((world) => (
-            <Badge variant="muted" key={world.slug}>
-              {world.displayName}
-            </Badge>
+        <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
+          {details.map((detail) => (
+            <span key={detail}>{detail}</span>
           ))}
           {sourceUrl ? (
             <a
-              className={cn(badgeVariants({ variant: "muted" }), "font-medium")}
+              className="font-medium text-accent-strong underline decoration-accent/35 underline-offset-4"
               href={sourceUrl}
               rel="noreferrer"
               target="_blank"
@@ -245,7 +183,7 @@ export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
               {event.source.label}
             </a>
           ) : (
-            <Badge variant="muted">{event.source.label}</Badge>
+            <span>{event.source.label}</span>
           )}
         </div>
       </div>
@@ -284,8 +222,8 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
   const sourceUrl = safeHttpsUrl(event.source.url);
 
   return (
-    <PageShell tone="event">
-      <PageContainer>
+    <PageShell className="py-5 sm:py-6 lg:py-7" tone="event">
+      <PageContainer className="gap-5">
         <PageNav>
           <BrandLink />
           <div className="flex flex-wrap gap-2">
@@ -305,14 +243,9 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
             className="relative min-h-56 bg-[radial-gradient(circle_at_top_right,rgba(198,153,255,0.32),transparent_30%),linear-gradient(135deg,#17111f,#5d3b8e_52%,#20142f)] bg-cover bg-center p-5 text-white sm:p-6 lg:p-8"
             style={posterStyle}
           >
-            <Badge className="absolute top-4 right-4" mono variant="inverse">
-              Event
-            </Badge>
-            <div className="flex min-h-44 flex-col justify-end pr-16">
+            <div className="flex min-h-44 flex-col justify-end">
               <div className="max-w-4xl">
-                <time className="text-sm uppercase tracking-[0.24em] text-white/70" dateTime={new Date(event.startAt).toISOString()}>
-                  {formatEventDate(event.startAt, event.timezone)}
-                </time>
+                <ViewerLocalEventDateTime className="text-sm uppercase tracking-[0.24em] text-white/70" timestamp={event.startAt} />
                 <h1 className="mt-4 text-5xl leading-none font-semibold tracking-[-0.05em] sm:text-7xl">
                   {event.title}
                 </h1>
@@ -322,54 +255,60 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
           </div>
         </section>
 
-        <section className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
-          <Card surface="white">
-            <Eyebrow>When</Eyebrow>
-            <dl className="mt-5 space-y-4 text-sm">
-              <div className="border-b border-border pb-4">
-                <dt className="text-muted">Start</dt>
-                <dd className="mt-1 font-medium">{formatEventDate(event.startAt, event.timezone)}</dd>
-              </div>
-              <div className="border-b border-border pb-4">
-                <dt className="text-muted">End</dt>
-                <dd className="mt-1 font-medium">
-                  {event.endAt ? formatEventDate(event.endAt, event.timezone) : "Not listed"}
-                </dd>
-              </div>
-            </dl>
-            <p className="mt-4 text-xs leading-5 text-muted">
-              Time zone: {event.timezone ?? "not listed"}
-            </p>
-          </Card>
-
-          <Card surface="white">
-            <Eyebrow>Place</Eyebrow>
-            <div className="mt-5 grid gap-3 text-sm">
-              {event.communitySlug ? (
-                <Link className={actionCardVariants({ variant: "accent" })} href={`/c/${event.communitySlug}`}>
-                  <span className={actionLabelClassName}>
-                    {event.communityName ?? "Community profile"}
-                  </span>
-                  <span className={actionMetaClassName}>Host</span>
-                </Link>
-              ) : event.communityName ? (
-                <div className="rounded-control border border-border bg-surface px-4 py-3 font-medium">
-                  {event.communityName}
+        <section className="grid items-start gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+          <div>
+            <Card className="h-fit" surface="white">
+              <Eyebrow>When</Eyebrow>
+              <dl className="mt-5 space-y-4 text-sm">
+                {event.doorsOpenAt === undefined ? null : <EventTimeDefinition label="Doors open" timestamp={event.doorsOpenAt} />}
+                <EventTimeDefinition label="Start" timestamp={event.startAt} />
+                <div className="grid gap-1 border-b border-border pb-4 sm:grid-cols-[7rem_1fr] sm:gap-4">
+                  <dt className="text-muted">End</dt>
+                  <dd className="font-medium">
+                    {event.endAt ? <ViewerLocalEventDateTime timestamp={event.endAt} /> : "Not listed"}
+                  </dd>
                 </div>
-              ) : (
-                <p className="leading-6 text-muted">No host listed.</p>
-              )}
-              {event.worlds.map((world) => (
-                <Link className={actionCardVariants({ variant: "accent" })} href={`/w/${world.slug}`} key={world.slug}>
-                  <span className={actionLabelClassName}>
-                    {world.displayName}
-                  </span>
-                  {world.summary ? <span className="mt-1 block text-muted">{world.summary}</span> : null}
-                  <span className={actionMetaClassName}>World</span>
-                </Link>
-              ))}
-            </div>
-          </Card>
+              </dl>
+            </Card>
+          </div>
+
+          <div className="grid gap-4">
+            <EventWatchSurface
+              doorsOpenAt={event.doorsOpenAt}
+              endAt={event.endAt}
+              mediaLinks={event.mediaLinks}
+              startAt={event.startAt}
+            />
+
+            <Card surface="white">
+              <Eyebrow>Place</Eyebrow>
+              <div className="mt-5 grid gap-3 text-sm">
+                {event.communitySlug ? (
+                  <Link className={actionCardVariants({ variant: "accent" })} href={`/c/${event.communitySlug}`}>
+                    <span className={actionLabelClassName}>
+                      {event.communityName ?? "Community profile"}
+                    </span>
+                    <span className={actionMetaClassName}>Host</span>
+                  </Link>
+                ) : event.communityName ? (
+                  <div className="rounded-control border border-border bg-surface px-4 py-3 font-medium">
+                    {event.communityName}
+                  </div>
+                ) : (
+                  <p className="leading-6 text-muted">No host listed.</p>
+                )}
+                {event.worlds.map((world) => (
+                  <Link className={actionCardVariants({ variant: "accent" })} href={`/w/${world.slug}`} key={world.slug}>
+                    <span className={actionLabelClassName}>
+                      {world.displayName}
+                    </span>
+                    {world.summary ? <span className="mt-1 block text-muted">{world.summary}</span> : null}
+                    <span className={actionMetaClassName}>World</span>
+                  </Link>
+                ))}
+              </div>
+            </Card>
+          </div>
         </section>
 
         <Card surface="white">
@@ -382,9 +321,7 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
                 <div className="grid divide-y divide-border text-sm sm:hidden">
                   {event.slots.map((slot) => (
                     <div className="grid gap-2 px-4 py-3" key={`${slot.position}-${slot.startAt}-${slot.displayLabel}-mobile`}>
-                      <time className="font-medium" dateTime={new Date(slot.startAt).toISOString()}>
-                        {formatSlotTimeRange(slot, event.timezone)}
-                      </time>
+                      <ViewerLocalEventTimeRange className="font-medium" endAt={slot.endAt} startAt={slot.startAt} />
                       <div>
                         {slot.performer ? (
                           <Link className={inlineActionClassName} href={`/p/${slot.performer.slug}`}>
@@ -409,7 +346,7 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
                   <tbody className="divide-y divide-border">
                     {event.slots.map((slot) => (
                       <tr className="align-top" key={`${slot.position}-${slot.startAt}-${slot.displayLabel}`}>
-                        <TableCell className="whitespace-nowrap font-medium">{formatSlotTimeRange(slot, event.timezone)}</TableCell>
+                        <TableCell className="whitespace-nowrap font-medium"><ViewerLocalEventTimeRange endAt={slot.endAt} startAt={slot.startAt} /></TableCell>
                         <TableCell>
                           {slot.performer ? (
                             <Link className={inlineActionClassName} href={`/p/${slot.performer.slug}`}>
@@ -460,7 +397,7 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
                   <span className={actionLabelClassName}>
                     {event.source.label}
                   </span>
-                  <span className={actionMetaClassName}>Source</span>
+                  <span className={actionMetaClassName}>Reference link</span>
                 </a>
               ) : null}
               {event.mediaLinks.map((link) => (
@@ -469,7 +406,7 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
                     {link.label}
                   </span>
                   <span className="mt-1 block text-xs text-muted">
-                    {mediaLinkTypeLabel(link.type)} / {link.presentation === "copy" ? "Copy link" : "Open"}
+                    {link.presentation === "copy" ? "Copy link" : "Open link"}
                   </span>
                 </a>
               ))}

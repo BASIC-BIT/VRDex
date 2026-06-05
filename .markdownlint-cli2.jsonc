@@ -8,6 +8,7 @@
     ".turbo/**",
     ".vercel/**",
     ".playwright-mcp/**",
+    ".tmp-gh-artifacts/**",
     "apps/docs/.docusaurus/**",
     "apps/docs/build/**",
     "apps/web/.next/**",

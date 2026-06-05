@@ -11,20 +11,35 @@ const personSlug = "playwright-dj-aurora";
 const communitySlug = "playwright-afterglow-social";
 const worldSlug = "playwright-neon-harbor";
 const eventSlug = "playwright-afterglow-harbor-sessions";
+const eventWatchSlug = "playwright-afterglow-watch-room";
+const eventTimezone = "America/New_York";
+const eventDoorsOpenAt = Date.UTC(2026, 5, 15, 1, 30, 0);
+const eventStartAt = Date.UTC(2026, 5, 15, 2, 0, 0);
+const eventEndAt = Date.UTC(2026, 5, 15, 5, 0, 0);
+const firstSlotEndAt = Date.UTC(2026, 5, 15, 2, 45, 0);
+const secondSlotStartAt = Date.UTC(2026, 5, 15, 2, 45, 0);
+const secondSlotEndAt = Date.UTC(2026, 5, 15, 3, 30, 0);
+const watchEventDoorsOpenAt = Date.UTC(2025, 0, 1, 11, 30, 0);
+const watchEventStartAt = Date.UTC(2025, 0, 1, 12, 0, 0);
+const watchEventEndAt = Date.UTC(2025, 0, 1, 15, 0, 0);
+const watchFirstSlotEndAt = Date.UTC(2025, 0, 1, 12, 45, 0);
+const watchSecondSlotStartAt = Date.UTC(2025, 0, 1, 12, 45, 0);
+const watchSecondSlotEndAt = Date.UTC(2025, 0, 1, 13, 30, 0);
 
 const eventPreview = {
   slug: eventSlug,
   title: "Afterglow Harbor Sessions",
-  startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
-  endAt: Date.UTC(2026, 5, 15, 1, 0, 0),
-  timezone: "UTC",
+  startAt: eventStartAt,
+  doorsOpenAt: eventDoorsOpenAt,
+  endAt: eventEndAt,
+  timezone: eventTimezone,
   communityName: "Afterglow Social",
   communitySlug,
-  summary: "A fixture venue night that keeps event-profile context visible in screenshots.",
+  summary: "Late-night harbor club session with house, trance, and warm social energy.",
   posterImageUrl: "https://example.invalid/events/afterglow-harbor-poster.png",
   source: {
     sourceType: "manual" as const,
-    label: "Fixture event listing",
+    label: "Afterglow event listing",
     url: "https://example.invalid/events/afterglow-harbor-sessions",
   },
   worlds: [
@@ -44,8 +59,8 @@ const personProfile: PublicProfile = {
   aliases: ["Aurora", "Auralight"],
   tags: ["DJ", "Melodic House", "EU"],
   headline: "Melodic house sets for late-night VRChat floors.",
-  bio: "DJ Aurora is a fixture profile for VRDex visual review. It gives the public person page stable content, trust-state copy, tags, aliases, and owner-authored text to render.",
-  about: "This profile is returned only when Playwright fixture mode is explicitly enabled for the Next.js server.",
+  bio: "Melodic house DJ playing warm, vocal-led sets across VRChat club nights.",
+  about: "Known for sunrise handoffs, soft-focus visuals, and long blends that keep the room moving.",
   region: "EU",
   timezone: "UTC+1",
   trustLabel: "community_submitted",
@@ -74,8 +89,8 @@ const personProfile: PublicProfile = {
       displayName: "Neon Harbor",
       roles: ["media_credit"],
       tags: ["Club world", "Cyberpunk", "Dance floor"],
-      summary: "A fixture VRChat venue page for world discovery visual review.",
-      sourceLabel: "Fixture attribution",
+      summary: "Cyberpunk harbor club world with layered dance floors and quiet balcony corners.",
+      sourceLabel: "Community credit",
     },
   ],
   upcomingEvents: [eventPreview],
@@ -93,8 +108,8 @@ const communityProfile: PublicProfile = {
   aliases: ["Afterglow", "AGS"],
   tags: ["Club", "Weekend", "Friends"],
   headline: "A warm VRChat club night for music-first communities.",
-  bio: "Afterglow Social is a deterministic fixture community used by Playwright to keep the public community profile route visible in PR screenshot artifacts.",
-  about: "The seeded page exercises community subtype, category tags, aliases, and the community-submitted trust label without depending on production data.",
+  bio: "Music-first VRChat club night with warm rooms, late sets, and community-hosted weekends.",
+  about: "Afterglow keeps the focus on friendly floors, clear event listings, and DJs who like a slower build.",
   region: "Global",
   timezone: "UTC",
   trustLabel: "community_submitted",
@@ -117,8 +132,8 @@ const communityProfile: PublicProfile = {
       displayName: "Neon Harbor",
       roles: ["world_author"],
       tags: ["Club world", "Cyberpunk", "Dance floor"],
-      summary: "A fixture VRChat venue page for world discovery visual review.",
-      sourceLabel: "Fixture attribution",
+      summary: "Cyberpunk harbor club world with layered dance floors and quiet balcony corners.",
+      sourceLabel: "Community credit",
     },
   ],
   upcomingEvents: [],
@@ -133,9 +148,9 @@ const worldProfile: PublicWorld = {
   slug: worldSlug,
   displayName: "Neon Harbor",
   tags: ["Club world", "Cyberpunk", "Dance floor"],
-  summary: "A fixture VRChat venue page for world discovery visual review.",
+  summary: "Cyberpunk harbor club world with layered dance floors and quiet balcony corners.",
   description:
-    "Neon Harbor is a deterministic fixture world used to exercise world metadata, creator attribution, public VRChat links, and owner-authored creator commerce links.",
+    "Neon Harbor mixes warm booth lighting, open-water skyline views, and a compact floor built for smaller music nights.",
   vrchatWorldId: "wrld_00000000-0000-4000-8000-000000000001",
   canonicalVrchatWorldUrl:
     "https://vrchat.com/home/world/wrld_00000000-0000-4000-8000-000000000001",
@@ -148,14 +163,14 @@ const worldProfile: PublicWorld = {
       displayName: "Afterglow Social",
       profileSlug: communitySlug,
       profileType: "community",
-      sourceLabel: "Fixture attribution",
+      sourceLabel: "Community credit",
     },
     {
       role: "media_credit",
       displayName: "DJ Aurora",
       profileSlug: personSlug,
       profileType: "person",
-      sourceLabel: "Fixture attribution",
+      sourceLabel: "Community credit",
     },
   ],
   media: [],
@@ -175,7 +190,7 @@ const worldProfile: PublicWorld = {
   ],
   source: {
     sourceType: "owner",
-    label: "Fixture owner-authored metadata",
+    label: "Neon Harbor creator notes",
     confirmedAt: Date.UTC(2025, 0, 1, 12, 0, 0),
   },
   eventContext: {
@@ -183,23 +198,24 @@ const worldProfile: PublicWorld = {
       {
         slug: eventSlug,
         title: "Afterglow Harbor Sessions",
-        startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
-        endAt: Date.UTC(2026, 5, 15, 1, 0, 0),
-        timezone: "UTC",
+        startAt: eventStartAt,
+        doorsOpenAt: eventDoorsOpenAt,
+        endAt: eventEndAt,
+        timezone: eventTimezone,
         communityName: "Afterglow Social",
-        summary: "A fixture venue night that keeps world-event context visible in screenshots.",
+        summary: "Late-night harbor club session with house, trance, and warm social energy.",
         posterImageUrl: "https://example.invalid/events/afterglow-harbor-poster.png",
         mediaLinks: [
           {
             type: "watch",
-            label: "Fixture watch link",
+            label: "Afterglow watch link",
             url: "https://example.invalid/events/afterglow-watch",
             presentation: "open",
           },
         ],
         source: {
           sourceType: "manual",
-          label: "Fixture event listing",
+          label: "Afterglow event listing",
           url: "https://example.invalid/events/afterglow-harbor-sessions",
         },
         worldAssociation: {
@@ -215,7 +231,7 @@ const worldProfile: PublicWorld = {
         startAt: Date.UTC(2026, 3, 18, 23, 0, 0),
         timezone: "UTC",
         communityName: "Afterglow Social",
-        summary: "A past fixture event used to exercise recent world activity presentation.",
+        summary: "Opening night set with early arrivals, world tours, and a compact DJ lineup.",
         mediaLinks: [],
         source: {
           sourceType: "community",
@@ -236,18 +252,19 @@ const activeWorlds: PublicActiveWorld[] = [
     slug: worldSlug,
     displayName: "Neon Harbor",
     tags: ["Club world", "Cyberpunk", "Dance floor"],
-    summary: "A fixture VRChat venue page for world discovery visual review.",
+    summary: "Cyberpunk harbor club world with layered dance floors and quiet balcony corners.",
     upcomingEventCount: 2,
     activityLabel: "Hosting upcoming events",
     nextEvent: {
       slug: eventSlug,
       title: "Afterglow Harbor Sessions",
-      startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
-      timezone: "UTC",
+      startAt: eventStartAt,
+      doorsOpenAt: eventDoorsOpenAt,
+      timezone: eventTimezone,
       communityName: "Afterglow Social",
       source: {
         sourceType: "manual",
-        label: "Fixture event listing",
+        label: "Afterglow event listing",
         url: "https://example.invalid/events/afterglow-harbor-sessions",
       },
     },
@@ -257,17 +274,17 @@ const activeWorlds: PublicActiveWorld[] = [
 const publicEvent: PublicEvent = {
   ...eventPreview,
   slug: eventSlug,
-  notes: "Fixture event notes make the standalone event route useful during visual review.",
+  notes: "Doors open before the first set. Follow host announcements for instance details.",
   mediaLinks: [
     {
       type: "watch",
-      label: "Fixture watch link",
+      label: "Afterglow watch link",
       url: "https://example.invalid/events/afterglow-watch",
       presentation: "open",
     },
     {
       type: "vrcdn",
-      label: "Fixture VRCDN copy link",
+      label: "VRCDN copy link",
       url: "https://example.invalid/events/afterglow-vrcdn",
       presentation: "copy",
     },
@@ -277,7 +294,7 @@ const publicEvent: PublicEvent = {
       slug: worldSlug,
       displayName: "Neon Harbor",
       tags: ["Club world", "Cyberpunk", "Dance floor"],
-      summary: "A fixture VRChat venue page for world discovery visual review.",
+      summary: "Cyberpunk harbor club world with layered dance floors and quiet balcony corners.",
       association: {
         sourceType: "manual",
         confirmationState: "confirmed",
@@ -293,25 +310,25 @@ const publicEvent: PublicEvent = {
       trustLabel: "community_submitted",
       source: {
         sourceType: "community",
-        label: "Fixture lineup",
+        label: "Afterglow lineup",
       },
     },
   ],
   slots: [
     {
       position: 0,
-      startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
-      endAt: Date.UTC(2026, 5, 14, 22, 45, 0),
+      startAt: eventStartAt,
+      endAt: firstSlotEndAt,
       displayLabel: "DJ Aurora",
       roleLabel: "House",
       discord: {
-        shortTime: "<t:1781474400:t>",
-        longTime: "<t:1781474400:T>",
-        shortDate: "<t:1781474400:d>",
-        longDate: "<t:1781474400:D>",
-        shortDateTime: "<t:1781474400:f>",
-        longDateTime: "<t:1781474400:F>",
-        relative: "<t:1781474400:R>",
+        shortTime: "<t:1781488800:t>",
+        longTime: "<t:1781488800:T>",
+        shortDate: "<t:1781488800:d>",
+        longDate: "<t:1781488800:D>",
+        shortDateTime: "<t:1781488800:f>",
+        longDateTime: "<t:1781488800:F>",
+        relative: "<t:1781488800:R>",
       },
       performer: {
         slug: personSlug,
@@ -320,28 +337,71 @@ const publicEvent: PublicEvent = {
       },
       source: {
         sourceType: "community",
-        label: "Fixture lineup",
+        label: "Afterglow lineup",
       },
     },
     {
       position: 1,
-      startAt: Date.UTC(2026, 5, 14, 22, 45, 0),
-      endAt: Date.UTC(2026, 5, 14, 23, 30, 0),
+      startAt: secondSlotStartAt,
+      endAt: secondSlotEndAt,
       displayLabel: "DJ Lumen",
       roleLabel: "Trance",
       discord: {
-        shortTime: "<t:1781477100:t>",
-        longTime: "<t:1781477100:T>",
-        shortDate: "<t:1781477100:d>",
-        longDate: "<t:1781477100:D>",
-        shortDateTime: "<t:1781477100:f>",
-        longDateTime: "<t:1781477100:F>",
-        relative: "<t:1781477100:R>",
+        shortTime: "<t:1781491500:t>",
+        longTime: "<t:1781491500:T>",
+        shortDate: "<t:1781491500:d>",
+        longDate: "<t:1781491500:D>",
+        shortDateTime: "<t:1781491500:f>",
+        longDateTime: "<t:1781491500:F>",
+        relative: "<t:1781491500:R>",
       },
       source: {
         sourceType: "community",
-        label: "Fixture lineup",
+        label: "Afterglow lineup",
       },
+    },
+  ],
+};
+
+const publicWatchEvent: PublicEvent = {
+  ...publicEvent,
+  slug: eventWatchSlug,
+  title: "Afterglow Watch Room",
+  startAt: watchEventStartAt,
+  doorsOpenAt: watchEventDoorsOpenAt,
+  endAt: watchEventEndAt,
+  summary: "Live room for the Afterglow set stream.",
+  notes: "Use the player during the event, or open the stream in a new tab.",
+  mediaLinks: [
+    {
+      type: "watch",
+      label: "Event stream",
+      url: "https://vrcdn.live/playwright-afterglow-watch-room",
+      presentation: "open",
+    },
+    {
+      type: "watch",
+      label: "YouTube archive link",
+      url: "https://www.youtube.com/watch?v=M7lc1UVf-VE",
+      presentation: "open",
+    },
+    {
+      type: "stream",
+      label: "Twitch channel link",
+      url: "https://www.twitch.tv/twitchdev",
+      presentation: "open",
+    },
+  ],
+  slots: [
+    {
+      ...publicEvent.slots[0]!,
+      startAt: watchEventStartAt,
+      endAt: watchFirstSlotEndAt,
+    },
+    {
+      ...publicEvent.slots[1]!,
+      startAt: watchSecondSlotStartAt,
+      endAt: watchSecondSlotEndAt,
     },
   ],
 };
@@ -353,12 +413,12 @@ const discoveryResults: PublicSearchResult[] = [
     routePath: `/e/${eventSlug}`,
     title: "Afterglow Harbor Sessions",
     subtitle: "Afterglow Social",
-    summary: "A poster-forward fixture event for tonight-and-soon discovery.",
+    summary: "Late-night harbor club session with house, trance, and warm social energy.",
     imageUrl: "https://example.invalid/events/afterglow-harbor-poster.png",
-    startsAt: Date.UTC(2026, 5, 14, 22, 0, 0),
+    startsAt: eventStartAt,
     source: {
       sourceType: "manual",
-      label: "Fixture event listing",
+      label: "Afterglow event listing",
     },
     score: 280,
   },
@@ -396,10 +456,10 @@ const discoveryResults: PublicSearchResult[] = [
     routePath: `/w/${worldSlug}`,
     title: "Neon Harbor",
     subtitle: "World",
-    summary: "A fixture VRChat venue page for world discovery visual review.",
+    summary: "Cyberpunk harbor club world with layered dance floors and quiet balcony corners.",
     source: {
       sourceType: "owner",
-      label: "Fixture owner-authored metadata",
+      label: "Neon Harbor creator notes",
     },
     score: 150,
   },
@@ -517,6 +577,10 @@ export function getPlaywrightPublicEventFixture(slug: string): PublicEvent | nul
     return publicEvent;
   }
 
+  if (slug === eventWatchSlug) {
+    return publicWatchEvent;
+  }
+
   return null;
 }
 
@@ -536,4 +600,5 @@ export const playwrightPublicProfilePaths = {
   communityPath: `/c/${communitySlug}`,
   worldPath: `/w/${worldSlug}`,
   eventPath: `/e/${eventSlug}`,
+  eventWatchPath: `/e/${eventWatchSlug}`,
 };

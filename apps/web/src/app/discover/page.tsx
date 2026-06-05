@@ -1,29 +1,30 @@
-import { DiscoveryPublicPage } from "../_components/discovery-public-page";
-import { fetchDiscovery, fetchDiscoverySearch } from "@/convex/server";
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-
-type DiscoverPageProps = {
+type DiscoverRedirectPageProps = {
   searchParams: Promise<{
-    q?: string;
+    q?: string | string[];
+    type?: string | string[];
   }>;
 };
 
-export default async function DiscoverPage({ searchParams }: DiscoverPageProps) {
-  const { q } = await searchParams;
-  const query = q?.trim() ?? "";
-  const [discovery, search] = await Promise.all([
-    fetchDiscovery(),
-    query ? fetchDiscoverySearch(query) : Promise.resolve({ kind: "live" as const, results: [] }),
-  ]);
-  const status = discovery.kind === "live" ? search.kind : discovery.kind;
+function firstParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
 
-  return (
-    <DiscoveryPublicPage
-      data={discovery.data}
-      query={query}
-      results={search.results}
-      status={status}
-    />
-  );
+export default async function DiscoverRedirectPage({ searchParams }: DiscoverRedirectPageProps) {
+  const params = await searchParams;
+  const query = firstParam(params.q)?.trim();
+
+  if (!query) {
+    redirect("/");
+  }
+
+  const nextParams = new URLSearchParams({ q: query });
+  const type = firstParam(params.type)?.trim();
+
+  if (type) {
+    nextParams.set("type", type);
+  }
+
+  redirect(`/search?${nextParams.toString()}`);
 }

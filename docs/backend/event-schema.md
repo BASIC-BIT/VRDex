@@ -2,7 +2,7 @@
 
 ## Status
 
-Current recommendation and implementation note for `#34`, `#35`, `#36`, and `#119`.
+Current recommendation and implementation note for `#34`, `#35`, `#36`, `#119`, `#132`, and `#134`.
 
 ## Event Records
 
@@ -12,8 +12,8 @@ Current event fields include:
 
 - human-readable editable slug for `/e/<slug>` public routes
 - title and sort title
-- start time and optional end time
-- optional time zone
+- start time, optional doors-open time, and optional end time
+- optional canonical event time zone
 - optional linked community profile
 - optional public summary and notes
 - optional primary poster image URL
@@ -23,6 +23,16 @@ Current event fields include:
 - submitter identity for first-slice edit authority
 
 Generated durable short links such as `/l/<code>` are tracked separately in `#92`. Event slugs are readable and may become owner-editable; short links should remain stable after slug edits.
+
+## Event Times
+
+Event `startAt`, `doorsOpenAt`, and `endAt` are stored as timestamps. The optional `timezone` field is the canonical event timezone used by operators for public schedule display and by the event editor when parsing local `datetime-local` inputs.
+
+`doorsOpenAt` is public and optional. When provided, it must be at or before `startAt`; it does not change the event start, slot offsets, participant associations, or event-world association timestamps.
+
+Public event pages render the canonical event timezone first, then render viewer-local equivalents from the browser timezone when available. This keeps the operator schedule authoritative while making the event understandable to viewers outside the event timezone.
+
+Slot rows remain canonical event-time schedule rows. The first slot editor template still uses relative minute offsets from `startAt`, not `doorsOpenAt`, so set-time storage and Discord timestamp generation remain tied to the canonical event/slot timestamps.
 
 ## Community Authority
 
@@ -95,6 +105,26 @@ Each media link has a label, HTTPS URL, and presentation hint:
 - `copy` for operational links such as VRCDN links that may need to be pasted into a world or tool
 
 Future smart labeling, remembered vocabularies, URL-derived icons, and platform-specific UX are tracked in `#90`.
+
+## Public Watch Surface
+
+Public event pages promote one primary watch source above the normal link list only during the event's scheduled watch window. Outside that window, watch links stay in the normal link list.
+
+Selection order is deterministic:
+
+1. first `watch` link in saved media-link order
+2. first `stream` link in saved media-link order
+3. first `vrcdn` link in saved media-link order
+
+The promoted link remains visible in the normal links section so viewers can still scan the complete event link set.
+
+Embeds are limited to explicitly supported HTTPS providers:
+
+- YouTube watch, live, shorts, and embed URLs render through a `youtube-nocookie.com` iframe.
+- Twitch channel, video, collection, and clip URLs render through Twitch's player or clips iframe with the current browser hostname passed as the required `parent` parameter.
+- VRCDN `vrcdn.live` player pages render in an iframe; direct `.mp4`, `.webm`, `.ogg`, and `.m3u8` VRCDN URLs render as a controlled video element when the browser supports the source.
+
+Unsupported watch URLs fall back to a prominent outbound watch card during the scheduled watch window. Source liveness checks, operator status, and restream switching remain part of the larger media-control model tracked in `#124`; public UI should not expose those implementation boundaries as explanatory copy.
 
 ## Event-World Links
 
