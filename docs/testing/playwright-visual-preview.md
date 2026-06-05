@@ -64,7 +64,6 @@ Profile screenshots use deterministic Next-server fixtures when `VRDEX_ENABLE_PL
 - `/submit`
 - `/sign-in`
 - `/account`
-- `/discover?q=afterglow`
 - `/search?q=aurora`
 - `/privacy/suppression`
 - `/events/new`
@@ -75,6 +74,8 @@ Profile screenshots use deterministic Next-server fixtures when `VRDEX_ENABLE_PL
 - `/c/playwright-afterglow-social`
 - `/w/playwright-neon-harbor`
 - `/e/playwright-afterglow-harbor-sessions`
+
+Legacy `/discover?q=...` URLs redirect to `/search?q=...`; plain `/discover` redirects to `/`.
 
 Screenshots are written to `apps/web/playwright-artifacts/screenshots` and attached to the Playwright report.
 
