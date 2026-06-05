@@ -281,7 +281,11 @@ function createVrcdnEmbed(url: URL, label: string): WatchEmbed | null {
     return null;
   }
 
-  if (/\.(mp4|ogg|webm|m3u8)$/i.test(url.pathname)) {
+  if (/\.m3u8$/i.test(url.pathname)) {
+    return null;
+  }
+
+  if (/\.(mp4|ogg|webm)$/i.test(url.pathname)) {
     return {
       kind: "video",
       provider: "VRCDN",

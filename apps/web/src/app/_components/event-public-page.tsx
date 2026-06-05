@@ -160,7 +160,7 @@ export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
       >
         <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-white/84">
           <ViewerLocalEventDateTime timestamp={event.startAt} />
-          {event.doorsOpenAt === undefined ? null : <span>Doors <ViewerLocalEventTime timestamp={event.doorsOpenAt} /></span>}
+          {event.doorsOpenAt !== undefined && event.doorsOpenAt < event.startAt ? <span>Doors <ViewerLocalEventTime timestamp={event.doorsOpenAt} /></span> : null}
           {event.communityName ? <span>/ {event.communityName}</span> : null}
         </div>
         <h3 className="mt-4 text-2xl font-semibold tracking-[-0.04em]">
