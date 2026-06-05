@@ -1,10 +1,11 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/cn";
+import { parseVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
 
 type EventMediaLinkType = "event_page" | "watch" | "stream" | "vrcdn" | "discord" | "ticket" | "other";
 type EventMediaLinkPresentation = "open" | "copy";
@@ -19,7 +20,13 @@ type EventWatchMediaLink = {
 type WatchEmbed =
   | {
       kind: "iframe";
-      provider: "Twitch" | "VRCDN" | "YouTube";
+      provider: "Twitch" | "YouTube";
+      src: string;
+      title: string;
+    }
+  | {
+      kind: "hls";
+      provider: "VRCDN";
       src: string;
       title: string;
     }
@@ -115,6 +122,16 @@ function parseHttpsUrl(url: string): URL | null {
   } catch {
     return null;
   }
+}
+
+function parseWatchOpenUrl(url: string): URL | null {
+  const vrcdnLinks = parseVrcdnStreamLinks(url);
+
+  if (vrcdnLinks !== null) {
+    return new URL(vrcdnLinks.pageUrl);
+  }
+
+  return parseHttpsUrl(url);
 }
 
 function selectPrimaryWatchLink(mediaLinks: EventWatchMediaLink[]): EventWatchMediaLink | null {
@@ -266,50 +283,44 @@ function createTwitchEmbed(url: URL, label: string, browserHostname: string | un
   };
 }
 
-function isVrcdnHost(hostname: string): boolean {
-  const normalized = hostname.toLowerCase();
+function createVrcdnEmbed(url: string, label: string): WatchEmbed | null {
+  const vrcdnLinks = parseVrcdnStreamLinks(url);
 
-  if (!["panel.vrcdn.live", "status.vrcdn.live", "wiki.vrcdn.live"].includes(normalized) && normalized.endsWith(".vrcdn.live")) {
-    return true;
-  }
-
-  return normalized === "vrcdn.live";
-}
-
-function createVrcdnEmbed(url: URL, label: string): WatchEmbed | null {
-  if (!isVrcdnHost(url.hostname)) {
+  if (vrcdnLinks === null) {
     return null;
   }
 
-  if (/\.m3u8$/i.test(url.pathname)) {
-    return null;
-  }
-
-  if (/\.(mp4|ogg|webm)$/i.test(url.pathname)) {
+  if (vrcdnLinks.directVideoUrl !== undefined) {
     return {
       kind: "video",
       provider: "VRCDN",
-      src: url.href,
+      src: vrcdnLinks.directVideoUrl,
       title: `VRCDN video for ${label}`,
     };
   }
 
   return {
-    kind: "iframe",
+    kind: "hls",
     provider: "VRCDN",
-    src: url.href,
-    title: `VRCDN player for ${label}`,
+    src: vrcdnLinks.hlsUrl,
+    title: `VRCDN stream for ${label}`,
   };
 }
 
 function createWatchEmbed(link: EventWatchMediaLink, browserHostname: string | undefined): WatchEmbed | null {
+  const vrcdnEmbed = createVrcdnEmbed(link.url, link.label);
+
+  if (vrcdnEmbed !== null) {
+    return vrcdnEmbed;
+  }
+
   const url = parseHttpsUrl(link.url);
 
   if (!url) {
     return null;
   }
 
-  return createYouTubeEmbed(url, link.label) ?? createTwitchEmbed(url, link.label, browserHostname) ?? createVrcdnEmbed(url, link.label);
+  return createYouTubeEmbed(url, link.label) ?? createTwitchEmbed(url, link.label, browserHostname);
 }
 
 function WatchFallback() {
@@ -326,6 +337,10 @@ function WatchFallback() {
 }
 
 function WatchEmbedFrame({ embed }: { embed: WatchEmbed }) {
+  if (embed.kind === "hls") {
+    return <WatchHlsVideo embed={embed} />;
+  }
+
   if (embed.kind === "video") {
     return (
       <video
@@ -352,6 +367,75 @@ function WatchEmbedFrame({ embed }: { embed: WatchEmbed }) {
   );
 }
 
+function WatchHlsVideo({ embed }: { embed: Extract<WatchEmbed, { kind: "hls" }> }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [unsupported, setUnsupported] = useState(false);
+
+  useEffect(() => {
+    const video = videoRef.current;
+
+    if (!video) {
+      return;
+    }
+
+    let cancelled = false;
+    let hls: { destroy: () => void } | null = null;
+    setUnsupported(false);
+
+    if (video.canPlayType("application/vnd.apple.mpegurl") || video.canPlayType("application/x-mpegURL")) {
+      video.src = embed.src;
+
+      return () => {
+        video.removeAttribute("src");
+        video.load();
+      };
+    }
+
+    void import("hls.js")
+      .then(({ default: Hls }) => {
+        if (cancelled || !videoRef.current) {
+          return;
+        }
+
+        if (!Hls.isSupported()) {
+          setUnsupported(true);
+          return;
+        }
+
+        const player = new Hls();
+        player.loadSource(embed.src);
+        player.attachMedia(videoRef.current);
+        hls = player;
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setUnsupported(true);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      hls?.destroy();
+      video.removeAttribute("src");
+      video.load();
+    };
+  }, [embed.src]);
+
+  if (unsupported) {
+    return <WatchFallback />;
+  }
+
+  return (
+    <video
+      ref={videoRef}
+      className="aspect-video w-full bg-slate-950"
+      controls
+      preload="metadata"
+      title={embed.title}
+    />
+  );
+}
+
 export function EventWatchSurface({
   doorsOpenAt,
   endAt,
@@ -371,7 +455,7 @@ export function EventWatchSurface({
     return null;
   }
 
-  const primaryWatchUrl = parseHttpsUrl(primaryWatchLink.url);
+  const primaryWatchUrl = parseWatchOpenUrl(primaryWatchLink.url);
 
   if (!primaryWatchUrl) {
     return null;

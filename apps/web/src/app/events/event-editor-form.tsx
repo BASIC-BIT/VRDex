@@ -471,7 +471,7 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
 
       <Field>
         Media links
-        <Textarea className="min-h-28" defaultValue={serializeMediaLinks(event)} name="mediaLinks" placeholder="watch | Twitch watch link | https://... | open&#10;vrcdn | VRCDN PC link | https://... | copy" />
+        <Textarea className="min-h-28" defaultValue={serializeMediaLinks(event)} name="mediaLinks" placeholder="watch | Twitch watch link | https://... | open&#10;vrcdn | VRCDN Quest link | https://stream.vrcdn.live/live/name.live.ts | copy&#10;vrcdn | VRCDN PC link | rtspt://stream.vrcdn.live/live/name | copy" />
         <FieldText>One per line: type | label | https URL | open or copy.</FieldText>
       </Field>
 

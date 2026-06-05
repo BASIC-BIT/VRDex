@@ -376,7 +376,7 @@ const publicWatchEvent: PublicEvent = {
     {
       type: "watch",
       label: "Event stream",
-      url: "https://vrcdn.live/playwright-afterglow-watch-room",
+      url: "https://stream.vrcdn.live/live/playwright-afterglow-watch-room.live.ts",
       presentation: "open",
     },
     {

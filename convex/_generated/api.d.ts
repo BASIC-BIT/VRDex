@@ -25,6 +25,7 @@ import type * as _profileWorldCredits from "../_profileWorldCredits.js";
 import type * as _publicFields from "../_publicFields.js";
 import type * as _searchDocuments from "../_searchDocuments.js";
 import type * as _vocabulary from "../_vocabulary.js";
+import type * as _vrcdnLinks from "../_vrcdnLinks.js";
 import type * as _worldEvents from "../_worldEvents.js";
 import type * as _worldIds from "../_worldIds.js";
 import type * as _worldPublic from "../_worldPublic.js";
@@ -66,6 +67,7 @@ declare const fullApi: ApiFromModules<{
   _publicFields: typeof _publicFields;
   _searchDocuments: typeof _searchDocuments;
   _vocabulary: typeof _vocabulary;
+  _vrcdnLinks: typeof _vrcdnLinks;
   _worldEvents: typeof _worldEvents;
   _worldIds: typeof _worldIds;
   _worldPublic: typeof _worldPublic;

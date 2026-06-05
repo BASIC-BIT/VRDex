@@ -122,6 +122,28 @@ describe("event draft input", () => {
     );
   });
 
+  it("normalizes VRCDN media URL variants to the canonical public page", () => {
+    const input = sanitizeEventDraftInput({
+      title: "Afterglow Harbor Sessions",
+      startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
+      mediaLinks: [
+        {
+          type: "watch",
+          label: "Quest stream",
+          url: "https://stream.vrcdn.live/live/basicbit.live.ts",
+        },
+        {
+          type: "vrcdn",
+          label: "PC stream",
+          url: "rtspt://stream.vrcdn.live/live/basicbit",
+        },
+      ],
+    });
+
+    assert.equal(input.mediaLinks.length, 1);
+    assert.equal(input.mediaLinks[0]?.url, "https://vrcdn.live/basicbit");
+  });
+
   it("rejects invalid event time zones", () => {
     assert.throws(
       () =>

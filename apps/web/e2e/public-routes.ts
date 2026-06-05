@@ -281,7 +281,7 @@ export async function expectEventPage(page: Page) {
 export async function expectEventWatchPage(page: Page) {
   await expect(page.getByRole("heading", { name: "Afterglow Watch Room" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Event stream" })).toBeVisible();
-  await expect(page.locator('iframe[title="VRCDN player for Event stream"]')).toBeVisible();
+  await expect(page.locator('video[title="VRCDN stream for Event stream"]')).toBeVisible();
   await expect(page.getByRole("link", { name: "Open stream" }).first()).toHaveAttribute(
     "href",
     "https://vrcdn.live/playwright-afterglow-watch-room",

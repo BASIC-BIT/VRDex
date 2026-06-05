@@ -4,6 +4,7 @@ import {
   type EventSlotInput,
   type SanitizedEventSlotInput,
 } from "./_eventSlots";
+import { parseVrcdnStreamLinks } from "./_vrcdnLinks";
 
 export const EVENT_TITLE_MIN_LENGTH = 2;
 export const EVENT_TITLE_MAX_LENGTH = 120;
@@ -207,6 +208,22 @@ function optionalHttpsUrl(input: string | undefined, fieldName: string): string 
   }
 }
 
+function optionalEventMediaUrl(input: string | undefined, fieldName: string): string | undefined {
+  const value = optionalBoundedText(input, fieldName, 2_048);
+
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const vrcdnLinks = parseVrcdnStreamLinks(value);
+
+  if (vrcdnLinks !== null) {
+    return vrcdnLinks.pageUrl;
+  }
+
+  return optionalHttpsUrl(value, fieldName);
+}
+
 function sanitizeEventMediaLinks(input: EventMediaLinkInput[] | undefined): SanitizedEventMediaLink[] {
   const links: SanitizedEventMediaLink[] = [];
   const seenUrls = new Set<string>();
@@ -217,7 +234,7 @@ function sanitizeEventMediaLinks(input: EventMediaLinkInput[] | undefined): Sani
     }
 
     const label = requireBoundedText(link.label, "Media link label", 1, EVENT_MEDIA_LABEL_MAX_LENGTH);
-    const url = optionalHttpsUrl(link.url, "Media link URL");
+    const url = optionalEventMediaUrl(link.url, "Media link URL");
 
     if (url === undefined) {
       continue;

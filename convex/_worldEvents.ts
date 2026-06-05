@@ -1,6 +1,7 @@
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 import { optionalField, safeHttpsUrl } from "./_publicFields";
+import { parseVrcdnStreamLinks } from "./_vrcdnLinks";
 
 const WORLD_EVENT_SECTION_LIMIT = 4;
 const ACTIVE_WORLD_QUERY_EVENT_LIMIT = 50;
@@ -76,6 +77,10 @@ export type PublicActiveWorldPreview = {
   };
 };
 
+function safePublicMediaUrl(url: string): string | undefined {
+  return parseVrcdnStreamLinks(url)?.pageUrl ?? safeHttpsUrl(url);
+}
+
 function eventEndsAt(event: PublicWorldEventPreview): number {
   return event.endAt ?? event.startAt;
 }
@@ -101,7 +106,7 @@ function toPublicWorldEventPreview(
     title: event.title,
     startAt: event.startAt,
     mediaLinks: (event.mediaLinks ?? []).flatMap((link) => {
-      const linkUrl = safeHttpsUrl(link.url);
+      const linkUrl = safePublicMediaUrl(link.url);
 
       if (linkUrl === undefined) {
         return [];

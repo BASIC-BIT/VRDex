@@ -4,6 +4,7 @@ import { createDiscordTimestampSet, type DiscordTimestampSet } from "./_discordT
 import { optionalField, safeHttpsUrl } from "./_publicFields";
 import { canReadProfile } from "./_profilePermissions";
 import { getProfileTrustLabel } from "./_profileStates";
+import { parseVrcdnStreamLinks } from "./_vrcdnLinks";
 
 const EVENT_PREVIEW_DEFAULT_LIMIT = 6;
 const EVENT_ASSOCIATION_LIMIT = 80;
@@ -118,9 +119,13 @@ function eventEndsAt(event: Pick<Doc<"events">, "startAt" | "endAt">): number {
   return event.endAt ?? event.startAt;
 }
 
+function safePublicMediaUrl(url: string): string | undefined {
+  return parseVrcdnStreamLinks(url)?.pageUrl ?? safeHttpsUrl(url);
+}
+
 function createPublicEventMediaLinks(event: Doc<"events">): PublicEvent["mediaLinks"] {
   return (event.mediaLinks ?? []).flatMap((link) => {
-    const url = safeHttpsUrl(link.url);
+    const url = safePublicMediaUrl(link.url);
 
     if (url === undefined) {
       return [];
