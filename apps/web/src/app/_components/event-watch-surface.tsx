@@ -380,10 +380,10 @@ export function EventWatchSurface({
       <div className="bg-slate-950">
         {embed ? <WatchEmbedFrame embed={embed} /> : <WatchFallback />}
       </div>
-      <div className="flex flex-col gap-3 border-t border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-        <h2 className="text-xl font-semibold tracking-[-0.03em]">{primaryWatchLink.label}</h2>
+      <div className="flex flex-col gap-3 border-t border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-base font-semibold tracking-[-0.02em]">{primaryWatchLink.label}</h2>
         <a
-          className={cn(buttonVariants({ variant: "primary" }), "w-full sm:w-fit")}
+          className={cn(buttonVariants({ size: "sm", variant: "primary" }), "w-full sm:w-fit")}
           href={primaryWatchUrl.href}
           rel="noreferrer"
           target="_blank"

@@ -255,56 +255,60 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
           </div>
         </section>
 
-        <EventWatchSurface
-          doorsOpenAt={event.doorsOpenAt}
-          endAt={event.endAt}
-          mediaLinks={event.mediaLinks}
-          startAt={event.startAt}
-        />
-
-        <section className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
-          <Card surface="white">
-            <Eyebrow>When</Eyebrow>
-            <dl className="mt-5 space-y-4 text-sm">
-              {event.doorsOpenAt === undefined ? null : <EventTimeDefinition label="Doors open" timestamp={event.doorsOpenAt} />}
-              <EventTimeDefinition label="Start" timestamp={event.startAt} />
-              <div className="grid gap-1 border-b border-border pb-4 sm:grid-cols-[7rem_1fr] sm:gap-4">
-                <dt className="text-muted">End</dt>
-                <dd className="font-medium">
-                  {event.endAt ? <ViewerLocalEventDateTime timestamp={event.endAt} /> : "Not listed"}
-                </dd>
-              </div>
-            </dl>
-          </Card>
-
-          <Card surface="white">
-            <Eyebrow>Place</Eyebrow>
-            <div className="mt-5 grid gap-3 text-sm">
-              {event.communitySlug ? (
-                <Link className={actionCardVariants({ variant: "accent" })} href={`/c/${event.communitySlug}`}>
-                  <span className={actionLabelClassName}>
-                    {event.communityName ?? "Community profile"}
-                  </span>
-                  <span className={actionMetaClassName}>Host</span>
-                </Link>
-              ) : event.communityName ? (
-                <div className="rounded-control border border-border bg-surface px-4 py-3 font-medium">
-                  {event.communityName}
+        <section className="grid items-start gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+          <div>
+            <Card className="h-fit" surface="white">
+              <Eyebrow>When</Eyebrow>
+              <dl className="mt-5 space-y-4 text-sm">
+                {event.doorsOpenAt === undefined ? null : <EventTimeDefinition label="Doors open" timestamp={event.doorsOpenAt} />}
+                <EventTimeDefinition label="Start" timestamp={event.startAt} />
+                <div className="grid gap-1 border-b border-border pb-4 sm:grid-cols-[7rem_1fr] sm:gap-4">
+                  <dt className="text-muted">End</dt>
+                  <dd className="font-medium">
+                    {event.endAt ? <ViewerLocalEventDateTime timestamp={event.endAt} /> : "Not listed"}
+                  </dd>
                 </div>
-              ) : (
-                <p className="leading-6 text-muted">No host listed.</p>
-              )}
-              {event.worlds.map((world) => (
-                <Link className={actionCardVariants({ variant: "accent" })} href={`/w/${world.slug}`} key={world.slug}>
-                  <span className={actionLabelClassName}>
-                    {world.displayName}
-                  </span>
-                  {world.summary ? <span className="mt-1 block text-muted">{world.summary}</span> : null}
-                  <span className={actionMetaClassName}>World</span>
-                </Link>
-              ))}
-            </div>
-          </Card>
+              </dl>
+            </Card>
+          </div>
+
+          <div className="grid gap-4">
+            <EventWatchSurface
+              doorsOpenAt={event.doorsOpenAt}
+              endAt={event.endAt}
+              mediaLinks={event.mediaLinks}
+              startAt={event.startAt}
+            />
+
+            <Card surface="white">
+              <Eyebrow>Place</Eyebrow>
+              <div className="mt-5 grid gap-3 text-sm">
+                {event.communitySlug ? (
+                  <Link className={actionCardVariants({ variant: "accent" })} href={`/c/${event.communitySlug}`}>
+                    <span className={actionLabelClassName}>
+                      {event.communityName ?? "Community profile"}
+                    </span>
+                    <span className={actionMetaClassName}>Host</span>
+                  </Link>
+                ) : event.communityName ? (
+                  <div className="rounded-control border border-border bg-surface px-4 py-3 font-medium">
+                    {event.communityName}
+                  </div>
+                ) : (
+                  <p className="leading-6 text-muted">No host listed.</p>
+                )}
+                {event.worlds.map((world) => (
+                  <Link className={actionCardVariants({ variant: "accent" })} href={`/w/${world.slug}`} key={world.slug}>
+                    <span className={actionLabelClassName}>
+                      {world.displayName}
+                    </span>
+                    {world.summary ? <span className="mt-1 block text-muted">{world.summary}</span> : null}
+                    <span className={actionMetaClassName}>World</span>
+                  </Link>
+                ))}
+              </div>
+            </Card>
+          </div>
         </section>
 
         <Card surface="white">
