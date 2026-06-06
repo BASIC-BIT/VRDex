@@ -99,7 +99,6 @@ export function VrcdnMediaLinkAssistant({
     <Card className={cn("grid gap-4 border-accent/20 bg-accent/5", className)} padding="sm" surface="white">
       <div className="grid gap-1">
         <h3 className="text-base font-semibold tracking-[-0.02em]">VRCDN stream links</h3>
-        <p className="text-xs leading-5 text-muted">Derived from the stream ID so PC and Quest player URLs stay in sync.</p>
       </div>
 
       <div className="grid gap-4">
