@@ -9,6 +9,8 @@ import { buttonVariants, Button } from "@/components/ui/button";
 import { Card, Eyebrow, SectionTitle } from "@/components/ui/card";
 import { Field, FieldText, Input, Textarea } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
+import { VrcdnMediaLinkAssistant } from "../_components/vrcdn-media-link-assistant";
+import { parseVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
 
 type EventMediaLinkType = PublicEvent["mediaLinks"][number]["type"];
 
@@ -202,6 +204,16 @@ function parseMediaLinks(value: string) {
       const [type = "other", label = "Event link", url = "", presentation] = line
         .split("|")
         .map((part) => part.trim());
+      const vrcdnLinks = parseVrcdnStreamLinks(type);
+
+      if (vrcdnLinks !== null && url === "") {
+        return {
+          type: "vrcdn" as const,
+          label: "VRCDN stream",
+          url: vrcdnLinks.pageUrl,
+          presentation: "copy" as const,
+        };
+      }
 
       return {
         type: normalizeMediaType(type),
@@ -330,6 +342,7 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
   const updateEvent = useMutation(api.events.updateCommunityEvent);
   const [status, setStatus] = useState<EventEditorStatus>({ kind: "idle" });
   const [timezone, setTimezone] = useState(event?.timezone ?? "UTC");
+  const [mediaLinksText, setMediaLinksText] = useState(() => serializeMediaLinks(event));
   const [slotText, setSlotText] = useState(() => serializeSlots(event));
   const [slotTemplate, setSlotTemplate] = useState({ count: "4", duration: "45", break: "0" });
   const [, startTransition] = useTransition();
@@ -384,7 +397,7 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
         sourceLabel: optionalString(stringField(formData.get("sourceLabel"))),
         sourceUrl: optionalString(stringField(formData.get("sourceUrl"))),
         posterImageUrl: optionalString(stringField(formData.get("posterImageUrl"))),
-        mediaLinks: parseMediaLinks(stringField(formData.get("mediaLinks"))),
+        mediaLinks: parseMediaLinks(mediaLinksText),
         participantLinks: parseParticipantLinks(stringField(formData.get("participantLinks"))),
         slotLinks: parseSlotLinks(slotText, startAt),
       };
@@ -471,9 +484,10 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
 
       <Field>
         Media links
-        <Textarea className="min-h-28" defaultValue={serializeMediaLinks(event)} name="mediaLinks" placeholder="watch | Twitch watch link | https://... | open&#10;vrcdn | VRCDN Quest link | https://stream.vrcdn.live/live/name.live.ts | copy&#10;vrcdn | VRCDN PC link | rtspt://stream.vrcdn.live/live/name | copy" />
-        <FieldText>One per line: type | label | https URL | open or copy.</FieldText>
+        <Textarea className="min-h-28" name="mediaLinks" onChange={(changeEvent) => setMediaLinksText(changeEvent.currentTarget.value)} placeholder="watch | Twitch watch link | https://... | open&#10;vrcdn | VRCDN Quest link | https://stream.vrcdn.live/live/name.live.ts | copy&#10;vrcdn | VRCDN PC link | rtspt://stream.vrcdn.live/live/name | copy" value={mediaLinksText} />
+        <FieldText>One per line: type | label | URL | open or copy. VRCDN variants derive Quest and PC player links automatically.</FieldText>
       </Field>
+      <VrcdnMediaLinkAssistant mediaLinksText={mediaLinksText} />
 
       <Field>
         Linked person profiles
