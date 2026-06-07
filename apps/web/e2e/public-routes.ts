@@ -281,13 +281,22 @@ export async function expectEventPage(page: Page) {
 export async function expectEventWatchPage(page: Page) {
   await expect(page.getByRole("heading", { name: "Afterglow Watch Room" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Event stream" })).toBeVisible();
-  await expect(page.locator('iframe[title="VRCDN player for Event stream"]')).toBeVisible();
+  await expect(page.locator('video[title="VRCDN stream for Event stream"]')).toBeVisible();
   await expect(page.getByRole("link", { name: "Open stream" }).first()).toHaveAttribute(
     "href",
     "https://vrcdn.live/playwright-afterglow-watch-room",
   );
   await expect(page.getByText("YouTube archive link", { exact: true })).toBeVisible();
   await expect(page.getByText("Twitch channel link", { exact: true })).toBeVisible();
+}
+
+export async function expectVrcdnMediaLinkPreviewPage(page: Page) {
+  await expect(page.getByRole("heading", { name: "VRCDN media-link input" })).toBeVisible();
+  await expect(page.getByText("https://stream.vrcdn.live/live/basicbit.live.ts", { exact: true })).toBeVisible();
+  await expect(page.getByText("Quest MPEG-TS", { exact: true })).toBeVisible();
+  await expect(page.getByText("PC RTSPT", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open preview" })).toHaveAttribute("href", "https://vrcdn.live/basicbit");
+  await expect(page.getByRole("button", { name: "Copy" })).toHaveCount(2);
 }
 
 export async function expectWorldProfilePage(page: Page) {
@@ -375,6 +384,11 @@ export const capturedRoutes: CapturedRoute[] = [
     name: "event-watch-surface",
     path: visualProfilePaths.eventWatchPath,
     expectPage: expectEventWatchPage,
+  },
+  {
+    name: "vrcdn-media-link-preview",
+    path: "/playwright/vrcdn-media-links",
+    expectPage: expectVrcdnMediaLinkPreviewPage,
   },
 ];
 

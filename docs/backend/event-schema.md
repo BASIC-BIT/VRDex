@@ -99,7 +99,9 @@ The first typed set is:
 - `ticket`
 - `other`
 
-Each media link has a label, HTTPS URL, and presentation hint:
+Each media link has a label, URL, and presentation hint. General links must use HTTPS. VRCDN media links may be supplied as VRCDN page URLs, HLS URLs, Quest-compatible `.live.ts` URLs, directly playable MP4/WebM/Ogg URLs, or PC-oriented technical protocols such as `rtspt://`; the backend stores stream variants as the canonical `https://vrcdn.live/{streamId}` page URL once it can derive the stream ID, while direct MP4/WebM/Ogg files stay as direct URLs for native playback.
+
+The event editor treats VRCDN links as a provider-specific input surface: once it detects a stream ID, it shows copy-ready Quest MPEG-TS and PC RTSPT player URLs plus the browser preview page.
 
 - `open` for normal outbound links
 - `copy` for operational links such as VRCDN links that may need to be pasted into a world or tool
@@ -118,11 +120,11 @@ Selection order is deterministic:
 
 The promoted link remains visible in the normal links section so viewers can still scan the complete event link set.
 
-Embeds are limited to explicitly supported HTTPS providers:
+Embeds are limited to explicitly supported providers:
 
 - YouTube watch, live, shorts, and embed URLs render through a `youtube-nocookie.com` iframe.
 - Twitch channel, video, collection, and clip URLs render through Twitch's player or clips iframe with the current browser hostname passed as the required `parent` parameter.
-- VRCDN `vrcdn.live` player pages render in an iframe; direct `.mp4`, `.webm`, `.ogg`, and `.m3u8` VRCDN URLs render as a controlled video element when the browser supports the source.
+- VRCDN page, HLS, Quest `.live.ts`, PC `rtspt://`, and direct MP4/WebM/Ogg URLs are normalized by stream ID. Direct MP4/WebM/Ogg URLs render as native video; the other VRCDN variants derive an HLS URL and render through `hls.js` with native HLS fallback where available.
 
 Unsupported watch URLs fall back to a prominent outbound watch card during the scheduled watch window. Source liveness checks, operator status, and restream switching remain part of the larger media-control model tracked in `#124`; public UI should not expose those implementation boundaries as explanatory copy.
 
