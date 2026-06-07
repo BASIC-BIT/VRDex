@@ -218,7 +218,7 @@ function optionalEventMediaUrl(input: string | undefined, fieldName: string): st
   const vrcdnLinks = parseVrcdnStreamLinks(value);
 
   if (vrcdnLinks !== null) {
-    return vrcdnLinks.pageUrl;
+    return vrcdnLinks.directVideoUrl ?? vrcdnLinks.pageUrl;
   }
 
   return optionalHttpsUrl(value, fieldName);

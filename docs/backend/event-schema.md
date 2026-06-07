@@ -99,7 +99,7 @@ The first typed set is:
 - `ticket`
 - `other`
 
-Each media link has a label, URL, and presentation hint. General links must use HTTPS. VRCDN media links may be supplied as VRCDN page URLs, HLS URLs, Quest-compatible `.live.ts` URLs, directly playable MP4/WebM/Ogg URLs, or PC-oriented technical protocols such as `rtspt://`; the backend stores the canonical `https://vrcdn.live/{streamId}` page URL once it can derive the stream ID.
+Each media link has a label, URL, and presentation hint. General links must use HTTPS. VRCDN media links may be supplied as VRCDN page URLs, HLS URLs, Quest-compatible `.live.ts` URLs, directly playable MP4/WebM/Ogg URLs, or PC-oriented technical protocols such as `rtspt://`; the backend stores stream variants as the canonical `https://vrcdn.live/{streamId}` page URL once it can derive the stream ID, while direct MP4/WebM/Ogg files stay as direct URLs for native playback.
 
 The event editor treats VRCDN links as a provider-specific input surface: once it detects a stream ID, it shows copy-ready Quest MPEG-TS and PC RTSPT player URLs plus the browser preview page.
 

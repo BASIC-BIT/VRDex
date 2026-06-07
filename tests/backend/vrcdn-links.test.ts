@@ -32,6 +32,7 @@ describe("VRCDN stream links", () => {
   it("ignores VRCDN operational pages and unsupported hosts", () => {
     assert.equal(parseVrcdnStreamLinks("https://status.vrcdn.live/"), null);
     assert.equal(parseVrcdnStreamLinks("https://vrcdn.live/status"), null);
+    assert.equal(parseVrcdnStreamLinks("https://stream.vrcdn.live/api/v1/basicbit"), null);
     assert.equal(parseVrcdnStreamLinks("https://example.invalid/live/basicbit.m3u8"), null);
   });
 });

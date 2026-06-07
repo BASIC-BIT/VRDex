@@ -144,6 +144,22 @@ describe("event draft input", () => {
     assert.equal(input.mediaLinks[0]?.url, "https://vrcdn.live/basicbit");
   });
 
+  it("preserves direct VRCDN media files for native playback", () => {
+    const input = sanitizeEventDraftInput({
+      title: "Afterglow Harbor Sessions",
+      startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
+      mediaLinks: [
+        {
+          type: "vrcdn",
+          label: "Archive",
+          url: "https://stream.vrcdn.live/live/basicbit.mp4",
+        },
+      ],
+    });
+
+    assert.equal(input.mediaLinks[0]?.url, "https://stream.vrcdn.live/live/basicbit.mp4");
+  });
+
   it("rejects invalid event time zones", () => {
     assert.throws(
       () =>

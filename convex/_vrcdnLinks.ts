@@ -1,3 +1,5 @@
+import { safeHttpsUrl } from "./_publicFields";
+
 const vrcdnRootHost = "vrcdn.live";
 const vrcdnStreamHost = "stream.vrcdn.live";
 const vrcdnAllowedProtocols = new Set(["https:", "http:", "rtspt:", "rtsp:", "rtmp:"]);
@@ -77,7 +79,7 @@ function getVrcdnStreamId(url: URL): string | null {
     return toVrcdnStreamId(first);
   }
 
-  return toVrcdnStreamId(segments.at(-1));
+  return null;
 }
 
 export function createVrcdnStreamLinks(streamId: string, directVideoUrl?: string): VrcdnStreamLinks | null {
@@ -119,4 +121,10 @@ export function parseVrcdnStreamLinks(input: string): VrcdnStreamLinks | null {
   const directVideoUrl = url.protocol === "https:" && vrcdnDirectVideoExtension.test(url.pathname) ? url.href : undefined;
 
   return createVrcdnStreamLinks(streamId, directVideoUrl);
+}
+
+export function safePublicMediaUrl(url: string): string | undefined {
+  const vrcdnLinks = parseVrcdnStreamLinks(url);
+
+  return vrcdnLinks?.directVideoUrl ?? vrcdnLinks?.pageUrl ?? safeHttpsUrl(url);
 }

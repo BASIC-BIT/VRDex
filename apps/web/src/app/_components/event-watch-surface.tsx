@@ -403,6 +403,11 @@ function WatchHlsVideo({ embed }: { embed: Extract<WatchEmbed, { kind: "hls" }> 
         }
 
         const player = new Hls();
+        player.on(Hls.Events.ERROR, (_event, data) => {
+          if (data.fatal) {
+            setUnsupported(true);
+          }
+        });
         player.loadSource(embed.src);
         player.attachMedia(videoRef.current);
         hls = player;
