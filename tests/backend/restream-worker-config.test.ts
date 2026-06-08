@@ -10,6 +10,8 @@ const validWorkerEnv = {
   VRDEX_RESTREAM_MAX_SESSION_SECONDS: "43200",
   VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER: "/vrdex/restream/hosted-worker/enabled",
   VRDEX_RESTREAM_SECRET_REF_NAMES: "event-media/vrcdn/main-output",
+  VRDEX_RESTREAM_CONFIG_CHECK_ONLY: "true",
+  VRDEX_RESTREAM_SYNTHETIC_ONLY: "true",
 };
 
 function runWorker(env: Record<string, string>) {

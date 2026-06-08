@@ -4,7 +4,7 @@
 
 Current recommendation: this is a hosted-worker packaging and benchmark scaffold, not a production media worker.
 
-The container shape is intentionally small so ECS/Fargate infrastructure can be validated before VRDex claims hosted restreaming. It installs FFmpeg, runs a Node entrypoint, and refuses to start unless the non-secret benchmark contract is present.
+The container shape is intentionally small so ECS/Fargate infrastructure can be validated before VRDex claims hosted restreaming. It installs FFmpeg and AWS CLI, runs a Node entrypoint, refuses to start unless the non-secret benchmark contract is present, and writes a synthetic `1080p60` HLS artifact plus HTML/JSON reports.
 
 ## Build Shape
 
@@ -30,7 +30,15 @@ Expected non-secret values:
 - `VRDEX_RESTREAM_SECRET_REF_NAMES`
 - `CONVEX_URL`
 
-Expected secret-reference names are supplied by Terraform through the `secret_arns` map. The worker validates their presence, treats those names as operationally sensitive, and must not log them. The first useful hosted benchmark should use an event-scoped output credential reference, not a raw ingest URL or stream key in plain environment variables.
+Expected secret-reference names are supplied by Terraform through the `secret_arns` map. The worker treats those names as operationally sensitive and logs only their count. Synthetic benchmark runs use `VRDEX_RESTREAM_SYNTHETIC_ONLY=true`, so they can prove the media pipeline without provider credentials. Non-synthetic runs must use event-scoped output credential references, not raw ingest URLs or stream keys in plain environment variables.
+
+Useful local proof command:
+
+```powershell
+pnpm proof:restream:worker
+```
+
+That command writes a playable artifact tree under `artifacts/restream-worker-benchmark/` with `hls/program.m3u8`, transition frames, `benchmark-report.json`, and `report.html`.
 
 ## Benchmark Gate
 
@@ -46,3 +54,7 @@ The benchmark profile in `benchmark-profile.1080p60.json` records the first host
 - 12-hour maximum session cap
 
 ECS on EC2 with GPU/NVENC stays a measured fallback. Do not promote GPU-backed hosting until Fargate CPU evidence fails the target or cost headroom.
+
+## Artifact Uploads
+
+If `VRDEX_RESTREAM_ARTIFACT_S3_URI` is set, the worker runs `aws s3 sync` after local artifact generation. Terraform sets this to the private benchmark artifact bucket prefix for ECS tasks. Do not make this bucket public; inspect artifacts through authenticated S3 access or short-lived presigned URLs only.

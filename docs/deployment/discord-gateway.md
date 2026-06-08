@@ -47,6 +47,16 @@ Dangerous live actions such as `stop` and `fallback` are marked confirmation-gat
 
 Future Convex enqueue integration should add an explicit Convex deployment URL and a scoped service credential. Do not store stream keys, ingest URLs, or provider credentials in Discord messages, command payloads, logs, or ordinary event records.
 
+## Local Control Demo
+
+Use the local demo before provider setup to inspect the route-to-command contract and public media state projection:
+
+```powershell
+pnpm proof:restream:control
+```
+
+The demo writes `artifacts/restream-control-demo/<timestamp>/report.html` and `control-demo-summary.json`. It simulates fresh Discord controls, stale-panel rejection, confirmation-gated stop behavior, sanitized media commands, and public-safe state snapshots. It does not connect to Discord, enqueue Convex commands, or mutate event records.
+
 ## Provider Setup Still Needed
 
 Provider setup remains manual until explicitly approved:

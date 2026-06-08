@@ -16,6 +16,24 @@ variable "container_image" {
   default     = null
 }
 
+variable "artifact_bucket_name" {
+  description = "Optional S3 bucket name for private restream worker benchmark artifacts. Defaults to name_prefix plus account id plus -artifacts."
+  type        = string
+  default     = null
+}
+
+variable "artifact_retention_days" {
+  description = "Number of days to retain private benchmark artifacts in S3."
+  type        = number
+  default     = 7
+}
+
+variable "synthetic_benchmark_only" {
+  description = "Whether benchmark tasks run only synthetic media and may start without provider credential references."
+  type        = bool
+  default     = true
+}
+
 variable "task_cpu" {
   description = "Fargate task CPU units for one event-session worker. 4096 is the first benchmark shape for the 1080p60 gate."
   type        = number

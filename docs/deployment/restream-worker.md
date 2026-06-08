@@ -6,8 +6,8 @@ Current recommendation: use this as a checked-in benchmark foundation only. Host
 
 The implementation surface is split between:
 
-- `workers/restream/`: container entrypoint, Dockerfile, and benchmark profile
-- `infra/terraform/restream-worker/`: ECR, ECS/Fargate task shape, logs, roles, secret references, and kill-switch foundation
+- `workers/restream/`: container entrypoint, Dockerfile, synthetic benchmark runner, and benchmark profile
+- `infra/terraform/restream-worker/`: ECR, ECS/Fargate task shape, logs, private benchmark artifact bucket, roles, secret references, and kill-switch foundation
 
 ## AWS Shape
 
@@ -19,8 +19,9 @@ The Terraform stack defines:
 - ECS cluster with Container Insights enabled by default
 - Fargate task definition using Linux `X86_64`, `awsvpc`, `4096` CPU units, `8192` MiB memory, and `40` GiB ephemeral storage
 - CloudWatch log group with 14-day default retention
+- private S3 artifact bucket with public access blocked, AES-256 encryption, and lifecycle expiration
 - execution role for image pulls, logs, and referenced Secrets Manager or SSM secret reads
-- task role for CloudWatch custom metrics and the SSM kill switch
+- task role for CloudWatch custom metrics, the SSM kill switch, and prefix-scoped benchmark artifact uploads
 - SSM parameter `/vrdex/restream/hosted-worker/enabled`, defaulting to `false`
 
 The stack does not define an ECS service. Scheduled or operator-triggered runs should start one task per approved event media session after the control-plane lease and benchmark gates exist.
@@ -37,7 +38,24 @@ The task definition injects these non-secret values, and the current entrypoint 
 - `VRDEX_RESTREAM_SECRET_REF_NAMES`
 - `CONVEX_URL`
 
-Secret values are not environment variables in git or Terraform. The `secret_arns` map supplies ECS secret references by container environment name. Use scoped, event/output-specific references for VRCDN or external RTMP credentials.
+Secret values are not environment variables in git or Terraform. The `secret_arns` map supplies ECS secret references by container environment name. Synthetic benchmark tasks set `VRDEX_RESTREAM_SYNTHETIC_ONLY=true`, so they can produce media evidence without provider credentials. Use scoped, event/output-specific references for any non-synthetic VRCDN or external RTMP credential.
+
+## Visible Benchmark Output
+
+The worker benchmark entrypoint generates a synthetic 12-second `1080p60` program with source, hold-slate, and source-switch transitions. A successful run writes:
+
+- `hls/program.m3u8` and HLS `.ts` segments
+- transition frames for `source-a`, `hold-slate`, and `source-b`
+- `benchmark-report.json`
+- `report.html`
+
+Local proof command from the repository root:
+
+```powershell
+pnpm proof:restream:worker
+```
+
+Approved ECS benchmark tasks upload the same artifact tree under the private `artifact_s3_uri` Terraform output. Keep the bucket private and use authenticated S3 reads or short-lived presigned URLs for review.
 
 ## Logs And Metrics
 
@@ -65,7 +83,7 @@ Current recommendation: require all three controls before hosted benchmarking be
 
 Before production testing, add provider-backed budget alerts for expected worker-hour and egress spend. The current Terraform foundation records the resource tags and guardrails needed for that follow-up, but it intentionally does not auto-apply budget resources from CI.
 
-The checked-in entrypoint validates the kill-switch parameter name but does not call AWS SSM yet. Before any media work runs from this container, add the SSM read, control-plane lease, and max-duration enforcement that turn these hooks into runtime gates.
+The checked-in entrypoint validates the kill-switch parameter name but does not call AWS SSM yet. Synthetic benchmark runs are allowed through this scaffold; before any non-synthetic media work runs from this container, add the SSM read, control-plane lease, and max-duration enforcement that turn these hooks into runtime gates.
 
 ## GPU Fallback Decision
 
@@ -98,6 +116,7 @@ Run from `infra/terraform/restream-worker`. From the repository root, also run:
 terraform fmt -check -recursive infra/terraform
 pnpm lint:markdown
 docker build -f workers/restream/Dockerfile -t vrdex-restream-worker:local .
+pnpm proof:restream:worker
 ```
 
 No AWS CLI mutation, Terraform apply, image publish, or ECS task run is part of this validation.
