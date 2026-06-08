@@ -44,6 +44,7 @@ Secret values are not environment variables in git or Terraform. The `secret_arn
 
 The worker benchmark entrypoint generates a synthetic 12-second `1080p60` program with source, hold-slate, and source-switch transitions. A successful run writes:
 
+- `program.mp4`, embedded in `report.html` for browser playback
 - `hls/program.m3u8` and HLS `.ts` segments
 - transition frames for `source-a`, `hold-slate`, and `source-b`
 - `benchmark-report.json`
@@ -56,6 +57,14 @@ pnpm proof:restream:worker
 ```
 
 Approved ECS benchmark tasks upload the same artifact tree under the private `artifact_s3_uri` Terraform output. Keep the bucket private and use authenticated S3 reads or short-lived presigned URLs for review.
+
+To watch local artifacts, serve the ignored artifact directory and open the report page:
+
+```powershell
+python -m http.server 4174 --bind 127.0.0.1 --directory artifacts
+```
+
+Then open `http://127.0.0.1:4174/restream-worker-benchmark/<timestamp>/report.html` or `http://127.0.0.1:4174/restream-ecs-benchmark/<timestamp>/report.html`.
 
 ## Logs And Metrics
 

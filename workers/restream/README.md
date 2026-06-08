@@ -38,7 +38,7 @@ Useful local proof command:
 pnpm proof:restream:worker
 ```
 
-That command writes a playable artifact tree under `artifacts/restream-worker-benchmark/` with `hls/program.m3u8`, transition frames, `benchmark-report.json`, and `report.html`.
+That command writes a playable artifact tree under `artifacts/restream-worker-benchmark/` with `program.mp4`, `hls/program.m3u8`, transition frames, `benchmark-report.json`, and `report.html`. Open `report.html` through a local static server to watch the embedded `program.mp4` preview in the browser.
 
 ## Benchmark Gate
 

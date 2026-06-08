@@ -171,6 +171,15 @@ function checkPlaylist(outputDir) {
   return { playlistPath, segmentCount: segmentNames.length, totalDuration };
 }
 
+function checkWatchPreview(outputDir) {
+  const watchPreviewPath = join(outputDir, "program.mp4");
+
+  assert(existsSync(watchPreviewPath), `Missing watch preview: ${watchPreviewPath}`);
+  assert(statSync(watchPreviewPath).size > 0, "Watch preview is empty.");
+
+  return watchPreviewPath;
+}
+
 async function probePlaylist(playlistPath) {
   const { stdout } = await run("ffprobe", ["-v", "error", "-show_streams", "-show_format", "-of", "json", playlistPath]);
 
@@ -277,6 +286,19 @@ async function writeSyntheticProgram(outputDir) {
   ]);
 
   const encodeElapsedSeconds = (performance.now() - started) / 1000;
+  const watchPreviewPath = join(outputDir, "program.mp4");
+
+  await run("ffmpeg", [
+    "-hide_banner",
+    "-y",
+    "-i",
+    playlistPath,
+    "-c",
+    "copy",
+    "-movflags",
+    "+faststart",
+    watchPreviewPath,
+  ]);
 
   for (const [label, seconds] of [
     ["source-a", 2],
@@ -298,7 +320,7 @@ async function writeSyntheticProgram(outputDir) {
     ]);
   }
 
-  return { encodeElapsedSeconds };
+  return { encodeElapsedSeconds, watchPreviewPath };
 }
 
 async function uploadArtifacts(outputDir, s3Uri) {
@@ -346,21 +368,30 @@ function writeHtmlReport(outputDir, report) {
     figure { margin: 0; }
     img { display: block; width: 100%; border-radius: 8px; background: #020617; }
     figcaption { margin-top: 10px; color: #cbd5e1; }
+    video { display: block; width: 100%; max-height: 70vh; margin: 24px 0; background: #020617; border-radius: 12px; }
     li { margin: 8px 0; }
     code { color: #bfdbfe; }
+    .timeline { display: grid; gap: 10px; margin: 16px 0 24px; }
+    .timeline div { background: #111827; border: 1px solid #263244; border-radius: 10px; padding: 12px 14px; }
   </style>
 </head>
 <body>
   <main>
     <h1>VRDex Restream Worker Benchmark</h1>
-    <p>Generated ${report.generatedAt}. Synthetic source, hold slate, and source switch output for the ${report.qualityGate} gate.</p>
+    <p>Generated ${report.generatedAt}. Watch the synthetic source, hold slate, and source switch output for the ${report.qualityGate} gate.</p>
+    <video controls preload="metadata" poster="frames/source-a.jpg" src="program.mp4"></video>
     <div class="grid">
       <div class="card"><div class="label">Mode</div><div class="value">${report.benchmarkMode}</div></div>
       <div class="card"><div class="label">Output</div><div class="value">${report.video.codec} ${report.video.width}x${report.video.height} @ ${report.video.frameRate}</div></div>
       <div class="card"><div class="label">Audio</div><div class="value">${report.audio.codec} ${report.audio.sampleRateHz}Hz ${report.audio.channels}ch</div></div>
       <div class="card"><div class="label">Realtime Factor</div><div class="value">${report.realtimeFactor.toFixed(2)}x</div></div>
     </div>
+    <h2>Command Timeline</h2>
+    <div class="timeline">${report.commandTimeline
+      .map((event) => `<div><strong>${event.atSeconds}s</strong> ${event.command}${event.scene ? ` (${event.scene})` : ""}</div>`)
+      .join("\n")}</div>
     <p>Playlist: <a href="hls/program.m3u8"><code>hls/program.m3u8</code></a></p>
+    <p>Watch preview: <a href="program.mp4"><code>program.mp4</code></a></p>
     <h2>Acceptance</h2>
     <ul>${checks}</ul>
     <h2>Transition Evidence</h2>
@@ -378,19 +409,25 @@ async function runBenchmark(config) {
 
   const outputDir = resolve(config.artifactRoot, timestamp());
   mkdirSync(outputDir, { recursive: true });
-  const { encodeElapsedSeconds } = await writeSyntheticProgram(outputDir);
+  const { encodeElapsedSeconds, watchPreviewPath } = await writeSyntheticProgram(outputDir);
   const playlistSummary = checkPlaylist(outputDir);
+  const checkedWatchPreviewPath = checkWatchPreview(outputDir);
   const metadata = await probePlaylist(playlistSummary.playlistPath);
+  const watchPreviewMetadata = await probePlaylist(checkedWatchPreviewPath);
   const video = metadata.streams.find((stream) => stream.codec_type === "video");
   const audio = metadata.streams.find((stream) => stream.codec_type === "audio");
+  const previewVideo = watchPreviewMetadata.streams.find((stream) => stream.codec_type === "video");
+  const previewAudio = watchPreviewMetadata.streams.find((stream) => stream.codec_type === "audio");
   const frames = readdirSync(join(outputDir, "frames")).filter((entry) => entry.endsWith(".jpg")).sort();
 
   assert(video, "Output has no video stream.");
   assert(audio, "Output has no audio stream.");
   assert(video.codec_name === "h264", `Expected H.264 video, found ${video.codec_name}.`);
+  assert(previewVideo?.codec_name === "h264", `Expected H.264 watch preview, found ${previewVideo?.codec_name ?? "none"}.`);
   assert(video.width === 1920 && video.height === 1080, `Expected 1920x1080 video, found ${video.width}x${video.height}.`);
   assert(Math.abs(parseFrameRate(video.avg_frame_rate) - 60) < 0.1, `Expected 60 fps, found ${video.avg_frame_rate}.`);
   assert(audio.codec_name === "aac", `Expected AAC audio, found ${audio.codec_name}.`);
+  assert(previewAudio?.codec_name === "aac", `Expected AAC watch preview audio, found ${previewAudio?.codec_name ?? "none"}.`);
   assert(Number(audio.sample_rate) === 48000, `Expected 48kHz audio, found ${audio.sample_rate}.`);
   assert(Number(audio.channels) === 2, `Expected stereo audio, found ${audio.channels} channels.`);
   assert(frames.includes("source-a.jpg"), "Missing source-a transition frame.");
@@ -410,6 +447,7 @@ async function runBenchmark(config) {
     killSwitchParameter: config.killSwitchParameter,
     commandTimeline: timeline,
     playlist: playlistSummary.playlistPath,
+    watchPreview: watchPreviewPath,
     segmentCount: playlistSummary.segmentCount,
     durationSeconds: playlistSummary.totalDuration,
     encodeElapsedSeconds,
@@ -432,6 +470,7 @@ async function runBenchmark(config) {
       expectedAudioShape: audio.codec_name === "aac" && Number(audio.sample_rate) === 48000 && Number(audio.channels) === 2,
       transitionFramesPresent: frames.length >= 3,
       independentSegments: true,
+      watchPreviewPresent: true,
     },
   };
 
@@ -451,6 +490,7 @@ async function runBenchmark(config) {
       qualityGate: REQUIRED_GATE,
       durationSeconds: report.durationSeconds,
       realtimeFactor: Number(report.realtimeFactor.toFixed(3)),
+      watchPreview: "program.mp4",
       frames: report.frames,
     }),
   );
