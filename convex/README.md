@@ -20,6 +20,7 @@ This directory holds the initial Convex backend slice for `VRDex`.
 - `_worldPublic.ts` contains public world projection helpers
 - `worlds.ts` exposes public world reads
 - `_eventSlugs.ts`, `_eventInputs.ts`, `_eventPublic.ts`, and `_vrcdnLinks.ts` contain event slug, input, public projection, and VRCDN URL helpers
+- `_eventMediaControl.ts` contains event media-control command, fallback-link, and public-state projection helpers
 - `events.ts` exposes public event reads and authenticated event editor mutations
 - `migrations.ts` contains deploy-time data backfills for schema additions
 - `_searchDocuments.ts`, `_vocabulary.ts`, `search.ts`, and `suppressions.ts` contain public discovery, vocabulary, and suppression helpers

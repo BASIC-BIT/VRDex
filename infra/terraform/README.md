@@ -7,6 +7,7 @@ VRDex keeps small infrastructure stacks separate so credentials, blast radius, a
 - `posthog/`: hosted PostHog project metadata for product analytics.
 - `vercel/`: Vercel project environment variables for the hosted web app.
 - `docs-site/`: Vercel docs project/domain and Route 53 DNS for `docs.vrdex.net`.
+- `restream-worker/`: validation-only hosted restream worker benchmark foundation for ECR, ECS/Fargate, logs, roles, secret references, and the disabled kill switch.
 
 Each non-bootstrap stack uses the shared S3 state bucket `vrdex-terraform-state` with a stack-specific state key and S3 native locking. `state-mgmt/` intentionally uses local state because it manages that bucket. Do not commit `terraform.tfvars`, local state, plans, or provider directories.
 
@@ -40,6 +41,7 @@ The stack count is intentional, but should stay small:
 - keep `state-mgmt/` separate because a stack cannot safely use the backend it creates
 - keep `vercel/` separate from `docs-site/` because `vercel/` requires the hosted PostHog client key while docs DNS should not depend on analytics secrets
 - keep `ses/` separate because it can create IAM access-key material and has a different blast radius from Vercel/PostHog metadata
+- keep `restream-worker/` validation-only until the local `1080p60` media proof and a human-approved AWS benchmark window exist
 - combine future stacks only when they share provider credentials, state ownership, and apply cadence without widening secret exposure
 
 Current hosted-vs-self-hosted ownership guidance lives in `docs/developers/self-hosting-and-iac.md`. The first AWS service baseline, including SES and the planned private S3 asset-storage follow-up, lives in `docs/deployment/aws-baseline.md`.

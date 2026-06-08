@@ -11,6 +11,7 @@
 import type * as _communityAuthority from "../_communityAuthority.js";
 import type * as _discordTimestamps from "../_discordTimestamps.js";
 import type * as _eventInputs from "../_eventInputs.js";
+import type * as _eventMediaControl from "../_eventMediaControl.js";
 import type * as _eventPublic from "../_eventPublic.js";
 import type * as _eventSlots from "../_eventSlots.js";
 import type * as _eventSlugs from "../_eventSlugs.js";
@@ -53,6 +54,7 @@ declare const fullApi: ApiFromModules<{
   _communityAuthority: typeof _communityAuthority;
   _discordTimestamps: typeof _discordTimestamps;
   _eventInputs: typeof _eventInputs;
+  _eventMediaControl: typeof _eventMediaControl;
   _eventPublic: typeof _eventPublic;
   _eventSlots: typeof _eventSlots;
   _eventSlugs: typeof _eventSlugs;

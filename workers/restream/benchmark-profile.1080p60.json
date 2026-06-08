@@ -1,0 +1,33 @@
+{
+  "name": "vrdex-restream-1080p60-fargate-benchmark",
+  "qualityGate": "1080p60",
+  "target": {
+    "width": 1920,
+    "height": 1080,
+    "frameRate": 60,
+    "videoCodec": "h264",
+    "pixelFormat": "yuv420p",
+    "audioCodec": "aac-lc",
+    "audioSampleRateHz": 48000,
+    "keyframeIntervalSeconds": 1,
+    "videoBitrateKbps": [3500, 5000, 5800],
+    "audioBitrateKbps": [320, 192]
+  },
+  "acceptance": [
+    "sustained real-time encode with operational CPU headroom",
+    "stable bitrate below provider cap during high-motion input",
+    "no segment gaps or stalled output",
+    "audio stream present for the full run",
+    "expected keyframe cadence",
+    "source-to-slate-to-source switching reflected in watchable output"
+  ],
+  "capacityScenario": {
+    "concurrentWorkers": 10,
+    "sessionHours": 6,
+    "maximumSessionHours": 12
+  },
+  "fallbackDecision": {
+    "fargatePassesWhen": "CPU-only Fargate sustains the target with cost and reliability headroom.",
+    "gpuFallbackWhen": "Fargate misses real-time encode, transition quality, bitrate stability, or cost headroom."
+  }
+}

@@ -128,6 +128,54 @@ Embeds are limited to explicitly supported providers:
 
 Unsupported watch URLs fall back to a prominent outbound watch card during the scheduled watch window. Source liveness checks, operator status, and restream switching remain part of the larger media-control model tracked in `#124`; public UI should not expose those implementation boundaries as explanatory copy.
 
+## Event Media Control Plane
+
+The restreaming/media-control foundation uses event-scoped records rather than overloading the existing `events.mediaLinks` array. These records reserve the durable control-plane shape; the usable setup helper in this slice is limited to operator-owned VRCDN output metadata and validation scaffolding.
+
+Reserved control-plane tables include:
+
+- `eventMediaPrograms` for the event-level media program, public watch links, direct fallback links, and active source/output/session pointers.
+- `eventMediaSources` for performer streams, VJ streams, event cameras, VRCDN links, Twitch watch links, HLS/RTMP sources, hold visuals, and audio loops.
+- `eventMediaScenes` for source scenes, hold slates, intros, outros, offline cards, and countdowns.
+- `eventMediaOutputs` for operator-owned VRCDN, external RTMP, AWS HLS, IVS, or manual output targets.
+- `eventMediaCommands` for queued operator, Discord, worker, or system commands such as start, stop, hold, next, source switch, fallback, and watch-link publication.
+- `eventMediaSessions` for concrete worker runs, leases, current source/scene, and health heartbeats.
+- `eventMediaAuditEvents` for immutable operator and automation history tied back to events, programs, sessions, commands, sources, and outputs.
+
+Public projection must stay narrow: public surfaces can show safe status, current source/output labels, public watch links, and direct fallback links. They must not expose worker identifiers, command queue internals, secret references, private setup notes, ingest URLs, stream keys, or provider-specific failure mechanics.
+
+The first account model is `operator_owned`. Output credentials are represented only by scoped secret references in the control plane; secret values belong in encrypted provider secret storage, not in event records, docs, logs, or audit summaries.
+
+### Operator-Owned VRCDN Outputs
+
+Current recommendation: VRCDN output setup starts with operator-owned accounts only. VRDex stores setup metadata and a scoped secret reference, while the actual stream key or credential value stays in encrypted operator secret storage.
+
+`eventMediaOutputs` can carry public-safe setup fields for a VRCDN target:
+
+- `credential.storage`, currently `operator_secret_store`
+- `credential.secretRef`, a scoped reference name only
+- `vrcdnSetup.ingestRegion` for the operator-selected VRCDN ingest region
+- `vrcdnSetup.targetVideoBitrateKbps`
+- `vrcdnSetup.keyframeIntervalSeconds`
+- `vrcdnSetup.audioSampleRateHz`
+- `vrcdnSetup.targetAudioBitrateKbps`
+- `compliance.sourceConsent`
+- `compliance.destinationAuthority`
+- `compliance.providerRules`
+- `compliance.rightsClearedMedia`
+
+The setup helper treats the output as `ready` only when a credential reference exists and all required compliance gates are accepted. Missing gates remain `pending`; explicitly rejected gates are `blocked`. A blocked or incomplete output stays a draft and should not be used by a worker.
+
+Secret references must not be URLs, ingest URLs, passwords, tokens, stream keys, or provider credential values. Those values must stay in the configured secret store and be read only by the runtime that needs to push the stream.
+
+Open provider/legal gates remain outside the schema:
+
+- provider terms and automation approval for the chosen destination
+- source-owner consent for each live input VRDex processes
+- destination account authority for the operator-owned output
+- rights clearance for hold slates, music, visuals, logos, intro/outro media, VJ layers, and camera feeds
+- takedown, abuse-response, and broadcaster-of-record review before any hosted managed output model ships
+
 ## Event-World Links
 
 World linkage uses explicit `eventWorlds` records rather than storing world context only as event text.

@@ -2,6 +2,25 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { authTables } from "@convex-dev/auth/server";
 
+import {
+  eventMediaActorSurfaceValidator,
+  eventMediaCommandStatusValidator,
+  eventMediaCommandTypeValidator,
+  eventMediaComplianceGateStateValidator,
+  eventMediaOutputAccountModelValidator,
+  eventMediaOutputStateValidator,
+  eventMediaOutputTypeValidator,
+  eventMediaProgramStateValidator,
+  eventMediaPublicLinkValidator,
+  eventMediaSceneTypeValidator,
+  eventMediaSecretStorageValidator,
+  eventMediaSessionStatusValidator,
+  eventMediaSourcePurposeValidator,
+  eventMediaSourceStateValidator,
+  eventMediaSourceTypeValidator,
+  eventMediaVrcdnRegionValidator,
+} from "./_eventMediaControl";
+
 const claimState = v.union(
   v.literal("unclaimed"),
   v.literal("claimed_unverified"),
@@ -243,6 +262,28 @@ const authSubject = v.object({
   issuer: v.string(),
   subject: v.string(),
   displayName: v.optional(v.string()),
+});
+
+const eventMediaOutputCredential = v.object({
+  storage: eventMediaSecretStorageValidator,
+  secretRef: v.string(),
+  authorizedAt: v.optional(v.number()),
+  authorizedBy: v.optional(authSubject),
+});
+
+const eventMediaVrcdnSetup = v.object({
+  ingestRegion: v.optional(eventMediaVrcdnRegionValidator),
+  targetVideoBitrateKbps: v.optional(v.number()),
+  keyframeIntervalSeconds: v.optional(v.union(v.literal(1), v.literal(2))),
+  audioSampleRateHz: v.optional(v.literal(48000)),
+  targetAudioBitrateKbps: v.optional(v.number()),
+});
+
+const eventMediaOutputCompliance = v.object({
+  sourceConsent: eventMediaComplianceGateStateValidator,
+  destinationAuthority: eventMediaComplianceGateStateValidator,
+  providerRules: eventMediaComplianceGateStateValidator,
+  rightsClearedMedia: eventMediaComplianceGateStateValidator,
 });
 
 const fieldVisibility = v.object({
@@ -510,6 +551,147 @@ export default defineSchema({
       "reviewState",
       "startAt",
     ]),
+  eventMediaPrograms: defineTable({
+    eventId: v.id("events"),
+    communityProfileId: v.optional(v.id("profiles")),
+    state: eventMediaProgramStateValidator,
+    currentSourceId: v.optional(v.id("eventMediaSources")),
+    currentSceneId: v.optional(v.id("eventMediaScenes")),
+    currentOutputId: v.optional(v.id("eventMediaOutputs")),
+    activeSessionId: v.optional(v.id("eventMediaSessions")),
+    publicLinks: v.array(eventMediaPublicLinkValidator),
+    directFallbackLinks: v.array(eventMediaPublicLinkValidator),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_eventId", ["eventId"])
+    .index("by_communityProfileId_state", ["communityProfileId", "state"])
+    .index("by_state_updatedAt", ["state", "updatedAt"]),
+  eventMediaSources: defineTable({
+    programId: v.id("eventMediaPrograms"),
+    eventId: v.id("events"),
+    key: v.string(),
+    position: v.number(),
+    type: eventMediaSourceTypeValidator,
+    purpose: eventMediaSourcePurposeValidator,
+    state: eventMediaSourceStateValidator,
+    label: v.string(),
+    ownerProfileId: v.optional(v.id("profiles")),
+    publicUrl: v.optional(v.string()),
+    privateConfigRef: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_programId_position", ["programId", "position"])
+    .index("by_programId_key", ["programId", "key"])
+    .index("by_eventId_state", ["eventId", "state"]),
+  eventMediaScenes: defineTable({
+    programId: v.id("eventMediaPrograms"),
+    eventId: v.id("events"),
+    key: v.string(),
+    position: v.number(),
+    type: eventMediaSceneTypeValidator,
+    label: v.string(),
+    sourceId: v.optional(v.id("eventMediaSources")),
+    visualSourceId: v.optional(v.id("eventMediaSources")),
+    audioSourceId: v.optional(v.id("eventMediaSources")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_programId_position", ["programId", "position"])
+    .index("by_programId_key", ["programId", "key"]),
+  eventMediaOutputs: defineTable({
+    programId: v.id("eventMediaPrograms"),
+    eventId: v.id("events"),
+    key: v.string(),
+    type: eventMediaOutputTypeValidator,
+    accountModel: eventMediaOutputAccountModelValidator,
+    state: eventMediaOutputStateValidator,
+    label: v.string(),
+    region: v.optional(v.string()),
+    credential: v.optional(eventMediaOutputCredential),
+    vrcdnSetup: v.optional(eventMediaVrcdnSetup),
+    compliance: v.optional(eventMediaOutputCompliance),
+    playbackLinks: v.array(eventMediaPublicLinkValidator),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_programId_key", ["programId", "key"])
+    .index("by_programId_state", ["programId", "state"])
+    .index("by_eventId_type", ["eventId", "type"]),
+  eventMediaCommands: defineTable({
+    programId: v.id("eventMediaPrograms"),
+    eventId: v.id("events"),
+    sessionId: v.optional(v.id("eventMediaSessions")),
+    commandType: eventMediaCommandTypeValidator,
+    status: eventMediaCommandStatusValidator,
+    actor: v.optional(authSubject),
+    actorSurface: eventMediaActorSurfaceValidator,
+    targetSourceId: v.optional(v.id("eventMediaSources")),
+    targetSourceKey: v.optional(v.string()),
+    targetOutputId: v.optional(v.id("eventMediaOutputs")),
+    targetOutputKey: v.optional(v.string()),
+    publicFallbackLinks: v.array(eventMediaPublicLinkValidator),
+    note: v.optional(v.string()),
+    idempotencyKey: v.optional(v.string()),
+    claimedByWorkerId: v.optional(v.string()),
+    errorSummary: v.optional(v.string()),
+    createdAt: v.number(),
+    claimedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_programId_status_createdAt", ["programId", "status", "createdAt"])
+    .index("by_sessionId_status_createdAt", ["sessionId", "status", "createdAt"])
+    .index("by_eventId_createdAt", ["eventId", "createdAt"])
+    .index("by_idempotencyKey", ["idempotencyKey"]),
+  eventMediaSessions: defineTable({
+    programId: v.id("eventMediaPrograms"),
+    eventId: v.id("events"),
+    outputId: v.optional(v.id("eventMediaOutputs")),
+    status: eventMediaSessionStatusValidator,
+    workerId: v.optional(v.string()),
+    workerRuntime: v.optional(v.string()),
+    leaseExpiresAt: v.optional(v.number()),
+    currentSourceId: v.optional(v.id("eventMediaSources")),
+    currentSceneId: v.optional(v.id("eventMediaScenes")),
+    health: v.optional(
+      v.object({
+        lastHeartbeatAt: v.number(),
+        outputBitrateKbps: v.optional(v.number()),
+        audioPresent: v.optional(v.boolean()),
+        droppedSegmentCount: v.optional(v.number()),
+        commandFailureCount: v.optional(v.number()),
+      }),
+    ),
+    scheduledStartAt: v.optional(v.number()),
+    startedAt: v.optional(v.number()),
+    stoppedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_programId_status", ["programId", "status"])
+    .index("by_eventId_status", ["eventId", "status"])
+    .index("by_workerId_status", ["workerId", "status"])
+    .index("by_leaseExpiresAt", ["leaseExpiresAt"]),
+  eventMediaAuditEvents: defineTable({
+    programId: v.id("eventMediaPrograms"),
+    eventId: v.id("events"),
+    sessionId: v.optional(v.id("eventMediaSessions")),
+    commandId: v.optional(v.id("eventMediaCommands")),
+    sourceId: v.optional(v.id("eventMediaSources")),
+    outputId: v.optional(v.id("eventMediaOutputs")),
+    actor: v.optional(authSubject),
+    actorSurface: eventMediaActorSurfaceValidator,
+    action: v.string(),
+    publicSummary: v.optional(v.string()),
+    privateSummary: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_programId_createdAt", ["programId", "createdAt"])
+    .index("by_eventId_createdAt", ["eventId", "createdAt"])
+    .index("by_commandId", ["commandId"]),
   communityAuthorities: defineTable({
     communityProfileId: v.id("profiles"),
     subjectTokenIdentifier: v.string(),
