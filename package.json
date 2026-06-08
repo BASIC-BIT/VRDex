@@ -16,6 +16,8 @@
     "build:web:vercel": "pnpm --filter web build:vercel",
     "check:web:vercel-env": "pnpm --filter web check:vercel-env",
     "lint:markdown": "markdownlint-cli2",
+    "proof:restream:ffmpeg": "node scripts/restream-ffmpeg-proof.mjs run",
+    "check:restream:ffmpeg": "node scripts/restream-ffmpeg-proof.mjs check",
     "lint:web": "pnpm --filter web lint",
     "test:e2e": "pnpm --filter web test:e2e",
     "test:e2e:hosted": "pnpm --filter web test:e2e:hosted",
