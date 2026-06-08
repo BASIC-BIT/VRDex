@@ -140,6 +140,93 @@ jobs:
       - name: Check generated backend files
         run: git diff --exit-code -- convex/_generated
 
+  restream-local-checks:
+    name: Restream Local Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check restream-relevant changes
+        id: changes
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+
+          base="$BASE_SHA"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base="HEAD^"
+          fi
+
+          changed_files="$(git diff --name-only "$base" HEAD)"
+          restream_files="$(printf '%s\n' "$changed_files" | grep -E '^(\.github/workflows/baseline-checks\.yml|apps/discord-gateway/|workers/restream/|scripts/restream-ffmpeg-proof\.mjs|convex/_eventMediaControl\.ts|tests/backend/event-media-control\.test\.ts|docs/(deployment/(discord-gateway|restream-worker)\.md|engineering/restream-ffmpeg-proof\.md)|infra/terraform/restream-worker/|package\.json|pnpm-lock\.yaml)$' || true)"
+
+          if [ -z "$restream_files" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## Restream Local Checks"
+              echo "Skipped because no restream-relevant files changed."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Restream Local Checks"
+            echo "Changed restream-relevant files:"
+            printf -- '- `%s`\n' $restream_files
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup pnpm
+        if: steps.changes.outputs.enabled == 'true'
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        if: steps.changes.outputs.enabled == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.changes.outputs.enabled == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Install FFmpeg
+        if: steps.changes.outputs.enabled == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Typecheck Discord Gateway
+        if: steps.changes.outputs.enabled == 'true'
+        run: pnpm typecheck:discord-gateway
+
+      - name: Test Discord Gateway
+        if: steps.changes.outputs.enabled == 'true'
+        run: pnpm test:discord-gateway
+
+      - name: Dry-run hosted restream worker
+        if: steps.changes.outputs.enabled == 'true'
+        env:
+          VRDEX_RESTREAM_QUALITY_GATE: 1080p60
+          VRDEX_RESTREAM_BENCHMARK_MODE: dry-run
+          VRDEX_RESTREAM_SECRET_REF_NAMES: event-media/vrcdn/main-output
+        run: node workers/restream/hosted-worker.mjs
+
+      - name: Run FFmpeg restream proof
+        if: steps.changes.outputs.enabled == 'true'
+        run: pnpm proof:restream:ffmpeg
+
+      - name: Check FFmpeg restream proof
+        if: steps.changes.outputs.enabled == 'true'
+        run: pnpm check:restream:ffmpeg
+
   build-web:
     name: Build Web
     needs: [lint-web, verify-docs, typecheck-web, typecheck-backend, verify-backend-local]
