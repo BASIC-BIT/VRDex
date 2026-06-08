@@ -1,0 +1,379 @@
+import { v } from "convex/values";
+
+import { normalizeProfileInlineText } from "./_profileSubmissions";
+import { safeHttpsUrl } from "./_publicFields";
+import { parseVrcdnStreamLinks } from "./_vrcdnLinks";
+
+const CONTROL_KEY_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const CONTROL_NOTE_MAX_LENGTH = 500;
+const LINK_LABEL_MAX_LENGTH = 80;
+
+export type EventMediaProgramState =
+  | "draft"
+  | "ready"
+  | "starting"
+  | "live"
+  | "hold"
+  | "fallback"
+  | "stopping"
+  | "ended"
+  | "error"
+  | "disabled";
+
+export type EventMediaSourceType =
+  | "performer_stream"
+  | "vj_stream"
+  | "event_camera"
+  | "vrcdn_link"
+  | "twitch_watch"
+  | "hls_url"
+  | "rtmp_source"
+  | "uploaded_file"
+  | "static_image"
+  | "audio_loop"
+  | "manual_link"
+  | "other";
+
+export type EventMediaSourcePurpose =
+  | "program"
+  | "visual_restream"
+  | "camera"
+  | "hold_visual"
+  | "hold_audio"
+  | "fallback"
+  | "watch";
+
+export type EventMediaSourceState = "draft" | "ready" | "live" | "offline" | "failed" | "disabled";
+
+export type EventMediaSceneType = "source" | "hold_slate" | "intro" | "outro" | "offline_card" | "countdown";
+
+export type EventMediaOutputType = "vrcdn" | "external_rtmp" | "aws_hls" | "ivs" | "manual";
+
+export type EventMediaOutputAccountModel = "operator_owned";
+
+export type EventMediaOutputState = "draft" | "ready" | "active" | "disabled" | "failed";
+
+export type EventMediaCommandType =
+  | "start_program"
+  | "stop_program"
+  | "switch_source"
+  | "switch_hold"
+  | "next_slot"
+  | "previous_slot"
+  | "force_direct_link_fallback"
+  | "mark_source_live"
+  | "mark_source_offline"
+  | "publish_current_public_watch_link";
+
+export type EventMediaCommandStatus = "queued" | "claimed" | "succeeded" | "failed" | "cancelled";
+
+export type EventMediaActorSurface = "web" | "discord" | "worker" | "system";
+
+export type EventMediaSessionStatus =
+  | "scheduled"
+  | "starting"
+  | "live"
+  | "hold"
+  | "fallback"
+  | "stopping"
+  | "ended"
+  | "error";
+
+export type EventMediaPlaybackPlatform = "browser" | "pc" | "standalone";
+
+export type EventMediaPublicLinkInput = {
+  platform: EventMediaPlaybackPlatform;
+  label?: string;
+  url: string;
+};
+
+export type EventMediaPublicLink = {
+  platform: EventMediaPlaybackPlatform;
+  label: string;
+  url: string;
+};
+
+export type EventMediaCommandInput = {
+  type: EventMediaCommandType;
+  targetSourceKey?: string;
+  targetOutputKey?: string;
+  publicFallbackLinks?: EventMediaPublicLinkInput[];
+  note?: string;
+};
+
+export type SanitizedEventMediaCommand = {
+  type: EventMediaCommandType;
+  targetSourceKey?: string;
+  targetOutputKey?: string;
+  publicFallbackLinks: EventMediaPublicLink[];
+  note?: string;
+};
+
+export type EventMediaPrivateProgramState = {
+  status: EventMediaProgramState;
+  currentSourceLabel?: string;
+  currentOutputLabel?: string;
+  publicLinks?: EventMediaPublicLinkInput[];
+  directFallbackLinks?: EventMediaPublicLinkInput[];
+  activeWorkerId?: string;
+  workerLeaseExpiresAt?: number;
+  commandQueueDepth?: number;
+  credentialRefs?: string[];
+  privateNotes?: string;
+};
+
+export type EventMediaPublicProgramState = {
+  status: EventMediaProgramState;
+  currentSourceLabel?: string;
+  currentOutputLabel?: string;
+  publicLinks: EventMediaPublicLink[];
+  directFallbackLinks: EventMediaPublicLink[];
+};
+
+export const eventMediaProgramStateValidator = v.union(
+  v.literal("draft"),
+  v.literal("ready"),
+  v.literal("starting"),
+  v.literal("live"),
+  v.literal("hold"),
+  v.literal("fallback"),
+  v.literal("stopping"),
+  v.literal("ended"),
+  v.literal("error"),
+  v.literal("disabled"),
+);
+
+export const eventMediaSourceTypeValidator = v.union(
+  v.literal("performer_stream"),
+  v.literal("vj_stream"),
+  v.literal("event_camera"),
+  v.literal("vrcdn_link"),
+  v.literal("twitch_watch"),
+  v.literal("hls_url"),
+  v.literal("rtmp_source"),
+  v.literal("uploaded_file"),
+  v.literal("static_image"),
+  v.literal("audio_loop"),
+  v.literal("manual_link"),
+  v.literal("other"),
+);
+
+export const eventMediaSourcePurposeValidator = v.union(
+  v.literal("program"),
+  v.literal("visual_restream"),
+  v.literal("camera"),
+  v.literal("hold_visual"),
+  v.literal("hold_audio"),
+  v.literal("fallback"),
+  v.literal("watch"),
+);
+
+export const eventMediaSourceStateValidator = v.union(
+  v.literal("draft"),
+  v.literal("ready"),
+  v.literal("live"),
+  v.literal("offline"),
+  v.literal("failed"),
+  v.literal("disabled"),
+);
+
+export const eventMediaSceneTypeValidator = v.union(
+  v.literal("source"),
+  v.literal("hold_slate"),
+  v.literal("intro"),
+  v.literal("outro"),
+  v.literal("offline_card"),
+  v.literal("countdown"),
+);
+
+export const eventMediaOutputTypeValidator = v.union(
+  v.literal("vrcdn"),
+  v.literal("external_rtmp"),
+  v.literal("aws_hls"),
+  v.literal("ivs"),
+  v.literal("manual"),
+);
+
+export const eventMediaOutputAccountModelValidator = v.literal("operator_owned");
+
+export const eventMediaOutputStateValidator = v.union(
+  v.literal("draft"),
+  v.literal("ready"),
+  v.literal("active"),
+  v.literal("disabled"),
+  v.literal("failed"),
+);
+
+export const eventMediaCommandTypeValidator = v.union(
+  v.literal("start_program"),
+  v.literal("stop_program"),
+  v.literal("switch_source"),
+  v.literal("switch_hold"),
+  v.literal("next_slot"),
+  v.literal("previous_slot"),
+  v.literal("force_direct_link_fallback"),
+  v.literal("mark_source_live"),
+  v.literal("mark_source_offline"),
+  v.literal("publish_current_public_watch_link"),
+);
+
+export const eventMediaCommandStatusValidator = v.union(
+  v.literal("queued"),
+  v.literal("claimed"),
+  v.literal("succeeded"),
+  v.literal("failed"),
+  v.literal("cancelled"),
+);
+
+export const eventMediaActorSurfaceValidator = v.union(
+  v.literal("web"),
+  v.literal("discord"),
+  v.literal("worker"),
+  v.literal("system"),
+);
+
+export const eventMediaSessionStatusValidator = v.union(
+  v.literal("scheduled"),
+  v.literal("starting"),
+  v.literal("live"),
+  v.literal("hold"),
+  v.literal("fallback"),
+  v.literal("stopping"),
+  v.literal("ended"),
+  v.literal("error"),
+);
+
+export const eventMediaPlaybackPlatformValidator = v.union(
+  v.literal("browser"),
+  v.literal("pc"),
+  v.literal("standalone"),
+);
+
+export const eventMediaPublicLinkValidator = v.object({
+  platform: eventMediaPlaybackPlatformValidator,
+  label: v.string(),
+  url: v.string(),
+});
+
+function optionalBoundedText(input: string | undefined, fieldName: string, maxLength: number): string | undefined {
+  if (input === undefined) {
+    return undefined;
+  }
+
+  const value = normalizeProfileInlineText(input);
+
+  if (value.length === 0) {
+    return undefined;
+  }
+
+  if (value.length > maxLength) {
+    throw new Error(`${fieldName} must be ${maxLength} characters or fewer.`);
+  }
+
+  return value;
+}
+
+function sanitizeControlKey(input: string | undefined, fieldName: string): string | undefined {
+  const value = optionalBoundedText(input, fieldName, 64);
+
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const key = value.toLowerCase();
+
+  if (!CONTROL_KEY_PATTERN.test(key)) {
+    throw new Error(`${fieldName} must use lowercase letters, numbers, underscores, or hyphens.`);
+  }
+
+  return key;
+}
+
+function fallbackLabel(platform: EventMediaPlaybackPlatform): string {
+  switch (platform) {
+    case "browser":
+      return "Browser watch link";
+    case "pc":
+      return "PC stream link";
+    case "standalone":
+      return "Standalone stream link";
+  }
+}
+
+export function sanitizeEventMediaPublicLink(input: EventMediaPublicLinkInput): EventMediaPublicLink {
+  const label = optionalBoundedText(input.label, "Media link label", LINK_LABEL_MAX_LENGTH) ?? fallbackLabel(input.platform);
+  const vrcdnLinks = parseVrcdnStreamLinks(input.url);
+
+  if (vrcdnLinks !== null) {
+    const url =
+      input.platform === "pc"
+        ? vrcdnLinks.pcUrl
+        : input.platform === "standalone"
+          ? vrcdnLinks.questUrl
+          : vrcdnLinks.directVideoUrl ?? vrcdnLinks.pageUrl;
+
+    return { platform: input.platform, label, url };
+  }
+
+  const url = safeHttpsUrl(input.url);
+
+  if (url === undefined) {
+    throw new Error("Media control public links must use HTTPS or a recognized VRCDN stream URL.");
+  }
+
+  return { platform: input.platform, label, url };
+}
+
+export function sanitizeEventMediaPublicLinks(input: EventMediaPublicLinkInput[] | undefined): EventMediaPublicLink[] {
+  const links: EventMediaPublicLink[] = [];
+  const seen = new Set<string>();
+
+  for (const link of input ?? []) {
+    const sanitized = sanitizeEventMediaPublicLink(link);
+    const key = `${sanitized.platform}:${sanitized.url.toLowerCase()}`;
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    links.push(sanitized);
+  }
+
+  return links;
+}
+
+export function sanitizeEventMediaCommandInput(input: EventMediaCommandInput): SanitizedEventMediaCommand {
+  const targetSourceKey = sanitizeControlKey(input.targetSourceKey, "Target source key");
+  const targetOutputKey = sanitizeControlKey(input.targetOutputKey, "Target output key");
+  const publicFallbackLinks = sanitizeEventMediaPublicLinks(input.publicFallbackLinks);
+  const note = optionalBoundedText(input.note, "Media command note", CONTROL_NOTE_MAX_LENGTH);
+
+  if (["switch_source", "mark_source_live", "mark_source_offline"].includes(input.type) && targetSourceKey === undefined) {
+    throw new Error(`${input.type} requires a target source key.`);
+  }
+
+  if (input.type === "force_direct_link_fallback" && publicFallbackLinks.length === 0) {
+    throw new Error("Direct-link fallback requires at least one public fallback link.");
+  }
+
+  return {
+    type: input.type,
+    ...(targetSourceKey === undefined ? {} : { targetSourceKey }),
+    ...(targetOutputKey === undefined ? {} : { targetOutputKey }),
+    publicFallbackLinks,
+    ...(note === undefined ? {} : { note }),
+  };
+}
+
+export function toPublicEventMediaProgramState(
+  state: EventMediaPrivateProgramState,
+): EventMediaPublicProgramState {
+  return {
+    status: state.status,
+    ...(state.currentSourceLabel === undefined ? {} : { currentSourceLabel: state.currentSourceLabel }),
+    ...(state.currentOutputLabel === undefined ? {} : { currentOutputLabel: state.currentOutputLabel }),
+    publicLinks: sanitizeEventMediaPublicLinks(state.publicLinks),
+    directFallbackLinks: sanitizeEventMediaPublicLinks(state.directFallbackLinks),
+  };
+}

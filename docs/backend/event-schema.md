@@ -128,6 +128,24 @@ Embeds are limited to explicitly supported providers:
 
 Unsupported watch URLs fall back to a prominent outbound watch card during the scheduled watch window. Source liveness checks, operator status, and restream switching remain part of the larger media-control model tracked in `#124`; public UI should not expose those implementation boundaries as explanatory copy.
 
+## Event Media Control Plane
+
+The restreaming/media-control foundation uses event-scoped records rather than overloading the existing `events.mediaLinks` array.
+
+Current control-plane tables include:
+
+- `eventMediaPrograms` for the event-level media program, public watch links, direct fallback links, and active source/output/session pointers.
+- `eventMediaSources` for performer streams, VJ streams, event cameras, VRCDN links, Twitch watch links, HLS/RTMP sources, hold visuals, and audio loops.
+- `eventMediaScenes` for source scenes, hold slates, intros, outros, offline cards, and countdowns.
+- `eventMediaOutputs` for operator-owned VRCDN, external RTMP, AWS HLS, IVS, or manual output targets.
+- `eventMediaCommands` for queued operator, Discord, worker, or system commands such as start, stop, hold, next, source switch, fallback, and watch-link publication.
+- `eventMediaSessions` for concrete worker runs, leases, current source/scene, and health heartbeats.
+- `eventMediaAuditEvents` for immutable operator and automation history tied back to events, programs, sessions, commands, sources, and outputs.
+
+Public projection must stay narrow: public surfaces can show safe status, current source/output labels, public watch links, and direct fallback links. They must not expose worker identifiers, command queue internals, secret references, private setup notes, ingest URLs, stream keys, or provider-specific failure mechanics.
+
+The first account model is `operator_owned`. Output credentials are represented only by scoped secret references in the control plane; secret values belong in encrypted provider secret storage, not in event records, docs, logs, or audit summaries.
+
 ## Event-World Links
 
 World linkage uses explicit `eventWorlds` records rather than storing world context only as event text.
