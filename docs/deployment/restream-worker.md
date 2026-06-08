@@ -96,7 +96,7 @@ The proof uses FFmpeg's `zmq` command filter plus command-capable filter instanc
 
 Current recommendation: use overlay alpha plus per-source volume commands for runtime fades. Do not rely on runtime `mix` or `amix` `weights`; this FFmpeg build returned `Function not implemented` for those commands during diagnosis.
 
-Current recommendation: treat `hard-switch` as the first production baseline. It keeps one semantic operator timeline but uses direct commandable video and audio source selection, reducing the synthetic runtime command count from 194 to 8. The current hosted `4096` CPU / `8192` MiB Fargate shape still misses `1080p60` realtime: observed `hard-switch` results were about `0.616x` with `veryfast` and `0.675x` with `ultrafast`. Do not add fades or slate polish back into the production path until the simple source-selection path has realtime headroom.
+Current recommendation: treat `hard-switch` as the first production baseline. It keeps one semantic operator timeline but uses direct commandable video and audio source selection, reducing the synthetic runtime command count from 194 to 8. Do not add fades or slate polish back into the production path until the simple source-selection path has realtime headroom.
 
 ## Quality And Cost Ladder
 
@@ -108,6 +108,26 @@ Current recommendation: evaluate capability in this order and prefer reliable so
 - `720p30`: lowest acceptable hosted proof tier before considering the pipeline not viable on CPU Fargate
 
 The first pass should compare `hard-switch` plus `ultrafast` across the ladder before adding fade or slate polish back into the runtime path. Fades can remain a later capability flag rather than a requirement for the initial restreamer.
+
+Observed hosted synthetic results from 2026-06-08:
+
+| Shape | Variant | Quality | Realtime factor | Result |
+| --- | --- | --- | ---: | --- |
+| `4096` CPU / `8192` MiB | `live-control` | `1080p60` | `0.676x` | Not viable |
+| `4096` CPU / `8192` MiB | `live-control` | `1080p30` | `0.974x` | Near realtime, no strict headroom |
+| `4096` CPU / `8192` MiB | `live-control` | `720p60` | `0.984x` | Near realtime, no strict headroom |
+| `4096` CPU / `8192` MiB | `live-control` | `720p30` | `0.978x` | Near realtime, no strict headroom |
+| `8192` CPU / `16384` MiB | `live-control` | `1080p60` | `0.979x` | Near realtime, no strict headroom |
+| `8192` CPU / `16384` MiB | `live-control` | `1080p30` | `0.965x` | Near realtime, no strict headroom |
+| `8192` CPU / `16384` MiB | `live-control` | `720p60` | `0.981x` | Near realtime, no strict headroom |
+| `8192` CPU / `16384` MiB | `live-control` | `720p30` | `0.969x` | Near realtime, no strict headroom |
+| `16384` CPU / `32768` MiB | `live-control` | `1080p60` | `0.967x` | More CPU did not improve this short diagnostic run |
+| `8192` CPU / `16384` MiB | `static-transition` | `1080p60` | `3.843x` | Throughput gate passes |
+| `8192` CPU / `16384` MiB | `static-transition` | `1080p30` | `4.750x` | Throughput gate passes |
+| `8192` CPU / `16384` MiB | `static-transition` | `720p60` | `7.951x` | Throughput gate passes |
+| `8192` CPU / `16384` MiB | `static-transition` | `720p30` | `12.399x` | Throughput gate passes |
+
+Interpretation: the static encode path has strong CPU Fargate headroom at `8192` CPU / `16384` MiB, including `1080p60`. The live-control path validates timed source selection but its short synthetic realtime diagnostic hovers just under strict realtime across most lower gates and is not improved by a one-off `16384` CPU override. Do not use that diagnostic alone to trigger GPU work; use the real VRCDN live-output POC and a longer sustained run to decide whether CPU Fargate has enough operational headroom.
 
 ## VRCDN Live-Output POC Harness
 
