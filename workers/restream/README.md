@@ -48,7 +48,9 @@ Runtime command proof:
 pnpm proof:restream:live-control
 ```
 
-That command starts FFmpeg once, then sends live ZeroMQ commands to `streamselect` and `astreamselect` filter instances. It requires local Python with `pyzmq` for the command sender. It validates source-to-hold-to-source switching and the delayed hold-slate audio path without rebuilding or restarting the FFmpeg process. The current live-control proof is a hard-switch proof; runtime-programmed fades are not validated yet and stay separate from the baked-transition benchmark.
+That command starts FFmpeg once, then sends live ZeroMQ commands to filter instances. It requires local Python with `pyzmq` for the command sender. The working fade approach uses `streamselect` for base and next video layers, commandable `colorchannelmixer` alpha for video fades, and commandable `volume` filters into a fixed `amix` for audio fades. The controller expands one semantic operator command into eased, frame-ish transition steps, so callers do not send individual fade ticks. The proof validates source-to-hold-to-source switching, blended transition frames, and the delayed hold-slate audio path without rebuilding or restarting the FFmpeg process.
+
+Do not drive live fades by changing `mix` or `amix` `weights`; this FFmpeg build returned `Function not implemented` for runtime weight commands. Use overlay alpha and per-source volume commands instead.
 
 ## Benchmark Gate
 

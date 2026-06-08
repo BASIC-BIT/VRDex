@@ -76,9 +76,9 @@ The local live-control proof validates that FFmpeg can be started once and steer
 pnpm proof:restream:live-control
 ```
 
-The proof uses FFmpeg's `zmq` command filter plus command-capable `streamselect` and `astreamselect` filter instances. The local command sender requires Python with `pyzmq`. The controller sends runtime map commands for source A, hold slate, silence, hold audio after delay, and source B. The generated report classifies output frames and audio windows to verify source-to-slate-to-source switching and the delayed hold-slate audio path.
+The proof uses FFmpeg's `zmq` command filter plus command-capable filter instances. The local command sender requires Python with `pyzmq`. The controller accepts semantic source-change commands, then expands them into eased, frame-ish runtime commands for source A, hold slate, source B, overlay alpha, and audio source volumes. The generated report classifies output frames, scans transition windows for blended frames, and checks audio windows to verify source-to-slate-to-source switching, runtime-programmed fades, and the delayed hold-slate audio path.
 
-Current recommendation: treat this as a hard-switch programmability proof. It does not yet validate runtime-programmed fades; fades are still covered only by the baked synthetic benchmark until a commandable fade primitive is proven.
+Current recommendation: use overlay alpha plus per-source volume commands for runtime fades. Do not rely on runtime `mix` or `amix` `weights`; this FFmpeg build returned `Function not implemented` for those commands during diagnosis.
 
 ## Logs And Metrics
 
