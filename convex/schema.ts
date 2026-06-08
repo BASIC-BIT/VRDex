@@ -6,16 +6,19 @@ import {
   eventMediaActorSurfaceValidator,
   eventMediaCommandStatusValidator,
   eventMediaCommandTypeValidator,
+  eventMediaComplianceGateStateValidator,
   eventMediaOutputAccountModelValidator,
   eventMediaOutputStateValidator,
   eventMediaOutputTypeValidator,
   eventMediaProgramStateValidator,
   eventMediaPublicLinkValidator,
   eventMediaSceneTypeValidator,
+  eventMediaSecretStorageValidator,
   eventMediaSessionStatusValidator,
   eventMediaSourcePurposeValidator,
   eventMediaSourceStateValidator,
   eventMediaSourceTypeValidator,
+  eventMediaVrcdnRegionValidator,
 } from "./_eventMediaControl";
 
 const claimState = v.union(
@@ -259,6 +262,28 @@ const authSubject = v.object({
   issuer: v.string(),
   subject: v.string(),
   displayName: v.optional(v.string()),
+});
+
+const eventMediaOutputCredential = v.object({
+  storage: eventMediaSecretStorageValidator,
+  secretRef: v.string(),
+  authorizedAt: v.optional(v.number()),
+  authorizedBy: v.optional(authSubject),
+});
+
+const eventMediaVrcdnSetup = v.object({
+  ingestRegion: v.optional(eventMediaVrcdnRegionValidator),
+  targetVideoBitrateKbps: v.optional(v.number()),
+  keyframeIntervalSeconds: v.optional(v.union(v.literal(1), v.literal(2))),
+  audioSampleRateHz: v.optional(v.literal(48000)),
+  targetAudioBitrateKbps: v.optional(v.number()),
+});
+
+const eventMediaOutputCompliance = v.object({
+  sourceConsent: eventMediaComplianceGateStateValidator,
+  destinationAuthority: eventMediaComplianceGateStateValidator,
+  providerRules: eventMediaComplianceGateStateValidator,
+  rightsClearedMedia: eventMediaComplianceGateStateValidator,
 });
 
 const fieldVisibility = v.object({
@@ -586,6 +611,9 @@ export default defineSchema({
     label: v.string(),
     region: v.optional(v.string()),
     credentialRef: v.optional(v.string()),
+    credential: v.optional(eventMediaOutputCredential),
+    vrcdnSetup: v.optional(eventMediaVrcdnSetup),
+    compliance: v.optional(eventMediaOutputCompliance),
     playbackLinks: v.array(eventMediaPublicLinkValidator),
     createdAt: v.number(),
     updatedAt: v.number(),
