@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   ProgramController,
+  FFmpegProcess,
   buildLiveControlFilterGraph,
   buildSyntheticLiveControlFfmpegArgs,
   easeInOut,
@@ -58,6 +59,38 @@ describe("restream live control", () => {
     assert.match(filterGraph, /streamselect@base/);
     assert.match(filterGraph, /colorchannelmixer@overlay-alpha/);
     assert.match(segmentPattern, /program-%03d\.ts$/);
+    assert.equal(args.includes("-progress"), false);
+  });
+
+  it("can enable FFmpeg progress output for output-timeline scheduling", () => {
+    const args = buildSyntheticLiveControlFfmpegArgs({
+      scenePaths: {
+        "source-a": "source-a.png",
+        "hold-slate": "hold-slate.png",
+        "source-b": "source-b.png",
+      },
+      hlsDir: "hls",
+      playlistPath: "hls/program.m3u8",
+      width: 1920,
+      height: 1080,
+      frameRate: 60,
+      durationSeconds: 12,
+      progressPipe: true,
+    });
+
+    assert.deepEqual(args.slice(1, 6), ["-nostats", "-stats_period", "0.1", "-progress", "pipe:1"]);
+  });
+
+  it("tracks FFmpeg output progress in milliseconds", () => {
+    const ffmpeg = Object.create(FFmpegProcess.prototype) as FFmpegProcess;
+    ffmpeg.progressMs = 0;
+    ffmpeg.progressBuffer = "";
+
+    ffmpeg.readProgress(Buffer.from("frame=1\nout_time_ms=1250000\n"));
+    ffmpeg.readProgress(Buffer.from("out_time_ms=250"));
+    ffmpeg.readProgress(Buffer.from("0000\n"));
+
+    assert.equal(ffmpeg.getProgressMs(), 2500);
   });
 
   it("expands semantic program switches into runtime filter commands", async () => {

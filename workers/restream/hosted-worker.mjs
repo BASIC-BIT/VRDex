@@ -8,15 +8,18 @@ import {
   ProgramController,
   ZmqCommandClient,
   buildSyntheticLiveControlFfmpegArgs,
+  sleep,
 } from "./live-control.mjs";
 
 const REQUIRED_GATE = "1080p60";
 const ALLOWED_BENCHMARK_MODES = new Set(["dry-run", "ecs-fargate"]);
 const ALLOWED_SYNTHETIC_VARIANTS = new Set(["static-transition", "live-control"]);
+const ALLOWED_LIVE_CONTROL_SCHEDULES = new Set(["output-timeline", "wall-clock"]);
 const DEFAULT_ARTIFACT_ROOT = process.env.AWS_EXECUTION_ENV
   ? "/tmp/vrdex-restream-worker-benchmark"
   : "artifacts/restream-worker-benchmark";
 const DEFAULT_SYNTHETIC_VARIANT = "static-transition";
+const DEFAULT_LIVE_CONTROL_SCHEDULE = "output-timeline";
 const DEFAULT_TRANSITION_FADE_MS = 500;
 const DEFAULT_HOLD_SLATE_AUDIO_DELAY_MS = 750;
 const WIDTH = 1920;
@@ -409,6 +412,23 @@ async function verifyLiveControlFrameTiming(watchPreviewPath, outputDir) {
   return checks;
 }
 
+async function waitForFfmpegOutput(ffmpeg, elapsedMs) {
+  const startedAt = performance.now();
+  const timeoutMs = Math.max(30000, elapsedMs * 12);
+
+  while (ffmpeg.getProgressMs() < elapsedMs) {
+    if (ffmpeg.closed) {
+      throw new Error(`FFmpeg exited before output reached ${(elapsedMs / 1000).toFixed(3)}s.`);
+    }
+
+    if (performance.now() - startedAt > timeoutMs) {
+      throw new Error(`Timed out waiting for FFmpeg output to reach ${(elapsedMs / 1000).toFixed(3)}s.`);
+    }
+
+    await sleep(25);
+  }
+}
+
 async function writeStaticSyntheticProgram(outputDir, config) {
   const hlsDir = join(outputDir, "hls");
   const framesDir = join(outputDir, "frames");
@@ -538,6 +558,7 @@ async function writeLiveControlSyntheticProgram(outputDir, config) {
   const playlistPath = join(hlsDir, "program.m3u8");
   const watchPreviewPath = join(outputDir, "program.mp4");
   const commandLog = [];
+  const scheduleByOutput = config.liveControlSchedule === "output-timeline";
   const ffmpegArgs = buildSyntheticLiveControlFfmpegArgs({
     scenePaths,
     hlsDir,
@@ -546,6 +567,7 @@ async function writeLiveControlSyntheticProgram(outputDir, config) {
     height: HEIGHT,
     frameRate: FRAME_RATE,
     durationSeconds: DURATION_SECONDS,
+    progressPipe: scheduleByOutput,
   });
   const started = performance.now();
   const ffmpeg = new FFmpegProcess(ffmpegArgs);
@@ -554,6 +576,13 @@ async function writeLiveControlSyntheticProgram(outputDir, config) {
   });
   const controller = new ProgramController(client, {
     commandLog,
+    ...(scheduleByOutput
+      ? {
+          startedAt: 0,
+          now: () => ffmpeg.getProgressMs(),
+          waitUntil: (elapsedMs) => waitForFfmpegOutput(ffmpeg, elapsedMs),
+        }
+      : {}),
     preset: {
       fadeMs: config.transitionFadeMs,
       holdAudioDelayMs: config.holdSlateAudioDelayMs,
@@ -574,7 +603,13 @@ async function writeLiveControlSyntheticProgram(outputDir, config) {
   await extractEvidenceFrames(playlistPath, framesDir);
   writeFileSync(join(outputDir, "controller-events.json"), `${JSON.stringify(commandLog, null, 2)}\n`);
 
-  return { encodeElapsedSeconds, watchPreviewPath, controlMode: DEFAULT_LIVE_CONTROL_PRESET.controlMode, commandLog };
+  return {
+    encodeElapsedSeconds,
+    watchPreviewPath,
+    controlMode: DEFAULT_LIVE_CONTROL_PRESET.controlMode,
+    liveControlSchedule: config.liveControlSchedule,
+    commandLog,
+  };
 }
 
 async function writeSyntheticProgram(outputDir, config) {
@@ -613,6 +648,9 @@ function writeHtmlReport(outputDir, report) {
     .join("\n");
   const checks = Object.entries(report.acceptance)
     .map(([name, passed]) => `<li><strong>${name}</strong>: ${passed ? "pass" : "fail"}</li>`)
+    .join("\n");
+  const diagnostics = Object.entries(report.diagnostics ?? {})
+    .map(([name, passed]) => `<li><strong>${name}</strong>: ${passed ? "pass" : "warn"}</li>`)
     .join("\n");
   const runtimeCommands = report.commandLog
     .slice(0, 80)
@@ -658,6 +696,7 @@ function writeHtmlReport(outputDir, report) {
       <div class="card"><div class="label">Mode</div><div class="value">${report.benchmarkMode}</div></div>
       <div class="card"><div class="label">Variant</div><div class="value">${report.syntheticVariant}</div></div>
       <div class="card"><div class="label">Control Mode</div><div class="value">${report.controlMode}</div></div>
+      ${report.liveControlSchedule === undefined ? "" : `<div class="card"><div class="label">Schedule</div><div class="value">${report.liveControlSchedule}</div></div>`}
       <div class="card"><div class="label">Output</div><div class="value">${report.video.codec} ${report.video.width}x${report.video.height} @ ${report.video.frameRate}</div></div>
       <div class="card"><div class="label">Audio</div><div class="value">${report.audio.codec} ${report.audio.sampleRateHz}Hz ${report.audio.channels}ch</div></div>
       <div class="card"><div class="label">Realtime Factor</div><div class="value">${report.realtimeFactor.toFixed(2)}x</div></div>
@@ -674,6 +713,7 @@ function writeHtmlReport(outputDir, report) {
     <p>Watch preview: <a href="program.mp4"><code>program.mp4</code></a></p>
     <h2>Acceptance</h2>
     <ul>${checks}</ul>
+    ${diagnostics === "" ? "" : `<h2>Diagnostics</h2><ul>${diagnostics}</ul>`}
     <h2>Transition Evidence</h2>
     <div class="grid">${frameList}</div>
   </main>
@@ -689,7 +729,10 @@ async function runBenchmark(config) {
 
   const outputDir = resolve(config.artifactRoot, timestamp());
   mkdirSync(outputDir, { recursive: true });
-  const { encodeElapsedSeconds, watchPreviewPath, controlMode, commandLog } = await writeSyntheticProgram(outputDir, config);
+  const { encodeElapsedSeconds, watchPreviewPath, controlMode, liveControlSchedule, commandLog } = await writeSyntheticProgram(
+    outputDir,
+    config,
+  );
   const playlistSummary = checkPlaylist(outputDir);
   const checkedWatchPreviewPath = checkWatchPreview(outputDir);
   const metadata = await probePlaylist(playlistSummary.playlistPath);
@@ -718,6 +761,7 @@ async function runBenchmark(config) {
   assert(frames.includes("source-b.jpg"), "Missing source-b transition frame.");
 
   const realtimeFactor = playlistSummary.totalDuration / encodeElapsedSeconds;
+  const realtimePacePassed = realtimeFactor >= 0.95;
   const report = {
     generatedAt: new Date().toISOString(),
     artifact: outputDir,
@@ -739,6 +783,7 @@ async function runBenchmark(config) {
     encodeElapsedSeconds,
     realtimeFactor,
     controlMode,
+    liveControlSchedule,
     commandLog,
     video: {
       codec: video.codec_name,
@@ -753,11 +798,13 @@ async function runBenchmark(config) {
     },
     frames,
     frameChecks,
+    diagnostics: {
+      ...(config.syntheticVariant === "live-control" ? { liveControlRealtimePace: realtimePacePassed } : {}),
+    },
     acceptance: {
       ...(config.syntheticVariant === "static-transition"
         ? { staticRealtimeThroughput: realtimeFactor >= 1 }
         : {
-            liveControlRealtimePace: realtimeFactor >= 0.95,
             liveControlRuntimeCompleted: commandLog.length > 0,
             liveControlTimedFramesDetected: frameChecks.every((check) => check.passed),
             runtimeVideoFadeCommandsSent: commandLog.some((event) => event.kind.startsWith("video-alpha-fade")),
@@ -789,6 +836,7 @@ async function runBenchmark(config) {
       ...(uploadedTo === undefined ? {} : { uploadedTo }),
       benchmarkMode: config.benchmarkMode,
       syntheticVariant: report.syntheticVariant,
+      ...(report.liveControlSchedule === undefined ? {} : { liveControlSchedule: report.liveControlSchedule }),
       qualityGate: REQUIRED_GATE,
       durationSeconds: report.durationSeconds,
       realtimeFactor: Number(report.realtimeFactor.toFixed(3)),
@@ -820,11 +868,18 @@ function loadConfig() {
     throw new Error("VRDEX_RESTREAM_SYNTHETIC_VARIANT must be static-transition or live-control.");
   }
 
+  const liveControlSchedule = optionalEnv("VRDEX_RESTREAM_LIVE_CONTROL_SCHEDULE") ?? DEFAULT_LIVE_CONTROL_SCHEDULE;
+
+  if (!ALLOWED_LIVE_CONTROL_SCHEDULES.has(liveControlSchedule)) {
+    throw new Error("VRDEX_RESTREAM_LIVE_CONTROL_SCHEDULE must be output-timeline or wall-clock.");
+  }
+
   requiredUrlEnv("CONVEX_URL");
   const syntheticOnly = booleanEnv("VRDEX_RESTREAM_SYNTHETIC_ONLY", true);
   const config = {
     benchmarkMode,
     syntheticVariant,
+    liveControlSchedule,
     syntheticOnly,
     killSwitchParameter: requiredEnv("VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER"),
     secretRefNames: listEnv("VRDEX_RESTREAM_SECRET_REF_NAMES", !syntheticOnly),
@@ -861,6 +916,7 @@ async function main() {
         event: "restream_worker_configuration_validated",
         benchmarkMode: config.benchmarkMode,
         syntheticVariant: config.syntheticVariant,
+        liveControlSchedule: config.liveControlSchedule,
         qualityGate: REQUIRED_GATE,
       }),
     );

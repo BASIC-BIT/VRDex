@@ -309,6 +309,10 @@ resource "aws_ecs_task_definition" "worker" {
           value = var.synthetic_variant
         },
         {
+          name  = "VRDEX_RESTREAM_LIVE_CONTROL_SCHEDULE"
+          value = var.live_control_schedule
+        },
+        {
           name  = "VRDEX_RESTREAM_TRANSITION_FADE_MS"
           value = tostring(var.transition_fade_ms)
         },

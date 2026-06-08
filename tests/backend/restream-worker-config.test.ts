@@ -73,4 +73,11 @@ describe("restream worker configuration", () => {
     assert.equal(result.code, 1);
     assert.match(result.stderr, /VRDEX_RESTREAM_SYNTHETIC_VARIANT must be static-transition or live-control\./);
   });
+
+  it("rejects unknown live-control schedules", async () => {
+    const result = await runWorker({ VRDEX_RESTREAM_LIVE_CONTROL_SCHEDULE: "wallish" });
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /VRDEX_RESTREAM_LIVE_CONTROL_SCHEDULE must be output-timeline or wall-clock\./);
+  });
 });

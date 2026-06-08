@@ -37,6 +37,7 @@ The task definition injects these non-secret values, and the current entrypoint 
 - `VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER=/vrdex/restream/hosted-worker/enabled`
 - `VRDEX_RESTREAM_SECRET_REF_NAMES`
 - `VRDEX_RESTREAM_SYNTHETIC_VARIANT=static-transition`
+- `VRDEX_RESTREAM_LIVE_CONTROL_SCHEDULE=output-timeline`
 - `VRDEX_RESTREAM_TRANSITION_FADE_MS=500`
 - `VRDEX_RESTREAM_HOLD_SLATE_AUDIO_DELAY_MS=750`
 - `CONVEX_URL`
@@ -45,7 +46,7 @@ Secret values are not environment variables in git or Terraform. The `secret_arn
 
 ## Visible Benchmark Output
 
-The worker benchmark entrypoint generates a synthetic 12-second `1080p60` program with source, hold-slate, and source-switch transitions. The default `static-transition` variant generates the hold slate once as static artwork, then loops it through the timed fade section to keep the benchmark focused on the live encode path. The `live-control` variant starts FFmpeg once and drives the same source/hold/source sequence through runtime filter commands. It also gates on near real-time pace and timed frame classification so wall-clock source commands cannot silently drift earlier in the output timeline. A successful run writes:
+The worker benchmark entrypoint generates a synthetic 12-second `1080p60` program with source, hold-slate, and source-switch transitions. The default `static-transition` variant generates the hold slate once as static artwork, then loops it through the timed fade section to keep the benchmark focused on the live encode path. The `live-control` variant starts FFmpeg once and drives the same source/hold/source sequence through runtime filter commands. It schedules commands against FFmpeg output progress by default, then gates on timed frame classification so source commands cannot silently drift earlier in the output timeline when encoding falls behind real time. Live-control still reports near-real-time pace as diagnostics, while `static-transition` remains the throughput gate. The `wall-clock` schedule remains available only as a diagnostic comparison mode. A successful run writes:
 
 - `program.mp4`, embedded in `report.html` for browser playback
 - `hls/program.m3u8` and HLS `.ts` segments

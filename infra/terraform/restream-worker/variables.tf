@@ -45,6 +45,17 @@ variable "synthetic_variant" {
   }
 }
 
+variable "live_control_schedule" {
+  description = "Timeline used for live-control synthetic runtime commands. output-timeline schedules against FFmpeg output progress; wall-clock preserves diagnostic old behavior."
+  type        = string
+  default     = "output-timeline"
+
+  validation {
+    condition     = contains(["output-timeline", "wall-clock"], var.live_control_schedule)
+    error_message = "live_control_schedule must be output-timeline or wall-clock."
+  }
+}
+
 variable "transition_fade_ms" {
   description = "Synthetic benchmark audio/video fade duration in milliseconds."
   type        = number

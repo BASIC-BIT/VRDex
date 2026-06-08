@@ -118,17 +118,44 @@ export class FFmpegProcess {
     this.child = (options.spawnProcess ?? spawn)(options.command ?? "ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
     this.stdout = "";
     this.stderr = "";
+    this.closed = false;
+    this.exitCode = undefined;
+    this.progressMs = 0;
+    this.progressBuffer = "";
 
     this.child.stdout.on("data", (chunk) => {
       this.stdout += chunk;
+      this.readProgress(chunk);
     });
     this.child.stderr.on("data", (chunk) => {
       this.stderr += chunk;
     });
+    this.child.on("close", (code) => {
+      this.closed = true;
+      this.exitCode = code;
+    });
+  }
+
+  readProgress(chunk) {
+    this.progressBuffer += chunk;
+    const lines = this.progressBuffer.split(/\r?\n/);
+    this.progressBuffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      const match = line.match(/^out_time_ms=(\d+)$/);
+
+      if (match) {
+        this.progressMs = Math.max(this.progressMs, Number(match[1]) / 1000);
+      }
+    }
   }
 
   logs() {
     return { stdout: this.stdout, stderr: this.stderr };
+  }
+
+  getProgressMs() {
+    return this.progressMs;
   }
 
   wait() {
@@ -167,11 +194,21 @@ export function buildLiveControlFilterGraph({ durationSeconds }) {
   ].join(";");
 }
 
-export function buildSyntheticLiveControlFfmpegArgs({ scenePaths, hlsDir, playlistPath, width, height, frameRate, durationSeconds }) {
+export function buildSyntheticLiveControlFfmpegArgs({
+  scenePaths,
+  hlsDir,
+  playlistPath,
+  width,
+  height,
+  frameRate,
+  durationSeconds,
+  progressPipe = false,
+}) {
   const segmentPattern = join(hlsDir, "program-%03d.ts");
 
   return [
     "-hide_banner",
+    ...(progressPipe ? ["-nostats", "-stats_period", "0.1", "-progress", "pipe:1"] : []),
     "-y",
     "-re",
     "-loop",
