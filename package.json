@@ -19,6 +19,8 @@
     "lint:markdown": "markdownlint-cli2",
     "proof:restream:ffmpeg": "node scripts/restream-ffmpeg-proof.mjs run",
     "check:restream:ffmpeg": "node scripts/restream-ffmpeg-proof.mjs check",
+    "proof:restream:local": "node --import tsx scripts/restream-local-validation.ts run",
+    "check:restream:local": "node --import tsx scripts/restream-local-validation.ts check",
     "lint:web": "pnpm --filter web lint",
     "test:e2e": "pnpm --filter web test:e2e",
     "test:e2e:hosted": "pnpm --filter web test:e2e:hosted",

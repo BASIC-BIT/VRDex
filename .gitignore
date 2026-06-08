@@ -15,6 +15,7 @@ apps/docs/build/
 .vercel/
 apps/web/.vercel/
 artifacts/restream-ffmpeg-proof/
+artifacts/restream-local-validation/
 .env
 .env.local
 .terraform/

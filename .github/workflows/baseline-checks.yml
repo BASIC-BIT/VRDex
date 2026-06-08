@@ -164,7 +164,7 @@ jobs:
           fi
 
           changed_files="$(git diff --name-only "$base" HEAD)"
-          restream_files="$(printf '%s\n' "$changed_files" | grep -E '^(\.github/workflows/(baseline-checks|terraform)\.yml|apps/discord-gateway/.*|workers/restream/.*|scripts/restream-ffmpeg-proof\.mjs|convex/(_eventMediaControl|schema)\.ts|convex/README\.md|tests/backend/event-media-control\.test\.ts|docs/(backend/event-schema\.md|deployment/(discord-gateway|restream-worker)\.md|engineering/restream-ffmpeg-proof\.md)|infra/terraform/(README\.md|restream-worker/.*)|package\.json|pnpm-lock\.yaml)$' || true)"
+          restream_files="$(printf '%s\n' "$changed_files" | grep -E '^(\.github/workflows/(baseline-checks|terraform)\.yml|apps/discord-gateway/.*|workers/restream/.*|scripts/restream-(ffmpeg-proof\.mjs|local-validation\.ts)|convex/(_eventMediaControl|schema)\.ts|convex/README\.md|tests/backend/event-media-control\.test\.ts|docs/(backend/event-schema\.md|deployment/(discord-gateway|restream-worker)\.md|engineering/restream-ffmpeg-proof\.md)|infra/terraform/(README\.md|restream-worker/.*)|package\.json|pnpm-lock\.yaml)$' || true)"
 
           if [ -z "$restream_files" ]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
@@ -228,13 +228,13 @@ jobs:
             -e VRDEX_RESTREAM_SECRET_REF_NAMES=event-media/vrcdn/main-output \
             vrdex-restream-worker:ci
 
-      - name: Run FFmpeg restream proof
+      - name: Run local restream validation
         if: steps.changes.outputs.enabled == 'true'
-        run: pnpm proof:restream:ffmpeg
+        run: pnpm proof:restream:local
 
-      - name: Check FFmpeg restream proof
+      - name: Check local restream validation
         if: steps.changes.outputs.enabled == 'true'
-        run: pnpm check:restream:ffmpeg
+        run: pnpm check:restream:local
 
   build-web:
     name: Build Web

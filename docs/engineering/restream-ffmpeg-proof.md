@@ -24,6 +24,18 @@ Check the latest generated proof artifact:
 pnpm check:restream:ffmpeg
 ```
 
+Run the local vertical validation harness:
+
+```bash
+pnpm proof:restream:local
+```
+
+Check the latest local validation artifact:
+
+```bash
+pnpm check:restream:local
+```
+
 Check a specific artifact directory:
 
 ```bash
@@ -32,7 +44,7 @@ node scripts/restream-ffmpeg-proof.mjs check artifacts/restream-ffmpeg-proof/<ru
 
 ## Generated Artifacts
 
-Artifacts are written under `artifacts/restream-ffmpeg-proof/<run-id>/` and are ignored by git.
+FFmpeg artifacts are written under `artifacts/restream-ffmpeg-proof/<run-id>/` and are ignored by git. Local vertical validation summaries are written under `artifacts/restream-local-validation/<run-id>/` and are also ignored by git.
 
 Each run produces:
 
@@ -61,6 +73,13 @@ The check command validates:
 - AAC stereo audio at `48kHz`
 - transition evidence frames for source A, hold slate, and source B
 
+The local vertical validation harness also checks:
+
+- a Convex-shaped operator-owned VRCDN output fixture reaches `ready` only through references and accepted gates
+- queued local command records are claimed and marked succeeded in timeline order
+- public snapshots expose watch/fallback links while omitting worker IDs, command queue internals, credential references, and private notes
+- the worker command timeline matches the generated FFmpeg proof timeline
+
 ## Follow-On Gaps
 
-This proof is not a hosted benchmark. Follow-on work should add sustained real-time encode measurement, keyframe cadence checks, silence/black/freeze detection, local RTMP relay output, container packaging, and Fargate/GPU comparison before any hosted availability or pricing claims.
+This proof is not a hosted benchmark. Follow-on work should add sustained real-time encode measurement, keyframe cadence checks, silence/black/freeze detection, local RTMP relay output, and Fargate/GPU comparison before any hosted availability or pricing claims.
