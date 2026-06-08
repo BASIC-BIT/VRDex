@@ -2,7 +2,7 @@
 
 ## Status
 
-Current recommendation for the first `program/restream/discord-gateway` leaf.
+Current recommendation for the first `program/restream/discord-gateway` leaf. The checked-in runtime is ACK/routing-only; it does not enqueue Convex commands or mutate live media.
 
 ## Runtime Shape
 
@@ -35,11 +35,11 @@ Component `custom_id` values use compact routing hints in the form `vrdex:mc:<ac
 
 ## ACK And Stale Panel Behavior
 
-Buttons and selects should immediately use `deferUpdate()` when the panel revision is current. Slash commands and modal submissions should immediately use ephemeral deferred replies.
+Buttons and selects should immediately use `deferUpdate()` only when the server has loaded the current panel revision and verified that the component is current. Slash commands and modal submissions should immediately use ephemeral deferred replies.
 
-If a component carries an old panel revision, the bot should send an ephemeral warning and avoid enqueueing a media command. Operators must refresh the panel before sending live controls from stale Discord components.
+If a component carries an old panel revision, or the runtime cannot verify freshness, the bot should send an ephemeral warning and avoid enqueueing a media command. Operators must refresh the panel before sending live controls from stale Discord components.
 
-Dangerous live actions such as `stop` and `fallback` are marked confirmation-gated in the routing layer. The first implementation records the routing contract; the confirmation UI and Convex enqueue call are follow-on integration work.
+Dangerous live actions such as `stop` and `fallback` are marked confirmation-gated in the routing layer and do not expose an enqueueable command until confirmation succeeds. The first implementation records the routing contract; the confirmation UI and Convex enqueue call are follow-on integration work.
 
 ## Required Environment
 

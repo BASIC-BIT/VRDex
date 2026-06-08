@@ -610,7 +610,6 @@ export default defineSchema({
     state: eventMediaOutputStateValidator,
     label: v.string(),
     region: v.optional(v.string()),
-    credentialRef: v.optional(v.string()),
     credential: v.optional(eventMediaOutputCredential),
     vrcdnSetup: v.optional(eventMediaVrcdnSetup),
     compliance: v.optional(eventMediaOutputCompliance),

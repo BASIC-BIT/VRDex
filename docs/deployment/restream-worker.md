@@ -27,7 +27,7 @@ The stack does not define an ECS service. Scheduled or operator-triggered runs s
 
 ## Runtime Guardrails
 
-The task definition injects these non-secret values:
+The task definition injects these non-secret values, and the current entrypoint refuses to start unless they are present and syntactically valid:
 
 - `VRDEX_RESTREAM_QUALITY_GATE=1080p60`
 - `VRDEX_RESTREAM_BENCHMARK_MODE=ecs-fargate`
@@ -65,6 +65,8 @@ Current recommendation: require all three controls before hosted benchmarking be
 
 Before production testing, add provider-backed budget alerts for expected worker-hour and egress spend. The current Terraform foundation records the resource tags and guardrails needed for that follow-up, but it intentionally does not auto-apply budget resources from CI.
 
+The checked-in entrypoint validates the kill-switch parameter name but does not call AWS SSM yet. Before any media work runs from this container, add the SSM read, control-plane lease, and max-duration enforcement that turn these hooks into runtime gates.
+
 ## GPU Fallback Decision
 
 Fargate CPU is the first benchmark path because it avoids EC2 fleet management.
@@ -95,6 +97,7 @@ Run from `infra/terraform/restream-worker`. From the repository root, also run:
 ```powershell
 terraform fmt -check -recursive infra/terraform
 pnpm lint:markdown
+docker build -f workers/restream/Dockerfile -t vrdex-restream-worker:local .
 ```
 
 No AWS CLI mutation, Terraform apply, image publish, or ECS task run is part of this validation.

@@ -4,7 +4,7 @@
 
 Current recommendation: this is a hosted-worker packaging and benchmark scaffold, not a production media worker.
 
-The container shape is intentionally small so ECS/Fargate infrastructure can be validated before VRDex claims hosted restreaming. It installs FFmpeg, runs a Node entrypoint, and refuses to start unless `VRDEX_RESTREAM_QUALITY_GATE=1080p60` is present.
+The container shape is intentionally small so ECS/Fargate infrastructure can be validated before VRDex claims hosted restreaming. It installs FFmpeg, runs a Node entrypoint, and refuses to start unless the non-secret benchmark contract is present.
 
 ## Build Shape
 
@@ -23,13 +23,14 @@ The ECS task definition injects non-secret environment values and secret referen
 Expected non-secret values:
 
 - `VRDEX_RESTREAM_QUALITY_GATE=1080p60`
+- `VRDEX_RESTREAM_BENCHMARK_MODE`
 - `VRDEX_RESTREAM_MAX_CONCURRENT_WORKERS`
 - `VRDEX_RESTREAM_MAX_SESSION_SECONDS`
 - `VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER`
 - `VRDEX_RESTREAM_SECRET_REF_NAMES`
 - `CONVEX_URL`
 
-Expected secret-reference names are supplied by Terraform through the `secret_arns` map. The worker must treat those names as operationally sensitive and must not log them. The first useful hosted benchmark should use an event-scoped output credential reference, not a raw ingest URL or stream key in plain environment variables.
+Expected secret-reference names are supplied by Terraform through the `secret_arns` map. The worker validates their presence, treats those names as operationally sensitive, and must not log them. The first useful hosted benchmark should use an event-scoped output credential reference, not a raw ingest URL or stream key in plain environment variables.
 
 ## Benchmark Gate
 

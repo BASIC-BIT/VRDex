@@ -59,6 +59,18 @@ describe("Discord media control routing", () => {
     assert.equal(route.command, undefined);
   });
 
+  it("fails closed when component freshness cannot be verified", () => {
+    const route = routeMediaInteraction({
+      kind: "button",
+      customId: "vrdex:mc:next:event_123:r3",
+    });
+
+    assert.equal(route.route, "stale_panel");
+    assert.equal(route.ack, "reply_ephemeral");
+    assert.equal(route.stale, true);
+    assert.equal(route.command, undefined);
+  });
+
   it("maps source select controls to switch_source commands", () => {
     const route = routeMediaInteraction({
       kind: "select",
@@ -86,10 +98,8 @@ describe("Discord media control routing", () => {
 
     assert.equal(missingLinks.route, "unknown");
     assert.equal(missingLinks.ack, "reply_ephemeral");
+    assert.equal(withLinks.route, "confirmation_required");
     assert.equal(withLinks.requiresConfirmation, true);
-    assert.deepEqual(withLinks.command, {
-      type: "force_direct_link_fallback",
-      publicFallbackLinks: [{ platform: "browser", url: "https://example.invalid/watch" }],
-    });
+    assert.equal(withLinks.command, undefined);
   });
 });

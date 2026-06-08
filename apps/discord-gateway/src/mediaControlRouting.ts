@@ -22,7 +22,7 @@ export type DiscordInteractionKind = "slash" | "button" | "select" | "modal";
 
 export type DiscordAckMode = "defer_ephemeral_reply" | "defer_message_update" | "reply_ephemeral";
 
-export type DiscordPanelRoute = "command" | "status" | "refresh" | "stale_panel" | "unknown";
+export type DiscordPanelRoute = "command" | "status" | "refresh" | "stale_panel" | "confirmation_required" | "unknown";
 
 export type DiscordMediaControlCustomId = {
   action: DiscordMediaControlAction;
@@ -118,14 +118,29 @@ export function routeMediaInteraction(input: DiscordMediaInteractionInput): Disc
   const action = input.action ?? customIdRoute?.action;
   const eventId = input.eventId ?? customIdRoute?.eventId;
   const panelRevision = input.panelRevision ?? customIdRoute?.panelRevision;
-  const stale =
-    panelRevision !== undefined &&
-    input.currentPanelRevision !== undefined &&
-    panelRevision !== input.currentPanelRevision;
+  const requiresFreshPanel =
+    customIdRoute !== undefined && (input.kind === "button" || input.kind === "select" || input.kind === "modal");
 
   if (customIdRoute === undefined && input.customId !== undefined) {
     return unknownRoute("Unrecognized VRDex media control route.");
   }
+
+  if (requiresFreshPanel && input.currentPanelRevision === undefined) {
+    return {
+      route: "stale_panel",
+      ack: "reply_ephemeral",
+      eventId,
+      action,
+      requiresConfirmation: false,
+      stale: true,
+      reason: "The Discord control panel freshness could not be verified. Refresh before sending live media commands.",
+    };
+  }
+
+  const stale =
+    panelRevision !== undefined &&
+    input.currentPanelRevision !== undefined &&
+    panelRevision !== input.currentPanelRevision;
 
   if (stale) {
     return {
@@ -170,13 +185,25 @@ export function routeMediaInteraction(input: DiscordMediaInteractionInput): Disc
     return unknownRoute(`Discord media action ${action} is missing required command details.`);
   }
 
+  if (CONFIRMATION_ACTIONS.has(action)) {
+    return {
+      route: "confirmation_required",
+      ack: "reply_ephemeral",
+      eventId,
+      action,
+      requiresConfirmation: true,
+      stale: false,
+      reason: "Confirm this Discord media action before enqueueing a live command.",
+    };
+  }
+
   return {
     route: "command",
     ack: input.kind === "button" || input.kind === "select" ? "defer_message_update" : "defer_ephemeral_reply",
     eventId,
     action,
     command,
-    requiresConfirmation: CONFIRMATION_ACTIONS.has(action),
+    requiresConfirmation: false,
     stale: false,
   };
 }

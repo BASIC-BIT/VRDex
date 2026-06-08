@@ -130,9 +130,9 @@ Unsupported watch URLs fall back to a prominent outbound watch card during the s
 
 ## Event Media Control Plane
 
-The restreaming/media-control foundation uses event-scoped records rather than overloading the existing `events.mediaLinks` array.
+The restreaming/media-control foundation uses event-scoped records rather than overloading the existing `events.mediaLinks` array. These records reserve the durable control-plane shape; the usable setup helper in this slice is limited to operator-owned VRCDN output metadata and validation scaffolding.
 
-Current control-plane tables include:
+Reserved control-plane tables include:
 
 - `eventMediaPrograms` for the event-level media program, public watch links, direct fallback links, and active source/output/session pointers.
 - `eventMediaSources` for performer streams, VJ streams, event cameras, VRCDN links, Twitch watch links, HLS/RTMP sources, hold visuals, and audio loops.

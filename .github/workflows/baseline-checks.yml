@@ -164,7 +164,7 @@ jobs:
           fi
 
           changed_files="$(git diff --name-only "$base" HEAD)"
-          restream_files="$(printf '%s\n' "$changed_files" | grep -E '^(\.github/workflows/baseline-checks\.yml|apps/discord-gateway/|workers/restream/|scripts/restream-ffmpeg-proof\.mjs|convex/_eventMediaControl\.ts|tests/backend/event-media-control\.test\.ts|docs/(deployment/(discord-gateway|restream-worker)\.md|engineering/restream-ffmpeg-proof\.md)|infra/terraform/restream-worker/|package\.json|pnpm-lock\.yaml)$' || true)"
+          restream_files="$(printf '%s\n' "$changed_files" | grep -E '^(\.github/workflows/(baseline-checks|terraform)\.yml|apps/discord-gateway/.*|workers/restream/.*|scripts/restream-ffmpeg-proof\.mjs|convex/(_eventMediaControl|schema)\.ts|convex/README\.md|tests/backend/event-media-control\.test\.ts|docs/(backend/event-schema\.md|deployment/(discord-gateway|restream-worker)\.md|engineering/restream-ffmpeg-proof\.md)|infra/terraform/(README\.md|restream-worker/.*)|package\.json|pnpm-lock\.yaml)$' || true)"
 
           if [ -z "$restream_files" ]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
@@ -211,13 +211,22 @@ jobs:
         if: steps.changes.outputs.enabled == 'true'
         run: pnpm test:discord-gateway
 
-      - name: Dry-run hosted restream worker
+      - name: Build hosted restream worker image
         if: steps.changes.outputs.enabled == 'true'
-        env:
-          VRDEX_RESTREAM_QUALITY_GATE: 1080p60
-          VRDEX_RESTREAM_BENCHMARK_MODE: dry-run
-          VRDEX_RESTREAM_SECRET_REF_NAMES: event-media/vrcdn/main-output
-        run: node workers/restream/hosted-worker.mjs
+        run: docker build -f workers/restream/Dockerfile -t vrdex-restream-worker:ci .
+
+      - name: Dry-run hosted restream worker image
+        if: steps.changes.outputs.enabled == 'true'
+        run: |
+          docker run --rm \
+            -e CONVEX_URL=https://example.invalid \
+            -e VRDEX_RESTREAM_BENCHMARK_MODE=dry-run \
+            -e VRDEX_RESTREAM_QUALITY_GATE=1080p60 \
+            -e VRDEX_RESTREAM_MAX_CONCURRENT_WORKERS=10 \
+            -e VRDEX_RESTREAM_MAX_SESSION_SECONDS=43200 \
+            -e VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER=/vrdex/restream/hosted-worker/enabled \
+            -e VRDEX_RESTREAM_SECRET_REF_NAMES=event-media/vrcdn/main-output \
+            vrdex-restream-worker:ci
 
       - name: Run FFmpeg restream proof
         if: steps.changes.outputs.enabled == 'true'
@@ -229,7 +238,7 @@ jobs:
 
   build-web:
     name: Build Web
-    needs: [lint-web, verify-docs, typecheck-web, typecheck-backend, verify-backend-local]
+    needs: [lint-web, verify-docs, typecheck-web, typecheck-backend, verify-backend-local, restream-local-checks]
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
