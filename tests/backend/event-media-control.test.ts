@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   sanitizeEventMediaCommandInput,
   sanitizeEventMediaPublicLink,
+  sanitizeVrcdnOperatorOwnedOutputSetup,
   toPublicEventMediaProgramState,
 } from "../../convex/_eventMediaControl";
 
@@ -116,5 +117,92 @@ describe("event media control helpers", () => {
     assert.equal("workerLeaseExpiresAt" in raw, false);
     assert.equal("credentialRefs" in raw, false);
     assert.equal("privateNotes" in raw, false);
+  });
+
+  it("prepares ready operator-owned VRCDN output setup from references and accepted gates", () => {
+    const output = sanitizeVrcdnOperatorOwnedOutputSetup({
+      key: " Main_VRCDN ",
+      label: " Main VRCDN ",
+      credentialRef: "event-media/vrcdn/main-output",
+      ingestRegion: "north_america",
+      playbackLinks: [
+        { platform: "browser", url: "https://vrcdn.live/basicbit" },
+        { platform: "pc", url: "https://stream.vrcdn.live/live/basicbit.live.ts" },
+        { platform: "standalone", url: "rtspt://stream.vrcdn.live/live/basicbit" },
+      ],
+      targetVideoBitrateKbps: 3500,
+      keyframeIntervalSeconds: 1,
+      audioSampleRateHz: 48000,
+      targetAudioBitrateKbps: 320,
+      sourceConsentAccepted: true,
+      destinationAuthorityAccepted: true,
+      providerRulesAccepted: true,
+      rightsClearedMediaAccepted: true,
+    });
+
+    assert.equal(output.key, "main_vrcdn");
+    assert.equal(output.state, "ready");
+    assert.deepEqual(output.credential, {
+      storage: "operator_secret_store",
+      secretRef: "event-media/vrcdn/main-output",
+    });
+    assert.deepEqual(output.vrcdnSetup, {
+      ingestRegion: "north_america",
+      targetVideoBitrateKbps: 3500,
+      keyframeIntervalSeconds: 1,
+      audioSampleRateHz: 48000,
+      targetAudioBitrateKbps: 320,
+    });
+    assert.deepEqual(output.compliance, {
+      sourceConsent: "accepted",
+      destinationAuthority: "accepted",
+      providerRules: "accepted",
+      rightsClearedMedia: "accepted",
+    });
+    assert.deepEqual(output.playbackLinks, [
+      { platform: "browser", label: "Browser watch link", url: "https://vrcdn.live/basicbit" },
+      { platform: "pc", label: "PC stream link", url: "rtspt://stream.vrcdn.live/live/basicbit" },
+      { platform: "standalone", label: "Standalone stream link", url: "https://stream.vrcdn.live/live/basicbit.live.ts" },
+    ]);
+  });
+
+  it("keeps operator-owned VRCDN outputs in draft until references and gates are complete", () => {
+    const output = sanitizeVrcdnOperatorOwnedOutputSetup({
+      key: "main-vrcdn",
+      label: "Main VRCDN",
+      destinationAuthorityAccepted: false,
+      sourceConsentAccepted: true,
+    });
+
+    assert.equal(output.state, "draft");
+    assert.equal(output.credential, undefined);
+    assert.deepEqual(output.compliance, {
+      sourceConsent: "accepted",
+      destinationAuthority: "blocked",
+      providerRules: "pending",
+      rightsClearedMedia: "pending",
+    });
+  });
+
+  it("rejects secret values and URLs in operator-owned VRCDN output setup", () => {
+    assert.throws(
+      () =>
+        sanitizeVrcdnOperatorOwnedOutputSetup({
+          key: "main-vrcdn",
+          label: "Main VRCDN",
+          credentialRef: "rtmp://example.invalid/live/value",
+        }),
+      /Credential secret reference must be a scoped reference name, not a secret value or URL\./,
+    );
+
+    assert.throws(
+      () =>
+        sanitizeVrcdnOperatorOwnedOutputSetup({
+          key: "main-vrcdn",
+          label: "Main VRCDN",
+          streamKey: "not-persisted",
+        } as Parameters<typeof sanitizeVrcdnOperatorOwnedOutputSetup>[0] & { streamKey: string }),
+      /streamKey must not be stored in event media output setup records\./,
+    );
   });
 });

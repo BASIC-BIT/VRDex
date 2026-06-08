@@ -146,6 +146,36 @@ Public projection must stay narrow: public surfaces can show safe status, curren
 
 The first account model is `operator_owned`. Output credentials are represented only by scoped secret references in the control plane; secret values belong in encrypted provider secret storage, not in event records, docs, logs, or audit summaries.
 
+### Operator-Owned VRCDN Outputs
+
+Current recommendation: VRCDN output setup starts with operator-owned accounts only. VRDex stores setup metadata and a scoped secret reference, while the actual stream key or credential value stays in encrypted operator secret storage.
+
+`eventMediaOutputs` can carry public-safe setup fields for a VRCDN target:
+
+- `credential.storage`, currently `operator_secret_store`
+- `credential.secretRef`, a scoped reference name only
+- `vrcdnSetup.ingestRegion` for the operator-selected VRCDN ingest region
+- `vrcdnSetup.targetVideoBitrateKbps`
+- `vrcdnSetup.keyframeIntervalSeconds`
+- `vrcdnSetup.audioSampleRateHz`
+- `vrcdnSetup.targetAudioBitrateKbps`
+- `compliance.sourceConsent`
+- `compliance.destinationAuthority`
+- `compliance.providerRules`
+- `compliance.rightsClearedMedia`
+
+The setup helper treats the output as `ready` only when a credential reference exists and all required compliance gates are accepted. Missing gates remain `pending`; explicitly rejected gates are `blocked`. A blocked or incomplete output stays a draft and should not be used by a worker.
+
+Secret references must not be URLs, ingest URLs, passwords, tokens, stream keys, or provider credential values. Those values must stay in the configured secret store and be read only by the runtime that needs to push the stream.
+
+Open provider/legal gates remain outside the schema:
+
+- provider terms and automation approval for the chosen destination
+- source-owner consent for each live input VRDex processes
+- destination account authority for the operator-owned output
+- rights clearance for hold slates, music, visuals, logos, intro/outro media, VJ layers, and camera feeds
+- takedown, abuse-response, and broadcaster-of-record review before any hosted managed output model ships
+
 ## Event-World Links
 
 World linkage uses explicit `eventWorlds` records rather than storing world context only as event text.

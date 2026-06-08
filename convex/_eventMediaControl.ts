@@ -7,6 +7,8 @@ import { parseVrcdnStreamLinks } from "./_vrcdnLinks";
 const CONTROL_KEY_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const CONTROL_NOTE_MAX_LENGTH = 500;
 const LINK_LABEL_MAX_LENGTH = 80;
+const SECRET_REF_PATTERN = /^[a-z0-9][a-z0-9/_.:-]{2,191}$/;
+const FORBIDDEN_SECRET_INPUT_FIELDS = new Set(["ingestUrl", "password", "secret", "secretValue", "streamKey", "token"]);
 
 export type EventMediaProgramState =
   | "draft"
@@ -53,6 +55,12 @@ export type EventMediaOutputAccountModel = "operator_owned";
 
 export type EventMediaOutputState = "draft" | "ready" | "active" | "disabled" | "failed";
 
+export type EventMediaSecretStorage = "operator_secret_store";
+
+export type EventMediaVrcdnRegion = "europe" | "north_america" | "south_america" | "asia" | "oceania";
+
+export type EventMediaComplianceGateState = "pending" | "accepted" | "blocked";
+
 export type EventMediaCommandType =
   | "start_program"
   | "stop_program"
@@ -91,6 +99,54 @@ export type EventMediaPublicLink = {
   platform: EventMediaPlaybackPlatform;
   label: string;
   url: string;
+};
+
+export type EventMediaOutputCredentialRef = {
+  storage: EventMediaSecretStorage;
+  secretRef: string;
+};
+
+export type EventMediaVrcdnSetup = {
+  ingestRegion?: EventMediaVrcdnRegion;
+  targetVideoBitrateKbps?: number;
+  keyframeIntervalSeconds?: 1 | 2;
+  audioSampleRateHz?: 48000;
+  targetAudioBitrateKbps?: number;
+};
+
+export type EventMediaOutputCompliance = {
+  sourceConsent: EventMediaComplianceGateState;
+  destinationAuthority: EventMediaComplianceGateState;
+  providerRules: EventMediaComplianceGateState;
+  rightsClearedMedia: EventMediaComplianceGateState;
+};
+
+export type VrcdnOperatorOwnedOutputSetupInput = {
+  key: string;
+  label: string;
+  credentialRef?: string;
+  ingestRegion?: EventMediaVrcdnRegion;
+  playbackLinks?: EventMediaPublicLinkInput[];
+  targetVideoBitrateKbps?: number;
+  keyframeIntervalSeconds?: 1 | 2;
+  audioSampleRateHz?: 48000;
+  targetAudioBitrateKbps?: number;
+  sourceConsentAccepted?: boolean;
+  destinationAuthorityAccepted?: boolean;
+  providerRulesAccepted?: boolean;
+  rightsClearedMediaAccepted?: boolean;
+};
+
+export type SanitizedVrcdnOperatorOwnedOutputSetup = {
+  key: string;
+  type: "vrcdn";
+  accountModel: "operator_owned";
+  state: "draft" | "ready";
+  label: string;
+  credential?: EventMediaOutputCredentialRef;
+  vrcdnSetup: EventMediaVrcdnSetup;
+  compliance: EventMediaOutputCompliance;
+  playbackLinks: EventMediaPublicLink[];
 };
 
 export type EventMediaCommandInput = {
@@ -204,6 +260,22 @@ export const eventMediaOutputStateValidator = v.union(
   v.literal("failed"),
 );
 
+export const eventMediaSecretStorageValidator = v.literal("operator_secret_store");
+
+export const eventMediaVrcdnRegionValidator = v.union(
+  v.literal("europe"),
+  v.literal("north_america"),
+  v.literal("south_america"),
+  v.literal("asia"),
+  v.literal("oceania"),
+);
+
+export const eventMediaComplianceGateStateValidator = v.union(
+  v.literal("pending"),
+  v.literal("accepted"),
+  v.literal("blocked"),
+);
+
 export const eventMediaCommandTypeValidator = v.union(
   v.literal("start_program"),
   v.literal("stop_program"),
@@ -289,6 +361,53 @@ function sanitizeControlKey(input: string | undefined, fieldName: string): strin
   return key;
 }
 
+function sanitizeSecretRef(input: string | undefined): string | undefined {
+  const value = optionalBoundedText(input, "Credential secret reference", 192);
+
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!SECRET_REF_PATTERN.test(value) || value.includes("://")) {
+    throw new Error("Credential secret reference must be a scoped reference name, not a secret value or URL.");
+  }
+
+  return value;
+}
+
+function optionalIntegerInRange(
+  input: number | undefined,
+  fieldName: string,
+  min: number,
+  max: number,
+): number | undefined {
+  if (input === undefined) {
+    return undefined;
+  }
+
+  if (!Number.isInteger(input) || input < min || input > max) {
+    throw new Error(`${fieldName} must be an integer between ${min} and ${max}.`);
+  }
+
+  return input;
+}
+
+function complianceGateState(accepted: boolean | undefined): EventMediaComplianceGateState {
+  if (accepted === true) {
+    return "accepted";
+  }
+
+  return accepted === false ? "blocked" : "pending";
+}
+
+function assertNoSecretValueFields(input: Record<string, unknown>) {
+  for (const field of Object.keys(input)) {
+    if (FORBIDDEN_SECRET_INPUT_FIELDS.has(field)) {
+      throw new Error(`${field} must not be stored in event media output setup records.`);
+    }
+  }
+}
+
 function fallbackLabel(platform: EventMediaPlaybackPlatform): string {
   switch (platform) {
     case "browser":
@@ -364,6 +483,61 @@ export function sanitizeEventMediaCommandInput(input: EventMediaCommandInput): S
     publicFallbackLinks,
     ...(note === undefined ? {} : { note }),
   };
+}
+
+export function sanitizeVrcdnOperatorOwnedOutputSetup(
+  input: VrcdnOperatorOwnedOutputSetupInput,
+): SanitizedVrcdnOperatorOwnedOutputSetup {
+  assertNoSecretValueFields(input as Record<string, unknown>);
+
+  const key = sanitizeControlKey(input.key, "Output key");
+  const label = optionalBoundedText(input.label, "Output label", LINK_LABEL_MAX_LENGTH);
+  const secretRef = sanitizeSecretRef(input.credentialRef);
+  const playbackLinks = sanitizeEventMediaPublicLinks(input.playbackLinks);
+  const vrcdnSetup: EventMediaVrcdnSetup = {
+    ...(input.ingestRegion === undefined ? {} : { ingestRegion: input.ingestRegion }),
+    ...optionalNumberField(
+      "targetVideoBitrateKbps",
+      optionalIntegerInRange(input.targetVideoBitrateKbps, "Target video bitrate", 500, 6000),
+    ),
+    ...(input.keyframeIntervalSeconds === undefined ? {} : { keyframeIntervalSeconds: input.keyframeIntervalSeconds }),
+    ...(input.audioSampleRateHz === undefined ? {} : { audioSampleRateHz: input.audioSampleRateHz }),
+    ...optionalNumberField(
+      "targetAudioBitrateKbps",
+      optionalIntegerInRange(input.targetAudioBitrateKbps, "Target audio bitrate", 64, 320),
+    ),
+  };
+  const compliance: EventMediaOutputCompliance = {
+    sourceConsent: complianceGateState(input.sourceConsentAccepted),
+    destinationAuthority: complianceGateState(input.destinationAuthorityAccepted),
+    providerRules: complianceGateState(input.providerRulesAccepted),
+    rightsClearedMedia: complianceGateState(input.rightsClearedMediaAccepted),
+  };
+  const hasAcceptedCompliance = Object.values(compliance).every((state) => state === "accepted");
+
+  if (key === undefined) {
+    throw new Error("Output key is required.");
+  }
+
+  if (label === undefined) {
+    throw new Error("Output label is required.");
+  }
+
+  return {
+    key,
+    type: "vrcdn",
+    accountModel: "operator_owned",
+    state: secretRef !== undefined && hasAcceptedCompliance ? "ready" : "draft",
+    label,
+    ...(secretRef === undefined ? {} : { credential: { storage: "operator_secret_store", secretRef } }),
+    vrcdnSetup,
+    compliance,
+    playbackLinks,
+  };
+}
+
+function optionalNumberField<Key extends string>(key: Key, value: number | undefined): { [K in Key]?: number } {
+  return value === undefined ? {} : ({ [key]: value } as { [K in Key]: number });
 }
 
 export function toPublicEventMediaProgramState(
