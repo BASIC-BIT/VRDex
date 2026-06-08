@@ -22,6 +22,7 @@ locals {
 resource "aws_ecr_repository" "worker" {
   name                 = var.name_prefix
   image_tag_mutability = "IMMUTABLE"
+  tags                 = local.tags
 
   image_scanning_configuration {
     scan_on_push = true
@@ -56,10 +57,12 @@ resource "aws_ecr_lifecycle_policy" "worker" {
 resource "aws_cloudwatch_log_group" "worker" {
   name              = "/aws/ecs/${var.name_prefix}"
   retention_in_days = var.log_retention_days
+  tags              = local.tags
 }
 
 resource "aws_ecs_cluster" "worker" {
   name = var.name_prefix
+  tags = local.tags
 
   setting {
     name  = "containerInsights"
@@ -71,6 +74,7 @@ resource "aws_ssm_parameter" "hosted_worker_enabled" {
   name  = "/vrdex/restream/hosted-worker/enabled"
   type  = "String"
   value = var.kill_switch_enabled_default ? "true" : "false"
+  tags  = local.tags
 }
 
 data "aws_iam_policy_document" "ecs_tasks_assume_role" {
@@ -87,6 +91,7 @@ data "aws_iam_policy_document" "ecs_tasks_assume_role" {
 resource "aws_iam_role" "execution" {
   name               = "${var.name_prefix}-execution"
   assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume_role.json
+  tags               = local.tags
 }
 
 resource "aws_iam_role_policy_attachment" "execution_managed" {
@@ -118,6 +123,7 @@ resource "aws_iam_role_policy" "execution_secrets" {
 resource "aws_iam_role" "task" {
   name               = "${var.name_prefix}-task"
   assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume_role.json
+  tags               = local.tags
 }
 
 data "aws_iam_policy_document" "task" {
@@ -158,6 +164,7 @@ resource "aws_ecs_task_definition" "worker" {
   memory                   = tostring(var.task_memory)
   execution_role_arn       = aws_iam_role.execution.arn
   task_role_arn            = aws_iam_role.task.arn
+  tags                     = local.tags
 
   runtime_platform {
     operating_system_family = "LINUX"

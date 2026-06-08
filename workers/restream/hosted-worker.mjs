@@ -14,7 +14,11 @@ function requiredEnv(name) {
 function requiredIntegerEnv(name) {
   const value = requiredEnv(name);
 
-  const parsed = Number.parseInt(value, 10);
+  if (!/^[0-9]+$/.test(value)) {
+    throw new Error(`${name} must be a positive integer.`);
+  }
+
+  const parsed = Number(value);
 
   if (!Number.isSafeInteger(parsed) || parsed <= 0) {
     throw new Error(`${name} must be a positive integer.`);
