@@ -34,6 +34,17 @@ variable "synthetic_benchmark_only" {
   default     = true
 }
 
+variable "synthetic_variant" {
+  description = "Synthetic media benchmark variant to run in worker tasks."
+  type        = string
+  default     = "static-transition"
+
+  validation {
+    condition     = contains(["static-transition", "live-control"], var.synthetic_variant)
+    error_message = "synthetic_variant must be static-transition or live-control."
+  }
+}
+
 variable "transition_fade_ms" {
   description = "Synthetic benchmark audio/video fade duration in milliseconds."
   type        = number

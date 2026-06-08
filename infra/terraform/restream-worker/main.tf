@@ -305,6 +305,10 @@ resource "aws_ecs_task_definition" "worker" {
           value = tostring(var.synthetic_benchmark_only)
         },
         {
+          name  = "VRDEX_RESTREAM_SYNTHETIC_VARIANT"
+          value = var.synthetic_variant
+        },
+        {
           name  = "VRDEX_RESTREAM_TRANSITION_FADE_MS"
           value = tostring(var.transition_fade_ms)
         },

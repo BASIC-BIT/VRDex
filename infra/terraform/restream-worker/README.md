@@ -44,6 +44,7 @@ The first Fargate shape is intentionally conservative for CPU-only `1080p60` evi
 - max session duration: `43200` seconds
 - quality gate: `1080p60`
 - synthetic-only media generation: `true`
+- synthetic variant: `static-transition` by default, override to `live-control` for runtime command proof tasks
 - artifact retention: `7` days
 
 ECS on EC2 with GPU/NVENC remains a measured fallback if Fargate misses real-time encode, transition quality, bitrate stability, or cost headroom.

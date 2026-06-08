@@ -36,6 +36,7 @@ The task definition injects these non-secret values, and the current entrypoint 
 - `VRDEX_RESTREAM_MAX_SESSION_SECONDS=43200`
 - `VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER=/vrdex/restream/hosted-worker/enabled`
 - `VRDEX_RESTREAM_SECRET_REF_NAMES`
+- `VRDEX_RESTREAM_SYNTHETIC_VARIANT=static-transition`
 - `VRDEX_RESTREAM_TRANSITION_FADE_MS=500`
 - `VRDEX_RESTREAM_HOLD_SLATE_AUDIO_DELAY_MS=750`
 - `CONVEX_URL`
@@ -44,7 +45,7 @@ Secret values are not environment variables in git or Terraform. The `secret_arn
 
 ## Visible Benchmark Output
 
-The worker benchmark entrypoint generates a synthetic 12-second `1080p60` program with source, hold-slate, and source-switch transitions. The hold slate is generated once as static artwork, then looped through the timed fade section to keep the benchmark focused on the live encode path. A successful run writes:
+The worker benchmark entrypoint generates a synthetic 12-second `1080p60` program with source, hold-slate, and source-switch transitions. The default `static-transition` variant generates the hold slate once as static artwork, then loops it through the timed fade section to keep the benchmark focused on the live encode path. The `live-control` variant starts FFmpeg once and drives the same source/hold/source sequence through runtime filter commands. A successful run writes:
 
 - `program.mp4`, embedded in `report.html` for browser playback
 - `hls/program.m3u8` and HLS `.ts` segments
@@ -56,6 +57,12 @@ Local proof command from the repository root:
 
 ```powershell
 pnpm proof:restream:worker
+```
+
+Local worker live-control proof command from the repository root:
+
+```powershell
+pnpm proof:restream:worker:live-control
 ```
 
 Approved ECS benchmark tasks upload the same artifact tree under the private `artifact_s3_uri` Terraform output. Keep the bucket private and use authenticated S3 reads or short-lived presigned URLs for review.
@@ -140,6 +147,7 @@ terraform fmt -check -recursive infra/terraform
 pnpm lint:markdown
 docker build -f workers/restream/Dockerfile -t vrdex-restream-worker:local .
 pnpm proof:restream:worker
+pnpm proof:restream:worker:live-control
 ```
 
 No AWS CLI mutation, Terraform apply, image publish, or ECS task run is part of this validation.

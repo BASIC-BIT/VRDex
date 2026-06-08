@@ -1,8 +1,11 @@
 import { spawn } from "node:child_process";
 
+const syntheticVariant = process.argv[2] ?? "static-transition";
+
 const defaultEnv = {
   CONVEX_URL: "https://example.invalid",
-  VRDEX_RESTREAM_ARTIFACT_ROOT: "artifacts/restream-worker-benchmark",
+  VRDEX_RESTREAM_ARTIFACT_ROOT:
+    syntheticVariant === "live-control" ? "artifacts/restream-worker-live-control-benchmark" : "artifacts/restream-worker-benchmark",
   VRDEX_RESTREAM_BENCHMARK_MODE: "dry-run",
   VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER: "/vrdex/restream/hosted-worker/enabled",
   VRDEX_RESTREAM_MAX_CONCURRENT_WORKERS: "1",
@@ -10,6 +13,7 @@ const defaultEnv = {
   VRDEX_RESTREAM_QUALITY_GATE: "1080p60",
   VRDEX_RESTREAM_SECRET_REF_NAMES: "event-media/vrcdn/local-validation",
   VRDEX_RESTREAM_SYNTHETIC_ONLY: "true",
+  VRDEX_RESTREAM_SYNTHETIC_VARIANT: syntheticVariant,
   VRDEX_RESTREAM_HOLD_SLATE_AUDIO_DELAY_MS: "750",
   VRDEX_RESTREAM_TRANSITION_FADE_MS: "500",
 };

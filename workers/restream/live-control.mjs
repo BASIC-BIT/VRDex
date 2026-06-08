@@ -55,7 +55,8 @@ export class ZmqCommandClient {
     this.nextId = 1;
     this.pending = new Map();
     this.stderr = "";
-    this.child = (options.spawnProcess ?? spawn)("python", ["-c", pythonZmqSenderCode(), String(port)], {
+    const pythonCommand = options.pythonCommand ?? process.env.VRDEX_RESTREAM_ZMQ_PYTHON_COMMAND ?? "python";
+    this.child = (options.spawnProcess ?? spawn)(pythonCommand, ["-c", pythonZmqSenderCode(), String(port)], {
       stdio: ["pipe", "pipe", "pipe"],
     });
     const lines = createInterface({ input: this.child.stdout });

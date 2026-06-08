@@ -2,14 +2,27 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
+import {
+  DEFAULT_LIVE_CONTROL_PRESET,
+  FFmpegProcess,
+  ProgramController,
+  ZmqCommandClient,
+  buildSyntheticLiveControlFfmpegArgs,
+} from "./live-control.mjs";
 
 const REQUIRED_GATE = "1080p60";
 const ALLOWED_BENCHMARK_MODES = new Set(["dry-run", "ecs-fargate"]);
+const ALLOWED_SYNTHETIC_VARIANTS = new Set(["static-transition", "live-control"]);
 const DEFAULT_ARTIFACT_ROOT = process.env.AWS_EXECUTION_ENV
   ? "/tmp/vrdex-restream-worker-benchmark"
   : "artifacts/restream-worker-benchmark";
+const DEFAULT_SYNTHETIC_VARIANT = "static-transition";
 const DEFAULT_TRANSITION_FADE_MS = 500;
 const DEFAULT_HOLD_SLATE_AUDIO_DELAY_MS = 750;
+const WIDTH = 1920;
+const HEIGHT = 1080;
+const FRAME_RATE = 60;
+const DURATION_SECONDS = 12;
 const timeline = [
   { atSeconds: 0, command: "start_program", scene: "source-a", audio: "source-a-tone-440hz" },
   { atSeconds: 4, command: "switch_hold", scene: "hold-slate", audio: "hold-tone-220hz" },
@@ -235,7 +248,89 @@ async function writeHoldSlateImage(imagePath) {
   ]);
 }
 
-async function writeSyntheticProgram(outputDir, config) {
+const liveControlScenes = {
+  "source-a": {
+    color: "0x2563eb",
+    title: "Source A",
+    subtitle: "Runtime controlled input",
+  },
+  "hold-slate": {
+    color: "0x020617",
+    title: "VRDex Hold Slate",
+    subtitle: "Slate audio starts after the live delay",
+  },
+  "source-b": {
+    color: "0xf97316",
+    title: "Source B",
+    subtitle: "Runtime controlled input",
+  },
+};
+
+async function writeLiveControlSceneImage(outputPath, scene) {
+  await run("ffmpeg", [
+    "-hide_banner",
+    "-y",
+    "-f",
+    "lavfi",
+    "-i",
+    `color=c=${scene.color}:size=${WIDTH}x${HEIGHT}:rate=1`,
+    "-vf",
+    [
+      "format=rgba",
+      "drawbox=x=170:y=140:w=1580:h=800:color=0x0f172a@0.38:t=fill",
+      "drawbox=x=250:y=230:w=1420:h=620:color=0xffffff@0.14:t=6",
+      "drawbox=x=450:y=350:w=820:h=260:color=0x020617@0.30:t=fill",
+      `drawtext=text='${scene.title}':fontcolor=white:fontsize=104:x=(w-text_w)/2:y=700`,
+      `drawtext=text='${scene.subtitle}':fontcolor=0xe5e7eb:fontsize=42:x=(w-text_w)/2:y=820`,
+      "format=rgb24",
+    ].join(","),
+    "-frames:v",
+    "1",
+    "-update",
+    "1",
+    outputPath,
+  ]);
+}
+
+async function writeLiveControlSceneImages(framesDir) {
+  const paths = {};
+
+  for (const [key, scene] of Object.entries(liveControlScenes)) {
+    const outputPath = join(framesDir, `${key}-input.png`);
+    await writeLiveControlSceneImage(outputPath, scene);
+    paths[key] = outputPath;
+  }
+
+  return paths;
+}
+
+async function remuxWatchPreview(playlistPath, watchPreviewPath) {
+  await run("ffmpeg", ["-hide_banner", "-y", "-i", playlistPath, "-c", "copy", "-movflags", "+faststart", watchPreviewPath]);
+}
+
+async function extractEvidenceFrames(playlistPath, framesDir) {
+  for (const [label, seconds] of [
+    ["source-a", 2],
+    ["hold-slate", 6],
+    ["source-b", 10],
+  ]) {
+    await run("ffmpeg", [
+      "-hide_banner",
+      "-y",
+      "-ss",
+      String(seconds),
+      "-i",
+      playlistPath,
+      "-frames:v",
+      "1",
+      "-update",
+      "1",
+      join(framesDir, `${label}.jpg`),
+    ]);
+  }
+}
+
+async function writeStaticSyntheticProgram(outputDir, config) {
   const hlsDir = join(outputDir, "hls");
   const framesDir = join(outputDir, "frames");
   mkdirSync(hlsDir, { recursive: true });
@@ -258,7 +353,7 @@ async function writeSyntheticProgram(outputDir, config) {
     "-f",
     "lavfi",
     "-i",
-    "testsrc2=size=1920x1080:rate=60:duration=4",
+    `testsrc2=size=${WIDTH}x${HEIGHT}:rate=${FRAME_RATE}:duration=4`,
     "-f",
     "lavfi",
     "-i",
@@ -266,7 +361,7 @@ async function writeSyntheticProgram(outputDir, config) {
     "-loop",
     "1",
     "-framerate",
-    "60",
+    String(FRAME_RATE),
     "-t",
     "4",
     "-i",
@@ -278,7 +373,7 @@ async function writeSyntheticProgram(outputDir, config) {
     "-f",
     "lavfi",
     "-i",
-    "smptebars=size=1920x1080:rate=60:duration=4",
+    `smptebars=size=${WIDTH}x${HEIGHT}:rate=${FRAME_RATE}:duration=4`,
     "-f",
     "lavfi",
     "-i",
@@ -310,11 +405,11 @@ async function writeSyntheticProgram(outputDir, config) {
     "-pix_fmt",
     "yuv420p",
     "-r",
-    "60",
+    String(FRAME_RATE),
     "-g",
-    "60",
+    String(FRAME_RATE),
     "-keyint_min",
-    "60",
+    String(FRAME_RATE),
     "-sc_threshold",
     "0",
     "-b:v",
@@ -347,39 +442,68 @@ async function writeSyntheticProgram(outputDir, config) {
   const encodeElapsedSeconds = (performance.now() - started) / 1000;
   const watchPreviewPath = join(outputDir, "program.mp4");
 
-  await run("ffmpeg", [
-    "-hide_banner",
-    "-y",
-    "-i",
-    playlistPath,
-    "-c",
-    "copy",
-    "-movflags",
-    "+faststart",
-    watchPreviewPath,
-  ]);
+  await remuxWatchPreview(playlistPath, watchPreviewPath);
+  await extractEvidenceFrames(playlistPath, framesDir);
 
-  for (const [label, seconds] of [
-    ["source-a", 2],
-    ["hold-slate", 6],
-    ["source-b", 10],
-  ]) {
-    await run("ffmpeg", [
-      "-hide_banner",
-      "-y",
-      "-ss",
-      String(seconds),
-      "-i",
-      playlistPath,
-      "-frames:v",
-      "1",
-      "-update",
-      "1",
-      join(framesDir, `${label}.jpg`),
-    ]);
+  return { encodeElapsedSeconds, watchPreviewPath, controlMode: "static-transition", commandLog: [] };
+}
+
+async function writeLiveControlSyntheticProgram(outputDir, config) {
+  const hlsDir = join(outputDir, "hls");
+  const framesDir = join(outputDir, "frames");
+  mkdirSync(hlsDir, { recursive: true });
+  mkdirSync(framesDir, { recursive: true });
+  writeFileSync(join(outputDir, "command-timeline.json"), `${JSON.stringify(timeline, null, 2)}\n`);
+
+  const scenePaths = await writeLiveControlSceneImages(framesDir);
+  const playlistPath = join(hlsDir, "program.m3u8");
+  const watchPreviewPath = join(outputDir, "program.mp4");
+  const commandLog = [];
+  const ffmpegArgs = buildSyntheticLiveControlFfmpegArgs({
+    scenePaths,
+    hlsDir,
+    playlistPath,
+    width: WIDTH,
+    height: HEIGHT,
+    frameRate: FRAME_RATE,
+    durationSeconds: DURATION_SECONDS,
+  });
+  const started = performance.now();
+  const ffmpeg = new FFmpegProcess(ffmpegArgs);
+  const client = new ZmqCommandClient(DEFAULT_LIVE_CONTROL_PRESET.controlPort, {
+    pythonCommand: config.zmqPythonCommand,
+  });
+  const controller = new ProgramController(client, {
+    commandLog,
+    preset: {
+      fadeMs: config.transitionFadeMs,
+      holdAudioDelayMs: config.holdSlateAudioDelayMs,
+    },
+  });
+
+  try {
+    await Promise.all([controller.runProofTimeline(), ffmpeg.wait()]);
+  } catch (error) {
+    ffmpeg.stop();
+    throw error;
+  } finally {
+    client.close();
   }
 
-  return { encodeElapsedSeconds, watchPreviewPath };
+  const encodeElapsedSeconds = (performance.now() - started) / 1000;
+  await remuxWatchPreview(playlistPath, watchPreviewPath);
+  await extractEvidenceFrames(playlistPath, framesDir);
+  writeFileSync(join(outputDir, "controller-events.json"), `${JSON.stringify(commandLog, null, 2)}\n`);
+
+  return { encodeElapsedSeconds, watchPreviewPath, controlMode: DEFAULT_LIVE_CONTROL_PRESET.controlMode, commandLog };
+}
+
+async function writeSyntheticProgram(outputDir, config) {
+  if (config.syntheticVariant === "live-control") {
+    return writeLiveControlSyntheticProgram(outputDir, config);
+  }
+
+  return writeStaticSyntheticProgram(outputDir, config);
 }
 
 async function uploadArtifacts(outputDir, s3Uri) {
@@ -405,6 +529,13 @@ function writeHtmlReport(outputDir, report) {
     .join("\n");
   const checks = Object.entries(report.acceptance)
     .map(([name, passed]) => `<li><strong>${name}</strong>: ${passed ? "pass" : "fail"}</li>`)
+    .join("\n");
+  const runtimeCommands = report.commandLog
+    .slice(0, 80)
+    .map(
+      (event) =>
+        `<div><strong>${event.elapsedSeconds}s</strong> ${event.kind}${event.command ? ` ${event.command}` : ""}${event.value === undefined ? "" : ` ${event.value}`}</div>`,
+    )
     .join("\n");
 
   writeFileSync(
@@ -441,9 +572,12 @@ function writeHtmlReport(outputDir, report) {
     <video controls preload="metadata" poster="frames/source-a.jpg" src="program.mp4"></video>
     <div class="grid">
       <div class="card"><div class="label">Mode</div><div class="value">${report.benchmarkMode}</div></div>
+      <div class="card"><div class="label">Variant</div><div class="value">${report.syntheticVariant}</div></div>
+      <div class="card"><div class="label">Control Mode</div><div class="value">${report.controlMode}</div></div>
       <div class="card"><div class="label">Output</div><div class="value">${report.video.codec} ${report.video.width}x${report.video.height} @ ${report.video.frameRate}</div></div>
       <div class="card"><div class="label">Audio</div><div class="value">${report.audio.codec} ${report.audio.sampleRateHz}Hz ${report.audio.channels}ch</div></div>
       <div class="card"><div class="label">Realtime Factor</div><div class="value">${report.realtimeFactor.toFixed(2)}x</div></div>
+      <div class="card"><div class="label">Runtime Commands</div><div class="value">${report.commandLog.length}</div></div>
       <div class="card"><div class="label">Fade</div><div class="value">${report.transitionFadeMs}ms</div></div>
       <div class="card"><div class="label">Slate Audio Delay</div><div class="value">${report.holdSlateAudioDelayMs}ms</div></div>
     </div>
@@ -451,6 +585,7 @@ function writeHtmlReport(outputDir, report) {
     <div class="timeline">${report.commandTimeline
       .map((event) => `<div><strong>${event.atSeconds}s</strong> ${event.command}${event.scene ? ` (${event.scene})` : ""}${event.command === "switch_hold" ? ` - slate audio delayed ${report.holdSlateAudioDelayMs}ms` : ""}</div>`)
       .join("\n")}</div>
+    ${runtimeCommands === "" ? "" : `<h2>Runtime Commands</h2><div class="timeline">${runtimeCommands}</div>`}
     <p>Playlist: <a href="hls/program.m3u8"><code>hls/program.m3u8</code></a></p>
     <p>Watch preview: <a href="program.mp4"><code>program.mp4</code></a></p>
     <h2>Acceptance</h2>
@@ -470,7 +605,7 @@ async function runBenchmark(config) {
 
   const outputDir = resolve(config.artifactRoot, timestamp());
   mkdirSync(outputDir, { recursive: true });
-  const { encodeElapsedSeconds, watchPreviewPath } = await writeSyntheticProgram(outputDir, config);
+  const { encodeElapsedSeconds, watchPreviewPath, controlMode, commandLog } = await writeSyntheticProgram(outputDir, config);
   const playlistSummary = checkPlaylist(outputDir);
   const checkedWatchPreviewPath = checkWatchPreview(outputDir);
   const metadata = await probePlaylist(playlistSummary.playlistPath);
@@ -480,6 +615,7 @@ async function runBenchmark(config) {
   const previewVideo = watchPreviewMetadata.streams.find((stream) => stream.codec_type === "video");
   const previewAudio = watchPreviewMetadata.streams.find((stream) => stream.codec_type === "audio");
   const frames = readdirSync(join(outputDir, "frames")).filter((entry) => entry.endsWith(".jpg")).sort();
+  const frameInputs = readdirSync(join(outputDir, "frames")).filter((entry) => entry.endsWith("-input.png")).sort();
 
   assert(video, "Output has no video stream.");
   assert(audio, "Output has no audio stream.");
@@ -500,6 +636,7 @@ async function runBenchmark(config) {
     generatedAt: new Date().toISOString(),
     artifact: outputDir,
     benchmarkMode: config.benchmarkMode,
+    syntheticVariant: config.syntheticVariant,
     qualityGate: REQUIRED_GATE,
     syntheticOnly: config.syntheticOnly,
     secretReferenceCount: config.secretRefNames.length,
@@ -515,6 +652,8 @@ async function runBenchmark(config) {
     durationSeconds: playlistSummary.totalDuration,
     encodeElapsedSeconds,
     realtimeFactor,
+    controlMode,
+    commandLog,
     video: {
       codec: video.codec_name,
       width: video.width,
@@ -528,24 +667,31 @@ async function runBenchmark(config) {
     },
     frames,
     acceptance: {
-      realtimeEncode: realtimeFactor >= 1,
+      ...(config.syntheticVariant === "static-transition"
+        ? { staticRealtimeThroughput: realtimeFactor >= 1 }
+        : {
+            liveControlRuntimeCompleted: commandLog.length > 0,
+            runtimeVideoFadeCommandsSent: commandLog.some((event) => event.kind.startsWith("video-alpha-fade")),
+            runtimeAudioFadeCommandsSent: commandLog.some((event) => event.kind.startsWith("audio-fade")),
+          }),
       expectedVideoShape: video.codec_name === "h264" && video.width === 1920 && video.height === 1080,
       expectedAudioShape: audio.codec_name === "aac" && Number(audio.sample_rate) === 48000 && Number(audio.channels) === 2,
       transitionFramesPresent: frames.length >= 3,
       independentSegments: true,
       watchPreviewPresent: true,
-      holdSlateArtworkPresent: true,
+      holdSlateArtworkPresent: frameInputs.some((entry) => entry === "hold-slate-input.png"),
       transitionFadesConfigured: config.transitionFadeMs > 0,
       holdSlateAudioDelayConfigured: config.holdSlateAudioDelayMs > 0,
     },
   };
 
-  assert(report.acceptance.realtimeEncode, `Expected realtime encode factor >= 1, found ${realtimeFactor.toFixed(2)}.`);
   writeFileSync(join(outputDir, "benchmark-report.json"), `${JSON.stringify(report, null, 2)}\n`);
   writeHtmlReport(outputDir, report);
 
   const artifactS3Uri = optionalEnv("VRDEX_RESTREAM_ARTIFACT_S3_URI");
   const uploadedTo = artifactS3Uri === undefined ? undefined : await uploadArtifacts(outputDir, artifactS3Uri);
+
+  assert(Object.values(report.acceptance).every(Boolean), `Benchmark acceptance failed: ${JSON.stringify(report.acceptance)}.`);
 
   console.log(
     JSON.stringify({
@@ -553,9 +699,11 @@ async function runBenchmark(config) {
       artifact: outputDir,
       ...(uploadedTo === undefined ? {} : { uploadedTo }),
       benchmarkMode: config.benchmarkMode,
+      syntheticVariant: report.syntheticVariant,
       qualityGate: REQUIRED_GATE,
       durationSeconds: report.durationSeconds,
       realtimeFactor: Number(report.realtimeFactor.toFixed(3)),
+      commandCount: report.commandLog.length,
       watchPreview: "program.mp4",
       transitionFadeMs: report.transitionFadeMs,
       holdSlateAudioDelayMs: report.holdSlateAudioDelayMs,
@@ -577,10 +725,17 @@ function loadConfig() {
     throw new Error("VRDEX_RESTREAM_BENCHMARK_MODE must be dry-run or ecs-fargate.");
   }
 
+  const syntheticVariant = optionalEnv("VRDEX_RESTREAM_SYNTHETIC_VARIANT") ?? DEFAULT_SYNTHETIC_VARIANT;
+
+  if (!ALLOWED_SYNTHETIC_VARIANTS.has(syntheticVariant)) {
+    throw new Error("VRDEX_RESTREAM_SYNTHETIC_VARIANT must be static-transition or live-control.");
+  }
+
   requiredUrlEnv("CONVEX_URL");
   const syntheticOnly = booleanEnv("VRDEX_RESTREAM_SYNTHETIC_ONLY", true);
   const config = {
     benchmarkMode,
+    syntheticVariant,
     syntheticOnly,
     killSwitchParameter: requiredEnv("VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER"),
     secretRefNames: listEnv("VRDEX_RESTREAM_SECRET_REF_NAMES", !syntheticOnly),
@@ -593,6 +748,7 @@ function loadConfig() {
       0,
       3000,
     ),
+    zmqPythonCommand: optionalEnv("VRDEX_RESTREAM_ZMQ_PYTHON_COMMAND"),
     artifactRoot: optionalEnv("VRDEX_RESTREAM_ARTIFACT_ROOT") ?? DEFAULT_ARTIFACT_ROOT,
   };
 
@@ -612,7 +768,12 @@ async function main() {
     }
 
     console.log(
-      JSON.stringify({ event: "restream_worker_configuration_validated", benchmarkMode: config.benchmarkMode, qualityGate: REQUIRED_GATE }),
+      JSON.stringify({
+        event: "restream_worker_configuration_validated",
+        benchmarkMode: config.benchmarkMode,
+        syntheticVariant: config.syntheticVariant,
+        qualityGate: REQUIRED_GATE,
+      }),
     );
     return;
   }

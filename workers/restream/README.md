@@ -28,6 +28,7 @@ Expected non-secret values:
 - `VRDEX_RESTREAM_MAX_SESSION_SECONDS`
 - `VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER`
 - `VRDEX_RESTREAM_SECRET_REF_NAMES`
+- `VRDEX_RESTREAM_SYNTHETIC_VARIANT`, default `static-transition`; use `live-control` for FFmpeg runtime command proof in the worker container
 - `VRDEX_RESTREAM_TRANSITION_FADE_MS`, default `500`
 - `VRDEX_RESTREAM_HOLD_SLATE_AUDIO_DELAY_MS`, default `750`
 - `CONVEX_URL`
@@ -41,6 +42,14 @@ pnpm proof:restream:worker
 ```
 
 That command writes a playable artifact tree under `artifacts/restream-worker-benchmark/` with `program.mp4`, `hls/program.m3u8`, transition frames, `benchmark-report.json`, and `report.html`. The hold slate is rendered once as static artwork, then looped through the timed fade section so the `1080p60` gate measures the live encode path instead of repeated slate drawing. Open `report.html` through a local static server to watch the embedded `program.mp4` preview in the browser.
+
+Container-shaped live-control proof command:
+
+```powershell
+pnpm proof:restream:worker:live-control
+```
+
+That command runs the hosted worker contract with `VRDEX_RESTREAM_SYNTHETIC_VARIANT=live-control`, starts FFmpeg once, and drives source/hold/source switching through the reusable controller instead of pre-rendering the transitions.
 
 Runtime command proof:
 

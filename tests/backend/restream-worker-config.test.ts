@@ -14,6 +14,7 @@ const validWorkerEnv = {
   VRDEX_RESTREAM_HOLD_SLATE_AUDIO_DELAY_MS: "750",
   VRDEX_RESTREAM_CONFIG_CHECK_ONLY: "true",
   VRDEX_RESTREAM_SYNTHETIC_ONLY: "true",
+  VRDEX_RESTREAM_SYNTHETIC_VARIANT: "static-transition",
 };
 
 function runWorker(env: Record<string, string>) {
@@ -64,5 +65,12 @@ describe("restream worker configuration", () => {
     assert.match(fadeResult.stderr, /VRDEX_RESTREAM_TRANSITION_FADE_MS must be an integer between 0 and 2000\./);
     assert.equal(delayResult.code, 1);
     assert.match(delayResult.stderr, /VRDEX_RESTREAM_HOLD_SLATE_AUDIO_DELAY_MS must be an integer between 0 and 3000\./);
+  });
+
+  it("rejects unknown synthetic benchmark variants", async () => {
+    const result = await runWorker({ VRDEX_RESTREAM_SYNTHETIC_VARIANT: "liveish" });
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /VRDEX_RESTREAM_SYNTHETIC_VARIANT must be static-transition or live-control\./);
   });
 });
