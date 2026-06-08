@@ -10,6 +10,8 @@ const defaultEnv = {
   VRDEX_RESTREAM_QUALITY_GATE: "1080p60",
   VRDEX_RESTREAM_SECRET_REF_NAMES: "event-media/vrcdn/local-validation",
   VRDEX_RESTREAM_SYNTHETIC_ONLY: "true",
+  VRDEX_RESTREAM_HOLD_SLATE_AUDIO_DELAY_MS: "750",
+  VRDEX_RESTREAM_TRANSITION_FADE_MS: "500",
 };
 
 const child = spawn(process.execPath, ["workers/restream/hosted-worker.mjs"], {

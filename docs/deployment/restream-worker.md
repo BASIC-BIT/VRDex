@@ -36,13 +36,15 @@ The task definition injects these non-secret values, and the current entrypoint 
 - `VRDEX_RESTREAM_MAX_SESSION_SECONDS=43200`
 - `VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER=/vrdex/restream/hosted-worker/enabled`
 - `VRDEX_RESTREAM_SECRET_REF_NAMES`
+- `VRDEX_RESTREAM_TRANSITION_FADE_MS=500`
+- `VRDEX_RESTREAM_HOLD_SLATE_AUDIO_DELAY_MS=750`
 - `CONVEX_URL`
 
 Secret values are not environment variables in git or Terraform. The `secret_arns` map supplies ECS secret references by container environment name. Synthetic benchmark tasks set `VRDEX_RESTREAM_SYNTHETIC_ONLY=true`, so they can produce media evidence without provider credentials. Use scoped, event/output-specific references for any non-synthetic VRCDN or external RTMP credential.
 
 ## Visible Benchmark Output
 
-The worker benchmark entrypoint generates a synthetic 12-second `1080p60` program with source, hold-slate, and source-switch transitions. A successful run writes:
+The worker benchmark entrypoint generates a synthetic 12-second `1080p60` program with source, hold-slate, and source-switch transitions. The hold slate is generated once as static artwork, then looped through the timed fade section to keep the benchmark focused on the live encode path. A successful run writes:
 
 - `program.mp4`, embedded in `report.html` for browser playback
 - `hls/program.m3u8` and HLS `.ts` segments

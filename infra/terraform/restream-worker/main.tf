@@ -303,6 +303,14 @@ resource "aws_ecs_task_definition" "worker" {
         {
           name  = "VRDEX_RESTREAM_SYNTHETIC_ONLY"
           value = tostring(var.synthetic_benchmark_only)
+        },
+        {
+          name  = "VRDEX_RESTREAM_TRANSITION_FADE_MS"
+          value = tostring(var.transition_fade_ms)
+        },
+        {
+          name  = "VRDEX_RESTREAM_HOLD_SLATE_AUDIO_DELAY_MS"
+          value = tostring(var.hold_slate_audio_delay_ms)
         }
       ]
       secrets = local.container_secrets

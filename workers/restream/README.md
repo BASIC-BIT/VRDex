@@ -28,6 +28,8 @@ Expected non-secret values:
 - `VRDEX_RESTREAM_MAX_SESSION_SECONDS`
 - `VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER`
 - `VRDEX_RESTREAM_SECRET_REF_NAMES`
+- `VRDEX_RESTREAM_TRANSITION_FADE_MS`, default `500`
+- `VRDEX_RESTREAM_HOLD_SLATE_AUDIO_DELAY_MS`, default `750`
 - `CONVEX_URL`
 
 Expected secret-reference names are supplied by Terraform through the `secret_arns` map. The worker treats those names as operationally sensitive and logs only their count. Synthetic benchmark runs use `VRDEX_RESTREAM_SYNTHETIC_ONLY=true`, so they can prove the media pipeline without provider credentials. Non-synthetic runs must use event-scoped output credential references, not raw ingest URLs or stream keys in plain environment variables.
@@ -38,7 +40,7 @@ Useful local proof command:
 pnpm proof:restream:worker
 ```
 
-That command writes a playable artifact tree under `artifacts/restream-worker-benchmark/` with `program.mp4`, `hls/program.m3u8`, transition frames, `benchmark-report.json`, and `report.html`. Open `report.html` through a local static server to watch the embedded `program.mp4` preview in the browser.
+That command writes a playable artifact tree under `artifacts/restream-worker-benchmark/` with `program.mp4`, `hls/program.m3u8`, transition frames, `benchmark-report.json`, and `report.html`. The hold slate is rendered once as static artwork, then looped through the timed fade section so the `1080p60` gate measures the live encode path instead of repeated slate drawing. Open `report.html` through a local static server to watch the embedded `program.mp4` preview in the browser.
 
 ## Benchmark Gate
 

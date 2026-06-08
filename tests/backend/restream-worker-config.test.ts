@@ -10,6 +10,8 @@ const validWorkerEnv = {
   VRDEX_RESTREAM_MAX_SESSION_SECONDS: "43200",
   VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER: "/vrdex/restream/hosted-worker/enabled",
   VRDEX_RESTREAM_SECRET_REF_NAMES: "event-media/vrcdn/main-output",
+  VRDEX_RESTREAM_TRANSITION_FADE_MS: "500",
+  VRDEX_RESTREAM_HOLD_SLATE_AUDIO_DELAY_MS: "750",
   VRDEX_RESTREAM_CONFIG_CHECK_ONLY: "true",
   VRDEX_RESTREAM_SYNTHETIC_ONLY: "true",
 };
@@ -52,5 +54,15 @@ describe("restream worker configuration", () => {
     assert.match(sessionResult.stderr, /VRDEX_RESTREAM_MAX_SESSION_SECONDS must be a positive integer\./);
     assert.equal(workerResult.code, 1);
     assert.match(workerResult.stderr, /VRDEX_RESTREAM_MAX_CONCURRENT_WORKERS must be a positive integer\./);
+  });
+
+  it("rejects transition timing controls outside their guardrails", async () => {
+    const fadeResult = await runWorker({ VRDEX_RESTREAM_TRANSITION_FADE_MS: "500ms" });
+    const delayResult = await runWorker({ VRDEX_RESTREAM_HOLD_SLATE_AUDIO_DELAY_MS: "3001" });
+
+    assert.equal(fadeResult.code, 1);
+    assert.match(fadeResult.stderr, /VRDEX_RESTREAM_TRANSITION_FADE_MS must be an integer between 0 and 2000\./);
+    assert.equal(delayResult.code, 1);
+    assert.match(delayResult.stderr, /VRDEX_RESTREAM_HOLD_SLATE_AUDIO_DELAY_MS must be an integer between 0 and 3000\./);
   });
 });

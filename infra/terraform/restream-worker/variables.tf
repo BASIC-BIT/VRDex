@@ -34,6 +34,18 @@ variable "synthetic_benchmark_only" {
   default     = true
 }
 
+variable "transition_fade_ms" {
+  description = "Synthetic benchmark audio/video fade duration in milliseconds."
+  type        = number
+  default     = 500
+}
+
+variable "hold_slate_audio_delay_ms" {
+  description = "Synthetic benchmark delay before hold-slate audio starts, in milliseconds."
+  type        = number
+  default     = 750
+}
+
 variable "task_cpu" {
   description = "Fargate task CPU units for one event-session worker. 4096 is the first benchmark shape for the 1080p60 gate."
   type        = number

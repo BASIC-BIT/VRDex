@@ -8,6 +8,8 @@ const ALLOWED_BENCHMARK_MODES = new Set(["dry-run", "ecs-fargate"]);
 const DEFAULT_ARTIFACT_ROOT = process.env.AWS_EXECUTION_ENV
   ? "/tmp/vrdex-restream-worker-benchmark"
   : "artifacts/restream-worker-benchmark";
+const DEFAULT_TRANSITION_FADE_MS = 500;
+const DEFAULT_HOLD_SLATE_AUDIO_DELAY_MS = 750;
 const timeline = [
   { atSeconds: 0, command: "start_program", scene: "source-a", audio: "source-a-tone-440hz" },
   { atSeconds: 4, command: "switch_hold", scene: "hold-slate", audio: "hold-tone-220hz" },
@@ -46,6 +48,26 @@ function requiredIntegerEnv(name) {
 
   if (!Number.isSafeInteger(parsed) || parsed <= 0) {
     throw new Error(`${name} must be a positive integer.`);
+  }
+
+  return parsed;
+}
+
+function optionalIntegerEnv(name, defaultValue, min, max) {
+  const value = optionalEnv(name);
+
+  if (value === undefined) {
+    return defaultValue;
+  }
+
+  if (!/^[0-9]+$/.test(value)) {
+    throw new Error(`${name} must be an integer between ${min} and ${max}.`);
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max) {
+    throw new Error(`${name} must be an integer between ${min} and ${max}.`);
   }
 
   return parsed;
@@ -186,15 +208,48 @@ async function probePlaylist(playlistPath) {
   return JSON.parse(stdout);
 }
 
-async function writeSyntheticProgram(outputDir) {
+async function writeHoldSlateImage(imagePath) {
+  await run("ffmpeg", [
+    "-hide_banner",
+    "-y",
+    "-f",
+    "lavfi",
+    "-i",
+    "color=c=0x020617:size=1920x1080:rate=1",
+    "-vf",
+    [
+      "format=rgba",
+      "drawbox=x=180:y=150:w=1560:h=780:color=0x111827@0.96:t=fill",
+      "drawbox=x=250:y=220:w=1420:h=640:color=0x334155@0.55:t=6",
+      "drawbox=x=430:y=320:w=860:h=360:color=0x0ea5e9@0.22:t=fill",
+      "drawbox=x=510:y=390:w=700:h=220:color=0x38bdf8@0.22:t=8",
+      "drawtext=text='VRDex Hold Slate':fontcolor=white:fontsize=96:x=(w-text_w)/2:y=710",
+      "drawtext=text='Standby mix resumes after the slate delay':fontcolor=0xcbd5e1:fontsize=42:x=(w-text_w)/2:y=825",
+      "format=rgb24",
+    ].join(","),
+    "-frames:v",
+    "1",
+    "-update",
+    "1",
+    imagePath,
+  ]);
+}
+
+async function writeSyntheticProgram(outputDir, config) {
   const hlsDir = join(outputDir, "hls");
   const framesDir = join(outputDir, "frames");
   mkdirSync(hlsDir, { recursive: true });
   mkdirSync(framesDir, { recursive: true });
   writeFileSync(join(outputDir, "command-timeline.json"), `${JSON.stringify(timeline, null, 2)}\n`);
 
+  const holdSlateImage = join(framesDir, "hold-slate-input.png");
+  await writeHoldSlateImage(holdSlateImage);
+
   const playlistPath = join(hlsDir, "program.m3u8");
   const segmentPattern = join(hlsDir, "program-%03d.ts");
+  const fadeSeconds = config.transitionFadeMs / 1000;
+  const fadeOutStart = 4 - fadeSeconds;
+  const holdAudioDelaySeconds = config.holdSlateAudioDelayMs / 1000;
   const started = performance.now();
 
   await run("ffmpeg", [
@@ -208,10 +263,14 @@ async function writeSyntheticProgram(outputDir) {
     "lavfi",
     "-i",
     "sine=frequency=440:sample_rate=48000:duration=4",
-    "-f",
-    "lavfi",
+    "-loop",
+    "1",
+    "-framerate",
+    "60",
+    "-t",
+    "4",
     "-i",
-    "color=c=0x111827:size=1920x1080:rate=60:duration=4",
+    holdSlateImage,
     "-f",
     "lavfi",
     "-i",
@@ -226,12 +285,12 @@ async function writeSyntheticProgram(outputDir) {
     "sine=frequency=880:sample_rate=48000:duration=4",
     "-filter_complex",
     [
-      "[0:v]format=yuv420p,setsar=1,setpts=PTS-STARTPTS[v0]",
-      "[1:a]pan=stereo|c0=c0|c1=c0,asetpts=PTS-STARTPTS[a0]",
-      "[2:v]format=yuv420p,setsar=1,setpts=PTS-STARTPTS[v1]",
-      "[3:a]pan=stereo|c0=c0|c1=c0,asetpts=PTS-STARTPTS[a1]",
-      "[4:v]format=yuv420p,setsar=1,setpts=PTS-STARTPTS[v2]",
-      "[5:a]pan=stereo|c0=c0|c1=c0,asetpts=PTS-STARTPTS[a2]",
+      `[0:v]format=yuv420p,setsar=1,setpts=PTS-STARTPTS,fade=t=out:st=${fadeOutStart}:d=${fadeSeconds}[v0]`,
+      `[1:a]pan=stereo|c0=c0|c1=c0,asetpts=PTS-STARTPTS,afade=t=out:st=${fadeOutStart}:d=${fadeSeconds}[a0]`,
+      `[2:v]format=yuv420p,setsar=1,setpts=PTS-STARTPTS,fade=t=in:st=0:d=${fadeSeconds},fade=t=out:st=${fadeOutStart}:d=${fadeSeconds}[v1]`,
+      `[3:a]pan=stereo|c0=c0|c1=c0,adelay=${config.holdSlateAudioDelayMs}|${config.holdSlateAudioDelayMs},atrim=0:4,afade=t=in:st=${holdAudioDelaySeconds}:d=${fadeSeconds},afade=t=out:st=${fadeOutStart}:d=${fadeSeconds},asetpts=PTS-STARTPTS[a1]`,
+      `[4:v]format=yuv420p,setsar=1,setpts=PTS-STARTPTS,fade=t=in:st=0:d=${fadeSeconds}[v2]`,
+      `[5:a]pan=stereo|c0=c0|c1=c0,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=${fadeSeconds}[a2]`,
       "[v0][a0][v1][a1][v2][a2]concat=n=3:v=1:a=1[v][a]",
     ].join(";"),
     "-map",
@@ -385,10 +444,12 @@ function writeHtmlReport(outputDir, report) {
       <div class="card"><div class="label">Output</div><div class="value">${report.video.codec} ${report.video.width}x${report.video.height} @ ${report.video.frameRate}</div></div>
       <div class="card"><div class="label">Audio</div><div class="value">${report.audio.codec} ${report.audio.sampleRateHz}Hz ${report.audio.channels}ch</div></div>
       <div class="card"><div class="label">Realtime Factor</div><div class="value">${report.realtimeFactor.toFixed(2)}x</div></div>
+      <div class="card"><div class="label">Fade</div><div class="value">${report.transitionFadeMs}ms</div></div>
+      <div class="card"><div class="label">Slate Audio Delay</div><div class="value">${report.holdSlateAudioDelayMs}ms</div></div>
     </div>
     <h2>Command Timeline</h2>
     <div class="timeline">${report.commandTimeline
-      .map((event) => `<div><strong>${event.atSeconds}s</strong> ${event.command}${event.scene ? ` (${event.scene})` : ""}</div>`)
+      .map((event) => `<div><strong>${event.atSeconds}s</strong> ${event.command}${event.scene ? ` (${event.scene})` : ""}${event.command === "switch_hold" ? ` - slate audio delayed ${report.holdSlateAudioDelayMs}ms` : ""}</div>`)
       .join("\n")}</div>
     <p>Playlist: <a href="hls/program.m3u8"><code>hls/program.m3u8</code></a></p>
     <p>Watch preview: <a href="program.mp4"><code>program.mp4</code></a></p>
@@ -409,7 +470,7 @@ async function runBenchmark(config) {
 
   const outputDir = resolve(config.artifactRoot, timestamp());
   mkdirSync(outputDir, { recursive: true });
-  const { encodeElapsedSeconds, watchPreviewPath } = await writeSyntheticProgram(outputDir);
+  const { encodeElapsedSeconds, watchPreviewPath } = await writeSyntheticProgram(outputDir, config);
   const playlistSummary = checkPlaylist(outputDir);
   const checkedWatchPreviewPath = checkWatchPreview(outputDir);
   const metadata = await probePlaylist(playlistSummary.playlistPath);
@@ -444,6 +505,8 @@ async function runBenchmark(config) {
     secretReferenceCount: config.secretRefNames.length,
     maxConcurrentWorkers: config.maxConcurrentWorkers,
     maxSessionSeconds: config.maxSessionSeconds,
+    transitionFadeMs: config.transitionFadeMs,
+    holdSlateAudioDelayMs: config.holdSlateAudioDelayMs,
     killSwitchParameter: config.killSwitchParameter,
     commandTimeline: timeline,
     playlist: playlistSummary.playlistPath,
@@ -471,6 +534,9 @@ async function runBenchmark(config) {
       transitionFramesPresent: frames.length >= 3,
       independentSegments: true,
       watchPreviewPresent: true,
+      holdSlateArtworkPresent: true,
+      transitionFadesConfigured: config.transitionFadeMs > 0,
+      holdSlateAudioDelayConfigured: config.holdSlateAudioDelayMs > 0,
     },
   };
 
@@ -491,6 +557,8 @@ async function runBenchmark(config) {
       durationSeconds: report.durationSeconds,
       realtimeFactor: Number(report.realtimeFactor.toFixed(3)),
       watchPreview: "program.mp4",
+      transitionFadeMs: report.transitionFadeMs,
+      holdSlateAudioDelayMs: report.holdSlateAudioDelayMs,
       frames: report.frames,
     }),
   );
@@ -518,6 +586,13 @@ function loadConfig() {
     secretRefNames: listEnv("VRDEX_RESTREAM_SECRET_REF_NAMES", !syntheticOnly),
     maxSessionSeconds: requiredIntegerEnv("VRDEX_RESTREAM_MAX_SESSION_SECONDS"),
     maxConcurrentWorkers: requiredIntegerEnv("VRDEX_RESTREAM_MAX_CONCURRENT_WORKERS"),
+    transitionFadeMs: optionalIntegerEnv("VRDEX_RESTREAM_TRANSITION_FADE_MS", DEFAULT_TRANSITION_FADE_MS, 0, 2000),
+    holdSlateAudioDelayMs: optionalIntegerEnv(
+      "VRDEX_RESTREAM_HOLD_SLATE_AUDIO_DELAY_MS",
+      DEFAULT_HOLD_SLATE_AUDIO_DELAY_MS,
+      0,
+      3000,
+    ),
     artifactRoot: optionalEnv("VRDEX_RESTREAM_ARTIFACT_ROOT") ?? DEFAULT_ARTIFACT_ROOT,
   };
 
