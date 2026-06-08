@@ -15,6 +15,7 @@ The first AWS baseline covers:
 - IAM credentials scoped to SES sending for Convex
 - a planned S3 private asset bucket for owner-authored profile assets, tracked by [#115](https://github.com/BASIC-BIT/VRDex/issues/115)
 - Terraform state in S3 for checked-in infrastructure stacks
+- a validation-only hosted restream worker benchmark foundation for ECR, ECS/Fargate, task roles, logs, metrics, secret references, limits, and kill-switch concepts
 
 Non-goals for this baseline:
 
@@ -23,6 +24,7 @@ Non-goals for this baseline:
 - CloudFront image CDN and transformation pipeline
 - broad object lifecycle, malware scanning, moderation review, or asset-processing automation
 - moving the application runtime from Convex/Vercel to AWS
+- promising hosted restreaming, GPU capacity, AWS-owned CDN output, or `1080p60` pricing before local and hosted benchmark evidence exists
 
 ## Email Delivery
 
@@ -99,8 +101,21 @@ Current stacks:
 - `infra/terraform/posthog`: hosted PostHog project metadata
 - `infra/terraform/vercel`: hosted Vercel PostHog client environment variables
 - `infra/terraform/docs-site`: hosted docs Vercel project/domain and Route 53 DNS
+- `infra/terraform/restream-worker`: validation-only hosted worker benchmark foundation; CI validates it but does not plan or apply it
 
 Keep stack state, plans, local provider caches, and `terraform.tfvars` uncommitted.
+
+## Hosted Restream Worker Benchmark
+
+Current recommendation: keep hosted restreaming behind the `1080p60` evidence gate.
+
+The first hosted worker foundation lives in `infra/terraform/restream-worker` and `workers/restream`. It defines an ECR repository, ECS cluster, Fargate task definition, CloudWatch log group, task roles, optional secret-reference injection, max worker/runtime guardrails, and an SSM kill-switch parameter that defaults disabled.
+
+This stack is intentionally validation-only in CI. Do not apply it, publish images, run ECS tasks, or mutate AWS resources until local media-pipeline evidence exists and a human approves an AWS benchmark window.
+
+Hosted worker secret values must stay in Secrets Manager or an equivalent encrypted provider secret store. Convex event records and Terraform should carry scoped references only, not stream keys, ingest URLs, or output credentials.
+
+Fargate remains the first benchmark path. ECS on EC2 with GPU/NVENC is a measured fallback only if CPU-only Fargate misses real-time `1080p60`, transition quality, bitrate stability, or cost headroom.
 
 ## Self-Hosting Boundary
 

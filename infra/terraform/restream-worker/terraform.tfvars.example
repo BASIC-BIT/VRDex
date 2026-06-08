@@ -1,0 +1,17 @@
+aws_region  = "us-east-1"
+name_prefix = "vrdex-restream-worker"
+
+# Optional override after publishing workers/restream/Dockerfile to this stack's ECR repository.
+# container_image = "123456789012.dkr.ecr.us-east-1.amazonaws.com/vrdex-restream-worker:benchmark-2026-06-07"
+
+# References only. Do not put secret values in this file or in terraform.tfvars.
+secret_arns = {
+  VRDEX_RESTREAM_OUTPUT_CREDENTIAL = "arn:aws:secretsmanager:us-east-1:123456789012:secret:vrdex/restream/example-output"
+}
+
+convex_url             = "https://scrupulous-corgi-247.convex.cloud"
+max_concurrent_workers = 10
+max_session_seconds    = 43200
+
+# False keeps hosted workers disabled until an approved benchmark enables the switch.
+kill_switch_enabled_default = false
