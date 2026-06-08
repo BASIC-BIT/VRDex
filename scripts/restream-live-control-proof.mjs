@@ -1,18 +1,22 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { performance } from "node:perf_hooks";
-import { createInterface } from "node:readline";
+import {
+  DEFAULT_LIVE_CONTROL_PRESET,
+  FFmpegProcess,
+  ProgramController,
+  ZmqCommandClient,
+  buildSyntheticLiveControlFfmpegArgs,
+} from "../workers/restream/live-control.mjs";
 
 const ARTIFACT_ROOT = "artifacts/restream-live-control-proof";
 const WIDTH = 1920;
 const HEIGHT = 1080;
 const FRAME_RATE = 60;
 const DURATION_SECONDS = 12;
-const FADE_MS = 500;
-const FADE_STEPS = 30;
-const HOLD_AUDIO_DELAY_MS = 750;
-const CONTROL_ZMQ_PORT = 5555;
+const FADE_MS = DEFAULT_LIVE_CONTROL_PRESET.fadeMs;
+const HOLD_AUDIO_DELAY_MS = DEFAULT_LIVE_CONTROL_PRESET.holdAudioDelayMs;
+const CONTROL_ZMQ_PORT = DEFAULT_LIVE_CONTROL_PRESET.controlPort;
 
 const timeline = [
   { atSeconds: 0, command: "start_program", scene: "source-a" },
@@ -41,10 +45,6 @@ const scenes = {
 
 function timestamp() {
   return new Date().toISOString().replace(/[:.]/g, "-");
-}
-
-function sleep(ms) {
-  return new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 }
 
 function assert(condition, message) {
@@ -138,416 +138,6 @@ async function writeSceneImages(framesDir) {
   }
 
   return paths;
-}
-
-function pythonZmqSenderCode() {
-  return String.raw`
-import json
-import sys
-import zmq
-
-port = sys.argv[1]
-ctx = zmq.Context()
-socket = ctx.socket(zmq.REQ)
-socket.setsockopt(zmq.LINGER, 0)
-socket.connect("tcp://127.0.0.1:" + port)
-try:
-    for line in sys.stdin:
-        request = json.loads(line)
-        socket.send_string(request["message"])
-        poller = zmq.Poller()
-        poller.register(socket, zmq.POLLIN)
-        if poller.poll(3000):
-            print(json.dumps({"id": request["id"], "response": socket.recv_string()}), flush=True)
-        else:
-            print(json.dumps({"id": request["id"], "error": "timed out waiting for FFmpeg ZMQ response"}), flush=True)
-finally:
-    socket.close()
-    ctx.term()
-`;
-}
-
-class ZmqCommandClient {
-  constructor(port) {
-    this.nextId = 1;
-    this.pending = new Map();
-    this.stderr = "";
-    this.child = spawn("python", ["-c", pythonZmqSenderCode(), String(port)], { stdio: ["pipe", "pipe", "pipe"] });
-    const lines = createInterface({ input: this.child.stdout });
-
-    lines.on("line", (line) => {
-      const parsed = JSON.parse(line);
-      const pending = this.pending.get(parsed.id);
-
-      if (pending === undefined) {
-        return;
-      }
-
-      clearTimeout(pending.timeout);
-      this.pending.delete(parsed.id);
-
-      if (parsed.error === undefined) {
-        pending.resolve(parsed.response);
-        return;
-      }
-
-      pending.reject(new Error(parsed.error));
-    });
-
-    this.child.stderr.on("data", (chunk) => {
-      this.stderr += chunk;
-    });
-    this.child.on("close", (code) => {
-      for (const pending of this.pending.values()) {
-        clearTimeout(pending.timeout);
-        pending.reject(new Error(`ZMQ client exited with ${code}${this.stderr ? `\n${this.stderr}` : ""}`));
-      }
-
-      this.pending.clear();
-    });
-  }
-
-  send(message) {
-    const id = this.nextId;
-    this.nextId += 1;
-
-    return new Promise((resolvePromise, reject) => {
-      const timeout = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`Timed out sending FFmpeg ZMQ command: ${message}`));
-      }, 5000);
-      this.pending.set(id, { resolve: resolvePromise, reject, timeout });
-      this.child.stdin.write(`${JSON.stringify({ id, message })}\n`);
-    });
-  }
-
-  close() {
-    this.child.stdin.end();
-  }
-}
-
-async function sendZmq(client, message, retries = 20) {
-  let lastError;
-
-  for (let attempt = 1; attempt <= retries; attempt += 1) {
-    try {
-      const response = await client.send(message);
-      const status = Number(response.split(/\s+/)[0]);
-
-      if (status === 0) {
-        return response;
-      }
-
-      throw new Error(`FFmpeg ZMQ command failed: ${message} -> ${response}`);
-    } catch (error) {
-      lastError = error;
-      await sleep(150);
-    }
-  }
-
-  throw lastError;
-}
-
-function commandElapsedSeconds(startedAt) {
-  return Number(((performance.now() - startedAt) / 1000).toFixed(3));
-}
-
-async function sendFilterCommand({ client, target, command, value, kind, commandLog, startedAt }) {
-  const message = `${target} ${command} ${value}`;
-  const response = await sendZmq(client, message);
-  const event = {
-    elapsedSeconds: commandElapsedSeconds(startedAt),
-    kind,
-    target,
-    command,
-    value,
-    response,
-  };
-  commandLog.push(event);
-
-  return event;
-}
-
-async function sendMap({ client, target, map, kind, commandLog, startedAt }) {
-  return sendFilterCommand({ client, target, command: "map", value: map, kind, commandLog, startedAt });
-}
-
-async function sendVolume({ client, target, volume, kind, commandLog, startedAt }) {
-  return sendFilterCommand({ client, target, command: "volume", value: volume.toFixed(3), kind, commandLog, startedAt });
-}
-
-async function sendAlpha({ client, alpha, kind, commandLog, startedAt }) {
-  return sendFilterCommand({
-    client,
-    target: "colorchannelmixer@overlay-alpha",
-    command: "aa",
-    value: alpha.toFixed(3),
-    kind,
-    commandLog,
-    startedAt,
-  });
-}
-
-async function waitUntil(startedAt, elapsedMs) {
-  const remainingMs = elapsedMs - (performance.now() - startedAt);
-
-  if (remainingMs > 0) {
-    await sleep(remainingMs);
-  }
-}
-
-function easeInOut(value) {
-  return value * value * (3 - 2 * value);
-}
-
-async function fadeValue({ startedAt, startMs, durationMs, from, to, sendStep }) {
-  const events = [];
-
-  for (let step = 1; step <= FADE_STEPS; step += 1) {
-    await waitUntil(startedAt, startMs + (durationMs * step) / FADE_STEPS);
-    const ratio = easeInOut(step / FADE_STEPS);
-    const value = from + (to - from) * ratio;
-    events.push(await sendStep(value));
-  }
-
-  return events;
-}
-
-function startFfmpeg({ scenePaths, hlsDir, playlistPath }) {
-  const segmentPattern = join(hlsDir, "program-%03d.ts");
-  const filterGraph = [
-    "[0:v]format=yuv420p,setsar=1,setpts=PTS-STARTPTS,split=2[v0base][v0next]",
-    "[1:v]format=yuv420p,setsar=1,setpts=PTS-STARTPTS,split=2[v1base][v1next]",
-    "[2:v]format=yuv420p,setsar=1,setpts=PTS-STARTPTS,split=2[v2base][v2next]",
-    "[v0base][v1base][v2base]streamselect@base=inputs=3:map=0[base]",
-    "[v0next][v1next][v2next]streamselect@next=inputs=3:map=1[nextraw]",
-    "[nextraw]format=rgba,colorchannelmixer@overlay-alpha=aa=0[next]",
-    "[base][next]overlay=format=auto,zmq[v]",
-    "[3:a]pan=stereo|c0=c0|c1=c0,asetpts=PTS-STARTPTS,volume@audio-source-a=1[a0]",
-    "[4:a]pan=stereo|c0=c0|c1=c0,asetpts=PTS-STARTPTS,volume@audio-hold=0[a1]",
-    "[5:a]pan=stereo|c0=c0|c1=c0,asetpts=PTS-STARTPTS,volume@audio-source-b=0[a2]",
-    "[6:a]atrim=0:12,asetpts=PTS-STARTPTS,volume@audio-silence=0[a3]",
-    "[a0][a1][a2][a3]amix=inputs=4:normalize=0:duration=first[a]",
-  ].join(";");
-
-  const args = [
-    "-hide_banner",
-    "-y",
-    "-re",
-    "-loop",
-    "1",
-    "-framerate",
-    String(FRAME_RATE),
-    "-t",
-    String(DURATION_SECONDS),
-    "-i",
-    scenePaths["source-a"],
-    "-re",
-    "-loop",
-    "1",
-    "-framerate",
-    String(FRAME_RATE),
-    "-t",
-    String(DURATION_SECONDS),
-    "-i",
-    scenePaths["hold-slate"],
-    "-re",
-    "-loop",
-    "1",
-    "-framerate",
-    String(FRAME_RATE),
-    "-t",
-    String(DURATION_SECONDS),
-    "-i",
-    scenePaths["source-b"],
-    "-re",
-    "-f",
-    "lavfi",
-    "-i",
-    `sine=frequency=440:sample_rate=48000:duration=${DURATION_SECONDS}`,
-    "-re",
-    "-f",
-    "lavfi",
-    "-i",
-    `sine=frequency=220:sample_rate=48000:duration=${DURATION_SECONDS}`,
-    "-re",
-    "-f",
-    "lavfi",
-    "-i",
-    `sine=frequency=880:sample_rate=48000:duration=${DURATION_SECONDS}`,
-    "-re",
-    "-f",
-    "lavfi",
-    "-i",
-    `anullsrc=channel_layout=stereo:sample_rate=48000:duration=${DURATION_SECONDS}`,
-    "-filter_complex",
-    filterGraph,
-    "-map",
-    "[v]",
-    "-map",
-    "[a]",
-    "-c:v",
-    "libx264",
-    "-preset",
-    "veryfast",
-    "-tune",
-    "zerolatency",
-    "-profile:v",
-    "high",
-    "-level:v",
-    "4.2",
-    "-pix_fmt",
-    "yuv420p",
-    "-r",
-    String(FRAME_RATE),
-    "-g",
-    String(FRAME_RATE),
-    "-keyint_min",
-    String(FRAME_RATE),
-    "-sc_threshold",
-    "0",
-    "-b:v",
-    "3500k",
-    "-maxrate",
-    "3500k",
-    "-bufsize",
-    "7000k",
-    "-c:a",
-    "aac",
-    "-b:a",
-    "192k",
-    "-ar",
-    "48000",
-    "-ac",
-    "2",
-    "-f",
-    "hls",
-    "-hls_time",
-    "2",
-    "-hls_playlist_type",
-    "vod",
-    "-hls_flags",
-    "independent_segments",
-    "-hls_segment_filename",
-    segmentPattern,
-    playlistPath,
-  ];
-
-  const child = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
-  let stdout = "";
-  let stderr = "";
-
-  child.stdout.on("data", (chunk) => {
-    stdout += chunk;
-  });
-  child.stderr.on("data", (chunk) => {
-    stderr += chunk;
-  });
-
-  return { child, args, getLogs: () => ({ stdout, stderr }) };
-}
-
-function waitForFfmpeg(ffmpeg) {
-  return new Promise((resolvePromise, reject) => {
-    ffmpeg.child.on("error", reject);
-    ffmpeg.child.on("close", (code) => {
-      if (code === 0) {
-        resolvePromise();
-        return;
-      }
-
-      reject(new Error(`ffmpeg exited with ${code}\n${ffmpeg.getLogs().stderr}`));
-    });
-  });
-}
-
-async function driveLiveCommands(commandLog, startedAt, client) {
-  await sleep(750);
-  await sendMap({
-    client,
-    target: "streamselect@base",
-    map: 0,
-    kind: "video-base-initial",
-    commandLog,
-    startedAt,
-  });
-  await sendMap({
-    client,
-    target: "streamselect@next",
-    map: 1,
-    kind: "video-next-initial",
-    commandLog,
-    startedAt,
-  });
-  await sendAlpha({ client, alpha: 0, kind: "video-overlay-alpha-initial", commandLog, startedAt });
-  await sendVolume({ client, target: "volume@audio-source-a", volume: 1, kind: "audio-volume-source-a-initial", commandLog, startedAt });
-  await sendVolume({ client, target: "volume@audio-hold", volume: 0, kind: "audio-volume-hold-initial", commandLog, startedAt });
-  await sendVolume({ client, target: "volume@audio-source-b", volume: 0, kind: "audio-volume-source-b-initial", commandLog, startedAt });
-
-  await waitUntil(startedAt, 4000);
-  commandLog.push({ elapsedSeconds: commandElapsedSeconds(startedAt), kind: "operator-command", command: "switch_hold" });
-  await sendMap({ client, target: "streamselect@next", map: 1, kind: "video-next-hold", commandLog, startedAt });
-  await Promise.all([
-    fadeValue({
-      startedAt,
-      startMs: 4000,
-      durationMs: FADE_MS,
-      from: 0,
-      to: 1,
-      sendStep: (alpha) => sendAlpha({ client, alpha, kind: "video-alpha-fade-to-hold", commandLog, startedAt }),
-    }),
-    fadeValue({
-      startedAt,
-      startMs: 4000,
-      durationMs: FADE_MS,
-      from: 1,
-      to: 0,
-      sendStep: (volume) => sendVolume({ client, target: "volume@audio-source-a", volume, kind: "audio-fade-out-source-a", commandLog, startedAt }),
-    }),
-  ]);
-  await sendMap({ client, target: "streamselect@base", map: 1, kind: "video-base-hold", commandLog, startedAt });
-  await sendAlpha({ client, alpha: 0, kind: "video-overlay-alpha-reset-hold", commandLog, startedAt });
-  await waitUntil(startedAt, 4000 + HOLD_AUDIO_DELAY_MS);
-  await fadeValue({
-    startedAt,
-    startMs: 4000 + HOLD_AUDIO_DELAY_MS,
-    durationMs: FADE_MS,
-    from: 0,
-    to: 1,
-    sendStep: (volume) => sendVolume({ client, target: "volume@audio-hold", volume, kind: "audio-fade-in-hold", commandLog, startedAt }),
-  });
-
-  await waitUntil(startedAt, 8000);
-  commandLog.push({ elapsedSeconds: commandElapsedSeconds(startedAt), kind: "operator-command", command: "switch_source", targetSourceKey: "source-b" });
-  await sendMap({ client, target: "streamselect@next", map: 2, kind: "video-next-source-b", commandLog, startedAt });
-  await Promise.all([
-    fadeValue({
-      startedAt,
-      startMs: 8000,
-      durationMs: FADE_MS,
-      from: 0,
-      to: 1,
-      sendStep: (alpha) => sendAlpha({ client, alpha, kind: "video-alpha-fade-to-source-b", commandLog, startedAt }),
-    }),
-    fadeValue({
-      startedAt,
-      startMs: 8000,
-      durationMs: FADE_MS,
-      from: 1,
-      to: 0,
-      sendStep: (volume) => sendVolume({ client, target: "volume@audio-hold", volume, kind: "audio-fade-out-hold", commandLog, startedAt }),
-    }),
-    fadeValue({
-      startedAt,
-      startMs: 8000,
-      durationMs: FADE_MS,
-      from: 0,
-      to: 1,
-      sendStep: (volume) => sendVolume({ client, target: "volume@audio-source-b", volume, kind: "audio-fade-in-source-b", commandLog, startedAt }),
-    }),
-  ]);
-  await sendMap({ client, target: "streamselect@base", map: 2, kind: "video-base-source-b", commandLog, startedAt });
-  await sendAlpha({ client, alpha: 0, kind: "video-overlay-alpha-reset-source-b", commandLog, startedAt });
 }
 
 async function remuxPreview(playlistPath, watchPreviewPath) {
@@ -848,14 +438,23 @@ async function main() {
   const playlistPath = join(hlsDir, "program.m3u8");
   const watchPreviewPath = join(outputDir, "program.mp4");
   const commandLog = [];
-  const ffmpeg = startFfmpeg({ scenePaths, hlsDir, playlistPath });
+  const ffmpegArgs = buildSyntheticLiveControlFfmpegArgs({
+    scenePaths,
+    hlsDir,
+    playlistPath,
+    width: WIDTH,
+    height: HEIGHT,
+    frameRate: FRAME_RATE,
+    durationSeconds: DURATION_SECONDS,
+  });
+  const ffmpeg = new FFmpegProcess(ffmpegArgs);
   const client = new ZmqCommandClient(CONTROL_ZMQ_PORT);
-  const startedAt = performance.now();
+  const controller = new ProgramController(client, { commandLog });
 
   try {
-    await Promise.all([driveLiveCommands(commandLog, startedAt, client), waitForFfmpeg(ffmpeg)]);
+    await Promise.all([controller.runProofTimeline(), ffmpeg.wait()]);
   } catch (error) {
-    ffmpeg.child.kill("SIGTERM");
+    ffmpeg.stop();
     throw error;
   } finally {
     client.close();
@@ -885,7 +484,7 @@ async function main() {
     height: HEIGHT,
     frameRate: FRAME_RATE,
     durationSeconds: DURATION_SECONDS,
-    controlMode: "overlay-alpha-volume-fade",
+    controlMode: DEFAULT_LIVE_CONTROL_PRESET.controlMode,
     fadeMs: FADE_MS,
     holdAudioDelayMs: HOLD_AUDIO_DELAY_MS,
     timeline,
