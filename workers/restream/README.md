@@ -42,6 +42,14 @@ pnpm proof:restream:worker
 
 That command writes a playable artifact tree under `artifacts/restream-worker-benchmark/` with `program.mp4`, `hls/program.m3u8`, transition frames, `benchmark-report.json`, and `report.html`. The hold slate is rendered once as static artwork, then looped through the timed fade section so the `1080p60` gate measures the live encode path instead of repeated slate drawing. Open `report.html` through a local static server to watch the embedded `program.mp4` preview in the browser.
 
+Runtime command proof:
+
+```powershell
+pnpm proof:restream:live-control
+```
+
+That command starts FFmpeg once, then sends live ZeroMQ commands to `streamselect` and `astreamselect` filter instances. It requires local Python with `pyzmq` for the command sender. It validates source-to-hold-to-source switching and the delayed hold-slate audio path without rebuilding or restarting the FFmpeg process. The current live-control proof is a hard-switch proof; runtime-programmed fades are not validated yet and stay separate from the baked-transition benchmark.
+
 ## Benchmark Gate
 
 The benchmark profile in `benchmark-profile.1080p60.json` records the first hosted acceptance target:

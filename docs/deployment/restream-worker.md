@@ -68,6 +68,18 @@ python -m http.server 4174 --bind 127.0.0.1 --directory artifacts
 
 Then open `http://127.0.0.1:4174/restream-worker-benchmark/<timestamp>/report.html` or `http://127.0.0.1:4174/restream-ecs-benchmark/<timestamp>/report.html`.
 
+## Live Control Proof
+
+The local live-control proof validates that FFmpeg can be started once and steered while it runs:
+
+```powershell
+pnpm proof:restream:live-control
+```
+
+The proof uses FFmpeg's `zmq` command filter plus command-capable `streamselect` and `astreamselect` filter instances. The local command sender requires Python with `pyzmq`. The controller sends runtime map commands for source A, hold slate, silence, hold audio after delay, and source B. The generated report classifies output frames and audio windows to verify source-to-slate-to-source switching and the delayed hold-slate audio path.
+
+Current recommendation: treat this as a hard-switch programmability proof. It does not yet validate runtime-programmed fades; fades are still covered only by the baked synthetic benchmark until a commandable fade primitive is proven.
+
 ## Logs And Metrics
 
 Workers should log structured operational events without stream keys, full ingest URLs, signed URLs, or private setup notes.

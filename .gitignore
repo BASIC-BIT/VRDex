@@ -19,6 +19,7 @@ artifacts/restream-local-validation/
 artifacts/restream-control-demo/
 artifacts/restream-docker-benchmark/
 artifacts/restream-ecs-benchmark/
+artifacts/restream-live-control-proof/
 artifacts/restream-worker-benchmark/
 .env
 .env.local
