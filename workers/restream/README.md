@@ -50,6 +50,7 @@ pnpm proof:restream:worker:live-control
 ```
 
 That command runs the hosted worker contract with `VRDEX_RESTREAM_SYNTHETIC_VARIANT=live-control`, starts FFmpeg once, and drives source/hold/source switching through the reusable controller instead of pre-rendering the transitions.
+The live-control variant must keep near real-time pace and classify timed frame samples at the expected source, hold-slate, and source-B positions; otherwise wall-clock commands can land too early in the output timeline.
 
 Runtime command proof:
 

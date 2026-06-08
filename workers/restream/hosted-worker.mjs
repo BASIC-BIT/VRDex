@@ -180,6 +180,28 @@ function run(command, args, options = {}) {
   });
 }
 
+function runBuffer(command, args) {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const stdout = [];
+    let stderr = "";
+
+    child.stdout.on("data", (chunk) => stdout.push(chunk));
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolvePromise({ stdout: Buffer.concat(stdout), stderr });
+        return;
+      }
+
+      reject(new Error(`${command} exited with ${code}${stderr ? `\n${stderr}` : ""}`));
+    });
+  });
+}
+
 function parseFrameRate(value) {
   const [numerator, denominator] = value.split("/").map(Number);
   return denominator === 0 ? 0 : numerator / denominator;
@@ -219,6 +241,45 @@ async function probePlaylist(playlistPath) {
   const { stdout } = await run("ffprobe", ["-v", "error", "-show_streams", "-show_format", "-of", "json", playlistPath]);
 
   return JSON.parse(stdout);
+}
+
+async function sampleFrameColor(inputPath, seconds) {
+  const { stdout } = await runBuffer("ffmpeg", [
+    "-hide_banner",
+    "-v",
+    "error",
+    "-ss",
+    String(seconds),
+    "-i",
+    inputPath,
+    "-vf",
+    "scale=1:1,format=rgb24",
+    "-frames:v",
+    "1",
+    "-f",
+    "rawvideo",
+    "-",
+  ]);
+
+  assert(stdout.length >= 3, `Could not sample frame color at ${seconds}s.`);
+
+  return { r: stdout[0], g: stdout[1], b: stdout[2] };
+}
+
+function classifyLiveControlColor({ r, g, b }) {
+  if (b > r + 45 && b > g + 25) {
+    return "source-a";
+  }
+
+  if (r > 120 && g > 55 && b < 90) {
+    return "source-b";
+  }
+
+  if (r < 95 && g < 105 && b < 130) {
+    return "hold-slate";
+  }
+
+  return "unknown";
 }
 
 async function writeHoldSlateImage(imagePath) {
@@ -328,6 +389,24 @@ async function extractEvidenceFrames(playlistPath, framesDir) {
       join(framesDir, `${label}.jpg`),
     ]);
   }
+}
+
+async function verifyLiveControlFrameTiming(watchPreviewPath, outputDir) {
+  const checks = [];
+
+  for (const sample of [
+    { label: "source-a", seconds: 2 },
+    { label: "hold-slate", seconds: 6 },
+    { label: "source-b", seconds: 10 },
+  ]) {
+    const color = await sampleFrameColor(watchPreviewPath, sample.seconds);
+    const classifiedAs = classifyLiveControlColor(color);
+    checks.push({ ...sample, color, classifiedAs, passed: classifiedAs === sample.label });
+  }
+
+  writeFileSync(join(outputDir, "frame-checks.json"), `${JSON.stringify(checks, null, 2)}\n`);
+
+  return checks;
 }
 
 async function writeStaticSyntheticProgram(outputDir, config) {
@@ -518,14 +597,19 @@ async function uploadArtifacts(outputDir, s3Uri) {
 }
 
 function writeHtmlReport(outputDir, report) {
+  const frameChecksByLabel = new Map(report.frameChecks.map((check) => [check.label, check]));
   const frameList = report.frames
-    .map(
-      (frame) => `
+    .map((frame) => {
+      const label = frame.replace(/\.jpg$/, "");
+      const check = frameChecksByLabel.get(label);
+      const caption = check === undefined ? label : `${label}: ${check.classifiedAs} (${check.passed ? "pass" : "fail"})`;
+
+      return `
         <figure>
-          <img src="frames/${frame}" alt="${frame.replace(/\.jpg$/, "")}" />
-          <figcaption>${frame.replace(/\.jpg$/, "")}</figcaption>
-        </figure>`,
-    )
+          <img src="frames/${frame}" alt="${label}" />
+          <figcaption>${caption}</figcaption>
+        </figure>`;
+    })
     .join("\n");
   const checks = Object.entries(report.acceptance)
     .map(([name, passed]) => `<li><strong>${name}</strong>: ${passed ? "pass" : "fail"}</li>`)
@@ -616,6 +700,8 @@ async function runBenchmark(config) {
   const previewAudio = watchPreviewMetadata.streams.find((stream) => stream.codec_type === "audio");
   const frames = readdirSync(join(outputDir, "frames")).filter((entry) => entry.endsWith(".jpg")).sort();
   const frameInputs = readdirSync(join(outputDir, "frames")).filter((entry) => entry.endsWith("-input.png")).sort();
+  const frameChecks =
+    config.syntheticVariant === "live-control" ? await verifyLiveControlFrameTiming(checkedWatchPreviewPath, outputDir) : [];
 
   assert(video, "Output has no video stream.");
   assert(audio, "Output has no audio stream.");
@@ -666,11 +752,14 @@ async function runBenchmark(config) {
       channels: Number(audio.channels),
     },
     frames,
+    frameChecks,
     acceptance: {
       ...(config.syntheticVariant === "static-transition"
         ? { staticRealtimeThroughput: realtimeFactor >= 1 }
         : {
+            liveControlRealtimePace: realtimeFactor >= 0.95,
             liveControlRuntimeCompleted: commandLog.length > 0,
+            liveControlTimedFramesDetected: frameChecks.every((check) => check.passed),
             runtimeVideoFadeCommandsSent: commandLog.some((event) => event.kind.startsWith("video-alpha-fade")),
             runtimeAudioFadeCommandsSent: commandLog.some((event) => event.kind.startsWith("audio-fade")),
           }),

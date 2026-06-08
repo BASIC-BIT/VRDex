@@ -45,7 +45,7 @@ Secret values are not environment variables in git or Terraform. The `secret_arn
 
 ## Visible Benchmark Output
 
-The worker benchmark entrypoint generates a synthetic 12-second `1080p60` program with source, hold-slate, and source-switch transitions. The default `static-transition` variant generates the hold slate once as static artwork, then loops it through the timed fade section to keep the benchmark focused on the live encode path. The `live-control` variant starts FFmpeg once and drives the same source/hold/source sequence through runtime filter commands. A successful run writes:
+The worker benchmark entrypoint generates a synthetic 12-second `1080p60` program with source, hold-slate, and source-switch transitions. The default `static-transition` variant generates the hold slate once as static artwork, then loops it through the timed fade section to keep the benchmark focused on the live encode path. The `live-control` variant starts FFmpeg once and drives the same source/hold/source sequence through runtime filter commands. It also gates on near real-time pace and timed frame classification so wall-clock source commands cannot silently drift earlier in the output timeline. A successful run writes:
 
 - `program.mp4`, embedded in `report.html` for browser playback
 - `hls/program.m3u8` and HLS `.ts` segments
