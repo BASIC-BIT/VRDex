@@ -30,6 +30,8 @@ Expected non-secret values:
 - `VRDEX_RESTREAM_SECRET_REF_NAMES`
 - `VRDEX_RESTREAM_SYNTHETIC_VARIANT`, default `static-transition`; use `live-control` for FFmpeg runtime command proof in the worker container
 - `VRDEX_RESTREAM_LIVE_CONTROL_SCHEDULE`, default `output-timeline`; use `wall-clock` only to compare old timing behavior
+- `VRDEX_RESTREAM_LIVE_CONTROL_MODE`, default `overlay-alpha-volume-fade`; use `hard-switch` for the simple source-selection baseline
+- `VRDEX_RESTREAM_X264_PRESET`, default `veryfast`
 - `VRDEX_RESTREAM_TRANSITION_FADE_MS`, default `500`
 - `VRDEX_RESTREAM_HOLD_SLATE_AUDIO_DELAY_MS`, default `750`
 - `CONVEX_URL`
@@ -52,6 +54,14 @@ pnpm proof:restream:worker:live-control
 
 That command runs the hosted worker contract with `VRDEX_RESTREAM_SYNTHETIC_VARIANT=live-control`, starts FFmpeg once, and drives source/hold/source switching through the reusable controller instead of pre-rendering the transitions.
 The live-control variant schedules runtime commands against FFmpeg output progress by default and gates on timed frame samples at the expected source, hold-slate, and source-B positions. It still reports near-real-time pace as diagnostics, while the default `static-transition` variant remains the throughput gate. The optional `wall-clock` schedule is a diagnostic comparison mode for proving why output-progress scheduling matters when encoding falls behind real time.
+
+Benchmark matrix command:
+
+```powershell
+pnpm proof:restream:worker:matrix
+```
+
+That command compares the richer fade mode against the simple `hard-switch` mode and selected x264 presets. The current hosted evidence says `hard-switch` is the right baseline for a reliable first restreamer: it reduces runtime commands from 194 to 8 and improves Fargate `1080p60` from `0.335x` to about `0.616x` on the current task shape, but it still does not make that shape realtime. Treat fade/slate polish as optional until the source-selection pipeline has realtime headroom.
 
 Runtime command proof:
 

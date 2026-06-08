@@ -5,6 +5,7 @@ import { performance } from "node:perf_hooks";
 import {
   DEFAULT_LIVE_CONTROL_PRESET,
   FFmpegProcess,
+  LIVE_CONTROL_MODES,
   ProgramController,
   ZmqCommandClient,
   buildSyntheticLiveControlFfmpegArgs,
@@ -15,11 +16,13 @@ const REQUIRED_GATE = "1080p60";
 const ALLOWED_BENCHMARK_MODES = new Set(["dry-run", "ecs-fargate"]);
 const ALLOWED_SYNTHETIC_VARIANTS = new Set(["static-transition", "live-control"]);
 const ALLOWED_LIVE_CONTROL_SCHEDULES = new Set(["output-timeline", "wall-clock"]);
+const ALLOWED_X264_PRESETS = new Set(["ultrafast", "superfast", "veryfast", "faster", "fast"]);
 const DEFAULT_ARTIFACT_ROOT = process.env.AWS_EXECUTION_ENV
   ? "/tmp/vrdex-restream-worker-benchmark"
   : "artifacts/restream-worker-benchmark";
 const DEFAULT_SYNTHETIC_VARIANT = "static-transition";
 const DEFAULT_LIVE_CONTROL_SCHEDULE = "output-timeline";
+const DEFAULT_X264_PRESET = "veryfast";
 const DEFAULT_TRANSITION_FADE_MS = 500;
 const DEFAULT_HOLD_SLATE_AUDIO_DELAY_MS = 750;
 const WIDTH = 1920;
@@ -494,7 +497,7 @@ async function writeStaticSyntheticProgram(outputDir, config) {
     "-c:v",
     "libx264",
     "-preset",
-    "veryfast",
+    config.x264Preset,
     "-tune",
     "zerolatency",
     "-profile:v",
@@ -567,6 +570,8 @@ async function writeLiveControlSyntheticProgram(outputDir, config) {
     height: HEIGHT,
     frameRate: FRAME_RATE,
     durationSeconds: DURATION_SECONDS,
+    controlMode: config.liveControlMode,
+    x264Preset: config.x264Preset,
     progressPipe: scheduleByOutput,
   });
   const started = performance.now();
@@ -584,6 +589,7 @@ async function writeLiveControlSyntheticProgram(outputDir, config) {
         }
       : {}),
     preset: {
+      controlMode: config.liveControlMode,
       fadeMs: config.transitionFadeMs,
       holdAudioDelayMs: config.holdSlateAudioDelayMs,
     },
@@ -606,7 +612,7 @@ async function writeLiveControlSyntheticProgram(outputDir, config) {
   return {
     encodeElapsedSeconds,
     watchPreviewPath,
-    controlMode: DEFAULT_LIVE_CONTROL_PRESET.controlMode,
+    controlMode: config.liveControlMode,
     liveControlSchedule: config.liveControlSchedule,
     commandLog,
   };
@@ -697,6 +703,7 @@ function writeHtmlReport(outputDir, report) {
       <div class="card"><div class="label">Variant</div><div class="value">${report.syntheticVariant}</div></div>
       <div class="card"><div class="label">Control Mode</div><div class="value">${report.controlMode}</div></div>
       ${report.liveControlSchedule === undefined ? "" : `<div class="card"><div class="label">Schedule</div><div class="value">${report.liveControlSchedule}</div></div>`}
+      <div class="card"><div class="label">x264 Preset</div><div class="value">${report.x264Preset}</div></div>
       <div class="card"><div class="label">Output</div><div class="value">${report.video.codec} ${report.video.width}x${report.video.height} @ ${report.video.frameRate}</div></div>
       <div class="card"><div class="label">Audio</div><div class="value">${report.audio.codec} ${report.audio.sampleRateHz}Hz ${report.audio.channels}ch</div></div>
       <div class="card"><div class="label">Realtime Factor</div><div class="value">${report.realtimeFactor.toFixed(2)}x</div></div>
@@ -774,6 +781,7 @@ async function runBenchmark(config) {
     maxSessionSeconds: config.maxSessionSeconds,
     transitionFadeMs: config.transitionFadeMs,
     holdSlateAudioDelayMs: config.holdSlateAudioDelayMs,
+    x264Preset: config.x264Preset,
     killSwitchParameter: config.killSwitchParameter,
     commandTimeline: timeline,
     playlist: playlistSummary.playlistPath,
@@ -807,8 +815,15 @@ async function runBenchmark(config) {
         : {
             liveControlRuntimeCompleted: commandLog.length > 0,
             liveControlTimedFramesDetected: frameChecks.every((check) => check.passed),
-            runtimeVideoFadeCommandsSent: commandLog.some((event) => event.kind.startsWith("video-alpha-fade")),
-            runtimeAudioFadeCommandsSent: commandLog.some((event) => event.kind.startsWith("audio-fade")),
+            ...(controlMode === "hard-switch"
+              ? {
+                  runtimeVideoSwitchCommandsSent: commandLog.some((event) => event.kind.startsWith("video-")),
+                  runtimeAudioSwitchCommandsSent: commandLog.some((event) => event.kind.startsWith("audio-")),
+                }
+              : {
+                  runtimeVideoFadeCommandsSent: commandLog.some((event) => event.kind.startsWith("video-alpha-fade")),
+                  runtimeAudioFadeCommandsSent: commandLog.some((event) => event.kind.startsWith("audio-fade")),
+                }),
           }),
       expectedVideoShape: video.codec_name === "h264" && video.width === 1920 && video.height === 1080,
       expectedAudioShape: audio.codec_name === "aac" && Number(audio.sample_rate) === 48000 && Number(audio.channels) === 2,
@@ -816,8 +831,12 @@ async function runBenchmark(config) {
       independentSegments: true,
       watchPreviewPresent: true,
       holdSlateArtworkPresent: frameInputs.some((entry) => entry === "hold-slate-input.png"),
-      transitionFadesConfigured: config.transitionFadeMs > 0,
-      holdSlateAudioDelayConfigured: config.holdSlateAudioDelayMs > 0,
+      ...(config.syntheticVariant === "static-transition" || controlMode === "overlay-alpha-volume-fade"
+        ? {
+            transitionFadesConfigured: config.transitionFadeMs > 0,
+            holdSlateAudioDelayConfigured: config.holdSlateAudioDelayMs > 0,
+          }
+        : {}),
     },
   };
 
@@ -836,6 +855,7 @@ async function runBenchmark(config) {
       ...(uploadedTo === undefined ? {} : { uploadedTo }),
       benchmarkMode: config.benchmarkMode,
       syntheticVariant: report.syntheticVariant,
+      controlMode: report.controlMode,
       ...(report.liveControlSchedule === undefined ? {} : { liveControlSchedule: report.liveControlSchedule }),
       qualityGate: REQUIRED_GATE,
       durationSeconds: report.durationSeconds,
@@ -844,6 +864,7 @@ async function runBenchmark(config) {
       watchPreview: "program.mp4",
       transitionFadeMs: report.transitionFadeMs,
       holdSlateAudioDelayMs: report.holdSlateAudioDelayMs,
+      x264Preset: report.x264Preset,
       frames: report.frames,
     }),
   );
@@ -874,12 +895,26 @@ function loadConfig() {
     throw new Error("VRDEX_RESTREAM_LIVE_CONTROL_SCHEDULE must be output-timeline or wall-clock.");
   }
 
+  const liveControlMode = optionalEnv("VRDEX_RESTREAM_LIVE_CONTROL_MODE") ?? DEFAULT_LIVE_CONTROL_PRESET.controlMode;
+
+  if (!LIVE_CONTROL_MODES.has(liveControlMode)) {
+    throw new Error("VRDEX_RESTREAM_LIVE_CONTROL_MODE must be overlay-alpha-volume-fade or hard-switch.");
+  }
+
+  const x264Preset = optionalEnv("VRDEX_RESTREAM_X264_PRESET") ?? DEFAULT_X264_PRESET;
+
+  if (!ALLOWED_X264_PRESETS.has(x264Preset)) {
+    throw new Error("VRDEX_RESTREAM_X264_PRESET must be ultrafast, superfast, veryfast, faster, or fast.");
+  }
+
   requiredUrlEnv("CONVEX_URL");
   const syntheticOnly = booleanEnv("VRDEX_RESTREAM_SYNTHETIC_ONLY", true);
   const config = {
     benchmarkMode,
     syntheticVariant,
     liveControlSchedule,
+    liveControlMode,
+    x264Preset,
     syntheticOnly,
     killSwitchParameter: requiredEnv("VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER"),
     secretRefNames: listEnv("VRDEX_RESTREAM_SECRET_REF_NAMES", !syntheticOnly),
@@ -917,6 +952,8 @@ async function main() {
         benchmarkMode: config.benchmarkMode,
         syntheticVariant: config.syntheticVariant,
         liveControlSchedule: config.liveControlSchedule,
+        liveControlMode: config.liveControlMode,
+        x264Preset: config.x264Preset,
         qualityGate: REQUIRED_GATE,
       }),
     );

@@ -56,6 +56,28 @@ variable "live_control_schedule" {
   }
 }
 
+variable "live_control_mode" {
+  description = "Runtime command strategy for live-control synthetic benchmarks. hard-switch is the simple source-selection baseline; overlay-alpha-volume-fade keeps the richer transition proof."
+  type        = string
+  default     = "overlay-alpha-volume-fade"
+
+  validation {
+    condition     = contains(["overlay-alpha-volume-fade", "hard-switch"], var.live_control_mode)
+    error_message = "live_control_mode must be overlay-alpha-volume-fade or hard-switch."
+  }
+}
+
+variable "x264_preset" {
+  description = "x264 encoder preset used by synthetic benchmark workers. Faster presets trade compression efficiency for lower CPU cost."
+  type        = string
+  default     = "veryfast"
+
+  validation {
+    condition     = contains(["ultrafast", "superfast", "veryfast", "faster", "fast"], var.x264_preset)
+    error_message = "x264_preset must be ultrafast, superfast, veryfast, faster, or fast."
+  }
+}
+
 variable "transition_fade_ms" {
   description = "Synthetic benchmark audio/video fade duration in milliseconds."
   type        = number

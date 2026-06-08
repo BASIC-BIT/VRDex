@@ -80,4 +80,18 @@ describe("restream worker configuration", () => {
     assert.equal(result.code, 1);
     assert.match(result.stderr, /VRDEX_RESTREAM_LIVE_CONTROL_SCHEDULE must be output-timeline or wall-clock\./);
   });
+
+  it("rejects unknown live-control modes", async () => {
+    const result = await runWorker({ VRDEX_RESTREAM_LIVE_CONTROL_MODE: "half-fade" });
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /VRDEX_RESTREAM_LIVE_CONTROL_MODE must be overlay-alpha-volume-fade or hard-switch\./);
+  });
+
+  it("rejects unknown x264 presets", async () => {
+    const result = await runWorker({ VRDEX_RESTREAM_X264_PRESET: "slow" });
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /VRDEX_RESTREAM_X264_PRESET must be ultrafast, superfast, veryfast, faster, or fast\./);
+  });
 });

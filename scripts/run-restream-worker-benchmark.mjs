@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 
 const syntheticVariant = process.argv[2] ?? "static-transition";
+const liveControlMode = process.argv[3];
+const x264Preset = process.argv[4];
 
 const defaultEnv = {
   CONVEX_URL: "https://example.invalid",
@@ -19,7 +21,13 @@ const defaultEnv = {
 };
 
 const child = spawn(process.execPath, ["workers/restream/hosted-worker.mjs"], {
-  env: { ...process.env, ...defaultEnv },
+  env: {
+    ...defaultEnv,
+    ...process.env,
+    VRDEX_RESTREAM_SYNTHETIC_VARIANT: syntheticVariant,
+    ...(liveControlMode === undefined ? {} : { VRDEX_RESTREAM_LIVE_CONTROL_MODE: liveControlMode }),
+    ...(x264Preset === undefined ? {} : { VRDEX_RESTREAM_X264_PRESET: x264Preset }),
+  },
   stdio: "inherit",
 });
 

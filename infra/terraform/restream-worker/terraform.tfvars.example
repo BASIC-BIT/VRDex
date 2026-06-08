@@ -14,6 +14,8 @@ max_concurrent_workers = 10
 max_session_seconds    = 43200
 synthetic_variant      = "static-transition"
 live_control_schedule  = "output-timeline"
+live_control_mode      = "overlay-alpha-volume-fade"
+x264_preset            = "veryfast"
 
 # False keeps hosted workers disabled until an approved benchmark enables the switch.
 kill_switch_enabled_default = false

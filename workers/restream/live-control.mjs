@@ -11,6 +11,8 @@ export const DEFAULT_LIVE_CONTROL_PRESET = {
   holdAudioDelayMs: 750,
 };
 
+export const LIVE_CONTROL_MODES = new Set(["overlay-alpha-volume-fade", "hard-switch"]);
+
 export function sleep(ms) {
   return new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 }
@@ -177,7 +179,7 @@ export class FFmpegProcess {
   }
 }
 
-export function buildLiveControlFilterGraph({ durationSeconds }) {
+function buildOverlayFadeFilterGraph({ durationSeconds }) {
   return [
     "[0:v]format=yuv420p,setsar=1,setpts=PTS-STARTPTS,split=2[v0base][v0next]",
     "[1:v]format=yuv420p,setsar=1,setpts=PTS-STARTPTS,split=2[v1base][v1next]",
@@ -194,6 +196,27 @@ export function buildLiveControlFilterGraph({ durationSeconds }) {
   ].join(";");
 }
 
+function buildHardSwitchFilterGraph() {
+  return [
+    "[0:v]format=yuv420p,setsar=1,setpts=PTS-STARTPTS[v0]",
+    "[1:v]format=yuv420p,setsar=1,setpts=PTS-STARTPTS[v1]",
+    "[2:v]format=yuv420p,setsar=1,setpts=PTS-STARTPTS[v2]",
+    "[v0][v1][v2]streamselect@video-source=inputs=3:map=0,zmq[v]",
+    "[3:a]pan=stereo|c0=c0|c1=c0,asetpts=PTS-STARTPTS[a0]",
+    "[4:a]pan=stereo|c0=c0|c1=c0,asetpts=PTS-STARTPTS[a1]",
+    "[5:a]pan=stereo|c0=c0|c1=c0,asetpts=PTS-STARTPTS[a2]",
+    "[a0][a1][a2]astreamselect@audio-source=inputs=3:map=0[a]",
+  ].join(";");
+}
+
+export function buildLiveControlFilterGraph({ durationSeconds, controlMode = DEFAULT_LIVE_CONTROL_PRESET.controlMode }) {
+  if (controlMode === "hard-switch") {
+    return buildHardSwitchFilterGraph();
+  }
+
+  return buildOverlayFadeFilterGraph({ durationSeconds });
+}
+
 export function buildSyntheticLiveControlFfmpegArgs({
   scenePaths,
   hlsDir,
@@ -202,6 +225,8 @@ export function buildSyntheticLiveControlFfmpegArgs({
   height,
   frameRate,
   durationSeconds,
+  controlMode = DEFAULT_LIVE_CONTROL_PRESET.controlMode,
+  x264Preset = "veryfast",
   progressPipe = false,
 }) {
   const segmentPattern = join(hlsDir, "program-%03d.ts");
@@ -237,28 +262,14 @@ export function buildSyntheticLiveControlFfmpegArgs({
     String(durationSeconds),
     "-i",
     scenePaths["source-b"],
-    "-re",
-    "-f",
-    "lavfi",
-    "-i",
-    `sine=frequency=440:sample_rate=48000:duration=${durationSeconds}`,
-    "-re",
-    "-f",
-    "lavfi",
-    "-i",
-    `sine=frequency=220:sample_rate=48000:duration=${durationSeconds}`,
-    "-re",
-    "-f",
-    "lavfi",
-    "-i",
-    `sine=frequency=880:sample_rate=48000:duration=${durationSeconds}`,
-    "-re",
-    "-f",
-    "lavfi",
-    "-i",
-    `anullsrc=channel_layout=stereo:sample_rate=48000:duration=${durationSeconds}`,
+    ...[
+      `sine=frequency=440:sample_rate=48000:duration=${durationSeconds}`,
+      `sine=frequency=220:sample_rate=48000:duration=${durationSeconds}`,
+      `sine=frequency=880:sample_rate=48000:duration=${durationSeconds}`,
+      ...(controlMode === "hard-switch" ? [] : [`anullsrc=channel_layout=stereo:sample_rate=48000:duration=${durationSeconds}`]),
+    ].flatMap((source) => ["-re", "-f", "lavfi", "-i", source]),
     "-filter_complex",
-    buildLiveControlFilterGraph({ durationSeconds }),
+    buildLiveControlFilterGraph({ durationSeconds, controlMode }),
     "-map",
     "[v]",
     "-map",
@@ -266,7 +277,7 @@ export function buildSyntheticLiveControlFfmpegArgs({
     "-c:v",
     "libx264",
     "-preset",
-    "veryfast",
+    x264Preset,
     "-tune",
     "zerolatency",
     "-profile:v",
@@ -392,6 +403,13 @@ export class ProgramController {
     });
   }
 
+  async sendHardSwitch(sourceMap, kind) {
+    await Promise.all([
+      this.sendMap("streamselect@video-source", sourceMap, `video-${kind}`),
+      this.sendMap("astreamselect@audio-source", sourceMap, `audio-${kind}`),
+    ]);
+  }
+
   async fadeValue({ startMs, durationMs, from, to, sendStep }) {
     const events = [];
 
@@ -407,6 +425,12 @@ export class ProgramController {
 
   async initialize() {
     await this.waitUntil(750);
+
+    if (this.preset.controlMode === "hard-switch") {
+      await this.sendHardSwitch(0, "source-a-initial");
+      return;
+    }
+
     await this.sendMap("streamselect@base", 0, "video-base-initial");
     await this.sendMap("streamselect@next", 1, "video-next-initial");
     await this.sendAlpha(0, "video-overlay-alpha-initial");
@@ -418,6 +442,12 @@ export class ProgramController {
   async switchHold(atMs = 4000) {
     await this.waitUntil(atMs);
     this.operatorCommand("switch_hold");
+
+    if (this.preset.controlMode === "hard-switch") {
+      await this.sendHardSwitch(1, "hold");
+      return;
+    }
+
     await this.sendMap("streamselect@next", 1, "video-next-hold");
     await Promise.all([
       this.fadeValue({
@@ -453,6 +483,12 @@ export class ProgramController {
 
     await this.waitUntil(atMs);
     this.operatorCommand("switch_source", { targetSourceKey });
+
+    if (this.preset.controlMode === "hard-switch") {
+      await this.sendHardSwitch(sourceMap, targetSourceKey);
+      return;
+    }
+
     await this.sendMap("streamselect@next", sourceMap, `video-next-${targetSourceKey}`);
     await Promise.all([
       this.fadeValue({

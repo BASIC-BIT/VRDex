@@ -38,6 +38,8 @@ The task definition injects these non-secret values, and the current entrypoint 
 - `VRDEX_RESTREAM_SECRET_REF_NAMES`
 - `VRDEX_RESTREAM_SYNTHETIC_VARIANT=static-transition`
 - `VRDEX_RESTREAM_LIVE_CONTROL_SCHEDULE=output-timeline`
+- `VRDEX_RESTREAM_LIVE_CONTROL_MODE=overlay-alpha-volume-fade`
+- `VRDEX_RESTREAM_X264_PRESET=veryfast`
 - `VRDEX_RESTREAM_TRANSITION_FADE_MS=500`
 - `VRDEX_RESTREAM_HOLD_SLATE_AUDIO_DELAY_MS=750`
 - `CONVEX_URL`
@@ -46,7 +48,7 @@ Secret values are not environment variables in git or Terraform. The `secret_arn
 
 ## Visible Benchmark Output
 
-The worker benchmark entrypoint generates a synthetic 12-second `1080p60` program with source, hold-slate, and source-switch transitions. The default `static-transition` variant generates the hold slate once as static artwork, then loops it through the timed fade section to keep the benchmark focused on the live encode path. The `live-control` variant starts FFmpeg once and drives the same source/hold/source sequence through runtime filter commands. It schedules commands against FFmpeg output progress by default, then gates on timed frame classification so source commands cannot silently drift earlier in the output timeline when encoding falls behind real time. Live-control still reports near-real-time pace as diagnostics, while `static-transition` remains the throughput gate. The `wall-clock` schedule remains available only as a diagnostic comparison mode. A successful run writes:
+The worker benchmark entrypoint generates a synthetic 12-second `1080p60` program with source, hold-slate, and source-switch transitions. The default `static-transition` variant generates the hold slate once as static artwork, then loops it through the timed fade section to keep the benchmark focused on the live encode path. The `live-control` variant starts FFmpeg once and drives the same source/hold/source sequence through runtime filter commands. It schedules commands against FFmpeg output progress by default, then gates on timed frame classification so source commands cannot silently drift earlier in the output timeline when encoding falls behind real time. Live-control still reports near-real-time pace as diagnostics, while `static-transition` remains the throughput gate. The `wall-clock` schedule remains available only as a diagnostic comparison mode. The `hard-switch` control mode is the simple source-selection baseline; `overlay-alpha-volume-fade` is optional polish. A successful run writes:
 
 - `program.mp4`, embedded in `report.html` for browser playback
 - `hls/program.m3u8` and HLS `.ts` segments
@@ -64,6 +66,12 @@ Local worker live-control proof command from the repository root:
 
 ```powershell
 pnpm proof:restream:worker:live-control
+```
+
+Local benchmark matrix command from the repository root:
+
+```powershell
+pnpm proof:restream:worker:matrix
 ```
 
 Approved ECS benchmark tasks upload the same artifact tree under the private `artifact_s3_uri` Terraform output. Keep the bucket private and use authenticated S3 reads or short-lived presigned URLs for review.
@@ -87,6 +95,23 @@ pnpm proof:restream:live-control
 The proof uses FFmpeg's `zmq` command filter plus command-capable filter instances. The local command sender requires Python with `pyzmq`. The controller accepts semantic source-change commands, then expands them into eased, frame-ish runtime commands for source A, hold slate, source B, overlay alpha, and audio source volumes. The generated report classifies output frames, scans transition windows for blended frames, and checks audio windows to verify source-to-slate-to-source switching, runtime-programmed fades, and the delayed hold-slate audio path.
 
 Current recommendation: use overlay alpha plus per-source volume commands for runtime fades. Do not rely on runtime `mix` or `amix` `weights`; this FFmpeg build returned `Function not implemented` for those commands during diagnosis.
+
+Current recommendation: treat `hard-switch` as the first production baseline. It keeps one semantic operator timeline but uses direct commandable video and audio source selection, reducing the synthetic runtime command count from 194 to 8. The current hosted `4096` CPU / `8192` MiB Fargate shape still misses `1080p60` realtime: observed `hard-switch` results were about `0.616x` with `veryfast` and `0.675x` with `ultrafast`. Do not add fades or slate polish back into the production path until the simple source-selection path has realtime headroom.
+
+## VRCDN Live-Output POC Harness
+
+Current recommendation: prepare a three-account VRCDN test harness before running non-synthetic output. Two accounts act as source feeds and one account acts as the watched output target.
+
+Required operator-provided inputs for the first full POC:
+
+- source A public playback link
+- source B public playback link
+- output public watch link
+- secret reference for source A synthetic-pusher ingest credentials
+- secret reference for source B synthetic-pusher ingest credentials
+- secret reference for output ingest credentials
+
+Do not paste stream keys, ingest URLs with embedded keys, provider tokens, signed URLs, or account passwords into chat, docs, git, Terraform variables, Convex event records, or logs. Store secret values only in Secrets Manager or the approved secret store, then pass reference names through Terraform or the control plane. The POC should first push local synthetic audio/video into source A and source B, restream the public playback links through the worker, push to the output account, and watch the output account's public playback page or HLS URL for validation.
 
 ## Logs And Metrics
 
@@ -149,6 +174,7 @@ pnpm lint:markdown
 docker build -f workers/restream/Dockerfile -t vrdex-restream-worker:local .
 pnpm proof:restream:worker
 pnpm proof:restream:worker:live-control
+pnpm proof:restream:worker:matrix
 ```
 
 No AWS CLI mutation, Terraform apply, image publish, or ECS task run is part of this validation.

@@ -38,6 +38,15 @@ describe("restream live control", () => {
     assert.match(graph, /zmq\[v\]/);
   });
 
+  it("builds a simpler hard-switch FFmpeg filter graph", () => {
+    const graph = buildLiveControlFilterGraph({ durationSeconds: 12, controlMode: "hard-switch" });
+
+    assert.match(graph, /streamselect@video-source=inputs=3:map=0/);
+    assert.match(graph, /astreamselect@audio-source=inputs=3:map=0/);
+    assert.doesNotMatch(graph, /colorchannelmixer@overlay-alpha/);
+    assert.doesNotMatch(graph, /amix=inputs=4/);
+  });
+
   it("builds synthetic FFmpeg args with the live-control graph", () => {
     const args = buildSyntheticLiveControlFfmpegArgs({
       scenePaths: {
@@ -132,5 +141,37 @@ describe("restream live control", () => {
     assert(client.messages.includes("volume@audio-source-a volume 0.000"));
     assert(client.messages.includes("volume@audio-hold volume 1.000"));
     assert(client.messages.includes("volume@audio-source-b volume 1.000"));
+  });
+
+  it("can expand semantic program switches into hard source-selection commands", async () => {
+    const client = new FakeCommandClient();
+    const commandLog: Array<Record<string, unknown>> = [];
+    let nowMs = 0;
+    const controller = new ProgramController(client, {
+      commandLog,
+      startedAt: 0,
+      now: () => nowMs,
+      waitUntil: async (elapsedMs: number) => {
+        nowMs = elapsedMs;
+      },
+      preset: {
+        controlMode: "hard-switch",
+      },
+    });
+
+    await controller.runProofTimeline();
+
+    assert.deepEqual(client.messages, [
+      "streamselect@video-source map 0",
+      "astreamselect@audio-source map 0",
+      "streamselect@video-source map 1",
+      "astreamselect@audio-source map 1",
+      "streamselect@video-source map 2",
+      "astreamselect@audio-source map 2",
+    ]);
+    assert.deepEqual(
+      commandLog.filter((event) => event.kind === "operator-command").map((event) => event.command),
+      ["switch_hold", "switch_source"],
+    );
   });
 });
