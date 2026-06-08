@@ -33,21 +33,10 @@ function main() {
     throw new Error(`Hosted restream workers must run behind the ${REQUIRED_GATE} gate.`);
   }
 
-  const maxSessionSeconds = optionalIntegerEnv("VRDEX_RESTREAM_MAX_SESSION_SECONDS", 43_200);
-  const maxConcurrentWorkers = optionalIntegerEnv("VRDEX_RESTREAM_MAX_CONCURRENT_WORKERS", 10);
-  const benchmarkMode = process.env.VRDEX_RESTREAM_BENCHMARK_MODE ?? "dry-run";
+  optionalIntegerEnv("VRDEX_RESTREAM_MAX_SESSION_SECONDS", 43_200);
+  optionalIntegerEnv("VRDEX_RESTREAM_MAX_CONCURRENT_WORKERS", 10);
 
-  const summary = {
-    benchmarkMode,
-    qualityGate,
-    maxConcurrentWorkers,
-    maxSessionSeconds,
-    killSwitchParameter: process.env.VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER ?? null,
-    convexUrlConfigured: process.env.CONVEX_URL !== undefined,
-    secretRefsConfigured: process.env.VRDEX_RESTREAM_SECRET_REF_NAMES?.split(",").filter(Boolean) ?? [],
-  };
-
-  console.log(JSON.stringify(summary));
+  console.log(JSON.stringify({ event: "restream_worker_configuration_validated", qualityGate: REQUIRED_GATE }));
 }
 
 try {

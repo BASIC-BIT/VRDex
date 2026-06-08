@@ -29,7 +29,7 @@ Expected non-secret values:
 - `VRDEX_RESTREAM_SECRET_REF_NAMES`
 - `CONVEX_URL`
 
-Expected secret-reference names are supplied by Terraform through the `secret_arns` map. The first useful hosted benchmark should use an event-scoped output credential reference, not a raw ingest URL or stream key in plain environment variables.
+Expected secret-reference names are supplied by Terraform through the `secret_arns` map. The worker must treat those names as operationally sensitive and must not log them. The first useful hosted benchmark should use an event-scoped output credential reference, not a raw ingest URL or stream key in plain environment variables.
 
 ## Benchmark Gate
 
