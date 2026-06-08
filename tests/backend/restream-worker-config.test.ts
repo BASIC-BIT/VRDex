@@ -12,6 +12,8 @@ const validWorkerEnv = {
   VRDEX_RESTREAM_SECRET_REF_NAMES: "event-media/vrcdn/main-output",
   VRDEX_RESTREAM_TRANSITION_FADE_MS: "500",
   VRDEX_RESTREAM_HOLD_SLATE_AUDIO_DELAY_MS: "750",
+  VRDEX_RESTREAM_SYNTHETIC_DURATION_SECONDS: "12",
+  VRDEX_RESTREAM_MAX_LIVE_DELAY_MS: "10000",
   VRDEX_RESTREAM_CONFIG_CHECK_ONLY: "true",
   VRDEX_RESTREAM_SYNTHETIC_ONLY: "true",
   VRDEX_RESTREAM_SYNTHETIC_VARIANT: "static-transition",
@@ -65,6 +67,26 @@ describe("restream worker configuration", () => {
     assert.match(fadeResult.stderr, /VRDEX_RESTREAM_TRANSITION_FADE_MS must be an integer between 0 and 2000\./);
     assert.equal(delayResult.code, 1);
     assert.match(delayResult.stderr, /VRDEX_RESTREAM_HOLD_SLATE_AUDIO_DELAY_MS must be an integer between 0 and 3000\./);
+  });
+
+  it("rejects sustained benchmark controls outside their guardrails", async () => {
+    const durationResult = await runWorker({ VRDEX_RESTREAM_SYNTHETIC_DURATION_SECONDS: "11" });
+    const delayResult = await runWorker({ VRDEX_RESTREAM_MAX_LIVE_DELAY_MS: "10s" });
+
+    assert.equal(durationResult.code, 1);
+    assert.match(durationResult.stderr, /VRDEX_RESTREAM_SYNTHETIC_DURATION_SECONDS must be an integer between 12 and 43200\./);
+    assert.equal(delayResult.code, 1);
+    assert.match(delayResult.stderr, /VRDEX_RESTREAM_MAX_LIVE_DELAY_MS must be an integer between 1000 and 60000\./);
+  });
+
+  it("rejects synthetic benchmark durations beyond the max session guardrail", async () => {
+    const result = await runWorker({
+      VRDEX_RESTREAM_MAX_SESSION_SECONDS: "120",
+      VRDEX_RESTREAM_SYNTHETIC_DURATION_SECONDS: "121",
+    });
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /VRDEX_RESTREAM_SYNTHETIC_DURATION_SECONDS must not exceed VRDEX_RESTREAM_MAX_SESSION_SECONDS\./);
   });
 
   it("rejects unknown synthetic benchmark variants", async () => {

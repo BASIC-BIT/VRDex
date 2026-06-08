@@ -32,6 +32,8 @@ Expected non-secret values:
 - `VRDEX_RESTREAM_LIVE_CONTROL_SCHEDULE`, default `output-timeline`; use `wall-clock` only to compare old timing behavior
 - `VRDEX_RESTREAM_LIVE_CONTROL_MODE`, default `overlay-alpha-volume-fade`; use `hard-switch` for the simple source-selection baseline
 - `VRDEX_RESTREAM_X264_PRESET`, default `veryfast`
+- `VRDEX_RESTREAM_SYNTHETIC_DURATION_SECONDS`, default `12`; use longer live-control runs to expose sustained delay drift
+- `VRDEX_RESTREAM_MAX_LIVE_DELAY_MS`, default `10000`; the synthetic live-control SLA for max observed output delay
 - `VRDEX_RESTREAM_TRANSITION_FADE_MS`, default `500`
 - `VRDEX_RESTREAM_HOLD_SLATE_AUDIO_DELAY_MS`, default `750`
 - `CONVEX_URL`
@@ -53,7 +55,15 @@ pnpm proof:restream:worker:live-control
 ```
 
 That command runs the hosted worker contract with `VRDEX_RESTREAM_SYNTHETIC_VARIANT=live-control`, starts FFmpeg once, and drives source/hold/source switching through the reusable controller instead of pre-rendering the transitions.
-The live-control variant schedules runtime commands against FFmpeg output progress by default and gates on timed frame samples at the expected source, hold-slate, and source-B positions. It still reports near-real-time pace as diagnostics, while the default `static-transition` variant remains the throughput gate. The optional `wall-clock` schedule is a diagnostic comparison mode for proving why output-progress scheduling matters when encoding falls behind real time.
+The live-control variant schedules runtime commands against FFmpeg output progress by default and gates on timed frame samples at the expected source, hold-slate, and source-B positions. It also records FFmpeg progress samples and reports max, average, and final live delay against `VRDEX_RESTREAM_MAX_LIVE_DELAY_MS`. Near-real-time pace remains a diagnostic because live-control inputs are intentionally `-re` paced; the default `static-transition` variant remains the throughput gate. The optional `wall-clock` schedule is a diagnostic comparison mode for proving why output-progress scheduling matters when encoding falls behind real time.
+
+Sustained local live-control probe example:
+
+```powershell
+pnpm proof:restream:worker:live-control hard-switch ultrafast 1080p60 180 10000
+```
+
+That runs a 180-second synthetic program and fails if observed max live delay exceeds 10 seconds.
 
 Benchmark matrix command:
 
@@ -61,7 +71,7 @@ Benchmark matrix command:
 pnpm proof:restream:worker:matrix
 ```
 
-That command compares the richer fade mode against the simple `hard-switch` mode and selected x264 presets. The current hosted evidence says `hard-switch` is the right baseline for a reliable first restreamer: it reduces runtime commands from 194 to 8 and improves Fargate `1080p60` from `0.335x` to about `0.616x` on the current task shape, but it still does not make that shape realtime. Treat fade/slate polish as optional until the source-selection pipeline has realtime headroom.
+That command compares the richer fade mode against the simple `hard-switch` mode and selected x264 presets. The current hosted evidence says `hard-switch` is the right baseline for a reliable first restreamer: it reduces runtime commands from 194 to 8. A 180-second hosted `1080p60` live-control probe failed the 10-second delay SLA on `4096` CPU / `8192` MiB but passed on `8192` CPU / `16384` MiB with max observed delay under 300ms. Treat fade/slate polish as optional until the source-selection pipeline has live-delay headroom.
 
 The benchmark ladder should be evaluated in this order: `1080p60`, `1080p30`, `720p60`, then `720p30`. Prefer shipping a reliable lower-capability source-selection pipeline over keeping `1080p60` or fade polish if the hosted cost is not practical.
 

@@ -101,6 +101,28 @@ variable "hold_slate_audio_delay_ms" {
   default     = 750
 }
 
+variable "synthetic_duration_seconds" {
+  description = "Synthetic benchmark program duration in seconds. Longer live-control runs expose delay drift better than the 12-second smoke test."
+  type        = number
+  default     = 12
+
+  validation {
+    condition     = var.synthetic_duration_seconds >= 12 && var.synthetic_duration_seconds <= 43200
+    error_message = "synthetic_duration_seconds must be between 12 and 43200."
+  }
+}
+
+variable "max_live_delay_ms" {
+  description = "Maximum accepted synthetic live-control delay from raw input to output, in milliseconds."
+  type        = number
+  default     = 10000
+
+  validation {
+    condition     = var.max_live_delay_ms >= 1000 && var.max_live_delay_ms <= 60000
+    error_message = "max_live_delay_ms must be between 1000 and 60000."
+  }
+}
+
 variable "task_cpu" {
   description = "Fargate task CPU units for one event-session worker. 4096 is the first benchmark shape for the 1080p60 gate."
   type        = number

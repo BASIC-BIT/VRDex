@@ -31,13 +31,8 @@ const DEFAULT_LIVE_CONTROL_SCHEDULE = "output-timeline";
 const DEFAULT_X264_PRESET = "veryfast";
 const DEFAULT_TRANSITION_FADE_MS = 500;
 const DEFAULT_HOLD_SLATE_AUDIO_DELAY_MS = 750;
-const DURATION_SECONDS = 12;
-const timeline = [
-  { atSeconds: 0, command: "start_program", scene: "source-a", audio: "source-a-tone-440hz" },
-  { atSeconds: 4, command: "switch_hold", scene: "hold-slate", audio: "hold-tone-220hz" },
-  { atSeconds: 8, command: "switch_source", targetSourceKey: "source-b", scene: "source-b", audio: "source-b-tone-880hz" },
-  { atSeconds: 12, command: "stop_program" },
-];
+const DEFAULT_SYNTHETIC_DURATION_SECONDS = 12;
+const DEFAULT_MAX_LIVE_DELAY_MS = 10000;
 
 function requiredEnv(name) {
   const value = process.env[name];
@@ -162,6 +157,62 @@ function assert(condition, message) {
   }
 }
 
+function roundMetric(value) {
+  return Number(value.toFixed(3));
+}
+
+function buildTimeline(durationSeconds) {
+  const holdAtSeconds = roundMetric(durationSeconds / 3);
+  const sourceAtSeconds = roundMetric((durationSeconds * 2) / 3);
+
+  return [
+    { atSeconds: 0, command: "start_program", scene: "source-a", audio: "source-a-tone-440hz" },
+    { atSeconds: holdAtSeconds, command: "switch_hold", scene: "hold-slate", audio: "hold-tone-220hz" },
+    {
+      atSeconds: sourceAtSeconds,
+      command: "switch_source",
+      targetSourceKey: "source-b",
+      scene: "source-b",
+      audio: "source-b-tone-880hz",
+    },
+    { atSeconds: durationSeconds, command: "stop_program" },
+  ];
+}
+
+function buildFrameSamples(programTimeline) {
+  return [
+    { label: "source-a", seconds: roundMetric(programTimeline[1].atSeconds / 2) },
+    { label: "hold-slate", seconds: roundMetric((programTimeline[1].atSeconds + programTimeline[2].atSeconds) / 2) },
+    { label: "source-b", seconds: roundMetric((programTimeline[2].atSeconds + programTimeline[3].atSeconds) / 2) },
+  ];
+}
+
+function summarizeLiveDelay(progressSamples, encodeElapsedSeconds, durationSeconds, maxLiveDelayMs) {
+  const clampedDelays = progressSamples.map((sample) => Math.max(0, sample.delayMs));
+  const finalProcessingDelayMs = Math.max(0, encodeElapsedSeconds * 1000 - durationSeconds * 1000);
+  const maxDelayMs = Math.max(finalProcessingDelayMs, ...clampedDelays, 0);
+  const averageDelayMs =
+    clampedDelays.length === 0
+      ? finalProcessingDelayMs
+      : clampedDelays.reduce((sum, delayMs) => sum + delayMs, 0) / clampedDelays.length;
+  const firstSample = progressSamples[0];
+  const lastSample = progressSamples.at(-1);
+  const sampleWindowSeconds =
+    firstSample === undefined || lastSample === undefined ? 0 : (lastSample.wallElapsedMs - firstSample.wallElapsedMs) / 1000;
+  const delayGrowthMs = firstSample === undefined || lastSample === undefined ? 0 : lastSample.delayMs - firstSample.delayMs;
+
+  return {
+    sampleCount: progressSamples.length,
+    maxAllowedDelayMs: maxLiveDelayMs,
+    maxDelayMs: roundMetric(maxDelayMs),
+    averageDelayMs: roundMetric(Math.max(0, averageDelayMs)),
+    finalProcessingDelayMs: roundMetric(finalProcessingDelayMs),
+    delayGrowthMs: roundMetric(delayGrowthMs),
+    delayGrowthMsPerHour: sampleWindowSeconds <= 0 ? 0 : roundMetric((delayGrowthMs / sampleWindowSeconds) * 3600),
+    passed: maxDelayMs <= maxLiveDelayMs,
+  };
+}
+
 function scalePixels(value, total) {
   return Math.round(value * total);
 }
@@ -220,7 +271,7 @@ function parseFrameRate(value) {
   return denominator === 0 ? 0 : numerator / denominator;
 }
 
-function checkPlaylist(outputDir) {
+function checkPlaylist(outputDir, expectedDurationSeconds) {
   const playlistPath = join(outputDir, "hls", "program.m3u8");
   assert(existsSync(playlistPath), `Missing HLS playlist: ${playlistPath}`);
   const playlist = readFileSync(playlistPath, "utf8");
@@ -230,7 +281,10 @@ function checkPlaylist(outputDir) {
 
   assert(playlist.includes("#EXT-X-INDEPENDENT-SEGMENTS"), "HLS playlist should mark independent segments.");
   assert(segmentNames.length >= 3, `Expected at least 3 HLS segments, found ${segmentNames.length}.`);
-  assert(Math.abs(totalDuration - 12) <= 0.75, `Expected HLS duration near 12s, found ${totalDuration}s.`);
+  assert(
+    Math.abs(totalDuration - expectedDurationSeconds) <= 0.75,
+    `Expected HLS duration near ${expectedDurationSeconds}s, found ${totalDuration}s.`,
+  );
 
   for (const segmentName of segmentNames) {
     const segmentPath = join(outputDir, "hls", segmentName);
@@ -400,12 +454,8 @@ async function remuxWatchPreview(playlistPath, watchPreviewPath) {
   await run("ffmpeg", ["-hide_banner", "-y", "-i", playlistPath, "-c", "copy", "-movflags", "+faststart", watchPreviewPath]);
 }
 
-async function extractEvidenceFrames(playlistPath, framesDir) {
-  for (const [label, seconds] of [
-    ["source-a", 2],
-    ["hold-slate", 6],
-    ["source-b", 10],
-  ]) {
+async function extractEvidenceFrames(playlistPath, framesDir, programTimeline) {
+  for (const { label, seconds } of buildFrameSamples(programTimeline)) {
     await run("ffmpeg", [
       "-hide_banner",
       "-y",
@@ -422,14 +472,10 @@ async function extractEvidenceFrames(playlistPath, framesDir) {
   }
 }
 
-async function verifyLiveControlFrameTiming(watchPreviewPath, outputDir) {
+async function verifyLiveControlFrameTiming(watchPreviewPath, outputDir, programTimeline) {
   const checks = [];
 
-  for (const sample of [
-    { label: "source-a", seconds: 2 },
-    { label: "hold-slate", seconds: 6 },
-    { label: "source-b", seconds: 10 },
-  ]) {
+  for (const sample of buildFrameSamples(programTimeline)) {
     const color = await sampleFrameColor(watchPreviewPath, sample.seconds);
     const classifiedAs = classifyLiveControlColor(color);
     checks.push({ ...sample, color, classifiedAs, passed: classifiedAs === sample.label });
@@ -462,15 +508,17 @@ async function writeStaticSyntheticProgram(outputDir, config) {
   const framesDir = join(outputDir, "frames");
   mkdirSync(hlsDir, { recursive: true });
   mkdirSync(framesDir, { recursive: true });
-  writeFileSync(join(outputDir, "command-timeline.json"), `${JSON.stringify(timeline, null, 2)}\n`);
+  const programTimeline = buildTimeline(config.durationSeconds);
+  writeFileSync(join(outputDir, "command-timeline.json"), `${JSON.stringify(programTimeline, null, 2)}\n`);
 
   const holdSlateImage = join(framesDir, "hold-slate-input.png");
   await writeHoldSlateImage(holdSlateImage, config.qualityProfile);
 
   const playlistPath = join(hlsDir, "program.m3u8");
   const segmentPattern = join(hlsDir, "program-%03d.ts");
+  const segmentSeconds = config.durationSeconds / 3;
   const fadeSeconds = config.transitionFadeMs / 1000;
-  const fadeOutStart = 4 - fadeSeconds;
+  const fadeOutStart = segmentSeconds - fadeSeconds;
   const holdAudioDelaySeconds = config.holdSlateAudioDelayMs / 1000;
   const started = performance.now();
 
@@ -480,37 +528,37 @@ async function writeStaticSyntheticProgram(outputDir, config) {
     "-f",
     "lavfi",
     "-i",
-    `testsrc2=size=${config.qualityProfile.width}x${config.qualityProfile.height}:rate=${config.qualityProfile.frameRate}:duration=4`,
+    `testsrc2=size=${config.qualityProfile.width}x${config.qualityProfile.height}:rate=${config.qualityProfile.frameRate}:duration=${segmentSeconds}`,
     "-f",
     "lavfi",
     "-i",
-    "sine=frequency=440:sample_rate=48000:duration=4",
+    `sine=frequency=440:sample_rate=48000:duration=${segmentSeconds}`,
     "-loop",
     "1",
     "-framerate",
     String(config.qualityProfile.frameRate),
     "-t",
-    "4",
+    String(segmentSeconds),
     "-i",
     holdSlateImage,
     "-f",
     "lavfi",
     "-i",
-    "sine=frequency=220:sample_rate=48000:duration=4",
+    `sine=frequency=220:sample_rate=48000:duration=${segmentSeconds}`,
     "-f",
     "lavfi",
     "-i",
-    `smptebars=size=${config.qualityProfile.width}x${config.qualityProfile.height}:rate=${config.qualityProfile.frameRate}:duration=4`,
+    `smptebars=size=${config.qualityProfile.width}x${config.qualityProfile.height}:rate=${config.qualityProfile.frameRate}:duration=${segmentSeconds}`,
     "-f",
     "lavfi",
     "-i",
-    "sine=frequency=880:sample_rate=48000:duration=4",
+    `sine=frequency=880:sample_rate=48000:duration=${segmentSeconds}`,
     "-filter_complex",
     [
       `[0:v]format=yuv420p,setsar=1,setpts=PTS-STARTPTS,fade=t=out:st=${fadeOutStart}:d=${fadeSeconds}[v0]`,
       `[1:a]pan=stereo|c0=c0|c1=c0,asetpts=PTS-STARTPTS,afade=t=out:st=${fadeOutStart}:d=${fadeSeconds}[a0]`,
       `[2:v]format=yuv420p,setsar=1,setpts=PTS-STARTPTS,fade=t=in:st=0:d=${fadeSeconds},fade=t=out:st=${fadeOutStart}:d=${fadeSeconds}[v1]`,
-      `[3:a]pan=stereo|c0=c0|c1=c0,adelay=${config.holdSlateAudioDelayMs}|${config.holdSlateAudioDelayMs},atrim=0:4,afade=t=in:st=${holdAudioDelaySeconds}:d=${fadeSeconds},afade=t=out:st=${fadeOutStart}:d=${fadeSeconds},asetpts=PTS-STARTPTS[a1]`,
+      `[3:a]pan=stereo|c0=c0|c1=c0,adelay=${config.holdSlateAudioDelayMs}|${config.holdSlateAudioDelayMs},atrim=0:${segmentSeconds},afade=t=in:st=${holdAudioDelaySeconds}:d=${fadeSeconds},afade=t=out:st=${fadeOutStart}:d=${fadeSeconds},asetpts=PTS-STARTPTS[a1]`,
       `[4:v]format=yuv420p,setsar=1,setpts=PTS-STARTPTS,fade=t=in:st=0:d=${fadeSeconds}[v2]`,
       `[5:a]pan=stereo|c0=c0|c1=c0,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=${fadeSeconds}[a2]`,
       "[v0][a0][v1][a1][v2][a2]concat=n=3:v=1:a=1[v][a]",
@@ -570,9 +618,9 @@ async function writeStaticSyntheticProgram(outputDir, config) {
   const watchPreviewPath = join(outputDir, "program.mp4");
 
   await remuxWatchPreview(playlistPath, watchPreviewPath);
-  await extractEvidenceFrames(playlistPath, framesDir);
+  await extractEvidenceFrames(playlistPath, framesDir, programTimeline);
 
-  return { encodeElapsedSeconds, watchPreviewPath, controlMode: "static-transition", commandLog: [] };
+  return { encodeElapsedSeconds, watchPreviewPath, controlMode: "static-transition", commandLog: [], programTimeline };
 }
 
 async function writeLiveControlSyntheticProgram(outputDir, config) {
@@ -580,7 +628,8 @@ async function writeLiveControlSyntheticProgram(outputDir, config) {
   const framesDir = join(outputDir, "frames");
   mkdirSync(hlsDir, { recursive: true });
   mkdirSync(framesDir, { recursive: true });
-  writeFileSync(join(outputDir, "command-timeline.json"), `${JSON.stringify(timeline, null, 2)}\n`);
+  const programTimeline = buildTimeline(config.durationSeconds);
+  writeFileSync(join(outputDir, "command-timeline.json"), `${JSON.stringify(programTimeline, null, 2)}\n`);
 
   const scenePaths = await writeLiveControlSceneImages(framesDir, config.qualityProfile);
   const playlistPath = join(hlsDir, "program.m3u8");
@@ -595,7 +644,7 @@ async function writeLiveControlSyntheticProgram(outputDir, config) {
     height: config.qualityProfile.height,
     frameRate: config.qualityProfile.frameRate,
     videoBitrateKbps: config.qualityProfile.videoBitrateKbps,
-    durationSeconds: DURATION_SECONDS,
+    durationSeconds: config.durationSeconds,
     controlMode: config.liveControlMode,
     x264Preset: config.x264Preset,
     progressPipe: scheduleByOutput,
@@ -622,7 +671,13 @@ async function writeLiveControlSyntheticProgram(outputDir, config) {
   });
 
   try {
-    await Promise.all([controller.runProofTimeline(), ffmpeg.wait()]);
+    await Promise.all([
+      controller.runProofTimeline({
+        holdAtMs: programTimeline[1].atSeconds * 1000,
+        sourceAtMs: programTimeline[2].atSeconds * 1000,
+      }),
+      ffmpeg.wait(),
+    ]);
   } catch (error) {
     ffmpeg.stop();
     throw error;
@@ -632,8 +687,10 @@ async function writeLiveControlSyntheticProgram(outputDir, config) {
 
   const encodeElapsedSeconds = (performance.now() - started) / 1000;
   await remuxWatchPreview(playlistPath, watchPreviewPath);
-  await extractEvidenceFrames(playlistPath, framesDir);
+  await extractEvidenceFrames(playlistPath, framesDir, programTimeline);
   writeFileSync(join(outputDir, "controller-events.json"), `${JSON.stringify(commandLog, null, 2)}\n`);
+  const progressSamples = ffmpeg.getProgressSamples();
+  writeFileSync(join(outputDir, "progress-samples.json"), `${JSON.stringify(progressSamples, null, 2)}\n`);
 
   return {
     encodeElapsedSeconds,
@@ -641,6 +698,8 @@ async function writeLiveControlSyntheticProgram(outputDir, config) {
     controlMode: config.liveControlMode,
     liveControlSchedule: config.liveControlSchedule,
     commandLog,
+    progressSamples,
+    programTimeline,
   };
 }
 
@@ -665,6 +724,13 @@ async function uploadArtifacts(outputDir, s3Uri) {
 
 function writeHtmlReport(outputDir, report) {
   const frameChecksByLabel = new Map(report.frameChecks.map((check) => [check.label, check]));
+  const liveDelayCards =
+    report.liveControlDelay === undefined
+      ? ""
+      : `
+      <div class="card"><div class="label">Max Live Delay</div><div class="value">${(report.liveControlDelay.maxDelayMs / 1000).toFixed(3)}s</div></div>
+      <div class="card"><div class="label">Average Live Delay</div><div class="value">${(report.liveControlDelay.averageDelayMs / 1000).toFixed(3)}s</div></div>
+      <div class="card"><div class="label">Delay Growth</div><div class="value">${(report.liveControlDelay.delayGrowthMsPerHour / 1000).toFixed(3)}s/hour</div></div>`;
   const frameList = report.frames
     .map((frame) => {
       const label = frame.replace(/\.jpg$/, "");
@@ -736,6 +802,7 @@ function writeHtmlReport(outputDir, report) {
       <div class="card"><div class="label">Runtime Commands</div><div class="value">${report.commandLog.length}</div></div>
       <div class="card"><div class="label">Fade</div><div class="value">${report.transitionFadeMs}ms</div></div>
       <div class="card"><div class="label">Slate Audio Delay</div><div class="value">${report.holdSlateAudioDelayMs}ms</div></div>
+      ${liveDelayCards}
     </div>
     <h2>Command Timeline</h2>
     <div class="timeline">${report.commandTimeline
@@ -762,11 +829,16 @@ async function runBenchmark(config) {
 
   const outputDir = resolve(config.artifactRoot, timestamp());
   mkdirSync(outputDir, { recursive: true });
-  const { encodeElapsedSeconds, watchPreviewPath, controlMode, liveControlSchedule, commandLog } = await writeSyntheticProgram(
-    outputDir,
-    config,
-  );
-  const playlistSummary = checkPlaylist(outputDir);
+  const {
+    encodeElapsedSeconds,
+    watchPreviewPath,
+    controlMode,
+    liveControlSchedule,
+    commandLog,
+    progressSamples = [],
+    programTimeline,
+  } = await writeSyntheticProgram(outputDir, config);
+  const playlistSummary = checkPlaylist(outputDir, config.durationSeconds);
   const checkedWatchPreviewPath = checkWatchPreview(outputDir);
   const metadata = await probePlaylist(playlistSummary.playlistPath);
   const watchPreviewMetadata = await probePlaylist(checkedWatchPreviewPath);
@@ -777,7 +849,9 @@ async function runBenchmark(config) {
   const frames = readdirSync(join(outputDir, "frames")).filter((entry) => entry.endsWith(".jpg")).sort();
   const frameInputs = readdirSync(join(outputDir, "frames")).filter((entry) => entry.endsWith("-input.png")).sort();
   const frameChecks =
-    config.syntheticVariant === "live-control" ? await verifyLiveControlFrameTiming(checkedWatchPreviewPath, outputDir) : [];
+    config.syntheticVariant === "live-control"
+      ? await verifyLiveControlFrameTiming(checkedWatchPreviewPath, outputDir, programTimeline)
+      : [];
 
   assert(video, "Output has no video stream.");
   assert(audio, "Output has no audio stream.");
@@ -801,21 +875,27 @@ async function runBenchmark(config) {
 
   const realtimeFactor = playlistSummary.totalDuration / encodeElapsedSeconds;
   const realtimePacePassed = realtimeFactor >= 0.95;
+  const liveControlDelay =
+    config.syntheticVariant === "live-control"
+      ? summarizeLiveDelay(progressSamples, encodeElapsedSeconds, playlistSummary.totalDuration, config.maxLiveDelayMs)
+      : undefined;
   const report = {
     generatedAt: new Date().toISOString(),
     artifact: outputDir,
     benchmarkMode: config.benchmarkMode,
     syntheticVariant: config.syntheticVariant,
     qualityGate: config.qualityGate,
+    configuredDurationSeconds: config.durationSeconds,
     syntheticOnly: config.syntheticOnly,
     secretReferenceCount: config.secretRefNames.length,
     maxConcurrentWorkers: config.maxConcurrentWorkers,
     maxSessionSeconds: config.maxSessionSeconds,
+    maxLiveDelayMs: config.maxLiveDelayMs,
     transitionFadeMs: config.transitionFadeMs,
     holdSlateAudioDelayMs: config.holdSlateAudioDelayMs,
     x264Preset: config.x264Preset,
     killSwitchParameter: config.killSwitchParameter,
-    commandTimeline: timeline,
+    commandTimeline: programTimeline,
     playlist: playlistSummary.playlistPath,
     watchPreview: watchPreviewPath,
     segmentCount: playlistSummary.segmentCount,
@@ -824,6 +904,7 @@ async function runBenchmark(config) {
     realtimeFactor,
     controlMode,
     liveControlSchedule,
+    liveControlDelay,
     commandLog,
     video: {
       codec: video.codec_name,
@@ -847,6 +928,7 @@ async function runBenchmark(config) {
         : {
             liveControlRuntimeCompleted: commandLog.length > 0,
             liveControlTimedFramesDetected: frameChecks.every((check) => check.passed),
+            liveControlDelayWithinSla: liveControlDelay?.passed === true,
             ...(controlMode === "hard-switch"
               ? {
                   runtimeVideoSwitchCommandsSent: commandLog.some((event) => event.kind.startsWith("video-")),
@@ -891,8 +973,17 @@ async function runBenchmark(config) {
       controlMode: report.controlMode,
       ...(report.liveControlSchedule === undefined ? {} : { liveControlSchedule: report.liveControlSchedule }),
       qualityGate: config.qualityGate,
+      configuredDurationSeconds: report.configuredDurationSeconds,
       durationSeconds: report.durationSeconds,
       realtimeFactor: Number(report.realtimeFactor.toFixed(3)),
+      ...(report.liveControlDelay === undefined
+        ? {}
+        : {
+            maxObservedLiveDelayMs: report.liveControlDelay.maxDelayMs,
+            maxAllowedLiveDelayMs: report.liveControlDelay.maxAllowedDelayMs,
+            averageLiveDelayMs: report.liveControlDelay.averageDelayMs,
+            delayGrowthMsPerHour: report.liveControlDelay.delayGrowthMsPerHour,
+          }),
       commandCount: report.commandLog.length,
       watchPreview: "program.mp4",
       transitionFadeMs: report.transitionFadeMs,
@@ -956,6 +1047,13 @@ function loadConfig() {
     secretRefNames: listEnv("VRDEX_RESTREAM_SECRET_REF_NAMES", !syntheticOnly),
     maxSessionSeconds: requiredIntegerEnv("VRDEX_RESTREAM_MAX_SESSION_SECONDS"),
     maxConcurrentWorkers: requiredIntegerEnv("VRDEX_RESTREAM_MAX_CONCURRENT_WORKERS"),
+    durationSeconds: optionalIntegerEnv(
+      "VRDEX_RESTREAM_SYNTHETIC_DURATION_SECONDS",
+      DEFAULT_SYNTHETIC_DURATION_SECONDS,
+      12,
+      43200,
+    ),
+    maxLiveDelayMs: optionalIntegerEnv("VRDEX_RESTREAM_MAX_LIVE_DELAY_MS", DEFAULT_MAX_LIVE_DELAY_MS, 1000, 60000),
     transitionFadeMs: optionalIntegerEnv("VRDEX_RESTREAM_TRANSITION_FADE_MS", DEFAULT_TRANSITION_FADE_MS, 0, 2000),
     holdSlateAudioDelayMs: optionalIntegerEnv(
       "VRDEX_RESTREAM_HOLD_SLATE_AUDIO_DELAY_MS",
@@ -969,6 +1067,10 @@ function loadConfig() {
 
   if (!syntheticOnly && config.secretRefNames.length === 0) {
     throw new Error("VRDEX_RESTREAM_SECRET_REF_NAMES must include at least one reference name for non-synthetic workers.");
+  }
+
+  if (config.durationSeconds > config.maxSessionSeconds) {
+    throw new Error("VRDEX_RESTREAM_SYNTHETIC_DURATION_SECONDS must not exceed VRDEX_RESTREAM_MAX_SESSION_SECONDS.");
   }
 
   return config;
@@ -991,6 +1093,8 @@ async function main() {
         liveControlMode: config.liveControlMode,
         x264Preset: config.x264Preset,
         qualityGate: config.qualityGate,
+        durationSeconds: config.durationSeconds,
+        maxLiveDelayMs: config.maxLiveDelayMs,
       }),
     );
     return;

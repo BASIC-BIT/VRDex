@@ -40,6 +40,8 @@ The task definition injects these non-secret values, and the current entrypoint 
 - `VRDEX_RESTREAM_LIVE_CONTROL_SCHEDULE=output-timeline`
 - `VRDEX_RESTREAM_LIVE_CONTROL_MODE=overlay-alpha-volume-fade`
 - `VRDEX_RESTREAM_X264_PRESET=veryfast`
+- `VRDEX_RESTREAM_SYNTHETIC_DURATION_SECONDS=12`
+- `VRDEX_RESTREAM_MAX_LIVE_DELAY_MS=10000`
 - `VRDEX_RESTREAM_TRANSITION_FADE_MS=500`
 - `VRDEX_RESTREAM_HOLD_SLATE_AUDIO_DELAY_MS=750`
 - `CONVEX_URL`
@@ -48,11 +50,12 @@ Secret values are not environment variables in git or Terraform. The `secret_arn
 
 ## Visible Benchmark Output
 
-The worker benchmark entrypoint generates a synthetic 12-second program at the selected quality gate with source, hold-slate, and source-switch transitions. The default `static-transition` variant generates the hold slate once as static artwork, then loops it through the timed fade section to keep the benchmark focused on the live encode path. The `live-control` variant starts FFmpeg once and drives the same source/hold/source sequence through runtime filter commands. It schedules commands against FFmpeg output progress by default, then gates on timed frame classification so source commands cannot silently drift earlier in the output timeline when encoding falls behind real time. Live-control still reports near-real-time pace as diagnostics, while `static-transition` remains the throughput gate. The `wall-clock` schedule remains available only as a diagnostic comparison mode. The `hard-switch` control mode is the simple source-selection baseline; `overlay-alpha-volume-fade` is optional polish. A successful run writes:
+The worker benchmark entrypoint generates a synthetic program at the selected quality gate with source, hold-slate, and source-switch transitions. The default duration is 12 seconds, and longer sustained probes use `VRDEX_RESTREAM_SYNTHETIC_DURATION_SECONDS`. The default `static-transition` variant generates the hold slate once as static artwork, then loops it through the timed fade section to keep the benchmark focused on the live encode path. The `live-control` variant starts FFmpeg once and drives the same source/hold/source sequence through runtime filter commands. It schedules commands against FFmpeg output progress by default, then gates on timed frame classification so source commands cannot silently drift earlier in the output timeline when encoding falls behind real time. Live-control reports near-real-time pace as diagnostics and records max, average, final, and growth-rate delay metrics against `VRDEX_RESTREAM_MAX_LIVE_DELAY_MS`; `static-transition` remains the throughput gate. The `wall-clock` schedule remains available only as a diagnostic comparison mode. The `hard-switch` control mode is the simple source-selection baseline; `overlay-alpha-volume-fade` is optional polish. A successful run writes:
 
 - `program.mp4`, embedded in `report.html` for browser playback
 - `hls/program.m3u8` and HLS `.ts` segments
 - transition frames for `source-a`, `hold-slate`, and `source-b`
+- `progress-samples.json` for live-control runs
 - `benchmark-report.json`
 - `report.html`
 
@@ -66,6 +69,12 @@ Local worker live-control proof command from the repository root:
 
 ```powershell
 pnpm proof:restream:worker:live-control
+```
+
+Longer live-control delay probe example:
+
+```powershell
+pnpm proof:restream:worker:live-control hard-switch ultrafast 1080p60 180 10000
 ```
 
 Local benchmark matrix command from the repository root:
@@ -126,8 +135,12 @@ Observed hosted synthetic results from 2026-06-08:
 | `8192` CPU / `16384` MiB | `static-transition` | `1080p30` | `4.750x` | Throughput gate passes |
 | `8192` CPU / `16384` MiB | `static-transition` | `720p60` | `7.951x` | Throughput gate passes |
 | `8192` CPU / `16384` MiB | `static-transition` | `720p30` | `12.399x` | Throughput gate passes |
+| `4096` CPU / `8192` MiB | `live-control`, 180 seconds | `1080p60` | `0.729x` | Delay SLA fails: max `66.820s` |
+| `8192` CPU / `16384` MiB | `live-control`, 180 seconds | `1080p60` | `0.998x` | Delay SLA passes: max `0.276s`, average `0.232s` |
 
-Interpretation: the static encode path has strong CPU Fargate headroom at `8192` CPU / `16384` MiB, including `1080p60`. The live-control path validates timed source selection but its short synthetic realtime diagnostic hovers just under strict realtime across most lower gates and is not improved by a one-off `16384` CPU override. Do not use that diagnostic alone to trigger GPU work; use the real VRCDN live-output POC and a longer sustained run to decide whether CPU Fargate has enough operational headroom.
+Interpretation: the static encode path has strong CPU Fargate headroom at `8192` CPU / `16384` MiB, including `1080p60`. The live-control path validates timed source selection but its short synthetic realtime diagnostic hovers just under strict realtime across most lower gates and is not improved by a one-off `16384` CPU override. Because live-control inputs are intentionally realtime-paced with FFmpeg, do not use a short-run `0.96x` to `0.98x` factor alone to trigger GPU work. The stronger SLA is max live delay from raw input to output: target less than 10 seconds at every point, including after long sustained runs. Use the real VRCDN live-output POC and longer sustained synthetic runs to decide whether CPU Fargate has enough operational headroom.
+
+Current recommendation: keep `8192` CPU / `16384` MiB as the `1080p60` CPU-Fargate baseline for the VRCDN POC. Do not use `4096` CPU / `8192` MiB for `1080p60`; it accumulated delay quickly in the 180-second sustained probe. Re-test lower gates on `4096` only if cost pressure requires a fallback tier.
 
 ## VRCDN Live-Output POC Harness
 

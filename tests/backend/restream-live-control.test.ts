@@ -94,14 +94,18 @@ describe("restream live control", () => {
 
   it("tracks FFmpeg output progress in milliseconds", () => {
     const ffmpeg = Object.create(FFmpegProcess.prototype) as FFmpegProcess;
+    ffmpeg.startedAt = performance.now();
     ffmpeg.progressMs = 0;
     ffmpeg.progressBuffer = "";
+    ffmpeg.progressSamples = [];
 
     ffmpeg.readProgress(Buffer.from("frame=1\nout_time_ms=1250000\n"));
     ffmpeg.readProgress(Buffer.from("out_time_ms=250"));
     ffmpeg.readProgress(Buffer.from("0000\n"));
 
     assert.equal(ffmpeg.getProgressMs(), 2500);
+    assert.equal(ffmpeg.getProgressSamples().length, 2);
+    assert.equal(ffmpeg.getProgressSamples()[1].outputMs, 2500);
   });
 
   it("expands semantic program switches into runtime filter commands", async () => {
@@ -122,11 +126,15 @@ describe("restream live control", () => {
       },
     });
 
-    await controller.runProofTimeline();
+    await controller.runProofTimeline({ holdAtMs: 6000, sourceAtMs: 12000 });
 
     assert.deepEqual(
       commandLog.filter((event) => event.kind === "operator-command").map((event) => event.command),
       ["switch_hold", "switch_source"],
+    );
+    assert.deepEqual(
+      commandLog.filter((event) => event.kind === "operator-command").map((event) => event.elapsedSeconds),
+      [6, 12],
     );
     assert.deepEqual(client.messages.slice(0, 6), [
       "streamselect@base map 0",

@@ -49,6 +49,8 @@
   ],
   "acceptance": [
     "sustained real-time encode with operational CPU headroom",
+    "max live output delay stays below 10 seconds for sustained sessions",
+    "average live output delay remains stable instead of growing over time",
     "stable bitrate below provider cap during high-motion input",
     "no segment gaps or stalled output",
     "audio stream present for the full run",

@@ -321,6 +321,14 @@ resource "aws_ecs_task_definition" "worker" {
           value = var.x264_preset
         },
         {
+          name  = "VRDEX_RESTREAM_SYNTHETIC_DURATION_SECONDS"
+          value = tostring(var.synthetic_duration_seconds)
+        },
+        {
+          name  = "VRDEX_RESTREAM_MAX_LIVE_DELAY_MS"
+          value = tostring(var.max_live_delay_ms)
+        },
+        {
           name  = "VRDEX_RESTREAM_TRANSITION_FADE_MS"
           value = tostring(var.transition_fade_ms)
         },

@@ -4,6 +4,10 @@ const syntheticVariant = process.argv[2] ?? "static-transition";
 const liveControlMode = process.argv[3];
 const x264Preset = process.argv[4];
 const qualityGate = process.argv[5];
+const durationSeconds = process.argv[6];
+const maxLiveDelayMs = process.argv[7];
+const maxSessionSeconds =
+  durationSeconds === undefined || !/^[0-9]+$/.test(durationSeconds) ? 120 : Math.max(120, Number(durationSeconds) + 60);
 
 const defaultEnv = {
   CONVEX_URL: "https://example.invalid",
@@ -12,7 +16,7 @@ const defaultEnv = {
   VRDEX_RESTREAM_BENCHMARK_MODE: "dry-run",
   VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER: "/vrdex/restream/hosted-worker/enabled",
   VRDEX_RESTREAM_MAX_CONCURRENT_WORKERS: "1",
-  VRDEX_RESTREAM_MAX_SESSION_SECONDS: "120",
+  VRDEX_RESTREAM_MAX_SESSION_SECONDS: String(maxSessionSeconds),
   VRDEX_RESTREAM_QUALITY_GATE: "1080p60",
   VRDEX_RESTREAM_SECRET_REF_NAMES: "event-media/vrcdn/local-validation",
   VRDEX_RESTREAM_SYNTHETIC_ONLY: "true",
@@ -29,6 +33,8 @@ const child = spawn(process.execPath, ["workers/restream/hosted-worker.mjs"], {
     ...(liveControlMode === undefined ? {} : { VRDEX_RESTREAM_LIVE_CONTROL_MODE: liveControlMode }),
     ...(x264Preset === undefined ? {} : { VRDEX_RESTREAM_X264_PRESET: x264Preset }),
     ...(qualityGate === undefined ? {} : { VRDEX_RESTREAM_QUALITY_GATE: qualityGate }),
+    ...(durationSeconds === undefined ? {} : { VRDEX_RESTREAM_SYNTHETIC_DURATION_SECONDS: durationSeconds }),
+    ...(maxLiveDelayMs === undefined ? {} : { VRDEX_RESTREAM_MAX_LIVE_DELAY_MS: maxLiveDelayMs }),
   },
   stdio: "inherit",
 });

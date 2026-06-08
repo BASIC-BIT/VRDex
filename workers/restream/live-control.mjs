@@ -122,8 +122,10 @@ export class FFmpegProcess {
     this.stderr = "";
     this.closed = false;
     this.exitCode = undefined;
+    this.startedAt = performance.now();
     this.progressMs = 0;
     this.progressBuffer = "";
+    this.progressSamples = [];
 
     this.child.stdout.on("data", (chunk) => {
       this.stdout += chunk;
@@ -147,7 +149,17 @@ export class FFmpegProcess {
       const match = line.match(/^out_time_ms=(\d+)$/);
 
       if (match) {
-        this.progressMs = Math.max(this.progressMs, Number(match[1]) / 1000);
+        const outputMs = Number(match[1]) / 1000;
+
+        if (outputMs > this.progressMs) {
+          const wallElapsedMs = performance.now() - this.startedAt;
+          this.progressMs = outputMs;
+          this.progressSamples.push({
+            wallElapsedMs: Number(wallElapsedMs.toFixed(3)),
+            outputMs: Number(outputMs.toFixed(3)),
+            delayMs: Number((wallElapsedMs - outputMs).toFixed(3)),
+          });
+        }
       }
     }
   }
@@ -158,6 +170,10 @@ export class FFmpegProcess {
 
   getProgressMs() {
     return this.progressMs;
+  }
+
+  getProgressSamples() {
+    return this.progressSamples;
   }
 
   wait() {
@@ -518,10 +534,10 @@ export class ProgramController {
     await this.sendAlpha(0, `video-overlay-alpha-reset-${targetSourceKey}`);
   }
 
-  async runProofTimeline() {
+  async runProofTimeline({ holdAtMs = 4000, sourceAtMs = 8000 } = {}) {
     await this.initialize();
-    await this.switchHold(4000);
-    await this.switchSource("source-b", 8000);
+    await this.switchHold(holdAtMs);
+    await this.switchSource("source-b", sourceAtMs);
 
     return this.commandLog;
   }
