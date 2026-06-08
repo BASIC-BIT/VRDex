@@ -3,11 +3,12 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const cases = [
-  { label: "overlay-fade-veryfast", controlMode: "overlay-alpha-volume-fade", x264Preset: "veryfast" },
-  { label: "overlay-fade-ultrafast", controlMode: "overlay-alpha-volume-fade", x264Preset: "ultrafast" },
-  { label: "hard-switch-veryfast", controlMode: "hard-switch", x264Preset: "veryfast" },
-  { label: "hard-switch-superfast", controlMode: "hard-switch", x264Preset: "superfast" },
-  { label: "hard-switch-ultrafast", controlMode: "hard-switch", x264Preset: "ultrafast" },
+  { label: "overlay-fade-1080p60-veryfast", qualityGate: "1080p60", controlMode: "overlay-alpha-volume-fade", x264Preset: "veryfast" },
+  { label: "hard-switch-1080p60-veryfast", qualityGate: "1080p60", controlMode: "hard-switch", x264Preset: "veryfast" },
+  { label: "hard-switch-1080p60-ultrafast", qualityGate: "1080p60", controlMode: "hard-switch", x264Preset: "ultrafast" },
+  { label: "hard-switch-1080p30-ultrafast", qualityGate: "1080p30", controlMode: "hard-switch", x264Preset: "ultrafast" },
+  { label: "hard-switch-720p60-ultrafast", qualityGate: "720p60", controlMode: "hard-switch", x264Preset: "ultrafast" },
+  { label: "hard-switch-720p30-ultrafast", qualityGate: "720p30", controlMode: "hard-switch", x264Preset: "ultrafast" },
 ];
 
 function timestamp() {
@@ -20,7 +21,13 @@ function runCase(rootDir, benchmarkCase) {
   return new Promise((resolvePromise) => {
     const child = spawn(
       process.execPath,
-      ["scripts/run-restream-worker-benchmark.mjs", "live-control", benchmarkCase.controlMode, benchmarkCase.x264Preset],
+      [
+        "scripts/run-restream-worker-benchmark.mjs",
+        "live-control",
+        benchmarkCase.controlMode,
+        benchmarkCase.x264Preset,
+        benchmarkCase.qualityGate,
+      ],
       {
         env: {
           ...process.env,
@@ -66,13 +73,13 @@ function writeMarkdownSummary(summaryPath, results) {
       const commandCount = result.event?.commandCount ?? "failed";
       const artifact = result.event?.artifact ?? "n/a";
 
-      return `| ${result.label} | ${result.controlMode} | ${result.x264Preset} | ${realtimeFactor} | ${commandCount} | ${result.code} | ${artifact} |`;
+      return `| ${result.label} | ${result.qualityGate} | ${result.controlMode} | ${result.x264Preset} | ${realtimeFactor} | ${commandCount} | ${result.code} | ${artifact} |`;
     })
     .join("\n");
 
   writeFileSync(
     summaryPath,
-    `# Restream Worker Benchmark Matrix\n\n| Case | Control mode | x264 preset | Realtime factor | Commands | Exit | Artifact |\n| --- | --- | --- | ---: | ---: | ---: | --- |\n${rows}\n`,
+    `# Restream Worker Benchmark Matrix\n\n| Case | Quality | Control mode | x264 preset | Realtime factor | Commands | Exit | Artifact |\n| --- | --- | --- | --- | ---: | ---: | ---: | --- |\n${rows}\n`,
   );
 }
 

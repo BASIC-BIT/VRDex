@@ -13,6 +13,40 @@
     "videoBitrateKbps": [3500, 5000, 5800],
     "audioBitrateKbps": [320, 192]
   },
+  "qualityLadder": [
+    {
+      "qualityGate": "1080p60",
+      "width": 1920,
+      "height": 1080,
+      "frameRate": 60,
+      "videoBitrateKbps": 3500,
+      "posture": "aspirational-premium-target"
+    },
+    {
+      "qualityGate": "1080p30",
+      "width": 1920,
+      "height": 1080,
+      "frameRate": 30,
+      "videoBitrateKbps": 3000,
+      "posture": "resolution-first-fallback"
+    },
+    {
+      "qualityGate": "720p60",
+      "width": 1280,
+      "height": 720,
+      "frameRate": 60,
+      "videoBitrateKbps": 2500,
+      "posture": "motion-first-fallback"
+    },
+    {
+      "qualityGate": "720p30",
+      "width": 1280,
+      "height": 720,
+      "frameRate": 30,
+      "videoBitrateKbps": 1800,
+      "posture": "minimum-cpu-fargate-proof-tier"
+    }
+  ],
   "acceptance": [
     "sustained real-time encode with operational CPU headroom",
     "stable bitrate below provider cap during high-motion input",

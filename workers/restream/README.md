@@ -22,7 +22,7 @@ The ECS task definition injects non-secret environment values and secret referen
 
 Expected non-secret values:
 
-- `VRDEX_RESTREAM_QUALITY_GATE=1080p60`
+- `VRDEX_RESTREAM_QUALITY_GATE`, default `1080p60`; supported ladder is `1080p60`, `1080p30`, `720p60`, and `720p30`
 - `VRDEX_RESTREAM_BENCHMARK_MODE`
 - `VRDEX_RESTREAM_MAX_CONCURRENT_WORKERS`
 - `VRDEX_RESTREAM_MAX_SESSION_SECONDS`
@@ -62,6 +62,8 @@ pnpm proof:restream:worker:matrix
 ```
 
 That command compares the richer fade mode against the simple `hard-switch` mode and selected x264 presets. The current hosted evidence says `hard-switch` is the right baseline for a reliable first restreamer: it reduces runtime commands from 194 to 8 and improves Fargate `1080p60` from `0.335x` to about `0.616x` on the current task shape, but it still does not make that shape realtime. Treat fade/slate polish as optional until the source-selection pipeline has realtime headroom.
+
+The benchmark ladder should be evaluated in this order: `1080p60`, `1080p30`, `720p60`, then `720p30`. Prefer shipping a reliable lower-capability source-selection pipeline over keeping `1080p60` or fade polish if the hosted cost is not practical.
 
 Runtime command proof:
 

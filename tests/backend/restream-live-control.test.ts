@@ -84,10 +84,12 @@ describe("restream live control", () => {
       height: 1080,
       frameRate: 60,
       durationSeconds: 12,
+      videoBitrateKbps: 2500,
       progressPipe: true,
     });
 
     assert.deepEqual(args.slice(1, 6), ["-nostats", "-stats_period", "0.1", "-progress", "pipe:1"]);
+    assert.equal(args[args.indexOf("-b:v") + 1], "2500k");
   });
 
   it("tracks FFmpeg output progress in milliseconds", () => {

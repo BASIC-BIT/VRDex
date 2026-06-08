@@ -48,7 +48,7 @@ Secret values are not environment variables in git or Terraform. The `secret_arn
 
 ## Visible Benchmark Output
 
-The worker benchmark entrypoint generates a synthetic 12-second `1080p60` program with source, hold-slate, and source-switch transitions. The default `static-transition` variant generates the hold slate once as static artwork, then loops it through the timed fade section to keep the benchmark focused on the live encode path. The `live-control` variant starts FFmpeg once and drives the same source/hold/source sequence through runtime filter commands. It schedules commands against FFmpeg output progress by default, then gates on timed frame classification so source commands cannot silently drift earlier in the output timeline when encoding falls behind real time. Live-control still reports near-real-time pace as diagnostics, while `static-transition` remains the throughput gate. The `wall-clock` schedule remains available only as a diagnostic comparison mode. The `hard-switch` control mode is the simple source-selection baseline; `overlay-alpha-volume-fade` is optional polish. A successful run writes:
+The worker benchmark entrypoint generates a synthetic 12-second program at the selected quality gate with source, hold-slate, and source-switch transitions. The default `static-transition` variant generates the hold slate once as static artwork, then loops it through the timed fade section to keep the benchmark focused on the live encode path. The `live-control` variant starts FFmpeg once and drives the same source/hold/source sequence through runtime filter commands. It schedules commands against FFmpeg output progress by default, then gates on timed frame classification so source commands cannot silently drift earlier in the output timeline when encoding falls behind real time. Live-control still reports near-real-time pace as diagnostics, while `static-transition` remains the throughput gate. The `wall-clock` schedule remains available only as a diagnostic comparison mode. The `hard-switch` control mode is the simple source-selection baseline; `overlay-alpha-volume-fade` is optional polish. A successful run writes:
 
 - `program.mp4`, embedded in `report.html` for browser playback
 - `hls/program.m3u8` and HLS `.ts` segments
@@ -97,6 +97,17 @@ The proof uses FFmpeg's `zmq` command filter plus command-capable filter instanc
 Current recommendation: use overlay alpha plus per-source volume commands for runtime fades. Do not rely on runtime `mix` or `amix` `weights`; this FFmpeg build returned `Function not implemented` for those commands during diagnosis.
 
 Current recommendation: treat `hard-switch` as the first production baseline. It keeps one semantic operator timeline but uses direct commandable video and audio source selection, reducing the synthetic runtime command count from 194 to 8. The current hosted `4096` CPU / `8192` MiB Fargate shape still misses `1080p60` realtime: observed `hard-switch` results were about `0.616x` with `veryfast` and `0.675x` with `ultrafast`. Do not add fades or slate polish back into the production path until the simple source-selection path has realtime headroom.
+
+## Quality And Cost Ladder
+
+Current recommendation: evaluate capability in this order and prefer reliable source selection over polished transitions:
+
+- `1080p60`: locked aspirational target for premium live output if cost and headroom are acceptable
+- `1080p30`: first fallback if resolution matters more than motion smoothness
+- `720p60`: fallback if motion smoothness matters more than resolution
+- `720p30`: lowest acceptable hosted proof tier before considering the pipeline not viable on CPU Fargate
+
+The first pass should compare `hard-switch` plus `ultrafast` across the ladder before adding fade or slate polish back into the runtime path. Fades can remain a later capability flag rather than a requirement for the initial restreamer.
 
 ## VRCDN Live-Output POC Harness
 

@@ -74,6 +74,13 @@ describe("restream worker configuration", () => {
     assert.match(result.stderr, /VRDEX_RESTREAM_SYNTHETIC_VARIANT must be static-transition or live-control\./);
   });
 
+  it("rejects unknown quality gates", async () => {
+    const result = await runWorker({ VRDEX_RESTREAM_QUALITY_GATE: "4k120" });
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /VRDEX_RESTREAM_QUALITY_GATE must be 1080p60, 1080p30, 720p60, or 720p30\./);
+  });
+
   it("rejects unknown live-control schedules", async () => {
     const result = await runWorker({ VRDEX_RESTREAM_LIVE_CONTROL_SCHEDULE: "wallish" });
 

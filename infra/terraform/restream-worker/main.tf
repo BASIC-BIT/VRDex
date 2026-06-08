@@ -274,7 +274,7 @@ resource "aws_ecs_task_definition" "worker" {
         },
         {
           name  = "VRDEX_RESTREAM_QUALITY_GATE"
-          value = "1080p60"
+          value = var.quality_gate
         },
         {
           name  = "VRDEX_RESTREAM_MAX_CONCURRENT_WORKERS"

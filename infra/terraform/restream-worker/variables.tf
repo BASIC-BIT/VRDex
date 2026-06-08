@@ -34,6 +34,17 @@ variable "synthetic_benchmark_only" {
   default     = true
 }
 
+variable "quality_gate" {
+  description = "Synthetic benchmark quality profile for hosted worker runs."
+  type        = string
+  default     = "1080p60"
+
+  validation {
+    condition     = contains(["1080p60", "1080p30", "720p60", "720p30"], var.quality_gate)
+    error_message = "quality_gate must be 1080p60, 1080p30, 720p60, or 720p30."
+  }
+}
+
 variable "synthetic_variant" {
   description = "Synthetic media benchmark variant to run in worker tasks."
   type        = string

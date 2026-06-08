@@ -12,6 +12,7 @@ secret_arns = {
 convex_url             = "https://scrupulous-corgi-247.convex.cloud"
 max_concurrent_workers = 10
 max_session_seconds    = 43200
+quality_gate           = "1080p60"
 synthetic_variant      = "static-transition"
 live_control_schedule  = "output-timeline"
 live_control_mode      = "overlay-alpha-volume-fade"

@@ -12,7 +12,13 @@ import {
   sleep,
 } from "./live-control.mjs";
 
-const REQUIRED_GATE = "1080p60";
+const DEFAULT_QUALITY_GATE = "1080p60";
+const QUALITY_PROFILES = {
+  "1080p60": { width: 1920, height: 1080, frameRate: 60, videoBitrateKbps: 3500 },
+  "1080p30": { width: 1920, height: 1080, frameRate: 30, videoBitrateKbps: 3000 },
+  "720p60": { width: 1280, height: 720, frameRate: 60, videoBitrateKbps: 2500 },
+  "720p30": { width: 1280, height: 720, frameRate: 30, videoBitrateKbps: 1800 },
+};
 const ALLOWED_BENCHMARK_MODES = new Set(["dry-run", "ecs-fargate"]);
 const ALLOWED_SYNTHETIC_VARIANTS = new Set(["static-transition", "live-control"]);
 const ALLOWED_LIVE_CONTROL_SCHEDULES = new Set(["output-timeline", "wall-clock"]);
@@ -25,9 +31,6 @@ const DEFAULT_LIVE_CONTROL_SCHEDULE = "output-timeline";
 const DEFAULT_X264_PRESET = "veryfast";
 const DEFAULT_TRANSITION_FADE_MS = 500;
 const DEFAULT_HOLD_SLATE_AUDIO_DELAY_MS = 750;
-const WIDTH = 1920;
-const HEIGHT = 1080;
-const FRAME_RATE = 60;
 const DURATION_SECONDS = 12;
 const timeline = [
   { atSeconds: 0, command: "start_program", scene: "source-a", audio: "source-a-tone-440hz" },
@@ -159,6 +162,10 @@ function assert(condition, message) {
   }
 }
 
+function scalePixels(value, total) {
+  return Math.round(value * total);
+}
+
 function run(command, args, options = {}) {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(command, args, { stdio: options.inherit ? "inherit" : ["ignore", "pipe", "pipe"] });
@@ -288,23 +295,32 @@ function classifyLiveControlColor({ r, g, b }) {
   return "unknown";
 }
 
-async function writeHoldSlateImage(imagePath) {
+async function writeHoldSlateImage(imagePath, profile) {
+  const titleSize = Math.max(56, Math.round(profile.height * 0.089));
+  const bodySize = Math.max(28, Math.round(profile.height * 0.039));
+  const boxes = [
+    [0.094, 0.139, 0.812, 0.722, "0x111827@0.96", "fill"],
+    [0.13, 0.204, 0.74, 0.593, "0x334155@0.55", "6"],
+    [0.224, 0.296, 0.448, 0.333, "0x0ea5e9@0.22", "fill"],
+    [0.266, 0.361, 0.365, 0.204, "0x38bdf8@0.22", "8"],
+  ].map(
+    ([x, y, width, height, color, thickness]) =>
+      `drawbox=x=${scalePixels(x, profile.width)}:y=${scalePixels(y, profile.height)}:w=${scalePixels(width, profile.width)}:h=${scalePixels(height, profile.height)}:color=${color}:t=${thickness}`,
+  );
+
   await run("ffmpeg", [
     "-hide_banner",
     "-y",
     "-f",
     "lavfi",
     "-i",
-    "color=c=0x020617:size=1920x1080:rate=1",
+    `color=c=0x020617:size=${profile.width}x${profile.height}:rate=1`,
     "-vf",
     [
       "format=rgba",
-      "drawbox=x=180:y=150:w=1560:h=780:color=0x111827@0.96:t=fill",
-      "drawbox=x=250:y=220:w=1420:h=640:color=0x334155@0.55:t=6",
-      "drawbox=x=430:y=320:w=860:h=360:color=0x0ea5e9@0.22:t=fill",
-      "drawbox=x=510:y=390:w=700:h=220:color=0x38bdf8@0.22:t=8",
-      "drawtext=text='VRDex Hold Slate':fontcolor=white:fontsize=96:x=(w-text_w)/2:y=710",
-      "drawtext=text='Standby mix resumes after the slate delay':fontcolor=0xcbd5e1:fontsize=42:x=(w-text_w)/2:y=825",
+      ...boxes,
+      `drawtext=text='VRDex Hold Slate':fontcolor=white:fontsize=${titleSize}:x=(w-text_w)/2:y=${scalePixels(0.657, profile.height)}`,
+      `drawtext=text='Standby mix resumes after the slate delay':fontcolor=0xcbd5e1:fontsize=${bodySize}:x=(w-text_w)/2:y=${scalePixels(0.764, profile.height)}`,
       "format=rgb24",
     ].join(","),
     "-frames:v",
@@ -333,22 +349,31 @@ const liveControlScenes = {
   },
 };
 
-async function writeLiveControlSceneImage(outputPath, scene) {
+async function writeLiveControlSceneImage(outputPath, scene, profile) {
+  const titleSize = Math.max(60, Math.round(profile.height * 0.096));
+  const bodySize = Math.max(28, Math.round(profile.height * 0.039));
+  const boxes = [
+    [0.089, 0.13, 0.823, 0.741, "0x0f172a@0.38", "fill"],
+    [0.13, 0.213, 0.74, 0.574, "0xffffff@0.14", "6"],
+    [0.234, 0.324, 0.427, 0.241, "0x020617@0.30", "fill"],
+  ].map(
+    ([x, y, width, height, color, thickness]) =>
+      `drawbox=x=${scalePixels(x, profile.width)}:y=${scalePixels(y, profile.height)}:w=${scalePixels(width, profile.width)}:h=${scalePixels(height, profile.height)}:color=${color}:t=${thickness}`,
+  );
+
   await run("ffmpeg", [
     "-hide_banner",
     "-y",
     "-f",
     "lavfi",
     "-i",
-    `color=c=${scene.color}:size=${WIDTH}x${HEIGHT}:rate=1`,
+    `color=c=${scene.color}:size=${profile.width}x${profile.height}:rate=1`,
     "-vf",
     [
       "format=rgba",
-      "drawbox=x=170:y=140:w=1580:h=800:color=0x0f172a@0.38:t=fill",
-      "drawbox=x=250:y=230:w=1420:h=620:color=0xffffff@0.14:t=6",
-      "drawbox=x=450:y=350:w=820:h=260:color=0x020617@0.30:t=fill",
-      `drawtext=text='${scene.title}':fontcolor=white:fontsize=104:x=(w-text_w)/2:y=700`,
-      `drawtext=text='${scene.subtitle}':fontcolor=0xe5e7eb:fontsize=42:x=(w-text_w)/2:y=820`,
+      ...boxes,
+      `drawtext=text='${scene.title}':fontcolor=white:fontsize=${titleSize}:x=(w-text_w)/2:y=${scalePixels(0.648, profile.height)}`,
+      `drawtext=text='${scene.subtitle}':fontcolor=0xe5e7eb:fontsize=${bodySize}:x=(w-text_w)/2:y=${scalePixels(0.759, profile.height)}`,
       "format=rgb24",
     ].join(","),
     "-frames:v",
@@ -359,12 +384,12 @@ async function writeLiveControlSceneImage(outputPath, scene) {
   ]);
 }
 
-async function writeLiveControlSceneImages(framesDir) {
+async function writeLiveControlSceneImages(framesDir, profile) {
   const paths = {};
 
   for (const [key, scene] of Object.entries(liveControlScenes)) {
     const outputPath = join(framesDir, `${key}-input.png`);
-    await writeLiveControlSceneImage(outputPath, scene);
+    await writeLiveControlSceneImage(outputPath, scene, profile);
     paths[key] = outputPath;
   }
 
@@ -440,7 +465,7 @@ async function writeStaticSyntheticProgram(outputDir, config) {
   writeFileSync(join(outputDir, "command-timeline.json"), `${JSON.stringify(timeline, null, 2)}\n`);
 
   const holdSlateImage = join(framesDir, "hold-slate-input.png");
-  await writeHoldSlateImage(holdSlateImage);
+  await writeHoldSlateImage(holdSlateImage, config.qualityProfile);
 
   const playlistPath = join(hlsDir, "program.m3u8");
   const segmentPattern = join(hlsDir, "program-%03d.ts");
@@ -455,7 +480,7 @@ async function writeStaticSyntheticProgram(outputDir, config) {
     "-f",
     "lavfi",
     "-i",
-    `testsrc2=size=${WIDTH}x${HEIGHT}:rate=${FRAME_RATE}:duration=4`,
+    `testsrc2=size=${config.qualityProfile.width}x${config.qualityProfile.height}:rate=${config.qualityProfile.frameRate}:duration=4`,
     "-f",
     "lavfi",
     "-i",
@@ -463,7 +488,7 @@ async function writeStaticSyntheticProgram(outputDir, config) {
     "-loop",
     "1",
     "-framerate",
-    String(FRAME_RATE),
+    String(config.qualityProfile.frameRate),
     "-t",
     "4",
     "-i",
@@ -475,7 +500,7 @@ async function writeStaticSyntheticProgram(outputDir, config) {
     "-f",
     "lavfi",
     "-i",
-    `smptebars=size=${WIDTH}x${HEIGHT}:rate=${FRAME_RATE}:duration=4`,
+    `smptebars=size=${config.qualityProfile.width}x${config.qualityProfile.height}:rate=${config.qualityProfile.frameRate}:duration=4`,
     "-f",
     "lavfi",
     "-i",
@@ -507,19 +532,19 @@ async function writeStaticSyntheticProgram(outputDir, config) {
     "-pix_fmt",
     "yuv420p",
     "-r",
-    String(FRAME_RATE),
+    String(config.qualityProfile.frameRate),
     "-g",
-    String(FRAME_RATE),
+    String(config.qualityProfile.frameRate),
     "-keyint_min",
-    String(FRAME_RATE),
+    String(config.qualityProfile.frameRate),
     "-sc_threshold",
     "0",
     "-b:v",
-    "3500k",
+    `${config.qualityProfile.videoBitrateKbps}k`,
     "-maxrate",
-    "3500k",
+    `${config.qualityProfile.videoBitrateKbps}k`,
     "-bufsize",
-    "7000k",
+    `${config.qualityProfile.videoBitrateKbps * 2}k`,
     "-c:a",
     "aac",
     "-b:a",
@@ -557,7 +582,7 @@ async function writeLiveControlSyntheticProgram(outputDir, config) {
   mkdirSync(framesDir, { recursive: true });
   writeFileSync(join(outputDir, "command-timeline.json"), `${JSON.stringify(timeline, null, 2)}\n`);
 
-  const scenePaths = await writeLiveControlSceneImages(framesDir);
+  const scenePaths = await writeLiveControlSceneImages(framesDir, config.qualityProfile);
   const playlistPath = join(hlsDir, "program.m3u8");
   const watchPreviewPath = join(outputDir, "program.mp4");
   const commandLog = [];
@@ -566,9 +591,10 @@ async function writeLiveControlSyntheticProgram(outputDir, config) {
     scenePaths,
     hlsDir,
     playlistPath,
-    width: WIDTH,
-    height: HEIGHT,
-    frameRate: FRAME_RATE,
+    width: config.qualityProfile.width,
+    height: config.qualityProfile.height,
+    frameRate: config.qualityProfile.frameRate,
+    videoBitrateKbps: config.qualityProfile.videoBitrateKbps,
     durationSeconds: DURATION_SECONDS,
     controlMode: config.liveControlMode,
     x264Preset: config.x264Preset,
@@ -757,8 +783,14 @@ async function runBenchmark(config) {
   assert(audio, "Output has no audio stream.");
   assert(video.codec_name === "h264", `Expected H.264 video, found ${video.codec_name}.`);
   assert(previewVideo?.codec_name === "h264", `Expected H.264 watch preview, found ${previewVideo?.codec_name ?? "none"}.`);
-  assert(video.width === 1920 && video.height === 1080, `Expected 1920x1080 video, found ${video.width}x${video.height}.`);
-  assert(Math.abs(parseFrameRate(video.avg_frame_rate) - 60) < 0.1, `Expected 60 fps, found ${video.avg_frame_rate}.`);
+  assert(
+    video.width === config.qualityProfile.width && video.height === config.qualityProfile.height,
+    `Expected ${config.qualityProfile.width}x${config.qualityProfile.height} video, found ${video.width}x${video.height}.`,
+  );
+  assert(
+    Math.abs(parseFrameRate(video.avg_frame_rate) - config.qualityProfile.frameRate) < 0.1,
+    `Expected ${config.qualityProfile.frameRate} fps, found ${video.avg_frame_rate}.`,
+  );
   assert(audio.codec_name === "aac", `Expected AAC audio, found ${audio.codec_name}.`);
   assert(previewAudio?.codec_name === "aac", `Expected AAC watch preview audio, found ${previewAudio?.codec_name ?? "none"}.`);
   assert(Number(audio.sample_rate) === 48000, `Expected 48kHz audio, found ${audio.sample_rate}.`);
@@ -774,7 +806,7 @@ async function runBenchmark(config) {
     artifact: outputDir,
     benchmarkMode: config.benchmarkMode,
     syntheticVariant: config.syntheticVariant,
-    qualityGate: REQUIRED_GATE,
+    qualityGate: config.qualityGate,
     syntheticOnly: config.syntheticOnly,
     secretReferenceCount: config.secretRefNames.length,
     maxConcurrentWorkers: config.maxConcurrentWorkers,
@@ -825,7 +857,8 @@ async function runBenchmark(config) {
                   runtimeAudioFadeCommandsSent: commandLog.some((event) => event.kind.startsWith("audio-fade")),
                 }),
           }),
-      expectedVideoShape: video.codec_name === "h264" && video.width === 1920 && video.height === 1080,
+      expectedVideoShape:
+        video.codec_name === "h264" && video.width === config.qualityProfile.width && video.height === config.qualityProfile.height,
       expectedAudioShape: audio.codec_name === "aac" && Number(audio.sample_rate) === 48000 && Number(audio.channels) === 2,
       transitionFramesPresent: frames.length >= 3,
       independentSegments: true,
@@ -857,7 +890,7 @@ async function runBenchmark(config) {
       syntheticVariant: report.syntheticVariant,
       controlMode: report.controlMode,
       ...(report.liveControlSchedule === undefined ? {} : { liveControlSchedule: report.liveControlSchedule }),
-      qualityGate: REQUIRED_GATE,
+      qualityGate: config.qualityGate,
       durationSeconds: report.durationSeconds,
       realtimeFactor: Number(report.realtimeFactor.toFixed(3)),
       commandCount: report.commandLog.length,
@@ -872,9 +905,10 @@ async function runBenchmark(config) {
 
 function loadConfig() {
   const qualityGate = requiredEnv("VRDEX_RESTREAM_QUALITY_GATE");
+  const qualityProfile = QUALITY_PROFILES[qualityGate];
 
-  if (qualityGate !== REQUIRED_GATE) {
-    throw new Error(`Hosted restream workers must run behind the ${REQUIRED_GATE} gate.`);
+  if (qualityProfile === undefined) {
+    throw new Error("VRDEX_RESTREAM_QUALITY_GATE must be 1080p60, 1080p30, 720p60, or 720p30.");
   }
 
   const benchmarkMode = requiredEnv("VRDEX_RESTREAM_BENCHMARK_MODE");
@@ -910,6 +944,8 @@ function loadConfig() {
   requiredUrlEnv("CONVEX_URL");
   const syntheticOnly = booleanEnv("VRDEX_RESTREAM_SYNTHETIC_ONLY", true);
   const config = {
+    qualityGate,
+    qualityProfile,
     benchmarkMode,
     syntheticVariant,
     liveControlSchedule,
@@ -954,7 +990,7 @@ async function main() {
         liveControlSchedule: config.liveControlSchedule,
         liveControlMode: config.liveControlMode,
         x264Preset: config.x264Preset,
-        qualityGate: REQUIRED_GATE,
+        qualityGate: config.qualityGate,
       }),
     );
     return;
