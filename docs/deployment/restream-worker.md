@@ -164,6 +164,39 @@ Required operator-provided inputs for the first full POC:
 
 Do not paste stream keys, ingest URLs with embedded keys, provider tokens, signed URLs, or account passwords into chat, docs, git, Terraform variables, Convex event records, or logs. Store secret values only in Secrets Manager or the approved secret store, then pass reference names through Terraform or the control plane. The POC should first push local synthetic audio/video into source A and source B, restream the public playback links through the worker, push to the output account, and watch the output account's public playback page or HLS URL for validation.
 
+The checked-in POC entrypoint is `workers/restream/vrcdn-poc.mjs`. It has two modes:
+
+- `VRDEX_VRCDN_POC_MODE=source-pusher`: pushes a labeled synthetic feed into one VRCDN source account.
+- `VRDEX_VRCDN_POC_MODE=output-restream`: pulls source A and source B public playback links, hard-switches source A to hold slate to source B, and pushes the result into the output VRCDN account.
+
+Shared non-secret settings:
+
+- `VRDEX_RESTREAM_QUALITY_GATE`, using the same `1080p60`, `1080p30`, `720p60`, `720p30` ladder.
+- `VRDEX_RESTREAM_X264_PRESET`, defaulting to `ultrafast` for the POC.
+- `VRDEX_VRCDN_POC_DURATION_SECONDS`, defaulting to `600`.
+- `VRDEX_RESTREAM_ARTIFACT_ROOT` and optional `VRDEX_RESTREAM_ARTIFACT_S3_URI` for private no-secret POC reports.
+
+Source pusher settings:
+
+- `VRDEX_VRCDN_POC_SOURCE_KEY=source-a` or `source-b`.
+- `VRDEX_VRCDN_POC_INGEST_URL`, injected only from a Secrets Manager or SSM reference. This value is a secret and must not be logged or pasted.
+
+Output restream settings:
+
+- `VRDEX_VRCDN_POC_SOURCE_A_PLAYBACK_URL`, a stable public playback URL with no query string, userinfo, or signature.
+- `VRDEX_VRCDN_POC_SOURCE_B_PLAYBACK_URL`, a stable public playback URL with no query string, userinfo, or signature.
+- `VRDEX_VRCDN_POC_OUTPUT_WATCH_URL`, the public output watch URL used for human/browser validation.
+- `VRDEX_VRCDN_POC_OUTPUT_INGEST_URL`, injected only from a Secrets Manager or SSM reference. This value is a secret and must not be logged or pasted.
+
+Run order for the first provider POC:
+
+1. Start `source-pusher` for source A.
+2. Start `source-pusher` for source B.
+3. Confirm both source public playback links are live enough for FFmpeg to open.
+4. Start `output-restream` with the two public playback URLs and the output ingest secret.
+5. Watch `VRDEX_VRCDN_POC_OUTPUT_WATCH_URL` and verify the visible sequence is source A, hold slate, then source B.
+6. Capture CloudWatch logs and private POC report artifacts by event names only; never copy secret values into reports.
+
 ## Logs And Metrics
 
 Workers should log structured operational events without stream keys, full ingest URLs, signed URLs, or private setup notes.

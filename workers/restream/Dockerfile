@@ -8,6 +8,7 @@ WORKDIR /app
 
 COPY workers/restream/hosted-worker.mjs workers/restream/hosted-worker.mjs
 COPY workers/restream/live-control.mjs workers/restream/live-control.mjs
+COPY workers/restream/vrcdn-poc.mjs workers/restream/vrcdn-poc.mjs
 
 ENV NODE_ENV=production
 
