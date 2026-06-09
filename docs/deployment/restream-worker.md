@@ -135,6 +135,10 @@ Observed hosted synthetic results from 2026-06-08:
 | `8192` CPU / `16384` MiB | `static-transition` | `1080p30` | `4.750x` | Throughput gate passes |
 | `8192` CPU / `16384` MiB | `static-transition` | `720p60` | `7.951x` | Throughput gate passes |
 | `8192` CPU / `16384` MiB | `static-transition` | `720p30` | `12.399x` | Throughput gate passes |
+| `512` CPU / `2048` MiB | `live-control`, 180 seconds | `720p30` | `0.439x` | Delay SLA fails: max `230.417s` |
+| `1024` CPU / `2048` MiB | `live-control`, 180 seconds | `720p30` | `0.998x` | Delay SLA passes: max `0.307s`, average `0.253s` |
+| `2048` CPU / `4096` MiB | `live-control`, 180 seconds | `720p30` | `0.999x` | Delay SLA passes: max `0.246s`, average `0.191s` |
+| `1024` CPU / `2048` MiB | `live-control`, 600 seconds | `720p30` | `1.000x` | Delay SLA passes: max `0.274s`, average `0.234s` |
 | `4096` CPU / `8192` MiB | `live-control`, 180 seconds | `1080p60` | `0.729x` | Delay SLA fails: max `66.820s` |
 | `4096` CPU / `8192` MiB | `live-control`, 180 seconds | `1080p30` | `0.998x` | Delay SLA passes: max `0.303s`, average `0.253s` |
 | `4096` CPU / `8192` MiB | `live-control`, 180 seconds | `720p60` | `0.999x` | Delay SLA passes: max `0.207s`, average `0.176s` |
@@ -143,7 +147,7 @@ Observed hosted synthetic results from 2026-06-08:
 
 Interpretation: the static encode path has strong CPU Fargate headroom at `8192` CPU / `16384` MiB, including `1080p60`. The live-control path validates timed source selection but its short synthetic realtime diagnostic hovers just under strict realtime across most lower gates and is not improved by a one-off `16384` CPU override. Because live-control inputs are intentionally realtime-paced with FFmpeg, do not use a short-run `0.96x` to `0.98x` factor alone to trigger GPU work. The stronger SLA is max live delay from raw input to output: target less than 10 seconds at every point, including after long sustained runs. Use the real VRCDN live-output POC and longer sustained synthetic runs to decide whether CPU Fargate has enough operational headroom.
 
-Current recommendation: keep `8192` CPU / `16384` MiB as the `1080p60` CPU-Fargate baseline for the VRCDN POC. Do not use `4096` CPU / `8192` MiB for `1080p60`; it accumulated delay quickly in the 180-second sustained probe. If cost pressure requires the lower Fargate shape, `4096` CPU / `8192` MiB has 180-second synthetic delay headroom at `1080p30`, `720p60`, and `720p30`; choose the first acceptable fallback in the ladder and revalidate it in the real VRCDN POC.
+Current recommendation: keep `8192` CPU / `16384` MiB as the `1080p60` CPU-Fargate baseline for the VRCDN POC. Do not use `4096` CPU / `8192` MiB for `1080p60`; it accumulated delay quickly in the 180-second sustained probe. If cost pressure requires the lower Fargate shape, `4096` CPU / `8192` MiB has 180-second synthetic delay headroom at `1080p30`, `720p60`, and `720p30`; choose the first acceptable fallback in the ladder and revalidate it in the real VRCDN POC. For a cheap `720p30` tier, `1024` CPU / `2048` MiB is the current synthetic baseline: it passed a 600-second probe with max delay under `0.3s`. Do not use `512` CPU / `2048` MiB for `720p30`; it fell far below realtime and failed the delay SLA.
 
 ## VRCDN Live-Output POC Harness
 
