@@ -15,6 +15,7 @@ const POC_MODES = new Set(["source-pusher", "output-restream", "single-output-sm
 const SOURCE_KEYS = new Set(["source-a", "source-b"]);
 const X264_PRESETS = new Set(["ultrafast", "superfast", "veryfast", "faster", "fast"]);
 const DEFAULT_DURATION_SECONDS = 600;
+const DEFAULT_STARTUP_TIMEOUT_SECONDS = 60;
 const DEFAULT_ARTIFACT_ROOT = process.env.AWS_EXECUTION_ENV ? "/tmp/vrdex-vrcdn-poc" : "artifacts/restream-vrcdn-poc";
 const DEFAULT_ZMQ_PORT = 5555;
 
@@ -75,7 +76,7 @@ function publicPlaybackUrlEnv(name) {
   return url.href;
 }
 
-function validateSecretIngestUrl(name, value) {
+function validateRtmpUrl(name, value) {
   let url;
 
   try {
@@ -91,7 +92,22 @@ function validateSecretIngestUrl(name, value) {
   return value;
 }
 
-function combineRtmpUrl(rtmpUrl, streamKey) {
+function rtmpAppFromUrl(name, rtmpUrl) {
+  const url = new URL(rtmpUrl);
+  const app = url.pathname.replace(/^\/+/, "").replace(/\/+$/, "");
+
+  if (app === "") {
+    throw new Error(`${name} must include the RTMP app path.`);
+  }
+
+  return app;
+}
+
+function ingestTargetFromDirectUrl(name, value) {
+  return { url: validateRtmpUrl(name, value), outputOptions: [], redactValues: [value] };
+}
+
+function ingestTargetFromSplitSecretJson(name, rtmpUrl, streamKey) {
   if (typeof rtmpUrl !== "string" || typeof streamKey !== "string") {
     throw new Error("Ingest secret JSON must include string rtmpUrl and streamKey fields, or an ingestUrl field.");
   }
@@ -100,7 +116,14 @@ function combineRtmpUrl(rtmpUrl, streamKey) {
     throw new Error("Ingest secret JSON streamKey must be a non-empty stream key, not a URL.");
   }
 
-  return `${rtmpUrl.replace(/\/+$/, "")}/${streamKey}`;
+  const url = validateRtmpUrl(`${name}.rtmpUrl`, rtmpUrl);
+  const app = rtmpAppFromUrl(`${name}.rtmpUrl`, url);
+
+  return {
+    url,
+    outputOptions: ["-rtmp_app", app, "-rtmp_playpath", streamKey],
+    redactValues: [streamKey, `${url.replace(/\/+$/, "")}/${streamKey}`],
+  };
 }
 
 function ingestUrlFromSecretJson(name, value) {
@@ -113,13 +136,13 @@ function ingestUrlFromSecretJson(name, value) {
   }
 
   if (typeof parsed.ingestUrl === "string") {
-    return validateSecretIngestUrl(`${name}.ingestUrl`, parsed.ingestUrl);
+    return ingestTargetFromDirectUrl(`${name}.ingestUrl`, parsed.ingestUrl);
   }
 
-  return validateSecretIngestUrl(`${name}.rtmpUrl`, combineRtmpUrl(parsed.rtmpUrl, parsed.streamKey));
+  return ingestTargetFromSplitSecretJson(name, parsed.rtmpUrl, parsed.streamKey);
 }
 
-function ingestUrlEnv(urlName, secretJsonName) {
+function ingestTargetEnv(urlName, secretJsonName) {
   const value = optionalEnv(urlName);
   const secretJson = optionalEnv(secretJsonName);
 
@@ -131,7 +154,7 @@ function ingestUrlEnv(urlName, secretJsonName) {
     throw new Error(`${urlName} and ${secretJsonName} must not both be set.`);
   }
 
-  return value === undefined ? ingestUrlFromSecretJson(secretJsonName, secretJson) : validateSecretIngestUrl(urlName, value);
+  return value === undefined ? ingestUrlFromSecretJson(secretJsonName, secretJson) : ingestTargetFromDirectUrl(urlName, value);
 }
 
 function assertAllowed(value, allowed, message) {
@@ -310,7 +333,8 @@ function sourcePusherArgs(config) {
     "2",
     "-f",
     "flv",
-    config.ingestUrl,
+    ...config.ingestTarget.outputOptions,
+    config.ingestTarget.url,
   ];
 }
 
@@ -382,9 +406,10 @@ function outputRestreamArgs(config, holdSlateImage) {
     "48000",
     "-ac",
     "2",
+    ...config.outputIngestTarget.outputOptions,
     "-f",
     "flv",
-    config.outputIngestUrl,
+    config.outputIngestTarget.url,
   ];
 }
 
@@ -458,9 +483,10 @@ function singleOutputSmokeArgs(config, holdSlateImage) {
     "48000",
     "-ac",
     "2",
+    ...config.outputIngestTarget.outputOptions,
     "-f",
     "flv",
-    config.outputIngestUrl,
+    config.outputIngestTarget.url,
   ];
 }
 
@@ -568,6 +594,12 @@ function loadConfig() {
     qualityProfile,
     x264Preset,
     durationSeconds,
+    startupTimeoutSeconds: requiredIntegerEnv(
+      "VRDEX_VRCDN_POC_STARTUP_TIMEOUT_SECONDS",
+      DEFAULT_STARTUP_TIMEOUT_SECONDS,
+      10,
+      300,
+    ),
     artifactRoot: optionalEnv("VRDEX_RESTREAM_ARTIFACT_ROOT") ?? DEFAULT_ARTIFACT_ROOT,
     artifactS3Uri: optionalEnv("VRDEX_RESTREAM_ARTIFACT_S3_URI"),
   };
@@ -580,7 +612,7 @@ function loadConfig() {
         SOURCE_KEYS,
         "VRDEX_VRCDN_POC_SOURCE_KEY must be source-a or source-b.",
       ),
-      ingestUrl: ingestUrlEnv("VRDEX_VRCDN_POC_INGEST_URL", "VRDEX_VRCDN_POC_INGEST_SECRET_JSON"),
+      ingestTarget: ingestTargetEnv("VRDEX_VRCDN_POC_INGEST_URL", "VRDEX_VRCDN_POC_INGEST_SECRET_JSON"),
     };
   }
 
@@ -588,7 +620,7 @@ function loadConfig() {
     return {
       ...baseConfig,
       outputWatchUrl: publicPlaybackUrlEnv("VRDEX_VRCDN_POC_OUTPUT_WATCH_URL"),
-      outputIngestUrl: ingestUrlEnv("VRDEX_VRCDN_POC_OUTPUT_INGEST_URL", "VRDEX_VRCDN_POC_OUTPUT_INGEST_SECRET_JSON"),
+      outputIngestTarget: ingestTargetEnv("VRDEX_VRCDN_POC_OUTPUT_INGEST_URL", "VRDEX_VRCDN_POC_OUTPUT_INGEST_SECRET_JSON"),
     };
   }
 
@@ -597,7 +629,7 @@ function loadConfig() {
     sourceAPlaybackUrl: publicPlaybackUrlEnv("VRDEX_VRCDN_POC_SOURCE_A_PLAYBACK_URL"),
     sourceBPlaybackUrl: publicPlaybackUrlEnv("VRDEX_VRCDN_POC_SOURCE_B_PLAYBACK_URL"),
     outputWatchUrl: publicPlaybackUrlEnv("VRDEX_VRCDN_POC_OUTPUT_WATCH_URL"),
-    outputIngestUrl: ingestUrlEnv("VRDEX_VRCDN_POC_OUTPUT_INGEST_URL", "VRDEX_VRCDN_POC_OUTPUT_INGEST_SECRET_JSON"),
+    outputIngestTarget: ingestTargetEnv("VRDEX_VRCDN_POC_OUTPUT_INGEST_URL", "VRDEX_VRCDN_POC_OUTPUT_INGEST_SECRET_JSON"),
   };
 }
 
@@ -612,7 +644,7 @@ async function runSourcePusher(config) {
     }),
   );
   const started = performance.now();
-  await run("ffmpeg", sourcePusherArgs(config), { redactValues: [config.ingestUrl] });
+  await run("ffmpeg", sourcePusherArgs(config), { redactValues: config.ingestTarget.redactValues });
 
   console.log(
     JSON.stringify({
@@ -635,8 +667,20 @@ async function runOutputRestream(config) {
   }
 
   const args = config.mode === "single-output-smoke" ? singleOutputSmokeArgs(config, holdSlateImage) : outputRestreamArgs(config, holdSlateImage);
-  const ffmpeg = new SafeFfmpegProcess(args, { redactValues: [config.outputIngestUrl] });
-  await sleep(1500);
+  const ffmpeg = new SafeFfmpegProcess(args, { redactValues: config.outputIngestTarget.redactValues });
+  const startupDeadline = performance.now() + config.startupTimeoutSeconds * 1000;
+
+  while (ffmpeg.getProgressMs() === 0 && performance.now() < startupDeadline) {
+    await sleep(500);
+  }
+
+  if (ffmpeg.getProgressMs() === 0) {
+    ffmpeg.stop();
+    throw new Error(
+      "VRCDN POC output did not produce FFmpeg progress before the startup timeout. Check provider ingest readiness and RTMP URL/key formatting.",
+    );
+  }
+
   const commandClient = new ZmqCommandClient(DEFAULT_ZMQ_PORT);
   const commandLog = [];
   const controller = new ProgramController(commandClient, {
