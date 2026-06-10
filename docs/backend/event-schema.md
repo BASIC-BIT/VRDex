@@ -112,6 +112,8 @@ Future smart labeling, remembered vocabularies, URL-derived icons, and platform-
 
 Public event pages promote one primary watch source above the normal link list only during the event's scheduled watch window. Outside that window, watch links stay in the normal link list.
 
+Ready or active event-media outputs are projected into the same public media-link list as event-authored links. This lets operator-owned VRCDN outputs create the public watch surface without duplicating the output URL in `events.mediaLinks`. Draft, disabled, failed, ended, or errored media programs remain private.
+
 Selection order is deterministic:
 
 1. first `watch` link in saved media-link order
@@ -130,7 +132,7 @@ Unsupported watch URLs fall back to a prominent outbound watch card during the s
 
 ## Event Media Control Plane
 
-The restreaming/media-control foundation uses event-scoped records rather than overloading the existing `events.mediaLinks` array. These records reserve the durable control-plane shape; the usable setup helper in this slice is limited to operator-owned VRCDN output metadata and validation scaffolding.
+The restreaming/media-control foundation uses event-scoped records rather than overloading the existing `events.mediaLinks` array. The first shippable path stores operator-owned VRCDN output metadata, marks a complete setup as `ready`, and projects public playback links into event pages during the scheduled watch window. Worker launch remains an operator/manual step until the ECS start/stop control plane is wired.
 
 Reserved control-plane tables include:
 
@@ -164,7 +166,7 @@ Current recommendation: VRCDN output setup starts with operator-owned accounts o
 - `compliance.providerRules`
 - `compliance.rightsClearedMedia`
 
-The setup helper treats the output as `ready` only when a credential reference exists and all required compliance gates are accepted. Missing gates remain `pending`; explicitly rejected gates are `blocked`. A blocked or incomplete output stays a draft and should not be used by a worker.
+The `events.configureVrcdnOutput` mutation treats the output as `ready` only when a credential reference exists and all required compliance gates are accepted. Missing gates remain `pending`; explicitly rejected gates are `blocked`. A blocked or incomplete output stays a draft and is not projected into public event pages.
 
 Secret references must not be URLs, ingest URLs, passwords, tokens, stream keys, or provider credential values. Those values must stay in the configured secret store and be read only by the runtime that needs to push the stream.
 

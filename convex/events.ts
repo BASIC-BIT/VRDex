@@ -8,6 +8,11 @@ import {
   toAuthSubject,
   type AuthSubject,
 } from "./_communityAuthority";
+import {
+  eventMediaPlaybackPlatformValidator,
+  eventMediaVrcdnRegionValidator,
+  sanitizeVrcdnOperatorOwnedOutputSetup,
+} from "./_eventMediaControl";
 import { sanitizeEventDraftInput } from "./_eventInputs";
 import { getPublicCommunityHostedEvents, getPublicEventBySlug } from "./_eventPublic";
 import { findAvailableEventSlug, getEventBySlug, validateEventSlug } from "./_eventSlugs";
@@ -28,6 +33,12 @@ const eventMediaLinkType = v.union(
 );
 
 const eventMediaLinkPresentation = v.union(v.literal("open"), v.literal("copy"));
+
+const eventMediaPlaybackLinkInput = v.object({
+  platform: eventMediaPlaybackPlatformValidator,
+  label: v.optional(v.string()),
+  url: v.string(),
+});
 
 const eventDraftArgs = {
   title: v.string(),
@@ -78,6 +89,23 @@ const eventDraftArgs = {
   ),
   worldSlug: v.optional(v.string()),
   preferredSlug: v.optional(v.string()),
+};
+
+const vrcdnOutputSetupArgs = {
+  currentSlug: v.string(),
+  key: v.string(),
+  label: v.string(),
+  credentialRef: v.optional(v.string()),
+  ingestRegion: v.optional(eventMediaVrcdnRegionValidator),
+  playbackLinks: v.optional(v.array(eventMediaPlaybackLinkInput)),
+  targetVideoBitrateKbps: v.optional(v.number()),
+  keyframeIntervalSeconds: v.optional(v.union(v.literal(1), v.literal(2))),
+  audioSampleRateHz: v.optional(v.literal(48000)),
+  targetAudioBitrateKbps: v.optional(v.number()),
+  sourceConsentAccepted: v.optional(v.boolean()),
+  destinationAuthorityAccepted: v.optional(v.boolean()),
+  providerRulesAccepted: v.optional(v.boolean()),
+  rightsClearedMediaAccepted: v.optional(v.boolean()),
 };
 
 async function requireAuthenticatedSubject(ctx: MutationCtx) {
@@ -312,6 +340,32 @@ function optionalValue<T>(key: string, value: T | undefined): Record<string, T> 
   return value === undefined ? {} : { [key]: value };
 }
 
+async function getOrCreateEventMediaProgram(
+  db: DatabaseWriter,
+  event: Doc<"events">,
+  now: number,
+): Promise<Id<"eventMediaPrograms">> {
+  const existing = await db
+    .query("eventMediaPrograms")
+    .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
+    .take(10);
+  const program = existing.sort((first, second) => second.updatedAt - first.updatedAt)[0];
+
+  if (program !== undefined) {
+    return program._id;
+  }
+
+  return db.insert("eventMediaPrograms", {
+    eventId: event._id,
+    ...optionalValue("communityProfileId", event.communityProfileId),
+    state: "draft",
+    publicLinks: [],
+    directFallbackLinks: [],
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
 export const getPublicBySlug = query({
   args: {
     slug: v.string(),
@@ -500,6 +554,82 @@ export const updateCommunityEvent = mutation({
       eventId: event._id,
       slug,
       eventPath: `/e/${slug}`,
+    };
+  },
+});
+
+export const configureVrcdnOutput = mutation({
+  args: vrcdnOutputSetupArgs,
+  handler: async (ctx, args) => {
+    const subject = await requireAuthenticatedSubject(ctx);
+    const validation = validateEventSlug(args.currentSlug);
+
+    if (!validation.ok) {
+      throw new Error("Current event slug is invalid.");
+    }
+
+    const event = await getEventBySlug(ctx.db, validation.slug);
+
+    if (event === null) {
+      throw new Error("Event was not found.");
+    }
+
+    if (!(await canUpdateEvent(ctx.db, event, subject))) {
+      throw new Error("You do not have permission to update this event.");
+    }
+
+    const output = sanitizeVrcdnOperatorOwnedOutputSetup(args);
+    const now = Date.now();
+    const programId = await getOrCreateEventMediaProgram(ctx.db, event, now);
+    const existingOutput = await ctx.db
+      .query("eventMediaOutputs")
+      .withIndex("by_programId_key", (query) => query.eq("programId", programId).eq("key", output.key))
+      .unique();
+    const credential =
+      output.credential === undefined
+        ? undefined
+        : {
+            ...output.credential,
+            authorizedAt: now,
+            authorizedBy: subject,
+          };
+    const outputRecord = {
+      programId,
+      eventId: event._id,
+      key: output.key,
+      type: output.type,
+      accountModel: output.accountModel,
+      state: output.state,
+      label: output.label,
+      ...(credential === undefined ? {} : { credential }),
+      vrcdnSetup: output.vrcdnSetup,
+      compliance: output.compliance,
+      playbackLinks: output.playbackLinks,
+      updatedAt: now,
+    };
+    const outputId =
+      existingOutput === null
+        ? await ctx.db.insert("eventMediaOutputs", { ...outputRecord, createdAt: now })
+        : existingOutput._id;
+
+    if (existingOutput !== null) {
+      await ctx.db.patch(existingOutput._id, { ...outputRecord, credential });
+    }
+
+    await ctx.db.patch(programId, {
+      state: output.state,
+      currentOutputId: output.state === "ready" ? outputId : undefined,
+      publicLinks: output.state === "ready" ? output.playbackLinks : [],
+      updatedAt: now,
+    });
+
+    return {
+      eventId: event._id,
+      eventPath: `/e/${validation.slug}`,
+      programId,
+      outputId,
+      state: output.state,
+      publicLinkCount: output.state === "ready" ? output.playbackLinks.length : 0,
     };
   },
 });
