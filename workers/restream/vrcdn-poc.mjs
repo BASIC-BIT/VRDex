@@ -676,8 +676,9 @@ async function runOutputRestream(config) {
 
   if (ffmpeg.getProgressMs() === 0) {
     ffmpeg.stop();
+    const stderr = ffmpeg.stderr.trim();
     throw new Error(
-      "VRCDN POC output did not produce FFmpeg progress before the startup timeout. Check provider ingest readiness and RTMP URL/key formatting.",
+      `VRCDN POC output did not produce FFmpeg progress before the startup timeout. Check provider ingest readiness and RTMP URL/key formatting.${stderr ? ` Last FFmpeg stderr:\n${stderr}` : ""}`,
     );
   }
 

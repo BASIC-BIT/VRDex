@@ -211,6 +211,16 @@ Run order for the one-account smoke POC:
 2. Start `single-output-smoke` with the public output watch URL and the injected JSON secret.
 3. Watch `VRDEX_VRCDN_POC_OUTPUT_WATCH_URL` and verify the visible sequence is synthetic source A, hold slate, then synthetic source A again.
 
+Current smoke account reference:
+
+- Secret name: `event-media/vrcdn/basicbit1-smoke`.
+- Public watch URL: `https://vrcdn.live/basicbit1`.
+- Stored secret fields: `provider`, `label`, `purpose`, `rtmpUrl`, `streamKey`, `createdBy`, and `notes`.
+- 2026-06-10 attempt: `single-output-smoke`, `720p30`, `1024` CPU / `2048` MiB, 180 seconds. The worker started but FFmpeg produced no output progress; public HLS stayed `404`.
+- 2026-06-10 retry: same account with split RTMP app/playpath handling and a 60-second startup timeout. The task failed closed with no FFmpeg output progress.
+
+Next retry should first confirm in the VRCDN dashboard that the account subscription is active, the stream key is enabled, and the provider's expected FFmpeg URL/app/playpath format matches the stored `rtmpUrl` and `streamKey` fields. Do not paste the secret values into chat or docs while checking this.
+
 ## Logs And Metrics
 
 Workers should log structured operational events without stream keys, full ingest URLs, signed URLs, or private setup notes.
