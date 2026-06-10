@@ -11,7 +11,7 @@ const QUALITY_PROFILES = {
   "720p60": { width: 1280, height: 720, frameRate: 60, videoBitrateKbps: 2500 },
   "720p30": { width: 1280, height: 720, frameRate: 30, videoBitrateKbps: 1800 },
 };
-const POC_MODES = new Set(["source-pusher", "output-restream"]);
+const POC_MODES = new Set(["source-pusher", "output-restream", "single-output-smoke"]);
 const SOURCE_KEYS = new Set(["source-a", "source-b"]);
 const X264_PRESETS = new Set(["ultrafast", "superfast", "veryfast", "faster", "fast"]);
 const DEFAULT_DURATION_SECONDS = 600;
@@ -75,8 +75,7 @@ function publicPlaybackUrlEnv(name) {
   return url.href;
 }
 
-function secretIngestUrlEnv(name) {
-  const value = requiredEnv(name);
+function validateSecretIngestUrl(name, value) {
   let url;
 
   try {
@@ -90,6 +89,49 @@ function secretIngestUrlEnv(name) {
   }
 
   return value;
+}
+
+function combineRtmpUrl(rtmpUrl, streamKey) {
+  if (typeof rtmpUrl !== "string" || typeof streamKey !== "string") {
+    throw new Error("Ingest secret JSON must include string rtmpUrl and streamKey fields, or an ingestUrl field.");
+  }
+
+  if (streamKey.trim() === "" || streamKey.includes("://") || /\s/.test(streamKey)) {
+    throw new Error("Ingest secret JSON streamKey must be a non-empty stream key, not a URL.");
+  }
+
+  return `${rtmpUrl.replace(/\/+$/, "")}/${streamKey}`;
+}
+
+function ingestUrlFromSecretJson(name, value) {
+  let parsed;
+
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error(`${name} must be JSON with ingestUrl or rtmpUrl and streamKey fields.`);
+  }
+
+  if (typeof parsed.ingestUrl === "string") {
+    return validateSecretIngestUrl(`${name}.ingestUrl`, parsed.ingestUrl);
+  }
+
+  return validateSecretIngestUrl(`${name}.rtmpUrl`, combineRtmpUrl(parsed.rtmpUrl, parsed.streamKey));
+}
+
+function ingestUrlEnv(urlName, secretJsonName) {
+  const value = optionalEnv(urlName);
+  const secretJson = optionalEnv(secretJsonName);
+
+  if (value === undefined && secretJson === undefined) {
+    throw new Error(`${urlName} or ${secretJsonName} is required.`);
+  }
+
+  if (value !== undefined && secretJson !== undefined) {
+    throw new Error(`${urlName} and ${secretJsonName} must not both be set.`);
+  }
+
+  return value === undefined ? ingestUrlFromSecretJson(secretJsonName, secretJson) : validateSecretIngestUrl(urlName, value);
 }
 
 function assertAllowed(value, allowed, message) {
@@ -198,6 +240,17 @@ function buildExternalHardSwitchGraph(profile) {
     "[3:a]pan=stereo|c0=c0|c1=c0,asetpts=PTS-STARTPTS[a1]",
     "[2:a]aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,asetpts=PTS-STARTPTS[a2]",
     "[a0][a1][a2]astreamselect@audio-source=inputs=3:map=0,aresample=48000[a]",
+  ].join(";");
+}
+
+function buildSingleOutputSmokeGraph(profile) {
+  return [
+    `[0:v]format=yuv420p,${sourceVisual("source-a", profile)},setsar=1,split=2[v0a][v0b]`,
+    `[1:v]fps=${profile.frameRate},format=yuv420p,setsar=1[v1]`,
+    "[v0a][v1][v0b]streamselect@video-source=inputs=3:map=0,zmq[v]",
+    "[2:a]pan=stereo|c0=c0|c1=c0,asetpts=PTS-STARTPTS,asplit=2[a0a][a0b]",
+    "[3:a]pan=stereo|c0=c0|c1=c0,asetpts=PTS-STARTPTS[a1]",
+    "[a0a][a1][a0b]astreamselect@audio-source=inputs=3:map=0,aresample=48000[a]",
   ].join(";");
 }
 
@@ -335,6 +388,82 @@ function outputRestreamArgs(config, holdSlateImage) {
   ];
 }
 
+function singleOutputSmokeArgs(config, holdSlateImage) {
+  const profile = config.qualityProfile;
+
+  return [
+    "-hide_banner",
+    "-nostats",
+    "-stats_period",
+    "0.5",
+    "-progress",
+    "pipe:1",
+    "-re",
+    "-f",
+    "lavfi",
+    "-i",
+    `testsrc2=size=${profile.width}x${profile.height}:rate=${profile.frameRate}:duration=${config.durationSeconds}`,
+    "-re",
+    "-loop",
+    "1",
+    "-framerate",
+    String(profile.frameRate),
+    "-i",
+    holdSlateImage,
+    "-re",
+    "-f",
+    "lavfi",
+    "-i",
+    `sine=frequency=440:sample_rate=48000:duration=${config.durationSeconds}`,
+    "-re",
+    "-f",
+    "lavfi",
+    "-i",
+    `sine=frequency=220:sample_rate=48000:duration=${config.durationSeconds}`,
+    "-filter_complex",
+    buildSingleOutputSmokeGraph(profile),
+    "-map",
+    "[v]",
+    "-map",
+    "[a]",
+    "-t",
+    String(config.durationSeconds),
+    "-c:v",
+    "libx264",
+    "-preset",
+    config.x264Preset,
+    "-tune",
+    "zerolatency",
+    "-pix_fmt",
+    "yuv420p",
+    "-r",
+    String(profile.frameRate),
+    "-g",
+    String(profile.frameRate * 2),
+    "-keyint_min",
+    String(profile.frameRate * 2),
+    "-sc_threshold",
+    "0",
+    "-b:v",
+    `${profile.videoBitrateKbps}k`,
+    "-maxrate",
+    `${profile.videoBitrateKbps}k`,
+    "-bufsize",
+    `${profile.videoBitrateKbps * 2}k`,
+    "-c:a",
+    "aac",
+    "-b:a",
+    "160k",
+    "-ar",
+    "48000",
+    "-ac",
+    "2",
+    "-f",
+    "flv",
+    config.outputIngestUrl,
+  ];
+}
+
 class SafeFfmpegProcess {
   constructor(args, options = {}) {
     this.args = args;
@@ -418,7 +547,7 @@ function loadConfig() {
   const mode = assertAllowed(
     requiredEnv("VRDEX_VRCDN_POC_MODE"),
     POC_MODES,
-    "VRDEX_VRCDN_POC_MODE must be source-pusher or output-restream.",
+      "VRDEX_VRCDN_POC_MODE must be source-pusher, output-restream, or single-output-smoke.",
   );
   const qualityGate = requiredEnv("VRDEX_RESTREAM_QUALITY_GATE");
   const qualityProfile = QUALITY_PROFILES[qualityGate];
@@ -451,7 +580,15 @@ function loadConfig() {
         SOURCE_KEYS,
         "VRDEX_VRCDN_POC_SOURCE_KEY must be source-a or source-b.",
       ),
-      ingestUrl: secretIngestUrlEnv("VRDEX_VRCDN_POC_INGEST_URL"),
+      ingestUrl: ingestUrlEnv("VRDEX_VRCDN_POC_INGEST_URL", "VRDEX_VRCDN_POC_INGEST_SECRET_JSON"),
+    };
+  }
+
+  if (mode === "single-output-smoke") {
+    return {
+      ...baseConfig,
+      outputWatchUrl: publicPlaybackUrlEnv("VRDEX_VRCDN_POC_OUTPUT_WATCH_URL"),
+      outputIngestUrl: ingestUrlEnv("VRDEX_VRCDN_POC_OUTPUT_INGEST_URL", "VRDEX_VRCDN_POC_OUTPUT_INGEST_SECRET_JSON"),
     };
   }
 
@@ -460,7 +597,7 @@ function loadConfig() {
     sourceAPlaybackUrl: publicPlaybackUrlEnv("VRDEX_VRCDN_POC_SOURCE_A_PLAYBACK_URL"),
     sourceBPlaybackUrl: publicPlaybackUrlEnv("VRDEX_VRCDN_POC_SOURCE_B_PLAYBACK_URL"),
     outputWatchUrl: publicPlaybackUrlEnv("VRDEX_VRCDN_POC_OUTPUT_WATCH_URL"),
-    outputIngestUrl: secretIngestUrlEnv("VRDEX_VRCDN_POC_OUTPUT_INGEST_URL"),
+    outputIngestUrl: ingestUrlEnv("VRDEX_VRCDN_POC_OUTPUT_INGEST_URL", "VRDEX_VRCDN_POC_OUTPUT_INGEST_SECRET_JSON"),
   };
 }
 
@@ -497,7 +634,8 @@ async function runOutputRestream(config) {
     throw new Error("Failed to create POC hold slate image.");
   }
 
-  const ffmpeg = new SafeFfmpegProcess(outputRestreamArgs(config, holdSlateImage), { redactValues: [config.outputIngestUrl] });
+  const args = config.mode === "single-output-smoke" ? singleOutputSmokeArgs(config, holdSlateImage) : outputRestreamArgs(config, holdSlateImage);
+  const ffmpeg = new SafeFfmpegProcess(args, { redactValues: [config.outputIngestUrl] });
   await sleep(1500);
   const commandClient = new ZmqCommandClient(DEFAULT_ZMQ_PORT);
   const commandLog = [];
@@ -516,6 +654,7 @@ async function runOutputRestream(config) {
   console.log(
     JSON.stringify({
       event: "vrcdn_poc_output_restream_started",
+      mode: config.mode,
       qualityGate: config.qualityGate,
       durationSeconds: config.durationSeconds,
       x264Preset: config.x264Preset,
@@ -557,6 +696,7 @@ async function runOutputRestream(config) {
   console.log(
     JSON.stringify({
       event: "vrcdn_poc_output_restream_completed",
+      mode: config.mode,
       artifact: outputDir,
       ...(uploadedTo === undefined ? {} : { uploadedTo }),
       qualityGate: config.qualityGate,
@@ -583,6 +723,12 @@ async function main() {
           ? {
               sourceAPlaybackConfigured: true,
               sourceBPlaybackConfigured: true,
+              outputWatchConfigured: true,
+              outputIngestSecretConfigured: true,
+            }
+          : {}),
+        ...(config.mode === "single-output-smoke"
+          ? {
               outputWatchConfigured: true,
               outputIngestSecretConfigured: true,
             }

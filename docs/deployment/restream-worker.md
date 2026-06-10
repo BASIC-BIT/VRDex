@@ -168,6 +168,7 @@ The checked-in POC entrypoint is `workers/restream/vrcdn-poc.mjs`. It has two mo
 
 - `VRDEX_VRCDN_POC_MODE=source-pusher`: pushes a labeled synthetic feed into one VRCDN source account.
 - `VRDEX_VRCDN_POC_MODE=output-restream`: pulls source A and source B public playback links, hard-switches source A to hold slate to source B, and pushes the result into the output VRCDN account.
+- `VRDEX_VRCDN_POC_MODE=single-output-smoke`: pushes synthetic source A to hold slate to source A directly into one VRCDN output account. Use this when only one VRCDN account is available.
 
 Shared non-secret settings:
 
@@ -180,6 +181,7 @@ Source pusher settings:
 
 - `VRDEX_VRCDN_POC_SOURCE_KEY=source-a` or `source-b`.
 - `VRDEX_VRCDN_POC_INGEST_URL`, injected only from a Secrets Manager or SSM reference. This value is a secret and must not be logged or pasted.
+- `VRDEX_VRCDN_POC_INGEST_SECRET_JSON`, alternative injected secret JSON with `ingestUrl`, or with `rtmpUrl` and `streamKey` fields.
 
 Output restream settings:
 
@@ -187,6 +189,12 @@ Output restream settings:
 - `VRDEX_VRCDN_POC_SOURCE_B_PLAYBACK_URL`, a stable public playback URL with no query string, userinfo, or signature.
 - `VRDEX_VRCDN_POC_OUTPUT_WATCH_URL`, the public output watch URL used for human/browser validation.
 - `VRDEX_VRCDN_POC_OUTPUT_INGEST_URL`, injected only from a Secrets Manager or SSM reference. This value is a secret and must not be logged or pasted.
+- `VRDEX_VRCDN_POC_OUTPUT_INGEST_SECRET_JSON`, alternative injected secret JSON with `ingestUrl`, or with `rtmpUrl` and `streamKey` fields.
+
+Single-output smoke settings:
+
+- `VRDEX_VRCDN_POC_OUTPUT_WATCH_URL`, the public output watch URL used for human/browser validation.
+- `VRDEX_VRCDN_POC_OUTPUT_INGEST_URL` or `VRDEX_VRCDN_POC_OUTPUT_INGEST_SECRET_JSON`, injected only from a Secrets Manager or SSM reference.
 
 Run order for the first provider POC:
 
@@ -196,6 +204,12 @@ Run order for the first provider POC:
 4. Start `output-restream` with the two public playback URLs and the output ingest secret.
 5. Watch `VRDEX_VRCDN_POC_OUTPUT_WATCH_URL` and verify the visible sequence is source A, hold slate, then source B.
 6. Capture CloudWatch logs and private POC report artifacts by event names only; never copy secret values into reports.
+
+Run order for the one-account smoke POC:
+
+1. Store the VRCDN RTMP URL and stream key in Secrets Manager as JSON with `rtmpUrl` and `streamKey` fields.
+2. Start `single-output-smoke` with the public output watch URL and the injected JSON secret.
+3. Watch `VRDEX_VRCDN_POC_OUTPUT_WATCH_URL` and verify the visible sequence is synthetic source A, hold slate, then synthetic source A again.
 
 ## Logs And Metrics
 

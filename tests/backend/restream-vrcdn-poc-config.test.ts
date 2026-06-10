@@ -60,6 +60,24 @@ describe("VRCDN POC worker configuration", () => {
     assert.doesNotMatch(result.stdout, /output-secret-key/);
   });
 
+  it("accepts single-output smoke config from an injected JSON secret", async () => {
+    const secretJson = JSON.stringify({
+      rtmpUrl: "rtmps://ingest.example.invalid/live/output-account",
+      streamKey: "output-secret-key",
+    });
+    const result = await runPoc({
+      VRDEX_VRCDN_POC_MODE: "single-output-smoke",
+      VRDEX_VRCDN_POC_OUTPUT_WATCH_URL: "https://vrcdn.live/output-poc",
+      VRDEX_VRCDN_POC_OUTPUT_INGEST_SECRET_JSON: secretJson,
+    });
+
+    assert.equal(result.code, 0);
+    assert.match(result.stdout, /vrcdn_poc_configuration_validated/);
+    assert.match(result.stdout, /"mode":"single-output-smoke"/);
+    assert.match(result.stdout, /"outputIngestSecretConfigured":true/);
+    assert.doesNotMatch(result.stdout, /output-secret-key/);
+  });
+
   it("rejects signed or credential-bearing public playback URLs", async () => {
     const result = await runPoc({
       VRDEX_VRCDN_POC_MODE: "output-restream",
@@ -85,8 +103,26 @@ describe("VRCDN POC worker configuration", () => {
     });
 
     assert.equal(modeResult.code, 1);
-    assert.match(modeResult.stderr, /VRDEX_VRCDN_POC_MODE must be source-pusher or output-restream\./);
+    assert.match(modeResult.stderr, /VRDEX_VRCDN_POC_MODE must be source-pusher, output-restream, or single-output-smoke\./);
     assert.equal(ingestResult.code, 1);
     assert.match(ingestResult.stderr, /VRDEX_VRCDN_POC_INGEST_URL must use rtmp or rtmps\./);
+  });
+
+  it("rejects ambiguous direct and JSON ingest secret inputs", async () => {
+    const result = await runPoc({
+      VRDEX_VRCDN_POC_MODE: "single-output-smoke",
+      VRDEX_VRCDN_POC_OUTPUT_WATCH_URL: "https://vrcdn.live/output-poc",
+      VRDEX_VRCDN_POC_OUTPUT_INGEST_URL: "rtmps://ingest.example.invalid/live/direct-secret",
+      VRDEX_VRCDN_POC_OUTPUT_INGEST_SECRET_JSON: JSON.stringify({
+        rtmpUrl: "rtmps://ingest.example.invalid/live/output-account",
+        streamKey: "json-secret",
+      }),
+    });
+
+    assert.equal(result.code, 1);
+    assert.match(
+      result.stderr,
+      /VRDEX_VRCDN_POC_OUTPUT_INGEST_URL and VRDEX_VRCDN_POC_OUTPUT_INGEST_SECRET_JSON must not both be set\./,
+    );
   });
 });
