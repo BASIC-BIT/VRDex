@@ -275,6 +275,20 @@ const publicEvent: PublicEvent = {
   ...eventPreview,
   slug: eventSlug,
   notes: "Doors open before the first set. Follow host announcements for instance details.",
+  authoredMediaLinks: [
+    {
+      type: "watch",
+      label: "Afterglow watch link",
+      url: "https://example.invalid/events/afterglow-watch",
+      presentation: "open",
+    },
+    {
+      type: "vrcdn",
+      label: "VRCDN copy link",
+      url: "https://example.invalid/events/afterglow-vrcdn",
+      presentation: "copy",
+    },
+  ],
   mediaLinks: [
     {
       type: "watch",
@@ -372,6 +386,26 @@ const publicWatchEvent: PublicEvent = {
   endAt: watchEventEndAt,
   summary: "Live room for the Afterglow set stream.",
   notes: "Use the player during the event, or open the stream in a new tab.",
+  authoredMediaLinks: [
+    {
+      type: "watch",
+      label: "Event stream",
+      url: "https://stream.vrcdn.live/live/playwright-afterglow-watch-room.live.ts",
+      presentation: "open",
+    },
+    {
+      type: "watch",
+      label: "YouTube archive link",
+      url: "https://www.youtube.com/watch?v=M7lc1UVf-VE",
+      presentation: "open",
+    },
+    {
+      type: "stream",
+      label: "Twitch channel link",
+      url: "https://www.twitch.tv/twitchdev",
+      presentation: "open",
+    },
+  ],
   mediaLinks: [
     {
       type: "watch",

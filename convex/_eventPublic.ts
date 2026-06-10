@@ -68,6 +68,12 @@ export type PublicEventPreview = {
 export type PublicEvent = PublicEventPreview & {
   slug: string;
   notes?: string;
+  authoredMediaLinks: Array<{
+    type: PublicEventMediaLinkType;
+    label: string;
+    url: string;
+    presentation: PublicEventMediaLinkPresentation;
+  }>;
   mediaLinks: Array<{
     type: PublicEventMediaLinkType;
     label: string;
@@ -170,12 +176,12 @@ function createProgramEventMediaLinks(program: Doc<"eventMediaPrograms"> | undef
 }
 
 function createPublicEventMediaLinks(
-  event: Doc<"events">,
+  authoredMediaLinks: PublicEvent["mediaLinks"],
   mediaProgram: Doc<"eventMediaPrograms"> | undefined,
   mediaOutputs: Doc<"eventMediaOutputs">[],
 ): PublicEvent["mediaLinks"] {
   const links = [
-    ...(event.mediaLinks ?? []).flatMap(safePublicEventMediaLink),
+    ...authoredMediaLinks,
     ...mediaOutputs.flatMap(createOutputEventMediaLinks),
     ...createProgramEventMediaLinks(mediaProgram),
   ];
@@ -229,11 +235,13 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
   }
 
   const preview = toPublicEventPreviewFromRecord(record);
+  const authoredMediaLinks = (record.event.mediaLinks ?? []).flatMap(safePublicEventMediaLink);
 
   return {
     ...preview,
     slug: record.event.slug,
-    mediaLinks: createPublicEventMediaLinks(record.event, record.mediaProgram, record.mediaOutputs ?? []),
+    authoredMediaLinks,
+    mediaLinks: createPublicEventMediaLinks(authoredMediaLinks, record.mediaProgram, record.mediaOutputs ?? []),
     worlds: record.worlds.map(({ association, world }) => {
       const heroImageUrl = safeHttpsUrl(world.heroImageUrl);
 

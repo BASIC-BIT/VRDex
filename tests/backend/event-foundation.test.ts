@@ -550,6 +550,7 @@ describe("public event projection", () => {
 
     const publicEvent = toPublicEvent({ event, worlds: [], participants: [], slots: [], mediaProgram, mediaOutputs: [mediaOutput] });
 
+    assert.deepEqual(publicEvent?.authoredMediaLinks, []);
     assert.deepEqual(publicEvent?.mediaLinks, [
       {
         type: "watch",

@@ -72,6 +72,12 @@ export type PublicEventPreview = {
 export type PublicEvent = Omit<PublicEventPreview, "worlds"> & {
   slug: string;
   notes?: string;
+  authoredMediaLinks: Array<{
+    type: EventMediaLinkType;
+    label: string;
+    url: string;
+    presentation: EventMediaLinkPresentation;
+  }>;
   mediaLinks: Array<{
     type: EventMediaLinkType;
     label: string;

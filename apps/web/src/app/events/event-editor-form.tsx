@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useState, useTransition } from "react";
+import type { ChangeEvent, FormEvent } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useMutation } from "convex/react";
 import { api } from "@convex-generated-api";
 import type { PublicEvent } from "../_components/event-public-page";
@@ -24,6 +25,21 @@ type EventEditorStatus =
   | { kind: "submitting" }
   | { kind: "success"; result: { eventPath: string; slug: string } }
   | { kind: "error"; message: string };
+
+type VrcdnOutputStatus =
+  | { kind: "idle" }
+  | { kind: "submitting" }
+  | { kind: "success"; publicLinkCount: number }
+  | { kind: "error"; message: string };
+
+type VrcdnOutputFormState = {
+  outputAccount: string;
+  label: string;
+  browserUrl: string;
+  standaloneUrl: string;
+  pcUrl: string;
+  authorized: boolean;
+};
 
 const userSafeErrorPatterns = [
   /Event changes require a signed-in user\./,
@@ -52,10 +68,23 @@ const userSafeErrorPatterns = [
   /Person profile ".+" was not found\./,
   /You do not have permission to update this event\./,
   /You do not have permission to move this event to another community\./,
+  /Current event slug is invalid\./,
+  /Event was not found\./,
+  /Output account is required\./,
+  /Output account must be a configured account name\./,
+  /Output label is required\./,
+  /Output label must be \d+ characters or fewer\./,
+  /Watch preview URL is required\./,
+  /Confirm you are authorized to publish this output\./,
+  /Media control public links must use HTTPS or a recognized VRCDN stream URL\./,
 ];
 
 function eventEditorErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
+
+  if (/Credential secret reference/.test(message)) {
+    return "Output account must be a configured account name.";
+  }
 
   for (const pattern of userSafeErrorPatterns) {
     const match = message.match(pattern);
@@ -75,6 +104,35 @@ function stringField(value: FormDataEntryValue | null): string {
 function optionalString(value: string): string | undefined {
   const trimmed = value.trim();
   return trimmed.length === 0 ? undefined : trimmed;
+}
+
+function normalizeVrcdnOutputAccount(value: string): string {
+  const account = value.trim().toLowerCase();
+
+  if (account.length === 0) {
+    throw new Error("Output account is required.");
+  }
+
+  if (!/^[a-z0-9][a-z0-9/_.:-]{2,191}$/.test(account) || account.includes("://")) {
+    throw new Error("Output account must be a configured account name.");
+  }
+
+  return account;
+}
+
+function createInitialVrcdnOutputForm(event: PublicEvent | undefined): VrcdnOutputFormState {
+  const browserLink = event?.mediaLinks.find((link) => link.type === "watch" && link.url.includes("vrcdn.live"));
+  const standaloneLink = event?.mediaLinks.find((link) => link.type === "vrcdn" && link.url.includes(".live.ts"));
+  const pcLink = event?.mediaLinks.find((link) => link.type === "vrcdn" && link.url.startsWith("rtspt://"));
+
+  return {
+    outputAccount: "",
+    label: browserLink?.label ?? "Event stream",
+    browserUrl: browserLink?.url ?? "",
+    standaloneUrl: standaloneLink?.url ?? "",
+    pcUrl: pcLink?.url ?? "",
+    authorized: false,
+  };
 }
 
 type DateTimeLocalParts = {
@@ -278,7 +336,7 @@ function parseSlotLinks(value: string, eventStartAt: number) {
 }
 
 function serializeMediaLinks(event: PublicEvent | undefined): string {
-  return (event?.mediaLinks ?? [])
+  return (event?.authoredMediaLinks ?? event?.mediaLinks ?? [])
     .map((link) => `${link.type} | ${link.label} | ${link.url} | ${link.presentation}`)
     .join("\n");
 }
@@ -313,6 +371,14 @@ function createGeneratedSlotText(count: number, durationMinutes: number, breakMi
   }).join("\n");
 }
 
+function eventTargetValue(changeEvent: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>): string {
+  return changeEvent.currentTarget.value;
+}
+
+function eventTargetChecked(changeEvent: ChangeEvent<HTMLInputElement>): boolean {
+  return changeEvent.currentTarget.checked;
+}
+
 function DisabledEventEditorPanel() {
   return (
     <Card surface="dashed">
@@ -340,9 +406,12 @@ function SignInRequiredEventEditorPanel() {
 function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
   const createEvent = useMutation(api.events.createCommunityEvent);
   const updateEvent = useMutation(api.events.updateCommunityEvent);
+  const configureVrcdnOutput = useMutation(api.events.configureVrcdnOutput);
   const [status, setStatus] = useState<EventEditorStatus>({ kind: "idle" });
+  const [vrcdnOutputStatus, setVrcdnOutputStatus] = useState<VrcdnOutputStatus>({ kind: "idle" });
   const [timezone, setTimezone] = useState(event?.timezone ?? "UTC");
   const [mediaLinksText, setMediaLinksText] = useState(() => serializeMediaLinks(event));
+  const [vrcdnOutput, setVrcdnOutput] = useState<VrcdnOutputFormState>(() => createInitialVrcdnOutputForm(event));
   const [slotText, setSlotText] = useState(() => serializeSlots(event));
   const [slotTemplate, setSlotTemplate] = useState({ count: "4", duration: "45", break: "0" });
   const [, startTransition] = useTransition();
@@ -367,6 +436,54 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
       setSlotText(createGeneratedSlotText(count, duration, breakDuration));
     } catch (error) {
       setStatus({ kind: "error", message: eventEditorErrorMessage(error) });
+    }
+  }
+
+  async function onSaveVrcdnOutput() {
+    if (event === undefined) {
+      return;
+    }
+
+    setVrcdnOutputStatus({ kind: "submitting" });
+
+    try {
+      const outputAccount = normalizeVrcdnOutputAccount(vrcdnOutput.outputAccount);
+      const label = optionalString(vrcdnOutput.label);
+      const browserUrl = optionalString(vrcdnOutput.browserUrl);
+      const standaloneUrl = optionalString(vrcdnOutput.standaloneUrl);
+      const pcUrl = optionalString(vrcdnOutput.pcUrl);
+
+      if (label === undefined) {
+        throw new Error("Output label is required.");
+      }
+
+      if (browserUrl === undefined) {
+        throw new Error("Watch preview URL is required.");
+      }
+
+      if (!vrcdnOutput.authorized) {
+        throw new Error("Confirm you are authorized to publish this output.");
+      }
+
+      const result = await configureVrcdnOutput({
+        currentSlug: event.slug,
+        key: "main-vrcdn",
+        label,
+        credentialRef: outputAccount,
+        playbackLinks: [
+          { platform: "browser" as const, label, url: browserUrl },
+          ...(standaloneUrl === undefined ? [] : [{ platform: "standalone" as const, label: "Quest stream", url: standaloneUrl }]),
+          ...(pcUrl === undefined ? [] : [{ platform: "pc" as const, label: "PC stream", url: pcUrl }]),
+        ],
+        sourceConsentAccepted: true,
+        destinationAuthorityAccepted: true,
+        providerRulesAccepted: true,
+        rightsClearedMediaAccepted: true,
+      });
+
+      startTransition(() => setVrcdnOutputStatus({ kind: "success", publicLinkCount: result.publicLinkCount }));
+    } catch (error) {
+      startTransition(() => setVrcdnOutputStatus({ kind: "error", message: eventEditorErrorMessage(error) }));
     }
   }
 
@@ -489,6 +606,105 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
       </Field>
       <VrcdnMediaLinkAssistant mediaLinksText={mediaLinksText} />
 
+      {event === undefined ? null : (
+        <Card className="grid gap-4" padding="sm" surface="strong">
+          <div>
+            <h3 className="text-xl font-semibold tracking-[-0.03em]">VRCDN output</h3>
+            <p className="mt-2 text-xs leading-5 text-muted">Managed output links are shown on the event page during the watch window.</p>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field>
+              Output account
+              <Input
+                autoComplete="off"
+                onChange={(changeEvent) => {
+                  const value = eventTargetValue(changeEvent);
+                  setVrcdnOutput((current) => ({ ...current, outputAccount: value }));
+                }}
+                placeholder="basicbit"
+                value={vrcdnOutput.outputAccount}
+              />
+              <FieldText>Use the account assigned for this event.</FieldText>
+            </Field>
+            <Field>
+              Output label
+              <Input
+                onChange={(changeEvent) => {
+                  const value = eventTargetValue(changeEvent);
+                  setVrcdnOutput((current) => ({ ...current, label: value }));
+                }}
+                placeholder="Event stream"
+                value={vrcdnOutput.label}
+              />
+            </Field>
+          </div>
+
+          <Field>
+            Watch preview URL
+            <Input
+              onChange={(changeEvent) => {
+                const value = eventTargetValue(changeEvent);
+                setVrcdnOutput((current) => ({ ...current, browserUrl: value }));
+              }}
+              placeholder="https://panel.vrcdn.live/preview/name"
+              value={vrcdnOutput.browserUrl}
+            />
+          </Field>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field>
+              Quest stream URL
+              <Input
+                onChange={(changeEvent) => {
+                  const value = eventTargetValue(changeEvent);
+                  setVrcdnOutput((current) => ({ ...current, standaloneUrl: value }));
+                }}
+                placeholder="https://stream.vrcdn.live/live/name.live.ts"
+                value={vrcdnOutput.standaloneUrl}
+              />
+            </Field>
+            <Field>
+              PC stream URL
+              <Input
+                onChange={(changeEvent) => {
+                  const value = eventTargetValue(changeEvent);
+                  setVrcdnOutput((current) => ({ ...current, pcUrl: value }));
+                }}
+                placeholder="rtspt://stream.vrcdn.live/live/name"
+                value={vrcdnOutput.pcUrl}
+              />
+            </Field>
+          </div>
+
+          <label className="flex gap-3 rounded-control border border-border bg-white p-4 text-sm leading-6">
+            <input
+              checked={vrcdnOutput.authorized}
+              className="mt-1 h-4 w-4 flex-none accent-accent"
+              onChange={(changeEvent) => {
+                const checked = eventTargetChecked(changeEvent);
+                setVrcdnOutput((current) => ({ ...current, authorized: checked }));
+              }}
+              type="checkbox"
+            />
+            <span>I confirm I am authorized to publish this event through the selected output account.</span>
+          </label>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <Button disabled={vrcdnOutputStatus.kind === "submitting"} onClick={onSaveVrcdnOutput} type="button" variant="secondary">
+              {vrcdnOutputStatus.kind === "submitting" ? "Saving output..." : "Save output account"}
+            </Button>
+            {vrcdnOutputStatus.kind === "success" ? (
+              <span className="text-sm text-muted">
+                Output saved. {vrcdnOutputStatus.publicLinkCount} public link{vrcdnOutputStatus.publicLinkCount === 1 ? "" : "s"} ready.
+              </span>
+            ) : null}
+          </div>
+
+          {vrcdnOutputStatus.kind === "error" ? <Notice variant="error">{vrcdnOutputStatus.message}</Notice> : null}
+        </Card>
+      )}
+
       <Field>
         Linked person profiles
         <Textarea className="min-h-28" defaultValue={serializeParticipants(event)} name="participantLinks" placeholder="dj-aurora | Performer&#10;vj-lumen | Staff" />
@@ -506,15 +722,39 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
         <div className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
           <Field className="text-xs text-muted">
             Slot count
-            <Input className="bg-white text-foreground" inputMode="numeric" onChange={(changeEvent) => setSlotTemplate((current) => ({ ...current, count: changeEvent.currentTarget.value }))} value={slotTemplate.count} />
+            <Input
+              className="bg-white text-foreground"
+              inputMode="numeric"
+              onChange={(changeEvent) => {
+                const value = eventTargetValue(changeEvent);
+                setSlotTemplate((current) => ({ ...current, count: value }));
+              }}
+              value={slotTemplate.count}
+            />
           </Field>
           <Field className="text-xs text-muted">
             Duration minutes
-            <Input className="bg-white text-foreground" inputMode="numeric" onChange={(changeEvent) => setSlotTemplate((current) => ({ ...current, duration: changeEvent.currentTarget.value }))} value={slotTemplate.duration} />
+            <Input
+              className="bg-white text-foreground"
+              inputMode="numeric"
+              onChange={(changeEvent) => {
+                const value = eventTargetValue(changeEvent);
+                setSlotTemplate((current) => ({ ...current, duration: value }));
+              }}
+              value={slotTemplate.duration}
+            />
           </Field>
           <Field className="text-xs text-muted">
             Break minutes
-            <Input className="bg-white text-foreground" inputMode="numeric" onChange={(changeEvent) => setSlotTemplate((current) => ({ ...current, break: changeEvent.currentTarget.value }))} value={slotTemplate.break} />
+            <Input
+              className="bg-white text-foreground"
+              inputMode="numeric"
+              onChange={(changeEvent) => {
+                const value = eventTargetValue(changeEvent);
+                setSlotTemplate((current) => ({ ...current, break: value }));
+              }}
+              value={slotTemplate.break}
+            />
           </Field>
           <Button className="bg-white" onClick={onGenerateSlots} type="button">
             Generate
