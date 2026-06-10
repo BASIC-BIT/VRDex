@@ -68,6 +68,7 @@ Use this when only one VRCDN account is ready.
 - After the panel screenshot, the secret was corrected to store the panel preview URL separately and distinguish ingest server plus stream key from playback URLs.
 - A corrected retry completed successfully: `single-output-smoke`, `720p30`, `1024` CPU / `2048` MiB, 120 seconds, `8` runtime commands, `120000ms` final output progress.
 - Private corrected retry report: `s3://vrdex-restream-worker-079358094174-artifacts/synthetic-benchmarks/2026-06-10T04-40-37-650Z/`.
+- Future output POC artifact directories include `report.html`, `vrcdn-poc-report.json`, and `frames/hold-slate-input.png`.
 - Next useful provider test: a longer single-account smoke or the three-account source A/source B/output POC.
 
 ## Validation Commands
@@ -86,4 +87,5 @@ docker build -f workers/restream/Dockerfile -t vrdex-restream-worker:poc-local .
 
 - Report the public preview URL, secret name, task id, task status, and sanitized event names.
 - Do not report stream keys, full secret JSON, provider passwords, or combined ingest URLs.
+- Use `report.html` as the human artifact index when present; it should only contain public watch/playback URLs and sanitized run metadata.
 - If a live smoke fails, document the failure in `docs/deployment/restream-worker.md` with only public URLs, secret names, and sanitized symptoms.

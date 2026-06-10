@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it } from "node:test";
+import { pathToFileURL } from "node:url";
 
 const validPocEnv = {
   VRDEX_RESTREAM_QUALITY_GATE: "720p30",
@@ -124,5 +128,48 @@ describe("VRCDN POC worker configuration", () => {
       result.stderr,
       /VRDEX_VRCDN_POC_OUTPUT_INGEST_URL and VRDEX_VRCDN_POC_OUTPUT_INGEST_SECRET_JSON must not both be set\./,
     );
+  });
+
+  it("writes a sanitized HTML report for provider smoke artifacts", async () => {
+    const { writePocHtmlReport } = (await import(
+      pathToFileURL(join(process.cwd(), "workers/restream/vrcdn-poc.mjs")).href
+    )) as {
+      writePocHtmlReport: (outputDir: string, report: Record<string, unknown>) => void;
+    };
+    const outputDir = mkdtempSync(join(tmpdir(), "vrdex-vrcdn-poc-report-"));
+
+    try {
+      writePocHtmlReport(outputDir, {
+        generatedAt: "2026-06-10T05:00:00.000Z",
+        mode: "single-output-smoke",
+        qualityGate: "720p30",
+        durationSeconds: 120,
+        x264Preset: "ultrafast",
+        controlMode: "hard-switch",
+        outputWatchUrl: "https://panel.vrcdn.live/preview/output-poc",
+        outputIngestUrl: "rtmps://ingest.example.invalid/live/should-not-render",
+        sourceSequence: ["synthetic source A", "VRDex POC hold slate", "synthetic source A"],
+        elapsedSeconds: 120.25,
+        commandCount: 2,
+        commandLog: [
+          { elapsedSeconds: 40, kind: "operator-command", command: "switch_hold<script>" },
+          { elapsedSeconds: 80, kind: "operator-command", command: "switch_source", value: "source-a" },
+        ],
+        progressSampleCount: 120,
+        finalOutputProgressMs: 120000,
+      });
+
+      const html = readFileSync(join(outputDir, "report.html"), "utf8");
+
+      assert.match(html, /VRDex VRCDN POC Report/);
+      assert.match(html, /https:\/\/panel\.vrcdn\.live\/preview\/output-poc/);
+      assert.match(html, /vrcdn-poc-report\.json/);
+      assert.match(html, /frames\/hold-slate-input\.png/);
+      assert.match(html, /switch_hold&lt;script&gt;/);
+      assert.doesNotMatch(html, /<script>/);
+      assert.doesNotMatch(html, /should-not-render/);
+    } finally {
+      rmSync(outputDir, { recursive: true, force: true });
+    }
   });
 });

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
+import { pathToFileURL } from "node:url";
 
 import { ProgramController, ZmqCommandClient, sleep } from "./live-control.mjs";
 
@@ -203,6 +204,31 @@ function sanitizeLog(value, redactValues = []) {
   }
 
   return sanitized;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function optionalLink(url, label = url) {
+  if (url === undefined) {
+    return "";
+  }
+
+  return `<a href="${escapeHtml(url)}" rel="noreferrer" target="_blank">${escapeHtml(label)}</a>`;
+}
+
+function formatMilliseconds(value) {
+  return `${(value / 1000).toFixed(3)}s`;
+}
+
+function reportCard(label, value) {
+  return `<div class="card"><div class="label">${escapeHtml(label)}</div><div class="value">${escapeHtml(value)}</div></div>`;
 }
 
 function scalePixels(value, total) {
@@ -554,6 +580,93 @@ class SafeFfmpegProcess {
   }
 }
 
+export function writePocHtmlReport(outputDir, report) {
+  const sourceLinks = [
+    report.sourceAPlaybackUrl === undefined ? "" : `<li>Source A: ${optionalLink(report.sourceAPlaybackUrl)}</li>`,
+    report.sourceBPlaybackUrl === undefined ? "" : `<li>Source B: ${optionalLink(report.sourceBPlaybackUrl)}</li>`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const sourceSequence = report.sourceSequence
+    .map((step) => `<li>${escapeHtml(step)}</li>`)
+    .join("\n");
+  const runtimeCommands = report.commandLog
+    .slice(0, 120)
+    .map((event) => {
+      const details = [event.kind, event.command, event.target, event.value]
+        .filter((value) => value !== undefined)
+        .join(" ");
+
+      return `<div><strong>${escapeHtml(event.elapsedSeconds)}s</strong> ${escapeHtml(details)}</div>`;
+    })
+    .join("\n");
+
+  writeFileSync(
+    join(outputDir, "report.html"),
+    `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VRDex VRCDN POC Report</title>
+  <style>
+    body { margin: 0; background: #020617; color: #e5e7eb; font-family: Inter, Segoe UI, Arial, sans-serif; }
+    main { max-width: 1080px; margin: 0 auto; padding: 32px; }
+    h1 { margin: 0 0 8px; font-size: 32px; }
+    a { color: #93c5fd; }
+    .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin: 24px 0; }
+    .card, .panel, figure { background: #0f172a; border: 1px solid #1e293b; border-radius: 10px; padding: 16px; }
+    .label { color: #94a3b8; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+    .value { margin-top: 6px; font-size: 18px; font-weight: 650; overflow-wrap: anywhere; }
+    figure { margin: 0; }
+    img { display: block; width: 100%; border-radius: 8px; background: #020617; }
+    figcaption { margin-top: 10px; color: #cbd5e1; }
+    li { margin: 8px 0; }
+    code { color: #bfdbfe; }
+    .timeline { display: grid; gap: 10px; margin: 16px 0 24px; }
+    .timeline div { background: #0f172a; border: 1px solid #1e293b; border-radius: 10px; padding: 12px 14px; overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>VRDex VRCDN POC Report</h1>
+    <p>Generated ${escapeHtml(report.generatedAt)}. Open the provider preview during the task window to validate the live visual sequence.</p>
+    <div class="grid">
+      ${reportCard("Mode", report.mode)}
+      ${reportCard("Quality", report.qualityGate)}
+      ${reportCard("Duration", `${report.durationSeconds}s`)}
+      ${reportCard("x264 Preset", report.x264Preset)}
+      ${reportCard("Control", report.controlMode)}
+      ${reportCard("Elapsed", `${report.elapsedSeconds}s`)}
+      ${reportCard("Runtime Commands", report.commandCount)}
+      ${reportCard("Progress Samples", report.progressSampleCount)}
+      ${reportCard("Final Output Progress", formatMilliseconds(report.finalOutputProgressMs))}
+    </div>
+    <section class="panel">
+      <h2>Watch Target</h2>
+      <p>${optionalLink(report.outputWatchUrl, report.outputWatchUrl)}</p>
+      ${sourceLinks === "" ? "" : `<h3>Public Source Links</h3><ul>${sourceLinks}</ul>`}
+      <p>Raw sanitized report: <a href="vrcdn-poc-report.json"><code>vrcdn-poc-report.json</code></a></p>
+    </section>
+    <section>
+      <h2>Expected Sequence</h2>
+      <ul>${sourceSequence}</ul>
+    </section>
+    ${runtimeCommands === "" ? "" : `<section><h2>Runtime Commands</h2><div class="timeline">${runtimeCommands}</div></section>`}
+    <section>
+      <h2>Hold Slate</h2>
+      <figure>
+        <img src="frames/hold-slate-input.png" alt="VRDex hold slate input" />
+        <figcaption>Generated hold slate input used during the provider smoke.</figcaption>
+      </figure>
+    </section>
+  </main>
+</body>
+</html>
+`,
+  );
+}
+
 async function uploadArtifactDirectory(outputDir, s3Uri) {
   if (s3Uri === undefined) {
     return undefined;
@@ -729,6 +842,14 @@ async function runOutputRestream(config) {
     durationSeconds: config.durationSeconds,
     x264Preset: config.x264Preset,
     controlMode: "hard-switch",
+    outputWatchUrl: config.outputWatchUrl,
+    ...(config.mode === "output-restream"
+      ? {
+          sourceAPlaybackUrl: config.sourceAPlaybackUrl,
+          sourceBPlaybackUrl: config.sourceBPlaybackUrl,
+          sourceSequence: ["source A playback", "VRDex POC hold slate", "source B playback"],
+        }
+      : { sourceSequence: ["synthetic source A", "VRDex POC hold slate", "synthetic source A"] }),
     elapsedSeconds: Number(((performance.now() - started) / 1000).toFixed(3)),
     commandCount: commandLog.length,
     commandLog,
@@ -736,6 +857,7 @@ async function runOutputRestream(config) {
     finalOutputProgressMs: ffmpeg.getProgressMs(),
   };
   writeFileSync(join(outputDir, "vrcdn-poc-report.json"), `${JSON.stringify(report, null, 2)}\n`);
+  writePocHtmlReport(outputDir, report);
   const uploadedTo = await uploadArtifactDirectory(outputDir, config.artifactS3Uri);
 
   console.log(
@@ -791,7 +913,9 @@ async function main() {
   await runOutputRestream(config);
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? sanitizeLog(error.message) : String(error));
-  process.exitCode = 1;
-});
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? sanitizeLog(error.message) : String(error));
+    process.exitCode = 1;
+  });
+}
