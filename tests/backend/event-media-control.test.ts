@@ -7,6 +7,7 @@ import {
   sanitizeVrcdnOperatorOwnedOutputSetup,
   toPublicEventMediaProgramState,
 } from "../../convex/_eventMediaControl";
+import { getVrcdnOutputAccount, listPublicVrcdnOutputAccounts } from "../../convex/_vrcdnOutputAccounts";
 
 describe("event media control helpers", () => {
   it("normalizes direct fallback links into platform-safe playback URLs", () => {
@@ -204,5 +205,23 @@ describe("event media control helpers", () => {
         } as Parameters<typeof sanitizeVrcdnOperatorOwnedOutputSetup>[0] & { streamKey: string }),
       /streamKey must not be stored in event media output setup records\./,
     );
+  });
+
+  it("exposes output account options without credential references", () => {
+    const publicAccounts = listPublicVrcdnOutputAccounts();
+    const account = getVrcdnOutputAccount("basicbit");
+
+    assert.equal(publicAccounts.length, 1);
+    assert.deepEqual(publicAccounts[0], {
+      key: "basicbit",
+      label: "basicbit",
+      playbackLinks: [
+        { platform: "browser", label: "Event stream", url: "https://panel.vrcdn.live/preview/basicbit" },
+        { platform: "standalone", label: "Quest stream", url: "https://stream.vrcdn.live/live/basicbit.live.ts" },
+        { platform: "pc", label: "PC stream", url: "rtspt://stream.vrcdn.live/live/basicbit" },
+      ],
+    });
+    assert.equal("credentialRef" in publicAccounts[0]!, false);
+    assert.equal(account?.credentialRef, "event-media/vrcdn/basicbit-output");
   });
 });

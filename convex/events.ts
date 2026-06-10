@@ -20,6 +20,7 @@ import { canReadProfile } from "./_profilePermissions";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { createEventSearchDocument, upsertSearchDocument, vocabularyForEvent } from "./_searchDocuments";
 import { recordVocabularyTerms } from "./_vocabulary";
+import { getVrcdnOutputAccount, listPublicVrcdnOutputAccounts } from "./_vrcdnOutputAccounts";
 import { getWorldBySlug, validateWorldSlug } from "./_worldSlugs";
 
 const eventMediaLinkType = v.union(
@@ -95,6 +96,7 @@ const vrcdnOutputSetupArgs = {
   currentSlug: v.string(),
   key: v.string(),
   label: v.string(),
+  outputAccountKey: v.optional(v.string()),
   credentialRef: v.optional(v.string()),
   ingestRegion: v.optional(eventMediaVrcdnRegionValidator),
   playbackLinks: v.optional(v.array(eventMediaPlaybackLinkInput)),
@@ -408,6 +410,11 @@ export const listHostedByCommunitySlug = query({
   },
 });
 
+export const listVrcdnOutputAccounts = query({
+  args: {},
+  handler: () => listPublicVrcdnOutputAccounts(),
+});
+
 export const createCommunityEvent = mutation({
   args: eventDraftArgs,
   handler: async (ctx, args) => {
@@ -578,7 +585,17 @@ export const configureVrcdnOutput = mutation({
       throw new Error("You do not have permission to update this event.");
     }
 
-    const output = sanitizeVrcdnOperatorOwnedOutputSetup(args);
+    const account = args.outputAccountKey === undefined ? undefined : getVrcdnOutputAccount(args.outputAccountKey);
+
+    if (args.outputAccountKey !== undefined && account === undefined) {
+      throw new Error("Output account is not configured.");
+    }
+
+    const output = sanitizeVrcdnOperatorOwnedOutputSetup({
+      ...args,
+      credentialRef: account?.credentialRef ?? args.credentialRef,
+      playbackLinks: args.playbackLinks ?? account?.playbackLinks,
+    });
     const now = Date.now();
     const programId = await getOrCreateEventMediaProgram(ctx.db, event, now);
     const existingOutput = await ctx.db

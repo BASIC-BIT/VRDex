@@ -3,12 +3,12 @@
 import Link from "next/link";
 import type { ChangeEvent, FormEvent } from "react";
 import { useEffect, useState, useTransition } from "react";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@convex-generated-api";
 import type { PublicEvent } from "../_components/event-public-page";
 import { buttonVariants, Button } from "@/components/ui/button";
 import { Card, Eyebrow, SectionTitle } from "@/components/ui/card";
-import { Field, FieldText, Input, Textarea } from "@/components/ui/field";
+import { Field, FieldText, Input, Select, Textarea } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { VrcdnMediaLinkAssistant } from "../_components/vrcdn-media-link-assistant";
 import { parseVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
@@ -41,6 +41,16 @@ type VrcdnOutputFormState = {
   authorized: boolean;
 };
 
+type VrcdnOutputAccountOption = {
+  key: string;
+  label: string;
+  playbackLinks: Array<{
+    platform: "browser" | "pc" | "standalone";
+    label?: string;
+    url: string;
+  }>;
+};
+
 const userSafeErrorPatterns = [
   /Event changes require a signed-in user\./,
   /Event start time must be a valid timestamp\./,
@@ -71,7 +81,7 @@ const userSafeErrorPatterns = [
   /Current event slug is invalid\./,
   /Event was not found\./,
   /Output account is required\./,
-  /Output account must be a configured account name\./,
+  /Output account is not configured\./,
   /Output label is required\./,
   /Output label must be \d+ characters or fewer\./,
   /Watch preview URL is required\./,
@@ -83,7 +93,7 @@ function eventEditorErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
 
   if (/Credential secret reference/.test(message)) {
-    return "Output account must be a configured account name.";
+    return "Output account is not configured.";
   }
 
   for (const pattern of userSafeErrorPatterns) {
@@ -106,20 +116,6 @@ function optionalString(value: string): string | undefined {
   return trimmed.length === 0 ? undefined : trimmed;
 }
 
-function normalizeVrcdnOutputAccount(value: string): string {
-  const account = value.trim().toLowerCase();
-
-  if (account.length === 0) {
-    throw new Error("Output account is required.");
-  }
-
-  if (!/^[a-z0-9][a-z0-9/_.:-]{2,191}$/.test(account) || account.includes("://")) {
-    throw new Error("Output account must be a configured account name.");
-  }
-
-  return account;
-}
-
 function createInitialVrcdnOutputForm(event: PublicEvent | undefined): VrcdnOutputFormState {
   const browserLink = event?.mediaLinks.find((link) => link.type === "watch" && link.url.includes("vrcdn.live"));
   const standaloneLink = event?.mediaLinks.find((link) => link.type === "vrcdn" && link.url.includes(".live.ts"));
@@ -132,6 +128,24 @@ function createInitialVrcdnOutputForm(event: PublicEvent | undefined): VrcdnOutp
     standaloneUrl: standaloneLink?.url ?? "",
     pcUrl: pcLink?.url ?? "",
     authorized: false,
+  };
+}
+
+function applyVrcdnOutputAccountDefaults(
+  current: VrcdnOutputFormState,
+  account: VrcdnOutputAccountOption,
+): VrcdnOutputFormState {
+  const browserLink = account.playbackLinks.find((link) => link.platform === "browser");
+  const standaloneLink = account.playbackLinks.find((link) => link.platform === "standalone");
+  const pcLink = account.playbackLinks.find((link) => link.platform === "pc");
+
+  return {
+    ...current,
+    outputAccount: account.key,
+    label: browserLink?.label ?? current.label,
+    browserUrl: browserLink?.url ?? current.browserUrl,
+    standaloneUrl: standaloneLink?.url ?? current.standaloneUrl,
+    pcUrl: pcLink?.url ?? current.pcUrl,
   };
 }
 
@@ -371,7 +385,7 @@ function createGeneratedSlotText(count: number, durationMinutes: number, breakMi
   }).join("\n");
 }
 
-function eventTargetValue(changeEvent: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>): string {
+function eventTargetValue(changeEvent: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>): string {
   return changeEvent.currentTarget.value;
 }
 
@@ -407,6 +421,7 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
   const createEvent = useMutation(api.events.createCommunityEvent);
   const updateEvent = useMutation(api.events.updateCommunityEvent);
   const configureVrcdnOutput = useMutation(api.events.configureVrcdnOutput);
+  const vrcdnOutputAccounts = useQuery(api.events.listVrcdnOutputAccounts, {});
   const [status, setStatus] = useState<EventEditorStatus>({ kind: "idle" });
   const [vrcdnOutputStatus, setVrcdnOutputStatus] = useState<VrcdnOutputStatus>({ kind: "idle" });
   const [timezone, setTimezone] = useState(event?.timezone ?? "UTC");
@@ -421,6 +436,20 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
       setTimezone(getBrowserTimezone());
     }
   }, [event]);
+
+  useEffect(() => {
+    if (vrcdnOutputAccounts === undefined || vrcdnOutputAccounts.length === 0) {
+      return;
+    }
+
+    setVrcdnOutput((current) => {
+      if (current.outputAccount !== "") {
+        return current;
+      }
+
+      return applyVrcdnOutputAccountDefaults(current, vrcdnOutputAccounts[0]!);
+    });
+  }, [vrcdnOutputAccounts]);
 
   function onGenerateSlots() {
     try {
@@ -447,11 +476,15 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
     setVrcdnOutputStatus({ kind: "submitting" });
 
     try {
-      const outputAccount = normalizeVrcdnOutputAccount(vrcdnOutput.outputAccount);
+      const outputAccount = optionalString(vrcdnOutput.outputAccount);
       const label = optionalString(vrcdnOutput.label);
       const browserUrl = optionalString(vrcdnOutput.browserUrl);
       const standaloneUrl = optionalString(vrcdnOutput.standaloneUrl);
       const pcUrl = optionalString(vrcdnOutput.pcUrl);
+
+      if (outputAccount === undefined) {
+        throw new Error("Output account is required.");
+      }
 
       if (label === undefined) {
         throw new Error("Output label is required.");
@@ -469,7 +502,7 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
         currentSlug: event.slug,
         key: "main-vrcdn",
         label,
-        credentialRef: outputAccount,
+        outputAccountKey: outputAccount,
         playbackLinks: [
           { platform: "browser" as const, label, url: browserUrl },
           ...(standaloneUrl === undefined ? [] : [{ platform: "standalone" as const, label: "Quest stream", url: standaloneUrl }]),
@@ -529,6 +562,22 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
   }
 
   const isSubmitting = status.kind === "submitting";
+  const vrcdnOutputAccountOptions = vrcdnOutputAccounts ?? [];
+  const vrcdnOutputAccountsLoading = vrcdnOutputAccounts === undefined;
+  const canSaveVrcdnOutput =
+    vrcdnOutputStatus.kind !== "submitting" && !vrcdnOutputAccountsLoading && vrcdnOutputAccountOptions.length > 0;
+
+  function onVrcdnOutputAccountChange(changeEvent: ChangeEvent<HTMLSelectElement>) {
+    const value = eventTargetValue(changeEvent);
+    const account = vrcdnOutputAccountOptions.find((option) => option.key === value);
+
+    if (account === undefined) {
+      setVrcdnOutput((current) => ({ ...current, outputAccount: value }));
+      return;
+    }
+
+    setVrcdnOutput((current) => applyVrcdnOutputAccountDefaults(current, account));
+  }
 
   return (
     <form className="grid gap-5" onSubmit={onSubmit}>
@@ -616,16 +665,20 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
           <div className="grid gap-4 sm:grid-cols-2">
             <Field>
               Output account
-              <Input
-                autoComplete="off"
-                onChange={(changeEvent) => {
-                  const value = eventTargetValue(changeEvent);
-                  setVrcdnOutput((current) => ({ ...current, outputAccount: value }));
-                }}
-                placeholder="basicbit"
+              <Select
+                disabled={vrcdnOutputAccountsLoading || vrcdnOutputAccountOptions.length === 0}
+                onChange={onVrcdnOutputAccountChange}
                 value={vrcdnOutput.outputAccount}
-              />
-              <FieldText>Use the account assigned for this event.</FieldText>
+              >
+                {vrcdnOutputAccountsLoading ? <option value="">Loading accounts...</option> : null}
+                {!vrcdnOutputAccountsLoading && vrcdnOutputAccountOptions.length === 0 ? <option value="">No accounts configured</option> : null}
+                {vrcdnOutputAccountOptions.map((account) => (
+                  <option key={account.key} value={account.key}>
+                    {account.label}
+                  </option>
+                ))}
+              </Select>
+              <FieldText>Use the output account assigned for this event.</FieldText>
             </Field>
             <Field>
               Output label
@@ -691,7 +744,7 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
           </label>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <Button disabled={vrcdnOutputStatus.kind === "submitting"} onClick={onSaveVrcdnOutput} type="button" variant="secondary">
+            <Button disabled={!canSaveVrcdnOutput} onClick={onSaveVrcdnOutput} type="button" variant="secondary">
               {vrcdnOutputStatus.kind === "submitting" ? "Saving output..." : "Save output account"}
             </Button>
             {vrcdnOutputStatus.kind === "success" ? (
