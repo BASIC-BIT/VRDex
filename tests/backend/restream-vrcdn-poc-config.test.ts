@@ -50,7 +50,7 @@ describe("VRCDN POC worker configuration", () => {
       VRDEX_VRCDN_POC_MODE: "output-restream",
       VRDEX_VRCDN_POC_SOURCE_A_PLAYBACK_URL: "https://stream.vrcdn.live/live/source-a.m3u8",
       VRDEX_VRCDN_POC_SOURCE_B_PLAYBACK_URL: "https://stream.vrcdn.live/live/source-b.m3u8",
-      VRDEX_VRCDN_POC_OUTPUT_WATCH_URL: "https://vrcdn.live/output-poc",
+      VRDEX_VRCDN_POC_OUTPUT_WATCH_URL: "https://panel.vrcdn.live/preview/output-poc",
       VRDEX_VRCDN_POC_OUTPUT_INGEST_URL: outputIngestUrl,
     });
 
@@ -67,7 +67,7 @@ describe("VRCDN POC worker configuration", () => {
     });
     const result = await runPoc({
       VRDEX_VRCDN_POC_MODE: "single-output-smoke",
-      VRDEX_VRCDN_POC_OUTPUT_WATCH_URL: "https://vrcdn.live/output-poc",
+      VRDEX_VRCDN_POC_OUTPUT_WATCH_URL: "https://panel.vrcdn.live/preview/output-poc",
       VRDEX_VRCDN_POC_OUTPUT_INGEST_SECRET_JSON: secretJson,
     });
 
@@ -83,7 +83,7 @@ describe("VRCDN POC worker configuration", () => {
       VRDEX_VRCDN_POC_MODE: "output-restream",
       VRDEX_VRCDN_POC_SOURCE_A_PLAYBACK_URL: "https://stream.vrcdn.live/live/source-a.m3u8?token=secretish",
       VRDEX_VRCDN_POC_SOURCE_B_PLAYBACK_URL: "https://stream.vrcdn.live/live/source-b.m3u8",
-      VRDEX_VRCDN_POC_OUTPUT_WATCH_URL: "https://vrcdn.live/output-poc",
+      VRDEX_VRCDN_POC_OUTPUT_WATCH_URL: "https://panel.vrcdn.live/preview/output-poc",
       VRDEX_VRCDN_POC_OUTPUT_INGEST_URL: "rtmps://ingest.example.invalid/live/output-secret-key",
     });
 
@@ -111,7 +111,7 @@ describe("VRCDN POC worker configuration", () => {
   it("rejects ambiguous direct and JSON ingest secret inputs", async () => {
     const result = await runPoc({
       VRDEX_VRCDN_POC_MODE: "single-output-smoke",
-      VRDEX_VRCDN_POC_OUTPUT_WATCH_URL: "https://vrcdn.live/output-poc",
+      VRDEX_VRCDN_POC_OUTPUT_WATCH_URL: "https://panel.vrcdn.live/preview/output-poc",
       VRDEX_VRCDN_POC_OUTPUT_INGEST_URL: "rtmps://ingest.example.invalid/live/direct-secret",
       VRDEX_VRCDN_POC_OUTPUT_INGEST_SECRET_JSON: JSON.stringify({
         rtmpUrl: "rtmps://ingest.example.invalid/live/output-account",

@@ -193,7 +193,7 @@ Output restream settings:
 
 Single-output smoke settings:
 
-- `VRDEX_VRCDN_POC_OUTPUT_WATCH_URL`, the public output watch URL used for human/browser validation.
+- `VRDEX_VRCDN_POC_OUTPUT_WATCH_URL`, the public output preview URL used for human/browser validation.
 - `VRDEX_VRCDN_POC_OUTPUT_INGEST_URL` or `VRDEX_VRCDN_POC_OUTPUT_INGEST_SECRET_JSON`, injected only from a Secrets Manager or SSM reference.
 
 Run order for the first provider POC:
@@ -207,15 +207,21 @@ Run order for the first provider POC:
 
 Run order for the one-account smoke POC:
 
-1. Store the VRCDN RTMP URL and stream key in Secrets Manager as JSON with `rtmpUrl` and `streamKey` fields.
+1. Store the VRCDN ingest server and stream key in Secrets Manager as JSON with `rtmpUrl` and `streamKey` fields.
 2. Start `single-output-smoke` with the public output watch URL and the injected JSON secret.
 3. Watch `VRDEX_VRCDN_POC_OUTPUT_WATCH_URL` and verify the visible sequence is synthetic source A, hold slate, then synthetic source A again.
+
+VRCDN-specific URL notes:
+
+- Browser preview pages use `https://panel.vrcdn.live/preview/<stream-name>`.
+- Ingest uses the VRCDN ingest server plus stream key. Do not confuse it with playback URLs.
+- Playback URLs such as RTMP, RTSPT, MPEG-TS, FMP4, FLV, and FLV/WebSocket are viewer/player outputs, not ingest servers.
 
 Current smoke account reference:
 
 - Secret name: `event-media/vrcdn/basicbit1-smoke`.
-- Public watch URL: `https://vrcdn.live/basicbit1`.
-- Stored secret fields: `provider`, `label`, `purpose`, `rtmpUrl`, `streamKey`, `createdBy`, and `notes`.
+- Browser preview URL: `https://panel.vrcdn.live/preview/basicbit1`.
+- Stored secret fields: `provider`, `label`, `purpose`, `previewUrl`, `rtmpUrl`, `streamKey`, `playback`, `createdBy`, and `notes`.
 - 2026-06-10 attempt: `single-output-smoke`, `720p30`, `1024` CPU / `2048` MiB, 180 seconds. The worker started but FFmpeg produced no output progress; public HLS stayed `404`.
 - 2026-06-10 retry: same account with split RTMP app/playpath handling and a 60-second startup timeout. The task failed closed with no FFmpeg output progress.
 
