@@ -29,7 +29,7 @@ type EventEditorStatus =
 type VrcdnOutputStatus =
   | { kind: "idle" }
   | { kind: "submitting" }
-  | { kind: "success"; publicLinkCount: number }
+  | { kind: "success" }
   | { kind: "error"; message: string };
 
 type VrcdnOutputFormState = {
@@ -498,7 +498,7 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
         throw new Error("Confirm you are authorized to publish this output.");
       }
 
-      const result = await configureVrcdnOutput({
+      await configureVrcdnOutput({
         currentSlug: event.slug,
         key: "main-vrcdn",
         label,
@@ -514,7 +514,7 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
         rightsClearedMediaAccepted: true,
       });
 
-      startTransition(() => setVrcdnOutputStatus({ kind: "success", publicLinkCount: result.publicLinkCount }));
+      startTransition(() => setVrcdnOutputStatus({ kind: "success" }));
     } catch (error) {
       startTransition(() => setVrcdnOutputStatus({ kind: "error", message: eventEditorErrorMessage(error) }));
     }
@@ -748,9 +748,7 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
               {vrcdnOutputStatus.kind === "submitting" ? "Saving output..." : "Save output account"}
             </Button>
             {vrcdnOutputStatus.kind === "success" ? (
-              <span className="text-sm text-muted">
-                Output saved. {vrcdnOutputStatus.publicLinkCount} public link{vrcdnOutputStatus.publicLinkCount === 1 ? "" : "s"} ready.
-              </span>
+              <span className="text-sm text-muted">Output saved.</span>
             ) : null}
           </div>
 
