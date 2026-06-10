@@ -24,7 +24,7 @@ The Terraform stack defines:
 - task role for CloudWatch custom metrics, the SSM kill switch, and prefix-scoped benchmark artifact uploads
 - SSM parameter `/vrdex/restream/hosted-worker/enabled`, defaulting to `false`
 
-The stack does not define an ECS service. Scheduled or operator-triggered runs should start one task per approved event media session after the control-plane lease and benchmark gates exist.
+The stack does not define an ECS service. Scheduled or operator-triggered runs should start one task per approved event media session after the runtime bridge can claim Convex `start_program` and `stop_program` commands.
 
 ## Runtime Guardrails
 
@@ -249,7 +249,7 @@ Minimum CloudWatch or custom metric dimensions for the first benchmark:
 - dropped or retried segment counts
 - command latency and command outcome
 
-Convex remains the authoritative control plane for event media session state, command outcomes, heartbeats, and audit events.
+Convex remains the authoritative control plane for event media session state, command outcomes, heartbeats, task status, private artifact links, and audit events. The current backend schedule defaults start workers at `T-5 minutes` and requires readiness by `T-2 minutes`; artifact links stored in Convex must be private `s3://` URIs or HTTPS URLs without embedded credentials or query strings.
 
 ## Budget And Kill Switch
 

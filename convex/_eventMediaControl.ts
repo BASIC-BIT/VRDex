@@ -9,6 +9,10 @@ const CONTROL_NOTE_MAX_LENGTH = 500;
 const LINK_LABEL_MAX_LENGTH = 80;
 const SECRET_REF_PATTERN = /^[a-z0-9][a-z0-9/_.:-]{2,191}$/;
 const FORBIDDEN_SECRET_INPUT_FIELDS = new Set(["ingestUrl", "password", "secret", "secretValue", "streamKey", "token"]);
+const S3_URI_PATTERN = /^s3:\/\/[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\/[A-Za-z0-9!_.*'()/=+:,@-]+$/;
+
+export const EVENT_MEDIA_WORKER_START_LEAD_MS = 5 * 60 * 1000;
+export const EVENT_MEDIA_WORKER_READY_LEAD_MS = 2 * 60 * 1000;
 
 export type EventMediaProgramState =
   | "draft"
@@ -89,6 +93,12 @@ export type EventMediaSessionStatus =
 
 export type EventMediaPlaybackPlatform = "browser" | "pc" | "standalone";
 
+export type EventMediaWorkerProvider = "aws_ecs";
+
+export type EventMediaWorkerTaskStatus = "queued" | "starting" | "running" | "stopping" | "stopped" | "failed";
+
+export type EventMediaWorkerArtifactType = "report" | "artifact" | "logs" | "other";
+
 export type EventMediaPublicLinkInput = {
   platform: EventMediaPlaybackPlatform;
   label?: string;
@@ -97,6 +107,29 @@ export type EventMediaPublicLinkInput = {
 
 export type EventMediaPublicLink = {
   platform: EventMediaPlaybackPlatform;
+  label: string;
+  url: string;
+};
+
+export type EventMediaWorkerScheduleInput = {
+  eventStartAt: number;
+  scheduledStartAt?: number;
+  readyDeadlineAt?: number;
+};
+
+export type EventMediaWorkerSchedule = {
+  scheduledStartAt: number;
+  readyDeadlineAt: number;
+};
+
+export type EventMediaWorkerArtifactLinkInput = {
+  type?: EventMediaWorkerArtifactType;
+  label?: string;
+  url: string;
+};
+
+export type EventMediaWorkerArtifactLink = {
+  type: EventMediaWorkerArtifactType;
   label: string;
   url: string;
 };
@@ -321,8 +354,32 @@ export const eventMediaPlaybackPlatformValidator = v.union(
   v.literal("standalone"),
 );
 
+export const eventMediaWorkerProviderValidator = v.literal("aws_ecs");
+
+export const eventMediaWorkerTaskStatusValidator = v.union(
+  v.literal("queued"),
+  v.literal("starting"),
+  v.literal("running"),
+  v.literal("stopping"),
+  v.literal("stopped"),
+  v.literal("failed"),
+);
+
+export const eventMediaWorkerArtifactTypeValidator = v.union(
+  v.literal("report"),
+  v.literal("artifact"),
+  v.literal("logs"),
+  v.literal("other"),
+);
+
 export const eventMediaPublicLinkValidator = v.object({
   platform: eventMediaPlaybackPlatformValidator,
+  label: v.string(),
+  url: v.string(),
+});
+
+export const eventMediaWorkerArtifactLinkValidator = v.object({
+  type: eventMediaWorkerArtifactTypeValidator,
   label: v.string(),
   url: v.string(),
 });
@@ -392,6 +449,14 @@ function optionalIntegerInRange(
   return input;
 }
 
+function requiredTimestamp(input: number, fieldName: string): number {
+  if (!Number.isInteger(input) || input <= 0) {
+    throw new Error(`${fieldName} must be a positive millisecond timestamp.`);
+  }
+
+  return input;
+}
+
 function complianceGateState(accepted: boolean | undefined): EventMediaComplianceGateState {
   if (accepted === true) {
     return "accepted";
@@ -417,6 +482,39 @@ function fallbackLabel(platform: EventMediaPlaybackPlatform): string {
     case "standalone":
       return "Standalone stream link";
   }
+}
+
+function artifactFallbackLabel(type: EventMediaWorkerArtifactType): string {
+  switch (type) {
+    case "report":
+      return "Worker report";
+    case "artifact":
+      return "Worker artifact";
+    case "logs":
+      return "Worker logs";
+    case "other":
+      return "Worker link";
+  }
+}
+
+function safeWorkerArtifactUrl(input: string): string | undefined {
+  if (S3_URI_PATTERN.test(input)) {
+    return input;
+  }
+
+  const url = safeHttpsUrl(input);
+
+  if (url === undefined) {
+    return undefined;
+  }
+
+  const parsed = new URL(url);
+
+  if (parsed.username || parsed.password || parsed.search !== "") {
+    return undefined;
+  }
+
+  return parsed.href;
 }
 
 export function sanitizeEventMediaPublicLink(input: EventMediaPublicLinkInput): EventMediaPublicLink {
@@ -457,6 +555,60 @@ export function sanitizeEventMediaPublicLinks(input: EventMediaPublicLinkInput[]
 
     seen.add(key);
     links.push(sanitized);
+  }
+
+  return links;
+}
+
+export function sanitizeEventMediaWorkerSchedule(input: EventMediaWorkerScheduleInput): EventMediaWorkerSchedule {
+  const eventStartAt = requiredTimestamp(input.eventStartAt, "Event start time");
+  const scheduledStartAt = requiredTimestamp(
+    input.scheduledStartAt ?? eventStartAt - EVENT_MEDIA_WORKER_START_LEAD_MS,
+    "Worker scheduled start time",
+  );
+  const readyDeadlineAt = requiredTimestamp(
+    input.readyDeadlineAt ?? eventStartAt - EVENT_MEDIA_WORKER_READY_LEAD_MS,
+    "Worker ready deadline",
+  );
+
+  if (scheduledStartAt >= eventStartAt) {
+    throw new Error("Worker scheduled start time must be before the event starts.");
+  }
+
+  if (readyDeadlineAt >= eventStartAt) {
+    throw new Error("Worker ready deadline must be before the event starts.");
+  }
+
+  if (readyDeadlineAt < scheduledStartAt) {
+    throw new Error("Worker ready deadline must be at or after the scheduled start time.");
+  }
+
+  return { scheduledStartAt, readyDeadlineAt };
+}
+
+export function sanitizeEventMediaWorkerArtifactLinks(
+  input: EventMediaWorkerArtifactLinkInput[] | undefined,
+): EventMediaWorkerArtifactLink[] {
+  const links: EventMediaWorkerArtifactLink[] = [];
+  const seen = new Set<string>();
+
+  for (const link of input ?? []) {
+    const type = link.type ?? "artifact";
+    const label = optionalBoundedText(link.label, "Worker artifact label", LINK_LABEL_MAX_LENGTH) ?? artifactFallbackLabel(type);
+    const url = safeWorkerArtifactUrl(link.url);
+
+    if (url === undefined) {
+      throw new Error("Worker artifact links must be private S3 URIs or HTTPS URLs without embedded credentials or query strings.");
+    }
+
+    const key = `${type}:${url.toLowerCase()}`;
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    links.push({ type, label, url });
   }
 
   return links;

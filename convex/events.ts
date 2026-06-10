@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
-import { mutation, query, type DatabaseReader, type DatabaseWriter, type MutationCtx } from "./_generated/server";
+import { mutation, query, type DatabaseReader, type DatabaseWriter, type MutationCtx, type QueryCtx } from "./_generated/server";
 import {
   isSameAuthSubject,
   subjectHasCommunityCapability,
@@ -10,7 +10,13 @@ import {
 } from "./_communityAuthority";
 import {
   eventMediaPlaybackPlatformValidator,
+  eventMediaSessionStatusValidator,
   eventMediaVrcdnRegionValidator,
+  eventMediaWorkerArtifactTypeValidator,
+  eventMediaWorkerProviderValidator,
+  eventMediaWorkerTaskStatusValidator,
+  sanitizeEventMediaWorkerArtifactLinks,
+  sanitizeEventMediaWorkerSchedule,
   sanitizeVrcdnOperatorOwnedOutputSetup,
 } from "./_eventMediaControl";
 import { sanitizeEventDraftInput } from "./_eventInputs";
@@ -39,6 +45,19 @@ const eventMediaPlaybackLinkInput = v.object({
   platform: eventMediaPlaybackPlatformValidator,
   label: v.optional(v.string()),
   url: v.string(),
+});
+
+const eventMediaWorkerArtifactLinkInput = v.object({
+  type: v.optional(eventMediaWorkerArtifactTypeValidator),
+  label: v.optional(v.string()),
+  url: v.string(),
+});
+
+const eventMediaWorkerHealthInput = v.object({
+  outputBitrateKbps: v.optional(v.number()),
+  audioPresent: v.optional(v.boolean()),
+  droppedSegmentCount: v.optional(v.number()),
+  commandFailureCount: v.optional(v.number()),
 });
 
 const eventDraftArgs = {
@@ -110,7 +129,39 @@ const vrcdnOutputSetupArgs = {
   rightsClearedMediaAccepted: v.optional(v.boolean()),
 };
 
-async function requireAuthenticatedSubject(ctx: MutationCtx) {
+const eventMediaWorkerScheduleArgs = {
+  currentSlug: v.string(),
+  outputKey: v.optional(v.string()),
+  scheduledStartAt: v.optional(v.number()),
+  readyDeadlineAt: v.optional(v.number()),
+  workerRuntime: v.optional(v.string()),
+  workerProvider: v.optional(eventMediaWorkerProviderValidator),
+  workerTaskId: v.optional(v.string()),
+  workerTaskStatus: v.optional(eventMediaWorkerTaskStatusValidator),
+  workerTaskStatusReason: v.optional(v.string()),
+  artifactLinks: v.optional(v.array(eventMediaWorkerArtifactLinkInput)),
+};
+
+const eventMediaWorkerSessionArgs = {
+  currentSlug: v.string(),
+  sessionId: v.id("eventMediaSessions"),
+};
+
+const eventMediaWorkerTaskStatusArgs = {
+  ...eventMediaWorkerSessionArgs,
+  status: v.optional(eventMediaSessionStatusValidator),
+  workerId: v.optional(v.string()),
+  workerRuntime: v.optional(v.string()),
+  workerProvider: v.optional(eventMediaWorkerProviderValidator),
+  workerTaskId: v.optional(v.string()),
+  workerTaskStatus: v.optional(eventMediaWorkerTaskStatusValidator),
+  workerTaskStatusReason: v.optional(v.string()),
+  leaseExpiresAt: v.optional(v.number()),
+  health: v.optional(eventMediaWorkerHealthInput),
+  artifactLinks: v.optional(v.array(eventMediaWorkerArtifactLinkInput)),
+};
+
+async function requireAuthenticatedSubject(ctx: MutationCtx | QueryCtx) {
   const identity = await ctx.auth.getUserIdentity();
 
   if (identity === null || typeof identity !== "object") {
@@ -125,6 +176,36 @@ async function requireAuthenticatedSubject(ctx: MutationCtx) {
       name?: string;
     },
   );
+}
+
+function optionalTrimmedText(input: string | undefined, fieldName: string, maxLength: number): string | undefined {
+  if (input === undefined) {
+    return undefined;
+  }
+
+  const value = input.trim();
+
+  if (value.length === 0) {
+    return undefined;
+  }
+
+  if (value.length > maxLength) {
+    throw new Error(`${fieldName} must be ${maxLength} characters or fewer.`);
+  }
+
+  return value;
+}
+
+function optionalPositiveTimestamp(input: number | undefined, fieldName: string): number | undefined {
+  if (input === undefined) {
+    return undefined;
+  }
+
+  if (!Number.isInteger(input) || input <= 0) {
+    throw new Error(`${fieldName} must be a positive millisecond timestamp.`);
+  }
+
+  return input;
 }
 
 async function getPublishedCommunityBySlug(
@@ -368,6 +449,212 @@ async function getOrCreateEventMediaProgram(
   });
 }
 
+async function getLatestEventMediaProgram(
+  db: DatabaseReader,
+  eventId: Id<"events">,
+): Promise<Doc<"eventMediaPrograms"> | null> {
+  const existing = await db
+    .query("eventMediaPrograms")
+    .withIndex("by_eventId", (query) => query.eq("eventId", eventId))
+    .take(10);
+
+  return existing.sort((first, second) => second.updatedAt - first.updatedAt)[0] ?? null;
+}
+
+async function getEditableEventBySlug(
+  ctx: MutationCtx | QueryCtx,
+  currentSlug: string,
+  subject: AuthSubject,
+): Promise<{ event: Doc<"events">; slug: string }> {
+  const validation = validateEventSlug(currentSlug);
+
+  if (!validation.ok) {
+    throw new Error("Current event slug is invalid.");
+  }
+
+  const event = await getEventBySlug(ctx.db, validation.slug);
+
+  if (event === null) {
+    throw new Error("Event was not found.");
+  }
+
+  if (!(await canUpdateEvent(ctx.db, event, subject))) {
+    throw new Error("You do not have permission to update this event.");
+  }
+
+  return { event, slug: validation.slug };
+}
+
+async function getReadyEventMediaOutput(
+  db: DatabaseReader,
+  program: Doc<"eventMediaPrograms">,
+  outputKey: string | undefined,
+): Promise<Doc<"eventMediaOutputs">> {
+  const output =
+    outputKey === undefined
+      ? program.currentOutputId === undefined
+        ? null
+        : await db.get(program.currentOutputId)
+      : await db
+          .query("eventMediaOutputs")
+          .withIndex("by_programId_key", (query) => query.eq("programId", program._id).eq("key", outputKey))
+          .unique();
+
+  if (output === null || output.eventId !== program.eventId || output.state !== "ready") {
+    throw new Error("A ready event media output is required before scheduling a worker.");
+  }
+
+  return output;
+}
+
+async function getWritableEventMediaSession(
+  db: DatabaseReader,
+  program: Doc<"eventMediaPrograms">,
+  sessionId: Id<"eventMediaSessions">,
+): Promise<Doc<"eventMediaSessions">> {
+  const session = await db.get(sessionId);
+
+  if (session === null || session.programId !== program._id || session.eventId !== program.eventId) {
+    throw new Error("Event media worker session was not found.");
+  }
+
+  return session;
+}
+
+async function getOpenEventMediaSession(
+  db: DatabaseReader,
+  programId: Id<"eventMediaPrograms">,
+): Promise<Doc<"eventMediaSessions"> | null> {
+  const sessions = await db
+    .query("eventMediaSessions")
+    .withIndex("by_programId_status", (query) => query.eq("programId", programId))
+    .take(50);
+  const openStatuses = new Set(["scheduled", "starting", "live", "hold", "fallback", "stopping"]);
+
+  return sessions
+    .filter((session) => openStatuses.has(session.status))
+    .sort((first, second) => second.updatedAt - first.updatedAt)[0] ?? null;
+}
+
+async function recordEventMediaAuditEvent(
+  db: DatabaseWriter,
+  input: {
+    programId: Id<"eventMediaPrograms">;
+    eventId: Id<"events">;
+    sessionId?: Id<"eventMediaSessions">;
+    commandId?: Id<"eventMediaCommands">;
+    outputId?: Id<"eventMediaOutputs">;
+    actor: AuthSubject;
+    action: string;
+    publicSummary?: string;
+    privateSummary?: string;
+    createdAt: number;
+  },
+) {
+  await db.insert("eventMediaAuditEvents", {
+    programId: input.programId,
+    eventId: input.eventId,
+    ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
+    ...(input.commandId === undefined ? {} : { commandId: input.commandId }),
+    ...(input.outputId === undefined ? {} : { outputId: input.outputId }),
+    actor: input.actor,
+    actorSurface: "web",
+    action: input.action,
+    ...(input.publicSummary === undefined ? {} : { publicSummary: input.publicSummary }),
+    ...(input.privateSummary === undefined ? {} : { privateSummary: input.privateSummary }),
+    createdAt: input.createdAt,
+  });
+}
+
+async function insertEventMediaCommand(
+  db: DatabaseWriter,
+  input: {
+    program: Doc<"eventMediaPrograms">;
+    commandType: "start_program" | "stop_program";
+    sessionId: Id<"eventMediaSessions">;
+    outputId?: Id<"eventMediaOutputs">;
+    actor: AuthSubject;
+    idempotencyKey: string;
+    note?: string;
+    now: number;
+  },
+): Promise<Id<"eventMediaCommands">> {
+  return db.insert("eventMediaCommands", {
+    programId: input.program._id,
+    eventId: input.program.eventId,
+    sessionId: input.sessionId,
+    commandType: input.commandType,
+    status: "queued",
+    actor: input.actor,
+    actorSurface: "web",
+    ...(input.outputId === undefined ? {} : { targetOutputId: input.outputId }),
+    publicFallbackLinks: [],
+    ...(input.note === undefined ? {} : { note: input.note }),
+    idempotencyKey: input.idempotencyKey,
+    createdAt: input.now,
+    updatedAt: input.now,
+  });
+}
+
+async function settleEventMediaSessionCommands(
+  db: DatabaseWriter,
+  input: {
+    sessionId: Id<"eventMediaSessions">;
+    commandTypes: Array<"start_program" | "stop_program">;
+    status: "succeeded" | "failed" | "cancelled";
+    errorSummary?: string;
+    now: number;
+  },
+) {
+  const pendingStatuses: Array<"queued" | "claimed"> = ["queued", "claimed"];
+  const pendingCommands = await Promise.all(
+    pendingStatuses.map((status) =>
+      db
+        .query("eventMediaCommands")
+        .withIndex("by_sessionId_status_createdAt", (query) => query.eq("sessionId", input.sessionId).eq("status", status))
+        .take(50),
+    ),
+  );
+  const targetTypes = new Set(input.commandTypes);
+
+  await Promise.all(
+    pendingCommands
+      .flat()
+      .filter((command) => targetTypes.has(command.commandType as "start_program" | "stop_program"))
+      .map((command) =>
+        db.patch(command._id, {
+          status: input.status,
+          ...(input.errorSummary === undefined ? {} : { errorSummary: input.errorSummary }),
+          completedAt: input.now,
+          updatedAt: input.now,
+        }),
+      ),
+  );
+}
+
+function workerSessionStatus(session: Doc<"eventMediaSessions">) {
+  return {
+    sessionId: session._id,
+    status: session.status,
+    ...(session.outputId === undefined ? {} : { outputId: session.outputId }),
+    ...(session.workerId === undefined ? {} : { workerId: session.workerId }),
+    ...(session.workerRuntime === undefined ? {} : { workerRuntime: session.workerRuntime }),
+    ...(session.workerProvider === undefined ? {} : { workerProvider: session.workerProvider }),
+    ...(session.workerTaskId === undefined ? {} : { workerTaskId: session.workerTaskId }),
+    ...(session.workerTaskStatus === undefined ? {} : { workerTaskStatus: session.workerTaskStatus }),
+    ...(session.workerTaskStatusReason === undefined ? {} : { workerTaskStatusReason: session.workerTaskStatusReason }),
+    artifactLinks: session.artifactLinks ?? [],
+    ...(session.leaseExpiresAt === undefined ? {} : { leaseExpiresAt: session.leaseExpiresAt }),
+    ...(session.readyDeadlineAt === undefined ? {} : { readyDeadlineAt: session.readyDeadlineAt }),
+    ...(session.scheduledStartAt === undefined ? {} : { scheduledStartAt: session.scheduledStartAt }),
+    ...(session.startedAt === undefined ? {} : { startedAt: session.startedAt }),
+    ...(session.stopRequestedAt === undefined ? {} : { stopRequestedAt: session.stopRequestedAt }),
+    ...(session.stoppedAt === undefined ? {} : { stoppedAt: session.stoppedAt }),
+    ...(session.health === undefined ? {} : { health: session.health }),
+    updatedAt: session.updatedAt,
+  };
+}
+
 export const getPublicBySlug = query({
   args: {
     slug: v.string(),
@@ -413,6 +700,71 @@ export const listHostedByCommunitySlug = query({
 export const listVrcdnOutputAccounts = query({
   args: {},
   handler: () => listPublicVrcdnOutputAccounts(),
+});
+
+export const getEventMediaControlStatus = query({
+  args: {
+    currentSlug: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const subject = await requireAuthenticatedSubject(ctx);
+    const { event, slug } = await getEditableEventBySlug(ctx, args.currentSlug, subject);
+    const program = await getLatestEventMediaProgram(ctx.db, event._id);
+
+    if (program === null) {
+      return {
+        eventId: event._id,
+        eventPath: `/e/${slug}`,
+        program: null,
+        outputs: [],
+        sessions: [],
+        queuedCommandCount: 0,
+      };
+    }
+
+    const [outputs, sessions, queuedCommands] = await Promise.all([
+      ctx.db
+        .query("eventMediaOutputs")
+        .withIndex("by_programId_key", (query) => query.eq("programId", program._id))
+        .take(50),
+      ctx.db
+        .query("eventMediaSessions")
+        .withIndex("by_programId_status", (query) => query.eq("programId", program._id))
+        .take(50),
+      ctx.db
+        .query("eventMediaCommands")
+        .withIndex("by_programId_status_createdAt", (query) => query.eq("programId", program._id).eq("status", "queued"))
+        .take(100),
+    ]);
+
+    return {
+      eventId: event._id,
+      eventPath: `/e/${slug}`,
+      program: {
+        programId: program._id,
+        state: program.state,
+        ...(program.currentOutputId === undefined ? {} : { currentOutputId: program.currentOutputId }),
+        ...(program.activeSessionId === undefined ? {} : { activeSessionId: program.activeSessionId }),
+        publicLinkCount: program.publicLinks.length,
+        directFallbackLinkCount: program.directFallbackLinks.length,
+        updatedAt: program.updatedAt,
+      },
+      outputs: outputs
+        .sort((first, second) => first.key.localeCompare(second.key))
+        .map((output) => ({
+          outputId: output._id,
+          key: output.key,
+          type: output.type,
+          state: output.state,
+          label: output.label,
+          hasCredential: output.credential !== undefined,
+          playbackLinkCount: output.playbackLinks.length,
+          updatedAt: output.updatedAt,
+        })),
+      sessions: sessions.sort((first, second) => second.updatedAt - first.updatedAt).map(workerSessionStatus),
+      queuedCommandCount: queuedCommands.length,
+    };
+  },
 });
 
 export const createCommunityEvent = mutation({
@@ -647,6 +999,370 @@ export const configureVrcdnOutput = mutation({
       outputId,
       state: output.state,
       publicLinkCount: output.state === "ready" ? output.playbackLinks.length : 0,
+    };
+  },
+});
+
+export const scheduleEventMediaWorker = mutation({
+  args: eventMediaWorkerScheduleArgs,
+  handler: async (ctx, args) => {
+    const subject = await requireAuthenticatedSubject(ctx);
+    const { event, slug } = await getEditableEventBySlug(ctx, args.currentSlug, subject);
+    const program = await getLatestEventMediaProgram(ctx.db, event._id);
+
+    if (program === null) {
+      throw new Error("Configure a ready event media output before scheduling a worker.");
+    }
+
+    const outputKey = optionalTrimmedText(args.outputKey, "Output key", 64)?.toLowerCase();
+    const output = await getReadyEventMediaOutput(ctx.db, program, outputKey);
+    const schedule = sanitizeEventMediaWorkerSchedule({
+      eventStartAt: event.startAt,
+      scheduledStartAt: args.scheduledStartAt,
+      readyDeadlineAt: args.readyDeadlineAt,
+    });
+    const now = Date.now();
+    const workerRuntime = optionalTrimmedText(args.workerRuntime, "Worker runtime", 80);
+    const workerTaskId = optionalTrimmedText(args.workerTaskId, "Worker task id", 512);
+    const workerTaskStatusReason = optionalTrimmedText(args.workerTaskStatusReason, "Worker task status reason", 500);
+    const artifactLinks = sanitizeEventMediaWorkerArtifactLinks(args.artifactLinks);
+    const openSession = await getOpenEventMediaSession(ctx.db, program._id);
+
+    if (openSession !== null && openSession.status !== "scheduled") {
+      throw new Error("An event media worker session is already active for this event.");
+    }
+
+    const sessionRecord = {
+      programId: program._id,
+      eventId: event._id,
+      outputId: output._id,
+      status: "scheduled" as const,
+      ...(workerRuntime === undefined ? {} : { workerRuntime }),
+      workerProvider: args.workerProvider ?? "aws_ecs",
+      ...(workerTaskId === undefined ? {} : { workerTaskId }),
+      workerTaskStatus: args.workerTaskStatus ?? "queued",
+      ...(workerTaskStatusReason === undefined ? {} : { workerTaskStatusReason }),
+      artifactLinks,
+      scheduledStartAt: schedule.scheduledStartAt,
+      readyDeadlineAt: schedule.readyDeadlineAt,
+      updatedAt: now,
+    };
+    const sessionId =
+      openSession === null
+        ? await ctx.db.insert("eventMediaSessions", { ...sessionRecord, createdAt: now })
+        : openSession._id;
+
+    if (openSession !== null) {
+      await ctx.db.patch(openSession._id, sessionRecord);
+    }
+
+    const startCommandId =
+      openSession === null
+        ? await insertEventMediaCommand(ctx.db, {
+            program,
+            commandType: "start_program",
+            sessionId,
+            outputId: output._id,
+            actor: subject,
+            idempotencyKey: `start:${sessionId}`,
+            note: "Start the event media worker at the scheduled start time.",
+            now,
+          })
+        : undefined;
+
+    await ctx.db.patch(program._id, {
+      state: "ready",
+      currentOutputId: output._id,
+      activeSessionId: sessionId,
+      publicLinks: output.playbackLinks,
+      updatedAt: now,
+    });
+
+    await recordEventMediaAuditEvent(ctx.db, {
+      programId: program._id,
+      eventId: event._id,
+      sessionId,
+      ...(startCommandId === undefined ? {} : { commandId: startCommandId }),
+      outputId: output._id,
+      actor: subject,
+      action: "worker_scheduled",
+      publicSummary: "Event media worker scheduled.",
+      privateSummary: `Scheduled start ${schedule.scheduledStartAt}; ready deadline ${schedule.readyDeadlineAt}.`,
+      createdAt: now,
+    });
+
+    return {
+      eventId: event._id,
+      eventPath: `/e/${slug}`,
+      programId: program._id,
+      outputId: output._id,
+      sessionId,
+      status: "scheduled" as const,
+      workerTaskStatus: sessionRecord.workerTaskStatus,
+      scheduledStartAt: schedule.scheduledStartAt,
+      readyDeadlineAt: schedule.readyDeadlineAt,
+      ...(startCommandId === undefined ? {} : { startCommandId }),
+    };
+  },
+});
+
+export const recordEventMediaWorkerTaskStatus = mutation({
+  args: eventMediaWorkerTaskStatusArgs,
+  handler: async (ctx, args) => {
+    const subject = await requireAuthenticatedSubject(ctx);
+    const { event, slug } = await getEditableEventBySlug(ctx, args.currentSlug, subject);
+    const program = await getLatestEventMediaProgram(ctx.db, event._id);
+
+    if (program === null) {
+      throw new Error("Event media program was not found.");
+    }
+
+    const session = await getWritableEventMediaSession(ctx.db, program, args.sessionId);
+    const now = Date.now();
+    const status = args.status ?? session.status;
+    const workerId = optionalTrimmedText(args.workerId, "Worker id", 128);
+    const workerRuntime = optionalTrimmedText(args.workerRuntime, "Worker runtime", 80);
+    const workerTaskId = optionalTrimmedText(args.workerTaskId, "Worker task id", 512);
+    const workerTaskStatusReason = optionalTrimmedText(args.workerTaskStatusReason, "Worker task status reason", 500);
+    const leaseExpiresAt = optionalPositiveTimestamp(args.leaseExpiresAt, "Worker lease expiration");
+    const artifactLinks = args.artifactLinks === undefined ? undefined : sanitizeEventMediaWorkerArtifactLinks(args.artifactLinks);
+    const shouldSetStartedAt =
+      session.startedAt === undefined && ["starting", "live", "hold", "fallback"].includes(status);
+    const shouldSetStoppedAt = session.stoppedAt === undefined && ["ended", "error"].includes(status);
+
+    await ctx.db.patch(session._id, {
+      status,
+      ...(workerId === undefined ? {} : { workerId }),
+      ...(workerRuntime === undefined ? {} : { workerRuntime }),
+      ...(args.workerProvider === undefined ? {} : { workerProvider: args.workerProvider }),
+      ...(workerTaskId === undefined ? {} : { workerTaskId }),
+      ...(args.workerTaskStatus === undefined ? {} : { workerTaskStatus: args.workerTaskStatus }),
+      ...(workerTaskStatusReason === undefined ? {} : { workerTaskStatusReason }),
+      ...(leaseExpiresAt === undefined ? {} : { leaseExpiresAt }),
+      ...(artifactLinks === undefined ? {} : { artifactLinks }),
+      ...(args.health === undefined
+        ? {}
+        : {
+            health: {
+              lastHeartbeatAt: now,
+              ...(args.health.outputBitrateKbps === undefined ? {} : { outputBitrateKbps: args.health.outputBitrateKbps }),
+              ...(args.health.audioPresent === undefined ? {} : { audioPresent: args.health.audioPresent }),
+              ...(args.health.droppedSegmentCount === undefined
+                ? {}
+                : { droppedSegmentCount: args.health.droppedSegmentCount }),
+              ...(args.health.commandFailureCount === undefined
+                ? {}
+                : { commandFailureCount: args.health.commandFailureCount }),
+            },
+          }),
+      ...(shouldSetStartedAt ? { startedAt: now } : {}),
+      ...(shouldSetStoppedAt ? { stoppedAt: now } : {}),
+      updatedAt: now,
+    });
+
+    if (
+      status === "starting" ||
+      status === "live" ||
+      status === "hold" ||
+      status === "fallback" ||
+      status === "stopping" ||
+      status === "ended" ||
+      status === "error"
+    ) {
+      await ctx.db.patch(program._id, {
+        state: status,
+        activeSessionId: ["ended", "error"].includes(status) ? undefined : session._id,
+        updatedAt: now,
+      });
+    }
+
+    if (status === "live" && session.outputId !== undefined) {
+      const output = await ctx.db.get(session.outputId);
+
+      if (output !== null) {
+        await Promise.all([
+          ctx.db.patch(output._id, { state: "active", updatedAt: now }),
+          ctx.db.patch(program._id, { currentOutputId: output._id, publicLinks: output.playbackLinks, updatedAt: now }),
+          settleEventMediaSessionCommands(ctx.db, {
+            sessionId: session._id,
+            commandTypes: ["start_program"],
+            status: "succeeded",
+            now,
+          }),
+        ]);
+      }
+    }
+
+    if (["ended", "error"].includes(status) && session.outputId !== undefined) {
+      const output = await ctx.db.get(session.outputId);
+
+      if (output !== null && output.state === "active") {
+        await ctx.db.patch(output._id, { state: "ready", updatedAt: now });
+      }
+    }
+
+    if (["ended", "error"].includes(status)) {
+      await settleEventMediaSessionCommands(ctx.db, {
+        sessionId: session._id,
+        commandTypes: ["start_program", "stop_program"],
+        status: status === "error" ? "failed" : "succeeded",
+        ...(status === "error" ? { errorSummary: workerTaskStatusReason ?? "Worker ended with an error." } : {}),
+        now,
+      });
+    }
+
+    await recordEventMediaAuditEvent(ctx.db, {
+      programId: program._id,
+      eventId: event._id,
+      sessionId: session._id,
+      ...(session.outputId === undefined ? {} : { outputId: session.outputId }),
+      actor: subject,
+      action: "worker_status_recorded",
+      publicSummary: `Event media worker status is ${status}.`,
+      ...(args.workerTaskStatus === undefined ? {} : { privateSummary: `Worker task status is ${args.workerTaskStatus}.` }),
+      createdAt: now,
+    });
+
+    const updatedSession = await ctx.db.get(session._id);
+
+    return {
+      eventId: event._id,
+      eventPath: `/e/${slug}`,
+      programId: program._id,
+      session: updatedSession === null ? workerSessionStatus(session) : workerSessionStatus(updatedSession),
+    };
+  },
+});
+
+export const stopEventMediaWorker = mutation({
+  args: eventMediaWorkerSessionArgs,
+  handler: async (ctx, args) => {
+    const subject = await requireAuthenticatedSubject(ctx);
+    const { event, slug } = await getEditableEventBySlug(ctx, args.currentSlug, subject);
+    const program = await getLatestEventMediaProgram(ctx.db, event._id);
+
+    if (program === null) {
+      throw new Error("Event media program was not found.");
+    }
+
+    const session = await getWritableEventMediaSession(ctx.db, program, args.sessionId);
+    const now = Date.now();
+
+    if (["ended", "error"].includes(session.status)) {
+      throw new Error("Event media worker session has already ended.");
+    }
+
+    await ctx.db.patch(session._id, {
+      status: "stopping",
+      workerTaskStatus: session.workerTaskStatus === "failed" ? "failed" : "stopping",
+      stopRequestedAt: now,
+      updatedAt: now,
+    });
+    await ctx.db.patch(program._id, { state: "stopping", activeSessionId: session._id, updatedAt: now });
+    const stopCommandId = await insertEventMediaCommand(ctx.db, {
+      program,
+      commandType: "stop_program",
+      sessionId: session._id,
+      outputId: session.outputId,
+      actor: subject,
+      idempotencyKey: `stop:${session._id}:${now}`,
+      note: "Stop the event media worker.",
+      now,
+    });
+
+    await recordEventMediaAuditEvent(ctx.db, {
+      programId: program._id,
+      eventId: event._id,
+      sessionId: session._id,
+      commandId: stopCommandId,
+      ...(session.outputId === undefined ? {} : { outputId: session.outputId }),
+      actor: subject,
+      action: "worker_stop_requested",
+      publicSummary: "Event media worker stop requested.",
+      createdAt: now,
+    });
+
+    return {
+      eventId: event._id,
+      eventPath: `/e/${slug}`,
+      programId: program._id,
+      sessionId: session._id,
+      status: "stopping" as const,
+      stopCommandId,
+    };
+  },
+});
+
+export const markEventMediaWorkerEnded = mutation({
+  args: {
+    ...eventMediaWorkerSessionArgs,
+    status: v.optional(v.union(v.literal("ended"), v.literal("error"))),
+    workerTaskStatusReason: v.optional(v.string()),
+    artifactLinks: v.optional(v.array(eventMediaWorkerArtifactLinkInput)),
+  },
+  handler: async (ctx, args) => {
+    const subject = await requireAuthenticatedSubject(ctx);
+    const { event, slug } = await getEditableEventBySlug(ctx, args.currentSlug, subject);
+    const program = await getLatestEventMediaProgram(ctx.db, event._id);
+
+    if (program === null) {
+      throw new Error("Event media program was not found.");
+    }
+
+    const session = await getWritableEventMediaSession(ctx.db, program, args.sessionId);
+    const now = Date.now();
+    const status = args.status ?? "ended";
+    const workerTaskStatusReason = optionalTrimmedText(args.workerTaskStatusReason, "Worker task status reason", 500);
+    const artifactLinks = args.artifactLinks === undefined ? undefined : sanitizeEventMediaWorkerArtifactLinks(args.artifactLinks);
+
+    await ctx.db.patch(session._id, {
+      status,
+      workerTaskStatus: status === "error" ? "failed" : "stopped",
+      ...(workerTaskStatusReason === undefined ? {} : { workerTaskStatusReason }),
+      ...(artifactLinks === undefined ? {} : { artifactLinks }),
+      stoppedAt: now,
+      updatedAt: now,
+    });
+    await ctx.db.patch(program._id, {
+      state: status,
+      activeSessionId: undefined,
+      updatedAt: now,
+    });
+
+    if (session.outputId !== undefined) {
+      const output = await ctx.db.get(session.outputId);
+
+      if (output !== null && output.state === "active") {
+        await ctx.db.patch(output._id, { state: "ready", updatedAt: now });
+      }
+    }
+
+    await settleEventMediaSessionCommands(ctx.db, {
+      sessionId: session._id,
+      commandTypes: ["start_program", "stop_program"],
+      status: status === "error" ? "failed" : "succeeded",
+      ...(status === "error" ? { errorSummary: workerTaskStatusReason ?? "Worker ended with an error." } : {}),
+      now,
+    });
+
+    await recordEventMediaAuditEvent(ctx.db, {
+      programId: program._id,
+      eventId: event._id,
+      sessionId: session._id,
+      ...(session.outputId === undefined ? {} : { outputId: session.outputId }),
+      actor: subject,
+      action: status === "error" ? "worker_failed" : "worker_ended",
+      publicSummary: status === "error" ? "Event media worker ended with an error." : "Event media worker ended.",
+      ...(workerTaskStatusReason === undefined ? {} : { privateSummary: workerTaskStatusReason }),
+      createdAt: now,
+    });
+
+    return {
+      eventId: event._id,
+      eventPath: `/e/${slug}`,
+      programId: program._id,
+      sessionId: session._id,
+      status,
     };
   },
 });

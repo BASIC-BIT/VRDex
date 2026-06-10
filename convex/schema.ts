@@ -19,6 +19,9 @@ import {
   eventMediaSourceStateValidator,
   eventMediaSourceTypeValidator,
   eventMediaVrcdnRegionValidator,
+  eventMediaWorkerArtifactLinkValidator,
+  eventMediaWorkerProviderValidator,
+  eventMediaWorkerTaskStatusValidator,
 } from "./_eventMediaControl";
 
 const claimState = v.union(
@@ -653,9 +656,14 @@ export default defineSchema({
     status: eventMediaSessionStatusValidator,
     workerId: v.optional(v.string()),
     workerRuntime: v.optional(v.string()),
+    workerProvider: v.optional(eventMediaWorkerProviderValidator),
+    workerTaskId: v.optional(v.string()),
+    workerTaskStatus: v.optional(eventMediaWorkerTaskStatusValidator),
+    workerTaskStatusReason: v.optional(v.string()),
     leaseExpiresAt: v.optional(v.number()),
     currentSourceId: v.optional(v.id("eventMediaSources")),
     currentSceneId: v.optional(v.id("eventMediaScenes")),
+    artifactLinks: v.optional(v.array(eventMediaWorkerArtifactLinkValidator)),
     health: v.optional(
       v.object({
         lastHeartbeatAt: v.number(),
@@ -666,7 +674,9 @@ export default defineSchema({
       }),
     ),
     scheduledStartAt: v.optional(v.number()),
+    readyDeadlineAt: v.optional(v.number()),
     startedAt: v.optional(v.number()),
+    stopRequestedAt: v.optional(v.number()),
     stoppedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
