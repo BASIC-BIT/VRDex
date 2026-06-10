@@ -224,8 +224,9 @@ Current smoke account reference:
 - Stored secret fields: `provider`, `label`, `purpose`, `previewUrl`, `rtmpUrl`, `streamKey`, `playback`, `createdBy`, and `notes`.
 - 2026-06-10 attempt: `single-output-smoke`, `720p30`, `1024` CPU / `2048` MiB, 180 seconds. The worker started but FFmpeg produced no output progress; public HLS stayed `404`.
 - 2026-06-10 retry: same account with split RTMP app/playpath handling and a 60-second startup timeout. The task failed closed with no FFmpeg output progress.
+- 2026-06-10 corrected retry: same account after fixing the stored ingest server to distinguish VRCDN ingest from playback URLs. `single-output-smoke`, `720p30`, `1024` CPU / `2048` MiB, 120 seconds. The task completed with exit `0`, `8` runtime commands, and `120000ms` final output progress. Private report uploaded to `s3://vrdex-restream-worker-079358094174-artifacts/synthetic-benchmarks/2026-06-10T04-40-37-650Z/`.
 
-Next retry should first confirm in the VRCDN dashboard that the account subscription is active, the stream key is enabled, and the provider's expected FFmpeg URL/app/playpath format matches the stored `rtmpUrl` and `streamKey` fields. Do not paste the secret values into chat or docs while checking this.
+Next provider test should add a longer single-account smoke or move to the three-account source A/source B/output POC. Confirm the panel preview during the live task window and keep using the stored secret reference instead of pasting secret values into chat or docs.
 
 ## Logs And Metrics
 

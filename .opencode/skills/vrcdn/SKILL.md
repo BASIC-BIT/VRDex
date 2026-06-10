@@ -66,7 +66,9 @@ Use this when only one VRCDN account is ready.
 - A first smoke attempt used the playback RTMP URL as the stored ingest server; this was incorrect and produced no FFmpeg output progress.
 - A retry with split RTMP app/playpath handling still produced no FFmpeg output progress while the panel was not live.
 - After the panel screenshot, the secret was corrected to store the panel preview URL separately and distinguish ingest server plus stream key from playback URLs.
-- Current likely blocker before the next retry: VRCDN account/subscription/stream enablement or provider-specific ingest format after the corrected secret is used.
+- A corrected retry completed successfully: `single-output-smoke`, `720p30`, `1024` CPU / `2048` MiB, 120 seconds, `8` runtime commands, `120000ms` final output progress.
+- Private corrected retry report: `s3://vrdex-restream-worker-079358094174-artifacts/synthetic-benchmarks/2026-06-10T04-40-37-650Z/`.
+- Next useful provider test: a longer single-account smoke or the three-account source A/source B/output POC.
 
 ## Validation Commands
 
