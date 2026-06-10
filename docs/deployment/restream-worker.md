@@ -164,7 +164,7 @@ Required operator-provided inputs for the first full POC:
 
 Do not paste stream keys, ingest URLs with embedded keys, provider tokens, signed URLs, or account passwords into chat, docs, git, Terraform variables, Convex event records, or logs. Store secret values only in Secrets Manager or the approved secret store, then pass reference names through Terraform or the control plane. The POC should first push local synthetic audio/video into source A and source B, restream the public playback links through the worker, push to the output account, and watch the output account's public playback page or HLS URL for validation.
 
-The checked-in POC entrypoint is `workers/restream/vrcdn-poc.mjs`. It has two modes:
+The checked-in POC entrypoint is `workers/restream/vrcdn-poc.mjs`. It has three modes:
 
 - `VRDEX_VRCDN_POC_MODE=source-pusher`: pushes a labeled synthetic feed into one VRCDN source account.
 - `VRDEX_VRCDN_POC_MODE=output-restream`: pulls source A and source B public playback links, hard-switches source A to hold slate to source B, and pushes the result into the output VRCDN account.
@@ -219,16 +219,21 @@ VRCDN-specific URL notes:
 - Ingest uses the VRCDN ingest server plus stream key. Do not confuse it with playback URLs.
 - Playback URLs such as RTMP, RTSPT, MPEG-TS, FMP4, FLV, and FLV/WebSocket are viewer/player outputs, not ingest servers.
 
-Current smoke account reference:
+Current provider account references:
 
-- Secret name: `event-media/vrcdn/basicbit1-smoke`.
-- Browser preview URL: `https://panel.vrcdn.live/preview/basicbit1`.
+- Source/smoke secret name: `event-media/vrcdn/basicbit1-smoke`.
+- Source/smoke browser preview URL: `https://panel.vrcdn.live/preview/basicbit1`.
+- Source/smoke public MPEG-TS playback URL: `https://stream.vrcdn.live/live/basicbit1.live.ts`.
+- Output secret name: `event-media/vrcdn/basicbit-output`.
+- Output browser preview URL: `https://panel.vrcdn.live/preview/basicbit`.
+- Output public MPEG-TS playback URL: `https://stream.vrcdn.live/live/basicbit.live.ts`.
 - Stored secret fields: `provider`, `label`, `purpose`, `previewUrl`, `rtmpUrl`, `streamKey`, `playback`, `createdBy`, and `notes`.
 - 2026-06-10 attempt: `single-output-smoke`, `720p30`, `1024` CPU / `2048` MiB, 180 seconds. The worker started but FFmpeg produced no output progress; public HLS stayed `404`.
 - 2026-06-10 retry: same account with split RTMP app/playpath handling and a 60-second startup timeout. The task failed closed with no FFmpeg output progress.
 - 2026-06-10 corrected retry: same account after fixing the stored ingest server to distinguish VRCDN ingest from playback URLs. `single-output-smoke`, `720p30`, `1024` CPU / `2048` MiB, 120 seconds. The task completed with exit `0`, `8` runtime commands, and `120000ms` final output progress. Private JSON report uploaded to `s3://vrdex-restream-worker-079358094174-artifacts/synthetic-benchmarks/2026-06-10T04-40-37-650Z/`; future runs also write `report.html` beside the JSON report.
+- 2026-06-10 two-account relay: source pusher streamed synthetic source A into `basicbit1`; output restream pulled `https://stream.vrcdn.live/live/basicbit1.live.ts`, inserted the hold slate, then pushed to `basicbit`. `output-restream`, `720p30`, `1024` CPU / `2048` MiB, 120 seconds. The task completed with exit `0`, `8` runtime commands, and `119978ms` final output progress. Private artifacts uploaded to `s3://vrdex-restream-worker-079358094174-artifacts/synthetic-benchmarks/2026-06-10T05-43-45-393Z/`, including `report.html`, `vrcdn-poc-report.json`, and the hold-slate frame. A manual overlapping retry failed with VRCDN `403 Stream is locked` because the output account was already occupied by the successful relay.
 
-Next provider test should add a longer single-account smoke or move to the three-account source A/source B/output POC. Confirm the panel preview during the live task window and keep using the stored secret reference instead of pasting secret values into chat or docs.
+Next provider test should either run a longer two-account relay or move to the full three-account source A/source B/output POC. Confirm the panel preview during the live task window and keep using stored secret references instead of pasting secret values into chat or docs.
 
 ## Logs And Metrics
 

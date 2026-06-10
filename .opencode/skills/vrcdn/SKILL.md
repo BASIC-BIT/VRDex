@@ -26,6 +26,9 @@ Operate VRCDN-related VRDex workflows safely: provider setup, smoke testing, URL
 - Browser preview URL: `https://panel.vrcdn.live/preview/basicbit1`.
 - Stored secret fields: `provider`, `label`, `purpose`, `previewUrl`, `rtmpUrl`, `streamKey`, `playback`, `createdBy`, and `notes`.
 - Do not disclose `rtmpUrl` plus `streamKey` together as an ingest URL.
+- Output secret name: `event-media/vrcdn/basicbit-output`.
+- Output preview URL: `https://panel.vrcdn.live/preview/basicbit`.
+- Output public MPEG-TS playback URL: `https://stream.vrcdn.live/live/basicbit.live.ts`.
 
 ## VRCDN URL Model
 
@@ -69,7 +72,10 @@ Use this when only one VRCDN account is ready.
 - A corrected retry completed successfully: `single-output-smoke`, `720p30`, `1024` CPU / `2048` MiB, 120 seconds, `8` runtime commands, `120000ms` final output progress.
 - Private corrected retry report: `s3://vrdex-restream-worker-079358094174-artifacts/synthetic-benchmarks/2026-06-10T04-40-37-650Z/`.
 - Future output POC artifact directories include `report.html`, `vrcdn-poc-report.json`, and `frames/hold-slate-input.png`.
-- Next useful provider test: a longer single-account smoke or the three-account source A/source B/output POC.
+- A two-account relay completed successfully: source pusher into `basicbit1`, output restream from `https://stream.vrcdn.live/live/basicbit1.live.ts` to `basicbit`, `720p30`, `1024` CPU / `2048` MiB, 120 seconds, `8` runtime commands, `119978ms` final output progress.
+- Private two-account relay report: `s3://vrdex-restream-worker-079358094174-artifacts/synthetic-benchmarks/2026-06-10T05-43-45-393Z/report.html`.
+- A manual overlapping retry failed with VRCDN `403 Stream is locked`; do not treat that as the relay result.
+- Next useful provider test: a longer two-account relay or the full three-account source A/source B/output POC.
 
 ## Validation Commands
 
