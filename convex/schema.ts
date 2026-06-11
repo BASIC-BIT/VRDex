@@ -645,6 +645,7 @@ export default defineSchema({
     completedAt: v.optional(v.number()),
     updatedAt: v.number(),
   })
+    .index("by_status_createdAt", ["status", "createdAt"])
     .index("by_programId_status_createdAt", ["programId", "status", "createdAt"])
     .index("by_sessionId_status_createdAt", ["sessionId", "status", "createdAt"])
     .index("by_eventId_createdAt", ["eventId", "createdAt"])
@@ -657,6 +658,7 @@ export default defineSchema({
     workerId: v.optional(v.string()),
     workerRuntime: v.optional(v.string()),
     workerProvider: v.optional(eventMediaWorkerProviderValidator),
+    workerTaskDefinitionArn: v.optional(v.string()),
     workerTaskId: v.optional(v.string()),
     workerTaskStatus: v.optional(eventMediaWorkerTaskStatusValidator),
     workerTaskStatusReason: v.optional(v.string()),
@@ -683,6 +685,7 @@ export default defineSchema({
   })
     .index("by_programId_status", ["programId", "status"])
     .index("by_eventId_status", ["eventId", "status"])
+    .index("by_status_updatedAt", ["status", "updatedAt"])
     .index("by_workerId_status", ["workerId", "status"])
     .index("by_leaseExpiresAt", ["leaseExpiresAt"]),
   eventMediaAuditEvents: defineTable({

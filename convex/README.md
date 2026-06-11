@@ -22,7 +22,7 @@ This directory holds the initial Convex backend slice for `VRDex`.
 - `_eventSlugs.ts`, `_eventInputs.ts`, `_eventPublic.ts`, and `_vrcdnLinks.ts` contain event slug, input, public projection, and VRCDN URL helpers
 - `_eventMediaControl.ts` contains event media-control command, fallback-link, worker-schedule, artifact-link, and public-state projection helpers
 - `_vrcdnOutputAccounts.ts` contains configured operator-owned VRCDN output accounts and hides credential references from public account options
-- `events.ts` exposes public event reads and authenticated event editor mutations
+- `events.ts` exposes public event reads, authenticated event editor mutations, and token-gated event media worker bridge mutations
 - `migrations.ts` contains deploy-time data backfills for schema additions
 - `_searchDocuments.ts`, `_vocabulary.ts`, `search.ts`, and `suppressions.ts` contain public discovery, vocabulary, and suppression helpers
 - `_generated/` contains committed Convex codegen output and should not be edited by hand
@@ -35,6 +35,7 @@ Use the repo-root scripts for local work:
 - `pnpm run:backend:health:local`
 - `pnpm typecheck:backend`
 - `pnpm check:backend:generated`
+- `pnpm ops:event-media:ecs-bridge`
 
 The canonical workflow notes live in `docs/backend/convex-bootstrap.md`.
 

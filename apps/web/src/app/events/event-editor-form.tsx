@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { ChangeEvent, FormEvent } from "react";
 import { useEffect, useState, useTransition } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@convex-generated-api";
 import type { PublicEvent } from "../_components/event-public-page";
 import { buttonVariants, Button } from "@/components/ui/button";
@@ -393,6 +393,37 @@ function eventTargetChecked(changeEvent: ChangeEvent<HTMLInputElement>): boolean
   return changeEvent.currentTarget.checked;
 }
 
+function formatPrivateTimestamp(timestamp: number | undefined): string {
+  if (timestamp === undefined) {
+    return "Not set";
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(timestamp));
+}
+
+function formatMachineValue(value: string | number | undefined): string {
+  if (value === undefined) {
+    return "Not recorded";
+  }
+
+  return String(value).replaceAll("_", " ");
+}
+
+function shortTaskId(value: string | undefined): string {
+  if (value === undefined) {
+    return "Not recorded";
+  }
+
+  return value.split("/").at(-1) ?? value;
+}
+
+function chooseVisibleWorkerSession<Session extends { status: string; updatedAt: number }>(sessions: Session[]): Session | undefined {
+  return sessions.find((session) => ["starting", "live", "hold", "fallback", "stopping"].includes(session.status)) ?? sessions[0];
+}
+
 function DisabledEventEditorPanel() {
   return (
     <Card surface="dashed">
@@ -422,6 +453,7 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
   const updateEvent = useMutation(api.events.updateCommunityEvent);
   const configureVrcdnOutput = useMutation(api.events.configureVrcdnOutput);
   const vrcdnOutputAccounts = useQuery(api.events.listVrcdnOutputAccounts, {});
+  const eventMediaControlStatus = useQuery(api.events.getEventMediaControlStatus, event === undefined ? "skip" : { currentSlug: event.slug });
   const [status, setStatus] = useState<EventEditorStatus>({ kind: "idle" });
   const [vrcdnOutputStatus, setVrcdnOutputStatus] = useState<VrcdnOutputStatus>({ kind: "idle" });
   const [timezone, setTimezone] = useState(event?.timezone ?? "UTC");
@@ -566,6 +598,8 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
   const vrcdnOutputAccountsLoading = vrcdnOutputAccounts === undefined;
   const canSaveVrcdnOutput =
     vrcdnOutputStatus.kind !== "submitting" && !vrcdnOutputAccountsLoading && vrcdnOutputAccountOptions.length > 0;
+  const visibleWorkerSession = chooseVisibleWorkerSession(eventMediaControlStatus?.sessions ?? []);
+  const visibleWorkerOutput = eventMediaControlStatus?.outputs.find((output) => output.outputId === visibleWorkerSession?.outputId);
 
   function onVrcdnOutputAccountChange(changeEvent: ChangeEvent<HTMLSelectElement>) {
     const value = eventTargetValue(changeEvent);
@@ -756,6 +790,104 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
         </Card>
       )}
 
+      {event === undefined ? null : (
+        <Card className="grid gap-4" padding="sm" surface="dashed">
+          <div>
+            <h3 className="text-xl font-semibold tracking-[-0.03em]">Worker status</h3>
+            <p className="mt-2 text-xs leading-5 text-muted">Private event-media status for the selected output account.</p>
+          </div>
+
+          {eventMediaControlStatus === undefined ? (
+            <p className="text-sm text-muted">Loading worker status...</p>
+          ) : eventMediaControlStatus.program === null ? (
+            <p className="text-sm text-muted">No worker has been scheduled for this event.</p>
+          ) : (
+            <>
+              <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-control border border-border bg-white p-3">
+                  <dt className="text-xs text-muted">Program</dt>
+                  <dd className="mt-1 text-sm font-medium capitalize text-foreground">{formatMachineValue(eventMediaControlStatus.program.state)}</dd>
+                </div>
+                <div className="rounded-control border border-border bg-white p-3">
+                  <dt className="text-xs text-muted">Output</dt>
+                  <dd className="mt-1 text-sm font-medium text-foreground">{visibleWorkerOutput?.label ?? "Not selected"}</dd>
+                </div>
+                <div className="rounded-control border border-border bg-white p-3">
+                  <dt className="text-xs text-muted">Session</dt>
+                  <dd className="mt-1 text-sm font-medium capitalize text-foreground">{formatMachineValue(visibleWorkerSession?.status)}</dd>
+                </div>
+                <div className="rounded-control border border-border bg-white p-3">
+                  <dt className="text-xs text-muted">Task</dt>
+                  <dd className="mt-1 text-sm font-medium capitalize text-foreground">{formatMachineValue(visibleWorkerSession?.workerTaskStatus)}</dd>
+                </div>
+              </dl>
+
+              {visibleWorkerSession === undefined ? (
+                <p className="text-sm text-muted">No worker session has reported status yet.</p>
+              ) : (
+                <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <div className="rounded-control border border-border bg-white p-3">
+                    <dt className="text-xs text-muted">Scheduled start</dt>
+                    <dd className="mt-1 text-sm text-foreground">{formatPrivateTimestamp(visibleWorkerSession.scheduledStartAt)}</dd>
+                  </div>
+                  <div className="rounded-control border border-border bg-white p-3">
+                    <dt className="text-xs text-muted">Ready deadline</dt>
+                    <dd className="mt-1 text-sm text-foreground">{formatPrivateTimestamp(visibleWorkerSession.readyDeadlineAt)}</dd>
+                  </div>
+                  <div className="rounded-control border border-border bg-white p-3">
+                    <dt className="text-xs text-muted">Last update</dt>
+                    <dd className="mt-1 text-sm text-foreground">{formatPrivateTimestamp(visibleWorkerSession.updatedAt)}</dd>
+                  </div>
+                  <div className="rounded-control border border-border bg-white p-3">
+                    <dt className="text-xs text-muted">Worker runtime</dt>
+                    <dd className="mt-1 text-sm text-foreground">{formatMachineValue(visibleWorkerSession.workerRuntime)}</dd>
+                  </div>
+                  <div className="rounded-control border border-border bg-white p-3">
+                    <dt className="text-xs text-muted">Task ID</dt>
+                    <dd className="mt-1 break-all font-mono text-xs text-foreground">{shortTaskId(visibleWorkerSession.workerTaskId)}</dd>
+                  </div>
+                  <div className="rounded-control border border-border bg-white p-3">
+                    <dt className="text-xs text-muted">Queued commands</dt>
+                    <dd className="mt-1 text-sm text-foreground">{eventMediaControlStatus.queuedCommandCount}</dd>
+                  </div>
+                </dl>
+              )}
+
+              {visibleWorkerSession?.workerTaskStatusReason ? (
+                <Notice>{visibleWorkerSession.workerTaskStatusReason}</Notice>
+              ) : null}
+
+              {visibleWorkerSession?.artifactLinks.length ? (
+                <div className="grid gap-2">
+                  <h4 className="text-sm font-semibold text-foreground">Artifacts</h4>
+                  <div className="grid gap-2">
+                    {visibleWorkerSession.artifactLinks.map((artifact) => (
+                      artifact.url.startsWith("https://") ? (
+                        <a
+                          className="rounded-control border border-border bg-white px-3 py-2 text-sm font-medium text-foreground underline-offset-4 hover:underline"
+                          href={artifact.url}
+                          key={`${artifact.type}:${artifact.url}`}
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          {artifact.label}
+                        </a>
+                      ) : (
+                        <code className="break-all rounded-control border border-border bg-white px-3 py-2 text-xs text-foreground" key={`${artifact.type}:${artifact.url}`}>
+                          {artifact.label}: {artifact.url}
+                        </code>
+                      )
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-muted">No artifacts recorded.</p>
+              )}
+            </>
+          )}
+        </Card>
+      )}
+
       <Field>
         Linked person profiles
         <Textarea className="min-h-28" defaultValue={serializeParticipants(event)} name="participantLinks" placeholder="dj-aurora | Performer&#10;vj-lumen | Staff" />
@@ -848,6 +980,20 @@ export function EventEditorForm({ event }: { event?: PublicEvent }) {
   }
 
   if (!eventEditorAuthReady) {
+    return <SignInRequiredEventEditorPanel />;
+  }
+
+  return <AuthenticatedEventEditorForm event={event} />;
+}
+
+function AuthenticatedEventEditorForm({ event }: { event?: PublicEvent }) {
+  const { isAuthenticated, isLoading } = useConvexAuth();
+
+  if (isLoading) {
+    return <p className="text-sm text-muted">Loading sign-in state...</p>;
+  }
+
+  if (!isAuthenticated) {
     return <SignInRequiredEventEditorPanel />;
   }
 

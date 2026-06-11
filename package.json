@@ -26,6 +26,7 @@
     "proof:restream:worker": "node scripts/run-restream-worker-benchmark.mjs",
     "proof:restream:worker:live-control": "node scripts/run-restream-worker-benchmark.mjs live-control",
     "proof:restream:worker:matrix": "node scripts/run-restream-worker-benchmark-matrix.mjs",
+    "ops:event-media:ecs-bridge": "node scripts/event-media-ecs-bridge.mjs",
     "lint:web": "pnpm --filter web lint",
     "test:e2e": "pnpm --filter web test:e2e",
     "test:e2e:hosted": "pnpm --filter web test:e2e:hosted",

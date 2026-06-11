@@ -24,7 +24,7 @@ The Terraform stack defines:
 - task role for CloudWatch custom metrics, the SSM kill switch, and prefix-scoped benchmark artifact uploads
 - SSM parameter `/vrdex/restream/hosted-worker/enabled`, defaulting to `false`
 
-The stack does not define an ECS service. Scheduled or operator-triggered runs should start one task per approved event media session after the runtime bridge can claim Convex `start_program` and `stop_program` commands.
+The stack does not define an ECS service. Scheduled or operator-triggered runs start one task per approved event media session through the operator bridge in `scripts/event-media-ecs-bridge.mjs`.
 
 ## Runtime Guardrails
 
@@ -47,6 +47,30 @@ The task definition injects these non-secret values, and the current entrypoint 
 - `CONVEX_URL`
 
 Secret values are not environment variables in git or Terraform. The `secret_arns` map supplies ECS secret references by container environment name. Synthetic benchmark tasks set `VRDEX_RESTREAM_SYNTHETIC_ONLY=true`, so they can produce media evidence without provider credentials. Use scoped, event/output-specific references for any non-synthetic VRCDN or external RTMP credential.
+
+## Runtime Bridge
+
+Current recommendation: run `pnpm ops:event-media:ecs-bridge` from an operator-controlled environment with AWS credentials that can register task definitions, run tasks, describe tasks, stop tasks, and deregister the bridge-created task definitions. The bridge polls Convex for queued `start_program` and `stop_program` commands, starts or stops one Fargate task, then records task status back into Convex for the private event editor.
+
+Required non-secret bridge configuration:
+
+- `CONVEX_URL`
+- `VRDEX_EVENT_MEDIA_BRIDGE_TOKEN`, matching the Convex deployment's `VRDEX_EVENT_MEDIA_BRIDGE_TOKEN`
+- `VRDEX_EVENT_MEDIA_ECS_REGION`
+- `VRDEX_EVENT_MEDIA_ECS_CLUSTER`
+- `VRDEX_EVENT_MEDIA_ECS_IMAGE`
+- `VRDEX_EVENT_MEDIA_ECS_EXECUTION_ROLE_ARN`
+- `VRDEX_EVENT_MEDIA_ECS_TASK_ROLE_ARN`
+- `VRDEX_EVENT_MEDIA_ECS_LOG_GROUP`
+- `VRDEX_EVENT_MEDIA_ECS_SUBNETS`, comma-separated subnet ids
+- `VRDEX_EVENT_MEDIA_ECS_SECURITY_GROUPS`, comma-separated security group ids
+- `VRDEX_EVENT_MEDIA_SECRET_REF_MAP_JSON`, a JSON object that maps Convex output-account credential references to AWS Secrets Manager or SSM parameter ARNs
+
+Optional bridge configuration includes `VRDEX_EVENT_MEDIA_BRIDGE_WORKER_ID`, `VRDEX_EVENT_MEDIA_ECS_CONTAINER`, `VRDEX_EVENT_MEDIA_ECS_CPU`, `VRDEX_EVENT_MEDIA_ECS_MEMORY`, `VRDEX_EVENT_MEDIA_ECS_EPHEMERAL_STORAGE_GIB`, `VRDEX_EVENT_MEDIA_ECS_ASSIGN_PUBLIC_IP`, `VRDEX_EVENT_MEDIA_ECS_LOG_STREAM_PREFIX`, `VRDEX_EVENT_MEDIA_ECS_BASE_ENV_JSON`, `VRDEX_EVENT_MEDIA_OUTPUT_SECRET_ENV`, and `VRDEX_EVENT_MEDIA_BRIDGE_POLL_MS`.
+
+Use `VRDEX_EVENT_MEDIA_ECS_BRIDGE_CONFIG_CHECK_ONLY=true` for a local configuration parse check that does not call Convex or AWS. Use `--once` when running the bridge from a scheduler or smoke test; omit it for a long-running operator loop.
+
+Do not put stream keys, combined ingest URLs, provider tokens, signed URLs, or secret JSON in the bridge environment except through ECS secret references. `VRDEX_EVENT_MEDIA_SECRET_REF_MAP_JSON` contains only references to secret store records, not secret values.
 
 ## Visible Benchmark Output
 
@@ -250,7 +274,7 @@ Minimum CloudWatch or custom metric dimensions for the first benchmark:
 - dropped or retried segment counts
 - command latency and command outcome
 
-Convex remains the authoritative control plane for event media session state, command outcomes, heartbeats, task status, private artifact links, and audit events. The current backend schedule defaults start workers at `T-5 minutes` and requires readiness by `T-2 minutes`; artifact links stored in Convex must be private `s3://` URIs or HTTPS URLs without embedded credentials or query strings.
+Convex remains the authoritative control plane for event media session state, command outcomes, heartbeats, task status, private artifact links, and audit events. The current backend schedule defaults start workers at `T-5 minutes` and requires readiness by `T-2 minutes`; artifact links stored in Convex must be private `s3://` URIs or HTTPS URLs without embedded credentials or query strings. The authenticated event editor shows the private worker status and artifact links for operators; public event pages only see ready or active playback links.
 
 ## Budget And Kill Switch
 

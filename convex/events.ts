@@ -136,6 +136,7 @@ const eventMediaWorkerScheduleArgs = {
   readyDeadlineAt: v.optional(v.number()),
   workerRuntime: v.optional(v.string()),
   workerProvider: v.optional(eventMediaWorkerProviderValidator),
+  workerTaskDefinitionArn: v.optional(v.string()),
   workerTaskId: v.optional(v.string()),
   workerTaskStatus: v.optional(eventMediaWorkerTaskStatusValidator),
   workerTaskStatusReason: v.optional(v.string()),
@@ -153,6 +154,28 @@ const eventMediaWorkerTaskStatusArgs = {
   workerId: v.optional(v.string()),
   workerRuntime: v.optional(v.string()),
   workerProvider: v.optional(eventMediaWorkerProviderValidator),
+  workerTaskDefinitionArn: v.optional(v.string()),
+  workerTaskId: v.optional(v.string()),
+  workerTaskStatus: v.optional(eventMediaWorkerTaskStatusValidator),
+  workerTaskStatusReason: v.optional(v.string()),
+  leaseExpiresAt: v.optional(v.number()),
+  health: v.optional(eventMediaWorkerHealthInput),
+  artifactLinks: v.optional(v.array(eventMediaWorkerArtifactLinkInput)),
+};
+
+const eventMediaWorkerBridgeArgs = {
+  bridgeToken: v.string(),
+  workerId: v.string(),
+};
+
+const eventMediaWorkerBridgeTaskStatusArgs = {
+  ...eventMediaWorkerBridgeArgs,
+  sessionId: v.id("eventMediaSessions"),
+  commandId: v.optional(v.id("eventMediaCommands")),
+  status: v.optional(eventMediaSessionStatusValidator),
+  workerRuntime: v.optional(v.string()),
+  workerProvider: v.optional(eventMediaWorkerProviderValidator),
+  workerTaskDefinitionArn: v.optional(v.string()),
   workerTaskId: v.optional(v.string()),
   workerTaskStatus: v.optional(eventMediaWorkerTaskStatusValidator),
   workerTaskStatusReason: v.optional(v.string()),
@@ -206,6 +229,28 @@ function optionalPositiveTimestamp(input: number | undefined, fieldName: string)
   }
 
   return input;
+}
+
+function requireEventMediaBridgeToken(input: string) {
+  const expected = process.env.VRDEX_EVENT_MEDIA_BRIDGE_TOKEN?.trim();
+
+  if (expected === undefined || expected.length === 0) {
+    throw new Error("Event media bridge token is not configured.");
+  }
+
+  if (input !== expected) {
+    throw new Error("Event media bridge token is invalid.");
+  }
+}
+
+function requireBridgeWorkerId(input: string): string {
+  const workerId = optionalTrimmedText(input, "Worker id", 128);
+
+  if (workerId === undefined) {
+    throw new Error("Worker id is required.");
+  }
+
+  return workerId;
 }
 
 async function getPublishedCommunityBySlug(
@@ -544,7 +589,8 @@ async function recordEventMediaAuditEvent(
     sessionId?: Id<"eventMediaSessions">;
     commandId?: Id<"eventMediaCommands">;
     outputId?: Id<"eventMediaOutputs">;
-    actor: AuthSubject;
+    actor?: AuthSubject;
+    actorSurface?: "web" | "discord" | "worker" | "system";
     action: string;
     publicSummary?: string;
     privateSummary?: string;
@@ -557,8 +603,8 @@ async function recordEventMediaAuditEvent(
     ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
     ...(input.commandId === undefined ? {} : { commandId: input.commandId }),
     ...(input.outputId === undefined ? {} : { outputId: input.outputId }),
-    actor: input.actor,
-    actorSurface: "web",
+    ...(input.actor === undefined ? {} : { actor: input.actor }),
+    actorSurface: input.actorSurface ?? "web",
     action: input.action,
     ...(input.publicSummary === undefined ? {} : { publicSummary: input.publicSummary }),
     ...(input.privateSummary === undefined ? {} : { privateSummary: input.privateSummary }),
@@ -640,6 +686,7 @@ function workerSessionStatus(session: Doc<"eventMediaSessions">) {
     ...(session.workerId === undefined ? {} : { workerId: session.workerId }),
     ...(session.workerRuntime === undefined ? {} : { workerRuntime: session.workerRuntime }),
     ...(session.workerProvider === undefined ? {} : { workerProvider: session.workerProvider }),
+    ...(session.workerTaskDefinitionArn === undefined ? {} : { workerTaskDefinitionArn: session.workerTaskDefinitionArn }),
     ...(session.workerTaskId === undefined ? {} : { workerTaskId: session.workerTaskId }),
     ...(session.workerTaskStatus === undefined ? {} : { workerTaskStatus: session.workerTaskStatus }),
     ...(session.workerTaskStatusReason === undefined ? {} : { workerTaskStatusReason: session.workerTaskStatusReason }),
@@ -653,6 +700,182 @@ function workerSessionStatus(session: Doc<"eventMediaSessions">) {
     ...(session.health === undefined ? {} : { health: session.health }),
     updatedAt: session.updatedAt,
   };
+}
+
+function workerCommandOutput(output: Doc<"eventMediaOutputs"> | null) {
+  if (output === null) {
+    return undefined;
+  }
+
+  return {
+    outputId: output._id,
+    key: output.key,
+    type: output.type,
+    state: output.state,
+    label: output.label,
+    playbackLinks: output.playbackLinks,
+    ...(output.credential?.secretRef === undefined ? {} : { credentialRef: output.credential.secretRef }),
+  };
+}
+
+function isWorkerCommandType(commandType: Doc<"eventMediaCommands">["commandType"]): commandType is "start_program" | "stop_program" {
+  return commandType === "start_program" || commandType === "stop_program";
+}
+
+async function createWorkerBridgeCommandPayload(
+  db: DatabaseReader,
+  command: Doc<"eventMediaCommands">,
+) {
+  if (command.sessionId === undefined || !isWorkerCommandType(command.commandType)) {
+    return null;
+  }
+
+  const session = await db.get(command.sessionId);
+
+  if (session === null) {
+    return null;
+  }
+
+  const [program, output] = await Promise.all([
+    db.get(session.programId),
+    session.outputId === undefined ? Promise.resolve(null) : db.get(session.outputId),
+  ]);
+
+  if (program === null) {
+    return null;
+  }
+
+  return {
+    commandId: command._id,
+    commandType: command.commandType,
+    createdAt: command.createdAt,
+    ...(command.targetOutputId === undefined ? {} : { targetOutputId: command.targetOutputId }),
+    eventId: command.eventId,
+    program: {
+      programId: program._id,
+      state: program.state,
+      publicLinks: program.publicLinks,
+    },
+    session: workerSessionStatus(session),
+    ...(workerCommandOutput(output) === undefined ? {} : { output: workerCommandOutput(output) }),
+  };
+}
+
+async function applyBridgeWorkerTaskStatus(
+  db: DatabaseWriter,
+  input: {
+    workerId: string;
+    session: Doc<"eventMediaSessions">;
+    program: Doc<"eventMediaPrograms">;
+    commandId?: Id<"eventMediaCommands">;
+    status?: Doc<"eventMediaSessions">["status"];
+    workerRuntime?: string;
+    workerProvider?: "aws_ecs";
+    workerTaskDefinitionArn?: string;
+    workerTaskId?: string;
+    workerTaskStatus?: "queued" | "starting" | "running" | "stopping" | "stopped" | "failed";
+    workerTaskStatusReason?: string;
+    leaseExpiresAt?: number;
+    health?: {
+      outputBitrateKbps?: number;
+      audioPresent?: boolean;
+      droppedSegmentCount?: number;
+      commandFailureCount?: number;
+    };
+    artifactLinks?: ReturnType<typeof sanitizeEventMediaWorkerArtifactLinks>;
+    now: number;
+  },
+) {
+  const status = input.status ?? input.session.status;
+  const shouldSetStartedAt =
+    input.session.startedAt === undefined && ["starting", "live", "hold", "fallback"].includes(status);
+  const shouldSetStoppedAt = input.session.stoppedAt === undefined && ["ended", "error"].includes(status);
+
+  await db.patch(input.session._id, {
+    status,
+    workerId: input.workerId,
+    ...(input.workerRuntime === undefined ? {} : { workerRuntime: input.workerRuntime }),
+    ...(input.workerProvider === undefined ? {} : { workerProvider: input.workerProvider }),
+    ...(input.workerTaskDefinitionArn === undefined ? {} : { workerTaskDefinitionArn: input.workerTaskDefinitionArn }),
+    ...(input.workerTaskId === undefined ? {} : { workerTaskId: input.workerTaskId }),
+    ...(input.workerTaskStatus === undefined ? {} : { workerTaskStatus: input.workerTaskStatus }),
+    ...(input.workerTaskStatusReason === undefined ? {} : { workerTaskStatusReason: input.workerTaskStatusReason }),
+    ...(input.leaseExpiresAt === undefined ? {} : { leaseExpiresAt: input.leaseExpiresAt }),
+    ...(input.artifactLinks === undefined ? {} : { artifactLinks: input.artifactLinks }),
+    ...(input.health === undefined
+      ? {}
+      : {
+          health: {
+            lastHeartbeatAt: input.now,
+            ...(input.health.outputBitrateKbps === undefined ? {} : { outputBitrateKbps: input.health.outputBitrateKbps }),
+            ...(input.health.audioPresent === undefined ? {} : { audioPresent: input.health.audioPresent }),
+            ...(input.health.droppedSegmentCount === undefined ? {} : { droppedSegmentCount: input.health.droppedSegmentCount }),
+            ...(input.health.commandFailureCount === undefined ? {} : { commandFailureCount: input.health.commandFailureCount }),
+          },
+        }),
+    ...(shouldSetStartedAt ? { startedAt: input.now } : {}),
+    ...(shouldSetStoppedAt ? { stoppedAt: input.now } : {}),
+    updatedAt: input.now,
+  });
+
+  if (
+    status === "starting" ||
+    status === "live" ||
+    status === "hold" ||
+    status === "fallback" ||
+    status === "stopping" ||
+    status === "ended" ||
+    status === "error"
+  ) {
+    await db.patch(input.program._id, {
+      state: status,
+      activeSessionId: ["ended", "error"].includes(status) ? undefined : input.session._id,
+      updatedAt: input.now,
+    });
+  }
+
+  if (status === "live" && input.session.outputId !== undefined) {
+    const output = await db.get(input.session.outputId);
+
+    if (output !== null) {
+      await Promise.all([
+        db.patch(output._id, { state: "active", updatedAt: input.now }),
+        db.patch(input.program._id, { currentOutputId: output._id, publicLinks: output.playbackLinks, updatedAt: input.now }),
+        settleEventMediaSessionCommands(db, {
+          sessionId: input.session._id,
+          commandTypes: ["start_program"],
+          status: "succeeded",
+          now: input.now,
+        }),
+      ]);
+    }
+  }
+
+  if (["ended", "error"].includes(status) && input.session.outputId !== undefined) {
+    const output = await db.get(input.session.outputId);
+
+    if (output !== null && output.state === "active") {
+      await db.patch(output._id, { state: "ready", updatedAt: input.now });
+    }
+  }
+
+  if (["ended", "error"].includes(status)) {
+    await settleEventMediaSessionCommands(db, {
+      sessionId: input.session._id,
+      commandTypes: ["start_program", "stop_program"],
+      status: status === "error" ? "failed" : "succeeded",
+      ...(status === "error" ? { errorSummary: input.workerTaskStatusReason ?? "Worker ended with an error." } : {}),
+      now: input.now,
+    });
+  }
+
+  if (input.commandId !== undefined) {
+    const command = await db.get(input.commandId);
+
+    if (command !== null && command.status === "claimed" && status === "stopping") {
+      await db.patch(command._id, { status: "succeeded", completedAt: input.now, updatedAt: input.now });
+    }
+  }
 }
 
 export const getPublicBySlug = query({
@@ -764,6 +987,140 @@ export const getEventMediaControlStatus = query({
       sessions: sessions.sort((first, second) => second.updatedAt - first.updatedAt).map(workerSessionStatus),
       queuedCommandCount: queuedCommands.length,
     };
+  },
+});
+
+export const claimEventMediaWorkerCommand = mutation({
+  args: eventMediaWorkerBridgeArgs,
+  handler: async (ctx, args) => {
+    requireEventMediaBridgeToken(args.bridgeToken);
+    const workerId = requireBridgeWorkerId(args.workerId);
+    const now = Date.now();
+    const queuedCommands = await ctx.db
+      .query("eventMediaCommands")
+      .withIndex("by_status_createdAt", (query) => query.eq("status", "queued"))
+      .take(50);
+
+    for (const command of queuedCommands) {
+      if (!isWorkerCommandType(command.commandType) || command.sessionId === undefined) {
+        continue;
+      }
+
+      const payload = await createWorkerBridgeCommandPayload(ctx.db, command);
+
+      if (payload === null) {
+        await ctx.db.patch(command._id, {
+          status: "failed",
+          errorSummary: "Worker command references missing media-control records.",
+          completedAt: now,
+          updatedAt: now,
+        });
+        continue;
+      }
+
+      await ctx.db.patch(command._id, {
+        status: "claimed",
+        claimedByWorkerId: workerId,
+        claimedAt: now,
+        updatedAt: now,
+      });
+
+      return payload;
+    }
+
+    return null;
+  },
+});
+
+export const listEventMediaWorkerBridgeSessions = query({
+  args: eventMediaWorkerBridgeArgs,
+  handler: async (ctx, args) => {
+    requireEventMediaBridgeToken(args.bridgeToken);
+    requireBridgeWorkerId(args.workerId);
+    const statuses: Array<"scheduled" | "starting" | "live" | "hold" | "fallback" | "stopping"> = [
+      "scheduled",
+      "starting",
+      "live",
+      "hold",
+      "fallback",
+      "stopping",
+    ];
+    const sessionGroups = await Promise.all(
+      statuses.map((status) =>
+        ctx.db
+          .query("eventMediaSessions")
+          .withIndex("by_status_updatedAt", (query) => query.eq("status", status))
+          .take(50),
+      ),
+    );
+
+    return sessionGroups
+      .flat()
+      .filter((session) => session.workerProvider === "aws_ecs" && session.workerTaskId !== undefined)
+      .sort((first, second) => second.updatedAt - first.updatedAt)
+      .map(workerSessionStatus);
+  },
+});
+
+export const recordEventMediaWorkerBridgeTaskStatus = mutation({
+  args: eventMediaWorkerBridgeTaskStatusArgs,
+  handler: async (ctx, args) => {
+    requireEventMediaBridgeToken(args.bridgeToken);
+    const workerId = requireBridgeWorkerId(args.workerId);
+    const session = await ctx.db.get(args.sessionId);
+
+    if (session === null) {
+      throw new Error("Event media worker session was not found.");
+    }
+
+    const program = await ctx.db.get(session.programId);
+
+    if (program === null) {
+      throw new Error("Event media program was not found.");
+    }
+
+    const now = Date.now();
+    const workerRuntime = optionalTrimmedText(args.workerRuntime, "Worker runtime", 80);
+    const workerTaskDefinitionArn = optionalTrimmedText(args.workerTaskDefinitionArn, "Worker task definition ARN", 512);
+    const workerTaskId = optionalTrimmedText(args.workerTaskId, "Worker task id", 512);
+    const workerTaskStatusReason = optionalTrimmedText(args.workerTaskStatusReason, "Worker task status reason", 500);
+    const leaseExpiresAt = optionalPositiveTimestamp(args.leaseExpiresAt, "Worker lease expiration");
+    const artifactLinks = args.artifactLinks === undefined ? undefined : sanitizeEventMediaWorkerArtifactLinks(args.artifactLinks);
+
+    await applyBridgeWorkerTaskStatus(ctx.db, {
+      workerId,
+      session,
+      program,
+      ...(args.commandId === undefined ? {} : { commandId: args.commandId }),
+      ...(args.status === undefined ? {} : { status: args.status }),
+      ...(workerRuntime === undefined ? {} : { workerRuntime }),
+      ...(args.workerProvider === undefined ? {} : { workerProvider: args.workerProvider }),
+      ...(workerTaskDefinitionArn === undefined ? {} : { workerTaskDefinitionArn }),
+      ...(workerTaskId === undefined ? {} : { workerTaskId }),
+      ...(args.workerTaskStatus === undefined ? {} : { workerTaskStatus: args.workerTaskStatus }),
+      ...(workerTaskStatusReason === undefined ? {} : { workerTaskStatusReason }),
+      ...(leaseExpiresAt === undefined ? {} : { leaseExpiresAt }),
+      ...(args.health === undefined ? {} : { health: args.health }),
+      ...(artifactLinks === undefined ? {} : { artifactLinks }),
+      now,
+    });
+
+    await recordEventMediaAuditEvent(ctx.db, {
+      programId: program._id,
+      eventId: session.eventId,
+      sessionId: session._id,
+      ...(session.outputId === undefined ? {} : { outputId: session.outputId }),
+      ...(args.commandId === undefined ? {} : { commandId: args.commandId }),
+      actorSurface: "worker",
+      action: "worker_bridge_status_recorded",
+      publicSummary: `Event media worker status is ${args.status ?? session.status}.`,
+      ...(args.workerTaskStatus === undefined ? {} : { privateSummary: `Worker task status is ${args.workerTaskStatus}.` }),
+      createdAt: now,
+    });
+
+    const updatedSession = await ctx.db.get(session._id);
+
+    return updatedSession === null ? workerSessionStatus(session) : workerSessionStatus(updatedSession);
   },
 });
 
@@ -1023,6 +1380,7 @@ export const scheduleEventMediaWorker = mutation({
     });
     const now = Date.now();
     const workerRuntime = optionalTrimmedText(args.workerRuntime, "Worker runtime", 80);
+    const workerTaskDefinitionArn = optionalTrimmedText(args.workerTaskDefinitionArn, "Worker task definition ARN", 512);
     const workerTaskId = optionalTrimmedText(args.workerTaskId, "Worker task id", 512);
     const workerTaskStatusReason = optionalTrimmedText(args.workerTaskStatusReason, "Worker task status reason", 500);
     const artifactLinks = sanitizeEventMediaWorkerArtifactLinks(args.artifactLinks);
@@ -1039,6 +1397,7 @@ export const scheduleEventMediaWorker = mutation({
       status: "scheduled" as const,
       ...(workerRuntime === undefined ? {} : { workerRuntime }),
       workerProvider: args.workerProvider ?? "aws_ecs",
+      ...(workerTaskDefinitionArn === undefined ? {} : { workerTaskDefinitionArn }),
       ...(workerTaskId === undefined ? {} : { workerTaskId }),
       workerTaskStatus: args.workerTaskStatus ?? "queued",
       ...(workerTaskStatusReason === undefined ? {} : { workerTaskStatusReason }),
@@ -1122,6 +1481,7 @@ export const recordEventMediaWorkerTaskStatus = mutation({
     const status = args.status ?? session.status;
     const workerId = optionalTrimmedText(args.workerId, "Worker id", 128);
     const workerRuntime = optionalTrimmedText(args.workerRuntime, "Worker runtime", 80);
+    const workerTaskDefinitionArn = optionalTrimmedText(args.workerTaskDefinitionArn, "Worker task definition ARN", 512);
     const workerTaskId = optionalTrimmedText(args.workerTaskId, "Worker task id", 512);
     const workerTaskStatusReason = optionalTrimmedText(args.workerTaskStatusReason, "Worker task status reason", 500);
     const leaseExpiresAt = optionalPositiveTimestamp(args.leaseExpiresAt, "Worker lease expiration");
@@ -1135,6 +1495,7 @@ export const recordEventMediaWorkerTaskStatus = mutation({
       ...(workerId === undefined ? {} : { workerId }),
       ...(workerRuntime === undefined ? {} : { workerRuntime }),
       ...(args.workerProvider === undefined ? {} : { workerProvider: args.workerProvider }),
+      ...(workerTaskDefinitionArn === undefined ? {} : { workerTaskDefinitionArn }),
       ...(workerTaskId === undefined ? {} : { workerTaskId }),
       ...(args.workerTaskStatus === undefined ? {} : { workerTaskStatus: args.workerTaskStatus }),
       ...(workerTaskStatusReason === undefined ? {} : { workerTaskStatusReason }),
