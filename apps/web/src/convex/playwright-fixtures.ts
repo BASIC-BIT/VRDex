@@ -329,6 +329,7 @@ type GeneratedPersonSeed = {
   trustLabel: FixturePersonProfile["trustLabel"];
   genres: GeneratedGenreSeed[];
   linkKinds: GeneratedLinkKind[];
+  twitchPresentation?: "icon" | "copy";
 };
 
 const generatedGenreSets = {
@@ -368,6 +369,7 @@ const generatedPersonSeeds: GeneratedPersonSeed[] = [
     trustLabel: "community_submitted",
     genres: generatedGenreSets.techno,
     linkKinds: ["vrchat_profile", "discord", "twitch"],
+    twitchPresentation: "copy",
   },
   {
     displayName: "Velvet Circuit",
@@ -380,6 +382,7 @@ const generatedPersonSeeds: GeneratedPersonSeed[] = [
     trustLabel: "claimed_verified",
     genres: generatedGenreSets.dnb,
     linkKinds: ["vrchat_profile", "discord", "website", "vrcdn", "soundcloud", "twitch"],
+    twitchPresentation: "copy",
   },
   {
     displayName: "DJ Night Market",
@@ -485,6 +488,7 @@ function generatedFixtureLink(seed: GeneratedPersonSeed, index: number, kind: Ge
     return {
       type: "twitch",
       label: "Twitch",
+      ...(seed.twitchPresentation === undefined ? {} : { presentation: seed.twitchPresentation }),
       url: `https://www.twitch.tv/${slug.replaceAll("-", "_")}`,
       source: "owner_authored",
     };

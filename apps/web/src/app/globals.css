@@ -660,7 +660,7 @@ body {
   border-radius: var(--radius-panel);
   display: grid;
   gap: 0.28rem;
-  grid-template-columns: auto minmax(0, auto) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   max-width: 100%;
   min-height: 2.48rem;
   padding: 0.3rem 0.34rem 0.3rem 0.52rem;
@@ -668,7 +668,7 @@ body {
 }
 
 .lookup-primary-url-card--has-open {
-  grid-template-columns: auto minmax(0, auto) auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
 }
 
 .lookup-primary-url-card--twitch {
@@ -681,6 +681,7 @@ body {
   font-size: 0.74rem;
   font-weight: 750;
   line-height: 1;
+  min-width: calc(var(--lookup-label-ch, 0) * 1ch);
 }
 
 .lookup-primary-url-value {
@@ -713,6 +714,11 @@ body {
 }
 
 .lookup-primary-url-open {
+  height: 2rem;
+  width: 2rem;
+}
+
+.lookup-primary-url-open-spacer {
   height: 2rem;
   width: 2rem;
 }
@@ -791,17 +797,8 @@ body {
 }
 
 .lookup-link-actions .lookup-feature-link {
-  flex: 0 1 14rem;
-  max-width: 22rem;
-}
-
-.lookup-brand-row {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.55rem;
-  justify-content: flex-start;
-  padding: 0;
+  flex: 0 0 auto;
+  max-width: min(22rem, 100%);
 }
 
 .lookup-copy-list {
@@ -809,6 +806,10 @@ body {
   gap: 0.24rem;
   justify-items: start;
   max-width: 100%;
+  width: max-content;
+}
+
+.lookup-copy-list .lookup-primary-url-card {
   width: 100%;
 }
 
@@ -906,6 +907,7 @@ body {
 
   .lookup-copy-list {
     justify-items: stretch;
+    width: 100%;
   }
 
   .lookup-primary-url-card,

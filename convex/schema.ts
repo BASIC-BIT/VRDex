@@ -127,6 +127,8 @@ const linkSource = v.union(
   v.literal("partner_provided"),
 );
 
+const profileLinkPresentation = v.union(v.literal("icon"), v.literal("copy"));
+
 const profileGenreSource = v.union(
   v.literal("owner_selected"),
   v.literal("community_submitted"),
@@ -375,6 +377,7 @@ const sharedProfileFields = {
         label: v.string(),
         url: v.string(),
         handle: v.optional(v.string()),
+        presentation: v.optional(profileLinkPresentation),
         source: linkSource,
       }),
     ),

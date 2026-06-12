@@ -35,6 +35,7 @@ type ProfileLinkType =
   | "generic_store"
   | "other";
 type LinkSource = "owner_authored" | "reviewed" | "partner_provided";
+type LinkPresentation = "icon" | "copy";
 type WorldCreatorRole =
   | "world_author"
   | "builder"
@@ -75,6 +76,7 @@ type PublicProfileBase = {
     label: string;
     url: string;
     handle?: string;
+    presentation?: LinkPresentation;
     source: LinkSource;
   }>;
   worldCredits: Array<{

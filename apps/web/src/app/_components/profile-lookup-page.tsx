@@ -36,6 +36,7 @@ export type ProfileLookupLinkType =
   | "generic_store"
   | "other";
 type LinkSource = "owner_authored" | "reviewed" | "partner_provided";
+type LinkPresentation = "icon" | "copy";
 type LookupStatus = "live" | "missing-url" | "error";
 type OptionalPublicText = string | null | undefined;
 type LookupTheme = "dark" | "light";
@@ -68,6 +69,7 @@ export type PublicProfileLookupResult = {
     label: string;
     url: string;
     handle?: string;
+    presentation?: LinkPresentation;
     source: LinkSource;
   }>;
 };
@@ -337,24 +339,35 @@ function VrcdnPreviewLink({ link }: { link: LookupLink }) {
 function CopyableUrlBar({
   className,
   label,
+  labelCh,
   openIcon,
   openLabel,
   openUrl,
+  reserveOpenColumn,
   value,
+  valueCh,
 }: {
   className?: string;
   label: string;
+  labelCh?: number;
   openIcon?: ReactNode;
   openLabel?: string;
   openUrl?: string;
+  reserveOpenColumn?: boolean;
   value: string;
+  valueCh?: number;
 }) {
-  const urlInputCh = Math.min(Math.max(value.length, 18), 68);
+  const urlInputCh = Math.min(Math.max(valueCh ?? value.length, 18), 68);
+  const labelWidthCh = Math.max(labelCh ?? label.length, label.length);
 
   return (
     <div
-      className={cn("lookup-primary-url-card", openUrl ? "lookup-primary-url-card--has-open" : undefined, className)}
-      style={{ "--lookup-url-ch": urlInputCh } as CSSProperties}
+      className={cn(
+        "lookup-primary-url-card",
+        openUrl || reserveOpenColumn ? "lookup-primary-url-card--has-open" : undefined,
+        className,
+      )}
+      style={{ "--lookup-label-ch": labelWidthCh, "--lookup-url-ch": urlInputCh } as CSSProperties}
     >
       <span className="lookup-primary-url-label">{label}</span>
       <input
@@ -378,26 +391,41 @@ function CopyableUrlBar({
         >
           {openIcon ?? <ExternalIcon className="size-4" />}
         </a>
-      ) : null}
+      ) : reserveOpenColumn ? <span aria-hidden="true" className="lookup-primary-url-open-spacer" /> : null}
     </div>
   );
 }
 
-function TwitchFeatureLink({ link }: { link: LookupLink }) {
+function TwitchFeatureLink({ labelCh, link, reserveOpenColumn, valueCh }: { labelCh: number; link: LookupLink; reserveOpenColumn: boolean; valueCh: number }) {
   return (
     <CopyableUrlBar
       className="lookup-primary-url-card--twitch"
       label="Twitch"
+      labelCh={labelCh}
       openIcon={<BrandIcon type="twitch" />}
       openLabel={`Open Twitch: ${link.handle ?? hostLabel(link.url)}`}
       openUrl={link.url}
+      reserveOpenColumn={reserveOpenColumn}
       value={link.url}
+      valueCh={valueCh}
     />
   );
 }
 
-function CodeCopyBar({ label, value }: { label: string; value: string }) {
-  return <CopyableUrlBar label={label} value={value} />;
+function CodeCopyBar({
+  label,
+  labelCh,
+  reserveOpenColumn,
+  value,
+  valueCh,
+}: {
+  label: string;
+  labelCh: number;
+  reserveOpenColumn: boolean;
+  value: string;
+  valueCh: number;
+}) {
+  return <CopyableUrlBar label={label} labelCh={labelCh} reserveOpenColumn={reserveOpenColumn} value={value} valueCh={valueCh} />;
 }
 
 function LookupLinks({ links }: { links: PublicProfileLookupResult["outboundLinks"] }) {
@@ -407,30 +435,49 @@ function LookupLinks({ links }: { links: PublicProfileLookupResult["outboundLink
 
   const vrcdnPreviewLinks = links.filter(isVrcdnPreviewLink);
   const vrcdnStreamLinks = links.filter(isVrcdnStreamLink);
-  const twitchLinks = links.filter((link) => link.type === "twitch");
-  const handled = new Set([...vrcdnPreviewLinks, ...vrcdnStreamLinks, ...twitchLinks]);
+  const twitchCopyLinks = links.filter((link) => link.type === "twitch" && link.presentation === "copy");
+  const handled = new Set([...vrcdnPreviewLinks, ...vrcdnStreamLinks, ...twitchCopyLinks]);
   const iconLinks = links.filter((link) => !handled.has(link));
+  const vrcdnCopyLinks = vrcdnStreamLinks.flatMap((link) => deriveVrcdnCopyLinks(link.url).map((entry) => ({ ...entry, key: `${link.url}-${entry.label}` })));
+  const copyRows = [
+    ...vrcdnCopyLinks,
+    ...twitchCopyLinks.map((link) => ({ key: `${link.type}-${link.url}`, label: "Twitch", value: link.url })),
+  ];
+  const copyValueCh = Math.max(18, ...copyRows.map((row) => row.value.length));
+  const copyLabelCh = Math.max(0, ...copyRows.map((row) => row.label.length));
+  const reserveCopyOpenColumn = twitchCopyLinks.length > 0;
   const hasPrimaryActions = vrcdnPreviewLinks.length > 0 || iconLinks.length > 0;
-  const hasCopyRows = vrcdnStreamLinks.length > 0 || twitchLinks.length > 0;
+  const hasCopyRows = copyRows.length > 0;
 
   return (
     <div className="lookup-link-board">
       {hasPrimaryActions ? (
         <div className="lookup-link-actions">
           {vrcdnPreviewLinks.map((link) => <VrcdnPreviewLink key={`${link.type}-${link.url}`} link={link} />)}
-          {iconLinks.length > 0 ? (
-            <div className="lookup-brand-row">
-              {iconLinks.map((link) => <IconCircleLink key={`${link.type}-${link.url}`} link={link} />)}
-            </div>
-          ) : null}
+          {iconLinks.map((link) => <IconCircleLink key={`${link.type}-${link.url}`} link={link} />)}
         </div>
       ) : null}
       {hasCopyRows ? (
         <div className="lookup-copy-list">
-          {vrcdnStreamLinks.flatMap((link) =>
-            deriveVrcdnCopyLinks(link.url).map((entry) => <CodeCopyBar key={`${link.url}-${entry.label}`} label={entry.label} value={entry.value} />),
-          )}
-          {twitchLinks.map((link) => <TwitchFeatureLink key={`${link.type}-${link.url}`} link={link} />)}
+          {vrcdnCopyLinks.map((entry) => (
+            <CodeCopyBar
+              key={entry.key}
+              label={entry.label}
+              labelCh={copyLabelCh}
+              reserveOpenColumn={reserveCopyOpenColumn}
+              value={entry.value}
+              valueCh={copyValueCh}
+            />
+          ))}
+          {twitchCopyLinks.map((link) => (
+            <TwitchFeatureLink
+              key={`${link.type}-${link.url}`}
+              labelCh={copyLabelCh}
+              link={link}
+              reserveOpenColumn={reserveCopyOpenColumn}
+              valueCh={copyValueCh}
+            />
+          ))}
         </div>
       ) : null}
     </div>

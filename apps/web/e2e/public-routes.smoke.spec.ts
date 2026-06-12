@@ -38,7 +38,8 @@ test("lookup suggestions select a public person row", async ({ page }) => {
   await expect(page.getByRole("link", { name: "Website: basicbit.net", exact: true })).toBeVisible();
   await expect(page.locator('input[value="https://stream.vrcdn.live/live/basicbit.live.ts"]')).toHaveCount(2);
   await expect(page.locator('input[value="rtspt://stream.vrcdn.live/live/basicbit"]')).toHaveCount(2);
-  await expect(page.locator('input[value="https://www.twitch.tv/basic_bit"]')).toHaveCount(2);
+  await expect(page.locator('input[value="https://www.twitch.tv/basic_bit"]')).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Twitch: twitch.tv", exact: true })).toBeVisible();
   await expect(page.getByText("BASIC", { exact: true })).toHaveCount(2);
   await expect.poll(async () => await page.evaluate(() => JSON.parse(window.localStorage.getItem("vrdex.lookup.recentSearches") ?? "[]")[0])).toBe("BASICBIT");
   await page.getByRole("button", { name: "Clear lookup" }).click();

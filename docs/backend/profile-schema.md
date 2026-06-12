@@ -45,6 +45,7 @@ Core presentation fields:
 - `timezone`: optional time zone text
 - `outboundLinks`: optional inline typed external links for owner-authored, reviewed, or partner-provided profile storefront/contact links
 - first-class profile link types include DJ/operator lookup needs such as `vrchat_profile`, `discord`, `soundcloud`, `mixcloud`, `twitch`, `youtube`, `spotify`, `bandcamp`, `instagram`, and `linktree`, plus existing website/store/commission link types
+- profile links may optionally set `presentation: "icon" | "copy"`; lookup treats Twitch as icon-only unless a link explicitly requests copy presentation, while VRCDN stream rows remain the preferred elevated stream controls
 - first-slice profile genre facts include a stable `slug`, canonical `displayName`, optional short `displayLabel`, optional featured display intent, optional aliases, optional parent genre slugs, source, confidence, explicit/inferred state, and optional external IDs such as MusicBrainz genre UUID or Wikidata QID
 
 State fields:

@@ -414,6 +414,13 @@ describe("public profile projection", () => {
           source: "owner_authored",
         },
         {
+          type: "twitch",
+          label: "Twitch",
+          presentation: "copy",
+          url: "https://www.twitch.tv/dj_celine",
+          source: "owner_authored",
+        },
+        {
           type: "vrchat_profile",
           label: "VRChat profile",
           url: "https://vrchat.com/home/user/usr_00000000-0000-4000-8000-000000000001",
@@ -444,8 +451,9 @@ describe("public profile projection", () => {
     assert.deepEqual(lookup?.genres, [{ slug: "house", displayName: "House" }]);
     assert.deepEqual(
       lookup?.outboundLinks.map((link) => link.type),
-      ["vrchat_profile", "discord", "soundcloud"],
+      ["vrchat_profile", "discord", "soundcloud", "twitch"],
     );
+    assert.equal(lookup?.outboundLinks.at(-1)?.presentation, "copy");
   });
 
   it("keeps unlisted fields on direct profiles and hides private fields", () => {
