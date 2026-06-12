@@ -614,11 +614,6 @@ body {
   transform: translateY(-1px);
 }
 
-.lookup-feature-link--twitch {
-  background: linear-gradient(135deg, color-mix(in srgb, #9146ff 26%, var(--surface-strong)), color-mix(in srgb, #c084fc 14%, var(--surface-strong)));
-  border-color: color-mix(in srgb, #9146ff 36%, var(--border));
-}
-
 .lookup-brand-circle {
   align-items: center;
   border-radius: 999px;
@@ -656,6 +651,52 @@ body {
   border: 1px solid color-mix(in srgb, var(--accent-strong) 44%, transparent);
   box-shadow: 0 6px 14px color-mix(in srgb, var(--accent) 12%, transparent);
   color: var(--foreground);
+}
+
+.lookup-primary-url-card {
+  align-items: center;
+  background: color-mix(in srgb, var(--foreground) 6%, var(--surface-strong));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  display: grid;
+  gap: 0.28rem;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  min-height: 2.48rem;
+  padding: 0.3rem 0.34rem 0.3rem 0.52rem;
+}
+
+.lookup-primary-url-card--twitch {
+  background: linear-gradient(135deg, color-mix(in srgb, #9146ff 18%, var(--surface-strong)), color-mix(in srgb, #c084fc 9%, var(--surface-strong)));
+  border-color: color-mix(in srgb, #9146ff 30%, var(--border));
+}
+
+.lookup-primary-url-label {
+  color: color-mix(in srgb, var(--foreground) 82%, var(--muted));
+  font-size: 0.74rem;
+  font-weight: 750;
+  line-height: 1;
+}
+
+.lookup-primary-url-value {
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: clamp(0.62rem, 0.72vw, 0.66rem);
+  line-height: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: clip;
+  user-select: all;
+  white-space: nowrap;
+}
+
+.lookup-primary-url-copy {
+  border-radius: 999px;
+  min-width: 3.15rem;
+  padding: 0.25rem 0.38rem !important;
+}
+
+.lookup-primary-url-open {
+  height: 2rem;
+  width: 2rem;
 }
 
 .lookup-brand-circle--bandcamp,
@@ -755,7 +796,9 @@ body {
   align-items: center;
   display: grid;
   gap: 0.32rem;
+  max-width: 35rem;
   min-width: 28rem;
+  width: min(100%, 35rem);
 }
 
 .lookup-link-actions {
@@ -767,6 +810,7 @@ body {
 
 .lookup-link-actions .lookup-feature-link {
   flex: 1 1 12rem;
+  max-width: 30rem;
 }
 
 .lookup-brand-row {

@@ -336,13 +336,21 @@ function VrcdnPreviewLink({ link }: { link: LookupLink }) {
 
 function TwitchFeatureLink({ link }: { link: LookupLink }) {
   return (
-    <a className="lookup-feature-link lookup-feature-link--twitch" href={link.url} rel="noreferrer" target="_blank">
-      <span className="min-w-0">
-        <span className="block truncate text-sm font-semibold">Twitch</span>
-        <span className="block truncate text-[0.68rem] opacity-75">{link.handle ?? hostLabel(link.url)}</span>
-      </span>
-      <BrandIcon type="twitch" />
-    </a>
+    <div className="lookup-primary-url-card lookup-primary-url-card--twitch">
+      <span className="lookup-primary-url-label">Twitch</span>
+      <code className="lookup-primary-url-value" title={link.url}>{link.url}</code>
+      <LookupCopyButton className="lookup-primary-url-copy" label="Copy" value={link.url} />
+      <a
+        aria-label={`Open Twitch: ${link.handle ?? hostLabel(link.url)}`}
+        className="lookup-primary-url-open lookup-brand-circle lookup-brand-circle--twitch"
+        href={link.url}
+        rel="noreferrer"
+        target="_blank"
+        title={`Open Twitch: ${link.handle ?? hostLabel(link.url)}`}
+      >
+        <BrandIcon type="twitch" />
+      </a>
+    </div>
   );
 }
 
