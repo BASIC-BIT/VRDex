@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { type CSSProperties, type ReactNode, useCallback, useRef, useState, useTransition } from "react";
+import { type CSSProperties, useCallback, useRef, useState, useTransition } from "react";
 
 import { LookupCopyButton } from "./lookup-copy-button";
 import { LookupSearchBox } from "./lookup-search-box";
@@ -340,20 +340,12 @@ function CopyableUrlBar({
   className,
   label,
   labelCh,
-  openIcon,
-  openLabel,
-  openUrl,
-  reserveOpenColumn,
   value,
   valueCh,
 }: {
   className?: string;
   label: string;
   labelCh?: number;
-  openIcon?: ReactNode;
-  openLabel?: string;
-  openUrl?: string;
-  reserveOpenColumn?: boolean;
   value: string;
   valueCh?: number;
 }) {
@@ -362,11 +354,7 @@ function CopyableUrlBar({
 
   return (
     <div
-      className={cn(
-        "lookup-primary-url-card",
-        openUrl || reserveOpenColumn ? "lookup-primary-url-card--has-open" : undefined,
-        className,
-      )}
+      className={cn("lookup-primary-url-card", className)}
       style={{ "--lookup-label-ch": labelWidthCh, "--lookup-url-ch": urlInputCh } as CSSProperties}
     >
       <span className="lookup-primary-url-label">{label}</span>
@@ -380,32 +368,16 @@ function CopyableUrlBar({
         onFocus={(event) => event.currentTarget.select()}
       />
       <LookupCopyButton className="lookup-primary-url-copy" label="Copy" value={value} />
-      {openUrl ? (
-        <a
-          aria-label={openLabel ?? `Open ${label}`}
-          className="lookup-primary-url-open lookup-brand-circle lookup-brand-circle--twitch"
-          href={openUrl}
-          rel="noreferrer"
-          target="_blank"
-          title={openLabel ?? `Open ${label}`}
-        >
-          {openIcon ?? <ExternalIcon className="size-4" />}
-        </a>
-      ) : reserveOpenColumn ? <span aria-hidden="true" className="lookup-primary-url-open-spacer" /> : null}
     </div>
   );
 }
 
-function TwitchFeatureLink({ labelCh, link, reserveOpenColumn, valueCh }: { labelCh: number; link: LookupLink; reserveOpenColumn: boolean; valueCh: number }) {
+function TwitchFeatureLink({ labelCh, link, valueCh }: { labelCh: number; link: LookupLink; valueCh: number }) {
   return (
     <CopyableUrlBar
       className="lookup-primary-url-card--twitch"
       label="Twitch"
       labelCh={labelCh}
-      openIcon={<BrandIcon type="twitch" />}
-      openLabel={`Open Twitch: ${link.handle ?? hostLabel(link.url)}`}
-      openUrl={link.url}
-      reserveOpenColumn={reserveOpenColumn}
       value={link.url}
       valueCh={valueCh}
     />
@@ -415,17 +387,15 @@ function TwitchFeatureLink({ labelCh, link, reserveOpenColumn, valueCh }: { labe
 function CodeCopyBar({
   label,
   labelCh,
-  reserveOpenColumn,
   value,
   valueCh,
 }: {
   label: string;
   labelCh: number;
-  reserveOpenColumn: boolean;
   value: string;
   valueCh: number;
 }) {
-  return <CopyableUrlBar label={label} labelCh={labelCh} reserveOpenColumn={reserveOpenColumn} value={value} valueCh={valueCh} />;
+  return <CopyableUrlBar label={label} labelCh={labelCh} value={value} valueCh={valueCh} />;
 }
 
 function LookupLinks({ links }: { links: PublicProfileLookupResult["outboundLinks"] }) {
@@ -436,7 +406,7 @@ function LookupLinks({ links }: { links: PublicProfileLookupResult["outboundLink
   const vrcdnPreviewLinks = links.filter(isVrcdnPreviewLink);
   const vrcdnStreamLinks = links.filter(isVrcdnStreamLink);
   const twitchCopyLinks = links.filter((link) => link.type === "twitch" && link.presentation === "copy");
-  const handled = new Set([...vrcdnPreviewLinks, ...vrcdnStreamLinks, ...twitchCopyLinks]);
+  const handled = new Set([...vrcdnPreviewLinks, ...vrcdnStreamLinks]);
   const iconLinks = links.filter((link) => !handled.has(link));
   const vrcdnCopyLinks = vrcdnStreamLinks.flatMap((link) => deriveVrcdnCopyLinks(link.url).map((entry) => ({ ...entry, key: `${link.url}-${entry.label}` })));
   const copyRows = [
@@ -445,7 +415,6 @@ function LookupLinks({ links }: { links: PublicProfileLookupResult["outboundLink
   ];
   const copyValueCh = Math.max(18, ...copyRows.map((row) => row.value.length));
   const copyLabelCh = Math.max(0, ...copyRows.map((row) => row.label.length));
-  const reserveCopyOpenColumn = twitchCopyLinks.length > 0;
   const hasPrimaryActions = vrcdnPreviewLinks.length > 0 || iconLinks.length > 0;
   const hasCopyRows = copyRows.length > 0;
 
@@ -464,7 +433,6 @@ function LookupLinks({ links }: { links: PublicProfileLookupResult["outboundLink
               key={entry.key}
               label={entry.label}
               labelCh={copyLabelCh}
-              reserveOpenColumn={reserveCopyOpenColumn}
               value={entry.value}
               valueCh={copyValueCh}
             />
@@ -474,7 +442,6 @@ function LookupLinks({ links }: { links: PublicProfileLookupResult["outboundLink
               key={`${link.type}-${link.url}`}
               labelCh={copyLabelCh}
               link={link}
-              reserveOpenColumn={reserveCopyOpenColumn}
               valueCh={copyValueCh}
             />
           ))}

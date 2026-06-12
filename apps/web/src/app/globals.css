@@ -667,10 +667,6 @@ body {
   width: min(100%, max-content);
 }
 
-.lookup-primary-url-card--has-open {
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-}
-
 .lookup-primary-url-card--twitch {
   background: linear-gradient(135deg, color-mix(in srgb, #9146ff 18%, var(--surface-strong)), color-mix(in srgb, #c084fc 9%, var(--surface-strong)));
   border-color: color-mix(in srgb, #9146ff 30%, var(--border));
@@ -711,16 +707,6 @@ body {
   border-radius: 999px;
   min-width: 3.15rem;
   padding: 0.25rem 0.38rem !important;
-}
-
-.lookup-primary-url-open {
-  height: 2rem;
-  width: 2rem;
-}
-
-.lookup-primary-url-open-spacer {
-  height: 2rem;
-  width: 2rem;
 }
 
 .lookup-brand-circle--bandcamp,
@@ -910,14 +896,9 @@ body {
     width: 100%;
   }
 
-  .lookup-primary-url-card,
-  .lookup-primary-url-card--has-open {
+  .lookup-primary-url-card {
     grid-template-columns: 1fr auto;
     width: 100%;
-  }
-
-  .lookup-primary-url-card--has-open {
-    grid-template-columns: 1fr auto auto;
   }
 
   .lookup-primary-url-label {
