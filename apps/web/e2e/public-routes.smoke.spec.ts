@@ -39,4 +39,8 @@ test("lookup suggestions select a public person row", async ({ page }) => {
   await expect(page.getByText("https://stream.vrcdn.live/live/basicbit.live.ts", { exact: true })).toHaveCount(2);
   await expect(page.getByText("rtspt://stream.vrcdn.live/live/basicbit", { exact: true })).toHaveCount(2);
   await expect(page.getByText("BASIC", { exact: true })).toHaveCount(2);
+  await expect.poll(async () => await page.evaluate(() => JSON.parse(window.localStorage.getItem("vrdex.lookup.recentSearches") ?? "[]")[0])).toBe("BASICBIT");
+  await page.getByRole("button", { name: "Clear lookup" }).click();
+  await page.getByLabel("DJ name").focus();
+  await expect(page.getByRole("option", { name: /BASICBIT/i })).toBeVisible();
 });

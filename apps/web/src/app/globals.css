@@ -167,6 +167,32 @@ body {
   outline: none;
 }
 
+.lookup-suggestions-label {
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  padding: 0.55rem 0.85rem 0.2rem;
+  text-transform: uppercase;
+}
+
+.lookup-recent-icon {
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 2.15rem;
+  justify-content: center;
+  width: 2.15rem;
+}
+
+.lookup-recent-icon svg {
+  height: 1rem;
+  width: 1rem;
+}
+
 .lookup-avatar,
 .lookup-suggestion-avatar {
   background: color-mix(in srgb, var(--accent) 18%, var(--surface-strong));
@@ -214,11 +240,32 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
+  position: relative;
+}
+
+.lookup-identity--flair {
+  padding-left: 0.62rem;
+}
+
+.lookup-identity--flair::before {
+  background: linear-gradient(180deg, var(--lookup-profile-accent), var(--lookup-profile-secondary));
+  border-radius: 999px;
+  bottom: 0.06rem;
+  content: "";
+  left: 0;
+  opacity: 0.82;
+  position: absolute;
+  top: 0.06rem;
+  width: 0.16rem;
+}
+
+.lookup-identity--no-avatar {
+  gap: 0;
 }
 
 .lookup-identity-copy {
   display: grid;
-  gap: 0.42rem;
+  gap: 0.32rem;
   min-width: 0;
   width: 100%;
 }
@@ -261,18 +308,6 @@ body {
 .lookup-name-link:focus-visible::after {
   opacity: 0.9;
   right: 0;
-}
-
-.lookup-trust-pill {
-  border: 1px solid var(--border);
-  border-radius: calc(var(--radius-control) - 0.22rem);
-  color: var(--muted);
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  line-height: 1;
-  padding: 0.2rem 0.36rem;
-  text-transform: uppercase;
 }
 
 .lookup-trust-mark {
@@ -319,6 +354,14 @@ body {
   text-overflow: ellipsis;
 }
 
+.lookup-identity-meta {
+  color: var(--muted);
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+
 .lookup-single-form,
 .lookup-bulk-form {
   display: grid;
@@ -330,15 +373,7 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
-  margin-top: 0.45rem;
-}
-
-.lookup-genre-line__label {
-  color: var(--muted);
-  font-size: 0.64rem;
-  font-weight: 650;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  margin-top: 0.1rem;
 }
 
 .lookup-genre-list {
@@ -366,9 +401,9 @@ body {
 
 .lookup-genre-chip--featured {
   background:
-    radial-gradient(circle at 18% 20%, color-mix(in srgb, var(--genre-accent) 46%, transparent), transparent 34%),
-    linear-gradient(135deg, color-mix(in srgb, var(--genre-accent) 32%, var(--surface-strong)), color-mix(in srgb, var(--accent-strong) 20%, var(--surface-strong)));
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--genre-accent) 24%, transparent), 0 8px 18px color-mix(in srgb, var(--genre-accent) 18%, transparent);
+    radial-gradient(circle at 18% 20%, color-mix(in srgb, var(--genre-accent) 26%, transparent), transparent 40%),
+    linear-gradient(135deg, color-mix(in srgb, var(--genre-accent) 24%, var(--surface-strong)), color-mix(in srgb, var(--accent-strong) 12%, var(--surface-strong)));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--genre-accent) 12%, transparent);
   color: var(--foreground);
   font-weight: 760;
 }
@@ -558,12 +593,12 @@ body {
   background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 24%, var(--surface-strong)), color-mix(in srgb, var(--accent-strong) 18%, var(--surface-strong)));
   border: 1px solid color-mix(in srgb, var(--accent-strong) 55%, transparent);
   border-radius: var(--radius-panel);
-  box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow: 0 4px 10px color-mix(in srgb, var(--accent) 8%, transparent);
   color: var(--foreground);
   display: flex;
   gap: 1rem;
   justify-content: space-between;
-  min-height: 2.65rem;
+  min-height: 2.48rem;
   padding: 0.34rem 0.55rem;
   transition:
     box-shadow 180ms ease,
@@ -575,8 +610,13 @@ body {
 }
 
 .lookup-feature-link:hover {
-  box-shadow: 0 10px 24px color-mix(in srgb, var(--accent) 22%, transparent);
+  box-shadow: 0 6px 14px color-mix(in srgb, var(--accent) 12%, transparent);
   transform: translateY(-1px);
+}
+
+.lookup-feature-link--twitch {
+  background: linear-gradient(135deg, color-mix(in srgb, #9146ff 26%, var(--surface-strong)), color-mix(in srgb, #c084fc 14%, var(--surface-strong)));
+  border-color: color-mix(in srgb, #9146ff 36%, var(--border));
 }
 
 .lookup-brand-circle {
@@ -593,28 +633,50 @@ body {
 }
 
 .lookup-brand-circle:hover {
-  transform: translateY(-3px) scale(1.08);
+  transform: translateY(-1px) scale(1.03);
 }
 
 .lookup-brand-circle--discord {
   background: #5865f2;
-  box-shadow: 0 12px 24px rgba(88, 101, 242, 0.28);
+  box-shadow: 0 6px 14px rgba(88, 101, 242, 0.18);
 }
 
 .lookup-brand-circle--twitch {
   background: #9146ff;
-  box-shadow: 0 12px 24px rgba(145, 70, 255, 0.28);
+  box-shadow: 0 6px 14px rgba(145, 70, 255, 0.18);
 }
 
 .lookup-brand-circle--vrchat_profile {
   background: #0b1018;
-  box-shadow: 0 12px 24px rgba(8, 12, 18, 0.28);
+  box-shadow: 0 6px 14px rgba(8, 12, 18, 0.2);
 }
 
 .lookup-brand-circle--website {
   background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 24%, var(--surface-strong)), color-mix(in srgb, var(--accent-strong) 16%, var(--surface-strong)));
   border: 1px solid color-mix(in srgb, var(--accent-strong) 44%, transparent);
-  box-shadow: 0 12px 24px color-mix(in srgb, var(--accent) 18%, transparent);
+  box-shadow: 0 6px 14px color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--foreground);
+}
+
+.lookup-brand-circle--bandcamp,
+.lookup-brand-circle--commissions,
+.lookup-brand-circle--generic_store,
+.lookup-brand-circle--gumroad,
+.lookup-brand-circle--jinxxy,
+.lookup-brand-circle--kofi,
+.lookup-brand-circle--linktree,
+.lookup-brand-circle--mixcloud,
+.lookup-brand-circle--other,
+.lookup-brand-circle--patreon,
+.lookup-brand-circle--payhip,
+.lookup-brand-circle--soundcloud,
+.lookup-brand-circle--spotify,
+.lookup-brand-circle--woocommerce,
+.lookup-brand-circle--youtube,
+.lookup-brand-circle--instagram {
+  background: color-mix(in srgb, var(--foreground) 8%, var(--surface-strong));
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
+  box-shadow: 0 4px 10px color-mix(in srgb, var(--accent) 7%, transparent);
   color: var(--foreground);
 }
 
@@ -679,13 +741,6 @@ body {
   animation: lookup-copy-spark 700ms ease-out;
 }
 
-.lookup-generic-link {
-  border-top: 1px solid var(--border);
-  display: grid;
-  gap: 0.25rem;
-  padding-top: 0.4rem;
-}
-
 .lookup-bulk-row {
   align-items: center;
   border: 1px solid var(--border);
@@ -700,7 +755,7 @@ body {
   align-items: center;
   display: grid;
   gap: 0.32rem;
-  min-width: 36rem;
+  min-width: 28rem;
 }
 
 .lookup-link-actions {
@@ -744,7 +799,21 @@ body {
 }
 
 .lookup-theme table td {
-  padding: 0.35rem 0.45rem;
+  padding: 0.56rem 0.48rem;
+}
+
+.lookup-name-cell {
+  min-width: 18rem;
+  width: 18rem;
+}
+
+.lookup-genre-cell {
+  min-width: 12.5rem;
+  width: 12.5rem;
+}
+
+.lookup-links-cell {
+  min-width: 28rem;
 }
 
 .lookup-theme thead {

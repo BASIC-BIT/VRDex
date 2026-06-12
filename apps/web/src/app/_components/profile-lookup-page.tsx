@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useRef, useState, useTransition } from "react";
+import { type CSSProperties, useCallback, useRef, useState, useTransition } from "react";
 
 import { LookupCopyButton } from "./lookup-copy-button";
 import { LookupSearchBox } from "./lookup-search-box";
@@ -58,6 +58,8 @@ export type PublicProfileLookupResult = {
   headline?: OptionalPublicText;
   bio?: OptionalPublicText;
   avatarImageUrl?: OptionalPublicText;
+  accentColor?: OptionalPublicText;
+  secondaryColor?: OptionalPublicText;
   region?: OptionalPublicText;
   timezone?: OptionalPublicText;
   trustLabel: ProfileTrustLabel;
@@ -83,22 +85,6 @@ function hostLabel(url: string): string {
   } catch {
     return url;
   }
-}
-
-function trustLabelCopy(label: ProfileTrustLabel) {
-  if (label === "claimed_verified") {
-    return "Verified profile";
-  }
-
-  if (label === "claimed_unverified") {
-    return "Claimed";
-  }
-
-  if (label === "community_submitted") {
-    return "Community submitted";
-  }
-
-  return "Unclaimed";
 }
 
 function compactList(items: OptionalPublicText[]): string[] {
@@ -147,14 +133,6 @@ function dedupeProfiles(results: PublicProfileLookupResult[]): PublicProfileLook
   return [...profiles.values()];
 }
 
-function isBrandCircleLink(link: LookupLink) {
-  return link.type === "vrchat_profile" || link.type === "discord" || link.type === "twitch";
-}
-
-function isWebsiteLink(link: LookupLink) {
-  return link.type === "website";
-}
-
 function isVrcdnPreviewLink(link: LookupLink) {
   return link.type === "vrcdn" && (link.label.toLowerCase().includes("preview") || link.url.includes("panel.vrcdn.live"));
 }
@@ -190,12 +168,14 @@ function ExternalIcon({ className }: { className?: string }) {
   );
 }
 
-function ProfileAvatar({ profile }: { profile: Pick<PublicProfileLookupResult, "avatarImageUrl" | "displayName"> }) {
-  const initials = profile.displayName.trim().slice(0, 2).toUpperCase();
+function ProfileAvatar({ profile }: { profile: Pick<PublicProfileLookupResult, "avatarImageUrl"> }) {
+  if (!profile.avatarImageUrl?.trim()) {
+    return null;
+  }
 
   return (
     <div className="lookup-avatar" aria-hidden="true">
-      {profile.avatarImageUrl ? <Image alt="" height={96} src={profile.avatarImageUrl} unoptimized width={96} /> : <span>{initials}</span>}
+      <Image alt="" height={96} src={profile.avatarImageUrl} unoptimized width={96} />
     </div>
   );
 }
@@ -234,6 +214,73 @@ function BrandIcon({ type }: { type: "discord" | "twitch" | "vrchat_profile" }) 
   );
 }
 
+function LinkTypeIcon({ type }: { type: ProfileLookupLinkType }) {
+  if (type === "discord" || type === "twitch" || type === "vrchat_profile") {
+    return <BrandIcon type={type} />;
+  }
+
+  if (type === "soundcloud") {
+    return (
+      <svg aria-hidden="true" className="size-5" fill="currentColor" viewBox="0 0 24 24">
+        <path d="M9.2 17.5h9.1a3.7 3.7 0 0 0 0-7.4 4.9 4.9 0 0 0-9.6-1.2v8.6h.5Zm-2.4 0h1V9.4a5.4 5.4 0 0 0-1-.2v8.3Zm-2 0h1v-7.7a4.8 4.8 0 0 0-1 .9v6.8Zm-2 0h1v-5.4a4.8 4.8 0 0 0-1 .2v5.2Zm-2 0h1v-4.8a3.6 3.6 0 0 0-1 2.4v2.4Z" />
+      </svg>
+    );
+  }
+
+  if (type === "spotify") {
+    return (
+      <svg aria-hidden="true" className="size-5" fill="currentColor" viewBox="0 0 24 24">
+        <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm4.6 14.4a.8.8 0 0 1-1.1.3c-3-1.8-6.8-2.2-11.2-1.2a.8.8 0 1 1-.4-1.6c4.9-1.1 9.1-.6 12.4 1.4.4.2.5.7.3 1.1Zm1.2-2.8a1 1 0 0 1-1.3.3c-3.4-2.1-8.6-2.7-12.7-1.5a1 1 0 0 1-.5-1.9c4.6-1.3 10.4-.6 14.2 1.7.5.3.6.9.3 1.4Zm.1-3a.9.9 0 0 1-.5-.2c-4.1-2.4-10.9-2.7-14.8-1.5a1.1 1.1 0 1 1-.7-2.1c4.5-1.4 12-1 16.6 1.7.5.3.7 1 .4 1.5-.2.4-.6.6-1 .6Z" />
+      </svg>
+    );
+  }
+
+  if (type === "youtube") {
+    return (
+      <svg aria-hidden="true" className="size-5" fill="currentColor" viewBox="0 0 24 24">
+        <path d="M21.6 7.2a2.8 2.8 0 0 0-2-2C17.9 4.8 12 4.8 12 4.8s-5.9 0-7.6.5a2.8 2.8 0 0 0-2 1.9A29.2 29.2 0 0 0 2 12a29.2 29.2 0 0 0 .5 4.8 2.8 2.8 0 0 0 1.9 2c1.7.4 7.6.4 7.6.4s5.9 0 7.6-.5a2.8 2.8 0 0 0 2-1.9A29.2 29.2 0 0 0 22 12a29.2 29.2 0 0 0-.4-4.8ZM10 15.1V8.9l5.2 3.1-5.2 3.1Z" />
+      </svg>
+    );
+  }
+
+  if (type === "bandcamp") {
+    return (
+      <svg aria-hidden="true" className="size-5" fill="currentColor" viewBox="0 0 24 24">
+        <path d="M7.1 6.5h14.1l-4.3 11H2.8l4.3-11Z" />
+      </svg>
+    );
+  }
+
+  if (type === "instagram") {
+    return (
+      <svg aria-hidden="true" className="size-5" fill="none" viewBox="0 0 24 24">
+        <rect width="15" height="15" x="4.5" y="4.5" stroke="currentColor" strokeWidth="2" rx="4" />
+        <circle cx="12" cy="12" r="3.2" stroke="currentColor" strokeWidth="2" />
+        <circle cx="16.8" cy="7.3" r="1" fill="currentColor" />
+      </svg>
+    );
+  }
+
+  if (type === "mixcloud") {
+    return (
+      <svg aria-hidden="true" className="size-5" fill="currentColor" viewBox="0 0 24 24">
+        <path d="M8.4 17.5h9.1a3.5 3.5 0 0 0 .4-7A5.7 5.7 0 0 0 7 8.6 4.5 4.5 0 0 0 8.4 17.5Zm0-2a2.5 2.5 0 1 1 .4-5l.8.1.3-.8a3.7 3.7 0 0 1 7.2 1.2v1.3h.6a1.6 1.6 0 0 1-.2 3.2H8.4Z" />
+      </svg>
+    );
+  }
+
+  if (type === "commissions") {
+    return (
+      <svg aria-hidden="true" className="size-5" fill="none" viewBox="0 0 24 24">
+        <path d="M6 8h12v11H6z" stroke="currentColor" strokeLinejoin="round" strokeWidth="2" />
+        <path d="M9 8V6.8A2.8 2.8 0 0 1 11.8 4h.4A2.8 2.8 0 0 1 15 6.8V8" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+      </svg>
+    );
+  }
+
+  return <ExternalIcon className="size-5" />;
+}
+
 function LookupStatusNotice({ status }: { status: LookupStatus }) {
   if (status === "live") {
     return null;
@@ -260,34 +307,17 @@ function ThemeToggle({ theme, onToggle }: { theme: LookupTheme; onToggle: () => 
   );
 }
 
-function BrandCircleLink({ link }: { link: LookupLink & { type: "discord" | "twitch" | "vrchat_profile" } }) {
+function IconCircleLink({ link, className }: { link: LookupLink; className?: string }) {
   return (
     <a
-      aria-label={link.label}
-      className={cn("lookup-brand-circle", `lookup-brand-circle--${link.type}`)}
+      aria-label={link.handle ? `${link.label}: ${link.handle}` : `${link.label}: ${hostLabel(link.url)}`}
+      className={cn("lookup-brand-circle", `lookup-brand-circle--${link.type}`, className)}
       href={link.url}
       rel="noreferrer"
       target="_blank"
-      title={link.handle ?? link.label}
+      title={link.handle ? `${link.label}: ${link.handle}` : `${link.label}: ${hostLabel(link.url)}`}
     >
-      <BrandIcon type={link.type} />
-    </a>
-  );
-}
-
-function WebsiteCircleLink({ link }: { link: LookupLink }) {
-  const label = `${link.label}: ${hostLabel(link.url)}`;
-
-  return (
-    <a
-      aria-label={label}
-      className="lookup-brand-circle lookup-brand-circle--website"
-      href={link.url}
-      rel="noreferrer"
-      target="_blank"
-      title={label}
-    >
-      <ExternalIcon className="size-5" />
+      <LinkTypeIcon type={link.type} />
     </a>
   );
 }
@@ -304,6 +334,18 @@ function VrcdnPreviewLink({ link }: { link: LookupLink }) {
   );
 }
 
+function TwitchFeatureLink({ link }: { link: LookupLink }) {
+  return (
+    <a className="lookup-feature-link lookup-feature-link--twitch" href={link.url} rel="noreferrer" target="_blank">
+      <span className="min-w-0">
+        <span className="block truncate text-sm font-semibold">Twitch</span>
+        <span className="block truncate text-[0.68rem] opacity-75">{link.handle ?? hostLabel(link.url)}</span>
+      </span>
+      <BrandIcon type="twitch" />
+    </a>
+  );
+}
+
 function CodeCopyBar({ label, value }: { label: string; value: string }) {
   return (
     <div className="lookup-code-bar">
@@ -314,37 +356,26 @@ function CodeCopyBar({ label, value }: { label: string; value: string }) {
   );
 }
 
-function GenericLookupLink({ link }: { link: LookupLink }) {
-  return (
-    <div className="lookup-generic-link" key={`${link.type}-${link.url}`}>
-      <a className="font-medium underline decoration-accent/35 underline-offset-4" href={link.url} rel="noreferrer" target="_blank">
-        {link.label}
-      </a>
-      <div className="text-xs text-muted">{link.handle ?? hostLabel(link.url)}</div>
-    </div>
-  );
-}
-
 function LookupLinks({ links }: { links: PublicProfileLookupResult["outboundLinks"] }) {
   if (links.length === 0) {
     return <span className="text-muted">No public links</span>;
   }
 
-  const websiteLinks = links.filter(isWebsiteLink);
-  const brandLinks = links.filter(isBrandCircleLink) as Array<LookupLink & { type: "discord" | "twitch" | "vrchat_profile" }>;
   const vrcdnPreviewLinks = links.filter(isVrcdnPreviewLink);
   const vrcdnStreamLinks = links.filter(isVrcdnStreamLink);
-  const handled = new Set([...websiteLinks, ...brandLinks, ...vrcdnPreviewLinks, ...vrcdnStreamLinks]);
-  const otherLinks = links.filter((link) => !handled.has(link));
+  const hasVrcdn = vrcdnPreviewLinks.length > 0 || vrcdnStreamLinks.length > 0;
+  const twitchFeatureLink = hasVrcdn ? undefined : links.find((link) => link.type === "twitch");
+  const handled = new Set([...vrcdnPreviewLinks, ...vrcdnStreamLinks, ...(twitchFeatureLink ? [twitchFeatureLink] : [])]);
+  const iconLinks = links.filter((link) => !handled.has(link));
 
   return (
     <div className="lookup-link-board">
       <div className="lookup-link-actions">
         {vrcdnPreviewLinks.map((link) => <VrcdnPreviewLink key={`${link.type}-${link.url}`} link={link} />)}
-        {websiteLinks.length > 0 || brandLinks.length > 0 ? (
+        {twitchFeatureLink ? <TwitchFeatureLink link={twitchFeatureLink} /> : null}
+        {iconLinks.length > 0 ? (
           <div className="lookup-brand-row">
-            {websiteLinks.map((link) => <WebsiteCircleLink key={`${link.type}-${link.url}`} link={link} />)}
-            {brandLinks.map((link) => <BrandCircleLink key={`${link.type}-${link.url}`} link={link} />)}
+            {iconLinks.map((link) => <IconCircleLink key={`${link.type}-${link.url}`} link={link} />)}
           </div>
         ) : null}
       </div>
@@ -355,14 +386,13 @@ function LookupLinks({ links }: { links: PublicProfileLookupResult["outboundLink
         )}
         </div>
       ) : null}
-      {otherLinks.map((link) => <GenericLookupLink key={`${link.type}-${link.url}`} link={link} />)}
     </div>
   );
 }
 
 function LookupGenres({ genres }: { genres: PublicProfileGenre[] }) {
   const visibleGenres = genres.filter((genre) => genreLabel(genre));
-  const accessibleLabel = `Genres: ${visibleGenres.map(genreLabel).join(", ")}`;
+  const accessibleLabel = visibleGenres.map(genreLabel).join(", ");
 
   if (visibleGenres.length === 0) {
     return null;
@@ -370,7 +400,6 @@ function LookupGenres({ genres }: { genres: PublicProfileGenre[] }) {
 
   return (
     <div aria-label={accessibleLabel} className="lookup-genre-line">
-      <span className="lookup-genre-line__label">Genres:</span>
       <span aria-hidden="true" className="lookup-genre-list">
         {visibleGenres.map((genre) => (
           <span
@@ -389,21 +418,40 @@ function LookupGenres({ genres }: { genres: PublicProfileGenre[] }) {
   );
 }
 
+function lookupIdentityStyle(profile: PublicProfileLookupResult): CSSProperties | undefined {
+  const accentColor = profile.accentColor?.trim();
+
+  if (!accentColor) {
+    return undefined;
+  }
+
+  return {
+    "--lookup-profile-accent": accentColor,
+    "--lookup-profile-secondary": profile.secondaryColor?.trim() || accentColor,
+  } as CSSProperties;
+}
+
 function LookupIdentity({ profile }: { profile: PublicProfileLookupResult }) {
-  const trustLabel = trustLabelCopy(profile.trustLabel);
+  const hasAvatar = Boolean(profile.avatarImageUrl?.trim());
+  const hasFlair = Boolean(profile.accentColor?.trim());
+  const identityMeta = compactList([profile.region, profile.timezone]).join(" / ");
 
   return (
-    <div className="lookup-identity">
-      <div className="lookup-avatar-wrap">
-        <ProfileAvatar profile={profile} />
-        {profile.trustLabel === "claimed_verified" ? <VerifiedTrustMark className="lookup-trust-mark--avatar" label={trustLabel} /> : null}
-      </div>
+    <div
+      className={cn("lookup-identity", hasAvatar ? undefined : "lookup-identity--no-avatar", hasFlair ? "lookup-identity--flair" : undefined)}
+      style={lookupIdentityStyle(profile)}
+    >
+      {hasAvatar ? (
+        <div className="lookup-avatar-wrap">
+          <ProfileAvatar profile={profile} />
+          {profile.trustLabel === "claimed_verified" ? <VerifiedTrustMark className="lookup-trust-mark--avatar" label="Verified profile" /> : null}
+        </div>
+      ) : null}
       <div className="lookup-identity-copy">
         <div className="lookup-name-row">
           <Link className="lookup-name-link" href={profile.profilePath}>
             {profile.displayName}
           </Link>
-          {profile.trustLabel === "claimed_verified" ? null : <span className="lookup-trust-pill">{trustLabel}</span>}
         </div>
         {profile.aliases.length > 0 ? (
           <div className="lookup-alias-line">
@@ -411,24 +459,22 @@ function LookupIdentity({ profile }: { profile: PublicProfileLookupResult }) {
             <span className="lookup-alias-line__value">{profile.aliases.join(" / ")}</span>
           </div>
         ) : null}
+        {identityMeta ? <div className="lookup-identity-meta">{identityMeta}</div> : null}
       </div>
     </div>
   );
 }
 
 function LookupResultRow({ profile }: { profile: PublicProfileLookupResult }) {
-  const contextText = compactList([profile.region, profile.timezone]).join(" / ");
-
   return (
-    <tr className="align-middle">
-      <TableCell className="w-60 min-w-60 px-2 py-2">
+    <tr className="lookup-result-row align-middle">
+      <TableCell className="lookup-name-cell px-2 py-2">
         <LookupIdentity profile={profile} />
       </TableCell>
-      <TableCell className="min-w-52 px-2 py-2">
+      <TableCell className="lookup-genre-cell px-2 py-2">
         <LookupGenres genres={profile.genres} />
-        {contextText ? <div className="text-[0.68rem] text-muted">{contextText}</div> : null}
       </TableCell>
-      <TableCell className="px-2 py-2">
+      <TableCell className="lookup-links-cell px-2 py-2">
         <LookupLinks links={profile.outboundLinks} />
       </TableCell>
     </tr>
@@ -436,14 +482,11 @@ function LookupResultRow({ profile }: { profile: PublicProfileLookupResult }) {
 }
 
 function LookupResultCard({ profile }: { profile: PublicProfileLookupResult }) {
-  const contextText = compactList([profile.region, profile.timezone]).join(" / ");
-
   return (
     <Card className="lookup-result-card grid gap-2" padding="sm">
       <LookupIdentity profile={profile} />
       <div className="text-xs">
         <LookupGenres genres={profile.genres} />
-        {contextText ? <div className="mt-1 text-xs text-muted">{contextText}</div> : null}
       </div>
       <LookupLinks links={profile.outboundLinks} />
     </Card>

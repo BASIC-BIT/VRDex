@@ -30,6 +30,8 @@ const watchSecondSlotStartAt = Date.UTC(2025, 0, 1, 12, 45, 0);
 const watchSecondSlotEndAt = Date.UTC(2025, 0, 1, 13, 30, 0);
 
 type FixturePersonProfile = Extract<PublicProfile, { profileType: "person" }> & {
+  accentColor?: string;
+  secondaryColor?: string;
   searchAliases?: string[];
 };
 
@@ -131,7 +133,9 @@ const basicBitProfile: FixturePersonProfile = {
   slug: basicBitSlug,
   displayName: "BASICBIT",
   aliases: ["BASIC"],
-  searchAliases: ["basic_bit", "basicbit"],
+  searchAliases: ["basic_bit", "basicbit", "lineup"],
+  accentColor: "#67e8f9",
+  secondaryColor: "#c084fc",
   tags: ["Software Dev", "3D Designer", "VRDJ"],
   genres: [
     {
@@ -240,7 +244,9 @@ const longNameProfile: FixturePersonProfile = {
   slug: longNameSlug,
   displayName: "Princess Starlight Interstellar Bassline Orchestra",
   aliases: ["Starlight Bassline", "PSIBO"],
-  searchAliases: ["princess starlight", "interstellar bassline", "psibo"],
+  searchAliases: ["princess starlight", "interstellar bassline", "psibo", "lineup"],
+  accentColor: "#f0abfc",
+  secondaryColor: "#93c5fd",
   tags: ["DJ", "Long-name test", "VRDJ"],
   genres: [
     {
@@ -291,7 +297,247 @@ const longNameProfile: FixturePersonProfile = {
   },
 };
 
-const personProfiles = [personProfile, basicBitProfile, longNameProfile];
+type GeneratedGenreSeed = {
+  slug: string;
+  displayName: string;
+  displayLabel?: string;
+  featured?: boolean;
+};
+
+type GeneratedLinkKind =
+  | "bandcamp"
+  | "commissions"
+  | "discord"
+  | "instagram"
+  | "mixcloud"
+  | "soundcloud"
+  | "spotify"
+  | "twitch"
+  | "vrchat_profile"
+  | "vrcdn"
+  | "website"
+  | "youtube";
+
+type GeneratedPersonSeed = {
+  displayName: string;
+  aliases: string[];
+  avatarImageUrl?: string;
+  accentColor: string;
+  secondaryColor: string;
+  region?: string;
+  timezone?: string;
+  trustLabel: FixturePersonProfile["trustLabel"];
+  genres: GeneratedGenreSeed[];
+  linkKinds: GeneratedLinkKind[];
+};
+
+const generatedGenreSets = {
+  bass: [
+    { slug: "bass-music", displayName: "Bass", featured: true },
+    { slug: "dubstep", displayName: "Dubstep" },
+    { slug: "space-bass", displayName: "Space Bass" },
+  ],
+  dnb: [
+    { slug: "drum-and-bass", displayName: "Drum and Bass", displayLabel: "DnB", featured: true },
+    { slug: "liquid-drum-and-bass", displayName: "Liquid Drum and Bass", displayLabel: "Liquid DnB" },
+    { slug: "jungle", displayName: "Jungle" },
+  ],
+  house: [
+    { slug: "house", displayName: "House", featured: true },
+    { slug: "bass-house", displayName: "Bass House" },
+    { slug: "garage-house", displayName: "Garage House" },
+  ],
+  techno: [
+    { slug: "techno", displayName: "Techno", featured: true },
+    { slug: "hardgroove", displayName: "Hardgroove" },
+    { slug: "electro", displayName: "Electro" },
+  ],
+  trance: [
+    { slug: "trance", displayName: "Trance", featured: true },
+    { slug: "progressive-trance", displayName: "Progressive Trance" },
+    { slug: "breaks", displayName: "Breaks" },
+  ],
+} satisfies Record<string, GeneratedGenreSeed[]>;
+
+const generatedPersonSeeds: GeneratedPersonSeed[] = [
+  {
+    displayName: "Moth",
+    aliases: ["m0th"],
+    accentColor: "#d9f99d",
+    secondaryColor: "#67e8f9",
+    trustLabel: "community_submitted",
+    genres: generatedGenreSets.techno,
+    linkKinds: ["vrchat_profile", "discord", "twitch"],
+  },
+  {
+    displayName: "Velvet Circuit",
+    aliases: ["VCircuit", "Velvet"],
+    avatarImageUrl: "/seed/fixture-avatar-velvet-circuit.svg",
+    accentColor: "#c084fc",
+    secondaryColor: "#67e8f9",
+    region: "NA",
+    timezone: "UTC-5",
+    trustLabel: "claimed_verified",
+    genres: generatedGenreSets.dnb,
+    linkKinds: ["vrchat_profile", "discord", "website", "vrcdn", "soundcloud", "twitch"],
+  },
+  {
+    displayName: "DJ Night Market",
+    aliases: ["Night Market"],
+    accentColor: "#f9a8d4",
+    secondaryColor: "#fde68a",
+    region: "APAC",
+    timezone: "UTC+9",
+    trustLabel: "claimed_unverified",
+    genres: generatedGenreSets.house,
+    linkKinds: ["vrchat_profile", "discord", "website", "vrcdn", "soundcloud", "mixcloud", "instagram", "commissions"],
+  },
+  {
+    displayName: "The Lavender Subwoofer Disaster",
+    aliases: ["Lavender Subwoofer", "LSDJ"],
+    accentColor: "#a78bfa",
+    secondaryColor: "#f0abfc",
+    trustLabel: "community_submitted",
+    genres: generatedGenreSets.bass,
+    linkKinds: ["discord", "website"],
+  },
+  {
+    displayName: "0xLuma",
+    aliases: ["Luma"],
+    avatarImageUrl: "/seed/fixture-avatar-luma.svg",
+    accentColor: "#22d3ee",
+    secondaryColor: "#4ade80",
+    region: "EU",
+    timezone: "UTC+1",
+    trustLabel: "claimed_verified",
+    genres: generatedGenreSets.trance,
+    linkKinds: ["vrchat_profile", "website", "vrcdn", "youtube"],
+  },
+  {
+    displayName: "Courier of the Low End",
+    aliases: ["Low End Courier"],
+    accentColor: "#fb7185",
+    secondaryColor: "#60a5fa",
+    trustLabel: "claimed_unverified",
+    genres: generatedGenreSets.bass,
+    linkKinds: ["vrchat_profile", "discord", "vrcdn", "bandcamp", "spotify"],
+  },
+  {
+    displayName: "Solaris and the Breakbeat Weather System",
+    aliases: ["Solaris Weather", "Breakbeat Weather"],
+    avatarImageUrl: "/seed/fixture-avatar-solaris.svg",
+    accentColor: "#fde047",
+    secondaryColor: "#38bdf8",
+    region: "Global",
+    timezone: "UTC",
+    trustLabel: "community_submitted",
+    genres: generatedGenreSets.dnb,
+    linkKinds: ["vrchat_profile", "discord", "website", "twitch", "mixcloud", "youtube", "instagram"],
+  },
+  {
+    displayName: "Nia Nova",
+    aliases: ["Nova"],
+    accentColor: "#5eead4",
+    secondaryColor: "#f0abfc",
+    trustLabel: "claimed_unverified",
+    genres: generatedGenreSets.house,
+    linkKinds: ["discord", "soundcloud", "twitch"],
+  },
+];
+
+function slugifyFixtureName(name: string): string {
+  return `playwright-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
+}
+
+function generatedFixtureLink(seed: GeneratedPersonSeed, index: number, kind: GeneratedLinkKind): FixturePersonProfile["outboundLinks"][number] {
+  const slug = slugifyFixtureName(seed.displayName).replace(/^playwright-/, "");
+  const encodedId = String(index + 20).padStart(12, "0");
+
+  if (kind === "vrchat_profile") {
+    return {
+      type: "vrchat_profile",
+      label: "VRChat profile",
+      url: `https://vrchat.com/home/user/usr_00000000-0000-4000-8000-${encodedId}`,
+      source: "reviewed",
+    };
+  }
+
+  if (kind === "discord") {
+    return {
+      type: "discord",
+      label: "Discord",
+      handle: slug.replaceAll("-", "_"),
+      url: `https://discord.com/users/200000000000${encodedId}`,
+      source: "owner_authored",
+    };
+  }
+
+  if (kind === "vrcdn") {
+    return {
+      type: "vrcdn",
+      label: "VRCDN stream",
+      url: `https://stream.vrcdn.live/live/${slug}.live.ts`,
+      source: "owner_authored",
+    };
+  }
+
+  if (kind === "twitch") {
+    return {
+      type: "twitch",
+      label: "Twitch",
+      url: `https://www.twitch.tv/${slug.replaceAll("-", "_")}`,
+      source: "owner_authored",
+    };
+  }
+
+  const labelByKind: Record<Exclude<GeneratedLinkKind, "discord" | "twitch" | "vrchat_profile" | "vrcdn">, string> = {
+    bandcamp: "Bandcamp",
+    commissions: "Bookings",
+    instagram: "Instagram",
+    mixcloud: "Mixcloud",
+    soundcloud: "SoundCloud",
+    spotify: "Spotify",
+    website: "Website",
+    youtube: "YouTube",
+  };
+
+  return {
+    type: kind,
+    label: labelByKind[kind],
+    url: `https://example.invalid/${slug}/${kind}`,
+    source: "owner_authored",
+  };
+}
+
+function generatedFixtureProfile(seed: GeneratedPersonSeed, index: number): FixturePersonProfile {
+  return {
+    profileType: "person",
+    slug: slugifyFixtureName(seed.displayName),
+    displayName: seed.displayName,
+    aliases: seed.aliases,
+    searchAliases: ["lineup", "fixture lineup", seed.displayName, ...seed.aliases],
+    tags: ["DJ", "VRDJ", "Fixture lineup"],
+    genres: seed.genres,
+    headline: `${seed.displayName} fixture profile for lookup density checks.`,
+    bio: "Generated fixture data for testing varied lookup names, colors, avatars, and links.",
+    ...(seed.avatarImageUrl === undefined ? {} : { avatarImageUrl: seed.avatarImageUrl }),
+    accentColor: seed.accentColor,
+    secondaryColor: seed.secondaryColor,
+    ...(seed.region === undefined ? {} : { region: seed.region }),
+    ...(seed.timezone === undefined ? {} : { timezone: seed.timezone }),
+    trustLabel: seed.trustLabel,
+    outboundLinks: seed.linkKinds.map((kind) => generatedFixtureLink(seed, index, kind)),
+    worldCredits: [],
+    upcomingEvents: [],
+    hostedEvents: [],
+    person: {
+      roleTags: ["DJ", "VRDJ"],
+    },
+  };
+}
+
+const generatedFixtureProfiles = generatedPersonSeeds.map(generatedFixtureProfile);
+const personProfiles = [personProfile, basicBitProfile, longNameProfile, ...generatedFixtureProfiles];
 
 const communityProfile: PublicProfile = {
   profileType: "community",
@@ -736,6 +982,9 @@ function toProfileLookupFixture(profile: PublicProfile): PublicProfileLookupResu
     return null;
   }
 
+  const accentColor = "accentColor" in profile && typeof profile.accentColor === "string" ? profile.accentColor : undefined;
+  const secondaryColor = "secondaryColor" in profile && typeof profile.secondaryColor === "string" ? profile.secondaryColor : undefined;
+
   return {
     slug: profile.slug,
     displayName: profile.displayName,
@@ -748,6 +997,8 @@ function toProfileLookupFixture(profile: PublicProfile): PublicProfileLookupResu
     ...(profile.headline === undefined ? {} : { headline: profile.headline }),
     ...(profile.bio === undefined ? {} : { bio: profile.bio }),
     ...(profile.avatarImageUrl === undefined ? {} : { avatarImageUrl: profile.avatarImageUrl }),
+    ...(accentColor === undefined ? {} : { accentColor }),
+    ...(secondaryColor === undefined ? {} : { secondaryColor }),
     ...(profile.region === undefined ? {} : { region: profile.region }),
     ...(profile.timezone === undefined ? {} : { timezone: profile.timezone }),
     outboundLinks: profile.outboundLinks,

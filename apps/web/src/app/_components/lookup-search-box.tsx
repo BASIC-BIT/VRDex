@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useDeferredValue, useEffect, useMemo, useState, useTransition } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import type { PublicProfileLookupResult } from "./profile-lookup-page";
 import { Input, Textarea } from "@/components/ui/field";
@@ -14,6 +14,9 @@ type FetchedSuggestions = {
   query: string;
   results: PublicProfileLookupResult[];
 };
+
+const RECENT_SEARCH_LIMIT = 5;
+const RECENT_SEARCHES_STORAGE_KEY = "vrdex.lookup.recentSearches";
 
 function profileOptionLabel(profile: PublicProfileLookupResult): string {
   const context = [...new Set([...profile.roleTags, ...profile.tags])].slice(0, 3).join(" / ");
@@ -33,6 +36,66 @@ function SuggestionAvatar({ profile }: { profile: PublicProfileLookupResult }) {
 
 function parseBulkLookupLines(value: string): string[] {
   return [...new Set(value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean))].slice(0, 40);
+}
+
+function normalizeRecentSearch(value: string): string | null {
+  const trimmed = value.trim().replace(/\s+/g, " ");
+
+  return trimmed || null;
+}
+
+function mergeRecentSearch(current: string[], value: string): string[] {
+  const normalized = normalizeRecentSearch(value);
+
+  if (!normalized) {
+    return current;
+  }
+
+  const normalizedKey = normalized.toLowerCase();
+  const deduped = current.filter((item) => item.toLowerCase() !== normalizedKey);
+
+  return [normalized, ...deduped].slice(0, RECENT_SEARCH_LIMIT);
+}
+
+function readRecentSearches(): string[] {
+  try {
+    const rawValue = window.localStorage.getItem(RECENT_SEARCHES_STORAGE_KEY);
+    const parsedValue: unknown = rawValue ? JSON.parse(rawValue) : [];
+
+    if (!Array.isArray(parsedValue)) {
+      return [];
+    }
+
+    const recentSearches: string[] = [];
+    const seen = new Set<string>();
+
+    for (const item of parsedValue) {
+      if (typeof item !== "string") {
+        continue;
+      }
+
+      const normalized = normalizeRecentSearch(item);
+
+      if (!normalized || seen.has(normalized.toLowerCase())) {
+        continue;
+      }
+
+      seen.add(normalized.toLowerCase());
+      recentSearches.push(normalized);
+    }
+
+    return recentSearches.slice(0, RECENT_SEARCH_LIMIT);
+  } catch {
+    return [];
+  }
+}
+
+function writeRecentSearches(values: string[]) {
+  try {
+    window.localStorage.setItem(RECENT_SEARCHES_STORAGE_KEY, JSON.stringify(values));
+  } catch {
+    return;
+  }
 }
 
 export function LookupSearchBox({
@@ -56,6 +119,10 @@ export function LookupSearchBox({
   const deferredQuery = useDeferredValue(query.trim());
   const [fetchedSuggestions, setFetchedSuggestions] = useState<FetchedSuggestions | null>(null);
   const [isOpen, setIsOpen] = useState(false);
+  const [recentSearches, setRecentSearches] = useState<string[]>(() => (
+    typeof window === "undefined" ? [] : readRecentSearches()
+  ));
+  const recentSaveTimeoutRef = useRef<number | null>(null);
   const [isPending, startTransition] = useTransition();
   const normalizedInitialQuery = initialQuery.trim();
   const parsedBulkLines = useMemo(() => parseBulkLookupLines(bulkText), [bulkText]);
@@ -73,6 +140,13 @@ export function LookupSearchBox({
           : canReuseFetchedSuggestions
             ? fetchedSuggestions.results
             : [];
+  const recentOptions = bulkMode || deferredQuery.length > 0 ? [] : recentSearches;
+
+  useEffect(() => () => {
+    if (recentSaveTimeoutRef.current !== null) {
+      window.clearTimeout(recentSaveTimeoutRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     if (bulkMode || deferredQuery.length < 2 || deferredQuery === normalizedInitialQuery) {
@@ -124,16 +198,44 @@ export function LookupSearchBox({
     if (nextQuery) {
       setQuery(nextQuery);
       setIsOpen(false);
+      scheduleRecentSearchSave(nextQuery);
       onLookup(nextQuery);
     } else {
       clearSingleLookup();
     }
   }
 
+  function saveRecentSearch(value: string) {
+    setRecentSearches((current) => {
+      const nextSearches = mergeRecentSearch(current, value);
+
+      writeRecentSearches(nextSearches);
+
+      return nextSearches;
+    });
+  }
+
+  function scheduleRecentSearchSave(value: string) {
+    const normalized = normalizeRecentSearch(value);
+
+    if (!normalized) {
+      return;
+    }
+
+    if (recentSaveTimeoutRef.current !== null) {
+      window.clearTimeout(recentSaveTimeoutRef.current);
+    }
+
+    recentSaveTimeoutRef.current = window.setTimeout(() => {
+      saveRecentSearch(normalized);
+      recentSaveTimeoutRef.current = null;
+    }, 240);
+  }
+
   function clearSingleLookup() {
     setQuery("");
     setFetchedSuggestions(null);
-    setIsOpen(false);
+    setIsOpen(true);
     onClear();
   }
 
@@ -146,6 +248,7 @@ export function LookupSearchBox({
       setQuery(nextQuery);
 
       if (nextQuery) {
+        scheduleRecentSearchSave(nextQuery);
         onLookup(nextQuery);
       } else {
         onBulkLookup([]);
@@ -205,21 +308,54 @@ export function LookupSearchBox({
 
                 if (nextQuery.trim().length === 0) {
                   setFetchedSuggestions(null);
-                  setIsOpen(false);
+                  setIsOpen(true);
                   onClear();
                 }
               }}
               onFocus={() => setIsOpen(true)}
+              onBlur={() => {
+                scheduleRecentSearchSave(query);
+                window.setTimeout(() => setIsOpen(false), 120);
+              }}
             />
             {query.trim() ? (
-              <button className="lookup-clear-button" type="button" aria-label="Clear lookup" onClick={clearSingleLookup}>
+              <button
+                className="lookup-clear-button"
+                type="button"
+                aria-label="Clear lookup"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={clearSingleLookup}
+              >
                 <svg aria-hidden="true" viewBox="0 0 16 16">
                   <path d="m4.5 4.5 7 7m0-7-7 7" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
                 </svg>
               </button>
             ) : null}
-            {isOpen && suggestions.length > 0 ? (
-              <div className="lookup-suggestions" role="listbox" aria-label="Lookup suggestions">
+            {isOpen && (suggestions.length > 0 || recentOptions.length > 0) ? (
+              <div className="lookup-suggestions" role="listbox" aria-label={recentOptions.length > 0 && suggestions.length === 0 ? "Recent lookup searches" : "Lookup suggestions"}>
+                {recentOptions.length > 0 && suggestions.length === 0 ? <div className="lookup-suggestions-label">Recent searches</div> : null}
+                {recentOptions.map((recentSearch) => (
+                  <button
+                    className="lookup-suggestion-option lookup-recent-option"
+                    key={recentSearch}
+                    type="button"
+                    role="option"
+                    aria-selected={false}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => submitQuery(recentSearch)}
+                  >
+                    <span className="lookup-recent-icon" aria-hidden="true">
+                      <svg viewBox="0 0 16 16">
+                        <path d="M4.1 5.2A5 5 0 1 1 3 8" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" />
+                        <path d="M4.1 2.6v2.6h2.6" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" />
+                      </svg>
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium">{recentSearch}</span>
+                      <span className="block truncate text-xs text-muted">Recent search</span>
+                    </span>
+                  </button>
+                ))}
                 {suggestions.map((profile) => (
                   <button
                     className="lookup-suggestion-option"

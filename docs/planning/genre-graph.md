@@ -51,6 +51,7 @@ Current recommendation:
 - Store optional inline `profiles.genres` facts for the DJ lookup slice instead of adding normalized genre tables immediately.
 - Keep the public projection small: `slug`, `displayName`, optional `displayLabel`, and optional `featured` display intent. Source, confidence, aliases, parent slugs, and external IDs are stored for search/indexing and later migration, not shown as public UI mechanics.
 - Use `profile_genre` vocabulary/search indexing so structured genre labels can participate in lookup without mixing them back into flexible `tags`.
+- Future profile editing should expose `featured` as user-selected favorite genres rather than a single main genre. Allow multiple favorites, cap the maximum count, and keep favorites separate from inferred parent genres.
 - Treat this inline shape as a migration bridge. Once picker UX, alias management, and graph traversal are implemented, move canonical genre nodes, aliases, edges, and profile/event genre assignments into normalized tables.
 
 ## Suggested Data Shape

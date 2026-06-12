@@ -10,7 +10,7 @@ export const visualProfilePaths = {
   worldPath: "/w/playwright-neon-harbor",
   eventPath: "/e/playwright-afterglow-harbor-sessions",
   eventWatchPath: "/e/playwright-afterglow-watch-room",
-  lookupPath: "/lookup?q=dnb",
+  lookupPath: "/lookup?q=lineup",
 } as const;
 
 export type CapturedRoute = {
@@ -185,9 +185,12 @@ export async function expectLookupPage(page: Page) {
   await expect(page.getByLabel("DJ name")).toBeVisible();
   await expect(page.getByRole("link", { name: "BASICBIT", exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Princess Starlight Interstellar Bassline Orchestra", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Velvet Circuit", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Moth", exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Website: basicbit.net", exact: true })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Website: example.invalid", exact: true })).toBeVisible();
-  await expect(page.locator('.lookup-genre-line[aria-label*="DnB"]').filter({ visible: true })).toHaveCount(2);
+  await expect(page.getByRole("link", { name: "Website: example.invalid", exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Genres:", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Claimed", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Software Dev | 3D Designer | VRDJ", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Multigenre DJ but I really love DnB <3", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Open profile", exact: true })).toHaveCount(0);
