@@ -24,6 +24,8 @@ type PublicEventMediaLinkPresentation = "open" | "copy";
 export type PublicEventRecord = {
   event: Doc<"events">;
   community?: Doc<"profiles">;
+  mediaProgram?: Doc<"eventMediaPrograms">;
+  mediaOutputs?: Doc<"eventMediaOutputs">[];
   worlds: Array<{ association: Doc<"eventWorlds">; world: Doc<"worlds"> }>;
   participants: PublicEventParticipantRecord[];
   slots: PublicEventSlotRecord[];
@@ -66,6 +68,12 @@ export type PublicEventPreview = {
 export type PublicEvent = PublicEventPreview & {
   slug: string;
   notes?: string;
+  authoredMediaLinks: Array<{
+    type: PublicEventMediaLinkType;
+    label: string;
+    url: string;
+    presentation: PublicEventMediaLinkPresentation;
+  }>;
   mediaLinks: Array<{
     type: PublicEventMediaLinkType;
     label: string;
@@ -119,8 +127,11 @@ function eventEndsAt(event: Pick<Doc<"events">, "startAt" | "endAt">): number {
   return event.endAt ?? event.startAt;
 }
 
-function createPublicEventMediaLinks(event: Doc<"events">): PublicEvent["mediaLinks"] {
-  return (event.mediaLinks ?? []).flatMap((link) => {
+function publicMediaLinkKey(link: PublicEvent["mediaLinks"][number]) {
+  return `${link.type}:${link.url.toLowerCase()}`;
+}
+
+function safePublicEventMediaLink(link: PublicEvent["mediaLinks"][number]): PublicEvent["mediaLinks"] {
     const url = safePublicMediaUrl(link.url);
 
     if (url === undefined) {
@@ -128,6 +139,63 @@ function createPublicEventMediaLinks(event: Doc<"events">): PublicEvent["mediaLi
     }
 
     return [{ ...link, url }];
+}
+
+function eventMediaPublicLinkType(platform: Doc<"eventMediaOutputs">["playbackLinks"][number]["platform"]): PublicEventMediaLinkType {
+  return platform === "browser" ? "watch" : "vrcdn";
+}
+
+function createOutputEventMediaLinks(output: Doc<"eventMediaOutputs">): PublicEvent["mediaLinks"] {
+  if (!new Set(["ready", "active"]).has(output.state)) {
+    return [];
+  }
+
+  return output.playbackLinks.flatMap((link) =>
+    safePublicEventMediaLink({
+      type: eventMediaPublicLinkType(link.platform),
+      label: link.platform === "browser" ? output.label : link.label,
+      url: link.url,
+      presentation: link.platform === "browser" ? "open" : "copy",
+    }),
+  );
+}
+
+function createProgramEventMediaLinks(program: Doc<"eventMediaPrograms"> | undefined): PublicEvent["mediaLinks"] {
+  if (program === undefined || !new Set(["ready", "starting", "live", "hold", "fallback"]).has(program.state)) {
+    return [];
+  }
+
+  return program.publicLinks.flatMap((link) =>
+    safePublicEventMediaLink({
+      type: eventMediaPublicLinkType(link.platform),
+      label: link.label,
+      url: link.url,
+      presentation: link.platform === "browser" ? "open" : "copy",
+    }),
+  );
+}
+
+function createPublicEventMediaLinks(
+  authoredMediaLinks: PublicEvent["mediaLinks"],
+  mediaProgram: Doc<"eventMediaPrograms"> | undefined,
+  mediaOutputs: Doc<"eventMediaOutputs">[],
+): PublicEvent["mediaLinks"] {
+  const links = [
+    ...authoredMediaLinks,
+    ...mediaOutputs.flatMap(createOutputEventMediaLinks),
+    ...createProgramEventMediaLinks(mediaProgram),
+  ];
+  const seen = new Set<string>();
+
+  return links.filter((link) => {
+    const key = publicMediaLinkKey(link);
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
   });
 }
 
@@ -167,11 +235,13 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
   }
 
   const preview = toPublicEventPreviewFromRecord(record);
+  const authoredMediaLinks = (record.event.mediaLinks ?? []).flatMap(safePublicEventMediaLink);
 
   return {
     ...preview,
     slug: record.event.slug,
-    mediaLinks: createPublicEventMediaLinks(record.event),
+    authoredMediaLinks,
+    mediaLinks: createPublicEventMediaLinks(authoredMediaLinks, record.mediaProgram, record.mediaOutputs ?? []),
     worlds: record.worlds.map(({ association, world }) => {
       const heroImageUrl = safeHttpsUrl(world.heroImageUrl);
 
@@ -334,6 +404,55 @@ async function getPublicEventSlotRecords(db: DatabaseReader, event: Doc<"events"
   return records.filter((record): record is PublicEventSlotRecord => record !== null);
 }
 
+async function getPublicEventMediaRecord(db: DatabaseReader, event: Doc<"events">) {
+  const programs = await db
+    .query("eventMediaPrograms")
+    .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
+    .take(10);
+  const mediaProgram = programs
+    .filter((program) => new Set(["ready", "starting", "live", "hold", "fallback"]).has(program.state))
+    .sort((first, second) => second.updatedAt - first.updatedAt)[0];
+
+  if (mediaProgram === undefined) {
+    return { mediaOutputs: [] };
+  }
+
+  const outputs = await db
+    .query("eventMediaOutputs")
+    .withIndex("by_programId_state", (query) => query.eq("programId", mediaProgram._id))
+    .take(20);
+  const currentOutput = mediaProgram.currentOutputId === undefined ? undefined : await db.get(mediaProgram.currentOutputId);
+  const mediaOutputs = [
+    ...(currentOutput === null || currentOutput === undefined ? [] : [currentOutput]),
+    ...outputs,
+  ]
+    .filter((output) => output.eventId === event._id && new Set(["ready", "active"]).has(output.state))
+    .sort((first, second) => {
+      if (first._id === mediaProgram.currentOutputId) {
+        return -1;
+      }
+
+      if (second._id === mediaProgram.currentOutputId) {
+        return 1;
+      }
+
+      return second.updatedAt - first.updatedAt;
+    });
+  const seen = new Set<Id<"eventMediaOutputs">>();
+
+  return {
+    mediaProgram,
+    mediaOutputs: mediaOutputs.filter((output) => {
+      if (seen.has(output._id)) {
+        return false;
+      }
+
+      seen.add(output._id);
+      return true;
+    }),
+  };
+}
+
 async function getPublicEventRecord(
   db: DatabaseReader,
   event: Doc<"events">,
@@ -342,14 +461,15 @@ async function getPublicEventRecord(
     return null;
   }
 
-  const [community, worlds, participants, slots] = await Promise.all([
+  const [community, worlds, participants, slots, media] = await Promise.all([
     getPublishedCommunity(db, event),
     getPublicEventWorldRecords(db, event),
     getPublicEventParticipantRecords(db, event),
     getPublicEventSlotRecords(db, event),
+    getPublicEventMediaRecord(db, event),
   ]);
 
-  return { event, worlds, participants, slots, ...optionalField("community", community) };
+  return { event, worlds, participants, slots, ...media, ...optionalField("community", community) };
 }
 
 export async function getPublicEventBySlug(

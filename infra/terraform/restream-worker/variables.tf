@@ -16,6 +16,113 @@ variable "container_image" {
   default     = null
 }
 
+variable "artifact_bucket_name" {
+  description = "Optional S3 bucket name for private restream worker benchmark artifacts. Defaults to name_prefix plus account id plus -artifacts."
+  type        = string
+  default     = null
+}
+
+variable "artifact_retention_days" {
+  description = "Number of days to retain private benchmark artifacts in S3."
+  type        = number
+  default     = 7
+}
+
+variable "synthetic_benchmark_only" {
+  description = "Whether benchmark tasks run only synthetic media and may start without provider credential references."
+  type        = bool
+  default     = true
+}
+
+variable "quality_gate" {
+  description = "Synthetic benchmark quality profile for hosted worker runs."
+  type        = string
+  default     = "1080p60"
+
+  validation {
+    condition     = contains(["1080p60", "1080p30", "720p60", "720p30"], var.quality_gate)
+    error_message = "quality_gate must be 1080p60, 1080p30, 720p60, or 720p30."
+  }
+}
+
+variable "synthetic_variant" {
+  description = "Synthetic media benchmark variant to run in worker tasks."
+  type        = string
+  default     = "static-transition"
+
+  validation {
+    condition     = contains(["static-transition", "live-control"], var.synthetic_variant)
+    error_message = "synthetic_variant must be static-transition or live-control."
+  }
+}
+
+variable "live_control_schedule" {
+  description = "Timeline used for live-control synthetic runtime commands. output-timeline schedules against FFmpeg output progress; wall-clock preserves diagnostic old behavior."
+  type        = string
+  default     = "output-timeline"
+
+  validation {
+    condition     = contains(["output-timeline", "wall-clock"], var.live_control_schedule)
+    error_message = "live_control_schedule must be output-timeline or wall-clock."
+  }
+}
+
+variable "live_control_mode" {
+  description = "Runtime command strategy for live-control synthetic benchmarks. hard-switch is the simple source-selection baseline; overlay-alpha-volume-fade keeps the richer transition proof."
+  type        = string
+  default     = "overlay-alpha-volume-fade"
+
+  validation {
+    condition     = contains(["overlay-alpha-volume-fade", "hard-switch"], var.live_control_mode)
+    error_message = "live_control_mode must be overlay-alpha-volume-fade or hard-switch."
+  }
+}
+
+variable "x264_preset" {
+  description = "x264 encoder preset used by synthetic benchmark workers. Faster presets trade compression efficiency for lower CPU cost."
+  type        = string
+  default     = "veryfast"
+
+  validation {
+    condition     = contains(["ultrafast", "superfast", "veryfast", "faster", "fast"], var.x264_preset)
+    error_message = "x264_preset must be ultrafast, superfast, veryfast, faster, or fast."
+  }
+}
+
+variable "transition_fade_ms" {
+  description = "Synthetic benchmark audio/video fade duration in milliseconds."
+  type        = number
+  default     = 500
+}
+
+variable "hold_slate_audio_delay_ms" {
+  description = "Synthetic benchmark delay before hold-slate audio starts, in milliseconds."
+  type        = number
+  default     = 750
+}
+
+variable "synthetic_duration_seconds" {
+  description = "Synthetic benchmark program duration in seconds. Longer live-control runs expose delay drift better than the 12-second smoke test."
+  type        = number
+  default     = 12
+
+  validation {
+    condition     = var.synthetic_duration_seconds >= 12 && var.synthetic_duration_seconds <= 43200
+    error_message = "synthetic_duration_seconds must be between 12 and 43200."
+  }
+}
+
+variable "max_live_delay_ms" {
+  description = "Maximum accepted synthetic live-control delay from raw input to output, in milliseconds."
+  type        = number
+  default     = 10000
+
+  validation {
+    condition     = var.max_live_delay_ms >= 1000 && var.max_live_delay_ms <= 60000
+    error_message = "max_live_delay_ms must be between 1000 and 60000."
+  }
+}
+
 variable "task_cpu" {
   description = "Fargate task CPU units for one event-session worker. 4096 is the first benchmark shape for the 1080p60 gate."
   type        = number
@@ -73,6 +180,18 @@ variable "secret_arns" {
   description = "Map of container environment names to Secrets Manager or SSM secret ARNs. Values are references only, never secret values."
   type        = map(string)
   default     = {}
+}
+
+variable "execution_secret_arns" {
+  description = "Additional Secrets Manager or SSM secret ARNs the ECS execution role may read for bridge-created task definitions. Values are references only, never secret values."
+  type        = list(string)
+  default     = []
+}
+
+variable "execution_secret_names" {
+  description = "Secrets Manager secret names the ECS execution role may read for bridge-created task definitions. Values are names only, never secret values."
+  type        = list(string)
+  default     = []
 }
 
 variable "log_retention_days" {

@@ -16,6 +16,16 @@ apps/docs/build/
 apps/web/.vercel/
 artifacts/restream-ffmpeg-proof/
 artifacts/restream-local-validation/
+artifacts/restream-control-demo/
+artifacts/restream-docker-benchmark/
+artifacts/restream-docker-live-control-benchmark/
+artifacts/restream-docker-matrix/
+artifacts/restream-ecs-benchmark/
+artifacts/restream-ecs-live-control-benchmark/
+artifacts/restream-live-control-proof/
+artifacts/restream-worker-benchmark/
+artifacts/restream-worker-benchmark-matrix/
+artifacts/restream-worker-live-control-benchmark/
 .env
 .env.local
 .terraform/
@@ -25,4 +35,5 @@ terraform.tfvars
 terraform.tfvars.json
 tfplan
 tfplan.*
+tfplan-*
 .vercel

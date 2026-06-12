@@ -509,6 +509,105 @@ describe("public event projection", () => {
     assert.equal(publicEvent?.slots[0]?.performer, undefined);
   });
 
+  it("projects ready event media outputs into public watch links", () => {
+    const now = Date.UTC(2026, 4, 24, 12, 0, 0);
+    const event = {
+      _id: "event123",
+      slug: "afterglow-harbor-sessions-2026-06-14",
+      title: "Afterglow Harbor Sessions",
+      sortTitle: "afterglow harbor sessions",
+      startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
+      sourceType: "community",
+      sourceLabel: "Fixture event listing",
+      publicationState: "published",
+      updatedAt: now,
+    } as unknown as Doc<"events">;
+    const mediaProgram = {
+      _id: "program123",
+      eventId: "event123",
+      state: "ready",
+      publicLinks: [{ platform: "browser", label: "Browser watch link", url: "https://panel.vrcdn.live/preview/basicbit" }],
+      directFallbackLinks: [],
+      createdAt: now,
+      updatedAt: now,
+    } as unknown as Doc<"eventMediaPrograms">;
+    const mediaOutput = {
+      _id: "output123",
+      programId: "program123",
+      eventId: "event123",
+      key: "main-vrcdn",
+      type: "vrcdn",
+      accountModel: "operator_owned",
+      state: "ready",
+      label: "Event stream",
+      playbackLinks: [
+        { platform: "browser", label: "Browser watch link", url: "https://panel.vrcdn.live/preview/basicbit" },
+        { platform: "standalone", label: "Quest stream", url: "https://stream.vrcdn.live/live/basicbit.live.ts" },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    } as unknown as Doc<"eventMediaOutputs">;
+
+    const publicEvent = toPublicEvent({ event, worlds: [], participants: [], slots: [], mediaProgram, mediaOutputs: [mediaOutput] });
+
+    assert.deepEqual(publicEvent?.authoredMediaLinks, []);
+    assert.deepEqual(publicEvent?.mediaLinks, [
+      {
+        type: "watch",
+        label: "Event stream",
+        url: "https://panel.vrcdn.live/preview/basicbit",
+        presentation: "open",
+      },
+      {
+        type: "vrcdn",
+        label: "Quest stream",
+        url: "https://vrcdn.live/basicbit",
+        presentation: "copy",
+      },
+    ]);
+  });
+
+  it("does not project draft event media outputs", () => {
+    const now = Date.UTC(2026, 4, 24, 12, 0, 0);
+    const event = {
+      _id: "event123",
+      slug: "afterglow-harbor-sessions-2026-06-14",
+      title: "Afterglow Harbor Sessions",
+      sortTitle: "afterglow harbor sessions",
+      startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
+      sourceType: "community",
+      sourceLabel: "Fixture event listing",
+      publicationState: "published",
+      updatedAt: now,
+    } as unknown as Doc<"events">;
+    const mediaProgram = {
+      _id: "program123",
+      eventId: "event123",
+      state: "draft",
+      publicLinks: [{ platform: "browser", label: "Draft stream", url: "https://panel.vrcdn.live/preview/basicbit" }],
+      directFallbackLinks: [],
+      createdAt: now,
+      updatedAt: now,
+    } as unknown as Doc<"eventMediaPrograms">;
+    const mediaOutput = {
+      _id: "output123",
+      programId: "program123",
+      eventId: "event123",
+      key: "main-vrcdn",
+      type: "vrcdn",
+      accountModel: "operator_owned",
+      state: "draft",
+      label: "Draft stream",
+      playbackLinks: [{ platform: "browser", label: "Browser watch link", url: "https://panel.vrcdn.live/preview/basicbit" }],
+      createdAt: now,
+      updatedAt: now,
+    } as unknown as Doc<"eventMediaOutputs">;
+
+    const publicEvent = toPublicEvent({ event, worlds: [], participants: [], slots: [], mediaProgram, mediaOutputs: [mediaOutput] });
+
+    assert.deepEqual(publicEvent?.mediaLinks, []);
+  });
+
   it("creates compact previews for profile and community event sections", () => {
     const event = {
       slug: "afterglow-harbor-sessions-2026-06-14",

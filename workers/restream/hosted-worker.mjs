@@ -1,11 +1,54 @@
-const REQUIRED_GATE = "1080p60";
+import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
+import { performance } from "node:perf_hooks";
+import {
+  DEFAULT_LIVE_CONTROL_PRESET,
+  FFmpegProcess,
+  LIVE_CONTROL_MODES,
+  ProgramController,
+  ZmqCommandClient,
+  buildSyntheticLiveControlFfmpegArgs,
+  sleep,
+} from "./live-control.mjs";
+
+const DEFAULT_QUALITY_GATE = "1080p60";
+const QUALITY_PROFILES = {
+  "1080p60": { width: 1920, height: 1080, frameRate: 60, videoBitrateKbps: 3500 },
+  "1080p30": { width: 1920, height: 1080, frameRate: 30, videoBitrateKbps: 3000 },
+  "720p60": { width: 1280, height: 720, frameRate: 60, videoBitrateKbps: 2500 },
+  "720p30": { width: 1280, height: 720, frameRate: 30, videoBitrateKbps: 1800 },
+};
 const ALLOWED_BENCHMARK_MODES = new Set(["dry-run", "ecs-fargate"]);
+const ALLOWED_SYNTHETIC_VARIANTS = new Set(["static-transition", "live-control"]);
+const ALLOWED_LIVE_CONTROL_SCHEDULES = new Set(["output-timeline", "wall-clock"]);
+const ALLOWED_X264_PRESETS = new Set(["ultrafast", "superfast", "veryfast", "faster", "fast"]);
+const DEFAULT_ARTIFACT_ROOT = process.env.AWS_EXECUTION_ENV
+  ? "/tmp/vrdex-restream-worker-benchmark"
+  : "artifacts/restream-worker-benchmark";
+const DEFAULT_SYNTHETIC_VARIANT = "static-transition";
+const DEFAULT_LIVE_CONTROL_SCHEDULE = "output-timeline";
+const DEFAULT_X264_PRESET = "veryfast";
+const DEFAULT_TRANSITION_FADE_MS = 500;
+const DEFAULT_HOLD_SLATE_AUDIO_DELAY_MS = 750;
+const DEFAULT_SYNTHETIC_DURATION_SECONDS = 12;
+const DEFAULT_MAX_LIVE_DELAY_MS = 10000;
 
 function requiredEnv(name) {
   const value = process.env[name];
 
   if (value === undefined || value.trim() === "") {
     throw new Error(`${name} is required.`);
+  }
+
+  return value.trim();
+}
+
+function optionalEnv(name) {
+  const value = process.env[name];
+
+  if (value === undefined || value.trim() === "") {
+    return undefined;
   }
 
   return value.trim();
@@ -22,6 +65,26 @@ function requiredIntegerEnv(name) {
 
   if (!Number.isSafeInteger(parsed) || parsed <= 0) {
     throw new Error(`${name} must be a positive integer.`);
+  }
+
+  return parsed;
+}
+
+function optionalIntegerEnv(name, defaultValue, min, max) {
+  const value = optionalEnv(name);
+
+  if (value === undefined) {
+    return defaultValue;
+  }
+
+  if (!/^[0-9]+$/.test(value)) {
+    throw new Error(`${name} must be an integer between ${min} and ${max}.`);
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max) {
+    throw new Error(`${name} must be an integer between ${min} and ${max}.`);
   }
 
   return parsed;
@@ -47,25 +110,896 @@ function requiredUrlEnv(name) {
   return value;
 }
 
-function requiredListEnv(name) {
-  const value = requiredEnv(name);
+function listEnv(name, required) {
+  const value = required ? requiredEnv(name) : optionalEnv(name);
+
+  if (value === undefined) {
+    return [];
+  }
+
   const entries = value
     .split(",")
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0);
 
-  if (entries.length === 0) {
+  if (required && entries.length === 0) {
     throw new Error(`${name} must include at least one reference name.`);
   }
 
   return entries;
 }
 
-function main() {
-  const qualityGate = requiredEnv("VRDEX_RESTREAM_QUALITY_GATE");
+function booleanEnv(name, defaultValue) {
+  const value = optionalEnv(name);
 
-  if (qualityGate !== REQUIRED_GATE) {
-    throw new Error(`Hosted restream workers must run behind the ${REQUIRED_GATE} gate.`);
+  if (value === undefined) {
+    return defaultValue;
+  }
+
+  if (value === "true") {
+    return true;
+  }
+
+  if (value === "false") {
+    return false;
+  }
+
+  throw new Error(`${name} must be true or false.`);
+}
+
+function timestamp() {
+  return new Date().toISOString().replace(/[:.]/g, "-");
+}
+
+function assert(condition, message) {
+  if (!condition) {
+    throw new Error(message);
+  }
+}
+
+function roundMetric(value) {
+  return Number(value.toFixed(3));
+}
+
+function buildTimeline(durationSeconds) {
+  const holdAtSeconds = roundMetric(durationSeconds / 3);
+  const sourceAtSeconds = roundMetric((durationSeconds * 2) / 3);
+
+  return [
+    { atSeconds: 0, command: "start_program", scene: "source-a", audio: "source-a-tone-440hz" },
+    { atSeconds: holdAtSeconds, command: "switch_hold", scene: "hold-slate", audio: "hold-tone-220hz" },
+    {
+      atSeconds: sourceAtSeconds,
+      command: "switch_source",
+      targetSourceKey: "source-b",
+      scene: "source-b",
+      audio: "source-b-tone-880hz",
+    },
+    { atSeconds: durationSeconds, command: "stop_program" },
+  ];
+}
+
+function buildFrameSamples(programTimeline) {
+  return [
+    { label: "source-a", seconds: roundMetric(programTimeline[1].atSeconds / 2) },
+    { label: "hold-slate", seconds: roundMetric((programTimeline[1].atSeconds + programTimeline[2].atSeconds) / 2) },
+    { label: "source-b", seconds: roundMetric((programTimeline[2].atSeconds + programTimeline[3].atSeconds) / 2) },
+  ];
+}
+
+function summarizeLiveDelay(progressSamples, encodeElapsedSeconds, durationSeconds, maxLiveDelayMs) {
+  const clampedDelays = progressSamples.map((sample) => Math.max(0, sample.delayMs));
+  const finalProcessingDelayMs = Math.max(0, encodeElapsedSeconds * 1000 - durationSeconds * 1000);
+  const maxDelayMs = Math.max(finalProcessingDelayMs, ...clampedDelays, 0);
+  const averageDelayMs =
+    clampedDelays.length === 0
+      ? finalProcessingDelayMs
+      : clampedDelays.reduce((sum, delayMs) => sum + delayMs, 0) / clampedDelays.length;
+  const firstSample = progressSamples[0];
+  const lastSample = progressSamples.at(-1);
+  const sampleWindowSeconds =
+    firstSample === undefined || lastSample === undefined ? 0 : (lastSample.wallElapsedMs - firstSample.wallElapsedMs) / 1000;
+  const delayGrowthMs = firstSample === undefined || lastSample === undefined ? 0 : lastSample.delayMs - firstSample.delayMs;
+
+  return {
+    sampleCount: progressSamples.length,
+    maxAllowedDelayMs: maxLiveDelayMs,
+    maxDelayMs: roundMetric(maxDelayMs),
+    averageDelayMs: roundMetric(Math.max(0, averageDelayMs)),
+    finalProcessingDelayMs: roundMetric(finalProcessingDelayMs),
+    delayGrowthMs: roundMetric(delayGrowthMs),
+    delayGrowthMsPerHour: sampleWindowSeconds <= 0 ? 0 : roundMetric((delayGrowthMs / sampleWindowSeconds) * 3600),
+    passed: maxDelayMs <= maxLiveDelayMs,
+  };
+}
+
+function scalePixels(value, total) {
+  return Math.round(value * total);
+}
+
+function run(command, args, options = {}) {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(command, args, { stdio: options.inherit ? "inherit" : ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+
+    if (!options.inherit) {
+      child.stdout.on("data", (chunk) => {
+        stdout += chunk;
+      });
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk;
+      });
+    }
+
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolvePromise({ stdout, stderr });
+        return;
+      }
+
+      reject(new Error(`${command} exited with ${code}${stderr ? `\n${stderr}` : ""}`));
+    });
+  });
+}
+
+function runBuffer(command, args) {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const stdout = [];
+    let stderr = "";
+
+    child.stdout.on("data", (chunk) => stdout.push(chunk));
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolvePromise({ stdout: Buffer.concat(stdout), stderr });
+        return;
+      }
+
+      reject(new Error(`${command} exited with ${code}${stderr ? `\n${stderr}` : ""}`));
+    });
+  });
+}
+
+function parseFrameRate(value) {
+  const [numerator, denominator] = value.split("/").map(Number);
+  return denominator === 0 ? 0 : numerator / denominator;
+}
+
+function checkPlaylist(outputDir, expectedDurationSeconds) {
+  const playlistPath = join(outputDir, "hls", "program.m3u8");
+  assert(existsSync(playlistPath), `Missing HLS playlist: ${playlistPath}`);
+  const playlist = readFileSync(playlistPath, "utf8");
+  const durations = [...playlist.matchAll(/^#EXTINF:([0-9.]+),/gm)].map((match) => Number(match[1]));
+  const segmentNames = playlist.split(/\r?\n/).filter((line) => line.endsWith(".ts"));
+  const totalDuration = durations.reduce((sum, value) => sum + value, 0);
+
+  assert(playlist.includes("#EXT-X-INDEPENDENT-SEGMENTS"), "HLS playlist should mark independent segments.");
+  assert(segmentNames.length >= 3, `Expected at least 3 HLS segments, found ${segmentNames.length}.`);
+  assert(
+    Math.abs(totalDuration - expectedDurationSeconds) <= 0.75,
+    `Expected HLS duration near ${expectedDurationSeconds}s, found ${totalDuration}s.`,
+  );
+
+  for (const segmentName of segmentNames) {
+    const segmentPath = join(outputDir, "hls", segmentName);
+    assert(existsSync(segmentPath), `Playlist references missing segment ${segmentName}.`);
+    assert(statSync(segmentPath).size > 0, `Segment ${segmentName} is empty.`);
+  }
+
+  return { playlistPath, segmentCount: segmentNames.length, totalDuration };
+}
+
+function checkWatchPreview(outputDir) {
+  const watchPreviewPath = join(outputDir, "program.mp4");
+
+  assert(existsSync(watchPreviewPath), `Missing watch preview: ${watchPreviewPath}`);
+  assert(statSync(watchPreviewPath).size > 0, "Watch preview is empty.");
+
+  return watchPreviewPath;
+}
+
+async function probePlaylist(playlistPath) {
+  const { stdout } = await run("ffprobe", ["-v", "error", "-show_streams", "-show_format", "-of", "json", playlistPath]);
+
+  return JSON.parse(stdout);
+}
+
+async function sampleFrameColor(inputPath, seconds) {
+  const { stdout } = await runBuffer("ffmpeg", [
+    "-hide_banner",
+    "-v",
+    "error",
+    "-ss",
+    String(seconds),
+    "-i",
+    inputPath,
+    "-vf",
+    "scale=1:1,format=rgb24",
+    "-frames:v",
+    "1",
+    "-f",
+    "rawvideo",
+    "-",
+  ]);
+
+  assert(stdout.length >= 3, `Could not sample frame color at ${seconds}s.`);
+
+  return { r: stdout[0], g: stdout[1], b: stdout[2] };
+}
+
+function classifyLiveControlColor({ r, g, b }) {
+  if (b > r + 45 && b > g + 25) {
+    return "source-a";
+  }
+
+  if (r > 120 && g > 55 && b < 90) {
+    return "source-b";
+  }
+
+  if (r < 95 && g < 105 && b < 130) {
+    return "hold-slate";
+  }
+
+  return "unknown";
+}
+
+async function writeHoldSlateImage(imagePath, profile) {
+  const titleSize = Math.max(56, Math.round(profile.height * 0.089));
+  const bodySize = Math.max(28, Math.round(profile.height * 0.039));
+  const boxes = [
+    [0.094, 0.139, 0.812, 0.722, "0x111827@0.96", "fill"],
+    [0.13, 0.204, 0.74, 0.593, "0x334155@0.55", "6"],
+    [0.224, 0.296, 0.448, 0.333, "0x0ea5e9@0.22", "fill"],
+    [0.266, 0.361, 0.365, 0.204, "0x38bdf8@0.22", "8"],
+  ].map(
+    ([x, y, width, height, color, thickness]) =>
+      `drawbox=x=${scalePixels(x, profile.width)}:y=${scalePixels(y, profile.height)}:w=${scalePixels(width, profile.width)}:h=${scalePixels(height, profile.height)}:color=${color}:t=${thickness}`,
+  );
+
+  await run("ffmpeg", [
+    "-hide_banner",
+    "-y",
+    "-f",
+    "lavfi",
+    "-i",
+    `color=c=0x020617:size=${profile.width}x${profile.height}:rate=1`,
+    "-vf",
+    [
+      "format=rgba",
+      ...boxes,
+      `drawtext=text='VRDex Hold Slate':fontcolor=white:fontsize=${titleSize}:x=(w-text_w)/2:y=${scalePixels(0.657, profile.height)}`,
+      `drawtext=text='Standby mix resumes after the slate delay':fontcolor=0xcbd5e1:fontsize=${bodySize}:x=(w-text_w)/2:y=${scalePixels(0.764, profile.height)}`,
+      "format=rgb24",
+    ].join(","),
+    "-frames:v",
+    "1",
+    "-update",
+    "1",
+    imagePath,
+  ]);
+}
+
+const liveControlScenes = {
+  "source-a": {
+    color: "0x2563eb",
+    title: "Source A",
+    subtitle: "Runtime controlled input",
+  },
+  "hold-slate": {
+    color: "0x020617",
+    title: "VRDex Hold Slate",
+    subtitle: "Slate audio starts after the live delay",
+  },
+  "source-b": {
+    color: "0xf97316",
+    title: "Source B",
+    subtitle: "Runtime controlled input",
+  },
+};
+
+async function writeLiveControlSceneImage(outputPath, scene, profile) {
+  const titleSize = Math.max(60, Math.round(profile.height * 0.096));
+  const bodySize = Math.max(28, Math.round(profile.height * 0.039));
+  const boxes = [
+    [0.089, 0.13, 0.823, 0.741, "0x0f172a@0.38", "fill"],
+    [0.13, 0.213, 0.74, 0.574, "0xffffff@0.14", "6"],
+    [0.234, 0.324, 0.427, 0.241, "0x020617@0.30", "fill"],
+  ].map(
+    ([x, y, width, height, color, thickness]) =>
+      `drawbox=x=${scalePixels(x, profile.width)}:y=${scalePixels(y, profile.height)}:w=${scalePixels(width, profile.width)}:h=${scalePixels(height, profile.height)}:color=${color}:t=${thickness}`,
+  );
+
+  await run("ffmpeg", [
+    "-hide_banner",
+    "-y",
+    "-f",
+    "lavfi",
+    "-i",
+    `color=c=${scene.color}:size=${profile.width}x${profile.height}:rate=1`,
+    "-vf",
+    [
+      "format=rgba",
+      ...boxes,
+      `drawtext=text='${scene.title}':fontcolor=white:fontsize=${titleSize}:x=(w-text_w)/2:y=${scalePixels(0.648, profile.height)}`,
+      `drawtext=text='${scene.subtitle}':fontcolor=0xe5e7eb:fontsize=${bodySize}:x=(w-text_w)/2:y=${scalePixels(0.759, profile.height)}`,
+      "format=rgb24",
+    ].join(","),
+    "-frames:v",
+    "1",
+    "-update",
+    "1",
+    outputPath,
+  ]);
+}
+
+async function writeLiveControlSceneImages(framesDir, profile) {
+  const paths = {};
+
+  for (const [key, scene] of Object.entries(liveControlScenes)) {
+    const outputPath = join(framesDir, `${key}-input.png`);
+    await writeLiveControlSceneImage(outputPath, scene, profile);
+    paths[key] = outputPath;
+  }
+
+  return paths;
+}
+
+async function remuxWatchPreview(playlistPath, watchPreviewPath) {
+  await run("ffmpeg", ["-hide_banner", "-y", "-i", playlistPath, "-c", "copy", "-movflags", "+faststart", watchPreviewPath]);
+}
+
+async function extractEvidenceFrames(playlistPath, framesDir, programTimeline) {
+  for (const { label, seconds } of buildFrameSamples(programTimeline)) {
+    await run("ffmpeg", [
+      "-hide_banner",
+      "-y",
+      "-ss",
+      String(seconds),
+      "-i",
+      playlistPath,
+      "-frames:v",
+      "1",
+      "-update",
+      "1",
+      join(framesDir, `${label}.jpg`),
+    ]);
+  }
+}
+
+async function verifyLiveControlFrameTiming(watchPreviewPath, outputDir, programTimeline) {
+  const checks = [];
+
+  for (const sample of buildFrameSamples(programTimeline)) {
+    const color = await sampleFrameColor(watchPreviewPath, sample.seconds);
+    const classifiedAs = classifyLiveControlColor(color);
+    checks.push({ ...sample, color, classifiedAs, passed: classifiedAs === sample.label });
+  }
+
+  writeFileSync(join(outputDir, "frame-checks.json"), `${JSON.stringify(checks, null, 2)}\n`);
+
+  return checks;
+}
+
+async function waitForFfmpegOutput(ffmpeg, elapsedMs) {
+  const startedAt = performance.now();
+  const timeoutMs = Math.max(30000, elapsedMs * 12);
+
+  while (ffmpeg.getProgressMs() < elapsedMs) {
+    if (ffmpeg.closed) {
+      throw new Error(`FFmpeg exited before output reached ${(elapsedMs / 1000).toFixed(3)}s.`);
+    }
+
+    if (performance.now() - startedAt > timeoutMs) {
+      throw new Error(`Timed out waiting for FFmpeg output to reach ${(elapsedMs / 1000).toFixed(3)}s.`);
+    }
+
+    await sleep(25);
+  }
+}
+
+async function writeStaticSyntheticProgram(outputDir, config) {
+  const hlsDir = join(outputDir, "hls");
+  const framesDir = join(outputDir, "frames");
+  mkdirSync(hlsDir, { recursive: true });
+  mkdirSync(framesDir, { recursive: true });
+  const programTimeline = buildTimeline(config.durationSeconds);
+  writeFileSync(join(outputDir, "command-timeline.json"), `${JSON.stringify(programTimeline, null, 2)}\n`);
+
+  const holdSlateImage = join(framesDir, "hold-slate-input.png");
+  await writeHoldSlateImage(holdSlateImage, config.qualityProfile);
+
+  const playlistPath = join(hlsDir, "program.m3u8");
+  const segmentPattern = join(hlsDir, "program-%03d.ts");
+  const segmentSeconds = config.durationSeconds / 3;
+  const fadeSeconds = config.transitionFadeMs / 1000;
+  const fadeOutStart = segmentSeconds - fadeSeconds;
+  const holdAudioDelaySeconds = config.holdSlateAudioDelayMs / 1000;
+  const started = performance.now();
+
+  await run("ffmpeg", [
+    "-hide_banner",
+    "-y",
+    "-f",
+    "lavfi",
+    "-i",
+    `testsrc2=size=${config.qualityProfile.width}x${config.qualityProfile.height}:rate=${config.qualityProfile.frameRate}:duration=${segmentSeconds}`,
+    "-f",
+    "lavfi",
+    "-i",
+    `sine=frequency=440:sample_rate=48000:duration=${segmentSeconds}`,
+    "-loop",
+    "1",
+    "-framerate",
+    String(config.qualityProfile.frameRate),
+    "-t",
+    String(segmentSeconds),
+    "-i",
+    holdSlateImage,
+    "-f",
+    "lavfi",
+    "-i",
+    `sine=frequency=220:sample_rate=48000:duration=${segmentSeconds}`,
+    "-f",
+    "lavfi",
+    "-i",
+    `smptebars=size=${config.qualityProfile.width}x${config.qualityProfile.height}:rate=${config.qualityProfile.frameRate}:duration=${segmentSeconds}`,
+    "-f",
+    "lavfi",
+    "-i",
+    `sine=frequency=880:sample_rate=48000:duration=${segmentSeconds}`,
+    "-filter_complex",
+    [
+      `[0:v]format=yuv420p,setsar=1,setpts=PTS-STARTPTS,fade=t=out:st=${fadeOutStart}:d=${fadeSeconds}[v0]`,
+      `[1:a]pan=stereo|c0=c0|c1=c0,asetpts=PTS-STARTPTS,afade=t=out:st=${fadeOutStart}:d=${fadeSeconds}[a0]`,
+      `[2:v]format=yuv420p,setsar=1,setpts=PTS-STARTPTS,fade=t=in:st=0:d=${fadeSeconds},fade=t=out:st=${fadeOutStart}:d=${fadeSeconds}[v1]`,
+      `[3:a]pan=stereo|c0=c0|c1=c0,adelay=${config.holdSlateAudioDelayMs}|${config.holdSlateAudioDelayMs},atrim=0:${segmentSeconds},afade=t=in:st=${holdAudioDelaySeconds}:d=${fadeSeconds},afade=t=out:st=${fadeOutStart}:d=${fadeSeconds},asetpts=PTS-STARTPTS[a1]`,
+      `[4:v]format=yuv420p,setsar=1,setpts=PTS-STARTPTS,fade=t=in:st=0:d=${fadeSeconds}[v2]`,
+      `[5:a]pan=stereo|c0=c0|c1=c0,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=${fadeSeconds}[a2]`,
+      "[v0][a0][v1][a1][v2][a2]concat=n=3:v=1:a=1[v][a]",
+    ].join(";"),
+    "-map",
+    "[v]",
+    "-map",
+    "[a]",
+    "-c:v",
+    "libx264",
+    "-preset",
+    config.x264Preset,
+    "-tune",
+    "zerolatency",
+    "-profile:v",
+    "high",
+    "-level:v",
+    "4.2",
+    "-pix_fmt",
+    "yuv420p",
+    "-r",
+    String(config.qualityProfile.frameRate),
+    "-g",
+    String(config.qualityProfile.frameRate),
+    "-keyint_min",
+    String(config.qualityProfile.frameRate),
+    "-sc_threshold",
+    "0",
+    "-b:v",
+    `${config.qualityProfile.videoBitrateKbps}k`,
+    "-maxrate",
+    `${config.qualityProfile.videoBitrateKbps}k`,
+    "-bufsize",
+    `${config.qualityProfile.videoBitrateKbps * 2}k`,
+    "-c:a",
+    "aac",
+    "-b:a",
+    "192k",
+    "-ar",
+    "48000",
+    "-ac",
+    "2",
+    "-f",
+    "hls",
+    "-hls_time",
+    "2",
+    "-hls_playlist_type",
+    "vod",
+    "-hls_flags",
+    "independent_segments",
+    "-hls_segment_filename",
+    segmentPattern,
+    playlistPath,
+  ]);
+
+  const encodeElapsedSeconds = (performance.now() - started) / 1000;
+  const watchPreviewPath = join(outputDir, "program.mp4");
+
+  await remuxWatchPreview(playlistPath, watchPreviewPath);
+  await extractEvidenceFrames(playlistPath, framesDir, programTimeline);
+
+  return { encodeElapsedSeconds, watchPreviewPath, controlMode: "static-transition", commandLog: [], programTimeline };
+}
+
+async function writeLiveControlSyntheticProgram(outputDir, config) {
+  const hlsDir = join(outputDir, "hls");
+  const framesDir = join(outputDir, "frames");
+  mkdirSync(hlsDir, { recursive: true });
+  mkdirSync(framesDir, { recursive: true });
+  const programTimeline = buildTimeline(config.durationSeconds);
+  writeFileSync(join(outputDir, "command-timeline.json"), `${JSON.stringify(programTimeline, null, 2)}\n`);
+
+  const scenePaths = await writeLiveControlSceneImages(framesDir, config.qualityProfile);
+  const playlistPath = join(hlsDir, "program.m3u8");
+  const watchPreviewPath = join(outputDir, "program.mp4");
+  const commandLog = [];
+  const scheduleByOutput = config.liveControlSchedule === "output-timeline";
+  const ffmpegArgs = buildSyntheticLiveControlFfmpegArgs({
+    scenePaths,
+    hlsDir,
+    playlistPath,
+    width: config.qualityProfile.width,
+    height: config.qualityProfile.height,
+    frameRate: config.qualityProfile.frameRate,
+    videoBitrateKbps: config.qualityProfile.videoBitrateKbps,
+    durationSeconds: config.durationSeconds,
+    controlMode: config.liveControlMode,
+    x264Preset: config.x264Preset,
+    progressPipe: scheduleByOutput,
+  });
+  const started = performance.now();
+  const ffmpeg = new FFmpegProcess(ffmpegArgs);
+  const client = new ZmqCommandClient(DEFAULT_LIVE_CONTROL_PRESET.controlPort, {
+    pythonCommand: config.zmqPythonCommand,
+  });
+  const controller = new ProgramController(client, {
+    commandLog,
+    ...(scheduleByOutput
+      ? {
+          startedAt: 0,
+          now: () => ffmpeg.getProgressMs(),
+          waitUntil: (elapsedMs) => waitForFfmpegOutput(ffmpeg, elapsedMs),
+        }
+      : {}),
+    preset: {
+      controlMode: config.liveControlMode,
+      fadeMs: config.transitionFadeMs,
+      holdAudioDelayMs: config.holdSlateAudioDelayMs,
+    },
+  });
+
+  try {
+    await Promise.all([
+      controller.runProofTimeline({
+        holdAtMs: programTimeline[1].atSeconds * 1000,
+        sourceAtMs: programTimeline[2].atSeconds * 1000,
+      }),
+      ffmpeg.wait(),
+    ]);
+  } catch (error) {
+    ffmpeg.stop();
+    throw error;
+  } finally {
+    client.close();
+  }
+
+  const encodeElapsedSeconds = (performance.now() - started) / 1000;
+  await remuxWatchPreview(playlistPath, watchPreviewPath);
+  await extractEvidenceFrames(playlistPath, framesDir, programTimeline);
+  writeFileSync(join(outputDir, "controller-events.json"), `${JSON.stringify(commandLog, null, 2)}\n`);
+  const progressSamples = ffmpeg.getProgressSamples();
+  writeFileSync(join(outputDir, "progress-samples.json"), `${JSON.stringify(progressSamples, null, 2)}\n`);
+
+  return {
+    encodeElapsedSeconds,
+    watchPreviewPath,
+    controlMode: config.liveControlMode,
+    liveControlSchedule: config.liveControlSchedule,
+    commandLog,
+    progressSamples,
+    programTimeline,
+  };
+}
+
+async function writeSyntheticProgram(outputDir, config) {
+  if (config.syntheticVariant === "live-control") {
+    return writeLiveControlSyntheticProgram(outputDir, config);
+  }
+
+  return writeStaticSyntheticProgram(outputDir, config);
+}
+
+async function uploadArtifacts(outputDir, s3Uri) {
+  if (!s3Uri.startsWith("s3://")) {
+    throw new Error("VRDEX_RESTREAM_ARTIFACT_S3_URI must start with s3://.");
+  }
+
+  const destination = `${s3Uri.replace(/\/+$/, "")}/${basename(outputDir)}/`;
+  await run("aws", ["s3", "sync", outputDir, destination, "--no-progress"]);
+
+  return destination;
+}
+
+function writeHtmlReport(outputDir, report) {
+  const frameChecksByLabel = new Map(report.frameChecks.map((check) => [check.label, check]));
+  const liveDelayCards =
+    report.liveControlDelay === undefined
+      ? ""
+      : `
+      <div class="card"><div class="label">Max Live Delay</div><div class="value">${(report.liveControlDelay.maxDelayMs / 1000).toFixed(3)}s</div></div>
+      <div class="card"><div class="label">Average Live Delay</div><div class="value">${(report.liveControlDelay.averageDelayMs / 1000).toFixed(3)}s</div></div>
+      <div class="card"><div class="label">Delay Growth</div><div class="value">${(report.liveControlDelay.delayGrowthMsPerHour / 1000).toFixed(3)}s/hour</div></div>`;
+  const frameList = report.frames
+    .map((frame) => {
+      const label = frame.replace(/\.jpg$/, "");
+      const check = frameChecksByLabel.get(label);
+      const caption = check === undefined ? label : `${label}: ${check.classifiedAs} (${check.passed ? "pass" : "fail"})`;
+
+      return `
+        <figure>
+          <img src="frames/${frame}" alt="${label}" />
+          <figcaption>${caption}</figcaption>
+        </figure>`;
+    })
+    .join("\n");
+  const checks = Object.entries(report.acceptance)
+    .map(([name, passed]) => `<li><strong>${name}</strong>: ${passed ? "pass" : "fail"}</li>`)
+    .join("\n");
+  const diagnostics = Object.entries(report.diagnostics ?? {})
+    .map(([name, passed]) => `<li><strong>${name}</strong>: ${passed ? "pass" : "warn"}</li>`)
+    .join("\n");
+  const runtimeCommands = report.commandLog
+    .slice(0, 80)
+    .map(
+      (event) =>
+        `<div><strong>${event.elapsedSeconds}s</strong> ${event.kind}${event.command ? ` ${event.command}` : ""}${event.value === undefined ? "" : ` ${event.value}`}</div>`,
+    )
+    .join("\n");
+
+  writeFileSync(
+    join(outputDir, "report.html"),
+    `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VRDex Restream Worker Benchmark</title>
+  <style>
+    body { margin: 0; background: #0f172a; color: #e5e7eb; font-family: Inter, Segoe UI, Arial, sans-serif; }
+    main { max-width: 1120px; margin: 0 auto; padding: 32px; }
+    h1 { margin: 0 0 8px; font-size: 32px; }
+    a { color: #93c5fd; }
+    .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin: 24px 0; }
+    .card, figure { background: #111827; border: 1px solid #263244; border-radius: 10px; padding: 16px; }
+    .label { color: #94a3b8; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+    .value { margin-top: 6px; font-size: 18px; font-weight: 650; }
+    figure { margin: 0; }
+    img { display: block; width: 100%; border-radius: 8px; background: #020617; }
+    figcaption { margin-top: 10px; color: #cbd5e1; }
+    video { display: block; width: 100%; max-height: 70vh; margin: 24px 0; background: #020617; border-radius: 12px; }
+    li { margin: 8px 0; }
+    code { color: #bfdbfe; }
+    .timeline { display: grid; gap: 10px; margin: 16px 0 24px; }
+    .timeline div { background: #111827; border: 1px solid #263244; border-radius: 10px; padding: 12px 14px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>VRDex Restream Worker Benchmark</h1>
+    <p>Generated ${report.generatedAt}. Watch the synthetic source, hold slate, and source switch output for the ${report.qualityGate} gate.</p>
+    <video controls preload="metadata" poster="frames/source-a.jpg" src="program.mp4"></video>
+    <div class="grid">
+      <div class="card"><div class="label">Mode</div><div class="value">${report.benchmarkMode}</div></div>
+      <div class="card"><div class="label">Variant</div><div class="value">${report.syntheticVariant}</div></div>
+      <div class="card"><div class="label">Control Mode</div><div class="value">${report.controlMode}</div></div>
+      ${report.liveControlSchedule === undefined ? "" : `<div class="card"><div class="label">Schedule</div><div class="value">${report.liveControlSchedule}</div></div>`}
+      <div class="card"><div class="label">x264 Preset</div><div class="value">${report.x264Preset}</div></div>
+      <div class="card"><div class="label">Output</div><div class="value">${report.video.codec} ${report.video.width}x${report.video.height} @ ${report.video.frameRate}</div></div>
+      <div class="card"><div class="label">Audio</div><div class="value">${report.audio.codec} ${report.audio.sampleRateHz}Hz ${report.audio.channels}ch</div></div>
+      <div class="card"><div class="label">Realtime Factor</div><div class="value">${report.realtimeFactor.toFixed(2)}x</div></div>
+      <div class="card"><div class="label">Runtime Commands</div><div class="value">${report.commandLog.length}</div></div>
+      <div class="card"><div class="label">Fade</div><div class="value">${report.transitionFadeMs}ms</div></div>
+      <div class="card"><div class="label">Slate Audio Delay</div><div class="value">${report.holdSlateAudioDelayMs}ms</div></div>
+      ${liveDelayCards}
+    </div>
+    <h2>Command Timeline</h2>
+    <div class="timeline">${report.commandTimeline
+      .map((event) => `<div><strong>${event.atSeconds}s</strong> ${event.command}${event.scene ? ` (${event.scene})` : ""}${event.command === "switch_hold" ? ` - slate audio delayed ${report.holdSlateAudioDelayMs}ms` : ""}</div>`)
+      .join("\n")}</div>
+    ${runtimeCommands === "" ? "" : `<h2>Runtime Commands</h2><div class="timeline">${runtimeCommands}</div>`}
+    <p>Playlist: <a href="hls/program.m3u8"><code>hls/program.m3u8</code></a></p>
+    <p>Watch preview: <a href="program.mp4"><code>program.mp4</code></a></p>
+    <h2>Acceptance</h2>
+    <ul>${checks}</ul>
+    ${diagnostics === "" ? "" : `<h2>Diagnostics</h2><ul>${diagnostics}</ul>`}
+    <h2>Transition Evidence</h2>
+    <div class="grid">${frameList}</div>
+  </main>
+</body>
+</html>
+`,
+  );
+}
+
+async function runBenchmark(config) {
+  await run("ffmpeg", ["-version"]);
+  await run("ffprobe", ["-version"]);
+
+  const outputDir = resolve(config.artifactRoot, timestamp());
+  mkdirSync(outputDir, { recursive: true });
+  const {
+    encodeElapsedSeconds,
+    watchPreviewPath,
+    controlMode,
+    liveControlSchedule,
+    commandLog,
+    progressSamples = [],
+    programTimeline,
+  } = await writeSyntheticProgram(outputDir, config);
+  const playlistSummary = checkPlaylist(outputDir, config.durationSeconds);
+  const checkedWatchPreviewPath = checkWatchPreview(outputDir);
+  const metadata = await probePlaylist(playlistSummary.playlistPath);
+  const watchPreviewMetadata = await probePlaylist(checkedWatchPreviewPath);
+  const video = metadata.streams.find((stream) => stream.codec_type === "video");
+  const audio = metadata.streams.find((stream) => stream.codec_type === "audio");
+  const previewVideo = watchPreviewMetadata.streams.find((stream) => stream.codec_type === "video");
+  const previewAudio = watchPreviewMetadata.streams.find((stream) => stream.codec_type === "audio");
+  const frames = readdirSync(join(outputDir, "frames")).filter((entry) => entry.endsWith(".jpg")).sort();
+  const frameInputs = readdirSync(join(outputDir, "frames")).filter((entry) => entry.endsWith("-input.png")).sort();
+  const frameChecks =
+    config.syntheticVariant === "live-control"
+      ? await verifyLiveControlFrameTiming(checkedWatchPreviewPath, outputDir, programTimeline)
+      : [];
+
+  assert(video, "Output has no video stream.");
+  assert(audio, "Output has no audio stream.");
+  assert(video.codec_name === "h264", `Expected H.264 video, found ${video.codec_name}.`);
+  assert(previewVideo?.codec_name === "h264", `Expected H.264 watch preview, found ${previewVideo?.codec_name ?? "none"}.`);
+  assert(
+    video.width === config.qualityProfile.width && video.height === config.qualityProfile.height,
+    `Expected ${config.qualityProfile.width}x${config.qualityProfile.height} video, found ${video.width}x${video.height}.`,
+  );
+  assert(
+    Math.abs(parseFrameRate(video.avg_frame_rate) - config.qualityProfile.frameRate) < 0.1,
+    `Expected ${config.qualityProfile.frameRate} fps, found ${video.avg_frame_rate}.`,
+  );
+  assert(audio.codec_name === "aac", `Expected AAC audio, found ${audio.codec_name}.`);
+  assert(previewAudio?.codec_name === "aac", `Expected AAC watch preview audio, found ${previewAudio?.codec_name ?? "none"}.`);
+  assert(Number(audio.sample_rate) === 48000, `Expected 48kHz audio, found ${audio.sample_rate}.`);
+  assert(Number(audio.channels) === 2, `Expected stereo audio, found ${audio.channels} channels.`);
+  assert(frames.includes("source-a.jpg"), "Missing source-a transition frame.");
+  assert(frames.includes("hold-slate.jpg"), "Missing hold-slate transition frame.");
+  assert(frames.includes("source-b.jpg"), "Missing source-b transition frame.");
+
+  const realtimeFactor = playlistSummary.totalDuration / encodeElapsedSeconds;
+  const realtimePacePassed = realtimeFactor >= 0.95;
+  const liveControlDelay =
+    config.syntheticVariant === "live-control"
+      ? summarizeLiveDelay(progressSamples, encodeElapsedSeconds, playlistSummary.totalDuration, config.maxLiveDelayMs)
+      : undefined;
+  const report = {
+    generatedAt: new Date().toISOString(),
+    artifact: outputDir,
+    benchmarkMode: config.benchmarkMode,
+    syntheticVariant: config.syntheticVariant,
+    qualityGate: config.qualityGate,
+    configuredDurationSeconds: config.durationSeconds,
+    syntheticOnly: config.syntheticOnly,
+    secretReferenceCount: config.secretRefNames.length,
+    maxConcurrentWorkers: config.maxConcurrentWorkers,
+    maxSessionSeconds: config.maxSessionSeconds,
+    maxLiveDelayMs: config.maxLiveDelayMs,
+    transitionFadeMs: config.transitionFadeMs,
+    holdSlateAudioDelayMs: config.holdSlateAudioDelayMs,
+    x264Preset: config.x264Preset,
+    killSwitchParameter: config.killSwitchParameter,
+    commandTimeline: programTimeline,
+    playlist: playlistSummary.playlistPath,
+    watchPreview: watchPreviewPath,
+    segmentCount: playlistSummary.segmentCount,
+    durationSeconds: playlistSummary.totalDuration,
+    encodeElapsedSeconds,
+    realtimeFactor,
+    controlMode,
+    liveControlSchedule,
+    liveControlDelay,
+    commandLog,
+    video: {
+      codec: video.codec_name,
+      width: video.width,
+      height: video.height,
+      frameRate: video.avg_frame_rate,
+    },
+    audio: {
+      codec: audio.codec_name,
+      sampleRateHz: Number(audio.sample_rate),
+      channels: Number(audio.channels),
+    },
+    frames,
+    frameChecks,
+    diagnostics: {
+      ...(config.syntheticVariant === "live-control" ? { liveControlRealtimePace: realtimePacePassed } : {}),
+    },
+    acceptance: {
+      ...(config.syntheticVariant === "static-transition"
+        ? { staticRealtimeThroughput: realtimeFactor >= 1 }
+        : {
+            liveControlRuntimeCompleted: commandLog.length > 0,
+            liveControlTimedFramesDetected: frameChecks.every((check) => check.passed),
+            liveControlDelayWithinSla: liveControlDelay?.passed === true,
+            ...(controlMode === "hard-switch"
+              ? {
+                  runtimeVideoSwitchCommandsSent: commandLog.some((event) => event.kind.startsWith("video-")),
+                  runtimeAudioSwitchCommandsSent: commandLog.some((event) => event.kind.startsWith("audio-")),
+                }
+              : {
+                  runtimeVideoFadeCommandsSent: commandLog.some((event) => event.kind.startsWith("video-alpha-fade")),
+                  runtimeAudioFadeCommandsSent: commandLog.some((event) => event.kind.startsWith("audio-fade")),
+                }),
+          }),
+      expectedVideoShape:
+        video.codec_name === "h264" && video.width === config.qualityProfile.width && video.height === config.qualityProfile.height,
+      expectedAudioShape: audio.codec_name === "aac" && Number(audio.sample_rate) === 48000 && Number(audio.channels) === 2,
+      transitionFramesPresent: frames.length >= 3,
+      independentSegments: true,
+      watchPreviewPresent: true,
+      holdSlateArtworkPresent: frameInputs.some((entry) => entry === "hold-slate-input.png"),
+      ...(config.syntheticVariant === "static-transition" || controlMode === "overlay-alpha-volume-fade"
+        ? {
+            transitionFadesConfigured: config.transitionFadeMs > 0,
+            holdSlateAudioDelayConfigured: config.holdSlateAudioDelayMs > 0,
+          }
+        : {}),
+    },
+  };
+
+  writeFileSync(join(outputDir, "benchmark-report.json"), `${JSON.stringify(report, null, 2)}\n`);
+  writeHtmlReport(outputDir, report);
+
+  const artifactS3Uri = optionalEnv("VRDEX_RESTREAM_ARTIFACT_S3_URI");
+  const uploadedTo = artifactS3Uri === undefined ? undefined : await uploadArtifacts(outputDir, artifactS3Uri);
+
+  assert(Object.values(report.acceptance).every(Boolean), `Benchmark acceptance failed: ${JSON.stringify(report.acceptance)}.`);
+
+  console.log(
+    JSON.stringify({
+      event: "restream_worker_benchmark_completed",
+      artifact: outputDir,
+      ...(uploadedTo === undefined ? {} : { uploadedTo }),
+      benchmarkMode: config.benchmarkMode,
+      syntheticVariant: report.syntheticVariant,
+      controlMode: report.controlMode,
+      ...(report.liveControlSchedule === undefined ? {} : { liveControlSchedule: report.liveControlSchedule }),
+      qualityGate: config.qualityGate,
+      configuredDurationSeconds: report.configuredDurationSeconds,
+      durationSeconds: report.durationSeconds,
+      realtimeFactor: Number(report.realtimeFactor.toFixed(3)),
+      ...(report.liveControlDelay === undefined
+        ? {}
+        : {
+            maxObservedLiveDelayMs: report.liveControlDelay.maxDelayMs,
+            maxAllowedLiveDelayMs: report.liveControlDelay.maxAllowedDelayMs,
+            averageLiveDelayMs: report.liveControlDelay.averageDelayMs,
+            delayGrowthMsPerHour: report.liveControlDelay.delayGrowthMsPerHour,
+          }),
+      commandCount: report.commandLog.length,
+      watchPreview: "program.mp4",
+      transitionFadeMs: report.transitionFadeMs,
+      holdSlateAudioDelayMs: report.holdSlateAudioDelayMs,
+      x264Preset: report.x264Preset,
+      frames: report.frames,
+    }),
+  );
+}
+
+function loadConfig() {
+  const qualityGate = requiredEnv("VRDEX_RESTREAM_QUALITY_GATE");
+  const qualityProfile = QUALITY_PROFILES[qualityGate];
+
+  if (qualityProfile === undefined) {
+    throw new Error("VRDEX_RESTREAM_QUALITY_GATE must be 1080p60, 1080p30, 720p60, or 720p30.");
   }
 
   const benchmarkMode = requiredEnv("VRDEX_RESTREAM_BENCHMARK_MODE");
@@ -74,20 +1008,102 @@ function main() {
     throw new Error("VRDEX_RESTREAM_BENCHMARK_MODE must be dry-run or ecs-fargate.");
   }
 
-  requiredUrlEnv("CONVEX_URL");
-  requiredEnv("VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER");
-  requiredListEnv("VRDEX_RESTREAM_SECRET_REF_NAMES");
-  requiredIntegerEnv("VRDEX_RESTREAM_MAX_SESSION_SECONDS");
-  requiredIntegerEnv("VRDEX_RESTREAM_MAX_CONCURRENT_WORKERS");
+  const syntheticVariant = optionalEnv("VRDEX_RESTREAM_SYNTHETIC_VARIANT") ?? DEFAULT_SYNTHETIC_VARIANT;
 
-  console.log(
-    JSON.stringify({ event: "restream_worker_configuration_validated", benchmarkMode, qualityGate: REQUIRED_GATE }),
-  );
+  if (!ALLOWED_SYNTHETIC_VARIANTS.has(syntheticVariant)) {
+    throw new Error("VRDEX_RESTREAM_SYNTHETIC_VARIANT must be static-transition or live-control.");
+  }
+
+  const liveControlSchedule = optionalEnv("VRDEX_RESTREAM_LIVE_CONTROL_SCHEDULE") ?? DEFAULT_LIVE_CONTROL_SCHEDULE;
+
+  if (!ALLOWED_LIVE_CONTROL_SCHEDULES.has(liveControlSchedule)) {
+    throw new Error("VRDEX_RESTREAM_LIVE_CONTROL_SCHEDULE must be output-timeline or wall-clock.");
+  }
+
+  const liveControlMode = optionalEnv("VRDEX_RESTREAM_LIVE_CONTROL_MODE") ?? DEFAULT_LIVE_CONTROL_PRESET.controlMode;
+
+  if (!LIVE_CONTROL_MODES.has(liveControlMode)) {
+    throw new Error("VRDEX_RESTREAM_LIVE_CONTROL_MODE must be overlay-alpha-volume-fade or hard-switch.");
+  }
+
+  const x264Preset = optionalEnv("VRDEX_RESTREAM_X264_PRESET") ?? DEFAULT_X264_PRESET;
+
+  if (!ALLOWED_X264_PRESETS.has(x264Preset)) {
+    throw new Error("VRDEX_RESTREAM_X264_PRESET must be ultrafast, superfast, veryfast, faster, or fast.");
+  }
+
+  requiredUrlEnv("CONVEX_URL");
+  const syntheticOnly = booleanEnv("VRDEX_RESTREAM_SYNTHETIC_ONLY", true);
+  const config = {
+    qualityGate,
+    qualityProfile,
+    benchmarkMode,
+    syntheticVariant,
+    liveControlSchedule,
+    liveControlMode,
+    x264Preset,
+    syntheticOnly,
+    killSwitchParameter: requiredEnv("VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER"),
+    secretRefNames: listEnv("VRDEX_RESTREAM_SECRET_REF_NAMES", !syntheticOnly),
+    maxSessionSeconds: requiredIntegerEnv("VRDEX_RESTREAM_MAX_SESSION_SECONDS"),
+    maxConcurrentWorkers: requiredIntegerEnv("VRDEX_RESTREAM_MAX_CONCURRENT_WORKERS"),
+    durationSeconds: optionalIntegerEnv(
+      "VRDEX_RESTREAM_SYNTHETIC_DURATION_SECONDS",
+      DEFAULT_SYNTHETIC_DURATION_SECONDS,
+      12,
+      43200,
+    ),
+    maxLiveDelayMs: optionalIntegerEnv("VRDEX_RESTREAM_MAX_LIVE_DELAY_MS", DEFAULT_MAX_LIVE_DELAY_MS, 1000, 60000),
+    transitionFadeMs: optionalIntegerEnv("VRDEX_RESTREAM_TRANSITION_FADE_MS", DEFAULT_TRANSITION_FADE_MS, 0, 2000),
+    holdSlateAudioDelayMs: optionalIntegerEnv(
+      "VRDEX_RESTREAM_HOLD_SLATE_AUDIO_DELAY_MS",
+      DEFAULT_HOLD_SLATE_AUDIO_DELAY_MS,
+      0,
+      3000,
+    ),
+    zmqPythonCommand: optionalEnv("VRDEX_RESTREAM_ZMQ_PYTHON_COMMAND"),
+    artifactRoot: optionalEnv("VRDEX_RESTREAM_ARTIFACT_ROOT") ?? DEFAULT_ARTIFACT_ROOT,
+  };
+
+  if (!syntheticOnly && config.secretRefNames.length === 0) {
+    throw new Error("VRDEX_RESTREAM_SECRET_REF_NAMES must include at least one reference name for non-synthetic workers.");
+  }
+
+  if (config.durationSeconds > config.maxSessionSeconds) {
+    throw new Error("VRDEX_RESTREAM_SYNTHETIC_DURATION_SECONDS must not exceed VRDEX_RESTREAM_MAX_SESSION_SECONDS.");
+  }
+
+  return config;
 }
 
-try {
-  main();
-} catch (error) {
+async function main() {
+  const config = loadConfig();
+
+  if (booleanEnv("VRDEX_RESTREAM_CONFIG_CHECK_ONLY", false)) {
+    if (config.benchmarkMode !== "dry-run") {
+      throw new Error("VRDEX_RESTREAM_CONFIG_CHECK_ONLY is allowed only in dry-run mode.");
+    }
+
+    console.log(
+      JSON.stringify({
+        event: "restream_worker_configuration_validated",
+        benchmarkMode: config.benchmarkMode,
+        syntheticVariant: config.syntheticVariant,
+        liveControlSchedule: config.liveControlSchedule,
+        liveControlMode: config.liveControlMode,
+        x264Preset: config.x264Preset,
+        qualityGate: config.qualityGate,
+        durationSeconds: config.durationSeconds,
+        maxLiveDelayMs: config.maxLiveDelayMs,
+      }),
+    );
+    return;
+  }
+
+  await runBenchmark(config);
+}
+
+main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
-}
+});

@@ -10,6 +10,13 @@ const validWorkerEnv = {
   VRDEX_RESTREAM_MAX_SESSION_SECONDS: "43200",
   VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER: "/vrdex/restream/hosted-worker/enabled",
   VRDEX_RESTREAM_SECRET_REF_NAMES: "event-media/vrcdn/main-output",
+  VRDEX_RESTREAM_TRANSITION_FADE_MS: "500",
+  VRDEX_RESTREAM_HOLD_SLATE_AUDIO_DELAY_MS: "750",
+  VRDEX_RESTREAM_SYNTHETIC_DURATION_SECONDS: "12",
+  VRDEX_RESTREAM_MAX_LIVE_DELAY_MS: "10000",
+  VRDEX_RESTREAM_CONFIG_CHECK_ONLY: "true",
+  VRDEX_RESTREAM_SYNTHETIC_ONLY: "true",
+  VRDEX_RESTREAM_SYNTHETIC_VARIANT: "static-transition",
 };
 
 function runWorker(env: Record<string, string>) {
@@ -50,5 +57,70 @@ describe("restream worker configuration", () => {
     assert.match(sessionResult.stderr, /VRDEX_RESTREAM_MAX_SESSION_SECONDS must be a positive integer\./);
     assert.equal(workerResult.code, 1);
     assert.match(workerResult.stderr, /VRDEX_RESTREAM_MAX_CONCURRENT_WORKERS must be a positive integer\./);
+  });
+
+  it("rejects transition timing controls outside their guardrails", async () => {
+    const fadeResult = await runWorker({ VRDEX_RESTREAM_TRANSITION_FADE_MS: "500ms" });
+    const delayResult = await runWorker({ VRDEX_RESTREAM_HOLD_SLATE_AUDIO_DELAY_MS: "3001" });
+
+    assert.equal(fadeResult.code, 1);
+    assert.match(fadeResult.stderr, /VRDEX_RESTREAM_TRANSITION_FADE_MS must be an integer between 0 and 2000\./);
+    assert.equal(delayResult.code, 1);
+    assert.match(delayResult.stderr, /VRDEX_RESTREAM_HOLD_SLATE_AUDIO_DELAY_MS must be an integer between 0 and 3000\./);
+  });
+
+  it("rejects sustained benchmark controls outside their guardrails", async () => {
+    const durationResult = await runWorker({ VRDEX_RESTREAM_SYNTHETIC_DURATION_SECONDS: "11" });
+    const delayResult = await runWorker({ VRDEX_RESTREAM_MAX_LIVE_DELAY_MS: "10s" });
+
+    assert.equal(durationResult.code, 1);
+    assert.match(durationResult.stderr, /VRDEX_RESTREAM_SYNTHETIC_DURATION_SECONDS must be an integer between 12 and 43200\./);
+    assert.equal(delayResult.code, 1);
+    assert.match(delayResult.stderr, /VRDEX_RESTREAM_MAX_LIVE_DELAY_MS must be an integer between 1000 and 60000\./);
+  });
+
+  it("rejects synthetic benchmark durations beyond the max session guardrail", async () => {
+    const result = await runWorker({
+      VRDEX_RESTREAM_MAX_SESSION_SECONDS: "120",
+      VRDEX_RESTREAM_SYNTHETIC_DURATION_SECONDS: "121",
+    });
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /VRDEX_RESTREAM_SYNTHETIC_DURATION_SECONDS must not exceed VRDEX_RESTREAM_MAX_SESSION_SECONDS\./);
+  });
+
+  it("rejects unknown synthetic benchmark variants", async () => {
+    const result = await runWorker({ VRDEX_RESTREAM_SYNTHETIC_VARIANT: "liveish" });
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /VRDEX_RESTREAM_SYNTHETIC_VARIANT must be static-transition or live-control\./);
+  });
+
+  it("rejects unknown quality gates", async () => {
+    const result = await runWorker({ VRDEX_RESTREAM_QUALITY_GATE: "4k120" });
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /VRDEX_RESTREAM_QUALITY_GATE must be 1080p60, 1080p30, 720p60, or 720p30\./);
+  });
+
+  it("rejects unknown live-control schedules", async () => {
+    const result = await runWorker({ VRDEX_RESTREAM_LIVE_CONTROL_SCHEDULE: "wallish" });
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /VRDEX_RESTREAM_LIVE_CONTROL_SCHEDULE must be output-timeline or wall-clock\./);
+  });
+
+  it("rejects unknown live-control modes", async () => {
+    const result = await runWorker({ VRDEX_RESTREAM_LIVE_CONTROL_MODE: "half-fade" });
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /VRDEX_RESTREAM_LIVE_CONTROL_MODE must be overlay-alpha-volume-fade or hard-switch\./);
+  });
+
+  it("rejects unknown x264 presets", async () => {
+    const result = await runWorker({ VRDEX_RESTREAM_X264_PRESET: "slow" });
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /VRDEX_RESTREAM_X264_PRESET must be ultrafast, superfast, veryfast, faster, or fast\./);
   });
 });

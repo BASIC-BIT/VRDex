@@ -4,7 +4,7 @@
 
 Current recommendation: this is a hosted-worker packaging and benchmark scaffold, not a production media worker.
 
-The container shape is intentionally small so ECS/Fargate infrastructure can be validated before VRDex claims hosted restreaming. It installs FFmpeg, runs a Node entrypoint, and refuses to start unless the non-secret benchmark contract is present.
+The container shape is intentionally small so ECS/Fargate infrastructure can be validated before VRDex claims hosted restreaming. It installs FFmpeg and AWS CLI, runs a Node entrypoint, refuses to start unless the non-secret benchmark contract is present, and writes a synthetic `1080p60` HLS artifact plus HTML/JSON reports.
 
 ## Build Shape
 
@@ -22,15 +22,68 @@ The ECS task definition injects non-secret environment values and secret referen
 
 Expected non-secret values:
 
-- `VRDEX_RESTREAM_QUALITY_GATE=1080p60`
+- `VRDEX_RESTREAM_QUALITY_GATE`, default `1080p60`; supported ladder is `1080p60`, `1080p30`, `720p60`, and `720p30`
 - `VRDEX_RESTREAM_BENCHMARK_MODE`
 - `VRDEX_RESTREAM_MAX_CONCURRENT_WORKERS`
 - `VRDEX_RESTREAM_MAX_SESSION_SECONDS`
 - `VRDEX_RESTREAM_KILL_SWITCH_SSM_PARAMETER`
 - `VRDEX_RESTREAM_SECRET_REF_NAMES`
+- `VRDEX_RESTREAM_SYNTHETIC_VARIANT`, default `static-transition`; use `live-control` for FFmpeg runtime command proof in the worker container
+- `VRDEX_RESTREAM_LIVE_CONTROL_SCHEDULE`, default `output-timeline`; use `wall-clock` only to compare old timing behavior
+- `VRDEX_RESTREAM_LIVE_CONTROL_MODE`, default `overlay-alpha-volume-fade`; use `hard-switch` for the simple source-selection baseline
+- `VRDEX_RESTREAM_X264_PRESET`, default `veryfast`
+- `VRDEX_RESTREAM_SYNTHETIC_DURATION_SECONDS`, default `12`; use longer live-control runs to expose sustained delay drift
+- `VRDEX_RESTREAM_MAX_LIVE_DELAY_MS`, default `10000`; the synthetic live-control SLA for max observed output delay
+- `VRDEX_RESTREAM_TRANSITION_FADE_MS`, default `500`
+- `VRDEX_RESTREAM_HOLD_SLATE_AUDIO_DELAY_MS`, default `750`
 - `CONVEX_URL`
 
-Expected secret-reference names are supplied by Terraform through the `secret_arns` map. The worker validates their presence, treats those names as operationally sensitive, and must not log them. The first useful hosted benchmark should use an event-scoped output credential reference, not a raw ingest URL or stream key in plain environment variables.
+Expected secret-reference names are supplied by Terraform through the `secret_arns` map. The worker treats those names as operationally sensitive and logs only their count. Synthetic benchmark runs use `VRDEX_RESTREAM_SYNTHETIC_ONLY=true`, so they can prove the media pipeline without provider credentials. Non-synthetic runs must use event-scoped output credential references, not raw ingest URLs or stream keys in plain environment variables.
+
+Useful local proof command:
+
+```powershell
+pnpm proof:restream:worker
+```
+
+That command writes a playable artifact tree under `artifacts/restream-worker-benchmark/` with `program.mp4`, `hls/program.m3u8`, transition frames, `benchmark-report.json`, and `report.html`. The hold slate is rendered once as static artwork, then looped through the timed fade section so the `1080p60` gate measures the live encode path instead of repeated slate drawing. Open `report.html` through a local static server to watch the embedded `program.mp4` preview in the browser.
+
+Container-shaped live-control proof command:
+
+```powershell
+pnpm proof:restream:worker:live-control
+```
+
+That command runs the hosted worker contract with `VRDEX_RESTREAM_SYNTHETIC_VARIANT=live-control`, starts FFmpeg once, and drives source/hold/source switching through the reusable controller instead of pre-rendering the transitions.
+The live-control variant schedules runtime commands against FFmpeg output progress by default and gates on timed frame samples at the expected source, hold-slate, and source-B positions. It also records FFmpeg progress samples and reports max, average, and final live delay against `VRDEX_RESTREAM_MAX_LIVE_DELAY_MS`. Near-real-time pace remains a diagnostic because live-control inputs are intentionally `-re` paced; the default `static-transition` variant remains the throughput gate. The optional `wall-clock` schedule is a diagnostic comparison mode for proving why output-progress scheduling matters when encoding falls behind real time.
+
+Sustained local live-control probe example:
+
+```powershell
+pnpm proof:restream:worker:live-control hard-switch ultrafast 1080p60 180 10000
+```
+
+That runs a 180-second synthetic program and fails if observed max live delay exceeds 10 seconds.
+
+Benchmark matrix command:
+
+```powershell
+pnpm proof:restream:worker:matrix
+```
+
+That command compares the richer fade mode against the simple `hard-switch` mode and selected x264 presets. The current hosted evidence says `hard-switch` is the right baseline for a reliable first restreamer: it reduces runtime commands from 194 to 8. A 180-second hosted `1080p60` live-control probe failed the 10-second delay SLA on `4096` CPU / `8192` MiB but passed on `8192` CPU / `16384` MiB with max observed delay under 300ms. Treat fade/slate polish as optional until the source-selection pipeline has live-delay headroom.
+
+The benchmark ladder should be evaluated in this order: `1080p60`, `1080p30`, `720p60`, then `720p30`. Prefer shipping a reliable lower-capability source-selection pipeline over keeping `1080p60` or fade polish if the hosted cost is not practical.
+
+Runtime command proof:
+
+```powershell
+pnpm proof:restream:live-control
+```
+
+That command starts FFmpeg once, then sends live ZeroMQ commands to filter instances. It requires local Python with `pyzmq` for the command sender. The working fade approach uses `streamselect` for base and next video layers, commandable `colorchannelmixer` alpha for video fades, and commandable `volume` filters into a fixed `amix` for audio fades. The controller expands one semantic operator command into eased, frame-ish transition steps, so callers do not send individual fade ticks. The proof validates source-to-hold-to-source switching, blended transition frames, and the delayed hold-slate audio path without rebuilding or restarting the FFmpeg process.
+
+Do not drive live fades by changing `mix` or `amix` `weights`; this FFmpeg build returned `Function not implemented` for runtime weight commands. Use overlay alpha and per-source volume commands instead.
 
 ## Benchmark Gate
 
@@ -46,3 +99,7 @@ The benchmark profile in `benchmark-profile.1080p60.json` records the first host
 - 12-hour maximum session cap
 
 ECS on EC2 with GPU/NVENC stays a measured fallback. Do not promote GPU-backed hosting until Fargate CPU evidence fails the target or cost headroom.
+
+## Artifact Uploads
+
+If `VRDEX_RESTREAM_ARTIFACT_S3_URI` is set, the worker runs `aws s3 sync` after local artifact generation. Terraform sets this to the private benchmark artifact bucket prefix for ECS tasks. Do not make this bucket public; inspect artifacts through authenticated S3 access or short-lived presigned URLs only.

@@ -19,6 +19,9 @@ import {
   eventMediaSourceStateValidator,
   eventMediaSourceTypeValidator,
   eventMediaVrcdnRegionValidator,
+  eventMediaWorkerArtifactLinkValidator,
+  eventMediaWorkerProviderValidator,
+  eventMediaWorkerTaskStatusValidator,
 } from "./_eventMediaControl";
 
 const claimState = v.union(
@@ -565,6 +568,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_eventId", ["eventId"])
+    .index("by_eventId_updatedAt", ["eventId", "updatedAt"])
     .index("by_communityProfileId_state", ["communityProfileId", "state"])
     .index("by_state_updatedAt", ["state", "updatedAt"]),
   eventMediaSources: defineTable({
@@ -642,6 +646,7 @@ export default defineSchema({
     completedAt: v.optional(v.number()),
     updatedAt: v.number(),
   })
+    .index("by_status_createdAt", ["status", "createdAt"])
     .index("by_programId_status_createdAt", ["programId", "status", "createdAt"])
     .index("by_sessionId_status_createdAt", ["sessionId", "status", "createdAt"])
     .index("by_eventId_createdAt", ["eventId", "createdAt"])
@@ -653,9 +658,15 @@ export default defineSchema({
     status: eventMediaSessionStatusValidator,
     workerId: v.optional(v.string()),
     workerRuntime: v.optional(v.string()),
+    workerProvider: v.optional(eventMediaWorkerProviderValidator),
+    workerTaskDefinitionArn: v.optional(v.string()),
+    workerTaskId: v.optional(v.string()),
+    workerTaskStatus: v.optional(eventMediaWorkerTaskStatusValidator),
+    workerTaskStatusReason: v.optional(v.string()),
     leaseExpiresAt: v.optional(v.number()),
     currentSourceId: v.optional(v.id("eventMediaSources")),
     currentSceneId: v.optional(v.id("eventMediaScenes")),
+    artifactLinks: v.optional(v.array(eventMediaWorkerArtifactLinkValidator)),
     health: v.optional(
       v.object({
         lastHeartbeatAt: v.number(),
@@ -666,13 +677,16 @@ export default defineSchema({
       }),
     ),
     scheduledStartAt: v.optional(v.number()),
+    readyDeadlineAt: v.optional(v.number()),
     startedAt: v.optional(v.number()),
+    stopRequestedAt: v.optional(v.number()),
     stoppedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_programId_status", ["programId", "status"])
     .index("by_eventId_status", ["eventId", "status"])
+    .index("by_status_updatedAt", ["status", "updatedAt"])
     .index("by_workerId_status", ["workerId", "status"])
     .index("by_leaseExpiresAt", ["leaseExpiresAt"]),
   eventMediaAuditEvents: defineTable({

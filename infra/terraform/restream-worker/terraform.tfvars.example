@@ -12,6 +12,13 @@ secret_arns = {
 convex_url             = "https://scrupulous-corgi-247.convex.cloud"
 max_concurrent_workers = 10
 max_session_seconds    = 43200
+quality_gate           = "1080p60"
+synthetic_variant      = "static-transition"
+live_control_schedule  = "output-timeline"
+live_control_mode      = "overlay-alpha-volume-fade"
+x264_preset            = "veryfast"
+synthetic_duration_seconds = 12
+max_live_delay_ms          = 10000
 
 # False keeps hosted workers disabled until an approved benchmark enables the switch.
 kill_switch_enabled_default = false

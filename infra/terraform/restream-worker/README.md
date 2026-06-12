@@ -8,14 +8,17 @@ It creates or imports future resources for:
 - ECS cluster for one task per event media session
 - Fargate task definition for the `1080p60` benchmark gate
 - CloudWatch log group with bounded retention
+- private S3 bucket for synthetic benchmark HLS/report artifacts
 - ECS execution role with optional secret-reference reads
-- ECS task role for CloudWatch metrics and the SSM kill switch
+- ECS task role for CloudWatch metrics, the SSM kill switch, and benchmark artifact uploads
 - SSM kill-switch parameter, defaulting disabled
 - ECR lifecycle policy for large media-worker images
 
 ## Safety Boundary
 
 This stack stores only references and non-secret guardrails. Do not store stream keys, ingest URLs, output credentials, Convex deploy keys, provider tokens, or signed URLs in Terraform variables, docs, logs, or state.
+
+The artifact bucket is private, blocks public access, uses AES-256 server-side encryption, and expires synthetic benchmark artifacts after `artifact_retention_days`.
 
 The current GitHub Terraform workflow validates this stack but does not plan or apply it. Enabling provider-backed plans or applies is a separate human-approved infrastructure step.
 
@@ -40,5 +43,10 @@ The first Fargate shape is intentionally conservative for CPU-only `1080p60` evi
 - max concurrent workers: `10`
 - max session duration: `43200` seconds
 - quality gate: `1080p60`
+- synthetic-only media generation: `true`
+- synthetic variant: `static-transition` by default, override to `live-control` for runtime command proof tasks
+- artifact retention: `7` days
+
+Bridge-created task definitions can reference output credentials outside the base task definition. Keep those values in Secrets Manager or SSM, and grant the execution role read access with `execution_secret_names`, `execution_secret_arns`, or `secret_arns`; never put secret values in Terraform. Keep the committed defaults portable and set operator-specific secret names in local ignored Terraform variables.
 
 ECS on EC2 with GPU/NVENC remains a measured fallback if Fargate misses real-time encode, transition quality, bitrate stability, or cost headroom.

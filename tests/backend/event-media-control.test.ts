@@ -2,11 +2,16 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  EVENT_MEDIA_WORKER_READY_LEAD_MS,
+  EVENT_MEDIA_WORKER_START_LEAD_MS,
   sanitizeEventMediaCommandInput,
   sanitizeEventMediaPublicLink,
+  sanitizeEventMediaWorkerArtifactLinks,
+  sanitizeEventMediaWorkerSchedule,
   sanitizeVrcdnOperatorOwnedOutputSetup,
   toPublicEventMediaProgramState,
 } from "../../convex/_eventMediaControl";
+import { getVrcdnOutputAccount, listPublicVrcdnOutputAccounts } from "../../convex/_vrcdnOutputAccounts";
 
 describe("event media control helpers", () => {
   it("normalizes direct fallback links into platform-safe playback URLs", () => {
@@ -203,6 +208,96 @@ describe("event media control helpers", () => {
           streamKey: "not-persisted",
         } as Parameters<typeof sanitizeVrcdnOperatorOwnedOutputSetup>[0] & { streamKey: string }),
       /streamKey must not be stored in event media output setup records\./,
+    );
+  });
+
+  it("exposes output account options without credential references", () => {
+    const publicAccounts = listPublicVrcdnOutputAccounts();
+    const account = getVrcdnOutputAccount("basicbit");
+
+    assert.equal(publicAccounts.length, 1);
+    assert.deepEqual(publicAccounts[0], {
+      key: "basicbit",
+      label: "basicbit",
+      playbackLinks: [
+        { platform: "browser", label: "Event stream", url: "https://panel.vrcdn.live/preview/basicbit" },
+        { platform: "standalone", label: "Quest stream", url: "https://stream.vrcdn.live/live/basicbit.live.ts" },
+        { platform: "pc", label: "PC stream", url: "rtspt://stream.vrcdn.live/live/basicbit" },
+      ],
+    });
+    assert.equal("credentialRef" in publicAccounts[0]!, false);
+    assert.equal(account?.credentialRef, "event-media/vrcdn/basicbit-output");
+  });
+
+  it("defaults worker scheduling to start five minutes early and require readiness two minutes early", () => {
+    const eventStartAt = Date.UTC(2026, 5, 14, 22, 0, 0);
+    const schedule = sanitizeEventMediaWorkerSchedule({ eventStartAt });
+
+    assert.deepEqual(schedule, {
+      scheduledStartAt: eventStartAt - EVENT_MEDIA_WORKER_START_LEAD_MS,
+      readyDeadlineAt: eventStartAt - EVENT_MEDIA_WORKER_READY_LEAD_MS,
+    });
+  });
+
+  it("rejects worker schedules that cannot be ready before the event starts", () => {
+    const eventStartAt = Date.UTC(2026, 5, 14, 22, 0, 0);
+
+    assert.throws(
+      () =>
+        sanitizeEventMediaWorkerSchedule({
+          eventStartAt,
+          scheduledStartAt: eventStartAt - 60_000,
+          readyDeadlineAt: eventStartAt - 120_000,
+        }),
+      /Worker ready deadline must be at or after the scheduled start time\./,
+    );
+
+    assert.throws(
+      () =>
+        sanitizeEventMediaWorkerSchedule({
+          eventStartAt,
+          readyDeadlineAt: eventStartAt,
+        }),
+      /Worker ready deadline must be before the event starts\./,
+    );
+  });
+
+  it("keeps worker artifact links free of embedded credentials", () => {
+    assert.deepEqual(
+      sanitizeEventMediaWorkerArtifactLinks([
+        {
+          type: "report",
+          label: " Report ",
+          url: "s3://vrdex-restream-worker-079358094174-artifacts/synthetic-benchmarks/report.html",
+        },
+        {
+          type: "logs",
+          url: "https://console.aws.amazon.com/cloudwatch/home",
+        },
+      ]),
+      [
+        {
+          type: "report",
+          label: "Report",
+          url: "s3://vrdex-restream-worker-079358094174-artifacts/synthetic-benchmarks/report.html",
+        },
+        {
+          type: "logs",
+          label: "Worker logs",
+          url: "https://console.aws.amazon.com/cloudwatch/home",
+        },
+      ],
+    );
+
+    assert.throws(
+      () =>
+        sanitizeEventMediaWorkerArtifactLinks([
+          {
+            type: "report",
+            url: "https://example.invalid/report.html?X-Amz-Signature=secret",
+          },
+        ]),
+      /Worker artifact links must be private S3 URIs or HTTPS URLs without embedded credentials or query strings\./,
     );
   });
 });
