@@ -21,15 +21,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - name: Install dependencies
@@ -45,15 +45,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - name: Install dependencies
@@ -69,15 +69,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - name: Install dependencies
@@ -93,15 +93,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - name: Install dependencies
@@ -120,15 +120,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - name: Install dependencies
@@ -147,7 +147,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -184,13 +184,13 @@ jobs:
 
       - name: Setup pnpm
         if: steps.changes.outputs.enabled == 'true'
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
         if: steps.changes.outputs.enabled == 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - name: Install dependencies
@@ -244,15 +244,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - name: Install dependencies
@@ -269,15 +269,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - name: Install dependencies
@@ -295,7 +295,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Check Convex deploy key
         id: gate
@@ -315,13 +315,13 @@ jobs:
 
       - name: Setup pnpm
         if: steps.gate.outputs.enabled == 'true'
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
         if: steps.gate.outputs.enabled == 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - name: Install dependencies
@@ -353,15 +353,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - name: Install dependencies
@@ -406,7 +406,7 @@ jobs:
       - name: Upload Playwright data-flow artifacts
         id: upload
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-data-flow
           if-no-files-found: error
@@ -418,7 +418,7 @@ jobs:
 
       - name: Comment with data-flow artifact
         if: always() && github.event.pull_request.head.repo.fork == false
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           FLOW_OUTCOME: ${{ steps.flow.outcome }}
           ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
@@ -494,7 +494,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Check hosted E2E configuration
         id: gate
@@ -515,13 +515,13 @@ jobs:
 
       - name: Setup pnpm
         if: steps.gate.outputs.enabled == 'true'
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
         if: steps.gate.outputs.enabled == 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - name: Install dependencies
@@ -584,7 +584,7 @@ jobs:
       - name: Upload hosted data-flow artifacts
         id: upload
         if: always() && steps.gate.outputs.enabled == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-hosted-data-flow
           if-no-files-found: warn
@@ -596,7 +596,7 @@ jobs:
 
       - name: Comment with hosted data-flow artifact
         if: always() && steps.gate.outputs.enabled == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           HOSTED_OUTCOME: ${{ steps.hosted.outcome }}
           HOSTED_BASE_URL: ${{ vars.VRDEX_HOSTED_E2E_BASE_URL }}
@@ -676,15 +676,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - name: Install dependencies
@@ -718,7 +718,7 @@ jobs:
       - name: Upload Playwright artifacts
         id: upload
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-public-preview
           if-no-files-found: error
@@ -730,7 +730,7 @@ jobs:
 
       - name: Comment with screenshot artifact
         if: always() && github.event.pull_request.head.repo.fork == false
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           VISUAL_OUTCOME: ${{ steps.visual.outcome }}
           ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
@@ -800,15 +800,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - name: Install dependencies
@@ -854,7 +854,7 @@ jobs:
       - name: Upload Playwright image-diff artifacts
         id: upload
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-image-diff
           if-no-files-found: error
@@ -867,7 +867,7 @@ jobs:
 
       - name: Comment with image-diff artifact
         if: always() && github.event.pull_request.head.repo.fork == false
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           DIFF_OUTCOME: ${{ steps.snapshots.outcome }}
           ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
@@ -977,15 +977,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - name: Install dependencies
@@ -1019,7 +1019,7 @@ jobs:
       - name: Upload Storybook visual artifacts
         id: upload
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: storybook-component-preview
           if-no-files-found: error
@@ -1031,7 +1031,7 @@ jobs:
 
       - name: Comment with Storybook screenshot artifact
         if: always() && github.event.pull_request.head.repo.fork == false
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           VISUAL_OUTCOME: ${{ steps.visual.outcome }}
           ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
@@ -1101,15 +1101,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - name: Install dependencies
@@ -1155,7 +1155,7 @@ jobs:
       - name: Upload Storybook image-diff artifacts
         id: upload
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: storybook-image-diff
           if-no-files-found: error
@@ -1168,7 +1168,7 @@ jobs:
 
       - name: Comment with Storybook image-diff artifact
         if: always() && github.event.pull_request.head.repo.fork == false
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           DIFF_OUTCOME: ${{ steps.snapshots.outcome }}
           ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
@@ -1278,7 +1278,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Check Vercel deployment secrets
         id: gate
@@ -1305,13 +1305,13 @@ jobs:
 
       - name: Setup pnpm
         if: steps.gate.outputs.enabled == 'true'
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
         if: steps.gate.outputs.enabled == 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - name: Install dependencies
@@ -1391,7 +1391,7 @@ jobs:
 
       - name: Comment with Vercel preview URL
         if: steps.gate.outputs.enabled == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
         with:

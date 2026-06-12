@@ -39,7 +39,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Check hosted data-flow configuration
         id: gate
@@ -66,13 +66,13 @@ jobs:
 
       - name: Setup pnpm
         if: steps.gate.outputs.enabled == 'true'
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
         if: steps.gate.outputs.enabled == 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - name: Install dependencies
@@ -134,7 +134,7 @@ jobs:
 
       - name: Upload hosted data-flow health artifacts
         if: always() && steps.gate.outputs.enabled == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-hosted-data-flow-health
           if-no-files-found: warn
@@ -152,7 +152,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Check production smoke configuration
         id: gate
@@ -179,13 +179,13 @@ jobs:
 
       - name: Setup pnpm
         if: steps.gate.outputs.enabled == 'true'
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
         if: steps.gate.outputs.enabled == 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - name: Install dependencies
@@ -231,7 +231,7 @@ jobs:
 
       - name: Upload production smoke health artifacts
         if: always() && steps.gate.outputs.enabled == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-production-smoke-health
           if-no-files-found: warn
