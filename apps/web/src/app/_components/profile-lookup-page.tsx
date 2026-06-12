@@ -202,6 +202,16 @@ function ProfileAvatar({ profile }: { profile: Pick<PublicProfileLookupResult, "
   );
 }
 
+function VerifiedTrustMark({ className, label }: { className?: string; label: string }) {
+  return (
+    <span className={cn("lookup-trust-mark", className)} aria-label={label} title={label}>
+      <svg aria-hidden="true" viewBox="0 0 16 16">
+        <path d="m4.1 8.3 2.45 2.45L12.25 5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+      </svg>
+    </span>
+  );
+}
+
 function BrandIcon({ type }: { type: "discord" | "twitch" | "vrchat_profile" }) {
   if (type === "discord") {
     return (
@@ -381,21 +391,16 @@ function LookupIdentity({ profile }: { profile: PublicProfileLookupResult }) {
 
   return (
     <div className="lookup-identity">
-      <ProfileAvatar profile={profile} />
+      <div className="lookup-avatar-wrap">
+        <ProfileAvatar profile={profile} />
+        {profile.trustLabel === "claimed_verified" ? <VerifiedTrustMark className="lookup-trust-mark--avatar" label={trustLabel} /> : null}
+      </div>
       <div className="lookup-identity-copy">
         <div className="lookup-name-row">
           <Link className="lookup-name-link" href={profile.profilePath}>
             {profile.displayName}
           </Link>
-          {profile.trustLabel === "claimed_verified" ? (
-            <span className="lookup-trust-mark" aria-label={trustLabel} title={trustLabel}>
-              <svg aria-hidden="true" viewBox="0 0 16 16">
-                <path d="m4.1 8.3 2.45 2.45L12.25 5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
-              </svg>
-            </span>
-          ) : (
-            <span className="lookup-trust-pill">{trustLabel}</span>
-          )}
+          {profile.trustLabel === "claimed_verified" ? null : <span className="lookup-trust-pill">{trustLabel}</span>}
         </div>
         {profile.aliases.length > 0 ? (
           <div className="lookup-alias-line">

@@ -188,6 +188,12 @@ body {
   width: 100%;
 }
 
+.lookup-avatar-wrap {
+  display: inline-flex;
+  flex: 0 0 auto;
+  position: relative;
+}
+
 .lookup-avatar {
   align-items: center;
   border-radius: calc(var(--radius-card) + 0.08rem);
@@ -281,6 +287,13 @@ body {
   width: 0.68rem;
 }
 
+.lookup-trust-mark--avatar {
+  bottom: -0.16rem;
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 20%, transparent);
+  position: absolute;
+  right: -0.16rem;
+}
+
 .lookup-alias-line {
   align-items: baseline;
   color: var(--muted);
@@ -371,21 +384,6 @@ body {
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--genre-accent) 24%, transparent), 0 8px 18px color-mix(in srgb, var(--genre-accent) 18%, transparent);
   color: var(--foreground);
   font-weight: 760;
-  position: relative;
-}
-
-.lookup-genre-chip--featured::after {
-  background: color-mix(in srgb, var(--accent-strong) 80%, white);
-  border-radius: 999px;
-  box-shadow:
-    -0.42rem 0.2rem 0 -1px color-mix(in srgb, var(--genre-accent) 80%, white),
-    0.34rem 0.3rem 0 -1px color-mix(in srgb, var(--accent-strong) 70%, white);
-  content: "";
-  height: 0.18rem;
-  position: absolute;
-  right: 0.28rem;
-  top: 0.22rem;
-  width: 0.18rem;
 }
 
 .lookup-genre-chip--dnb {
