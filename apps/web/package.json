@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": ">=22 <25"
+    "node": ">=24 <25"
   },
   "scripts": {
     "dev": "next dev",
@@ -42,7 +42,7 @@
     "@storybook/addon-a11y": "10.4.2",
     "@storybook/nextjs-vite": "10.4.2",
     "@tailwindcss/postcss": "^4",
-    "@types/node": "^22",
+    "@types/node": "^24",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",

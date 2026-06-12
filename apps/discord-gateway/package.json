@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22 <25"
+    "node": ">=24 <25"
   },
   "scripts": {
     "start": "tsx src/index.ts",
@@ -15,7 +15,7 @@
     "discord.js": "^14.19.3"
   },
   "devDependencies": {
-    "@types/node": "^22",
+    "@types/node": "^24",
     "tsx": "^4.22.1",
     "typescript": "^5.9.3"
   },
