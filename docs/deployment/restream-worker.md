@@ -46,7 +46,7 @@ The task definition injects these non-secret values, and the current entrypoint 
 - `VRDEX_RESTREAM_HOLD_SLATE_AUDIO_DELAY_MS=750`
 - `CONVEX_URL`
 
-Secret values are not environment variables in git or Terraform. The `secret_arns` map supplies ECS secret references by container environment name. The `execution_secret_names` and `execution_secret_arns` variables grant the ECS execution role permission to read secrets used by bridge-created task definitions. Synthetic benchmark tasks set `VRDEX_RESTREAM_SYNTHETIC_ONLY=true`, so they can produce media evidence without provider credentials. Use scoped, event/output-specific references for any non-synthetic VRCDN or external RTMP credential.
+Secret values are not environment variables in git or Terraform. The `secret_arns` map supplies ECS secret references by container environment name. The `execution_secret_names` and `execution_secret_arns` variables grant the ECS execution role permission to read secrets used by bridge-created task definitions. Keep those variables empty by default for portable planning; operator deployments should set only their own secret names or ARNs in local ignored Terraform variables, for example `execution_secret_names = ["event-media/vrcdn/basicbit-output"]` for the current BASIC-BIT VRCDN output account. Synthetic benchmark tasks set `VRDEX_RESTREAM_SYNTHETIC_ONLY=true`, so they can produce media evidence without provider credentials. Use scoped, event/output-specific references for any non-synthetic VRCDN or external RTMP credential.
 
 ## Runtime Bridge
 

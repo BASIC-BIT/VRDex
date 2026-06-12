@@ -110,6 +110,10 @@ function workerStatusReason(value) {
   return value.length <= 500 ? value : `${value.slice(0, 497)}...`;
 }
 
+function outputWatchUrl(output) {
+  return output?.playbackLinks?.find((link) => link.platform === "browser")?.url ?? output?.playbackLinks?.[0]?.url;
+}
+
 function sanitizeLog(value, redactValues) {
   let output = value;
 
@@ -190,6 +194,8 @@ function loadConfig() {
 }
 
 function environmentEntries(command, config) {
+  const watchUrl = outputWatchUrl(command.output);
+
   return Object.entries({
     ...config.baseEnvironment,
     CONVEX_URL: config.convexUrl,
@@ -202,6 +208,12 @@ function environmentEntries(command, config) {
       : {
           VRDEX_EVENT_MEDIA_OUTPUT_ID: command.output.outputId,
           VRDEX_EVENT_MEDIA_OUTPUT_PLAYBACK_LINKS_JSON: JSON.stringify(command.output.playbackLinks),
+          ...(watchUrl === undefined
+            ? {}
+            : {
+                VRDEX_EVENT_MEDIA_OUTPUT_WATCH_URL: watchUrl,
+                VRDEX_VRCDN_POC_OUTPUT_WATCH_URL: watchUrl,
+              }),
         }),
   }).map(([name, value]) => ({ name, value: String(value) }));
 }
@@ -344,6 +356,33 @@ async function stopCommand(command, client, config) {
   console.log(JSON.stringify({ event: "event_media_ecs_task_stop_requested", sessionId: command.session.sessionId, taskArn }));
 }
 
+async function recordClaimedCommandError(command, error, client, config) {
+  const reason = workerStatusReason(error instanceof Error ? error.message : String(error));
+
+  await client.mutation(convexApi.recordEventMediaWorkerBridgeTaskStatus, {
+    bridgeToken: config.bridgeToken,
+    workerId: config.workerId,
+    sessionId: command.session.sessionId,
+    commandId: command.commandId,
+    status: "error",
+    workerProvider: "aws_ecs",
+    workerTaskStatus: "failed",
+    workerTaskStatusReason: reason,
+  });
+
+  console.error(
+    sanitizeLog(
+      JSON.stringify({
+        event: "event_media_ecs_command_failed",
+        commandId: command.commandId,
+        sessionId: command.session.sessionId,
+        reason,
+      }),
+      config.redactValues,
+    ),
+  );
+}
+
 async function claimAndProcess(client, config) {
   const command = await client.mutation(convexApi.claimEventMediaWorkerCommand, {
     bridgeToken: config.bridgeToken,
@@ -354,13 +393,18 @@ async function claimAndProcess(client, config) {
     return false;
   }
 
-  if (command.commandType === "start_program") {
-    await startCommand(command, client, config);
-    return true;
-  }
+  try {
+    if (command.commandType === "start_program") {
+      await startCommand(command, client, config);
+      return true;
+    }
 
-  if (command.commandType === "stop_program") {
-    await stopCommand(command, client, config);
+    if (command.commandType === "stop_program") {
+      await stopCommand(command, client, config);
+      return true;
+    }
+  } catch (error) {
+    await recordClaimedCommandError(command, error, client, config);
     return true;
   }
 

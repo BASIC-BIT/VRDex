@@ -191,7 +191,7 @@ variable "execution_secret_arns" {
 variable "execution_secret_names" {
   description = "Secrets Manager secret names the ECS execution role may read for bridge-created task definitions. Values are names only, never secret values."
   type        = list(string)
-  default     = ["event-media/vrcdn/basicbit-output"]
+  default     = []
 }
 
 variable "log_retention_days" {

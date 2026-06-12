@@ -238,7 +238,14 @@ function requireEventMediaBridgeToken(input: string) {
     throw new Error("Event media bridge token is not configured.");
   }
 
-  if (input !== expected) {
+  let mismatch = input.length === expected.length ? 0 : 1;
+  const length = Math.max(input.length, expected.length);
+
+  for (let index = 0; index < length; index += 1) {
+    mismatch |= (input.charCodeAt(index) || 0) ^ (expected.charCodeAt(index) || 0);
+  }
+
+  if (mismatch !== 0) {
     throw new Error("Event media bridge token is invalid.");
   }
 }
@@ -473,13 +480,13 @@ async function getOrCreateEventMediaProgram(
   event: Doc<"events">,
   now: number,
 ): Promise<Id<"eventMediaPrograms">> {
-  const existing = await db
+  const program = await db
     .query("eventMediaPrograms")
-    .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
-    .take(10);
-  const program = existing.sort((first, second) => second.updatedAt - first.updatedAt)[0];
+    .withIndex("by_eventId_updatedAt", (query) => query.eq("eventId", event._id))
+    .order("desc")
+    .first();
 
-  if (program !== undefined) {
+  if (program !== null) {
     return program._id;
   }
 
@@ -498,12 +505,11 @@ async function getLatestEventMediaProgram(
   db: DatabaseReader,
   eventId: Id<"events">,
 ): Promise<Doc<"eventMediaPrograms"> | null> {
-  const existing = await db
+  return db
     .query("eventMediaPrograms")
-    .withIndex("by_eventId", (query) => query.eq("eventId", eventId))
-    .take(10);
-
-  return existing.sort((first, second) => second.updatedAt - first.updatedAt)[0] ?? null;
+    .withIndex("by_eventId_updatedAt", (query) => query.eq("eventId", eventId))
+    .order("desc")
+    .first();
 }
 
 async function getEditableEventBySlug(
@@ -1339,7 +1345,7 @@ export const configureVrcdnOutput = mutation({
         : existingOutput._id;
 
     if (existingOutput !== null) {
-      await ctx.db.patch(existingOutput._id, { ...outputRecord, credential });
+      await ctx.db.patch(existingOutput._id, outputRecord);
     }
 
     await ctx.db.patch(programId, {

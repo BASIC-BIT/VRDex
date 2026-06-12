@@ -568,6 +568,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_eventId", ["eventId"])
+    .index("by_eventId_updatedAt", ["eventId", "updatedAt"])
     .index("by_communityProfileId_state", ["communityProfileId", "state"])
     .index("by_state_updatedAt", ["state", "updatedAt"]),
   eventMediaSources: defineTable({
