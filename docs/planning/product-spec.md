@@ -307,6 +307,7 @@ Current recommendation for lookup mode:
 - treat VRChat, Discord, SoundCloud, Mixcloud, Twitch, YouTube, Spotify, Bandcamp, Instagram, Linktree, website, store, and booking links as first-class profile link types
 - support a bulk lineup paste mode that looks up each pasted line as provided, with a later LLM-assisted cleanup pass as a candidate direction for messy schedule text and poor matches
 - do not expose auth-provider account metadata, private claim evidence, or hidden verification details in lookup rows
+- use a compact icon-only checkmark for verified lookup/profile rows, with accessible label or tooltip text for meaning and no visible `Verified` word in dense operator layouts
 
 Current recommendation for opinionated DJ/club surfaces:
 

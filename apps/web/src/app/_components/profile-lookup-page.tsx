@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useState, useTransition } from "react";
+import { useCallback, useRef, useState, useTransition } from "react";
 
 import { LookupCopyButton } from "./lookup-copy-button";
 import { LookupSearchBox } from "./lookup-search-box";
@@ -87,7 +87,7 @@ function hostLabel(url: string): string {
 
 function trustLabelCopy(label: ProfileTrustLabel) {
   if (label === "claimed_verified") {
-    return "Verified";
+    return "Verified profile";
   }
 
   if (label === "claimed_unverified") {
@@ -197,7 +197,7 @@ function ProfileAvatar({ profile }: { profile: Pick<PublicProfileLookupResult, "
 
   return (
     <div className="lookup-avatar" aria-hidden="true">
-      {profile.avatarImageUrl ? <Image alt="" height={80} src={profile.avatarImageUrl} unoptimized width={80} /> : <span>{initials}</span>}
+      {profile.avatarImageUrl ? <Image alt="" height={96} src={profile.avatarImageUrl} unoptimized width={96} /> : <span>{initials}</span>}
     </div>
   );
 }
@@ -387,9 +387,22 @@ function LookupIdentity({ profile }: { profile: PublicProfileLookupResult }) {
           <Link className="lookup-name-link" href={profile.profilePath}>
             {profile.displayName}
           </Link>
-          <span className={cn("lookup-trust-pill", profile.trustLabel === "claimed_verified" ? "lookup-trust-pill--verified" : undefined)}>{trustLabel}</span>
+          {profile.trustLabel === "claimed_verified" ? (
+            <span className="lookup-trust-mark" aria-label={trustLabel} title={trustLabel}>
+              <svg aria-hidden="true" viewBox="0 0 16 16">
+                <path d="m4.1 8.3 2.45 2.45L12.25 5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+              </svg>
+            </span>
+          ) : (
+            <span className="lookup-trust-pill">{trustLabel}</span>
+          )}
         </div>
-        {profile.aliases.length > 0 ? <div className="lookup-alias-line">{profile.aliases.join(" / ")}</div> : null}
+        {profile.aliases.length > 0 ? (
+          <div className="lookup-alias-line">
+            <span>aka</span>
+            <span className="lookup-alias-line__value">{profile.aliases.join(" / ")}</span>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -507,9 +520,10 @@ export function ProfileLookupPage({
   const [lookupStatus, setLookupStatus] = useState<LookupStatus>(status);
   const [bulkEntries, setBulkEntries] = useState<BulkLookupEntry[]>([]);
   const [pendingLabel, setPendingLabel] = useState<string | null>(null);
+  const requestVersionRef = useRef(0);
   const [isPending, startTransition] = useTransition();
   const isSearching = pendingLabel !== null || isPending;
-  const hasQuery = Boolean(displayQuery.trim()) || bulkEntries.length > 0;
+  const hasQuery = Boolean(displayQuery.trim()) || bulkEntries.length > 0 || isSearching;
   const runLookup = useCallback(async (nextQuery: string) => {
     const normalizedQuery = nextQuery.trim();
 
@@ -517,10 +531,17 @@ export function ProfileLookupPage({
       return;
     }
 
+    const requestVersion = requestVersionRef.current + 1;
+
+    requestVersionRef.current = requestVersion;
     setPendingLabel(`Searching ${normalizedQuery}`);
 
     try {
       const nextResults = await fetchLookupResults(normalizedQuery);
+
+      if (requestVersionRef.current !== requestVersion) {
+        return;
+      }
 
       startTransition(() => {
         setDisplayQuery(normalizedQuery);
@@ -530,14 +551,19 @@ export function ProfileLookupPage({
         updateLookupUrl(normalizedQuery);
       });
     } catch {
-      setLookupStatus("error");
+      if (requestVersionRef.current === requestVersion) {
+        setLookupStatus("error");
+      }
     } finally {
-      setPendingLabel(null);
+      if (requestVersionRef.current === requestVersion) {
+        setPendingLabel(null);
+      }
     }
   }, []);
 
   const runBulkLookup = useCallback(async (lines: string[]) => {
     if (lines.length === 0) {
+      requestVersionRef.current += 1;
       startTransition(() => {
         setBulkEntries([]);
         setDisplayQuery("");
@@ -548,6 +574,9 @@ export function ProfileLookupPage({
       return;
     }
 
+    const requestVersion = requestVersionRef.current + 1;
+
+    requestVersionRef.current = requestVersion;
     setPendingLabel(`Searching ${lines.length} lineup entries`);
 
     try {
@@ -559,6 +588,10 @@ export function ProfileLookupPage({
       );
       const nextResults = dedupeProfiles(entries.flatMap((entry) => entry.results));
 
+      if (requestVersionRef.current !== requestVersion) {
+        return;
+      }
+
       startTransition(() => {
         setBulkEntries(entries);
         setDisplayQuery(`${lines.length} lineup entries`);
@@ -567,10 +600,26 @@ export function ProfileLookupPage({
         updateLookupUrl("");
       });
     } catch {
-      setLookupStatus("error");
+      if (requestVersionRef.current === requestVersion) {
+        setLookupStatus("error");
+      }
     } finally {
-      setPendingLabel(null);
+      if (requestVersionRef.current === requestVersion) {
+        setPendingLabel(null);
+      }
     }
+  }, []);
+
+  const clearLookup = useCallback(() => {
+    requestVersionRef.current += 1;
+    startTransition(() => {
+      setDisplayQuery("");
+      setDisplayResults([]);
+      setBulkEntries([]);
+      setLookupStatus("live");
+      setPendingLabel(null);
+      updateLookupUrl("");
+    });
   }, []);
 
   return (
@@ -598,6 +647,7 @@ export function ProfileLookupPage({
             initialResults={displayResults}
             isSearching={isSearching}
             onBulkLookup={runBulkLookup}
+            onClear={clearLookup}
             onLookup={runLookup}
           />
         </section>
@@ -609,11 +659,11 @@ export function ProfileLookupPage({
             {isSearching ? <span className="sr-only">{pendingLabel ?? "Searching"}</span> : null}
             <BulkLookupSummary entries={bulkEntries} />
             <div className={cn("lookup-results-wrap", isSearching ? "lookup-results-wrap--pending" : undefined)}>
-              {displayResults.length === 0 ? (
+              {displayResults.length === 0 && !isSearching ? (
                 <Card className="lookup-panel" surface="dashed">
                   <p className="font-medium">No matches found.</p>
                 </Card>
-              ) : (
+              ) : displayResults.length > 0 ? (
                 <>
                   <div className="grid gap-3 sm:hidden">
                     {displayResults.map((profile) => <LookupResultCard key={profile.slug} profile={profile} />)}
@@ -633,13 +683,12 @@ export function ProfileLookupPage({
                     </Table>
                   </TableFrame>
                 </>
-              )}
+              ) : null}
             </div>
           </section>
         ) : (
           <Card className="lookup-panel" surface="glass">
             <p className="font-medium">Start with a name or genre.</p>
-            <p className="mt-2 text-sm leading-6 text-muted">This page is intentionally plain: a fast operator lookup, separate from public profile polish.</p>
           </Card>
         )}
       </PageContainer>

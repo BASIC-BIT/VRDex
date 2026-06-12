@@ -40,12 +40,14 @@ export function LookupSearchBox({
   initialResults,
   isSearching,
   onBulkLookup,
+  onClear,
   onLookup,
 }: {
   initialQuery: string;
   initialResults: PublicProfileLookupResult[];
   isSearching: boolean;
   onBulkLookup: (lines: string[]) => void;
+  onClear: () => void;
   onLookup: (query: string) => void;
 }) {
   const [query, setQuery] = useState(initialQuery);
@@ -123,7 +125,16 @@ export function LookupSearchBox({
       setQuery(nextQuery);
       setIsOpen(false);
       onLookup(nextQuery);
+    } else {
+      clearSingleLookup();
     }
+  }
+
+  function clearSingleLookup() {
+    setQuery("");
+    setFetchedSuggestions(null);
+    setIsOpen(false);
+    onClear();
   }
 
   function toggleBulkMode() {
@@ -182,16 +193,31 @@ export function LookupSearchBox({
           <div className="relative">
             <Input
               aria-label="DJ name"
-              className="lookup-input h-10 w-full"
+              className="lookup-input lookup-input--clearable h-10 w-full"
               name="q"
               placeholder="Name or genre"
               value={query}
               onChange={(event) => {
-                setQuery(event.currentTarget.value);
+                const nextQuery = event.currentTarget.value;
+
+                setQuery(nextQuery);
                 setIsOpen(true);
+
+                if (nextQuery.trim().length === 0) {
+                  setFetchedSuggestions(null);
+                  setIsOpen(false);
+                  onClear();
+                }
               }}
               onFocus={() => setIsOpen(true)}
             />
+            {query.trim() ? (
+              <button className="lookup-clear-button" type="button" aria-label="Clear lookup" onClick={clearSingleLookup}>
+                <svg aria-hidden="true" viewBox="0 0 16 16">
+                  <path d="m4.5 4.5 7 7m0-7-7 7" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
+                </svg>
+              </button>
+            ) : null}
             {isOpen && suggestions.length > 0 ? (
               <div className="lookup-suggestions" role="listbox" aria-label="Lookup suggestions">
                 {suggestions.map((profile) => (
