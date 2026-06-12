@@ -214,12 +214,6 @@ const basicBitProfile: FixturePersonProfile = {
     },
     {
       type: "vrcdn",
-      label: "VRCDN preview",
-      url: "https://panel.vrcdn.live/preview/basicbit",
-      source: "owner_authored",
-    },
-    {
-      type: "vrcdn",
       label: "VRCDN stream",
       url: "https://stream.vrcdn.live/live/basicbit.live.ts",
       source: "owner_authored",

@@ -143,10 +143,24 @@ function isVrcdnStreamLink(link: LookupLink) {
   return link.type === "vrcdn" && !isVrcdnPreviewLink(link);
 }
 
+function vrcdnStreamName(url: string): string | undefined {
+  try {
+    return new URL(url).pathname.split("/").filter(Boolean).at(-1)?.replace(/\.live\.ts$/, "");
+  } catch {
+    return undefined;
+  }
+}
+
+function deriveVrcdnPreviewLink(url: string): { label: string; url: string } | null {
+  const streamName = vrcdnStreamName(url);
+
+  return streamName ? { label: "VRCDN preview", url: `https://panel.vrcdn.live/preview/${streamName}` } : null;
+}
+
 function deriveVrcdnCopyLinks(url: string): Array<{ label: string; value: string }> {
   try {
     const parsed = new URL(url);
-    const streamName = parsed.pathname.split("/").filter(Boolean).at(-1)?.replace(/\.live\.ts$/, "");
+    const streamName = vrcdnStreamName(url);
 
     if (!streamName) {
       return [{ label: "Quest MPEG-TS", value: url }];
@@ -324,13 +338,10 @@ function IconCircleLink({ link, className }: { link: LookupLink; className?: str
   );
 }
 
-function VrcdnPreviewLink({ link }: { link: LookupLink }) {
+function VrcdnPreviewLink({ link }: { link: { label: string; url: string } }) {
   return (
-    <a className="lookup-feature-link" href={link.url} rel="noreferrer" target="_blank">
-      <span className="min-w-0">
-        <span className="block truncate text-sm font-semibold">{link.label}</span>
-        <span className="block truncate text-[0.68rem] opacity-75">panel.vrcdn.live</span>
-      </span>
+    <a aria-label={link.label} className="lookup-feature-link" href={link.url} rel="noreferrer" target="_blank">
+      <span className="lookup-feature-link__label">{link.label}</span>
       <ExternalIcon className="size-4" />
     </a>
   );
@@ -403,10 +414,18 @@ function LookupLinks({ links }: { links: PublicProfileLookupResult["outboundLink
     return <span className="text-muted">No public links</span>;
   }
 
-  const vrcdnPreviewLinks = links.filter(isVrcdnPreviewLink);
+  const explicitVrcdnPreviewLinks = links.filter(isVrcdnPreviewLink);
   const vrcdnStreamLinks = links.filter(isVrcdnStreamLink);
   const twitchCopyLinks = links.filter((link) => link.type === "twitch" && link.presentation === "copy");
-  const handled = new Set([...vrcdnPreviewLinks, ...vrcdnStreamLinks]);
+  const vrcdnPreviewLinks = [
+    ...explicitVrcdnPreviewLinks.map((link) => ({ label: link.label, url: link.url })),
+    ...vrcdnStreamLinks.flatMap((link) => {
+      const previewLink = deriveVrcdnPreviewLink(link.url);
+
+      return previewLink ? [previewLink] : [];
+    }),
+  ].filter((link, index, allLinks) => allLinks.findIndex((candidate) => candidate.url === link.url) === index);
+  const handled = new Set([...explicitVrcdnPreviewLinks, ...vrcdnStreamLinks]);
   const iconLinks = links.filter((link) => !handled.has(link));
   const vrcdnCopyLinks = vrcdnStreamLinks.flatMap((link) => deriveVrcdnCopyLinks(link.url).map((entry) => ({ ...entry, key: `${link.url}-${entry.label}` })));
   const copyRows = [
@@ -417,13 +436,20 @@ function LookupLinks({ links }: { links: PublicProfileLookupResult["outboundLink
   const copyLabelCh = Math.max(0, ...copyRows.map((row) => row.label.length));
   const hasPrimaryActions = vrcdnPreviewLinks.length > 0 || iconLinks.length > 0;
   const hasCopyRows = copyRows.length > 0;
+  const linkBoardStyle = hasCopyRows
+    ? ({ "--lookup-board-label-ch": copyLabelCh, "--lookup-board-url-ch": Math.min(Math.max(copyValueCh, 18), 68) } as CSSProperties)
+    : undefined;
 
   return (
-    <div className="lookup-link-board">
+    <div className={cn("lookup-link-board", hasCopyRows ? "lookup-link-board--copy-aligned" : undefined)} style={linkBoardStyle}>
       {hasPrimaryActions ? (
         <div className="lookup-link-actions">
-          {vrcdnPreviewLinks.map((link) => <VrcdnPreviewLink key={`${link.type}-${link.url}`} link={link} />)}
-          {iconLinks.map((link) => <IconCircleLink key={`${link.type}-${link.url}`} link={link} />)}
+          {iconLinks.length > 0 ? (
+            <div className="lookup-icon-actions">
+              {iconLinks.map((link) => <IconCircleLink key={`${link.type}-${link.url}`} link={link} />)}
+            </div>
+          ) : null}
+          {vrcdnPreviewLinks.map((link) => <VrcdnPreviewLink key={link.url} link={link} />)}
         </div>
       ) : null}
       {hasCopyRows ? (

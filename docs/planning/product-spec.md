@@ -307,6 +307,7 @@ Current recommendation for lookup mode:
 - source lookup results from the same public profile/search data, with the same suppression and field-visibility boundaries as ordinary public surfaces
 - treat VRChat, Discord, SoundCloud, Mixcloud, Twitch, YouTube, Spotify, Bandcamp, Instagram, Linktree, website, store, and booking links as first-class profile link types
 - render non-primary lookup links as icon-only actions. Elevate VRCDN stream controls first; Twitch stays icon-only unless the profile link explicitly requests copy-row presentation, because some DJs prefer event organizers to use VRCDN over Twitch.
+- derive a VRCDN preview action from any public VRCDN stream link instead of requiring a duplicate stored preview link.
 - keep recent lookup terms local to the browser, deduped, and capped to a small list for quick operator reuse.
 - support a bulk lineup paste mode that looks up each pasted line as provided, with a later LLM-assisted cleanup pass as a candidate direction for messy schedule text and poor matches
 - do not expose auth-provider account metadata, private claim evidence, or hidden verification details in lookup rows

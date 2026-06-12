@@ -36,6 +36,7 @@ test("lookup suggestions select a public person row", async ({ page }) => {
   await expect(page).toHaveURL(/\/lookup\?q=BASICBIT$/);
   await expect(page.getByRole("link", { name: "BASICBIT", exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Website: basicbit.net", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "VRCDN preview", exact: true })).toBeVisible();
   await expect(page.locator('input[value="https://stream.vrcdn.live/live/basicbit.live.ts"]')).toHaveCount(2);
   await expect(page.locator('input[value="rtspt://stream.vrcdn.live/live/basicbit"]')).toHaveCount(2);
   await expect(page.locator('input[value="https://www.twitch.tv/basic_bit"]')).toHaveCount(0);

@@ -595,18 +595,29 @@ body {
   border-radius: var(--radius-panel);
   box-shadow: 0 4px 10px color-mix(in srgb, var(--accent) 8%, transparent);
   color: var(--foreground);
-  display: flex;
-  gap: 1rem;
-  justify-content: space-between;
+  display: grid;
+  gap: 0.28rem;
+  grid-template-columns: 0.8rem minmax(0, 1fr) 0.8rem;
+  justify-self: end;
   min-height: 2.48rem;
-  padding: 0.34rem 0.55rem;
+  min-width: 8.55rem;
+  padding: 0.34rem 0.54rem;
   transition:
     box-shadow 180ms ease,
     transform 180ms ease;
 }
 
-.lookup-feature-link span {
-  line-height: 1.12;
+.lookup-feature-link__label {
+  font-size: 0.82rem;
+  font-weight: 700;
+  grid-column: 2;
+  line-height: 1;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.lookup-feature-link svg {
+  grid-column: 3;
 }
 
 .lookup-feature-link:hover {
@@ -786,18 +797,32 @@ body {
   width: 100%;
 }
 
+.lookup-link-board--copy-aligned {
+  width: min(100%, calc((var(--lookup-board-label-ch, 0) + var(--lookup-board-url-ch, 18)) * 1ch + 4.57rem));
+}
+
 .lookup-link-actions {
+  align-items: center;
+  display: grid;
+  gap: 0.55rem 1rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  max-width: 100%;
+  width: 100%;
+}
+
+.lookup-link-actions .lookup-feature-link {
+  grid-column: 2;
+  max-width: min(22rem, 100%);
+}
+
+.lookup-icon-actions {
   align-items: center;
   display: flex;
   flex-wrap: wrap;
   gap: 0.42rem 0.55rem;
+  grid-column: 1;
   justify-content: flex-start;
-  max-width: 100%;
-}
-
-.lookup-link-actions .lookup-feature-link {
-  flex: 0 0 auto;
-  max-width: min(22rem, 100%);
+  min-width: 0;
 }
 
 .lookup-copy-list {
@@ -806,6 +831,10 @@ body {
   justify-items: start;
   max-width: 100%;
   width: max-content;
+}
+
+.lookup-link-board--copy-aligned .lookup-copy-list {
+  width: 100%;
 }
 
 .lookup-copy-list .lookup-primary-url-card {
@@ -902,6 +931,16 @@ body {
 
   .lookup-link-board {
     min-width: 0;
+  }
+
+  .lookup-link-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .lookup-link-actions .lookup-feature-link,
+  .lookup-icon-actions {
+    grid-column: 1;
+    justify-self: start;
   }
 
   .lookup-copy-list {
