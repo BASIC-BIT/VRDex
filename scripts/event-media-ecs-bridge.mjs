@@ -86,6 +86,14 @@ function taskId(taskArn) {
   return taskArn.split("/").at(-1) ?? taskArn;
 }
 
+function workerStatusReason(value) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return value.length <= 500 ? value : `${value.slice(0, 497)}...`;
+}
+
 function sanitizeLog(value, redactValues) {
   let output = value;
 
@@ -348,7 +356,7 @@ function ecsStatusToSessionStatus(task) {
     return {
       status: container?.exitCode === 0 ? "ended" : "error",
       workerTaskStatus: container?.exitCode === 0 ? "stopped" : "failed",
-      reason: container?.reason ?? task.stoppedReason,
+      reason: workerStatusReason(container?.reason ?? task.stoppedReason),
     };
   }
 
@@ -356,7 +364,7 @@ function ecsStatusToSessionStatus(task) {
     return { status: "live", workerTaskStatus: "running", reason: undefined };
   }
 
-  return { status: "starting", workerTaskStatus: "starting", reason: task.lastStatus };
+  return { status: "starting", workerTaskStatus: "starting", reason: workerStatusReason(task.lastStatus) };
 }
 
 async function deregisterTaskDefinition(taskDefinitionArn, config) {
@@ -384,9 +392,9 @@ async function refreshSessions(client, config) {
     "--cluster",
     config.cluster,
     "--tasks",
-    ...taskSessions.map((session) => session.workerTaskId),
+    ...taskSessions.map((session) => taskId(session.workerTaskId)),
   ]);
-  const tasksByArn = new Map((response.tasks ?? []).map((task) => [task.taskArn, task]));
+  const tasksByArn = new Map((response.tasks ?? []).flatMap((task) => [[task.taskArn, task], [taskId(task.taskArn), task]]));
 
   for (const session of taskSessions) {
     const task = tasksByArn.get(session.workerTaskId);

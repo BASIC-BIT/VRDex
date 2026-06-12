@@ -1036,7 +1036,7 @@ export const listEventMediaWorkerBridgeSessions = query({
   args: eventMediaWorkerBridgeArgs,
   handler: async (ctx, args) => {
     requireEventMediaBridgeToken(args.bridgeToken);
-    requireBridgeWorkerId(args.workerId);
+    const workerId = requireBridgeWorkerId(args.workerId);
     const statuses: Array<"scheduled" | "starting" | "live" | "hold" | "fallback" | "stopping"> = [
       "scheduled",
       "starting",
@@ -1056,7 +1056,7 @@ export const listEventMediaWorkerBridgeSessions = query({
 
     return sessionGroups
       .flat()
-      .filter((session) => session.workerProvider === "aws_ecs" && session.workerTaskId !== undefined)
+      .filter((session) => session.workerId === workerId && session.workerProvider === "aws_ecs" && session.workerTaskId !== undefined)
       .sort((first, second) => second.updatedAt - first.updatedAt)
       .map(workerSessionStatus);
   },
