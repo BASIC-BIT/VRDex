@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { type CSSProperties, useCallback, useRef, useState, useTransition } from "react";
+import { type CSSProperties, type ReactNode, useCallback, useRef, useState, useTransition } from "react";
 
 import { LookupCopyButton } from "./lookup-copy-button";
 import { LookupSearchBox } from "./lookup-search-box";
@@ -334,34 +334,70 @@ function VrcdnPreviewLink({ link }: { link: LookupLink }) {
   );
 }
 
-function TwitchFeatureLink({ link }: { link: LookupLink }) {
+function CopyableUrlBar({
+  className,
+  label,
+  openIcon,
+  openLabel,
+  openUrl,
+  value,
+}: {
+  className?: string;
+  label: string;
+  openIcon?: ReactNode;
+  openLabel?: string;
+  openUrl?: string;
+  value: string;
+}) {
+  const urlInputCh = Math.min(Math.max(value.length, 18), 68);
+
   return (
-    <div className="lookup-primary-url-card lookup-primary-url-card--twitch">
-      <span className="lookup-primary-url-label">Twitch</span>
-      <code className="lookup-primary-url-value" title={link.url}>{link.url}</code>
-      <LookupCopyButton className="lookup-primary-url-copy" label="Copy" value={link.url} />
-      <a
-        aria-label={`Open Twitch: ${link.handle ?? hostLabel(link.url)}`}
-        className="lookup-primary-url-open lookup-brand-circle lookup-brand-circle--twitch"
-        href={link.url}
-        rel="noreferrer"
-        target="_blank"
-        title={`Open Twitch: ${link.handle ?? hostLabel(link.url)}`}
-      >
-        <BrandIcon type="twitch" />
-      </a>
+    <div
+      className={cn("lookup-primary-url-card", openUrl ? "lookup-primary-url-card--has-open" : undefined, className)}
+      style={{ "--lookup-url-ch": urlInputCh } as CSSProperties}
+    >
+      <span className="lookup-primary-url-label">{label}</span>
+      <input
+        aria-label={`${label} URL`}
+        className="lookup-primary-url-value"
+        readOnly
+        title={value}
+        value={value}
+        onClick={(event) => event.currentTarget.select()}
+        onFocus={(event) => event.currentTarget.select()}
+      />
+      <LookupCopyButton className="lookup-primary-url-copy" label="Copy" value={value} />
+      {openUrl ? (
+        <a
+          aria-label={openLabel ?? `Open ${label}`}
+          className="lookup-primary-url-open lookup-brand-circle lookup-brand-circle--twitch"
+          href={openUrl}
+          rel="noreferrer"
+          target="_blank"
+          title={openLabel ?? `Open ${label}`}
+        >
+          {openIcon ?? <ExternalIcon className="size-4" />}
+        </a>
+      ) : null}
     </div>
   );
 }
 
-function CodeCopyBar({ label, value }: { label: string; value: string }) {
+function TwitchFeatureLink({ link }: { link: LookupLink }) {
   return (
-    <div className="lookup-code-bar">
-      <span className="lookup-code-label">{label}</span>
-      <code className="lookup-code-value" title={value}>{value}</code>
-      <LookupCopyButton className="lookup-code-copy" label="Copy" value={value} />
-    </div>
+    <CopyableUrlBar
+      className="lookup-primary-url-card--twitch"
+      label="Twitch"
+      openIcon={<BrandIcon type="twitch" />}
+      openLabel={`Open Twitch: ${link.handle ?? hostLabel(link.url)}`}
+      openUrl={link.url}
+      value={link.url}
+    />
   );
+}
+
+function CodeCopyBar({ label, value }: { label: string; value: string }) {
+  return <CopyableUrlBar label={label} value={value} />;
 }
 
 function LookupLinks({ links }: { links: PublicProfileLookupResult["outboundLinks"] }) {
@@ -371,27 +407,30 @@ function LookupLinks({ links }: { links: PublicProfileLookupResult["outboundLink
 
   const vrcdnPreviewLinks = links.filter(isVrcdnPreviewLink);
   const vrcdnStreamLinks = links.filter(isVrcdnStreamLink);
-  const hasVrcdn = vrcdnPreviewLinks.length > 0 || vrcdnStreamLinks.length > 0;
-  const twitchFeatureLink = hasVrcdn ? undefined : links.find((link) => link.type === "twitch");
-  const handled = new Set([...vrcdnPreviewLinks, ...vrcdnStreamLinks, ...(twitchFeatureLink ? [twitchFeatureLink] : [])]);
+  const twitchLinks = links.filter((link) => link.type === "twitch");
+  const handled = new Set([...vrcdnPreviewLinks, ...vrcdnStreamLinks, ...twitchLinks]);
   const iconLinks = links.filter((link) => !handled.has(link));
+  const hasPrimaryActions = vrcdnPreviewLinks.length > 0 || iconLinks.length > 0;
+  const hasCopyRows = vrcdnStreamLinks.length > 0 || twitchLinks.length > 0;
 
   return (
     <div className="lookup-link-board">
-      <div className="lookup-link-actions">
-        {vrcdnPreviewLinks.map((link) => <VrcdnPreviewLink key={`${link.type}-${link.url}`} link={link} />)}
-        {twitchFeatureLink ? <TwitchFeatureLink link={twitchFeatureLink} /> : null}
-        {iconLinks.length > 0 ? (
-          <div className="lookup-brand-row">
-            {iconLinks.map((link) => <IconCircleLink key={`${link.type}-${link.url}`} link={link} />)}
-          </div>
-        ) : null}
-      </div>
-      {vrcdnStreamLinks.length > 0 ? (
-        <div className="lookup-stream-list">
-        {vrcdnStreamLinks.flatMap((link) =>
-          deriveVrcdnCopyLinks(link.url).map((entry) => <CodeCopyBar key={`${link.url}-${entry.label}`} label={entry.label} value={entry.value} />),
-        )}
+      {hasPrimaryActions ? (
+        <div className="lookup-link-actions">
+          {vrcdnPreviewLinks.map((link) => <VrcdnPreviewLink key={`${link.type}-${link.url}`} link={link} />)}
+          {iconLinks.length > 0 ? (
+            <div className="lookup-brand-row">
+              {iconLinks.map((link) => <IconCircleLink key={`${link.type}-${link.url}`} link={link} />)}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {hasCopyRows ? (
+        <div className="lookup-copy-list">
+          {vrcdnStreamLinks.flatMap((link) =>
+            deriveVrcdnCopyLinks(link.url).map((entry) => <CodeCopyBar key={`${link.url}-${entry.label}`} label={entry.label} value={entry.value} />),
+          )}
+          {twitchLinks.map((link) => <TwitchFeatureLink key={`${link.type}-${link.url}`} link={link} />)}
         </div>
       ) : null}
     </div>
@@ -706,10 +745,10 @@ export function ProfileLookupPage({
                 </Card>
               ) : displayResults.length > 0 ? (
                 <>
-                  <div className="grid gap-3 sm:hidden">
+                  <div className="grid gap-3 lg:hidden">
                     {displayResults.map((profile) => <LookupResultCard key={profile.slug} profile={profile} />)}
                   </div>
-                  <TableFrame className="lookup-table hidden sm:block">
+                  <TableFrame className="lookup-table hidden lg:block">
                     <Table>
                       <TableHead>
                         <tr>
