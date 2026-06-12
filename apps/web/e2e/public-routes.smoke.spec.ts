@@ -41,6 +41,13 @@ test("lookup suggestions select a public person row", async ({ page }) => {
   await expect(page.locator('input[value="https://www.twitch.tv/basic_bit"]')).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Twitch: twitch.tv", exact: true })).toBeVisible();
   await expect(page.getByText("BASIC", { exact: true })).toHaveCount(2);
+  const copyButton = page.getByRole("button", { name: "Copy" }).first();
+  const copyButtonWidth = await copyButton.evaluate((element) => element.getBoundingClientRect().width);
+  await copyButton.click();
+  const copiedButton = page.getByRole("button", { name: "Copied" }).first();
+  await expect(copiedButton).toBeVisible();
+  const copiedButtonWidth = await copiedButton.evaluate((element) => element.getBoundingClientRect().width);
+  expect(Math.abs(copiedButtonWidth - copyButtonWidth)).toBeLessThan(0.5);
   await expect.poll(async () => await page.evaluate(() => JSON.parse(window.localStorage.getItem("vrdex.lookup.recentSearches") ?? "[]")[0])).toBe("BASICBIT");
   await page.getByRole("button", { name: "Clear lookup" }).click();
   await page.getByLabel("DJ name").focus();

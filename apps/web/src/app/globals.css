@@ -705,7 +705,7 @@ body {
 
 .lookup-primary-url-copy {
   border-radius: 999px;
-  min-width: 3.15rem;
+  width: 3.15rem;
   padding: 0.25rem 0.38rem !important;
 }
 
@@ -732,8 +732,21 @@ body {
 }
 
 .lookup-copy-button {
+  align-items: center;
+  justify-content: center;
   overflow: hidden;
   position: relative;
+}
+
+.lookup-copy-button__content {
+  align-items: center;
+  display: inline-flex;
+  justify-content: center;
+}
+
+.lookup-copy-button__check {
+  height: 0.85rem;
+  width: 0.85rem;
 }
 
 .lookup-copy-button__spark {

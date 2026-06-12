@@ -35,6 +35,7 @@ export function LookupCopyButton({ className, label = "Copy", value }: { classNa
 
   return (
     <button
+      aria-label={copied ? "Copied" : label}
       className={cn(
         buttonVariants({ size: "sm", variant: "secondary" }),
         "lookup-copy-button px-2 py-1 text-xs",
@@ -45,7 +46,13 @@ export function LookupCopyButton({ className, label = "Copy", value }: { classNa
       onClick={() => void copyValue()}
     >
       <span aria-hidden="true" className="lookup-copy-button__spark" />
-      <span className="relative z-10">{copied ? "Copied" : label}</span>
+      <span className="lookup-copy-button__content relative z-10">
+        {copied ? (
+          <svg aria-hidden="true" className="lookup-copy-button__check" fill="none" viewBox="0 0 16 16">
+            <path d="m3.5 8.2 2.7 2.7 6.3-6.8" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+          </svg>
+        ) : label}
+      </span>
     </button>
   );
 }
