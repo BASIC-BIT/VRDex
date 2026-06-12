@@ -838,12 +838,12 @@ body {
   min-width: 78rem;
 }
 
-.lookup-result-row {
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 74%, var(--foreground) 8%);
+.lookup-result-row:not(:last-child) > td {
+  border-bottom: 2px solid color-mix(in srgb, var(--border) 88%, var(--foreground) 12%);
 }
 
-.lookup-result-row:last-child {
-  border-bottom: 0;
+.lookup-result-card {
+  border-color: color-mix(in srgb, var(--border) 88%, var(--foreground) 10%);
 }
 
 .lookup-name-cell {
