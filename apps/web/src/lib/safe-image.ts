@@ -3,6 +3,14 @@ export function safeImageBackground(imageUrl: string | undefined, overlay?: stri
     return undefined;
   }
 
+  if (imageUrl.startsWith("/") && !imageUrl.startsWith("//")) {
+    const image = `url(${JSON.stringify(imageUrl)})`;
+
+    return {
+      backgroundImage: overlay ? `${overlay}, ${image}` : image,
+    };
+  }
+
   try {
     const url = new URL(imageUrl);
 

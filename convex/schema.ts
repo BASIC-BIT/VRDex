@@ -98,6 +98,17 @@ const worldLinkType = v.union(
 );
 
 const profileLinkType = v.union(
+  v.literal("vrchat_profile"),
+  v.literal("vrcdn"),
+  v.literal("discord"),
+  v.literal("soundcloud"),
+  v.literal("mixcloud"),
+  v.literal("twitch"),
+  v.literal("youtube"),
+  v.literal("spotify"),
+  v.literal("bandcamp"),
+  v.literal("instagram"),
+  v.literal("linktree"),
   v.literal("website"),
   v.literal("gumroad"),
   v.literal("jinxxy"),
@@ -115,6 +126,42 @@ const linkSource = v.union(
   v.literal("reviewed"),
   v.literal("partner_provided"),
 );
+
+const profileGenreSource = v.union(
+  v.literal("owner_selected"),
+  v.literal("community_submitted"),
+  v.literal("partner_import"),
+  v.literal("manual_review"),
+  v.literal("llm_suggested"),
+);
+
+const profileGenreConfidence = v.union(
+  v.literal("high"),
+  v.literal("medium"),
+  v.literal("low"),
+);
+
+const profileGenre = v.object({
+  slug: v.string(),
+  displayName: v.string(),
+  displayLabel: v.optional(v.string()),
+  aliases: v.optional(v.array(v.string())),
+  parentGenreSlugs: v.optional(v.array(v.string())),
+  featured: v.optional(v.boolean()),
+  source: profileGenreSource,
+  confidence: profileGenreConfidence,
+  explicit: v.boolean(),
+  externalIds: v.optional(
+    v.object({
+      musicBrainzGenreId: v.optional(v.string()),
+      wikidataQid: v.optional(v.string()),
+      discogsStyleId: v.optional(v.string()),
+      everyNoiseId: v.optional(v.string()),
+      rateYourMusicGenreId: v.optional(v.string()),
+      allMusicStyleId: v.optional(v.string()),
+    }),
+  ),
+});
 
 const eventSourceType = v.union(
   v.literal("manual"),
@@ -226,6 +273,7 @@ const suppressionRequestState = v.union(
 
 const vocabularyScope = v.union(
   v.literal("profile_tag"),
+  v.literal("profile_genre"),
   v.literal("person_role"),
   v.literal("community_category"),
   v.literal("community_subtype"),
@@ -292,6 +340,7 @@ const eventMediaOutputCompliance = v.object({
 const fieldVisibility = v.object({
   aliases: v.optional(fieldVisibilityState),
   tags: v.optional(fieldVisibilityState),
+  genres: v.optional(fieldVisibilityState),
   headline: v.optional(fieldVisibilityState),
   bio: v.optional(fieldVisibilityState),
   about: v.optional(fieldVisibilityState),
@@ -311,7 +360,9 @@ const sharedProfileFields = {
   displayName: v.string(),
   sortName: v.string(),
   aliases: v.array(v.string()),
+  searchAliases: v.optional(v.array(v.string())),
   tags: v.array(v.string()),
+  genres: v.optional(v.array(profileGenre)),
   headline: v.optional(v.string()),
   bio: v.optional(v.string()),
   about: v.optional(v.string()),
@@ -323,6 +374,7 @@ const sharedProfileFields = {
         type: profileLinkType,
         label: v.string(),
         url: v.string(),
+        handle: v.optional(v.string()),
         source: linkSource,
       }),
     ),

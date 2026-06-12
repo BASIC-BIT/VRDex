@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 import { isProfileFieldVisible } from "../../convex/_profileFieldVisibility";
+import { toProfileLookupResult } from "../../convex/_profileLookup";
 import { grantProfileOwner } from "../../convex/_profileOwnership";
 import {
   createProfileSlugBase,
@@ -317,7 +318,24 @@ describe("public profile projection", () => {
       displayName: "DJ Celine",
       sortName: "dj celine",
       aliases: [],
+      searchAliases: ["dj_celine"],
       tags: ["House"],
+      genres: [
+        {
+          slug: "drum-and-bass",
+          displayName: "Drum and Bass",
+          displayLabel: "DnB",
+          aliases: ["D&B", "drum & bass"],
+          featured: true,
+          source: "owner_selected",
+          confidence: "high",
+          explicit: true,
+          externalIds: {
+            musicBrainzGenreId: "462f9321-6103-49c9-b6db-96219bce6f62",
+            wikidataQid: "Q188994",
+          },
+        },
+      ],
       outboundLinks: [
         {
           type: "kofi",
@@ -356,10 +374,78 @@ describe("public profile projection", () => {
 
     assert.equal("sourceAttribution" in publicProfile, false);
     assert.equal("creationSource" in publicProfile, false);
+    assert.equal("searchAliases" in publicProfile, false);
     assert.equal(publicProfile.source?.label, "Community submitted");
     assert.equal(publicProfile.trustLabel, "community_submitted");
+    assert.deepEqual(publicProfile.genres, [
+      {
+        slug: "drum-and-bass",
+        displayName: "Drum and Bass",
+        displayLabel: "DnB",
+        featured: true,
+      },
+    ]);
     assert.equal(publicProfile.outboundLinks.length, 1);
     assert.equal(publicProfile.outboundLinks[0]?.url, "https://example.invalid/dj-celine-kofi");
+  });
+
+  it("projects DJ lookup rows with public links in operator priority order", () => {
+    const profile = {
+      profileType: "person",
+      slug: "dj-celine",
+      displayName: "DJ Celine",
+      sortName: "dj celine",
+      aliases: ["Celine"],
+      tags: ["House"],
+      genres: [
+        {
+          slug: "house",
+          displayName: "House",
+          source: "owner_selected",
+          confidence: "high",
+          explicit: true,
+        },
+      ],
+      outboundLinks: [
+        {
+          type: "soundcloud",
+          label: "SoundCloud",
+          url: "https://soundcloud.com/dj-celine",
+          source: "owner_authored",
+        },
+        {
+          type: "vrchat_profile",
+          label: "VRChat profile",
+          url: "https://vrchat.com/home/user/usr_00000000-0000-4000-8000-000000000001",
+          source: "reviewed",
+        },
+        {
+          type: "discord",
+          label: "Discord: djceline",
+          url: "https://discord.com/users/100000000000000001",
+          source: "owner_authored",
+        },
+      ],
+      claimState: "unclaimed",
+      publicationState: "published",
+      publicSurfacingState: "public",
+      creationSource: "community",
+      publishedAt: 1,
+      updatedAt: 1,
+      person: {
+        roleTags: ["DJ"],
+      },
+    } as Doc<"profiles">;
+
+    const lookup = toProfileLookupResult(profile);
+
+    assert.equal(lookup?.profilePath, "/p/dj-celine");
+    assert.deepEqual(lookup?.roleTags, ["DJ"]);
+    assert.deepEqual(lookup?.genres, [{ slug: "house", displayName: "House" }]);
+    assert.deepEqual(
+      lookup?.outboundLinks.map((link) => link.type),
+      ["vrchat_profile", "discord", "soundcloud"],
+    );
   });
 
   it("keeps unlisted fields on direct profiles and hides private fields", () => {
@@ -370,6 +456,15 @@ describe("public profile projection", () => {
       sortName: "dj celine",
       aliases: ["Celine"],
       tags: ["House"],
+      genres: [
+        {
+          slug: "private-genre",
+          displayName: "Private Genre",
+          source: "owner_selected",
+          confidence: "high",
+          explicit: true,
+        },
+      ],
       headline: "Private headline",
       bio: "Unlisted bio",
       avatarImageUrl: "https://example.invalid/private-avatar.png",
@@ -391,6 +486,7 @@ describe("public profile projection", () => {
       fieldVisibility: {
         aliases: "private",
         tags: "unlisted",
+        genres: "private",
         headline: "private",
         bio: "unlisted",
         avatarImageUrl: "private",
@@ -409,6 +505,7 @@ describe("public profile projection", () => {
     assert.equal(isProfileFieldVisible(profile, "tags", "discovery"), false);
     assert.deepEqual(publicProfile.aliases, []);
     assert.deepEqual(publicProfile.tags, ["House"]);
+    assert.deepEqual(publicProfile.genres, []);
     assert.equal(publicProfile.headline, undefined);
     assert.equal(publicProfile.bio, "Unlisted bio");
     assert.equal(publicProfile.avatarImageUrl, undefined);

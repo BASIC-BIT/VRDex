@@ -3,6 +3,7 @@ import type { Doc } from "./_generated/dataModel";
 export type ProfileFieldVisibilityKey =
   | "aliases"
   | "tags"
+  | "genres"
   | "headline"
   | "bio"
   | "about"

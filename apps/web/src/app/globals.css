@@ -1,14 +1,14 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f5efe4;
-  --foreground: #16110f;
-  --surface: rgba(255, 251, 245, 0.82);
-  --surface-strong: #fffdf8;
-  --muted: #6f625b;
-  --accent: #d66a4d;
-  --accent-strong: #9f3f27;
-  --border: rgba(22, 17, 15, 0.12);
+  --background: #e8edf5;
+  --foreground: #0c1220;
+  --surface: rgba(248, 250, 252, 0.84);
+  --surface-strong: #f8fafc;
+  --muted: #475569;
+  --accent: #0891b2;
+  --accent-strong: #0e7490;
+  --border: rgba(15, 23, 42, 0.14);
 }
 
 @theme inline {
@@ -26,8 +26,8 @@
   --radius-card: 0.5rem;
   --radius-panel: 0.625rem;
   --radius-hero: 0.75rem;
-  --shadow-panel: 0 18px 60px rgba(64, 40, 24, 0.1);
-  --shadow-hero: 0 24px 90px rgba(64, 40, 24, 0.18);
+  --shadow-panel: 0 18px 60px rgba(15, 23, 42, 0.1);
+  --shadow-hero: 0 24px 90px rgba(15, 23, 42, 0.16);
 }
 
 * {
@@ -36,9 +36,9 @@
 
 html {
   background:
-    radial-gradient(circle at top left, rgba(214, 106, 77, 0.18), transparent 34%),
-    radial-gradient(circle at top right, rgba(117, 78, 54, 0.14), transparent 30%),
-    linear-gradient(180deg, #f9f2e7 0%, #efe4d1 100%);
+    radial-gradient(circle at 18% -8%, rgba(8, 145, 178, 0.18), transparent 32%),
+    radial-gradient(circle at 86% 0%, rgba(37, 99, 235, 0.12), transparent 30%),
+    linear-gradient(180deg, #eef3f8 0%, #e1e9f2 100%);
   color: var(--foreground);
 }
 
@@ -53,5 +53,668 @@ body {
   a {
     color: inherit;
     text-decoration: none;
+  }
+}
+
+@keyframes lookup-pending-glow {
+  0%,
+  100% {
+    filter: saturate(0.82);
+    opacity: 0.58;
+  }
+
+  50% {
+    filter: saturate(1.05);
+    opacity: 0.76;
+  }
+}
+
+@keyframes lookup-copy-spark {
+  0% {
+    opacity: 0;
+    transform: scaleX(0.18);
+  }
+
+  45% {
+    opacity: 0.95;
+    transform: scaleX(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scaleX(1.18);
+  }
+}
+
+.lookup-theme {
+  min-height: 100vh;
+  padding: 0.7rem 1rem !important;
+  transition:
+    background 420ms ease,
+    color 420ms ease;
+}
+
+.lookup-theme[data-theme="light"] {
+  --background: #e8edf5;
+  --foreground: #0c1220;
+  --surface: rgba(248, 250, 252, 0.86);
+  --surface-strong: #f8fafc;
+  --muted: #475569;
+  --accent: #2563eb;
+  --accent-strong: #1d4ed8;
+  --border: rgba(15, 23, 42, 0.16);
+  background:
+    radial-gradient(circle at 18% -8%, rgba(8, 145, 178, 0.16), transparent 32%),
+    radial-gradient(circle at 86% 0%, rgba(37, 99, 235, 0.13), transparent 34%),
+    linear-gradient(180deg, #eef3fb 0%, #dde6f2 100%);
+}
+
+.lookup-theme[data-theme="dark"] {
+  --background: #080d16;
+  --foreground: #edf5ff;
+  --surface: rgba(13, 20, 32, 0.9);
+  --surface-strong: #0f1724;
+  --muted: #94a3b8;
+  --accent: #67e8f9;
+  --accent-strong: #bae6fd;
+  --border: rgba(226, 232, 240, 0.14);
+  background:
+    radial-gradient(circle at 18% -8%, rgba(34, 211, 238, 0.16), transparent 34%),
+    radial-gradient(circle at 82% 0%, rgba(59, 130, 246, 0.18), transparent 36%),
+    linear-gradient(180deg, #080d16 0%, #0d1420 100%);
+}
+
+.lookup-theme .bg-white,
+.lookup-theme .bg-white\/80,
+.lookup-theme .bg-white\/45 {
+  background-color: var(--surface);
+}
+
+.lookup-hero,
+.lookup-panel,
+.lookup-table,
+.lookup-result-card,
+.lookup-suggestions {
+  background: color-mix(in srgb, var(--surface-strong) 82%, transparent);
+  border-color: var(--border);
+  color: var(--foreground);
+  transition:
+    background 420ms ease,
+    border-color 420ms ease,
+    color 420ms ease,
+    opacity 220ms ease,
+    filter 220ms ease;
+}
+
+.lookup-suggestion-option {
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  text-align: left;
+  transition: background 160ms ease;
+  width: 100%;
+}
+
+.lookup-suggestion-option:last-child {
+  border-bottom: 0;
+}
+
+.lookup-suggestion-option:hover,
+.lookup-suggestion-option:focus-visible {
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface-strong));
+  outline: none;
+}
+
+.lookup-avatar,
+.lookup-suggestion-avatar {
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface-strong));
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  color: var(--accent-strong);
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: 0.7rem;
+  font-weight: 700;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.lookup-avatar img,
+.lookup-suggestion-avatar img {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.lookup-avatar {
+  align-items: center;
+  border-radius: calc(var(--radius-card) + 0.08rem);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 10%, transparent);
+  height: 4.75rem;
+  width: 4.75rem;
+}
+
+.lookup-suggestion-avatar {
+  align-items: center;
+  border-radius: 0.4rem;
+  height: 2.35rem;
+  width: 2.35rem;
+}
+
+.lookup-identity {
+  align-items: center;
+  display: flex;
+  gap: 0.95rem;
+}
+
+.lookup-identity-copy {
+  display: grid;
+  gap: 0.28rem;
+  min-width: 0;
+}
+
+.lookup-name-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.lookup-name-link {
+  background: linear-gradient(90deg, var(--accent-strong), var(--foreground) 42%, var(--accent));
+  background-clip: text;
+  color: transparent;
+  font-size: 1.08rem;
+  font-weight: 820;
+  letter-spacing: -0.055em;
+  line-height: 1;
+  position: relative;
+  text-decoration: none;
+  -webkit-background-clip: text;
+}
+
+.lookup-name-link::after {
+  background: linear-gradient(90deg, var(--accent), transparent);
+  border-radius: 999px;
+  bottom: -0.18rem;
+  content: "";
+  height: 0.1rem;
+  left: 0;
+  position: absolute;
+  right: 12%;
+}
+
+.lookup-trust-pill {
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius-control) - 0.22rem);
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  padding: 0.2rem 0.36rem;
+  text-transform: uppercase;
+}
+
+.lookup-trust-pill--verified {
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-strong));
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--border));
+  color: var(--accent-strong);
+}
+
+.lookup-alias-line {
+  color: var(--muted);
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: 0.68rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lookup-single-form,
+.lookup-bulk-form {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.lookup-context-copy {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.lookup-context-copy__headline {
+  color: var(--foreground);
+  font-size: 0.74rem;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.lookup-context-copy__body {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.25;
+}
+
+.lookup-genre-line {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.45rem;
+}
+
+.lookup-genre-line__label {
+  color: var(--muted);
+  font-size: 0.64rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.lookup-genre-list {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.lookup-genre-chip {
+  --genre-accent: var(--accent);
+  --genre-bg: color-mix(in srgb, var(--genre-accent) 18%, var(--surface-strong));
+  --genre-border: color-mix(in srgb, var(--genre-accent) 42%, var(--border));
+  align-items: center;
+  background: var(--genre-bg);
+  border: 1px solid var(--genre-border);
+  border-radius: calc(var(--radius-control) - 0.24rem);
+  color: color-mix(in srgb, var(--genre-accent) 78%, var(--foreground));
+  display: inline-flex;
+  font-size: 0.66rem;
+  font-weight: 680;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  padding: 0.2rem 0.4rem;
+}
+
+.lookup-genre-chip--featured {
+  background:
+    radial-gradient(circle at 18% 20%, color-mix(in srgb, var(--genre-accent) 46%, transparent), transparent 34%),
+    linear-gradient(135deg, color-mix(in srgb, var(--genre-accent) 32%, var(--surface-strong)), color-mix(in srgb, var(--accent-strong) 20%, var(--surface-strong)));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--genre-accent) 24%, transparent), 0 8px 18px color-mix(in srgb, var(--genre-accent) 18%, transparent);
+  color: var(--foreground);
+  font-size: 0.76rem;
+  padding: 0.28rem 0.55rem;
+  position: relative;
+}
+
+.lookup-genre-chip--featured::after {
+  background: color-mix(in srgb, var(--accent-strong) 80%, white);
+  border-radius: 999px;
+  box-shadow:
+    -0.42rem 0.2rem 0 -1px color-mix(in srgb, var(--genre-accent) 80%, white),
+    0.34rem 0.3rem 0 -1px color-mix(in srgb, var(--accent-strong) 70%, white);
+  content: "";
+  height: 0.18rem;
+  position: absolute;
+  right: 0.28rem;
+  top: 0.22rem;
+  width: 0.18rem;
+}
+
+.lookup-genre-chip--dnb {
+  --genre-accent: #67e8f9;
+}
+
+.lookup-genre-chip--house {
+  --genre-accent: #a7f3d0;
+}
+
+.lookup-genre-chip--techno {
+  --genre-accent: #c4b5fd;
+}
+
+.lookup-genre-chip--bass {
+  --genre-accent: #f0abfc;
+}
+
+.lookup-genre-chip--ukg {
+  --genre-accent: #93c5fd;
+}
+
+.lookup-genre-chip--default {
+  --genre-accent: var(--muted);
+}
+
+.lookup-single-form {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.lookup-bulk-form {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.lookup-bulk-editor {
+  display: grid;
+  gap: 0.375rem;
+}
+
+.lookup-theme[data-theme="dark"] .lookup-hero,
+.lookup-theme[data-theme="dark"] .lookup-panel,
+.lookup-theme[data-theme="dark"] .lookup-table,
+.lookup-theme[data-theme="dark"] .lookup-result-card,
+.lookup-theme[data-theme="dark"] .lookup-suggestions {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22);
+}
+
+.lookup-input {
+  background: color-mix(in srgb, var(--surface-strong) 88%, transparent);
+  border-color: var(--border);
+  color: var(--foreground);
+}
+
+.lookup-input::placeholder {
+  color: color-mix(in srgb, var(--muted) 72%, transparent);
+}
+
+.lookup-suggestions {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-panel);
+  left: 0;
+  margin-top: 0.5rem;
+  overflow: hidden;
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 20;
+}
+
+.lookup-mode-toggle,
+.lookup-submit-button,
+.lookup-theme-toggle {
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  color: var(--foreground);
+  display: inline-flex;
+  font-size: 0.875rem;
+  font-weight: 600;
+  justify-content: center;
+  transition:
+    border-color 180ms ease,
+    transform 180ms ease,
+    background 180ms ease;
+}
+
+.lookup-mode-toggle {
+  background: color-mix(in srgb, var(--surface-strong) 80%, transparent);
+  min-height: 2.5rem;
+  padding: 0.45rem 0.8rem;
+}
+
+.lookup-submit-button {
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface-strong));
+  color: var(--foreground);
+  min-height: 2.5rem;
+  padding: 0.45rem 0.95rem;
+}
+
+.lookup-submit-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.lookup-mode-toggle:hover,
+.lookup-submit-button:hover,
+.lookup-theme-toggle:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.lookup-theme-toggle {
+  background: color-mix(in srgb, var(--surface-strong) 70%, transparent);
+  gap: 0.15rem;
+  min-height: 2.625rem;
+  overflow: hidden;
+  padding: 0.22rem;
+}
+
+.lookup-theme-toggle__option {
+  border-radius: calc(var(--radius-control) - 0.125rem);
+  color: var(--muted);
+  line-height: 1;
+  padding: 0.62rem 0.62rem;
+}
+
+.lookup-theme-toggle__option--active {
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface-strong));
+  color: var(--foreground);
+}
+
+.lookup-results-wrap--pending {
+  opacity: 0.76;
+  pointer-events: none;
+}
+
+.lookup-pending-pill {
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent);
+  border-radius: 999px;
+  color: var(--accent-strong);
+  font-size: 0.75rem;
+  padding: 0.35rem 0.7rem;
+}
+
+.lookup-feature-link {
+  align-items: center;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 24%, var(--surface-strong)), color-mix(in srgb, var(--accent-strong) 18%, var(--surface-strong)));
+  border: 1px solid color-mix(in srgb, var(--accent-strong) 55%, transparent);
+  border-radius: var(--radius-panel);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--foreground);
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  min-height: 2.65rem;
+  padding: 0.34rem 0.55rem;
+  transition:
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+
+.lookup-feature-link span {
+  line-height: 1.12;
+}
+
+.lookup-feature-link:hover {
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--accent) 22%, transparent);
+  transform: translateY(-1px);
+}
+
+.lookup-brand-circle {
+  align-items: center;
+  border-radius: 999px;
+  color: #fff;
+  display: inline-flex;
+  height: 2.65rem;
+  justify-content: center;
+  transition:
+    box-shadow 180ms ease,
+    transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  width: 2.65rem;
+}
+
+.lookup-brand-circle:hover {
+  transform: translateY(-3px) scale(1.08);
+}
+
+.lookup-brand-circle--discord {
+  background: #5865f2;
+  box-shadow: 0 12px 24px rgba(88, 101, 242, 0.28);
+}
+
+.lookup-brand-circle--twitch {
+  background: #9146ff;
+  box-shadow: 0 12px 24px rgba(145, 70, 255, 0.28);
+}
+
+.lookup-brand-circle--vrchat_profile {
+  background: #0b1018;
+  box-shadow: 0 12px 24px rgba(8, 12, 18, 0.28);
+}
+
+.lookup-code-bar {
+  align-items: center;
+  background: color-mix(in srgb, var(--foreground) 6%, var(--surface-strong));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  display: grid;
+  gap: 0.25rem;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 2.05rem;
+  padding: 0.28rem 0.34rem 0.28rem 0.48rem;
+}
+
+.lookup-code-label {
+  color: var(--muted);
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: 0.57rem;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.lookup-code-value {
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: clamp(0.62rem, 0.72vw, 0.66rem);
+  line-height: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: clip;
+  user-select: all;
+  white-space: nowrap;
+}
+
+.lookup-code-copy {
+  border-radius: 999px;
+  min-width: 3.15rem;
+  padding: 0.25rem 0.38rem !important;
+}
+
+.lookup-copy-button {
+  overflow: hidden;
+  position: relative;
+}
+
+.lookup-copy-button__spark {
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 38%, #fff 62%), transparent);
+  inset: 0;
+  opacity: 0;
+  position: absolute;
+  transform-origin: left;
+}
+
+.lookup-copy-button--copied {
+  border-color: var(--accent);
+  transform: scale(1.04);
+}
+
+.lookup-copy-button--copied .lookup-copy-button__spark {
+  animation: lookup-copy-spark 700ms ease-out;
+}
+
+.lookup-generic-link {
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 0.25rem;
+  padding-top: 0.4rem;
+}
+
+.lookup-bulk-row {
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: minmax(0, 0.45fr) minmax(0, 0.55fr);
+  padding: 0.35rem 0.5rem;
+}
+
+.lookup-link-board {
+  align-items: center;
+  display: grid;
+  gap: 0.32rem;
+  min-width: 36rem;
+}
+
+.lookup-link-actions {
+  align-items: center;
+  display: grid;
+  gap: 0.32rem;
+  grid-template-columns: minmax(10rem, 1fr) minmax(10rem, 1fr) auto;
+}
+
+.lookup-brand-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  justify-content: center;
+  padding: 0 0.3rem;
+}
+
+.lookup-stream-list {
+  display: grid;
+  gap: 0.24rem;
+}
+
+.lookup-bulk-summary {
+  padding-bottom: 0.55rem !important;
+  padding-top: 0.55rem !important;
+}
+
+.lookup-bulk-grid {
+  display: grid;
+  gap: 0.35rem;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+}
+
+.lookup-theme table th {
+  padding: 0.35rem 0.45rem;
+}
+
+.lookup-theme table td {
+  padding: 0.35rem 0.45rem;
+}
+
+.lookup-theme thead {
+  background: color-mix(in srgb, var(--surface-strong) 84%, transparent);
+}
+
+@media (max-width: 640px) {
+  .lookup-theme {
+    padding: 0.7rem !important;
+  }
+
+  .lookup-single-form,
+  .lookup-bulk-form,
+  .lookup-link-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .lookup-link-board {
+    min-width: 0;
+  }
+
+  .lookup-code-bar {
+    grid-template-columns: 1fr auto;
+  }
+
+  .lookup-code-label {
+    grid-column: 1 / -1;
+  }
+
+  .lookup-bulk-row {
+    grid-template-columns: 1fr;
   }
 }

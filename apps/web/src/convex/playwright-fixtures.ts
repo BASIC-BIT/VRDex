@@ -1,4 +1,5 @@
 import type { PublicProfile } from "@/app/_components/profile-public-page";
+import type { PublicProfileLookupResult } from "@/app/_components/profile-lookup-page";
 import type { PublicActiveWorld } from "@/app/_components/home-active-worlds";
 import type {
   PublicDiscoveryData,
@@ -8,6 +9,7 @@ import type { PublicEvent } from "@/app/_components/event-public-page";
 import type { PublicWorld } from "@/app/_components/world-public-page";
 
 const personSlug = "playwright-dj-aurora";
+const basicBitSlug = "basicbit";
 const communitySlug = "playwright-afterglow-social";
 const worldSlug = "playwright-neon-harbor";
 const eventSlug = "playwright-afterglow-harbor-sessions";
@@ -25,6 +27,10 @@ const watchEventEndAt = Date.UTC(2025, 0, 1, 15, 0, 0);
 const watchFirstSlotEndAt = Date.UTC(2025, 0, 1, 12, 45, 0);
 const watchSecondSlotStartAt = Date.UTC(2025, 0, 1, 12, 45, 0);
 const watchSecondSlotEndAt = Date.UTC(2025, 0, 1, 13, 30, 0);
+
+type FixturePersonProfile = Extract<PublicProfile, { profileType: "person" }> & {
+  searchAliases?: string[];
+};
 
 const eventPreview = {
   slug: eventSlug,
@@ -52,12 +58,18 @@ const eventPreview = {
   slotCount: 2,
 };
 
-const personProfile: PublicProfile = {
+const personProfile: FixturePersonProfile = {
   profileType: "person",
   slug: personSlug,
   displayName: "DJ Aurora",
   aliases: ["Aurora", "Auralight"],
   tags: ["DJ", "Melodic House", "EU"],
+  genres: [
+    {
+      slug: "melodic-house",
+      displayName: "Melodic House",
+    },
+  ],
   headline: "Melodic house sets for late-night VRChat floors.",
   bio: "Melodic house DJ playing warm, vocal-led sets across VRChat club nights.",
   about: "Known for sunrise handoffs, soft-focus visuals, and long blends that keep the room moving.",
@@ -71,9 +83,21 @@ const personProfile: PublicProfile = {
   },
   outboundLinks: [
     {
-      type: "kofi",
-      label: "DJ Aurora Ko-fi",
-      url: "https://example.invalid/dj-aurora-kofi",
+      type: "vrchat_profile",
+      label: "VRChat profile",
+      url: "https://vrchat.com/home/user/usr_00000000-0000-4000-8000-000000000001",
+      source: "reviewed",
+    },
+    {
+      type: "discord",
+      label: "Discord: djaurora",
+      url: "https://discord.com/users/100000000000000001",
+      source: "owner_authored",
+    },
+    {
+      type: "soundcloud",
+      label: "DJ Aurora SoundCloud",
+      url: "https://soundcloud.com/dj-aurora-example",
       source: "owner_authored",
     },
     {
@@ -101,12 +125,124 @@ const personProfile: PublicProfile = {
   },
 };
 
+const basicBitProfile: FixturePersonProfile = {
+  profileType: "person",
+  slug: basicBitSlug,
+  displayName: "BASICBIT",
+  aliases: ["BASIC"],
+  searchAliases: ["basic_bit", "basicbit"],
+  tags: ["Software Dev", "3D Designer", "VRDJ"],
+  genres: [
+    {
+      slug: "drum-and-bass",
+      displayName: "Drum and Bass",
+      displayLabel: "DnB",
+      featured: true,
+    },
+    {
+      slug: "house",
+      displayName: "House",
+    },
+    {
+      slug: "techno",
+      displayName: "Techno",
+    },
+    {
+      slug: "bass-music",
+      displayName: "Bass",
+    },
+    {
+      slug: "140",
+      displayName: "140",
+    },
+    {
+      slug: "trap",
+      displayName: "Trap",
+    },
+    {
+      slug: "space-bass",
+      displayName: "Space Bass",
+    },
+    {
+      slug: "midtempo",
+      displayName: "Midtempo",
+    },
+    {
+      slug: "uk-garage",
+      displayName: "UK Garage",
+      displayLabel: "UKG",
+    },
+    {
+      slug: "dancefloor-drum-and-bass",
+      displayName: "Dancefloor Drum and Bass",
+      displayLabel: "Dancefloor",
+    },
+    {
+      slug: "neurofunk",
+      displayName: "Neurofunk",
+    },
+  ],
+  headline: "Software Dev | 3D Designer | VRDJ",
+  bio: "Multigenre DJ but I really love DnB <3",
+  about: "Public lookup seed for validating operator workflows around creator links, event streams, and identity references.",
+  avatarImageUrl: "/seed/basicbit-avatar.png",
+  trustLabel: "claimed_verified",
+  outboundLinks: [
+    {
+      type: "vrchat_profile",
+      label: "VRChat: BASICBIT",
+      url: "https://vrchat.com/home/user/usr_de6af2ae-8bdf-4aa9-89ae-8af79e2aa405",
+      source: "owner_authored",
+    },
+    {
+      type: "discord",
+      label: "Discord",
+      handle: "basic_bit",
+      url: "https://discord.com",
+      source: "owner_authored",
+    },
+    {
+      type: "website",
+      label: "Website",
+      url: "https://basicbit.net/",
+      source: "owner_authored",
+    },
+    {
+      type: "vrcdn",
+      label: "VRCDN preview",
+      url: "https://panel.vrcdn.live/preview/basicbit",
+      source: "owner_authored",
+    },
+    {
+      type: "vrcdn",
+      label: "VRCDN stream",
+      url: "https://stream.vrcdn.live/live/basicbit.live.ts",
+      source: "owner_authored",
+    },
+    {
+      type: "twitch",
+      label: "Twitch",
+      url: "https://www.twitch.tv/basic_bit",
+      source: "owner_authored",
+    },
+  ],
+  worldCredits: [],
+  upcomingEvents: [],
+  hostedEvents: [],
+  person: {
+    roleTags: ["Software Dev", "3D Designer", "VRDJ"],
+  },
+};
+
+const personProfiles = [personProfile, basicBitProfile];
+
 const communityProfile: PublicProfile = {
   profileType: "community",
   slug: communitySlug,
   displayName: "Afterglow Social",
   aliases: ["Afterglow", "AGS"],
   tags: ["Club", "Weekend", "Friends"],
+  genres: [],
   headline: "A warm VRChat club night for music-first communities.",
   bio: "Music-first VRChat club night with warm rooms, late sets, and community-hosted weekends.",
   about: "Afterglow keeps the focus on friendly floors, clear event listings, and DJs who like a slower build.",
@@ -472,6 +608,21 @@ const discoveryResults: PublicSearchResult[] = [
   },
   {
     entityType: "profile",
+    profileType: "person",
+    slug: basicBitSlug,
+    routePath: `/p/${basicBitSlug}`,
+    title: "BASICBIT",
+    subtitle: "Person profile",
+    summary: "Software Dev | 3D Designer | VRDJ",
+    imageUrl: "/seed/basicbit-avatar.png",
+    source: {
+      sourceType: "owner",
+      label: "Owner-authored",
+    },
+    score: 168,
+  },
+  {
+    entityType: "profile",
     profileType: "community",
     slug: communitySlug,
     routePath: `/c/${communitySlug}`,
@@ -500,13 +651,14 @@ const discoveryResults: PublicSearchResult[] = [
 ];
 
 const discoveryData: PublicDiscoveryData = {
-  featured: [discoveryResults[0]!, discoveryResults[3]!],
+  featured: [discoveryResults[0]!, discoveryResults[4]!],
   upcomingEvents: [discoveryResults[0]!],
-  people: [discoveryResults[1]!],
-  communities: [discoveryResults[2]!],
-  worlds: [discoveryResults[3]!],
+  people: [discoveryResults[1]!, discoveryResults[2]!],
+  communities: [discoveryResults[3]!],
+  worlds: [discoveryResults[4]!],
   terms: [
     { scope: "profile_tag", key: "melodic_house", label: "Melodic House", usageCount: 2 },
+    { scope: "profile_genre", key: "drum_and_bass", label: "Drum and Bass", usageCount: 1 },
     { scope: "event_tag", key: "tonight", label: "Tonight", usageCount: 1 },
     { scope: "world_tag", key: "club_world", label: "Club world", usageCount: 1 },
     { scope: "community_subtype", key: "club", label: "Club", usageCount: 1 },
@@ -517,6 +669,40 @@ type PlaywrightDiscoverySearchFixture =
   | { kind: "disabled" }
   | { kind: "fallthrough" }
   | { kind: "handled"; results: PublicSearchResult[] };
+type PlaywrightProfileLookupFixture =
+  | { kind: "disabled" }
+  | { kind: "fallthrough" }
+  | { kind: "handled"; results: PublicProfileLookupResult[] };
+
+function toProfileLookupFixture(profile: PublicProfile): PublicProfileLookupResult | null {
+  if (profile.profileType !== "person") {
+    return null;
+  }
+
+  return {
+    slug: profile.slug,
+    displayName: profile.displayName,
+    profilePath: `/p/${profile.slug}`,
+    aliases: profile.aliases,
+    tags: profile.tags,
+    genres: profile.genres,
+    roleTags: profile.person.roleTags,
+    trustLabel: profile.trustLabel,
+    ...(profile.headline === undefined ? {} : { headline: profile.headline }),
+    ...(profile.bio === undefined ? {} : { bio: profile.bio }),
+    ...(profile.avatarImageUrl === undefined ? {} : { avatarImageUrl: profile.avatarImageUrl }),
+    ...(profile.region === undefined ? {} : { region: profile.region }),
+    ...(profile.timezone === undefined ? {} : { timezone: profile.timezone }),
+    outboundLinks: profile.outboundLinks,
+  };
+}
+
+function toPublicFixturePersonProfile(profile: FixturePersonProfile): Extract<PublicProfile, { profileType: "person" }> {
+  const publicProfile = { ...profile };
+  delete publicProfile.searchAliases;
+
+  return publicProfile;
+}
 
 export function getPlaywrightPublicProfileFixture(
   slug: string,
@@ -529,8 +715,10 @@ export function getPlaywrightPublicProfileFixture(
     return null;
   }
 
-  if (profileType === "person" && slug === personSlug) {
-    return personProfile;
+  if (profileType === "person") {
+    const profile = personProfiles.find((entry) => entry.slug === slug);
+
+    return profile ? toPublicFixturePersonProfile(profile) : null;
   }
 
   if (profileType === "community" && slug === communitySlug) {
@@ -575,6 +763,60 @@ export function searchPlaywrightDiscoveryFixture(query: string): PlaywrightDisco
 
   if (matches.length > 0) {
     return { kind: "handled", results: matches };
+  }
+
+  if (process.env.VRDEX_ALLOW_PLAYWRIGHT_FIXTURE_SEARCH_FALLTHROUGH === "true") {
+    return { kind: "fallthrough" };
+  }
+
+  return { kind: "handled", results: [] };
+}
+
+function profileGenreSearchTerms(profile: PublicProfile): string[] {
+  return profile.genres.flatMap((genre) => [
+    genre.displayName,
+    genre.displayLabel,
+    ...(genre.slug === "drum-and-bass" ? ["D&B", "dnb", "drum & bass"] : []),
+  ]).filter((value): value is string => Boolean(value));
+}
+
+export function getPlaywrightProfileLookupFixture(query: string): PlaywrightProfileLookupFixture {
+  if (
+    process.env.NODE_ENV === "production" ||
+    process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES !== "true"
+  ) {
+    return { kind: "disabled" };
+  }
+
+  const normalized = query.trim().toLowerCase();
+
+  if (!normalized) {
+    return { kind: "handled", results: [] };
+  }
+
+  const results = personProfiles.flatMap((profile) => {
+    const searchableText = [
+      profile.displayName,
+      profile.slug,
+      ...profile.aliases,
+      ...(profile.searchAliases ?? []),
+      ...profile.tags,
+      ...profileGenreSearchTerms(profile),
+      ...profile.person.roleTags,
+      profile.headline,
+      profile.bio,
+      ...profile.outboundLinks.map((link) => `${link.label} ${link.handle ?? ""}`),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    const result = toProfileLookupFixture(profile);
+
+    return result !== null && searchableText.includes(normalized) ? [result] : [];
+  });
+
+  if (results.length > 0) {
+    return { kind: "handled", results };
   }
 
   if (process.env.VRDEX_ALLOW_PLAYWRIGHT_FIXTURE_SEARCH_FALLTHROUGH === "true") {

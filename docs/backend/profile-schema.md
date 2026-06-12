@@ -2,7 +2,7 @@
 
 ## Status Note
 
-This doc captures the durable profile schema foundation from `#9` through `#13`, plus later extensions in `#22`, `#23`, `#25`, `#26`, `#30`, `#31`, `#32`, `#33`, `#82`, and `#90`.
+This doc captures the durable profile schema foundation from `#9` through `#13`, plus later extensions in `#22`, `#23`, `#25`, `#26`, `#30`, `#31`, `#32`, `#33`, `#82`, `#90`, and the DJ lookup genre slice.
 
 The schema is intentionally narrow. It establishes one shared `profiles` table for people and communities plus first-slice account ownership, claim request, verification attempt, and field visibility tables without introducing normalized link tables, asset tables, or advanced moderation workflows.
 
@@ -30,7 +30,9 @@ Core identity fields:
 - `displayName`: public display name
 - `sortName`: normalized display-sort key for deterministic listing
 - `aliases`: alternate names or searchable display variants kept inline for the first schema slice
-- `tags`: flexible shared discovery tags or genres, without imposing a rigid taxonomy
+- `searchAliases`: optional private search-only variants such as handles, underscores, old spellings, or stylized forms that should match lookup/search but should not render as public aliases
+- `tags`: flexible shared discovery tags that should not silently become canonical genres
+- `genres`: optional structured public genre facts for profiles, kept separate from flexible tags while normalized genre tables remain deferred
 
 Core presentation fields:
 
@@ -42,6 +44,8 @@ Core presentation fields:
 - `region`: optional location or scene region text
 - `timezone`: optional time zone text
 - `outboundLinks`: optional inline typed external links for owner-authored, reviewed, or partner-provided profile storefront/contact links
+- first-class profile link types include DJ/operator lookup needs such as `vrchat_profile`, `discord`, `soundcloud`, `mixcloud`, `twitch`, `youtube`, `spotify`, `bandcamp`, `instagram`, and `linktree`, plus existing website/store/commission link types
+- first-slice profile genre facts include a stable `slug`, canonical `displayName`, optional short `displayLabel`, optional featured display intent, optional aliases, optional parent genre slugs, source, confidence, explicit/inferred state, and optional external IDs such as MusicBrainz genre UUID or Wikidata QID
 
 State fields:
 
@@ -105,7 +109,7 @@ The first automated proof reader is an adapter action configured by `VRCHAT_PROO
 
 `creationSource` describes how the record entered the system. It is not an authority marker by itself; authority comes from `claimState` and later claim records.
 
-`fieldVisibility` controls public projection surfaces:
+`fieldVisibility` controls public projection surfaces for eligible fields including aliases, tags, genres, text, images, links, region/timezone, and type-specific role/category fields:
 
 - `public`: direct profile page plus discovery/search/card projections
 - `unlisted`: direct profile page only
@@ -154,5 +158,6 @@ Deploy-time migrations use `@convex-dev/migrations` and are run by `migrations:r
 - `#31`, `#32`, and `#33` add universal public search/discovery surfaces
 - `#82` added inline typed external links for first-slice creator commerce/profile links, with public `https` filtering
 - `#90` adds scoped vocabulary normalization for tags, roles, categories, and discovery facets
+- the DJ lookup genre slice adds optional inline `profiles.genres` plus `profile_genre` vocabulary/search indexing as the minimal bridge to a later normalized genre graph
 - `#27` adds field-level visibility controls
 - `#31` adds public search behavior and any search-specific indexing

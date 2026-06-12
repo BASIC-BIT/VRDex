@@ -478,11 +478,15 @@ Candidate direction:
 - an avatar showcase viewer for profiles, ideally using a non-rippable or harder-to-rip representation instead of shipping a raw avatar model to the browser
 - the most promising direction is likely an imposter-style or sprite-angle-rendered pipeline, potentially generated through a companion creator/VCC workflow
 - live or 3D-rendered world previews for world pages, only after the basic world display and event graph prove useful
+- audio-feature analysis and music similarity embeddings for recommendation experiments, using features like BPM, key, energy, spectral balance, rhythm, timbre, harmonic density, and optionally user-selected genre labels
+- set/performance artifacts tied to event slots, starting with external set links and only considering hosted audio after rights, cost, moderation, and takedown workflows are clear
 
 Interview later:
 
 - whether this belongs in VRDex itself, a companion VCC plugin, or both
 - whether the first version should be a faux-3D viewer, a turntable sprite set, or a richer avatar presentation mode
+- whether audio similarity belongs in VRDex, a personal/DJ-library companion tool, or a separate research project
+- whether hosted DJ-set media is worth the storage, copyright, and moderation burden versus linking to established media platforms
 
 ## Relationship graph direction
 

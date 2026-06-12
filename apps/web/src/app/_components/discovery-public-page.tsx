@@ -105,6 +105,9 @@ function TopNav() {
     <PageNav>
       <BrandLink />
       <div className="flex flex-wrap gap-2">
+        <Link className={buttonVariants({ variant: "secondary" })} href="/lookup">
+          Lookup links
+        </Link>
         <Link className={buttonVariants({ variant: "secondary" })} href="/submit">
           Add profile
         </Link>
