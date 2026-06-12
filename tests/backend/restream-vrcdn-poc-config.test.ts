@@ -166,7 +166,7 @@ describe("VRCDN POC worker configuration", () => {
       assert.match(html, /vrcdn-poc-report\.json/);
       assert.match(html, /frames\/hold-slate-input\.png/);
       assert.match(html, /switch_hold&lt;script&gt;/);
-      assert.doesNotMatch(html, /<script>/);
+      assert.doesNotMatch(html, /<script>/i);
       assert.doesNotMatch(html, /should-not-render/);
     } finally {
       rmSync(outputDir, { recursive: true, force: true });

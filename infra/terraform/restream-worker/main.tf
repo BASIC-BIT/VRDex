@@ -5,6 +5,11 @@ locals {
   artifact_s3_uri      = "s3://${aws_s3_bucket.artifacts.bucket}/synthetic-benchmarks"
   worker_image         = var.container_image != null ? var.container_image : "${aws_ecr_repository.worker.repository_url}:benchmark-placeholder"
   secret_names         = sort(keys(var.secret_arns))
+  execution_secret_arns = sort(distinct(concat(
+    values(var.secret_arns),
+    var.execution_secret_arns,
+    [for secret in data.aws_secretsmanager_secret.execution : secret.arn],
+  )))
   container_secrets = [
     for name in local.secret_names : {
       name      = name
@@ -22,6 +27,12 @@ locals {
 }
 
 data "aws_caller_identity" "current" {}
+
+data "aws_secretsmanager_secret" "execution" {
+  for_each = toset(var.execution_secret_names)
+
+  name = each.value
+}
 
 resource "aws_ecr_repository" "worker" {
   name                 = var.name_prefix
@@ -157,7 +168,7 @@ resource "aws_iam_role_policy_attachment" "execution_managed" {
 }
 
 data "aws_iam_policy_document" "execution_secrets" {
-  count = length(var.secret_arns) > 0 ? 1 : 0
+  count = length(local.execution_secret_arns) > 0 ? 1 : 0
 
   statement {
     sid = "ReadReferencedWorkerSecrets"
@@ -165,12 +176,12 @@ data "aws_iam_policy_document" "execution_secrets" {
       "secretsmanager:GetSecretValue",
       "ssm:GetParameters",
     ]
-    resources = values(var.secret_arns)
+    resources = local.execution_secret_arns
   }
 }
 
 resource "aws_iam_role_policy" "execution_secrets" {
-  count = length(var.secret_arns) > 0 ? 1 : 0
+  count = length(local.execution_secret_arns) > 0 ? 1 : 0
 
   name   = "read-referenced-worker-secrets"
   role   = aws_iam_role.execution.id

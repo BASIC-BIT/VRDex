@@ -46,7 +46,7 @@ The task definition injects these non-secret values, and the current entrypoint 
 - `VRDEX_RESTREAM_HOLD_SLATE_AUDIO_DELAY_MS=750`
 - `CONVEX_URL`
 
-Secret values are not environment variables in git or Terraform. The `secret_arns` map supplies ECS secret references by container environment name. Synthetic benchmark tasks set `VRDEX_RESTREAM_SYNTHETIC_ONLY=true`, so they can produce media evidence without provider credentials. Use scoped, event/output-specific references for any non-synthetic VRCDN or external RTMP credential.
+Secret values are not environment variables in git or Terraform. The `secret_arns` map supplies ECS secret references by container environment name. The `execution_secret_names` and `execution_secret_arns` variables grant the ECS execution role permission to read secrets used by bridge-created task definitions. Synthetic benchmark tasks set `VRDEX_RESTREAM_SYNTHETIC_ONLY=true`, so they can produce media evidence without provider credentials. Use scoped, event/output-specific references for any non-synthetic VRCDN or external RTMP credential.
 
 ## Runtime Bridge
 
@@ -66,7 +66,7 @@ Required non-secret bridge configuration:
 - `VRDEX_EVENT_MEDIA_ECS_SECURITY_GROUPS`, comma-separated security group ids
 - `VRDEX_EVENT_MEDIA_SECRET_REF_MAP_JSON`, a JSON object that maps Convex output-account credential references to AWS Secrets Manager or SSM parameter ARNs
 
-Optional bridge configuration includes `VRDEX_EVENT_MEDIA_BRIDGE_WORKER_ID`, `VRDEX_EVENT_MEDIA_ECS_CONTAINER`, `VRDEX_EVENT_MEDIA_ECS_CPU`, `VRDEX_EVENT_MEDIA_ECS_MEMORY`, `VRDEX_EVENT_MEDIA_ECS_EPHEMERAL_STORAGE_GIB`, `VRDEX_EVENT_MEDIA_ECS_ASSIGN_PUBLIC_IP`, `VRDEX_EVENT_MEDIA_ECS_LOG_STREAM_PREFIX`, `VRDEX_EVENT_MEDIA_ECS_BASE_ENV_JSON`, `VRDEX_EVENT_MEDIA_OUTPUT_SECRET_ENV`, and `VRDEX_EVENT_MEDIA_BRIDGE_POLL_MS`.
+Optional bridge configuration includes `VRDEX_EVENT_MEDIA_BRIDGE_WORKER_ID`, `VRDEX_EVENT_MEDIA_ECS_CONTAINER`, `VRDEX_EVENT_MEDIA_ECS_COMMAND_JSON`, `VRDEX_EVENT_MEDIA_ECS_CPU`, `VRDEX_EVENT_MEDIA_ECS_MEMORY`, `VRDEX_EVENT_MEDIA_ECS_EPHEMERAL_STORAGE_GIB`, `VRDEX_EVENT_MEDIA_ECS_ASSIGN_PUBLIC_IP`, `VRDEX_EVENT_MEDIA_ECS_LOG_STREAM_PREFIX`, `VRDEX_EVENT_MEDIA_ECS_BASE_ENV_JSON`, `VRDEX_EVENT_MEDIA_OUTPUT_SECRET_ENV`, and `VRDEX_EVENT_MEDIA_BRIDGE_POLL_MS`. Use `VRDEX_EVENT_MEDIA_ECS_COMMAND_JSON` when the selected image needs a command override, for example `["node","workers/restream/vrcdn-poc.mjs"]` for the VRCDN POC entrypoint.
 
 Use `VRDEX_EVENT_MEDIA_ECS_BRIDGE_CONFIG_CHECK_ONLY=true` for a local configuration parse check that does not call Convex or AWS. Use `--once` when running the bridge from a scheduler or smoke test; omit it for a long-running operator loop.
 

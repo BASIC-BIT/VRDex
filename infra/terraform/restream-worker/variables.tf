@@ -182,6 +182,18 @@ variable "secret_arns" {
   default     = {}
 }
 
+variable "execution_secret_arns" {
+  description = "Additional Secrets Manager or SSM secret ARNs the ECS execution role may read for bridge-created task definitions. Values are references only, never secret values."
+  type        = list(string)
+  default     = []
+}
+
+variable "execution_secret_names" {
+  description = "Secrets Manager secret names the ECS execution role may read for bridge-created task definitions. Values are names only, never secret values."
+  type        = list(string)
+  default     = ["event-media/vrcdn/basicbit-output"]
+}
+
 variable "log_retention_days" {
   description = "CloudWatch Logs retention for hosted restream worker logs."
   type        = number

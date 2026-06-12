@@ -47,4 +47,6 @@ The first Fargate shape is intentionally conservative for CPU-only `1080p60` evi
 - synthetic variant: `static-transition` by default, override to `live-control` for runtime command proof tasks
 - artifact retention: `7` days
 
+Bridge-created task definitions can reference output credentials outside the base task definition. Keep those values in Secrets Manager or SSM, and grant the execution role read access with `execution_secret_names`, `execution_secret_arns`, or `secret_arns`; never put secret values in Terraform.
+
 ECS on EC2 with GPU/NVENC remains a measured fallback if Fargate misses real-time encode, transition quality, bitrate stability, or cost headroom.

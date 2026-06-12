@@ -78,6 +78,22 @@ function stringMapEnv(name, defaultValue = {}) {
   return Object.fromEntries(entries.map(([key, value]) => [key, value.trim()]));
 }
 
+function stringListJsonEnv(name) {
+  const value = optionalEnv(name);
+
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const parsed = JSON.parse(value);
+
+  if (!Array.isArray(parsed) || parsed.length === 0 || parsed.some((entry) => typeof entry !== "string" || entry.trim() === "")) {
+    throw new Error(`${name} must be a JSON array of non-empty strings.`);
+  }
+
+  return parsed.map((entry) => entry.trim());
+}
+
 function ecsNamePart(value) {
   return value.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
 }
@@ -154,6 +170,7 @@ function loadConfig() {
     executionRoleArn: requiredEnv("VRDEX_EVENT_MEDIA_ECS_EXECUTION_ROLE_ARN"),
     taskRoleArn: requiredEnv("VRDEX_EVENT_MEDIA_ECS_TASK_ROLE_ARN"),
     containerName: optionalEnv("VRDEX_EVENT_MEDIA_ECS_CONTAINER") ?? "hosted-worker",
+    containerCommand: stringListJsonEnv("VRDEX_EVENT_MEDIA_ECS_COMMAND_JSON"),
     logGroupName: requiredEnv("VRDEX_EVENT_MEDIA_ECS_LOG_GROUP"),
     logStreamPrefix: optionalEnv("VRDEX_EVENT_MEDIA_ECS_LOG_STREAM_PREFIX") ?? "worker",
     cpu: String(integerEnv("VRDEX_EVENT_MEDIA_ECS_CPU", 1024, 256, 16384)),
@@ -214,6 +231,7 @@ function taskDefinitionFor(command, config) {
         cpu: Number(config.cpu),
         memory: Number(config.memory),
         essential: true,
+        ...(config.containerCommand === undefined ? {} : { command: config.containerCommand }),
         environment: environmentEntries(command, config),
         secrets: secretArn === undefined ? [] : [{ name: config.outputSecretEnvName, valueFrom: secretArn }],
         logConfiguration: {
@@ -436,6 +454,7 @@ async function main() {
         cluster: config.cluster,
         region: config.region,
         containerName: config.containerName,
+        containerCommand: config.containerCommand ?? null,
         secretRefCount: Object.keys(config.secretRefMap).length,
         baseEnvironmentKeys: Object.keys(config.baseEnvironment).sort(),
       }),
