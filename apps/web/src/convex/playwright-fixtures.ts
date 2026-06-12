@@ -10,6 +10,7 @@ import type { PublicWorld } from "@/app/_components/world-public-page";
 
 const personSlug = "playwright-dj-aurora";
 const basicBitSlug = "basicbit";
+const longNameSlug = "playwright-princess-starlight-interstellar-bassline";
 const communitySlug = "playwright-afterglow-social";
 const worldSlug = "playwright-neon-harbor";
 const eventSlug = "playwright-afterglow-harbor-sessions";
@@ -234,7 +235,63 @@ const basicBitProfile: FixturePersonProfile = {
   },
 };
 
-const personProfiles = [personProfile, basicBitProfile];
+const longNameProfile: FixturePersonProfile = {
+  profileType: "person",
+  slug: longNameSlug,
+  displayName: "Princess Starlight Interstellar Bassline Orchestra",
+  aliases: ["Starlight Bassline", "PSIBO"],
+  searchAliases: ["princess starlight", "interstellar bassline", "psibo"],
+  tags: ["DJ", "Long-name test", "VRDJ"],
+  genres: [
+    {
+      slug: "drum-and-bass",
+      displayName: "Drum and Bass",
+      displayLabel: "DnB",
+      featured: true,
+    },
+    {
+      slug: "liquid-drum-and-bass",
+      displayName: "Liquid Drum and Bass",
+      displayLabel: "Liquid DnB",
+    },
+    {
+      slug: "jungle",
+      displayName: "Jungle",
+    },
+  ],
+  headline: "Long-form display name fixture for lookup layout checks.",
+  bio: "Fixture profile used to make sure dense lookup rows survive surprisingly long DJ names.",
+  trustLabel: "claimed_unverified",
+  outboundLinks: [
+    {
+      type: "vrchat_profile",
+      label: "VRChat profile",
+      url: "https://vrchat.com/home/user/usr_00000000-0000-4000-8000-000000000099",
+      source: "reviewed",
+    },
+    {
+      type: "discord",
+      label: "Discord",
+      handle: "starlight_bassline",
+      url: "https://discord.com/users/100000000000000099",
+      source: "owner_authored",
+    },
+    {
+      type: "website",
+      label: "Website",
+      url: "https://example.invalid/starlight-bassline",
+      source: "owner_authored",
+    },
+  ],
+  worldCredits: [],
+  upcomingEvents: [],
+  hostedEvents: [],
+  person: {
+    roleTags: ["DJ", "VRDJ"],
+  },
+};
+
+const personProfiles = [personProfile, basicBitProfile, longNameProfile];
 
 const communityProfile: PublicProfile = {
   profileType: "community",

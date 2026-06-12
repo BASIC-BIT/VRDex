@@ -302,7 +302,8 @@ Current recommendation for genre graph metadata:
 Current recommendation for lookup mode:
 
 - add a separate `/lookup` utility for operator-style person lookup rather than forcing every workflow through the polished profile/discovery UI
-- keep lookup output dense and tabular: name, aliases, role/genre context, public VRDex path, and public outbound links
+- keep lookup output dense and tabular: name, aliases, genre context, public VRDex path, and public outbound links
+- avoid profile-page headline or bio copy in lookup rows; personal flair belongs on the profile page unless it is encoded as concise genres or operator-useful links
 - source lookup results from the same public profile/search data, with the same suppression and field-visibility boundaries as ordinary public surfaces
 - treat VRChat, Discord, SoundCloud, Mixcloud, Twitch, YouTube, Spotify, Bandcamp, Instagram, Linktree, website, store, and booking links as first-class profile link types
 - support a bulk lineup paste mode that looks up each pasted line as provided, with a later LLM-assisted cleanup pass as a candidate direction for messy schedule text and poor matches

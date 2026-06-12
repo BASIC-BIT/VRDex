@@ -137,12 +137,6 @@ function genreToneClass(slug: string): string {
   return "lookup-genre-chip--default";
 }
 
-function secondaryTags(items: string[], descriptors: string[]): string[] {
-  const descriptorText = descriptors.join(" ").toLowerCase();
-
-  return [...new Set(items)].filter((item) => !descriptorText.includes(item.toLowerCase()));
-}
-
 function dedupeProfiles(results: PublicProfileLookupResult[]): PublicProfileLookupResult[] {
   const profiles = new Map<string, PublicProfileLookupResult>();
 
@@ -155,6 +149,10 @@ function dedupeProfiles(results: PublicProfileLookupResult[]): PublicProfileLook
 
 function isBrandCircleLink(link: LookupLink) {
   return link.type === "vrchat_profile" || link.type === "discord" || link.type === "twitch";
+}
+
+function isWebsiteLink(link: LookupLink) {
+  return link.type === "website";
 }
 
 function isVrcdnPreviewLink(link: LookupLink) {
@@ -277,14 +275,19 @@ function BrandCircleLink({ link }: { link: LookupLink & { type: "discord" | "twi
   );
 }
 
-function PrimaryWebsiteLink({ link }: { link: LookupLink }) {
+function WebsiteCircleLink({ link }: { link: LookupLink }) {
+  const label = `${link.label}: ${hostLabel(link.url)}`;
+
   return (
-    <a className="lookup-feature-link" href={link.url} rel="noreferrer" target="_blank">
-      <span className="min-w-0">
-        <span className="block truncate text-sm font-semibold">{link.label}</span>
-        <span className="block truncate text-[0.68rem] opacity-75">{hostLabel(link.url)}</span>
-      </span>
-      <ExternalIcon className="size-4 shrink-0" />
+    <a
+      aria-label={label}
+      className="lookup-brand-circle lookup-brand-circle--website"
+      href={link.url}
+      rel="noreferrer"
+      target="_blank"
+      title={label}
+    >
+      <ExternalIcon className="size-5" />
     </a>
   );
 }
@@ -327,7 +330,7 @@ function LookupLinks({ links }: { links: PublicProfileLookupResult["outboundLink
     return <span className="text-muted">No public links</span>;
   }
 
-  const websiteLinks = links.filter((link) => link.type === "website");
+  const websiteLinks = links.filter(isWebsiteLink);
   const brandLinks = links.filter(isBrandCircleLink) as Array<LookupLink & { type: "discord" | "twitch" | "vrchat_profile" }>;
   const vrcdnPreviewLinks = links.filter(isVrcdnPreviewLink);
   const vrcdnStreamLinks = links.filter(isVrcdnStreamLink);
@@ -337,10 +340,10 @@ function LookupLinks({ links }: { links: PublicProfileLookupResult["outboundLink
   return (
     <div className="lookup-link-board">
       <div className="lookup-link-actions">
-        {websiteLinks[0] ? <PrimaryWebsiteLink link={websiteLinks[0]} /> : null}
         {vrcdnPreviewLinks.map((link) => <VrcdnPreviewLink key={`${link.type}-${link.url}`} link={link} />)}
-        {brandLinks.length > 0 ? (
+        {websiteLinks.length > 0 || brandLinks.length > 0 ? (
           <div className="lookup-brand-row">
+            {websiteLinks.map((link) => <WebsiteCircleLink key={`${link.type}-${link.url}`} link={link} />)}
             {brandLinks.map((link) => <BrandCircleLink key={`${link.type}-${link.url}`} link={link} />)}
           </div>
         ) : null}
@@ -414,24 +417,15 @@ function LookupIdentity({ profile }: { profile: PublicProfileLookupResult }) {
 }
 
 function LookupResultRow({ profile }: { profile: PublicProfileLookupResult }) {
-  const descriptors = compactList([profile.headline, profile.bio]);
-  const genreLabels = profile.genres.map(genreLabel);
-  const roleText = secondaryTags([...profile.roleTags, ...profile.tags], [...descriptors, ...genreLabels]).join(" / ");
   const contextText = compactList([profile.region, profile.timezone]).join(" / ");
 
   return (
     <tr className="align-middle">
-      <TableCell className="min-w-48 px-2 py-2">
+      <TableCell className="w-60 min-w-60 px-2 py-2">
         <LookupIdentity profile={profile} />
       </TableCell>
-      <TableCell className="min-w-64 px-2 py-2">
-        {descriptors.length > 0 ? (
-          <div className="lookup-context-copy">
-            {descriptors.map((descriptor, index) => <div className={index === 0 ? "lookup-context-copy__headline" : "lookup-context-copy__body"} key={descriptor}>{descriptor}</div>)}
-          </div>
-        ) : null}
+      <TableCell className="min-w-52 px-2 py-2">
         <LookupGenres genres={profile.genres} />
-        {roleText ? <div className="mt-1 text-[0.68rem] leading-4 text-muted">{roleText}</div> : descriptors.length === 0 ? <div className="text-xs text-muted">No public roles</div> : null}
         {contextText ? <div className="text-[0.68rem] text-muted">{contextText}</div> : null}
       </TableCell>
       <TableCell className="px-2 py-2">
@@ -442,22 +436,13 @@ function LookupResultRow({ profile }: { profile: PublicProfileLookupResult }) {
 }
 
 function LookupResultCard({ profile }: { profile: PublicProfileLookupResult }) {
-  const descriptors = compactList([profile.headline, profile.bio]);
-  const genreLabels = profile.genres.map(genreLabel);
-  const roleText = secondaryTags([...profile.roleTags, ...profile.tags], [...descriptors, ...genreLabels]).join(" / ");
   const contextText = compactList([profile.region, profile.timezone]).join(" / ");
 
   return (
     <Card className="lookup-result-card grid gap-2" padding="sm">
       <LookupIdentity profile={profile} />
       <div className="text-xs">
-        {descriptors.length > 0 ? (
-          <div className="lookup-context-copy">
-            {descriptors.map((descriptor, index) => <div className={index === 0 ? "lookup-context-copy__headline" : "lookup-context-copy__body"} key={descriptor}>{descriptor}</div>)}
-          </div>
-        ) : null}
         <LookupGenres genres={profile.genres} />
-        {roleText ? <div className="mt-1 text-muted">{roleText}</div> : descriptors.length === 0 ? <div className="text-muted">No public roles</div> : null}
         {contextText ? <div className="mt-1 text-xs text-muted">{contextText}</div> : null}
       </div>
       <LookupLinks links={profile.outboundLinks} />
@@ -678,7 +663,7 @@ export function ProfileLookupPage({
                       <TableHead>
                         <tr>
                           <TableHeaderCell>Name</TableHeaderCell>
-                          <TableHeaderCell>Context</TableHeaderCell>
+                          <TableHeaderCell>Genres</TableHeaderCell>
                           <TableHeaderCell>Links</TableHeaderCell>
                         </tr>
                       </TableHead>
