@@ -16,5 +16,13 @@ describe("auth redirects", () => {
 
   it("requires SITE_URL for relative redirects", () => {
     assert.throws(() => siteRelativeRedirectUrl("/account", ""), /SITE_URL/);
+    assert.throws(() => siteRelativeRedirectUrl("/account", undefined), /SITE_URL/);
+    assert.throws(() => siteRelativeRedirectUrl("/account"), /SITE_URL/);
+  });
+
+  it("requires SITE_URL to be an absolute http or https URL", () => {
+    assert.throws(() => siteRelativeRedirectUrl("/account", "ftp://staging.vrdex.net"), /SITE_URL/);
+    assert.throws(() => siteRelativeRedirectUrl("/account", "javascript:void"), /SITE_URL/);
+    assert.throws(() => siteRelativeRedirectUrl("/account", "https://"), /SITE_URL/);
   });
 });

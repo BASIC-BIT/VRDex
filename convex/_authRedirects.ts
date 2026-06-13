@@ -9,5 +9,17 @@ export function siteRelativeRedirectUrl(redirectTo: string, siteUrl = process.en
     throw new Error("SITE_URL must be configured before auth redirects.");
   }
 
+  let parsedBaseUrl: URL;
+
+  try {
+    parsedBaseUrl = new URL(baseUrl);
+  } catch {
+    throw new Error("SITE_URL must be an absolute http/https URL.");
+  }
+
+  if (parsedBaseUrl.protocol !== "http:" && parsedBaseUrl.protocol !== "https:") {
+    throw new Error("SITE_URL must be an absolute http/https URL.");
+  }
+
   return `${baseUrl}${redirectTo}`;
 }
