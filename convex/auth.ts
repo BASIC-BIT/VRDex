@@ -6,6 +6,7 @@ import { Password } from "@convex-dev/auth/providers/Password";
 import { convexAuth } from "@convex-dev/auth/server";
 
 import { internal } from "./_generated/api";
+import { siteRelativeRedirectUrl } from "./_authRedirects";
 
 function requiredEnv(name: string): string {
   const value = process.env[name]?.trim();
@@ -137,11 +138,7 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
   ],
   callbacks: {
     async redirect({ redirectTo }) {
-      if (redirectTo.startsWith("/") && !redirectTo.startsWith("//")) {
-        return redirectTo;
-      }
-
-      throw new Error("Only relative redirects are allowed.");
+      return siteRelativeRedirectUrl(redirectTo);
     },
   },
 });

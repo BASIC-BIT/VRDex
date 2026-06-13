@@ -51,7 +51,9 @@ Development/staging Convex env names:
 - `VRDEX_E2E_CONVEX_SECRET`: non-empty sentinel also configured in the hosted app environment
 - `VRDEX_ENABLE_E2E_AUTH_HELPERS=true`: optional, only when hosted auth/claim E2E is intentionally enabled
 - `VRDEX_ENABLE_E2E_ADAPTER_HELPERS=true`: optional, only when hosted adapter E2E is intentionally enabled
-- `SITE_URL=https://staging.vrdex.net`: required by Convex Auth email/password redirects for hosted auth E2E
+- `SITE_URL=https://staging.vrdex.net`: required by Convex Auth OAuth and email/password redirects back to the hosted web app
+- `AUTH_DISCORD_ID` and `AUTH_DISCORD_SECRET`: staging Discord OAuth application credentials; the Discord redirect URI must include `https://scrupulous-corgi-247.convex.site/api/auth/callback/discord`
+- `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET`: staging Google OAuth application credentials; the Google redirect URI must include `https://scrupulous-corgi-247.convex.site/api/auth/callback/google`
 - `JWT_PRIVATE_KEY`: Convex Auth RS256 private key, generated for the shared development deployment and never printed
 - `JWKS`: Convex Auth public key set matching `JWT_PRIVATE_KEY`
 - `DISCORD_API_BASE_URL`: optional hosted adapter stub base URL, usually `https://staging.vrdex.net/api/e2e/adapters/discord`
