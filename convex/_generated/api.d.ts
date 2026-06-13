@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as _authRedirects from "../_authRedirects.js";
 import type * as _communityAuthority from "../_communityAuthority.js";
 import type * as _discordTimestamps from "../_discordTimestamps.js";
 import type * as _eventInputs from "../_eventInputs.js";
@@ -52,6 +53,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  _authRedirects: typeof _authRedirects;
   _communityAuthority: typeof _communityAuthority;
   _discordTimestamps: typeof _discordTimestamps;
   _eventInputs: typeof _eventInputs;
