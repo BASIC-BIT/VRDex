@@ -245,8 +245,10 @@ function LinkTypeIcon({ type }: { type: ProfileLookupLinkType }) {
 
   if (type === "spotify") {
     return (
-      <svg aria-hidden="true" className="size-5" fill="currentColor" viewBox="0 0 24 24">
-        <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm4.6 14.4a.8.8 0 0 1-1.1.3c-3-1.8-6.8-2.2-11.2-1.2a.8.8 0 1 1-.4-1.6c4.9-1.1 9.1-.6 12.4 1.4.4.2.5.7.3 1.1Zm1.2-2.8a1 1 0 0 1-1.3.3c-3.4-2.1-8.6-2.7-12.7-1.5a1 1 0 0 1-.5-1.9c4.6-1.3 10.4-.6 14.2 1.7.5.3.6.9.3 1.4Zm.1-3a.9.9 0 0 1-.5-.2c-4.1-2.4-10.9-2.7-14.8-1.5a1.1 1.1 0 1 1-.7-2.1c4.5-1.4 12-1 16.6 1.7.5.3.7 1 .4 1.5-.2.4-.6.6-1 .6Z" />
+      <svg aria-hidden="true" className="size-5" fill="none" viewBox="0 0 24 24">
+        <path d="M6.2 8.9c4.15-1.15 8.35-.7 11.9 1.3" stroke="currentColor" strokeLinecap="round" strokeWidth="2.2" />
+        <path d="M7 12.1c3.18-.82 6.35-.45 9.05 1.08" stroke="currentColor" strokeLinecap="round" strokeWidth="1.9" />
+        <path d="M7.65 15.05c2.48-.58 4.78-.32 6.82.78" stroke="currentColor" strokeLinecap="round" strokeWidth="1.65" />
       </svg>
     );
   }
@@ -785,10 +787,10 @@ export function ProfileLookupPage({
                 </Card>
               ) : displayResults.length > 0 ? (
                 <>
-                  <div className="grid gap-3 lg:hidden">
+                  <div className="grid gap-3 min-[1320px]:hidden">
                     {displayResults.map((profile) => <LookupResultCard key={profile.slug} profile={profile} />)}
                   </div>
-                  <TableFrame className="lookup-table hidden lg:block">
+                  <TableFrame className="lookup-table hidden min-[1320px]:block">
                     <Table>
                       <TableHead>
                         <tr>

@@ -595,13 +595,13 @@ body {
   border-radius: var(--radius-panel);
   box-shadow: 0 4px 10px color-mix(in srgb, var(--accent) 8%, transparent);
   color: var(--foreground);
-  display: grid;
-  gap: 0.28rem;
-  grid-template-columns: 0.8rem minmax(0, 1fr) 0.8rem;
+  display: inline-flex;
+  gap: 0.42rem;
   justify-self: end;
   min-height: 2.48rem;
-  min-width: 8.55rem;
-  padding: 0.34rem 0.54rem;
+  min-width: 8.15rem;
+  justify-content: center;
+  padding: 0.34rem 0.6rem;
   transition:
     box-shadow 180ms ease,
     transform 180ms ease;
@@ -610,14 +610,9 @@ body {
 .lookup-feature-link__label {
   font-size: 0.82rem;
   font-weight: 700;
-  grid-column: 2;
   line-height: 1;
   text-align: center;
   white-space: nowrap;
-}
-
-.lookup-feature-link svg {
-  grid-column: 3;
 }
 
 .lookup-feature-link:hover {
@@ -653,8 +648,40 @@ body {
 }
 
 .lookup-brand-circle--vrchat_profile {
-  background: #0b1018;
-  box-shadow: 0 6px 14px rgba(8, 12, 18, 0.2);
+  background: transparent;
+  border-radius: var(--radius-control);
+  box-shadow: none;
+  color: var(--foreground);
+  height: 2.65rem;
+  position: relative;
+  width: 3.34rem;
+}
+
+.lookup-brand-circle--vrchat_profile::before {
+  background: color-mix(in srgb, var(--foreground) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--foreground) 14%, transparent);
+  border-radius: var(--radius-control);
+  content: "";
+  height: 2.48rem;
+  left: 50%;
+  opacity: 0;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  transition: opacity 160ms ease;
+  width: 2.78rem;
+}
+
+.lookup-brand-circle--vrchat_profile:hover::before {
+  opacity: 1;
+}
+
+.lookup-brand-circle--vrchat_profile svg {
+  filter: drop-shadow(0 2px 5px color-mix(in srgb, var(--foreground) 18%, transparent));
+  height: 2.48rem;
+  position: relative;
+  width: 2.48rem;
+  z-index: 1;
 }
 
 .lookup-brand-circle--website {
@@ -662,6 +689,87 @@ body {
   border: 1px solid color-mix(in srgb, var(--accent-strong) 44%, transparent);
   box-shadow: 0 6px 14px color-mix(in srgb, var(--accent) 12%, transparent);
   color: var(--foreground);
+}
+
+.lookup-brand-circle--soundcloud {
+  background: linear-gradient(135deg, #ff7700, #ff3300);
+  box-shadow: 0 6px 14px rgba(255, 85, 0, 0.2);
+  color: #fff;
+}
+
+.lookup-brand-circle--soundcloud svg {
+  height: 1.55rem;
+  width: 1.55rem;
+}
+
+.lookup-brand-circle--spotify {
+  background: #1ed760;
+  box-shadow: 0 6px 14px rgba(30, 215, 96, 0.18);
+  color: #121212;
+}
+
+.lookup-brand-circle--spotify svg {
+  height: 1.66rem;
+  transform: translateY(0.03rem);
+  width: 1.66rem;
+}
+
+.lookup-brand-circle--youtube {
+  background: #ff0033;
+  box-shadow: 0 6px 14px rgba(255, 0, 51, 0.18);
+  color: #fff;
+}
+
+.lookup-brand-circle--youtube svg {
+  height: 1.58rem;
+  width: 1.58rem;
+}
+
+.lookup-brand-circle--bandcamp {
+  background: #1da0c3;
+  box-shadow: 0 6px 14px rgba(29, 160, 195, 0.18);
+  color: #fff;
+}
+
+.lookup-brand-circle--mixcloud {
+  background: #5000ff;
+  box-shadow: 0 6px 14px rgba(80, 0, 255, 0.2);
+  color: #fff;
+}
+
+.lookup-brand-circle--mixcloud svg {
+  height: 1.58rem;
+  transform: translate(0.02rem, 0.02rem);
+  width: 1.58rem;
+}
+
+.lookup-brand-circle--instagram {
+  background: linear-gradient(135deg, #feda75, #fa7e1e 34%, #d62976 68%, #4f5bd5);
+  box-shadow: 0 6px 14px rgba(214, 41, 118, 0.18);
+  color: #fff;
+}
+
+.lookup-brand-circle--instagram svg {
+  height: 1.55rem;
+  width: 1.55rem;
+}
+
+.lookup-brand-circle--patreon {
+  background: #ff424d;
+  box-shadow: 0 6px 14px rgba(255, 66, 77, 0.18);
+  color: #fff;
+}
+
+.lookup-brand-circle--kofi {
+  background: #13c3ff;
+  box-shadow: 0 6px 14px rgba(19, 195, 255, 0.18);
+  color: #fff;
+}
+
+.lookup-brand-circle--linktree {
+  background: #43e660;
+  box-shadow: 0 6px 14px rgba(67, 230, 96, 0.16);
+  color: #121212;
 }
 
 .lookup-primary-url-card {
@@ -720,22 +828,13 @@ body {
   padding: 0.25rem 0.38rem !important;
 }
 
-.lookup-brand-circle--bandcamp,
 .lookup-brand-circle--commissions,
 .lookup-brand-circle--generic_store,
 .lookup-brand-circle--gumroad,
 .lookup-brand-circle--jinxxy,
-.lookup-brand-circle--kofi,
-.lookup-brand-circle--linktree,
-.lookup-brand-circle--mixcloud,
 .lookup-brand-circle--other,
-.lookup-brand-circle--patreon,
 .lookup-brand-circle--payhip,
-.lookup-brand-circle--soundcloud,
-.lookup-brand-circle--spotify,
-.lookup-brand-circle--woocommerce,
-.lookup-brand-circle--youtube,
-.lookup-brand-circle--instagram {
+.lookup-brand-circle--woocommerce {
   background: color-mix(in srgb, var(--foreground) 8%, var(--surface-strong));
   border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
   box-shadow: 0 4px 10px color-mix(in srgb, var(--accent) 7%, transparent);
@@ -795,10 +894,6 @@ body {
   max-width: 100%;
   min-width: 0;
   width: 100%;
-}
-
-.lookup-link-board--copy-aligned {
-  width: min(100%, calc((var(--lookup-board-label-ch, 0) + var(--lookup-board-url-ch, 18)) * 1ch + 4.57rem));
 }
 
 .lookup-link-actions {
@@ -892,7 +987,7 @@ body {
   background: color-mix(in srgb, var(--surface-strong) 84%, transparent);
 }
 
-@media (min-width: 640px) and (max-width: 1023px) {
+@media (min-width: 640px) and (max-width: 1319px) {
   .lookup-result-card {
     align-items: start;
     grid-template-columns: minmax(0, 1fr) minmax(11rem, 0.72fr);
