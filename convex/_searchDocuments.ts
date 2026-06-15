@@ -30,6 +30,7 @@ export type PublicSearchResult = {
 };
 
 type SearchDocumentInput = Omit<Doc<"searchDocuments">, "_id" | "_creationTime">;
+type ProfileGenre = NonNullable<Doc<"profiles">["genres"]>[number];
 type WorldSearchDocumentOptions = {
   hiddenProfileKeys?: Set<string>;
 };
@@ -86,6 +87,16 @@ function exactTokens(values: Array<string | undefined>): string[] {
   }
 
   return [...tokens].sort();
+}
+
+function visibleProfileGenres(profile: Doc<"profiles">): ProfileGenre[] {
+  return visibleProfileList(profile, "genres", profile.genres ?? [], "discovery");
+}
+
+function profileGenreSearchLabels(genres: ProfileGenre[]): string[] {
+  return genres.flatMap((genre) =>
+    compact([genre.displayName, genre.displayLabel, ...(genre.aliases ?? [])]),
+  );
 }
 
 function trustRankForProfile(profile: Doc<"profiles">): number {
@@ -156,10 +167,16 @@ export function vocabularyForProfile(profile: Doc<"profiles">): VocabularyCandid
     "profile_tag",
     visibleProfileList(profile, "tags", profile.tags, "discovery"),
   );
+  const genres = visibleProfileGenres(profile).map((genre) => ({
+    scope: "profile_genre" as const,
+    label: genre.displayName,
+    aliases: compact([genre.displayLabel, ...(genre.aliases ?? [])]),
+  }));
 
   if (profile.profileType === "person") {
     return [
       ...shared,
+      ...genres,
       ...createVocabularyCandidates(
         "person_role",
         visibleProfileList(profile, "personRoleTags", profile.person.roleTags, "discovery"),
@@ -169,6 +186,7 @@ export function vocabularyForProfile(profile: Doc<"profiles">): VocabularyCandid
 
   return [
     ...shared,
+    ...genres,
     ...createVocabularyCandidates("community_subtype", [
       visibleProfileField(profile, "communitySubtype", profile.community.subtype, "discovery"),
     ]),
@@ -182,7 +200,10 @@ export function vocabularyForProfile(profile: Doc<"profiles">): VocabularyCandid
 export function createProfileSearchDocument(profile: Doc<"profiles">): SearchDocumentInput {
   const typeLabel = profile.profileType === "person" ? "Person profile" : "Community profile";
   const aliases = visibleProfileList(profile, "aliases", profile.aliases, "discovery");
+  const searchAliases = profile.searchAliases ?? [];
   const tags = visibleProfileList(profile, "tags", profile.tags, "discovery");
+  const genres = visibleProfileGenres(profile);
+  const genreLabels = profileGenreSearchLabels(genres);
   const headline = visibleProfileField(profile, "headline", profile.headline, "discovery");
   const bio = visibleProfileField(profile, "bio", profile.bio, "discovery");
   const region = visibleProfileField(profile, "region", profile.region, "discovery");
@@ -216,11 +237,21 @@ export function createProfileSearchDocument(profile: Doc<"profiles">): SearchDoc
     searchText: weightedCorpus([
       { values: [profile.displayName, profile.slug], weight: 8 },
       { values: aliases, weight: 5 },
+      { values: searchAliases, weight: 5 },
+      { values: genreLabels, weight: 5 },
       { values: tags, weight: 4 },
       { values: typeSpecific, weight: 4 },
       { values: [headline, bio, region, timezone, typeLabel], weight: 1 },
     ]),
-    exactTokens: exactTokens([profile.displayName, profile.slug, ...aliases, ...tags, ...typeSpecific]),
+    exactTokens: exactTokens([
+      profile.displayName,
+      profile.slug,
+      ...aliases,
+      ...searchAliases,
+      ...genreLabels,
+      ...tags,
+      ...typeSpecific,
+    ]),
     vocabularyKeys: collectVocabularyKeys(vocabulary),
     trustRank: trustRankForProfile(profile),
     featuredRank: trustRankForProfile(profile),

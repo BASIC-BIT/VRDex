@@ -27,3 +27,30 @@ test("legacy discovery query redirects to search", async ({ page }) => {
 
   await expectSearchPage(page);
 });
+
+test("lookup suggestions select a public person row", async ({ page }) => {
+  await page.goto("/lookup");
+  await page.getByLabel("DJ name").fill("bas");
+  await expect(page.getByRole("option", { name: /BASICBIT/i })).toBeVisible();
+  await page.getByRole("option", { name: /BASICBIT/i }).click();
+  await expect(page).toHaveURL(/\/lookup\?q=BASICBIT$/);
+  await expect(page.getByRole("link", { name: "BASICBIT", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Website: basicbit.net", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "VRCDN preview", exact: true })).toBeVisible();
+  await expect(page.locator('input[value="https://stream.vrcdn.live/live/basicbit.live.ts"]')).toHaveCount(2);
+  await expect(page.locator('input[value="rtspt://stream.vrcdn.live/live/basicbit"]')).toHaveCount(2);
+  await expect(page.locator('input[value="https://www.twitch.tv/basic_bit"]')).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Twitch: twitch.tv", exact: true })).toBeVisible();
+  await expect(page.getByText("BASIC", { exact: true })).toHaveCount(2);
+  const copyButton = page.getByRole("button", { name: "Copy" }).first();
+  const copyButtonWidth = await copyButton.evaluate((element) => element.getBoundingClientRect().width);
+  await copyButton.click();
+  const copiedButton = page.getByRole("button", { name: "Copied" }).first();
+  await expect(copiedButton).toBeVisible();
+  const copiedButtonWidth = await copiedButton.evaluate((element) => element.getBoundingClientRect().width);
+  expect(Math.abs(copiedButtonWidth - copyButtonWidth)).toBeLessThan(0.5);
+  await expect.poll(async () => await page.evaluate(() => JSON.parse(window.localStorage.getItem("vrdex.lookup.recentSearches") ?? "[]")[0])).toBe("BASICBIT");
+  await page.getByRole("button", { name: "Clear lookup" }).click();
+  await page.getByLabel("DJ name").focus();
+  await expect(page.getByRole("option", { name: /BASICBIT/i })).toBeVisible();
+});

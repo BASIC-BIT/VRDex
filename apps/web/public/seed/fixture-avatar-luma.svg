@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-label="0xLuma fixture avatar">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="1" y2="0">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#4ade80"/>
+    </linearGradient>
+  </defs>
+  <rect width="160" height="160" rx="22" fill="#07111f"/>
+  <path d="M80 22 96 64l42 16-42 16-16 42-16-42-42-16 42-16Z" fill="url(#bg)"/>
+  <circle cx="80" cy="80" r="22" fill="#07111f" opacity="0.72"/>
+  <path d="M61 81h38" stroke="#f8fafc" stroke-linecap="round" stroke-width="8"/>
+</svg>

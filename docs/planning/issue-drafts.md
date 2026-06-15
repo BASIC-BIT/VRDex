@@ -547,6 +547,73 @@ Acceptance criteria:
 
 ## EPIC-06 Search and discovery basics
 
+### Design and seed genre graph metadata foundation
+
+Problem:
+
+VRDex needs genre metadata that can support search, lookup, import cleanup, browsing, and future recommendation systems. Freeform profile tags are not enough because aliases like `Drum & Bass`, `D&B`, `DnB`, and `dnb` should resolve to the same genre, while related-but-not-identical genres need explicit graph relationships.
+
+Scope:
+
+- define canonical genre nodes with VRDex IDs and external source IDs
+- store genre aliases as indexed lookup records
+- store typed genre relationships such as subgenre, fusion, influence, and weak adjacency
+- seed a small DJ/electronic-focused graph from MusicBrainz and Wikidata cross-links
+- keep canonical genres separate from flexible profile identity/vibe tags
+- document source, confidence, and review status for seeded genre facts
+
+Non-goals:
+
+- full global music ontology coverage
+- recommendation ranking implementation
+- automatic public publication of LLM-suggested genre facts
+- scraping sources without stable/public access terms
+- replacing profile tags with only canonical genres
+
+Acceptance criteria:
+
+- `dnb`, `DnB`, `D&B`, `drum & bass`, and `drum and bass` normalize to one canonical genre record
+- canonical genre records can store MusicBrainz UUIDs, Wikidata QIDs, Discogs style IDs, Every Noise IDs, and other external IDs when known
+- genre graph edges preserve type, source, weight, and confidence
+- profile/event genre assignments can preserve source and confidence metadata
+- the model is documented well enough for search, lookup, import, and recommendation follow-ons
+
+Implementation note:
+
+- start with the research and suggested data shape in `docs/planning/genre-graph.md`
+- use MusicBrainz as the initial canonical seed because it already exposes genre UUIDs, aliases, and typed relationships for key genres like `drum and bass`
+
+### Design genre picker UX and niche genre request path
+
+Problem:
+
+Genre pickers often fail in two opposite ways: they offer too few broad genres and force inaccurate selections, or they expose a giant taxonomy that makes users hunt through thousands of niche options. VRDex needs a picker that works for DJs and VRChat scene niches without turning genre selection into a taxonomy chore.
+
+Scope:
+
+- design a broad-first genre picker with direct search
+- support alias search against canonical genre aliases
+- show inferred parent genres without making users manually select them
+- distinguish true parent genres from loose related suggestions
+- cap and rank related suggestions so one choice does not flood the UI
+- define a manual/contact path for missing niche genres before building a full user-generated canonical genre submission flow
+- preserve freeform profile tags separately from canonical genre selections
+
+Non-goals:
+
+- building the complete genre graph backend
+- accepting unreviewed user-generated canonical genres
+- recommendation ranking implementation
+- forcing every profile tag into the canonical genre ontology
+
+Acceptance criteria:
+
+- selecting `bass house` can show `house` as an inferred parent rather than a second explicit selection
+- searching `dnb` can find canonical `drum and bass`
+- loosely related options such as `bass music`, `140`, `dubstep`, and `riddim` are not incorrectly treated as strict parent/child relationships
+- missing genre handling has a clear first-slice path, likely contact/manual review
+- the picker design is documented well enough for implementation and tests
+
 ### Implement public search across people and communities
 
 Problem:
@@ -1637,6 +1704,47 @@ Suggested labels:
 - `phase:v1.5`
 - `area:events`
 - `area:discord`
+
+### Model set/performance artifacts linked to event slots
+
+Problem:
+
+VRDex could eventually let performers attach a recording or external set page to the slot they played. That would let an event schedule become durable scene history: the person, community, event, slot time, and resulting performance can all connect cleanly.
+
+Scope:
+
+- define a `performance` or `set` artifact model linked to an event slot and performer profile
+- support external media links first, such as SoundCloud, Mixcloud, YouTube, or archive pages
+- preserve source, rights/permission status, visibility, and moderation state
+- leave room for optional hosted media later without making hosting part of the first slice
+- define how performance artifacts appear on person profiles, event pages, and community pages
+
+Non-goals:
+
+- hosting uploaded audio in the first implementation
+- replacing SoundCloud/Mixcloud/YouTube workflows
+- automatic audio analysis or genre classification
+- public playback widgets for every provider in the first slice
+- storing copyrighted media without explicit permission and takedown policy
+
+Acceptance criteria:
+
+- an event slot can link to a specific performance artifact
+- the artifact can represent an external set link without duplicating the media
+- provenance, rights/permission status, and visibility are explicit
+- person and event pages have a documented path to display linked set artifacts
+- hosted media remains a documented future option with clear policy blockers
+
+Likely dependencies:
+
+- hard dependency on `Add DJ slot modeling and Discord timestamp helpers`
+- soft dependency on `Define restream and one-link event media control model`
+
+Suggested labels:
+
+- `phase:v1.5`
+- `area:events`
+- `area:media`
 
 ### Add AI-assisted event ingestion from Discord text and posters
 

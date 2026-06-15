@@ -288,6 +288,38 @@ Implementation status for the first discovery engine slice:
 - featured placements can front event posters, festivals, worlds, communities, and profiles without unsupported global popularity claims
 - PostHog discovery events are optional and no-op when analytics config is absent
 
+Current recommendation for genre graph metadata:
+
+- treat genres as canonical graph metadata, not only freeform profile tags
+- use MusicBrainz genre UUIDs as the initial canonical external anchor where available, with VRDex-owned IDs and slugs for product stability
+- store genre aliases as indexed records so `Drum & Bass`, `D&B`, `DnB`, and `dnb` resolve to the same canonical genre
+- store typed genre edges such as `subgenre_of`, `fusion_of`, `influenced_by`, and weak `adjacent_to` relationships for later browse and recommendation systems
+- keep profile tags and canonical genres separate so identity/vibe labels do not pollute the genre ontology
+- design genre picker UX around broad first choices, direct alias search, inferred parent genres, and capped related suggestions rather than a tiny flat list or an overwhelming global taxonomy browser
+- use manual/contact genre requests as the first niche-genre escape hatch before building full user-generated canonical genre submission flows
+- see `docs/planning/genre-graph.md` for the research notes and suggested data shape
+
+Current recommendation for lookup mode:
+
+- add a separate `/lookup` utility for operator-style person lookup rather than forcing every workflow through the polished profile/discovery UI
+- keep lookup output dense and tabular: name, aliases, genre context, public VRDex path, and public outbound links
+- avoid profile-page headline or bio copy in lookup rows; personal flair belongs on the profile page unless it is encoded as concise genres or operator-useful links
+- source lookup results from the same public profile/search data, with the same suppression and field-visibility boundaries as ordinary public surfaces
+- treat VRChat, Discord, SoundCloud, Mixcloud, Twitch, YouTube, Spotify, Bandcamp, Instagram, Linktree, website, store, and booking links as first-class profile link types
+- render non-primary lookup links as icon-only actions. Elevate VRCDN stream controls first; Twitch stays icon-only unless the profile link explicitly requests copy-row presentation, because some DJs prefer event organizers to use VRCDN over Twitch.
+- derive a VRCDN preview action from any public VRCDN stream link instead of requiring a duplicate stored preview link.
+- keep recent lookup terms local to the browser, deduped, and capped to a small list for quick operator reuse.
+- support a bulk lineup paste mode that looks up each pasted line as provided, with a later LLM-assisted cleanup pass as a candidate direction for messy schedule text and poor matches
+- do not expose auth-provider account metadata, private claim evidence, or hidden verification details in lookup rows
+- use a compact icon-only checkmark for verified lookup/profile rows, with accessible label or tooltip text for meaning and no visible `Verified` word in dense operator layouts
+
+Current recommendation for opinionated DJ/club surfaces:
+
+- keep the underlying profile model people/community-oriented, but allow public surfaces to use DJ/club language when the workflow is clearly DJ-scene-specific
+- preserve the generic directory/search product, but do not force every task through a generic view when a DJ-centric operator mode is more useful
+- treat `/lookup` as the first example of an opinionated task mode: dense public DJ links for lineups, bookings, and set-time operations
+- consider future modes for DJ roster filtering, club lineup planning, media-kit collection, and event-slot operations if the user base proves to be mostly clubgoers, DJs, and organizers
+
 ### 6. Discord bot integration
 
 First commands should be simple:
@@ -370,6 +402,7 @@ Important future-aware extensions:
 - platform compatibility hints
 - richer DJ slot breakdowns and booking-manager UX beyond the first `#119` slot editor
 - stream/watch link modeling
+- set/performance artifacts that can attach an external or hosted recording to a specific event slot
 - calendar export and sync, preserving both static `.ics` export and later Google Calendar sync; see `docs/planning/calendar-integration.md`
 
 Event-world direction:
@@ -414,6 +447,13 @@ Candidate restreamer / one-link routing direction:
 - some communities may want one stable public stream/watch link while operators manage per-DJ source links behind it
 - useful operations include manual switching, later time-boundary switching, live checks before switching, current/next source status, preview, and direct Twitch/watch-link access
 - this should inform event media-link modeling and operator-dashboard interviews before becoming first-slice streaming infrastructure
+
+Candidate set/performance artifact direction:
+
+- performers may eventually post recordings of sets, initially as external links such as SoundCloud, Mixcloud, YouTube, or archive links
+- a later hosted-media option could store the performance itself, but only after rights, consent, moderation, cost, and takedown policy are designed
+- the important product concept is that an event slot can later resolve to a specific performance artifact, preserving who played, when, where, and what recording represents that slot
+- this should remain a later media/event graph feature, not a requirement for the initial DJ lookup or slot editor slices
 
 Notification and consent direction:
 

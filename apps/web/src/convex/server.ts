@@ -3,6 +3,7 @@ import { api } from "@convex-generated-api";
 import {
   getPlaywrightActiveWorldFixtures,
   getPlaywrightDiscoveryFixture,
+  getPlaywrightProfileLookupFixture,
   getPlaywrightPublicEventFixture,
   getPlaywrightPublicProfileFixture,
   getPlaywrightPublicWorldFixture,
@@ -225,6 +226,39 @@ export async function fetchDiscoverySearch(query: string) {
     const message = error instanceof Error ? error.message : String(error);
 
     console.error(`Server-side Convex search fetch failed: ${message}`);
+
+    return {
+      kind: "error" as const,
+      results: [],
+    };
+  }
+}
+
+export async function fetchProfileLookup(query: string) {
+  const fixtureLookup = getPlaywrightProfileLookupFixture(query);
+
+  if (fixtureLookup.kind === "handled") {
+    return {
+      kind: "live" as const,
+      results: fixtureLookup.results,
+    };
+  }
+
+  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
+    return { kind: "missing-url" as const, results: [] };
+  }
+
+  try {
+    const results = await fetchQuery(api.profiles.lookupPeople, { query, limit: 12 });
+
+    return {
+      kind: "live" as const,
+      results,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    console.error(`Server-side Convex lookup fetch failed: ${message}`);
 
     return {
       kind: "error" as const,

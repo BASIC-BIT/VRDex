@@ -2,15 +2,28 @@ import { v } from "convex/values";
 
 import { mutation, query } from "./_generated/server";
 import { getPublicCommunityHostedEvents, getPublicPersonUpcomingEvents } from "./_eventPublic";
+import { toProfileLookupResult } from "./_profileLookup";
 import { canReadProfile } from "./_profilePermissions";
 import { toPublicProfile } from "./_profilePublic";
 import { findAvailableProfileSlug, getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { sanitizeCommunitySubmissionProfileInput } from "./_profileSubmissions";
 import { getPublicProfileWorldCredits } from "./_profileWorldCredits";
-import { createProfileSearchDocument, upsertSearchDocument, vocabularyForProfile } from "./_searchDocuments";
+import {
+  createProfileSearchDocument,
+  normalizeSearchQuery,
+  sortSearchResults,
+  toPublicSearchResult,
+  upsertSearchDocument,
+  vocabularyForProfile,
+} from "./_searchDocuments";
 import { recordVocabularyTerms } from "./_vocabulary";
 
 const profileType = v.union(v.literal("person"), v.literal("community"));
+const PROFILE_LOOKUP_RESULT_LIMIT = 12;
+
+function boundedLimit(value: number | undefined, fallback: number, max: number): number {
+  return Math.max(1, Math.min(value ?? fallback, max));
+}
 
 function optionalIdentityDisplayName(name: string | undefined): string | undefined {
   const trimmed = name?.trim();
@@ -69,6 +82,47 @@ export const getPublicBySlug = query({
       }),
       ...eventContext,
     };
+  },
+});
+
+export const lookupPeople = query({
+  args: {
+    query: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const searchText = normalizeSearchQuery(args.query);
+    const limit = boundedLimit(args.limit, PROFILE_LOOKUP_RESULT_LIMIT, 25);
+
+    if (!searchText) {
+      return [];
+    }
+
+    const documents = await ctx.db
+      .query("searchDocuments")
+      .withSearchIndex("search_text", (search) =>
+        search
+          .search("searchText", searchText)
+          .eq("publicState", "public")
+          .eq("entityType", "profile")
+          .eq("profileType", "person"),
+      )
+      .take(limit * 3);
+    const rankedPeople = sortSearchResults(documents.map((document) => toPublicSearchResult(document, searchText)))
+      .slice(0, limit);
+    const results = await Promise.all(
+      rankedPeople.map(async (result) => {
+        const profile = await getProfileBySlug(ctx.db, result.slug);
+
+        if (profile === null || profile.profileType !== "person" || !canReadProfile("public", profile)) {
+          return null;
+        }
+
+        return toProfileLookupResult(profile);
+      }),
+    );
+
+    return results.filter((result): result is NonNullable<typeof result> => result !== null);
   },
 });
 

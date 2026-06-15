@@ -13,6 +13,17 @@ type ProfileTrustLabel =
   | "claimed_unverified"
   | "claimed_verified";
 type ProfileLinkType =
+  | "vrchat_profile"
+  | "vrcdn"
+  | "discord"
+  | "soundcloud"
+  | "mixcloud"
+  | "twitch"
+  | "youtube"
+  | "spotify"
+  | "bandcamp"
+  | "instagram"
+  | "linktree"
   | "website"
   | "gumroad"
   | "jinxxy"
@@ -24,6 +35,7 @@ type ProfileLinkType =
   | "generic_store"
   | "other";
 type LinkSource = "owner_authored" | "reviewed" | "partner_provided";
+type LinkPresentation = "icon" | "copy";
 type WorldCreatorRole =
   | "world_author"
   | "builder"
@@ -32,12 +44,20 @@ type WorldCreatorRole =
   | "media_credit"
   | "storefront_owner";
 
+type PublicProfileGenre = {
+  slug: string;
+  displayName: string;
+  displayLabel?: string;
+  featured?: boolean;
+};
+
 type PublicProfileBase = {
   profileType: "person" | "community";
   slug: string;
   displayName: string;
   aliases: string[];
   tags: string[];
+  genres: PublicProfileGenre[];
   headline?: string;
   bio?: string;
   about?: string;
@@ -55,6 +75,8 @@ type PublicProfileBase = {
     type: ProfileLinkType;
     label: string;
     url: string;
+    handle?: string;
+    presentation?: LinkPresentation;
     source: LinkSource;
   }>;
   worldCredits: Array<{
@@ -340,7 +362,7 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
                     target="_blank"
                   >
                     <span className="block font-medium">{link.label}</span>
-                    {host ? <span className="mt-1 block text-xs text-muted">{host}</span> : null}
+                    {link.handle ?? host ? <span className="mt-1 block text-xs text-muted">{link.handle ?? host}</span> : null}
                   </a>
                 );
               })

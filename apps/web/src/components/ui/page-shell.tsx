@@ -8,8 +8,8 @@ const pageShellVariants = cva("min-h-screen px-6 py-8 text-foreground sm:px-10 l
   variants: {
     tone: {
       default: "",
-      event: "bg-[radial-gradient(circle_at_top_left,rgba(125,74,202,0.14),transparent_32%),linear-gradient(180deg,#faf7fb,#f3efe8)]",
-      world: "bg-[radial-gradient(circle_at_top_left,rgba(9,189,214,0.14),transparent_32%),linear-gradient(180deg,#f7fbfb,#f3efe8)]",
+      event: "bg-[radial-gradient(circle_at_top_left,rgba(125,74,202,0.12),transparent_32%),linear-gradient(180deg,#f3f6fb,#e5ecf5)]",
+      world: "bg-[radial-gradient(circle_at_top_left,rgba(8,145,178,0.14),transparent_32%),linear-gradient(180deg,#f2f8fb,#e4edf5)]",
     },
   },
   defaultVariants: {

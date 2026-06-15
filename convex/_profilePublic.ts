@@ -10,6 +10,15 @@ function visibleHttpsProfileImage(
   return safeHttpsUrl(visibleProfileField(profile, key, profile[key], "profile_page"));
 }
 
+function publicProfileGenres(profile: Doc<"profiles">) {
+  return visibleProfileList(profile, "genres", profile.genres ?? [], "profile_page").map((genre) => ({
+    slug: genre.slug,
+    displayName: genre.displayName,
+    ...optionalField("displayLabel", genre.displayLabel),
+    ...optionalField("featured", genre.featured === true ? true : undefined),
+  }));
+}
+
 export function toPublicProfile(profile: Doc<"profiles">) {
   const source = profile.sourceAttribution
     ? {
@@ -24,6 +33,7 @@ export function toPublicProfile(profile: Doc<"profiles">) {
     displayName: profile.displayName,
     aliases: visibleProfileList(profile, "aliases", profile.aliases, "profile_page"),
     tags: visibleProfileList(profile, "tags", profile.tags, "profile_page"),
+    genres: publicProfileGenres(profile),
     trustLabel: getProfileTrustLabel(profile.claimState, profile.creationSource),
     ...optionalField("source", source),
     outboundLinks: visibleProfileList(

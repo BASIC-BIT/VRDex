@@ -46,7 +46,20 @@ describe("search document projection", () => {
       displayName: "DJ Aurora",
       sortName: "dj aurora",
       aliases: ["Auralight"],
+      searchAliases: ["dj_aurora"],
       tags: ["Melodic House"],
+      genres: [
+        {
+          slug: "drum-and-bass",
+          displayName: "Drum and Bass",
+          displayLabel: "DnB",
+          aliases: ["D&B", "drum & bass"],
+          featured: true,
+          source: "owner_selected",
+          confidence: "high",
+          explicit: true,
+        },
+      ],
       headline: "Late-night VRChat floors.",
       claimState: "claimed_verified",
       publicationState: "published",
@@ -65,7 +78,13 @@ describe("search document projection", () => {
     assert.equal(document.routePath, "/p/dj-aurora");
     assert.equal(document.trustRank, 40);
     assert.ok(document.searchText.includes("DJ Aurora"));
-    assert.deepEqual(document.vocabularyKeys, ["person_role:dj", "profile_tag:melodic_house"]);
+    assert.ok(document.searchText.includes("dj_aurora"));
+    assert.ok(document.searchText.includes("D&B"));
+    assert.deepEqual(document.vocabularyKeys, [
+      "person_role:dj",
+      "profile_genre:drum_and_bass",
+      "profile_tag:melodic_house",
+    ]);
   });
 
   it("omits unlisted and private profile fields from discovery documents", () => {
@@ -75,7 +94,17 @@ describe("search document projection", () => {
       displayName: "DJ Aurora",
       sortName: "dj aurora",
       aliases: ["Private Alias"],
+      searchAliases: ["search-only-alias"],
       tags: ["Unlisted Tag"],
+      genres: [
+        {
+          slug: "unlisted-genre",
+          displayName: "Unlisted Genre",
+          source: "owner_selected",
+          confidence: "high",
+          explicit: true,
+        },
+      ],
       headline: "Private headline",
       bio: "Public bio",
       avatarImageUrl: "https://example.invalid/private-avatar.png",
@@ -88,6 +117,7 @@ describe("search document projection", () => {
       fieldVisibility: {
         aliases: "private",
         tags: "unlisted",
+        genres: "unlisted",
         headline: "private",
         bio: "public",
         avatarImageUrl: "private",
@@ -105,11 +135,13 @@ describe("search document projection", () => {
     assert.equal(document.summary, "Public bio");
     assert.equal(document.imageUrl, "https://example.invalid/public-banner.png");
     assert.equal(document.searchText.includes("Private Alias"), false);
+    assert.equal(document.searchText.includes("search-only-alias"), true);
     assert.equal(document.searchText.includes("Unlisted Tag"), false);
+    assert.equal(document.searchText.includes("Unlisted Genre"), false);
     assert.equal(document.searchText.includes("Private headline"), false);
     assert.equal(document.searchText.includes("Unlisted Role"), false);
     assert.deepEqual(document.vocabularyKeys, []);
-    assert.deepEqual(document.exactTokens, ["dj aurora"]);
+    assert.deepEqual(document.exactTokens, ["dj aurora", "search only alias"]);
   });
 
   it("builds world and event documents for universal search", () => {

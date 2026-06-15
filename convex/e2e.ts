@@ -11,6 +11,7 @@ const fieldVisibilityState = v.union(v.literal("public"), v.literal("unlisted"),
 const fieldVisibility = v.object({
   aliases: v.optional(fieldVisibilityState),
   tags: v.optional(fieldVisibilityState),
+  genres: v.optional(fieldVisibilityState),
   headline: v.optional(fieldVisibilityState),
   bio: v.optional(fieldVisibilityState),
   about: v.optional(fieldVisibilityState),
