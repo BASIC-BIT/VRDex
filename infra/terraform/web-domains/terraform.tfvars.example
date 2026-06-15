@@ -1,0 +1,9 @@
+# BASIC BIT hosted example values. Self-hosted operators should replace these
+# with their own Vercel team/project and domain values.
+
+vercel_team_id      = "team_GoHh5xUc96fAIAqJoG55A71S"
+vercel_project_name = "vr-dex-web"
+
+hosted_zone_name      = "vrdex.net"
+production_domain     = "vrdex.net"
+production_www_domain = "www.vrdex.net"

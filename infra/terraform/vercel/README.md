@@ -2,7 +2,7 @@
 
 This stack manages Vercel project environment variables for the hosted VRDex web app.
 
-It currently creates PostHog analytics variables for the existing Vercel project:
+It currently manages PostHog analytics variables for the existing Vercel project:
 
 - project: `vr-dex-web`
 - team: `team_GoHh5xUc96fAIAqJoG55A71S`
