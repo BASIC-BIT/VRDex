@@ -265,6 +265,9 @@ jobs:
             docs-site)
               if [ -n "$TERRAFORM_ROUTE53_ZONE_ID" ]; then args+=("-var=route53_zone_id=$TERRAFORM_ROUTE53_ZONE_ID"); fi
               ;;
+            vercel)
+              if [ -n "$TERRAFORM_ROUTE53_ZONE_ID" ]; then args+=("-var=route53_zone_id=$TERRAFORM_ROUTE53_ZONE_ID"); fi
+              ;;
             ses)
               args+=("-var=domain_name=$TERRAFORM_SES_DOMAIN_NAME")
               if [ -n "$TERRAFORM_SES_FROM_EMAIL" ]; then args+=("-var=from_email=$TERRAFORM_SES_FROM_EMAIL"); fi

@@ -14,5 +14,9 @@ posthog_public_key = "phc_REPLACE_WITH_VRDEX_ANALYTICS_PROJECT_KEY"
 manage_production_environment = true
 manage_preview_environment    = true
 
+manage_production_domains = true
+production_domain         = "vrdex.net"
+production_www_domain     = "www.vrdex.net"
+
 # Vercel custom environment ID for the shared `staging` environment.
 staging_custom_environment_ids = ["env_1iR8Tk53UMEhsbEgONsgGhzl9hX9"]

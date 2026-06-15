@@ -12,6 +12,14 @@ output "posthog_project" {
   }
 }
 
+output "production_domains" {
+  description = "Production web domains managed by this stack when enabled."
+  value = var.manage_production_domains ? {
+    primary = var.production_domain
+    www     = var.production_www_domain
+  } : null
+}
+
 output "managed_posthog_environment_keys" {
   description = "PostHog environment variable names managed by this stack."
   value       = keys(local.posthog_values)
