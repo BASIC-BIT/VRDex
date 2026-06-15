@@ -28,7 +28,18 @@ test("legacy discovery query redirects to search", async ({ page }) => {
   await expectSearchPage(page);
 });
 
-test("lookup suggestions select a public person row", async ({ page }) => {
+test("lookup route renders on hosted deployments", async ({ page }) => {
+  test.skip(!process.env.PLAYWRIGHT_BASE_URL, "Hosted-only smoke coverage.");
+
+  await page.goto("/lookup");
+  await expect(page.getByRole("heading", { name: /DJ link lookup/i })).toBeVisible();
+  await expect(page.getByLabel("DJ name")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Lookup", exact: true })).toBeVisible();
+});
+
+test("lookup suggestions select a fixture public person row", async ({ page }) => {
+  test.skip(Boolean(process.env.PLAYWRIGHT_BASE_URL), "Fixture-specific lookup suggestions are local-only.");
+
   await page.goto("/lookup");
   await page.getByLabel("DJ name").fill("bas");
   await expect(page.getByRole("option", { name: /BASICBIT/i })).toBeVisible();
