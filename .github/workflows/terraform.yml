@@ -23,6 +23,7 @@ on:
           - all
           - state-mgmt
           - docs-site
+          - web-domains
           - ses
           - posthog
           - vercel
@@ -96,6 +97,17 @@ jobs:
             requires_ses_domain: "false"
           - name: docs-site
             path: infra/terraform/docs-site
+            backend: "true"
+            plan: "true"
+            auto_apply: "true"
+            manual_apply: "true"
+            requires_aws: "true"
+            requires_vercel: "true"
+            requires_posthog: "false"
+            requires_posthog_public_key: "false"
+            requires_ses_domain: "false"
+          - name: web-domains
+            path: infra/terraform/web-domains
             backend: "true"
             plan: "true"
             auto_apply: "true"
@@ -265,7 +277,7 @@ jobs:
             docs-site)
               if [ -n "$TERRAFORM_ROUTE53_ZONE_ID" ]; then args+=("-var=route53_zone_id=$TERRAFORM_ROUTE53_ZONE_ID"); fi
               ;;
-            vercel)
+            web-domains)
               if [ -n "$TERRAFORM_ROUTE53_ZONE_ID" ]; then args+=("-var=route53_zone_id=$TERRAFORM_ROUTE53_ZONE_ID"); fi
               ;;
             ses)

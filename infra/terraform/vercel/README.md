@@ -1,21 +1,13 @@
 # Vercel Web Terraform
 
-This stack manages Vercel project domains and environment variables for the hosted VRDex web app.
+This stack manages Vercel project environment variables for the hosted VRDex web app.
 
-It currently manages production custom domains and PostHog analytics variables for the existing Vercel project:
+It currently manages PostHog analytics variables for the existing Vercel project:
 
 - project: `vr-dex-web`
 - team: `team_GoHh5xUc96fAIAqJoG55A71S`
-- production domains: `vrdex.net`, `www.vrdex.net`
 - PostHog project: `447783` (`VRDex Analytics`)
 - PostHog ingestion host: `https://us.i.posthog.com`
-
-## Managed Domains
-
-- Vercel project domain: `vrdex.net`
-- Vercel project domain: `www.vrdex.net`
-- Route 53 `A` record: `vrdex.net -> 76.76.21.21`
-- Route 53 `A` record: `www.vrdex.net -> 76.76.21.21`
 
 ## Managed Environment Variables
 
@@ -28,12 +20,11 @@ The PostHog project key is client-exposed once deployed, but keep the value out 
 
 1. Copy `terraform.tfvars.example` to `terraform.tfvars`.
 2. Set `posthog_public_key` from the PostHog project settings for project `447783` or from the sensitive `infra/terraform/posthog` output `posthog_project_api_token`.
-3. Confirm `production_domain`, `production_www_domain`, and `route53_zone_id` target the intended hosted zone.
-4. If managing the Vercel `staging` custom environment, add its custom environment ID to `staging_custom_environment_ids`.
-5. Export a Vercel token for Terraform: `VERCEL_API_TOKEN=<token>`. If reusing the GitHub secret value locally, set `VERCEL_API_TOKEN` to the same value as `VERCEL_TOKEN`.
-6. Run `terraform init`.
-7. Run `terraform plan` and review Vercel project-domain, Route 53, and environment variable changes.
-8. Apply only after confirming the target project, domains, DNS zone, and environment scopes.
+3. If managing the Vercel `staging` custom environment, add its custom environment ID to `staging_custom_environment_ids`.
+4. Export a Vercel token for Terraform: `VERCEL_API_TOKEN=<token>`. If reusing the GitHub secret value locally, set `VERCEL_API_TOKEN` to the same value as `VERCEL_TOKEN`.
+5. Run `terraform init`.
+6. Run `terraform plan` and review Vercel environment variable changes.
+7. Apply only after confirming the target project and environment scopes.
 
 ## State Backend
 
@@ -44,18 +35,12 @@ Terraform state for this stack is stored in the S3 backend declared in `versions
 - region: `us-east-1`
 - locking: S3 native lockfile (`use_lockfile = true`)
 
-## Existing Resources
+## Existing Variables
 
-If any managed Vercel project domain or variable already exists in Vercel, import it before applying rather than creating a duplicate. The Vercel provider import ID is:
+If any managed variable already exists in Vercel, import it before applying rather than creating a duplicate. The Vercel provider import ID is:
 
 ```text
 <team_id>/<project_id>/<environment_variable_id>
 ```
 
 Find the Vercel environment variable ID in the dashboard network tab or through the Vercel API.
-
-Route 53 record import IDs use the normal AWS provider shape:
-
-```text
-<zone_id>_<record_name>_<record_type>
-```

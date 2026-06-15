@@ -7,6 +7,7 @@ VRDex keeps small infrastructure stacks separate so credentials, blast radius, a
 - `posthog/`: hosted PostHog project metadata for product analytics.
 - `vercel/`: Vercel project environment variables for the hosted web app.
 - `docs-site/`: Vercel docs project/domain and Route 53 DNS for `docs.vrdex.net`.
+- `web-domains/`: Vercel web project-domain bindings and Route 53 DNS for `vrdex.net` and `www.vrdex.net`.
 - `restream-worker/`: validation-only hosted restream worker benchmark foundation for ECR, ECS/Fargate, logs, roles, secret references, and the disabled kill switch.
 
 Each non-bootstrap stack uses the shared S3 state bucket `vrdex-terraform-state` with a stack-specific state key and S3 native locking. `state-mgmt/` intentionally uses local state because it manages that bucket. Do not commit `terraform.tfvars`, local state, plans, or provider directories.
