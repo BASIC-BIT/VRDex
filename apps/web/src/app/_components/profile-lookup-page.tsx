@@ -427,7 +427,7 @@ function LookupLinks({ links }: { links: PublicProfileLookupResult["outboundLink
       return previewLink ? [previewLink] : [];
     }),
   ].filter((link, index, allLinks) => allLinks.findIndex((candidate) => candidate.url === link.url) === index);
-  const handled = new Set([...explicitVrcdnPreviewLinks, ...vrcdnStreamLinks]);
+  const handled = new Set([...explicitVrcdnPreviewLinks, ...vrcdnStreamLinks, ...twitchCopyLinks]);
   const iconLinks = links.filter((link) => !handled.has(link));
   const vrcdnCopyLinks = vrcdnStreamLinks.flatMap((link) => deriveVrcdnCopyLinks(link.url).map((entry) => ({ ...entry, key: `${link.url}-${entry.label}` })));
   const copyRows = [

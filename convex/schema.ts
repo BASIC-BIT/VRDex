@@ -919,7 +919,7 @@ export default defineSchema({
     .index("by_publicState_startsAt", ["publicState", "startsAt"])
     .searchIndex("search_text", {
       searchField: "searchText",
-      filterFields: ["publicState", "entityType"],
+      filterFields: ["publicState", "entityType", "profileType"],
     }),
   searchEmbeddings: defineTable({
     searchDocumentId: v.id("searchDocuments"),

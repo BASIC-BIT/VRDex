@@ -1,8 +1,10 @@
 import type { Doc } from "./_generated/dataModel";
-import { toPublicProfile } from "./_profilePublic";
+import { visibleProfileField, visibleProfileList } from "./_profileFieldVisibility";
+import { optionalField, safeHttpsUrl } from "./_publicFields";
+import { getProfileTrustLabel } from "./_profileStates";
 
-type PublicProfile = ReturnType<typeof toPublicProfile>;
-type PublicProfileLink = PublicProfile["outboundLinks"][number];
+type ProfileLookupLink = NonNullable<Doc<"profiles">["outboundLinks"]>[number] & { url: string };
+type ProfileLookupGenre = NonNullable<Doc<"profiles">["genres"]>[number];
 
 const PROFILE_LOOKUP_LINK_PRIORITY = [
   "vrchat_profile",
@@ -28,13 +30,13 @@ const PROFILE_LOOKUP_LINK_PRIORITY = [
   "other",
 ] as const;
 
-function profileLookupLinkRank(link: PublicProfileLink): number {
+function profileLookupLinkRank(link: ProfileLookupLink): number {
   const index = PROFILE_LOOKUP_LINK_PRIORITY.indexOf(link.type as (typeof PROFILE_LOOKUP_LINK_PRIORITY)[number]);
 
   return index === -1 ? PROFILE_LOOKUP_LINK_PRIORITY.length : index;
 }
 
-export function sortProfileLookupLinks(links: PublicProfileLink[]): PublicProfileLink[] {
+export function sortProfileLookupLinks(links: ProfileLookupLink[]): ProfileLookupLink[] {
   return [...links].sort((first, second) => {
     const rankDelta = profileLookupLinkRank(first) - profileLookupLinkRank(second);
 
@@ -46,33 +48,60 @@ function optionalStringField(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-export function toProfileLookupResult(profile: Doc<"profiles">) {
-  const publicProfile = toPublicProfile(profile);
+function publicLookupGenres(profile: Doc<"profiles">) {
+  return visibleProfileList(profile, "genres", profile.genres ?? [], "discovery").map(
+    (genre: ProfileLookupGenre) => ({
+      slug: genre.slug,
+      displayName: genre.displayName,
+      ...optionalField("displayLabel", genre.displayLabel),
+      ...optionalField("featured", genre.featured === true ? true : undefined),
+    }),
+  );
+}
 
-  if (publicProfile.profileType !== "person") {
+function publicLookupLinks(profile: Doc<"profiles">): ProfileLookupLink[] {
+  return visibleProfileList(profile, "outboundLinks", profile.outboundLinks ?? [], "discovery").flatMap(
+    (link) => {
+      const linkUrl = safeHttpsUrl(link.url);
+
+      if (linkUrl === undefined) {
+        return [];
+      }
+
+      return [{ ...link, url: linkUrl }];
+    },
+  );
+}
+
+export function toProfileLookupResult(profile: Doc<"profiles">) {
+  if (profile.profileType !== "person") {
     return null;
   }
 
-  const headline = optionalStringField("headline" in publicProfile ? publicProfile.headline : undefined);
-  const bio = optionalStringField("bio" in publicProfile ? publicProfile.bio : undefined);
-  const avatarImageUrl = optionalStringField("avatarImageUrl" in publicProfile ? publicProfile.avatarImageUrl : undefined);
-  const region = optionalStringField("region" in publicProfile ? publicProfile.region : undefined);
-  const timezone = optionalStringField("timezone" in publicProfile ? publicProfile.timezone : undefined);
+  const headline = optionalStringField(visibleProfileField(profile, "headline", profile.headline, "discovery"));
+  const bio = optionalStringField(visibleProfileField(profile, "bio", profile.bio, "discovery"));
+  const avatarImageUrl = safeHttpsUrl(
+    visibleProfileField(profile, "avatarImageUrl", profile.avatarImageUrl, "discovery"),
+  );
+  const region = optionalStringField(visibleProfileField(profile, "region", profile.region, "discovery"));
+  const timezone = optionalStringField(
+    visibleProfileField(profile, "timezone", profile.timezone, "discovery"),
+  );
 
   return {
-    slug: publicProfile.slug,
-    displayName: publicProfile.displayName,
-    profilePath: `/p/${publicProfile.slug}`,
-    aliases: publicProfile.aliases,
-    tags: publicProfile.tags,
-    genres: publicProfile.genres,
-    roleTags: publicProfile.person.roleTags,
-    trustLabel: publicProfile.trustLabel,
+    slug: profile.slug,
+    displayName: profile.displayName,
+    profilePath: `/p/${profile.slug}`,
+    aliases: visibleProfileList(profile, "aliases", profile.aliases, "discovery"),
+    tags: visibleProfileList(profile, "tags", profile.tags, "discovery"),
+    genres: publicLookupGenres(profile),
+    roleTags: visibleProfileList(profile, "personRoleTags", profile.person.roleTags, "discovery"),
+    trustLabel: getProfileTrustLabel(profile.claimState, profile.creationSource),
     ...(headline === undefined ? {} : { headline }),
     ...(bio === undefined ? {} : { bio }),
     ...(avatarImageUrl === undefined ? {} : { avatarImageUrl }),
     ...(region === undefined ? {} : { region }),
     ...(timezone === undefined ? {} : { timezone }),
-    outboundLinks: sortProfileLookupLinks(publicProfile.outboundLinks),
+    outboundLinks: sortProfileLookupLinks(publicLookupLinks(profile)),
   };
 }

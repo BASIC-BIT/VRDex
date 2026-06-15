@@ -456,6 +456,68 @@ describe("public profile projection", () => {
     assert.equal(lookup?.outboundLinks.at(-1)?.presentation, "copy");
   });
 
+  it("keeps unlisted fields out of lookup rows", () => {
+    const profile = {
+      profileType: "person",
+      slug: "dj-celine",
+      displayName: "DJ Celine",
+      sortName: "dj celine",
+      aliases: ["Unlisted Alias"],
+      tags: ["Unlisted Tag"],
+      genres: [
+        {
+          slug: "unlisted-genre",
+          displayName: "Unlisted Genre",
+          source: "owner_selected",
+          confidence: "high",
+          explicit: true,
+        },
+      ],
+      headline: "Unlisted headline",
+      bio: "Unlisted bio",
+      avatarImageUrl: "https://example.invalid/avatar.png",
+      outboundLinks: [
+        {
+          type: "website",
+          label: "Website",
+          url: "https://example.invalid",
+          source: "owner_authored",
+        },
+      ],
+      claimState: "claimed_verified",
+      publicationState: "published",
+      publicSurfacingState: "public",
+      creationSource: "self",
+      publishedAt: 1,
+      updatedAt: 1,
+      fieldVisibility: {
+        aliases: "unlisted",
+        tags: "unlisted",
+        genres: "unlisted",
+        headline: "unlisted",
+        bio: "unlisted",
+        avatarImageUrl: "unlisted",
+        outboundLinks: "unlisted",
+        personRoleTags: "unlisted",
+      },
+      person: {
+        roleTags: ["Unlisted Role"],
+      },
+    } as Doc<"profiles">;
+
+    const lookup = toProfileLookupResult(profile);
+
+    assert.equal(lookup?.displayName, "DJ Celine");
+    assert.deepEqual(lookup?.aliases, []);
+    assert.deepEqual(lookup?.tags, []);
+    assert.deepEqual(lookup?.genres, []);
+    assert.deepEqual(lookup?.roleTags, []);
+    assert.equal(lookup?.headline, undefined);
+    assert.equal(lookup?.bio, undefined);
+    assert.equal(lookup?.avatarImageUrl, undefined);
+    assert.deepEqual(lookup?.outboundLinks, []);
+  });
+
   it("keeps unlisted fields on direct profiles and hides private fields", () => {
     const profile = {
       profileType: "person",

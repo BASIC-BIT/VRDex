@@ -101,11 +101,14 @@ export const lookupPeople = query({
     const documents = await ctx.db
       .query("searchDocuments")
       .withSearchIndex("search_text", (search) =>
-        search.search("searchText", searchText).eq("publicState", "public").eq("entityType", "profile"),
+        search
+          .search("searchText", searchText)
+          .eq("publicState", "public")
+          .eq("entityType", "profile")
+          .eq("profileType", "person"),
       )
       .take(limit * 3);
     const rankedPeople = sortSearchResults(documents.map((document) => toPublicSearchResult(document, searchText)))
-      .filter((result) => result.profileType === "person")
       .slice(0, limit);
     const results = await Promise.all(
       rankedPeople.map(async (result) => {
