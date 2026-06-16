@@ -5,6 +5,7 @@ import { EventPreviewCard, type PublicEventPreview } from "./event-public-page";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, Eyebrow, SectionHeading, SectionTitle } from "@/components/ui/card";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
+import { avatarFrameStyle, defaultAvatarAppearance, type AvatarAppearance } from "@/lib/avatar-appearance";
 import { cn } from "@/lib/cn";
 import { safeImageBackground } from "@/lib/safe-image";
 
@@ -74,11 +75,7 @@ type PublicProfileMediaKit = {
   avatarAppearance?: PublicProfileAvatarAppearance;
 };
 
-type PublicProfileAvatarAppearance = {
-  borderEnabled: boolean;
-  borderColor: string;
-  radiusPercent: number;
-};
+type PublicProfileAvatarAppearance = AvatarAppearance;
 
 type PublicProfileBase = {
   profileType: "person" | "community";
@@ -167,12 +164,6 @@ function initialsFor(name: string): string {
 }
 
 const profileBannerOverlay = "linear-gradient(135deg, rgba(22, 17, 15, 0.58), rgba(214, 106, 77, 0.2))";
-const defaultAvatarAppearance: PublicProfileAvatarAppearance = {
-  borderEnabled: true,
-  borderColor: "#ffffff",
-  radiusPercent: 18,
-};
-
 function safeHttpsUrl(url: string): string | null {
   try {
     const parsed = new URL(url);
@@ -299,13 +290,7 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
     compactDisplay: "profile_image" as const,
   };
   const avatarAppearance = mediaKit.avatarAppearance ?? defaultAvatarAppearance;
-  const avatarStyle: CSSProperties = {
-    ...avatarImageStyle,
-    borderColor: avatarAppearance.borderEnabled ? avatarAppearance.borderColor : "transparent",
-    borderRadius: `${avatarAppearance.radiusPercent}%`,
-    borderStyle: "solid",
-    borderWidth: avatarAppearance.borderEnabled ? 3 : 0,
-  };
+  const avatarStyle: CSSProperties = avatarFrameStyle(avatarImageStyle, avatarAppearance);
   const sourceSubmittedAt = formatSubmittedAt(profile.source?.submittedAt);
   const sourceDetails = [
     profile.source && profile.source.label !== trust ? profile.source.label : null,

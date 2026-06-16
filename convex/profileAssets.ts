@@ -200,6 +200,8 @@ export const updateAvatarAppearance = mutation({
     profileId,
     borderEnabled: v.boolean(),
     borderColor: v.string(),
+    borderWidthPx: v.number(),
+    borderSoftnessPx: v.number(),
     radiusPercent: v.number(),
   },
   handler: async (ctx, args) => {

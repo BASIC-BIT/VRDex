@@ -10,17 +10,12 @@ import { buttonVariants, Button } from "@/components/ui/button";
 import { Card, cardVariants, Eyebrow } from "@/components/ui/card";
 import { Field, FieldText, Input, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
+import { avatarFrameStyle, defaultAvatarAppearance, type AvatarAppearance } from "@/lib/avatar-appearance";
 import { cn } from "@/lib/cn";
 import { safeImageBackground } from "@/lib/safe-image";
 import type { Id } from "../../../../../../convex/_generated/dataModel";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-
-type AvatarAppearance = {
-  borderEnabled: boolean;
-  borderColor: string;
-  radiusPercent: number;
-};
 
 type AppearanceProfile = {
   profileId: Id<"profiles"> | "demo";
@@ -38,12 +33,6 @@ type SaveStatus =
   | { kind: "success" }
   | { kind: "error"; message: string };
 
-const defaultAvatarAppearance: AvatarAppearance = {
-  borderEnabled: true,
-  borderColor: "#ffffff",
-  radiusPercent: 18,
-};
-
 const demoProfiles: AppearanceProfile[] = [
   {
     profileId: "demo",
@@ -55,6 +44,8 @@ const demoProfiles: AppearanceProfile[] = [
     avatarAppearance: {
       borderEnabled: true,
       borderColor: "#67e8f9",
+      borderWidthPx: 4,
+      borderSoftnessPx: 12,
       radiusPercent: 18,
     },
   },
@@ -74,7 +65,7 @@ function initialsFor(name: string): string {
 function appearanceErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   const match = message.match(
-    /Only the profile owner can update profile appearance\.|Profile not found\.|Profile avatar border color must be a six-digit hex color\.|Profile avatar roundedness must be a number\.|A signed-in account is required\./,
+    /Only the profile owner can update profile appearance\.|Profile not found\.|Profile avatar border color must be a six-digit hex color\.|Profile avatar border thickness must be a number\.|Profile avatar border softness must be a number\.|Profile avatar roundedness must be a number\.|A signed-in account is required\./,
   );
 
   return match?.[0] ?? "Appearance update failed. Check the profile and try again.";
@@ -96,14 +87,24 @@ function roundednessLabel(value: number): string {
   return "Soft";
 }
 
+function softnessLabel(value: number): string {
+  if (value === 0) {
+    return "Crisp";
+  }
+
+  if (value >= 16) {
+    return "Glow";
+  }
+
+  if (value >= 8) {
+    return "Feathered";
+  }
+
+  return "Soft edge";
+}
+
 function avatarStyle(profile: AppearanceProfile, appearance: AvatarAppearance): CSSProperties {
-  return {
-    ...safeImageBackground(profile.avatarImageUrl),
-    borderColor: appearance.borderEnabled ? appearance.borderColor : "transparent",
-    borderRadius: `${appearance.radiusPercent}%`,
-    borderStyle: "solid",
-    borderWidth: appearance.borderEnabled ? 4 : 0,
-  };
+  return avatarFrameStyle(safeImageBackground(profile.avatarImageUrl), appearance);
 }
 
 function AvatarPreview({ appearance, profile }: { appearance: AvatarAppearance; profile: AppearanceProfile }) {
@@ -189,6 +190,8 @@ function AppearanceEditor({ demo, profiles }: { demo?: boolean; profiles: Appear
         profileId: selectedProfile.profileId,
         borderEnabled: draft.borderEnabled,
         borderColor: draft.borderColor,
+        borderWidthPx: draft.borderWidthPx,
+        borderSoftnessPx: draft.borderSoftnessPx,
         radiusPercent: draft.radiusPercent,
       });
       startTransition(() => setStatus({ kind: "success" }));
@@ -273,6 +276,53 @@ function AppearanceEditor({ demo, profiles }: { demo?: boolean; profiles: Appear
               <span className="font-medium text-foreground">{draft.radiusPercent}% / {roundednessLabel(draft.radiusPercent)}</span>
               <span>Circle</span>
             </div>
+          </div>
+        </Field>
+
+        <Field>
+          Border thickness
+          <div className="rounded-control border border-border bg-surface-strong px-4 py-4">
+            <input
+              aria-label="Avatar border thickness"
+              className="w-full accent-[var(--color-accent)]"
+              disabled={!draft.borderEnabled}
+              max={10}
+              min={1}
+              type="range"
+              value={draft.borderWidthPx}
+              onChange={(event) =>
+                setDraft((current) => ({ ...current, borderWidthPx: Number(event.target.value) }))
+              }
+            />
+            <div className="mt-2 flex items-center justify-between text-xs text-muted">
+              <span>Hairline</span>
+              <span className="font-medium text-foreground">{draft.borderWidthPx}px</span>
+              <span>Bold</span>
+            </div>
+          </div>
+        </Field>
+
+        <Field>
+          Border softness
+          <div className="rounded-control border border-border bg-surface-strong px-4 py-4">
+            <input
+              aria-label="Avatar border softness"
+              className="w-full accent-[var(--color-accent)]"
+              disabled={!draft.borderEnabled}
+              max={24}
+              min={0}
+              type="range"
+              value={draft.borderSoftnessPx}
+              onChange={(event) =>
+                setDraft((current) => ({ ...current, borderSoftnessPx: Number(event.target.value) }))
+              }
+            />
+            <div className="mt-2 flex items-center justify-between text-xs text-muted">
+              <span>Crisp</span>
+              <span className="font-medium text-foreground">{draft.borderSoftnessPx}px / {softnessLabel(draft.borderSoftnessPx)}</span>
+              <span>Glow</span>
+            </div>
+            <FieldText className="mt-2">Softness feathers the border color outward as a subtle gradient glow.</FieldText>
           </div>
         </Field>
 

@@ -205,6 +205,8 @@ const profileAssetDisplayPreference = v.union(
 const profileAvatarAppearance = v.object({
   borderEnabled: v.boolean(),
   borderColor: v.string(),
+  borderWidthPx: v.optional(v.number()),
+  borderSoftnessPx: v.optional(v.number()),
   radiusPercent: v.number(),
 });
 

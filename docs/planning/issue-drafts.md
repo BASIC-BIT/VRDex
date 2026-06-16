@@ -1249,7 +1249,7 @@ VRDex needs expressive profile customization without turning into a fragile page
 Scope:
 
 - support theme presets
-- support first avatar frame controls: border on/off, color, and square-to-circle roundedness
+- support first avatar frame controls: border on/off, color, thickness, soft feathered border glow, and square-to-circle roundedness
 - support basic section ordering
 - define public profile layout tokens or style system foundations
 - add visual verification coverage for key public page states

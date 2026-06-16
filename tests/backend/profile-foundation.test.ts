@@ -682,11 +682,15 @@ describe("profile media kit asset helpers", () => {
       normalizeProfileAvatarAppearance({
         borderEnabled: true,
         borderColor: "#AABBCC",
+        borderWidthPx: 4.4,
+        borderSoftnessPx: 11.6,
         radiusPercent: 17.8,
       }),
       {
         borderEnabled: true,
         borderColor: "#aabbcc",
+        borderWidthPx: 4,
+        borderSoftnessPx: 12,
         radiusPercent: 18,
       },
     );
@@ -694,9 +698,21 @@ describe("profile media kit asset helpers", () => {
       normalizeProfileAvatarAppearance({
         borderEnabled: false,
         borderColor: "#123456",
+        borderWidthPx: 999,
+        borderSoftnessPx: 999,
         radiusPercent: 999,
       }).radiusPercent,
       50,
+    );
+    assert.equal(
+      normalizeProfileAvatarAppearance({
+        borderEnabled: false,
+        borderColor: "#123456",
+        borderWidthPx: 999,
+        borderSoftnessPx: 999,
+        radiusPercent: 999,
+      }).borderSoftnessPx,
+      24,
     );
     assert.throws(
       () => normalizeProfileAvatarAppearance({ borderEnabled: true, borderColor: "red", radiusPercent: 20 }),

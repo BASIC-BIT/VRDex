@@ -108,7 +108,7 @@ Candidate placement fields can live on the profile or in a companion placement t
 - `primaryLogoAssetId`
 - ordered additional logo asset ids
 - compact/card display preference with an automatic fallback that uses profile image first and logo when no distinct profile image exists or the owner chooses logo-first display
-- avatar appearance controls: border on/off, six-digit border color, and `0..50` percent roundedness from square to circle
+- avatar appearance controls: border on/off, six-digit border color, bounded border thickness, bounded border softness, and `0..50` percent roundedness from square to circle
 
 Convex automatically provides `_id` and `_creationTime`; those are not duplicated in the schema.
 

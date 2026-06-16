@@ -160,6 +160,8 @@ const personProfile: FixturePersonProfile = {
     avatarAppearance: {
       borderEnabled: true,
       borderColor: "#67e8f9",
+      borderWidthPx: 4,
+      borderSoftnessPx: 12,
       radiusPercent: 18,
     },
   },

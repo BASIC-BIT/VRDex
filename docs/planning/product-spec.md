@@ -250,7 +250,7 @@ Style expectations:
 - strong visual identity
 - avatar + banner presentation
 - media-kit asset section for logos and other reusable images
-- avatar frame controls for border on/off, border color, and square-to-circle roundedness
+- avatar frame controls for border on/off, border color, border thickness, soft feathered border glow, and square-to-circle roundedness
 - theme presets with accent colors and section ordering
 - no requirement for users to hand-code CSS
 

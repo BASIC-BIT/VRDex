@@ -11,6 +11,8 @@ export const PROFILE_ASSET_CAPTION_MAX_LENGTH = 240;
 export const DEFAULT_PROFILE_AVATAR_APPEARANCE = {
   borderEnabled: true,
   borderColor: "#ffffff",
+  borderWidthPx: 3,
+  borderSoftnessPx: 0,
   radiusPercent: 18,
 } as const;
 
@@ -36,6 +38,8 @@ export type PublicProfileAsset = {
 export type PublicProfileAvatarAppearance = {
   borderEnabled: boolean;
   borderColor: string;
+  borderWidthPx: number;
+  borderSoftnessPx: number;
   radiusPercent: number;
 };
 
@@ -109,15 +113,30 @@ function normalizeHexColor(value: string): string {
 export function normalizeProfileAvatarAppearance(input: {
   borderEnabled: boolean;
   borderColor: string;
+  borderWidthPx?: number;
+  borderSoftnessPx?: number;
   radiusPercent: number;
 }): PublicProfileAvatarAppearance {
   if (!Number.isFinite(input.radiusPercent)) {
     throw new Error("Profile avatar roundedness must be a number.");
   }
 
+  const borderWidthPx = input.borderWidthPx ?? DEFAULT_PROFILE_AVATAR_APPEARANCE.borderWidthPx;
+  const borderSoftnessPx = input.borderSoftnessPx ?? DEFAULT_PROFILE_AVATAR_APPEARANCE.borderSoftnessPx;
+
+  if (!Number.isFinite(borderWidthPx)) {
+    throw new Error("Profile avatar border thickness must be a number.");
+  }
+
+  if (!Number.isFinite(borderSoftnessPx)) {
+    throw new Error("Profile avatar border softness must be a number.");
+  }
+
   return {
     borderEnabled: input.borderEnabled,
     borderColor: normalizeHexColor(input.borderColor),
+    borderWidthPx: Math.min(10, Math.max(1, Math.round(borderWidthPx))),
+    borderSoftnessPx: Math.min(24, Math.max(0, Math.round(borderSoftnessPx))),
     radiusPercent: Math.min(50, Math.max(0, Math.round(input.radiusPercent))),
   };
 }
@@ -273,7 +292,9 @@ export async function getPublicProfileMediaKit(
     preference?.compactDisplay === "logo" || (!profileImage && primaryLogo)
       ? "logo"
       : "profile_image";
-  const avatarAppearance = preference?.avatarAppearance ?? DEFAULT_PROFILE_AVATAR_APPEARANCE;
+  const avatarAppearance = preference?.avatarAppearance === undefined
+    ? DEFAULT_PROFILE_AVATAR_APPEARANCE
+    : normalizeProfileAvatarAppearance(preference.avatarAppearance);
 
   return {
     ...(profileImage ? { profileImage } : {}),

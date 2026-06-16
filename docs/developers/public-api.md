@@ -72,7 +72,7 @@ Public API responses must:
 - return compact not-found responses without hinting whether a private/suppressed object exists
 - expose profile media-kit assets from VRDex-managed storage rather than hotlinking external source URLs as canonical downloads
 - include primary logo plus additional public logos where logo lookup is requested
-- include bounded avatar appearance metadata only as presentation hints, never as arbitrary CSS
+- include bounded avatar appearance metadata only as presentation hints, including border color/thickness/softness and roundedness, never as arbitrary CSS
 
 ## Documentation Shape
 
