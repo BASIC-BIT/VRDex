@@ -11,7 +11,7 @@ type StoredObject = {
   contentLength?: number;
 };
 
-let cachedClient: S3Client | null = null;
+const cachedClients = new Map<string, S3Client>();
 
 function storageConfig(): StorageConfig | null {
   const bucket = process.env.VRDEX_PROFILE_ASSET_BUCKET ?? process.env.VRDEX_ASSET_BUCKET;
@@ -26,9 +26,16 @@ function storageConfig(): StorageConfig | null {
 }
 
 function s3Client(region: string): S3Client {
-  cachedClient ??= new S3Client({ region });
+  const cachedClient = cachedClients.get(region);
 
-  return cachedClient;
+  if (cachedClient !== undefined) {
+    return cachedClient;
+  }
+
+  const client = new S3Client({ region });
+  cachedClients.set(region, client);
+
+  return client;
 }
 
 export function isProfileAssetStorageConfigured(): boolean {

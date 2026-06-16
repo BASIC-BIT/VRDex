@@ -341,6 +341,8 @@ export async function consumeProfileAssetUploads(
       throw new Error("Profile media upload intent is not ready to attach.");
     }
 
+    const label = sanitizeProfileAssetLabel(upload.label);
+    const caption = sanitizeProfileAssetCaption(upload.caption);
     const assetId = await db.insert("profileAssets", {
       profileId: input.profileId,
       storageKey: intent.storageKey,
@@ -348,12 +350,8 @@ export async function consumeProfileAssetUploads(
       ...(intent.sourceUrl !== undefined ? { sourceUrl: intent.sourceUrl } : {}),
       mimeType: intent.mimeType,
       byteSize: intent.byteSize,
-      ...(sanitizeProfileAssetLabel(upload.label) !== undefined
-        ? { label: sanitizeProfileAssetLabel(upload.label) }
-        : {}),
-      ...(sanitizeProfileAssetCaption(upload.caption) !== undefined
-        ? { caption: sanitizeProfileAssetCaption(upload.caption) }
-        : {}),
+      ...(label !== undefined ? { label } : {}),
+      ...(caption !== undefined ? { caption } : {}),
       visibility: "public",
       source: input.source,
       uploadedBy: input.requestedBy,

@@ -42,31 +42,33 @@ export async function GET(_request: Request, context: RouteContext) {
     return Response.json({ error: "No public logos found." }, { status: 404 });
   }
 
-  const entries = [];
+  const entries = (
+    await Promise.all(
+      profile.mediaKit.logos.map(async (logo, index) => {
+        const asset = await convex.query(api.profileAssets.getPublicAssetForStorage, {
+          slug,
+          assetId: logo.assetId as GenericId<"profileAssets">,
+        });
 
-  for (const [index, logo] of profile.mediaKit.logos.entries()) {
-    const asset = await convex.query(api.profileAssets.getPublicAssetForStorage, {
-      slug,
-      assetId: logo.assetId as GenericId<"profileAssets">,
-    });
+        if (asset === null) {
+          return null;
+        }
 
-    if (asset === null) {
-      continue;
-    }
+        const object = await getProfileAssetObject(asset.storageKey);
+        if (object === null) {
+          return null;
+        }
 
-    const object = await getProfileAssetObject(asset.storageKey);
-    if (object === null) {
-      continue;
-    }
+        const extension = extensionForMimeType(asset.mimeType);
+        const name = safeFilePart(asset.label ?? (index === 0 ? "primary-logo" : `logo-${index + 1}`));
 
-    const extension = extensionForMimeType(asset.mimeType);
-    const name = safeFilePart(asset.label ?? (index === 0 ? "primary-logo" : `logo-${index + 1}`));
-
-    entries.push({
-      name: `${String(index + 1).padStart(2, "0")}-${name}.${extension}`,
-      body: object.body,
-    });
-  }
+        return {
+          name: `${String(index + 1).padStart(2, "0")}-${name}.${extension}`,
+          body: object.body,
+        };
+      }),
+    )
+  ).filter((entry): entry is { name: string; body: Uint8Array } => entry !== null);
 
   if (entries.length === 0) {
     return Response.json({ error: "Stored logos were not found." }, { status: 404 });

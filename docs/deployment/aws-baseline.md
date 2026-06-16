@@ -67,6 +67,7 @@ The first asset-storage implementation uses:
 - S3 Block Public Access enabled at the bucket level
 - server-side encryption; SSE-S3 is acceptable for the first slice because S3 encrypts new object uploads by default
 - authenticated Convex upload intents plus token-gated Next.js upload/import routes for controlled browser uploads
+- import-by-URL guarded to public HTTPS destinations with bounded response sizes before any object is written
 - app-generated reads through `/api/v0/profiles/:slug/assets/:assetId/file` and `/api/v0/profiles/:slug/logos.zip`, instead of public bucket objects
 - deterministic object prefixes keyed by asset upload date and upload intent token
 - metadata sufficient to connect uploaded objects to profile records, uploader, upload time, and moderation/review state

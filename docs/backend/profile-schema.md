@@ -77,7 +77,7 @@ Current recommendation:
 
 - people and communities should share the same file-backed media-kit asset system
 - profile picture/avatar, banner, primary logo, additional ordered logos, and other public image placements should reference assets instead of becoming separate one-off URL fields over time
-- user-provided HTTPS image URLs should be treated as import sources; VRDex should download the file into managed object storage such as S3 and serve the VRDex-owned object as the canonical asset
+- user-provided public HTTPS image URLs should be treated as import sources; VRDex should reject private/internal destinations, copy bounded PNG/SVG/JPEG/WebP responses into managed object storage such as S3, and serve the VRDex-owned object as the canonical asset
 - one uploaded asset can fill multiple placements, such as both profile picture and primary logo
 - public UX should say `primary logo` and `additional logos` instead of `non-primary` or defaulting to `alternative logo`
 - uploaded assets can have loose labels and optional public captions; separate required accessibility text is not part of the first slice

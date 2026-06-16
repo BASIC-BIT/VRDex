@@ -1202,7 +1202,7 @@ Scope:
 
 - add one shared media-kit asset system for person and community profiles
 - support true file uploads into managed object storage such as S3
-- support HTTPS URL import by downloading the file into VRDex storage instead of keeping the external URL as the canonical asset
+- support public HTTPS URL import by downloading bounded image responses into VRDex storage instead of keeping the external URL as the canonical asset
 - include storage keys, MIME type, original filename or source URL, byte size, uploader/source/provenance metadata, upload time, and deletion/replacement state
 - support PNG and SVG logos from day one
 - support loose user-visible labels and optional public captions
@@ -1228,7 +1228,7 @@ Current recommendation:
 - model assets separately from display placements so one file can power multiple uses
 - use "primary logo" and "additional logos" in UX copy instead of "non-primary" or "alternative"
 - keep optional captions as public descriptive copy, while deriving ordinary image accessibility labels from profile name, placement, and asset label where needed
-- treat external HTTPS images as import sources only; VRDex-owned storage should become the canonical download source
+- treat external public HTTPS images as import sources only; VRDex-owned storage should become the canonical download source
 
 Acceptance criteria:
 

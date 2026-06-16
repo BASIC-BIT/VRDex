@@ -681,7 +681,7 @@ For communities:
 
 - shared profile asset system for people and communities
 - true file upload and managed download support, backed by owned object storage such as S3
-- HTTPS import-by-download, where user-provided external image URLs are fetched into VRDex storage rather than hotlinked as the canonical asset
+- public HTTPS import-by-download, where user-provided external image URLs are fetched into VRDex storage rather than hotlinked as the canonical asset
 - profile picture / avatar placement
 - banner placement
 - primary logo placement
