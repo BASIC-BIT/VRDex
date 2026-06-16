@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { CSSProperties } from "react";
 
 import { EventPreviewCard, type PublicEventPreview } from "./event-public-page";
 import { buttonVariants } from "@/components/ui/button";
@@ -51,6 +52,34 @@ type PublicProfileGenre = {
   featured?: boolean;
 };
 
+type PublicProfileAsset = {
+  assetId: string;
+  label?: string;
+  caption?: string;
+  mimeType: string;
+  byteSize: number;
+  imageUrl: string;
+  downloadUrl: string;
+};
+
+type PublicProfileMediaKit = {
+  profileImage?: PublicProfileAsset;
+  banner?: PublicProfileAsset;
+  primaryLogo?: PublicProfileAsset;
+  additionalLogos: PublicProfileAsset[];
+  logos: PublicProfileAsset[];
+  assets: PublicProfileAsset[];
+  logoZipUrl?: string;
+  compactDisplay: "profile_image" | "logo";
+  avatarAppearance?: PublicProfileAvatarAppearance;
+};
+
+type PublicProfileAvatarAppearance = {
+  borderEnabled: boolean;
+  borderColor: string;
+  radiusPercent: number;
+};
+
 type PublicProfileBase = {
   profileType: "person" | "community";
   slug: string;
@@ -89,6 +118,7 @@ type PublicProfileBase = {
   }>;
   upcomingEvents: PublicEventPreview[];
   hostedEvents: PublicEventPreview[];
+  mediaKit?: PublicProfileMediaKit;
 };
 
 type PublicPersonProfile = PublicProfileBase & {
@@ -137,6 +167,11 @@ function initialsFor(name: string): string {
 }
 
 const profileBannerOverlay = "linear-gradient(135deg, rgba(22, 17, 15, 0.58), rgba(214, 106, 77, 0.2))";
+const defaultAvatarAppearance: PublicProfileAvatarAppearance = {
+  borderEnabled: true,
+  borderColor: "#ffffff",
+  radiusPercent: 18,
+};
 
 function safeHttpsUrl(url: string): string | null {
   try {
@@ -170,6 +205,44 @@ function roleLabel(role: WorldCreatorRole): string {
     .split("_")
     .map((word) => `${word[0]?.toUpperCase() ?? ""}${word.slice(1)}`)
     .join(" ");
+}
+
+function formatByteSize(value: number): string {
+  if (value >= 1024 * 1024) {
+    return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  return `${Math.max(1, Math.round(value / 1024))} KB`;
+}
+
+function mimeLabel(value: string): string {
+  return value.replace(/^image\//, "").replace("svg+xml", "svg").toUpperCase();
+}
+
+function MediaAssetCard({ asset, label }: { asset: PublicProfileAsset; label: string }) {
+  const imageStyle = safeImageBackground(asset.imageUrl);
+
+  return (
+    <a
+      className="group grid gap-3 rounded-card border border-border bg-surface-strong p-3 text-sm transition hover:-translate-y-0.5 hover:shadow-panel"
+      download
+      href={asset.downloadUrl}
+    >
+      <span
+        className="flex aspect-[4/3] items-center justify-center rounded-control border border-border bg-[linear-gradient(135deg,#2f211b,#d66a4d)] bg-contain bg-center bg-no-repeat text-lg font-semibold text-white"
+        style={imageStyle}
+      >
+        {!imageStyle ? label.slice(0, 2).toUpperCase() : null}
+      </span>
+      <span className="grid gap-1">
+        <span className="font-medium group-hover:text-accent-strong">{asset.label ?? label}</span>
+        {asset.caption ? <span className="line-clamp-2 leading-5 text-muted">{asset.caption}</span> : null}
+        <span className="text-xs text-muted">
+          {mimeLabel(asset.mimeType)} / {formatByteSize(asset.byteSize)}
+        </span>
+      </span>
+    </a>
+  );
 }
 
 function PillList({ items }: { items: string[] }) {
@@ -217,7 +290,22 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
         (item): item is string => Boolean(item),
       );
   const bannerStyle = safeImageBackground(profile.bannerImageUrl, profileBannerOverlay);
-  const avatarStyle = safeImageBackground(profile.avatarImageUrl);
+  const avatarImageStyle = safeImageBackground(profile.avatarImageUrl);
+  const hasAvatarImage = avatarImageStyle !== undefined;
+  const mediaKit = profile.mediaKit ?? {
+    additionalLogos: [],
+    logos: [],
+    assets: [],
+    compactDisplay: "profile_image" as const,
+  };
+  const avatarAppearance = mediaKit.avatarAppearance ?? defaultAvatarAppearance;
+  const avatarStyle: CSSProperties = {
+    ...avatarImageStyle,
+    borderColor: avatarAppearance.borderEnabled ? avatarAppearance.borderColor : "transparent",
+    borderRadius: `${avatarAppearance.radiusPercent}%`,
+    borderStyle: "solid",
+    borderWidth: avatarAppearance.borderEnabled ? 3 : 0,
+  };
   const sourceSubmittedAt = formatSubmittedAt(profile.source?.submittedAt);
   const sourceDetails = [
     profile.source && profile.source.label !== trust ? profile.source.label : null,
@@ -246,12 +334,12 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
               <div className="grid gap-6 lg:items-end">
                 <div className="flex flex-col gap-4">
                   <div
-                    className="flex size-24 items-center justify-center rounded-panel border border-white/35 bg-white/20 bg-cover bg-center text-3xl font-semibold shadow-panel"
+                    className="flex size-24 items-center justify-center bg-white/20 bg-cover bg-center text-3xl font-semibold text-white shadow-panel"
                     style={avatarStyle}
                     role="img"
                     aria-label={`${profile.displayName} display image`}
                   >
-                    {!avatarStyle ? initialsFor(profile.displayName) : null}
+                    {!hasAvatarImage ? initialsFor(profile.displayName) : null}
                   </div>
 
                   <div className="max-w-3xl">
@@ -367,6 +455,43 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
                 );
               })
             )}
+          </div>
+        </Card>
+
+        <Card>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <SectionHeading>
+              Media kit
+            </SectionHeading>
+            {mediaKit.logoZipUrl ? (
+              <a className={buttonVariants({ size: "sm", variant: "secondary" })} download href={mediaKit.logoZipUrl}>
+                Download logos zip
+              </a>
+            ) : null}
+          </div>
+          <div className="mt-5 grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+            <div className="rounded-card border border-border bg-surface-strong p-4">
+              <p className="text-sm font-medium text-muted">Primary logo</p>
+              {mediaKit.primaryLogo ? (
+                <div className="mt-3">
+                  <MediaAssetCard asset={mediaKit.primaryLogo} label="Primary logo" />
+                </div>
+              ) : (
+                <p className="mt-3 text-sm leading-6 text-muted">No public logo yet.</p>
+              )}
+            </div>
+            <div className="rounded-card border border-border bg-surface-strong p-4">
+              <p className="text-sm font-medium text-muted">Additional logos</p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                {mediaKit.additionalLogos.length === 0 ? (
+                  <p className="text-sm leading-6 text-muted">No additional public logos yet.</p>
+                ) : (
+                  mediaKit.additionalLogos.map((asset, index) => (
+                    <MediaAssetCard asset={asset} key={asset.assetId} label={`Logo ${index + 2}`} />
+                  ))
+                )}
+              </div>
+            </div>
           </div>
         </Card>
 

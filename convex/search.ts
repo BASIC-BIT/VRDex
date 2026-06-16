@@ -1,6 +1,8 @@
 import { v } from "convex/values";
 
 import { internalMutation, query, type QueryCtx } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
+import { getPublicProfileMediaKit } from "./_profileAssets";
 import {
   createWorldSearchDocument,
   getHiddenWorldAttributionProfileKeys,
@@ -26,6 +28,24 @@ function boundedLimit(value: number | undefined, fallback: number, max: number):
   return Math.max(1, Math.min(value ?? fallback, max));
 }
 
+async function toPublicSearchResultWithMedia(
+  ctx: QueryCtx,
+  document: Doc<"searchDocuments">,
+  searchText: string | undefined,
+) {
+  if (document.entityType !== "profile" || document.profileId === undefined) {
+    return toPublicSearchResult(document, searchText);
+  }
+
+  const profile = await ctx.db.get(document.profileId);
+
+  return toPublicSearchResult(
+    document,
+    searchText,
+    profile === null ? undefined : await getPublicProfileMediaKit(ctx.db, profile),
+  );
+}
+
 export const searchUniversal = query({
   args: {
     query: v.string(),
@@ -49,7 +69,11 @@ export const searchUniversal = query({
       })
       .take(limit * 2);
 
-    return sortSearchResults(documents.map((document) => toPublicSearchResult(document, searchText))).slice(
+    const results = await Promise.all(
+      documents.map((document) => toPublicSearchResultWithMedia(ctx, document, searchText)),
+    );
+
+    return sortSearchResults(results).slice(
       0,
       limit,
     );
@@ -89,7 +113,7 @@ export const listDiscovery = query({
       ctx.db.query("vocabularyTerms").take(60),
     ]);
     const profileResults = sortSearchResults(
-      profiles.map((document) => toPublicSearchResult(document, undefined)),
+      await Promise.all(profiles.map((document) => toPublicSearchResultWithMedia(ctx, document, undefined))),
     );
     const worldResults = sortSearchResults(worlds.map((document) => toPublicSearchResult(document, undefined)));
     const eventDocuments = new Map(events.map((document) => [document._id, document]));

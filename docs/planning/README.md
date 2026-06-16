@@ -9,7 +9,7 @@ Planning docs capture product, architecture, roadmap, and backlog decisions befo
 - `docs/planning/architecture.md` - suggested system design, data model, and integrations
 - `docs/planning/prd.md` - product requirements draft for v1 and near-term expansion
 - `docs/planning/agent-integration-surface.md` - external agent-consumable VRDex skill, API, website navigation, and MCP direction
-- `docs/planning/calendar-integration.md` - Google Calendar export/sync direction for event workflows
+- `docs/planning/calendar-integration.md` - Google Calendar import/export/sync direction for event workflows
 - `docs/planning/genre-graph.md` - genre ontology, alias normalization, and recommendation graph direction
 - `docs/planning/seed-import-model.md` - reviewed partner/list seed-import model and fake fixture shape
 - `docs/planning/world-discovery.md` - world pages, creator attribution, active-world discovery, and creator-commerce boundaries

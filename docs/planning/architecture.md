@@ -123,6 +123,8 @@ Suggested fields:
 - `publication_state`
 - `theme_preset`
 - `accent_color`
+- `avatar_border_color`
+- `avatar_radius_percent`
 - `avatar_asset_id`
 - `banner_asset_id`
 - `created_by_user_id`
@@ -756,6 +758,9 @@ Public API posture:
 - only claimed owners can change sensitive identity/contact fields without review
 - deleted links and assets stay in revision history
 - all assets should track uploader and upload time
+- profile media-kit assets should be stored in VRDex-managed object storage; user-provided HTTPS image URLs are import sources, not canonical hotlinks
+- person and community profiles share the same media-kit asset system for profile images, banners, primary logos, additional logos, and other reusable images
+- DJ lookup surfaces should expose both profile image and logo when useful, with downloads for individual assets and all public logos
 - community ownership should require stronger checks than ordinary profile edits
 - private fields should still be usable for verification and owner workflows without leaking publicly
 
@@ -770,7 +775,7 @@ Public API posture:
 - claim flow
 - community claim flow
 - profile visibility controls
-- avatar/banner uploads
+- file-backed profile image, logo, and banner uploads
 
 ### Phase 0.5: demoable pre-MVP
 
@@ -802,6 +807,7 @@ Deferred from this slice:
 - Discord unfurls
 - Discord bot commands
 - asset uploads
+- logo downloads and media-kit asset lookup
 - community pages
 - theme presets and page composition blocks
 - event participation on person pages

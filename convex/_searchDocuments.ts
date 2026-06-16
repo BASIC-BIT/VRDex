@@ -1,5 +1,6 @@
 import type { Doc } from "./_generated/dataModel";
 import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
+import type { PublicProfileMediaKit } from "./_profileAssets";
 import { visibleProfileField, visibleProfileList } from "./_profileFieldVisibility";
 import { optionalField, safeHttpsUrl } from "./_publicFields";
 import { canReadProfile } from "./_profilePermissions";
@@ -21,6 +22,8 @@ export type PublicSearchResult = {
   subtitle?: string;
   summary?: string;
   imageUrl?: string;
+  profileImageUrl?: string;
+  logoImageUrl?: string;
   source?: {
     sourceType: Doc<"searchDocuments">["sourceType"];
     label: string;
@@ -415,6 +418,7 @@ export function createEventSearchDocument(
 export function toPublicSearchResult(
   document: Doc<"searchDocuments">,
   query: string | undefined,
+  mediaKit?: PublicProfileMediaKit,
 ): PublicSearchResult {
   const queryToken = createSearchToken(query ?? "");
   const exactBoost = queryToken && document.exactTokens.includes(queryToken) ? 200 : 0;
@@ -432,6 +436,12 @@ export function toPublicSearchResult(
     effectiveFeaturedRank(document) +
     ENTITY_TYPE_WEIGHT[document.entityType];
 
+  const profileImageUrl = mediaKit?.profileImage?.imageUrl;
+  const logoImageUrl = mediaKit?.primaryLogo?.imageUrl;
+  const preferredProfileImageUrl =
+    mediaKit?.compactDisplay === "logo" ? logoImageUrl ?? profileImageUrl : profileImageUrl ?? logoImageUrl;
+  const imageUrl = document.entityType === "profile" ? preferredProfileImageUrl ?? document.imageUrl : document.imageUrl;
+
   return {
     entityType: document.entityType,
     ...optionalField("profileType", document.profileType),
@@ -440,7 +450,9 @@ export function toPublicSearchResult(
     title: document.title,
     ...optionalField("subtitle", document.subtitle),
     ...optionalField("summary", document.summary),
-    ...optionalField("imageUrl", document.imageUrl),
+    ...optionalField("imageUrl", imageUrl),
+    ...optionalField("profileImageUrl", profileImageUrl),
+    ...optionalField("logoImageUrl", logoImageUrl),
     ...optionalField("startsAt", document.startsAt),
     source:
       document.sourceType && document.sourceLabel

@@ -2,6 +2,15 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import type { Doc, Id } from "../../convex/_generated/dataModel";
+import {
+  createProfileAssetStorageKey,
+  normalizeProfileAvatarAppearance,
+  normalizeProfileAssetMimeType,
+  normalizeProfileAssetSourceUrl,
+  sanitizeProfileAssetCaption,
+  sanitizeProfileAssetLabel,
+  validateProfileAssetByteSize,
+} from "../../convex/_profileAssets";
 import { isProfileFieldVisible } from "../../convex/_profileFieldVisibility";
 import { toProfileLookupResult } from "../../convex/_profileLookup";
 import { grantProfileOwner } from "../../convex/_profileOwnership";
@@ -635,5 +644,63 @@ describe("public profile world credits", () => {
     assert.equal(credits[0]?.slug, "neon-harbor");
     assert.deepEqual(credits[0]?.roles, ["world_author", "storefront_owner"]);
     assert.equal(credits[0]?.sourceLabel, "Reviewed attribution");
+  });
+});
+
+describe("profile media kit asset helpers", () => {
+  it("accepts first-slice image formats and rejects unsafe imports", () => {
+    assert.equal(normalizeProfileAssetMimeType(" image/svg+xml "), "image/svg+xml");
+    assert.equal(normalizeProfileAssetMimeType("IMAGE/PNG"), "image/png");
+    assert.throws(() => normalizeProfileAssetMimeType("text/html"), /PNG, SVG, JPEG, or WebP/);
+
+    assert.equal(
+      normalizeProfileAssetSourceUrl(" https://example.invalid/logo.svg "),
+      "https://example.invalid/logo.svg",
+    );
+    assert.throws(() => normalizeProfileAssetSourceUrl("http://example.invalid/logo.svg"), /HTTPS/);
+  });
+
+  it("bounds labels, captions, sizes, and generated storage keys", () => {
+    assert.equal(sanitizeProfileAssetLabel("  Primary   logo "), "Primary logo");
+    assert.equal(sanitizeProfileAssetCaption("  Transparent PNG "), "Transparent PNG");
+    assert.equal(validateProfileAssetByteSize(1024), 1024);
+    assert.throws(() => validateProfileAssetByteSize(0), /positive byte size/);
+
+    assert.equal(
+      createProfileAssetStorageKey({
+        token: "abcdef0123456789abcdef0123456789",
+        originalFileName: "Aurora Logo!!.svg",
+        mimeType: "image/svg+xml",
+        now: Date.UTC(2026, 5, 15),
+      }),
+      "profile-assets/2026-06-15/abcdef0123456789abcdef01/aurora-logo.svg",
+    );
+  });
+
+  it("normalizes avatar appearance controls to a safe display range", () => {
+    assert.deepEqual(
+      normalizeProfileAvatarAppearance({
+        borderEnabled: true,
+        borderColor: "#AABBCC",
+        radiusPercent: 17.8,
+      }),
+      {
+        borderEnabled: true,
+        borderColor: "#aabbcc",
+        radiusPercent: 18,
+      },
+    );
+    assert.equal(
+      normalizeProfileAvatarAppearance({
+        borderEnabled: false,
+        borderColor: "#123456",
+        radiusPercent: 999,
+      }).radiusPercent,
+      50,
+    );
+    assert.throws(
+      () => normalizeProfileAvatarAppearance({ borderEnabled: true, borderColor: "red", radiusPercent: 20 }),
+      /six-digit hex color/,
+    );
   });
 });

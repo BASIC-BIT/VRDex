@@ -226,6 +226,15 @@ This file records the current hard and soft dependency assumptions across the dr
 ### #41 Add Google Calendar sync/export direction for event workflows
 
 - soft dependencies: #34, #35, #36, #39, #42
+- soft dependents: #138, #137
+
+### #138 Add calendar import/export workflows for events
+
+- soft dependencies: #34, #41, #76, #89, #117
+
+### #137 Consider Notion integration for event planning workflows
+
+- soft dependencies: #34, #41, #76, #89, #117
 
 ### #42 Document self-hosting and infrastructure-as-code direction
 

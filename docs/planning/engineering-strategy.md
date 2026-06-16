@@ -37,7 +37,7 @@ Important planning note:
 Likely adjacent service use:
 
 - AWS email capabilities for verification and transactional mail
-- AWS S3 for private owner-authored profile assets once asset uploads are implemented by [#115](https://github.com/BASIC-BIT/VRDex/issues/115)
+- AWS S3 for private profile media-kit assets, with [#115](https://github.com/BASIC-BIT/VRDex/issues/115) still owning fuller Terraform/lifecycle hardening
 
 Status: locked stack direction.
 
@@ -137,10 +137,12 @@ Infra direction:
 
 Candidate direction:
 
-- Google Calendar integration and export
+- Google Calendar import, integration, and export
 - personalized synced calendars for the events a user cares about
+- reviewed event candidates imported from selected public or operator-owned calendars
 - optional separate calendars by person/community or one merged calendar depending on user preference
 - a simpler service-account-managed shared-calendar approach may be a good early implementation path before deeper per-user sync
+- Notion integration is a hairier candidate direction for event-planning imports/exports and should be validated with organizers before implementation
 
 This is a strong workflow feature, but not part of the first product slice.
 

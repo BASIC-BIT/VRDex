@@ -21,6 +21,9 @@ Current direction for [#39](https://github.com/BASIC-BIT/VRDex/issues/39).
 Candidate first public API endpoints:
 
 - `GET /api/v0/profiles/:slug`
+- `GET /api/v0/profiles/:slug/assets`
+- `GET /api/v0/profiles/:slug/logos`
+- `GET /api/v0/profiles/:slug/logos.zip`
 - `GET /api/v0/people/:slug`
 - `GET /api/v0/communities/:slug`
 - `GET /api/v0/search?q=`
@@ -67,6 +70,9 @@ Public API responses must:
 - avoid private auth identifiers, raw provider tokens, unreviewed contact exports, and moderation-only notes
 - include stable IDs or slugs for follow-up calls where useful
 - return compact not-found responses without hinting whether a private/suppressed object exists
+- expose profile media-kit assets from VRDex-managed storage rather than hotlinking external source URLs as canonical downloads
+- include primary logo plus additional public logos where logo lookup is requested
+- include bounded avatar appearance metadata only as presentation hints, never as arbitrary CSS
 
 ## Documentation Shape
 

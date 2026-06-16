@@ -165,6 +165,49 @@ const profileGenre = v.object({
   ),
 });
 
+const profileAssetSource = v.union(
+  v.literal("owner_authored"),
+  v.literal("community_submitted"),
+  v.literal("partner_provided"),
+  v.literal("moderator"),
+  v.literal("import"),
+  v.literal("concierge"),
+);
+
+const profileAssetVisibility = v.union(
+  v.literal("public"),
+  v.literal("unlisted"),
+  v.literal("private"),
+);
+
+const profileAssetState = v.union(v.literal("active"), v.literal("deleted"));
+
+const profileAssetUploadIntentState = v.union(
+  v.literal("pending"),
+  v.literal("uploaded"),
+  v.literal("consumed"),
+  v.literal("expired"),
+);
+
+const profileAssetPlacement = v.union(
+  v.literal("profile_image"),
+  v.literal("banner"),
+  v.literal("primary_logo"),
+  v.literal("additional_logo"),
+);
+
+const profileAssetDisplayPreference = v.union(
+  v.literal("auto"),
+  v.literal("profile_image"),
+  v.literal("logo"),
+);
+
+const profileAvatarAppearance = v.object({
+  borderEnabled: v.boolean(),
+  borderColor: v.string(),
+  radiusPercent: v.number(),
+});
+
 const eventSourceType = v.union(
   v.literal("manual"),
   v.literal("community"),
@@ -444,6 +487,65 @@ export default defineSchema({
     .index("by_claimState_profileType", ["claimState", "profileType"])
     .index("by_creationSource_claimState", ["creationSource", "claimState"])
     .index("by_profileType_sortName", ["profileType", "sortName"]),
+  profileAssetUploadIntents: defineTable({
+    uploadToken: v.string(),
+    requestedBy: authSubject,
+    originalFileName: v.optional(v.string()),
+    sourceUrl: v.optional(v.string()),
+    mimeType: v.string(),
+    byteSize: v.number(),
+    storageKey: v.string(),
+    state: profileAssetUploadIntentState,
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    uploadedAt: v.optional(v.number()),
+    consumedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_uploadToken", ["uploadToken"])
+    .index("by_state_expiresAt", ["state", "expiresAt"])
+    .index("by_requestedBy", ["requestedBy.tokenIdentifier"]),
+  profileAssets: defineTable({
+    profileId: v.id("profiles"),
+    storageKey: v.string(),
+    originalFileName: v.optional(v.string()),
+    sourceUrl: v.optional(v.string()),
+    mimeType: v.string(),
+    byteSize: v.number(),
+    label: v.optional(v.string()),
+    caption: v.optional(v.string()),
+    visibility: profileAssetVisibility,
+    source: profileAssetSource,
+    uploadedBy: authSubject,
+    uploadedAt: v.number(),
+    state: profileAssetState,
+    deletedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_profileId", ["profileId"])
+    .index("by_profileId_state_visibility", ["profileId", "state", "visibility"]),
+  profileAssetPlacements: defineTable({
+    profileId: v.id("profiles"),
+    assetId: v.id("profileAssets"),
+    placement: profileAssetPlacement,
+    position: v.number(),
+    state: profileAssetState,
+    updatedAt: v.number(),
+  })
+    .index("by_profileId_placement_state_position", [
+      "profileId",
+      "placement",
+      "state",
+      "position",
+    ])
+    .index("by_profileId_state", ["profileId", "state"])
+    .index("by_assetId", ["assetId"]),
+  profileAssetDisplayPreferences: defineTable({
+    profileId: v.id("profiles"),
+    compactDisplay: profileAssetDisplayPreference,
+    avatarAppearance: v.optional(profileAvatarAppearance),
+    updatedAt: v.number(),
+  }).index("by_profileId", ["profileId"]),
   worlds: defineTable({
     slug: v.string(),
     displayName: v.string(),
