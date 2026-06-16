@@ -17,7 +17,6 @@ import {
 } from "./_profileAssets";
 
 const profileAssetUploadIntentId = v.id("profileAssetUploadIntents");
-const profileAssetId = v.id("profileAssets");
 const profileId = v.id("profiles");
 
 function optionalIdentityDisplayName(name: string | undefined): string | undefined {
@@ -273,12 +272,13 @@ export const listPublicBySlug = query({
 export const getPublicAssetForStorage = query({
   args: {
     slug: v.string(),
-    assetId: profileAssetId,
+    assetId: v.string(),
   },
   handler: async (ctx, args) => {
     const validation = validateProfileSlug(args.slug);
+    const assetId = ctx.db.normalizeId("profileAssets", args.assetId);
 
-    if (!validation.ok) {
+    if (!validation.ok || assetId === null) {
       return null;
     }
 
@@ -288,7 +288,7 @@ export const getPublicAssetForStorage = query({
       return null;
     }
 
-    const asset = await ctx.db.get(args.assetId);
+    const asset = await ctx.db.get(assetId);
 
     if (
       asset === null ||

@@ -1,4 +1,6 @@
 import { lookup } from "node:dns/promises";
+import type { IncomingHttpHeaders, IncomingMessage } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
 
 import { NextRequest, NextResponse } from "next/server";
@@ -100,17 +102,25 @@ async function bodyFromFileRequest(request: NextRequest): Promise<UploadBody> {
   };
 }
 
-function redirectLocation(response: Response, sourceUrl: URL): URL | null {
-  if (![301, 302, 303, 307, 308].includes(response.status)) {
+function firstHeaderValue(value: IncomingHttpHeaders[string]): string | null {
+  if (Array.isArray(value)) {
+    return value[0] ?? null;
+  }
+
+  return value ?? null;
+}
+
+function redirectLocation(statusCode: number | undefined, location: IncomingHttpHeaders[string], sourceUrl: URL): URL | null {
+  if (![301, 302, 303, 307, 308].includes(statusCode ?? 0)) {
     return null;
   }
 
-  const location = response.headers.get("location");
-  if (location === null) {
+  const nextLocation = firstHeaderValue(location);
+  if (nextLocation === null) {
     throw new Error("Source URL redirected without a Location header.");
   }
 
-  return new URL(location, sourceUrl);
+  return new URL(nextLocation, sourceUrl);
 }
 
 function ipv4Parts(address: string): number[] | null {
@@ -195,7 +205,7 @@ function isPublicIpAddress(address: string): boolean {
   return false;
 }
 
-async function assertPublicHttpsSourceUrl(sourceUrl: URL) {
+async function resolvePublicHttpsSourceUrl(sourceUrl: URL): Promise<string> {
   if (sourceUrl.protocol !== "https:") {
     throw new Error("Profile media asset imports must use HTTPS URLs.");
   }
@@ -218,7 +228,7 @@ async function assertPublicHttpsSourceUrl(sourceUrl: URL) {
     if (!isPublicIpAddress(hostname)) {
       throw new Error("Profile media asset imports must use public HTTPS URLs.");
     }
-    return;
+    return hostname;
   }
 
   const addresses = await lookup(hostname, { all: true, verbatim: true });
@@ -226,11 +236,11 @@ async function assertPublicHttpsSourceUrl(sourceUrl: URL) {
   if (addresses.length === 0 || addresses.some((address) => !isPublicIpAddress(address.address))) {
     throw new Error("Profile media asset imports must use public HTTPS URLs.");
   }
+
+  return addresses[0]!.address;
 }
 
-function contentLengthFromHeaders(response: Response): number | null {
-  const contentLength = response.headers.get("content-length");
-
+function contentLengthFromHeader(contentLength: string | null): number | null {
   if (contentLength === null) {
     return null;
   }
@@ -244,26 +254,40 @@ function contentLengthFromHeaders(response: Response): number | null {
   return value;
 }
 
-async function responseBodyWithLimit(response: Response): Promise<Uint8Array> {
-  if (response.body === null) {
-    throw new Error("Source URL returned an empty response body.");
-  }
+function requestPinnedSourceUrl(sourceUrl: URL, address: string): Promise<IncomingMessage> {
+  return new Promise((resolve, reject) => {
+    const request = httpsRequest(
+      {
+        host: address,
+        method: "GET",
+        path: `${sourceUrl.pathname}${sourceUrl.search}`,
+        port: 443,
+        servername: sourceUrl.hostname.replace(/^\[|\]$/g, ""),
+        headers: {
+          Host: sourceUrl.host,
+          "User-Agent": "VRDex profile media importer",
+        },
+      },
+      resolve,
+    );
 
-  const reader = response.body.getReader();
+    request.setTimeout(15_000, () => request.destroy(new Error("Source URL request timed out.")));
+    request.on("error", reject);
+    request.end();
+  });
+}
+
+async function responseBodyWithLimit(response: IncomingMessage): Promise<Uint8Array> {
   const chunks: Uint8Array[] = [];
   let byteSize = 0;
 
-  while (true) {
-    const { done, value } = await reader.read();
-
-    if (done) {
-      break;
-    }
+  for await (const chunk of response) {
+    const value = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
 
     byteSize += value.byteLength;
 
     if (byteSize > PROFILE_ASSET_UPLOAD_MAX_BYTES) {
-      await reader.cancel();
+      response.destroy();
       throw new Error("Profile media assets must be 12 MB or smaller.");
     }
 
@@ -287,23 +311,24 @@ async function bodyFromSourceUrl(sourceUrl: string): Promise<UploadBody> {
   let currentUrl = new URL(sourceUrl);
 
   for (let redirects = 0; redirects <= SOURCE_URL_MAX_REDIRECTS; redirects += 1) {
-    await assertPublicHttpsSourceUrl(currentUrl);
-
-    const response = await fetch(currentUrl, { redirect: "manual" });
-    const redirectedUrl = redirectLocation(response, currentUrl);
+    const address = await resolvePublicHttpsSourceUrl(currentUrl);
+    const response = await requestPinnedSourceUrl(currentUrl, address);
+    const redirectedUrl = redirectLocation(response.statusCode, response.headers.location, currentUrl);
 
     if (redirectedUrl !== null) {
+      response.resume();
       currentUrl = redirectedUrl;
       continue;
     }
 
-    if (!response.ok) {
-      throw new Error(`Source URL returned HTTP ${response.status}.`);
+    if ((response.statusCode ?? 0) < 200 || (response.statusCode ?? 0) >= 300) {
+      response.resume();
+      throw new Error(`Source URL returned HTTP ${response.statusCode ?? 0}.`);
     }
 
-    const mimeType = normalizedContentType(response.headers.get("content-type"));
+    const mimeType = normalizedContentType(firstHeaderValue(response.headers["content-type"]));
     assertAllowedMimeType(mimeType);
-    const contentLength = contentLengthFromHeaders(response);
+    const contentLength = contentLengthFromHeader(firstHeaderValue(response.headers["content-length"]));
     if (contentLength !== null) {
       assertAllowedByteSize(contentLength);
     }

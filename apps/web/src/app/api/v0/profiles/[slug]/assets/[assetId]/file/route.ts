@@ -1,5 +1,3 @@
-import type { GenericId } from "convex/values";
-
 import { api } from "@convex-generated-api";
 import { convexHttpClient } from "@/lib/server/convex-http";
 import { getProfileAssetObject, isProfileAssetStorageConfigured } from "@/lib/server/profile-asset-storage";
@@ -33,7 +31,7 @@ export async function GET(request: Request, context: RouteContext) {
   const { slug, assetId } = await context.params;
   const asset = await convexHttpClient().query(api.profileAssets.getPublicAssetForStorage, {
     slug,
-    assetId: assetId as GenericId<"profileAssets">,
+    assetId,
   });
 
   if (asset === null) {
