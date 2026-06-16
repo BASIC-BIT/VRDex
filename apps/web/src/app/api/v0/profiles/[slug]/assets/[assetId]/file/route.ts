@@ -56,7 +56,7 @@ export async function GET(request: Request, context: RouteContext) {
 
   return new Response(body, {
     headers: {
-      "cache-control": "public, max-age=31536000, immutable",
+      "cache-control": "private, no-store",
       "content-disposition": `${download ? "attachment" : "inline"}; filename="${fileName}"`,
       "content-length": String(object.contentLength ?? object.body.byteLength),
       "content-security-policy": "sandbox; script-src 'none'; object-src 'none'",

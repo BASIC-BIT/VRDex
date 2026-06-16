@@ -98,7 +98,12 @@ function resultMatchesFilter(result: PublicSearchResult, filter: SearchResultFil
 function ResultImage({ result }: { result: PublicSearchResult }) {
   const imageStyle = safeImageBackground(result.imageUrl, discoveryThumbOverlay);
 
-  if (result.entityType !== "profile" || !result.logoImageUrl || result.logoImageUrl === result.profileImageUrl) {
+  if (
+    result.entityType !== "profile" ||
+    !result.logoImageUrl ||
+    !result.profileImageUrl ||
+    result.logoImageUrl === result.profileImageUrl
+  ) {
     return (
       <span
         className="flex size-14 shrink-0 items-center justify-center rounded-card bg-[linear-gradient(135deg,#2f211b,#d66a4d)] bg-cover bg-center text-lg font-semibold text-white"

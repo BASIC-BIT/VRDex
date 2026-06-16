@@ -176,9 +176,13 @@ export function normalizeProfileAssetSourceUrl(value: string | undefined): strin
       throw new Error("Profile media asset imports must use HTTPS URLs.");
     }
 
+    if (url.username || url.password) {
+      throw new Error("Profile media asset imports must not include URL credentials.");
+    }
+
     return url.href;
   } catch (error) {
-    if (error instanceof Error && error.message.includes("HTTPS")) {
+    if (error instanceof Error && (error.message.includes("HTTPS") || error.message.includes("credentials"))) {
       throw error;
     }
 

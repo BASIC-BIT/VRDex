@@ -658,6 +658,7 @@ describe("profile media kit asset helpers", () => {
       "https://example.invalid/logo.svg",
     );
     assert.throws(() => normalizeProfileAssetSourceUrl("http://example.invalid/logo.svg"), /HTTPS/);
+    assert.throws(() => normalizeProfileAssetSourceUrl("https://user:token@example.invalid/logo.svg"), /credentials/);
   });
 
   it("bounds labels, captions, sizes, and generated storage keys", () => {
