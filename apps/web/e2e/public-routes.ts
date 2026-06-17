@@ -177,6 +177,7 @@ export async function expectSearchPage(page: Page) {
   await expect(page.getByRole("heading", { name: /Results for aurora/i })).toBeVisible();
   await expect(page.getByRole("button", { name: /Search VRDex/i })).toBeVisible();
   await expect(page.getByRole("link", { name: /DJ Aurora/i }).first()).toBeVisible();
+  await expect(page.locator('[title="Logo"]').first()).toBeVisible();
   await expect(page.getByRole("heading", { name: /Events worth checking first/i })).toHaveCount(0);
 }
 
@@ -213,6 +214,13 @@ export async function expectAccountPage(page: Page) {
   await expect(page.getByRole("heading", { name: /Your VRDex account and claim readiness/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Not signed in" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Sign in" }).last()).toBeVisible();
+}
+
+export async function expectAppearancePage(page: Page) {
+  await expect(page.getByRole("heading", { name: /Shape the way your profile image shows up/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Profile picture shape and border" })).toBeVisible();
+  await expect(page.getByLabel("Avatar roundedness")).toBeVisible();
+  await expect(page.getByText("Demo mode is live-only", { exact: false })).toBeVisible();
 }
 
 export async function expectSuppressionPage(page: Page) {
@@ -253,6 +261,9 @@ export async function expectPersonProfilePage(page: Page) {
   await expect(page.getByText(/Creator links/i)).toBeVisible();
   await expect(page.getByText("VRChat profile", { exact: true })).toBeVisible();
   await expect(page.getByText("DJ Aurora SoundCloud", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Media kit" })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Primary logo/i })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Download logos zip/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Worlds" })).toBeVisible();
   await expect(page.getByRole("link", { name: /Neon Harbor/i })).toBeVisible();
 }
@@ -347,6 +358,11 @@ export const capturedRoutes: CapturedRoute[] = [
     name: "account-signed-out",
     path: "/account",
     expectPage: expectAccountPage,
+  },
+  {
+    name: "appearance-demo",
+    path: "/account/appearance",
+    expectPage: expectAppearancePage,
   },
   {
     name: "search",

@@ -35,6 +35,34 @@ type FixturePersonProfile = Extract<PublicProfile, { profileType: "person" }> & 
   searchAliases?: string[];
 };
 
+const auroraProfileImage = {
+  assetId: "fixture-aurora-profile-image",
+  label: "Profile image",
+  mimeType: "image/png",
+  byteSize: 184_000,
+  imageUrl: "/api/e2e/fixture-assets/fixture-aurora-profile-image",
+  downloadUrl: "/api/v0/profiles/playwright-dj-aurora/assets/fixture-aurora-profile-image/file?download=1",
+};
+
+const auroraPrimaryLogo = {
+  assetId: "fixture-aurora-primary-logo",
+  label: "Primary logo",
+  caption: "Aurora wordmark for event flyers and lineup cards.",
+  mimeType: "image/svg+xml",
+  byteSize: 24_000,
+  imageUrl: "/api/e2e/fixture-assets/fixture-aurora-primary-logo",
+  downloadUrl: "/api/v0/profiles/playwright-dj-aurora/assets/fixture-aurora-primary-logo/file?download=1",
+};
+
+const auroraAdditionalLogo = {
+  assetId: "fixture-aurora-alt-logo",
+  label: "Square mark",
+  mimeType: "image/png",
+  byteSize: 96_000,
+  imageUrl: "/api/e2e/fixture-assets/fixture-aurora-alt-logo",
+  downloadUrl: "/api/v0/profiles/playwright-dj-aurora/assets/fixture-aurora-alt-logo/file?download=1",
+};
+
 const eventPreview = {
   slug: eventSlug,
   title: "Afterglow Harbor Sessions",
@@ -45,7 +73,7 @@ const eventPreview = {
   communityName: "Afterglow Social",
   communitySlug,
   summary: "Late-night harbor club session with house, trance, and warm social energy.",
-  posterImageUrl: "https://example.invalid/events/afterglow-harbor-poster.png",
+  posterImageUrl: "/api/e2e/fixture-assets/fixture-afterglow-event-poster",
   source: {
     sourceType: "manual" as const,
     label: "Afterglow event listing",
@@ -78,6 +106,7 @@ const personProfile: FixturePersonProfile = {
   about: "Known for sunrise handoffs, soft-focus visuals, and long blends that keep the room moving.",
   region: "EU",
   timezone: "UTC+1",
+  avatarImageUrl: auroraProfileImage.imageUrl,
   trustLabel: "community_submitted",
   source: {
     sourceType: "community",
@@ -120,6 +149,22 @@ const personProfile: FixturePersonProfile = {
       sourceLabel: "Community credit",
     },
   ],
+  mediaKit: {
+    profileImage: auroraProfileImage,
+    primaryLogo: auroraPrimaryLogo,
+    additionalLogos: [auroraAdditionalLogo],
+    logos: [auroraPrimaryLogo, auroraAdditionalLogo],
+    assets: [auroraProfileImage, auroraPrimaryLogo, auroraAdditionalLogo],
+    logoZipUrl: "/api/v0/profiles/playwright-dj-aurora/logos.zip",
+    compactDisplay: "profile_image",
+    avatarAppearance: {
+      borderEnabled: true,
+      borderColor: "#67e8f9",
+      borderWidthPx: 4,
+      borderSoftnessPx: 12,
+      radiusPercent: 18,
+    },
+  },
   upcomingEvents: [eventPreview],
   hostedEvents: [],
   person: {
@@ -901,6 +946,9 @@ const discoveryResults: PublicSearchResult[] = [
     title: "DJ Aurora",
     subtitle: "Person profile",
     summary: "Melodic house sets for late-night VRChat floors.",
+    imageUrl: auroraProfileImage.imageUrl,
+    profileImageUrl: auroraProfileImage.imageUrl,
+    logoImageUrl: auroraPrimaryLogo.imageUrl,
     source: {
       sourceType: "community",
       label: "Community submitted",

@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { getPublicCommunityHostedEvents, getPublicPersonUpcomingEvents } from "./_eventPublic";
 import { toProfileLookupResult } from "./_profileLookup";
+import { consumeProfileAssetUploads, getPublicProfileMediaKit } from "./_profileAssets";
 import { canReadProfile } from "./_profilePermissions";
 import { toPublicProfile } from "./_profilePublic";
 import { findAvailableProfileSlug, getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
@@ -24,6 +25,21 @@ const PROFILE_LOOKUP_RESULT_LIMIT = 12;
 function boundedLimit(value: number | undefined, fallback: number, max: number): number {
   return Math.max(1, Math.min(value ?? fallback, max));
 }
+
+const profileAssetPlacement = v.union(
+  v.literal("profile_image"),
+  v.literal("banner"),
+  v.literal("primary_logo"),
+  v.literal("additional_logo"),
+);
+const profileAssetUploadInput = v.object({
+  intentId: v.id("profileAssetUploadIntents"),
+  uploadToken: v.string(),
+  label: v.optional(v.string()),
+  caption: v.optional(v.string()),
+  placements: v.array(profileAssetPlacement),
+  position: v.optional(v.number()),
+});
 
 function optionalIdentityDisplayName(name: string | undefined): string | undefined {
   const trimmed = name?.trim();
@@ -74,8 +90,22 @@ export const getPublicBySlug = query({
             hostedEvents: await getPublicCommunityHostedEvents(ctx.db, profile._id, now),
           };
 
+    const publicProfile = toPublicProfile(profile);
+    const mediaKit = await getPublicProfileMediaKit(ctx.db, profile);
+    const legacyAvatarImageUrl =
+      "avatarImageUrl" in publicProfile && typeof publicProfile.avatarImageUrl === "string"
+        ? publicProfile.avatarImageUrl
+        : undefined;
+    const legacyBannerImageUrl =
+      "bannerImageUrl" in publicProfile && typeof publicProfile.bannerImageUrl === "string"
+        ? publicProfile.bannerImageUrl
+        : undefined;
+
     return {
-      ...toPublicProfile(profile),
+      ...publicProfile,
+      mediaKit,
+      avatarImageUrl: mediaKit.profileImage?.imageUrl ?? legacyAvatarImageUrl,
+      bannerImageUrl: mediaKit.banner?.imageUrl ?? legacyBannerImageUrl,
       worldCredits: await getPublicProfileWorldCredits(ctx.db, {
         profileType: profile.profileType,
         slug: profile.slug,
@@ -143,6 +173,7 @@ export const submitCommunityProfile = mutation({
         categoryTags: v.optional(v.array(v.string())),
       }),
     ),
+    assets: v.optional(v.array(profileAssetUploadInput)),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -193,6 +224,13 @@ export const submitCommunityProfile = mutation({
 
       const profile = await ctx.db.get(profileId);
       if (profile !== null) {
+        await consumeProfileAssetUploads(ctx.db, {
+          profileId,
+          requestedBy: sourceAttribution.submitter,
+          uploads: args.assets ?? [],
+          source: "community_submitted",
+          now,
+        });
         await Promise.all([
           upsertSearchDocument(ctx.db, createProfileSearchDocument(profile)),
           recordVocabularyTerms(ctx.db, vocabularyForProfile(profile), now),
@@ -223,6 +261,13 @@ export const submitCommunityProfile = mutation({
 
     const profile = await ctx.db.get(profileId);
     if (profile !== null) {
+      await consumeProfileAssetUploads(ctx.db, {
+        profileId,
+        requestedBy: sourceAttribution.submitter,
+        uploads: args.assets ?? [],
+        source: "community_submitted",
+        now,
+      });
       await Promise.all([
         upsertSearchDocument(ctx.db, createProfileSearchDocument(profile)),
         recordVocabularyTerms(ctx.db, vocabularyForProfile(profile), now),

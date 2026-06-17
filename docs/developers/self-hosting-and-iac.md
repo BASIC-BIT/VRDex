@@ -42,7 +42,7 @@ The hosted BASIC BIT deployment uses:
 | Docs Vercel project and `docs.vrdex.net` domain | `infra/terraform/docs-site` plus workflow | Owns the docs Vercel project, Vercel domain binding, and Route 53 DNS record; runbook lives in `docs/deployment/docs-site.md`. |
 | Convex deployment keys and env vars | provider secret store plus docs | Documented in `docs/deployment/convex-environments.md` and `docs/deployment/ses-auth-email.md`. |
 | Convex custom domains | deferred manual provider setup | Runbook lives in `docs/deployment/convex-environments.md`; requires Convex Pro and dashboard-provided DNS records before Route 53 records. |
-| Profile asset storage | planned follow-up | Direction documented in `docs/deployment/aws-baseline.md`; [#115](https://github.com/BASIC-BIT/VRDex/issues/115) owns the S3 Terraform/runtime baseline. |
+| Profile asset storage | app runtime plus planned Terraform baseline | Runtime variable names and private S3 behavior are documented in `docs/deployment/aws-baseline.md`; [#115](https://github.com/BASIC-BIT/VRDex/issues/115) still owns fuller Terraform/lifecycle hardening. |
 
 ## Self-Hosted Minimum Components
 

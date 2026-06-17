@@ -26,6 +26,7 @@
     "typecheck": "next typegen && node ./scripts/ensure-next-type-stubs.mjs && tsc --noEmit --incremental false"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1068.0",
     "@convex-dev/auth": "^0.0.92",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

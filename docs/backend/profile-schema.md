@@ -2,9 +2,9 @@
 
 ## Status Note
 
-This doc captures the durable profile schema foundation from `#9` through `#13`, plus later extensions in `#22`, `#23`, `#25`, `#26`, `#30`, `#31`, `#32`, `#33`, `#82`, `#90`, and the DJ lookup genre slice.
+This doc captures the durable profile schema foundation from `#9` through `#13`, plus later extensions in `#22`, `#23`, `#25`, `#26`, `#30`, `#31`, `#32`, `#33`, `#82`, `#90`, the DJ lookup genre slice, and the first file-backed media-kit and bounded appearance slices.
 
-The schema is intentionally narrow. It establishes one shared `profiles` table for people and communities plus first-slice account ownership, claim request, verification attempt, and field visibility tables without introducing normalized link tables, asset tables, or advanced moderation workflows.
+The implemented schema is intentionally narrow. It establishes one shared `profiles` table for people and communities plus first-slice account ownership, claim request, verification attempt, field visibility, media asset, and bounded appearance tables without introducing normalized link tables or advanced moderation workflows.
 
 ## Locked Decisions
 
@@ -17,7 +17,9 @@ The schema is intentionally narrow. It establishes one shared `profiles` table f
 - account/user ownership references live in `profileOwners`; provider login alone is not ownership
 - most public write mutations are deferred until auth and permissions are wired; `profiles:submitCommunityProfile` is the current auth-gated exception
 - the community submission mutation requires a Convex authenticated identity before writing
-- normalized alias, asset, and rich authored block tables are deferred to later profile presentation issues
+- normalized alias and rich authored block tables are deferred to later profile presentation issues
+- file-backed media-kit assets are the model for profile pictures, logos, banners, and other reusable profile images
+- profile image appearance is stored as display preference metadata, not by mutating the uploaded image asset
 - profile outbound links are currently inline typed external links; normalized link tables remain a later scaling option
 - avatar and banner fields are URL placeholders for later controlled owner or concierge inputs, not ordinary community-submitted fields
 
@@ -68,6 +70,45 @@ Type-specific fields:
 - `person.roleTags`: flexible role/type tags such as DJ, VJ, host, photographer, or performer
 - `community.subtype`: optional short subtype text such as venue, collective, brand, or agency
 - `community.categoryTags`: flexible category tags for community discovery and presentation
+
+## Follow-On Profile Media Kit Assets
+
+Current recommendation:
+
+- people and communities should share the same file-backed media-kit asset system
+- profile picture/avatar, banner, primary logo, additional ordered logos, and other public image placements should reference assets instead of becoming separate one-off URL fields over time
+- user-provided public HTTPS image URLs should be treated as import sources; VRDex should reject private/internal destinations, copy bounded PNG/SVG/JPEG/WebP responses into managed object storage such as S3, and serve the VRDex-owned object as the canonical asset
+- one uploaded asset can fill multiple placements, such as both profile picture and primary logo
+- public UX should say `primary logo` and `additional logos` instead of `non-primary` or defaulting to `alternative logo`
+- uploaded assets can have loose labels and optional public captions; separate required accessibility text is not part of the first slice
+- PNG and SVG logos are required from day one
+- unclaimed and community-submitted profiles may carry public logos/assets, but public projections must preserve claim, source, and trust labels
+- public media-kit surfaces should support individual asset downloads and a zip of all public logos
+
+Candidate `profileAssets` fields:
+
+- `profileId`: owning person or community profile
+- `kind`: broad asset kind such as `image` or `logo`, kept flexible enough for later expansion
+- `storageKey`: canonical managed-storage object key
+- `originalFileName`: optional original upload filename
+- `sourceUrl`: optional HTTPS URL used for import-by-download
+- `mimeType`: validated stored MIME type, including PNG and SVG support for logos
+- `byteSize`: stored object size
+- `label`: optional loose display label
+- `caption`: optional public caption or description
+- `visibility`: public, unlisted, or private visibility aligned with the profile visibility model
+- `source`: owner-authored, community-submitted, partner-provided, moderator, import, or concierge provenance
+- `uploadedBy`: authenticated subject or source attribution where available
+- `uploadedAt`, `updatedAt`, and optional deletion/replacement metadata
+
+Candidate placement fields can live on the profile or in a companion placement table:
+
+- `profileImageAssetId`
+- `bannerAssetId`
+- `primaryLogoAssetId`
+- ordered additional logo asset ids
+- compact/card display preference with an automatic fallback that uses profile image first and logo when no distinct profile image exists or the owner chooses logo-first display
+- avatar appearance controls: border on/off, six-digit border color, bounded border thickness, bounded border softness, and `0..50` percent roundedness from square to circle
 
 Convex automatically provides `_id` and `_creationTime`; those are not duplicated in the schema.
 

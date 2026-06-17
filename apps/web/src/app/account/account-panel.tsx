@@ -338,9 +338,14 @@ function ConnectedAccountPanel() {
             <dd className="mt-1">{viewer.user.emailVerified ? "Verified" : "Not verified"}</dd>
           </div>
         </dl>
-        <Button className="mt-5" size="lg" type="button" onClick={() => void signOut()}>
-          Sign out
-        </Button>
+        <div className="mt-5 flex flex-wrap gap-3">
+          <Link className={buttonVariants({ size: "lg", variant: "primary" })} href="/account/appearance">
+            Customize appearance
+          </Link>
+          <Button size="lg" type="button" onClick={() => void signOut()}>
+            Sign out
+          </Button>
+        </div>
       </Card>
 
       <Card surface="glass">

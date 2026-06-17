@@ -1019,6 +1019,93 @@ Acceptance criteria:
 - the possibility of a service-account shared-calendar approach is documented
 - the integration value is documented clearly enough to become a future issue/epic without relying on chat history
 
+### Add calendar import/export workflows for events
+
+Problem:
+
+Issue #41 captured the calendar integration direction, but the actual product work for calendar export has not been implemented yet. VRDex also needs inbound Google Calendar import as a separate-but-related workflow because some communities and operators already plan events in Google Calendar.
+
+This issue should track the live follow-up work for practical event import/export foundations rather than only documenting the direction.
+
+Scope:
+
+- add static `.ics` export for a single public event or selected public event feed
+- preserve safe outbound event fields: title, start/end time, timezone, public summary, canonical VRDex URL, location/world/community references when visibility allows, and cancellation/update state when modeled
+- document or implement subscribeable calendar feeds where appropriate, instead of only one-time downloads
+- document inbound Google Calendar import as separate from outbound export/sync
+- import selected Google calendars/events into reviewable VRDex event candidates
+- preserve source calendar, import batch or sync job, event ID, update timestamp, organizer, and confidence/provenance metadata
+- map titles, descriptions, start/end times, timezone, location, links, recurrence hints, cancellations/update state, and public/private visibility cautiously
+- support manual review before publishing imported events
+- define conflict/update behavior when an imported Google Calendar event changes after import
+- keep self-hosted OAuth/service-account setup explicit and operator-owned
+
+Non-goals:
+
+- silently publishing private calendar events or imported event candidates
+- importing attendees, private notes, reminders, or hidden calendar metadata by default
+- full two-way calendar writeback/conflict resolution in the first slice
+- final multi-provider calendar import/export abstraction
+- complete personalized Google Calendar writeback/sync for every user
+- event reminders and notification preferences
+
+Current recommendation:
+
+- treat outbound `.ics` export/feed support as the first practical calendar feature
+- treat Google Calendar import as a permissioned ingestion source that creates reviewable event candidates
+- start with selected public/operator-owned calendars, not arbitrary personal calendars
+- keep outbound export, outbound Google sync, and inbound import distinct because their auth, privacy, and conflict models differ
+- reuse the seed/import provenance model where possible
+
+Acceptance criteria:
+
+- calendar export work is tracked as actual implementation follow-up, not only docs direction
+- public event export includes only safe public fields and respects visibility/suppression rules
+- inbound Google Calendar import is captured as a reviewed ingestion path
+- privacy boundaries for public vs private calendar data are documented
+- imported events preserve provenance and review state
+- recurrence, cancellation, and update semantics are called out as product/data-model choices
+- the direction is clear enough to become implementation work after core event and import foundations are ready
+
+### Consider Notion integration for event planning workflows
+
+Problem:
+
+Some VRChat event organizers plan schedules, lineups, assets, and operational notes in Notion. VRDex should consider whether a Notion integration is worth supporting, but the integration is hairier than calendar export/sync because Notion databases are highly custom and can contain private planning data.
+
+Scope:
+
+- evaluate Notion as an event-planning integration, not just a calendar client
+- consider one-way export from VRDex events into a Notion database
+- consider permissioned import from selected Notion databases into reviewable VRDex event candidates
+- define how Notion database properties might map to VRDex event fields, slots, media links, communities, people, and provenance
+- document OAuth/workspace permission requirements and self-host operator configuration
+- preserve source database/page IDs, sync timestamps, review state, and field-level provenance
+- identify privacy risks around internal notes, private contacts, planning checklists, and unreviewed data
+
+Non-goals:
+
+- implementing Notion sync now
+- supporting arbitrary Notion workspace schemas without configuration
+- treating Notion as authoritative over owner-confirmed VRDex data
+- importing private planning notes into public event pages by default
+- building a full project-management integration in the first event slices
+
+Current recommendation:
+
+- keep Notion as a candidate direction until real organizer interviews validate demand
+- start, if ever, with explicit per-database mapping and reviewable imports/exports
+- prefer narrow event-planning workflows over generic Notion mirroring
+- keep Google Calendar import/export/sync as the simpler calendar-oriented integration path
+
+Acceptance criteria:
+
+- Notion is captured as a candidate follow-on integration for event planning
+- import and export directions are both considered without committing to two-way sync
+- privacy and schema-mapping risks are documented up front
+- the integration is explicitly gated on validation/interviews before implementation
+- future implementation can link back to this issue without relying on chat history
+
 ## EPIC-03 Public profile experience
 
 ### Build public person profile page
@@ -1105,6 +1192,54 @@ Acceptance criteria:
 - these sections render cleanly on both person and community profiles
 - the authored content model is clearly documented for follow-on issues
 
+### Add file-backed profile media kit assets and logo downloads
+
+Problem:
+
+Event runners need an easy, trustworthy way to grab DJ and community logos for promo material. The current avatar/banner placeholders are not enough because many profiles will have a profile picture, a primary logo, and additional logos or reusable images with optional descriptions.
+
+Scope:
+
+- add one shared media-kit asset system for person and community profiles
+- support true file uploads into managed object storage such as S3
+- support public HTTPS URL import by downloading bounded image responses into VRDex storage instead of keeping the external URL as the canonical asset
+- include storage keys, MIME type, original filename or source URL, byte size, uploader/source/provenance metadata, upload time, and deletion/replacement state
+- support PNG and SVG logos from day one
+- support loose user-visible labels and optional public captions
+- support one primary logo plus ordered additional logos, avoiding "alternative logo" as the default user-facing wording
+- allow the same uploaded asset to be assigned as both profile picture and primary logo
+- fold profile picture/avatar, banner, primary logo, and other public image placements into the same asset-management model over time
+- allow unclaimed and community-submitted profiles to provide public logos/assets while preserving trust and provenance labels
+- expose individual asset downloads and a download-all-public-logos zip action
+- expose primary plus additional logos through DJ lookup, profile-card, API, and later MCP/bot surfaces
+- render profile image and logo side by side on DJ lookup surfaces when space allows, with graceful collapse when both placements reference the same asset
+- add a profile-level display preference for compact/card contexts, with an automatic fallback that uses profile image first and logo when no distinct profile image exists or the owner chooses logo-first display
+
+Non-goals:
+
+- full digital asset management, licensing workflow, or legal rights verification in the first slice
+- requiring owner claim, moderator review, partner source, or concierge source before an unclaimed/community-submitted profile can show logos
+- requiring separate accessibility alt text for each uploaded asset
+- press kit PDF/one-sheet generation
+- arbitrary HTML/CSS or rich embedded media blocks
+
+Current recommendation:
+
+- model assets separately from display placements so one file can power multiple uses
+- use "primary logo" and "additional logos" in UX copy instead of "non-primary" or "alternative"
+- keep optional captions as public descriptive copy, while deriving ordinary image accessibility labels from profile name, placement, and asset label where needed
+- treat external public HTTPS images as import sources only; VRDex-owned storage should become the canonical download source
+
+Acceptance criteria:
+
+- person and community profiles can store multiple public media-kit image assets
+- owners or community submitters can mark one logo as primary and order additional logos
+- uploaded and URL-imported assets are served from VRDex-managed storage, not hotlinked as canonical external images
+- public profile and DJ lookup surfaces expose useful logo downloads without confusing them with trust/verification status
+- API/bot-ready projections can return the primary logo plus additional logos
+- the same file can be reused for profile picture and primary logo without duplicate uploads
+- the storage, provenance, visibility, and deletion behavior is documented clearly enough for implementation
+
 ### Add bounded customization system and visual verification baseline
 
 Problem:
@@ -1114,6 +1249,7 @@ VRDex needs expressive profile customization without turning into a fragile page
 Scope:
 
 - support theme presets
+- support first avatar frame controls: border on/off, color, thickness, soft feathered border glow, and square-to-circle roundedness
 - support basic section ordering
 - define public profile layout tokens or style system foundations
 - add visual verification coverage for key public page states

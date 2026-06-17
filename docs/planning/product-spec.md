@@ -18,7 +18,7 @@ World discovery extends that identity graph by showing where events happen, who 
 
 They want one link they can send when communities ask for:
 
-- logo
+- logo and other media-kit assets
 - social links
 - stream link
 - preferred genres
@@ -29,7 +29,7 @@ They want one link they can send when communities ask for:
 They also want:
 
 - a customizable public page
-- a primary display image and banner
+- a primary display image, logo, and banner
 - optional privacy for sensitive details
 - an event list showing where they are playing next
 
@@ -110,8 +110,8 @@ Each profile should support:
 - preferred genres or identity tags
 - hometown / region / time zone
 - contact methods
-- logo and banner assets
-- primary display image / avatar
+- file-backed profile image, logo, and banner assets
+- downloadable media-kit assets, including a primary logo and additional logos
 - social links
 - stream links where relevant
 - VRChat account or VRChat group link
@@ -243,11 +243,14 @@ Every profile should have a clean shareable page optimized for:
 - Discord unfurls
 - mobile viewing
 - "send me your links" moments
+- event runners grabbing approved logos and promo assets
 
 Style expectations:
 
 - strong visual identity
 - avatar + banner presentation
+- media-kit asset section for logos and other reusable images
+- avatar frame controls for border on/off, border color, border thickness, soft feathered border glow, and square-to-circle roundedness
 - theme presets with accent colors and section ordering
 - no requirement for users to hand-code CSS
 
@@ -403,7 +406,7 @@ Important future-aware extensions:
 - richer DJ slot breakdowns and booking-manager UX beyond the first `#119` slot editor
 - stream/watch link modeling
 - set/performance artifacts that can attach an external or hosted recording to a specific event slot
-- calendar export and sync, preserving both static `.ics` export and later Google Calendar sync; see `docs/planning/calendar-integration.md`
+- calendar import, export, and sync, preserving static `.ics` export, later Google Calendar sync, and reviewed Google Calendar import; see `docs/planning/calendar-integration.md`
 
 Event-world direction:
 
@@ -676,12 +679,21 @@ For communities:
 
 ### Assets
 
-- display picture / avatar
-- square logo
-- transparent logo
-- promo banner
-- profile image
-- press kit zip later
+- shared profile asset system for people and communities
+- true file upload and managed download support, backed by owned object storage such as S3
+- public HTTPS import-by-download, where user-provided external image URLs are fetched into VRDex storage rather than hotlinked as the canonical asset
+- profile picture / avatar placement
+- banner placement
+- primary logo placement
+- additional ordered logos, avoiding "alternative" terminology in user-facing copy
+- loose owner/community-provided labels and optional public captions
+- support for using the same uploaded asset as both profile picture and primary logo
+- PNG and SVG logo support from day one
+- download individual assets and download all public logos as a zip
+- DJ lookup/card surfaces should show profile image and logo side by side when the layout has room, collapsing gracefully when they are the same asset
+- compact surfaces can use a profile-level display preference with an automatic default: profile image first, logo when no distinct profile image exists or when the owner picks logo-first display
+- owner appearance controls can style the avatar frame without changing the underlying uploaded asset
+- press kit PDF/one-sheet export later
 
 ### Visibility metadata
 
@@ -718,7 +730,8 @@ Every field or block should support owner-configured visibility and source attri
 
 1. Search performer name
 2. See verification state, genres, links, logos, contact path
-3. Copy assets or open canonical share page
+3. Download individual logo assets or all public logos as a zip
+4. Open the canonical share page for the broader media kit
 
 ### Flow D: Community claims its own community profile
 
@@ -760,6 +773,7 @@ Public read APIs should eventually support:
 - profile lookup by slug
 - search by genre / name
 - profile card JSON for bot responses
+- profile media-kit assets, including primary plus additional logos and download URLs
 - embeddable link previews
 - events feed for a person or community
 - world lookup by slug or VRChat world id

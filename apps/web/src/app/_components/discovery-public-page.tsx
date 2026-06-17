@@ -22,6 +22,8 @@ export type PublicSearchResult = {
   subtitle?: string;
   summary?: string;
   imageUrl?: string;
+  profileImageUrl?: string;
+  logoImageUrl?: string;
   startsAt?: number;
   source?: {
     sourceType?: string;
@@ -93,11 +95,46 @@ function resultMatchesFilter(result: PublicSearchResult, filter: SearchResultFil
   return result.entityType === filter;
 }
 
-function resultMeta(result: PublicSearchResult): string {
-  const subtitle = resultSubtitle(result);
-  const parts = [entityLabel(result), subtitle].filter(Boolean);
+function ResultImage({ result }: { result: PublicSearchResult }) {
+  const imageStyle = safeImageBackground(result.imageUrl, discoveryThumbOverlay);
 
-  return parts.join(" / ");
+  if (
+    result.entityType !== "profile" ||
+    !result.logoImageUrl ||
+    !result.profileImageUrl ||
+    result.logoImageUrl === result.profileImageUrl
+  ) {
+    return (
+      <span
+        className="flex size-14 shrink-0 items-center justify-center rounded-card bg-[linear-gradient(135deg,#2f211b,#d66a4d)] bg-cover bg-center text-lg font-semibold text-white"
+        style={imageStyle}
+      >
+        {!imageStyle ? initialsFor(result.title) : null}
+      </span>
+    );
+  }
+
+  const profileImageStyle = safeImageBackground(result.profileImageUrl, discoveryThumbOverlay);
+  const logoStyle = safeImageBackground(result.logoImageUrl);
+
+  return (
+    <span className="grid shrink-0 grid-cols-2 gap-1">
+      <span
+        className="flex size-14 items-center justify-center rounded-card bg-[linear-gradient(135deg,#2f211b,#d66a4d)] bg-cover bg-center text-lg font-semibold text-white"
+        style={profileImageStyle}
+        title="Profile image"
+      >
+        {!profileImageStyle ? initialsFor(result.title) : null}
+      </span>
+      <span
+        className="flex size-14 items-center justify-center rounded-card border border-border bg-surface-strong bg-contain bg-center bg-no-repeat text-xs font-semibold text-muted"
+        style={logoStyle}
+        title="Logo"
+      >
+        {!logoStyle ? "Logo" : null}
+      </span>
+    </span>
+  );
 }
 
 function TopNav() {
@@ -120,7 +157,6 @@ function TopNav() {
 }
 
 function DiscoveryCard({ result, surface }: { result: PublicSearchResult; surface: string }) {
-  const imageStyle = safeImageBackground(result.imageUrl, discoveryThumbOverlay);
   const subtitle = resultSubtitle(result);
 
   return (
@@ -135,12 +171,7 @@ function DiscoveryCard({ result, surface }: { result: PublicSearchResult; surfac
         surface,
       }}
     >
-      <span
-        className="flex size-14 shrink-0 items-center justify-center rounded-card bg-[linear-gradient(135deg,#2f211b,#d66a4d)] bg-cover bg-center text-lg font-semibold text-white"
-        style={imageStyle}
-      >
-        {!imageStyle ? initialsFor(result.title) : null}
-      </span>
+      <ResultImage result={result} />
       <span className="flex min-w-0 flex-col gap-2">
         {result.startsAt === undefined ? null : <ViewerLocalEventDateTime className="text-sm font-medium text-accent-strong" timestamp={result.startsAt} />}
         <span className="text-xl font-semibold tracking-[-0.03em] group-hover:text-accent-strong">
@@ -154,7 +185,7 @@ function DiscoveryCard({ result, surface }: { result: PublicSearchResult; surfac
 }
 
 function SearchResultCard({ result }: { result: PublicSearchResult }) {
-  const imageStyle = safeImageBackground(result.imageUrl, discoveryThumbOverlay);
+  const subtitle = resultSubtitle(result);
 
   return (
     <TrackedDiscoveryLink
@@ -168,17 +199,17 @@ function SearchResultCard({ result }: { result: PublicSearchResult }) {
         surface: "search_results",
       }}
     >
-      <span
-        className="flex size-14 shrink-0 items-center justify-center rounded-card bg-[linear-gradient(135deg,#2f211b,#d66a4d)] bg-cover bg-center text-lg font-semibold text-white"
-        style={imageStyle}
-      >
-        {!imageStyle ? initialsFor(result.title) : null}
-      </span>
-      <span className="flex min-w-0 flex-col gap-2">
-        <span className="text-xs font-medium text-muted">{resultMeta(result)}</span>
-        <span className="text-xl font-semibold tracking-[-0.03em] group-hover:text-accent-strong">
-          {result.title}
+      <ResultImage result={result} />
+      <span className="flex min-w-0 flex-1 flex-col gap-2">
+        <span className="flex items-start justify-between gap-4">
+          <span className="min-w-0 text-xl font-semibold tracking-[-0.03em] group-hover:text-accent-strong">
+            {result.title}
+          </span>
+          <span className="shrink-0 rounded-control border border-border bg-surface-strong px-3 py-1 text-xs font-medium text-muted">
+            {entityLabel(result)}
+          </span>
         </span>
+        {subtitle ? <span className="text-sm text-muted">{subtitle}</span> : null}
         {result.startsAt === undefined ? null : <ViewerLocalEventDateTime className="text-sm text-accent-strong" timestamp={result.startsAt} />}
         {result.summary ? <span className="line-clamp-2 text-sm leading-6 text-muted">{result.summary}</span> : null}
         {result.source ? <span className="text-xs text-muted">{result.source.label}</span> : null}
