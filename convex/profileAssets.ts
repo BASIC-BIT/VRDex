@@ -62,7 +62,7 @@ export const createUploadIntent = mutation({
     const uploadToken = createUploadToken();
     const storageKey = createProfileAssetStorageKey({
       token: uploadToken,
-      originalFileName: originalFileName ?? sourceUrl,
+      originalFileName,
       mimeType,
       now,
     });

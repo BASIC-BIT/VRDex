@@ -24,6 +24,7 @@ type UploadBody = {
 };
 
 const PROFILE_ASSET_UPLOAD_MAX_BYTES = 12 * 1024 * 1024;
+const FILE_UPLOAD_REQUEST_MAX_BYTES = PROFILE_ASSET_UPLOAD_MAX_BYTES + 64 * 1024;
 const PROFILE_ASSET_MIME_TYPES = new Set(["image/png", "image/svg+xml", "image/jpeg", "image/webp"]);
 const SOURCE_URL_MAX_REDIRECTS = 5;
 
@@ -84,8 +85,79 @@ function validateUploadBody(upload: UploadBody) {
   assertAllowedByteSize(upload.body.byteLength);
 }
 
+function requestContentLength(request: NextRequest): number | null {
+  const header = request.headers.get("content-length");
+
+  if (header === null) {
+    return null;
+  }
+
+  const value = Number(header);
+
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error("Upload request included an invalid Content-Length header.");
+  }
+
+  return value;
+}
+
+async function requestBodyWithLimit(request: NextRequest): Promise<Uint8Array> {
+  const contentLength = requestContentLength(request);
+
+  if (contentLength !== null && contentLength > FILE_UPLOAD_REQUEST_MAX_BYTES) {
+    throw new Error("Profile media upload requests are too large.");
+  }
+
+  if (request.body === null) {
+    throw new Error("Upload requests must include a file field.");
+  }
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let byteSize = 0;
+
+  for (;;) {
+    const { done, value } = await reader.read();
+
+    if (done) {
+      break;
+    }
+
+    byteSize += value.byteLength;
+
+    if (byteSize > FILE_UPLOAD_REQUEST_MAX_BYTES) {
+      await reader.cancel();
+      throw new Error("Profile media upload requests are too large.");
+    }
+
+    chunks.push(value);
+  }
+
+  const body = new Uint8Array(byteSize);
+  let offset = 0;
+
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  return body;
+}
+
 async function bodyFromFileRequest(request: NextRequest): Promise<UploadBody> {
-  const formData = await request.formData();
+  const requestBody = await requestBodyWithLimit(request);
+  const headers = new Headers(request.headers);
+  const body = requestBody.buffer.slice(
+    requestBody.byteOffset,
+    requestBody.byteOffset + requestBody.byteLength,
+  ) as ArrayBuffer;
+  headers.delete("content-length");
+
+  const formData = await new Request(request.url, {
+    body,
+    headers,
+    method: request.method,
+  }).formData();
   const file = formData.get("file");
 
   if (!(file instanceof File)) {
@@ -184,6 +256,7 @@ function isPrivateIpv6(address: string): boolean {
     first === 0x2002 ||
     (first >= 0xfc00 && first <= 0xfdff) ||
     (first >= 0xfe80 && first <= 0xfebf) ||
+    (first >= 0xfec0 && first <= 0xfeff) ||
     (first >= 0xff00 && first <= 0xffff) ||
     (first === 0x64 && second === 0xff9b && third === 0x1) ||
     (first === 0x2001 && second === 0xdb8)

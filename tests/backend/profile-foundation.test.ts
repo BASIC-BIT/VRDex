@@ -676,6 +676,14 @@ describe("profile media kit asset helpers", () => {
       }),
       "profile-assets/2026-06-15/abcdef0123456789abcdef01/aurora-logo.svg",
     );
+    assert.equal(
+      createProfileAssetStorageKey({
+        token: "abcdef0123456789abcdef0123456789",
+        mimeType: "image/png",
+        now: Date.UTC(2026, 5, 15),
+      }),
+      "profile-assets/2026-06-15/abcdef0123456789abcdef01/asset.png",
+    );
   });
 
   it("normalizes avatar appearance controls to a safe display range", () => {
