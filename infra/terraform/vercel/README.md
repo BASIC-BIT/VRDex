@@ -1,6 +1,6 @@
 # Vercel Web Terraform
 
-This stack manages Vercel project environment variables for the hosted VRDex web app.
+This stack manages PostHog Vercel project environment variables for the hosted VRDex web app.
 
 It currently manages PostHog analytics variables for the existing Vercel project:
 
@@ -15,6 +15,8 @@ It currently manages PostHog analytics variables for the existing Vercel project
 - `NEXT_PUBLIC_POSTHOG_HOST`
 
 The PostHog project key is client-exposed once deployed, but keep the value out of git so forks and self-hosted installs do not accidentally send analytics into the BASIC BIT project.
+
+Profile asset storage variables are owned by `infra/terraform/profile-assets`, not this stack, because that stack owns the paired S3 bucket and Vercel OIDC runtime role.
 
 ## Usage
 

@@ -95,7 +95,7 @@ Any docs statement that says work is deferred, planned, future, or blocked on so
 
 Examples:
 
-- `planned S3 private asset bucket ([#115](https://github.com/BASIC-BIT/VRDex/issues/115))`
+- `private S3 profile asset bucket ([#115](https://github.com/BASIC-BIT/VRDex/issues/115))`
 - `public API route once the v0 API issue lands ([#39](https://github.com/BASIC-BIT/VRDex/issues/39))`
 
 If there is no owning artifact, either create one or rewrite the sentence so it is clearly an uncommitted candidate direction rather than a silent obligation.

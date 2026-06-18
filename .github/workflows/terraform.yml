@@ -24,6 +24,7 @@ on:
           - state-mgmt
           - docs-site
           - web-domains
+          - profile-assets
           - ses
           - posthog
           - vercel
@@ -52,6 +53,7 @@ env:
   TERRAFORM_SES_DOMAIN_NAME: ${{ vars.TERRAFORM_SES_DOMAIN_NAME }}
   TERRAFORM_SES_FROM_EMAIL: ${{ vars.TERRAFORM_SES_FROM_EMAIL }}
   TERRAFORM_ROUTE53_ZONE_ID: ${{ vars.TERRAFORM_ROUTE53_ZONE_ID }}
+  TERRAFORM_PROFILE_ASSETS_ENABLED: ${{ vars.TERRAFORM_PROFILE_ASSETS_ENABLED }}
 
 jobs:
   terraform-fmt:
@@ -95,6 +97,7 @@ jobs:
             requires_posthog: "false"
             requires_posthog_public_key: "false"
             requires_ses_domain: "false"
+            requires_profile_assets_enabled: "false"
           - name: docs-site
             path: infra/terraform/docs-site
             backend: "true"
@@ -106,6 +109,7 @@ jobs:
             requires_posthog: "false"
             requires_posthog_public_key: "false"
             requires_ses_domain: "false"
+            requires_profile_assets_enabled: "false"
           - name: web-domains
             path: infra/terraform/web-domains
             backend: "true"
@@ -117,6 +121,19 @@ jobs:
             requires_posthog: "false"
             requires_posthog_public_key: "false"
             requires_ses_domain: "false"
+            requires_profile_assets_enabled: "false"
+          - name: profile-assets
+            path: infra/terraform/profile-assets
+            backend: "true"
+            plan: "true"
+            auto_apply: "true"
+            manual_apply: "true"
+            requires_aws: "true"
+            requires_vercel: "true"
+            requires_posthog: "false"
+            requires_posthog_public_key: "false"
+            requires_ses_domain: "false"
+            requires_profile_assets_enabled: "true"
           - name: ses
             path: infra/terraform/ses
             backend: "true"
@@ -128,6 +145,7 @@ jobs:
             requires_posthog: "false"
             requires_posthog_public_key: "false"
             requires_ses_domain: "true"
+            requires_profile_assets_enabled: "false"
           - name: posthog
             path: infra/terraform/posthog
             backend: "true"
@@ -139,6 +157,7 @@ jobs:
             requires_posthog: "true"
             requires_posthog_public_key: "false"
             requires_ses_domain: "false"
+            requires_profile_assets_enabled: "false"
           - name: vercel
             path: infra/terraform/vercel
             backend: "true"
@@ -150,6 +169,7 @@ jobs:
             requires_posthog: "false"
             requires_posthog_public_key: "true"
             requires_ses_domain: "false"
+            requires_profile_assets_enabled: "false"
           - name: restream-worker
             path: infra/terraform/restream-worker
             backend: "true"
@@ -161,6 +181,7 @@ jobs:
             requires_posthog: "false"
             requires_posthog_public_key: "false"
             requires_ses_domain: "false"
+            requires_profile_assets_enabled: "false"
 
     steps:
       - name: Checkout
@@ -229,6 +250,7 @@ jobs:
           if [ "${{ matrix.stack.requires_posthog }}" = "true" ] && [ -z "$POSTHOG_API_KEY" ]; then missing+=("POSTHOG_API_KEY"); fi
           if [ "${{ matrix.stack.requires_posthog_public_key }}" = "true" ] && [ -z "$TERRAFORM_POSTHOG_PUBLIC_KEY" ]; then missing+=("TERRAFORM_POSTHOG_PUBLIC_KEY"); fi
           if [ "${{ matrix.stack.requires_ses_domain }}" = "true" ] && [ -z "$TERRAFORM_SES_DOMAIN_NAME" ]; then missing+=("TERRAFORM_SES_DOMAIN_NAME"); fi
+          if [ "${{ matrix.stack.requires_profile_assets_enabled }}" = "true" ] && [ "$TERRAFORM_PROFILE_ASSETS_ENABLED" != "true" ]; then missing+=("TERRAFORM_PROFILE_ASSETS_ENABLED=true"); fi
 
           if [ "${#missing[@]}" -gt 0 ]; then
             echo "plan_enabled=false" >> "$GITHUB_OUTPUT"

@@ -12,7 +12,7 @@ It intentionally uses local Terraform state. Do not configure this stack to use 
 - S3 versioning
 - S3 bucket policy that denies non-TLS requests
 - GitHub Actions OIDC Terraform role `vrdex-github-terraform`
-- least-privilege inline policy for Terraform state, the `vrdex.net` Route 53 zone, hosted SES identity, and the Convex SES sender IAM user
+- least-privilege inline policy for Terraform state, the `vrdex.net` Route 53 zone, hosted SES identity, the Convex SES sender IAM user, and the profile asset storage baseline
 
 The application stacks use S3 native lockfiles through `use_lockfile = true`; no DynamoDB lock table is required.
 
@@ -41,6 +41,8 @@ If the GitHub Actions role already exists, import it before planning:
 terraform import aws_iam_role.github_actions_terraform vrdex-github-terraform
 terraform import aws_iam_role_policy.github_actions_terraform vrdex-github-terraform:vrdex-terraform-ci
 ```
+
+Apply this stack before enabling provider-backed CI plan/apply for `infra/terraform/profile-assets`. That stack needs the GitHub Actions role to manage the private profile asset S3 bucket, the Vercel OIDC identity provider, and the Vercel profile asset runtime role.
 
 ## State Boundary
 

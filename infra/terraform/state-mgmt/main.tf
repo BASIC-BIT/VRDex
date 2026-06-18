@@ -1,5 +1,9 @@
 locals {
-  state_bucket_arn = "arn:aws:s3:::${var.state_bucket_name}"
+  state_bucket_arn         = "arn:aws:s3:::${var.state_bucket_name}"
+  profile_asset_bucket     = var.profile_asset_bucket_name != null ? var.profile_asset_bucket_name : "vrdex-profile-assets-${data.aws_caller_identity.current.account_id}"
+  profile_asset_bucket_arn = "arn:aws:s3:::${local.profile_asset_bucket}"
+  vercel_oidc_provider_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/oidc.vercel.com/${var.vercel_team_slug}"
+  profile_asset_role_arn   = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.profile_asset_runtime_role_name}"
 
   tags = merge(
     {
@@ -219,6 +223,83 @@ data "aws_iam_policy_document" "github_actions_terraform" {
     ]
 
     resources = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:user/service/vrdex-convex-ses-sender"]
+  }
+
+  statement {
+    sid = "ProfileAssetBucketManagement"
+
+    actions = [
+      "s3:CreateBucket",
+      "s3:DeleteBucket",
+      "s3:GetBucketLocation",
+      "s3:GetBucketPolicy",
+      "s3:GetBucketTagging",
+      "s3:GetBucketPublicAccessBlock",
+      "s3:GetBucketOwnershipControls",
+      "s3:GetEncryptionConfiguration",
+      "s3:ListBucket",
+      "s3:PutBucketPolicy",
+      "s3:PutBucketTagging",
+      "s3:PutBucketPublicAccessBlock",
+      "s3:PutBucketOwnershipControls",
+      "s3:PutEncryptionConfiguration",
+      "s3:DeleteBucketPolicy",
+      "s3:DeleteBucketTagging",
+      "s3:DeleteBucketPublicAccessBlock",
+      "s3:DeleteBucketOwnershipControls",
+      "s3:DeleteBucketEncryption",
+    ]
+
+    resources = [local.profile_asset_bucket_arn]
+  }
+
+  statement {
+    sid = "ProfileAssetBucketDiscovery"
+
+    actions = [
+      "s3:ListAllMyBuckets",
+    ]
+
+    resources = ["*"]
+  }
+
+  statement {
+    sid = "VercelProfileAssetOidcProviderManagement"
+
+    actions = [
+      "iam:AddClientIDToOpenIDConnectProvider",
+      "iam:CreateOpenIDConnectProvider",
+      "iam:DeleteOpenIDConnectProvider",
+      "iam:GetOpenIDConnectProvider",
+      "iam:ListOpenIDConnectProviderTags",
+      "iam:RemoveClientIDFromOpenIDConnectProvider",
+      "iam:TagOpenIDConnectProvider",
+      "iam:UntagOpenIDConnectProvider",
+      "iam:UpdateOpenIDConnectProviderThumbprint",
+    ]
+
+    resources = [local.vercel_oidc_provider_arn]
+  }
+
+  statement {
+    sid = "VercelProfileAssetRoleManagement"
+
+    actions = [
+      "iam:CreateRole",
+      "iam:DeleteRole",
+      "iam:DeleteRolePolicy",
+      "iam:GetRole",
+      "iam:GetRolePolicy",
+      "iam:ListAttachedRolePolicies",
+      "iam:ListInstanceProfilesForRole",
+      "iam:ListRolePolicies",
+      "iam:PutRolePolicy",
+      "iam:TagRole",
+      "iam:UntagRole",
+      "iam:UpdateAssumeRolePolicy",
+    ]
+
+    resources = [local.profile_asset_role_arn]
   }
 }
 
