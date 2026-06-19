@@ -14,12 +14,8 @@ type StoredObject = {
 
 const cachedClients = new Map<string, S3Client>();
 
-function isVercelRuntime(): boolean {
-  return process.env.VERCEL === "1" || process.env.VERCEL === "true" || Boolean(process.env.VERCEL_OIDC_TOKEN);
-}
-
 function vercelOidcRoleArn(): string | undefined {
-  const roleArn = process.env.VRDEX_PROFILE_ASSET_ROLE_ARN ?? (isVercelRuntime() ? process.env.AWS_ROLE_ARN : undefined);
+  const roleArn = process.env.VRDEX_PROFILE_ASSET_ROLE_ARN;
   const normalized = roleArn?.trim();
 
   return normalized ? normalized : undefined;

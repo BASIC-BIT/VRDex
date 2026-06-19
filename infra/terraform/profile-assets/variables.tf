@@ -49,7 +49,7 @@ variable "manage_production_environment" {
 variable "staging_custom_environment_ids" {
   description = "Vercel custom environment IDs for staging-like environments that should receive profile asset env vars. Empty leaves custom environments unmanaged."
   type        = set(string)
-  default     = ["env_1iR8Tk53UMEhsbEgONsgGhzl9hX9"]
+  default     = []
 }
 
 variable "tags" {
