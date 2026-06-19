@@ -6,6 +6,7 @@ VRDex keeps small infrastructure stacks separate so credentials, blast radius, a
 - `ses/`: AWS SES sender identity and least-privilege Convex email credentials.
 - `posthog/`: hosted PostHog project metadata for product analytics.
 - `vercel/`: Vercel project environment variables for the hosted web app.
+- `profile-assets/`: private S3 profile media-kit asset bucket, Vercel OIDC runtime role, and hosted web env vars for profile asset storage.
 - `docs-site/`: Vercel docs project/domain and Route 53 DNS for `docs.vrdex.net`.
 - `web-domains/`: Vercel web project-domain bindings and Route 53 DNS for `vrdex.net` and `www.vrdex.net`.
 - `restream-worker/`: validation-only hosted restream worker benchmark foundation for ECR, ECS/Fargate, logs, roles, secret references, and the disabled kill switch.
@@ -25,13 +26,14 @@ Required CI settings by provider:
 
 | Setting | Type | Used by |
 | --- | --- | --- |
-| `AWS_TERRAFORM_ROLE_ARN` | repository variable or secret | all S3-backed stacks: `docs-site`, `ses`, `posthog`, `vercel` |
-| `VERCEL_TOKEN` or `VERCEL_API_TOKEN` | repository secret | `docs-site`, `vercel` |
+| `AWS_TERRAFORM_ROLE_ARN` | repository variable or secret | all S3-backed stacks: `docs-site`, `ses`, `posthog`, `vercel`, `profile-assets` |
+| `VERCEL_TOKEN` or `VERCEL_API_TOKEN` | repository secret | `docs-site`, `vercel`, `profile-assets` |
 | `POSTHOG_API_KEY` | repository secret | `posthog` |
 | `TERRAFORM_POSTHOG_PUBLIC_KEY` | repository secret | `vercel` |
 | `TERRAFORM_SES_DOMAIN_NAME` | repository variable | `ses` |
 | `TERRAFORM_SES_FROM_EMAIL` | optional repository variable | `ses` |
 | `TERRAFORM_ROUTE53_ZONE_ID` | optional repository variable | `docs-site`, `ses` |
+| `TERRAFORM_PROFILE_ASSETS_ENABLED=true` | repository variable | `profile-assets` after `state-mgmt` has been applied with profile asset permissions |
 
 `state-mgmt/` is validation-only in CI because it intentionally uses local bootstrap state and owns the GitHub Actions AWS role used by the provider-backed stacks. Apply it manually when changing the shared state bucket or Terraform CI role, then store `terraform output -raw github_actions_terraform_role_arn` in GitHub variable `AWS_TERRAFORM_ROLE_ARN`.
 
@@ -42,6 +44,7 @@ The stack count is intentional, but should stay small:
 - keep `state-mgmt/` separate because a stack cannot safely use the backend it creates
 - keep `vercel/` separate from `docs-site/` because `vercel/` requires the hosted PostHog client key while docs DNS should not depend on analytics secrets
 - keep `ses/` separate because it can create IAM access-key material and has a different blast radius from Vercel/PostHog metadata
+- keep `profile-assets/` separate because it owns an AWS S3 bucket, AWS IAM OIDC role, and the Vercel env vars that expose that role to the web runtime
 - keep `restream-worker/` validation-only until the local `1080p60` media proof and a human-approved AWS benchmark window exist
 - combine future stacks only when they share provider credentials, state ownership, and apply cadence without widening secret exposure
 

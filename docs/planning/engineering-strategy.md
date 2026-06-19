@@ -37,7 +37,7 @@ Important planning note:
 Likely adjacent service use:
 
 - AWS email capabilities for verification and transactional mail
-- AWS S3 for private profile media-kit assets, with [#115](https://github.com/BASIC-BIT/VRDex/issues/115) still owning fuller Terraform/lifecycle hardening
+- AWS S3 for private profile media-kit assets, with [#115](https://github.com/BASIC-BIT/VRDex/issues/115) owning the first Terraform/runtime baseline and later issues owning lifecycle hardening
 
 Status: locked stack direction.
 
@@ -130,7 +130,7 @@ Infra direction:
 - for secrets that must remain in provider secret stores, commit the expected variable name, environment scope, owning service, and rotation/recreation path instead of relying on dashboard-only tribal knowledge
 - treat manual dashboard changes as bootstrap or emergency operations that need a follow-up reproducibility artifact
 - use `docs/developers/self-hosting-and-iac.md` as the current hosted vs self-hosted deployment reference
-- use `docs/deployment/aws-baseline.md` as the current SES and future S3 asset-storage baseline
+- use `docs/deployment/aws-baseline.md` as the current SES and S3 asset-storage baseline
 - keep profile asset storage narrow: private S3, Block Public Access, server-side encryption, and app-generated presigned URLs before any CDN or image-processing layer
 
 ## Follow-on integration ideas

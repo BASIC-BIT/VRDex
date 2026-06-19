@@ -1,4 +1,5 @@
 import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { awsCredentialsProvider } from "@vercel/oidc-aws-credentials-provider";
 
 type StorageConfig = {
   bucket: string;
@@ -13,6 +14,13 @@ type StoredObject = {
 
 const cachedClients = new Map<string, S3Client>();
 
+function vercelOidcRoleArn(): string | undefined {
+  const roleArn = process.env.VRDEX_PROFILE_ASSET_ROLE_ARN;
+  const normalized = roleArn?.trim();
+
+  return normalized ? normalized : undefined;
+}
+
 function storageConfig(): StorageConfig | null {
   const bucket = process.env.VRDEX_PROFILE_ASSET_BUCKET ?? process.env.VRDEX_ASSET_BUCKET;
   const region =
@@ -25,15 +33,20 @@ function storageConfig(): StorageConfig | null {
   return { bucket, region };
 }
 
-function s3Client(region: string): S3Client {
-  const cachedClient = cachedClients.get(region);
+function s3Client(config: StorageConfig): S3Client {
+  const roleArn = vercelOidcRoleArn();
+  const cacheKey = `${config.region}:${roleArn ?? "default"}`;
+  const cachedClient = cachedClients.get(cacheKey);
 
   if (cachedClient !== undefined) {
     return cachedClient;
   }
 
-  const client = new S3Client({ region });
-  cachedClients.set(region, client);
+  const client = new S3Client({
+    region: config.region,
+    ...(roleArn !== undefined ? { credentials: awsCredentialsProvider({ roleArn }) } : {}),
+  });
+  cachedClients.set(cacheKey, client);
 
   return client;
 }
@@ -53,7 +66,7 @@ export async function putProfileAssetObject(input: {
     throw new Error("Profile asset storage is not configured.");
   }
 
-  await s3Client(config.region).send(
+  await s3Client(config).send(
     new PutObjectCommand({
       Bucket: config.bucket,
       Key: input.storageKey,
@@ -72,7 +85,7 @@ export async function getProfileAssetObject(storageKey: string): Promise<StoredO
   }
 
   try {
-    const object = await s3Client(config.region).send(
+    const object = await s3Client(config).send(
       new GetObjectCommand({
         Bucket: config.bucket,
         Key: storageKey,

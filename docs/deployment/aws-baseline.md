@@ -13,7 +13,7 @@ The first AWS baseline covers:
 - Amazon SES for Convex Auth password and email verification messages
 - Route 53 DNS records for the SES sender domain
 - IAM credentials scoped to SES sending for Convex
-- a planned S3 private asset bucket for owner-authored profile assets, tracked by [#115](https://github.com/BASIC-BIT/VRDex/issues/115)
+- a private S3 asset bucket for owner-authored profile assets, tracked by [#115](https://github.com/BASIC-BIT/VRDex/issues/115)
 - Terraform state in S3 for checked-in infrastructure stacks
 - a validation-only hosted restream worker benchmark foundation for ECR, ECS/Fargate, task roles, logs, metrics, secret references, limits, and kill-switch concepts
 
@@ -74,9 +74,15 @@ The first asset-storage implementation uses:
 
 Do not make profile asset buckets public. Public profile pages should render through a controlled URL path that can enforce profile visibility, moderation suppression, replacement, and deletion behavior.
 
+Terraform/runtime baseline:
+
+- Terraform stack: `infra/terraform/profile-assets`
+- Terraform state key: `profile-assets/terraform.tfstate`
+- Hosted bucket name default: `vrdex-profile-assets-${account_id}`
+- Hosted runtime auth: Vercel OIDC, scoped to the `vr-dex-web` project and the allowed production/staging environments
+
 Deferred follow-on work:
 
-- [#115](https://github.com/BASIC-BIT/VRDex/issues/115) S3 bucket Terraform/runtime baseline
 - moderation or malware scanning
 - CloudFront or image optimization
 - lifecycle rules and deletion/retention policy
@@ -85,6 +91,7 @@ Runtime environment/config names:
 
 - `VRDEX_PROFILE_ASSET_BUCKET` or fallback `VRDEX_ASSET_BUCKET`
 - `VRDEX_PROFILE_ASSET_REGION`, fallback `AWS_REGION`, or fallback `AWS_DEFAULT_REGION`
+- `VRDEX_PROFILE_ASSET_ROLE_ARN` for hosted Vercel OIDC role-based auth
 - AWS runtime credentials through the hosting provider, role-based auth, or a narrow access key only if the runtime cannot use role-based auth
 - `VRDEX_ASSET_PUBLIC_BASE_URL` only after a controlled public delivery layer exists
 
@@ -98,6 +105,7 @@ Current stacks:
 - `infra/terraform/ses`: SES domain identity, DKIM, MAIL FROM, Route 53 records, and optional IAM sender key
 - `infra/terraform/posthog`: hosted PostHog project metadata
 - `infra/terraform/vercel`: hosted Vercel PostHog client environment variables
+- `infra/terraform/profile-assets`: private S3 asset bucket, Vercel OIDC IAM role, and hosted profile asset env vars
 - `infra/terraform/docs-site`: hosted docs Vercel project/domain and Route 53 DNS
 - `infra/terraform/restream-worker`: validation-only hosted worker benchmark foundation; CI validates it but does not plan or apply it
 
@@ -119,4 +127,4 @@ Fargate remains the first benchmark path. ECS on EC2 with GPU/NVENC is a measure
 
 Self-hosted AWS usage is limited to the values this repo documents by name: SES sender identity, DNS zone, Terraform state location, and the S3 asset bucket tracked by [#115](https://github.com/BASIC-BIT/VRDex/issues/115).
 
-This baseline does not claim complete self-hosting support. Alternative S3-compatible stores are out of scope until [#115](https://github.com/BASIC-BIT/VRDex/issues/115) creates the first asset abstraction and a follow-up issue or ADR covers provider portability.
+This baseline does not claim complete self-hosting support. Alternative S3-compatible stores are out of scope until a follow-up issue or ADR covers provider portability.

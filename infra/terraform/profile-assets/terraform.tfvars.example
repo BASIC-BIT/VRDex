@@ -1,0 +1,9 @@
+aws_region        = "us-east-1"
+vercel_team_slug  = "basic-bit"
+vercel_project_name = "vr-dex-web"
+
+# Optional override. Defaults to vrdex-profile-assets-${account_id}.
+# asset_bucket_name = "vrdex-profile-assets-123456789012"
+
+# Production is managed by default. Staging uses the hosted custom environment ID below.
+staging_custom_environment_ids = ["env_1iR8Tk53UMEhsbEgONsgGhzl9hX9"]

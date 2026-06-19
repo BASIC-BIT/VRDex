@@ -27,6 +27,24 @@ variable "ses_domain_name" {
   default     = "vrdex.net"
 }
 
+variable "profile_asset_bucket_name" {
+  description = "S3 bucket name Terraform CI may manage for private profile media-kit assets. Defaults to vrdex-profile-assets plus account id."
+  type        = string
+  default     = null
+}
+
+variable "profile_asset_runtime_role_name" {
+  description = "IAM role name Terraform CI may manage for Vercel profile asset runtime access."
+  type        = string
+  default     = "vrdex-vercel-profile-assets"
+}
+
+variable "vercel_team_slug" {
+  description = "Vercel team slug used by the profile asset OIDC provider Terraform CI may manage."
+  type        = string
+  default     = "basic-bit"
+}
+
 variable "tags" {
   description = "Additional resource tags."
   type        = map(string)
