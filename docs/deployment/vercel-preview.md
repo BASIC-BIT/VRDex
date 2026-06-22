@@ -93,6 +93,8 @@ The `staging` Vercel environment points at the shared Convex development deploym
 - `DISCORD_BOT_TOKEN`: staging-only adapter token matching Convex dev env `DISCORD_BOT_TOKEN`
 - `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`: staging-only adapter token matching Convex dev env `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`
 
+The Convex client URL is separate from the Convex Auth callback host. Staging Auth callbacks should use `https://db.staging.vrdex.net` once the Convex HTTP Actions custom domain is verified, both OAuth providers include the new callback URL, and the domain is selected as `CONVEX_SITE_URL` for deployment `scrupulous-corgi-247`.
+
 Current ownership: these staging E2E environment variables are bootstrap-managed manual Vercel settings, not Terraform-owned. The `infra/terraform/vercel` stack currently owns only hosted PostHog client environment variables (`NEXT_PUBLIC_POSTHOG_KEY` and `NEXT_PUBLIC_POSTHOG_HOST`) for production, default preview, and configured staging custom environment IDs. Until E2E helper variables are explicitly added to or imported into Terraform, update this document and the Vercel secret store together, and never commit secret values.
 
 GitHub Actions uses these repository settings for hosted mutation health:
@@ -111,6 +113,27 @@ The `Staging Deploy` workflow runs after `Baseline Checks` succeeds on `main` an
 - secret `VRDEX_HOSTED_E2E_BROWSER_TOKEN`: browser token for hosted E2E helper calls
 
 If any required setting is missing, the workflow writes a skip summary and exits successfully instead of partially deploying staging. When enabled, the workflow deploys Convex development functions first, then deploys Vercel `staging`, then runs `pnpm test:e2e:hosted` against `VRDEX_HOSTED_E2E_BASE_URL`.
+
+## Hosted production environment
+
+Production Vercel hosting uses the same `vr-dex-web` project with the production domain `https://vrdex.net` and Convex production deployment `superb-pig-954`.
+
+- `NEXT_PUBLIC_CONVEX_URL=https://superb-pig-954.convex.cloud`
+- `CONVEX_URL=https://superb-pig-954.convex.cloud`
+- `VRDEX_REQUIRE_CONVEX_URL=true`
+- `VRDEX_ENABLE_E2E_HELPERS=false` or unset
+- `VRDEX_ENABLE_E2E_AUTH_HELPERS` unset
+- `VRDEX_ENABLE_E2E_ADAPTER_HELPERS` unset
+
+The Convex client URL remains separate from the Convex Auth callback host. Production Auth callbacks use `https://db.vrdex.net`, and deployment `superb-pig-954` selects that URL as its canonical `CONVEX_SITE_URL`.
+
+Current production auth status:
+
+- Google OAuth app `VRDex Production` is published and allows `https://db.vrdex.net/api/auth/callback/google`.
+- Google sign-in from `https://vrdex.net/sign-in` returns to an authenticated `https://vrdex.net/account` session.
+- Discord OAuth app `VRDex` uses client ID `1516492492189466625` and allows `https://db.vrdex.net/api/auth/callback/discord`.
+- Discord sign-in from `https://vrdex.net/sign-in` returns to an authenticated `https://vrdex.net/account` session.
+- Convex production includes `JWT_PRIVATE_KEY` and matching `JWKS`, required for Convex Auth to mint web session cookies after OAuth callbacks.
 
 ## Validation
 
