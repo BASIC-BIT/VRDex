@@ -25,15 +25,18 @@ The role ARN is not a secret, but it is stored as a sensitive Vercel environment
 
 Provider-backed CI plan/apply for this stack is gated by repository variable `TERRAFORM_PROFILE_ASSETS_ENABLED=true`.
 
+Hosted staging custom environments are opt-in. Set repository variable `TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_IDS` to an HCL list such as `["env_..."]` when CI should manage staging profile asset env vars.
+
 Before enabling that gate, apply `infra/terraform/state-mgmt` so the GitHub Actions Terraform role can manage this stack's S3, IAM, and Vercel OIDC resources.
 
 ## Usage
 
 1. Apply the updated `infra/terraform/state-mgmt` bootstrap stack from a trusted local operator machine.
-2. Set GitHub repository variable `TERRAFORM_PROFILE_ASSETS_ENABLED=true`.
-3. Run the Terraform workflow for stack `profile-assets` with `apply=true`, or let the next successful `main` baseline apply it.
-4. Redeploy the Vercel production and staging environments so functions receive the new environment variables.
-5. Probe `/api/v0/profile-assets/upload-intents/probe`; a configured environment should no longer return `501`.
+2. Set GitHub repository variable `TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_IDS` if hosted staging env vars should be managed.
+3. Set GitHub repository variable `TERRAFORM_PROFILE_ASSETS_ENABLED=true`.
+4. Run the Terraform workflow for stack `profile-assets` with `apply=true`, or let the next successful `main` baseline apply it.
+5. Redeploy the Vercel production and staging environments so functions receive the new environment variables.
+6. Probe `/api/v0/profile-assets/upload-intents/probe`; a configured environment should no longer return `501`.
 
 ## State Backend
 

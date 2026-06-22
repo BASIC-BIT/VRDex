@@ -54,6 +54,7 @@ env:
   TERRAFORM_SES_FROM_EMAIL: ${{ vars.TERRAFORM_SES_FROM_EMAIL }}
   TERRAFORM_ROUTE53_ZONE_ID: ${{ vars.TERRAFORM_ROUTE53_ZONE_ID }}
   TERRAFORM_PROFILE_ASSETS_ENABLED: ${{ vars.TERRAFORM_PROFILE_ASSETS_ENABLED }}
+  TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_IDS: ${{ vars.TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_IDS }}
 
 jobs:
   terraform-fmt:
@@ -306,6 +307,9 @@ jobs:
               args+=("-var=domain_name=$TERRAFORM_SES_DOMAIN_NAME")
               if [ -n "$TERRAFORM_SES_FROM_EMAIL" ]; then args+=("-var=from_email=$TERRAFORM_SES_FROM_EMAIL"); fi
               if [ -n "$TERRAFORM_ROUTE53_ZONE_ID" ]; then args+=("-var=route53_zone_id=$TERRAFORM_ROUTE53_ZONE_ID"); fi
+              ;;
+            profile-assets)
+              if [ -n "$TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_IDS" ]; then args+=("-var=staging_custom_environment_ids=$TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_IDS"); fi
               ;;
           esac
 
