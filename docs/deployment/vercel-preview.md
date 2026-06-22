@@ -108,7 +108,7 @@ The `staging` Vercel environment points at the shared Convex development deploym
 - `DISCORD_BOT_TOKEN`: staging-only adapter token matching Convex dev env `DISCORD_BOT_TOKEN`
 - `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`: staging-only adapter token matching Convex dev env `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`
 
-The Convex client URL is separate from the Convex Auth callback host. Staging Auth callbacks should use `https://db.staging.vrdex.net` once the Convex HTTP Actions custom domain is verified, both OAuth providers include the new callback URL, and the domain is selected as `CONVEX_SITE_URL` for deployment `scrupulous-corgi-247`.
+The Convex client URL is separate from the Convex Auth callback host. Staging Auth callbacks use `https://db.staging.vrdex.net`; the Convex HTTP Actions custom domain is verified, both OAuth providers include the callback URL, and deployment `scrupulous-corgi-247` selects it as `CONVEX_SITE_URL`.
 
 Current ownership: these staging E2E environment variables are bootstrap-managed manual Vercel settings, not Terraform-owned. `infra/terraform/web-domains` owns production web domains. The `infra/terraform/vercel` stack currently owns hosted PostHog client environment variables (`NEXT_PUBLIC_POSTHOG_KEY` and `NEXT_PUBLIC_POSTHOG_HOST`) for production, default preview, and configured staging custom environment IDs. Until E2E helper variables are explicitly added to or imported into Terraform, update this document and the Vercel secret store together, and never commit secret values.
 

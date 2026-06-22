@@ -77,6 +77,15 @@ Production Convex Auth env names:
 
 Generate Convex Auth JWT keys through a non-printing command path and set them with stdin, because PEM values begin with dashes and can be parsed as CLI options when passed as positional arguments. For production, use `pnpm exec convex env set --prod JWT_PRIVATE_KEY` and `pnpm exec convex env set --prod JWKS` with the values piped through stdin.
 
+PowerShell example after key generation has populated process-local variables:
+
+```powershell
+$env:CONVEX_DEPLOYMENT="prod:superb-pig-954"
+node -e "process.stdout.write(process.env.VRDEX_JWT_PRIVATE_KEY)" | pnpm exec convex env set --prod JWT_PRIVATE_KEY
+node -e "process.stdout.write(process.env.VRDEX_JWKS)" | pnpm exec convex env set --prod JWKS
+Remove-Item Env:\VRDEX_JWT_PRIVATE_KEY, Env:\VRDEX_JWKS -ErrorAction SilentlyContinue
+```
+
 Manual fallback if the workflow is unavailable:
 
 ```powershell
