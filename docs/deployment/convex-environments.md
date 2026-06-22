@@ -114,7 +114,7 @@ Staging HTTP Actions domain bootstrap, started 2026-06-15:
 5. Add staging OAuth redirect URIs for both providers:
    - `https://db.staging.vrdex.net/api/auth/callback/discord`
    - `https://db.staging.vrdex.net/api/auth/callback/google`
-6. Keep the legacy `https://scrupulous-corgi-247.convex.site/api/auth/callback/...` redirects until the custom callback host is verified in end-to-end sign-in.
+6. Keep the legacy `https://scrupulous-corgi-247.convex.site/api/auth/callback/...` redirects until the custom callback host is verified in end-to-end sign-in and has stayed stable through scheduled health checks.
 7. Override the staging deployment's `CONVEX_SITE_URL` to `https://db.staging.vrdex.net` in the Convex custom domain settings.
 8. Rerun staging auth smoke checks from `https://staging.vrdex.net/sign-in`.
 
@@ -131,11 +131,22 @@ Production HTTP Actions domain bootstrap, completed 2026-06-16:
 5. Add production OAuth redirect URIs for each configured provider:
    - `https://db.vrdex.net/api/auth/callback/google`
    - `https://db.vrdex.net/api/auth/callback/discord`
-6. Keep the legacy `https://superb-pig-954.convex.site/api/auth/callback/...` redirects until the custom callback host is verified in end-to-end sign-in.
+6. Keep the legacy `https://superb-pig-954.convex.site/api/auth/callback/...` redirects until the custom callback host is verified in end-to-end sign-in and has stayed stable through scheduled health checks.
 7. Select `https://db.vrdex.net` as the production deployment's canonical `CONVEX_SITE_URL`.
 8. Rerun production auth smoke checks from `https://vrdex.net/sign-in`.
 
 Current production status: `db.vrdex.net` is configured and verified for the production deployment, Google and Discord allow the new callback URLs, production `CONVEX_SITE_URL` is selected as `https://db.vrdex.net`, and Google and Discord sign-in from `https://vrdex.net/sign-in` return to an authenticated `/account` session.
+
+## Legacy OAuth Callback Retention
+
+Current recommendation: keep the legacy `.convex.site` OAuth callback URLs configured as provider fallbacks for now.
+
+- staging fallback callbacks: `https://scrupulous-corgi-247.convex.site/api/auth/callback/...`
+- production fallback callbacks: `https://superb-pig-954.convex.site/api/auth/callback/...`
+
+Do not remove those provider callback URLs in the same change that enables or documents a custom Convex Auth callback host. Revisit removal only after the custom hosts have stayed stable through scheduled deployed health checks and at least one manual OAuth callback recheck per provider after any Auth, Convex custom-domain, or provider-app change.
+
+Earliest removal-review target: 2026-07-06, assuming production and staging auth health remains green.
 
 ## Notes
 

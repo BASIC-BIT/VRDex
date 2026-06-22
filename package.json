@@ -30,6 +30,7 @@
     "lint:web": "pnpm --filter web lint",
     "test:e2e": "pnpm --filter web test:e2e",
     "test:e2e:hosted": "pnpm --filter web test:e2e:hosted",
+    "test:e2e:hosted:auth-smoke": "pnpm --filter web test:e2e:hosted:auth-smoke",
     "test:e2e:hosted:smoke": "pnpm --filter web test:e2e:hosted:smoke",
     "test:e2e:snapshots": "pnpm --filter web test:e2e:snapshots",
     "test:e2e:snapshots:update": "pnpm --filter web test:e2e:snapshots:update",
