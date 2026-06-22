@@ -52,8 +52,8 @@ Development/staging Convex env names:
 - `VRDEX_ENABLE_E2E_AUTH_HELPERS=true`: optional, only when hosted auth/claim E2E is intentionally enabled
 - `VRDEX_ENABLE_E2E_ADAPTER_HELPERS=true`: optional, only when hosted adapter E2E is intentionally enabled
 - `SITE_URL=https://staging.vrdex.net`: required by Convex Auth OAuth and email/password redirects back to the hosted web app
-- `AUTH_DISCORD_ID` and `AUTH_DISCORD_SECRET`: staging Discord OAuth application credentials; the Discord redirect URI must include `https://scrupulous-corgi-247.convex.site/api/auth/callback/discord`
-- `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET`: staging Google OAuth application credentials; the Google redirect URI must include `https://scrupulous-corgi-247.convex.site/api/auth/callback/google`
+- `AUTH_DISCORD_ID` and `AUTH_DISCORD_SECRET`: staging Discord OAuth application credentials; the Discord redirect URI must include the active staging Convex Auth callback URL
+- `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET`: staging Google OAuth application credentials; the Google redirect URI must include the active staging Convex Auth callback URL
 - `JWT_PRIVATE_KEY`: Convex Auth RS256 private key, generated for the shared development deployment and never printed
 - `JWKS`: Convex Auth public key set matching `JWT_PRIVATE_KEY`
 - `DISCORD_API_BASE_URL`: optional hosted adapter stub base URL, usually `https://staging.vrdex.net/api/e2e/adapters/discord`
@@ -66,7 +66,25 @@ The browser-facing token stays in the web host and GitHub Actions as `VRDEX_E2E_
 
 The shared development deployment `scrupulous-corgi-247` is the current hosted E2E backend for Vercel `staging`. The `Staging Deploy` GitHub Actions workflow deploys Convex development functions with `CONVEX_DEPLOY_KEY_DEV` before deploying Vercel `staging` and running hosted data-flow health.
 
-Generate Convex Auth JWT keys through a non-printing command path and set them with `convex env set -- NAME VALUE`, because PEM values begin with dashes and can be parsed as CLI options if passed in the wrong position.
+Production Convex Auth env names:
+
+- `SITE_URL=https://vrdex.net`: required by Convex Auth OAuth and email/password redirects back to the hosted web app
+- `AUTH_DISCORD_ID` and `AUTH_DISCORD_SECRET`: production Discord OAuth application credentials; the Discord redirect URI must include the active production Convex Auth callback URL
+- `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET`: production Google OAuth application credentials; the Google redirect URI must include the active production Convex Auth callback URL
+- `JWT_PRIVATE_KEY`: Convex Auth RS256 private key, generated for the production deployment and never printed
+- `JWKS`: Convex Auth public key set matching `JWT_PRIVATE_KEY`
+- `AWS_SES_REGION`, `AWS_SES_FROM_EMAIL`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY`: production SES sender configuration for email/password verification
+
+Generate Convex Auth JWT keys through a non-printing command path and set them with stdin, because PEM values begin with dashes and can be parsed as CLI options when passed as positional arguments. For production, use `pnpm exec convex env set --prod JWT_PRIVATE_KEY` and `pnpm exec convex env set --prod JWKS` with the values piped through stdin.
+
+PowerShell example after key generation has populated process-local variables:
+
+```powershell
+$env:CONVEX_DEPLOYMENT="prod:superb-pig-954"
+node -e "process.stdout.write(process.env.VRDEX_JWT_PRIVATE_KEY)" | pnpm exec convex env set --prod JWT_PRIVATE_KEY
+node -e "process.stdout.write(process.env.VRDEX_JWKS)" | pnpm exec convex env set --prod JWKS
+Remove-Item Env:\VRDEX_JWT_PRIVATE_KEY, Env:\VRDEX_JWKS -ErrorAction SilentlyContinue
+```
 
 Manual fallback if the workflow is unavailable:
 
@@ -74,24 +92,51 @@ Manual fallback if the workflow is unavailable:
 $env:CONVEX_DEPLOYMENT="dev:scrupulous-corgi-247"; $env:CONVEX_SELF_HOSTED_URL=""; pnpm exec convex dev --once --typecheck=try --tail-logs=disable
 ```
 
-## Custom Domain Plan
+## Custom Domains
 
-Candidate direction: use readable Convex Cloud custom domains once the deployment settings are configured in the Convex dashboard:
+Current recommendation: keep client API traffic on the Convex cloud URL unless a separate API custom domain is configured, and use readable Convex Cloud HTTP Actions domains for Auth callback URLs.
 
-- development/staging Convex API: `convex.staging.vrdex.net`
-- production Convex API: `convex.vrdex.net`
+- development/staging Convex API: `https://scrupulous-corgi-247.convex.cloud`
+- development/staging Convex HTTP Actions and Auth callbacks: `https://db.staging.vrdex.net`
+- production Convex API: `https://superb-pig-954.convex.cloud`
+- production Convex HTTP Actions and Auth callbacks: `https://db.vrdex.net`
 
 Convex Cloud custom domains are configured from each deployment's dashboard settings and require a Convex Pro plan. Do not create Route 53 records alone; Convex must first provide the deployment-specific DNS records and certificate binding.
 
-Runbook once Convex Pro is enabled:
+Staging HTTP Actions domain bootstrap, started 2026-06-15:
 
-1. In the Convex dashboard for `scrupulous-corgi-247`, request `convex.staging.vrdex.net` as the development/staging custom domain.
-2. In the Convex dashboard for `superb-pig-954`, request `convex.vrdex.net` as the production custom domain.
-3. Copy the exact DNS records Convex provides into Route 53 for the public hosted zone `vrdex.net`.
+1. In the Convex dashboard for `scrupulous-corgi-247`, request `db.staging.vrdex.net` with request destination `HTTP Actions`.
+2. Copy only the exact DNS records Convex provides into Route 53 for the public hosted zone `vrdex.net`.
+3. Current Convex-provided records:
+   - `db.staging.vrdex.net CNAME convex.domains`
+   - `_convex_domains.db.staging.vrdex.net TXT scrupulous-corgi-247`
 4. Wait for Convex certificate/domain status to become active.
-5. Update the matching Vercel environment `NEXT_PUBLIC_CONVEX_URL` and `CONVEX_URL` values.
-6. Rerun `Staging Deploy` for staging and deployed health for production.
+5. Add staging OAuth redirect URIs for both providers:
+   - `https://db.staging.vrdex.net/api/auth/callback/discord`
+   - `https://db.staging.vrdex.net/api/auth/callback/google`
+6. Keep the legacy `https://scrupulous-corgi-247.convex.site/api/auth/callback/...` redirects until the custom callback host is verified in end-to-end sign-in.
+7. Override the staging deployment's `CONVEX_SITE_URL` to `https://db.staging.vrdex.net` in the Convex custom domain settings.
+8. Rerun staging auth smoke checks from `https://staging.vrdex.net/sign-in`.
+
+Current status: `db.staging.vrdex.net` is configured and verified for the staging deployment, Google and Discord both allow the new callback URLs, and staging `CONVEX_SITE_URL` is selected as `https://db.staging.vrdex.net`.
+
+Production HTTP Actions domain bootstrap, completed 2026-06-16:
+
+1. In the Convex dashboard/API for `superb-pig-954`, request `db.vrdex.net` with request destination `HTTP Actions`.
+2. Copy only the exact DNS records Convex provides into Route 53 for the public hosted zone `vrdex.net`.
+3. Current Convex-provided records:
+   - `db.vrdex.net CNAME convex.domains`
+   - `_convex_domains.db.vrdex.net TXT superb-pig-954`
+4. Wait for Route 53 to report the change as `INSYNC` and for Convex certificate/domain status to become active.
+5. Add production OAuth redirect URIs for each configured provider:
+   - `https://db.vrdex.net/api/auth/callback/google`
+   - `https://db.vrdex.net/api/auth/callback/discord`
+6. Keep the legacy `https://superb-pig-954.convex.site/api/auth/callback/...` redirects until the custom callback host is verified in end-to-end sign-in.
+7. Select `https://db.vrdex.net` as the production deployment's canonical `CONVEX_SITE_URL`.
+8. Rerun production auth smoke checks from `https://vrdex.net/sign-in`.
+
+Current production status: `db.vrdex.net` is configured and verified for the production deployment, Google and Discord allow the new callback URLs, production `CONVEX_SITE_URL` is selected as `https://db.vrdex.net`, and Google and Discord sign-in from `https://vrdex.net/sign-in` return to an authenticated `/account` session.
 
 ## Notes
 
-There are two similarly named Convex projects in the account history: `vrdex` and `vrdex-85631`. Current recommendation is to keep the `vrdex` line of deployments and archive/delete the other only after confirming no dashboard, env, or deployment history still depends on it.
+Resolved 2026-06-15: the duplicate Convex project `vrdex-85631` was deleted after confirming the active project is `vrdex`, the duplicate deployments had no env variables or custom domains, and their `profiles` tables were empty.
