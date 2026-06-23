@@ -56,6 +56,9 @@ export type PublicEventPreview = {
   communitySlug?: string;
   summary?: string;
   posterImageUrl?: string;
+  bannerImageUrl?: string;
+  thumbnailImageUrl?: string;
+  communityImageUrl?: string;
   source: {
     sourceType: EventSourceType;
     label: string;
@@ -102,6 +105,7 @@ export type PublicEvent = Omit<PublicEventPreview, "worlds"> & {
     displayName: string;
     roleLabel: string;
     trustLabel: ProfileTrustLabel;
+    imageUrl?: string;
     source: {
       sourceType: EventSourceType;
       label: string;
@@ -119,6 +123,7 @@ export type PublicEvent = Omit<PublicEventPreview, "worlds"> & {
       slug: string;
       displayName: string;
       trustLabel: ProfileTrustLabel;
+      imageUrl?: string;
     };
     source: {
       sourceType: EventSourceType;
@@ -129,6 +134,7 @@ export type PublicEvent = Omit<PublicEventPreview, "worlds"> & {
 };
 
 const eventPosterOverlay = "linear-gradient(135deg, rgba(25, 17, 31, 0.72), rgba(105, 56, 169, 0.2))";
+const eventEntityImageOverlay = "linear-gradient(135deg, rgba(27, 18, 37, 0.28), rgba(105, 56, 169, 0.14))";
 
 function safeHttpsUrl(url: string | undefined): string | null {
   if (!url) {
@@ -141,6 +147,34 @@ function safeHttpsUrl(url: string | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+function initialsFor(name: string): string {
+  const initials = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+
+  return initials || "V";
+}
+
+function EntityImage({ imageUrl, label }: { imageUrl?: string; label: string }) {
+  const imageStyle = safeImageBackground(imageUrl, eventEntityImageOverlay);
+
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "flex size-14 flex-none items-center justify-center overflow-hidden rounded-control border border-accent/20 bg-cover bg-center text-xs font-semibold text-accent-strong",
+        imageStyle ? "bg-slate-950" : "bg-accent/10",
+      )}
+      style={imageStyle}
+    >
+      {imageStyle ? null : initialsFor(label)}
+    </span>
+  );
 }
 
 function EventTimeDefinition({ label, timestamp }: { label: string; timestamp: number }) {
@@ -156,14 +190,14 @@ function EventTimeDefinition({ label, timestamp }: { label: string; timestamp: n
 
 export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
   const sourceUrl = safeHttpsUrl(event.source.url);
-  const posterStyle = safeImageBackground(event.posterImageUrl, eventPosterOverlay);
+  const thumbnailStyle = safeImageBackground(event.thumbnailImageUrl, eventPosterOverlay);
   const details = event.worlds.map((world) => world.displayName);
 
   return (
     <article className="group overflow-hidden rounded-card border border-border bg-surface-strong text-sm transition hover:-translate-y-0.5">
       <div
         className="min-h-28 bg-[radial-gradient(circle_at_top_left,rgba(214,106,77,0.22),transparent_34%),linear-gradient(135deg,#2c1d29,#60429a)] bg-cover bg-center px-4 py-4 text-white"
-        style={posterStyle}
+        style={thumbnailStyle}
       >
         <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-white/84">
           <ViewerLocalEventDateTime timestamp={event.startAt} />
@@ -225,7 +259,7 @@ export function EventBackendNotice({ kind }: { kind: "missing-url" | "error" }) 
 }
 
 export function EventPublicPage({ event, showEditLink = false }: { event: PublicEvent; showEditLink?: boolean }) {
-  const posterStyle = safeImageBackground(event.posterImageUrl, eventPosterOverlay);
+  const bannerStyle = safeImageBackground(event.bannerImageUrl, eventPosterOverlay);
   const sourceUrl = safeHttpsUrl(event.source.url);
 
   return (
@@ -248,7 +282,7 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
         <section className="overflow-hidden rounded-hero border border-purple-950/10 bg-slate-950 shadow-hero">
           <div
             className="relative min-h-56 bg-[radial-gradient(circle_at_top_right,rgba(198,153,255,0.32),transparent_30%),linear-gradient(135deg,#17111f,#5d3b8e_52%,#20142f)] bg-cover bg-center p-5 text-white sm:p-6 lg:p-8"
-            style={posterStyle}
+            style={bannerStyle}
           >
             <div className="flex min-h-44 flex-col justify-end">
               <div className="max-w-4xl">
@@ -292,11 +326,14 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
               <Eyebrow>Place</Eyebrow>
               <div className="mt-5 grid gap-3 text-sm">
                 {event.communitySlug ? (
-                  <Link className={actionCardVariants({ variant: "accent" })} href={`/c/${event.communitySlug}`}>
-                    <span className={actionLabelClassName}>
-                      {event.communityName ?? "Community profile"}
+                  <Link className={cn(actionCardVariants({ variant: "accent" }), "flex items-center gap-3")} href={`/c/${event.communitySlug}`}>
+                    <EntityImage imageUrl={event.communityImageUrl} label={event.communityName ?? "Community profile"} />
+                    <span className="min-w-0">
+                      <span className={actionLabelClassName}>
+                        {event.communityName ?? "Community profile"}
+                      </span>
+                      <span className={actionMetaClassName}>Host</span>
                     </span>
-                    <span className={actionMetaClassName}>Host</span>
                   </Link>
                 ) : event.communityName ? (
                   <div className="rounded-control border border-border bg-surface px-4 py-3 font-medium">
@@ -306,12 +343,15 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
                   <p className="leading-6 text-muted">No host listed.</p>
                 )}
                 {event.worlds.map((world) => (
-                  <Link className={actionCardVariants({ variant: "accent" })} href={`/w/${world.slug}`} key={world.slug}>
-                    <span className={actionLabelClassName}>
-                      {world.displayName}
+                  <Link className={cn(actionCardVariants({ variant: "accent" }), "flex items-center gap-3")} href={`/w/${world.slug}`} key={world.slug}>
+                    <EntityImage imageUrl={world.heroImageUrl} label={world.displayName} />
+                    <span className="min-w-0">
+                      <span className={actionLabelClassName}>
+                        {world.displayName}
+                      </span>
+                      {world.summary ? <span className="mt-1 block text-muted">{world.summary}</span> : null}
+                      <span className={actionMetaClassName}>World</span>
                     </span>
-                    {world.summary ? <span className="mt-1 block text-muted">{world.summary}</span> : null}
-                    <span className={actionMetaClassName}>World</span>
                   </Link>
                 ))}
               </div>
@@ -381,12 +421,15 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
               <p className="text-sm leading-6 text-muted">No lineup yet.</p>
             ) : (
               event.participants.map((participant) => (
-                <Link className={actionCardVariants({ padding: "lg", variant: "accent" })} href={`/p/${participant.slug}`} key={participant.slug}>
-                  <span className="block text-lg font-semibold tracking-[-0.03em] text-accent-strong underline decoration-accent/45 underline-offset-4 group-hover:decoration-accent">
-                    {participant.displayName}
+                <Link className={cn(actionCardVariants({ padding: "lg", variant: "accent" }), "flex items-center gap-3")} href={`/p/${participant.slug}`} key={participant.slug}>
+                  <EntityImage imageUrl={participant.imageUrl} label={participant.displayName} />
+                  <span className="min-w-0">
+                    <span className="block text-lg font-semibold tracking-[-0.03em] text-accent-strong underline decoration-accent/45 underline-offset-4 group-hover:decoration-accent">
+                      {participant.displayName}
+                    </span>
+                    <span className="mt-2 block text-muted">{participant.roleLabel}</span>
+                    <span className={actionMetaClassName}>Profile</span>
                   </span>
-                  <span className="mt-2 block text-muted">{participant.roleLabel}</span>
-                  <span className={actionMetaClassName}>Profile</span>
                 </Link>
               ))
             )}

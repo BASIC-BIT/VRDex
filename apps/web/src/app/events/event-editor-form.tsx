@@ -579,6 +579,8 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
         sourceLabel: optionalString(stringField(formData.get("sourceLabel"))),
         sourceUrl: optionalString(stringField(formData.get("sourceUrl"))),
         posterImageUrl: optionalString(stringField(formData.get("posterImageUrl"))),
+        bannerImageUrl: optionalString(stringField(formData.get("bannerImageUrl"))),
+        thumbnailImageUrl: optionalString(stringField(formData.get("thumbnailImageUrl"))),
         watchSurfaceEnabled: formData.get("watchSurfaceEnabled") === "on",
         mediaLinks: parseMediaLinks(mediaLinksText),
         participantLinks: parseParticipantLinks(stringField(formData.get("participantLinks"))),
@@ -680,6 +682,19 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
         <Field className="sm:col-span-1">
           Poster image URL
           <Input defaultValue={event?.posterImageUrl} name="posterImageUrl" placeholder="https://..." />
+        </Field>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field>
+          Banner image URL
+          <Input defaultValue={event?.bannerImageUrl} name="bannerImageUrl" placeholder="https://..." />
+          <FieldText>Wide event-page hero image. Falls back to the poster image.</FieldText>
+        </Field>
+        <Field>
+          Thumbnail image URL
+          <Input defaultValue={event?.thumbnailImageUrl} name="thumbnailImageUrl" placeholder="https://..." />
+          <FieldText>Compact event-card image. Falls back to the poster or banner image.</FieldText>
         </Field>
       </div>
 

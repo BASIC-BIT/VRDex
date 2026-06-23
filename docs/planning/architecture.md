@@ -300,7 +300,7 @@ Related policy recommendation:
 
 - canonical event records shown on community pages and derived into person-facing participation views
 - includes start/end, title, source, confidence, and linked entities
-- should support a primary event poster/image asset when available
+- should support separate poster, banner/hero, and thumbnail/card image slots with documented fallbacks
 
 Implementation status:
 
@@ -315,6 +315,7 @@ Likely near-term additions:
 - linked VRChat world id when known
 - platform compatibility hints
 - optional canonical event-level stream/watch metadata
+- file-backed event assets that fill the same public poster, banner, and thumbnail slots
 
 Current recommendation:
 

@@ -30,6 +30,8 @@ export type PublicWorldEventPreview = {
   communityName?: string;
   summary?: string;
   posterImageUrl?: string;
+  bannerImageUrl?: string;
+  thumbnailImageUrl?: string;
   mediaLinks: Array<{
     type: "event_page" | "watch" | "stream" | "vrcdn" | "discord" | "ticket" | "other";
     label: string;
@@ -85,6 +87,18 @@ function eventRecordEndsAt(event: Doc<"events">): number {
   return event.endAt ?? event.startAt;
 }
 
+function firstSafeHttpsUrl(...urls: Array<string | undefined>): string | undefined {
+  for (const url of urls) {
+    const safeUrl = safeHttpsUrl(url);
+
+    if (safeUrl !== undefined) {
+      return safeUrl;
+    }
+  }
+
+  return undefined;
+}
+
 function toPublicWorldEventPreview(
   record: PublicWorldEventRecord,
 ): PublicWorldEventPreview | null {
@@ -96,6 +110,8 @@ function toPublicWorldEventPreview(
 
   const sourceUrl = safeHttpsUrl(event.sourceUrl);
   const posterImageUrl = safeHttpsUrl(event.posterImageUrl);
+  const bannerImageUrl = firstSafeHttpsUrl(event.bannerImageUrl, event.posterImageUrl);
+  const thumbnailImageUrl = firstSafeHttpsUrl(event.thumbnailImageUrl, event.posterImageUrl, event.bannerImageUrl);
 
   return {
     ...optionalField("slug", event.slug),
@@ -126,6 +142,8 @@ function toPublicWorldEventPreview(
     ...optionalField("communityName", event.communityName),
     ...optionalField("summary", event.summary),
     ...optionalField("posterImageUrl", posterImageUrl),
+    ...optionalField("bannerImageUrl", bannerImageUrl),
+    ...optionalField("thumbnailImageUrl", thumbnailImageUrl),
   };
 }
 

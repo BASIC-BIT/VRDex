@@ -85,6 +85,18 @@ Canonical slot times are stored as timestamps. Discord timestamp tokens such as 
 
 The first slot editor uses relative minute offsets from the event start for operator-friendly sequential scheduling. Backend storage still receives absolute timestamps after the operator confirms the event start and a valid IANA timezone.
 
+## Event Media Slots
+
+Events currently support three public image slots:
+
+- `posterImageUrl`: flyer/poster artwork and the legacy event image field
+- `bannerImageUrl`: wide event-page hero artwork, falling back to `posterImageUrl`
+- `thumbnailImageUrl`: compact card/discovery image, falling back to `posterImageUrl` and then `bannerImageUrl`
+
+All three fields must be public HTTPS URLs in backend writes. Local Playwright fixtures may still use internal fixture paths for deterministic screenshots. Imported or community-submitted event images must keep source/provenance outside the image URL itself, and future file-backed event assets should map into these slots instead of replacing the public projection contract.
+
+Public event cards may reuse discovery-visible profile and world images: host cards use the community profile's public avatar or banner, lineup cards use linked person profile public avatar or banner, and place cards use world hero imagery. Private profile fields, unlisted discovery fields, non-public worlds, and unsafe image URLs are not projected.
+
 ## Event Media Links
 
 Event media links are intentionally more flexible than a rigid platform dropdown.

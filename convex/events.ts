@@ -72,6 +72,8 @@ const eventDraftArgs = {
   sourceLabel: v.optional(v.string()),
   sourceUrl: v.optional(v.string()),
   posterImageUrl: v.optional(v.string()),
+  bannerImageUrl: v.optional(v.string()),
+  thumbnailImageUrl: v.optional(v.string()),
   watchSurfaceEnabled: v.optional(v.boolean()),
   mediaLinks: v.optional(
     v.array(
@@ -1157,6 +1159,8 @@ export const createCommunityEvent = mutation({
       ...optionalValue("summary", input.summary),
       ...optionalValue("notes", input.notes),
       ...optionalValue("posterImageUrl", input.posterImageUrl),
+      ...optionalValue("bannerImageUrl", input.bannerImageUrl),
+      ...optionalValue("thumbnailImageUrl", input.thumbnailImageUrl),
       watchSurfaceEnabled: input.watchSurfaceEnabled,
       mediaLinks: input.mediaLinks,
       sourceType: "community",
@@ -1251,6 +1255,8 @@ export const updateCommunityEvent = mutation({
       summary: input.summary,
       notes: input.notes,
       posterImageUrl: input.posterImageUrl,
+      bannerImageUrl: input.bannerImageUrl,
+      thumbnailImageUrl: input.thumbnailImageUrl,
       watchSurfaceEnabled: input.watchSurfaceEnabled,
       mediaLinks: input.mediaLinks,
       sourceLabel: input.sourceLabel,

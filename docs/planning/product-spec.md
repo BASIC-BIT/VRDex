@@ -408,6 +408,14 @@ Important future-aware extensions:
 - set/performance artifacts that can attach an external or hosted recording to a specific event slot
 - calendar import, export, and sync, preserving static `.ics` export, later Google Calendar sync, and reviewed Google Calendar import; see `docs/planning/calendar-integration.md`
 
+Event media direction:
+
+- use shared media slots across people, communities, worlds, and events instead of adding unrelated image fields for every surface
+- event `poster` remains flyer-style artwork, while `banner` is the event-page hero and `thumbnail` is the compact card/discovery image
+- event banners fall back to posters; thumbnails fall back to posters and then banners
+- event cards can reuse discovery-visible community, person, and world images for hosts, lineup, and place cards without exposing private, unlisted, or non-public media
+- uploaded/managed assets should eventually fill these slots, with external URLs treated as import sources when rights and source policy are clear
+
 Event-world direction:
 
 - worlds should become separate public records rather than being stored only as event text

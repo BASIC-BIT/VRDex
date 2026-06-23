@@ -369,6 +369,18 @@ export function vocabularyForEvent(event: Doc<"events">, roleLabels: string[] = 
   ];
 }
 
+function firstSafeHttpsUrl(...urls: Array<string | undefined>): string | undefined {
+  for (const url of urls) {
+    const safeUrl = safeHttpsUrl(url);
+
+    if (safeUrl !== undefined) {
+      return safeUrl;
+    }
+  }
+
+  return undefined;
+}
+
 export function createEventSearchDocument(
   event: Doc<"events">,
   context: { community?: Doc<"profiles">; world?: Doc<"worlds">; roleLabels?: string[] } = {},
@@ -388,7 +400,7 @@ export function createEventSearchDocument(
     title: event.title,
     subtitle: event.communityName ?? context.community?.displayName ?? "Event",
     ...optionalField("summary", event.summary),
-    ...optionalField("imageUrl", safeHttpsUrl(event.posterImageUrl)),
+    ...optionalField("imageUrl", firstSafeHttpsUrl(event.thumbnailImageUrl, event.posterImageUrl, event.bannerImageUrl)),
     searchText: weightedCorpus([
       { values: [event.title, event.slug], weight: 8 },
       { values: [event.communityName, context.community?.displayName], weight: 5 },

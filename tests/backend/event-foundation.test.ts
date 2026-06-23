@@ -71,6 +71,8 @@ describe("event draft input", () => {
       sourceLabel: " Fixture listing ",
       sourceUrl: "https://example.invalid/events/afterglow",
       posterImageUrl: "https://example.invalid/poster.png",
+      bannerImageUrl: "https://example.invalid/banner.png",
+      thumbnailImageUrl: "https://example.invalid/card.png",
       mediaLinks: [
         {
           type: "watch",
@@ -103,6 +105,8 @@ describe("event draft input", () => {
     assert.equal(input.title, "Afterglow Harbor Sessions");
     assert.equal(input.sortTitle, "afterglow harbor sessions");
     assert.equal(input.doorsOpenAt, startAt - 1_800_000);
+    assert.equal(input.bannerImageUrl, "https://example.invalid/banner.png");
+    assert.equal(input.thumbnailImageUrl, "https://example.invalid/card.png");
     assert.equal(input.watchSurfaceEnabled, false);
     assert.equal(input.mediaLinks[0]?.presentation, "open");
     assert.equal(input.mediaLinks[1]?.presentation, "copy");
@@ -388,6 +392,8 @@ describe("public event projection", () => {
       summary: "A confirmed fixture event.",
       notes: "Bring water.",
       posterImageUrl: "https://example.invalid/poster.png",
+      bannerImageUrl: "https://example.invalid/banner.png",
+      thumbnailImageUrl: "https://example.invalid/card.png",
       watchSurfaceEnabled: true,
       mediaLinks: [
         {
@@ -409,11 +415,28 @@ describe("public event projection", () => {
       publicationState: "published",
       updatedAt: now,
     } as unknown as Doc<"events">;
+    const community = {
+      slug: "afterglow-social",
+      displayName: "Afterglow Social",
+      aliases: [],
+      tags: [],
+      claimState: "unclaimed",
+      publicationState: "published",
+      publicSurfacingState: "public",
+      creationSource: "community",
+      updatedAt: now,
+      profileType: "community",
+      avatarImageUrl: "https://example.invalid/community-avatar.png",
+      community: {
+        categoryTags: [],
+      },
+    } as unknown as Doc<"profiles">;
     const world = {
       slug: "neon-harbor",
       displayName: "Neon Harbor",
       tags: ["Club world"],
       summary: "A venue world.",
+      heroImageUrl: "https://example.invalid/world-hero.png",
       visibilityStatus: "public",
       platformCompatibility: ["pc"],
       media: [],
@@ -444,6 +467,10 @@ describe("public event projection", () => {
       creationSource: "community",
       updatedAt: now,
       profileType: "person",
+      avatarImageUrl: "https://example.invalid/dj-aurora.png",
+      fieldVisibility: {
+        avatarImageUrl: "public",
+      },
       person: {
         roleTags: ["DJ"],
       },
@@ -477,6 +504,7 @@ describe("public event projection", () => {
 
     const publicEvent = toPublicEvent({
       event,
+      community,
       worlds: [{ association: worldAssociation, world }],
       participants: [{ association: participant, profile: person }],
       slots: [{ slot, profile: person }],
@@ -485,13 +513,74 @@ describe("public event projection", () => {
     assert.notEqual(publicEvent, null);
     assert.equal(publicEvent?.slug, "afterglow-harbor-sessions-2026-06-14");
     assert.equal(publicEvent?.doorsOpenAt, now + 84_600_000);
+    assert.equal(publicEvent?.bannerImageUrl, "https://example.invalid/banner.png");
+    assert.equal(publicEvent?.thumbnailImageUrl, "https://example.invalid/card.png");
+    assert.equal(publicEvent?.communityImageUrl, "https://example.invalid/community-avatar.png");
     assert.equal(publicEvent?.watchSurfaceEnabled, true);
     assert.equal(publicEvent?.mediaLinks.length, 1);
+    assert.equal(publicEvent?.worlds[0]?.heroImageUrl, "https://example.invalid/world-hero.png");
     assert.equal(publicEvent?.worlds[0]?.displayName, "Neon Harbor");
     assert.equal(publicEvent?.participants[0]?.displayName, "DJ Aurora");
+    assert.equal(publicEvent?.participants[0]?.imageUrl, "https://example.invalid/dj-aurora.png");
     assert.equal(publicEvent?.slots[0]?.displayLabel, "DJ Aurora");
+    assert.equal(publicEvent?.slots[0]?.performer?.imageUrl, "https://example.invalid/dj-aurora.png");
     assert.equal(publicEvent?.slots[0]?.discord.shortTime, "<t:1779710400:t>");
     assert.equal("url" in publicEvent!.source, false);
+  });
+
+  it("does not project unlisted profile images onto event cards", () => {
+    const now = Date.UTC(2026, 4, 24, 12, 0, 0);
+    const event = {
+      slug: "afterglow-harbor-sessions-2026-06-14",
+      title: "Afterglow Harbor Sessions",
+      sortTitle: "afterglow harbor sessions",
+      startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
+      sourceType: "community",
+      sourceLabel: "Fixture event listing",
+      publicationState: "published",
+      updatedAt: now,
+    } as unknown as Doc<"events">;
+    const person = {
+      slug: "dj-aurora",
+      displayName: "DJ Aurora",
+      sortName: "dj aurora",
+      aliases: [],
+      tags: [],
+      claimState: "unclaimed",
+      publicationState: "published",
+      publicSurfacingState: "public",
+      creationSource: "community",
+      updatedAt: now,
+      profileType: "person",
+      avatarImageUrl: "https://example.invalid/unlisted-avatar.png",
+      bannerImageUrl: "https://example.invalid/private-banner.png",
+      fieldVisibility: {
+        avatarImageUrl: "unlisted",
+        bannerImageUrl: "private",
+      },
+      person: {
+        roleTags: ["DJ"],
+      },
+    } as unknown as Doc<"profiles">;
+    const participant = {
+      eventId: "event123",
+      personProfileId: "profile123",
+      eventStartAt: event.startAt,
+      roleLabel: "Performer",
+      sourceType: "community",
+      sourceLabel: "Fixture lineup",
+      confirmationState: "confirmed",
+      updatedAt: now,
+    } as unknown as Doc<"eventParticipants">;
+
+    const publicEvent = toPublicEvent({
+      event,
+      worlds: [],
+      participants: [{ association: participant, profile: person }],
+      slots: [],
+    });
+
+    assert.equal(publicEvent?.participants[0]?.imageUrl, undefined);
   });
 
   it("defaults public watch-surface promotion off without hiding links", () => {
@@ -502,6 +591,7 @@ describe("public event projection", () => {
       title: "Afterglow Harbor Sessions",
       sortTitle: "afterglow harbor sessions",
       startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
+      posterImageUrl: "https://example.invalid/poster.png",
       mediaLinks: [
         {
           type: "watch",
@@ -519,6 +609,8 @@ describe("public event projection", () => {
     const publicEvent = toPublicEvent({ event, worlds: [], participants: [], slots: [] });
 
     assert.equal(publicEvent?.watchSurfaceEnabled, false);
+    assert.equal(publicEvent?.bannerImageUrl, "https://example.invalid/poster.png");
+    assert.equal(publicEvent?.thumbnailImageUrl, "https://example.invalid/poster.png");
     assert.deepEqual(publicEvent?.mediaLinks, [
       {
         type: "watch",

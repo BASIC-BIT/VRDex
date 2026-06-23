@@ -617,6 +617,8 @@ export default defineSchema({
     summary: v.optional(v.string()),
     notes: v.optional(v.string()),
     posterImageUrl: v.optional(v.string()),
+    bannerImageUrl: v.optional(v.string()),
+    thumbnailImageUrl: v.optional(v.string()),
     watchSurfaceEnabled: v.optional(v.boolean()),
     mediaLinks: v.optional(
       v.array(

@@ -17,6 +17,7 @@ type FixtureAsset = {
   from: string;
   to: string;
   accent: string;
+  showText?: boolean;
 };
 
 const fixtureAssets: Record<string, FixtureAsset> = {
@@ -60,6 +61,27 @@ const fixtureAssets: Record<string, FixtureAsset> = {
     to: "#0e7490",
     accent: "#fb7185",
   },
+  "fixture-afterglow-event-banner": {
+    title: "Afterglow Harbor banner",
+    subtitle: "Hero artwork",
+    initials: "",
+    width: 1600,
+    height: 700,
+    from: "#121629",
+    to: "#134e67",
+    accent: "#fb7185",
+    showText: false,
+  },
+  "fixture-afterglow-event-thumbnail": {
+    title: "Afterglow Harbor card",
+    subtitle: "Event thumbnail",
+    initials: "AG",
+    width: 960,
+    height: 960,
+    from: "#2b1721",
+    to: "#0e7490",
+    accent: "#fb7185",
+  },
 };
 
 function fixtureError(message: string, status = 403) {
@@ -88,6 +110,13 @@ function renderSvg(asset: FixtureAsset) {
   const initials = escapeSvgText(asset.initials);
   const radius = Math.min(asset.width, asset.height) * 0.24;
 
+  const text = asset.showText === false
+    ? ""
+    : `
+  <text x="8%" y="48%" fill="white" font-family="Inter, Arial, sans-serif" font-size="${Math.round(asset.height * 0.24)}" font-weight="800" letter-spacing="-6">${initials}</text>
+  <text x="8%" y="72%" fill="white" font-family="Inter, Arial, sans-serif" font-size="${Math.round(asset.height * 0.1)}" font-weight="750" letter-spacing="-2">${title}</text>
+  <text x="8%" y="84%" fill="white" fill-opacity="0.72" font-family="Inter, Arial, sans-serif" font-size="${Math.round(asset.height * 0.046)}" font-weight="600" letter-spacing="2">${subtitle.toUpperCase()}</text>`;
+
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${asset.width} ${asset.height}" role="img" aria-label="${title}">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
@@ -103,9 +132,7 @@ function renderSvg(asset: FixtureAsset) {
   <rect width="${asset.width}" height="${asset.height}" fill="url(#bg)" rx="${radius}"/>
   <rect width="${asset.width}" height="${asset.height}" fill="url(#glow)" rx="${radius}"/>
   <circle cx="${asset.width * 0.18}" cy="${asset.height * 0.2}" r="${Math.min(asset.width, asset.height) * 0.16}" fill="none" stroke="white" stroke-opacity="0.26" stroke-width="10"/>
-  <text x="8%" y="48%" fill="white" font-family="Inter, Arial, sans-serif" font-size="${Math.round(asset.height * 0.24)}" font-weight="800" letter-spacing="-6">${initials}</text>
-  <text x="8%" y="72%" fill="white" font-family="Inter, Arial, sans-serif" font-size="${Math.round(asset.height * 0.1)}" font-weight="750" letter-spacing="-2">${title}</text>
-  <text x="8%" y="84%" fill="white" fill-opacity="0.72" font-family="Inter, Arial, sans-serif" font-size="${Math.round(asset.height * 0.046)}" font-weight="600" letter-spacing="2">${subtitle.toUpperCase()}</text>
+  ${text}
 </svg>`;
 }
 
