@@ -444,11 +444,13 @@ function WatchHlsVideo({ embed }: { embed: Extract<WatchEmbed, { kind: "hls" }> 
 export function EventWatchSurface({
   doorsOpenAt,
   endAt,
+  enabled,
   mediaLinks,
   startAt,
 }: {
   doorsOpenAt?: number;
   endAt?: number;
+  enabled: boolean;
   mediaLinks: EventWatchMediaLink[];
   startAt: number;
 }) {
@@ -456,7 +458,7 @@ export function EventWatchSurface({
   const currentTimestamp = useCurrentTimestamp();
   const primaryWatchLink = selectPrimaryWatchLink(mediaLinks);
 
-  if (!primaryWatchLink || !isInScheduledWatchWindow({ doorsOpenAt, endAt, now: currentTimestamp, startAt })) {
+  if (!enabled || !primaryWatchLink || !isInScheduledWatchWindow({ doorsOpenAt, endAt, now: currentTimestamp, startAt })) {
     return null;
   }
 

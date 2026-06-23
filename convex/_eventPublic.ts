@@ -68,6 +68,7 @@ export type PublicEventPreview = {
 export type PublicEvent = PublicEventPreview & {
   slug: string;
   notes?: string;
+  watchSurfaceEnabled: boolean;
   authoredMediaLinks: Array<{
     type: PublicEventMediaLinkType;
     label: string;
@@ -240,6 +241,7 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
   return {
     ...preview,
     slug: record.event.slug,
+    watchSurfaceEnabled: record.event.watchSurfaceEnabled ?? false,
     authoredMediaLinks,
     mediaLinks: createPublicEventMediaLinks(authoredMediaLinks, record.mediaProgram, record.mediaOutputs ?? []),
     worlds: record.worlds.map(({ association, world }) => {

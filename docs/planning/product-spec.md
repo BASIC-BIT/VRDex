@@ -441,7 +441,7 @@ Streaming and media direction:
 - examples include VRCDN PC links, VRCDN Quest links, Twitch watch links, and venue camera/watch links
 - v1 should use typed media links for common cases while still allowing generic/other links
 - multiple media links should be supported where operationally useful
-- public event pages should promote one primary watch source when a `watch`, `stream`, or `vrcdn` link exists
+- public event pages should promote one primary watch source only when the event has opted in and a `watch`, `stream`, or `vrcdn` link is eligible during the watch window
 - YouTube, Twitch, and VRCDN are the first embed targets; unsupported watch providers should still get a prominent outbound watch card
 - event pages should not claim a stream is live until a provider status adapter confirms liveness
 

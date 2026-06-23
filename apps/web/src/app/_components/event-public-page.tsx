@@ -72,6 +72,7 @@ export type PublicEventPreview = {
 export type PublicEvent = Omit<PublicEventPreview, "worlds"> & {
   slug: string;
   notes?: string;
+  watchSurfaceEnabled: boolean;
   authoredMediaLinks: Array<{
     type: EventMediaLinkType;
     label: string;
@@ -282,6 +283,7 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
             <EventWatchSurface
               doorsOpenAt={event.doorsOpenAt}
               endAt={event.endAt}
+              enabled={event.watchSurfaceEnabled}
               mediaLinks={event.mediaLinks}
               startAt={event.startAt}
             />

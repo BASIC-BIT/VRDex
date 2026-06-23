@@ -380,7 +380,7 @@ Current recommendation:
 - examples: VRCDN PC, VRCDN Quest, Twitch, venue camera/watch feed
 - should support typed common cases plus generic/other links
 - should allow multiple links per event or slot
-- public event pages promote a primary `watch`, `stream`, or `vrcdn` link into a watch surface only during the scheduled watch window
+- public event pages promote a primary `watch`, `stream`, or `vrcdn` link into a watch surface only when the event has opted in and is inside the scheduled watch window
 - provider embeds are allow-listed for YouTube, Twitch, and VRCDN; unsupported watch links remain outbound cards
 - provider live/offline checks belong to the later restream/media-control model in `#124` and should not leak into viewer-facing explanatory copy
 

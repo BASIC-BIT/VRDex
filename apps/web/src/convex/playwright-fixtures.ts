@@ -757,6 +757,7 @@ const publicEvent: PublicEvent = {
   ...eventPreview,
   slug: eventSlug,
   notes: "Doors open before the first set. Follow host announcements for instance details.",
+  watchSurfaceEnabled: false,
   authoredMediaLinks: [
     {
       type: "watch",
@@ -868,6 +869,7 @@ const publicWatchEvent: PublicEvent = {
   endAt: watchEventEndAt,
   summary: "Live room for the Afterglow set stream.",
   notes: "Use the player during the event, or open the stream in a new tab.",
+  watchSurfaceEnabled: true,
   authoredMediaLinks: [
     {
       type: "watch",

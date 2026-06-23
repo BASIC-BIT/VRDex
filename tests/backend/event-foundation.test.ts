@@ -103,11 +103,29 @@ describe("event draft input", () => {
     assert.equal(input.title, "Afterglow Harbor Sessions");
     assert.equal(input.sortTitle, "afterglow harbor sessions");
     assert.equal(input.doorsOpenAt, startAt - 1_800_000);
+    assert.equal(input.watchSurfaceEnabled, false);
     assert.equal(input.mediaLinks[0]?.presentation, "open");
     assert.equal(input.mediaLinks[1]?.presentation, "copy");
     assert.equal(input.participantLinks[0]?.roleLabel, "House");
     assert.equal(input.slotLinks[0]?.displayLabel, "DJ Aurora");
     assert.equal(input.slotLinks[0]?.roleLabel, "House");
+  });
+
+  it("keeps watch-surface promotion opt-in on event drafts", () => {
+    const enabledInput = sanitizeEventDraftInput({
+      title: "Afterglow Harbor Sessions",
+      startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
+      watchSurfaceEnabled: true,
+      mediaLinks: [
+        {
+          type: "watch",
+          label: "Event stream",
+          url: "https://example.invalid/watch",
+        },
+      ],
+    });
+
+    assert.equal(enabledInput.watchSurfaceEnabled, true);
   });
 
   it("rejects non-https public URLs", () => {
@@ -370,6 +388,7 @@ describe("public event projection", () => {
       summary: "A confirmed fixture event.",
       notes: "Bring water.",
       posterImageUrl: "https://example.invalid/poster.png",
+      watchSurfaceEnabled: true,
       mediaLinks: [
         {
           type: "watch",
@@ -466,12 +485,48 @@ describe("public event projection", () => {
     assert.notEqual(publicEvent, null);
     assert.equal(publicEvent?.slug, "afterglow-harbor-sessions-2026-06-14");
     assert.equal(publicEvent?.doorsOpenAt, now + 84_600_000);
+    assert.equal(publicEvent?.watchSurfaceEnabled, true);
     assert.equal(publicEvent?.mediaLinks.length, 1);
     assert.equal(publicEvent?.worlds[0]?.displayName, "Neon Harbor");
     assert.equal(publicEvent?.participants[0]?.displayName, "DJ Aurora");
     assert.equal(publicEvent?.slots[0]?.displayLabel, "DJ Aurora");
     assert.equal(publicEvent?.slots[0]?.discord.shortTime, "<t:1779710400:t>");
     assert.equal("url" in publicEvent!.source, false);
+  });
+
+  it("defaults public watch-surface promotion off without hiding links", () => {
+    const now = Date.UTC(2026, 4, 24, 12, 0, 0);
+    const event = {
+      _id: "event123",
+      slug: "afterglow-harbor-sessions-2026-06-14",
+      title: "Afterglow Harbor Sessions",
+      sortTitle: "afterglow harbor sessions",
+      startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
+      mediaLinks: [
+        {
+          type: "watch",
+          label: "Event stream",
+          url: "https://example.invalid/watch",
+          presentation: "open",
+        },
+      ],
+      sourceType: "community",
+      sourceLabel: "Fixture event listing",
+      publicationState: "published",
+      updatedAt: now,
+    } as unknown as Doc<"events">;
+
+    const publicEvent = toPublicEvent({ event, worlds: [], participants: [], slots: [] });
+
+    assert.equal(publicEvent?.watchSurfaceEnabled, false);
+    assert.deepEqual(publicEvent?.mediaLinks, [
+      {
+        type: "watch",
+        label: "Event stream",
+        url: "https://example.invalid/watch",
+        presentation: "open",
+      },
+    ]);
   });
 
   it("keeps public slot labels when performer profiles are not projected", () => {
@@ -484,6 +539,7 @@ describe("public event projection", () => {
       doorsOpenAt: Date.UTC(2026, 5, 14, 21, 30, 0),
       sourceType: "community",
       sourceLabel: "Fixture event listing",
+      watchSurfaceEnabled: true,
       publicationState: "published",
       updatedAt: now,
     } as unknown as Doc<"events">;
@@ -519,6 +575,7 @@ describe("public event projection", () => {
       startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
       sourceType: "community",
       sourceLabel: "Fixture event listing",
+      watchSurfaceEnabled: true,
       publicationState: "published",
       updatedAt: now,
     } as unknown as Doc<"events">;
