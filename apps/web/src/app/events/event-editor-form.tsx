@@ -63,7 +63,7 @@ const userSafeErrorPatterns = [
   /Event end time must be after the start time\./,
   /Time zone must be a valid IANA time zone\./,
   /Time zone is required when event slots are provided\./,
-  /(?:Event source URL|Poster image URL|Media link URL|Participant source URL|Slot source URL) must (?:use https|be a valid URL)\./,
+  /(?:Event source URL|Poster image URL|Banner image URL|Thumbnail image URL|Media link URL|Participant source URL|Slot source URL) must (?:use https|be a valid URL)\./,
   /(?:Slot start time|Slot end time) must be a valid timestamp\./,
   /(?:Slot count|Slot offset minutes|Slot duration minutes|Break duration minutes) must be a whole number\./,
   /Slot end time must be after the start time\./,
@@ -688,12 +688,12 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
       <div className="grid gap-4 sm:grid-cols-2">
         <Field>
           Banner image URL
-          <Input defaultValue={event?.bannerImageUrl} name="bannerImageUrl" placeholder="https://..." />
+          <Input defaultValue={event?.authoredBannerImageUrl} name="bannerImageUrl" placeholder="https://..." />
           <FieldText>Wide event-page hero image. Falls back to the poster image.</FieldText>
         </Field>
         <Field>
           Thumbnail image URL
-          <Input defaultValue={event?.thumbnailImageUrl} name="thumbnailImageUrl" placeholder="https://..." />
+          <Input defaultValue={event?.authoredThumbnailImageUrl} name="thumbnailImageUrl" placeholder="https://..." />
           <FieldText>Compact event-card image. Falls back to the poster or banner image.</FieldText>
         </Field>
       </div>

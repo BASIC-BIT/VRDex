@@ -515,6 +515,8 @@ describe("public event projection", () => {
     assert.equal(publicEvent?.doorsOpenAt, now + 84_600_000);
     assert.equal(publicEvent?.bannerImageUrl, "https://example.invalid/banner.png");
     assert.equal(publicEvent?.thumbnailImageUrl, "https://example.invalid/card.png");
+    assert.equal(publicEvent?.authoredBannerImageUrl, "https://example.invalid/banner.png");
+    assert.equal(publicEvent?.authoredThumbnailImageUrl, "https://example.invalid/card.png");
     assert.equal(publicEvent?.communityImageUrl, "https://example.invalid/community-avatar.png");
     assert.equal(publicEvent?.watchSurfaceEnabled, true);
     assert.equal(publicEvent?.mediaLinks.length, 1);
@@ -611,6 +613,8 @@ describe("public event projection", () => {
     assert.equal(publicEvent?.watchSurfaceEnabled, false);
     assert.equal(publicEvent?.bannerImageUrl, "https://example.invalid/poster.png");
     assert.equal(publicEvent?.thumbnailImageUrl, "https://example.invalid/poster.png");
+    assert.equal(publicEvent?.authoredBannerImageUrl, undefined);
+    assert.equal(publicEvent?.authoredThumbnailImageUrl, undefined);
     assert.deepEqual(publicEvent?.mediaLinks, [
       {
         type: "watch",

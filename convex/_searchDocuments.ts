@@ -2,7 +2,7 @@ import type { Doc } from "./_generated/dataModel";
 import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
 import type { PublicProfileMediaKit } from "./_profileAssets";
 import { visibleProfileField, visibleProfileList } from "./_profileFieldVisibility";
-import { optionalField, safeHttpsUrl } from "./_publicFields";
+import { firstSafeHttpsUrl, optionalField, safeHttpsUrl } from "./_publicFields";
 import { canReadProfile } from "./_profilePermissions";
 import { getProfileBySlug } from "./_profileSlugs";
 import {
@@ -367,18 +367,6 @@ export function vocabularyForEvent(event: Doc<"events">, roleLabels: string[] = 
     ...createVocabularyCandidates("event_tag", inferredTags),
     ...createVocabularyCandidates("event_participant_role", roleLabels),
   ];
-}
-
-function firstSafeHttpsUrl(...urls: Array<string | undefined>): string | undefined {
-  for (const url of urls) {
-    const safeUrl = safeHttpsUrl(url);
-
-    if (safeUrl !== undefined) {
-      return safeUrl;
-    }
-  }
-
-  return undefined;
 }
 
 export function createEventSearchDocument(

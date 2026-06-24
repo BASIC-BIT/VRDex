@@ -1,6 +1,6 @@
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
-import { optionalField, safeHttpsUrl } from "./_publicFields";
+import { firstSafeHttpsUrl, optionalField, safeHttpsUrl } from "./_publicFields";
 import { safePublicMediaUrl } from "./_vrcdnLinks";
 
 const WORLD_EVENT_SECTION_LIMIT = 4;
@@ -85,18 +85,6 @@ function eventEndsAt(event: PublicWorldEventPreview): number {
 
 function eventRecordEndsAt(event: Doc<"events">): number {
   return event.endAt ?? event.startAt;
-}
-
-function firstSafeHttpsUrl(...urls: Array<string | undefined>): string | undefined {
-  for (const url of urls) {
-    const safeUrl = safeHttpsUrl(url);
-
-    if (safeUrl !== undefined) {
-      return safeUrl;
-    }
-  }
-
-  return undefined;
 }
 
 function toPublicWorldEventPreview(

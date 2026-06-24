@@ -1,7 +1,7 @@
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 import { createDiscordTimestampSet, type DiscordTimestampSet } from "./_discordTimestamps";
-import { optionalField, safeHttpsUrl } from "./_publicFields";
+import { firstSafeHttpsUrl, optionalField, safeHttpsUrl } from "./_publicFields";
 import { visibleProfileField } from "./_profileFieldVisibility";
 import { canReadProfile } from "./_profilePermissions";
 import { getProfileTrustLabel } from "./_profileStates";
@@ -73,6 +73,8 @@ export type PublicEvent = PublicEventPreview & {
   slug: string;
   notes?: string;
   watchSurfaceEnabled: boolean;
+  authoredBannerImageUrl?: string;
+  authoredThumbnailImageUrl?: string;
   authoredMediaLinks: Array<{
     type: PublicEventMediaLinkType;
     label: string;
@@ -146,18 +148,6 @@ function safePublicEventMediaLink(link: PublicEvent["mediaLinks"][number]): Publ
     }
 
     return [{ ...link, url }];
-}
-
-function firstSafeHttpsUrl(...urls: Array<string | undefined>): string | undefined {
-  for (const url of urls) {
-    const safeUrl = safeHttpsUrl(url);
-
-    if (safeUrl !== undefined) {
-      return safeUrl;
-    }
-  }
-
-  return undefined;
 }
 
 function publicProfileCardImage(profile: Doc<"profiles">): string | undefined {
@@ -268,11 +258,15 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
 
   const preview = toPublicEventPreviewFromRecord(record);
   const authoredMediaLinks = (record.event.mediaLinks ?? []).flatMap(safePublicEventMediaLink);
+  const authoredBannerImageUrl = safeHttpsUrl(record.event.bannerImageUrl);
+  const authoredThumbnailImageUrl = safeHttpsUrl(record.event.thumbnailImageUrl);
 
   return {
     ...preview,
     slug: record.event.slug,
     watchSurfaceEnabled: record.event.watchSurfaceEnabled ?? false,
+    ...optionalField("authoredBannerImageUrl", authoredBannerImageUrl),
+    ...optionalField("authoredThumbnailImageUrl", authoredThumbnailImageUrl),
     authoredMediaLinks,
     mediaLinks: createPublicEventMediaLinks(authoredMediaLinks, record.mediaProgram, record.mediaOutputs ?? []),
     worlds: record.worlds.map(({ association, world }) => {

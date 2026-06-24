@@ -76,6 +76,8 @@ export type PublicEvent = Omit<PublicEventPreview, "worlds"> & {
   slug: string;
   notes?: string;
   watchSurfaceEnabled: boolean;
+  authoredBannerImageUrl?: string;
+  authoredThumbnailImageUrl?: string;
   authoredMediaLinks: Array<{
     type: EventMediaLinkType;
     label: string;
