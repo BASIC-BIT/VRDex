@@ -81,6 +81,7 @@ const fixtureAssets: Record<string, FixtureAsset> = {
     from: "#2b1721",
     to: "#0e7490",
     accent: "#fb7185",
+    showText: false,
   },
 };
 
