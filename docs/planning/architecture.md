@@ -300,7 +300,7 @@ Related policy recommendation:
 
 - canonical event records shown on community pages and derived into person-facing participation views
 - includes start/end, title, source, confidence, and linked entities
-- should support a primary event poster/image asset when available
+- should support separate poster, banner/hero, and thumbnail/card image slots with documented fallbacks
 
 Implementation status:
 
@@ -315,6 +315,7 @@ Likely near-term additions:
 - linked VRChat world id when known
 - platform compatibility hints
 - optional canonical event-level stream/watch metadata
+- file-backed event assets that fill the same public poster, banner, and thumbnail slots
 
 Current recommendation:
 
@@ -380,7 +381,7 @@ Current recommendation:
 - examples: VRCDN PC, VRCDN Quest, Twitch, venue camera/watch feed
 - should support typed common cases plus generic/other links
 - should allow multiple links per event or slot
-- public event pages promote a primary `watch`, `stream`, or `vrcdn` link into a watch surface only during the scheduled watch window
+- public event pages promote a primary `watch`, `stream`, or `vrcdn` link into a watch surface only when the event has opted in and is inside the scheduled watch window
 - provider embeds are allow-listed for YouTube, Twitch, and VRCDN; unsupported watch links remain outbound cards
 - provider live/offline checks belong to the later restream/media-control model in `#124` and should not leak into viewer-facing explanatory copy
 

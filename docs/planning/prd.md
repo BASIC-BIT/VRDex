@@ -369,9 +369,10 @@ Current recommendation:
 - person-facing event participation views can still exist in the UI where useful
 - minimum event structure should include title, community, start time, optional end time, source, optional link, and optional notes
 - event/location modeling should leave room for VRChat world linkage, platform compatibility hints, and DJ slot breakdowns
+- event media should separate poster, banner/hero, and thumbnail/card slots while reusing public person, community, and world images in event cards
 - event-world links should become explicit associations once world pages exist, not only freeform event metadata
 - stream/watch links should use typed media link categories in v1, while still allowing generic/other links and multiple links where needed
-- event pages should promote one primary watch source during the scheduled watch window and support safe YouTube, Twitch, and VRCDN embeds before larger restream controls exist
+- event pages should promote one primary watch source only when the event has opted in and is inside the scheduled watch window, with safe YouTube, Twitch, and VRCDN embeds before larger restream controls exist
 - watch surfaces should stay contextual and minimal; provider status limitations belong in implementation notes, not viewer-facing copy
 - when a claimed person is added to an event association in v1, they should receive a passive in-app notification
 - claimed people should be able to choose whether they are simply notified when added; stronger approval gates can land later

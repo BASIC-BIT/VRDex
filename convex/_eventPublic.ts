@@ -1,7 +1,8 @@
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 import { createDiscordTimestampSet, type DiscordTimestampSet } from "./_discordTimestamps";
-import { optionalField, safeHttpsUrl } from "./_publicFields";
+import { firstSafeHttpsUrl, optionalField, safeHttpsUrl } from "./_publicFields";
+import { visibleProfileField } from "./_profileFieldVisibility";
 import { canReadProfile } from "./_profilePermissions";
 import { getProfileTrustLabel } from "./_profileStates";
 import { safePublicMediaUrl } from "./_vrcdnLinks";
@@ -52,6 +53,9 @@ export type PublicEventPreview = {
   communitySlug?: string;
   summary?: string;
   posterImageUrl?: string;
+  bannerImageUrl?: string;
+  thumbnailImageUrl?: string;
+  communityImageUrl?: string;
   source: {
     sourceType: PublicEventSourceType;
     label: string;
@@ -68,6 +72,9 @@ export type PublicEventPreview = {
 export type PublicEvent = PublicEventPreview & {
   slug: string;
   notes?: string;
+  watchSurfaceEnabled: boolean;
+  authoredBannerImageUrl?: string;
+  authoredThumbnailImageUrl?: string;
   authoredMediaLinks: Array<{
     type: PublicEventMediaLinkType;
     label: string;
@@ -97,6 +104,7 @@ export type PublicEvent = PublicEventPreview & {
     displayName: string;
     roleLabel: string;
     trustLabel: "community_submitted" | "unclaimed" | "claimed_unverified" | "claimed_verified";
+    imageUrl?: string;
     source: {
       sourceType: PublicEventSourceType;
       label: string;
@@ -114,6 +122,7 @@ export type PublicEvent = PublicEventPreview & {
       slug: string;
       displayName: string;
       trustLabel: "community_submitted" | "unclaimed" | "claimed_unverified" | "claimed_verified";
+      imageUrl?: string;
     };
     source: {
       sourceType: PublicEventSourceType;
@@ -139,6 +148,13 @@ function safePublicEventMediaLink(link: PublicEvent["mediaLinks"][number]): Publ
     }
 
     return [{ ...link, url }];
+}
+
+function publicProfileCardImage(profile: Doc<"profiles">): string | undefined {
+  return firstSafeHttpsUrl(
+    visibleProfileField(profile, "avatarImageUrl", profile.avatarImageUrl, "discovery"),
+    visibleProfileField(profile, "bannerImageUrl", profile.bannerImageUrl, "discovery"),
+  );
 }
 
 function eventMediaPublicLinkType(platform: Doc<"eventMediaOutputs">["playbackLinks"][number]["platform"]): PublicEventMediaLinkType {
@@ -203,6 +219,9 @@ export function toPublicEventPreviewFromRecord(record: PublicEventRecord): Publi
   const { community, event, participants, slots, worlds } = record;
   const sourceUrl = safeHttpsUrl(event.sourceUrl);
   const posterImageUrl = safeHttpsUrl(event.posterImageUrl);
+  const bannerImageUrl = firstSafeHttpsUrl(event.bannerImageUrl, event.posterImageUrl);
+  const thumbnailImageUrl = firstSafeHttpsUrl(event.thumbnailImageUrl, event.posterImageUrl, event.bannerImageUrl);
+  const communityImageUrl = community === undefined ? undefined : publicProfileCardImage(community);
 
   return {
     ...optionalField("slug", event.slug),
@@ -226,6 +245,9 @@ export function toPublicEventPreviewFromRecord(record: PublicEventRecord): Publi
     ...optionalField("communitySlug", community?.slug),
     ...optionalField("summary", event.summary),
     ...optionalField("posterImageUrl", posterImageUrl),
+    ...optionalField("bannerImageUrl", bannerImageUrl),
+    ...optionalField("thumbnailImageUrl", thumbnailImageUrl),
+    ...optionalField("communityImageUrl", communityImageUrl),
   };
 }
 
@@ -236,10 +258,15 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
 
   const preview = toPublicEventPreviewFromRecord(record);
   const authoredMediaLinks = (record.event.mediaLinks ?? []).flatMap(safePublicEventMediaLink);
+  const authoredBannerImageUrl = safeHttpsUrl(record.event.bannerImageUrl);
+  const authoredThumbnailImageUrl = safeHttpsUrl(record.event.thumbnailImageUrl);
 
   return {
     ...preview,
     slug: record.event.slug,
+    watchSurfaceEnabled: record.event.watchSurfaceEnabled ?? false,
+    ...optionalField("authoredBannerImageUrl", authoredBannerImageUrl),
+    ...optionalField("authoredThumbnailImageUrl", authoredThumbnailImageUrl),
     authoredMediaLinks,
     mediaLinks: createPublicEventMediaLinks(authoredMediaLinks, record.mediaProgram, record.mediaOutputs ?? []),
     worlds: record.worlds.map(({ association, world }) => {
@@ -260,12 +287,14 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
     }),
     participants: record.participants.map(({ association, profile }) => {
       const sourceUrl = safeHttpsUrl(association.sourceUrl);
+      const imageUrl = publicProfileCardImage(profile);
 
       return {
         slug: profile.slug,
         displayName: profile.displayName,
         roleLabel: association.roleLabel,
         trustLabel: getProfileTrustLabel(profile.claimState, profile.creationSource),
+        ...optionalField("imageUrl", imageUrl),
         source: {
           sourceType: association.sourceType,
           label: association.sourceLabel,
@@ -277,6 +306,7 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
       .sort((first, second) => first.slot.startAt - second.slot.startAt || first.slot.position - second.slot.position)
       .map(({ profile, slot }) => {
         const sourceUrl = safeHttpsUrl(slot.sourceUrl);
+        const imageUrl = profile === undefined ? undefined : publicProfileCardImage(profile);
 
         return {
           position: slot.position,
@@ -292,6 +322,7 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
                   slug: profile.slug,
                   displayName: profile.displayName,
                   trustLabel: getProfileTrustLabel(profile.claimState, profile.creationSource),
+                  ...optionalField("imageUrl", imageUrl),
                 },
               }),
           source: {

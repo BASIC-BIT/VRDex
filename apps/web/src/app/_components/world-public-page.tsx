@@ -42,6 +42,8 @@ type PublicWorldEventPreview = {
   communityName?: string;
   summary?: string;
   posterImageUrl?: string;
+  bannerImageUrl?: string;
+  thumbnailImageUrl?: string;
   mediaLinks: Array<{
     type: "event_page" | "watch" | "stream" | "vrcdn" | "discord" | "ticket" | "other";
     label: string;
@@ -203,7 +205,7 @@ function EventList({
     <div className="grid gap-3">
       {events.map((event) => {
         const sourceUrl = event.source.url ? safeHttpsUrl(event.source.url) : null;
-        const posterStyle = safeImageBackground(event.posterImageUrl, worldHeroOverlay);
+        const posterStyle = safeImageBackground(event.thumbnailImageUrl, worldHeroOverlay);
         const posterTextClass = posterStyle ? "text-white/76" : "text-muted";
 
         return (

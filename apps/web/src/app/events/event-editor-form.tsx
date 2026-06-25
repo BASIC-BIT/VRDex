@@ -63,7 +63,7 @@ const userSafeErrorPatterns = [
   /Event end time must be after the start time\./,
   /Time zone must be a valid IANA time zone\./,
   /Time zone is required when event slots are provided\./,
-  /(?:Event source URL|Poster image URL|Media link URL|Participant source URL|Slot source URL) must (?:use https|be a valid URL)\./,
+  /(?:Event source URL|Poster image URL|Banner image URL|Thumbnail image URL|Media link URL|Participant source URL|Slot source URL) must (?:use https|be a valid URL)\./,
   /(?:Slot start time|Slot end time) must be a valid timestamp\./,
   /(?:Slot count|Slot offset minutes|Slot duration minutes|Break duration minutes) must be a whole number\./,
   /Slot end time must be after the start time\./,
@@ -579,6 +579,9 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
         sourceLabel: optionalString(stringField(formData.get("sourceLabel"))),
         sourceUrl: optionalString(stringField(formData.get("sourceUrl"))),
         posterImageUrl: optionalString(stringField(formData.get("posterImageUrl"))),
+        bannerImageUrl: optionalString(stringField(formData.get("bannerImageUrl"))),
+        thumbnailImageUrl: optionalString(stringField(formData.get("thumbnailImageUrl"))),
+        watchSurfaceEnabled: formData.get("watchSurfaceEnabled") === "on",
         mediaLinks: parseMediaLinks(mediaLinksText),
         participantLinks: parseParticipantLinks(stringField(formData.get("participantLinks"))),
         slotLinks: parseSlotLinks(slotText, startAt),
@@ -682,18 +685,45 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
         </Field>
       </div>
 
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field>
+          Banner image URL
+          <Input defaultValue={event?.authoredBannerImageUrl} name="bannerImageUrl" placeholder="https://..." />
+          <FieldText>Wide event-page hero image. Falls back to the poster image.</FieldText>
+        </Field>
+        <Field>
+          Thumbnail image URL
+          <Input defaultValue={event?.authoredThumbnailImageUrl} name="thumbnailImageUrl" placeholder="https://..." />
+          <FieldText>Compact event-card image. Falls back to the poster or banner image.</FieldText>
+        </Field>
+      </div>
+
       <Field>
         Media links
         <Textarea className="min-h-28" name="mediaLinks" onChange={(changeEvent) => setMediaLinksText(changeEvent.currentTarget.value)} placeholder="watch | Twitch watch link | https://... | open&#10;vrcdn | VRCDN Quest link | https://stream.vrcdn.live/live/name.live.ts | copy&#10;vrcdn | VRCDN PC link | rtspt://stream.vrcdn.live/live/name | copy" value={mediaLinksText} />
         <FieldText>One per line: type | label | URL | open or copy. VRCDN variants derive Quest and PC player links automatically.</FieldText>
       </Field>
+      <label className="flex gap-3 rounded-control border border-border bg-surface-strong p-4 text-sm leading-6">
+        <input
+          className="mt-1 h-4 w-4 flex-none accent-accent"
+          defaultChecked={event?.watchSurfaceEnabled ?? false}
+          name="watchSurfaceEnabled"
+          type="checkbox"
+        />
+        <span>
+          <span className="block font-medium text-foreground">Promote a watch surface during the event window</span>
+          <span className="mt-1 block text-xs leading-5 text-muted">
+            Keep this off unless stream capacity is ready for public viewers. Links still appear in the normal links section.
+          </span>
+        </span>
+      </label>
       <VrcdnMediaLinkAssistant mediaLinksText={mediaLinksText} />
 
       {event === undefined ? null : (
         <Card className="grid gap-4" padding="sm" surface="strong">
           <div>
             <h3 className="text-xl font-semibold tracking-[-0.03em]">VRCDN output</h3>
-            <p className="mt-2 text-xs leading-5 text-muted">Managed output links are shown on the event page during the watch window.</p>
+            <p className="mt-2 text-xs leading-5 text-muted">Managed output links can be promoted when the event watch surface is enabled.</p>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">

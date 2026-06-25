@@ -14,3 +14,15 @@ export function safeHttpsUrl(value: string | undefined): string | undefined {
     return undefined;
   }
 }
+
+export function firstSafeHttpsUrl(...urls: Array<string | undefined>): string | undefined {
+  for (const url of urls) {
+    const safeUrl = safeHttpsUrl(url);
+
+    if (safeUrl !== undefined) {
+      return safeUrl;
+    }
+  }
+
+  return undefined;
+}

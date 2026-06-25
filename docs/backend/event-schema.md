@@ -85,6 +85,18 @@ Canonical slot times are stored as timestamps. Discord timestamp tokens such as 
 
 The first slot editor uses relative minute offsets from the event start for operator-friendly sequential scheduling. Backend storage still receives absolute timestamps after the operator confirms the event start and a valid IANA timezone.
 
+## Event Media Slots
+
+Events currently support three public image slots:
+
+- `posterImageUrl`: flyer/poster artwork and the legacy event image field
+- `bannerImageUrl`: wide event-page hero artwork, falling back to `posterImageUrl`
+- `thumbnailImageUrl`: compact card/discovery image, falling back to `posterImageUrl` and then `bannerImageUrl`
+
+All three fields must be public HTTPS URLs in backend writes. Local Playwright fixtures may still use internal fixture paths for deterministic screenshots. Imported or community-submitted event images must keep source/provenance outside the image URL itself, and future file-backed event assets should map into these slots instead of replacing the public projection contract.
+
+Public event cards may reuse discovery-visible profile and world images: host cards use the community profile's public avatar or banner, lineup cards use linked person profile public avatar or banner, and place cards use world hero imagery. Private profile fields, unlisted discovery fields, non-public worlds, and unsafe image URLs are not projected.
+
 ## Event Media Links
 
 Event media links are intentionally more flexible than a rigid platform dropdown.
@@ -110,9 +122,11 @@ Future smart labeling, remembered vocabularies, URL-derived icons, and platform-
 
 ## Public Watch Surface
 
-Public event pages promote one primary watch source above the normal link list only during the event's scheduled watch window. Outside that window, watch links stay in the normal link list.
+Public event pages promote one primary watch source above the normal link list only when `events.watchSurfaceEnabled` is true and the event is inside its scheduled watch window. Outside that window, or when the event-level setting is off, watch links stay in the normal link list.
 
-Ready or active event-media outputs are projected into the same public media-link list as event-authored links. This lets operator-owned VRCDN outputs create the public watch surface without duplicating the output URL in `events.mediaLinks`. Draft, disabled, failed, ended, or errored media programs remain private.
+Current recommendation: new event drafts default `watchSurfaceEnabled` to false and require an event-level opt-in. Community or person-level defaults should wait until the relevant ownership/settings surfaces exist.
+
+Ready or active event-media outputs are projected into the same public media-link list as event-authored links. This lets operator-owned VRCDN outputs feed the public watch surface without duplicating the output URL in `events.mediaLinks`, but the event-level setting still controls whether those links are promoted. Draft, disabled, failed, ended, or errored media programs remain private.
 
 Selection order is deterministic:
 

@@ -70,6 +70,9 @@ export type EventDraftInput = {
   sourceLabel?: string;
   sourceUrl?: string;
   posterImageUrl?: string;
+  bannerImageUrl?: string;
+  thumbnailImageUrl?: string;
+  watchSurfaceEnabled?: boolean;
   mediaLinks?: EventMediaLinkInput[];
   participantLinks?: EventParticipantInput[];
   slotLinks?: EventSlotInput[];
@@ -90,6 +93,9 @@ export type SanitizedEventDraftInput = {
   sourceLabel: string;
   sourceUrl?: string;
   posterImageUrl?: string;
+  bannerImageUrl?: string;
+  thumbnailImageUrl?: string;
+  watchSurfaceEnabled: boolean;
   mediaLinks: SanitizedEventMediaLink[];
   participantLinks: SanitizedEventParticipantInput[];
   slotLinks: SanitizedEventSlotInput[];
@@ -376,6 +382,9 @@ export function sanitizeEventDraftInput(input: EventDraftInput): SanitizedEventD
     sourceLabel,
     ...optionalObjectField("sourceUrl", optionalHttpsUrl(input.sourceUrl, "Event source URL")),
     ...optionalObjectField("posterImageUrl", optionalHttpsUrl(input.posterImageUrl, "Poster image URL")),
+    ...optionalObjectField("bannerImageUrl", optionalHttpsUrl(input.bannerImageUrl, "Banner image URL")),
+    ...optionalObjectField("thumbnailImageUrl", optionalHttpsUrl(input.thumbnailImageUrl, "Thumbnail image URL")),
+    watchSurfaceEnabled: input.watchSurfaceEnabled ?? false,
     mediaLinks: sanitizeEventMediaLinks(input.mediaLinks),
     participantLinks,
     slotLinks,

@@ -2,7 +2,7 @@ import type { Doc } from "./_generated/dataModel";
 import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
 import type { PublicProfileMediaKit } from "./_profileAssets";
 import { visibleProfileField, visibleProfileList } from "./_profileFieldVisibility";
-import { optionalField, safeHttpsUrl } from "./_publicFields";
+import { firstSafeHttpsUrl, optionalField, safeHttpsUrl } from "./_publicFields";
 import { canReadProfile } from "./_profilePermissions";
 import { getProfileBySlug } from "./_profileSlugs";
 import {
@@ -388,7 +388,7 @@ export function createEventSearchDocument(
     title: event.title,
     subtitle: event.communityName ?? context.community?.displayName ?? "Event",
     ...optionalField("summary", event.summary),
-    ...optionalField("imageUrl", safeHttpsUrl(event.posterImageUrl)),
+    ...optionalField("imageUrl", firstSafeHttpsUrl(event.thumbnailImageUrl, event.posterImageUrl, event.bannerImageUrl)),
     searchText: weightedCorpus([
       { values: [event.title, event.slug], weight: 8 },
       { values: [event.communityName, context.community?.displayName], weight: 5 },

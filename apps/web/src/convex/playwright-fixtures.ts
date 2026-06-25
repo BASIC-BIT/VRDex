@@ -72,8 +72,11 @@ const eventPreview = {
   timezone: eventTimezone,
   communityName: "Afterglow Social",
   communitySlug,
+  communityImageUrl: "/api/e2e/fixture-assets/fixture-afterglow-event-poster",
   summary: "Late-night harbor club session with house, trance, and warm social energy.",
   posterImageUrl: "/api/e2e/fixture-assets/fixture-afterglow-event-poster",
+  bannerImageUrl: "/api/e2e/fixture-assets/fixture-afterglow-event-banner",
+  thumbnailImageUrl: "/api/e2e/fixture-assets/fixture-afterglow-event-thumbnail",
   source: {
     sourceType: "manual" as const,
     label: "Afterglow event listing",
@@ -594,6 +597,7 @@ const communityProfile: PublicProfile = {
   about: "Afterglow keeps the focus on friendly floors, clear event listings, and DJs who like a slower build.",
   region: "Global",
   timezone: "UTC",
+  avatarImageUrl: "/api/e2e/fixture-assets/fixture-afterglow-event-poster",
   trustLabel: "community_submitted",
   source: {
     sourceType: "community",
@@ -687,6 +691,8 @@ const worldProfile: PublicWorld = {
         communityName: "Afterglow Social",
         summary: "Late-night harbor club session with house, trance, and warm social energy.",
         posterImageUrl: "https://example.invalid/events/afterglow-harbor-poster.png",
+        bannerImageUrl: "https://example.invalid/events/afterglow-harbor-banner.png",
+        thumbnailImageUrl: "https://example.invalid/events/afterglow-harbor-card.png",
         mediaLinks: [
           {
             type: "watch",
@@ -757,6 +763,7 @@ const publicEvent: PublicEvent = {
   ...eventPreview,
   slug: eventSlug,
   notes: "Doors open before the first set. Follow host announcements for instance details.",
+  watchSurfaceEnabled: false,
   authoredMediaLinks: [
     {
       type: "watch",
@@ -791,6 +798,7 @@ const publicEvent: PublicEvent = {
       displayName: "Neon Harbor",
       tags: ["Club world", "Cyberpunk", "Dance floor"],
       summary: "Cyberpunk harbor club world with layered dance floors and quiet balcony corners.",
+      heroImageUrl: "/api/e2e/fixture-assets/fixture-afterglow-event-poster",
       association: {
         sourceType: "manual",
         confirmationState: "confirmed",
@@ -804,6 +812,7 @@ const publicEvent: PublicEvent = {
       displayName: "DJ Aurora",
       roleLabel: "Performer",
       trustLabel: "community_submitted",
+      imageUrl: auroraProfileImage.imageUrl,
       source: {
         sourceType: "community",
         label: "Afterglow lineup",
@@ -830,6 +839,7 @@ const publicEvent: PublicEvent = {
         slug: personSlug,
         displayName: "DJ Aurora",
         trustLabel: "community_submitted",
+        imageUrl: auroraProfileImage.imageUrl,
       },
       source: {
         sourceType: "community",
@@ -868,6 +878,9 @@ const publicWatchEvent: PublicEvent = {
   endAt: watchEventEndAt,
   summary: "Live room for the Afterglow set stream.",
   notes: "Use the player during the event, or open the stream in a new tab.",
+  bannerImageUrl: "/api/e2e/fixture-assets/fixture-afterglow-event-banner",
+  thumbnailImageUrl: "/api/e2e/fixture-assets/fixture-afterglow-event-thumbnail",
+  watchSurfaceEnabled: true,
   authoredMediaLinks: [
     {
       type: "watch",
