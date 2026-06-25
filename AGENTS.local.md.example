@@ -18,6 +18,11 @@ Copy this file to `AGENTS.local.md` and edit it freely. Keep repo-wide rules in 
 
 - Fill in local model preferences, formatting preferences, test expectations, or communication habits here.
 
+## Worktree Role
+
+- Set this checkout's role explicitly, such as `protected main mirror` or `active feature worktree`.
+- Protected main mirrors should stay on `main` and clean. Routine work should happen under `D:/bench/VRDex-wt/<name>`.
+
 ## Scratchpad
 
 - Put personal drafts, one-off notes, and junk-drawer artifacts outside the repo unless I explicitly ask to commit them.

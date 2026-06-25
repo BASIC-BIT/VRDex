@@ -7,8 +7,11 @@
     "node": ">=24 <25"
   },
   "scripts": {
+    "prestart": "node ../../scripts/guard-main-worktree.mjs",
     "start": "tsx src/index.ts",
+    "pretypecheck": "node ../../scripts/guard-main-worktree.mjs",
     "typecheck": "tsc --noEmit --project tsconfig.json",
+    "pretest": "node ../../scripts/guard-main-worktree.mjs",
     "test": "node --import tsx --test src/**/*.test.ts"
   },
   "dependencies": {

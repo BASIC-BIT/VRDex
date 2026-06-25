@@ -6,9 +6,13 @@
     "node": ">=24 <25"
   },
   "scripts": {
+    "prebuild": "node ../../scripts/guard-main-worktree.mjs",
     "build": "docusaurus build",
+    "preclear": "node ../../scripts/guard-main-worktree.mjs",
     "clear": "docusaurus clear",
+    "preserve": "node ../../scripts/guard-main-worktree.mjs",
     "serve": "docusaurus serve",
+    "prestart": "node ../../scripts/guard-main-worktree.mjs",
     "start": "docusaurus start"
   },
   "dependencies": {

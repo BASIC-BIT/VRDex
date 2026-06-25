@@ -3,6 +3,7 @@
 ## Core docs
 
 - `docs/agentic/contributor-workflow.md` - canonical contributor-friendly, agent-compatible workflow contract
+- `docs/agentic/codex.md` - Codex-specific MCP, skill, and protected-worktree notes
 - `docs/agentic/definition-of-done.md` - canonical closeout checklist for non-trivial feature work
 - `docs/agentic/definition-of-ready.md` - canonical readiness checklist for non-trivial feature work
 - `docs/agentic/product-analytics-and-feature-flags.md` - canonical first-pass rollout, flagging, and product instrumentation policy

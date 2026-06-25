@@ -1,0 +1,57 @@
+[mcp_servers.playwright]
+command = "npx"
+args = ["-y", "@playwright/mcp@latest"]
+
+[mcp_servers.vercel_vrdex]
+url = "https://mcp.vercel.com"
+
+[mcp_servers.convex]
+command = "npx"
+args = ["convex", "mcp", "start", "--project-dir", "."]
+
+[mcp_servers.aws_docs]
+command = "C:/Users/steve/.local/bin/uvx.exe"
+args = ["awslabs.aws-documentation-mcp-server@latest"]
+
+[mcp_servers.aws_docs.env]
+FASTMCP_LOG_LEVEL = "ERROR"
+AWS_DOCUMENTATION_PARTITION = "aws"
+
+[mcp_servers.aws_iac]
+command = "C:/Users/steve/.local/bin/uvx.exe"
+args = ["awslabs.aws-iac-mcp-server@latest"]
+
+[mcp_servers.aws_iac.env]
+FASTMCP_LOG_LEVEL = "ERROR"
+
+[mcp_servers.aws_terraform]
+command = "uvx"
+args = ["awslabs.terraform-mcp-server@latest"]
+
+[mcp_servers.aws_terraform.env]
+FASTMCP_LOG_LEVEL = "ERROR"
+AWS_PROFILE = "default"
+AWS_REGION = "us-east-1"
+
+[mcp_servers.aws_mcp]
+command = "uvx"
+args = [
+  "--from",
+  "mcp-proxy-for-aws@latest",
+  "mcp-proxy-for-aws.exe",
+  "https://aws-mcp.us-east-1.api.aws/mcp",
+  "--service",
+  "aws-mcp",
+  "--profile",
+  "default",
+  "--region",
+  "us-east-1",
+]
+
+[mcp_servers.daytona]
+command = "C:/Users/steve/AppData/Roaming/bin/daytona/daytona.exe"
+args = ["mcp", "start"]
+
+[mcp_servers.daytona.env]
+APPDATA = "C:\\Users\\steve\\AppData\\Roaming"
+HOME = "C:\\Users\\steve"
