@@ -469,7 +469,13 @@ Streaming and world-awareness direction:
 - world linkage should also power creator attribution, world pages, and event-derived active-world discovery
 - early Hot Worlds / Active Venues surfaces should use explicit event-world associations, curated picks, or partner-provided data with review rather than scraped global popularity
 - DJ/media links may need multiple variants, especially VRCDN PC vs Quest behavior
-- a later restreamer or one-link stream-routing workflow may need current/next source status, live checks, operator preview, direct Twitch/watch-link access, and scheduled/manual switching
+- a later restreamer or one-link stream-routing workflow should model event-scoped sources for performer streams, VJ feeds, venue cameras, hold slates, and direct fallback links
+- manual controls and automatic rules should be separate product layers; first-slice controls can be manual or preview-only before scheduled/automatic switching is trusted
+- manual controls should include preview, next, previous, custom source, hold current, hold slate, and fallback-link publication
+- candidate automatic rules include switching only when the next performer is live and the current source is offline, or when the current slot is beyond a configured grace period and the next source is live
+- source state should distinguish `current`, `next`, `live`, `offline`, `stale`, and `unknown`; unknown or stale sources should block automatic switching unless an operator confirms the command
+- event media-control operations should require operator ownership or a scoped event token, and should create auditable command records without exposing source secrets or provider internals publicly
+- restream output should plug into the existing public watch surface, while public `Now playing` is derived from safe event-slot/profile state and can pair the current performer with public thumbnail or banner imagery
 - more advanced stream/player knowledge is valuable, but can land after the core event model exists
 
 ## Low-priority R&D ideas

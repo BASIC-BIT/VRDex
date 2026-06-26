@@ -456,7 +456,13 @@ Streaming and media direction:
 Candidate restreamer / one-link routing direction:
 
 - some communities may want one stable public stream/watch link while operators manage per-DJ source links behind it
-- useful operations include manual switching, later time-boundary switching, live checks before switching, current/next source status, preview, and direct Twitch/watch-link access
+- the media-control model should treat performer stream links, VJ feeds, venue cameras, hold slates, and direct fallback links as event-scoped sources that can optionally attach to event slots
+- manual operator controls come first: preview a source, switch to next, switch to previous, switch to a custom source, publish a fallback link, hold the current source, or move to a hold slate
+- automatic switching should remain a candidate layer, separate from manual controls, with rules such as `next performer live and current offline`, or `current slot over grace period and next performer live`
+- source status should distinguish `current`, `next`, `live`, `offline`, `stale`, and `unknown`; automatic rules should not switch to an unknown source without operator confirmation
+- fallback behavior should prefer holding the current source when safe, otherwise move to a hold scene or direct public fallback link while keeping private source-health detail in the operator view
+- control operations should require an event-scoped key or scoped token tied to an operator, worker, Discord command surface, or bridge, with all accepted/rejected commands recorded in an audit trail
+- restream output should reuse the public watch surface instead of creating a separate viewer path; public pages can show `Now playing` from the current slot, public performer profile display name, and safe thumbnail/banner imagery without exposing private readiness or provider health
 - this should inform event media-link modeling and operator-dashboard interviews before becoming first-slice streaming infrastructure
 
 Candidate set/performance artifact direction:

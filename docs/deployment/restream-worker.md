@@ -52,6 +52,8 @@ Secret values are not environment variables in git or Terraform. The `secret_arn
 
 Current recommendation: run `pnpm ops:event-media:ecs-bridge` from an operator-controlled environment with AWS credentials that can register task definitions, run tasks, describe tasks, stop tasks, and deregister the bridge-created task definitions. The bridge polls Convex for queued `start_program` and `stop_program` commands, starts or stops one Fargate task, then records task status back into Convex for the private event editor.
 
+The bridge and worker do not own event media-control policy. Convex remains the source of truth for manual commands, candidate automatic-rule output, source routing state, and audit records. A worker receives only the selected source/output/session payload required for the command it claimed; it must not infer broader event permissions or publish private source-health detail to public pages.
+
 Required non-secret bridge configuration:
 
 - `CONVEX_URL`

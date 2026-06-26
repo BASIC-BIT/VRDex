@@ -385,6 +385,19 @@ Current recommendation:
 - provider embeds are allow-listed for YouTube, Twitch, and VRCDN; unsupported watch links remain outbound cards
 - provider live/offline checks belong to the later restream/media-control model in `#124` and should not leak into viewer-facing explanatory copy
 
+### `event_media_control` later
+
+- event-scoped restream and one-link routing records should sit beside, not inside, the public media-link list
+- sources can represent performer streams, VJ feeds, venue cameras, hold slates, intro/outro scenes, and direct public fallback links
+- sources can attach to event slots so the current route can derive public `Now playing` from safe slot/profile state
+- manual operator commands include preview, next, previous, custom source switch, hold current, hold slate, fallback publication, start, and stop
+- automatic rules are separate from commands and should start as candidate policy, such as switching only when the next source is live and the current source is offline or over a configured grace period
+- source status uses a small shared vocabulary: `current`, `next`, `live`, `offline`, `stale`, and `unknown`
+- stale or unknown sources should not be automatic-switch targets without explicit operator confirmation
+- media-control calls require a signed-in editor with event management authority, or a scoped event token for a worker, bridge, or approved command surface
+- all accepted, rejected, and expired commands should write audit events with actor, token scope, command intent, result, and sanitized reason
+- public projection is limited to safe watch links, public current performer labels, public profile imagery, and optional `Now playing`; private readiness, provider health, secret references, and command internals stay out of public pages
+
 ### `entity_match_suggestions`
 
 - stores LLM or rule-based candidate matches from event descriptions
