@@ -214,17 +214,23 @@ Candidate later direction:
 - community-scoped roles for management and collaboration
 - likely starter defaults: `admin`, `mod`
 - should be treated as default or seed roles, not necessarily permanent hard-coded product roles
+- `owner` is not stored as an ordinary community role; it is the singleton ownership link for the community
+- role assignments need active/revoked state and audit metadata so staff changes are reversible and explainable
 
 ### `community_role_permissions`
 
 - capability mapping for community actions
 - examples: edit profile, manage staff, manage events, transfer ownership, manage billing
+- starter capability keys: `edit_community_profile`, `manage_roster`, `manage_events`, `manage_event_media`, `view_event_operations`, `manage_staff`, `manage_integrations`, and `manage_billing`
 
 Current recommendation:
 
 - `owner` is modeled as a special singleton ownership state, not just another ordinary role
 - admins can manage billing by default
 - dangerous ownership-sensitive actions should stay owner-only
+- `manage_events` should authorize event CRUD, slot/lineup edits, event-world associations, and public event metadata
+- `manage_event_media` should authorize private media-control commands, output setup, source routing, fallback publication, and worker lifecycle actions
+- `view_event_operations` should allow read-only access to private current/next slot, readiness, source status, and command history without allowing writes
 
 ### `verification_events`
 
@@ -398,6 +404,17 @@ Current recommendation:
 - all accepted, rejected, and expired commands should write audit events with actor, token scope, command intent, result, and sanitized reason
 - public projection is limited to safe watch links, public current performer labels, public profile imagery, and optional `Now playing`; private readiness, provider health, secret references, and command internals stay out of public pages
 
+### `event_operations` later
+
+- private operator view over canonical events, slots, participants, worlds, and media-control state
+- roster rows show current, next, and upcoming slots with schedule times, overrun state, linked public profile, display label, and operator-only readiness
+- readiness vocabulary starts small: `ready`, `needs_attention`, `not_ready`, and `unknown`
+- source/operator status can reference the media-control vocabulary without exposing provider mechanics publicly
+- manual actions include mark readiness, cue slot/source, hold current, show hold scene, preview source, publish fallback, copy Discord-ready output, and add private operator notes
+- automatic signals are advisory until converted into an audited command by an operator or a separately configured rule
+- authorization uses community capabilities: `view_event_operations` for read-only panels, `manage_events` for schedule/roster edits, and `manage_event_media` for source/output control
+- optional local bridge signals from VRChat tooling can appear only as private operator hints with freshness and provenance, never as public attendance/readiness claims
+
 ### `entity_match_suggestions`
 
 - stores LLM or rule-based candidate matches from event descriptions
@@ -515,6 +532,8 @@ Current recommendation:
 - model one special `owner` plus seeded familiar roles like `admin` and `mod`
 - allow the non-owner role structure to evolve rather than treating every role name as permanently hard-coded
 - use capability flags for actions and keep the first set intentionally small
+- keep ownership transfer, owner removal, destructive community actions, and final sensitive billing authority owner-only
+- split event authority into `manage_events`, `manage_event_media`, and `view_event_operations` so schedule editors, stream operators, and helpers do not need identical access
 
 Reasoning:
 
@@ -547,6 +566,13 @@ Best reuse targets:
 - VRChat profile reads
 - VRChat group reads
 - local-first tooling for admin and support workflows
+
+Event bridge boundary:
+
+- local-only VRChat bridge tools may help an operator resolve VRChat users, groups, worlds, and event context to VRDex records
+- a local bridge may provide private freshness-scoped hints such as `performer_maybe_in_instance` when the operator has appropriate local credentials and consent boundaries
+- VRDex public pages, claim flows, and hosted services must not depend on private VRChat cookies or local presence checks
+- bridge-derived signals are advisory operator context, not authoritative event facts or public readiness states
 
 ### VRC Pop
 

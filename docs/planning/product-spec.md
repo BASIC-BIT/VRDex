@@ -345,9 +345,12 @@ MVP-adjacent but worth designing early:
 
 Club management direction:
 
-- one owner in v1
-- familiar starter roles like `admin` and `mod`
+- one owner in v1, modeled as a singleton ownership state rather than an ordinary role
+- familiar starter roles like `admin` and `mod`, backed by capability flags instead of a giant permission matrix
+- first capabilities should cover community profile editing, roster management, event management, event media/control operations, staff management, integrations, and billing access
+- dangerous ownership actions such as transfer, owner removal, deletion, and final billing authority stay owner-only until there is a stronger transfer/acceptance flow
 - unclaimed roster members allowed so communities can use the system before full ecosystem adoption
+- role labels can evolve later; the first product should not permanently hard-code every non-owner role name
 
 Candidate later workflow direction:
 
@@ -404,9 +407,19 @@ Important future-aware extensions:
 - VRChat world linkage
 - platform compatibility hints
 - richer DJ slot breakdowns and booking-manager UX beyond the first `#119` slot editor
+- private operator command roster that shows current slot, next slot, scheduled times, overrun state, performer readiness, source status, and manual actions without leaking operational status to public pages
 - stream/watch link modeling
 - set/performance artifacts that can attach an external or hosted recording to a specific event slot
 - calendar import, export, and sync, preserving static `.ics` export, later Google Calendar sync, and reviewed Google Calendar import; see `docs/planning/calendar-integration.md`
+
+Event operations direction:
+
+- use structured slots as the source of truth for current and next performer rows
+- keep operator readiness states private, such as `ready`, `needs_attention`, `not_ready`, and `unknown`
+- support manual operator actions such as marking readiness, cueing next/previous/custom slots, adding private notes, copying Discord-ready output, and sending media-control commands when a media program exists
+- keep automatic signals advisory until an operator or approved rule turns them into an auditable command
+- require community event authority for privileged actions; `manage_events` can edit schedule/roster data, while `manage_event_media` controls restream/source operations
+- optional local VRChat bridge signals may help operators resolve users, groups, worlds, or likely instance presence, but those signals are not public facts and must not become a dependency for ordinary event workflows
 
 Event media direction:
 

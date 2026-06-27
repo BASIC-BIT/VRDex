@@ -310,6 +310,9 @@ Current recommendation:
 
 - treat `owner` as the only reserved/special role
 - seed communities with familiar default roles like `admin` and `mod`
+- use capability flags for checks, with a starter set of `edit_community_profile`, `manage_roster`, `manage_events`, `manage_event_media`, `view_event_operations`, `manage_staff`, `manage_integrations`, and `manage_billing`
+- let `manage_events` cover event creation, schedule, lineup, and public event metadata, while `manage_event_media` covers restream/source/output control
+- allow `view_event_operations` without granting write authority so helpers can monitor current/next slots and private readiness without controlling output
 - let admins manage billing by default, while keeping the most dangerous ownership-sensitive billing actions constrained
 - avoid hard-coding every non-owner role forever; role structure should be able to evolve
 
@@ -476,6 +479,8 @@ Streaming and world-awareness direction:
 - source state should distinguish `current`, `next`, `live`, `offline`, `stale`, and `unknown`; unknown or stale sources should block automatic switching unless an operator confirms the command
 - event media-control operations should require operator ownership or a scoped event token, and should create auditable command records without exposing source secrets or provider internals publicly
 - restream output should plug into the existing public watch surface, while public `Now playing` is derived from safe event-slot/profile state and can pair the current performer with public thumbnail or banner imagery
+- private event operations should have a command roster separate from the public event page, showing current and next slots, schedule drift, performer readiness, source status, and manual actions
+- optional VRChat context from a local bridge can be advisory for operators, but it should not be hosted by VRDex as a public credential-backed service or exposed as public presence/readiness
 - more advanced stream/player knowledge is valuable, but can land after the core event model exists
 
 ## Low-priority R&D ideas

@@ -2,7 +2,7 @@
 
 ## Status
 
-Current recommendation and implementation note for `#34`, `#35`, `#36`, `#119`, `#132`, and `#134`.
+Current recommendation and implementation note for `#34`, `#35`, `#36`, `#93`, `#119`, `#123`, `#124`, `#132`, and `#134`.
 
 ## Event Records
 
@@ -44,7 +44,22 @@ A small `communityAuthorities` table is reserved for the next authority layer:
 - familiar starter roles such as `admin` and `mod`
 - capability flags such as `manage_events`
 
-The fuller ownership and staff-role foundation is tracked in `#93`.
+Current recommendation: split the singleton ownership link from delegable staff-role assignments. `owner` is a special community authority state, not an ordinary role row. Non-owner role assignments can start with seeded role keys such as `admin` and `mod`, but backend checks should use capability flags so the role vocabulary can evolve.
+
+Starter capabilities:
+
+- `edit_community_profile`: edit public community profile fields and presentation.
+- `manage_roster`: add, remove, and annotate community roster members.
+- `manage_events`: create and edit community events, slots, lineup links, event-world links, and public event metadata.
+- `manage_event_media`: configure event media programs, sources, outputs, worker lifecycle, fallback publication, and media-control commands.
+- `view_event_operations`: read private current/next slot, readiness, source status, and command history without editing.
+- `manage_staff`: invite, assign, revoke, and audit non-owner staff roles.
+- `manage_integrations`: configure community-owned import/export or partner integration settings.
+- `manage_billing`: access ordinary community billing settings where product policy allows.
+
+Owner-only actions include ownership transfer, owner removal, destructive community deletion/suppression, capability policy changes that could remove owner control, and any final sensitive billing authority that can terminate or transfer the community's account-level relationship. Ownership transfer should require an explicit acceptance flow rather than a silent reassignment.
+
+Event writes should authorize the original submitter during the first slice, then prefer community authority when a host community is attached. Event media-control calls require `manage_event_media` or a scoped event token; read-only operator panels can use `view_event_operations`. The fuller ownership and staff-role foundation is tracked in `#93`.
 
 ## Event Participants
 
@@ -84,6 +99,33 @@ Slot start times must be at or after the event start. When an event end time is 
 Canonical slot times are stored as timestamps. Discord timestamp tokens such as `<t:1781474400:F>` are generated from saved event/slot timestamps for display or export; they are not canonical storage.
 
 The first slot editor uses relative minute offsets from the event start for operator-friendly sequential scheduling. Backend storage still receives absolute timestamps after the operator confirms the event start and a valid IANA timezone.
+
+## Event Operations Panel
+
+The private operator command roster is separate from the public event page. It reads canonical event, slot, participant, world, and media-control records, then presents an event-running view for authorized staff.
+
+Operator rows should show:
+
+- current, next, and upcoming slot position.
+- scheduled start/end times and overrun state.
+- linked public performer profile when available, otherwise the public slot display label.
+- private readiness state: `ready`, `needs_attention`, `not_ready`, or `unknown`.
+- private source state when a media source exists, using the event media-control status vocabulary.
+- private operator notes, last updated actor, and provenance/freshness for any advisory signals.
+
+Manual panel actions should include:
+
+- mark performer readiness.
+- cue next, previous, or custom slot/source.
+- preview a media source.
+- hold current source or show a hold scene.
+- publish a fallback watch link.
+- copy or preview Discord-ready lineup output.
+- add private operator notes.
+
+The panel should separate manual actions from automatic/advisory signals. A local VRChat bridge can provide private hints, such as resolving a VRChat user/world/group or suggesting that a performer may be in a relevant instance, only when an operator runs an approved local bridge with appropriate credentials. Bridge-derived status is never a public fact, never required for event operation, and never sufficient for profile claim or public readiness. Public pages continue to project only safe event, slot, profile, image, and watch-surface data.
+
+Authorization is capability-based: `view_event_operations` can read the panel, `manage_events` can edit schedule/roster data, and `manage_event_media` can send media/source/output commands. Every write should create an audit event with actor, capability or token scope, target row, command/action, result, and sanitized reason.
 
 ## Event Media Slots
 

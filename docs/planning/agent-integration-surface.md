@@ -110,6 +110,14 @@ Candidate direction:
 - consider optional bridge tools in VRChat MCP later when cross-context workflows are compelling, such as resolving a VRChat group/user/world to a VRDex profile or opening a VRDex event/profile from VRChat context
 - do not put VRDex partner data or VRDex claim operations behind VRChat cookies
 
+Phased recommendation for event workflows:
+
+- yes to evaluating a local-only bridge for operator workflows after standalone VRDex read tools exist
+- no to hosting VRChat credential-backed bridge tools as a public VRDex service
+- no to using bridge-derived presence/readiness as public event data, profile claim evidence, or required event workflow input
+- first concrete tools should be narrow: resolve a VRChat user/group/world to candidate VRDex records, open a VRDex profile/event from VRChat context, and provide private freshness-scoped event-operator hints such as whether a performer may be in a relevant instance
+- every bridge signal needs provenance, freshness, and visibility metadata so operators can tell local hints from owner-confirmed VRDex facts
+
 ## Safety And Trust Rules
 
 - Agent-facing docs and skills must preserve VRDex's source/provenance model.
@@ -117,6 +125,7 @@ Candidate direction:
 - Partner imports should not encourage dumping raw spreadsheets into repos or public APIs.
 - Website navigation guidance should discourage scraping when an API or MCP endpoint exists.
 - Any authenticated MCP write or claim tool should be approval-friendly, auditable, and scoped.
+- Local VRChat bridge tools must not export private cookies, private presence, hidden group data, or operator-only readiness into public VRDex records.
 
 ## Rollout Order
 
