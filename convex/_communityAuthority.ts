@@ -15,12 +15,27 @@ type IdentityLike = {
   name?: string;
 };
 
-type CommunityCapability =
+export type CommunityCapability =
+  | "edit_community_profile"
   | "manage_profile"
+  | "manage_roster"
   | "manage_events"
+  | "manage_event_media"
+  | "view_event_operations"
   | "manage_staff"
   | "manage_integrations"
   | "manage_billing";
+
+const communityCapabilityAliases: Partial<Record<CommunityCapability, CommunityCapability[]>> = {
+  edit_community_profile: ["manage_profile"],
+  manage_profile: ["edit_community_profile"],
+};
+
+function hasCapability(capabilities: CommunityCapability[], requested: CommunityCapability): boolean {
+  const accepted = [requested, ...(communityCapabilityAliases[requested] ?? [])];
+
+  return accepted.some((capability) => capabilities.includes(capability));
+}
 
 export function toAuthSubject(identity: IdentityLike): AuthSubject {
   return {
@@ -41,6 +56,15 @@ export async function subjectHasCommunityCapability(
   subject: AuthSubject,
   capability: CommunityCapability,
 ): Promise<boolean> {
+  return subjectHasAnyCommunityCapability(db, communityProfileId, subject, [capability]);
+}
+
+export async function subjectHasAnyCommunityCapability(
+  db: DatabaseReader,
+  communityProfileId: Id<"profiles">,
+  subject: AuthSubject,
+  capabilities: CommunityCapability[],
+): Promise<boolean> {
   const authorities = await db
     .query("communityAuthorities")
     .withIndex("by_subjectTokenIdentifier_state_communityProfileId", (query) =>
@@ -49,7 +73,9 @@ export async function subjectHasCommunityCapability(
         .eq("state", "active")
         .eq("communityProfileId", communityProfileId),
     )
-    .take(1);
+    .take(20);
 
-  return authorities.some((authority) => authority.capabilities.includes(capability));
+  return authorities.some((authority) =>
+    capabilities.some((capability) => hasCapability(authority.capabilities as CommunityCapability[], capability)),
+  );
 }

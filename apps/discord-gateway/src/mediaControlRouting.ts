@@ -57,11 +57,11 @@ type CommandAction = Exclude<DiscordMediaControlAction, "refresh">;
 const ACTION_TO_COMMAND_TYPE = {
   start: "start_program",
   stop: "stop_program",
-  hold: "switch_hold",
-  next: "next_slot",
-  previous: "previous_slot",
+  hold: "hold_current",
+  next: "switch_next",
+  previous: "switch_previous",
   source: "switch_source",
-  fallback: "force_direct_link_fallback",
+  fallback: "publish_fallback_link",
   publish_watch_link: "publish_current_public_watch_link",
 } as const satisfies Record<CommandAction, EventMediaCommandType>;
 

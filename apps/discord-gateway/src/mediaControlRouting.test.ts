@@ -12,11 +12,11 @@ describe("Discord media control routing", () => {
   it("maps Discord control actions to the shared event media command model", () => {
     assert.equal(eventMediaCommandTypeForDiscordAction("start"), "start_program");
     assert.equal(eventMediaCommandTypeForDiscordAction("stop"), "stop_program");
-    assert.equal(eventMediaCommandTypeForDiscordAction("hold"), "switch_hold");
-    assert.equal(eventMediaCommandTypeForDiscordAction("next"), "next_slot");
-    assert.equal(eventMediaCommandTypeForDiscordAction("previous"), "previous_slot");
+    assert.equal(eventMediaCommandTypeForDiscordAction("hold"), "hold_current");
+    assert.equal(eventMediaCommandTypeForDiscordAction("next"), "switch_next");
+    assert.equal(eventMediaCommandTypeForDiscordAction("previous"), "switch_previous");
     assert.equal(eventMediaCommandTypeForDiscordAction("source"), "switch_source");
-    assert.equal(eventMediaCommandTypeForDiscordAction("fallback"), "force_direct_link_fallback");
+    assert.equal(eventMediaCommandTypeForDiscordAction("fallback"), "publish_fallback_link");
     assert.equal(eventMediaCommandTypeForDiscordAction("publish_watch_link"), "publish_current_public_watch_link");
     assert.equal(eventMediaCommandTypeForDiscordAction("refresh"), undefined);
   });
@@ -43,7 +43,7 @@ describe("Discord media control routing", () => {
     assert.equal(route.ack, "defer_message_update");
     assert.equal(route.eventId, "event_123");
     assert.equal(route.requiresConfirmation, false);
-    assert.deepEqual(route.command, { type: "switch_hold" });
+    assert.deepEqual(route.command, { type: "hold_current" });
   });
 
   it("routes stale panel component clicks to ephemeral warnings without commands", () => {
