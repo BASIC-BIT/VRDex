@@ -23,6 +23,7 @@ import {
   sanitizeVrcdnOperatorOwnedOutputSetup,
 } from "./_eventMediaControl";
 import { sanitizeEventDraftInput } from "./_eventInputs";
+import { findEventOperationSlots } from "./_eventOperations";
 import { getPublicCommunityHostedEvents, getPublicEventBySlug } from "./_eventPublic";
 import { findAvailableEventSlug, getEventBySlug, validateEventSlug } from "./_eventSlugs";
 import { canReadProfile } from "./_profilePermissions";
@@ -718,29 +719,6 @@ async function recordEventMediaAuditEvent(
     ...(input.privateSummary === undefined ? {} : { privateSummary: input.privateSummary }),
     createdAt: input.createdAt,
   });
-}
-
-function eventOperationSlot(slot: Doc<"eventSlots">) {
-  return {
-    slotId: slot._id,
-    position: slot.position,
-    startAt: slot.startAt,
-    ...(slot.endAt === undefined ? {} : { endAt: slot.endAt }),
-    displayLabel: slot.displayLabel,
-    roleLabel: slot.roleLabel,
-    reviewState: slot.reviewState,
-  };
-}
-
-function findEventOperationSlots(slots: Doc<"eventSlots">[], now: number) {
-  const ordered = [...slots].sort((first, second) => first.startAt - second.startAt || first.position - second.position);
-  const currentSlot = ordered.find((slot) => slot.startAt <= now && (slot.endAt === undefined || slot.endAt > now));
-  const nextSlot = ordered.find((slot) => slot.startAt > now);
-
-  return {
-    ...(currentSlot === undefined ? {} : { currentSlot: eventOperationSlot(currentSlot) }),
-    ...(nextSlot === undefined ? {} : { nextSlot: eventOperationSlot(nextSlot) }),
-  };
 }
 
 function sourceStatusSummary(sources: Doc<"eventMediaSources">[]) {

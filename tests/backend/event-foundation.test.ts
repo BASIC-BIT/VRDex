@@ -5,6 +5,7 @@ import type { Doc } from "../../convex/_generated/dataModel";
 import type { DatabaseReader } from "../../convex/_generated/server";
 import { createDiscordTimestampSet, toDiscordTimestamp } from "../../convex/_discordTimestamps";
 import { sanitizeEventDraftInput } from "../../convex/_eventInputs";
+import { findEventOperationSlots } from "../../convex/_eventOperations";
 import {
   getPublicEventPreviews,
   toPublicEvent,
@@ -349,6 +350,59 @@ describe("event slot helpers", () => {
       ],
     );
     assert.equal(slots[0]?.endAt, startAt + 45 * 60_000);
+  });
+
+  it("derives the current operation slot from the latest started slot when ends are omitted", () => {
+    const startAt = Date.UTC(2026, 5, 14, 22, 0, 0);
+    const slots = [
+      {
+        _id: "slot-1",
+        eventId: "event123",
+        eventStartAt: startAt,
+        position: 0,
+        startAt,
+        displayLabel: "DJ Aurora",
+        roleLabel: "House",
+        sourceType: "community",
+        sourceLabel: "Fixture lineup",
+        confidence: 1,
+        reviewState: "confirmed",
+        updatedAt: startAt,
+      },
+      {
+        _id: "slot-2",
+        eventId: "event123",
+        eventStartAt: startAt,
+        position: 1,
+        startAt: startAt + 3_600_000,
+        displayLabel: "DJ Lumen",
+        roleLabel: "Trance",
+        sourceType: "community",
+        sourceLabel: "Fixture lineup",
+        confidence: 1,
+        reviewState: "confirmed",
+        updatedAt: startAt,
+      },
+      {
+        _id: "slot-3",
+        eventId: "event123",
+        eventStartAt: startAt,
+        position: 2,
+        startAt: startAt + 7_200_000,
+        displayLabel: "DJ Nova",
+        roleLabel: "Techno",
+        sourceType: "community",
+        sourceLabel: "Fixture lineup",
+        confidence: 1,
+        reviewState: "confirmed",
+        updatedAt: startAt,
+      },
+    ] as unknown as Doc<"eventSlots">[];
+
+    const operationSlots = findEventOperationSlots(slots, startAt + 3_900_000);
+
+    assert.equal(operationSlots.currentSlot?.displayLabel, "DJ Lumen");
+    assert.equal(operationSlots.nextSlot?.displayLabel, "DJ Nova");
   });
 });
 
