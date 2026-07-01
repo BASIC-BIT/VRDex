@@ -49,7 +49,7 @@ export type EventMediaSourcePurpose =
   | "fallback"
   | "watch";
 
-export type EventMediaSourceState = "draft" | "ready" | "live" | "offline" | "failed" | "disabled";
+export type EventMediaSourceState = "draft" | "ready" | "live" | "offline" | "stale" | "unknown" | "failed" | "disabled";
 
 export type EventMediaSceneType = "source" | "hold_slate" | "intro" | "outro" | "offline_card" | "countdown";
 
@@ -68,7 +68,13 @@ export type EventMediaComplianceGateState = "pending" | "accepted" | "blocked";
 export type EventMediaCommandType =
   | "start_program"
   | "stop_program"
+  | "preview_source"
+  | "switch_next"
+  | "switch_previous"
   | "switch_source"
+  | "hold_current"
+  | "show_hold_scene"
+  | "publish_fallback_link"
   | "switch_hold"
   | "next_slot"
   | "previous_slot"
@@ -185,6 +191,7 @@ export type SanitizedVrcdnOperatorOwnedOutputSetup = {
 export type EventMediaCommandInput = {
   type: EventMediaCommandType;
   targetSourceKey?: string;
+  targetSceneKey?: string;
   targetOutputKey?: string;
   publicFallbackLinks?: EventMediaPublicLinkInput[];
   note?: string;
@@ -193,6 +200,7 @@ export type EventMediaCommandInput = {
 export type SanitizedEventMediaCommand = {
   type: EventMediaCommandType;
   targetSourceKey?: string;
+  targetSceneKey?: string;
   targetOutputKey?: string;
   publicFallbackLinks: EventMediaPublicLink[];
   note?: string;
@@ -262,6 +270,8 @@ export const eventMediaSourceStateValidator = v.union(
   v.literal("ready"),
   v.literal("live"),
   v.literal("offline"),
+  v.literal("stale"),
+  v.literal("unknown"),
   v.literal("failed"),
   v.literal("disabled"),
 );
@@ -312,7 +322,13 @@ export const eventMediaComplianceGateStateValidator = v.union(
 export const eventMediaCommandTypeValidator = v.union(
   v.literal("start_program"),
   v.literal("stop_program"),
+  v.literal("preview_source"),
+  v.literal("switch_next"),
+  v.literal("switch_previous"),
   v.literal("switch_source"),
+  v.literal("hold_current"),
+  v.literal("show_hold_scene"),
+  v.literal("publish_fallback_link"),
   v.literal("switch_hold"),
   v.literal("next_slot"),
   v.literal("previous_slot"),
@@ -616,21 +632,30 @@ export function sanitizeEventMediaWorkerArtifactLinks(
 
 export function sanitizeEventMediaCommandInput(input: EventMediaCommandInput): SanitizedEventMediaCommand {
   const targetSourceKey = sanitizeControlKey(input.targetSourceKey, "Target source key");
+  const targetSceneKey = sanitizeControlKey(input.targetSceneKey, "Target scene key");
   const targetOutputKey = sanitizeControlKey(input.targetOutputKey, "Target output key");
   const publicFallbackLinks = sanitizeEventMediaPublicLinks(input.publicFallbackLinks);
   const note = optionalBoundedText(input.note, "Media command note", CONTROL_NOTE_MAX_LENGTH);
 
-  if (["switch_source", "mark_source_live", "mark_source_offline"].includes(input.type) && targetSourceKey === undefined) {
+  if (
+    ["preview_source", "switch_source", "mark_source_live", "mark_source_offline"].includes(input.type) &&
+    targetSourceKey === undefined
+  ) {
     throw new Error(`${input.type} requires a target source key.`);
   }
 
-  if (input.type === "force_direct_link_fallback" && publicFallbackLinks.length === 0) {
+  if (input.type === "show_hold_scene" && targetSceneKey === undefined) {
+    throw new Error("show_hold_scene requires a target scene key.");
+  }
+
+  if (["force_direct_link_fallback", "publish_fallback_link"].includes(input.type) && publicFallbackLinks.length === 0) {
     throw new Error("Direct-link fallback requires at least one public fallback link.");
   }
 
   return {
     type: input.type,
     ...(targetSourceKey === undefined ? {} : { targetSourceKey }),
+    ...(targetSceneKey === undefined ? {} : { targetSceneKey }),
     ...(targetOutputKey === undefined ? {} : { targetOutputKey }),
     publicFallbackLinks,
     ...(note === undefined ? {} : { note }),

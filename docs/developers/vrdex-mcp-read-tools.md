@@ -14,6 +14,7 @@ The standalone VRDex MCP should wait for stable public API/query behavior. This 
 - Use compact outputs with stable IDs/slugs for follow-up calls.
 - Preserve public visibility, opt-out, trust, and provenance rules.
 - Do not expose authenticated claim/write operations in the first read-only slice.
+- Keep event-operator presence/readiness signals out of the standalone public read tool contract.
 
 ## Candidate Tools
 
@@ -141,6 +142,13 @@ Candidate direction:
 - hosted/remote MCP is suitable for public read-only data because VRDex public data is not tied to private VRChat cookies
 - local MCP remains useful for self-hosted deployments and development
 - authenticated write/claim tools, if ever added, need normal VRDex auth, scoped tokens, approvals, and audit trails
+
+Optional VRChat bridge evaluation:
+
+- a local bridge can be evaluated separately for operator-owned event workflows, not for the standalone public read tools
+- candidate bridge tools can resolve VRChat users, groups, or worlds to candidate VRDex records, or provide private event-operator hints when the operator has local credentials
+- bridge-derived presence or readiness must be treated as private, freshness-scoped, and non-authoritative
+- bridge tools must not be required for `vrdex_event_get`, event discovery, profile claims, or public event watch surfaces
 
 ## Implementation Gate
 

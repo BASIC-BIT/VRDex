@@ -2,7 +2,7 @@
 
 ## Status
 
-Current recommendation and implementation note for `#34`, `#35`, `#36`, `#119`, `#132`, and `#134`.
+Current recommendation and implementation note for `#34`, `#35`, `#36`, `#93`, `#119`, `#123`, `#124`, `#132`, and `#134`.
 
 ## Event Records
 
@@ -44,7 +44,22 @@ A small `communityAuthorities` table is reserved for the next authority layer:
 - familiar starter roles such as `admin` and `mod`
 - capability flags such as `manage_events`
 
-The fuller ownership and staff-role foundation is tracked in `#93`.
+Current recommendation: split the singleton ownership link from delegable staff-role assignments. `owner` is a special community authority state, not an ordinary role row. Non-owner role assignments can start with seeded role keys such as `admin` and `mod`, but backend checks should use capability flags so the role vocabulary can evolve.
+
+Starter capabilities:
+
+- `edit_community_profile`: edit public community profile fields and presentation.
+- `manage_roster`: add, remove, and annotate community roster members.
+- `manage_events`: create and edit community events, slots, lineup links, event-world links, and public event metadata.
+- `manage_event_media`: configure event media programs, sources, outputs, worker lifecycle, fallback publication, and media-control commands.
+- `view_event_operations`: read private current/next slot, readiness, source status, and command history without editing.
+- `manage_staff`: invite, assign, revoke, and audit non-owner staff roles.
+- `manage_integrations`: configure community-owned import/export or partner integration settings.
+- `manage_billing`: access ordinary community billing settings where product policy allows.
+
+Owner-only actions include ownership transfer, owner removal, destructive community deletion/suppression, capability policy changes that could remove owner control, and any final sensitive billing authority that can terminate or transfer the community's account-level relationship. Ownership transfer should require an explicit acceptance flow rather than a silent reassignment.
+
+Event writes should authorize the original submitter during the first slice, then prefer community authority when a host community is attached. Event media-control calls require `manage_event_media` or a scoped event token; read-only operator panels can use `view_event_operations`. The fuller ownership and staff-role foundation is tracked in `#93`.
 
 ## Event Participants
 
@@ -84,6 +99,33 @@ Slot start times must be at or after the event start. When an event end time is 
 Canonical slot times are stored as timestamps. Discord timestamp tokens such as `<t:1781474400:F>` are generated from saved event/slot timestamps for display or export; they are not canonical storage.
 
 The first slot editor uses relative minute offsets from the event start for operator-friendly sequential scheduling. Backend storage still receives absolute timestamps after the operator confirms the event start and a valid IANA timezone.
+
+## Event Operations Panel
+
+The private operator command roster is separate from the public event page. It reads canonical event, slot, participant, world, and media-control records, then presents an event-running view for authorized staff.
+
+Operator rows should show:
+
+- current, next, and upcoming slot position.
+- scheduled start/end times and overrun state.
+- linked public performer profile when available, otherwise the public slot display label.
+- private readiness state: `ready`, `needs_attention`, `not_ready`, or `unknown`.
+- private source state when a media source exists, using the event media-control status vocabulary.
+- private operator notes, last updated actor, and provenance/freshness for any advisory signals.
+
+Manual panel actions should include:
+
+- mark performer readiness.
+- cue next, previous, or custom slot/source.
+- preview a media source.
+- hold current source or show a hold scene.
+- publish a fallback watch link.
+- copy or preview Discord-ready lineup output.
+- add private operator notes.
+
+The panel should separate manual actions from automatic/advisory signals. A local VRChat bridge can provide private hints, such as resolving a VRChat user/world/group or suggesting that a performer may be in a relevant instance, only when an operator runs an approved local bridge with appropriate credentials. Bridge-derived status is never a public fact, never required for event operation, and never sufficient for profile claim or public readiness. Public pages continue to project only safe event, slot, profile, image, and watch-surface data.
+
+Authorization is capability-based: `view_event_operations` can read the panel, `manage_events` can edit schedule/roster data, and `manage_event_media` can send media/source/output commands. Every write should create an audit event with actor, capability or token scope, target row, command/action, result, and sanitized reason.
 
 ## Event Media Slots
 
@@ -158,7 +200,83 @@ Reserved control-plane tables include:
 - `eventMediaSessions` for concrete worker runs, leases, current source/scene, health heartbeats, task status, scheduled start, ready-by deadline, stop request, and private artifact/report links.
 - `eventMediaAuditEvents` for immutable operator and automation history tied back to events, programs, sessions, commands, sources, and outputs.
 
+### Source Routing Model
+
+`eventMediaSources` stores event-scoped inputs and fallbacks. A source can optionally point to an `eventSlots` row, a public person profile, or an operator-authored display label. Source records should be able to represent:
+
+- performer-provided stream or watch links.
+- VJ, host, or venue camera feeds.
+- provider-normalized public playback links such as VRCDN, Twitch, YouTube, HLS, or direct file playback.
+- private runtime inputs that are represented only by secret references.
+- hold scenes, offline scenes, intro/outro scenes, image slates, and audio loops.
+- direct fallback watch links that can be published when hosted output is unavailable.
+
+Public playback URLs may be stored only when they contain no embedded credential, signature, query secret, or userinfo. Ingest URLs, stream keys, provider tokens, signed URLs, passwords, and combined credential URLs must stay in the configured secret store and appear in Convex only as scoped reference names.
+
+Sources can carry public-safe labels and thumbnail hints, but public pages should derive performer identity from published `eventSlots` and public person-profile projections when possible. A current source attached to a public slot can expose `Now playing` with the slot label, public performer display name, and public profile thumbnail/banner fallback from the event card media model. It must not expose private readiness notes, provider health, raw source URLs, worker ids, or VRChat presence signals.
+
+### Source Status
+
+The control plane should keep relationship state and liveness state separate:
+
+- `current`: selected by the active route or active session.
+- `next`: selected by the upcoming slot, operator cue, or rule evaluation.
+- `live`: a trusted adapter, worker probe, or operator confirmation says the source is currently usable.
+- `offline`: a trusted adapter, worker probe, or operator confirmation says the source is not usable.
+- `stale`: the last trusted status is older than the configured freshness window.
+- `unknown`: no trusted status exists, the provider cannot be checked, or the check failed closed.
+
+`current` and `next` describe routing position; `live`, `offline`, `stale`, and `unknown` describe usability. Automatic rules should require `live` before switching to a source. `unknown` and `stale` are safe for preview/manual confirmation, but should block automatic switching unless an operator explicitly confirms the command.
+
+### Manual Controls
+
+Manual operator controls are the first shippable command layer. They should work before automatic switching exists and can start as preview-only controls that create auditable command records without mutating a live worker.
+
+The command vocabulary should include:
+
+- `preview_source`: test a source privately without changing the public output.
+- `switch_next`: switch to the cued next source.
+- `switch_previous`: return to the previous source when rollback is safer than holding.
+- `switch_source`: switch to an explicit custom source id.
+- `hold_current`: keep the current source active and suppress automatic switching.
+- `show_hold_scene`: move output to a hold, offline, intro, outro, or slate scene.
+- `publish_fallback_link`: expose a public direct fallback link through the event watch surface.
+- `start_program` and `stop_program`: manage the hosted worker session when one is configured.
+
+Every command should record actor type, actor id or token id, requested source or scene, intended result, validation result, execution result, timestamp, and a sanitized reason when rejected. Rejections should avoid provider-specific secret-bearing detail.
+
+### Automatic Rule Candidates
+
+Automatic switching is a later rule layer, not the baseline control model. Rules should evaluate current schedule, slot overrun, source status, operator holds, and provider freshness before emitting a normal command.
+
+Candidate rules include:
+
+- switch when the next performer source is `live` and the current source is `offline`.
+- switch when the current slot is past its end plus a configured grace period and the next performer source is `live`.
+- keep holding the current source when the next source is `unknown`, `stale`, or `offline`.
+- move to a configured hold scene when the current source is `offline` and no confirmed next source exists.
+- publish a direct fallback watch link when hosted output is unavailable but a safe public performer or venue link exists.
+
+Automatic rules must never bypass an operator-level hold, consent gate, destination authority gate, or source-specific block. Rule output should enqueue the same `eventMediaCommands` records used by manual controls so audit and rollback behavior stay consistent.
+
+### Authorization And Tokens
+
+Interactive controls require a signed-in editor with event authority, such as the event submitter in the first slice or a later community `manage_events` / `manage_event_media` capability. Worker, bridge, Discord, or external command surfaces use scoped event tokens rather than broad user sessions.
+
+Scoped tokens should carry:
+
+- event id and optional program id.
+- allowed command verbs.
+- allowed source, scene, or output ids when the token is narrower than the whole event.
+- actor label for audit display.
+- issued-at, expires-at, and revoked-at timestamps.
+- last-used metadata and rotation state.
+
+Tokens authorize command submission, not secret retrieval. Runtime secret access remains limited to the bridge or worker environment through the approved secret-reference map. Public pages never receive tokens, token ids, secret references, or command queue internals.
+
 Public projection must stay narrow: public surfaces can show safe status, current source/output labels, public watch links, and direct fallback links. They must not expose worker identifiers, command queue internals, secret references, private setup notes, ingest URLs, stream keys, or provider-specific failure mechanics.
+
+For `Now playing`, public projection should use only published event/slot data and public profile/image projections. If the active source is not attached to a published slot or safe label, the public page should fall back to the event title, host, or generic watch card instead of leaking private operator labels. Public output can say who is currently playing, but it should not say whether the next performer is late, offline, stale, missing, or privately marked not ready.
 
 ### Worker Scheduling
 

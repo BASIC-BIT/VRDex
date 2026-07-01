@@ -259,8 +259,12 @@ const eventSlotReviewState = v.union(
 );
 
 const communityCapability = v.union(
+  v.literal("edit_community_profile"),
   v.literal("manage_profile"),
+  v.literal("manage_roster"),
   v.literal("manage_events"),
+  v.literal("manage_event_media"),
+  v.literal("view_event_operations"),
   v.literal("manage_staff"),
   v.literal("manage_integrations"),
   v.literal("manage_billing"),
@@ -742,6 +746,8 @@ export default defineSchema({
     purpose: eventMediaSourcePurposeValidator,
     state: eventMediaSourceStateValidator,
     label: v.string(),
+    eventSlotId: v.optional(v.id("eventSlots")),
+    sourceProfileId: v.optional(v.id("profiles")),
     ownerProfileId: v.optional(v.id("profiles")),
     publicUrl: v.optional(v.string()),
     privateConfigRef: v.optional(v.string()),
@@ -796,6 +802,8 @@ export default defineSchema({
     actorSurface: eventMediaActorSurfaceValidator,
     targetSourceId: v.optional(v.id("eventMediaSources")),
     targetSourceKey: v.optional(v.string()),
+    targetSceneId: v.optional(v.id("eventMediaScenes")),
+    targetSceneKey: v.optional(v.string()),
     targetOutputId: v.optional(v.id("eventMediaOutputs")),
     targetOutputKey: v.optional(v.string()),
     publicFallbackLinks: v.array(eventMediaPublicLinkValidator),

@@ -345,9 +345,12 @@ MVP-adjacent but worth designing early:
 
 Club management direction:
 
-- one owner in v1
-- familiar starter roles like `admin` and `mod`
+- one owner in v1, modeled as a singleton ownership state rather than an ordinary role
+- familiar starter roles like `admin` and `mod`, backed by capability flags instead of a giant permission matrix
+- first capabilities should cover community profile editing, roster management, event management, event media/control operations, staff management, integrations, and billing access
+- dangerous ownership actions such as transfer, owner removal, deletion, and final billing authority stay owner-only until there is a stronger transfer/acceptance flow
 - unclaimed roster members allowed so communities can use the system before full ecosystem adoption
+- role labels can evolve later; the first product should not permanently hard-code every non-owner role name
 
 Candidate later workflow direction:
 
@@ -404,9 +407,19 @@ Important future-aware extensions:
 - VRChat world linkage
 - platform compatibility hints
 - richer DJ slot breakdowns and booking-manager UX beyond the first `#119` slot editor
+- private operator command roster that shows current slot, next slot, scheduled times, overrun state, performer readiness, source status, and manual actions without leaking operational status to public pages
 - stream/watch link modeling
 - set/performance artifacts that can attach an external or hosted recording to a specific event slot
 - calendar import, export, and sync, preserving static `.ics` export, later Google Calendar sync, and reviewed Google Calendar import; see `docs/planning/calendar-integration.md`
+
+Event operations direction:
+
+- use structured slots as the source of truth for current and next performer rows
+- keep operator readiness states private, such as `ready`, `needs_attention`, `not_ready`, and `unknown`
+- support manual operator actions such as marking readiness, cueing next/previous/custom slots, adding private notes, copying Discord-ready output, and sending media-control commands when a media program exists
+- keep automatic signals advisory until an operator or approved rule turns them into an auditable command
+- require community event authority for privileged actions; `manage_events` can edit schedule/roster data, while `manage_event_media` controls restream/source operations
+- optional local VRChat bridge signals may help operators resolve users, groups, worlds, or likely instance presence, but those signals are not public facts and must not become a dependency for ordinary event workflows
 
 Event media direction:
 
@@ -456,7 +469,13 @@ Streaming and media direction:
 Candidate restreamer / one-link routing direction:
 
 - some communities may want one stable public stream/watch link while operators manage per-DJ source links behind it
-- useful operations include manual switching, later time-boundary switching, live checks before switching, current/next source status, preview, and direct Twitch/watch-link access
+- the media-control model should treat performer stream links, VJ feeds, venue cameras, hold slates, and direct fallback links as event-scoped sources that can optionally attach to event slots
+- manual operator controls come first: preview a source, switch to next, switch to previous, switch to a custom source, publish a fallback link, hold the current source, or move to a hold slate
+- automatic switching should remain a candidate layer, separate from manual controls, with rules such as `next performer live and current offline`, or `current slot over grace period and next performer live`
+- source status should distinguish `current`, `next`, `live`, `offline`, `stale`, and `unknown`; automatic rules should not switch to an unknown source without operator confirmation
+- fallback behavior should prefer holding the current source when safe, otherwise move to a hold scene or direct public fallback link while keeping private source-health detail in the operator view
+- control operations should require an event-scoped key or scoped token tied to an operator, worker, Discord command surface, or bridge, with all accepted/rejected commands recorded in an audit trail
+- restream output should reuse the public watch surface instead of creating a separate viewer path; public pages can show `Now playing` from the current slot, public performer profile display name, and safe thumbnail/banner imagery without exposing private readiness or provider health
 - this should inform event media-link modeling and operator-dashboard interviews before becoming first-slice streaming infrastructure
 
 Candidate set/performance artifact direction:

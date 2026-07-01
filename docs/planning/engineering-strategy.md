@@ -115,6 +115,7 @@ Current recommendation:
 - design API docs as both human-readable and agent-consumable, with task examples and machine-readable schema docs
 - treat a portable VRDex skill as a product integration artifact for external repos, separate from repo-local onboarding skills used by VRDex maintainers
 - keep a standalone VRDex MCP as the default long-term direction, with optional VRChat MCP bridge tools only where cross-context workflows justify the coupling
+- keep any VRChat credential-backed bridge local/operator-owned; do not make public VRDex services depend on private VRChat cookies, local presence, or bridge-only context
 
 Agent-facing integration direction:
 
@@ -122,6 +123,7 @@ Agent-facing integration direction:
 - public docs should include stable route/API patterns, trust/provenance rules, and examples for partner agents
 - website navigation guidance should exist, but structured data should prefer API or MCP over scraping
 - a future VRDex MCP should use the VRChat MCP pattern of curated tools first, generated API coverage second, compact outputs, and IDs/slugs for follow-up calls
+- optional bridge tools should expose provenance and freshness, and should feed private operator workflows rather than public profile/event facts
 
 Infra direction:
 

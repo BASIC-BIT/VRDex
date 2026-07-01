@@ -73,6 +73,46 @@ describe("event media control helpers", () => {
       () => sanitizeEventMediaCommandInput({ type: "force_direct_link_fallback" }),
       /Direct-link fallback requires at least one public fallback link\./,
     );
+
+    assert.throws(
+      () => sanitizeEventMediaCommandInput({ type: "publish_fallback_link" }),
+      /Direct-link fallback requires at least one public fallback link\./,
+    );
+  });
+
+  it("normalizes the canonical manual operator command vocabulary", () => {
+    assert.deepEqual(sanitizeEventMediaCommandInput({ type: "switch_next" }), {
+      type: "switch_next",
+      publicFallbackLinks: [],
+    });
+    assert.deepEqual(sanitizeEventMediaCommandInput({ type: "switch_previous" }), {
+      type: "switch_previous",
+      publicFallbackLinks: [],
+    });
+    assert.deepEqual(sanitizeEventMediaCommandInput({ type: "hold_current" }), {
+      type: "hold_current",
+      publicFallbackLinks: [],
+    });
+    assert.equal(
+      sanitizeEventMediaCommandInput({ type: "preview_source", targetSourceKey: " DJ_Aurora " }).targetSourceKey,
+      "dj_aurora",
+    );
+    assert.equal(
+      sanitizeEventMediaCommandInput({ type: "show_hold_scene", targetSceneKey: " Hold_Slate " }).targetSceneKey,
+      "hold_slate",
+    );
+  });
+
+  it("requires source or scene targets for target-specific manual commands", () => {
+    assert.throws(
+      () => sanitizeEventMediaCommandInput({ type: "preview_source" }),
+      /preview_source requires a target source key\./,
+    );
+
+    assert.throws(
+      () => sanitizeEventMediaCommandInput({ type: "show_hold_scene" }),
+      /show_hold_scene requires a target scene key\./,
+    );
   });
 
   it("keeps non-VRCDN public links HTTPS-only", () => {
