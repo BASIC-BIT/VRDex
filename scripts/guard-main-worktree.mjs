@@ -7,7 +7,8 @@ const repoRoot = path.resolve(scriptDir, "..");
 
 const isTruthyEnv = (value) => {
   if (!value) return false;
-  return !["0", "false", "no"].includes(value.toLowerCase());
+  const normalized = value.trim().toLowerCase();
+  return !["", "0", "false", "no"].includes(normalized);
 };
 
 if (

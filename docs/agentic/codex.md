@@ -31,6 +31,7 @@ those commands on `main` unless one of these is true:
 
 - CI is running.
 - `GITHUB_ACTIONS=true` is set.
+- `VERCEL` is set to a truthy value.
 - `VRDEX_ALLOW_PROTECTED_WORKTREE=1` is set for intentional mirror maintenance.
 
 ## Skills
