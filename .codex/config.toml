@@ -10,7 +10,7 @@ command = "npx"
 args = ["convex", "mcp", "start", "--project-dir", "."]
 
 [mcp_servers.aws_docs]
-command = "C:/Users/steve/.local/bin/uvx.exe"
+command = "uvx"
 args = ["awslabs.aws-documentation-mcp-server@latest"]
 
 [mcp_servers.aws_docs.env]
@@ -18,7 +18,7 @@ FASTMCP_LOG_LEVEL = "ERROR"
 AWS_DOCUMENTATION_PARTITION = "aws"
 
 [mcp_servers.aws_iac]
-command = "C:/Users/steve/.local/bin/uvx.exe"
+command = "uvx"
 args = ["awslabs.aws-iac-mcp-server@latest"]
 
 [mcp_servers.aws_iac.env]
@@ -49,9 +49,5 @@ args = [
 ]
 
 [mcp_servers.daytona]
-command = "C:/Users/steve/AppData/Roaming/bin/daytona/daytona.exe"
+command = "daytona"
 args = ["mcp", "start"]
-
-[mcp_servers.daytona.env]
-APPDATA = "C:\\Users\\steve\\AppData\\Roaming"
-HOME = "C:\\Users\\steve"

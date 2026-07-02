@@ -84,6 +84,10 @@ These are project-scoped VRDex servers. Keep them in repo-local config rather
 than relying on global Codex config inheritance. Global Codex MCP entries should
 be reserved for genuinely cross-repo tools.
 
+Project MCP commands should be PATH-resolved where possible. Personal absolute
+paths, account-specific environment variables, and machine-local command paths
+belong in local or global Codex config, not committed project config.
+
 If an MCP server is not active in the current Codex session, use the documented
 CLI fallback (`vercel`, `aws`, `npx convex`, `gh`) or report the missing
 capability. Production data, infrastructure, billing, or secret mutations still

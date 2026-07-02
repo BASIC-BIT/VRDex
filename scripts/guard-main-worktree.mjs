@@ -5,7 +5,16 @@ import { fileURLToPath } from "node:url";
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
 
-if (process.env.CI === "true" || process.env.GITHUB_ACTIONS === "true") {
+const isTruthyEnv = (value) => {
+  if (!value) return false;
+  return !["0", "false", "no"].includes(value.toLowerCase());
+};
+
+if (
+  isTruthyEnv(process.env.CI) ||
+  isTruthyEnv(process.env.GITHUB_ACTIONS) ||
+  isTruthyEnv(process.env.VERCEL)
+) {
   process.exit(0);
 }
 
