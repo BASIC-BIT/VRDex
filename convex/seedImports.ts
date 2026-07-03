@@ -130,11 +130,12 @@ export const listBatchesForReview = internalQuery({
   },
   handler: async (ctx, args) => {
     const limit = Math.max(1, Math.min(args.limit ?? 25, 100));
+    const reviewState = args.reviewState;
 
-    if (args.reviewState !== undefined) {
+    if (reviewState !== undefined) {
       return await ctx.db
         .query("seedImportBatches")
-        .withIndex("by_reviewState_receivedAt", (query) => query.eq("reviewState", args.reviewState))
+        .withIndex("by_reviewState_receivedAt", (query) => query.eq("reviewState", reviewState))
         .order("desc")
         .take(limit);
     }
