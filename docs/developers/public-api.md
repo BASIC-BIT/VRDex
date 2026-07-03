@@ -6,6 +6,8 @@ Current direction for [#39](https://github.com/BASIC-BIT/VRDex/issues/39).
 
 [#39](https://github.com/BASIC-BIT/VRDex/issues/39) owns the first documented public API direction. Current Convex functions, Next.js route handlers, and E2E helper routes are implementation surfaces, not the stable public product API.
 
+The full implementation-facing plan for API tokens, OAuth apps, rate limiting, Swagger/OpenAPI docs, and hosted/private MCP now lives in `docs/planning/public-api-and-mcp-platform.md`. This page remains the compact public API posture reference.
+
 ## Locked Direction
 
 - Public API behavior and limits should be documented before outside consumers depend on them.
@@ -89,6 +91,5 @@ The first implementation issue for the public API should add:
 
 - implementing the public API now
 - finalizing every endpoint
-- authenticated public write APIs
-- partner contracts
-- full MCP implementation
+- replacing the full platform plan in `docs/planning/public-api-and-mcp-platform.md`
+- partner contracts beyond the auth/rate-limit hooks needed for future implementation

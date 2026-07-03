@@ -1,0 +1,1015 @@
+# Public API And MCP Platform Plan
+
+## Status
+
+Current recommendation.
+
+This plan expands the completed public API posture work from [#39](https://github.com/BASIC-BIT/VRDex/issues/39), the agent integration roadmap from [#73](https://github.com/BASIC-BIT/VRDex/issues/73), and the open read-only MCP prototype from [#78](https://github.com/BASIC-BIT/VRDex/issues/78) into one executable platform backlog chunk.
+
+The intended delivery shape is one implementation PR with internally testable slices. The PR can carry multiple commits and checkpoints, but the product surface should review as one coherent API, auth, docs, and MCP platform foundation.
+
+## Goals
+
+- make VRDex usable outside the web app without scraping
+- publish a documented `/api/v0` HTTP API with generated Swagger/OpenAPI reference
+- support anonymous public reads, minted API tokens, OAuth user-delegated flows, and OAuth application flows
+- expose a hosted public MCP that can use OAuth
+- expose a private/local MCP path that can use API tokens or OAuth against hosted and self-hosted deployments
+- keep public data safety, trust labels, provenance, opt-out, and suppression rules identical across web, API, OpenAPI examples, and MCP tools
+- keep the implementation self-hostable and reproducible through docs, checked-in config, and environment-variable inventory
+
+## Non-goals
+
+- a permanently stable `v1` API contract before launch
+- raw VRChat cookie automation or private VRChat account bridging inside the default VRDex MCP
+- broad partner sync contracts for every external provider
+- unrestricted public write APIs
+- billing-tier enforcement beyond the rate-limit and capability hooks needed for this platform foundation
+- one giant role/permission matrix for every future tool
+
+## Product Thesis
+
+VRDex's API and MCP are product surfaces, not internal plumbing. They should let communities, partner sites, bots, and coding agents use VRDex data without pretending that public web pages are the integration contract.
+
+The first useful version should feel small and sharp:
+
+- public reads are easy and safe
+- authenticated access is explicit and revocable
+- OAuth apps are understandable to normal developers
+- Swagger docs and MCP tools agree on the same data model
+- self-hosted operators can run the same shape without hidden dashboard-only steps
+
+## Locked Decisions
+
+- `Locked decision`: The HTTP API starts under `/api/v0/...`.
+- `Locked decision`: `v0` is explicitly unstable until public launch, but breaking changes still require docs and changelog updates.
+- `Locked decision`: Public API, MCP, and Swagger examples must preserve trust, provenance, claim, visibility, opt-out, and suppression semantics.
+- `Locked decision`: Structured integrations should prefer public API or MCP tools over website scraping.
+- `Locked decision`: Token values must never be stored in plaintext. Display newly minted API tokens and OAuth client secrets only once, then store verifier hashes plus metadata.
+- `Locked decision`: Bearer tokens must not be accepted from URL query parameters.
+- `Locked decision`: OAuth access tokens must be audience/resource-bound. VRDex must not accept or pass through tokens minted for another resource.
+- `Locked decision`: Hosted MCP over HTTP follows the current MCP authorization model and Streamable HTTP transport.
+- `Locked decision`: Local stdio MCP uses environment or local config credentials and does not try to run the HTTP MCP authorization handshake over stdio.
+
+## Current Recommendations
+
+- `Current recommendation`: Treat this as `EPIC-12 Public API foundation` plus the first implementation wave for `#78`.
+- `Current recommendation`: Use one developer platform model for API tokens, OAuth applications, OAuth grants, and MCP access.
+- `Current recommendation`: Keep anonymous public reads first, then authenticated reads, then narrow audited writes.
+- `Current recommendation`: Use Convex as the authoritative application data and policy layer, with Next.js route handlers as the public HTTP gateway.
+- `Current recommendation`: Start API documentation with OpenAPI 3.1.x for Swagger UI and ecosystem compatibility, while tracking OpenAPI 3.2.0 support before locking a stable public spec.
+- `Current recommendation`: Hand-author the first OpenAPI description near the route contract, then add validation so examples, route responses, and generated docs cannot drift silently.
+- `Current recommendation`: Use opaque hashed personal API tokens. Use short-lived OAuth access tokens plus refresh-token rotation for user-delegated OAuth flows.
+- `Current recommendation`: Prefer JWT access tokens for OAuth only if validation, audience/resource binding, revocation, and key rotation are implemented cleanly; otherwise use opaque OAuth access tokens with server-side lookup or introspection.
+- `Current recommendation`: Support OAuth Authorization Code with PKCE for user-delegated apps and Client Credentials for app-only access.
+- `Current recommendation`: Start with manual OAuth app registration in the VRDex developer dashboard. Add dynamic client registration only if MCP client interoperability makes it necessary for the first hosted MCP launch.
+- `Current recommendation`: Rate-limit by route class, IP, token, OAuth client, user, and app owner. Do not use one global bucket for every caller.
+- `Current recommendation`: Launch the hosted MCP as read-oriented first, even if the auth platform already supports scopes that make later write tools possible.
+
+## Candidate Directions
+
+- `Candidate direction`: Add a dedicated API hostname later, but keep the first public route shape under the web app until operational pressure justifies a split.
+- `Candidate direction`: Publish `/.well-known/oauth-authorization-server` and OAuth protected-resource metadata from the web app unless Convex HTTP actions become the cleaner issuer boundary.
+- `Candidate direction`: Use a Convex-backed rate-limit store first. Move hot anonymous traffic limits to edge middleware, Redis, or provider controls if production telemetry shows Convex is the wrong place for that pressure.
+- `Candidate direction`: Add dynamic client registration for MCP after hosted OAuth works manually, not before the first usable developer surface exists.
+- `Candidate direction`: Add an optional generated MCP coverage layer from OpenAPI only after curated tools prove useful.
+
+## Interview Later
+
+- `Interview later`: Exact default quota numbers for anonymous, personal-token, trusted-partner, and self-hosted callers.
+- `Interview later`: Whether partner application flows can access anything beyond public data before formal partner contracts exist.
+- `Interview later`: Whether self-hosted deployments need built-in multi-tenant OAuth issuer support or only one issuer per deployment.
+- `Interview later`: Whether paid tiers should raise API and MCP limits at launch or only after organic demand appears.
+- `Interview later`: Whether OAuth dynamic client registration is required for target MCP clients in the first public launch.
+
+## Client Classes
+
+### Anonymous Public Clients
+
+Use cases:
+
+- public profile lookup
+- search
+- public event discovery
+- public world/event association reads
+- OpenAPI and docs examples
+
+Properties:
+
+- no bearer credential
+- conservative IP and route limits
+- cache-friendly responses where visibility rules allow
+- no private, unlisted, suppressed, or moderation-only data
+
+### Personal API Tokens
+
+Use cases:
+
+- personal scripts
+- private MCP configuration
+- self-hosted operator workflows
+- trusted automation owned by a VRDex user
+
+Properties:
+
+- minted from account developer settings
+- scoped
+- optionally expires
+- revocable
+- last-used timestamp and coarse usage metadata
+- cannot bypass profile visibility, ownership, or opt-out rules
+
+### OAuth User-Delegated Apps
+
+Use cases:
+
+- partner apps acting for a signed-in VRDex user
+- desktop clients
+- agents that need user approval for scoped access
+- hosted MCP user sessions
+
+Properties:
+
+- Authorization Code with PKCE
+- explicit user consent screen
+- exact redirect URI matching
+- short-lived access tokens
+- refresh token rotation
+- revocable per user and app
+- scoped to user-authorized capabilities
+
+### OAuth Application Apps
+
+Use cases:
+
+- server-to-server integrations
+- partner jobs
+- application-owned public data reads
+- future approved partner syncs
+
+Properties:
+
+- Client Credentials grant
+- no implied user authority
+- limited scopes until partner contracts exist
+- rate limits tied to OAuth client and owning user/community
+- secrets rotatable from the developer dashboard
+
+### First-Party Web App
+
+Use cases:
+
+- normal VRDex product usage
+- owner editing flows
+- internal admin screens
+
+Properties:
+
+- may share service functions with public API routes
+- uses first-party session auth instead of public API tokens
+- still goes through the same visibility and permission policy helpers
+
+### Hosted MCP
+
+Use cases:
+
+- remote agent integrations
+- partner coding agents
+- docs-aware public queries
+- user-authorized workflows later
+
+Properties:
+
+- Streamable HTTP transport
+- protected by OAuth when a tool needs auth
+- public read tools may be available without auth if abuse controls are sufficient
+- uses MCP resource metadata and audience/resource-bound tokens
+
+### Private Or Local MCP
+
+Use cases:
+
+- local developer use
+- self-hosted deployment automation
+- private community operations
+- MCP clients that prefer stdio
+
+Properties:
+
+- package candidate: `@basicbit/vrdex-mcp`
+- stdio transport by default
+- configured with `VRDEX_API_BASE_URL`
+- configured with `VRDEX_API_TOKEN` or a local OAuth token file
+- no website scraping
+- no raw VRChat credential dependency
+
+## API Surface Plan
+
+### API-0: Anonymous Public Reads
+
+Purpose:
+
+- give public clients and agents stable read endpoints before any write surface exists
+
+Candidate endpoints:
+
+- `GET /api/v0/profiles/:slug`
+- `GET /api/v0/profiles/:slug/assets`
+- `GET /api/v0/profiles/:slug/logos`
+- `GET /api/v0/profiles/:slug/logos.zip`
+- `GET /api/v0/people/:slug`
+- `GET /api/v0/communities/:slug`
+- `GET /api/v0/search?q=`
+- `GET /api/v0/cards/:slug`
+- `GET /api/v0/worlds/:slug`
+- `GET /api/v0/worlds/:slug/events`
+- `GET /api/v0/worlds/active`
+- `GET /api/v0/events/:slug`
+- `GET /api/v0/events/upcoming`
+- `GET /api/v0/people/:slug/events`
+- `GET /api/v0/communities/:slug/events`
+- `GET /api/v0/claims/:slug/status`
+
+Acceptance criteria:
+
+- every response has a documented schema
+- not-found, private, opted-out, and suppressed records collapse to a public-safe absence unless a route deliberately exposes a safer status
+- examples include trust/provenance labels when data may be mistaken as owner-confirmed
+- public pages, API responses, and MCP tools use the same local-time event presentation rules where applicable
+
+### API-1: Authenticated Reads
+
+Purpose:
+
+- let users and trusted apps read scoped account-owned or partner-approved data without creating write risk
+
+Candidate endpoints:
+
+- `GET /api/v0/me`
+- `GET /api/v0/me/profiles`
+- `GET /api/v0/me/communities`
+- `GET /api/v0/me/events`
+- `GET /api/v0/developer/tokens`
+- `GET /api/v0/developer/oauth-apps`
+- `GET /api/v0/usage/rate-limit`
+
+Acceptance criteria:
+
+- API tokens and OAuth access tokens both work through a shared credential validation layer
+- responses are scoped by user/app authority
+- authenticated reads do not leak unrelated private profile, claim, or moderation state
+
+### API-2: Narrow Authenticated Writes
+
+Purpose:
+
+- support the first useful external automation without making claims, moderation, or ownership unsafe
+
+Candidate endpoints:
+
+- `POST /api/v0/developer/tokens`
+- `DELETE /api/v0/developer/tokens/:tokenId`
+- `POST /api/v0/developer/oauth-apps`
+- `PATCH /api/v0/developer/oauth-apps/:clientId`
+- `POST /api/v0/developer/oauth-apps/:clientId/secrets`
+- `POST /api/v0/events`
+- `PATCH /api/v0/events/:id`
+- `POST /api/v0/events/:id/assets/upload-intent`
+- `PATCH /api/v0/profiles/:slug`
+- `POST /api/v0/profiles/:slug/assets/upload-intent`
+
+Acceptance criteria:
+
+- every write has scope, permission, audit, abuse, and rollback behavior
+- ownership or staff capability checks are explicit
+- writes that affect public pages have validation and moderation hooks
+- claim-level actions still require verified email and product-specific claim checks
+
+## Auth Platform
+
+### Data Model
+
+Candidate Convex tables:
+
+- `apiTokens`
+- `apiTokenEvents`
+- `oauthApplications`
+- `oauthApplicationRedirectUris`
+- `oauthApplicationSecrets`
+- `oauthAuthorizations`
+- `oauthAccessTokens`
+- `oauthRefreshTokens`
+- `oauthConsents`
+- `oauthAuthorizationCodes`
+- `oauthClientEvents`
+- `apiRateLimitEvents`
+
+API token fields:
+
+- internal token id
+- token prefix for display and lookup
+- hashed token verifier
+- owner user id
+- optional owner community id
+- label
+- scopes
+- status
+- expiry
+- created at
+- last used at
+- last used route class
+- revoke reason
+
+OAuth application fields:
+
+- client id
+- hashed current secret for confidential clients
+- client type: public or confidential
+- app owner: user or community
+- display name
+- description
+- logo URL
+- docs URL
+- privacy URL
+- terms URL
+- redirect URIs
+- allowed grants
+- allowed scopes
+- status
+- created at
+- reviewed at, if trusted-partner status is later added
+
+OAuth grant fields:
+
+- authorization code hash
+- PKCE challenge and method
+- redirect URI
+- user id
+- client id
+- requested scopes
+- approved scopes
+- resource indicator
+- expiry
+- consumed at
+
+Token event fields:
+
+- credential id
+- user id, if user-bound
+- client id, if OAuth-bound
+- route class
+- scope result
+- rate-limit result
+- status code class
+- timestamp
+
+Do not store raw bearer tokens, raw client secrets, or full Authorization headers.
+
+### API Token Flow
+
+User flow:
+
+1. User opens account developer settings.
+2. User creates a token with label, scopes, and optional expiry.
+3. VRDex displays the token value once.
+4. User copies it into a script, CI secret, or local MCP config.
+5. API requests use `Authorization: Bearer <token>`.
+6. User can see last-used metadata and revoke the token.
+
+Implementation requirements:
+
+- generate high-entropy opaque token values
+- include a recognizable prefix such as `vrdx_`
+- hash the verifier portion before storage
+- support immediate revocation
+- reject query-string token usage
+- add scope checks before data access
+- update last-used metadata without logging secrets
+
+### OAuth App Registration
+
+User flow:
+
+1. Developer creates an OAuth app.
+2. Developer chooses public or confidential client type.
+3. Developer registers exact redirect URIs.
+4. VRDex issues a client id.
+5. Confidential clients can mint and rotate client secrets.
+6. Developers can revoke the app or rotate secrets without deleting usage history.
+
+Implementation requirements:
+
+- exact redirect URI matching
+- HTTPS redirect URIs except localhost loopback development redirects
+- public clients require PKCE
+- confidential clients store hashed secrets only
+- app ownership can be user-owned first and community-owned later
+- reviewed/trusted partner status must be explicit if added
+
+### OAuth User-Delegated Flow
+
+Required grant:
+
+- Authorization Code with PKCE
+
+Required endpoints:
+
+- `GET /.well-known/oauth-authorization-server`
+- `GET /oauth/authorize`
+- `POST /oauth/token`
+- `POST /oauth/revoke`
+- `GET /oauth/jwks.json`, if JWT access tokens are used
+
+Candidate optional endpoints:
+
+- `POST /oauth/introspect`, if opaque OAuth access tokens need resource-server lookup
+- `POST /oauth/register`, if dynamic client registration is supported
+
+Behavior:
+
+- consent screen shows app name, owner, scopes, redirect host, and resource
+- auth codes are single-use and short-lived
+- access tokens are short-lived
+- refresh tokens rotate
+- scope downgrades are supported
+- revocation removes refresh tokens and invalidates outstanding access tokens where practical
+
+### OAuth Application Flow
+
+Required grant:
+
+- Client Credentials
+
+Behavior:
+
+- no user identity is implied
+- allowed scopes are constrained by app status
+- first version should usually allow public reads and maybe partner-approved ingestion or export scopes only after review
+- rate limits bind to client id and owner
+
+### Scopes
+
+Candidate initial scopes:
+
+- `public:read`
+- `profile:read`
+- `profile:write`
+- `community:read`
+- `community:write`
+- `events:read`
+- `events:write`
+- `assets:read`
+- `assets:write`
+- `developer:read`
+- `developer:write`
+- `mcp:read`
+- `mcp:write`
+
+Scope rules:
+
+- public data still obeys public visibility and suppression rules
+- write scopes are necessary but never sufficient
+- ownership, staff capability, verified-email state, and object-level policy still run after scope validation
+- app-only scopes cannot perform user-owned actions unless an explicit product grant exists
+
+## Rate Limiting And Abuse Controls
+
+### Rate Limit Dimensions
+
+Use layered identity keys:
+
+- route class
+- IP address
+- bearer token id
+- OAuth client id
+- user id
+- app owner id
+- self-hosted deployment id, if introduced later
+
+Route classes:
+
+- anonymous public reads
+- authenticated public reads
+- developer token/app management
+- OAuth authorize/token/revoke
+- asset upload intent creation
+- public writes
+- MCP tool calls
+
+Recommended response behavior:
+
+- include rate-limit headers on public API responses once the header shape is chosen
+- use `Retry-After` for blocked requests
+- do not reveal whether a suppressed private record exists while explaining rate-limit state
+- log enough metadata to debug abuse without retaining secrets
+
+Quota values:
+
+- `Interview later`: choose real numbers after API endpoint shape and hosting cost are clearer
+- `Current recommendation`: document placeholder classes before implementation, then set conservative defaults in code
+
+### Abuse Rules
+
+- repeated invalid-token usage should produce credential events and eventually temporary blocks
+- high-cardinality anonymous search should have stricter limits than direct profile lookup
+- token creation and OAuth app creation need lower write limits than normal public reads
+- suspicious OAuth redirect changes should require app-owner action and audit history
+- revoked, expired, or scope-insufficient credentials should fail before data access
+
+## OpenAPI And Swagger Docs
+
+### Documentation Surfaces
+
+Required surfaces:
+
+- checked-in OpenAPI description
+- generated JSON at a public route
+- Swagger UI page in developer docs or the web app
+- Docusaurus developer guide with task examples
+- API changelog
+
+Candidate paths:
+
+- `docs/api/openapi.yaml`
+- `apps/web/src/app/api/v0/openapi.json/route.ts`
+- `apps/web/src/app/developers/api/page.tsx`
+- `docs/developers/public-api.md`
+- `docs/developers/api-auth.md`
+- `docs/developers/api-rate-limits.md`
+- `docs/developers/mcp.md`
+
+### Spec Rules
+
+- describe request and response schemas for every public route
+- document auth requirements per operation
+- document rate-limit behavior per route class
+- include public-safe not-found behavior
+- include trust/provenance fields in examples
+- keep example payloads short and realistic
+- validate the spec in CI
+- smoke-test the Swagger UI route visually when UI changes are made
+
+### Source Of Truth
+
+`Current recommendation`: for the first implementation PR, make the OpenAPI file the external contract source of truth and add route tests that assert representative responses match the documented shape.
+
+Later, if the route implementation uses shared schemas strongly enough, generate the OpenAPI description from those schemas or add snapshot checks that catch drift.
+
+## MCP Platform
+
+### Hosted Public MCP
+
+Transport:
+
+- Streamable HTTP
+
+Candidate endpoint:
+
+- `/mcp`
+
+Required metadata:
+
+- OAuth protected resource metadata
+- authorization server metadata
+- resource indicator support in authorization and token requests
+
+Auth behavior:
+
+- anonymous read tools may be allowed only if abuse controls are acceptable
+- authenticated tools require `Authorization: Bearer <access-token>`
+- MCP tokens must be issued for the VRDex MCP resource
+- do not accept tokens issued for the plain web app, another MCP, or another resource
+- return `WWW-Authenticate` with protected resource metadata when auth is required
+
+First hosted tools:
+
+- `vrdex_profile_search`
+- `vrdex_profile_get`
+- `vrdex_community_search`
+- `vrdex_community_get`
+- `vrdex_events_upcoming`
+- `vrdex_event_get`
+- `vrdex_profile_links_get`
+- `vrdex_claim_status_get`
+
+Later hosted tools:
+
+- `vrdex_my_profiles`
+- `vrdex_my_events`
+- `vrdex_event_create`
+- `vrdex_event_update`
+- `vrdex_profile_update`
+- `vrdex_asset_upload_intent_create`
+
+Safety rules:
+
+- tool outputs are compact by default
+- outputs include stable IDs/slugs for follow-up
+- provenance is included when needed to avoid false authority
+- no private owner account fields
+- no moderation-only notes
+- no write tool without scope, product permission, audit, and human-approval-friendly design
+
+### Private Or Local MCP
+
+Package candidate:
+
+- `@basicbit/vrdex-mcp`
+
+Transports:
+
+- stdio first
+- Streamable HTTP client mode only if useful later
+
+Configuration:
+
+- `VRDEX_API_BASE_URL`
+- `VRDEX_API_TOKEN`
+- `VRDEX_OAUTH_TOKEN_FILE`, optional later
+- `VRDEX_MCP_OUTPUT_MODE`, optional compact/detail switch
+
+Behavior:
+
+- uses public API routes, not website scraping
+- works against hosted VRDex and self-hosted deployments
+- supports personal API tokens from the start
+- can support OAuth token files after OAuth client flows are available
+- does not require private VRChat cookies
+
+Distribution:
+
+- publish package instructions in developer docs
+- include MCP client configuration snippets
+- keep install snippets free of real token values
+- include self-hosted base URL examples
+
+### Private Hosted MCP For Self-Hosting
+
+Self-hosted operators may want a deployment-private MCP endpoint for staff or community automation.
+
+Current recommendation:
+
+- use the same MCP server codepath
+- use the deployment's own OAuth issuer and API tokens
+- allow operators to disable public anonymous tools
+- document environment variables and reverse-proxy requirements
+- do not create a separate unaudited admin MCP surface
+
+## Developer And Admin UX
+
+### Developer Dashboard
+
+Candidate routes:
+
+- `/account/developers`
+- `/account/developers/tokens`
+- `/account/developers/apps`
+- `/account/developers/apps/:clientId`
+- `/account/developers/usage`
+
+Required capabilities:
+
+- create API token
+- revoke API token
+- inspect token last-used metadata
+- create OAuth app
+- edit OAuth app metadata
+- manage redirect URIs
+- rotate client secret
+- revoke OAuth app
+- view active user grants for owned apps
+
+UX rules:
+
+- use crisp labels, not explanatory filler
+- show token values only once
+- show redirect URI validation errors inline
+- keep scopes human-readable
+- separate app ownership, app identity, and credential management
+- show destructive actions with clear confirmation
+
+### Consent Screen
+
+Required display:
+
+- app name
+- app owner
+- requested scopes
+- redirect host
+- whether the app is reviewed/trusted, if that concept exists
+- what VRDex account is authorizing the request
+
+Required actions:
+
+- approve
+- cancel
+- scope downgrade if supported
+
+### Admin And Operations
+
+Required capabilities:
+
+- inspect suspicious API clients
+- revoke API tokens and OAuth apps
+- suspend token creation for an abusive account
+- view rate-limit events
+- view OAuth app metadata history
+- audit write actions performed through API or MCP
+
+## Infrastructure And Self-Hosting
+
+### Candidate Environment Variables
+
+Public URLs:
+
+- `VRDEX_PUBLIC_APP_URL`
+- `VRDEX_PUBLIC_API_BASE_URL`
+- `VRDEX_OAUTH_ISSUER_URL`
+- `VRDEX_MCP_RESOURCE_URI`
+
+Secrets and signing:
+
+- `VRDEX_API_TOKEN_PEPPER`
+- `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY`, if JWT access tokens are used
+- `VRDEX_OAUTH_REFRESH_TOKEN_PEPPER`
+- `VRDEX_OAUTH_CLIENT_SECRET_PEPPER`
+
+Rate limiting:
+
+- `VRDEX_RATE_LIMIT_STORE`
+- `VRDEX_RATE_LIMIT_REDIS_URL`, if Redis is selected
+
+Feature flags:
+
+- `VRDEX_PUBLIC_API_ENABLED`
+- `VRDEX_DEVELOPER_DASHBOARD_ENABLED`
+- `VRDEX_HOSTED_MCP_ENABLED`
+- `VRDEX_OAUTH_DYNAMIC_CLIENT_REGISTRATION_ENABLED`
+
+Docs:
+
+- each variable needs owner, scope, default, hosted value source, self-hosted setup path, and rotation notes where applicable
+
+### Deployment Requirements
+
+- HTTPS for production OAuth and MCP endpoints
+- loopback redirect support for local OAuth clients
+- documented Convex environment variables
+- checked-in route and environment inventory
+- no dashboard-only required variables without docs
+- self-hosted base URL examples in API, Swagger, and MCP docs
+
+### Security Requirements
+
+- reject bearer tokens in query strings
+- exact-match OAuth redirect URIs
+- PKCE for public clients
+- HTTPS for production OAuth endpoints
+- audience/resource validation for OAuth access tokens
+- refresh-token rotation
+- token revocation
+- client-secret rotation
+- least-privilege scopes
+- object-level authorization after scope validation
+- audit logs for write actions
+- secret redaction in logs
+- CORS rules for public API routes
+- CSRF protection for browser-based OAuth and developer dashboard actions
+
+## Observability
+
+Required signals:
+
+- API request counts by route class
+- rate-limit blocks by route class and identity type
+- OAuth grant success/failure counts
+- token validation failures
+- MCP tool invocation counts
+- write action audit trails
+- revoked credential usage attempts
+
+Do not log:
+
+- bearer token values
+- OAuth client secrets
+- full authorization headers
+- private profile fields returned only to authorized users
+
+## Delivery Plan For One PR
+
+### Slice 1: Contracts And Route Helpers
+
+Deliverables:
+
+- shared public API response helpers
+- auth error helpers
+- public-safe not-found helper
+- scope and route-class definitions
+- first checked-in OpenAPI skeleton
+- docs links from existing public API and MCP pages
+
+Validation:
+
+- unit tests for response helpers and scope parsing
+- OpenAPI lint or schema validation
+- `git diff --check`
+
+### Slice 2: Anonymous Public Reads And Swagger
+
+Deliverables:
+
+- public read endpoints for profiles, search, events, worlds, and claim status
+- OpenAPI operation definitions
+- Swagger UI route/page
+- public API examples
+
+Validation:
+
+- route integration tests
+- schema/example validation
+- visual screenshot review for Swagger/developer docs UI
+
+### Slice 3: API Tokens
+
+Deliverables:
+
+- `apiTokens` storage
+- token mint/revoke routes
+- developer dashboard token UI
+- bearer token validation
+- route-class rate-limit hook
+- token docs
+
+Validation:
+
+- token generation/hash/revocation tests
+- E2E token mint and API call
+- query-string token rejection test
+- visual review for token UI
+
+### Slice 4: OAuth Apps And Grants
+
+Deliverables:
+
+- OAuth app registration UI
+- Authorization Code with PKCE
+- Client Credentials
+- token, revoke, and metadata endpoints
+- consent screen
+- OAuth docs
+
+Validation:
+
+- PKCE tests
+- redirect URI tests
+- consent flow E2E with test client
+- token audience/resource tests
+- revocation tests
+
+### Slice 5: Hosted MCP
+
+Deliverables:
+
+- Streamable HTTP MCP endpoint
+- MCP resource metadata
+- read-only curated tools
+- OAuth-protected tool path
+- MCP docs
+
+Validation:
+
+- MCP handshake tests
+- tool contract tests
+- invalid audience/resource test
+- auth-required `WWW-Authenticate` test
+
+### Slice 6: Private/Local MCP Package
+
+Deliverables:
+
+- `@basicbit/vrdex-mcp` package or workspace
+- stdio transport
+- API token config
+- hosted and self-hosted base URL config
+- MCP client install snippets
+
+Validation:
+
+- package smoke test
+- local stdio tool call test
+- self-hosted base URL fixture test
+
+### Slice 7: Rate Limits, Audit, And Operations
+
+Deliverables:
+
+- configured default rate-limit classes
+- usage metadata
+- credential event logs
+- operational admin views or scripts
+- docs for quota classes and escalation
+
+Validation:
+
+- rate-limit tests by identity type
+- revoked token usage event test
+- admin/ops docs review
+
+### Slice 8: Final Docs And Rollout
+
+Deliverables:
+
+- public API guide
+- auth guide
+- rate-limit guide
+- OAuth app guide
+- MCP guide
+- self-hosted environment inventory
+- changelog entry
+- issue/PR checklist
+
+Validation:
+
+- docs build
+- docs link check if available
+- visual screenshot evidence for any changed UI
+- all lint/type/test jobs required by repo merge policy
+
+## Suggested Issue Slices
+
+If this epic is split before implementation, keep the issue count small:
+
+1. Public API contracts, OpenAPI, and Swagger docs.
+2. API token auth, developer token UI, and rate limits.
+3. OAuth app registry, Authorization Code with PKCE, Client Credentials, and metadata endpoints.
+4. Hosted VRDex MCP with OAuth and read-only curated tools.
+5. Private/local `@basicbit/vrdex-mcp` package with token and OAuth configuration.
+6. Developer docs, self-hosting docs, observability, and rollout checks.
+
+For a single PR, these become commit-level checkpoints instead of separate merge units.
+
+## Verification Matrix
+
+Required before PR readiness:
+
+- lint
+- typecheck
+- unit tests for token, OAuth, scope, rate-limit, and schema helpers
+- route integration tests for anonymous and authenticated API requests
+- OpenAPI validation
+- Swagger UI smoke test
+- API token E2E
+- OAuth test-client E2E
+- hosted MCP handshake/tool tests
+- stdio MCP smoke test
+- docs build
+- visual verification for developer dashboard, consent screen, and Swagger docs
+
+Security-specific tests:
+
+- revoked token is rejected
+- expired token is rejected
+- missing scope is rejected
+- invalid OAuth audience/resource is rejected
+- redirect URI mismatch is rejected
+- PKCE verifier mismatch is rejected
+- bearer token in query string is rejected
+- private/suppressed record reads return public-safe absence
+- rate-limited requests do not leak object existence
+
+## Documentation Updates Required With Implementation
+
+- `docs/developers/public-api.md`
+- `docs/developers/vrdex-mcp-read-tools.md`
+- `docs/developers/self-hosting-and-iac.md`
+- `docs/deployment/convex-environments.md`
+- Docusaurus API reference pages
+- OpenAPI description
+- MCP install/config guide
+- environment variable inventory
+- changelog or release note
+
+## Source Trail
+
+- [MCP Authorization](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization)
+- [MCP Transports](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports)
+- [OpenAPI Specification](https://spec.openapis.org/oas/latest.html)
+- [OAuth 2.1 draft](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1)
+- [RFC 8414: OAuth 2.0 Authorization Server Metadata](https://datatracker.ietf.org/doc/html/rfc8414)
+- [RFC 7591: OAuth 2.0 Dynamic Client Registration Protocol](https://datatracker.ietf.org/doc/html/rfc7591)
+- [RFC 9728: OAuth 2.0 Protected Resource Metadata](https://datatracker.ietf.org/doc/html/rfc9728)
+- [RFC 8707: Resource Indicators for OAuth 2.0](https://datatracker.ietf.org/doc/html/rfc8707)
+- [RFC 9068: JSON Web Token Profile for OAuth 2.0 Access Tokens](https://datatracker.ietf.org/doc/html/rfc9068)
+- [RFC 7009: OAuth 2.0 Token Revocation](https://datatracker.ietf.org/doc/html/rfc7009)
+- [RFC 7662: OAuth 2.0 Token Introspection](https://datatracker.ietf.org/doc/html/rfc7662)
+
+## Open Questions
+
+- Should the first OpenAPI artifact be generated from shared schemas or hand-authored with validation tests?
+- Should the OAuth issuer live in Next.js routes, Convex HTTP actions, or a dedicated provider/service?
+- Should OAuth access tokens be JWTs or opaque tokens for the first launch?
+- Which rate-limit backend should handle anonymous public read traffic after launch?
+- Which MCP clients must work on day one, and do any require dynamic client registration?
+- Should hosted MCP expose anonymous public read tools, or require OAuth for every call from launch?
+- Should community-owned OAuth apps ship in the first implementation PR, or should the first PR allow only user-owned developer apps?
+- What quota and review process distinguishes normal personal tokens from trusted partner access?

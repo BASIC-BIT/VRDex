@@ -63,6 +63,7 @@ The skill should teach agents:
 
 Candidate direction:
 
+- use `docs/planning/public-api-and-mcp-platform.md` as the implementation plan for API tokens, OAuth apps, hosted/private MCP, rate limits, and Swagger/OpenAPI docs
 - publish stable public API docs with examples for profile lookup, search, events, media links, and partner-safe export/import flows
 - publish machine-readable OpenAPI or equivalent schema docs that agents can consume
 - provide compact examples for common integration tasks, not only exhaustive endpoint reference
@@ -83,6 +84,7 @@ Candidate direction:
 
 - a standalone `@basicbit/vrdex-mcp` is likely the cleanest long-term product surface
 - because VRDex's core public data is not tied to private VRChat cookies, a hosted or remote MCP may be safer than VRChat MCP's current local-only auth model
+- the hosted MCP should follow the platform plan for OAuth, protected-resource metadata, resource-bound tokens, and Streamable HTTP
 - authenticated write or claim tools should still use normal VRDex auth, scoped tokens, approvals, and audit trails
 - the MCP should expose curated tools first and optionally generated API coverage later
 - MCP resources could expose common read surfaces such as profile cards, upcoming events, and partner documentation
@@ -142,4 +144,5 @@ Current recommendation:
 
 - `docs/planning/product-spec.md`
 - `docs/planning/prd.md`
+- `docs/planning/public-api-and-mcp-platform.md`
 - `docs/planning/engineering-strategy.md`

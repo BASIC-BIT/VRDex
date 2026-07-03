@@ -219,6 +219,12 @@ This file records the current hard and soft dependency assumptions across the dr
 
 - hard dependencies: #37
 - soft dependencies: #42, #41
+- soft dependents: #73, #78, future public API token/OAuth/MCP implementation issue
+
+### #78 Prototype standalone VRDex MCP read tools after public API shape stabilizes
+
+- soft dependencies: #39, #73, #42
+- soft dependents: #79, future hosted/private MCP implementation work
 
 ### #40 Document agent-first engineering workflows and software-factory conventions
 

@@ -6,6 +6,8 @@ Documentation-only contract draft feeding [#78](https://github.com/BASIC-BIT/VRD
 
 The standalone VRDex MCP should wait for stable public API/query behavior. This contract defines the intended read-only surface so [#78](https://github.com/BASIC-BIT/VRDex/issues/78) does not depend on website scraping or private VRChat cookies.
 
+The broader platform plan for hosted MCP OAuth, local/private MCP, API tokens, OAuth applications, rate limiting, and Swagger/OpenAPI docs lives in `docs/planning/public-api-and-mcp-platform.md`. This page remains the first read-only tool contract for the MCP slice.
+
 ## Locked Direction
 
 - Default to a standalone VRDex MCP for VRDex public data.
@@ -152,4 +154,4 @@ Optional VRChat bridge evaluation:
 
 ## Implementation Gate
 
-Do not implement the standalone package until the public API/query shape supports these tools without scraping. [#78](https://github.com/BASIC-BIT/VRDex/issues/78) remains the prototype issue and should choose package name, transport, auth posture, API dependencies, test fixtures, and distribution path.
+Do not implement the standalone package until the public API/query shape supports these tools without scraping. [#78](https://github.com/BASIC-BIT/VRDex/issues/78) remains the prototype issue and should align with the broader platform plan before choosing package name, transport, auth posture, API dependencies, test fixtures, and distribution path.

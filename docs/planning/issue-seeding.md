@@ -150,6 +150,8 @@ That order keeps the product coherent while still giving you something demoable 
 - define agent-consumable VRDex integration kit and MCP roadmap (`#73`)
 - publish portable VRDex skill for external partner agents
 - prototype standalone VRDex MCP read tools after public API shape stabilizes
+- build API token and OAuth app developer surfaces for public API and MCP access
+- ship hosted and private VRDex MCP paths backed by public API contracts
 - evaluate optional VRChat MCP bridge tools for cross-context workflows
 - add world discovery and creator attribution lane (`#79`)
 - define world profile schema and public world page (`#84`)
