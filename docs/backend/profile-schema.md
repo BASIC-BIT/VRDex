@@ -188,6 +188,8 @@ Current recommendation:
 
 `displayName`, `slug`, `profileType`, and trust labels remain public while the profile itself is public.
 
+The owner privacy mutation currently accepts these field keys: `aliases`, `tags`, `genres`, `headline`, `bio`, `about`, `avatarImageUrl`, `bannerImageUrl`, `outboundLinks`, `region`, `timezone`, `personPronouns`, `personRoleTags`, `communitySubtype`, and `communityCategoryTags`.
+
 ## Mutation Contracts
 
 Convex schema validation cannot enforce conditional timestamp invariants, so profile mutations must preserve these application-level rules:
@@ -201,6 +203,8 @@ Locked decision: `profiles:submitCommunityProfile` is the public community-submi
 Current recommendation: `profileClaims:createClaimedDiscordPersonProfile` and `profileClaims:createClaimedDiscordCommunityProfile` are the explicit Discord no-match creation paths. They require Convex auth, verified email, a linked Discord account, and caller confirmation that no suitable unclaimed match exists. They create self-authored public profiles, record an approved Discord claim request, grant singleton owner authority, and leave the profile at `claimed_unverified`.
 
 Current recommendation: Discord community Administrator verification remains the stronger server-authority path for community profiles. A linked Discord account alone can create and control a new community profile, but it does not prove server administration and must not set `claimed_verified` by itself.
+
+The claimed-owner field visibility path is `profilePrivacy:updateFieldVisibility`. It requires an active profile owner, stores non-public field overrides on `profiles.fieldVisibility`, treats omitted or explicit `public` fields as the public default, patches `updatedAt`, and refreshes the profile search document so discovery follows the new field visibility.
 
 The `migrations:backfillProfilePublicSurfacingState` internal mutation sets missing legacy `publicSurfacingState` values to `"public"` and fills `publicSurfacingUpdatedAt` so previously-written profiles keep their existing publication behavior after the surfacing-state schema addition.
 
@@ -234,5 +238,5 @@ Deploy-time migrations use `@convex-dev/migrations` and are run by `migrations:r
 - `#82` added inline typed external links for first-slice creator commerce/profile links, with public `https` filtering
 - `#90` adds scoped vocabulary normalization for tags, roles, categories, and discovery facets
 - the DJ lookup genre slice adds optional inline `profiles.genres` plus `profile_genre` vocabulary/search indexing as the minimal bridge to a later normalized genre graph
-- `#27` adds field-level visibility controls
+- `#27` adds field-level visibility controls and the claimed-owner privacy update surface
 - `#31` adds public search behavior and any search-specific indexing

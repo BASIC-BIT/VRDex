@@ -15,9 +15,14 @@ import {
   sanitizeProfileAssetLabel,
   validateProfileAssetByteSize,
 } from "../../convex/_profileAssets";
-import { isProfileFieldVisible } from "../../convex/_profileFieldVisibility";
+import {
+  isProfileFieldVisible,
+  materializeProfileFieldVisibility,
+  normalizeProfileFieldVisibility,
+} from "../../convex/_profileFieldVisibility";
 import { toProfileLookupResult } from "../../convex/_profileLookup";
 import { approveProfileClaimForUser, grantProfileOwner } from "../../convex/_profileOwnership";
+import { applyProfileFieldVisibilityUpdate } from "../../convex/_profilePrivacy";
 import {
   createProfileSlugBase,
   createProfileSlugCandidate,
@@ -511,6 +516,183 @@ describe("profile ownership helpers", () => {
     );
     assert.equal(tables.profileOwners.length, 1);
     assert.equal(tables.profiles[0]?._id, profileId);
+  });
+});
+
+describe("profile field visibility owner controls", () => {
+  function createPrivacyDb(existingOwners: Array<Record<string, unknown>>) {
+    const patched: Array<{ id: string; patch: Record<string, unknown> }> = [];
+
+    return {
+      patched,
+      db: {
+        query(table: string) {
+          assert.equal(table, "profileOwners");
+
+          return {
+            withIndex(_index: string, builder: (query: unknown) => unknown) {
+              const values: Record<string, unknown> = {};
+              const query = {
+                eq(field: string, value: unknown) {
+                  values[field] = value;
+                  return query;
+                },
+              };
+              const chain = {
+                filter(filterBuilder: (query: unknown) => unknown) {
+                  const filterQuery = {
+                    field(field: string) {
+                      return field;
+                    },
+                    eq(field: string, value: unknown) {
+                      values[field] = value;
+                      return true;
+                    },
+                  };
+
+                  filterBuilder(filterQuery);
+                  return chain;
+                },
+                async take(limit: number) {
+                  return existingOwners
+                    .filter((owner) =>
+                      Object.entries(values).every(([field, value]) => owner[field] === value),
+                    )
+                    .slice(0, limit);
+                },
+              };
+
+              builder(query);
+              return chain;
+            },
+          };
+        },
+        async patch(id: string, patch: Record<string, unknown>) {
+          patched.push({ id, patch });
+        },
+      },
+    };
+  }
+
+  const profile = {
+    _id: "profile123" as Id<"profiles">,
+    profileType: "person",
+    slug: "dj-celine",
+    displayName: "DJ Celine",
+    sortName: "dj celine",
+    aliases: [],
+    tags: [],
+    claimState: "claimed_unverified",
+    publicationState: "published",
+    publicSurfacingState: "public",
+    creationSource: "self",
+    publishedAt: 1,
+    updatedAt: 1,
+    person: {
+      roleTags: [],
+    },
+  } as Doc<"profiles">;
+
+  it("normalizes supported visibility keys and rejects unsupported values", () => {
+    assert.deepEqual(
+      normalizeProfileFieldVisibility({
+        aliases: "public",
+        bio: "private",
+        tags: "unlisted",
+      }),
+      {
+        bio: "private",
+        tags: "unlisted",
+      },
+    );
+    assert.equal(materializeProfileFieldVisibility({ bio: "private" }).aliases, "public");
+    assert.equal(materializeProfileFieldVisibility({ bio: "private" }).bio, "private");
+    assert.throws(
+      () => normalizeProfileFieldVisibility({ bookingEmail: "private" }),
+      /Unsupported profile field visibility key/,
+    );
+    assert.throws(
+      () => normalizeProfileFieldVisibility({ bio: "friends_only" }),
+      /Unsupported profile field visibility state/,
+    );
+  });
+
+  it("stores normalized owner visibility updates", async () => {
+    const userId = "user123" as Id<"users">;
+    const owner = {
+      _id: "owner123" as Id<"profileOwners">,
+      profileId: profile._id,
+      userId,
+      roleKey: "owner",
+      state: "active",
+      grantedAt: 1,
+      updatedAt: 1,
+    };
+    const privacyDb = createPrivacyDb([owner]);
+
+    const result = await applyProfileFieldVisibilityUpdate(privacyDb.db as never, {
+      profile,
+      userId,
+      fieldVisibility: {
+        aliases: "public",
+        bio: "private",
+        tags: "unlisted",
+      },
+      now: 12,
+    });
+
+    assert.deepEqual(privacyDb.patched, [
+      {
+        id: profile._id,
+        patch: {
+          fieldVisibility: {
+            bio: "private",
+            tags: "unlisted",
+          },
+          updatedAt: 12,
+        },
+      },
+    ]);
+    assert.equal(result.fieldVisibility.aliases, "public");
+    assert.equal(result.fieldVisibility.bio, "private");
+    assert.equal(result.fieldVisibility.tags, "unlisted");
+  });
+
+  it("rejects non-owners and unclaimed profiles", async () => {
+    const userId = "user123" as Id<"users">;
+    const otherUserId = "otherUser" as Id<"users">;
+    const owner = {
+      _id: "owner123" as Id<"profileOwners">,
+      profileId: profile._id,
+      userId: otherUserId,
+      roleKey: "owner",
+      state: "active",
+      grantedAt: 1,
+      updatedAt: 1,
+    };
+    const privacyDb = createPrivacyDb([owner]);
+
+    await assert.rejects(
+      () =>
+        applyProfileFieldVisibilityUpdate(privacyDb.db as never, {
+          profile,
+          userId,
+          fieldVisibility: { bio: "private" },
+          now: 12,
+        }),
+      /Only a claimed profile owner can update profile privacy/,
+    );
+    await assert.rejects(
+      () =>
+        applyProfileFieldVisibilityUpdate(privacyDb.db as never, {
+          profile: { ...profile, claimState: "unclaimed" } as Doc<"profiles">,
+          userId: otherUserId,
+          fieldVisibility: { bio: "private" },
+          now: 12,
+        }),
+      /Only a claimed profile owner can update profile privacy/,
+    );
+    assert.equal(privacyDb.patched.length, 0);
   });
 });
 

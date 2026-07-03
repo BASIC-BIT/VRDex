@@ -224,6 +224,14 @@ export async function expectAppearancePage(page: Page) {
   await expect(page.getByText("Demo mode is live-only", { exact: false })).toBeVisible();
 }
 
+export async function expectPrivacyPage(page: Page) {
+  await expect(page.getByRole("heading", { name: /Control what your claimed profiles show/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Field visibility" })).toBeVisible();
+  await expect(page.getByLabel("Bio visibility")).toBeVisible();
+  await expect(page.getByText("Current settings", { exact: true })).toBeVisible();
+  await expect(page.getByText("Demo mode is live-only", { exact: false })).toBeVisible();
+}
+
 export async function expectSuppressionPage(page: Page) {
   await expect(page.getByRole("heading", { name: /Request review of a public listing/i })).toBeVisible();
   await expect(page.getByLabel("Request type")).toBeVisible();
@@ -364,6 +372,11 @@ export const capturedRoutes: CapturedRoute[] = [
     name: "appearance-demo",
     path: "/account/appearance",
     expectPage: expectAppearancePage,
+  },
+  {
+    name: "privacy-demo",
+    path: "/account/privacy",
+    expectPage: expectPrivacyPage,
   },
   {
     name: "search",

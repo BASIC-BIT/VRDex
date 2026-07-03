@@ -94,6 +94,10 @@ Profile field visibility supports three states:
 
 `displayName`, `slug`, `profileType`, and trust labels remain public while the profile itself is public.
 
+Claimed owners update supported field visibility through `profilePrivacy:updateFieldVisibility`. The mutation requires a signed-in account with an active `profileOwners` owner record for the claimed profile, rejects unknown field keys or states, stores public defaults compactly, and refreshes the profile search document after the profile row changes.
+
+Field visibility is separate from profile-level opt-out. Hiding a field controls which details appear on public surfaces; opt-out and suppression decide whether the profile should surface publicly at all.
+
 ## Trust Labels
 
 Initial trust labels map from `claimState` plus `creationSource`:
@@ -115,3 +119,10 @@ Future claim mutations must:
 - preserve the profile `_id` and slug when authority changes
 - patch `updatedAt` on every profile write
 - use `profileOwners` for durable owner authority instead of interpreting provider login as ownership by itself
+
+Owner privacy mutations must:
+
+- require active owner authority for the target profile
+- reject unknown field visibility keys and states
+- patch `updatedAt` on profile writes
+- refresh discovery/search projections when field visibility changes

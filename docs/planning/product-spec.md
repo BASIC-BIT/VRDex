@@ -529,6 +529,14 @@ Suggested default behavior:
 - ordinary community submissions only populate a safe subset of public-facing fields
 - concierge drafts can prefill more, but the recipient confirms before publication
 
+Current recommendation:
+
+- the first owner control surface should stay field-level and profile-owner-only
+- `public` fields appear on direct profile pages and discovery surfaces
+- `unlisted` fields stay on direct profile pages but leave search, discovery, and cards
+- `private` fields are hidden from public projections
+- profile-level opt-out remains a separate listing decision, not another field visibility state
+
 ### 10a. Listing opt-out controls
 
 People and communities should be able to opt out of unwanted third-party listing.

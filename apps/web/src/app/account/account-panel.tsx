@@ -339,6 +339,9 @@ function ConnectedAccountPanel() {
           </div>
         </dl>
         <div className="mt-5 flex flex-wrap gap-3">
+          <Link className={buttonVariants({ size: "lg", variant: "primary" })} href="/account/privacy">
+            Manage privacy
+          </Link>
           <Link className={buttonVariants({ size: "lg", variant: "primary" })} href="/account/appearance">
             Customize appearance
           </Link>
