@@ -161,7 +161,14 @@ describe("Discord event post export", () => {
       event,
     });
 
-    assert.equal(post.includes("https://example.invalid/source-post"), false);
-    assert.equal(post.includes("Bring water."), false);
+    assert.equal(
+      post,
+      [
+        "**Afterglow Harbor Sessions**",
+        "https://vrdex.net/e/afterglow-harbor-sessions-2026-06-14",
+        "",
+        "Time: <t:1781474400:F> (<t:1781474400:R>)",
+      ].join("\n"),
+    );
   });
 });
