@@ -2,6 +2,10 @@ import { v } from "convex/values";
 
 import { getCurrentUser, requireCurrentUser } from "./accounts";
 import { query, mutation } from "./_generated/server";
+import {
+  getPublicProfileAppearance,
+  normalizeProfilePublicSectionOrder,
+} from "./_profileAppearance";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { userOwnsProfile } from "./_profileOwnership";
 import { canReadProfile } from "./_profilePermissions";
@@ -18,6 +22,14 @@ import {
 
 const profileAssetUploadIntentId = v.id("profileAssetUploadIntents");
 const profileId = v.id("profiles");
+const profilePublicSection = v.union(
+  v.literal("about"),
+  v.literal("events"),
+  v.literal("links"),
+  v.literal("media_kit"),
+  v.literal("worlds"),
+  v.literal("details"),
+);
 
 function optionalIdentityDisplayName(name: string | undefined): string | undefined {
   const trimmed = name?.trim();
@@ -178,6 +190,7 @@ export const listOwnedAppearanceProfiles = query({
       }
 
       const mediaKit = await getPublicProfileMediaKit(ctx.db, profile);
+      const appearance = await getPublicProfileAppearance(ctx.db, profile._id);
       results.push({
         profileId: profile._id,
         profileType: profile.profileType,
@@ -187,6 +200,7 @@ export const listOwnedAppearanceProfiles = query({
         avatarImageUrl: mediaKit.profileImage?.imageUrl ?? profile.avatarImageUrl,
         compactDisplay: mediaKit.compactDisplay,
         avatarAppearance: mediaKit.avatarAppearance,
+        sectionOrder: appearance.sectionOrder,
       });
     }
 
@@ -239,6 +253,51 @@ export const updateAvatarAppearance = mutation({
     return {
       profileId: profile._id,
       avatarAppearance,
+    };
+  },
+});
+
+export const updatePublicSectionOrder = mutation({
+  args: {
+    profileId,
+    sectionOrder: v.array(profilePublicSection),
+  },
+  handler: async (ctx, args) => {
+    const user = await requireCurrentUser(ctx);
+    const profile = await ctx.db.get(args.profileId);
+
+    if (profile === null) {
+      throw new Error("Profile not found.");
+    }
+
+    if (!(await userOwnsProfile(ctx.db, profile._id, user._id))) {
+      throw new Error("Only the profile owner can update profile appearance.");
+    }
+
+    const sectionOrder = normalizeProfilePublicSectionOrder(args.sectionOrder);
+    const existing = await ctx.db
+      .query("profileAssetDisplayPreferences")
+      .withIndex("by_profileId", (query) => query.eq("profileId", profile._id))
+      .unique();
+    const now = Date.now();
+
+    if (existing === null) {
+      await ctx.db.insert("profileAssetDisplayPreferences", {
+        profileId: profile._id,
+        compactDisplay: "auto",
+        sectionOrder,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.patch(existing._id, {
+        sectionOrder,
+        updatedAt: now,
+      });
+    }
+
+    return {
+      profileId: profile._id,
+      sectionOrder,
     };
   },
 });

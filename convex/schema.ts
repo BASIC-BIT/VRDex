@@ -230,6 +230,15 @@ const profileAvatarAppearance = v.object({
   radiusPercent: v.number(),
 });
 
+const profilePublicSection = v.union(
+  v.literal("about"),
+  v.literal("events"),
+  v.literal("links"),
+  v.literal("media_kit"),
+  v.literal("worlds"),
+  v.literal("details"),
+);
+
 const eventSourceType = v.union(
   v.literal("manual"),
   v.literal("community"),
@@ -577,6 +586,7 @@ export default defineSchema({
     profileId: v.id("profiles"),
     compactDisplay: profileAssetDisplayPreference,
     avatarAppearance: v.optional(profileAvatarAppearance),
+    sectionOrder: v.optional(v.array(profilePublicSection)),
     updatedAt: v.number(),
   }).index("by_profileId", ["profileId"]),
   worlds: defineTable({

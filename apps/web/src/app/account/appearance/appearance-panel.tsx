@@ -25,13 +25,42 @@ type AppearanceProfile = {
   headline?: string;
   avatarImageUrl?: string;
   avatarAppearance: AvatarAppearance;
+  sectionOrder: ProfilePublicSectionKey[];
 };
 
+type ProfilePublicSectionKey = "about" | "events" | "links" | "media_kit" | "worlds" | "details";
 type SaveStatus =
   | { kind: "idle" }
   | { kind: "saving" }
   | { kind: "success" }
   | { kind: "error"; message: string };
+
+const defaultSectionOrder: ProfilePublicSectionKey[] = [
+  "about",
+  "events",
+  "links",
+  "media_kit",
+  "worlds",
+  "details",
+];
+
+const sectionLabels: Record<ProfilePublicSectionKey, string> = {
+  about: "About and status",
+  events: "Events",
+  links: "Creator links",
+  media_kit: "Media kit",
+  worlds: "Worlds",
+  details: "Focus and aliases",
+};
+
+const sectionDescriptions: Record<ProfilePublicSectionKey, string> = {
+  about: "Public bio, status, region, and profile facts.",
+  events: "Upcoming or hosted event cards.",
+  links: "Public creator, store, and contact links.",
+  media_kit: "Downloadable profile logos and reusable assets.",
+  worlds: "World credits attached to this profile.",
+  details: "Focus tags, community tags, and aliases.",
+};
 
 const demoProfiles: AppearanceProfile[] = [
   {
@@ -48,6 +77,7 @@ const demoProfiles: AppearanceProfile[] = [
       borderSoftnessPx: 12,
       radiusPercent: 18,
     },
+    sectionOrder: defaultSectionOrder,
   },
 ];
 
@@ -151,9 +181,13 @@ function AvatarPreview({ appearance, profile }: { appearance: AvatarAppearance; 
 
 function AppearanceEditor({ demo, profiles }: { demo?: boolean; profiles: AppearanceProfile[] }) {
   const updateAvatarAppearance = useMutation(api.profileAssets.updateAvatarAppearance);
+  const updatePublicSectionOrder = useMutation(api.profileAssets.updatePublicSectionOrder);
   const [selectedProfileId, setSelectedProfileId] = useState<string>(profiles[0]?.profileId ?? "");
   const selectedProfile = profiles.find((profile) => profile.profileId === selectedProfileId) ?? profiles[0];
   const [draft, setDraft] = useState<AvatarAppearance>(selectedProfile?.avatarAppearance ?? defaultAvatarAppearance);
+  const [sectionOrder, setSectionOrder] = useState<ProfilePublicSectionKey[]>(
+    selectedProfile?.sectionOrder ?? defaultSectionOrder,
+  );
   const deferredDraft = useDeferredValue(draft);
   const colorPickerValue = /^#[0-9a-fA-F]{6}$/.test(draft.borderColor) ? draft.borderColor : "#000000";
   const [status, setStatus] = useState<SaveStatus>({ kind: "idle" });
@@ -168,6 +202,7 @@ function AppearanceEditor({ demo, profiles }: { demo?: boolean; profiles: Appear
   useEffect(() => {
     if (selectedProfile) {
       setDraft(selectedProfile.avatarAppearance);
+      setSectionOrder(selectedProfile.sectionOrder);
       setStatus({ kind: "idle" });
     }
   }, [selectedProfile]);
@@ -186,18 +221,40 @@ function AppearanceEditor({ demo, profiles }: { demo?: boolean; profiles: Appear
     setStatus({ kind: "saving" });
 
     try {
-      await updateAvatarAppearance({
-        profileId: selectedProfile.profileId,
-        borderEnabled: draft.borderEnabled,
-        borderColor: draft.borderColor,
-        borderWidthPx: draft.borderWidthPx,
-        borderSoftnessPx: draft.borderSoftnessPx,
-        radiusPercent: draft.radiusPercent,
-      });
+      await Promise.all([
+        updateAvatarAppearance({
+          profileId: selectedProfile.profileId,
+          borderEnabled: draft.borderEnabled,
+          borderColor: draft.borderColor,
+          borderWidthPx: draft.borderWidthPx,
+          borderSoftnessPx: draft.borderSoftnessPx,
+          radiusPercent: draft.radiusPercent,
+        }),
+        updatePublicSectionOrder({
+          profileId: selectedProfile.profileId,
+          sectionOrder,
+        }),
+      ]);
       startTransition(() => setStatus({ kind: "success" }));
     } catch (error) {
       startTransition(() => setStatus({ kind: "error", message: appearanceErrorMessage(error) }));
     }
+  }
+
+  function moveSection(section: ProfilePublicSectionKey, direction: -1 | 1) {
+    setSectionOrder((current) => {
+      const index = current.indexOf(section);
+      const nextIndex = index + direction;
+
+      if (index < 0 || nextIndex < 0 || nextIndex >= current.length) {
+        return current;
+      }
+
+      const next = [...current];
+      [next[index], next[nextIndex]] = [next[nextIndex]!, next[index]!];
+
+      return next;
+    });
   }
 
   return (
@@ -254,7 +311,7 @@ function AppearanceEditor({ demo, profiles }: { demo?: boolean; profiles: Appear
               onChange={(event) => setDraft((current) => ({ ...current, borderColor: event.target.value }))}
             />
           </div>
-          <FieldText>Use a six-digit hex color. Later this can pull from the profile theme palette.</FieldText>
+          <FieldText>Use a six-digit hex color.</FieldText>
         </Field>
 
         <Field>
@@ -325,6 +382,47 @@ function AppearanceEditor({ demo, profiles }: { demo?: boolean; profiles: Appear
             <FieldText className="mt-2">Softness feathers the border color outward as a subtle gradient glow.</FieldText>
           </div>
         </Field>
+
+        <div className="grid gap-3">
+          <div>
+            <Eyebrow>Profile sections</Eyebrow>
+            <h3 className="mt-2 text-xl font-semibold">Public page order</h3>
+          </div>
+          <div className="grid gap-2">
+            {sectionOrder.map((section, index) => (
+              <div
+                className="grid gap-3 rounded-control border border-border bg-surface-strong px-4 py-3 sm:grid-cols-[1fr_auto] sm:items-center"
+                key={section}
+              >
+                <div>
+                  <p className="text-sm font-medium">{sectionLabels[section]}</p>
+                  <p className="mt-1 text-xs leading-5 text-muted">{sectionDescriptions[section]}</p>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    disabled={index === 0}
+                    size="sm"
+                    type="button"
+                    variant="secondary"
+                    onClick={() => moveSection(section, -1)}
+                  >
+                    Up
+                  </Button>
+                  <Button
+                    disabled={index === sectionOrder.length - 1}
+                    size="sm"
+                    type="button"
+                    variant="secondary"
+                    onClick={() => moveSection(section, 1)}
+                  >
+                    Down
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <FieldText>Only known public profile sections can be reordered.</FieldText>
+        </div>
 
         {demo ? (
           <Notice variant="dashed">Demo mode is live-only. Sign in and claim a profile to save appearance settings.</Notice>

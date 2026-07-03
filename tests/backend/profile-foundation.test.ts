@@ -3,6 +3,10 @@ import { describe, it } from "node:test";
 
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 import {
+  normalizeProfilePublicSectionOrder,
+  toPublicProfileAppearance,
+} from "../../convex/_profileAppearance";
+import {
   createProfileAssetStorageKey,
   normalizeProfileAvatarAppearance,
   normalizeProfileAssetMimeType,
@@ -861,6 +865,28 @@ describe("public profile projection", () => {
     assert.equal(publicProfile.bannerImageUrl, "https://example.invalid/banner.png");
     assert.deepEqual(publicProfile.outboundLinks, []);
     assert.deepEqual(publicProfile.person.roleTags, []);
+  });
+
+  it("normalizes public profile section ordering preferences", () => {
+    assert.deepEqual(
+      normalizeProfilePublicSectionOrder(["links", "about", "links", "worlds"]),
+      ["links", "about", "worlds", "events", "media_kit", "details"],
+    );
+    assert.deepEqual(
+      normalizeProfilePublicSectionOrder(["unknown", "events"]),
+      ["events", "about", "links", "media_kit", "worlds", "details"],
+    );
+    assert.deepEqual(
+      toPublicProfileAppearance({
+        sectionOrder: ["media_kit", "links"],
+      } as Pick<Doc<"profileAssetDisplayPreferences">, "sectionOrder">),
+      {
+        sectionOrder: ["media_kit", "links", "about", "events", "worlds", "details"],
+      },
+    );
+    assert.deepEqual(toPublicProfileAppearance(null), {
+      sectionOrder: ["about", "events", "links", "media_kit", "worlds", "details"],
+    });
   });
 });
 

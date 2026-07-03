@@ -2,7 +2,7 @@
 
 ## Status Note
 
-This doc captures the durable profile schema foundation from `#9` through `#13`, plus later extensions in `#22`, `#23`, `#25`, `#26`, `#30`, `#31`, `#32`, `#33`, `#82`, `#90`, the DJ lookup genre slice, and the first file-backed media-kit and bounded appearance slices.
+This doc captures the durable profile schema foundation from `#9` through `#13`, plus later extensions in `#20`, `#22`, `#23`, `#25`, `#26`, `#30`, `#31`, `#32`, `#33`, `#82`, `#90`, the DJ lookup genre slice, and the first file-backed media-kit and bounded appearance slices.
 
 The implemented schema is intentionally narrow. It establishes one shared `profiles` table for people and communities plus first-slice account ownership, claim request, verification attempt, field visibility, media asset, and bounded appearance tables without introducing normalized link tables or advanced moderation workflows.
 
@@ -21,6 +21,7 @@ The implemented schema is intentionally narrow. It establishes one shared `profi
 - normalized alias and rich authored block tables are deferred to later profile presentation issues
 - file-backed media-kit assets are the model for profile pictures, logos, banners, and other reusable profile images
 - profile image appearance is stored as display preference metadata, not by mutating the uploaded image asset
+- public profile body section ordering is bounded to known sections; duplicate entries are ignored and missing default sections are appended
 - profile outbound links are currently inline typed external links; normalized link tables remain a later scaling option
 - avatar and banner fields are URL placeholders for later controlled owner or concierge inputs, not ordinary community-submitted fields
 - reviewed seed imports stage proposed profile facts outside `profiles` until explicit review and a later publication/merge flow; imported candidate fields are not owner-authored fields
@@ -114,6 +115,21 @@ Candidate placement fields can live on the profile or in a companion placement t
 - avatar appearance controls: border on/off, six-digit border color, bounded border thickness, bounded border softness, and `0..50` percent roundedness from square to circle
 
 Convex automatically provides `_id` and `_creationTime`; those are not duplicated in the schema.
+
+## Bounded Profile Appearance
+
+Locked decision:
+
+- avatar frame controls are presentation metadata only and never mutate the stored image asset
+- public profile section ordering is constrained to `about`, `events`, `links`, `media_kit`, `worlds`, and `details`
+- section ordering normalization removes duplicates, ignores unknown values, and appends any missing default sections so public pages always stay complete
+- raw HTML, arbitrary CSS, premium effects, and generic page-builder blocks are outside the baseline bounded customization slice
+
+Current recommendation:
+
+- theme presets should remain a small enum mapped to shared design tokens when implemented, not owner-authored color strings or CSS
+- the first owner-facing customization editor should stay focused on avatar frame controls and the constrained public section order
+- premium animated effects and richer styling should remain a follow-on system after this calm, readable baseline is stable
 
 ## Ownership And Claim Tables
 

@@ -114,6 +114,8 @@ This file records the current hard and soft dependency assumptions across the dr
 
 - hard dependencies: #19, #21, #22
 - soft dependents: #24
+- Locked decision: the baseline customization system is bounded to avatar frame appearance plus known public profile section ordering
+- Current recommendation: theme presets should be added only as a small enum-to-token mapping, with premium effects left to #24
 
 ### #21 Build public community profile page
 

@@ -142,6 +142,9 @@ const personProfile: FixturePersonProfile = {
       source: "reviewed",
     },
   ],
+  appearance: {
+    sectionOrder: ["links", "about", "events", "media_kit", "worlds", "details"],
+  },
   worldCredits: [
     {
       slug: worldSlug,
@@ -612,6 +615,9 @@ const communityProfile: PublicProfile = {
       source: "owner_authored",
     },
   ],
+  appearance: {
+    sectionOrder: ["events", "about", "links", "worlds", "details", "media_kit"],
+  },
   worldCredits: [
     {
       slug: worldSlug,
