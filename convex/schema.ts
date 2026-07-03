@@ -12,6 +12,16 @@ import {
   stripeEnvironmentValidator,
 } from "./_billing";
 import {
+  eventImportBatchReviewStateValidator,
+  eventImportCandidatePublicationStateValidator,
+  eventImportCandidateReviewStateValidator,
+  eventImportCancellationStateValidator,
+  eventImportFieldConfidenceValidator,
+  eventImportFieldReviewStateValidator,
+  eventImportFieldVisibilityValidator,
+  eventImportProviderValidator,
+} from "./_eventCalendarImports";
+import {
   eventMediaActorSurfaceValidator,
   eventMediaCommandStatusValidator,
   eventMediaCommandTypeValidator,
@@ -757,6 +767,78 @@ export default defineSchema({
       "reviewState",
       "startAt",
     ]),
+  eventImportBatches: defineTable({
+    externalBatchId: v.string(),
+    provider: eventImportProviderValidator,
+    sourceName: v.string(),
+    sourceCalendarId: v.string(),
+    sourceCalendarSummary: v.optional(v.string()),
+    sourceCalendarTimeZone: v.optional(v.string()),
+    syncJobId: v.optional(v.string()),
+    receivedAt: v.number(),
+    importedBy: v.optional(authSubject),
+    reviewState: eventImportBatchReviewStateValidator,
+    reviewedBy: v.optional(authSubject),
+    reviewedAt: v.optional(v.number()),
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_externalBatchId", ["externalBatchId"])
+    .index("by_provider_receivedAt", ["provider", "receivedAt"])
+    .index("by_reviewState_receivedAt", ["reviewState", "receivedAt"]),
+  eventImportCandidates: defineTable({
+    batchId: v.id("eventImportBatches"),
+    externalEventId: v.string(),
+    externalICalUid: v.optional(v.string()),
+    sourceUpdatedAt: v.optional(v.number()),
+    sourceUrl: v.optional(v.string()),
+    title: v.string(),
+    startAt: v.number(),
+    endAt: v.optional(v.number()),
+    timezone: v.optional(v.string()),
+    allDay: v.boolean(),
+    location: v.optional(v.string()),
+    description: v.optional(v.string()),
+    recurrenceRules: v.array(v.string()),
+    recurringEventId: v.optional(v.string()),
+    cancellationState: eventImportCancellationStateValidator,
+    reviewState: eventImportCandidateReviewStateValidator,
+    publicationState: eventImportCandidatePublicationStateValidator,
+    matchedEventId: v.optional(v.id("events")),
+    reviewer: v.optional(authSubject),
+    reviewedAt: v.optional(v.number()),
+    reviewNote: v.optional(v.string()),
+    publicationQueuedBy: v.optional(authSubject),
+    publicationQueuedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_batchId", ["batchId"])
+    .index("by_batchId_reviewState", ["batchId", "reviewState"])
+    .index("by_batchId_publicationState", ["batchId", "publicationState"])
+    .index("by_externalEventId", ["externalEventId"])
+    .index("by_sourceUpdatedAt", ["sourceUpdatedAt"])
+    .index("by_matchedEventId", ["matchedEventId"]),
+  eventImportCandidateFields: defineTable({
+    candidateId: v.id("eventImportCandidates"),
+    fieldKey: v.string(),
+    value: v.any(),
+    sourceLabel: v.string(),
+    sourceUrl: v.optional(v.string()),
+    confidence: eventImportFieldConfidenceValidator,
+    reviewState: eventImportFieldReviewStateValidator,
+    visibility: eventImportFieldVisibilityValidator,
+    reviewedBy: v.optional(authSubject),
+    reviewedAt: v.optional(v.number()),
+    reviewNote: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_candidateId", ["candidateId"])
+    .index("by_candidateId_reviewState", ["candidateId", "reviewState"])
+    .index("by_candidateId_visibility", ["candidateId", "visibility"])
+    .index("by_fieldKey_reviewState", ["fieldKey", "reviewState"]),
   eventMediaPrograms: defineTable({
     eventId: v.id("events"),
     communityProfileId: v.optional(v.id("profiles")),

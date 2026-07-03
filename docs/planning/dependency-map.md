@@ -233,6 +233,7 @@ This file records the current hard and soft dependency assumptions across the dr
 ### #138 Add calendar import/export workflows for events
 
 - soft dependencies: #34, #41, #76, #89, #117
+- implemented foundation: public event/feed ICS serialization plus Google Calendar review-staging tables and normalizer; OAuth, background sync, subscription UI, and canonical event publication remain follow-on work
 
 ### #137 Consider Notion integration for event planning workflows
 

@@ -99,13 +99,29 @@ Calendar output should include only public event data that is safe to expose:
 
 Do not include private notes, moderation fields, private contact paths, unreviewed scraped data, or hidden/suppressed entities.
 
-## First Export Slice
+## Implemented Export Slice
 
 Locked decision: the first practical calendar implementation is outbound-only single-event `.ics` export for public event pages.
 
 Published events can be exported from `/e/<slug>/calendar.ics`. The route reads the same public event projection used by `/e/<slug>`, returns `404` when the event is missing or not public, and emits UTC `VEVENT` timestamps with summary, canonical VRDex URL, and public location text derived from visible world or host data.
 
-Current recommendation: keep this as a static export slice. Do not add Google OAuth, import jobs, account calendars, schema changes, or subscription UI until the reviewed-import and follow/favorites models are ready.
+Current recommendation: keep the public export surface static and public-data-only. The shared ICS serializer now supports both a single safe event export and a selected public event feed, but product UI for feed subscriptions should wait until follow, favorites, or community calendar selection exists.
+
+Do not add Google OAuth, account calendars, token storage, or personalized subscription UI until the reviewed-import and follow/favorites models are ready.
+
+## Implemented Import Foundation
+
+Locked decision: Google Calendar import begins as reviewed staging only, not a public event publisher.
+
+The first backend foundation adds Convex staging tables for:
+
+- `eventImportBatches`
+- `eventImportCandidates`
+- `eventImportCandidateFields`
+
+The Google Calendar normalizer maps selected public/operator-owned calendar event fields into private review candidates. It preserves calendar/event IDs, batch or sync job identifiers, source update timestamps, source URLs, title, description, start/end time, timezone, location, public HTTPS links, recurrence hints, and cancellation state.
+
+Imported candidates default to `draft_private` and `unreviewed`. The helper can write staging documents and evaluate publication blockers, but it does not create canonical `events` rows, run background sync jobs, resolve conflicts, or expose an import UI.
 
 ## Inbound Import Rules
 
@@ -122,6 +138,8 @@ Imported candidates should preserve:
 
 Do not import attendees, reminders, private notes, hidden calendar metadata, or arbitrary personal calendars by default.
 
+Imported candidate publication requires a later explicit review flow. Before publication, the batch must be approved, the candidate must be accepted and queued for review-pending publication, public fields must be reviewed, cancelled events must stay blocked, and private source fields must not be promoted as public event facts.
+
 ## Self-Hosting Notes
 
 Self-hosted operators that enable Google Calendar sync or import will need their own Google Cloud OAuth or service-account configuration. Do not hard-code BASIC BIT calendar project IDs or secrets into committed defaults.
@@ -129,8 +147,9 @@ Self-hosted operators that enable Google Calendar sync or import will need their
 ## Non-Goals For First Slice
 
 - building calendar sync now
-- building Google Calendar import now
+- building Google Calendar OAuth, token storage, or background import jobs now
 - final multi-provider calendar abstraction
 - full event-subscription preference UI
 - per-user Google OAuth token storage before the account and event-follow models are ready
 - importing private calendar data before reviewed import workflows and provenance rules are ready
+- publishing imported candidates directly into canonical events

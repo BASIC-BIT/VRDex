@@ -12,6 +12,7 @@ import type * as _authRedirects from "../_authRedirects.js";
 import type * as _billing from "../_billing.js";
 import type * as _communityAuthority from "../_communityAuthority.js";
 import type * as _discordTimestamps from "../_discordTimestamps.js";
+import type * as _eventCalendarImports from "../_eventCalendarImports.js";
 import type * as _eventDiscordExport from "../_eventDiscordExport.js";
 import type * as _eventInputs from "../_eventInputs.js";
 import type * as _eventMediaControl from "../_eventMediaControl.js";
@@ -72,6 +73,7 @@ declare const fullApi: ApiFromModules<{
   _billing: typeof _billing;
   _communityAuthority: typeof _communityAuthority;
   _discordTimestamps: typeof _discordTimestamps;
+  _eventCalendarImports: typeof _eventCalendarImports;
   _eventDiscordExport: typeof _eventDiscordExport;
   _eventInputs: typeof _eventInputs;
   _eventMediaControl: typeof _eventMediaControl;
