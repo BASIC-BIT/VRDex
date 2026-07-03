@@ -45,33 +45,40 @@ The first useful version should feel small and sharp:
 - `Locked decision`: `v0` is explicitly unstable until public launch, but breaking changes still require docs and changelog updates.
 - `Locked decision`: Public API, MCP, and Swagger examples must preserve trust, provenance, claim, visibility, opt-out, and suppression semantics.
 - `Locked decision`: Structured integrations should prefer public API or MCP tools over website scraping.
+- `Locked decision`: OpenAPI artifacts must be generated from shared API contract schemas, not hand-rolled as a parallel source of truth.
+- `Locked decision`: Hosted MCP should expose anonymous public read tools on day one, with anonymous callers treated as a distinct rate-limit class.
 - `Locked decision`: Token values must never be stored in plaintext. Display newly minted API tokens and OAuth client secrets only once, then store verifier hashes plus metadata.
 - `Locked decision`: Bearer tokens must not be accepted from URL query parameters.
 - `Locked decision`: OAuth access tokens must be audience/resource-bound. VRDex must not accept or pass through tokens minted for another resource.
 - `Locked decision`: Hosted MCP over HTTP follows the current MCP authorization model and Streamable HTTP transport.
 - `Locked decision`: Local stdio MCP uses environment or local config credentials and does not try to run the HTTP MCP authorization handshake over stdio.
+- `Locked decision`: The first normal developer app ownership model is user-owned. Community-owned OAuth apps are an early follow-up, not the first blocker.
 
 ## Current Recommendations
 
 - `Current recommendation`: Treat this as `EPIC-12 Public API foundation` plus the first implementation wave for `#78`.
-- `Current recommendation`: Use one developer platform model for API tokens, OAuth applications, OAuth grants, and MCP access.
+- `Current recommendation`: Use one developer platform model for API tokens, OAuth applications, OAuth grants, dynamic MCP client registrations, and MCP access.
 - `Current recommendation`: Keep anonymous public reads first, then authenticated reads, then narrow audited writes.
 - `Current recommendation`: Use Convex as the authoritative application data and policy layer, with Next.js route handlers as the public HTTP gateway.
+- `Current recommendation`: Put the VRDex OAuth authorization server in Next.js route handlers backed by Convex tables and internal Convex functions. Convex remains the data/control plane; Next owns browser redirects, consent UX, metadata endpoints, token routes, CORS, and HTTP semantics.
+- `Current recommendation`: Do not treat Convex Auth's inbound sign-in providers as the third-party developer OAuth issuer. Convex Auth remains first-party account authentication; the VRDex developer platform issues tokens for external clients.
+- `Current recommendation`: Use shared TypeScript API contract schemas as the source of truth for runtime validation, response typing, example generation, and OpenAPI generation. Convex validators remain the database/function boundary.
 - `Current recommendation`: Start API documentation with OpenAPI 3.1.x for Swagger UI and ecosystem compatibility, while tracking OpenAPI 3.2.0 support before locking a stable public spec.
-- `Current recommendation`: Hand-author the first OpenAPI description near the route contract, then add validation so examples, route responses, and generated docs cannot drift silently.
-- `Current recommendation`: Use opaque hashed personal API tokens. Use short-lived OAuth access tokens plus refresh-token rotation for user-delegated OAuth flows.
-- `Current recommendation`: Prefer JWT access tokens for OAuth only if validation, audience/resource binding, revocation, and key rotation are implemented cleanly; otherwise use opaque OAuth access tokens with server-side lookup or introspection.
+- `Current recommendation`: Use Zod 4 plus an OpenAPI generator such as `zod-openapi` as the first candidate contract toolchain, pending a short implementation spike against the actual route shape.
+- `Current recommendation`: Use opaque hashed personal API tokens. Use short-lived RFC 9068-style JWT OAuth access tokens with audience/resource binding, plus opaque refresh-token rotation for user-delegated OAuth flows.
 - `Current recommendation`: Support OAuth Authorization Code with PKCE for user-delegated apps and Client Credentials for app-only access.
-- `Current recommendation`: Start with manual OAuth app registration in the VRDex developer dashboard. Add dynamic client registration only if MCP client interoperability makes it necessary for the first hosted MCP launch.
-- `Current recommendation`: Rate-limit by route class, IP, token, OAuth client, user, and app owner. Do not use one global bucket for every caller.
+- `Current recommendation`: Start normal developer apps with manual OAuth app registration in the VRDex developer dashboard. Include constrained Dynamic Client Registration for hosted MCP OAuth if major MCP client compatibility requires it on day one.
+- `Current recommendation`: Rate-limit by route class, IP, token, OAuth client, user, app owner, and dynamic MCP client. Do not use one global bucket for every caller.
+- `Current recommendation`: Use a Redis-compatible TTL counter store for high-volume hosted anonymous public API and MCP traffic. Keep Convex as the durable source for policy, app/token ownership, partner overrides, coarse usage summaries, and audit events.
 - `Current recommendation`: Launch the hosted MCP as read-oriented first, even if the auth platform already supports scopes that make later write tools possible.
+- `Current recommendation`: Trusted partner access is a manual review tier with very high quotas compared with normal personal tokens, but it still needs contact ownership, abuse/cost guardrails, observability, and fast revocation.
 
 ## Candidate Directions
 
 - `Candidate direction`: Add a dedicated API hostname later, but keep the first public route shape under the web app until operational pressure justifies a split.
-- `Candidate direction`: Publish `/.well-known/oauth-authorization-server` and OAuth protected-resource metadata from the web app unless Convex HTTP actions become the cleaner issuer boundary.
-- `Candidate direction`: Use a Convex-backed rate-limit store first. Move hot anonymous traffic limits to edge middleware, Redis, or provider controls if production telemetry shows Convex is the wrong place for that pressure.
-- `Candidate direction`: Add dynamic client registration for MCP after hosted OAuth works manually, not before the first usable developer surface exists.
+- `Candidate direction`: Publish `/.well-known/oauth-authorization-server` and OAuth protected-resource metadata from the web app route-handler surface.
+- `Candidate direction`: Use an adapter interface for rate-limit storage so hosted deployments can use Upstash/Vercel KV/Valkey/Redis-compatible infrastructure, local development can use an in-memory adapter, and self-hosted production can bring its own Redis-compatible store.
+- `Candidate direction`: Add a hosted MCP compatibility matrix for every major MCP client available at implementation time. The matrix should cover anonymous Streamable HTTP reads, OAuth hosted tools, and stdio private/local configuration.
 - `Candidate direction`: Add an optional generated MCP coverage layer from OpenAPI only after curated tools prove useful.
 
 ## Interview Later
@@ -80,7 +87,7 @@ The first useful version should feel small and sharp:
 - `Interview later`: Whether partner application flows can access anything beyond public data before formal partner contracts exist.
 - `Interview later`: Whether self-hosted deployments need built-in multi-tenant OAuth issuer support or only one issuer per deployment.
 - `Interview later`: Whether paid tiers should raise API and MCP limits at launch or only after organic demand appears.
-- `Interview later`: Whether OAuth dynamic client registration is required for target MCP clients in the first public launch.
+- `Interview later`: Which community-owned OAuth app workflows are needed immediately after user-owned developer apps.
 
 ## Client Classes
 
@@ -155,6 +162,23 @@ Properties:
 - rate limits tied to OAuth client and owning user/community
 - secrets rotatable from the developer dashboard
 
+### Dynamic MCP Clients
+
+Use cases:
+
+- hosted MCP clients that need OAuth registration without a hand-created client id
+- broad day-one compatibility across major MCP clients
+
+Properties:
+
+- registered through constrained Dynamic Client Registration
+- public client type by default
+- no client secret unless the client is manually promoted
+- limited to MCP resource access
+- anonymous/public read and user-delegated read scopes only at first
+- lower default trust than manually reviewed developer apps
+- rate-limited by dynamic client id, IP, user grant, and route class
+
 ### First-Party Web App
 
 Use cases:
@@ -176,13 +200,15 @@ Use cases:
 - remote agent integrations
 - partner coding agents
 - docs-aware public queries
+- anonymous search/browser-like public data reads
 - user-authorized workflows later
 
 Properties:
 
 - Streamable HTTP transport
 - protected by OAuth when a tool needs auth
-- public read tools may be available without auth if abuse controls are sufficient
+- public read tools are available without auth where the same data is already safely public
+- anonymous callers use the anonymous MCP rate-limit class
 - uses MCP resource metadata and audience/resource-bound tokens
 
 ### Private Or Local MCP
@@ -296,6 +322,7 @@ Candidate Convex tables:
 - `oauthApplications`
 - `oauthApplicationRedirectUris`
 - `oauthApplicationSecrets`
+- `oauthDynamicClientRegistrations`
 - `oauthAuthorizations`
 - `oauthAccessTokens`
 - `oauthRefreshTokens`
@@ -338,6 +365,25 @@ OAuth application fields:
 - status
 - created at
 - reviewed at, if trusted-partner status is later added
+
+Dynamic MCP client registration fields:
+
+- client id
+- registration access token hash, if supported
+- client name
+- client URI
+- logo URI
+- redirect URIs
+- grant types
+- response types
+- token endpoint auth method
+- contacts
+- software id/version, if supplied
+- allowed scopes
+- status
+- created at
+- last used at
+- promoted app id, if manually reviewed later
 
 OAuth grant fields:
 
@@ -406,6 +452,20 @@ Implementation requirements:
 - app ownership can be user-owned first and community-owned later
 - reviewed/trusted partner status must be explicit if added
 
+Issuer placement:
+
+- Next.js route handlers own the OAuth HTTP surface.
+- Convex stores applications, grants, consents, tokens, rotation state, revocation state, and audit events.
+- Next route handlers call Convex queries/mutations/actions for durable state changes.
+- Convex Auth continues to authenticate the signed-in VRDex account during authorization and consent.
+- A separate OAuth service is deferred until scale, compliance, or cross-app reuse justifies the operational cost.
+
+Rationale:
+
+- OAuth has browser-facing redirects, consent screens, metadata endpoints, token responses, CORS, cookies, and HTTP error semantics that are natural in the web app.
+- Convex is still the best place for transactional application state, ownership policy, and audit records.
+- A dedicated service would add deployment and self-hosting surface before the product has proven it needs that boundary.
+
 ### OAuth User-Delegated Flow
 
 Required grant:
@@ -422,8 +482,8 @@ Required endpoints:
 
 Candidate optional endpoints:
 
-- `POST /oauth/introspect`, if opaque OAuth access tokens need resource-server lookup
-- `POST /oauth/register`, if dynamic client registration is supported
+- `POST /oauth/introspect`, if trusted partners, self-hosted components, or future opaque-token use cases need resource-server lookup
+- `POST /oauth/register`, for constrained MCP Dynamic Client Registration if required for major client compatibility
 
 Behavior:
 
@@ -433,6 +493,14 @@ Behavior:
 - refresh tokens rotate
 - scope downgrades are supported
 - revocation removes refresh tokens and invalidates outstanding access tokens where practical
+
+Token format:
+
+- OAuth access tokens are short-lived JWTs following the OAuth JWT access token profile.
+- Required claims include issuer, subject or application subject, audience/resource, client id, scope, issued-at, expiry, and token id.
+- Resource servers validate issuer, audience/resource, expiry, signature, scopes, and revoked token ids where needed.
+- OAuth refresh tokens remain opaque, hashed, rotated, and stored server-side.
+- Personal API tokens remain opaque and hashed; they are not JWTs.
 
 ### OAuth Application Flow
 
@@ -446,6 +514,22 @@ Behavior:
 - allowed scopes are constrained by app status
 - first version should usually allow public reads and maybe partner-approved ingestion or export scopes only after review
 - rate limits bind to client id and owner
+
+### Dynamic Client Registration For MCP
+
+Purpose:
+
+- make hosted MCP OAuth work with major MCP clients that cannot rely on a preconfigured VRDex client id
+
+Current recommendation:
+
+- include `POST /oauth/register` for hosted MCP clients in the first MCP OAuth implementation if compatibility testing shows any major client expects it
+- restrict dynamically registered clients to public-client behavior until manually reviewed
+- allow only exact redirect URIs and localhost loopback development redirects
+- allow only MCP resource access and the initial public/read-oriented scopes
+- rate-limit registrations by IP, software metadata, and redirect host
+- expose dynamic clients separately from manually created user-owned developer apps in admin/ops views
+- allow manual promotion from dynamic MCP client to reviewed developer app later
 
 ### Scopes
 
@@ -484,6 +568,7 @@ Use layered identity keys:
 - OAuth client id
 - user id
 - app owner id
+- dynamic MCP client id
 - self-hosted deployment id, if introduced later
 
 Route classes:
@@ -494,7 +579,22 @@ Route classes:
 - OAuth authorize/token/revoke
 - asset upload intent creation
 - public writes
-- MCP tool calls
+- anonymous MCP public read tool calls
+- authenticated MCP tool calls
+
+Backend choice:
+
+- high-volume hosted anonymous API and hosted MCP counters should use a Redis-compatible TTL counter store
+- Convex should store quota policy, token/app ownership, trusted partner overrides, coarse usage summaries, and durable audit events
+- local development can use an in-memory adapter
+- self-hosted production should document a Redis-compatible option, with Convex-only counters allowed only for low-traffic deployments that accept the cost and write-load tradeoff
+
+Why this is a separate question:
+
+- anonymous public reads can create high-cardinality counters keyed by IP, route class, and window
+- those counters expire quickly and do not need to be part of the core product database
+- trusted app/token policy and audit data are durable business records and do belong in Convex
+- separating hot TTL counters from durable policy avoids turning every anonymous search/MCP request into a Convex write
 
 Recommended response behavior:
 
@@ -507,12 +607,14 @@ Quota values:
 
 - `Interview later`: choose real numbers after API endpoint shape and hosting cost are clearer
 - `Current recommendation`: document placeholder classes before implementation, then set conservative defaults in code
+- `Current recommendation`: trusted partners should have very high practical quotas compared with normal personal tokens, controlled by manual review, contact ownership, monitoring, and revocation instead of a self-serve automatic upgrade
 
 ### Abuse Rules
 
 - repeated invalid-token usage should produce credential events and eventually temporary blocks
 - high-cardinality anonymous search should have stricter limits than direct profile lookup
 - token creation and OAuth app creation need lower write limits than normal public reads
+- dynamic MCP client registration needs stricter limits than anonymous read tools
 - suspicious OAuth redirect changes should require app-owner action and audit history
 - revoked, expired, or scope-insufficient credentials should fail before data access
 
@@ -530,6 +632,8 @@ Required surfaces:
 
 Candidate paths:
 
+- `packages/api-contracts/src/schemas.ts`
+- `packages/api-contracts/src/openapi.ts`
 - `docs/api/openapi.yaml`
 - `apps/web/src/app/api/v0/openapi.json/route.ts`
 - `apps/web/src/app/developers/api/page.tsx`
@@ -540,6 +644,7 @@ Candidate paths:
 
 ### Spec Rules
 
+- generate the OpenAPI document from shared API contract schemas
 - describe request and response schemas for every public route
 - document auth requirements per operation
 - document rate-limit behavior per route class
@@ -551,9 +656,22 @@ Candidate paths:
 
 ### Source Of Truth
 
-`Current recommendation`: for the first implementation PR, make the OpenAPI file the external contract source of truth and add route tests that assert representative responses match the documented shape.
+`Current recommendation`: make shared TypeScript API contract schemas the source of truth for the external contract. Generate OpenAPI from those schemas and make route handlers validate requests and representative responses against the same contract layer.
 
-Later, if the route implementation uses shared schemas strongly enough, generate the OpenAPI description from those schemas or add snapshot checks that catch drift.
+Convex validators remain the database and Convex function boundary. The API contract layer should sit at the public HTTP boundary and translate Convex return values into public response shapes.
+
+Candidate toolchain:
+
+- Zod 4 schemas for public API request/response contracts
+- `zod-openapi` for OpenAPI 3.1.x document generation
+- generated `openapi.json` and `openapi.yaml` checked in or generated in CI, with a drift check
+- route tests that validate representative payloads against the shared schemas
+- type exports that can be reused by the MCP package
+
+Implementation checkpoint:
+
+- do a short spike before the full implementation PR to prove the chosen generator handles unions, branded IDs, nullable fields, examples, and response variants cleanly
+- if Zod/OpenAPI generation creates awkward schema output, choose the next simplest schema-first toolchain rather than falling back to hand-written OpenAPI
 
 ## MCP Platform
 
@@ -575,11 +693,21 @@ Required metadata:
 
 Auth behavior:
 
-- anonymous read tools may be allowed only if abuse controls are acceptable
+- anonymous read tools are allowed for public-safe read operations
+- anonymous MCP callers use separate route classes and quotas from anonymous HTTP API callers
 - authenticated tools require `Authorization: Bearer <access-token>`
 - MCP tokens must be issued for the VRDex MCP resource
 - do not accept tokens issued for the plain web app, another MCP, or another resource
 - return `WWW-Authenticate` with protected resource metadata when auth is required
+- support constrained Dynamic Client Registration if required by major MCP clients
+
+Day-one client compatibility:
+
+- support Streamable HTTP for hosted MCP
+- support stdio for private/local MCP
+- maintain an implementation-time compatibility matrix for the major MCP clients available then
+- test anonymous hosted read tools, OAuth hosted tools, and local stdio token configuration separately
+- do not declare hosted MCP ready until the matrix covers the mainstream clients VRDex users and partner agents are likely to use
 
 First hosted tools:
 
@@ -679,6 +807,12 @@ Required capabilities:
 - revoke OAuth app
 - view active user grants for owned apps
 
+First ownership pass:
+
+- user-owned developer apps
+- community-owned developer apps as early follow-up once community owner/admin authority is stable enough
+- dynamically registered MCP clients visible to admins/operators, not normal self-serve developer app management at first
+
 UX rules:
 
 - use crisp labels, not explanatory filler
@@ -738,6 +872,7 @@ Rate limiting:
 
 - `VRDEX_RATE_LIMIT_STORE`
 - `VRDEX_RATE_LIMIT_REDIS_URL`, if Redis is selected
+- `VRDEX_RATE_LIMIT_REDIS_PREFIX`, if shared Redis infrastructure is used
 
 Feature flags:
 
@@ -801,17 +936,19 @@ Do not log:
 
 Deliverables:
 
+- shared API contract schema package or module
 - shared public API response helpers
 - auth error helpers
 - public-safe not-found helper
 - scope and route-class definitions
-- first checked-in OpenAPI skeleton
+- generated OpenAPI skeleton
 - docs links from existing public API and MCP pages
 
 Validation:
 
 - unit tests for response helpers and scope parsing
 - OpenAPI lint or schema validation
+- generated OpenAPI drift check
 - `git diff --check`
 
 ### Slice 2: Anonymous Public Reads And Swagger
@@ -819,7 +956,7 @@ Validation:
 Deliverables:
 
 - public read endpoints for profiles, search, events, worlds, and claim status
-- OpenAPI operation definitions
+- OpenAPI operation definitions generated from shared contract schemas
 - Swagger UI route/page
 - public API examples
 
@@ -851,9 +988,11 @@ Validation:
 
 Deliverables:
 
+- Next.js OAuth route handlers backed by Convex state
 - OAuth app registration UI
 - Authorization Code with PKCE
 - Client Credentials
+- constrained Dynamic Client Registration for hosted MCP if required by compatibility testing
 - token, revoke, and metadata endpoints
 - consent screen
 - OAuth docs
@@ -865,6 +1004,7 @@ Validation:
 - consent flow E2E with test client
 - token audience/resource tests
 - revocation tests
+- dynamic MCP client registration tests if enabled
 
 ### Slice 5: Hosted MCP
 
@@ -873,15 +1013,19 @@ Deliverables:
 - Streamable HTTP MCP endpoint
 - MCP resource metadata
 - read-only curated tools
+- anonymous public read tool access
 - OAuth-protected tool path
+- major MCP client compatibility matrix
 - MCP docs
 
 Validation:
 
 - MCP handshake tests
 - tool contract tests
+- anonymous public read tool tests
 - invalid audience/resource test
 - auth-required `WWW-Authenticate` test
+- compatibility smoke tests for major hosted MCP clients available at implementation time
 
 ### Slice 6: Private/Local MCP Package
 
@@ -904,6 +1048,8 @@ Validation:
 Deliverables:
 
 - configured default rate-limit classes
+- Redis-compatible TTL counter adapter for hosted high-volume anonymous API/MCP traffic
+- in-memory adapter for local development
 - usage metadata
 - credential event logs
 - operational admin views or scripts
@@ -913,6 +1059,7 @@ Validation:
 
 - rate-limit tests by identity type
 - revoked token usage event test
+- Redis adapter TTL/window tests
 - admin/ops docs review
 
 ### Slice 8: Final Docs And Rollout
@@ -940,9 +1087,9 @@ Validation:
 If this epic is split before implementation, keep the issue count small:
 
 1. Public API contracts, OpenAPI, and Swagger docs.
-2. API token auth, developer token UI, and rate limits.
-3. OAuth app registry, Authorization Code with PKCE, Client Credentials, and metadata endpoints.
-4. Hosted VRDex MCP with OAuth and read-only curated tools.
+2. API token auth, developer token UI, and Redis-compatible rate limits.
+3. OAuth app registry, Next.js-backed issuer routes, Authorization Code with PKCE, Client Credentials, and metadata endpoints.
+4. Hosted VRDex MCP with anonymous public reads, OAuth, Dynamic Client Registration if needed, and read-only curated tools.
 5. Private/local `@basicbit/vrdex-mcp` package with token and OAuth configuration.
 6. Developer docs, self-hosting docs, observability, and rollout checks.
 
@@ -962,6 +1109,7 @@ Required before PR readiness:
 - OAuth test-client E2E
 - hosted MCP handshake/tool tests
 - stdio MCP smoke test
+- major MCP client compatibility matrix results
 - docs build
 - visual verification for developer dashboard, consent screen, and Swagger docs
 
@@ -994,7 +1142,13 @@ Security-specific tests:
 - [MCP Authorization](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization)
 - [MCP Transports](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports)
 - [OpenAPI Specification](https://spec.openapis.org/oas/latest.html)
+- [Zod 4 JSON Schema conversion](https://zod.dev/v4)
+- [zod-openapi](https://github.com/samchungy/zod-openapi)
+- [Convex HTTP actions and server APIs](https://docs.convex.dev/api/modules/server)
+- [Convex function auth](https://docs.convex.dev/auth/functions-auth)
+- [Convex Auth](https://github.com/get-convex/convex-auth)
 - [OAuth 2.1 draft](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1)
+- [RFC 9700: Best Current Practice for OAuth 2.0 Security](https://www.rfc-editor.org/rfc/rfc9700.html)
 - [RFC 8414: OAuth 2.0 Authorization Server Metadata](https://datatracker.ietf.org/doc/html/rfc8414)
 - [RFC 7591: OAuth 2.0 Dynamic Client Registration Protocol](https://datatracker.ietf.org/doc/html/rfc7591)
 - [RFC 9728: OAuth 2.0 Protected Resource Metadata](https://datatracker.ietf.org/doc/html/rfc9728)
@@ -1002,14 +1156,26 @@ Security-specific tests:
 - [RFC 9068: JSON Web Token Profile for OAuth 2.0 Access Tokens](https://datatracker.ietf.org/doc/html/rfc9068)
 - [RFC 7009: OAuth 2.0 Token Revocation](https://datatracker.ietf.org/doc/html/rfc7009)
 - [RFC 7662: OAuth 2.0 Token Introspection](https://datatracker.ietf.org/doc/html/rfc7662)
+- [RFC 6585: 429 Too Many Requests](https://www.rfc-editor.org/rfc/rfc6585.html)
+- [RFC 9457: Problem Details for HTTP APIs](https://www.rfc-editor.org/rfc/rfc9457.html)
 
-## Open Questions
+## Follow-Up Decisions From Maintainer Review
 
-- Should the first OpenAPI artifact be generated from shared schemas or hand-authored with validation tests?
-- Should the OAuth issuer live in Next.js routes, Convex HTTP actions, or a dedicated provider/service?
-- Should OAuth access tokens be JWTs or opaque tokens for the first launch?
-- Which rate-limit backend should handle anonymous public read traffic after launch?
-- Which MCP clients must work on day one, and do any require dynamic client registration?
-- Should hosted MCP expose anonymous public read tools, or require OAuth for every call from launch?
-- Should community-owned OAuth apps ship in the first implementation PR, or should the first PR allow only user-owned developer apps?
-- What quota and review process distinguishes normal personal tokens from trusted partner access?
+- OpenAPI should be generated from shared schemas rather than hand-rolled.
+- OAuth issuer placement is a technical design decision; current recommendation is Next.js route handlers backed by Convex state.
+- OAuth access token format is a technical design decision; current recommendation is short-lived JWT access tokens plus opaque rotated refresh tokens.
+- The rate-limit backend question means where high-cardinality request counters live. Current recommendation is Redis-compatible TTL counters for hosted anonymous/high-volume traffic, with Convex retaining durable policy and audit state.
+- Hosted MCP should support anonymous public read tools from day one.
+- Day-one MCP support should target every major MCP client available at implementation time through a compatibility matrix.
+- First-pass developer apps should be user-owned.
+- Community-owned OAuth apps should be considered early after user-owned apps.
+- Trusted partner access is manually reviewed and should have much higher practical quotas than normal personal tokens, while retaining monitoring, cost controls, and revocation.
+
+## Remaining Open Research
+
+- Confirm the exact schema/OpenAPI generator after a short Zod 4 and OpenAPI generation spike.
+- Confirm the exact OAuth JWT signing and key-rotation library once implementation begins.
+- Confirm the hosted rate-limit provider for production, such as Upstash, Vercel KV, Valkey, or another Redis-compatible store.
+- Build the implementation-time major MCP client compatibility list and identify which clients require Dynamic Client Registration.
+- Decide whether community-owned OAuth apps can fit into the first implementation PR after user-owned apps are working.
+- Choose final default quota numbers and partner escalation thresholds.

@@ -265,7 +265,7 @@ Purpose:
 Includes:
 
 - documented public read API
-- machine-readable API/schema docs suitable for agent consumption
+- machine-readable API/schema docs generated from shared API contract schemas and suitable for agent consumption
 - Swagger/OpenAPI reference docs
 - developer-minted API tokens
 - OAuth app registration for user-delegated and application flows

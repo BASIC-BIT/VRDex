@@ -83,7 +83,7 @@ The first implementation issue for the public API should add:
 
 - endpoint reference
 - auth and rate-limit behavior
-- OpenAPI or equivalent schema artifacts
+- OpenAPI artifacts generated from shared API contract schemas
 - task-oriented examples for profile lookup, search, event lookup, profile cards, and partner-safe seed validation
 - clear guidance to use API or MCP for structured reads instead of scraping public pages
 

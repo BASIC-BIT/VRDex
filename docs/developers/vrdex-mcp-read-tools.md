@@ -142,6 +142,7 @@ Output:
 Candidate direction:
 
 - hosted/remote MCP is suitable for public read-only data because VRDex public data is not tied to private VRChat cookies
+- anonymous hosted MCP read tools should be allowed for public-safe search/browser-like use cases, with their own rate-limit class
 - local MCP remains useful for self-hosted deployments and development
 - authenticated write/claim tools, if ever added, need normal VRDex auth, scoped tokens, approvals, and audit trails
 
