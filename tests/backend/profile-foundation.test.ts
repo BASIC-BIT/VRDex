@@ -3,7 +3,12 @@ import { describe, it } from "node:test";
 
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 import {
+  normalizeProfilePublicSectionOrder,
+  toPublicProfileAppearance,
+} from "../../convex/_profileAppearance";
+import {
   createProfileAssetStorageKey,
+  getPublicProfileMediaKit,
   normalizeProfileAvatarAppearance,
   normalizeProfileAssetMimeType,
   normalizeProfileAssetSourceUrl,
@@ -11,9 +16,14 @@ import {
   sanitizeProfileAssetLabel,
   validateProfileAssetByteSize,
 } from "../../convex/_profileAssets";
-import { isProfileFieldVisible } from "../../convex/_profileFieldVisibility";
+import {
+  isProfileFieldVisible,
+  materializeProfileFieldVisibility,
+  normalizeProfileFieldVisibility,
+} from "../../convex/_profileFieldVisibility";
 import { toProfileLookupResult } from "../../convex/_profileLookup";
-import { grantProfileOwner } from "../../convex/_profileOwnership";
+import { approveProfileClaimForUser, grantProfileOwner } from "../../convex/_profileOwnership";
+import { applyProfileFieldVisibilityUpdate } from "../../convex/_profilePrivacy";
 import {
   createProfileSlugBase,
   createProfileSlugCandidate,
@@ -29,12 +39,133 @@ import {
   sanitizeCommunitySubmissionProfileInput,
   sanitizeProfileTextList,
 } from "../../convex/_profileSubmissions";
+import { createClaimedDiscordProfileForUser } from "../../convex/_profileClaimCreation";
 import { createPublicProfileWorldCredits } from "../../convex/_profileWorldCredits";
 import {
   canTransitionProfileClaimState,
   getProfileTrustLabel,
   requireProfileClaimStateTransition,
 } from "../../convex/_profileStates";
+
+type ProfileClaimTestTable =
+  | "profiles"
+  | "profileOwners"
+  | "profileClaimRequests"
+  | "profileAuditEvents"
+  | "searchDocuments"
+  | "shortLinks"
+  | "vocabularyTerms";
+type ProfileClaimTestRow = Record<string, unknown> & {
+  _id: string;
+  _creationTime: number;
+};
+
+function valueAtPath(row: ProfileClaimTestRow, path: string): unknown {
+  return path.split(".").reduce<unknown>((value, segment) => {
+    if (value === null || typeof value !== "object") {
+      return undefined;
+    }
+
+    return (value as Record<string, unknown>)[segment];
+  }, row);
+}
+
+function createProfileClaimTestDb(
+  initial: Partial<Record<ProfileClaimTestTable, Array<Partial<ProfileClaimTestRow>>>> = {},
+) {
+  const tableNames: ProfileClaimTestTable[] = [
+    "profiles",
+    "profileOwners",
+    "profileClaimRequests",
+    "profileAuditEvents",
+    "searchDocuments",
+    "shortLinks",
+    "vocabularyTerms",
+  ];
+  const tables = Object.fromEntries(
+    tableNames.map((tableName) => [
+      tableName,
+      (initial[tableName] ?? []).map((row, index) => ({
+        _id: `${tableName}-seed-${index}`,
+        _creationTime: index,
+        ...row,
+      })) as ProfileClaimTestRow[],
+    ]),
+  ) as Record<ProfileClaimTestTable, ProfileClaimTestRow[]>;
+  let sequence = 0;
+
+  function allRows() {
+    return tableNames.flatMap((tableName) => tables[tableName]);
+  }
+
+  const db = {
+    async get(id: string) {
+      return allRows().find((row) => row._id === id) ?? null;
+    },
+    query(tableName: ProfileClaimTestTable) {
+      return {
+        withIndex(_indexName: string, builder: (query: { eq: (field: string, value: unknown) => unknown }) => unknown) {
+          const filters: Array<{ field: string; value: unknown }> = [];
+          const query = {
+            eq(field: string, value: unknown) {
+              filters.push({ field, value });
+              return query;
+            },
+          };
+
+          builder(query);
+
+          function matchingRows() {
+            return tables[tableName].filter((row) =>
+              filters.every((filter) => valueAtPath(row, filter.field) === filter.value),
+            );
+          }
+
+          return {
+            async unique() {
+              const rows = matchingRows();
+
+              if (rows.length > 1) {
+                throw new Error("Expected unique query result.");
+              }
+
+              return rows[0] ?? null;
+            },
+            async take(limit: number) {
+              return matchingRows().slice(0, limit);
+            },
+            async collect() {
+              return matchingRows();
+            },
+          };
+        },
+      };
+    },
+    async insert(tableName: ProfileClaimTestTable, document: Record<string, unknown>) {
+      sequence += 1;
+      const row = {
+        _id: `${tableName}-${sequence}`,
+        _creationTime: sequence,
+        ...document,
+      };
+
+      tables[tableName].push(row);
+
+      return row._id;
+    },
+    async patch(id: string, patch: Record<string, unknown>) {
+      const row = allRows().find((entry) => entry._id === id);
+
+      if (row === undefined) {
+        throw new Error(`Missing row ${id}.`);
+      }
+
+      Object.assign(row, patch);
+    },
+  };
+
+  return { db, tables };
+}
 
 describe("profile slug helpers", () => {
   it("normalizes display text into strict ASCII slug candidates", () => {
@@ -237,6 +368,332 @@ describe("profile ownership helpers", () => {
       () => grantProfileOwner(conflictingOwnerDb.db as never, { profileId, userId, now: 2 }),
       /already has an active owner/,
     );
+  });
+
+  it("creates a new claimed Discord person profile when no match is selected", async () => {
+    const now = 1_790_000_000_000;
+    const userId = "user-person" as Id<"users">;
+    const { db, tables } = createProfileClaimTestDb();
+
+    const result = await createClaimedDiscordProfileForUser(db as never, {
+      userId,
+      discordProviderAccountId: "discord-person-123",
+      input: {
+        profileType: "person",
+        displayName: " DJ No Match ",
+        aliases: ["No Match", "no match"],
+        tags: ["House"],
+        person: {
+          roleTags: ["DJ"],
+        },
+      },
+      now,
+      actor: {
+        tokenIdentifier: "issuer|person",
+        issuer: "issuer",
+        subject: "person",
+        displayName: "DJ No Match",
+      },
+    });
+
+    const profile = tables.profiles[0];
+
+    assert.equal(result.profilePath, "/p/dj-no-match");
+    assert.equal(result.claimState, "claimed_unverified");
+    assert.equal(profile?.slug, "dj-no-match");
+    assert.equal(profile?.claimState, "claimed_unverified");
+    assert.equal(profile?.creationSource, "self");
+    assert.equal(profile?.publicationState, "published");
+    assert.equal(profile?.publicSurfacingState, "public");
+    assert.equal(profile?.claimedAt, now);
+    assert.equal(tables.profileOwners.length, 1);
+    assert.equal(tables.profileOwners[0]?.profileId, result.profileId);
+    assert.equal(tables.profileOwners[0]?.userId, userId);
+    assert.equal(tables.profileOwners[0]?.roleKey, "owner");
+    assert.equal(tables.profileOwners[0]?.state, "active");
+    assert.equal(tables.profileOwners[0]?.grantedByClaimRequestId, result.claimRequestId);
+    assert.equal(tables.profileClaimRequests[0]?.method, "discord_person");
+    assert.equal(tables.profileClaimRequests[0]?.state, "approved");
+    assert.equal(tables.profileAuditEvents[0]?.action, "profile_claim_approved_unverified");
+    assert.equal(tables.shortLinks[0]?.targetProfileId, result.profileId);
+    assert.equal(tables.searchDocuments[0]?.profileId, result.profileId);
+    assert.equal(tables.searchDocuments[0]?.trustRank, 28);
+  });
+
+  it("creates a new claimed Discord community profile without admin verification", async () => {
+    const now = 1_790_000_000_000;
+    const userId = "user-community" as Id<"users">;
+    const { db, tables } = createProfileClaimTestDb();
+
+    const result = await createClaimedDiscordProfileForUser(db as never, {
+      userId,
+      discordProviderAccountId: "discord-community-123",
+      input: {
+        profileType: "community",
+        displayName: "Afterglow Social",
+        aliases: ["Afterglow"],
+        tags: ["Events"],
+        community: {
+          subtype: "Club",
+          categoryTags: ["Music"],
+        },
+      },
+      now,
+    });
+
+    const profile = tables.profiles[0];
+
+    assert.equal(result.profilePath, "/c/afterglow-social");
+    assert.equal(result.claimState, "claimed_unverified");
+    assert.equal(profile?.profileType, "community");
+    assert.equal(profile?.claimState, "claimed_unverified");
+    assert.equal(profile?.creationSource, "self");
+    assert.equal(tables.profileOwners.length, 1);
+    assert.equal(tables.profileClaimRequests[0]?.method, "discord_community");
+    assert.equal(tables.profileClaimRequests[0]?.evidenceSource, "discord_api");
+    assert.equal(tables.searchDocuments[0]?.routePath, "/c/afterglow-social");
+    assert.equal(
+      tables.vocabularyTerms.some((term) => term.scope === "community_subtype" && term.key === "club"),
+      true,
+    );
+  });
+
+  it("keeps existing-profile claim approval on the same profile and rejects a second owner", async () => {
+    const profileId = "profile-existing" as Id<"profiles">;
+    const firstUserId = "user-first" as Id<"users">;
+    const secondUserId = "user-second" as Id<"users">;
+    const existingProfile = {
+      _id: profileId,
+      _creationTime: 1,
+      profileType: "person",
+      slug: "existing-dj",
+      displayName: "Existing DJ",
+      sortName: "existing dj",
+      aliases: [],
+      tags: [],
+      outboundLinks: [],
+      claimState: "unclaimed",
+      publicationState: "published",
+      publicSurfacingState: "public",
+      publicSurfacingUpdatedAt: 1,
+      creationSource: "community",
+      publishedAt: 1,
+      updatedAt: 1,
+      person: {
+        roleTags: [],
+      },
+    } as unknown as Doc<"profiles">;
+    const { db, tables } = createProfileClaimTestDb({
+      profiles: [existingProfile],
+    });
+
+    await approveProfileClaimForUser(db as never, {
+      profile: existingProfile,
+      profileId,
+      userId: firstUserId,
+      grantedByClaimRequestId: "claim-existing" as Id<"profileClaimRequests">,
+      verified: false,
+      now: 2,
+    });
+
+    assert.equal(tables.profiles[0]?._id, profileId);
+    assert.equal(tables.profiles[0]?.claimState, "claimed_unverified");
+    assert.equal(tables.profiles[0]?.claimedAt, 2);
+    assert.equal(tables.profileOwners.length, 1);
+    assert.equal(tables.profileOwners[0]?.profileId, profileId);
+    assert.equal(tables.profileOwners[0]?.userId, firstUserId);
+
+    await assert.rejects(
+      () =>
+        approveProfileClaimForUser(db as never, {
+          profile: tables.profiles[0] as unknown as Doc<"profiles">,
+          profileId,
+          userId: secondUserId,
+          grantedByClaimRequestId: "claim-second" as Id<"profileClaimRequests">,
+          verified: false,
+          now: 3,
+        }),
+      /already has an active owner/,
+    );
+    assert.equal(tables.profileOwners.length, 1);
+    assert.equal(tables.profiles[0]?._id, profileId);
+  });
+});
+
+describe("profile field visibility owner controls", () => {
+  function createPrivacyDb(existingOwners: Array<Record<string, unknown>>) {
+    const patched: Array<{ id: string; patch: Record<string, unknown> }> = [];
+
+    return {
+      patched,
+      db: {
+        query(table: string) {
+          assert.equal(table, "profileOwners");
+
+          return {
+            withIndex(_index: string, builder: (query: unknown) => unknown) {
+              const values: Record<string, unknown> = {};
+              const query = {
+                eq(field: string, value: unknown) {
+                  values[field] = value;
+                  return query;
+                },
+              };
+              const chain = {
+                filter(filterBuilder: (query: unknown) => unknown) {
+                  const filterQuery = {
+                    field(field: string) {
+                      return field;
+                    },
+                    eq(field: string, value: unknown) {
+                      values[field] = value;
+                      return true;
+                    },
+                  };
+
+                  filterBuilder(filterQuery);
+                  return chain;
+                },
+                async take(limit: number) {
+                  return existingOwners
+                    .filter((owner) =>
+                      Object.entries(values).every(([field, value]) => owner[field] === value),
+                    )
+                    .slice(0, limit);
+                },
+              };
+
+              builder(query);
+              return chain;
+            },
+          };
+        },
+        async patch(id: string, patch: Record<string, unknown>) {
+          patched.push({ id, patch });
+        },
+      },
+    };
+  }
+
+  const profile = {
+    _id: "profile123" as Id<"profiles">,
+    profileType: "person",
+    slug: "dj-celine",
+    displayName: "DJ Celine",
+    sortName: "dj celine",
+    aliases: [],
+    tags: [],
+    claimState: "claimed_unverified",
+    publicationState: "published",
+    publicSurfacingState: "public",
+    creationSource: "self",
+    publishedAt: 1,
+    updatedAt: 1,
+    person: {
+      roleTags: [],
+    },
+  } as Doc<"profiles">;
+
+  it("normalizes supported visibility keys and rejects unsupported values", () => {
+    assert.deepEqual(
+      normalizeProfileFieldVisibility({
+        aliases: "public",
+        bio: "private",
+        tags: "unlisted",
+      }),
+      {
+        bio: "private",
+        tags: "unlisted",
+      },
+    );
+    assert.equal(materializeProfileFieldVisibility({ bio: "private" }).aliases, "public");
+    assert.equal(materializeProfileFieldVisibility({ bio: "private" }).bio, "private");
+    assert.throws(
+      () => normalizeProfileFieldVisibility({ bookingEmail: "private" }),
+      /Unsupported profile field visibility key/,
+    );
+    assert.throws(
+      () => normalizeProfileFieldVisibility({ bio: "friends_only" }),
+      /Unsupported profile field visibility state/,
+    );
+  });
+
+  it("stores normalized owner visibility updates", async () => {
+    const userId = "user123" as Id<"users">;
+    const owner = {
+      _id: "owner123" as Id<"profileOwners">,
+      profileId: profile._id,
+      userId,
+      roleKey: "owner",
+      state: "active",
+      grantedAt: 1,
+      updatedAt: 1,
+    };
+    const privacyDb = createPrivacyDb([owner]);
+
+    const result = await applyProfileFieldVisibilityUpdate(privacyDb.db as never, {
+      profile,
+      userId,
+      fieldVisibility: {
+        aliases: "public",
+        bio: "private",
+        tags: "unlisted",
+      },
+      now: 12,
+    });
+
+    assert.deepEqual(privacyDb.patched, [
+      {
+        id: profile._id,
+        patch: {
+          fieldVisibility: {
+            bio: "private",
+            tags: "unlisted",
+          },
+          updatedAt: 12,
+        },
+      },
+    ]);
+    assert.equal(result.fieldVisibility.aliases, "public");
+    assert.equal(result.fieldVisibility.bio, "private");
+    assert.equal(result.fieldVisibility.tags, "unlisted");
+  });
+
+  it("rejects non-owners and unclaimed profiles", async () => {
+    const userId = "user123" as Id<"users">;
+    const otherUserId = "otherUser" as Id<"users">;
+    const owner = {
+      _id: "owner123" as Id<"profileOwners">,
+      profileId: profile._id,
+      userId: otherUserId,
+      roleKey: "owner",
+      state: "active",
+      grantedAt: 1,
+      updatedAt: 1,
+    };
+    const privacyDb = createPrivacyDb([owner]);
+
+    await assert.rejects(
+      () =>
+        applyProfileFieldVisibilityUpdate(privacyDb.db as never, {
+          profile,
+          userId,
+          fieldVisibility: { bio: "private" },
+          now: 12,
+        }),
+      /Only a claimed profile owner can update profile privacy/,
+    );
+    await assert.rejects(
+      () =>
+        applyProfileFieldVisibilityUpdate(privacyDb.db as never, {
+          profile: { ...profile, claimState: "unclaimed" } as Doc<"profiles">,
+          userId: otherUserId,
+          fieldVisibility: { bio: "private" },
+          now: 12,
+        }),
+      /Only a claimed profile owner can update profile privacy/,
+    );
+    assert.equal(privacyDb.patched.length, 0);
   });
 });
 
@@ -592,6 +1049,28 @@ describe("public profile projection", () => {
     assert.deepEqual(publicProfile.outboundLinks, []);
     assert.deepEqual(publicProfile.person.roleTags, []);
   });
+
+  it("normalizes public profile section ordering preferences", () => {
+    assert.deepEqual(
+      normalizeProfilePublicSectionOrder(["links", "about", "links", "worlds"]),
+      ["links", "about", "worlds", "events", "media_kit", "details"],
+    );
+    assert.deepEqual(
+      normalizeProfilePublicSectionOrder(["unknown", "events"]),
+      ["events", "about", "links", "media_kit", "worlds", "details"],
+    );
+    assert.deepEqual(
+      toPublicProfileAppearance({
+        sectionOrder: ["media_kit", "links"],
+      } as Pick<Doc<"profileAssetDisplayPreferences">, "sectionOrder">),
+      {
+        sectionOrder: ["media_kit", "links", "about", "events", "worlds", "details"],
+      },
+    );
+    assert.deepEqual(toPublicProfileAppearance(null), {
+      sectionOrder: ["about", "events", "links", "media_kit", "worlds", "details"],
+    });
+  });
 });
 
 describe("public profile world credits", () => {
@@ -727,5 +1206,47 @@ describe("profile media kit asset helpers", () => {
       () => normalizeProfileAvatarAppearance({ borderEnabled: true, borderColor: "red", radiusPercent: 20 }),
       /six-digit hex color/,
     );
+  });
+
+  it("reuses supplied display preferences when building public media kits", async () => {
+    const profile = {
+      _id: "profile-appearance",
+      slug: "dj-aurora",
+    } as Doc<"profiles">;
+    const preference = {
+      profileId: profile._id,
+      compactDisplay: "logo",
+      avatarAppearance: {
+        borderEnabled: true,
+        borderColor: "#67e8f9",
+        borderWidthPx: 4,
+        borderSoftnessPx: 12,
+        radiusPercent: 18,
+      },
+      sectionOrder: ["links", "about"],
+      updatedAt: 1,
+    } as Doc<"profileAssetDisplayPreferences">;
+    const db = {
+      query(tableName: string) {
+        if (tableName === "profileAssetDisplayPreferences") {
+          throw new Error("Display preferences should be supplied by the caller.");
+        }
+
+        return {
+          withIndex() {
+            return {
+              async collect() {
+                return [];
+              },
+            };
+          },
+        };
+      },
+    };
+
+    const mediaKit = await getPublicProfileMediaKit(db as never, profile, { preference });
+
+    assert.equal(mediaKit.compactDisplay, "logo");
+    assert.deepEqual(mediaKit.avatarAppearance, preference.avatarAppearance);
   });
 });

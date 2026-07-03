@@ -99,6 +99,14 @@ Calendar output should include only public event data that is safe to expose:
 
 Do not include private notes, moderation fields, private contact paths, unreviewed scraped data, or hidden/suppressed entities.
 
+## First Export Slice
+
+Locked decision: the first practical calendar implementation is outbound-only single-event `.ics` export for public event pages.
+
+Published events can be exported from `/e/<slug>/calendar.ics`. The route reads the same public event projection used by `/e/<slug>`, returns `404` when the event is missing or not public, and emits UTC `VEVENT` timestamps with summary, canonical VRDex URL, and public location text derived from visible world or host data.
+
+Current recommendation: keep this as a static export slice. Do not add Google OAuth, import jobs, account calendars, schema changes, or subscription UI until the reviewed-import and follow/favorites models are ready.
+
 ## Inbound Import Rules
 
 Google Calendar import should create reviewable event candidates, not silently published canonical events.

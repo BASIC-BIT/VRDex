@@ -45,7 +45,9 @@ source skill by path.
 
 Current wrappers:
 
+- `vrdex-feature-design`
 - `vrcdn`
+- `vrdex-parallel-worktree-delivery`
 - `vrdex-onboarding`
 
 Keep `.opencode/skills` as the detailed source of truth. Keep `.codex/skills`

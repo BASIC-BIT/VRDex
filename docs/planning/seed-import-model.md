@@ -6,6 +6,20 @@ Current direction for [#76](https://github.com/BASIC-BIT/VRDex/issues/76).
 
 VRDex may import permissioned seed lists for DJs, communities, worlds, or events, but imported data must not become authoritative public truth by default.
 
+## Implementation Status
+
+Locked decision:
+
+- [#117](https://github.com/BASIC-BIT/VRDex/issues/117) adds the first backend foundation for reviewed profile seed imports using fake fixtures only.
+- The implemented write surface is internal-only. There is no public import write API and no public profile publication mutation for unreviewed imports.
+- `seedImports:queueCandidatePublication` is a queue marker only. It can move a reviewed candidate to `published_unclaimed`, but it does not create or update a public `profiles` row.
+
+Current recommendation:
+
+- Treat `seedImportBatches`, `seedImportCandidateProfiles`, and `seedImportCandidateFields` as review/audit staging tables.
+- Keep real partner ingestion, reviewer UI, owner handoff, merge behavior, and actual profile creation as follow-up work.
+- Continue using fake `.invalid` fixtures until partner-specific permission, retention, deletion, and reviewer expectations are documented.
+
 ## Locked Decisions
 
 - Do not commit real partner spreadsheets, raw third-party contact exports, or private list data.
@@ -22,13 +36,16 @@ Represents one ingestion job from a permissioned source.
 
 Suggested fields:
 
-- `batchId`
+- `batchId` or implementation `_id`
+- `externalBatchId` for source/fixture idempotency
 - `sourceName`
-- `sourceType`: `partner`, `manual`, `import`, or `moderator`
+- `sourceType`: `partner`, `manual`, `import`, `community`, or `moderator`
 - `sourceContact` optional internal owner for the import relationship
 - `receivedAt`
 - `importedBy`
 - `reviewState`: `draft`, `ready_for_review`, `approved`, `rejected`, `superseded`
+- `reviewedBy` optional reviewer metadata
+- `reviewedAt` optional review timestamp
 - `notes` optional internal review notes
 
 ### Candidate Profile
@@ -42,10 +59,15 @@ Suggested fields:
 - `profileType`: `person` or `community`
 - `proposedDisplayName`
 - `proposedSlug` optional
+- `reviewState`: `unreviewed`, `accepted`, `rejected`, or `needs_correction`
 - `publicationState`: `draft_private`, `review_pending`, `published_unclaimed`, `rejected`, `suppressed`
 - `claimState`: starts `unclaimed` unless a real claim/handoff flow grants authority
 - `matchedProfileId` optional existing VRDex profile match
-- `reviewerId` optional
+- `reviewer` optional reviewer metadata
+- `reviewedAt` optional review timestamp
+- `reviewNote` optional internal note
+- `publicationQueuedBy` optional reviewer metadata when the queue marker is set
+- `publicationQueuedAt` optional queue marker timestamp
 - `createdAt`
 - `updatedAt`
 
@@ -76,6 +98,18 @@ Default to `draft_private` for imported candidates until the batch has an explic
 `Safe public fields` are fields that are already designed for public profile display, such as display name, public role tags, public summary, and public `https` outbound links. Private contacts, raw provider IDs, private notes, and unreviewed third-party assertions are not safe public fields.
 
 An explicit review decision must exist at the batch, candidate, and field level before publication. Batch approval alone does not automatically accept every candidate field.
+
+Implemented guard behavior for the first slice:
+
+- batch `reviewState` must be `approved`
+- candidate `reviewState` must be `accepted`
+- candidate `publicationState` must be `review_pending`
+- candidate `claimState` must still be `unclaimed`
+- fields cannot remain `unreviewed` or `needs_correction`
+- accepted public fields must be on the safe public field allowlist
+- accepted public `outboundLinks` must contain HTTPS URLs
+- owner-confirmed field confidence is blocked because no owner confirmation flow exists in this slice
+- matched claimed profiles, opted-out profiles, suppressed profiles, accepted suppression requests, invalid proposed slugs, and conflicting slugs block queueing
 
 Publishing an imported profile should create an unclaimed public profile only when:
 
@@ -151,4 +185,23 @@ Use fake fixtures only:
 
 ## Implementation Boundary
 
-This document defines the model for [#76](https://github.com/BASIC-BIT/VRDex/issues/76). It does not authorize importing real partner data or committing real partner fixtures. [#117](https://github.com/BASIC-BIT/VRDex/issues/117) owns the follow-up implementation work for schema, review UI/workflow, import tooling, and fake-data test fixtures.
+This document defines the model for [#76](https://github.com/BASIC-BIT/VRDex/issues/76). It does not authorize importing real partner data or committing real partner fixtures.
+
+Implemented in [#117](https://github.com/BASIC-BIT/VRDex/issues/117):
+
+- Convex staging tables for import batches, candidate profiles, and candidate fields
+- internal fake fixture import helper keyed by `example_partner_directory_2026_001`
+- internal review mutations for batch, candidate, and field decisions
+- internal review snapshot queries
+- internal candidate/profile matching helper
+- queue-only publication guard and marker
+- backend helper tests for fake fixture creation and publication blockers
+
+Deferred after [#117](https://github.com/BASIC-BIT/VRDex/issues/117):
+
+- real partner import tooling
+- reviewer UI
+- public reviewer-facing APIs
+- owner claim/handoff confirmation for imported fields
+- actual profile creation, merge, or overwrite behavior
+- public profile/search/API surfacing of imported candidate data

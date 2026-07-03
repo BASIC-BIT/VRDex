@@ -2,7 +2,7 @@
 
 ## Status Note
 
-This doc captures the durable profile schema foundation from `#9` through `#13`, plus later extensions in `#22`, `#23`, `#25`, `#26`, `#30`, `#31`, `#32`, `#33`, `#82`, `#90`, the DJ lookup genre slice, and the first file-backed media-kit and bounded appearance slices.
+This doc captures the durable profile schema foundation from `#9` through `#13`, plus later extensions in `#20`, `#22`, `#23`, `#25`, `#26`, `#30`, `#31`, `#32`, `#33`, `#82`, `#90`, the DJ lookup genre slice, and the first file-backed media-kit and bounded appearance slices.
 
 The implemented schema is intentionally narrow. It establishes one shared `profiles` table for people and communities plus first-slice account ownership, claim request, verification attempt, field visibility, media asset, and bounded appearance tables without introducing normalized link tables or advanced moderation workflows.
 
@@ -13,15 +13,18 @@ The implemented schema is intentionally narrow. It establishes one shared `profi
 - every profile has a canonical `slug` that is globally unique across people and communities
 - claim state, publication state, and creation provenance are separate fields
 - community-submitted unclaimed records are represented by `creationSource: "community"` plus `claimState: "unclaimed"`
+- Discord no-match claim creation writes `creationSource: "self"` profiles and then grants owner authority through `profileOwners`
 - public surfacing state is separate from ordinary publication state so valid opt-out and suppression can hide otherwise-published profiles
 - account/user ownership references live in `profileOwners`; provider login alone is not ownership
-- most public write mutations are deferred until auth and permissions are wired; `profiles:submitCommunityProfile` is the current auth-gated exception
+- most broad profile editing mutations are deferred until auth and permissions are wired; `profiles:submitCommunityProfile` and the claim mutations are the current auth-gated write exceptions
 - the community submission mutation requires a Convex authenticated identity before writing
 - normalized alias and rich authored block tables are deferred to later profile presentation issues
 - file-backed media-kit assets are the model for profile pictures, logos, banners, and other reusable profile images
 - profile image appearance is stored as display preference metadata, not by mutating the uploaded image asset
+- public profile body section ordering is bounded to known sections; duplicate entries are ignored and missing default sections are appended
 - profile outbound links are currently inline typed external links; normalized link tables remain a later scaling option
 - avatar and banner fields are URL placeholders for later controlled owner or concierge inputs, not ordinary community-submitted fields
+- reviewed seed imports stage proposed profile facts outside `profiles` until explicit review and a later publication/merge flow; imported candidate fields are not owner-authored fields
 
 ## `profiles` Table
 
@@ -113,6 +116,21 @@ Candidate placement fields can live on the profile or in a companion placement t
 
 Convex automatically provides `_id` and `_creationTime`; those are not duplicated in the schema.
 
+## Bounded Profile Appearance
+
+Locked decision:
+
+- avatar frame controls are presentation metadata only and never mutate the stored image asset
+- public profile section ordering is constrained to `about`, `events`, `links`, `media_kit`, `worlds`, and `details`
+- section ordering normalization removes duplicates, ignores unknown values, and appends any missing default sections so public pages always stay complete
+- raw HTML, arbitrary CSS, premium effects, and generic page-builder blocks are outside the baseline bounded customization slice
+
+Current recommendation:
+
+- theme presets should remain a small enum mapped to shared design tokens when implemented, not owner-authored color strings or CSS
+- the first owner-facing customization editor should stay focused on avatar frame controls and the constrained public section order
+- premium animated effects and richer styling should remain a follow-on system after this calm, readable baseline is stable
+
 ## Ownership And Claim Tables
 
 Convex Auth provides the `users` and `authAccounts` tables used by account and provider-link flows.
@@ -125,11 +143,21 @@ Convex Auth provides the `users` and `authAccounts` tables used by account and p
 - `state`: `"active" | "revoked"`
 - `grantedByClaimRequestId`: optional claim request that granted ownership
 
-`profileClaimRequests` stores claim review state for Discord, VRChat, VRCLinking, and manual methods.
+`profileClaimRequests` stores claim review state for Discord, VRChat, VRCLinking, and manual methods. Discord methods currently distinguish `discord_person`, `discord_community`, and the stronger `discord_community_admin` flow.
 
 `profileVerificationAttempts` stores proof-code attempts for external proof readers. Attempts have a proof code, target type, target external id, state, expiry, and optional evidence summary.
 
 The first automated proof reader is an adapter action configured by `VRCHAT_PROOF_ADAPTER_URL`; it avoids hard-coding guessed VRChat or VRCLinking API behavior into the product backend.
+
+## Reviewed Seed Import Staging Tables
+
+Current recommendation:
+
+- reviewed seed imports live in `seedImportBatches`, `seedImportCandidateProfiles`, and `seedImportCandidateFields`
+- these tables preserve provenance, confidence, field visibility, review state, reviewer metadata, matched profile links, and queue-only publication metadata
+- internal fake fixture tooling can create candidate rows for backend tests and review workflow development
+- `seedImports:queueCandidatePublication` records a queue marker only; it does not create public `profiles` rows or overwrite existing owner-authored fields
+- actual publication, merge, owner handoff, and public surfacing remain deferred until the claim, suppression, and field-ownership rules are implemented end to end
 
 ## State Semantics
 
@@ -160,6 +188,8 @@ The first automated proof reader is an adapter action configured by `VRCHAT_PROO
 
 `displayName`, `slug`, `profileType`, and trust labels remain public while the profile itself is public.
 
+The owner privacy mutation currently accepts these field keys: `aliases`, `tags`, `genres`, `headline`, `bio`, `about`, `avatarImageUrl`, `bannerImageUrl`, `outboundLinks`, `region`, `timezone`, `personPronouns`, `personRoleTags`, `communitySubtype`, and `communityCategoryTags`.
+
 ## Mutation Contracts
 
 Convex schema validation cannot enforce conditional timestamp invariants, so profile mutations must preserve these application-level rules:
@@ -168,7 +198,13 @@ Convex schema validation cannot enforce conditional timestamp invariants, so pro
 - set `publishedAt` when `publicationState` becomes `"published"`
 - patch `updatedAt` on every profile write
 
-The first write path is `profiles:submitCommunityProfile`. It requires `ctx.auth.getUserIdentity()` to return a signed-in identity, generates the slug server-side, publishes the profile as `creationSource: "community"` plus `claimState: "unclaimed"`, and stores narrow source attribution for later moderation and display decisions.
+Locked decision: `profiles:submitCommunityProfile` is the public community-submitted unclaimed write path. It requires `ctx.auth.getUserIdentity()` to return a signed-in identity, generates the slug server-side, publishes the profile as `creationSource: "community"` plus `claimState: "unclaimed"`, and stores narrow source attribution for later moderation and display decisions.
+
+Current recommendation: `profileClaims:createClaimedDiscordPersonProfile` and `profileClaims:createClaimedDiscordCommunityProfile` are the explicit Discord no-match creation paths. They require Convex auth, verified email, a linked Discord account, and caller confirmation that no suitable unclaimed match exists. They create self-authored public profiles, record an approved Discord claim request, grant singleton owner authority, and leave the profile at `claimed_unverified`.
+
+Current recommendation: Discord community Administrator verification remains the stronger server-authority path for community profiles. A linked Discord account alone can create and control a new community profile, but it does not prove server administration and must not set `claimed_verified` by itself.
+
+The claimed-owner field visibility path is `profilePrivacy:updateFieldVisibility`. It requires an active profile owner, stores non-public field overrides on `profiles.fieldVisibility`, treats omitted or explicit `public` fields as the public default, patches `updatedAt`, and refreshes the profile search document so discovery follows the new field visibility.
 
 The `migrations:backfillProfilePublicSurfacingState` internal mutation sets missing legacy `publicSurfacingState` values to `"public"` and fills `publicSurfacingUpdatedAt` so previously-written profiles keep their existing publication behavior after the surfacing-state schema addition.
 
@@ -202,5 +238,5 @@ Deploy-time migrations use `@convex-dev/migrations` and are run by `migrations:r
 - `#82` added inline typed external links for first-slice creator commerce/profile links, with public `https` filtering
 - `#90` adds scoped vocabulary normalization for tags, roles, categories, and discovery facets
 - the DJ lookup genre slice adds optional inline `profiles.genres` plus `profile_genre` vocabulary/search indexing as the minimal bridge to a later normalized genre graph
-- `#27` adds field-level visibility controls
+- `#27` adds field-level visibility controls and the claimed-owner privacy update surface
 - `#31` adds public search behavior and any search-specific indexing

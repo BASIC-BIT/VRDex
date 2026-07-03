@@ -3,6 +3,15 @@ import { v } from "convex/values";
 import { authTables } from "@convex-dev/auth/server";
 
 import {
+  billingCustomerCreatedFromValidator,
+  billingCustomerStateValidator,
+  billingEntitlementSourceValidator,
+  billingEntitlementStatusValidator,
+  billingOwnerKindValidator,
+  billingSubscriptionStatusValidator,
+  stripeEnvironmentValidator,
+} from "./_billing";
+import {
   eventMediaActorSurfaceValidator,
   eventMediaCommandStatusValidator,
   eventMediaCommandTypeValidator,
@@ -23,6 +32,17 @@ import {
   eventMediaWorkerProviderValidator,
   eventMediaWorkerTaskStatusValidator,
 } from "./_eventMediaControl";
+import {
+  seedImportBatchReviewStateValidator,
+  seedImportCandidatePublicationStateValidator,
+  seedImportCandidateReviewStateValidator,
+  seedImportClaimStateValidator,
+  seedImportFieldConfidenceValidator,
+  seedImportFieldReviewStateValidator,
+  seedImportFieldVisibilityValidator,
+  seedImportProfileTypeValidator,
+  seedImportSourceTypeValidator,
+} from "./_seedImportValidators";
 
 const claimState = v.union(
   v.literal("unclaimed"),
@@ -210,6 +230,15 @@ const profileAvatarAppearance = v.object({
   radiusPercent: v.number(),
 });
 
+const profilePublicSection = v.union(
+  v.literal("about"),
+  v.literal("events"),
+  v.literal("links"),
+  v.literal("media_kit"),
+  v.literal("worlds"),
+  v.literal("details"),
+);
+
 const eventSourceType = v.union(
   v.literal("manual"),
   v.literal("community"),
@@ -276,6 +305,7 @@ const profileOwnerState = v.union(v.literal("active"), v.literal("revoked"));
 
 const profileClaimMethod = v.union(
   v.literal("discord_person"),
+  v.literal("discord_community"),
   v.literal("discord_community_admin"),
   v.literal("vrchat_user_proof"),
   v.literal("vrchat_group_proof"),
@@ -343,6 +373,12 @@ const vocabularySource = v.union(
 );
 
 const searchEntityType = v.union(
+  v.literal("profile"),
+  v.literal("world"),
+  v.literal("event"),
+);
+
+const shortLinkTargetType = v.union(
   v.literal("profile"),
   v.literal("world"),
   v.literal("event"),
@@ -550,6 +586,7 @@ export default defineSchema({
     profileId: v.id("profiles"),
     compactDisplay: profileAssetDisplayPreference,
     avatarAppearance: v.optional(profileAvatarAppearance),
+    sectionOrder: v.optional(v.array(profilePublicSection)),
     updatedAt: v.number(),
   }).index("by_profileId", ["profileId"]),
   worlds: defineTable({
@@ -908,6 +945,100 @@ export default defineSchema({
     .index("by_profileId_state", ["profileId", "state"])
     .index("by_userId_state", ["userId", "state"])
     .index("by_profileId_roleKey_state", ["profileId", "roleKey", "state"]),
+  billingCustomerMappings: defineTable({
+    ownerKind: billingOwnerKindValidator,
+    userId: v.optional(v.id("users")),
+    profileId: v.optional(v.id("profiles")),
+    profileType: v.optional(profileType),
+    stripeCustomerId: v.string(),
+    stripeEnvironment: stripeEnvironmentValidator,
+    email: v.optional(v.string()),
+    state: billingCustomerStateValidator,
+    createdFrom: billingCustomerCreatedFromValidator,
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    archivedAt: v.optional(v.number()),
+    lastStripeEventId: v.optional(v.string()),
+    lastStripeEventCreatedAt: v.optional(v.number()),
+  })
+    .index("by_stripeCustomerId_environment", [
+      "stripeCustomerId",
+      "stripeEnvironment",
+    ])
+    .index("by_userId_state", ["userId", "state"])
+    .index("by_profileId_state", ["profileId", "state"])
+    .index("by_ownerKind_state_updatedAt", ["ownerKind", "state", "updatedAt"]),
+  billingSubscriptionSnapshots: defineTable({
+    billingCustomerMappingId: v.id("billingCustomerMappings"),
+    ownerKind: billingOwnerKindValidator,
+    userId: v.optional(v.id("users")),
+    profileId: v.optional(v.id("profiles")),
+    profileType: v.optional(profileType),
+    stripeCustomerId: v.string(),
+    stripeSubscriptionId: v.string(),
+    stripeEnvironment: stripeEnvironmentValidator,
+    status: billingSubscriptionStatusValidator,
+    rawStripeStatus: v.optional(v.string()),
+    stripePriceId: v.optional(v.string()),
+    stripeProductId: v.optional(v.string()),
+    stripeLookupKey: v.optional(v.string()),
+    quantity: v.optional(v.number()),
+    cancelAtPeriodEnd: v.boolean(),
+    currentPeriodStart: v.optional(v.number()),
+    currentPeriodEnd: v.optional(v.number()),
+    trialEnd: v.optional(v.number()),
+    cancelAt: v.optional(v.number()),
+    canceledAt: v.optional(v.number()),
+    latestInvoiceId: v.optional(v.string()),
+    lastStripeEventId: v.optional(v.string()),
+    lastStripeEventCreatedAt: v.optional(v.number()),
+    snapshotAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_stripeSubscriptionId_environment", [
+      "stripeSubscriptionId",
+      "stripeEnvironment",
+    ])
+    .index("by_billingCustomerMappingId_status", [
+      "billingCustomerMappingId",
+      "status",
+    ])
+    .index("by_userId_status", ["userId", "status"])
+    .index("by_profileId_status", ["profileId", "status"])
+    .index("by_status_currentPeriodEnd", ["status", "currentPeriodEnd"]),
+  billingEntitlementSnapshots: defineTable({
+    ownerKind: billingOwnerKindValidator,
+    userId: v.optional(v.id("users")),
+    profileId: v.optional(v.id("profiles")),
+    profileType: v.optional(profileType),
+    source: billingEntitlementSourceValidator,
+    entitlementKey: v.string(),
+    status: billingEntitlementStatusValidator,
+    sourceSubscriptionSnapshotId: v.optional(v.id("billingSubscriptionSnapshots")),
+    stripeSubscriptionId: v.optional(v.string()),
+    stripePriceId: v.optional(v.string()),
+    stripeEnvironment: v.optional(stripeEnvironmentValidator),
+    quantity: v.optional(v.number()),
+    limit: v.optional(v.number()),
+    expiresAt: v.optional(v.number()),
+    statusReason: v.optional(v.string()),
+    lastStripeEventId: v.optional(v.string()),
+    snapshotAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_userId_entitlementKey_status", [
+      "userId",
+      "entitlementKey",
+      "status",
+    ])
+    .index("by_profileId_entitlementKey_status", [
+      "profileId",
+      "entitlementKey",
+      "status",
+    ])
+    .index("by_entitlementKey_status", ["entitlementKey", "status"])
+    .index("by_sourceSubscriptionSnapshotId", ["sourceSubscriptionSnapshotId"])
+    .index("by_status_expiresAt", ["status", "expiresAt"]),
   profileClaimRequests: defineTable({
     profileId: v.optional(v.id("profiles")),
     profileSlug: v.optional(v.string()),
@@ -975,6 +1106,66 @@ export default defineSchema({
   })
     .index("by_profileId_createdAt", ["profileId", "createdAt"])
     .index("by_action_createdAt", ["action", "createdAt"]),
+  seedImportBatches: defineTable({
+    externalBatchId: v.string(),
+    sourceName: v.string(),
+    sourceType: seedImportSourceTypeValidator,
+    sourceContact: v.optional(v.string()),
+    receivedAt: v.number(),
+    importedBy: v.optional(authSubject),
+    reviewState: seedImportBatchReviewStateValidator,
+    reviewedBy: v.optional(authSubject),
+    reviewedAt: v.optional(v.number()),
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_externalBatchId", ["externalBatchId"])
+    .index("by_reviewState_receivedAt", ["reviewState", "receivedAt"])
+    .index("by_sourceType_receivedAt", ["sourceType", "receivedAt"]),
+  seedImportCandidateProfiles: defineTable({
+    batchId: v.id("seedImportBatches"),
+    externalCandidateId: v.string(),
+    profileType: seedImportProfileTypeValidator,
+    proposedDisplayName: v.string(),
+    proposedSlug: v.optional(v.string()),
+    reviewState: seedImportCandidateReviewStateValidator,
+    publicationState: seedImportCandidatePublicationStateValidator,
+    claimState: seedImportClaimStateValidator,
+    matchedProfileId: v.optional(v.id("profiles")),
+    reviewer: v.optional(authSubject),
+    reviewedAt: v.optional(v.number()),
+    reviewNote: v.optional(v.string()),
+    publicationQueuedBy: v.optional(authSubject),
+    publicationQueuedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_batchId", ["batchId"])
+    .index("by_batchId_reviewState", ["batchId", "reviewState"])
+    .index("by_batchId_publicationState", ["batchId", "publicationState"])
+    .index("by_externalCandidateId", ["externalCandidateId"])
+    .index("by_matchedProfileId", ["matchedProfileId"]),
+  seedImportCandidateFields: defineTable({
+    candidateId: v.id("seedImportCandidateProfiles"),
+    fieldKey: v.string(),
+    value: v.any(),
+    sourceLabel: v.string(),
+    sourceUrl: v.optional(v.string()),
+    sourceType: seedImportSourceTypeValidator,
+    confidence: seedImportFieldConfidenceValidator,
+    reviewState: seedImportFieldReviewStateValidator,
+    visibility: seedImportFieldVisibilityValidator,
+    reviewedBy: v.optional(authSubject),
+    reviewedAt: v.optional(v.number()),
+    reviewNote: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_candidateId", ["candidateId"])
+    .index("by_candidateId_reviewState", ["candidateId", "reviewState"])
+    .index("by_candidateId_visibility", ["candidateId", "visibility"])
+    .index("by_fieldKey_reviewState", ["fieldKey", "reviewState"]),
   e2eAuthCodes: defineTable({
     email: v.string(),
     code: v.string(),
@@ -1070,4 +1261,16 @@ export default defineSchema({
   })
     .index("by_slot_state_weight", ["slot", "state", "weight"])
     .index("by_state_startsAt", ["state", "startsAt"]),
+  shortLinks: defineTable({
+    code: v.string(),
+    targetType: shortLinkTargetType,
+    targetProfileId: v.optional(v.id("profiles")),
+    targetWorldId: v.optional(v.id("worlds")),
+    targetEventId: v.optional(v.id("events")),
+    createdAt: v.number(),
+  })
+    .index("by_code", ["code"])
+    .index("by_targetProfileId", ["targetProfileId"])
+    .index("by_targetWorldId", ["targetWorldId"])
+    .index("by_targetEventId", ["targetEventId"]),
 });

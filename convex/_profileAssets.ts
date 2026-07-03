@@ -55,6 +55,8 @@ export type PublicProfileMediaKit = {
   avatarAppearance: PublicProfileAvatarAppearance;
 };
 
+export type ProfileAssetDisplayPreference = Doc<"profileAssetDisplayPreferences">;
+
 export type ProfileAssetUploadInput = {
   intentId: Id<"profileAssetUploadIntents">;
   uploadToken: string;
@@ -227,6 +229,16 @@ export function publicProfileLogoZipUrl(slug: string): string {
   return `/api/v0/profiles/${encodeURIComponent(slug)}/logos.zip`;
 }
 
+export async function getProfileAssetDisplayPreference(
+  db: DatabaseReader,
+  profileId: Id<"profiles">,
+): Promise<ProfileAssetDisplayPreference | null> {
+  return await db
+    .query("profileAssetDisplayPreferences")
+    .withIndex("by_profileId", (query) => query.eq("profileId", profileId))
+    .unique();
+}
+
 function toPublicAsset(profile: Doc<"profiles">, asset: Doc<"profileAssets">): PublicProfileAsset {
   return {
     assetId: asset._id,
@@ -263,7 +275,12 @@ function placedAssets(
 export async function getPublicProfileMediaKit(
   db: DatabaseReader,
   profile: Doc<"profiles">,
+  options: { preference?: ProfileAssetDisplayPreference | null } = {},
 ): Promise<PublicProfileMediaKit> {
+  const preferencePromise =
+    "preference" in options
+      ? Promise.resolve(options.preference ?? null)
+      : getProfileAssetDisplayPreference(db, profile._id);
   const [assets, placements, preference] = await Promise.all([
     db
       .query("profileAssets")
@@ -275,10 +292,7 @@ export async function getPublicProfileMediaKit(
       .query("profileAssetPlacements")
       .withIndex("by_profileId_state", (query) => query.eq("profileId", profile._id).eq("state", "active"))
       .collect(),
-    db
-      .query("profileAssetDisplayPreferences")
-      .withIndex("by_profileId", (query) => query.eq("profileId", profile._id))
-      .unique(),
+    preferencePromise,
   ]);
   const assetsById = new Map(assets.map((asset) => [asset._id, asset]));
   const sortedPlacements = [...placements].sort((first, second) => first.position - second.position);

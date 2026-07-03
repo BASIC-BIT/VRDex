@@ -476,7 +476,12 @@ Candidate restreamer / one-link routing direction:
 - fallback behavior should prefer holding the current source when safe, otherwise move to a hold scene or direct public fallback link while keeping private source-health detail in the operator view
 - control operations should require an event-scoped key or scoped token tied to an operator, worker, Discord command surface, or bridge, with all accepted/rejected commands recorded in an audit trail
 - restream output should reuse the public watch surface instead of creating a separate viewer path; public pages can show `Now playing` from the current slot, public performer profile display name, and safe thumbnail/banner imagery without exposing private readiness or provider health
-- this should inform event media-link modeling and operator-dashboard interviews before becoming first-slice streaming infrastructure
+- current recommendation is VRCDN-first restream output using operator-owned VRCDN credentials, with VRDex-owned delivery kept as a future option after cost, rights, provider, and support posture are proven
+- performers should not need to change their existing VRCDN or Twitch behavior for the first useful version; provider terms and raw-source access still need research before Twitch restreaming is promised
+- dual PC/standalone playback compatibility must stay first-class even if the UX later produces a single simple event setup flow
+- a hold/media slate should be part of the early architecture; hard cuts are acceptable for `v0.9` validation, but `v1` should include the planned fade-to-black, slate, and source-fade behavior before the product slice is treated as complete
+- VJs and event-camera sources should be first-class future source types, with operator override rather than naive automation from a freeform `VJ` role label
+- detailed planning lives in `docs/planning/restreaming-media-control.md`
 
 Candidate set/performance artifact direction:
 
@@ -523,6 +528,14 @@ Suggested default behavior:
 - claimed owners can control every field
 - ordinary community submissions only populate a safe subset of public-facing fields
 - concierge drafts can prefill more, but the recipient confirms before publication
+
+Current recommendation:
+
+- the first owner control surface should stay field-level and profile-owner-only
+- `public` fields appear on direct profile pages and discovery surfaces
+- `unlisted` fields stay on direct profile pages but leave search, discovery, and cards
+- `private` fields are hidden from public projections
+- profile-level opt-out remains a separate listing decision, not another field visibility state
 
 ### 10a. Listing opt-out controls
 

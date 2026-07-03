@@ -37,6 +37,8 @@ Moderators may override profile fields later for safety, corrections, and abuse 
 
 `profileOwners` records are the durable owner authority link between Convex Auth `users` and `profiles`.
 
+Locked decision: ownership is attached to a profile record, not inferred from provider login alone.
+
 - `roleKey` is currently the singleton literal `owner`
 - only one active owner may exist for a profile at a time
 - repeated grants for the same active owner are idempotent
@@ -67,8 +69,15 @@ A weaker approval method must not downgrade an already verified profile. For exa
 
 Current claim-level actions require a signed-in Convex Auth user with a verified email address.
 
+Locked decision: claiming a suitable existing unclaimed profile attaches ownership to that existing profile record and preserves its `_id`, slug, source history, and related references.
+
+Current recommendation: the no-match creation path is explicit. `profileClaims:createClaimedDiscordPersonProfile` and `profileClaims:createClaimedDiscordCommunityProfile` require the caller to confirm that no suitable unclaimed match exists before a new self-created profile is written.
+
 - Discord person claims require a linked Discord provider account and grant `claimed_unverified` owner control for an existing person profile.
+- Discord person no-match creation requires a linked Discord provider account, creates a `creationSource: "self"` person profile, records an approved `discord_person` claim request, and grants `claimed_unverified` owner control.
 - Discord community claims require a linked Discord provider account and create a pending `discord_community_admin` request. The profile is not granted until `profileClaims:verifyDiscordCommunityAdminClaim` verifies full Administrator permission through a Discord bot token.
+- Discord community no-match creation requires a linked Discord provider account, creates a `creationSource: "self"` community profile, records an approved `discord_community` claim request, and grants `claimed_unverified` owner control.
+- Current recommendation: Discord community Administrator verification remains the stronger server-authority path. A linked-account-only community creation is owner-controlled but not `claimed_verified` unless a later admin, VRChat group, VRCLinking, manual, or equivalent stronger verification flow succeeds.
 - VRChat user proof requires a person profile and creates a proof-code attempt with `targetType: "vrchat_user"`.
 - VRChat group proof requires a community profile and creates a proof-code attempt with `targetType: "vrchat_group"`.
 - VRCLinking currently uses the same proof-code attempt table and adapter seam with `targetType: "vrclinking"` until a stable API contract is confirmed.
@@ -84,6 +93,10 @@ Profile field visibility supports three states:
 - `private`: omitted from all public projections
 
 `displayName`, `slug`, `profileType`, and trust labels remain public while the profile itself is public.
+
+Claimed owners update supported field visibility through `profilePrivacy:updateFieldVisibility`. The mutation requires a signed-in account with an active `profileOwners` owner record for the claimed profile, rejects unknown field keys or states, stores public defaults compactly, and refreshes the profile search document after the profile row changes.
+
+Field visibility is separate from profile-level opt-out. Hiding a field controls which details appear on public surfaces; opt-out and suppression decide whether the profile should surface publicly at all.
 
 ## Trust Labels
 
@@ -106,3 +119,10 @@ Future claim mutations must:
 - preserve the profile `_id` and slug when authority changes
 - patch `updatedAt` on every profile write
 - use `profileOwners` for durable owner authority instead of interpreting provider login as ownership by itself
+
+Owner privacy mutations must:
+
+- require active owner authority for the target profile
+- reject unknown field visibility keys and states
+- patch `updatedAt` on profile writes
+- refresh discovery/search projections when field visibility changes

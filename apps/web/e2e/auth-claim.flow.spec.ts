@@ -1,5 +1,9 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 
+import { gotoFlowPage } from "./flow-navigation";
+
+test.describe.configure({ mode: "serial" });
+
 function e2eBrowserToken() {
   const token = process.env.VRDEX_E2E_BROWSER_TOKEN ?? (process.env.PLAYWRIGHT_BASE_URL ? undefined : "local-playwright-token");
 
@@ -75,7 +79,7 @@ async function createVerifiedE2eAccount({
   email: string;
   password: string;
 }) {
-  await page.goto("/sign-in");
+  await gotoFlowPage(page, "/sign-in");
   await page.getByRole("button", { name: "Create account" }).click();
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
@@ -116,10 +120,38 @@ function profileStatusCopy(page: Page, label: string) {
   return page.locator("dl").filter({ hasText: "Status" }).locator("dd").filter({ hasText: label }).first();
 }
 
+type DeleteRequestOptions = NonNullable<Parameters<APIRequestContext["delete"]>[1]>;
+
+function isTransientE2eRequestError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+
+  return message.includes("ECONNRESET") || message.includes("socket hang up");
+}
+
+async function deleteE2eResourceWithRetry(request: APIRequestContext, url: string, options: DeleteRequestOptions) {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await request.delete(url, options);
+    } catch (error) {
+      lastError = error;
+
+      if (!isTransientE2eRequestError(error) || attempt === 2) {
+        throw error;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+    }
+  }
+
+  throw lastError;
+}
+
 async function cleanupAuthAndProfiles(request: APIRequestContext, e2eToken: string, email: string, slugs: Array<string | undefined>, runId: string) {
   for (const slug of slugs) {
     if (slug !== undefined) {
-      await request.delete("/api/e2e/profile-submissions", {
+      await deleteE2eResourceWithRetry(request, "/api/e2e/profile-submissions", {
         headers: { "x-vrdex-e2e-token": e2eToken },
         data: { slug, runId },
       });
@@ -127,13 +159,13 @@ async function cleanupAuthAndProfiles(request: APIRequestContext, e2eToken: stri
   }
 
   if (slugs.every((slug) => slug === undefined)) {
-    await request.delete("/api/e2e/profile-submissions", {
+    await deleteE2eResourceWithRetry(request, "/api/e2e/profile-submissions", {
       headers: { "x-vrdex-e2e-token": e2eToken },
       data: { runId },
     });
   }
 
-  await request.delete("/api/e2e/auth", {
+  await deleteE2eResourceWithRetry(request, "/api/e2e/auth", {
     headers: { "x-vrdex-e2e-token": e2eToken },
     data: { email },
   });
@@ -167,13 +199,13 @@ test("verified email account with linked Discord can claim an E2E person profile
     await createVerifiedE2eAccount({ page, request, e2eToken, email, password });
     await linkDiscordAccount(request, e2eToken, email, `discord-${runSuffix}`);
 
-    await page.goto("/account");
+    await gotoFlowPage(page, "/account");
     await expect(page.getByText("discord", { exact: true })).toBeVisible();
     await page.getByLabel("Person slug").fill(createdSlug!);
     await page.getByRole("button", { name: "Claim with Discord" }).click();
     await expect(page.getByText(/Person profile claimed as claimed unverified/i)).toBeVisible();
 
-    await page.goto(`/p/${createdSlug}`);
+    await gotoFlowPage(page, `/p/${createdSlug}`);
     await expect(page.getByRole("heading", { name: displayName })).toBeVisible();
     await expectCurrentOrHostedLagTrustCopy(
       profileStatusCopy(page, "Claimed"),
@@ -237,7 +269,7 @@ test("verified email account can complete community and VRChat adapter claims @f
     await createVerifiedE2eAccount({ page, request, e2eToken, email, password });
     await linkDiscordAccount(request, e2eToken, email, `discord-${runSuffix}`);
 
-    await page.goto("/account");
+    await gotoFlowPage(page, "/account");
     await page.getByLabel("Community slug").fill(communitySlug!);
     await page.getByLabel("Discord guild ID").fill(`e2e-guild-${runSuffix}`);
     await page.getByLabel("Guild name").fill(`E2E Guild ${runSuffix}`);
@@ -246,14 +278,14 @@ test("verified email account can complete community and VRChat adapter claims @f
     await page.getByRole("button", { name: "Check Discord admin" }).click();
     await expect(page.getByText(/Community claim verified as claimed verified/i)).toBeVisible();
 
-    await page.goto(`/c/${communitySlug}`);
+    await gotoFlowPage(page, `/c/${communitySlug}`);
     await expect(page.getByRole("heading", { name: `Playwright Community ${runSuffix}` })).toBeVisible();
     await expectCurrentOrHostedLagTrustCopy(
       profileStatusCopy(page, "Verified"),
       page.getByRole("heading", { name: "Verified owner", exact: true }).or(page.getByText("Community profile / Verified", { exact: true })),
     );
 
-    await page.goto("/account");
+    await gotoFlowPage(page, "/account");
     await page.getByLabel("Profile slug").fill(vrchatPersonSlug!);
     await page.getByLabel("Target type").selectOption("vrchat_user");
     await page.getByLabel("Target ID").fill(`e2e-vrchat-${runSuffix}`);
@@ -263,14 +295,14 @@ test("verified email account can complete community and VRChat adapter claims @f
     await page.getByRole("button", { name: "Check proof now" }).click();
     await expect(page.getByText(/Proof verified as claimed verified/i)).toBeVisible();
 
-    await page.goto(`/p/${vrchatPersonSlug}`);
+    await gotoFlowPage(page, `/p/${vrchatPersonSlug}`);
     await expect(page.getByRole("heading", { name: `Playwright VRChat Proof ${runSuffix}` })).toBeVisible();
     await expectCurrentOrHostedLagTrustCopy(
       profileStatusCopy(page, "Verified"),
       page.getByRole("heading", { name: "Verified owner", exact: true }).or(page.getByText("Person profile / Verified", { exact: true })),
     );
 
-    await page.goto("/account");
+    await gotoFlowPage(page, "/account");
     await page.getByLabel("Profile slug").fill(vrcLinkingPersonSlug!);
     await page.getByLabel("Target type").selectOption("vrclinking");
     await page.getByLabel("Target ID").fill(`e2e-vrclinking-${runSuffix}`);
@@ -280,7 +312,7 @@ test("verified email account can complete community and VRChat adapter claims @f
     await page.getByRole("button", { name: "Check proof now" }).click();
     await expect(page.getByText(/Proof verified as claimed verified/i)).toBeVisible();
 
-    await page.goto(`/p/${vrcLinkingPersonSlug}`);
+    await gotoFlowPage(page, `/p/${vrcLinkingPersonSlug}`);
     await expect(page.getByRole("heading", { name: `Playwright VRCLinking Proof ${runSuffix}` })).toBeVisible();
     await expectCurrentOrHostedLagTrustCopy(
       profileStatusCopy(page, "Verified"),

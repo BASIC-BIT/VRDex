@@ -26,10 +26,10 @@ export default function AppearancePage() {
         <Card className="shadow-hero" padding="lg">
           <Eyebrow>Appearance</Eyebrow>
           <h1 className="mt-5 max-w-4xl text-4xl leading-none font-semibold tracking-[-0.04em] sm:text-6xl">
-            Shape the way your profile image shows up.
+            Shape your public profile presentation.
           </h1>
           <p className="mt-5 max-w-2xl text-base leading-7 text-muted">
-            Start with the avatar frame: square to circle, border on or off, and a color that can later plug into the broader profile theme.
+            Tune the avatar frame and arrange the main public sections.
           </p>
           <div className="mt-8">
             <AppearancePanel demoMode={demoMode} />

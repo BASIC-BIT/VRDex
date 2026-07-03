@@ -2,8 +2,13 @@ import { v } from "convex/values";
 
 import { mutation, query } from "./_generated/server";
 import { getPublicCommunityHostedEvents, getPublicPersonUpcomingEvents } from "./_eventPublic";
+import { toPublicProfileAppearance } from "./_profileAppearance";
 import { toProfileLookupResult } from "./_profileLookup";
-import { consumeProfileAssetUploads, getPublicProfileMediaKit } from "./_profileAssets";
+import {
+  consumeProfileAssetUploads,
+  getProfileAssetDisplayPreference,
+  getPublicProfileMediaKit,
+} from "./_profileAssets";
 import { canReadProfile } from "./_profilePermissions";
 import { toPublicProfile } from "./_profilePublic";
 import { findAvailableProfileSlug, getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
@@ -17,6 +22,7 @@ import {
   upsertSearchDocument,
   vocabularyForProfile,
 } from "./_searchDocuments";
+import { ensureShortLinkForTarget } from "./_shortLinks";
 import { recordVocabularyTerms } from "./_vocabulary";
 
 const profileType = v.union(v.literal("person"), v.literal("community"));
@@ -91,7 +97,9 @@ export const getPublicBySlug = query({
           };
 
     const publicProfile = toPublicProfile(profile);
-    const mediaKit = await getPublicProfileMediaKit(ctx.db, profile);
+    const preference = await getProfileAssetDisplayPreference(ctx.db, profile._id);
+    const mediaKit = await getPublicProfileMediaKit(ctx.db, profile, { preference });
+    const appearance = toPublicProfileAppearance(preference);
     const legacyAvatarImageUrl =
       "avatarImageUrl" in publicProfile && typeof publicProfile.avatarImageUrl === "string"
         ? publicProfile.avatarImageUrl
@@ -103,6 +111,7 @@ export const getPublicBySlug = query({
 
     return {
       ...publicProfile,
+      appearance,
       mediaKit,
       avatarImageUrl: mediaKit.profileImage?.imageUrl ?? legacyAvatarImageUrl,
       bannerImageUrl: mediaKit.banner?.imageUrl ?? legacyBannerImageUrl,
@@ -221,6 +230,11 @@ export const submitCommunityProfile = mutation({
           roleTags: input.person.roleTags,
         },
       });
+      const shortLink = await ensureShortLinkForTarget(
+        ctx.db,
+        { targetType: "profile", targetId: profileId },
+        now,
+      );
 
       const profile = await ctx.db.get(profileId);
       if (profile !== null) {
@@ -250,6 +264,8 @@ export const submitCommunityProfile = mutation({
         profileType: "person" as const,
         slug,
         profilePath: `/p/${slug}`,
+        shortLinkCode: shortLink.code,
+        shortLinkPath: shortLink.shortLinkPath,
       };
     }
 
@@ -258,6 +274,11 @@ export const submitCommunityProfile = mutation({
       profileType: "community",
       community: input.community,
     });
+    const shortLink = await ensureShortLinkForTarget(
+      ctx.db,
+      { targetType: "profile", targetId: profileId },
+      now,
+    );
 
     const profile = await ctx.db.get(profileId);
     if (profile !== null) {
@@ -287,6 +308,8 @@ export const submitCommunityProfile = mutation({
       profileType: "community" as const,
       slug,
       profilePath: `/c/${slug}`,
+      shortLinkCode: shortLink.code,
+      shortLinkPath: shortLink.shortLinkPath,
     };
   },
 });

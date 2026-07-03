@@ -22,6 +22,7 @@ This directory holds the initial Convex backend slice for `VRDex`.
 - `_eventSlugs.ts`, `_eventInputs.ts`, `_eventPublic.ts`, and `_vrcdnLinks.ts` contain event slug, input, public projection, and VRCDN URL helpers
 - `_eventMediaControl.ts` contains event media-control command, fallback-link, worker-schedule, artifact-link, and public-state projection helpers
 - `_vrcdnOutputAccounts.ts` contains configured operator-owned VRCDN output accounts and hides credential references from public account options
+- `_billing.ts` contains Stripe subscription status normalization and internal entitlement-state helpers
 - `events.ts` exposes public event reads, authenticated event editor mutations, and token-gated event media worker bridge mutations
 - `migrations.ts` contains deploy-time data backfills for schema additions
 - `_searchDocuments.ts`, `_vocabulary.ts`, `search.ts`, and `suppressions.ts` contain public discovery, vocabulary, and suppression helpers
@@ -48,3 +49,5 @@ The first world-discovery planning contract lives in `docs/planning/world-discov
 The event schema and profile-association contracts live in `docs/backend/event-schema.md`.
 
 Search, discovery, and vocabulary contracts live in `docs/backend/search-discovery.md` and `docs/backend/vocabulary-model.md`.
+
+The first-pass billing state and Stripe bootstrap direction live in `docs/backend/billing-foundation.md`.

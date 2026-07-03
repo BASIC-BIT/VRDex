@@ -55,6 +55,8 @@
     "test:e2e": "pnpm --filter web test:e2e",
     "pretest:e2e:hosted": "node scripts/guard-main-worktree.mjs",
     "test:e2e:hosted": "pnpm --filter web test:e2e:hosted",
+    "pretest:e2e:hosted:auth-smoke": "node scripts/guard-main-worktree.mjs",
+    "test:e2e:hosted:auth-smoke": "pnpm --filter web test:e2e:hosted:auth-smoke",
     "pretest:e2e:hosted:smoke": "node scripts/guard-main-worktree.mjs",
     "test:e2e:hosted:smoke": "pnpm --filter web test:e2e:hosted:smoke",
     "pretest:e2e:snapshots": "node scripts/guard-main-worktree.mjs",

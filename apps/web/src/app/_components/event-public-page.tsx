@@ -73,6 +73,7 @@ export type PublicEventPreview = {
 };
 
 export type PublicEvent = Omit<PublicEventPreview, "worlds"> & {
+  id: string;
   slug: string;
   notes?: string;
   watchSurfaceEnabled: boolean;
@@ -442,9 +443,10 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
           <Card surface="white">
             <Eyebrow>Links</Eyebrow>
             <div className="mt-4 grid gap-3">
-              {event.mediaLinks.length === 0 && !sourceUrl ? (
-                <p className="text-sm leading-6 text-muted">No links yet.</p>
-              ) : null}
+              <a className={actionCardVariants({ variant: "accent" })} href={`/e/${event.slug}/calendar.ics`}>
+                <span className={actionLabelClassName}>Add to calendar</span>
+                <span className={actionMetaClassName}>Download .ics</span>
+              </a>
               {sourceUrl ? (
                 <a className={actionCardVariants({ variant: "accent" })} href={sourceUrl} rel="noreferrer" target="_blank">
                   <span className={actionLabelClassName}>

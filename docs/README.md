@@ -13,6 +13,7 @@ This repo keeps durable markdown under `docs/` so product, developer, engineerin
 - `docs/planning/README.md` - product, architecture, roadmap, backlog, and issue-planning docs; treat as engineering until promoted
 - `docs/agentic/README.md` - software-factory, onboarding, control-loop, and agent workflow docs; treat as engineering/operator context
 - `docs/backend/convex-bootstrap.md` - backend bootstrap workflow and structure notes
+- `docs/backend/billing-foundation.md` - first-pass Stripe billing state, env names, and follow-up integration direction
 - `docs/backend/event-schema.md` - event records, participant links, media links, and world-association notes
 - `docs/developers/partner-agent-skill.md` - Docusaurus-visible canonical partner-agent guidance
 - `docs/developers/public-api.md` - public API posture, versioning, client classes, and rate-limiting direction

@@ -2,7 +2,7 @@
 
 ## Status
 
-Current recommendation and implementation note for `#34`, `#35`, `#36`, `#93`, `#119`, `#123`, `#124`, `#132`, and `#134`.
+Current recommendation and implementation note for `#34`, `#35`, `#36`, `#93`, `#119`, `#121`, `#123`, `#124`, `#132`, and `#134`.
 
 ## Event Records
 
@@ -22,7 +22,7 @@ Current event fields include:
 - publication state
 - submitter identity for first-slice edit authority
 
-Generated durable short links such as `/l/<code>` are tracked separately in `#92`. Event slugs are readable and may become owner-editable; short links should remain stable after slug edits.
+Generated durable short links such as `/l/<code>` are tracked in [Generated Short Links](./generated-short-links.md). Event slugs are readable and may become owner-editable; short links remain stable after slug edits because they target the event id.
 
 ## Event Times
 
@@ -99,6 +99,12 @@ Slot start times must be at or after the event start. When an event end time is 
 Canonical slot times are stored as timestamps. Discord timestamp tokens such as `<t:1781474400:F>` are generated from saved event/slot timestamps for display or export; they are not canonical storage.
 
 The first slot editor uses relative minute offsets from the event start for operator-friendly sequential scheduling. Backend storage still receives absolute timestamps after the operator confirms the event start and a valid IANA timezone.
+
+## Discord Event Export
+
+First `#121` slice: the event editor can preview and copy one deterministic Discord-ready post generated from the public event projection.
+
+The export includes the event title, canonical `/e/<slug>` URL, host and world names when projected, Discord timestamp tokens for the event time and slot times, slot lineup rows or public participant rows, and projected public media/watch links. It does not post to Discord, run a bot/Gateway flow, use arbitrary user-authored templates, depend on generated short links, or include private operator/media-control state.
 
 ## Event Operations Panel
 

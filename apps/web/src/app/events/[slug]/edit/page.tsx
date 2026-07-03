@@ -1,12 +1,15 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 
 import { EventEditorForm } from "../../event-editor-form";
+import { EventDiscordExportPanel } from "../../../_components/event-discord-export-panel";
 import { EventBackendNotice } from "../../../_components/event-public-page";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, Eyebrow } from "@/components/ui/card";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 import { fetchPublicEventBySlug } from "@/convex/server";
+import { formatDiscordEventPost } from "../../../../../../../convex/_eventDiscordExport";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +18,41 @@ type EditEventPageProps = {
     slug: string;
   }>;
 };
+
+function firstHeaderValue(value: string | null): string | undefined {
+  const firstValue = value?.split(",")[0]?.trim();
+  return firstValue === "" ? undefined : firstValue;
+}
+
+function getRequestOrigin(requestHeaders: Headers): string | undefined {
+  const host = firstHeaderValue(requestHeaders.get("x-forwarded-host")) ?? firstHeaderValue(requestHeaders.get("host"));
+
+  if (host === undefined) {
+    return undefined;
+  }
+
+  const protocol = firstHeaderValue(requestHeaders.get("x-forwarded-proto")) ?? (
+    host.startsWith("localhost") || host.startsWith("127.0.0.1") ? "http" : "https"
+  );
+
+  try {
+    const origin = new URL(`${protocol}://${host}`);
+    return origin.protocol === "http:" || origin.protocol === "https:" ? origin.origin : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function getCanonicalEventUrl(slug: string, requestHeaders: Headers): string {
+  const routePath = `/e/${slug}`;
+  const origin = getRequestOrigin(requestHeaders);
+
+  if (origin === undefined) {
+    return routePath;
+  }
+
+  return new URL(routePath, origin).href;
+}
 
 export default async function EditEventPage({ params }: EditEventPageProps) {
   const { slug } = await params;
@@ -27,6 +65,12 @@ export default async function EditEventPage({ params }: EditEventPageProps) {
   if (result.event === null) {
     notFound();
   }
+
+  const requestHeaders = await headers();
+  const discordPostText = formatDiscordEventPost({
+    canonicalUrl: getCanonicalEventUrl(result.event.slug, requestHeaders),
+    event: result.event,
+  });
 
   return (
     <PageShell className="py-10">
@@ -52,9 +96,12 @@ export default async function EditEventPage({ params }: EditEventPageProps) {
               </div>
             </div>
 
-            <Card surface="glass">
-              <EventEditorForm event={result.event} />
-            </Card>
+            <div className="grid gap-4">
+              <Card surface="glass">
+                <EventEditorForm event={result.event} />
+              </Card>
+              <EventDiscordExportPanel text={discordPostText} />
+            </div>
           </div>
         </section>
       </PageContainer>

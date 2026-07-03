@@ -150,6 +150,20 @@ Current production auth status:
 - Discord sign-in from `https://vrdex.net/sign-in` returns to an authenticated `https://vrdex.net/account` session.
 - Convex production includes `JWT_PRIVATE_KEY` and matching `JWKS`, required for Convex Auth to mint web session cookies after OAuth callbacks.
 
+### Production authenticated account smoke
+
+The `Deployed Health Checks` workflow always runs the production read-only route smoke when `VRDEX_PRODUCTION_SMOKE_BASE_URL` or a deployment status URL is available. It can also run a gated authenticated account smoke when the repository has an explicit stable production base URL and a pre-authenticated production test-account storage state.
+
+Repository settings for the authenticated lane:
+
+- variable `VRDEX_PRODUCTION_SMOKE_BASE_URL=https://vrdex.net`: required so auth cookies target the stable public domain instead of a generated Vercel deployment URL
+- optional variable `VRDEX_PRODUCTION_AUTH_SMOKE_PROVIDER`: expected linked provider, usually `discord` or `google`; if unset, the smoke accepts either provider
+- secret `VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64`: base64-encoded Playwright `storageState` JSON from a dedicated production test account that has completed OAuth sign-in
+
+This smoke does not enable production E2E helpers, does not mutate data, and does not store OAuth provider passwords in CI. It checks that the pre-authenticated production account can load `/account`, sees a sign-out control, and has at least one linked OAuth provider. Refresh the storage-state secret by manually signing in as the dedicated test account and exporting Playwright storage state before the session expires or after OAuth/provider/callback changes.
+
+This lane validates the signed-in production account path and linked-provider rendering. It is not a full automated provider-login robot; provider credential entry and fresh OAuth consent should remain manual or use a provider-approved non-interactive test-account mechanism.
+
 ## Validation
 
 The Vercel build runs `pnpm build:vercel`, which executes `apps/web/scripts/check-vercel-env.mjs` before `next build`.

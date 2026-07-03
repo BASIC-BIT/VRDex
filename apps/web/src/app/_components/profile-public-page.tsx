@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { CSSProperties } from "react";
+import { Fragment, type CSSProperties, type ReactNode } from "react";
 
 import { EventPreviewCard, type PublicEventPreview } from "./event-public-page";
 import { buttonVariants } from "@/components/ui/button";
@@ -76,6 +76,10 @@ type PublicProfileMediaKit = {
 };
 
 type PublicProfileAvatarAppearance = AvatarAppearance;
+type ProfilePublicSectionKey = "about" | "events" | "links" | "media_kit" | "worlds" | "details";
+type PublicProfileAppearance = {
+  sectionOrder: ProfilePublicSectionKey[];
+};
 
 type PublicProfileBase = {
   profileType: "person" | "community";
@@ -115,6 +119,7 @@ type PublicProfileBase = {
   }>;
   upcomingEvents: PublicEventPreview[];
   hostedEvents: PublicEventPreview[];
+  appearance?: PublicProfileAppearance;
   mediaKit?: PublicProfileMediaKit;
 };
 
@@ -164,6 +169,38 @@ function initialsFor(name: string): string {
 }
 
 const profileBannerOverlay = "linear-gradient(135deg, rgba(22, 17, 15, 0.58), rgba(214, 106, 77, 0.2))";
+const profileSectionKeys: ProfilePublicSectionKey[] = [
+  "about",
+  "events",
+  "links",
+  "media_kit",
+  "worlds",
+  "details",
+];
+const defaultProfileSectionOrder: ProfilePublicSectionKey[] = [...profileSectionKeys];
+
+function normalizeProfileSectionOrder(input: readonly ProfilePublicSectionKey[] | undefined): ProfilePublicSectionKey[] {
+  const seen = new Set<ProfilePublicSectionKey>();
+  const normalized: ProfilePublicSectionKey[] = [];
+
+  for (const section of input ?? []) {
+    if (!profileSectionKeys.includes(section) || seen.has(section)) {
+      continue;
+    }
+
+    seen.add(section);
+    normalized.push(section);
+  }
+
+  for (const section of defaultProfileSectionOrder) {
+    if (!seen.has(section)) {
+      normalized.push(section);
+    }
+  }
+
+  return normalized;
+}
+
 function safeHttpsUrl(url: string): string | null {
   try {
     const parsed = new URL(url);
@@ -296,6 +333,214 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
     profile.source && profile.source.label !== trust ? profile.source.label : null,
     sourceSubmittedAt,
   ].filter((value): value is string => Boolean(value));
+  const eventPreviews = isPerson ? profile.upcomingEvents : profile.hostedEvents;
+  const sectionOrder = normalizeProfileSectionOrder(profile.appearance?.sectionOrder);
+  const sections: Record<ProfilePublicSectionKey, ReactNode> = {
+    about: (
+      <section className="grid gap-4 lg:grid-cols-[1.25fr_0.75fr]">
+        <Card>
+          <Eyebrow>About</Eyebrow>
+          <SectionTitle className="mt-4">
+            {isPerson ? "Public identity" : "Community home"}
+          </SectionTitle>
+          <div className="mt-4 space-y-4 text-sm leading-7 text-muted sm:text-base">
+            {profile.bio ? <p>{profile.bio}</p> : null}
+            {profile.about ? <p>{profile.about}</p> : null}
+            {!profile.bio && !profile.about ? (
+              <p>No public bio yet.</p>
+            ) : null}
+          </div>
+        </Card>
+
+        <Card>
+          <dl className="space-y-4 text-sm">
+            <div className="border-b border-border pb-4">
+              <dt className="text-muted">Status</dt>
+              <dd className="mt-1 font-medium">
+                {trust}
+                {sourceDetails.length > 0 ? (
+                  <span className="mt-1 block text-xs font-normal text-muted">
+                    {sourceDetails.join(" / ")}
+                  </span>
+                ) : null}
+              </dd>
+            </div>
+            <div className="border-b border-border pb-4">
+              <dt className="text-muted">Region</dt>
+              <dd className="mt-1 font-medium">{profile.region ?? "Not listed"}</dd>
+            </div>
+            <div className="border-b border-border pb-4">
+              <dt className="text-muted">Time zone</dt>
+              <dd className="mt-1 font-medium">{profile.timezone ?? "Not listed"}</dd>
+            </div>
+            {isPerson ? (
+              <div>
+                <dt className="text-muted">Pronouns</dt>
+                <dd className="mt-1 font-medium">{profile.person.pronouns ?? "Not listed"}</dd>
+              </div>
+            ) : (
+              <div>
+                <dt className="text-muted">Subtype</dt>
+                <dd className="mt-1 font-medium">{profile.community.subtype ?? "Not listed"}</dd>
+              </div>
+            )}
+          </dl>
+        </Card>
+      </section>
+    ),
+    events: (
+      <Card>
+        <SectionHeading>
+          {isPerson ? "Upcoming events" : "Hosted events"}
+        </SectionHeading>
+        <div className="mt-5 grid gap-3 lg:grid-cols-2">
+          {eventPreviews.length === 0 ? (
+            <p className="text-sm leading-6 text-muted">
+              {isPerson ? "No public upcoming events yet." : "No public hosted events yet."}
+            </p>
+          ) : (
+            eventPreviews.map((event) => (
+              <EventPreviewCard event={event} key={`${event.slug ?? event.title}-${event.startAt}`} />
+            ))
+          )}
+        </div>
+      </Card>
+    ),
+    links: (
+      <Card>
+        <SectionHeading>
+          Creator links
+        </SectionHeading>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {profile.outboundLinks.length === 0 ? (
+            <p className="text-sm leading-6 text-muted">No public creator/store links yet.</p>
+          ) : (
+            profile.outboundLinks.map((link) => {
+              const href = safeHttpsUrl(link.url);
+
+              if (!href) {
+                return null;
+              }
+
+              const host = hostLabel(href);
+
+              return (
+                <a
+                  className="rounded-card border border-border bg-surface-strong px-4 py-3 text-sm transition hover:-translate-y-0.5"
+                  href={href}
+                  key={`${link.type}-${link.url}`}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  <span className="block font-medium">{link.label}</span>
+                  {link.handle ?? host ? <span className="mt-1 block text-xs text-muted">{link.handle ?? host}</span> : null}
+                </a>
+              );
+            })
+          )}
+        </div>
+      </Card>
+    ),
+    media_kit: (
+      <Card>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <SectionHeading>
+            Media kit
+          </SectionHeading>
+          {mediaKit.logoZipUrl ? (
+            <a className={buttonVariants({ size: "sm", variant: "secondary" })} download href={mediaKit.logoZipUrl}>
+              Download logos zip
+            </a>
+          ) : null}
+        </div>
+        <div className="mt-5 grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+          <div className="rounded-card border border-border bg-surface-strong p-4">
+            <p className="text-sm font-medium text-muted">Primary logo</p>
+            {mediaKit.primaryLogo ? (
+              <div className="mt-3">
+                <MediaAssetCard asset={mediaKit.primaryLogo} label="Primary logo" />
+              </div>
+            ) : (
+              <p className="mt-3 text-sm leading-6 text-muted">No public logo yet.</p>
+            )}
+          </div>
+          <div className="rounded-card border border-border bg-surface-strong p-4">
+            <p className="text-sm font-medium text-muted">Additional logos</p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              {mediaKit.additionalLogos.length === 0 ? (
+                <p className="text-sm leading-6 text-muted">No additional public logos yet.</p>
+              ) : (
+                mediaKit.additionalLogos.map((asset, index) => (
+                  <MediaAssetCard asset={asset} key={asset.assetId} label={`Logo ${index + 2}`} />
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      </Card>
+    ),
+    worlds: (
+      <Card>
+        <SectionHeading>
+          Worlds
+        </SectionHeading>
+        <div className="mt-5 grid gap-3 lg:grid-cols-2">
+          {profile.worldCredits.length === 0 ? (
+            <p className="text-sm leading-6 text-muted">No public world credits yet.</p>
+          ) : (
+            profile.worldCredits.map((world) => (
+              <Link
+                className="rounded-card border border-border bg-surface-strong px-4 py-4 text-sm transition hover:-translate-y-0.5"
+                href={`/w/${world.slug}`}
+                key={world.slug}
+              >
+                <span className="block text-lg font-semibold tracking-[-0.03em]">
+                  {world.displayName}
+                </span>
+                <span className="mt-2 block text-muted">
+                  {world.roles.map(roleLabel).join(", ")}
+                </span>
+                {world.summary ? (
+                  <span className="mt-3 line-clamp-2 block leading-6 text-muted">
+                    {world.summary}
+                  </span>
+                ) : null}
+                {world.tags.length > 0 ? (
+                  <span className="mt-3 block text-xs text-muted">{world.tags.slice(0, 3).join(" / ")}</span>
+                ) : null}
+              </Link>
+            ))
+          )}
+        </div>
+      </Card>
+    ),
+    details: (
+      <section className={cn("grid gap-4", isPerson ? "lg:grid-cols-2" : "lg:grid-cols-3")}>
+        <Card>
+          <Eyebrow>{isPerson ? "Focus" : "Community focus"}</Eyebrow>
+          <div className="mt-4">
+            <PillList items={focusItems} />
+          </div>
+        </Card>
+
+        {isPerson ? null : (
+          <Card>
+            <Eyebrow>Tags</Eyebrow>
+            <div className="mt-4">
+              <PillList items={profile.tags} />
+            </div>
+          </Card>
+        )}
+
+        <Card>
+          <Eyebrow>Aliases</Eyebrow>
+          <div className="mt-4">
+            <PillList items={profile.aliases} />
+          </div>
+        </Card>
+      </section>
+    ),
+  };
 
   return (
     <PageShell>
@@ -343,201 +588,9 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
           </div>
         </section>
 
-        <section className="grid gap-4 lg:grid-cols-[1.25fr_0.75fr]">
-          <Card>
-            <Eyebrow>About</Eyebrow>
-            <SectionTitle className="mt-4">
-              {isPerson ? "Public identity" : "Community home"}
-            </SectionTitle>
-            <div className="mt-4 space-y-4 text-sm leading-7 text-muted sm:text-base">
-              {profile.bio ? <p>{profile.bio}</p> : null}
-              {profile.about ? <p>{profile.about}</p> : null}
-              {!profile.bio && !profile.about ? (
-                <p>No public bio yet.</p>
-              ) : null}
-            </div>
-          </Card>
-
-          <Card>
-            <dl className="space-y-4 text-sm">
-              <div className="border-b border-border pb-4">
-                <dt className="text-muted">Status</dt>
-                <dd className="mt-1 font-medium">
-                  {trust}
-                  {sourceDetails.length > 0 ? (
-                    <span className="mt-1 block text-xs font-normal text-muted">
-                      {sourceDetails.join(" / ")}
-                    </span>
-                  ) : null}
-                </dd>
-              </div>
-              <div className="border-b border-border pb-4">
-                <dt className="text-muted">Region</dt>
-                <dd className="mt-1 font-medium">{profile.region ?? "Not listed"}</dd>
-              </div>
-              <div className="border-b border-border pb-4">
-                <dt className="text-muted">Time zone</dt>
-                <dd className="mt-1 font-medium">{profile.timezone ?? "Not listed"}</dd>
-              </div>
-              {isPerson ? (
-                <div>
-                  <dt className="text-muted">Pronouns</dt>
-                  <dd className="mt-1 font-medium">{profile.person.pronouns ?? "Not listed"}</dd>
-                </div>
-              ) : (
-                <div>
-                  <dt className="text-muted">Subtype</dt>
-                  <dd className="mt-1 font-medium">{profile.community.subtype ?? "Not listed"}</dd>
-                </div>
-              )}
-            </dl>
-          </Card>
-        </section>
-
-        <Card>
-          <SectionHeading>
-            {isPerson ? "Upcoming events" : "Hosted events"}
-          </SectionHeading>
-          <div className="mt-5 grid gap-3 lg:grid-cols-2">
-            {(isPerson ? profile.upcomingEvents : profile.hostedEvents).length === 0 ? (
-              <p className="text-sm leading-6 text-muted">No public upcoming events yet.</p>
-            ) : (
-              (isPerson ? profile.upcomingEvents : profile.hostedEvents).map((event) => (
-                <EventPreviewCard event={event} key={`${event.slug ?? event.title}-${event.startAt}`} />
-              ))
-            )}
-          </div>
-        </Card>
-
-        <Card>
-          <SectionHeading>
-            Creator links
-          </SectionHeading>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {profile.outboundLinks.length === 0 ? (
-              <p className="text-sm leading-6 text-muted">No public creator/store links yet.</p>
-            ) : (
-              profile.outboundLinks.map((link) => {
-                const href = safeHttpsUrl(link.url);
-
-                if (!href) {
-                  return null;
-                }
-
-                const host = hostLabel(href);
-
-                return (
-                  <a
-                    className="rounded-card border border-border bg-surface-strong px-4 py-3 text-sm transition hover:-translate-y-0.5"
-                    href={href}
-                    key={`${link.type}-${link.url}`}
-                    rel="noreferrer"
-                    target="_blank"
-                  >
-                    <span className="block font-medium">{link.label}</span>
-                    {link.handle ?? host ? <span className="mt-1 block text-xs text-muted">{link.handle ?? host}</span> : null}
-                  </a>
-                );
-              })
-            )}
-          </div>
-        </Card>
-
-        <Card>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <SectionHeading>
-              Media kit
-            </SectionHeading>
-            {mediaKit.logoZipUrl ? (
-              <a className={buttonVariants({ size: "sm", variant: "secondary" })} download href={mediaKit.logoZipUrl}>
-                Download logos zip
-              </a>
-            ) : null}
-          </div>
-          <div className="mt-5 grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
-            <div className="rounded-card border border-border bg-surface-strong p-4">
-              <p className="text-sm font-medium text-muted">Primary logo</p>
-              {mediaKit.primaryLogo ? (
-                <div className="mt-3">
-                  <MediaAssetCard asset={mediaKit.primaryLogo} label="Primary logo" />
-                </div>
-              ) : (
-                <p className="mt-3 text-sm leading-6 text-muted">No public logo yet.</p>
-              )}
-            </div>
-            <div className="rounded-card border border-border bg-surface-strong p-4">
-              <p className="text-sm font-medium text-muted">Additional logos</p>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                {mediaKit.additionalLogos.length === 0 ? (
-                  <p className="text-sm leading-6 text-muted">No additional public logos yet.</p>
-                ) : (
-                  mediaKit.additionalLogos.map((asset, index) => (
-                    <MediaAssetCard asset={asset} key={asset.assetId} label={`Logo ${index + 2}`} />
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-        </Card>
-
-        <Card>
-          <SectionHeading>
-            Worlds
-          </SectionHeading>
-          <div className="mt-5 grid gap-3 lg:grid-cols-2">
-            {profile.worldCredits.length === 0 ? (
-              <p className="text-sm leading-6 text-muted">No public world credits yet.</p>
-            ) : (
-              profile.worldCredits.map((world) => (
-                <Link
-                  className="rounded-card border border-border bg-surface-strong px-4 py-4 text-sm transition hover:-translate-y-0.5"
-                  href={`/w/${world.slug}`}
-                  key={world.slug}
-                >
-                  <span className="block text-lg font-semibold tracking-[-0.03em]">
-                    {world.displayName}
-                  </span>
-                  <span className="mt-2 block text-muted">
-                    {world.roles.map(roleLabel).join(", ")}
-                  </span>
-                  {world.summary ? (
-                    <span className="mt-3 line-clamp-2 block leading-6 text-muted">
-                      {world.summary}
-                    </span>
-                  ) : null}
-                  {world.tags.length > 0 ? (
-                    <span className="mt-3 block text-xs text-muted">{world.tags.slice(0, 3).join(" / ")}</span>
-                  ) : null}
-                </Link>
-              ))
-            )}
-          </div>
-        </Card>
-
-        <section className={cn("grid gap-4", isPerson ? "lg:grid-cols-2" : "lg:grid-cols-3")}>
-          <Card>
-            <Eyebrow>{isPerson ? "Focus" : "Community focus"}</Eyebrow>
-            <div className="mt-4">
-              <PillList items={focusItems} />
-            </div>
-          </Card>
-
-          {isPerson ? null : (
-            <Card>
-              <Eyebrow>Tags</Eyebrow>
-              <div className="mt-4">
-                <PillList items={profile.tags} />
-              </div>
-            </Card>
-          )}
-
-          <Card>
-            <Eyebrow>Aliases</Eyebrow>
-            <div className="mt-4">
-              <PillList items={profile.aliases} />
-            </div>
-          </Card>
-        </section>
+        {sectionOrder.map((section) => (
+          <Fragment key={section}>{sections[section]}</Fragment>
+        ))}
       </PageContainer>
     </PageShell>
   );

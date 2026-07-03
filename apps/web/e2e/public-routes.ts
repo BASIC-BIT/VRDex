@@ -217,9 +217,18 @@ export async function expectAccountPage(page: Page) {
 }
 
 export async function expectAppearancePage(page: Page) {
-  await expect(page.getByRole("heading", { name: /Shape the way your profile image shows up/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Shape your public profile presentation/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Profile picture shape and border" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Public page order" })).toBeVisible();
   await expect(page.getByLabel("Avatar roundedness")).toBeVisible();
+  await expect(page.getByText("Demo mode is live-only", { exact: false })).toBeVisible();
+}
+
+export async function expectPrivacyPage(page: Page) {
+  await expect(page.getByRole("heading", { name: /Control what your claimed profiles show/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Field visibility" })).toBeVisible();
+  await expect(page.getByLabel("Bio visibility")).toBeVisible();
+  await expect(page.getByText("Current settings", { exact: true })).toBeVisible();
   await expect(page.getByText("Demo mode is live-only", { exact: false })).toBeVisible();
 }
 
@@ -303,6 +312,10 @@ export async function expectEventPage(page: Page) {
   await expect(page.getByText("Lineup", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "DJ Aurora", exact: true }).first()).toBeVisible();
   await expect(page.getByText("Neon Harbor", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Add to calendar/i })).toHaveAttribute(
+    "href",
+    "/e/playwright-afterglow-harbor-sessions/calendar.ics",
+  );
   await expect(page.getByText("Afterglow watch link", { exact: true })).toBeVisible();
   await expect(page.getByText("Watch now", { exact: true })).toHaveCount(0);
 }
@@ -363,6 +376,11 @@ export const capturedRoutes: CapturedRoute[] = [
     name: "appearance-demo",
     path: "/account/appearance",
     expectPage: expectAppearancePage,
+  },
+  {
+    name: "privacy-demo",
+    path: "/account/privacy",
+    expectPage: expectPrivacyPage,
   },
   {
     name: "search",

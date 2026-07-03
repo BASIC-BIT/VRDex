@@ -791,6 +791,18 @@ Public API posture:
 - lookup command returns a compact embed
 - embed includes genres, contact path, verification badges, and canonical URL
 - support both people and communities
+- event-operations commands can start as interaction commands, buttons, selects, and modals over the same command model as the web control room
+- a persistent Gateway service is still relevant for live event controls, ambient server monitoring, approved message ingestion, role sync, and richer event status workflows
+
+### Restreaming and media control
+
+- VRDex should act as the event media control plane before acting as its own delivery network
+- first restream output should prioritize operator-owned VRCDN credentials and one composed stream pushed to VRCDN
+- worker scale should track concurrent live programs; viewer scale should remain behind VRCDN or another delivery provider
+- future VRDex-owned delivery needs explicit unit-economics, rights, abuse, support, and capacity planning
+- local media-pipeline validation and cloud worker infrastructure design should proceed together before a real product PR is merged
+- Discord live controls should prefer interaction embeds, buttons, selects, and modals over slash-command-only control flows
+- detailed planning lives in `docs/planning/restreaming-media-control.md`
 
 ## Product rules worth encoding early
 

@@ -1,6 +1,12 @@
 import { expect, test } from "@playwright/test";
 
-import { capturedRoutes, expectSearchPage, prepareVisualPage, productionSmokeRoutes } from "./public-routes";
+import {
+  capturedRoutes,
+  expectEventPage,
+  expectSearchPage,
+  prepareVisualPage,
+  productionSmokeRoutes,
+} from "./public-routes";
 
 const routes = process.env.PLAYWRIGHT_BASE_URL ? productionSmokeRoutes : capturedRoutes;
 const isHostedRun = Boolean(process.env.PLAYWRIGHT_BASE_URL);
@@ -47,6 +53,12 @@ test.describe("hosted lookup smoke", () => {
 
 test.describe("fixture lookup smoke", () => {
   test.skip(isHostedRun, "Fixture-specific lookup suggestions are local-only.");
+
+  test("event short link redirects to its public event", async ({ page }) => {
+    await page.goto("/l/afh2x67");
+    await expect(page).toHaveURL(/\/e\/playwright-afterglow-harbor-sessions$/);
+    await expectEventPage(page);
+  });
 
   test("lookup suggestions select a public person row", async ({ page }) => {
     await page.goto("/lookup");
