@@ -48,6 +48,7 @@ import type * as profileAssets from "../profileAssets.js";
 import type * as profileClaims from "../profileClaims.js";
 import type * as profiles from "../profiles.js";
 import type * as search from "../search.js";
+import type * as shortLinks from "../shortLinks.js";
 import type * as suppressions from "../suppressions.js";
 import type * as worlds from "../worlds.js";
 
@@ -98,6 +99,7 @@ declare const fullApi: ApiFromModules<{
   profileClaims: typeof profileClaims;
   profiles: typeof profiles;
   search: typeof search;
+  shortLinks: typeof shortLinks;
   suppressions: typeof suppressions;
   worlds: typeof worlds;
 }>;

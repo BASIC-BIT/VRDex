@@ -17,6 +17,7 @@ import {
   upsertSearchDocument,
   vocabularyForProfile,
 } from "./_searchDocuments";
+import { ensureShortLinkForTarget } from "./_shortLinks";
 import { recordVocabularyTerms } from "./_vocabulary";
 
 const profileType = v.union(v.literal("person"), v.literal("community"));
@@ -221,6 +222,11 @@ export const submitCommunityProfile = mutation({
           roleTags: input.person.roleTags,
         },
       });
+      const shortLink = await ensureShortLinkForTarget(
+        ctx.db,
+        { targetType: "profile", targetId: profileId },
+        now,
+      );
 
       const profile = await ctx.db.get(profileId);
       if (profile !== null) {
@@ -250,6 +256,8 @@ export const submitCommunityProfile = mutation({
         profileType: "person" as const,
         slug,
         profilePath: `/p/${slug}`,
+        shortLinkCode: shortLink.code,
+        shortLinkPath: shortLink.shortLinkPath,
       };
     }
 
@@ -258,6 +266,11 @@ export const submitCommunityProfile = mutation({
       profileType: "community",
       community: input.community,
     });
+    const shortLink = await ensureShortLinkForTarget(
+      ctx.db,
+      { targetType: "profile", targetId: profileId },
+      now,
+    );
 
     const profile = await ctx.db.get(profileId);
     if (profile !== null) {
@@ -287,6 +300,8 @@ export const submitCommunityProfile = mutation({
       profileType: "community" as const,
       slug,
       profilePath: `/c/${slug}`,
+      shortLinkCode: shortLink.code,
+      shortLinkPath: shortLink.shortLinkPath,
     };
   },
 });

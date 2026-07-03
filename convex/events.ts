@@ -29,6 +29,7 @@ import { findAvailableEventSlug, getEventBySlug, validateEventSlug } from "./_ev
 import { canReadProfile } from "./_profilePermissions";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { createEventSearchDocument, upsertSearchDocument, vocabularyForEvent } from "./_searchDocuments";
+import { ensureShortLinkForTarget } from "./_shortLinks";
 import { recordVocabularyTerms } from "./_vocabulary";
 import { getVrcdnOutputAccount, listPublicVrcdnOutputAccounts } from "./_vrcdnOutputAccounts";
 import { getWorldBySlug, validateWorldSlug } from "./_worldSlugs";
@@ -1472,6 +1473,11 @@ export const createCommunityEvent = mutation({
       createdAt: now,
       updatedAt: now,
     });
+    const shortLink = await ensureShortLinkForTarget(
+      ctx.db,
+      { targetType: "event", targetId: eventId },
+      now,
+    );
 
     await replaceEventWorldLink(ctx.db, eventId, input.startAt, world, now);
     await replaceEventSlots(ctx.db, eventId, input.startAt, input.slotLinks, now);
@@ -1494,6 +1500,8 @@ export const createCommunityEvent = mutation({
       eventId,
       slug,
       eventPath: `/e/${slug}`,
+      shortLinkCode: shortLink.code,
+      shortLinkPath: shortLink.shortLinkPath,
     };
   },
 });

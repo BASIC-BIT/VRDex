@@ -135,6 +135,30 @@ export async function fetchPublicWorldBySlug(slug: string) {
   }
 }
 
+export async function fetchPublicShortLinkTargetByCode(code: string) {
+  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
+    return { kind: "missing-url" as const, target: null };
+  }
+
+  try {
+    const target = await fetchQuery(api.shortLinks.resolvePublicByCode, { code });
+
+    return {
+      kind: "live" as const,
+      target,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    console.error(`Server-side Convex short link fetch failed: ${message}`);
+
+    return {
+      kind: "error" as const,
+      target: null,
+    };
+  }
+}
+
 export async function fetchHomeActiveWorlds() {
   const fixtureWorlds = getPlaywrightActiveWorldFixtures();
 

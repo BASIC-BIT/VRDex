@@ -22,7 +22,7 @@ Current event fields include:
 - publication state
 - submitter identity for first-slice edit authority
 
-Generated durable short links such as `/l/<code>` are tracked separately in `#92`. Event slugs are readable and may become owner-editable; short links should remain stable after slug edits.
+Generated durable short links such as `/l/<code>` are tracked in [Generated Short Links](./generated-short-links.md). Event slugs are readable and may become owner-editable; short links remain stable after slug edits because they target the event id.
 
 ## Event Times
 

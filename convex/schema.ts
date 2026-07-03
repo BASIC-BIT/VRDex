@@ -368,6 +368,12 @@ const searchEntityType = v.union(
   v.literal("event"),
 );
 
+const shortLinkTargetType = v.union(
+  v.literal("profile"),
+  v.literal("world"),
+  v.literal("event"),
+);
+
 const searchPublicState = v.union(v.literal("public"), v.literal("hidden"));
 
 const featuredPlacementSlot = v.union(
@@ -1244,4 +1250,16 @@ export default defineSchema({
   })
     .index("by_slot_state_weight", ["slot", "state", "weight"])
     .index("by_state_startsAt", ["state", "startsAt"]),
+  shortLinks: defineTable({
+    code: v.string(),
+    targetType: shortLinkTargetType,
+    targetProfileId: v.optional(v.id("profiles")),
+    targetWorldId: v.optional(v.id("worlds")),
+    targetEventId: v.optional(v.id("events")),
+    createdAt: v.number(),
+  })
+    .index("by_code", ["code"])
+    .index("by_targetProfileId", ["targetProfileId"])
+    .index("by_targetWorldId", ["targetWorldId"])
+    .index("by_targetEventId", ["targetEventId"]),
 });
