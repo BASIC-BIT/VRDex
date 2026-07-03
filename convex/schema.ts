@@ -296,6 +296,7 @@ const profileOwnerState = v.union(v.literal("active"), v.literal("revoked"));
 
 const profileClaimMethod = v.union(
   v.literal("discord_person"),
+  v.literal("discord_community"),
   v.literal("discord_community_admin"),
   v.literal("vrchat_user_proof"),
   v.literal("vrchat_group_proof"),

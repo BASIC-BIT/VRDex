@@ -13,9 +13,10 @@ The implemented schema is intentionally narrow. It establishes one shared `profi
 - every profile has a canonical `slug` that is globally unique across people and communities
 - claim state, publication state, and creation provenance are separate fields
 - community-submitted unclaimed records are represented by `creationSource: "community"` plus `claimState: "unclaimed"`
+- Discord no-match claim creation writes `creationSource: "self"` profiles and then grants owner authority through `profileOwners`
 - public surfacing state is separate from ordinary publication state so valid opt-out and suppression can hide otherwise-published profiles
 - account/user ownership references live in `profileOwners`; provider login alone is not ownership
-- most public write mutations are deferred until auth and permissions are wired; `profiles:submitCommunityProfile` is the current auth-gated exception
+- most broad profile editing mutations are deferred until auth and permissions are wired; `profiles:submitCommunityProfile` and the claim mutations are the current auth-gated write exceptions
 - the community submission mutation requires a Convex authenticated identity before writing
 - normalized alias and rich authored block tables are deferred to later profile presentation issues
 - file-backed media-kit assets are the model for profile pictures, logos, banners, and other reusable profile images
@@ -126,7 +127,7 @@ Convex Auth provides the `users` and `authAccounts` tables used by account and p
 - `state`: `"active" | "revoked"`
 - `grantedByClaimRequestId`: optional claim request that granted ownership
 
-`profileClaimRequests` stores claim review state for Discord, VRChat, VRCLinking, and manual methods.
+`profileClaimRequests` stores claim review state for Discord, VRChat, VRCLinking, and manual methods. Discord methods currently distinguish `discord_person`, `discord_community`, and the stronger `discord_community_admin` flow.
 
 `profileVerificationAttempts` stores proof-code attempts for external proof readers. Attempts have a proof code, target type, target external id, state, expiry, and optional evidence summary.
 
@@ -179,7 +180,11 @@ Convex schema validation cannot enforce conditional timestamp invariants, so pro
 - set `publishedAt` when `publicationState` becomes `"published"`
 - patch `updatedAt` on every profile write
 
-The first write path is `profiles:submitCommunityProfile`. It requires `ctx.auth.getUserIdentity()` to return a signed-in identity, generates the slug server-side, publishes the profile as `creationSource: "community"` plus `claimState: "unclaimed"`, and stores narrow source attribution for later moderation and display decisions.
+Locked decision: `profiles:submitCommunityProfile` is the public community-submitted unclaimed write path. It requires `ctx.auth.getUserIdentity()` to return a signed-in identity, generates the slug server-side, publishes the profile as `creationSource: "community"` plus `claimState: "unclaimed"`, and stores narrow source attribution for later moderation and display decisions.
+
+Current recommendation: `profileClaims:createClaimedDiscordPersonProfile` and `profileClaims:createClaimedDiscordCommunityProfile` are the explicit Discord no-match creation paths. They require Convex auth, verified email, a linked Discord account, and caller confirmation that no suitable unclaimed match exists. They create self-authored public profiles, record an approved Discord claim request, grant singleton owner authority, and leave the profile at `claimed_unverified`.
+
+Current recommendation: Discord community Administrator verification remains the stronger server-authority path for community profiles. A linked Discord account alone can create and control a new community profile, but it does not prove server administration and must not set `claimed_verified` by itself.
 
 The `migrations:backfillProfilePublicSurfacingState` internal mutation sets missing legacy `publicSurfacingState` values to `"public"` and fills `publicSurfacingUpdatedAt` so previously-written profiles keep their existing publication behavior after the surfacing-state schema addition.
 

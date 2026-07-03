@@ -5,17 +5,42 @@ import { toAuthSubject } from "./_communityAuthority";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { action, internalMutation, internalQuery, mutation } from "./_generated/server";
+import { createClaimedDiscordProfileForUser } from "./_profileClaimCreation";
 import { approveProfileClaimForUser, getActiveProfileOwner } from "./_profileOwnership";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { createProfileSearchDocument, upsertSearchDocument } from "./_searchDocuments";
 
 const DAY_MS = 86_400_000;
 const DISCORD_ADMINISTRATOR_PERMISSION = BigInt(8);
+const noSuitableMatchConfirmed = v.boolean();
 const vrchatTargetType = v.union(
   v.literal("vrchat_user"),
   v.literal("vrchat_group"),
   v.literal("vrclinking"),
 );
+const claimedPersonProfileArgs = {
+  noSuitableMatchConfirmed,
+  displayName: v.string(),
+  aliases: v.optional(v.array(v.string())),
+  tags: v.optional(v.array(v.string())),
+  person: v.optional(
+    v.object({
+      roleTags: v.optional(v.array(v.string())),
+    }),
+  ),
+};
+const claimedCommunityProfileArgs = {
+  noSuitableMatchConfirmed,
+  displayName: v.string(),
+  aliases: v.optional(v.array(v.string())),
+  tags: v.optional(v.array(v.string())),
+  community: v.optional(
+    v.object({
+      subtype: v.optional(v.string()),
+      categoryTags: v.optional(v.array(v.string())),
+    }),
+  ),
+};
 
 type VrchatTargetType = Doc<"profileVerificationAttempts">["targetType"];
 type VerificationAttemptAdapterContext = {
@@ -112,6 +137,12 @@ async function getClaimableProfileBySlug(
   }
 
   return profile;
+}
+
+function requireNoSuitableMatchConfirmed(confirmed: boolean) {
+  if (confirmed !== true) {
+    throw new Error("Confirm that no suitable unclaimed profile match exists before creating a new claimed profile.");
+  }
 }
 
 function proofMethodForTarget(targetType: VrchatTargetType): Doc<"profileVerificationAttempts">["method"] {
@@ -269,6 +300,60 @@ export const claimExistingPersonWithDiscord = mutation({
       claimState: updatedProfile?.claimState ?? profile.claimState,
       profilePath: `/p/${profile.slug}`,
     };
+  },
+});
+
+export const createClaimedDiscordPersonProfile = mutation({
+  args: claimedPersonProfileArgs,
+  handler: async (ctx, args) => {
+    requireNoSuitableMatchConfirmed(args.noSuitableMatchConfirmed);
+
+    const [user, identity] = await Promise.all([
+      requireVerifiedEmailUser(ctx),
+      ctx.auth.getUserIdentity(),
+    ]);
+    const discordAccount = await requireLinkedDiscordAccount(ctx, user._id);
+
+    return await createClaimedDiscordProfileForUser(ctx.db, {
+      userId: user._id,
+      discordProviderAccountId: discordAccount.providerAccountId,
+      input: {
+        profileType: "person",
+        displayName: args.displayName,
+        aliases: args.aliases,
+        tags: args.tags,
+        person: args.person,
+      },
+      now: Date.now(),
+      ...(identity !== null ? { actor: toAuthSubject(identity) } : {}),
+    });
+  },
+});
+
+export const createClaimedDiscordCommunityProfile = mutation({
+  args: claimedCommunityProfileArgs,
+  handler: async (ctx, args) => {
+    requireNoSuitableMatchConfirmed(args.noSuitableMatchConfirmed);
+
+    const [user, identity] = await Promise.all([
+      requireVerifiedEmailUser(ctx),
+      ctx.auth.getUserIdentity(),
+    ]);
+    const discordAccount = await requireLinkedDiscordAccount(ctx, user._id);
+
+    return await createClaimedDiscordProfileForUser(ctx.db, {
+      userId: user._id,
+      discordProviderAccountId: discordAccount.providerAccountId,
+      input: {
+        profileType: "community",
+        displayName: args.displayName,
+        aliases: args.aliases,
+        tags: args.tags,
+        community: args.community,
+      },
+      now: Date.now(),
+      ...(identity !== null ? { actor: toAuthSubject(identity) } : {}),
+    });
   },
 });
 

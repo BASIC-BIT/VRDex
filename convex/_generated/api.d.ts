@@ -19,6 +19,7 @@ import type * as _eventPublic from "../_eventPublic.js";
 import type * as _eventSlots from "../_eventSlots.js";
 import type * as _eventSlugs from "../_eventSlugs.js";
 import type * as _profileAssets from "../_profileAssets.js";
+import type * as _profileClaimCreation from "../_profileClaimCreation.js";
 import type * as _profileFieldVisibility from "../_profileFieldVisibility.js";
 import type * as _profileLookup from "../_profileLookup.js";
 import type * as _profileOwnership from "../_profileOwnership.js";
@@ -70,6 +71,7 @@ declare const fullApi: ApiFromModules<{
   _eventSlots: typeof _eventSlots;
   _eventSlugs: typeof _eventSlugs;
   _profileAssets: typeof _profileAssets;
+  _profileClaimCreation: typeof _profileClaimCreation;
   _profileFieldVisibility: typeof _profileFieldVisibility;
   _profileLookup: typeof _profileLookup;
   _profileOwnership: typeof _profileOwnership;

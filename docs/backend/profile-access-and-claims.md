@@ -37,6 +37,8 @@ Moderators may override profile fields later for safety, corrections, and abuse 
 
 `profileOwners` records are the durable owner authority link between Convex Auth `users` and `profiles`.
 
+Locked decision: ownership is attached to a profile record, not inferred from provider login alone.
+
 - `roleKey` is currently the singleton literal `owner`
 - only one active owner may exist for a profile at a time
 - repeated grants for the same active owner are idempotent
@@ -67,8 +69,15 @@ A weaker approval method must not downgrade an already verified profile. For exa
 
 Current claim-level actions require a signed-in Convex Auth user with a verified email address.
 
+Locked decision: claiming a suitable existing unclaimed profile attaches ownership to that existing profile record and preserves its `_id`, slug, source history, and related references.
+
+Current recommendation: the no-match creation path is explicit. `profileClaims:createClaimedDiscordPersonProfile` and `profileClaims:createClaimedDiscordCommunityProfile` require the caller to confirm that no suitable unclaimed match exists before a new self-created profile is written.
+
 - Discord person claims require a linked Discord provider account and grant `claimed_unverified` owner control for an existing person profile.
+- Discord person no-match creation requires a linked Discord provider account, creates a `creationSource: "self"` person profile, records an approved `discord_person` claim request, and grants `claimed_unverified` owner control.
 - Discord community claims require a linked Discord provider account and create a pending `discord_community_admin` request. The profile is not granted until `profileClaims:verifyDiscordCommunityAdminClaim` verifies full Administrator permission through a Discord bot token.
+- Discord community no-match creation requires a linked Discord provider account, creates a `creationSource: "self"` community profile, records an approved `discord_community` claim request, and grants `claimed_unverified` owner control.
+- Current recommendation: Discord community Administrator verification remains the stronger server-authority path. A linked-account-only community creation is owner-controlled but not `claimed_verified` unless a later admin, VRChat group, VRCLinking, manual, or equivalent stronger verification flow succeeds.
 - VRChat user proof requires a person profile and creates a proof-code attempt with `targetType: "vrchat_user"`.
 - VRChat group proof requires a community profile and creates a proof-code attempt with `targetType: "vrchat_group"`.
 - VRCLinking currently uses the same proof-code attempt table and adapter seam with `targetType: "vrclinking"` until a stable API contract is confirmed.
