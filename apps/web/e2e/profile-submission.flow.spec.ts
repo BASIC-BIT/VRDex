@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { gotoFlowPage } from "./flow-navigation";
 import { captureRouteScreenshot } from "./public-routes";
 
 function e2eBrowserToken() {
@@ -49,7 +50,7 @@ test("profile submission writes through to public profile and discovery @flow", 
   ]);
 
   try {
-    await page.goto("/submit");
+    await gotoFlowPage(page, "/submit");
     await expect(page.getByText(/server-side test gate/i)).toBeVisible();
 
     await page.getByLabel("Display name").fill(displayName);
@@ -79,7 +80,7 @@ test("profile submission writes through to public profile and discovery @flow", 
     ).toBeVisible();
     await captureRouteScreenshot(page, testInfo, "profile-submission-flow-profile");
 
-    await page.goto(`/search?q=${encodeURIComponent(displayName)}`);
+    await gotoFlowPage(page, `/search?q=${encodeURIComponent(displayName)}`);
     await expect(page.getByText(displayName, { exact: true }).first()).toBeVisible();
     await captureRouteScreenshot(page, testInfo, "profile-submission-flow-search");
   } finally {
@@ -134,23 +135,23 @@ test("profile field visibility keeps unlisted fields on profiles and out of disc
     createdSlug = profile.slug;
     expect(createdSlug).toBeTruthy();
 
-    await page.goto(`/p/${createdSlug}`);
+    await gotoFlowPage(page, `/p/${createdSlug}`);
     await expect(page.getByRole("heading", { name: displayName })).toBeVisible();
     await expect(page.getByText(directOnlyAlias)).toBeVisible();
     await expect(page.getByText(directOnlyBio).first()).toBeVisible();
     await expect(page.getByText(privateRole)).toHaveCount(0);
 
-    await page.goto(`/search?q=${encodeURIComponent(directOnlyAlias)}`);
+    await gotoFlowPage(page, `/search?q=${encodeURIComponent(directOnlyAlias)}`);
     let searchResults = searchResultsSection(page);
     await expect(searchResults.getByText("No public results matched that search yet.")).toBeVisible();
     await expect(searchResults.getByText(displayName, { exact: true })).toHaveCount(0);
 
-    await page.goto(`/search?q=${encodeURIComponent(directOnlyBio)}`);
+    await gotoFlowPage(page, `/search?q=${encodeURIComponent(directOnlyBio)}`);
     searchResults = searchResultsSection(page);
     await expect(searchResults.getByText("No public results matched that search yet.")).toBeVisible();
     await expect(searchResults.getByText(displayName, { exact: true })).toHaveCount(0);
 
-    await page.goto(`/search?q=${encodeURIComponent(publicTag)}`);
+    await gotoFlowPage(page, `/search?q=${encodeURIComponent(publicTag)}`);
     searchResults = searchResultsSection(page);
     await expect(searchResults.getByText(displayName, { exact: true })).toBeVisible();
     await expect(searchResults.getByText(directOnlyBio)).toHaveCount(0);
@@ -206,7 +207,7 @@ test("E2E profile helper stays gated without the browser token @flow", async ({ 
   });
   expect(malformedDeleteResponse.status()).toBe(400);
 
-  await page.goto("/submit");
+  await gotoFlowPage(page, "/submit");
   await expect(page.getByRole("heading", { name: "Sign-in required" })).toBeVisible();
   await expect(page.getByText(/server-side test gate/i)).toHaveCount(0);
 });

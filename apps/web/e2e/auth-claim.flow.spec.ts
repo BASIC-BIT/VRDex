@@ -1,5 +1,7 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 
+import { gotoFlowPage } from "./flow-navigation";
+
 function e2eBrowserToken() {
   const token = process.env.VRDEX_E2E_BROWSER_TOKEN ?? (process.env.PLAYWRIGHT_BASE_URL ? undefined : "local-playwright-token");
 
@@ -167,13 +169,13 @@ test("verified email account with linked Discord can claim an E2E person profile
     await createVerifiedE2eAccount({ page, request, e2eToken, email, password });
     await linkDiscordAccount(request, e2eToken, email, `discord-${runSuffix}`);
 
-    await page.goto("/account");
+    await gotoFlowPage(page, "/account");
     await expect(page.getByText("discord", { exact: true })).toBeVisible();
     await page.getByLabel("Person slug").fill(createdSlug!);
     await page.getByRole("button", { name: "Claim with Discord" }).click();
     await expect(page.getByText(/Person profile claimed as claimed unverified/i)).toBeVisible();
 
-    await page.goto(`/p/${createdSlug}`);
+    await gotoFlowPage(page, `/p/${createdSlug}`);
     await expect(page.getByRole("heading", { name: displayName })).toBeVisible();
     await expectCurrentOrHostedLagTrustCopy(
       profileStatusCopy(page, "Claimed"),
@@ -237,7 +239,7 @@ test("verified email account can complete community and VRChat adapter claims @f
     await createVerifiedE2eAccount({ page, request, e2eToken, email, password });
     await linkDiscordAccount(request, e2eToken, email, `discord-${runSuffix}`);
 
-    await page.goto("/account");
+    await gotoFlowPage(page, "/account");
     await page.getByLabel("Community slug").fill(communitySlug!);
     await page.getByLabel("Discord guild ID").fill(`e2e-guild-${runSuffix}`);
     await page.getByLabel("Guild name").fill(`E2E Guild ${runSuffix}`);
@@ -246,14 +248,14 @@ test("verified email account can complete community and VRChat adapter claims @f
     await page.getByRole("button", { name: "Check Discord admin" }).click();
     await expect(page.getByText(/Community claim verified as claimed verified/i)).toBeVisible();
 
-    await page.goto(`/c/${communitySlug}`);
+    await gotoFlowPage(page, `/c/${communitySlug}`);
     await expect(page.getByRole("heading", { name: `Playwright Community ${runSuffix}` })).toBeVisible();
     await expectCurrentOrHostedLagTrustCopy(
       profileStatusCopy(page, "Verified"),
       page.getByRole("heading", { name: "Verified owner", exact: true }).or(page.getByText("Community profile / Verified", { exact: true })),
     );
 
-    await page.goto("/account");
+    await gotoFlowPage(page, "/account");
     await page.getByLabel("Profile slug").fill(vrchatPersonSlug!);
     await page.getByLabel("Target type").selectOption("vrchat_user");
     await page.getByLabel("Target ID").fill(`e2e-vrchat-${runSuffix}`);
@@ -263,14 +265,14 @@ test("verified email account can complete community and VRChat adapter claims @f
     await page.getByRole("button", { name: "Check proof now" }).click();
     await expect(page.getByText(/Proof verified as claimed verified/i)).toBeVisible();
 
-    await page.goto(`/p/${vrchatPersonSlug}`);
+    await gotoFlowPage(page, `/p/${vrchatPersonSlug}`);
     await expect(page.getByRole("heading", { name: `Playwright VRChat Proof ${runSuffix}` })).toBeVisible();
     await expectCurrentOrHostedLagTrustCopy(
       profileStatusCopy(page, "Verified"),
       page.getByRole("heading", { name: "Verified owner", exact: true }).or(page.getByText("Person profile / Verified", { exact: true })),
     );
 
-    await page.goto("/account");
+    await gotoFlowPage(page, "/account");
     await page.getByLabel("Profile slug").fill(vrcLinkingPersonSlug!);
     await page.getByLabel("Target type").selectOption("vrclinking");
     await page.getByLabel("Target ID").fill(`e2e-vrclinking-${runSuffix}`);
@@ -280,7 +282,7 @@ test("verified email account can complete community and VRChat adapter claims @f
     await page.getByRole("button", { name: "Check proof now" }).click();
     await expect(page.getByText(/Proof verified as claimed verified/i)).toBeVisible();
 
-    await page.goto(`/p/${vrcLinkingPersonSlug}`);
+    await gotoFlowPage(page, `/p/${vrcLinkingPersonSlug}`);
     await expect(page.getByRole("heading", { name: `Playwright VRCLinking Proof ${runSuffix}` })).toBeVisible();
     await expectCurrentOrHostedLagTrustCopy(
       profileStatusCopy(page, "Verified"),
