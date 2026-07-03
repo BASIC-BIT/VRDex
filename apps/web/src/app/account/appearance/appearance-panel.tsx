@@ -180,8 +180,7 @@ function AvatarPreview({ appearance, profile }: { appearance: AvatarAppearance; 
 }
 
 function AppearanceEditor({ demo, profiles }: { demo?: boolean; profiles: AppearanceProfile[] }) {
-  const updateAvatarAppearance = useMutation(api.profileAssets.updateAvatarAppearance);
-  const updatePublicSectionOrder = useMutation(api.profileAssets.updatePublicSectionOrder);
+  const updateAppearance = useMutation(api.profileAssets.updateAppearance);
   const [selectedProfileId, setSelectedProfileId] = useState<string>(profiles[0]?.profileId ?? "");
   const selectedProfile = profiles.find((profile) => profile.profileId === selectedProfileId) ?? profiles[0];
   const [draft, setDraft] = useState<AvatarAppearance>(selectedProfile?.avatarAppearance ?? defaultAvatarAppearance);
@@ -221,20 +220,15 @@ function AppearanceEditor({ demo, profiles }: { demo?: boolean; profiles: Appear
     setStatus({ kind: "saving" });
 
     try {
-      await Promise.all([
-        updateAvatarAppearance({
-          profileId: selectedProfile.profileId,
-          borderEnabled: draft.borderEnabled,
-          borderColor: draft.borderColor,
-          borderWidthPx: draft.borderWidthPx,
-          borderSoftnessPx: draft.borderSoftnessPx,
-          radiusPercent: draft.radiusPercent,
-        }),
-        updatePublicSectionOrder({
-          profileId: selectedProfile.profileId,
-          sectionOrder,
-        }),
-      ]);
+      await updateAppearance({
+        profileId: selectedProfile.profileId,
+        borderEnabled: draft.borderEnabled,
+        borderColor: draft.borderColor,
+        borderWidthPx: draft.borderWidthPx,
+        borderSoftnessPx: draft.borderSoftnessPx,
+        radiusPercent: draft.radiusPercent,
+        sectionOrder,
+      });
       startTransition(() => setStatus({ kind: "success" }));
     } catch (error) {
       startTransition(() => setStatus({ kind: "error", message: appearanceErrorMessage(error) }));

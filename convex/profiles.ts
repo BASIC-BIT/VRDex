@@ -2,9 +2,13 @@ import { v } from "convex/values";
 
 import { mutation, query } from "./_generated/server";
 import { getPublicCommunityHostedEvents, getPublicPersonUpcomingEvents } from "./_eventPublic";
-import { getPublicProfileAppearance } from "./_profileAppearance";
+import { toPublicProfileAppearance } from "./_profileAppearance";
 import { toProfileLookupResult } from "./_profileLookup";
-import { consumeProfileAssetUploads, getPublicProfileMediaKit } from "./_profileAssets";
+import {
+  consumeProfileAssetUploads,
+  getProfileAssetDisplayPreference,
+  getPublicProfileMediaKit,
+} from "./_profileAssets";
 import { canReadProfile } from "./_profilePermissions";
 import { toPublicProfile } from "./_profilePublic";
 import { findAvailableProfileSlug, getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
@@ -93,10 +97,9 @@ export const getPublicBySlug = query({
           };
 
     const publicProfile = toPublicProfile(profile);
-    const [mediaKit, appearance] = await Promise.all([
-      getPublicProfileMediaKit(ctx.db, profile),
-      getPublicProfileAppearance(ctx.db, profile._id),
-    ]);
+    const preference = await getProfileAssetDisplayPreference(ctx.db, profile._id);
+    const mediaKit = await getPublicProfileMediaKit(ctx.db, profile, { preference });
+    const appearance = toPublicProfileAppearance(preference);
     const legacyAvatarImageUrl =
       "avatarImageUrl" in publicProfile && typeof publicProfile.avatarImageUrl === "string"
         ? publicProfile.avatarImageUrl

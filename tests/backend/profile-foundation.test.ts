@@ -8,6 +8,7 @@ import {
 } from "../../convex/_profileAppearance";
 import {
   createProfileAssetStorageKey,
+  getPublicProfileMediaKit,
   normalizeProfileAvatarAppearance,
   normalizeProfileAssetMimeType,
   normalizeProfileAssetSourceUrl,
@@ -1205,5 +1206,47 @@ describe("profile media kit asset helpers", () => {
       () => normalizeProfileAvatarAppearance({ borderEnabled: true, borderColor: "red", radiusPercent: 20 }),
       /six-digit hex color/,
     );
+  });
+
+  it("reuses supplied display preferences when building public media kits", async () => {
+    const profile = {
+      _id: "profile-appearance",
+      slug: "dj-aurora",
+    } as Doc<"profiles">;
+    const preference = {
+      profileId: profile._id,
+      compactDisplay: "logo",
+      avatarAppearance: {
+        borderEnabled: true,
+        borderColor: "#67e8f9",
+        borderWidthPx: 4,
+        borderSoftnessPx: 12,
+        radiusPercent: 18,
+      },
+      sectionOrder: ["links", "about"],
+      updatedAt: 1,
+    } as Doc<"profileAssetDisplayPreferences">;
+    const db = {
+      query(tableName: string) {
+        if (tableName === "profileAssetDisplayPreferences") {
+          throw new Error("Display preferences should be supplied by the caller.");
+        }
+
+        return {
+          withIndex() {
+            return {
+              async collect() {
+                return [];
+              },
+            };
+          },
+        };
+      },
+    };
+
+    const mediaKit = await getPublicProfileMediaKit(db as never, profile, { preference });
+
+    assert.equal(mediaKit.compactDisplay, "logo");
+    assert.deepEqual(mediaKit.avatarAppearance, preference.avatarAppearance);
   });
 });

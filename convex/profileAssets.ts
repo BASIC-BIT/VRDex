@@ -1,10 +1,11 @@
 import { v } from "convex/values";
 
 import { getCurrentUser, requireCurrentUser } from "./accounts";
-import { query, mutation } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
+import { query, mutation, type MutationCtx } from "./_generated/server";
 import {
-  getPublicProfileAppearance,
   normalizeProfilePublicSectionOrder,
+  toPublicProfileAppearance,
 } from "./_profileAppearance";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { userOwnsProfile } from "./_profileOwnership";
@@ -12,6 +13,7 @@ import { canReadProfile } from "./_profilePermissions";
 import {
   createProfileAssetStorageKey,
   createUploadToken,
+  getProfileAssetDisplayPreference,
   getPublicProfileMediaKit,
   normalizeProfileAvatarAppearance,
   normalizeProfileAssetMimeType,
@@ -45,6 +47,48 @@ function normalizeOptionalFileName(value: string | undefined): string | undefine
   const normalized = value?.trim().replace(/\s+/g, " ");
 
   return normalized ? normalized.slice(0, 180) : undefined;
+}
+
+async function requireOwnedAppearanceProfile(ctx: MutationCtx, requestedProfileId: Id<"profiles">) {
+  const user = await requireCurrentUser(ctx);
+  const profile = await ctx.db.get(requestedProfileId);
+
+  if (profile === null) {
+    throw new Error("Profile not found.");
+  }
+
+  if (!(await userOwnsProfile(ctx.db, profile._id, user._id))) {
+    throw new Error("Only the profile owner can update profile appearance.");
+  }
+
+  return profile;
+}
+
+async function patchProfileDisplayPreference(
+  ctx: MutationCtx,
+  requestedProfileId: Id<"profiles">,
+  values: {
+    avatarAppearance?: ReturnType<typeof normalizeProfileAvatarAppearance>;
+    sectionOrder?: ReturnType<typeof normalizeProfilePublicSectionOrder>;
+  },
+) {
+  const existing = await getProfileAssetDisplayPreference(ctx.db, requestedProfileId);
+  const now = Date.now();
+
+  if (existing === null) {
+    await ctx.db.insert("profileAssetDisplayPreferences", {
+      profileId: requestedProfileId,
+      compactDisplay: "auto",
+      ...values,
+      updatedAt: now,
+    });
+    return;
+  }
+
+  await ctx.db.patch(existing._id, {
+    ...values,
+    updatedAt: now,
+  });
 }
 
 export const createUploadIntent = mutation({
@@ -189,8 +233,9 @@ export const listOwnedAppearanceProfiles = query({
         continue;
       }
 
-      const mediaKit = await getPublicProfileMediaKit(ctx.db, profile);
-      const appearance = await getPublicProfileAppearance(ctx.db, profile._id);
+      const preference = await getProfileAssetDisplayPreference(ctx.db, profile._id);
+      const mediaKit = await getPublicProfileMediaKit(ctx.db, profile, { preference });
+      const appearance = toPublicProfileAppearance(preference);
       results.push({
         profileId: profile._id,
         profileType: profile.profileType,
@@ -208,6 +253,34 @@ export const listOwnedAppearanceProfiles = query({
   },
 });
 
+export const updateAppearance = mutation({
+  args: {
+    profileId,
+    borderEnabled: v.boolean(),
+    borderColor: v.string(),
+    borderWidthPx: v.number(),
+    borderSoftnessPx: v.number(),
+    radiusPercent: v.number(),
+    sectionOrder: v.array(profilePublicSection),
+  },
+  handler: async (ctx, args) => {
+    const profile = await requireOwnedAppearanceProfile(ctx, args.profileId);
+    const avatarAppearance = normalizeProfileAvatarAppearance(args);
+    const sectionOrder = normalizeProfilePublicSectionOrder(args.sectionOrder);
+
+    await patchProfileDisplayPreference(ctx, profile._id, {
+      avatarAppearance,
+      sectionOrder,
+    });
+
+    return {
+      profileId: profile._id,
+      avatarAppearance,
+      sectionOrder,
+    };
+  },
+});
+
 export const updateAvatarAppearance = mutation({
   args: {
     profileId,
@@ -218,37 +291,10 @@ export const updateAvatarAppearance = mutation({
     radiusPercent: v.number(),
   },
   handler: async (ctx, args) => {
-    const user = await requireCurrentUser(ctx);
-    const profile = await ctx.db.get(args.profileId);
-
-    if (profile === null) {
-      throw new Error("Profile not found.");
-    }
-
-    if (!(await userOwnsProfile(ctx.db, profile._id, user._id))) {
-      throw new Error("Only the profile owner can update profile appearance.");
-    }
-
+    const profile = await requireOwnedAppearanceProfile(ctx, args.profileId);
     const avatarAppearance = normalizeProfileAvatarAppearance(args);
-    const existing = await ctx.db
-      .query("profileAssetDisplayPreferences")
-      .withIndex("by_profileId", (query) => query.eq("profileId", profile._id))
-      .unique();
-    const now = Date.now();
 
-    if (existing === null) {
-      await ctx.db.insert("profileAssetDisplayPreferences", {
-        profileId: profile._id,
-        compactDisplay: "auto",
-        avatarAppearance,
-        updatedAt: now,
-      });
-    } else {
-      await ctx.db.patch(existing._id, {
-        avatarAppearance,
-        updatedAt: now,
-      });
-    }
+    await patchProfileDisplayPreference(ctx, profile._id, { avatarAppearance });
 
     return {
       profileId: profile._id,
@@ -263,37 +309,10 @@ export const updatePublicSectionOrder = mutation({
     sectionOrder: v.array(profilePublicSection),
   },
   handler: async (ctx, args) => {
-    const user = await requireCurrentUser(ctx);
-    const profile = await ctx.db.get(args.profileId);
-
-    if (profile === null) {
-      throw new Error("Profile not found.");
-    }
-
-    if (!(await userOwnsProfile(ctx.db, profile._id, user._id))) {
-      throw new Error("Only the profile owner can update profile appearance.");
-    }
-
+    const profile = await requireOwnedAppearanceProfile(ctx, args.profileId);
     const sectionOrder = normalizeProfilePublicSectionOrder(args.sectionOrder);
-    const existing = await ctx.db
-      .query("profileAssetDisplayPreferences")
-      .withIndex("by_profileId", (query) => query.eq("profileId", profile._id))
-      .unique();
-    const now = Date.now();
 
-    if (existing === null) {
-      await ctx.db.insert("profileAssetDisplayPreferences", {
-        profileId: profile._id,
-        compactDisplay: "auto",
-        sectionOrder,
-        updatedAt: now,
-      });
-    } else {
-      await ctx.db.patch(existing._id, {
-        sectionOrder,
-        updatedAt: now,
-      });
-    }
+    await patchProfileDisplayPreference(ctx, profile._id, { sectionOrder });
 
     return {
       profileId: profile._id,

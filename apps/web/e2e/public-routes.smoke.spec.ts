@@ -55,7 +55,7 @@ test.describe("fixture lookup smoke", () => {
   test.skip(isHostedRun, "Fixture-specific lookup suggestions are local-only.");
 
   test("event short link redirects to its public event", async ({ page }) => {
-    await page.goto("/l/playwright-afterglow-harbor-sessions");
+    await page.goto("/l/afh2x67");
     await expect(page).toHaveURL(/\/e\/playwright-afterglow-harbor-sessions$/);
     await expectEventPage(page);
   });

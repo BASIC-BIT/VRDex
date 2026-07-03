@@ -169,12 +169,13 @@ export async function checkShortLinkCodeAvailability(
   db: DatabaseReader,
   code: string,
 ): Promise<ShortLinkCodeAvailabilityResult> {
-  const validation = validateShortLinkCode(code);
+  const normalizedCode = normalizeShortLinkCodeInput(code);
+  const validation = validateShortLinkCode(normalizedCode);
 
   if (!validation.ok) {
     return {
       available: false,
-      code,
+      code: normalizedCode,
       reason: validation.reason === "reserved" ? "reserved" : "invalid",
     };
   }

@@ -193,12 +193,12 @@ describe("short link code helpers", () => {
       ],
     });
 
-    assert.deepEqual(await checkShortLinkCodeAvailability(db, "admin"), {
+    assert.deepEqual(await checkShortLinkCodeAvailability(db, " ADMIN "), {
       available: false,
       code: "admin",
       reason: "reserved",
     });
-    assert.deepEqual(await checkShortLinkCodeAvailability(db, "taken1"), {
+    assert.deepEqual(await checkShortLinkCodeAvailability(db, " Taken1 "), {
       available: false,
       code: "taken1",
       reason: "taken",

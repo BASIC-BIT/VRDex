@@ -14,6 +14,7 @@ const longNameSlug = "playwright-princess-starlight-interstellar-bassline";
 const communitySlug = "playwright-afterglow-social";
 const worldSlug = "playwright-neon-harbor";
 const eventSlug = "playwright-afterglow-harbor-sessions";
+const eventShortLinkCode = "afh2x67";
 const eventWatchSlug = "playwright-afterglow-watch-room";
 const eventTimezone = "America/New_York";
 const eventDoorsOpenAt = Date.UTC(2026, 5, 15, 1, 30, 0);
@@ -1252,7 +1253,7 @@ export function getPlaywrightPublicShortLinkFixture(
 
   const normalized = code.trim().toLowerCase();
 
-  if (normalized === eventSlug) {
+  if (normalized === eventShortLinkCode) {
     return {
       code: normalized,
       targetType: "event",
