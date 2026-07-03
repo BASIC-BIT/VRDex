@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  createPublicEventFeedIcs,
   createPublicEventIcs,
   escapeIcsText,
   foldIcsLine,
@@ -54,6 +55,44 @@ describe("public event ICS serialization", () => {
     assert.ok(physicalLines.length > 1);
     assert.ok(physicalLines.slice(1).every((line) => line.startsWith(" ")));
     assert.ok(physicalLines.every((line) => new TextEncoder().encode(line).length <= 75));
+  });
+
+  it("serializes a public feed with multiple safe VEVENT entries", () => {
+    const feed = createPublicEventFeedIcs(
+      [
+        {
+          id: "event_afterglow",
+          slug: "afterglow",
+          title: "Afterglow Harbor",
+          startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
+          endAt: Date.UTC(2026, 5, 15, 1, 0, 0),
+          summary: "Public harbor night.",
+          communityName: "Afterglow Social",
+          worlds: [{ displayName: "Neon Harbor" }],
+        },
+        {
+          id: "event_dawn",
+          slug: "dawn-room",
+          title: "Dawn Room",
+          startAt: Date.UTC(2026, 5, 21, 3, 0, 0),
+          worlds: [],
+        },
+      ],
+      {
+        feedName: "VRDex public events",
+        feedUrl: "https://vrdex.example/calendar/events.ics",
+        eventUrl: (event) => `https://vrdex.example/e/${event.slug}`,
+        now: Date.UTC(2026, 4, 24, 12, 0, 0),
+      },
+    );
+    const unfoldedFeed = unfoldIcs(feed);
+
+    assert.match(unfoldedFeed, /X-WR-CALNAME:VRDex public events\r\n/);
+    assert.match(unfoldedFeed, /URL:https:\/\/vrdex\.example\/calendar\/events\.ics\r\n/);
+    assert.equal(unfoldedFeed.match(/BEGIN:VEVENT\r\n/g)?.length, 2);
+    assert.match(unfoldedFeed, /UID:event_afterglow@vrdex\.example\r\n/);
+    assert.match(unfoldedFeed, /UID:event_dawn@vrdex\.example\r\n/);
+    assert.equal(feed.includes("operatorNotes"), false);
   });
 
   it("omits missing or invalid end times and ignores fields outside the public export contract", () => {

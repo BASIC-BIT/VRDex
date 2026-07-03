@@ -2,7 +2,7 @@
 
 ## Status
 
-Current recommendation and implementation note for `#34`, `#35`, `#36`, `#93`, `#119`, `#121`, `#123`, `#124`, `#132`, and `#134`.
+Current recommendation and implementation note for `#34`, `#35`, `#36`, `#93`, `#119`, `#121`, `#123`, `#124`, `#132`, `#134`, and `#138`.
 
 ## Event Records
 
@@ -105,6 +105,20 @@ The first slot editor uses relative minute offsets from the event start for oper
 First `#121` slice: the event editor can preview and copy one deterministic Discord-ready post generated from the public event projection.
 
 The export includes the event title, canonical `/e/<slug>` URL, host and world names when projected, Discord timestamp tokens for the event time and slot times, slot lineup rows or public participant rows, and projected public media/watch links. It does not post to Discord, run a bot/Gateway flow, use arbitrary user-authored templates, depend on generated short links, or include private operator/media-control state.
+
+## Calendar Import And Export
+
+First `#138` slice: public calendar export is a safe serialization layer, and inbound Google Calendar import is a private staging layer.
+
+The shared ICS serializer supports a single public event export and selected public event feeds. Calendar output is derived from the public event projection and includes event title, UTC start/end timestamps, public summary, canonical VRDex URL, and public host/world location text. It must not include private operator notes, moderation fields, unreviewed imports, hidden profile/world data, or media-control internals.
+
+Reviewed Google Calendar imports use staging tables rather than canonical event writes:
+
+- `eventImportBatches` records the provider, source calendar, external batch or sync job, received timestamp, reviewer state, and importer.
+- `eventImportCandidates` records the imported event identity, timestamps, title, location, description, recurrence hints, cancellation state, review state, publication state, and any later matched canonical event.
+- `eventImportCandidateFields` records field-level values, source labels, optional source URLs, confidence, visibility, and review state.
+
+Google Calendar import preserves selected event provenance and maps only reviewable event facts. It does not import attendees, reminders, hidden calendar metadata, private notes, or arbitrary personal calendars by default. Imported candidates remain `draft_private` until an explicit later review/publication flow accepts the batch, candidate, and public fields.
 
 ## Event Operations Panel
 

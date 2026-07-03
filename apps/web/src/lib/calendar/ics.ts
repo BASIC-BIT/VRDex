@@ -16,6 +16,13 @@ type CreatePublicEventIcsOptions = {
   now?: number;
 };
 
+type CreatePublicEventFeedIcsOptions = {
+  feedName: string;
+  feedUrl: string;
+  eventUrl: (event: PublicCalendarEvent) => string;
+  now?: number;
+};
+
 const ICS_PRODUCT_ID = "-//VRDex//Public Event Calendar//EN";
 const ICS_LINE_OCTET_LIMIT = 75;
 
@@ -113,6 +120,57 @@ export function createPublicEventIcs(event: PublicCalendarEvent, options: Create
   ];
 
   return `${lines.map(foldIcsLine).join("\r\n")}\r\n`;
+}
+
+export function createPublicEventFeedIcs(
+  events: PublicCalendarEvent[],
+  options: CreatePublicEventFeedIcsOptions,
+): string {
+  const feedUrl = safeHttpUrl(options.feedUrl);
+
+  if (feedUrl === null) {
+    throw new Error("Calendar feed URL must be an absolute HTTP URL.");
+  }
+
+  const now = options.now ?? Date.now();
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    property("PRODID", ICS_PRODUCT_ID),
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    property("X-WR-CALNAME", options.feedName),
+    property("URL", feedUrl, { escapeValue: false }),
+    ...events.flatMap((event) => publicEventLines(event, options.eventUrl(event), now)),
+    "END:VCALENDAR",
+  ];
+
+  return `${lines.map(foldIcsLine).join("\r\n")}\r\n`;
+}
+
+function publicEventLines(event: PublicCalendarEvent, rawCanonicalUrl: string, now: number): string[] {
+  const canonicalUrl = safeHttpUrl(rawCanonicalUrl);
+
+  if (canonicalUrl === null) {
+    throw new Error("Calendar event URLs must be absolute HTTP URLs.");
+  }
+
+  const location = event.worlds.map((world) => world.displayName).filter(Boolean).join(", ") || event.communityName;
+  const description = event.summary ? `${event.summary}\n\n${canonicalUrl}` : canonicalUrl;
+
+  return [
+    "BEGIN:VEVENT",
+    property("UID", `${event.id}@${new URL(canonicalUrl).host}`, { escapeValue: false }),
+    property("DTSTAMP", formatIcsUtcTimestamp(now), { escapeValue: false }),
+    property("DTSTART", formatIcsUtcTimestamp(event.startAt), { escapeValue: false }),
+    ...optionalEndAtLine(event),
+    "STATUS:CONFIRMED",
+    property("SUMMARY", event.title),
+    property("DESCRIPTION", description),
+    ...optionalTextProperty("LOCATION", location),
+    property("URL", canonicalUrl, { escapeValue: false }),
+    "END:VEVENT",
+  ];
 }
 
 function optionalEndAtLine(event: PublicCalendarEvent): string[] {
