@@ -395,7 +395,9 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
         </SectionHeading>
         <div className="mt-5 grid gap-3 lg:grid-cols-2">
           {eventPreviews.length === 0 ? (
-            <p className="text-sm leading-6 text-muted">No public upcoming events yet.</p>
+            <p className="text-sm leading-6 text-muted">
+              {isPerson ? "No public upcoming events yet." : "No public hosted events yet."}
+            </p>
           ) : (
             eventPreviews.map((event) => (
               <EventPreviewCard event={event} key={`${event.slug ?? event.title}-${event.startAt}`} />

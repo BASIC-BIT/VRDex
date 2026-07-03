@@ -767,6 +767,7 @@ const activeWorlds: PublicActiveWorld[] = [
 
 const publicEvent: PublicEvent = {
   ...eventPreview,
+  id: "event-playwright-afterglow-harbor-sessions",
   slug: eventSlug,
   notes: "Doors open before the first set. Follow host announcements for instance details.",
   watchSurfaceEnabled: false,
@@ -877,6 +878,7 @@ const publicEvent: PublicEvent = {
 
 const publicWatchEvent: PublicEvent = {
   ...publicEvent,
+  id: "event-playwright-afterglow-watch-room",
   slug: eventWatchSlug,
   title: "Afterglow Watch Room",
   startAt: watchEventStartAt,
@@ -1041,6 +1043,11 @@ type PlaywrightProfileLookupFixture =
   | { kind: "disabled" }
   | { kind: "fallthrough" }
   | { kind: "handled"; results: PublicProfileLookupResult[] };
+type PlaywrightPublicShortLinkFixture = {
+  code: string;
+  targetType: "profile" | "world" | "event";
+  path: string;
+};
 
 function toProfileLookupFixture(profile: PublicProfile): PublicProfileLookupResult | null {
   if (profile.profileType !== "person") {
@@ -1228,6 +1235,29 @@ export function getPlaywrightPublicEventFixture(slug: string): PublicEvent | nul
 
   if (slug === eventWatchSlug) {
     return publicWatchEvent;
+  }
+
+  return null;
+}
+
+export function getPlaywrightPublicShortLinkFixture(
+  code: string,
+): PlaywrightPublicShortLinkFixture | null {
+  if (
+    process.env.NODE_ENV === "production" ||
+    process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES !== "true"
+  ) {
+    return null;
+  }
+
+  const normalized = code.trim().toLowerCase();
+
+  if (normalized === eventSlug) {
+    return {
+      code: normalized,
+      targetType: "event",
+      path: `/e/${eventSlug}`,
+    };
   }
 
   return null;

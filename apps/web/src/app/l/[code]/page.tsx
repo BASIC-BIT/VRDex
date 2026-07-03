@@ -14,6 +14,10 @@ export default async function ShortLinkPage({ params }: ShortLinkPageProps) {
   const { code } = await params;
   const result = await fetchPublicShortLinkTargetByCode(code);
 
+  if (result.kind !== "live") {
+    throw new Error("Short link resolution is temporarily unavailable.");
+  }
+
   if (result.target === null) {
     notFound();
   }

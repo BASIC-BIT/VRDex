@@ -6,6 +6,7 @@ import {
   getPlaywrightProfileLookupFixture,
   getPlaywrightPublicEventFixture,
   getPlaywrightPublicProfileFixture,
+  getPlaywrightPublicShortLinkFixture,
   getPlaywrightPublicWorldFixture,
   searchPlaywrightDiscoveryFixture,
 } from "./playwright-fixtures";
@@ -136,6 +137,15 @@ export async function fetchPublicWorldBySlug(slug: string) {
 }
 
 export async function fetchPublicShortLinkTargetByCode(code: string) {
+  const fixtureTarget = getPlaywrightPublicShortLinkFixture(code);
+
+  if (fixtureTarget !== null) {
+    return {
+      kind: "live" as const,
+      target: fixtureTarget,
+    };
+  }
+
   if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
     return { kind: "missing-url" as const, target: null };
   }

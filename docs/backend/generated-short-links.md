@@ -52,6 +52,10 @@ The resolver returns only the target type and canonical path. Public short-link
 reads do not expose source attribution, private event operation fields, media
 control internals, or moderation notes.
 
+Backend configuration or read failures are not treated as missing short links.
+The public route should surface a server error for those cases instead of
+turning an unavailable resolver into a target-level `404`.
+
 ## Creation Contract
 
 Profile community submissions and community event creation now reserve a short
@@ -61,6 +65,16 @@ return payload includes `shortLinkCode` and `shortLinkPath` as additive fields.
 World records do not yet have a public write mutation. The backend exposes
 `shortLinks.ensureForWorld` for the future world creation flow, and that flow
 should call it in the same mutation that creates a world row.
+
+Manual `shortLinks.ensureForProfile`, `shortLinks.ensureForWorld`, and
+`shortLinks.ensureForEvent` calls require a signed-in actor with authority over
+the target:
+
+- profile short links require the profile owner or community profile authority
+- world short links require authority over one of the world creator-attribution
+  profiles
+- event short links require the event submitter or `manage_events` authority on
+  the event community
 
 Calling an ensure mutation for a target that already has a short link returns
 the existing code without changing it. There is no update mutation for a code.

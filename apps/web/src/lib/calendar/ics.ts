@@ -1,4 +1,5 @@
 export type PublicCalendarEvent = {
+  id: string;
   slug: string;
   title: string;
   startAt: number;
@@ -98,7 +99,7 @@ export function createPublicEventIcs(event: PublicCalendarEvent, options: Create
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
     "BEGIN:VEVENT",
-    property("UID", `${event.slug}@${new URL(canonicalUrl).host}`, { escapeValue: false }),
+    property("UID", `${event.id}@${new URL(canonicalUrl).host}`, { escapeValue: false }),
     property("DTSTAMP", formatIcsUtcTimestamp(options.now ?? Date.now()), { escapeValue: false }),
     property("DTSTART", formatIcsUtcTimestamp(event.startAt), { escapeValue: false }),
     ...optionalEndAtLine(event),

@@ -312,6 +312,10 @@ export async function expectEventPage(page: Page) {
   await expect(page.getByText("Lineup", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "DJ Aurora", exact: true }).first()).toBeVisible();
   await expect(page.getByText("Neon Harbor", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Add to calendar/i })).toHaveAttribute(
+    "href",
+    "/e/playwright-afterglow-harbor-sessions/calendar.ics",
+  );
   await expect(page.getByText("Afterglow watch link", { exact: true })).toBeVisible();
   await expect(page.getByText("Watch now", { exact: true })).toHaveCount(0);
 }

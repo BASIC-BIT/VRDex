@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 import type { DatabaseReader, DatabaseWriter } from "../../convex/_generated/server";
 import {
+  canReserveShortLinkForTarget,
   checkShortLinkCodeAvailability,
   ensureShortLinkForTarget,
   findAvailableShortLinkCode,
@@ -25,7 +26,9 @@ type TestTable =
   | "eventParticipants"
   | "eventSlots"
   | "eventMediaPrograms"
-  | "eventMediaOutputs";
+  | "eventMediaOutputs"
+  | "profileOwners"
+  | "communityAuthorities";
 
 type TestDoc = Record<string, unknown> & { _id: string };
 
@@ -43,6 +46,8 @@ function createShortLinkDb(initial: Partial<Record<TestTable, TestDoc[]>>) {
     "eventSlots",
     "eventMediaPrograms",
     "eventMediaOutputs",
+    "profileOwners",
+    "communityAuthorities",
   ] as const) {
     tables.set(table, [...(initial[table] ?? [])]);
   }
@@ -85,7 +90,18 @@ function createShortLinkDb(initial: Partial<Record<TestTable, TestDoc[]>>) {
           builder(query);
 
           const indexedQuery = {
-            filter() {
+            filter(builder: (query: unknown) => unknown) {
+              const filterQuery = {
+                field(field: string) {
+                  return field;
+                },
+                eq(field: string, value: unknown) {
+                  filters[field] = value;
+                  return filterQuery;
+                },
+              };
+
+              builder(filterQuery);
               return indexedQuery;
             },
             order() {
@@ -198,6 +214,189 @@ describe("short link code helpers", () => {
 });
 
 describe("short link target reservations", () => {
+  it("authorizes reservations for owned profiles, attributed worlds, and manageable events", async () => {
+    const userId = "user-owner" as Id<"users">;
+    const profileId = "profile-owned" as Id<"profiles">;
+    const communityProfileId = "profile-community" as Id<"profiles">;
+    const worldId = "world-attributed" as Id<"worlds">;
+    const submittedEventId = "event-submitted" as Id<"events">;
+    const communityEventId = "event-community" as Id<"events">;
+    const submitter = {
+      tokenIdentifier: "test|submitter",
+      issuer: "test",
+      subject: "submitter",
+    };
+    const manager = {
+      tokenIdentifier: "test|manager",
+      issuer: "test",
+      subject: "manager",
+    };
+    const { db } = createShortLinkDb({
+      profiles: [
+        { _id: profileId },
+        { _id: communityProfileId },
+      ],
+      profileOwners: [
+        {
+          _id: "owner-profile",
+          profileId,
+          userId,
+          roleKey: "owner",
+          state: "active",
+        },
+      ],
+      communityAuthorities: [
+        {
+          _id: "authority-profile-manager",
+          communityProfileId,
+          subjectTokenIdentifier: manager.tokenIdentifier,
+          state: "active",
+          capabilities: ["manage_profile"],
+        },
+        {
+          _id: "authority-event-manager",
+          communityProfileId,
+          subjectTokenIdentifier: manager.tokenIdentifier,
+          state: "active",
+          capabilities: ["manage_events"],
+        },
+      ],
+      worlds: [
+        {
+          _id: worldId,
+          creatorAttributions: [
+            {
+              role: "world_author",
+              displayName: "Afterglow Social",
+              profileId: communityProfileId,
+            },
+          ],
+        },
+      ],
+      events: [
+        {
+          _id: submittedEventId,
+          submitter,
+        },
+        {
+          _id: communityEventId,
+          communityProfileId,
+        },
+      ],
+    });
+
+    assert.equal(
+      await canReserveShortLinkForTarget(
+        db,
+        { targetType: "profile", targetId: profileId },
+        { userId, subject: submitter },
+      ),
+      true,
+    );
+    assert.equal(
+      await canReserveShortLinkForTarget(
+        db,
+        { targetType: "profile", targetId: communityProfileId },
+        { userId: "user-manager" as Id<"users">, subject: manager },
+      ),
+      true,
+    );
+    assert.equal(
+      await canReserveShortLinkForTarget(
+        db,
+        { targetType: "world", targetId: worldId },
+        { userId: "user-manager" as Id<"users">, subject: manager },
+      ),
+      true,
+    );
+    assert.equal(
+      await canReserveShortLinkForTarget(
+        db,
+        { targetType: "event", targetId: submittedEventId },
+        { userId, subject: submitter },
+      ),
+      true,
+    );
+    assert.equal(
+      await canReserveShortLinkForTarget(
+        db,
+        { targetType: "event", targetId: communityEventId },
+        { userId: "user-manager" as Id<"users">, subject: manager },
+      ),
+      true,
+    );
+  });
+
+  it("rejects reservations when the signed-in actor lacks target authority", async () => {
+    const actor = {
+      userId: "user-unrelated" as Id<"users">,
+      subject: {
+        tokenIdentifier: "test|unrelated",
+        issuer: "test",
+        subject: "unrelated",
+      },
+    };
+    const { db } = createShortLinkDb({
+      profiles: [{ _id: "profile-owned" }],
+      profileOwners: [
+        {
+          _id: "owner-profile",
+          profileId: "profile-owned",
+          userId: "user-owner",
+          roleKey: "owner",
+          state: "active",
+        },
+      ],
+      worlds: [
+        {
+          _id: "world-attributed",
+          creatorAttributions: [
+            {
+              role: "world_author",
+              displayName: "DJ Aurora",
+              profileId: "profile-owned",
+            },
+          ],
+        },
+      ],
+      events: [
+        {
+          _id: "event-submitted",
+          submitter: {
+            tokenIdentifier: "test|submitter",
+            issuer: "test",
+            subject: "submitter",
+          },
+        },
+      ],
+    });
+
+    assert.equal(
+      await canReserveShortLinkForTarget(
+        db,
+        { targetType: "profile", targetId: "profile-owned" as Id<"profiles"> },
+        actor,
+      ),
+      false,
+    );
+    assert.equal(
+      await canReserveShortLinkForTarget(
+        db,
+        { targetType: "world", targetId: "world-attributed" as Id<"worlds"> },
+        actor,
+      ),
+      false,
+    );
+    assert.equal(
+      await canReserveShortLinkForTarget(
+        db,
+        { targetType: "event", targetId: "event-submitted" as Id<"events"> },
+        actor,
+      ),
+      false,
+    );
+  });
+
   it("reuses an existing target reservation without changing the code", async () => {
     const profileId = "profile-existing" as Id<"profiles">;
     const { db, inserted } = createShortLinkDb({

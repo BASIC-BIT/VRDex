@@ -17,6 +17,7 @@ describe("public event ICS serialization", () => {
   it("serializes a public event with UTC timestamps, URL, description, and location", () => {
     const calendar = createPublicEventIcs(
       {
+        id: "event_2a7f9z",
         slug: "afterglow-harbor-sessions-2026-06-14",
         title: "Afterglow Harbor Sessions",
         startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
@@ -33,7 +34,7 @@ describe("public event ICS serialization", () => {
     const unfoldedCalendar = unfoldIcs(calendar);
 
     assert.match(calendar, /^BEGIN:VCALENDAR\r\nVERSION:2\.0\r\n/);
-    assert.match(unfoldedCalendar, /UID:afterglow-harbor-sessions-2026-06-14@vrdex\.example\r\n/);
+    assert.match(unfoldedCalendar, /UID:event_2a7f9z@vrdex\.example\r\n/);
     assert.match(unfoldedCalendar, /DTSTAMP:20260524T120000Z\r\n/);
     assert.match(unfoldedCalendar, /DTSTART:20260614T220000Z\r\n/);
     assert.match(unfoldedCalendar, /DTEND:20260615T013000Z\r\n/);
@@ -58,6 +59,7 @@ describe("public event ICS serialization", () => {
   it("omits missing or invalid end times and ignores fields outside the public export contract", () => {
     const calendar = createPublicEventIcs(
       {
+        id: "event_community_night",
         slug: "community-night",
         title: "Community Night, Wave 1",
         startAt: Date.UTC(2026, 7, 1, 2, 15, 0),
@@ -90,6 +92,7 @@ describe("public event ICS serialization", () => {
       () =>
         createPublicEventIcs(
           {
+            id: "event_bad_url",
             slug: "bad-url",
             title: "Bad URL",
             startAt: Date.UTC(2026, 0, 1, 0, 0, 0),

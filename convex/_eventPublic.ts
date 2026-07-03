@@ -70,6 +70,7 @@ export type PublicEventPreview = {
 };
 
 export type PublicEvent = PublicEventPreview & {
+  id: string;
   slug: string;
   notes?: string;
   watchSurfaceEnabled: boolean;
@@ -263,6 +264,7 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
 
   return {
     ...preview,
+    id: record.event._id,
     slug: record.event.slug,
     watchSurfaceEnabled: record.event.watchSurfaceEnabled ?? false,
     ...optionalField("authoredBannerImageUrl", authoredBannerImageUrl),

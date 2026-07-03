@@ -1,6 +1,12 @@
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
+import {
+  isSameAuthSubject,
+  subjectHasCommunityCapability,
+  type AuthSubject,
+} from "./_communityAuthority";
 import { getPublicEventBySlug } from "./_eventPublic";
+import { userOwnsProfile } from "./_profileOwnership";
 import { canReadProfile } from "./_profilePermissions";
 
 export const SHORT_LINK_CODE_MIN_LENGTH = 5;
@@ -51,6 +57,11 @@ export type ShortLinkTarget =
   | { targetType: "profile"; targetId: Id<"profiles"> }
   | { targetType: "world"; targetId: Id<"worlds"> }
   | { targetType: "event"; targetId: Id<"events"> };
+
+export type ShortLinkReservationActor = {
+  userId: Id<"users">;
+  subject?: AuthSubject;
+};
 
 export type ShortLinkCodeValidationReason =
   | "empty"
@@ -225,6 +236,89 @@ async function requireShortLinkTarget(db: DatabaseReader, target: ShortLinkTarge
 
   if (record === null) {
     throw new Error("Short link target was not found.");
+  }
+}
+
+async function actorCanManageProfile(
+  db: DatabaseReader,
+  profileId: Id<"profiles">,
+  actor: ShortLinkReservationActor,
+) {
+  if (await userOwnsProfile(db, profileId, actor.userId)) {
+    return true;
+  }
+
+  if (actor.subject === undefined) {
+    return false;
+  }
+
+  return subjectHasCommunityCapability(db, profileId, actor.subject, "manage_profile");
+}
+
+async function actorCanReserveWorldShortLink(
+  db: DatabaseReader,
+  world: Doc<"worlds">,
+  actor: ShortLinkReservationActor,
+) {
+  for (const attribution of world.creatorAttributions) {
+    if (
+      attribution.profileId !== undefined &&
+      (await actorCanManageProfile(db, attribution.profileId, actor))
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function actorCanReserveEventShortLink(
+  db: DatabaseReader,
+  event: Doc<"events">,
+  actor: ShortLinkReservationActor,
+) {
+  if (
+    actor.subject !== undefined &&
+    event.submitter !== undefined &&
+    isSameAuthSubject(event.submitter, actor.subject)
+  ) {
+    return true;
+  }
+
+  if (actor.subject === undefined || event.communityProfileId === undefined) {
+    return false;
+  }
+
+  return subjectHasCommunityCapability(db, event.communityProfileId, actor.subject, "manage_events");
+}
+
+export async function canReserveShortLinkForTarget(
+  db: DatabaseReader,
+  target: ShortLinkTarget,
+  actor: ShortLinkReservationActor,
+): Promise<boolean> {
+  if (target.targetType === "profile") {
+    return actorCanManageProfile(db, target.targetId, actor);
+  }
+
+  if (target.targetType === "world") {
+    const world = await db.get(target.targetId);
+
+    return world !== null && (await actorCanReserveWorldShortLink(db, world, actor));
+  }
+
+  const event = await db.get(target.targetId);
+
+  return event !== null && (await actorCanReserveEventShortLink(db, event, actor));
+}
+
+export async function requireShortLinkReservationPermission(
+  db: DatabaseReader,
+  target: ShortLinkTarget,
+  actor: ShortLinkReservationActor,
+) {
+  if (!(await canReserveShortLinkForTarget(db, target, actor))) {
+    throw new Error("You do not have permission to create a short link for this target.");
   }
 }
 

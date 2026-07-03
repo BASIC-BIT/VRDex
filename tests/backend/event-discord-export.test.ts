@@ -9,6 +9,7 @@ function createPublicEvent(overrides: Partial<PublicEvent> = {}): PublicEvent {
   const startAt = Date.UTC(2026, 5, 14, 22, 0, 0);
 
   return {
+    id: "event-afterglow-harbor-sessions-2026-06-14",
     slug: "afterglow-harbor-sessions-2026-06-14",
     title: "Afterglow Harbor Sessions",
     startAt,
