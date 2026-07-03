@@ -115,10 +115,10 @@ The shared ICS serializer supports a single public event export and selected pub
 Reviewed Google Calendar imports use staging tables rather than canonical event writes:
 
 - `eventImportBatches` records the provider, source calendar, external batch or sync job, received timestamp, reviewer state, and importer.
-- `eventImportCandidates` records the imported event identity, timestamps, title, location, description, recurrence hints, cancellation state, review state, publication state, and any later matched canonical event.
+- `eventImportCandidates` records the imported event identity, available timestamps, title, location, description, recurrence hints, cancellation state, review state, publication state, and any later matched canonical event.
 - `eventImportCandidateFields` records field-level values, source labels, optional source URLs, confidence, visibility, and review state.
 
-Google Calendar import preserves selected event provenance and maps only reviewable event facts. It does not import attendees, reminders, hidden calendar metadata, private notes, or arbitrary personal calendars by default. Imported candidates remain `draft_private` until an explicit later review/publication flow accepts the batch, candidate, and public fields.
+Google Calendar import preserves selected event provenance and maps only reviewable event facts. It can stage cancellation tombstones without event start times so later update flows can review deletions without aborting a batch. It does not import attendees, reminders, hidden calendar metadata, private notes, or arbitrary personal calendars by default. Imported candidates remain `draft_private` until an explicit later review/publication flow accepts the batch, candidate, and public fields.
 
 ## Event Operations Panel
 
