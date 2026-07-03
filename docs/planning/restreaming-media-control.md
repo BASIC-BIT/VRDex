@@ -1064,20 +1064,20 @@ Research notes were captured from primary docs where possible during the June
 2026 planning pass. Re-check provider docs before implementing provider-facing
 behavior, pricing, or public claims.
 
-- VRChat video players: <https://creators.vrchat.com/worlds/udon/video-players/>
-- VRChat external URLs: <https://creators.vrchat.com/worlds/udon/external-urls/>
-- ProTV docs: <https://protv.dev/>
-- VideoTXL repo: <https://github.com/vrctxl/VideoTXL>
-- USharpVideo repo: <https://github.com/MerlinVR/USharpVideo>
-- VRCDN wiki: <https://wiki.vrcdn.live/>
-- Discord interactions: <https://discord.com/developers/docs/interactions/overview>
-- Discord Gateway: <https://discord.com/developers/docs/topics/gateway>
-- AWS ECS Fargate tasks: <https://docs.aws.amazon.com/AmazonECS/latest/developerguide/fargate-tasks-services.html>
-- AWS ECS GPU workloads: <https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs-gpu.html>
-- Twitch embeds: <https://dev.twitch.tv/docs/embed/>
-- Twitch broadcast ingest: <https://dev.twitch.tv/docs/video-broadcast/>
-- YouTube API Services policies: <https://developers.google.com/youtube/terms/developer-policies>
-- U.S. Copyright Office Section 512 overview: <https://www.copyright.gov/512/>
+- [VRChat video players](https://creators.vrchat.com/worlds/udon/video-players/)
+- [VRChat external URLs](https://creators.vrchat.com/worlds/udon/external-urls/)
+- [ProTV docs](https://protv.dev/)
+- [VideoTXL repo](https://github.com/vrctxl/VideoTXL)
+- [USharpVideo repo](https://github.com/MerlinVR/USharpVideo)
+- [VRCDN wiki](https://wiki.vrcdn.live/)
+- [Discord interactions](https://discord.com/developers/docs/interactions/overview)
+- [Discord Gateway](https://discord.com/developers/docs/topics/gateway)
+- [AWS ECS Fargate tasks](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/fargate-tasks-services.html)
+- [AWS ECS GPU workloads](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs-gpu.html)
+- [Twitch embeds](https://dev.twitch.tv/docs/embed/)
+- [Twitch broadcast ingest](https://dev.twitch.tv/docs/video-broadcast/)
+- [YouTube API Services policies](https://developers.google.com/youtube/terms/developer-policies)
+- [U.S. Copyright Office Section 512 overview](https://www.copyright.gov/512/)
 
 ## Related Docs
 
