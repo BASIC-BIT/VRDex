@@ -119,9 +119,9 @@ The first backend foundation adds Convex staging tables for:
 - `eventImportCandidates`
 - `eventImportCandidateFields`
 
-The Google Calendar normalizer maps selected public/operator-owned calendar event fields into private review candidates. It preserves calendar/event IDs, batch or sync job identifiers, source update timestamps, source URLs, title, description, start/end time, timezone, location, public HTTPS links, recurrence hints, and cancellation state.
+The Google Calendar normalizer maps selected public/operator-owned calendar event fields into private review candidates. It preserves calendar/event IDs, batch or sync job identifiers, source update timestamps, source URLs, title, description, available start/end time, timezone, location, public HTTPS links, recurrence hints, and cancellation state.
 
-Imported candidates default to `draft_private` and `unreviewed`. The helper can write staging documents and evaluate publication blockers, but it does not create canonical `events` rows, run background sync jobs, resolve conflicts, or expose an import UI.
+Imported candidates default to `draft_private` and `unreviewed`. The helper can write staging documents, including cancellation tombstones without event start times, and evaluate publication blockers, but it does not create canonical `events` rows, run background sync jobs, resolve conflicts, or expose an import UI.
 
 ## Inbound Import Rules
 

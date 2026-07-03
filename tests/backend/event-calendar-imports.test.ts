@@ -170,6 +170,47 @@ describe("Google Calendar event import normalization", () => {
     assert.equal(candidate?.publicationState, "draft_private");
   });
 
+  it("stages Google cancellation tombstones without start times", async () => {
+    const fixture = cloneFixture();
+    fixture.events = [
+      {
+        id: "google_event_cancelled_tombstone",
+        iCalUID: "cancelled-tombstone@google.com",
+        status: "cancelled",
+        updated: "2026-06-20T12:00:00.000Z",
+        recurringEventId: "google_event_afterglow_series",
+      },
+    ];
+    const normalized = normalizeGoogleCalendarImport(fixture);
+    const candidate = normalized.candidates[0];
+
+    assert.equal(candidate?.externalEventId, "google_event_cancelled_tombstone");
+    assert.equal(candidate?.cancellationState, "cancelled");
+    assert.equal(candidate?.startAt, undefined);
+    assert.equal(candidate?.allDay, undefined);
+    assert.equal(candidate?.fields.some((field) => field.fieldKey === "startAt"), false);
+    assert.equal(candidate?.fields.some((field) => field.fieldKey === "allDay"), false);
+    assert.equal(candidate?.fields.find((field) => field.fieldKey === "sourceStatus")?.visibility, "private");
+
+    const inserts: Array<{ table: string; document: Record<string, unknown> }> = [];
+    const db = {
+      async insert(table: string, document: Record<string, unknown>) {
+        inserts.push({ table, document });
+        return `${table}-${inserts.length}`;
+      },
+    };
+
+    await createEventImportDocumentsFromGoogleCalendar(
+      db as never,
+      fixture,
+      { now: 1_788_220_800_000 },
+    );
+
+    const candidateInsert = inserts.find((insert) => insert.table === "eventImportCandidates");
+    assert.equal(Object.hasOwn(candidateInsert?.document ?? {}, "startAt"), false);
+    assert.equal(Object.hasOwn(candidateInsert?.document ?? {}, "allDay"), false);
+  });
+
   it("omits imported end times that do not come after the start time", () => {
     const fixture = cloneFixture();
     fixture.events[0]!.end = {
@@ -181,6 +222,90 @@ describe("Google Calendar event import normalization", () => {
 
     assert.equal(candidate?.endAt, undefined);
     assert.equal(candidate?.fields.some((field) => field.fieldKey === "endAt"), false);
+  });
+
+  it("parses offsetless Google dateTime values with the supplied event time zone", () => {
+    const fixture = cloneFixture();
+    fixture.events[0]!.start = {
+      dateTime: "2026-06-14T15:00:00",
+      timeZone: "America/Los_Angeles",
+    };
+    fixture.events[0]!.end = {
+      dateTime: "2026-06-14T18:30:00",
+      timeZone: "America/Los_Angeles",
+    };
+
+    const candidate = normalizeGoogleCalendarImport(fixture).candidates[0];
+
+    assert.equal(candidate?.startAt, Date.parse("2026-06-14T22:00:00.000Z"));
+    assert.equal(candidate?.endAt, Date.parse("2026-06-15T01:30:00.000Z"));
+    assert.equal(candidate?.timezone, "America/Los_Angeles");
+  });
+
+  it("preserves milliseconds in offsetless Google dateTime values", () => {
+    const fixture = cloneFixture();
+    fixture.events[0]!.start = {
+      dateTime: "2026-06-14T15:00:00.123",
+      timeZone: "America/Los_Angeles",
+    };
+    fixture.events[0]!.end = {
+      dateTime: "2026-06-14T18:30:00.987",
+      timeZone: "America/Los_Angeles",
+    };
+
+    const candidate = normalizeGoogleCalendarImport(fixture).candidates[0];
+
+    assert.equal(candidate?.startAt, Date.parse("2026-06-14T22:00:00.123Z"));
+    assert.equal(candidate?.endAt, Date.parse("2026-06-15T01:30:00.987Z"));
+  });
+
+  it("preserves full Google event ids up to the provider limit", () => {
+    const fixture = cloneFixture();
+    const sharedPrefix = "event_".repeat(48);
+    const firstId = `${sharedPrefix}first`;
+    const secondId = `${sharedPrefix}second`;
+    fixture.events = [
+      {
+        ...fixture.events[0]!,
+        id: firstId,
+      },
+      {
+        ...fixture.events[0]!,
+        id: secondId,
+      },
+    ];
+
+    const normalized = normalizeGoogleCalendarImport(fixture);
+
+    assert.ok(firstId.length > 240);
+    assert.equal(normalized.candidates[0]?.externalEventId, firstId);
+    assert.equal(normalized.candidates[1]?.externalEventId, secondId);
+    assert.notEqual(
+      normalized.candidates[0]?.externalEventId,
+      normalized.candidates[1]?.externalEventId,
+    );
+  });
+
+  it("treats blank optional opaque Google fields as absent", () => {
+    const fixture = cloneFixture();
+    fixture.events[0]!.recurringEventId = "   ";
+
+    const candidate = normalizeGoogleCalendarImport(fixture).candidates[0];
+
+    assert.equal(candidate?.recurringEventId, undefined);
+    assert.equal(candidate?.fields.some((field) => field.fieldKey === "recurringEventId"), false);
+  });
+
+  it("skips malformed extracted links without rejecting the import", () => {
+    const fixture = cloneFixture();
+    fixture.events[0]!.description =
+      "Ignore https://[broken] but keep https://tickets.example.invalid/afterglow.";
+    fixture.events[0]!.location = undefined;
+
+    const candidate = normalizeGoogleCalendarImport(fixture).candidates[0];
+    const linksField = candidate?.fields.find((field) => field.fieldKey === "links");
+
+    assert.deepEqual(linksField?.value, ["https://tickets.example.invalid/afterglow"]);
   });
 
   it("rejects missing ids, unsafe event URLs, and invalid timestamps", () => {
@@ -198,7 +323,16 @@ describe("Google Calendar event import normalization", () => {
 
     const invalidTimestamp = cloneFixture();
     invalidTimestamp.events[0]!.start = { dateTime: "not-a-date" };
-    assert.throws(() => normalizeGoogleCalendarImport(invalidTimestamp), /ISO timestamp/);
+    assert.throws(() => normalizeGoogleCalendarImport(invalidTimestamp), /dateTime/);
+
+    const offsetlessWithoutTimeZone = cloneFixture();
+    offsetlessWithoutTimeZone.calendarTimeZone = undefined;
+    offsetlessWithoutTimeZone.events[0]!.start = { dateTime: "2026-06-14T15:00:00" };
+    assert.throws(() => normalizeGoogleCalendarImport(offsetlessWithoutTimeZone), /UTC offset/);
+
+    const overlongId = cloneFixture();
+    overlongId.events[0]!.id = "g".repeat(1_025);
+    assert.throws(() => normalizeGoogleCalendarImport(overlongId), /1024 characters/);
   });
 });
 
@@ -254,6 +388,11 @@ describe("event import publication guards", () => {
           visibility: "public",
         },
         {
+          fieldKey: "location",
+          reviewState: "rejected",
+          visibility: "public",
+        },
+        {
           fieldKey: "sourceStatus",
           reviewState: "accepted",
           visibility: "public",
@@ -268,8 +407,26 @@ describe("event import publication guards", () => {
       "candidate_cancelled",
       "candidate_already_matched",
       "field_unreviewed",
+      "field_rejected",
       "field_needs_correction",
       "unsafe_public_field",
     ]));
+  });
+
+  it("blocks rejected public fields from later publication", () => {
+    assert.deepEqual(
+      getEventImportPublicationBlockers({
+        batch: approvedBatch,
+        candidate: acceptedCandidate,
+        fields: [
+          {
+            fieldKey: "title",
+            reviewState: "rejected",
+            visibility: "public",
+          },
+        ],
+      }),
+      ["field_rejected"],
+    );
   });
 });

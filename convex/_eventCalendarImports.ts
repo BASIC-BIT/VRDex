@@ -128,10 +128,10 @@ export type NormalizedGoogleCalendarImportCandidate = {
   sourceUpdatedAt?: number;
   sourceUrl?: string;
   title: string;
-  startAt: number;
+  startAt?: number;
   endAt?: number;
   timezone?: string;
-  allDay: boolean;
+  allDay?: boolean;
   location?: string;
   description?: string;
   recurrenceRules: string[];
@@ -163,8 +163,23 @@ const EVENT_DESCRIPTION_MAX_LENGTH = 2_000;
 const EVENT_LOCATION_MAX_LENGTH = 500;
 const EVENT_TEXT_MAX_LENGTH = 240;
 const EVENT_SOURCE_URL_MAX_LENGTH = 2_048;
+const GOOGLE_EVENT_ID_MAX_LENGTH = 1_024;
 const MAX_EXTRACTED_LINKS = 8;
 const HTTPS_URL_PATTERN = /\bhttps:\/\/[^\s<>"')]+/gi;
+const GOOGLE_DATE_TIME_OFFSET_PATTERN = /(?:Z|[+-]\d{2}:\d{2})$/i;
+const GOOGLE_LOCAL_DATE_TIME_PATTERN =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(\.\d{1,3})?)?$/;
+const timeZoneFormatters = new Map<string, Intl.DateTimeFormat>();
+
+type LocalDateTimeParts = {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+  millisecond: number;
+};
 
 function optionalRecord<T>(key: string, value: T | undefined): Record<string, T> {
   return value === undefined ? {} : { [key]: value };
@@ -182,6 +197,28 @@ function optionalInlineText(value: string | undefined, maxLength: number): strin
   return normalized ? normalized.slice(0, maxLength) : undefined;
 }
 
+function requireOpaqueText(value: string | undefined, fieldName: string, maxLength: number): string {
+  const normalized = value?.trim();
+
+  if (!normalized) {
+    throw new Error(`${fieldName} is required.`);
+  }
+
+  if (normalized.length > maxLength) {
+    throw new Error(`${fieldName} must be ${maxLength} characters or fewer.`);
+  }
+
+  return normalized;
+}
+
+function optionalOpaqueText(value: string | undefined, fieldName: string, maxLength: number): string | undefined {
+  if (value === undefined || value.trim() === "") {
+    return undefined;
+  }
+
+  return requireOpaqueText(value, fieldName, maxLength);
+}
+
 function parseIsoTimestamp(value: string | undefined, fieldName: string): number | undefined {
   if (value === undefined) {
     return undefined;
@@ -194,6 +231,160 @@ function parseIsoTimestamp(value: string | undefined, fieldName: string): number
   }
 
   return timestamp;
+}
+
+function parseLocalGoogleDateTime(value: string, fieldName: string): LocalDateTimeParts {
+  const match = GOOGLE_LOCAL_DATE_TIME_PATTERN.exec(value);
+
+  if (match === null) {
+    throw new Error(`${fieldName} must be a Google Calendar dateTime.`);
+  }
+
+  const parts = {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3]),
+    hour: Number(match[4]),
+    minute: Number(match[5]),
+    second: match[6] === undefined ? 0 : Number(match[6]),
+    millisecond: match[7] === undefined ? 0 : Number(`${match[7]}000`.slice(1, 4)),
+  };
+  const normalized = new Date(
+    Date.UTC(
+      parts.year,
+      parts.month - 1,
+      parts.day,
+      parts.hour,
+      parts.minute,
+      parts.second,
+      parts.millisecond,
+    ),
+  );
+
+  if (
+    normalized.getUTCFullYear() !== parts.year ||
+    normalized.getUTCMonth() !== parts.month - 1 ||
+    normalized.getUTCDate() !== parts.day ||
+    normalized.getUTCHours() !== parts.hour ||
+    normalized.getUTCMinutes() !== parts.minute ||
+    normalized.getUTCSeconds() !== parts.second
+  ) {
+    throw new Error(`${fieldName} must be a valid Google Calendar dateTime.`);
+  }
+
+  return parts;
+}
+
+function getTimeZoneFormatter(timeZone: string): Intl.DateTimeFormat {
+  const cached = timeZoneFormatters.get(timeZone);
+
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  });
+
+  timeZoneFormatters.set(timeZone, formatter);
+
+  return formatter;
+}
+
+function getTimeZoneParts(timestamp: number, timeZone: string, fieldName: string): LocalDateTimeParts {
+  try {
+    const parts = getTimeZoneFormatter(timeZone).formatToParts(new Date(timestamp));
+    const valueFor = (type: Intl.DateTimeFormatPartTypes) => {
+      const value = parts.find((part) => part.type === type)?.value;
+
+      if (value === undefined) {
+        throw new Error();
+      }
+
+      return Number(value);
+    };
+
+    return {
+      year: valueFor("year"),
+      month: valueFor("month"),
+      day: valueFor("day"),
+      hour: valueFor("hour"),
+      minute: valueFor("minute"),
+      second: valueFor("second"),
+      millisecond: ((timestamp % 1_000) + 1_000) % 1_000,
+    };
+  } catch {
+    throw new Error(`${fieldName} timeZone must be a valid IANA time zone.`);
+  }
+}
+
+function timeZoneOffsetMs(timestamp: number, timeZone: string, fieldName: string): number {
+  const parts = getTimeZoneParts(timestamp, timeZone, fieldName);
+
+  return Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second,
+    parts.millisecond,
+  ) - timestamp;
+}
+
+function parseGoogleDateTime(value: string, timeZone: string | undefined, fieldName: string): number {
+  if (GOOGLE_DATE_TIME_OFFSET_PATTERN.test(value)) {
+    return requireIsoTimestamp(value, fieldName);
+  }
+
+  if (timeZone === undefined) {
+    throw new Error(`${fieldName} must include a UTC offset or Google Calendar timeZone.`);
+  }
+
+  const localParts = parseLocalGoogleDateTime(value, fieldName);
+  const localAsUtc = Date.UTC(
+    localParts.year,
+    localParts.month - 1,
+    localParts.day,
+    localParts.hour,
+    localParts.minute,
+    localParts.second,
+    localParts.millisecond,
+  );
+  let candidate = localAsUtc;
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const nextCandidate = localAsUtc - timeZoneOffsetMs(candidate, timeZone, fieldName);
+
+    if (nextCandidate === candidate) {
+      break;
+    }
+
+    candidate = nextCandidate;
+  }
+
+  const projected = getTimeZoneParts(candidate, timeZone, fieldName);
+
+  if (
+    projected.year !== localParts.year ||
+    projected.month !== localParts.month ||
+    projected.day !== localParts.day ||
+    projected.hour !== localParts.hour ||
+    projected.minute !== localParts.minute ||
+    projected.second !== localParts.second ||
+    projected.millisecond !== localParts.millisecond
+  ) {
+    throw new Error(`${fieldName} does not map to a valid time in ${timeZone}.`);
+  }
+
+  return candidate;
 }
 
 function requireIsoTimestamp(value: string, fieldName: string): number {
@@ -239,10 +430,12 @@ function parseGoogleCalendarTime(
   fieldName: string,
   fallbackTimeZone: string | undefined,
 ): { timestamp: number; timezone?: string; allDay: boolean } {
+  const timezone = optionalInlineText(value?.timeZone ?? fallbackTimeZone, EVENT_TEXT_MAX_LENGTH);
+
   if (value?.dateTime !== undefined) {
     return {
-      timestamp: requireIsoTimestamp(value.dateTime, fieldName),
-      ...optionalRecord("timezone", optionalInlineText(value.timeZone ?? fallbackTimeZone, EVENT_TEXT_MAX_LENGTH)),
+      timestamp: parseGoogleDateTime(value.dateTime, timezone, fieldName),
+      ...optionalRecord("timezone", timezone),
       allDay: false,
     };
   }
@@ -250,7 +443,7 @@ function parseGoogleCalendarTime(
   if (value?.date !== undefined) {
     return {
       timestamp: parseAllDayDate(value.date, fieldName),
-      ...optionalRecord("timezone", optionalInlineText(value.timeZone ?? fallbackTimeZone, EVENT_TEXT_MAX_LENGTH)),
+      ...optionalRecord("timezone", timezone),
       allDay: true,
     };
   }
@@ -282,7 +475,13 @@ function extractPublicHttpsLinks(...values: Array<string | undefined>): string[]
 
   for (const value of values) {
     for (const match of value?.match(HTTPS_URL_PATTERN) ?? []) {
-      const url = requireHttpsUrl(match.replace(/[),.;]+$/g, ""), "Imported event link");
+      let url: string | undefined;
+
+      try {
+        url = requireHttpsUrl(match.replace(/[\]),.;]+$/g, ""), "Imported event link");
+      } catch {
+        continue;
+      }
 
       if (url !== undefined && !seen.has(url)) {
         seen.add(url);
@@ -321,39 +520,45 @@ function normalizeGoogleCalendarEvent(
   sourceLabel: string,
   fallbackTimeZone: string | undefined,
 ): NormalizedGoogleCalendarImportCandidate {
-  const externalEventId = normalizeInlineText(event.id, "", EVENT_TEXT_MAX_LENGTH);
+  const externalEventId = requireOpaqueText(event.id, "Google Calendar event id", GOOGLE_EVENT_ID_MAX_LENGTH);
+  const sourceUrl = requireHttpsUrl(event.htmlLink, "Google Calendar event URL");
+  const sourceUpdatedAt = parseIsoTimestamp(event.updated, "Google Calendar event updated time");
+  const cancellationState = event.status === "cancelled" ? "cancelled" : "active";
+  const start =
+    event.start === undefined ? undefined : parseGoogleCalendarTime(event.start, "Event start", fallbackTimeZone);
 
-  if (!externalEventId) {
-    throw new Error("Google Calendar event id is required.");
+  if (start === undefined && cancellationState !== "cancelled") {
+    throw new Error("Event start is required.");
   }
 
-  const sourceUrl = requireHttpsUrl(event.htmlLink, "Google Calendar event URL");
-  const start = parseGoogleCalendarTime(event.start, "Event start", fallbackTimeZone);
   const end =
-    event.end === undefined
+    start === undefined || event.end === undefined
       ? undefined
       : parseGoogleCalendarTime(event.end, "Event end", start.timezone ?? fallbackTimeZone);
   const title = normalizeInlineText(event.summary, EVENT_TITLE_FALLBACK, EVENT_TEXT_MAX_LENGTH);
   const description = optionalInlineText(event.description, EVENT_DESCRIPTION_MAX_LENGTH);
   const location = optionalInlineText(event.location, EVENT_LOCATION_MAX_LENGTH);
   const recurrenceRules = normalizeRecurrenceRules(event.recurrence);
+  const recurringEventId = optionalOpaqueText(
+    event.recurringEventId,
+    "Google Calendar recurring event id",
+    GOOGLE_EVENT_ID_MAX_LENGTH,
+  );
   const links = extractPublicHttpsLinks(description, location);
-  const sourceUpdatedAt = parseIsoTimestamp(event.updated, "Google Calendar event updated time");
-  const cancellationState = event.status === "cancelled" ? "cancelled" : "active";
-  const endAt = end === undefined || end.timestamp <= start.timestamp ? undefined : end.timestamp;
+  const endAt = start === undefined || end === undefined || end.timestamp <= start.timestamp ? undefined : end.timestamp;
   const fields = [
     candidateField("title", title, sourceLabel, sourceUrl),
-    candidateField("startAt", start.timestamp, sourceLabel, sourceUrl),
-    candidateField("allDay", start.allDay, sourceLabel, sourceUrl),
+    ...(start === undefined ? [] : [candidateField("startAt", start.timestamp, sourceLabel, sourceUrl)]),
+    ...(start === undefined ? [] : [candidateField("allDay", start.allDay, sourceLabel, sourceUrl)]),
     ...(endAt === undefined ? [] : [candidateField("endAt", endAt, sourceLabel, sourceUrl)]),
-    ...(start.timezone === undefined ? [] : [candidateField("timezone", start.timezone, sourceLabel, sourceUrl)]),
+    ...(start?.timezone === undefined ? [] : [candidateField("timezone", start.timezone, sourceLabel, sourceUrl)]),
     ...(description === undefined ? [] : [candidateField("description", description, sourceLabel, sourceUrl)]),
     ...(location === undefined ? [] : [candidateField("location", location, sourceLabel, sourceUrl)]),
     ...(links.length === 0 ? [] : [candidateField("links", links, sourceLabel, sourceUrl)]),
     ...(recurrenceRules.length === 0 ? [] : [candidateField("recurrenceRules", recurrenceRules, sourceLabel, sourceUrl)]),
-    ...(event.recurringEventId === undefined
+    ...(recurringEventId === undefined
       ? []
-      : [candidateField("recurringEventId", event.recurringEventId, sourceLabel, sourceUrl, "private")]),
+      : [candidateField("recurringEventId", recurringEventId, sourceLabel, sourceUrl, "private")]),
     ...(event.status === undefined ? [] : [candidateField("sourceStatus", event.status, sourceLabel, sourceUrl, "private")]),
   ];
 
@@ -363,14 +568,14 @@ function normalizeGoogleCalendarEvent(
     ...optionalRecord("sourceUpdatedAt", sourceUpdatedAt),
     ...optionalRecord("sourceUrl", sourceUrl),
     title,
-    startAt: start.timestamp,
+    ...optionalRecord("startAt", start?.timestamp),
     ...optionalRecord("endAt", endAt),
-    ...optionalRecord("timezone", start.timezone),
-    allDay: start.allDay,
+    ...optionalRecord("timezone", start?.timezone),
+    ...optionalRecord("allDay", start?.allDay),
     ...optionalRecord("location", location),
     ...optionalRecord("description", description),
     recurrenceRules,
-    ...optionalRecord("recurringEventId", optionalInlineText(event.recurringEventId, EVENT_TEXT_MAX_LENGTH)),
+    ...optionalRecord("recurringEventId", recurringEventId),
     cancellationState,
     reviewState: "unreviewed",
     publicationState: "draft_private",
@@ -442,10 +647,10 @@ export async function createEventImportDocumentsFromGoogleCalendar(
       ...optionalRecord("sourceUpdatedAt", candidate.sourceUpdatedAt),
       ...optionalRecord("sourceUrl", candidate.sourceUrl),
       title: candidate.title,
-      startAt: candidate.startAt,
+      ...optionalRecord("startAt", candidate.startAt),
       ...optionalRecord("endAt", candidate.endAt),
       ...optionalRecord("timezone", candidate.timezone),
-      allDay: candidate.allDay,
+      ...optionalRecord("allDay", candidate.allDay),
       ...optionalRecord("location", candidate.location),
       ...optionalRecord("description", candidate.description),
       recurrenceRules: candidate.recurrenceRules,
@@ -502,6 +707,7 @@ export type EventImportPublicationBlocker =
   | "candidate_cancelled"
   | "candidate_already_matched"
   | "field_unreviewed"
+  | "field_rejected"
   | "field_needs_correction"
   | "unsafe_public_field";
 
@@ -547,6 +753,10 @@ export function getEventImportPublicationBlockers(options: {
   for (const field of options.fields) {
     if (field.reviewState === "unreviewed") {
       blockers.add("field_unreviewed");
+    }
+
+    if (field.reviewState === "rejected") {
+      blockers.add("field_rejected");
     }
 
     if (field.reviewState === "needs_correction") {
