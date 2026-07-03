@@ -2,6 +2,8 @@ import { expect, test, type APIRequestContext, type Locator, type Page } from "@
 
 import { gotoFlowPage } from "./flow-navigation";
 
+test.describe.configure({ mode: "serial" });
+
 function e2eBrowserToken() {
   const token = process.env.VRDEX_E2E_BROWSER_TOKEN ?? (process.env.PLAYWRIGHT_BASE_URL ? undefined : "local-playwright-token");
 
@@ -77,7 +79,7 @@ async function createVerifiedE2eAccount({
   email: string;
   password: string;
 }) {
-  await page.goto("/sign-in");
+  await gotoFlowPage(page, "/sign-in");
   await page.getByRole("button", { name: "Create account" }).click();
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
@@ -118,10 +120,38 @@ function profileStatusCopy(page: Page, label: string) {
   return page.locator("dl").filter({ hasText: "Status" }).locator("dd").filter({ hasText: label }).first();
 }
 
+type DeleteRequestOptions = NonNullable<Parameters<APIRequestContext["delete"]>[1]>;
+
+function isTransientE2eRequestError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+
+  return message.includes("ECONNRESET") || message.includes("socket hang up");
+}
+
+async function deleteE2eResourceWithRetry(request: APIRequestContext, url: string, options: DeleteRequestOptions) {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await request.delete(url, options);
+    } catch (error) {
+      lastError = error;
+
+      if (!isTransientE2eRequestError(error) || attempt === 2) {
+        throw error;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+    }
+  }
+
+  throw lastError;
+}
+
 async function cleanupAuthAndProfiles(request: APIRequestContext, e2eToken: string, email: string, slugs: Array<string | undefined>, runId: string) {
   for (const slug of slugs) {
     if (slug !== undefined) {
-      await request.delete("/api/e2e/profile-submissions", {
+      await deleteE2eResourceWithRetry(request, "/api/e2e/profile-submissions", {
         headers: { "x-vrdex-e2e-token": e2eToken },
         data: { slug, runId },
       });
@@ -129,13 +159,13 @@ async function cleanupAuthAndProfiles(request: APIRequestContext, e2eToken: stri
   }
 
   if (slugs.every((slug) => slug === undefined)) {
-    await request.delete("/api/e2e/profile-submissions", {
+    await deleteE2eResourceWithRetry(request, "/api/e2e/profile-submissions", {
       headers: { "x-vrdex-e2e-token": e2eToken },
       data: { runId },
     });
   }
 
-  await request.delete("/api/e2e/auth", {
+  await deleteE2eResourceWithRetry(request, "/api/e2e/auth", {
     headers: { "x-vrdex-e2e-token": e2eToken },
     data: { email },
   });
