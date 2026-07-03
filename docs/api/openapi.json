@@ -1,0 +1,714 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "VRDex Public API",
+    "version": "0.1.0",
+    "description": "Public API contract for VRDex profile, event, asset, developer, OAuth, and MCP integrations."
+  },
+  "servers": [
+    {
+      "url": "https://vrdex.app",
+      "description": "Production"
+    },
+    {
+      "url": "http://localhost:3000",
+      "description": "Local web app"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Profiles",
+      "description": "Public profile read surfaces."
+    },
+    {
+      "name": "API",
+      "description": "API contract and metadata surfaces."
+    }
+  ],
+  "paths": {
+    "/api/v0/openapi.json": {
+      "get": {
+        "operationId": "getOpenApiDocument",
+        "tags": [
+          "API"
+        ],
+        "summary": "Get the OpenAPI document",
+        "responses": {
+          "200": {
+            "description": "The current OpenAPI document."
+          }
+        }
+      }
+    },
+    "/api/v0/profiles/{slug}": {
+      "get": {
+        "operationId": "getPublicProfileBySlug",
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Get a public profile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "description": "Public profile slug."
+            },
+            "required": true,
+            "description": "Public profile slug."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The public profile.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicProfile"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The requested public resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v0/profiles/{slug}/assets": {
+      "get": {
+        "operationId": "getPublicProfileAssets",
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Get public profile assets",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "description": "Public profile slug."
+            },
+            "required": true,
+            "description": "Public profile slug."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Public profile assets.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicProfileAssetsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The requested public resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v0/profiles/{slug}/logos": {
+      "get": {
+        "operationId": "getPublicProfileLogos",
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Get public profile logos",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "description": "Public profile slug."
+            },
+            "required": true,
+            "description": "Public profile slug."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Public profile logos.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicProfileLogosResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The requested public resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "PublicProfile": {
+        "type": "object",
+        "properties": {
+          "assets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "alt": {
+                  "type": "string"
+                },
+                "contentType": {
+                  "type": "string"
+                },
+                "height": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "width": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "kind",
+                "url"
+              ],
+              "additionalProperties": {},
+              "description": "A public profile media or brand asset."
+            }
+          },
+          "avatarUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "bio": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "genres": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "slug": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "label"
+              ],
+              "additionalProperties": {},
+              "description": "A public genre or taxonomy label."
+            }
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                }
+              },
+              "required": [
+                "label",
+                "url"
+              ],
+              "additionalProperties": {},
+              "description": "A public outbound profile link."
+            }
+          },
+          "profileType": {
+            "type": "string",
+            "enum": [
+              "user",
+              "community"
+            ],
+            "description": "The public profile entity class."
+          },
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "submittedBy": {
+                "description": "Optional public source attribution.",
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "updatedAt": {
+                "description": "Last source update time when available.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": {},
+            "description": "Public summary for community-submitted or claimed profile source state."
+          },
+          "trustLabel": {
+            "type": "string",
+            "enum": [
+              "unverified",
+              "claimed",
+              "verified"
+            ],
+            "description": "The public trust state shown for the profile."
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+          }
+        },
+        "required": [
+          "displayName",
+          "profileType",
+          "slug"
+        ],
+        "additionalProperties": {},
+        "description": "Public profile response. Unknown fields are preserved while the API is still stabilizing."
+      },
+      "ApiProblem": {
+        "type": "object",
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 599
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "type": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "status",
+          "title",
+          "type"
+        ],
+        "additionalProperties": false,
+        "description": "RFC 9457 problem details error response."
+      },
+      "PublicProfileAssetsResponse": {
+        "type": "object",
+        "properties": {
+          "assets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "alt": {
+                  "type": "string"
+                },
+                "contentType": {
+                  "type": "string"
+                },
+                "height": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "width": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "kind",
+                "url"
+              ],
+              "additionalProperties": {},
+              "description": "A public profile media or brand asset."
+            }
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "mediaKit": {
+            "type": "object",
+            "properties": {
+              "description": {
+                "type": "string"
+              },
+              "downloadUrl": {
+                "type": "string",
+                "format": "uri"
+              },
+              "updatedAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+              }
+            },
+            "additionalProperties": {},
+            "description": "Optional media kit metadata for a public profile."
+          },
+          "profileType": {
+            "type": "string",
+            "enum": [
+              "user",
+              "community"
+            ],
+            "description": "The public profile entity class."
+          },
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "assets",
+          "displayName",
+          "profileType",
+          "slug"
+        ],
+        "additionalProperties": {},
+        "description": "Public assets for a profile."
+      },
+      "PublicProfileLogosResponse": {
+        "type": "object",
+        "properties": {
+          "additionalLogos": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "alt": {
+                  "type": "string"
+                },
+                "contentType": {
+                  "type": "string"
+                },
+                "height": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "width": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "kind",
+                "url"
+              ],
+              "additionalProperties": {},
+              "description": "A public profile media or brand asset."
+            }
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "logoZipUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "logos": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "alt": {
+                  "type": "string"
+                },
+                "contentType": {
+                  "type": "string"
+                },
+                "height": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "width": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "kind",
+                "url"
+              ],
+              "additionalProperties": {},
+              "description": "A public profile media or brand asset."
+            }
+          },
+          "primaryLogo": {
+            "type": "object",
+            "properties": {
+              "alt": {
+                "type": "string"
+              },
+              "contentType": {
+                "type": "string"
+              },
+              "height": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "minLength": 1
+              },
+              "url": {
+                "type": "string",
+                "format": "uri"
+              },
+              "width": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "kind",
+              "url"
+            ],
+            "additionalProperties": {},
+            "description": "A public profile media or brand asset."
+          },
+          "profileType": {
+            "type": "string",
+            "enum": [
+              "user",
+              "community"
+            ],
+            "description": "The public profile entity class."
+          },
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "displayName",
+          "logos",
+          "profileType",
+          "slug"
+        ],
+        "additionalProperties": {},
+        "description": "Public logo assets for a profile."
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT or opaque personal API token",
+        "description": "Use OAuth access tokens or personal API tokens in the Authorization header."
+      },
+      "oauth2": {
+        "type": "oauth2",
+        "flows": {
+          "authorizationCode": {
+            "authorizationUrl": "/api/v0/oauth/authorize",
+            "tokenUrl": "/api/v0/oauth/token",
+            "scopes": {
+              "public:read": "public:read",
+              "profile:read": "profile:read",
+              "profile:write": "profile:write",
+              "community:read": "community:read",
+              "community:write": "community:write",
+              "events:read": "events:read",
+              "events:write": "events:write",
+              "assets:read": "assets:read",
+              "assets:write": "assets:write",
+              "developer:read": "developer:read",
+              "developer:write": "developer:write",
+              "mcp:read": "mcp:read",
+              "mcp:write": "mcp:write"
+            }
+          }
+        }
+      }
+    }
+  }
+}
