@@ -3,6 +3,15 @@ import { v } from "convex/values";
 import { authTables } from "@convex-dev/auth/server";
 
 import {
+  billingCustomerCreatedFromValidator,
+  billingCustomerStateValidator,
+  billingEntitlementSourceValidator,
+  billingEntitlementStatusValidator,
+  billingOwnerKindValidator,
+  billingSubscriptionStatusValidator,
+  stripeEnvironmentValidator,
+} from "./_billing";
+import {
   eventMediaActorSurfaceValidator,
   eventMediaCommandStatusValidator,
   eventMediaCommandTypeValidator,
@@ -908,6 +917,100 @@ export default defineSchema({
     .index("by_profileId_state", ["profileId", "state"])
     .index("by_userId_state", ["userId", "state"])
     .index("by_profileId_roleKey_state", ["profileId", "roleKey", "state"]),
+  billingCustomerMappings: defineTable({
+    ownerKind: billingOwnerKindValidator,
+    userId: v.optional(v.id("users")),
+    profileId: v.optional(v.id("profiles")),
+    profileType: v.optional(profileType),
+    stripeCustomerId: v.string(),
+    stripeEnvironment: stripeEnvironmentValidator,
+    email: v.optional(v.string()),
+    state: billingCustomerStateValidator,
+    createdFrom: billingCustomerCreatedFromValidator,
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    archivedAt: v.optional(v.number()),
+    lastStripeEventId: v.optional(v.string()),
+    lastStripeEventCreatedAt: v.optional(v.number()),
+  })
+    .index("by_stripeCustomerId_environment", [
+      "stripeCustomerId",
+      "stripeEnvironment",
+    ])
+    .index("by_userId_state", ["userId", "state"])
+    .index("by_profileId_state", ["profileId", "state"])
+    .index("by_ownerKind_state_updatedAt", ["ownerKind", "state", "updatedAt"]),
+  billingSubscriptionSnapshots: defineTable({
+    billingCustomerMappingId: v.id("billingCustomerMappings"),
+    ownerKind: billingOwnerKindValidator,
+    userId: v.optional(v.id("users")),
+    profileId: v.optional(v.id("profiles")),
+    profileType: v.optional(profileType),
+    stripeCustomerId: v.string(),
+    stripeSubscriptionId: v.string(),
+    stripeEnvironment: stripeEnvironmentValidator,
+    status: billingSubscriptionStatusValidator,
+    rawStripeStatus: v.optional(v.string()),
+    stripePriceId: v.optional(v.string()),
+    stripeProductId: v.optional(v.string()),
+    stripeLookupKey: v.optional(v.string()),
+    quantity: v.optional(v.number()),
+    cancelAtPeriodEnd: v.boolean(),
+    currentPeriodStart: v.optional(v.number()),
+    currentPeriodEnd: v.optional(v.number()),
+    trialEnd: v.optional(v.number()),
+    cancelAt: v.optional(v.number()),
+    canceledAt: v.optional(v.number()),
+    latestInvoiceId: v.optional(v.string()),
+    lastStripeEventId: v.optional(v.string()),
+    lastStripeEventCreatedAt: v.optional(v.number()),
+    snapshotAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_stripeSubscriptionId_environment", [
+      "stripeSubscriptionId",
+      "stripeEnvironment",
+    ])
+    .index("by_billingCustomerMappingId_status", [
+      "billingCustomerMappingId",
+      "status",
+    ])
+    .index("by_userId_status", ["userId", "status"])
+    .index("by_profileId_status", ["profileId", "status"])
+    .index("by_status_currentPeriodEnd", ["status", "currentPeriodEnd"]),
+  billingEntitlementSnapshots: defineTable({
+    ownerKind: billingOwnerKindValidator,
+    userId: v.optional(v.id("users")),
+    profileId: v.optional(v.id("profiles")),
+    profileType: v.optional(profileType),
+    source: billingEntitlementSourceValidator,
+    entitlementKey: v.string(),
+    status: billingEntitlementStatusValidator,
+    sourceSubscriptionSnapshotId: v.optional(v.id("billingSubscriptionSnapshots")),
+    stripeSubscriptionId: v.optional(v.string()),
+    stripePriceId: v.optional(v.string()),
+    stripeEnvironment: v.optional(stripeEnvironmentValidator),
+    quantity: v.optional(v.number()),
+    limit: v.optional(v.number()),
+    expiresAt: v.optional(v.number()),
+    statusReason: v.optional(v.string()),
+    lastStripeEventId: v.optional(v.string()),
+    snapshotAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_userId_entitlementKey_status", [
+      "userId",
+      "entitlementKey",
+      "status",
+    ])
+    .index("by_profileId_entitlementKey_status", [
+      "profileId",
+      "entitlementKey",
+      "status",
+    ])
+    .index("by_entitlementKey_status", ["entitlementKey", "status"])
+    .index("by_sourceSubscriptionSnapshotId", ["sourceSubscriptionSnapshotId"])
+    .index("by_status_expiresAt", ["status", "expiresAt"]),
   profileClaimRequests: defineTable({
     profileId: v.optional(v.id("profiles")),
     profileSlug: v.optional(v.string()),
