@@ -75,6 +75,16 @@ Production Convex Auth env names:
 - `JWKS`: Convex Auth public key set matching `JWT_PRIVATE_KEY`
 - `AWS_SES_REGION`, `AWS_SES_FROM_EMAIL`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY`: production SES sender configuration for email/password verification
 
+The production authenticated smoke lane does not require Convex E2E helpers and should not enable them in production. It reuses the normal production Auth configuration above and only supplies a pre-authenticated browser storage state from GitHub Actions.
+
+GitHub Actions repository settings for the optional authenticated smoke:
+
+- variable `VRDEX_PRODUCTION_SMOKE_BASE_URL=https://vrdex.net`: required so auth cookies target the stable public production domain
+- optional variable `VRDEX_PRODUCTION_AUTH_SMOKE_PROVIDER`: expected linked provider, usually `discord` or `google`; if unset, the smoke accepts either provider
+- secret `VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64`: base64-encoded Playwright `storageState` JSON from a dedicated production test account
+
+The lane remains skipped unless both `VRDEX_PRODUCTION_SMOKE_BASE_URL` and `VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64` are configured. Do not store OAuth credentials in CI, and do not enable production mutation helper routes for this check.
+
 Generate Convex Auth JWT keys through a non-printing command path and set them with stdin, because PEM values begin with dashes and can be parsed as CLI options when passed as positional arguments. For production, use `pnpm exec convex env set --prod JWT_PRIVATE_KEY` and `pnpm exec convex env set --prod JWKS` with the values piped through stdin.
 
 PowerShell example after key generation has populated process-local variables:

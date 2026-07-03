@@ -164,6 +164,7 @@ jobs:
           set -euo pipefail
 
           PRODUCTION_BASE_URL="${DEPLOYMENT_STATUS_BASE_URL:-${PRODUCTION_BASE_URL_OVERRIDE:-${PRODUCTION_BASE_URL_VAR:-}}}"
+          PRODUCTION_CANONICAL_BASE_URL="${PRODUCTION_BASE_URL_OVERRIDE:-${PRODUCTION_BASE_URL_VAR:-}}"
 
           if [ -z "$PRODUCTION_BASE_URL" ]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
@@ -176,6 +177,7 @@ jobs:
 
           echo "enabled=true" >> "$GITHUB_OUTPUT"
           echo "base_url=$PRODUCTION_BASE_URL" >> "$GITHUB_OUTPUT"
+          echo "canonical_base_url=$PRODUCTION_CANONICAL_BASE_URL" >> "$GITHUB_OUTPUT"
 
       - name: Setup pnpm
         if: steps.gate.outputs.enabled == 'true'
@@ -206,9 +208,42 @@ jobs:
           PLAYWRIGHT_SKIP_WEBSERVERS: "true"
         run: pnpm test:e2e:hosted:smoke
 
+      - name: Check production authenticated smoke configuration
+        if: steps.gate.outputs.enabled == 'true'
+        id: auth_gate
+        env:
+          PRODUCTION_AUTH_BASE_URL: ${{ steps.gate.outputs.canonical_base_url }}
+          PRODUCTION_AUTH_STORAGE_STATE_B64: ${{ secrets.VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64 }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$PRODUCTION_AUTH_BASE_URL" ] || [ -z "$PRODUCTION_AUTH_STORAGE_STATE_B64" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## Production authenticated account smoke"
+              echo "Skipped because VRDEX_PRODUCTION_SMOKE_BASE_URL or VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64 is not configured."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      - name: Run production authenticated account smoke
+        if: steps.auth_gate.outputs.enabled == 'true'
+        id: auth_smoke
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ steps.gate.outputs.canonical_base_url }}
+          PLAYWRIGHT_RECORD_VIDEO: "true"
+          PLAYWRIGHT_SKIP_WEBSERVERS: "true"
+          VRDEX_PRODUCTION_AUTH_SMOKE_PROVIDER: ${{ vars.VRDEX_PRODUCTION_AUTH_SMOKE_PROVIDER }}
+          VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64: ${{ secrets.VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64 }}
+        run: pnpm test:e2e:hosted:auth-smoke
+
       - name: Write production smoke summary
         if: always() && steps.gate.outputs.enabled == 'true'
         env:
+          AUTH_SMOKE_OUTCOME: ${{ steps.auth_smoke.outcome }}
+          PRODUCTION_AUTH_BASE_URL: ${{ steps.gate.outputs.canonical_base_url }}
           SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
           PRODUCTION_BASE_URL: ${{ steps.gate.outputs.base_url }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -221,9 +256,14 @@ jobs:
 
           Target: ${PRODUCTION_BASE_URL}
 
+          Authenticated account smoke: ${AUTH_SMOKE_OUTCOME:-skipped}
+
+          Authenticated account target: ${PRODUCTION_AUTH_BASE_URL:-not configured}
+
           Captured flow:
           - hosted public route smoke checks
           - hosted deployment and server-status pages
+          - optional authenticated account readback with a pre-authenticated production test-account storage state
           - no mutation-backed E2E helpers
 
           Run: ${RUN_URL}
