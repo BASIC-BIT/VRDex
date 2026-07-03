@@ -32,6 +32,17 @@ import {
   eventMediaWorkerProviderValidator,
   eventMediaWorkerTaskStatusValidator,
 } from "./_eventMediaControl";
+import {
+  seedImportBatchReviewStateValidator,
+  seedImportCandidatePublicationStateValidator,
+  seedImportCandidateReviewStateValidator,
+  seedImportClaimStateValidator,
+  seedImportFieldConfidenceValidator,
+  seedImportFieldReviewStateValidator,
+  seedImportFieldVisibilityValidator,
+  seedImportProfileTypeValidator,
+  seedImportSourceTypeValidator,
+} from "./_seedImportValidators";
 
 const claimState = v.union(
   v.literal("unclaimed"),
@@ -1078,6 +1089,66 @@ export default defineSchema({
   })
     .index("by_profileId_createdAt", ["profileId", "createdAt"])
     .index("by_action_createdAt", ["action", "createdAt"]),
+  seedImportBatches: defineTable({
+    externalBatchId: v.string(),
+    sourceName: v.string(),
+    sourceType: seedImportSourceTypeValidator,
+    sourceContact: v.optional(v.string()),
+    receivedAt: v.number(),
+    importedBy: v.optional(authSubject),
+    reviewState: seedImportBatchReviewStateValidator,
+    reviewedBy: v.optional(authSubject),
+    reviewedAt: v.optional(v.number()),
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_externalBatchId", ["externalBatchId"])
+    .index("by_reviewState_receivedAt", ["reviewState", "receivedAt"])
+    .index("by_sourceType_receivedAt", ["sourceType", "receivedAt"]),
+  seedImportCandidateProfiles: defineTable({
+    batchId: v.id("seedImportBatches"),
+    externalCandidateId: v.string(),
+    profileType: seedImportProfileTypeValidator,
+    proposedDisplayName: v.string(),
+    proposedSlug: v.optional(v.string()),
+    reviewState: seedImportCandidateReviewStateValidator,
+    publicationState: seedImportCandidatePublicationStateValidator,
+    claimState: seedImportClaimStateValidator,
+    matchedProfileId: v.optional(v.id("profiles")),
+    reviewer: v.optional(authSubject),
+    reviewedAt: v.optional(v.number()),
+    reviewNote: v.optional(v.string()),
+    publicationQueuedBy: v.optional(authSubject),
+    publicationQueuedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_batchId", ["batchId"])
+    .index("by_batchId_reviewState", ["batchId", "reviewState"])
+    .index("by_batchId_publicationState", ["batchId", "publicationState"])
+    .index("by_externalCandidateId", ["externalCandidateId"])
+    .index("by_matchedProfileId", ["matchedProfileId"]),
+  seedImportCandidateFields: defineTable({
+    candidateId: v.id("seedImportCandidateProfiles"),
+    fieldKey: v.string(),
+    value: v.any(),
+    sourceLabel: v.string(),
+    sourceUrl: v.optional(v.string()),
+    sourceType: seedImportSourceTypeValidator,
+    confidence: seedImportFieldConfidenceValidator,
+    reviewState: seedImportFieldReviewStateValidator,
+    visibility: seedImportFieldVisibilityValidator,
+    reviewedBy: v.optional(authSubject),
+    reviewedAt: v.optional(v.number()),
+    reviewNote: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_candidateId", ["candidateId"])
+    .index("by_candidateId_reviewState", ["candidateId", "reviewState"])
+    .index("by_candidateId_visibility", ["candidateId", "visibility"])
+    .index("by_fieldKey_reviewState", ["fieldKey", "reviewState"]),
   e2eAuthCodes: defineTable({
     email: v.string(),
     code: v.string(),

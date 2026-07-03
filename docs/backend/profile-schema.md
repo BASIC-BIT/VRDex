@@ -22,6 +22,7 @@ The implemented schema is intentionally narrow. It establishes one shared `profi
 - profile image appearance is stored as display preference metadata, not by mutating the uploaded image asset
 - profile outbound links are currently inline typed external links; normalized link tables remain a later scaling option
 - avatar and banner fields are URL placeholders for later controlled owner or concierge inputs, not ordinary community-submitted fields
+- reviewed seed imports stage proposed profile facts outside `profiles` until explicit review and a later publication/merge flow; imported candidate fields are not owner-authored fields
 
 ## `profiles` Table
 
@@ -130,6 +131,16 @@ Convex Auth provides the `users` and `authAccounts` tables used by account and p
 `profileVerificationAttempts` stores proof-code attempts for external proof readers. Attempts have a proof code, target type, target external id, state, expiry, and optional evidence summary.
 
 The first automated proof reader is an adapter action configured by `VRCHAT_PROOF_ADAPTER_URL`; it avoids hard-coding guessed VRChat or VRCLinking API behavior into the product backend.
+
+## Reviewed Seed Import Staging Tables
+
+Current recommendation:
+
+- reviewed seed imports live in `seedImportBatches`, `seedImportCandidateProfiles`, and `seedImportCandidateFields`
+- these tables preserve provenance, confidence, field visibility, review state, reviewer metadata, matched profile links, and queue-only publication metadata
+- internal fake fixture tooling can create candidate rows for backend tests and review workflow development
+- `seedImports:queueCandidatePublication` records a queue marker only; it does not create public `profiles` rows or overwrite existing owner-authored fields
+- actual publication, merge, owner handoff, and public surfacing remain deferred until the claim, suppression, and field-ownership rules are implemented end to end
 
 ## State Semantics
 
