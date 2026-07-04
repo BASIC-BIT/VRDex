@@ -12,7 +12,8 @@ The full implementation-facing plan for API tokens, OAuth apps, rate limiting, S
 
 `/api/v0` is now backed by shared TypeScript contract schemas in `packages/api-contracts`.
 The checked-in OpenAPI artifact is `docs/api/openapi.json`, and the web app serves
-the same generated document at `GET /api/v0/openapi.json`.
+the same generated document at `GET /api/v0/openapi.json`. The web app renders
+the generated API reference at `/developers/api`.
 
 Implemented anonymous public reads:
 
