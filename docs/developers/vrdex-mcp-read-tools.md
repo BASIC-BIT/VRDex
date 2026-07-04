@@ -8,6 +8,12 @@ The standalone VRDex MCP should wait for stable public API/query behavior. This 
 
 The broader platform plan for hosted MCP OAuth, local/private MCP, API tokens, OAuth applications, rate limiting, and Swagger/OpenAPI docs lives in `docs/planning/public-api-and-mcp-platform.md`. This page remains the first read-only tool contract for the MCP slice.
 
+The first `/api/v0` anonymous public read routes now exist for profiles, search,
+events, worlds, and claim status, with schemas generated through
+`packages/api-contracts`. The standalone MCP package and hosted MCP endpoint are
+still separate implementation slices; MCP tools should call those API/query
+surfaces instead of scraping web pages.
+
 ## Locked Direction
 
 - Default to a standalone VRDex MCP for VRDex public data.

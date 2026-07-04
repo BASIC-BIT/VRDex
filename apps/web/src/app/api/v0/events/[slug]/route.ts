@@ -1,4 +1,4 @@
-import { PublicProfileAssetsResponseSchema } from "@vrdex/api-contracts";
+import { PublicEventSchema } from "@vrdex/api-contracts";
 import { api } from "@convex-generated-api";
 import { apiJson, publicNotFoundResponse, rejectBearerTokenQuery } from "@/lib/server/api-v0";
 import { convexHttpClient } from "@/lib/server/convex-http";
@@ -18,17 +18,11 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   const { slug } = await context.params;
-  const result = await convexHttpClient().query(api.profileAssets.listPublicBySlug, { slug });
+  const event = await convexHttpClient().query(api.events.getPublicBySlug, { slug });
 
-  if (result === null) {
-    return publicNotFoundResponse("Profile");
+  if (event === null) {
+    return publicNotFoundResponse("Event");
   }
 
-  return apiJson(PublicProfileAssetsResponseSchema, {
-    profileType: result.profileType,
-    slug: result.slug,
-    displayName: result.displayName,
-    assets: result.mediaKit.assets,
-    mediaKit: result.mediaKit,
-  });
+  return apiJson(PublicEventSchema, event);
 }

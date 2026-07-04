@@ -3,9 +3,17 @@ import { createDocument, type ZodOpenApiObject, type ZodOpenApiResponsesObject }
 import { apiScopes } from "./auth";
 import {
   ApiProblemSchema,
+  LimitQueryParamsSchema,
+  PublicActiveWorldsResponseSchema,
+  PublicClaimStatusResponseSchema,
+  PublicEventsResponseSchema,
+  PublicEventSchema,
   PublicProfileAssetsResponseSchema,
   PublicProfileLogosResponseSchema,
   PublicProfileSchema,
+  PublicSearchResponseSchema,
+  PublicWorldSchema,
+  SearchQueryParamsSchema,
   SlugPathParamsSchema,
   type z,
 } from "./schemas";
@@ -18,7 +26,11 @@ const jsonContent = (schema: JsonSchema) => ({
   },
 });
 
-const problemResponses = {
+const publicReadProblemResponses = {
+  "400": {
+    description: "The request was malformed or used an unsupported bearer-token location.",
+    content: jsonContent(ApiProblemSchema),
+  },
   "404": {
     description: "The requested public resource was not found.",
     content: jsonContent(ApiProblemSchema),
@@ -62,8 +74,12 @@ export const openApiSource = {
     },
   ],
   tags: [
-    { name: "Profiles", description: "Public profile read surfaces." },
     { name: "API", description: "API contract and metadata surfaces." },
+    { name: "Profiles", description: "Public profile read surfaces." },
+    { name: "Search", description: "Public discovery and search surfaces." },
+    { name: "Events", description: "Public event read surfaces." },
+    { name: "Worlds", description: "Public world read surfaces." },
+    { name: "Claims", description: "Public claim-status read surfaces." },
   ],
   paths: {
     "/api/v0/openapi.json": {
@@ -75,6 +91,23 @@ export const openApiSource = {
           "200": {
             description: "The current OpenAPI document.",
           },
+        },
+      },
+    },
+    "/api/v0/search": {
+      get: {
+        operationId: "searchPublicCatalog",
+        tags: ["Search"],
+        summary: "Search public profiles, events, and worlds",
+        requestParams: {
+          query: SearchQueryParamsSchema,
+        },
+        responses: {
+          "200": {
+            description: "Public search results.",
+            content: jsonContent(PublicSearchResponseSchema),
+          },
+          ...publicReadProblemResponses,
         },
       },
     },
@@ -91,7 +124,7 @@ export const openApiSource = {
             description: "The public profile.",
             content: jsonContent(PublicProfileSchema),
           },
-          ...problemResponses,
+          ...publicReadProblemResponses,
         },
       },
     },
@@ -108,7 +141,7 @@ export const openApiSource = {
             description: "Public profile assets.",
             content: jsonContent(PublicProfileAssetsResponseSchema),
           },
-          ...problemResponses,
+          ...publicReadProblemResponses,
         },
       },
     },
@@ -125,7 +158,158 @@ export const openApiSource = {
             description: "Public profile logos.",
             content: jsonContent(PublicProfileLogosResponseSchema),
           },
-          ...problemResponses,
+          ...publicReadProblemResponses,
+        },
+      },
+    },
+    "/api/v0/people/{slug}": {
+      get: {
+        operationId: "getPublicPersonProfileBySlug",
+        tags: ["Profiles"],
+        summary: "Get a public person profile",
+        requestParams: {
+          path: SlugPathParamsSchema,
+        },
+        responses: {
+          "200": {
+            description: "The public person profile.",
+            content: jsonContent(PublicProfileSchema),
+          },
+          ...publicReadProblemResponses,
+        },
+      },
+    },
+    "/api/v0/people/{slug}/events": {
+      get: {
+        operationId: "listPublicPersonEvents",
+        tags: ["Profiles", "Events"],
+        summary: "List public upcoming events for a person profile",
+        requestParams: {
+          path: SlugPathParamsSchema,
+        },
+        responses: {
+          "200": {
+            description: "Public upcoming events for the person profile.",
+            content: jsonContent(PublicEventsResponseSchema),
+          },
+          ...publicReadProblemResponses,
+        },
+      },
+    },
+    "/api/v0/communities/{slug}": {
+      get: {
+        operationId: "getPublicCommunityProfileBySlug",
+        tags: ["Profiles"],
+        summary: "Get a public community profile",
+        requestParams: {
+          path: SlugPathParamsSchema,
+        },
+        responses: {
+          "200": {
+            description: "The public community profile.",
+            content: jsonContent(PublicProfileSchema),
+          },
+          ...publicReadProblemResponses,
+        },
+      },
+    },
+    "/api/v0/communities/{slug}/events": {
+      get: {
+        operationId: "listPublicCommunityEvents",
+        tags: ["Profiles", "Events"],
+        summary: "List public upcoming events hosted by a community profile",
+        requestParams: {
+          path: SlugPathParamsSchema,
+          query: LimitQueryParamsSchema,
+        },
+        responses: {
+          "200": {
+            description: "Public upcoming events for the community profile.",
+            content: jsonContent(PublicEventsResponseSchema),
+          },
+          ...publicReadProblemResponses,
+        },
+      },
+    },
+    "/api/v0/events/{slug}": {
+      get: {
+        operationId: "getPublicEventBySlug",
+        tags: ["Events"],
+        summary: "Get a public event",
+        requestParams: {
+          path: SlugPathParamsSchema,
+        },
+        responses: {
+          "200": {
+            description: "The public event.",
+            content: jsonContent(PublicEventSchema),
+          },
+          ...publicReadProblemResponses,
+        },
+      },
+    },
+    "/api/v0/events/upcoming": {
+      get: {
+        operationId: "listPublicUpcomingEvents",
+        tags: ["Events"],
+        summary: "List upcoming public events",
+        responses: {
+          "200": {
+            description: "Upcoming public events.",
+            content: jsonContent(PublicEventsResponseSchema),
+          },
+          ...publicReadProblemResponses,
+        },
+      },
+    },
+    "/api/v0/worlds/{slug}": {
+      get: {
+        operationId: "getPublicWorldBySlug",
+        tags: ["Worlds"],
+        summary: "Get a public world",
+        requestParams: {
+          path: SlugPathParamsSchema,
+        },
+        responses: {
+          "200": {
+            description: "The public world.",
+            content: jsonContent(PublicWorldSchema),
+          },
+          ...publicReadProblemResponses,
+        },
+      },
+    },
+    "/api/v0/worlds/active": {
+      get: {
+        operationId: "listPublicActiveWorlds",
+        tags: ["Worlds"],
+        summary: "List public worlds hosting upcoming or live events",
+        requestParams: {
+          query: LimitQueryParamsSchema,
+        },
+        responses: {
+          "200": {
+            description: "Active public worlds.",
+            content: jsonContent(PublicActiveWorldsResponseSchema),
+          },
+          ...publicReadProblemResponses,
+        },
+      },
+    },
+    "/api/v0/claims/{slug}/status": {
+      get: {
+        operationId: "getPublicClaimStatus",
+        tags: ["Claims"],
+        summary: "Get public claim and trust status for a profile",
+        requestParams: {
+          path: SlugPathParamsSchema,
+        },
+        responses: {
+          "200": {
+            description: "Public claim and trust status.",
+            content: jsonContent(PublicClaimStatusResponseSchema),
+          },
+          ...publicReadProblemResponses,
         },
       },
     },

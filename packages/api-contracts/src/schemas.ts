@@ -4,28 +4,44 @@ export { z };
 
 const absoluteUrl = z.url();
 const slug = z.string().min(1).max(160);
-const isoDateTime = z.iso.datetime();
+const timestampMs = z.number().int().nonnegative();
 
 export const ProfileTypeSchema = z
-  .enum(["user", "community"])
+  .enum(["person", "community"])
   .meta({ description: "The public profile entity class." });
 
 export const TrustLabelSchema = z
-  .enum(["unverified", "claimed", "verified"])
-  .meta({ description: "The public trust state shown for the profile." });
+  .enum(["community_submitted", "unclaimed", "claimed_unverified", "claimed_verified"])
+  .meta({ description: "The public trust and claim state shown for the profile." });
+
+export const PublicClaimStateSchema = z
+  .enum(["unclaimed", "claimed_unverified", "claimed_verified"])
+  .meta({ description: "The public claim state without private owner account details." });
+
+export const PublicSourceTypeSchema = z
+  .enum(["manual", "owner", "community", "partner", "import", "moderator", "ai_suggested"])
+  .meta({ description: "Public source or provenance class." });
+
+export const PublicEventSourceTypeSchema = z
+  .enum(["manual", "community", "partner", "import", "ai_suggested"])
+  .meta({ description: "Public event source class." });
 
 export const SourceSummarySchema = z
   .object({
-    submittedBy: z.string().nullish().meta({ description: "Optional public source attribution." }),
-    updatedAt: isoDateTime.nullish().meta({ description: "Last source update time when available." }),
+    label: z.string().optional(),
+    sourceType: PublicSourceTypeSchema.optional(),
+    submittedAt: timestampMs.optional(),
+    updatedAt: timestampMs.optional(),
+    url: absoluteUrl.optional(),
   })
   .passthrough()
-  .meta({ description: "Public summary for community-submitted or claimed profile source state." });
+  .meta({ description: "Public summary for community-submitted, imported, owner-authored, or reviewed data." });
 
 export const PublicGenreSchema = z
   .object({
-    id: z.string().optional(),
-    label: z.string().min(1),
+    displayLabel: z.string().optional(),
+    displayName: z.string().min(1),
+    featured: z.boolean().optional(),
     slug: z.string().optional(),
   })
   .passthrough()
@@ -34,46 +50,71 @@ export const PublicGenreSchema = z
 export const PublicOutboundLinkSchema = z
   .object({
     label: z.string().min(1),
+    source: z.string().optional(),
+    type: z.string().optional(),
     url: absoluteUrl,
   })
   .passthrough()
-  .meta({ description: "A public outbound profile link." });
+  .meta({ description: "A public outbound link." });
 
 export const PublicProfileAssetSchema = z
   .object({
-    alt: z.string().optional(),
-    contentType: z.string().optional(),
-    height: z.number().int().positive().optional(),
-    id: z.string().optional(),
-    kind: z.string().min(1),
-    url: absoluteUrl,
-    width: z.number().int().positive().optional(),
+    assetId: z.string().optional(),
+    byteSize: z.number().int().positive().optional(),
+    caption: z.string().optional(),
+    downloadUrl: absoluteUrl.optional(),
+    imageUrl: absoluteUrl.optional(),
+    label: z.string().optional(),
+    mimeType: z.string().optional(),
   })
   .passthrough()
   .meta({ description: "A public profile media or brand asset." });
 
-export const PublicProfileMediaKitSchema = z
+export const PublicProfileAvatarAppearanceSchema = z
   .object({
-    description: z.string().optional(),
-    downloadUrl: absoluteUrl.optional(),
-    updatedAt: isoDateTime.optional(),
+    borderColor: z.string(),
+    borderEnabled: z.boolean(),
+    borderSoftnessPx: z.number().int().nonnegative(),
+    borderWidthPx: z.number().int().positive(),
+    radiusPercent: z.number().int().min(0).max(50),
   })
   .passthrough()
-  .meta({ description: "Optional media kit metadata for a public profile." });
+  .meta({ description: "Bounded public avatar presentation hints." });
+
+export const PublicProfileMediaKitSchema = z
+  .object({
+    additionalLogos: z.array(PublicProfileAssetSchema),
+    assets: z.array(PublicProfileAssetSchema),
+    avatarAppearance: PublicProfileAvatarAppearanceSchema.optional(),
+    banner: PublicProfileAssetSchema.optional(),
+    compactDisplay: z.enum(["profile_image", "logo"]).optional(),
+    logoZipUrl: absoluteUrl.optional(),
+    logos: z.array(PublicProfileAssetSchema),
+    primaryLogo: PublicProfileAssetSchema.optional(),
+    profileImage: PublicProfileAssetSchema.optional(),
+  })
+  .passthrough()
+  .meta({ description: "Public media kit metadata for a public profile." });
 
 export const PublicProfileSchema = z
   .object({
-    assets: z.array(PublicProfileAssetSchema).optional(),
-    avatarUrl: absoluteUrl.optional(),
+    aliases: z.array(z.string()).optional(),
+    appearance: z.unknown().optional(),
+    avatarImageUrl: absoluteUrl.optional(),
+    bannerImageUrl: absoluteUrl.optional(),
     bio: z.string().optional(),
     displayName: z.string().min(1),
     genres: z.array(PublicGenreSchema).optional(),
-    links: z.array(PublicOutboundLinkSchema).optional(),
+    hostedEvents: z.array(z.unknown()).optional(),
+    mediaKit: PublicProfileMediaKitSchema.optional(),
+    outboundLinks: z.array(PublicOutboundLinkSchema).optional(),
     profileType: ProfileTypeSchema,
     slug,
     source: SourceSummarySchema.optional(),
-    trustLabel: TrustLabelSchema.optional(),
-    updatedAt: isoDateTime.optional(),
+    tags: z.array(z.string()).optional(),
+    trustLabel: TrustLabelSchema,
+    upcomingEvents: z.array(z.unknown()).optional(),
+    worldCredits: z.array(z.unknown()).optional(),
   })
   .passthrough()
   .meta({
@@ -111,6 +152,224 @@ export const PublicProfileLogosResponseSchema = z
     id: "PublicProfileLogosResponse",
   });
 
+export const PublicClaimStatusResponseSchema = z
+  .object({
+    claimState: PublicClaimStateSchema,
+    displayName: z.string().min(1),
+    profileType: ProfileTypeSchema,
+    slug,
+    trustLabel: TrustLabelSchema,
+  })
+  .passthrough()
+  .meta({
+    description: "Public claim and trust state for a public profile.",
+    id: "PublicClaimStatusResponse",
+  });
+
+export const PublicSearchEntityTypeSchema = z
+  .enum(["profile", "world", "event"])
+  .meta({ description: "Search result entity class." });
+
+export const PublicSearchResultSchema = z
+  .object({
+    entityType: PublicSearchEntityTypeSchema,
+    imageUrl: absoluteUrl.optional(),
+    logoImageUrl: absoluteUrl.optional(),
+    profileImageUrl: absoluteUrl.optional(),
+    profileType: ProfileTypeSchema.optional(),
+    routePath: z.string().min(1),
+    score: z.number(),
+    slug,
+    source: SourceSummarySchema.optional(),
+    startsAt: timestampMs.optional(),
+    subtitle: z.string().optional(),
+    summary: z.string().optional(),
+    title: z.string().min(1),
+  })
+  .passthrough()
+  .meta({
+    description: "Compact public discovery/search result.",
+    id: "PublicSearchResult",
+  });
+
+export const PublicSearchResponseSchema = z
+  .object({
+    query: z.string(),
+    results: z.array(PublicSearchResultSchema),
+    type: z.enum(["all", "person", "community", "profile", "world", "event"]).optional(),
+  })
+  .passthrough()
+  .meta({
+    description: "Public search response.",
+    id: "PublicSearchResponse",
+  });
+
+export const PublicEventSourceSchema = z
+  .object({
+    label: z.string().min(1),
+    sourceType: PublicEventSourceTypeSchema,
+    url: absoluteUrl.optional(),
+  })
+  .passthrough()
+  .meta({ description: "Public event source summary." });
+
+export const PublicEventMediaLinkSchema = z
+  .object({
+    label: z.string().min(1),
+    presentation: z.enum(["open", "copy"]),
+    type: z.enum(["event_page", "watch", "stream", "vrcdn", "discord", "ticket", "other"]),
+    url: absoluteUrl,
+  })
+  .passthrough()
+  .meta({ description: "Public event media or outbound link." });
+
+export const PublicEventWorldSummarySchema = z
+  .object({
+    displayName: z.string().min(1),
+    slug,
+  })
+  .passthrough()
+  .meta({ description: "Public event world summary." });
+
+export const PublicEventPreviewSchema = z
+  .object({
+    bannerImageUrl: absoluteUrl.optional(),
+    communityImageUrl: absoluteUrl.optional(),
+    communityName: z.string().optional(),
+    communitySlug: slug.optional(),
+    doorsOpenAt: timestampMs.optional(),
+    endAt: timestampMs.optional(),
+    participantCount: z.number().int().nonnegative().optional(),
+    posterImageUrl: absoluteUrl.optional(),
+    slug: slug.optional(),
+    slotCount: z.number().int().nonnegative().optional(),
+    source: PublicEventSourceSchema,
+    startAt: timestampMs,
+    summary: z.string().optional(),
+    thumbnailImageUrl: absoluteUrl.optional(),
+    timezone: z.string().optional(),
+    title: z.string().min(1),
+    worlds: z.array(PublicEventWorldSummarySchema).optional(),
+  })
+  .passthrough()
+  .meta({
+    description: "Compact public event card.",
+    id: "PublicEventPreview",
+  });
+
+export const PublicEventSchema = PublicEventPreviewSchema.extend({
+  authoredMediaLinks: z.array(PublicEventMediaLinkSchema).optional(),
+  id: z.string(),
+  mediaLinks: z.array(PublicEventMediaLinkSchema).optional(),
+  notes: z.string().optional(),
+  participants: z.array(z.unknown()).optional(),
+  slots: z.array(z.unknown()).optional(),
+  slug,
+  watchSurfaceEnabled: z.boolean(),
+  worlds: z.array(z.unknown()).optional(),
+})
+  .passthrough()
+  .meta({
+    description: "Public event detail response.",
+    id: "PublicEvent",
+  });
+
+export const PublicEventsResponseSchema = z
+  .object({
+    events: z.array(PublicEventPreviewSchema),
+  })
+  .passthrough()
+  .meta({
+    description: "List of public event cards.",
+    id: "PublicEventsResponse",
+  });
+
+export const PublicWorldEventPreviewSchema = z
+  .object({
+    bannerImageUrl: absoluteUrl.optional(),
+    communityName: z.string().optional(),
+    doorsOpenAt: timestampMs.optional(),
+    endAt: timestampMs.optional(),
+    mediaLinks: z.array(PublicEventMediaLinkSchema),
+    posterImageUrl: absoluteUrl.optional(),
+    slug: slug.optional(),
+    source: PublicEventSourceSchema,
+    startAt: timestampMs,
+    summary: z.string().optional(),
+    thumbnailImageUrl: absoluteUrl.optional(),
+    timezone: z.string().optional(),
+    title: z.string().min(1),
+    worldAssociation: z.object({ confirmationState: z.literal("confirmed") }).passthrough(),
+  })
+  .passthrough()
+  .meta({ description: "Public event card as shown in world context." });
+
+export const PublicWorldSchema = z
+  .object({
+    canonicalVrchatWorldUrl: absoluteUrl.optional(),
+    creatorAttributions: z.array(z.unknown()),
+    description: z.string().optional(),
+    displayName: z.string().min(1),
+    eventContext: z
+      .object({
+        recent: z.array(PublicWorldEventPreviewSchema),
+        upcoming: z.array(PublicWorldEventPreviewSchema),
+      })
+      .passthrough()
+      .optional(),
+    heroImageUrl: absoluteUrl.optional(),
+    media: z.array(z.unknown()),
+    outboundLinks: z.array(PublicOutboundLinkSchema),
+    platformCompatibility: z.array(z.string()),
+    slug,
+    source: SourceSummarySchema.optional(),
+    summary: z.string().optional(),
+    tags: z.array(z.string()),
+    visibilityStatus: z.string(),
+    vrchatWorldId: z.string().optional(),
+  })
+  .passthrough()
+  .meta({
+    description: "Public world detail response.",
+    id: "PublicWorld",
+  });
+
+export const PublicActiveWorldSchema = z
+  .object({
+    activityLabel: z.literal("Hosting upcoming events"),
+    displayName: z.string().min(1),
+    heroImageUrl: absoluteUrl.optional(),
+    nextEvent: PublicEventPreviewSchema.omit({
+      bannerImageUrl: true,
+      communityImageUrl: true,
+      participantCount: true,
+      posterImageUrl: true,
+      slotCount: true,
+      summary: true,
+      thumbnailImageUrl: true,
+      worlds: true,
+    }).passthrough(),
+    slug,
+    summary: z.string().optional(),
+    tags: z.array(z.string()),
+    upcomingEventCount: z.number().int().nonnegative(),
+  })
+  .passthrough()
+  .meta({
+    description: "Public world currently hosting upcoming or live public events.",
+    id: "PublicActiveWorld",
+  });
+
+export const PublicActiveWorldsResponseSchema = z
+  .object({
+    worlds: z.array(PublicActiveWorldSchema),
+  })
+  .passthrough()
+  .meta({
+    description: "Public active worlds response.",
+    id: "PublicActiveWorldsResponse",
+  });
+
 export const ApiProblemSchema = z
   .object({
     detail: z.string().optional(),
@@ -126,8 +385,21 @@ export const ApiProblemSchema = z
 
 export const SlugPathParamsSchema = z.object({
   slug: slug.meta({
-    description: "Public profile slug.",
+    description: "Public slug.",
   }),
+});
+
+export const SearchQueryParamsSchema = z.object({
+  limit: z.number().int().min(1).max(50).optional().meta({ description: "Maximum result count." }),
+  q: z.string().optional().meta({ description: "Search query text." }),
+  type: z
+    .enum(["all", "person", "community", "profile", "world", "event"])
+    .optional()
+    .meta({ description: "Optional search result type filter." }),
+});
+
+export const LimitQueryParamsSchema = z.object({
+  limit: z.number().int().min(1).max(50).optional().meta({ description: "Maximum result count." }),
 });
 
 export const AssetPathParamsSchema = SlugPathParamsSchema;

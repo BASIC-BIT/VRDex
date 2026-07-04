@@ -17,12 +17,28 @@
   ],
   "tags": [
     {
+      "name": "API",
+      "description": "API contract and metadata surfaces."
+    },
+    {
       "name": "Profiles",
       "description": "Public profile read surfaces."
     },
     {
-      "name": "API",
-      "description": "API contract and metadata surfaces."
+      "name": "Search",
+      "description": "Public discovery and search surfaces."
+    },
+    {
+      "name": "Events",
+      "description": "Public event read surfaces."
+    },
+    {
+      "name": "Worlds",
+      "description": "Public world read surfaces."
+    },
+    {
+      "name": "Claims",
+      "description": "Public claim-status read surfaces."
     }
   ],
   "paths": {
@@ -36,6 +52,105 @@
         "responses": {
           "200": {
             "description": "The current OpenAPI document."
+          }
+        }
+      }
+    },
+    "/api/v0/search": {
+      "get": {
+        "operationId": "searchPublicCatalog",
+        "tags": [
+          "Search"
+        ],
+        "summary": "Search public profiles, events, and worlds",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Maximum result count.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            },
+            "description": "Maximum result count."
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "description": "Search query text.",
+              "type": "string"
+            },
+            "description": "Search query text."
+          },
+          {
+            "in": "query",
+            "name": "type",
+            "schema": {
+              "description": "Optional search result type filter.",
+              "type": "string",
+              "enum": [
+                "all",
+                "person",
+                "community",
+                "profile",
+                "world",
+                "event"
+              ]
+            },
+            "description": "Optional search result type filter."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Public search results.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicSearchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or used an unsupported bearer-token location.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The requested public resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -55,10 +170,10 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 160,
-              "description": "Public profile slug."
+              "description": "Public slug."
             },
             "required": true,
-            "description": "Public profile slug."
+            "description": "Public slug."
           }
         ],
         "responses": {
@@ -68,6 +183,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PublicProfile"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or used an unsupported bearer-token location.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
                 }
               }
             }
@@ -119,10 +244,10 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 160,
-              "description": "Public profile slug."
+              "description": "Public slug."
             },
             "required": true,
-            "description": "Public profile slug."
+            "description": "Public slug."
           }
         ],
         "responses": {
@@ -132,6 +257,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PublicProfileAssetsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or used an unsupported bearer-token location.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
                 }
               }
             }
@@ -183,10 +318,10 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 160,
-              "description": "Public profile slug."
+              "description": "Public slug."
             },
             "required": true,
-            "description": "Public profile slug."
+            "description": "Public slug."
           }
         ],
         "responses": {
@@ -196,6 +331,680 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PublicProfileLogosResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or used an unsupported bearer-token location.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The requested public resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v0/people/{slug}": {
+      "get": {
+        "operationId": "getPublicPersonProfileBySlug",
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Get a public person profile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "description": "Public slug."
+            },
+            "required": true,
+            "description": "Public slug."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The public person profile.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicProfile"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or used an unsupported bearer-token location.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The requested public resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v0/people/{slug}/events": {
+      "get": {
+        "operationId": "listPublicPersonEvents",
+        "tags": [
+          "Profiles",
+          "Events"
+        ],
+        "summary": "List public upcoming events for a person profile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "description": "Public slug."
+            },
+            "required": true,
+            "description": "Public slug."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Public upcoming events for the person profile.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicEventsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or used an unsupported bearer-token location.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The requested public resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v0/communities/{slug}": {
+      "get": {
+        "operationId": "getPublicCommunityProfileBySlug",
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Get a public community profile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "description": "Public slug."
+            },
+            "required": true,
+            "description": "Public slug."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The public community profile.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicProfile"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or used an unsupported bearer-token location.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The requested public resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v0/communities/{slug}/events": {
+      "get": {
+        "operationId": "listPublicCommunityEvents",
+        "tags": [
+          "Profiles",
+          "Events"
+        ],
+        "summary": "List public upcoming events hosted by a community profile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "description": "Public slug."
+            },
+            "required": true,
+            "description": "Public slug."
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Maximum result count.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            },
+            "description": "Maximum result count."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Public upcoming events for the community profile.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicEventsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or used an unsupported bearer-token location.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The requested public resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v0/events/{slug}": {
+      "get": {
+        "operationId": "getPublicEventBySlug",
+        "tags": [
+          "Events"
+        ],
+        "summary": "Get a public event",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "description": "Public slug."
+            },
+            "required": true,
+            "description": "Public slug."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The public event.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicEvent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or used an unsupported bearer-token location.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The requested public resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v0/events/upcoming": {
+      "get": {
+        "operationId": "listPublicUpcomingEvents",
+        "tags": [
+          "Events"
+        ],
+        "summary": "List upcoming public events",
+        "responses": {
+          "200": {
+            "description": "Upcoming public events.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicEventsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or used an unsupported bearer-token location.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The requested public resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v0/worlds/{slug}": {
+      "get": {
+        "operationId": "getPublicWorldBySlug",
+        "tags": [
+          "Worlds"
+        ],
+        "summary": "Get a public world",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "description": "Public slug."
+            },
+            "required": true,
+            "description": "Public slug."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The public world.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicWorld"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or used an unsupported bearer-token location.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The requested public resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v0/worlds/active": {
+      "get": {
+        "operationId": "listPublicActiveWorlds",
+        "tags": [
+          "Worlds"
+        ],
+        "summary": "List public worlds hosting upcoming or live events",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Maximum result count.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            },
+            "description": "Maximum result count."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Active public worlds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicActiveWorldsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or used an unsupported bearer-token location.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The requested public resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v0/claims/{slug}/status": {
+      "get": {
+        "operationId": "getPublicClaimStatus",
+        "tags": [
+          "Claims"
+        ],
+        "summary": "Get public claim and trust status for a profile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "description": "Public slug."
+            },
+            "required": true,
+            "description": "Public slug."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Public claim and trust status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicClaimStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or used an unsupported bearer-token location.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
                 }
               }
             }
@@ -235,113 +1044,75 @@
   },
   "components": {
     "schemas": {
-      "PublicProfile": {
+      "PublicSearchResponse": {
         "type": "object",
         "properties": {
-          "assets": {
+          "query": {
+            "type": "string"
+          },
+          "results": {
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "alt": {
-                  "type": "string"
-                },
-                "contentType": {
-                  "type": "string"
-                },
-                "height": {
-                  "type": "integer",
-                  "exclusiveMinimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "id": {
-                  "type": "string"
-                },
-                "kind": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "url": {
-                  "type": "string",
-                  "format": "uri"
-                },
-                "width": {
-                  "type": "integer",
-                  "exclusiveMinimum": 0,
-                  "maximum": 9007199254740991
-                }
-              },
-              "required": [
-                "kind",
-                "url"
-              ],
-              "additionalProperties": {},
-              "description": "A public profile media or brand asset."
+              "$ref": "#/components/schemas/PublicSearchResult"
             }
           },
-          "avatarUrl": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "all",
+              "person",
+              "community",
+              "profile",
+              "world",
+              "event"
+            ]
+          }
+        },
+        "required": [
+          "query",
+          "results"
+        ],
+        "additionalProperties": {},
+        "description": "Public search response."
+      },
+      "PublicSearchResult": {
+        "type": "object",
+        "properties": {
+          "entityType": {
+            "type": "string",
+            "enum": [
+              "profile",
+              "world",
+              "event"
+            ],
+            "description": "Search result entity class."
+          },
+          "imageUrl": {
             "type": "string",
             "format": "uri"
           },
-          "bio": {
-            "type": "string"
-          },
-          "displayName": {
+          "logoImageUrl": {
             "type": "string",
-            "minLength": 1
+            "format": "uri"
           },
-          "genres": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "id": {
-                  "type": "string"
-                },
-                "label": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "slug": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "label"
-              ],
-              "additionalProperties": {},
-              "description": "A public genre or taxonomy label."
-            }
-          },
-          "links": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "label": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "url": {
-                  "type": "string",
-                  "format": "uri"
-                }
-              },
-              "required": [
-                "label",
-                "url"
-              ],
-              "additionalProperties": {},
-              "description": "A public outbound profile link."
-            }
+          "profileImageUrl": {
+            "type": "string",
+            "format": "uri"
           },
           "profileType": {
             "type": "string",
             "enum": [
-              "user",
+              "person",
               "community"
             ],
             "description": "The public profile entity class."
+          },
+          "routePath": {
+            "type": "string",
+            "minLength": 1
+          },
+          "score": {
+            "type": "number"
           },
           "slug": {
             "type": "string",
@@ -351,56 +1122,65 @@
           "source": {
             "type": "object",
             "properties": {
-              "submittedBy": {
-                "description": "Optional public source attribution.",
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
+              "label": {
+                "type": "string"
+              },
+              "sourceType": {
+                "type": "string",
+                "enum": [
+                  "manual",
+                  "owner",
+                  "community",
+                  "partner",
+                  "import",
+                  "moderator",
+                  "ai_suggested"
+                ],
+                "description": "Public source or provenance class."
+              },
+              "submittedAt": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
               },
               "updatedAt": {
-                "description": "Last source update time when available.",
-                "anyOf": [
-                  {
-                    "type": "string",
-                    "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "url": {
+                "type": "string",
+                "format": "uri"
               }
             },
             "additionalProperties": {},
-            "description": "Public summary for community-submitted or claimed profile source state."
+            "description": "Public summary for community-submitted, imported, owner-authored, or reviewed data."
           },
-          "trustLabel": {
-            "type": "string",
-            "enum": [
-              "unverified",
-              "claimed",
-              "verified"
-            ],
-            "description": "The public trust state shown for the profile."
+          "startsAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
           },
-          "updatedAt": {
+          "subtitle": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "title": {
             "type": "string",
-            "format": "date-time",
-            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+            "minLength": 1
           }
         },
         "required": [
-          "displayName",
-          "profileType",
-          "slug"
+          "entityType",
+          "routePath",
+          "score",
+          "slug",
+          "title"
         ],
         "additionalProperties": {},
-        "description": "Public profile response. Unknown fields are preserved while the API is still stabilizing."
+        "description": "Compact public discovery/search result."
       },
       "ApiProblem": {
         "type": "object",
@@ -433,6 +1213,432 @@
         "additionalProperties": false,
         "description": "RFC 9457 problem details error response."
       },
+      "PublicProfile": {
+        "type": "object",
+        "properties": {
+          "aliases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "appearance": {},
+          "avatarImageUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "bannerImageUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "bio": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "genres": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "displayLabel": {
+                  "type": "string"
+                },
+                "displayName": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "featured": {
+                  "type": "boolean"
+                },
+                "slug": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "displayName"
+              ],
+              "additionalProperties": {},
+              "description": "A public genre or taxonomy label."
+            }
+          },
+          "hostedEvents": {
+            "type": "array",
+            "items": {}
+          },
+          "mediaKit": {
+            "type": "object",
+            "properties": {
+              "additionalLogos": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "assetId": {
+                      "type": "string"
+                    },
+                    "byteSize": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "caption": {
+                      "type": "string"
+                    },
+                    "downloadUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "imageUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "mimeType": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": {},
+                  "description": "A public profile media or brand asset."
+                }
+              },
+              "assets": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "assetId": {
+                      "type": "string"
+                    },
+                    "byteSize": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "caption": {
+                      "type": "string"
+                    },
+                    "downloadUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "imageUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "mimeType": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": {},
+                  "description": "A public profile media or brand asset."
+                }
+              },
+              "avatarAppearance": {
+                "type": "object",
+                "properties": {
+                  "borderColor": {
+                    "type": "string"
+                  },
+                  "borderEnabled": {
+                    "type": "boolean"
+                  },
+                  "borderSoftnessPx": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "borderWidthPx": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "radiusPercent": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 50
+                  }
+                },
+                "required": [
+                  "borderColor",
+                  "borderEnabled",
+                  "borderSoftnessPx",
+                  "borderWidthPx",
+                  "radiusPercent"
+                ],
+                "additionalProperties": {},
+                "description": "Bounded public avatar presentation hints."
+              },
+              "banner": {
+                "type": "object",
+                "properties": {
+                  "assetId": {
+                    "type": "string"
+                  },
+                  "byteSize": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "caption": {
+                    "type": "string"
+                  },
+                  "downloadUrl": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "imageUrl": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "mimeType": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": {},
+                "description": "A public profile media or brand asset."
+              },
+              "compactDisplay": {
+                "type": "string",
+                "enum": [
+                  "profile_image",
+                  "logo"
+                ]
+              },
+              "logoZipUrl": {
+                "type": "string",
+                "format": "uri"
+              },
+              "logos": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "assetId": {
+                      "type": "string"
+                    },
+                    "byteSize": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "caption": {
+                      "type": "string"
+                    },
+                    "downloadUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "imageUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "mimeType": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": {},
+                  "description": "A public profile media or brand asset."
+                }
+              },
+              "primaryLogo": {
+                "type": "object",
+                "properties": {
+                  "assetId": {
+                    "type": "string"
+                  },
+                  "byteSize": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "caption": {
+                    "type": "string"
+                  },
+                  "downloadUrl": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "imageUrl": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "mimeType": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": {},
+                "description": "A public profile media or brand asset."
+              },
+              "profileImage": {
+                "type": "object",
+                "properties": {
+                  "assetId": {
+                    "type": "string"
+                  },
+                  "byteSize": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "caption": {
+                    "type": "string"
+                  },
+                  "downloadUrl": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "imageUrl": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "mimeType": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": {},
+                "description": "A public profile media or brand asset."
+              }
+            },
+            "required": [
+              "additionalLogos",
+              "assets",
+              "logos"
+            ],
+            "additionalProperties": {},
+            "description": "Public media kit metadata for a public profile."
+          },
+          "outboundLinks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "source": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                }
+              },
+              "required": [
+                "label",
+                "url"
+              ],
+              "additionalProperties": {},
+              "description": "A public outbound link."
+            }
+          },
+          "profileType": {
+            "type": "string",
+            "enum": [
+              "person",
+              "community"
+            ],
+            "description": "The public profile entity class."
+          },
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "sourceType": {
+                "type": "string",
+                "enum": [
+                  "manual",
+                  "owner",
+                  "community",
+                  "partner",
+                  "import",
+                  "moderator",
+                  "ai_suggested"
+                ],
+                "description": "Public source or provenance class."
+              },
+              "submittedAt": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "updatedAt": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "url": {
+                "type": "string",
+                "format": "uri"
+              }
+            },
+            "additionalProperties": {},
+            "description": "Public summary for community-submitted, imported, owner-authored, or reviewed data."
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "trustLabel": {
+            "type": "string",
+            "enum": [
+              "community_submitted",
+              "unclaimed",
+              "claimed_unverified",
+              "claimed_verified"
+            ],
+            "description": "The public trust and claim state shown for the profile."
+          },
+          "upcomingEvents": {
+            "type": "array",
+            "items": {}
+          },
+          "worldCredits": {
+            "type": "array",
+            "items": {}
+          }
+        },
+        "required": [
+          "displayName",
+          "profileType",
+          "slug",
+          "trustLabel"
+        ],
+        "additionalProperties": {},
+        "description": "Public profile response. Unknown fields are preserved while the API is still stabilizing."
+      },
       "PublicProfileAssetsResponse": {
         "type": "object",
         "properties": {
@@ -441,38 +1647,32 @@
             "items": {
               "type": "object",
               "properties": {
-                "alt": {
+                "assetId": {
                   "type": "string"
                 },
-                "contentType": {
-                  "type": "string"
-                },
-                "height": {
+                "byteSize": {
                   "type": "integer",
                   "exclusiveMinimum": 0,
                   "maximum": 9007199254740991
                 },
-                "id": {
+                "caption": {
                   "type": "string"
                 },
-                "kind": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "url": {
+                "downloadUrl": {
                   "type": "string",
                   "format": "uri"
                 },
-                "width": {
-                  "type": "integer",
-                  "exclusiveMinimum": 0,
-                  "maximum": 9007199254740991
+                "imageUrl": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "mimeType": {
+                  "type": "string"
                 }
               },
-              "required": [
-                "kind",
-                "url"
-              ],
               "additionalProperties": {},
               "description": "A public profile media or brand asset."
             }
@@ -484,26 +1684,266 @@
           "mediaKit": {
             "type": "object",
             "properties": {
-              "description": {
-                "type": "string"
+              "additionalLogos": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "assetId": {
+                      "type": "string"
+                    },
+                    "byteSize": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "caption": {
+                      "type": "string"
+                    },
+                    "downloadUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "imageUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "mimeType": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": {},
+                  "description": "A public profile media or brand asset."
+                }
               },
-              "downloadUrl": {
+              "assets": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "assetId": {
+                      "type": "string"
+                    },
+                    "byteSize": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "caption": {
+                      "type": "string"
+                    },
+                    "downloadUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "imageUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "mimeType": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": {},
+                  "description": "A public profile media or brand asset."
+                }
+              },
+              "avatarAppearance": {
+                "type": "object",
+                "properties": {
+                  "borderColor": {
+                    "type": "string"
+                  },
+                  "borderEnabled": {
+                    "type": "boolean"
+                  },
+                  "borderSoftnessPx": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "borderWidthPx": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "radiusPercent": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 50
+                  }
+                },
+                "required": [
+                  "borderColor",
+                  "borderEnabled",
+                  "borderSoftnessPx",
+                  "borderWidthPx",
+                  "radiusPercent"
+                ],
+                "additionalProperties": {},
+                "description": "Bounded public avatar presentation hints."
+              },
+              "banner": {
+                "type": "object",
+                "properties": {
+                  "assetId": {
+                    "type": "string"
+                  },
+                  "byteSize": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "caption": {
+                    "type": "string"
+                  },
+                  "downloadUrl": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "imageUrl": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "mimeType": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": {},
+                "description": "A public profile media or brand asset."
+              },
+              "compactDisplay": {
+                "type": "string",
+                "enum": [
+                  "profile_image",
+                  "logo"
+                ]
+              },
+              "logoZipUrl": {
                 "type": "string",
                 "format": "uri"
               },
-              "updatedAt": {
-                "type": "string",
-                "format": "date-time",
-                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+              "logos": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "assetId": {
+                      "type": "string"
+                    },
+                    "byteSize": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "caption": {
+                      "type": "string"
+                    },
+                    "downloadUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "imageUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "mimeType": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": {},
+                  "description": "A public profile media or brand asset."
+                }
+              },
+              "primaryLogo": {
+                "type": "object",
+                "properties": {
+                  "assetId": {
+                    "type": "string"
+                  },
+                  "byteSize": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "caption": {
+                    "type": "string"
+                  },
+                  "downloadUrl": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "imageUrl": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "mimeType": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": {},
+                "description": "A public profile media or brand asset."
+              },
+              "profileImage": {
+                "type": "object",
+                "properties": {
+                  "assetId": {
+                    "type": "string"
+                  },
+                  "byteSize": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "caption": {
+                    "type": "string"
+                  },
+                  "downloadUrl": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "imageUrl": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "mimeType": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": {},
+                "description": "A public profile media or brand asset."
               }
             },
+            "required": [
+              "additionalLogos",
+              "assets",
+              "logos"
+            ],
             "additionalProperties": {},
-            "description": "Optional media kit metadata for a public profile."
+            "description": "Public media kit metadata for a public profile."
           },
           "profileType": {
             "type": "string",
             "enum": [
-              "user",
+              "person",
               "community"
             ],
             "description": "The public profile entity class."
@@ -531,38 +1971,32 @@
             "items": {
               "type": "object",
               "properties": {
-                "alt": {
+                "assetId": {
                   "type": "string"
                 },
-                "contentType": {
-                  "type": "string"
-                },
-                "height": {
+                "byteSize": {
                   "type": "integer",
                   "exclusiveMinimum": 0,
                   "maximum": 9007199254740991
                 },
-                "id": {
+                "caption": {
                   "type": "string"
                 },
-                "kind": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "url": {
+                "downloadUrl": {
                   "type": "string",
                   "format": "uri"
                 },
-                "width": {
-                  "type": "integer",
-                  "exclusiveMinimum": 0,
-                  "maximum": 9007199254740991
+                "imageUrl": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "mimeType": {
+                  "type": "string"
                 }
               },
-              "required": [
-                "kind",
-                "url"
-              ],
               "additionalProperties": {},
               "description": "A public profile media or brand asset."
             }
@@ -580,38 +2014,32 @@
             "items": {
               "type": "object",
               "properties": {
-                "alt": {
+                "assetId": {
                   "type": "string"
                 },
-                "contentType": {
-                  "type": "string"
-                },
-                "height": {
+                "byteSize": {
                   "type": "integer",
                   "exclusiveMinimum": 0,
                   "maximum": 9007199254740991
                 },
-                "id": {
+                "caption": {
                   "type": "string"
                 },
-                "kind": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "url": {
+                "downloadUrl": {
                   "type": "string",
                   "format": "uri"
                 },
-                "width": {
-                  "type": "integer",
-                  "exclusiveMinimum": 0,
-                  "maximum": 9007199254740991
+                "imageUrl": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "mimeType": {
+                  "type": "string"
                 }
               },
-              "required": [
-                "kind",
-                "url"
-              ],
               "additionalProperties": {},
               "description": "A public profile media or brand asset."
             }
@@ -619,45 +2047,39 @@
           "primaryLogo": {
             "type": "object",
             "properties": {
-              "alt": {
+              "assetId": {
                 "type": "string"
               },
-              "contentType": {
-                "type": "string"
-              },
-              "height": {
+              "byteSize": {
                 "type": "integer",
                 "exclusiveMinimum": 0,
                 "maximum": 9007199254740991
               },
-              "id": {
+              "caption": {
                 "type": "string"
               },
-              "kind": {
-                "type": "string",
-                "minLength": 1
-              },
-              "url": {
+              "downloadUrl": {
                 "type": "string",
                 "format": "uri"
               },
-              "width": {
-                "type": "integer",
-                "exclusiveMinimum": 0,
-                "maximum": 9007199254740991
+              "imageUrl": {
+                "type": "string",
+                "format": "uri"
+              },
+              "label": {
+                "type": "string"
+              },
+              "mimeType": {
+                "type": "string"
               }
             },
-            "required": [
-              "kind",
-              "url"
-            ],
             "additionalProperties": {},
             "description": "A public profile media or brand asset."
           },
           "profileType": {
             "type": "string",
             "enum": [
-              "user",
+              "person",
               "community"
             ],
             "description": "The public profile entity class."
@@ -676,6 +2098,992 @@
         ],
         "additionalProperties": {},
         "description": "Public logo assets for a profile."
+      },
+      "PublicEventsResponse": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublicEventPreview"
+            }
+          }
+        },
+        "required": [
+          "events"
+        ],
+        "additionalProperties": {},
+        "description": "List of public event cards."
+      },
+      "PublicEventPreview": {
+        "type": "object",
+        "properties": {
+          "bannerImageUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "communityImageUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "communityName": {
+            "type": "string"
+          },
+          "communitySlug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "doorsOpenAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "endAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "participantCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "posterImageUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "slotCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "label": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sourceType": {
+                "type": "string",
+                "enum": [
+                  "manual",
+                  "community",
+                  "partner",
+                  "import",
+                  "ai_suggested"
+                ],
+                "description": "Public event source class."
+              },
+              "url": {
+                "type": "string",
+                "format": "uri"
+              }
+            },
+            "required": [
+              "label",
+              "sourceType"
+            ],
+            "additionalProperties": {},
+            "description": "Public event source summary."
+          },
+          "startAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "summary": {
+            "type": "string"
+          },
+          "thumbnailImageUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "worlds": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "displayName": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "slug": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160
+                }
+              },
+              "required": [
+                "displayName",
+                "slug"
+              ],
+              "additionalProperties": {},
+              "description": "Public event world summary."
+            }
+          }
+        },
+        "required": [
+          "source",
+          "startAt",
+          "title"
+        ],
+        "additionalProperties": {},
+        "description": "Compact public event card."
+      },
+      "PublicEvent": {
+        "type": "object",
+        "properties": {
+          "bannerImageUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "communityImageUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "communityName": {
+            "type": "string"
+          },
+          "communitySlug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "doorsOpenAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "endAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "participantCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "posterImageUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "slotCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "label": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sourceType": {
+                "type": "string",
+                "enum": [
+                  "manual",
+                  "community",
+                  "partner",
+                  "import",
+                  "ai_suggested"
+                ],
+                "description": "Public event source class."
+              },
+              "url": {
+                "type": "string",
+                "format": "uri"
+              }
+            },
+            "required": [
+              "label",
+              "sourceType"
+            ],
+            "additionalProperties": {},
+            "description": "Public event source summary."
+          },
+          "startAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "summary": {
+            "type": "string"
+          },
+          "thumbnailImageUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "worlds": {
+            "type": "array",
+            "items": {}
+          },
+          "authoredMediaLinks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "presentation": {
+                  "type": "string",
+                  "enum": [
+                    "open",
+                    "copy"
+                  ]
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "event_page",
+                    "watch",
+                    "stream",
+                    "vrcdn",
+                    "discord",
+                    "ticket",
+                    "other"
+                  ]
+                },
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                }
+              },
+              "required": [
+                "label",
+                "presentation",
+                "type",
+                "url"
+              ],
+              "additionalProperties": {},
+              "description": "Public event media or outbound link."
+            }
+          },
+          "id": {
+            "type": "string"
+          },
+          "mediaLinks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "presentation": {
+                  "type": "string",
+                  "enum": [
+                    "open",
+                    "copy"
+                  ]
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "event_page",
+                    "watch",
+                    "stream",
+                    "vrcdn",
+                    "discord",
+                    "ticket",
+                    "other"
+                  ]
+                },
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                }
+              },
+              "required": [
+                "label",
+                "presentation",
+                "type",
+                "url"
+              ],
+              "additionalProperties": {},
+              "description": "Public event media or outbound link."
+            }
+          },
+          "notes": {
+            "type": "string"
+          },
+          "participants": {
+            "type": "array",
+            "items": {}
+          },
+          "slots": {
+            "type": "array",
+            "items": {}
+          },
+          "watchSurfaceEnabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "slug",
+          "source",
+          "startAt",
+          "title",
+          "id",
+          "watchSurfaceEnabled"
+        ],
+        "additionalProperties": {},
+        "description": "Public event detail response."
+      },
+      "PublicWorld": {
+        "type": "object",
+        "properties": {
+          "canonicalVrchatWorldUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "creatorAttributions": {
+            "type": "array",
+            "items": {}
+          },
+          "description": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "eventContext": {
+            "type": "object",
+            "properties": {
+              "recent": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "bannerImageUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "communityName": {
+                      "type": "string"
+                    },
+                    "doorsOpenAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "endAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "mediaLinks": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "label": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "presentation": {
+                            "type": "string",
+                            "enum": [
+                              "open",
+                              "copy"
+                            ]
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "event_page",
+                              "watch",
+                              "stream",
+                              "vrcdn",
+                              "discord",
+                              "ticket",
+                              "other"
+                            ]
+                          },
+                          "url": {
+                            "type": "string",
+                            "format": "uri"
+                          }
+                        },
+                        "required": [
+                          "label",
+                          "presentation",
+                          "type",
+                          "url"
+                        ],
+                        "additionalProperties": {},
+                        "description": "Public event media or outbound link."
+                      }
+                    },
+                    "posterImageUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "slug": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 160
+                    },
+                    "source": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "sourceType": {
+                          "type": "string",
+                          "enum": [
+                            "manual",
+                            "community",
+                            "partner",
+                            "import",
+                            "ai_suggested"
+                          ],
+                          "description": "Public event source class."
+                        },
+                        "url": {
+                          "type": "string",
+                          "format": "uri"
+                        }
+                      },
+                      "required": [
+                        "label",
+                        "sourceType"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Public event source summary."
+                    },
+                    "startAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "summary": {
+                      "type": "string"
+                    },
+                    "thumbnailImageUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "timezone": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "worldAssociation": {
+                      "type": "object",
+                      "properties": {
+                        "confirmationState": {
+                          "type": "string",
+                          "const": "confirmed"
+                        }
+                      },
+                      "required": [
+                        "confirmationState"
+                      ],
+                      "additionalProperties": {}
+                    }
+                  },
+                  "required": [
+                    "mediaLinks",
+                    "source",
+                    "startAt",
+                    "title",
+                    "worldAssociation"
+                  ],
+                  "additionalProperties": {},
+                  "description": "Public event card as shown in world context."
+                }
+              },
+              "upcoming": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "bannerImageUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "communityName": {
+                      "type": "string"
+                    },
+                    "doorsOpenAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "endAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "mediaLinks": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "label": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "presentation": {
+                            "type": "string",
+                            "enum": [
+                              "open",
+                              "copy"
+                            ]
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "event_page",
+                              "watch",
+                              "stream",
+                              "vrcdn",
+                              "discord",
+                              "ticket",
+                              "other"
+                            ]
+                          },
+                          "url": {
+                            "type": "string",
+                            "format": "uri"
+                          }
+                        },
+                        "required": [
+                          "label",
+                          "presentation",
+                          "type",
+                          "url"
+                        ],
+                        "additionalProperties": {},
+                        "description": "Public event media or outbound link."
+                      }
+                    },
+                    "posterImageUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "slug": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 160
+                    },
+                    "source": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "sourceType": {
+                          "type": "string",
+                          "enum": [
+                            "manual",
+                            "community",
+                            "partner",
+                            "import",
+                            "ai_suggested"
+                          ],
+                          "description": "Public event source class."
+                        },
+                        "url": {
+                          "type": "string",
+                          "format": "uri"
+                        }
+                      },
+                      "required": [
+                        "label",
+                        "sourceType"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Public event source summary."
+                    },
+                    "startAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "summary": {
+                      "type": "string"
+                    },
+                    "thumbnailImageUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "timezone": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "worldAssociation": {
+                      "type": "object",
+                      "properties": {
+                        "confirmationState": {
+                          "type": "string",
+                          "const": "confirmed"
+                        }
+                      },
+                      "required": [
+                        "confirmationState"
+                      ],
+                      "additionalProperties": {}
+                    }
+                  },
+                  "required": [
+                    "mediaLinks",
+                    "source",
+                    "startAt",
+                    "title",
+                    "worldAssociation"
+                  ],
+                  "additionalProperties": {},
+                  "description": "Public event card as shown in world context."
+                }
+              }
+            },
+            "required": [
+              "recent",
+              "upcoming"
+            ],
+            "additionalProperties": {}
+          },
+          "heroImageUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "media": {
+            "type": "array",
+            "items": {}
+          },
+          "outboundLinks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "source": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                }
+              },
+              "required": [
+                "label",
+                "url"
+              ],
+              "additionalProperties": {},
+              "description": "A public outbound link."
+            }
+          },
+          "platformCompatibility": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "sourceType": {
+                "type": "string",
+                "enum": [
+                  "manual",
+                  "owner",
+                  "community",
+                  "partner",
+                  "import",
+                  "moderator",
+                  "ai_suggested"
+                ],
+                "description": "Public source or provenance class."
+              },
+              "submittedAt": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "updatedAt": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "url": {
+                "type": "string",
+                "format": "uri"
+              }
+            },
+            "additionalProperties": {},
+            "description": "Public summary for community-submitted, imported, owner-authored, or reviewed data."
+          },
+          "summary": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "visibilityStatus": {
+            "type": "string"
+          },
+          "vrchatWorldId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "creatorAttributions",
+          "displayName",
+          "media",
+          "outboundLinks",
+          "platformCompatibility",
+          "slug",
+          "tags",
+          "visibilityStatus"
+        ],
+        "additionalProperties": {},
+        "description": "Public world detail response."
+      },
+      "PublicActiveWorldsResponse": {
+        "type": "object",
+        "properties": {
+          "worlds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublicActiveWorld"
+            }
+          }
+        },
+        "required": [
+          "worlds"
+        ],
+        "additionalProperties": {},
+        "description": "Public active worlds response."
+      },
+      "PublicActiveWorld": {
+        "type": "object",
+        "properties": {
+          "activityLabel": {
+            "type": "string",
+            "const": "Hosting upcoming events"
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "heroImageUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "nextEvent": {
+            "type": "object",
+            "properties": {
+              "communityName": {
+                "type": "string"
+              },
+              "communitySlug": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "doorsOpenAt": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "endAt": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "slug": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "source": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "sourceType": {
+                    "type": "string",
+                    "enum": [
+                      "manual",
+                      "community",
+                      "partner",
+                      "import",
+                      "ai_suggested"
+                    ],
+                    "description": "Public event source class."
+                  },
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  }
+                },
+                "required": [
+                  "label",
+                  "sourceType"
+                ],
+                "additionalProperties": {},
+                "description": "Public event source summary."
+              },
+              "startAt": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "timezone": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "source",
+              "startAt",
+              "title"
+            ],
+            "additionalProperties": {}
+          },
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "summary": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "upcomingEventCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "activityLabel",
+          "displayName",
+          "nextEvent",
+          "slug",
+          "tags",
+          "upcomingEventCount"
+        ],
+        "additionalProperties": {},
+        "description": "Public world currently hosting upcoming or live public events."
+      },
+      "PublicClaimStatusResponse": {
+        "type": "object",
+        "properties": {
+          "claimState": {
+            "type": "string",
+            "enum": [
+              "unclaimed",
+              "claimed_unverified",
+              "claimed_verified"
+            ],
+            "description": "The public claim state without private owner account details."
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "profileType": {
+            "type": "string",
+            "enum": [
+              "person",
+              "community"
+            ],
+            "description": "The public profile entity class."
+          },
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "trustLabel": {
+            "type": "string",
+            "enum": [
+              "community_submitted",
+              "unclaimed",
+              "claimed_unverified",
+              "claimed_verified"
+            ],
+            "description": "The public trust and claim state shown for the profile."
+          }
+        },
+        "required": [
+          "claimState",
+          "displayName",
+          "profileType",
+          "slug",
+          "trustLabel"
+        ],
+        "additionalProperties": {},
+        "description": "Public claim and trust state for a public profile."
       }
     },
     "securitySchemes": {

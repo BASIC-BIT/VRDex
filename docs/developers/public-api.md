@@ -8,6 +8,33 @@ Current direction for [#39](https://github.com/BASIC-BIT/VRDex/issues/39).
 
 The full implementation-facing plan for API tokens, OAuth apps, rate limiting, Swagger/OpenAPI docs, and hosted/private MCP now lives in `docs/planning/public-api-and-mcp-platform.md`. This page remains the compact public API posture reference.
 
+## Current v0 Implementation Checkpoint
+
+`/api/v0` is now backed by shared TypeScript contract schemas in `packages/api-contracts`.
+The checked-in OpenAPI artifact is `docs/api/openapi.json`, and the web app serves
+the same generated document at `GET /api/v0/openapi.json`.
+
+Implemented anonymous public reads:
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/v0/search?q=` | Search public profiles, worlds, and events. |
+| `GET /api/v0/profiles/:slug` | Read a public person or community profile. |
+| `GET /api/v0/profiles/:slug/assets` | Read public profile media-kit assets. |
+| `GET /api/v0/profiles/:slug/logos` | Read public profile logo assets. |
+| `GET /api/v0/people/:slug` | Read a public person profile. |
+| `GET /api/v0/people/:slug/events` | Read public upcoming events for a person profile. |
+| `GET /api/v0/communities/:slug` | Read a public community profile. |
+| `GET /api/v0/communities/:slug/events` | Read public upcoming hosted events for a community profile. |
+| `GET /api/v0/events/:slug` | Read a public event. |
+| `GET /api/v0/events/upcoming` | List upcoming public events from discovery data. |
+| `GET /api/v0/worlds/:slug` | Read a public world. |
+| `GET /api/v0/worlds/active` | List worlds with upcoming or live public events. |
+| `GET /api/v0/claims/:slug/status` | Read public claim and trust state. |
+
+All public read routes reject bearer tokens in URL query parameters. Send future
+API tokens and OAuth access tokens through the `Authorization` header only.
+
 ## Locked Direction
 
 - Public API behavior and limits should be documented before outside consumers depend on them.
@@ -87,7 +114,7 @@ The first implementation issue for the public API should add:
 - task-oriented examples for profile lookup, search, event lookup, profile cards, and partner-safe seed validation
 - clear guidance to use API or MCP for structured reads instead of scraping public pages
 
-## Non-goals for this pass
+## Non-goals for the original posture pass
 
 - implementing the public API now
 - finalizing every endpoint

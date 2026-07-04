@@ -33,3 +33,11 @@ export function createRateLimitProblem(retryAfterSeconds: number) {
     detail: `Retry after ${retryAfterSeconds} seconds.`,
   });
 }
+
+export function createBearerTokenQueryProblem() {
+  return createApiProblem({
+    status: 400,
+    title: "Bearer token query parameters are not allowed",
+    detail: "Send bearer credentials with the Authorization header instead of URL query parameters.",
+  });
+}

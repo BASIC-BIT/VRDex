@@ -1,6 +1,6 @@
-import { NextResponse } from "next/server";
-
+import { PublicProfileLogosResponseSchema } from "@vrdex/api-contracts";
 import { api } from "@convex-generated-api";
+import { apiJson, publicNotFoundResponse, rejectBearerTokenQuery } from "@/lib/server/api-v0";
 import { convexHttpClient } from "@/lib/server/convex-http";
 
 export const dynamic = "force-dynamic";
@@ -11,15 +11,20 @@ type RouteContext = {
   }>;
 };
 
-export async function GET(_request: Request, context: RouteContext) {
+export async function GET(request: Request, context: RouteContext) {
+  const rejected = rejectBearerTokenQuery(request);
+  if (rejected !== null) {
+    return rejected;
+  }
+
   const { slug } = await context.params;
   const result = await convexHttpClient().query(api.profileAssets.listPublicBySlug, { slug });
 
   if (result === null) {
-    return NextResponse.json({ error: "Profile not found." }, { status: 404 });
+    return publicNotFoundResponse("Profile");
   }
 
-  return NextResponse.json({
+  return apiJson(PublicProfileLogosResponseSchema, {
     profileType: result.profileType,
     slug: result.slug,
     displayName: result.displayName,
