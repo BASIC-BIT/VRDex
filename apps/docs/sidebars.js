@@ -15,9 +15,13 @@ const sidebars = {
         "developers/partner-agent-skill",
         "developers/opencode-skill-adapter",
         "developers/public-api",
+        "developers/api-auth",
+        "developers/oauth-apps",
         "developers/api-rate-limits",
         "developers/self-hosting-and-iac",
         "developers/vrdex-mcp-read-tools",
+        "developers/api-changelog",
+        "developers/api-mcp-rollout-checklist",
         {
           type: "category",
           label: "Deployment",

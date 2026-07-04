@@ -59,6 +59,40 @@ A self-hosted operator should expect to provide:
 
 Self-hosting docs should distinguish required product configuration from BASIC BIT hosted deployment conveniences. Forks should not accidentally send analytics, email, or assets into BASIC BIT infrastructure.
 
+## Public API, OAuth, And MCP Environment Inventory
+
+Current API/MCP variables read by the web app:
+
+| Variable | Scope | Required when | Notes |
+| --- | --- | --- | --- |
+| `VRDEX_API_TOKEN_PEPPER` | Web server secret | Personal API tokens are created or validated. | Rotate by minting replacement tokens; old token hashes depend on the old pepper. |
+| `VRDEX_OAUTH_CLIENT_SECRET_PEPPER` | Web server secret | Confidential OAuth client secrets are created or validated. | Rotate by issuing replacement client secrets. |
+| `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY` | Web server secret | OAuth access tokens, JWKS, or OAuth bearer validation are used. | RSA private key PEM; keep in provider secret store. |
+| `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID` | Web server config | Optional. | Advertised JWT key id; defaults to `vrdex-local`. |
+| `VRDEX_OAUTH_ISSUER_URL` | Public URL config | Optional in single-origin deployments. | Overrides issuer origin for metadata and tokens. |
+| `VRDEX_PUBLIC_API_BASE_URL` | Public URL config | Optional in single-origin deployments. | Defines the API resource/audience origin. |
+| `VRDEX_MCP_RESOURCE_URI` | Public URL config | Optional in single-origin deployments. | Defaults to `<issuer>/mcp`. |
+| `VRDEX_RATE_LIMIT_STORE` | Web server config | Rate limiting is enabled. | `memory`, `redis-rest`, `upstash`, or `disabled`. |
+| `VRDEX_RATE_LIMIT_REDIS_REST_URL` | Web server secret/config | Redis REST or Upstash mode. | Redis-compatible REST endpoint. |
+| `VRDEX_RATE_LIMIT_REDIS_REST_TOKEN` | Web server secret | Redis REST or Upstash mode. | Bearer token for the Redis-compatible REST endpoint. |
+| `VRDEX_RATE_LIMIT_REDIS_PREFIX` | Web server config | Optional. | Prefix for isolating keys in shared Redis stores. |
+
+Current local stdio MCP variables:
+
+| Variable | Scope | Notes |
+| --- | --- | --- |
+| `VRDEX_API_BASE_URL` | Local client config | Hosted or self-hosted web origin, or explicit `/api/v0` base path. |
+| `VRDEX_API_TOKEN` | Local client secret | Personal API token for authenticated API reads. |
+| `VRDEX_OAUTH_ACCESS_TOKEN` | Local client secret | API-resource OAuth access token. |
+| `VRDEX_OAUTH_TOKEN_FILE` | Local client secret path | Plain token file or JSON with `access_token`. |
+| `VRDEX_MCP_OUTPUT_MODE` | Local client config | `compact` by default; `detail` pretty-prints JSON text output. |
+
+Planned feature flags such as `VRDEX_PUBLIC_API_ENABLED`,
+`VRDEX_DEVELOPER_DASHBOARD_ENABLED`,
+`VRDEX_HOSTED_MCP_ENABLED`, and
+`VRDEX_OAUTH_DYNAMIC_CLIENT_REGISTRATION_ENABLED` are not current code gates.
+Add them only when the implementation actually checks them.
+
 ## Reproducibility Rules
 
 - Prefer Terraform or checked-in workflows for infrastructure state when provider support is stable.

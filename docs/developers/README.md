@@ -32,8 +32,13 @@ Audience:
 - [VRDex partner-agent skill](./partner-agent-skill.md)
 - [OpenCode skill adapter](./opencode-skill-adapter.md)
 - [Public API posture](./public-api.md)
+- [API authentication](./api-auth.md)
+- [OAuth applications](./oauth-apps.md)
+- [API and MCP rate limits](./api-rate-limits.md)
 - [Self-hosting and IaC](./self-hosting-and-iac.md)
 - [VRDex MCP read tools](./vrdex-mcp-read-tools.md)
+- [API and MCP changelog](./api-changelog.md)
+- [API and MCP rollout checklist](./api-mcp-rollout-checklist.md)
 - [Service cross-link map](../engineering/service-map.md)
 
 Files:
@@ -41,8 +46,13 @@ Files:
 - `docs/developers/partner-agent-skill.md`
 - `docs/developers/opencode-skill-adapter.md`
 - `docs/developers/public-api.md`
+- `docs/developers/api-auth.md`
+- `docs/developers/oauth-apps.md`
+- `docs/developers/api-rate-limits.md`
 - `docs/developers/self-hosting-and-iac.md`
 - `docs/developers/vrdex-mcp-read-tools.md`
+- `docs/developers/api-changelog.md`
+- `docs/developers/api-mcp-rollout-checklist.md`
 - `docs/engineering/service-map.md`
 - `skills/vrdex/SKILL.md`, compatibility pointer only
 

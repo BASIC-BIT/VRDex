@@ -1133,6 +1133,13 @@ Validation:
 - visual screenshot evidence for any changed UI
 - all lint/type/test jobs required by repo merge policy
 
+Implementation checkpoint:
+
+- final developer docs now include API auth, OAuth apps, rate limits, MCP read
+  tools, an API/MCP changelog, and a rollout checklist
+- self-hosting docs include the current API, OAuth, hosted MCP, rate-limit, and
+  local stdio MCP environment inventory
+
 ## Suggested Issue Slices
 
 If this epic is split before implementation, keep the issue count small:
