@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import { requireCurrentUser } from "./accounts";
+import { getCurrentUser, requireCurrentUser } from "./accounts";
 import {
   apiRouteClassValidator,
   apiScopeValidator,
@@ -87,7 +87,12 @@ export const listPersonalTokens = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const user = await requireCurrentUser(ctx);
+    const user = await getCurrentUser(ctx);
+
+    if (user === null) {
+      return null;
+    }
+
     const limit = boundedLimit(args.limit, 50, 100);
     const tokens = await ctx.db
       .query("apiTokens")

@@ -84,6 +84,9 @@ export default function ApiReferencePage() {
             <a className={buttonVariants({ variant: "secondary" })} href="/api/v0/openapi.json">
               OpenAPI JSON
             </a>
+            <Link className={buttonVariants({ variant: "secondary" })} href="/developers/tokens">
+              Developer tokens
+            </Link>
             <Link className={buttonVariants({ variant: "ghost" })} href="/">
               Home
             </Link>
@@ -95,7 +98,7 @@ export default function ApiReferencePage() {
             <div className="rounded-panel border border-border bg-surface px-5 py-5 sm:px-6">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
-                  <h1 className="text-3xl font-semibold tracking-[-0.03em] sm:text-4xl">
+                  <h1 className="text-3xl font-semibold sm:text-4xl">
                     {document.info.title}
                   </h1>
                   <p className="mt-2 font-mono text-xs uppercase tracking-[0.22em] text-muted">
