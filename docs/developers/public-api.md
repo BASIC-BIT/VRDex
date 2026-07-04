@@ -77,6 +77,10 @@ Current OAuth issuer routes:
 - `POST /oauth/token`, currently for `client_credentials`
 - `POST /oauth/revoke`, currently for JWT access-token revocation
 
+Current hosted MCP route:
+
+- `GET|POST|DELETE /mcp`, Streamable HTTP MCP with anonymous public read tools
+
 Current token validation behavior:
 
 - malformed, unknown, revoked, or expired bearer tokens return `401`

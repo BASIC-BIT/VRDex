@@ -2,17 +2,16 @@
 
 ## Status
 
-Documentation-only contract draft feeding [#78](https://github.com/BASIC-BIT/VRDex/issues/78). This page does not implement or close the MCP prototype.
+Hosted MCP implementation checkpoint for [#78](https://github.com/BASIC-BIT/VRDex/issues/78).
 
-The standalone VRDex MCP should wait for stable public API/query behavior. This contract defines the intended read-only surface so [#78](https://github.com/BASIC-BIT/VRDex/issues/78) does not depend on website scraping or private VRChat cookies.
+The web app now serves a hosted Streamable HTTP MCP endpoint at `/mcp` using the official TypeScript MCP server SDK. The first tool set is anonymous and read-only, so public-safe search/browser-like use cases do not require login.
 
 The broader platform plan for hosted MCP OAuth, local/private MCP, API tokens, OAuth applications, rate limiting, and Swagger/OpenAPI docs lives in `docs/planning/public-api-and-mcp-platform.md`. This page remains the first read-only tool contract for the MCP slice.
 
 The first `/api/v0` anonymous public read routes now exist for profiles, search,
 events, worlds, and claim status, with schemas generated through
-`packages/api-contracts`. The standalone MCP package and hosted MCP endpoint are
-still separate implementation slices; MCP tools should call those API/query
-surfaces instead of scraping web pages.
+`packages/api-contracts`. Hosted MCP tools call those API/query surfaces instead
+of scraping web pages. The private/local MCP package remains a later slice.
 
 ## Locked Direction
 
@@ -24,24 +23,24 @@ surfaces instead of scraping web pages.
 - Do not expose authenticated claim/write operations in the first read-only slice.
 - Keep event-operator presence/readiness signals out of the standalone public read tool contract.
 
-## Candidate Tools
+## Current Hosted Tools
 
-### `vrdex_profile_search`
+### `vrdex_search`
 
-Purpose: search public person and community profiles.
+Purpose: search public profiles, worlds, and events.
 
 Inputs:
 
 - `query`: human search text
-- `profileType`: optional `person` or `community`
+- `type`: optional `all`, `person`, `community`, `profile`, `world`, or `event`
 - `limit`: optional bounded result count
 
 Output:
 
-- compact profile cards with `slug`, `profileType`, `displayName`, trust label, public summary, and canonical URL
+- compact search results with `slug`, entity type, title, route path, score, and public preview fields
 - clear empty result message
 
-### `vrdex_profile_get`
+### `vrdex_get_profile`
 
 Purpose: read one public profile by slug.
 
@@ -57,74 +56,33 @@ Output:
 - public links and events where allowed
 - no private or suppressed fields
 
-### `vrdex_community_search`
-
-Purpose: search public community profiles with community-friendly labels.
-
-Inputs:
-
-- `query`
-- `limit`
-
-Output:
-
-- community cards with subtype/category tags and canonical URL
-
-### `vrdex_community_get`
-
-Purpose: read one public community profile by slug.
-
-Inputs:
-
-- `slug`
-
-Output:
-
-- same public-safety behavior as `vrdex_profile_get`, narrowed to communities
-
-### `vrdex_events_upcoming`
+### `vrdex_list_upcoming_events`
 
 Purpose: list upcoming public events.
 
 Inputs:
 
-- `profileSlug` optional
-- `communitySlug` optional
-- `worldSlug` optional
-- `from` optional ISO timestamp
-- `limit`
+- `limit`: optional bounded result count
 
 Output:
 
 - public event cards with stable slugs/IDs, title, start/end time, public host/participant/world context, and canonical URL
 
-### `vrdex_event_get`
+### `vrdex_get_event`
 
 Purpose: read one public event.
 
 Inputs:
 
-- `slug` or `eventId`
+- `slug`
 
 Output:
 
 - public event details, participant links, media links, world association state, and provenance labels
 
-### `vrdex_profile_links_get`
+### `vrdex_get_world`
 
-Purpose: return public, source-labeled outbound profile links.
-
-Inputs:
-
-- `slug`
-
-Output:
-
-- `https` links only, with link type and source label such as owner-authored, reviewed, or partner-provided
-
-### `vrdex_claim_status_get`
-
-Purpose: tell an integration whether a public profile is unclaimed, claimed unverified, or claimed verified.
+Purpose: read one public world by slug.
 
 Inputs:
 
@@ -132,7 +90,19 @@ Inputs:
 
 Output:
 
-- public claim state and trust label only, with no private owner account details
+- public world details, media, outbound links, creator attributions, event context, and provenance labels
+
+### `vrdex_list_active_worlds`
+
+Purpose: list public worlds with upcoming or live events.
+
+Inputs:
+
+- `limit`: optional bounded result count
+
+Output:
+
+- public active world cards with the next event preview and upcoming event count
 
 ## Safety Rules
 

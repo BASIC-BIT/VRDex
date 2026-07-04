@@ -685,6 +685,12 @@ Candidate endpoint:
 
 - `/mcp`
 
+Current checkpoint:
+
+- implemented in the web app with `@modelcontextprotocol/server`
+- anonymous public read tools are served through the `anonymous_mcp_public_read` rate-limit class
+- OAuth protected-resource metadata exists; OAuth-protected MCP tools remain a later checkpoint
+
 Required metadata:
 
 - OAuth protected resource metadata
@@ -711,14 +717,12 @@ Day-one client compatibility:
 
 First hosted tools:
 
-- `vrdex_profile_search`
-- `vrdex_profile_get`
-- `vrdex_community_search`
-- `vrdex_community_get`
-- `vrdex_events_upcoming`
-- `vrdex_event_get`
-- `vrdex_profile_links_get`
-- `vrdex_claim_status_get`
+- `vrdex_search`
+- `vrdex_get_profile`
+- `vrdex_get_event`
+- `vrdex_list_upcoming_events`
+- `vrdex_get_world`
+- `vrdex_list_active_worlds`
 
 Later hosted tools:
 
