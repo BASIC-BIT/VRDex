@@ -56,6 +56,8 @@ import {
   oauthApplicationOwnerKindValidator,
   oauthApplicationStatusValidator,
   oauthApplicationTrustTierValidator,
+  oauthAccessTokenStatusValidator,
+  oauthAccessTokenSubjectTypeValidator,
   oauthClientEventResultValidator,
   oauthClientEventTypeValidator,
   oauthClientSecretHashVersion,
@@ -1163,6 +1165,24 @@ export default defineSchema({
     .index("by_clientId_createdAt", ["clientId", "createdAt"])
     .index("by_ownerUserId_createdAt", ["ownerUserId", "createdAt"])
     .index("by_eventType_createdAt", ["eventType", "createdAt"]),
+  oauthAccessTokens: defineTable({
+    tokenId: v.string(),
+    applicationId: v.id("oauthApplications"),
+    clientId: v.string(),
+    subjectType: oauthAccessTokenSubjectTypeValidator,
+    userId: v.optional(v.id("users")),
+    resource: v.string(),
+    scopes: v.array(apiScopeValidator),
+    status: oauthAccessTokenStatusValidator,
+    issuedAt: v.number(),
+    expiresAt: v.number(),
+    revokedAt: v.optional(v.number()),
+    revokedByClientId: v.optional(v.string()),
+  })
+    .index("by_tokenId", ["tokenId"])
+    .index("by_clientId_expiresAt", ["clientId", "expiresAt"])
+    .index("by_applicationId_issuedAt", ["applicationId", "issuedAt"])
+    .index("by_status_expiresAt", ["status", "expiresAt"]),
   billingCustomerMappings: defineTable({
     ownerKind: billingOwnerKindValidator,
     userId: v.optional(v.id("users")),

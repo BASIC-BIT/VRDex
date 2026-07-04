@@ -4,8 +4,9 @@ import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { getCurrentUser, requireCurrentUser } from "./accounts";
-import { apiScopeValidator } from "./_apiTokens";
+import { apiScopeValidator, hasRequiredApiScopes, timingSafeEqualString } from "./_apiTokens";
 import {
+  normalizeOAuthAccessTokenId,
   normalizeOAuthApplicationDescription,
   normalizeOAuthApplicationName,
   normalizeOAuthClientId,
@@ -16,7 +17,9 @@ import {
   normalizeOAuthOptionalUrl,
   normalizeOAuthRedirectUris,
   normalizeOAuthRevokeReason,
+  normalizeOAuthResourceUri,
   normalizeOAuthScopes,
+  normalizeOAuthTokenExpiry,
   oauthClientSecretHashVersion,
   oauthGrantTypeValidator,
 } from "./_oauth";
@@ -324,5 +327,161 @@ export const revokePersonalApplication = mutation({
     });
 
     return toApplicationSummary(updatedApplication, []);
+  },
+});
+
+export const issueClientCredentialsAccessToken = mutation({
+  args: {
+    clientId: v.string(),
+    secretPrefix: v.string(),
+    verifierHash: v.string(),
+    requestedScopes: v.optional(v.array(apiScopeValidator)),
+    resource: v.string(),
+    tokenId: v.string(),
+    expiresAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const clientId = normalizeOAuthClientId(args.clientId);
+    const secretPrefix = normalizeOAuthClientSecretPrefix(args.secretPrefix);
+    const verifierHash = normalizeOAuthClientSecretHash(args.verifierHash);
+    const requestedScopes = normalizeOAuthScopes(args.requestedScopes);
+    const resource = normalizeOAuthResourceUri(args.resource);
+    const tokenId = normalizeOAuthAccessTokenId(args.tokenId);
+    const expiresAt = normalizeOAuthTokenExpiry(args.expiresAt, now);
+    const application = await ctx.db
+      .query("oauthApplications")
+      .withIndex("by_clientId", (index) => index.eq("clientId", clientId))
+      .unique();
+
+    if (
+      application === null ||
+      application.status !== "active" ||
+      application.clientType !== "confidential" ||
+      !application.allowedGrants.includes("client_credentials")
+    ) {
+      await recordOAuthClientEvent(ctx, {
+        clientId,
+        secretPrefix,
+        eventType: "client_credentials_rejected",
+        result: "rejected",
+        now,
+      });
+
+      return { ok: false as const, reason: "invalid_client" as const };
+    }
+
+    if (!hasRequiredApiScopes(application.allowedScopes, requestedScopes)) {
+      await recordOAuthClientEvent(ctx, {
+        application,
+        secretPrefix,
+        eventType: "client_credentials_rejected",
+        result: "rejected",
+        now,
+      });
+
+      return { ok: false as const, reason: "invalid_scope" as const };
+    }
+
+    const secret = await ctx.db
+      .query("oauthApplicationSecrets")
+      .withIndex("by_secretPrefix", (index) => index.eq("secretPrefix", secretPrefix))
+      .unique();
+
+    if (
+      secret === null ||
+      secret.applicationId !== application._id ||
+      secret.clientId !== clientId ||
+      secret.status !== "active" ||
+      !timingSafeEqualString(secret.verifierHash, verifierHash)
+    ) {
+      await recordOAuthClientEvent(ctx, {
+        application,
+        secretPrefix,
+        eventType: "client_credentials_rejected",
+        result: "rejected",
+        now,
+      });
+
+      return { ok: false as const, reason: "invalid_client" as const };
+    }
+
+    const existingAccessToken = await ctx.db
+      .query("oauthAccessTokens")
+      .withIndex("by_tokenId", (index) => index.eq("tokenId", tokenId))
+      .unique();
+
+    if (existingAccessToken !== null) {
+      throw new Error("OAuth access token id collision. Generate a new token id and retry.");
+    }
+
+    await ctx.db.insert("oauthAccessTokens", {
+      tokenId,
+      applicationId: application._id,
+      clientId,
+      subjectType: "client",
+      resource,
+      scopes: requestedScopes,
+      status: "active",
+      issuedAt: now,
+      expiresAt,
+    });
+    await ctx.db.patch(application._id, { lastUsedAt: now, updatedAt: now });
+    await ctx.db.patch(secret._id, { lastUsedAt: now, updatedAt: now });
+    await recordOAuthClientEvent(ctx, {
+      application,
+      secretPrefix,
+      eventType: "token_issued",
+      result: "accepted",
+      now,
+    });
+
+    return {
+      ok: true as const,
+      applicationId: application._id,
+      clientId,
+      ownerUserId: application.ownerUserId,
+      resource,
+      scopes: requestedScopes,
+      tokenId,
+      expiresAt,
+    };
+  },
+});
+
+export const revokeClientAccessToken = mutation({
+  args: {
+    clientId: v.string(),
+    tokenId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const clientId = normalizeOAuthClientId(args.clientId);
+    const tokenId = normalizeOAuthAccessTokenId(args.tokenId);
+    const token = await ctx.db
+      .query("oauthAccessTokens")
+      .withIndex("by_tokenId", (index) => index.eq("tokenId", tokenId))
+      .unique();
+
+    if (token === null || token.clientId !== clientId || token.status === "revoked") {
+      return { ok: true as const };
+    }
+
+    await ctx.db.patch(token._id, {
+      status: "revoked",
+      revokedAt: now,
+      revokedByClientId: clientId,
+    });
+
+    const application = await ctx.db.get(token.applicationId);
+
+    await recordOAuthClientEvent(ctx, {
+      ...(application === null ? { clientId } : { application }),
+      eventType: "token_revoked",
+      result: "accepted",
+      now,
+    });
+
+    return { ok: true as const };
   },
 });

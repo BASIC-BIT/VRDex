@@ -18,8 +18,10 @@ manage personal API tokens at `/developers/tokens`; token creation uses a
 first-party session route outside the public `/api/v0` contract, so it is not
 included in the public OpenAPI document. Signed-in developers can also register
 user-owned OAuth client apps at `/developers/apps`; the app registry and hashed
-client-secret storage are in place, while OAuth authorize/token endpoints are
-still a later implementation checkpoint.
+client-secret storage are in place. OAuth metadata, JWKS, client-credentials
+token issuance, and token revocation endpoints are also in place; user-delegated
+authorization, consent, and refresh-token rotation remain later implementation
+checkpoints.
 
 Implemented public reads are anonymous by default and accept optional scoped
 API bearer tokens for authenticated public-read traffic:
@@ -64,6 +66,16 @@ Current OAuth app registry primitives:
 - `oauthApps.createPersonalApplication`
 - `oauthApps.listPersonalApplications`
 - `oauthApps.revokePersonalApplication`
+- `oauthApps.issueClientCredentialsAccessToken`
+- `oauthApps.revokeClientAccessToken`
+
+Current OAuth issuer routes:
+
+- `GET /.well-known/oauth-authorization-server`
+- `GET /.well-known/oauth-protected-resource`
+- `GET /oauth/jwks.json`
+- `POST /oauth/token`, currently for `client_credentials`
+- `POST /oauth/revoke`, currently for JWT access-token revocation
 
 Current token validation behavior:
 

@@ -1,0 +1,220 @@
+import { api } from "@convex-generated-api";
+import {
+  hashOAuthClientSecretValue,
+  normalizeOAuthClientId,
+  parseOAuthClientSecretValue,
+} from "@vrdex/api-contracts";
+
+import { convexHttpClient } from "@/lib/server/convex-http";
+import {
+  createOAuthAccessTokenId,
+  oauthAccessTokenExpiresAt,
+  oauthAccessTokenExpiresInSeconds,
+  oauthIssuerUrl,
+  oauthScopeString,
+  oauthSupportedResources,
+  parseOAuthScopeString,
+  signOAuthAccessToken,
+} from "@/lib/server/oauth-jwt";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+function oauthProblem(
+  status: 400 | 401 | 500,
+  error: string,
+  errorDescription: string,
+  headers: HeadersInit = {},
+) {
+  return Response.json(
+    {
+      error,
+      error_description: errorDescription,
+    },
+    {
+      headers: {
+        "cache-control": "no-store",
+        pragma: "no-cache",
+        ...headers,
+      },
+      status,
+    },
+  );
+}
+
+function clientSecretPepper() {
+  const pepper = process.env.VRDEX_OAUTH_CLIENT_SECRET_PEPPER?.trim();
+
+  if (!pepper) {
+    throw new Error("VRDEX_OAUTH_CLIENT_SECRET_PEPPER is required for OAuth client secret validation.");
+  }
+
+  return pepper;
+}
+
+function basicClientCredentials(request: Request) {
+  const authorization = request.headers.get("authorization");
+
+  if (!authorization?.startsWith("Basic ")) {
+    return {};
+  }
+
+  try {
+    const decoded = Buffer.from(authorization.slice("Basic ".length), "base64").toString("utf8");
+    const separatorIndex = decoded.indexOf(":");
+
+    if (separatorIndex < 0) {
+      return {};
+    }
+
+    return {
+      clientId: decodeURIComponent(decoded.slice(0, separatorIndex)),
+      clientSecret: decodeURIComponent(decoded.slice(separatorIndex + 1)),
+    };
+  } catch {
+    return {};
+  }
+}
+
+async function formData(request: Request) {
+  const contentType = request.headers.get("content-type") ?? "";
+
+  if (!contentType.toLowerCase().includes("application/x-www-form-urlencoded")) {
+    throw new Error("OAuth token requests must use application/x-www-form-urlencoded.");
+  }
+
+  return await request.formData();
+}
+
+function requestedResource(request: Request, form: FormData) {
+  const resource = String(form.get("resource") ?? "").trim();
+  const supportedResources = oauthSupportedResources(request);
+
+  if (!resource) {
+    return supportedResources[0];
+  }
+
+  if (!supportedResources.includes(resource)) {
+    throw new Error("The requested OAuth resource is not supported by this deployment.");
+  }
+
+  return resource;
+}
+
+export async function POST(request: Request) {
+  let form: FormData;
+
+  try {
+    form = await formData(request);
+  } catch (error) {
+    return oauthProblem(
+      400,
+      "invalid_request",
+      error instanceof Error ? error.message : "The OAuth token request is invalid.",
+    );
+  }
+
+  const grantType = String(form.get("grant_type") ?? "");
+
+  if (grantType !== "client_credentials") {
+    return oauthProblem(400, "unsupported_grant_type", "Only client_credentials is implemented in this checkpoint.");
+  }
+
+  const basicCredentials = basicClientCredentials(request);
+  const clientId = basicCredentials.clientId ?? String(form.get("client_id") ?? "");
+  const clientSecret = basicCredentials.clientSecret ?? String(form.get("client_secret") ?? "");
+  const parsedSecret = parseOAuthClientSecretValue(clientSecret);
+  let normalizedClientId: string;
+
+  if (!clientId || parsedSecret === null) {
+    return oauthProblem(401, "invalid_client", "Client authentication failed.", {
+      "www-authenticate": 'Basic realm="VRDex OAuth"',
+    });
+  }
+
+  try {
+    normalizedClientId = normalizeOAuthClientId(clientId);
+  } catch {
+    return oauthProblem(401, "invalid_client", "Client authentication failed.", {
+      "www-authenticate": 'Basic realm="VRDex OAuth"',
+    });
+  }
+
+  let scopes: ReturnType<typeof parseOAuthScopeString>;
+  let resource: string;
+
+  try {
+    scopes = parseOAuthScopeString(String(form.get("scope") ?? ""), ["public:read"]);
+    resource = requestedResource(request, form);
+  } catch (error) {
+    return oauthProblem(
+      400,
+      "invalid_scope",
+      error instanceof Error ? error.message : "The requested OAuth scope or resource is invalid.",
+    );
+  }
+
+  let verifierHash: string;
+
+  try {
+    verifierHash = await hashOAuthClientSecretValue(clientSecret, clientSecretPepper());
+  } catch {
+    return oauthProblem(
+      500,
+      "server_error",
+      "The server is not configured to validate OAuth client secrets.",
+    );
+  }
+
+  const now = Date.now();
+  const expiresAt = oauthAccessTokenExpiresAt(now);
+  const tokenId = createOAuthAccessTokenId();
+  const convex = convexHttpClient();
+  const result = await convex.mutation(api.oauthApps.issueClientCredentialsAccessToken, {
+    clientId: normalizedClientId,
+    secretPrefix: parsedSecret.secretPrefix,
+    verifierHash,
+    requestedScopes: scopes,
+    resource,
+    tokenId,
+    expiresAt,
+  });
+
+  if (!result.ok) {
+    if (result.reason === "invalid_scope") {
+      return oauthProblem(400, "invalid_scope", "The requested scope is not allowed for this OAuth client.");
+    }
+
+    return oauthProblem(401, "invalid_client", "Client authentication failed.", {
+      "www-authenticate": 'Basic realm="VRDex OAuth"',
+    });
+  }
+
+  const issuer = oauthIssuerUrl(request);
+  const issuedAtSeconds = Math.floor(now / 1000);
+  const accessToken = signOAuthAccessToken({
+    aud: result.resource,
+    client_id: result.clientId,
+    exp: Math.floor(result.expiresAt / 1000),
+    iat: issuedAtSeconds,
+    iss: issuer,
+    jti: result.tokenId,
+    scope: oauthScopeString(result.scopes),
+    sub: result.clientId,
+  });
+
+  return Response.json(
+    {
+      access_token: accessToken,
+      token_type: "Bearer",
+      expires_in: oauthAccessTokenExpiresInSeconds(),
+      scope: oauthScopeString(result.scopes),
+    },
+    {
+      headers: {
+        "cache-control": "no-store",
+        pragma: "no-cache",
+      },
+    },
+  );
+}

@@ -865,6 +865,7 @@ Secrets and signing:
 
 - `VRDEX_API_TOKEN_PEPPER`
 - `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY`, if JWT access tokens are used
+- `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID`, optional JWT key id
 - `VRDEX_OAUTH_REFRESH_TOKEN_PEPPER`
 - `VRDEX_OAUTH_CLIENT_SECRET_PEPPER`
 
@@ -1176,7 +1177,7 @@ Security-specific tests:
 ## Remaining Open Research
 
 - Confirm the exact schema/OpenAPI generator after a short Zod 4 and OpenAPI generation spike.
-- Confirm the exact OAuth JWT signing and key-rotation library once implementation begins.
+- Define OAuth signing-key rotation operations once deployment secret management is wired. The current checkpoint uses Node's built-in crypto APIs for RS256 JWT access tokens and advertises an explicit JWT key id when configured.
 - Confirm the hosted rate-limit provider for production, such as Upstash, Vercel KV, Valkey, or another Redis-compatible store.
 - Build the implementation-time major MCP client compatibility list and identify which clients require Dynamic Client Registration.
 - Decide whether community-owned OAuth apps can fit into the first implementation PR after user-owned apps are working.

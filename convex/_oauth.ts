@@ -20,8 +20,13 @@ export const oauthClientEventTypeValidator = v.union(
   v.literal("application_revoked"),
   v.literal("secret_created"),
   v.literal("secret_revoked"),
+  v.literal("client_credentials_rejected"),
+  v.literal("token_issued"),
+  v.literal("token_revoked"),
 );
 export const oauthClientEventResultValidator = v.union(v.literal("accepted"), v.literal("rejected"));
+export const oauthAccessTokenSubjectTypeValidator = v.union(v.literal("client"), v.literal("user"));
+export const oauthAccessTokenStatusValidator = v.union(v.literal("active"), v.literal("revoked"));
 
 export type OAuthClientType = "public" | "confidential";
 export type OAuthGrantType = "authorization_code" | "refresh_token" | "client_credentials";
@@ -49,6 +54,7 @@ const oauthGrantTypes = new Set<OAuthGrantType>([
 const clientIdPattern = /^vrdx_app_[0-9a-f]{24}$/;
 const secretPrefixPattern = /^vrdx_secret_[0-9a-f]{16}$/;
 const verifierHashPattern = /^[0-9a-f]{64}$/;
+const tokenIdPattern = /^vrdx_at_[0-9a-f]{32}$/;
 
 function isLoopbackHostname(hostname: string) {
   const normalized = hostname.toLowerCase();
@@ -208,6 +214,28 @@ export function normalizeOAuthClientSecretHash(value: string) {
   }
 
   return verifierHash;
+}
+
+export function normalizeOAuthAccessTokenId(value: string) {
+  const tokenId = value.trim();
+
+  if (!tokenIdPattern.test(tokenId)) {
+    throw new Error("OAuth access token id must use the vrdx_at_<32 hex> format.");
+  }
+
+  return tokenId;
+}
+
+export function normalizeOAuthResourceUri(value: string) {
+  return normalizeUrlString(value, { label: "OAuth resource URI", allowLoopbackHttp: true });
+}
+
+export function normalizeOAuthTokenExpiry(expiresAt: number, now = Date.now()) {
+  if (!Number.isFinite(expiresAt) || expiresAt <= now) {
+    throw new Error("OAuth access token expiry must be a future timestamp.");
+  }
+
+  return Math.floor(expiresAt);
 }
 
 export function normalizeOAuthRevokeReason(value: string | undefined) {

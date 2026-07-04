@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   normalizeOAuthApplicationDescription,
   normalizeOAuthApplicationName,
+  normalizeOAuthAccessTokenId,
   normalizeOAuthClientId,
   normalizeOAuthClientSecretHash,
   normalizeOAuthClientSecretPrefix,
@@ -11,7 +12,9 @@ import {
   normalizeOAuthGrantTypes,
   normalizeOAuthOptionalUrl,
   normalizeOAuthRedirectUris,
+  normalizeOAuthResourceUri,
   normalizeOAuthScopes,
+  normalizeOAuthTokenExpiry,
   normalizeOAuthRevokeReason,
 } from "../../convex/_oauth";
 
@@ -45,6 +48,9 @@ describe("OAuth application helpers", () => {
       "client_credentials",
     ]);
     assert.equal(normalizeOAuthClientSecretPrefix("vrdx_secret_0123456789abcdef"), "vrdx_secret_0123456789abcdef");
+    assert.equal(normalizeOAuthAccessTokenId("vrdx_at_0123456789abcdef0123456789abcdef"), "vrdx_at_0123456789abcdef0123456789abcdef");
+    assert.equal(normalizeOAuthResourceUri("http://127.0.0.1:3000/mcp"), "http://127.0.0.1:3000/mcp");
+    assert.equal(normalizeOAuthTokenExpiry(2_000, 1_000), 2_000);
     assert.equal(
       normalizeOAuthClientSecretHash("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"),
       "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
@@ -52,5 +58,7 @@ describe("OAuth application helpers", () => {
     assert.throws(() => normalizeOAuthRedirectUris(["http://example.com/callback"]), /HTTPS/);
     assert.throws(() => normalizeOAuthGrantTypes(["client_credentials"], "public"), /Public OAuth clients/);
     assert.throws(() => normalizeOAuthScopes(["admin:everything"]), /Unsupported OAuth scope/);
+    assert.throws(() => normalizeOAuthAccessTokenId("bad"), /access token id/);
+    assert.throws(() => normalizeOAuthTokenExpiry(1_000, 2_000), /future timestamp/);
   });
 });
