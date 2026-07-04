@@ -12,6 +12,12 @@ import {
   PublicProfileSchema,
   PublicSearchResponseSchema,
   PublicWorldSchema,
+  createApiTokenValue,
+  hashApiTokenValue,
+  normalizeApiTokenLabel,
+  normalizeApiTokenScopes,
+  parseApiTokenValue,
+  timingSafeEqualString,
 } from "../src";
 
 describe("@vrdex/api-contracts", () => {
@@ -109,6 +115,29 @@ describe("@vrdex/api-contracts", () => {
     assert.equal(hasBearerTokenInUrl("https://example.test/api?api_token=abc"), true);
     assert.equal(hasBearerTokenInUrl("https://example.test/api?token=abc"), true);
     assert.equal(hasBearerTokenInUrl("https://example.test/api?query=abc"), false);
+  });
+
+  it("generates parseable opaque API token values and hashes them with a pepper", async () => {
+    const token = createApiTokenValue();
+    const parsed = parseApiTokenValue(token.tokenValue);
+
+    assert.equal(parsed?.tokenPrefix, token.tokenPrefix);
+    assert.equal(parsed?.verifier, token.verifier);
+    assert.equal(parseApiTokenValue("vrdx_not-a-token"), null);
+    assert.match(await hashApiTokenValue(token.tokenValue, "pepper"), /^[0-9a-f]{64}$/);
+    assert.equal(timingSafeEqualString("abc", "abc"), true);
+    assert.equal(timingSafeEqualString("abc", "abd"), false);
+  });
+
+  it("normalizes API token labels and scopes", () => {
+    assert.equal(normalizeApiTokenLabel("  Local   MCP  "), "Local MCP");
+    assert.deepEqual(normalizeApiTokenScopes(undefined), ["public:read"]);
+    assert.deepEqual(normalizeApiTokenScopes(["public:read", "mcp:read", "public:read"]), [
+      "public:read",
+      "mcp:read",
+    ]);
+    assert.throws(() => normalizeApiTokenLabel(""), /label/);
+    assert.throws(() => normalizeApiTokenScopes(["bad:scope"]), /Unsupported/);
   });
 
   it("includes the first public API paths in the generated OpenAPI document", () => {

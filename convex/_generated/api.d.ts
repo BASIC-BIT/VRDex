@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as _apiTokens from "../_apiTokens.js";
 import type * as _authRedirects from "../_authRedirects.js";
 import type * as _billing from "../_billing.js";
 import type * as _communityAuthority from "../_communityAuthority.js";
@@ -46,6 +47,7 @@ import type * as _worldIds from "../_worldIds.js";
 import type * as _worldPublic from "../_worldPublic.js";
 import type * as _worldSlugs from "../_worldSlugs.js";
 import type * as accounts from "../accounts.js";
+import type * as apiTokens from "../apiTokens.js";
 import type * as auth from "../auth.js";
 import type * as e2e from "../e2e.js";
 import type * as events from "../events.js";
@@ -69,6 +71,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  _apiTokens: typeof _apiTokens;
   _authRedirects: typeof _authRedirects;
   _billing: typeof _billing;
   _communityAuthority: typeof _communityAuthority;
@@ -107,6 +110,7 @@ declare const fullApi: ApiFromModules<{
   _worldPublic: typeof _worldPublic;
   _worldSlugs: typeof _worldSlugs;
   accounts: typeof accounts;
+  apiTokens: typeof apiTokens;
   auth: typeof auth;
   e2e: typeof e2e;
   events: typeof events;

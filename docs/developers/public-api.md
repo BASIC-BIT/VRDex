@@ -15,14 +15,17 @@ The checked-in OpenAPI artifact is `docs/api/openapi.json`, and the web app serv
 the same generated document at `GET /api/v0/openapi.json`. The web app renders
 the generated API reference at `/developers/api`.
 
-Implemented anonymous public reads:
+Implemented public reads are anonymous by default and accept optional scoped
+API bearer tokens for authenticated public-read traffic:
 
 | Route | Purpose |
 | --- | --- |
 | `GET /api/v0/search?q=` | Search public profiles, worlds, and events. |
 | `GET /api/v0/profiles/:slug` | Read a public person or community profile. |
 | `GET /api/v0/profiles/:slug/assets` | Read public profile media-kit assets. |
+| `GET /api/v0/profiles/:slug/assets/:assetId/file` | Download a public profile media-kit asset. |
 | `GET /api/v0/profiles/:slug/logos` | Read public profile logo assets. |
+| `GET /api/v0/profiles/:slug/logos.zip` | Download public profile logos as a ZIP. |
 | `GET /api/v0/people/:slug` | Read a public person profile. |
 | `GET /api/v0/people/:slug/events` | Read public upcoming events for a person profile. |
 | `GET /api/v0/communities/:slug` | Read a public community profile. |
@@ -33,8 +36,29 @@ Implemented anonymous public reads:
 | `GET /api/v0/worlds/active` | List worlds with upcoming or live public events. |
 | `GET /api/v0/claims/:slug/status` | Read public claim and trust state. |
 
-All public read routes reject bearer tokens in URL query parameters. Send future
-API tokens and OAuth access tokens through the `Authorization` header only.
+All public read routes reject bearer tokens in URL query parameters. Send API
+tokens and future OAuth access tokens through the `Authorization` header only.
+
+When a public read request has no bearer token, it is treated as anonymous
+traffic. When it has an API bearer token, the Next.js route handler parses the
+opaque `vrdx_...` token, hashes it with `VRDEX_API_TOKEN_PEPPER`, and asks
+Convex to validate the token prefix, hash, status, expiry, and required scopes.
+Convex stores token prefixes, hashes, ownership, scopes, lifecycle metadata,
+and audit events, but never the raw token value.
+
+Current personal API token backend primitives:
+
+- `apiTokens.createPersonalToken`
+- `apiTokens.listPersonalTokens`
+- `apiTokens.revokePersonalToken`
+- `apiTokens.validateBearerTokenHash`
+
+Current token validation behavior:
+
+- malformed, unknown, revoked, or expired bearer tokens return `401`
+- scope-insufficient bearer tokens return `403`
+- public read routes currently require `public:read`
+- anonymous public reads still work without credentials
 
 ## Locked Direction
 
@@ -87,7 +111,12 @@ The first implementation should document:
 - not-found behavior that does not leak private or suppressed records
 - escalation path for trusted partner access
 
-Candidate infrastructure can include Vercel/edge middleware, app-level checks, Convex-backed counters, Redis, or provider-native controls. Choose the smallest mechanism that fits the first API slice.
+Current recommendation: use Redis-compatible TTL counters for hosted
+high-volume anonymous public API and hosted MCP traffic. Keep Convex as the
+durable source for token/app ownership, quota policy, trusted-partner
+overrides, coarse usage summaries, and audit events. Local development can use
+an in-memory adapter; self-hosted production should document a
+Redis-compatible option.
 
 ## Response Safety Rules
 

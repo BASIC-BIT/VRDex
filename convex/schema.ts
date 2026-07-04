@@ -3,6 +3,16 @@ import { v } from "convex/values";
 import { authTables } from "@convex-dev/auth/server";
 
 import {
+  apiRouteClassValidator,
+  apiScopeValidator,
+  apiStatusCodeClassValidator,
+  apiTokenEventTypeValidator,
+  apiTokenOwnerKindValidator,
+  apiTokenStatusValidator,
+  apiTokenTrustTierValidator,
+  apiTokenValidationResultValidator,
+} from "./_apiTokens";
+import {
   billingCustomerCreatedFromValidator,
   billingCustomerStateValidator,
   billingEntitlementSourceValidator,
@@ -1027,6 +1037,54 @@ export default defineSchema({
     .index("by_profileId_state", ["profileId", "state"])
     .index("by_userId_state", ["userId", "state"])
     .index("by_profileId_roleKey_state", ["profileId", "roleKey", "state"]),
+  apiTokens: defineTable({
+    tokenPrefix: v.string(),
+    verifierHash: v.string(),
+    hashVersion: v.literal("sha256-pepper-v1"),
+    ownerKind: apiTokenOwnerKindValidator,
+    ownerUserId: v.id("users"),
+    ownerCommunityProfileId: v.optional(v.id("profiles")),
+    label: v.string(),
+    scopes: v.array(apiScopeValidator),
+    status: apiTokenStatusValidator,
+    trustTier: apiTokenTrustTierValidator,
+    expiresAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    lastUsedAt: v.optional(v.number()),
+    lastUsedRouteClass: v.optional(apiRouteClassValidator),
+    revokedAt: v.optional(v.number()),
+    revokedByUserId: v.optional(v.id("users")),
+    revokeReason: v.optional(v.string()),
+  })
+    .index("by_tokenPrefix", ["tokenPrefix"])
+    .index("by_ownerUserId_createdAt", ["ownerUserId", "createdAt"])
+    .index("by_ownerUserId_status_createdAt", ["ownerUserId", "status", "createdAt"])
+    .index("by_ownerCommunityProfileId_status_createdAt", [
+      "ownerCommunityProfileId",
+      "status",
+      "createdAt",
+    ])
+    .index("by_status_expiresAt", ["status", "expiresAt"]),
+  apiTokenEvents: defineTable({
+    tokenId: v.optional(v.id("apiTokens")),
+    tokenPrefix: v.optional(v.string()),
+    ownerKind: v.optional(apiTokenOwnerKindValidator),
+    ownerUserId: v.optional(v.id("users")),
+    ownerCommunityProfileId: v.optional(v.id("profiles")),
+    routeClass: apiRouteClassValidator,
+    eventType: apiTokenEventTypeValidator,
+    result: apiTokenValidationResultValidator,
+    requiredScopes: v.array(apiScopeValidator),
+    grantedScopes: v.optional(v.array(apiScopeValidator)),
+    statusCodeClass: v.optional(apiStatusCodeClassValidator),
+    createdAt: v.number(),
+  })
+    .index("by_tokenId_createdAt", ["tokenId", "createdAt"])
+    .index("by_ownerUserId_createdAt", ["ownerUserId", "createdAt"])
+    .index("by_ownerCommunityProfileId_createdAt", ["ownerCommunityProfileId", "createdAt"])
+    .index("by_routeClass_createdAt", ["routeClass", "createdAt"])
+    .index("by_eventType_createdAt", ["eventType", "createdAt"]),
   billingCustomerMappings: defineTable({
     ownerKind: billingOwnerKindValidator,
     userId: v.optional(v.id("users")),

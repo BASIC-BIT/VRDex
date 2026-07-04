@@ -1,6 +1,12 @@
 import { PublicEventsResponseSchema } from "@vrdex/api-contracts";
 import { api } from "@convex-generated-api";
-import { apiJson, parseBoundedLimit, publicNotFoundResponse, rejectBearerTokenQuery } from "@/lib/server/api-v0";
+import {
+  apiJson,
+  parseBoundedLimit,
+  publicNotFoundResponse,
+  rejectBearerTokenQuery,
+  rejectInvalidOptionalApiBearerToken,
+} from "@/lib/server/api-v0";
 import { convexHttpClient } from "@/lib/server/convex-http";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +21,11 @@ export async function GET(request: Request, context: RouteContext) {
   const rejected = rejectBearerTokenQuery(request);
   if (rejected !== null) {
     return rejected;
+  }
+
+  const rejectedBearerToken = await rejectInvalidOptionalApiBearerToken(request);
+  if (rejectedBearerToken !== null) {
+    return rejectedBearerToken;
   }
 
   const url = new URL(request.url);
