@@ -759,6 +759,19 @@ Package candidate:
 
 - `@basicbit/vrdex-mcp`
 
+Current checkpoint:
+
+- implemented as the `packages/vrdex-mcp` workspace package
+- starts a stdio MCP server with the same six curated read tools as hosted MCP
+- calls `/api/v0` public API routes and validates responses with
+  `@vrdex/api-contracts`
+- supports anonymous public reads, personal API tokens, OAuth access tokens, and
+  OAuth token files
+- normalizes hosted and self-hosted `VRDEX_API_BASE_URL` values to the `/api/v0`
+  route prefix
+- requires API-resource OAuth tokens because the stdio package calls `/api/v0`;
+  hosted Streamable HTTP MCP continues to use MCP-resource OAuth tokens
+
 Transports:
 
 - stdio first
@@ -768,7 +781,8 @@ Configuration:
 
 - `VRDEX_API_BASE_URL`
 - `VRDEX_API_TOKEN`
-- `VRDEX_OAUTH_TOKEN_FILE`, optional later
+- `VRDEX_OAUTH_ACCESS_TOKEN`
+- `VRDEX_OAUTH_TOKEN_FILE`
 - `VRDEX_MCP_OUTPUT_MODE`, optional compact/detail switch
 
 Behavior:
@@ -776,15 +790,17 @@ Behavior:
 - uses public API routes, not website scraping
 - works against hosted VRDex and self-hosted deployments
 - supports personal API tokens from the start
-- can support OAuth token files after OAuth client flows are available
+- supports OAuth access tokens directly or from local token files
 - does not require private VRChat cookies
 
 Distribution:
 
-- publish package instructions in developer docs
+- publish local workspace package instructions in developer docs
 - include MCP client configuration snippets
 - keep install snippets free of real token values
 - include self-hosted base URL examples
+- add registry publishing instructions after the package is ready to ship
+  outside the monorepo
 
 ### Private Hosted MCP For Self-Hosting
 
@@ -1060,6 +1076,13 @@ Validation:
 - package smoke test
 - local stdio tool call test
 - self-hosted base URL fixture test
+
+Implementation checkpoint:
+
+- `packages/vrdex-mcp` now provides the stdio workspace package
+- package tests cover config loading, API route calls with bearer credentials,
+  self-hosted base URL normalization, and a JSON-RPC stdio `vrdex_search` call
+  against a local API fixture
 
 ### Slice 7: Rate Limits, Audit, And Operations
 

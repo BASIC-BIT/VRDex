@@ -200,6 +200,28 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  packages/vrdex-mcp:
+    dependencies:
+      '@modelcontextprotocol/server':
+        specifier: 2.0.0-beta.2
+        version: 2.0.0-beta.2
+      '@vrdex/api-contracts':
+        specifier: workspace:*
+        version: link:../api-contracts
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^24
+        version: 24.13.2
+      tsx:
+        specifier: ^4.22.1
+        version: 4.22.1
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
 packages:
 
   '@adobe/css-tools@4.5.0':

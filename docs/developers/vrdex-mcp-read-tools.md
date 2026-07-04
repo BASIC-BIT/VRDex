@@ -11,7 +11,9 @@ The broader platform plan for hosted MCP OAuth, local/private MCP, API tokens, O
 The first `/api/v0` anonymous public read routes now exist for profiles, search,
 events, worlds, and claim status, with schemas generated through
 `packages/api-contracts`. Hosted MCP tools call those API/query surfaces instead
-of scraping web pages. The private/local MCP package remains a later slice.
+of scraping web pages. A local stdio MCP workspace package now exists at
+`packages/vrdex-mcp` as `@basicbit/vrdex-mcp`; it calls the same `/api/v0`
+routes and can run against hosted or self-hosted deployments.
 If an OAuth bearer token is supplied to `/mcp`, it must be issued for the MCP
 resource and include `mcp:read`; otherwise the anonymous public read tools still
 work without credentials.
@@ -115,6 +117,88 @@ Output:
 
 - public active world cards with the next event preview and upcoming event count
 
+## Local Stdio MCP
+
+Current checkpoint:
+
+- workspace package: `@basicbit/vrdex-mcp`
+- source path: `packages/vrdex-mcp`
+- transport: stdio
+- API surface: `/api/v0` public read routes
+- credentials: `VRDEX_API_TOKEN`, `VRDEX_OAUTH_ACCESS_TOKEN`, or
+  `VRDEX_OAUTH_TOKEN_FILE`
+
+The package defaults to `https://vrdex.net/api/v0`. Set `VRDEX_API_BASE_URL`
+for self-hosted or staging deployments. The value can be either the deployment
+origin or the explicit API base path; both `https://example.test` and
+`https://example.test/api/v0` normalize to the API route prefix.
+
+Bearer credentials are optional for anonymous public reads. Set a personal API
+token or OAuth access token to use authenticated public-read rate limits. The
+OAuth token file can contain a plain access token or a JSON object with an
+`access_token` field. Because the local package calls `/api/v0`, OAuth access
+tokens used here must be issued for the API resource. Hosted `/mcp` OAuth
+sessions use the MCP resource instead.
+
+Local workspace command:
+
+```sh
+pnpm --silent --dir <path-to-vrdex-checkout> exec tsx packages/vrdex-mcp/src/stdio.ts
+```
+
+Common MCP JSON configuration:
+
+```json
+{
+  "mcpServers": {
+    "vrdex": {
+      "command": "pnpm",
+      "args": [
+        "--silent",
+        "--dir",
+        "<path-to-vrdex-checkout>",
+        "exec",
+        "tsx",
+        "packages/vrdex-mcp/src/stdio.ts"
+      ],
+      "env": {
+        "VRDEX_API_BASE_URL": "https://vrdex.net",
+        "VRDEX_API_TOKEN": "<personal-api-token>"
+      }
+    }
+  }
+}
+```
+
+Self-hosted example:
+
+```json
+{
+  "mcpServers": {
+    "vrdex-local": {
+      "command": "pnpm",
+      "args": [
+        "--silent",
+        "--dir",
+        "<path-to-vrdex-checkout>",
+        "exec",
+        "tsx",
+        "packages/vrdex-mcp/src/stdio.ts"
+      ],
+      "env": {
+        "VRDEX_API_BASE_URL": "https://vrdex.example.net",
+        "VRDEX_OAUTH_TOKEN_FILE": "<path-to-local-oauth-token-json>"
+      }
+    }
+  }
+}
+```
+
+Claude Desktop, Cursor, VS Code MCP integrations, and other clients that accept
+the common `mcpServers` JSON shape can use the same command, args, and env
+block. Registry install snippets can replace the workspace command after the
+package is published.
+
 ## Safety Rules
 
 - Use public API/query behavior, not website scraping.
@@ -133,7 +217,8 @@ Candidate direction:
 - OAuth-authenticated hosted MCP callers use the authenticated MCP rate-limit class when the token is valid for the MCP resource
 - dynamic MCP client registrations are stored separately from user-owned developer apps until an operator promotes or reviews them
 - public-client PKCE consent issues short-lived MCP-bound access tokens and rotating refresh tokens
-- local MCP remains useful for self-hosted deployments and development
+- local MCP is implemented as a stdio workspace package for self-hosted
+  deployments and development
 - authenticated write/claim tools, if ever added, need normal VRDex auth, scoped tokens, approvals, and audit trails
 
 Optional VRChat bridge evaluation:
@@ -145,4 +230,8 @@ Optional VRChat bridge evaluation:
 
 ## Implementation Gate
 
-Do not implement the standalone package until the public API/query shape supports these tools without scraping. [#78](https://github.com/BASIC-BIT/VRDex/issues/78) remains the prototype issue and should align with the broader platform plan before choosing package name, transport, auth posture, API dependencies, test fixtures, and distribution path.
+The standalone local package gate is now cleared for the read-only slice:
+`@basicbit/vrdex-mcp` uses shared API contract schemas and public `/api/v0`
+routes instead of website scraping. [#78](https://github.com/BASIC-BIT/VRDex/issues/78)
+remains the prototype issue for compatibility validation, registry publishing,
+and any future authenticated write tools.

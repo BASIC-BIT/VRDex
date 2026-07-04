@@ -105,6 +105,16 @@ Current hosted MCP route:
 
 - `GET|POST|DELETE /mcp`, Streamable HTTP MCP with anonymous public read tools
 
+Current local MCP package:
+
+- `@basicbit/vrdex-mcp` in `packages/vrdex-mcp`, stdio transport backed by
+  `/api/v0` routes
+- accepts `VRDEX_API_BASE_URL` for hosted or self-hosted deployments
+- accepts `VRDEX_API_TOKEN`, `VRDEX_OAUTH_ACCESS_TOKEN`, or
+  `VRDEX_OAUTH_TOKEN_FILE` for optional authenticated public-read requests
+- OAuth access tokens used by the local package must be issued for the API
+  resource because the package calls `/api/v0`
+
 Current token validation behavior:
 
 - malformed, unknown, revoked, or expired bearer tokens return `401`
