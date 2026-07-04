@@ -192,6 +192,9 @@ Current implementation:
   used.
 - `VRDEX_RATE_LIMIT_STORE=disabled` is only for local diagnostics.
 
+The dedicated rate-limit guide lives in
+`docs/developers/api-rate-limits.md`.
+
 ## Response Safety Rules
 
 Public API responses must:

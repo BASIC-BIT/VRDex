@@ -98,6 +98,12 @@ export type ApiTokenValidationResult =
       reason: "not_found" | "revoked" | "expired" | "missing_scope";
     };
 
+export type ApiTokenValidationEventMetadata = {
+  eventType: "validation_accepted" | "validation_rejected";
+  result: "accepted" | "not_found" | "revoked" | "expired" | "missing_scope";
+  statusCodeClass: "2xx" | "4xx";
+};
+
 const apiScopes = new Set<ApiScope>([
   "public:read",
   "profile:read",
@@ -247,5 +253,23 @@ export function validateApiTokenRecord(
       : {}),
     trustTier: token.trustTier,
     scopes: token.scopes,
+  };
+}
+
+export function apiTokenValidationEventMetadata(
+  result: ApiTokenValidationResult,
+): ApiTokenValidationEventMetadata {
+  if (result.ok) {
+    return {
+      eventType: "validation_accepted",
+      result: "accepted",
+      statusCodeClass: "2xx",
+    };
+  }
+
+  return {
+    eventType: "validation_rejected",
+    result: result.reason,
+    statusCodeClass: "4xx",
   };
 }

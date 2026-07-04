@@ -1,6 +1,6 @@
-import type { ApiRouteClass } from "@vrdex/api-contracts";
+import { apiRouteClasses, type ApiRouteClass } from "@vrdex/api-contracts";
 
-type ApiRateLimitPolicy = {
+export type ApiRateLimitPolicy = {
   limit: number;
   windowMs: number;
 };
@@ -26,7 +26,7 @@ type MemoryBucket = {
 
 export type MemoryApiRateLimitStore = Map<string, MemoryBucket>;
 
-const defaultPolicies: Record<ApiRouteClass, ApiRateLimitPolicy> = {
+export const defaultApiRateLimitPolicies: Record<ApiRouteClass, ApiRateLimitPolicy> = {
   anonymous_public_read: { limit: 120, windowMs: 60_000 },
   authenticated_public_read: { limit: 600, windowMs: 60_000 },
   developer_credential_management: { limit: 30, windowMs: 60_000 },
@@ -57,8 +57,15 @@ function rateLimitPrefix() {
   return process.env.VRDEX_RATE_LIMIT_REDIS_PREFIX?.trim() || "vrdex:api-rate";
 }
 
+export function listDefaultApiRateLimitPolicies() {
+  return apiRouteClasses.map((routeClass) => ({
+    routeClass,
+    ...defaultApiRateLimitPolicies[routeClass],
+  }));
+}
+
 function policyForRouteClass(routeClass: ApiRouteClass) {
-  return defaultPolicies[routeClass];
+  return defaultApiRateLimitPolicies[routeClass];
 }
 
 function identitySegment(identity: ApiRateLimitIdentity) {
@@ -127,7 +134,8 @@ export function checkMemoryApiRateLimit(args: {
   });
 }
 
-async function checkRedisRestApiRateLimit(args: {
+export async function checkRedisRestApiRateLimit(args: {
+  fetcher?: typeof fetch;
   identity: ApiRateLimitIdentity;
   now: number;
   policy: ApiRateLimitPolicy;
@@ -142,7 +150,8 @@ async function checkRedisRestApiRateLimit(args: {
 
   const key = rateLimitKey(args.routeClass, args.identity);
   const pipelineUrl = new URL("pipeline", restUrl.endsWith("/") ? restUrl : `${restUrl}/`);
-  const response = await fetch(pipelineUrl, {
+  const fetcher = args.fetcher ?? fetch;
+  const response = await fetcher(pipelineUrl, {
     method: "POST",
     headers: {
       authorization: `Bearer ${restToken}`,

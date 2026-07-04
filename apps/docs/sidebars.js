@@ -15,6 +15,7 @@ const sidebars = {
         "developers/partner-agent-skill",
         "developers/opencode-skill-adapter",
         "developers/public-api",
+        "developers/api-rate-limits",
         "developers/self-hosting-and-iac",
         "developers/vrdex-mcp-read-tools",
         {

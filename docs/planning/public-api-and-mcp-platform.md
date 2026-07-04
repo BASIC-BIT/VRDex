@@ -1103,6 +1103,16 @@ Validation:
 - Redis adapter TTL/window tests
 - admin/ops docs review
 
+Implementation checkpoint:
+
+- default route-class policies are exported from the web rate-limit helper
+- `pnpm ops:api-rate-limits` prints the default policy table for operators
+- Redis REST fixed-window counter behavior is covered by direct TTL/window tests
+- revoked API-token validation maps to a rejected usage-event metadata shape in
+  backend tests
+- `docs/developers/api-rate-limits.md` documents store modes, current default
+  quotas, response headers, credential events, and trusted-partner escalation
+
 ### Slice 8: Final Docs And Rollout
 
 Deliverables:

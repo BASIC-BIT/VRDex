@@ -53,6 +53,8 @@
     "proof:restream:worker:matrix": "node scripts/run-restream-worker-benchmark-matrix.mjs",
     "preops:event-media:ecs-bridge": "node scripts/guard-main-worktree.mjs",
     "ops:event-media:ecs-bridge": "node scripts/event-media-ecs-bridge.mjs",
+    "preops:api-rate-limits": "node scripts/guard-main-worktree.mjs",
+    "ops:api-rate-limits": "node --import tsx scripts/print-api-rate-limit-policies.ts",
     "prelint:web": "node scripts/guard-main-worktree.mjs",
     "lint:web": "pnpm --filter web lint",
     "pretest:e2e": "node scripts/guard-main-worktree.mjs",

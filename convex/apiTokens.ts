@@ -7,6 +7,7 @@ import { getCurrentUser, requireCurrentUser } from "./accounts";
 import {
   apiRouteClassValidator,
   apiScopeValidator,
+  apiTokenValidationEventMetadata,
   apiTokenHashVersion,
   hasRequiredApiScopes,
   normalizeApiTokenExpiry,
@@ -232,16 +233,17 @@ export const validateBearerTokenHash = mutation({
       requiredScopes,
       now,
     });
+    const eventMetadata = apiTokenValidationEventMetadata(result);
 
     if (!result.ok) {
       await recordApiTokenEvent(ctx, {
         ...(token !== null && token.tokenPrefix === tokenPrefix ? { token } : { tokenPrefix }),
         routeClass: args.routeClass,
-        eventType: "validation_rejected",
-        result: result.reason,
+        eventType: eventMetadata.eventType,
+        result: eventMetadata.result,
         requiredScopes,
         grantedScopes: token?.scopes,
-        statusCodeClass: "4xx",
+        statusCodeClass: eventMetadata.statusCodeClass,
         now,
       });
 
@@ -261,11 +263,11 @@ export const validateBearerTokenHash = mutation({
     await recordApiTokenEvent(ctx, {
       token: token as Doc<"apiTokens">,
       routeClass: args.routeClass,
-      eventType: "validation_accepted",
-      result: "accepted",
+      eventType: eventMetadata.eventType,
+      result: eventMetadata.result,
       requiredScopes,
       grantedScopes: result.scopes,
-      statusCodeClass: "2xx",
+      statusCodeClass: eventMetadata.statusCodeClass,
       now,
     });
 

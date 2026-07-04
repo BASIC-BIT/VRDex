@@ -8,6 +8,7 @@ import {
   normalizeApiTokenPrefix,
   normalizeApiTokenScopes,
   normalizeApiTokenVerifierHash,
+  apiTokenValidationEventMetadata,
   timingSafeEqualString,
   validateApiTokenRecord,
   type ApiScope,
@@ -124,6 +125,38 @@ describe("API token helpers", () => {
         now: 1_000,
       }),
       { ok: false, reason: "missing_scope" },
+    );
+  });
+
+  it("maps revoked token validation to a rejected usage event", () => {
+    assert.deepEqual(
+      apiTokenValidationEventMetadata(
+        validateApiTokenRecord(tokenRecord({ status: "revoked" }), {
+          verifierHash: "a".repeat(64),
+          requiredScopes: ["public:read"],
+          now: 1_000,
+        }),
+      ),
+      {
+        eventType: "validation_rejected",
+        result: "revoked",
+        statusCodeClass: "4xx",
+      },
+    );
+
+    assert.deepEqual(
+      apiTokenValidationEventMetadata(
+        validateApiTokenRecord(tokenRecord(), {
+          verifierHash: "a".repeat(64),
+          requiredScopes: ["public:read"],
+          now: 1_000,
+        }),
+      ),
+      {
+        eventType: "validation_accepted",
+        result: "accepted",
+        statusCodeClass: "2xx",
+      },
     );
   });
 });
