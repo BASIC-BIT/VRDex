@@ -16,7 +16,10 @@ the same generated document at `GET /api/v0/openapi.json`. The web app renders
 the generated API reference at `/developers/api`. Signed-in developers can
 manage personal API tokens at `/developers/tokens`; token creation uses a
 first-party session route outside the public `/api/v0` contract, so it is not
-included in the public OpenAPI document.
+included in the public OpenAPI document. Signed-in developers can also register
+user-owned OAuth client apps at `/developers/apps`; the app registry and hashed
+client-secret storage are in place, while OAuth authorize/token endpoints are
+still a later implementation checkpoint.
 
 Implemented public reads are anonymous by default and accept optional scoped
 API bearer tokens for authenticated public-read traffic:
@@ -55,6 +58,12 @@ Current personal API token backend primitives:
 - `apiTokens.listPersonalTokens`
 - `apiTokens.revokePersonalToken`
 - `apiTokens.validateBearerTokenHash`
+
+Current OAuth app registry primitives:
+
+- `oauthApps.createPersonalApplication`
+- `oauthApps.listPersonalApplications`
+- `oauthApps.revokePersonalApplication`
 
 Current token validation behavior:
 

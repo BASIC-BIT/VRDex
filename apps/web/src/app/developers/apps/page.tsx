@@ -1,28 +1,25 @@
 import Link from "next/link";
 
-import { DeveloperTokensPanel } from "./developer-tokens-panel";
+import { OAuthAppsPanel } from "./oauth-apps-panel";
 import { buttonVariants } from "@/components/ui/button";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 
 export const metadata = {
-  title: "Developer Tokens | VRDex",
+  title: "OAuth Apps | VRDex",
 };
 
-export default function DeveloperTokensPage() {
+export default function OAuthAppsPage() {
   return (
     <PageShell className="py-10">
       <PageContainer max="6xl">
         <PageNav>
           <BrandLink />
           <div className="flex flex-wrap gap-3">
+            <Link className={buttonVariants({ variant: "secondary" })} href="/developers/tokens">
+              Developer tokens
+            </Link>
             <Link className={buttonVariants({ variant: "secondary" })} href="/developers/api">
               API reference
-            </Link>
-            <Link className={buttonVariants({ variant: "secondary" })} href="/account">
-              Account
-            </Link>
-            <Link className={buttonVariants({ variant: "secondary" })} href="/developers/apps">
-              OAuth apps
             </Link>
           </div>
         </PageNav>
@@ -30,9 +27,9 @@ export default function DeveloperTokensPage() {
         <section className="grid gap-8">
           <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
             <div>
-              <h1 className="text-4xl leading-none font-semibold sm:text-6xl">Developer tokens</h1>
+              <h1 className="text-4xl leading-none font-semibold sm:text-6xl">OAuth apps</h1>
               <p className="mt-5 max-w-2xl text-sm leading-7 text-muted">
-                Create scoped personal tokens for API clients, local scripts, and MCP tools.
+                Register clients for OAuth authorization and hosted MCP access.
               </p>
             </div>
             <Link className={buttonVariants({ size: "lg", variant: "primary" })} href="/developers/api">
@@ -40,7 +37,7 @@ export default function DeveloperTokensPage() {
             </Link>
           </div>
 
-          <DeveloperTokensPanel />
+          <OAuthAppsPanel />
         </section>
       </PageContainer>
     </PageShell>

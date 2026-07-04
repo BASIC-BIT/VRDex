@@ -53,6 +53,17 @@ import {
   eventMediaWorkerTaskStatusValidator,
 } from "./_eventMediaControl";
 import {
+  oauthApplicationOwnerKindValidator,
+  oauthApplicationStatusValidator,
+  oauthApplicationTrustTierValidator,
+  oauthClientEventResultValidator,
+  oauthClientEventTypeValidator,
+  oauthClientSecretHashVersion,
+  oauthClientSecretStatusValidator,
+  oauthClientTypeValidator,
+  oauthGrantTypeValidator,
+} from "./_oauth";
+import {
   seedImportBatchReviewStateValidator,
   seedImportCandidatePublicationStateValidator,
   seedImportCandidateReviewStateValidator,
@@ -1084,6 +1095,73 @@ export default defineSchema({
     .index("by_ownerUserId_createdAt", ["ownerUserId", "createdAt"])
     .index("by_ownerCommunityProfileId_createdAt", ["ownerCommunityProfileId", "createdAt"])
     .index("by_routeClass_createdAt", ["routeClass", "createdAt"])
+    .index("by_eventType_createdAt", ["eventType", "createdAt"]),
+  oauthApplications: defineTable({
+    clientId: v.string(),
+    ownerKind: oauthApplicationOwnerKindValidator,
+    ownerUserId: v.id("users"),
+    ownerCommunityProfileId: v.optional(v.id("profiles")),
+    clientType: oauthClientTypeValidator,
+    displayName: v.string(),
+    description: v.optional(v.string()),
+    logoUrl: v.optional(v.string()),
+    docsUrl: v.optional(v.string()),
+    privacyUrl: v.optional(v.string()),
+    termsUrl: v.optional(v.string()),
+    redirectUris: v.array(v.string()),
+    allowedGrants: v.array(oauthGrantTypeValidator),
+    allowedScopes: v.array(apiScopeValidator),
+    status: oauthApplicationStatusValidator,
+    trustTier: oauthApplicationTrustTierValidator,
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    lastUsedAt: v.optional(v.number()),
+    reviewedAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+    revokedByUserId: v.optional(v.id("users")),
+    revokeReason: v.optional(v.string()),
+  })
+    .index("by_clientId", ["clientId"])
+    .index("by_ownerUserId_createdAt", ["ownerUserId", "createdAt"])
+    .index("by_ownerUserId_status_createdAt", ["ownerUserId", "status", "createdAt"])
+    .index("by_ownerCommunityProfileId_status_createdAt", [
+      "ownerCommunityProfileId",
+      "status",
+      "createdAt",
+    ])
+    .index("by_status_createdAt", ["status", "createdAt"]),
+  oauthApplicationSecrets: defineTable({
+    applicationId: v.id("oauthApplications"),
+    clientId: v.string(),
+    secretPrefix: v.string(),
+    verifierHash: v.string(),
+    hashVersion: v.literal(oauthClientSecretHashVersion),
+    status: oauthClientSecretStatusValidator,
+    label: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    lastUsedAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+    revokedByUserId: v.optional(v.id("users")),
+  })
+    .index("by_applicationId_status_createdAt", ["applicationId", "status", "createdAt"])
+    .index("by_clientId_status_createdAt", ["clientId", "status", "createdAt"])
+    .index("by_secretPrefix", ["secretPrefix"]),
+  oauthClientEvents: defineTable({
+    applicationId: v.optional(v.id("oauthApplications")),
+    clientId: v.optional(v.string()),
+    secretPrefix: v.optional(v.string()),
+    ownerKind: v.optional(oauthApplicationOwnerKindValidator),
+    ownerUserId: v.optional(v.id("users")),
+    ownerCommunityProfileId: v.optional(v.id("profiles")),
+    routeClass: apiRouteClassValidator,
+    eventType: oauthClientEventTypeValidator,
+    result: oauthClientEventResultValidator,
+    createdAt: v.number(),
+  })
+    .index("by_applicationId_createdAt", ["applicationId", "createdAt"])
+    .index("by_clientId_createdAt", ["clientId", "createdAt"])
+    .index("by_ownerUserId_createdAt", ["ownerUserId", "createdAt"])
     .index("by_eventType_createdAt", ["eventType", "createdAt"]),
   billingCustomerMappings: defineTable({
     ownerKind: billingOwnerKindValidator,

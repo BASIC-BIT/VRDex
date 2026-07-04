@@ -87,6 +87,9 @@ export default function ApiReferencePage() {
             <Link className={buttonVariants({ variant: "secondary" })} href="/developers/tokens">
               Developer tokens
             </Link>
+            <Link className={buttonVariants({ variant: "secondary" })} href="/developers/apps">
+              OAuth apps
+            </Link>
             <Link className={buttonVariants({ variant: "ghost" })} href="/">
               Home
             </Link>

@@ -13,10 +13,22 @@ import {
   PublicSearchResponseSchema,
   PublicWorldSchema,
   createApiTokenValue,
+  createOAuthClientId,
+  createOAuthClientSecretValue,
   hashApiTokenValue,
+  hashOAuthClientSecretValue,
   normalizeApiTokenLabel,
   normalizeApiTokenScopes,
+  normalizeOAuthApplicationDescription,
+  normalizeOAuthApplicationName,
+  normalizeOAuthClientId,
+  normalizeOAuthClientType,
+  normalizeOAuthGrantTypes,
+  normalizeOAuthOptionalUrl,
+  normalizeOAuthRedirectUris,
+  normalizeOAuthScopes,
   parseApiTokenValue,
+  parseOAuthClientSecretValue,
   timingSafeEqualString,
 } from "../src";
 
@@ -138,6 +150,45 @@ describe("@vrdex/api-contracts", () => {
     ]);
     assert.throws(() => normalizeApiTokenLabel(""), /label/);
     assert.throws(() => normalizeApiTokenScopes(["bad:scope"]), /Unsupported/);
+  });
+
+  it("generates and validates OAuth client credentials", async () => {
+    const clientId = createOAuthClientId();
+    const secret = createOAuthClientSecretValue();
+    const parsedSecret = parseOAuthClientSecretValue(secret.secretValue);
+
+    assert.equal(normalizeOAuthClientId(clientId), clientId);
+    assert.equal(parsedSecret?.secretPrefix, secret.secretPrefix);
+    assert.equal(parsedSecret?.verifier, secret.verifier);
+    assert.match(await hashOAuthClientSecretValue(secret.secretValue, "pepper"), /^[0-9a-f]{64}$/);
+    assert.throws(() => normalizeOAuthClientId("bad"), /client id/);
+    assert.equal(parseOAuthClientSecretValue("bad"), null);
+  });
+
+  it("normalizes OAuth app metadata, redirects, scopes, and grants", () => {
+    assert.equal(normalizeOAuthClientType("public"), "public");
+    assert.equal(normalizeOAuthApplicationName("  Local   MCP  "), "Local MCP");
+    assert.equal(normalizeOAuthApplicationDescription("  Agent   workflow  "), "Agent workflow");
+    assert.equal(normalizeOAuthOptionalUrl("https://example.com/docs", "Docs URL"), "https://example.com/docs");
+    assert.deepEqual(normalizeOAuthRedirectUris(["http://127.0.0.1:3333/callback"]), [
+      "http://127.0.0.1:3333/callback",
+    ]);
+    assert.deepEqual(normalizeOAuthScopes(["public:read", "mcp:read", "public:read"]), [
+      "public:read",
+      "mcp:read",
+    ]);
+    assert.deepEqual(normalizeOAuthGrantTypes(undefined, "public"), [
+      "authorization_code",
+      "refresh_token",
+    ]);
+    assert.deepEqual(normalizeOAuthGrantTypes(undefined, "confidential"), [
+      "authorization_code",
+      "refresh_token",
+      "client_credentials",
+    ]);
+    assert.throws(() => normalizeOAuthRedirectUris(["http://example.com/callback"]), /HTTPS/);
+    assert.throws(() => normalizeOAuthRedirectUris(["https://example.com/callback#frag"]), /fragment/);
+    assert.throws(() => normalizeOAuthGrantTypes(["client_credentials"], "public"), /Public OAuth clients/);
   });
 
   it("includes the first public API paths in the generated OpenAPI document", () => {
