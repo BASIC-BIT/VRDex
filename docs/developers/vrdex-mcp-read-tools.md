@@ -132,7 +132,7 @@ Candidate direction:
 - anonymous hosted MCP read tools should be allowed for public-safe search/browser-like use cases, with their own rate-limit class
 - OAuth-authenticated hosted MCP callers use the authenticated MCP rate-limit class when the token is valid for the MCP resource
 - dynamic MCP client registrations are stored separately from user-owned developer apps until an operator promotes or reviews them
-- public-client PKCE consent issues short-lived MCP-bound access tokens without refresh tokens in the first checkpoint
+- public-client PKCE consent issues short-lived MCP-bound access tokens and rotating refresh tokens
 - local MCP remains useful for self-hosted deployments and development
 - authenticated write/claim tools, if ever added, need normal VRDex auth, scoped tokens, approvals, and audit trails
 

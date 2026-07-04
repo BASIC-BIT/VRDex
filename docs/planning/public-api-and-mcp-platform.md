@@ -539,8 +539,7 @@ Implementation checkpoint:
 - `/oauth/authorize` supports public-client Authorization Code with PKCE using
   `code_challenge_method=S256`.
 - `/oauth/token` exchanges public-client authorization codes for short-lived
-  resource-bound JWT access tokens; refresh-token rotation remains a later
-  checkpoint.
+  resource-bound JWT access tokens and rotating opaque refresh tokens.
 
 ### Scopes
 

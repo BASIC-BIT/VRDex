@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 
 const authorizationCodePattern = /^vrdx_code_[0-9a-f]{32}$/;
+const refreshTokenPattern = /^vrdx_rt_[0-9a-f]{48}$/;
 const codeChallengePattern = /^[A-Za-z0-9_-]{43,128}$/;
 const codeVerifierPattern = /^[A-Za-z0-9._~-]{43,128}$/;
 
@@ -20,6 +21,24 @@ export function normalizeOAuthAuthorizationCodeValue(value: string) {
 
 export function hashOAuthAuthorizationCodeValue(value: string) {
   return createHash("sha256").update(normalizeOAuthAuthorizationCodeValue(value)).digest("hex");
+}
+
+export function createOAuthRefreshTokenValue() {
+  return `vrdx_rt_${randomBytes(24).toString("hex")}`;
+}
+
+export function normalizeOAuthRefreshTokenValue(value: string) {
+  const refreshToken = value.trim();
+
+  if (!refreshTokenPattern.test(refreshToken)) {
+    throw new Error("OAuth refresh token is malformed.");
+  }
+
+  return refreshToken;
+}
+
+export function hashOAuthRefreshTokenValue(value: string) {
+  return createHash("sha256").update(normalizeOAuthRefreshTokenValue(value)).digest("hex");
 }
 
 export function normalizeOAuthCodeVerifier(value: string) {

@@ -19,6 +19,11 @@ export const oauthAuthorizationCodeStatusValidator = v.union(
   v.literal("consumed"),
   v.literal("revoked"),
 );
+export const oauthRefreshTokenStatusValidator = v.union(
+  v.literal("active"),
+  v.literal("rotated"),
+  v.literal("revoked"),
+);
 export const oauthCodeChallengeMethodValidator = v.literal("S256");
 export const oauthGrantTypeValidator = v.union(
   v.literal("authorization_code"),
@@ -35,6 +40,7 @@ export const oauthClientEventTypeValidator = v.union(
   v.literal("authorization_code_issued"),
   v.literal("authorization_code_redeemed"),
   v.literal("dynamic_client_registered"),
+  v.literal("refresh_token_rotated"),
   v.literal("secret_created"),
   v.literal("secret_revoked"),
   v.literal("client_credentials_rejected"),
@@ -95,6 +101,7 @@ const secretPrefixPattern = /^vrdx_secret_[0-9a-f]{16}$/;
 const verifierHashPattern = /^[0-9a-f]{64}$/;
 const tokenIdPattern = /^vrdx_at_[0-9a-f]{32}$/;
 const authorizationCodeHashPattern = /^[0-9a-f]{64}$/;
+const refreshTokenHashPattern = /^[0-9a-f]{64}$/;
 const codeChallengePattern = /^[A-Za-z0-9_-]{43,128}$/;
 
 function isLoopbackHostname(hostname: string) {
@@ -288,6 +295,16 @@ export function normalizeOAuthAuthorizationCodeHash(value: string) {
   }
 
   return codeHash;
+}
+
+export function normalizeOAuthRefreshTokenHash(value: string) {
+  const tokenHash = value.trim();
+
+  if (!refreshTokenHashPattern.test(tokenHash)) {
+    throw new Error("OAuth refresh token hash must be a 64-character lowercase hex digest.");
+  }
+
+  return tokenHash;
 }
 
 export function normalizeOAuthContactValues(values: readonly string[] | undefined) {

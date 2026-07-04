@@ -20,9 +20,9 @@ included in the public OpenAPI document. Signed-in developers can also register
 user-owned OAuth client apps at `/developers/apps`; the app registry and hashed
 client-secret storage are in place. OAuth metadata, JWKS, client-credentials
 token issuance, token revocation, constrained dynamic client registration for
-hosted MCP clients, and public-client Authorization Code with PKCE are also in
-place; refresh-token rotation and confidential-client authorization-code
-exchange remain later implementation checkpoints.
+hosted MCP clients, public-client Authorization Code with PKCE, and
+refresh-token rotation are also in place; confidential-client
+authorization-code exchange remains a later implementation checkpoint.
 
 Implemented public reads are anonymous by default and accept optional scoped
 API bearer tokens or OAuth access tokens for authenticated public-read traffic:
@@ -98,8 +98,8 @@ clients are for hosted MCP OAuth compatibility.
 `GET /oauth/authorize` currently supports public clients with
 `code_challenge_method=S256`. Approval creates a short-lived single-use
 authorization code, and `POST /oauth/token` exchanges that code for a
-resource-bound JWT access token. Refresh tokens are intentionally not issued in
-this checkpoint.
+resource-bound JWT access token plus an opaque refresh token. Refresh-token
+grant requests rotate the refresh token on every successful use.
 
 Current hosted MCP route:
 

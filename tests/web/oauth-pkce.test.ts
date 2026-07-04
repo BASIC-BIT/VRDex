@@ -7,12 +7,15 @@ import {
 } from "../../apps/web/src/lib/server/oauth-authorization-request";
 import {
   createOAuthAuthorizationCodeValue,
+  createOAuthRefreshTokenValue,
   deriveS256CodeChallenge,
   hashOAuthAuthorizationCodeValue,
+  hashOAuthRefreshTokenValue,
   normalizeOAuthAuthorizationCodeValue,
   normalizeOAuthCodeChallenge,
   normalizeOAuthCodeChallengeMethod,
   normalizeOAuthCodeVerifier,
+  normalizeOAuthRefreshTokenValue,
 } from "../../apps/web/src/lib/server/oauth-pkce";
 
 describe("OAuth PKCE authorization helpers", () => {
@@ -22,11 +25,17 @@ describe("OAuth PKCE authorization helpers", () => {
     assert.match(code, /^vrdx_code_[0-9a-f]{32}$/);
     assert.equal(normalizeOAuthAuthorizationCodeValue(code), code);
     assert.match(hashOAuthAuthorizationCodeValue(code), /^[0-9a-f]{64}$/);
+    const refreshToken = createOAuthRefreshTokenValue();
+
+    assert.match(refreshToken, /^vrdx_rt_[0-9a-f]{48}$/);
+    assert.equal(normalizeOAuthRefreshTokenValue(refreshToken), refreshToken);
+    assert.match(hashOAuthRefreshTokenValue(refreshToken), /^[0-9a-f]{64}$/);
     assert.equal(
       deriveS256CodeChallenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
       "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
     );
     assert.throws(() => normalizeOAuthAuthorizationCodeValue("bad"), /authorization code/);
+    assert.throws(() => normalizeOAuthRefreshTokenValue("bad"), /refresh token/);
     assert.throws(() => normalizeOAuthCodeVerifier("short"), /code_verifier/);
     assert.throws(() => normalizeOAuthCodeChallenge("bad"), /code_challenge/);
     assert.equal(normalizeOAuthCodeChallengeMethod("S256"), "S256");

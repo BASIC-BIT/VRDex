@@ -26,6 +26,7 @@ import {
   normalizeOAuthTokenEndpointAuthMethod,
   normalizeOAuthRevokeReason,
   normalizeOAuthResourceUri,
+  normalizeOAuthRefreshTokenHash,
   normalizeOAuthScopes,
   normalizeOAuthSoftwareValue,
   normalizeOAuthTokenExpiry,
@@ -778,6 +779,8 @@ export const consumeAuthorizationCode = mutation({
     derivedCodeChallenge: v.string(),
     tokenId: v.string(),
     expiresAt: v.number(),
+    refreshTokenHash: v.string(),
+    refreshTokenExpiresAt: v.number(),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -788,6 +791,8 @@ export const consumeAuthorizationCode = mutation({
     const derivedCodeChallenge = normalizeOAuthCodeChallenge(args.derivedCodeChallenge);
     const tokenId = normalizeOAuthAccessTokenId(args.tokenId);
     const expiresAt = normalizeOAuthTokenExpiry(args.expiresAt, now);
+    const refreshTokenHash = normalizeOAuthRefreshTokenHash(args.refreshTokenHash);
+    const refreshTokenExpiresAt = normalizeOAuthTokenExpiry(args.refreshTokenExpiresAt, now);
     const code = await ctx.db
       .query("oauthAuthorizationCodes")
       .withIndex("by_codeHash", (index) => index.eq("codeHash", codeHash))
@@ -845,6 +850,15 @@ export const consumeAuthorizationCode = mutation({
       throw new Error("OAuth access token id collision. Generate a new token id and retry.");
     }
 
+    const existingRefreshToken = await ctx.db
+      .query("oauthRefreshTokens")
+      .withIndex("by_tokenHash", (index) => index.eq("tokenHash", refreshTokenHash))
+      .unique();
+
+    if (existingRefreshToken !== null) {
+      throw new Error("OAuth refresh token collision. Generate a new refresh token and retry.");
+    }
+
     await ctx.db.patch(code._id, {
       status: "consumed",
       consumedAt: now,
@@ -861,6 +875,18 @@ export const consumeAuthorizationCode = mutation({
       status: "active",
       issuedAt: now,
       expiresAt,
+    });
+    await ctx.db.insert("oauthRefreshTokens", {
+      tokenHash: refreshTokenHash,
+      ...(application === null ? {} : { applicationId: application._id }),
+      ...(dynamicClient === null ? {} : { dynamicClientId: dynamicClient._id }),
+      clientId,
+      userId: code.userId,
+      resource,
+      scopes: code.scopes,
+      status: "active",
+      issuedAt: now,
+      expiresAt: refreshTokenExpiresAt,
     });
 
     if (application !== null) {
@@ -890,6 +916,158 @@ export const consumeAuthorizationCode = mutation({
       subjectType: "user" as const,
       userId: code.userId,
       expiresAt,
+      refreshTokenExpiresAt,
+    };
+  },
+});
+
+export const rotateRefreshToken = mutation({
+  args: {
+    clientId: v.string(),
+    refreshTokenHash: v.string(),
+    replacementRefreshTokenHash: v.string(),
+    requestedScopes: v.optional(v.array(apiScopeValidator)),
+    resource: v.string(),
+    tokenId: v.string(),
+    expiresAt: v.number(),
+    refreshTokenExpiresAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const clientId = normalizeOAuthClientId(args.clientId);
+    const refreshTokenHash = normalizeOAuthRefreshTokenHash(args.refreshTokenHash);
+    const replacementRefreshTokenHash = normalizeOAuthRefreshTokenHash(args.replacementRefreshTokenHash);
+    const resource = normalizeOAuthResourceUri(args.resource);
+    const tokenId = normalizeOAuthAccessTokenId(args.tokenId);
+    const expiresAt = normalizeOAuthTokenExpiry(args.expiresAt, now);
+    const refreshTokenExpiresAt = normalizeOAuthTokenExpiry(args.refreshTokenExpiresAt, now);
+    const refreshToken = await ctx.db
+      .query("oauthRefreshTokens")
+      .withIndex("by_tokenHash", (index) => index.eq("tokenHash", refreshTokenHash))
+      .unique();
+
+    if (
+      refreshToken === null ||
+      refreshToken.clientId !== clientId ||
+      refreshToken.resource !== resource ||
+      refreshToken.status !== "active" ||
+      refreshToken.expiresAt <= now
+    ) {
+      return { ok: false as const, reason: "invalid_grant" as const };
+    }
+
+    const scopes = args.requestedScopes === undefined
+      ? refreshToken.scopes
+      : normalizeOAuthScopes(args.requestedScopes);
+
+    if (!hasRequiredApiScopes(refreshToken.scopes, scopes)) {
+      return { ok: false as const, reason: "invalid_scope" as const };
+    }
+
+    const application = refreshToken.applicationId === undefined ? null : await ctx.db.get(refreshToken.applicationId);
+    const dynamicClient = refreshToken.dynamicClientId === undefined ? null : await ctx.db.get(refreshToken.dynamicClientId);
+
+    if (application === null && dynamicClient === null) {
+      return { ok: false as const, reason: "invalid_client" as const };
+    }
+
+    if (
+      application !== null &&
+      (application.clientId !== clientId ||
+        application.status !== "active" ||
+        application.clientType !== "public" ||
+        !application.allowedGrants.includes("refresh_token"))
+    ) {
+      return { ok: false as const, reason: "invalid_client" as const };
+    }
+
+    if (
+      dynamicClient !== null &&
+      (dynamicClient.clientId !== clientId ||
+        dynamicClient.status !== "active" ||
+        !dynamicClient.grantTypes.includes("refresh_token") ||
+        dynamicClient.resource !== resource)
+    ) {
+      return { ok: false as const, reason: "invalid_client" as const };
+    }
+
+    const existingAccessToken = await ctx.db
+      .query("oauthAccessTokens")
+      .withIndex("by_tokenId", (index) => index.eq("tokenId", tokenId))
+      .unique();
+
+    if (existingAccessToken !== null) {
+      throw new Error("OAuth access token id collision. Generate a new token id and retry.");
+    }
+
+    const existingReplacement = await ctx.db
+      .query("oauthRefreshTokens")
+      .withIndex("by_tokenHash", (index) => index.eq("tokenHash", replacementRefreshTokenHash))
+      .unique();
+
+    if (existingReplacement !== null) {
+      throw new Error("OAuth refresh token collision. Generate a new refresh token and retry.");
+    }
+
+    await ctx.db.patch(refreshToken._id, {
+      status: "rotated",
+      rotatedAt: now,
+      replacedByTokenHash: replacementRefreshTokenHash,
+    });
+    await ctx.db.insert("oauthAccessTokens", {
+      tokenId,
+      ...(application === null ? {} : { applicationId: application._id }),
+      ...(dynamicClient === null ? {} : { dynamicClientId: dynamicClient._id }),
+      clientId,
+      subjectType: "user",
+      userId: refreshToken.userId,
+      resource,
+      scopes,
+      status: "active",
+      issuedAt: now,
+      expiresAt,
+    });
+    await ctx.db.insert("oauthRefreshTokens", {
+      tokenHash: replacementRefreshTokenHash,
+      ...(application === null ? {} : { applicationId: application._id }),
+      ...(dynamicClient === null ? {} : { dynamicClientId: dynamicClient._id }),
+      clientId,
+      userId: refreshToken.userId,
+      resource,
+      scopes,
+      status: "active",
+      issuedAt: now,
+      expiresAt: refreshTokenExpiresAt,
+    });
+
+    if (application !== null) {
+      await ctx.db.patch(application._id, { lastUsedAt: now, updatedAt: now });
+    }
+
+    if (dynamicClient !== null) {
+      await ctx.db.patch(dynamicClient._id, { lastUsedAt: now, updatedAt: now });
+    }
+
+    await recordOAuthClientEvent(ctx, {
+      ...(application === null ? {} : { application }),
+      ...(dynamicClient === null ? {} : { dynamicClient }),
+      clientId,
+      eventType: "refresh_token_rotated",
+      result: "accepted",
+      routeClass: "oauth_token",
+      now,
+    });
+
+    return {
+      ok: true as const,
+      clientId,
+      resource,
+      scopes,
+      tokenId,
+      subjectType: "user" as const,
+      userId: refreshToken.userId,
+      expiresAt,
+      refreshTokenExpiresAt,
     };
   },
 });

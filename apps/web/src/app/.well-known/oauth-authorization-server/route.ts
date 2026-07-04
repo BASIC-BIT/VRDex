@@ -16,7 +16,7 @@ export function GET(request: Request) {
       registration_endpoint: `${issuer}/oauth/register`,
       revocation_endpoint: `${issuer}/oauth/revoke`,
       jwks_uri: `${issuer}/oauth/jwks.json`,
-      grant_types_supported: ["authorization_code", "client_credentials"],
+      grant_types_supported: ["authorization_code", "refresh_token", "client_credentials"],
       response_types_supported: ["code"],
       code_challenge_methods_supported: ["S256"],
       token_endpoint_auth_methods_supported: ["none", "client_secret_basic", "client_secret_post"],

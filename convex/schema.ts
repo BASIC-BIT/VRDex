@@ -67,6 +67,7 @@ import {
   oauthClientTypeValidator,
   oauthDynamicClientStatusValidator,
   oauthGrantTypeValidator,
+  oauthRefreshTokenStatusValidator,
   oauthResponseTypeValidator,
   oauthTokenEndpointAuthMethodValidator,
 } from "./_oauth";
@@ -1216,6 +1217,25 @@ export default defineSchema({
     .index("by_codeHash", ["codeHash"])
     .index("by_clientId_expiresAt", ["clientId", "expiresAt"])
     .index("by_userId_createdAt", ["userId", "createdAt"])
+    .index("by_status_expiresAt", ["status", "expiresAt"]),
+  oauthRefreshTokens: defineTable({
+    tokenHash: v.string(),
+    applicationId: v.optional(v.id("oauthApplications")),
+    dynamicClientId: v.optional(v.id("oauthDynamicClients")),
+    clientId: v.string(),
+    userId: v.id("users"),
+    resource: v.string(),
+    scopes: v.array(apiScopeValidator),
+    status: oauthRefreshTokenStatusValidator,
+    issuedAt: v.number(),
+    expiresAt: v.number(),
+    rotatedAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+    replacedByTokenHash: v.optional(v.string()),
+  })
+    .index("by_tokenHash", ["tokenHash"])
+    .index("by_clientId_expiresAt", ["clientId", "expiresAt"])
+    .index("by_userId_expiresAt", ["userId", "expiresAt"])
     .index("by_status_expiresAt", ["status", "expiresAt"]),
   oauthAccessTokens: defineTable({
     tokenId: v.string(),
