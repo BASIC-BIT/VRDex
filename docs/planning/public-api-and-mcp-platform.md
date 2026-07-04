@@ -67,7 +67,7 @@ The first useful version should feel small and sharp:
 - `Current recommendation`: Use Zod 4 plus an OpenAPI generator such as `zod-openapi` as the first candidate contract toolchain, pending a short implementation spike against the actual route shape.
 - `Current recommendation`: Use opaque hashed personal API tokens. Use short-lived RFC 9068-style JWT OAuth access tokens with audience/resource binding, plus opaque refresh-token rotation for user-delegated OAuth flows.
 - `Current recommendation`: Support OAuth Authorization Code with PKCE for user-delegated apps and Client Credentials for app-only access.
-- `Current recommendation`: Start normal developer apps with manual OAuth app registration in the VRDex developer dashboard. Include constrained Dynamic Client Registration for hosted MCP OAuth if major MCP client compatibility requires it on day one.
+- `Current recommendation`: Start normal developer apps with manual OAuth app registration in the VRDex developer dashboard. Include constrained Dynamic Client Registration for hosted MCP OAuth on day one, stored separately from user/community-owned apps until reviewed or promoted.
 - `Current recommendation`: Rate-limit by route class, IP, token, OAuth client, user, app owner, and dynamic MCP client. Do not use one global bucket for every caller.
 - `Current recommendation`: Use a Redis-compatible TTL counter store for high-volume hosted anonymous public API and MCP traffic. Keep Convex as the durable source for policy, app/token ownership, partner overrides, coarse usage summaries, and audit events.
 - `Current recommendation`: Launch the hosted MCP as read-oriented first, even if the auth platform already supports scopes that make later write tools possible.
@@ -523,13 +523,22 @@ Purpose:
 
 Current recommendation:
 
-- include `POST /oauth/register` for hosted MCP clients in the first MCP OAuth implementation if compatibility testing shows any major client expects it
+- include `POST /oauth/register` for hosted MCP clients in the first MCP OAuth implementation
 - restrict dynamically registered clients to public-client behavior until manually reviewed
 - allow only exact redirect URIs and localhost loopback development redirects
 - allow only MCP resource access and the initial public/read-oriented scopes
 - rate-limit registrations by IP, software metadata, and redirect host
 - expose dynamic clients separately from manually created user-owned developer apps in admin/ops views
 - allow manual promotion from dynamic MCP client to reviewed developer app later
+
+Implementation checkpoint:
+
+- `/oauth/register` stores dynamic MCP clients in a separate Convex table from
+  user-owned OAuth applications.
+- registration is public-client-only and returns no client secret.
+- the route advertises `authorization_code` client metadata, but OAuth
+  Authorization Code with PKCE is still a separate checkpoint before those
+  dynamic clients can complete signed-in consent.
 
 ### Scopes
 

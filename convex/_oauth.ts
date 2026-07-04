@@ -9,16 +9,24 @@ export const oauthClientTypeValidator = v.union(v.literal("public"), v.literal("
 export const oauthApplicationOwnerKindValidator = v.union(v.literal("user"), v.literal("community"));
 export const oauthApplicationStatusValidator = v.union(v.literal("active"), v.literal("revoked"));
 export const oauthApplicationTrustTierValidator = v.union(v.literal("standard"), v.literal("trusted_partner"));
+export const oauthDynamicClientStatusValidator = v.union(
+  v.literal("active"),
+  v.literal("revoked"),
+  v.literal("promoted"),
+);
 export const oauthGrantTypeValidator = v.union(
   v.literal("authorization_code"),
   v.literal("refresh_token"),
   v.literal("client_credentials"),
 );
+export const oauthResponseTypeValidator = v.literal("code");
+export const oauthTokenEndpointAuthMethodValidator = v.literal("none");
 export const oauthClientSecretStatusValidator = v.union(v.literal("active"), v.literal("revoked"));
 export const oauthClientEventTypeValidator = v.union(
   v.literal("application_created"),
   v.literal("application_updated"),
   v.literal("application_revoked"),
+  v.literal("dynamic_client_registered"),
   v.literal("secret_created"),
   v.literal("secret_revoked"),
   v.literal("client_credentials_rejected"),
@@ -31,6 +39,8 @@ export const oauthAccessTokenStatusValidator = v.union(v.literal("active"), v.li
 
 export type OAuthClientType = "public" | "confidential";
 export type OAuthGrantType = "authorization_code" | "refresh_token" | "client_credentials";
+export type OAuthResponseType = "code";
+export type OAuthTokenEndpointAuthMethod = "none";
 export type OAuthAccessTokenValidationResult =
   | {
       ok: true;
@@ -68,6 +78,8 @@ const oauthGrantTypes = new Set<OAuthGrantType>([
   "refresh_token",
   "client_credentials",
 ]);
+const oauthResponseTypes = new Set<OAuthResponseType>(["code"]);
+const dynamicMcpScopes = new Set<ApiScope>(["public:read", "mcp:read"]);
 const clientIdPattern = /^vrdx_app_[0-9a-f]{24}$/;
 const secretPrefixPattern = /^vrdx_secret_[0-9a-f]{16}$/;
 const verifierHashPattern = /^[0-9a-f]{64}$/;
@@ -211,6 +223,78 @@ export function normalizeOAuthGrantTypes(
   }
 
   return uniqueGrantTypes as OAuthGrantType[];
+}
+
+export function normalizeOAuthResponseTypes(values: readonly string[] | undefined): OAuthResponseType[] {
+  const requested = values === undefined || values.length === 0 ? ["code"] : values;
+  const uniqueResponseTypes = [...new Set(requested)];
+
+  for (const responseType of uniqueResponseTypes) {
+    if (!oauthResponseTypes.has(responseType as OAuthResponseType)) {
+      throw new Error(`Unsupported OAuth response type: ${responseType}`);
+    }
+  }
+
+  return uniqueResponseTypes as OAuthResponseType[];
+}
+
+export function normalizeOAuthTokenEndpointAuthMethod(value: string | undefined): OAuthTokenEndpointAuthMethod {
+  const method = value?.trim() || "none";
+
+  if (method === "none") {
+    return method;
+  }
+
+  throw new Error("Dynamic MCP clients must use token_endpoint_auth_method=none.");
+}
+
+export function normalizeOAuthContactValues(values: readonly string[] | undefined) {
+  const contacts =
+    values
+      ?.map((value) => value.trim())
+      .filter(Boolean)
+      .map((value) => value.slice(0, 160)) ?? [];
+
+  if (contacts.length > 5) {
+    throw new Error("Dynamic MCP clients can register at most 5 contacts.");
+  }
+
+  return [...new Set(contacts)];
+}
+
+export function normalizeOAuthSoftwareValue(value: string | undefined, label: string) {
+  const normalized = value?.trim().replace(/\s+/g, " ");
+
+  if (!normalized) {
+    return undefined;
+  }
+
+  if (normalized.length > 120) {
+    throw new Error(`${label} must be 120 characters or fewer.`);
+  }
+
+  return normalized;
+}
+
+export function normalizeDynamicMcpScopes(scopes: readonly string[] | undefined) {
+  const normalizedScopes = normalizeOAuthScopes(scopes ?? ["public:read", "mcp:read"]);
+  const unsupportedScopes = normalizedScopes.filter((scope) => !dynamicMcpScopes.has(scope));
+
+  if (unsupportedScopes.length > 0) {
+    throw new Error("Dynamic MCP clients can only request public:read and mcp:read.");
+  }
+
+  if (!normalizedScopes.includes("mcp:read")) {
+    throw new Error("Dynamic MCP clients must request mcp:read.");
+  }
+
+  return normalizedScopes;
+}
+
+export function normalizeOAuthRedirectHost(value: string) {
+  const url = new URL(value);
+
+  return url.host.toLowerCase();
 }
 
 export function normalizeOAuthClientSecretPrefix(value: string) {

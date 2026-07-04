@@ -19,6 +19,7 @@ import {
   hashOAuthClientSecretValue,
   normalizeApiTokenLabel,
   normalizeApiTokenScopes,
+  normalizeDynamicMcpClientRegistration,
   normalizeOAuthApplicationDescription,
   normalizeOAuthApplicationName,
   normalizeOAuthClientId,
@@ -189,6 +190,53 @@ describe("@vrdex/api-contracts", () => {
     assert.throws(() => normalizeOAuthRedirectUris(["http://example.com/callback"]), /HTTPS/);
     assert.throws(() => normalizeOAuthRedirectUris(["https://example.com/callback#frag"]), /fragment/);
     assert.throws(() => normalizeOAuthGrantTypes(["client_credentials"], "public"), /Public OAuth clients/);
+  });
+
+  it("normalizes constrained dynamic MCP client registration metadata", () => {
+    assert.deepEqual(
+      normalizeDynamicMcpClientRegistration({
+        client_name: "  Local   MCP  ",
+        redirect_uris: ["http://localhost:3333/callback"],
+        scope: "mcp:read public:read mcp:read",
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+        contacts: ["dev@example.test", "dev@example.test"],
+        software_id: "com.example.agent",
+        software_version: "1.0.0",
+      }),
+      {
+        allowedScopes: ["mcp:read", "public:read"],
+        clientName: "Local MCP",
+        clientType: "public",
+        contacts: ["dev@example.test"],
+        grantTypes: ["authorization_code", "refresh_token"],
+        redirectUris: ["http://localhost:3333/callback"],
+        responseTypes: ["code"],
+        softwareId: "com.example.agent",
+        softwareVersion: "1.0.0",
+        tokenEndpointAuthMethod: "none",
+      },
+    );
+
+    assert.throws(
+      () =>
+        normalizeDynamicMcpClientRegistration({
+          client_name: "Local MCP",
+          redirect_uris: ["http://localhost:3333/callback"],
+          scope: "public:read",
+        }),
+      /mcp:read/,
+    );
+    assert.throws(
+      () =>
+        normalizeDynamicMcpClientRegistration({
+          client_name: "Local MCP",
+          redirect_uris: ["http://localhost:3333/callback"],
+          token_endpoint_auth_method: "client_secret_basic",
+        }),
+      /token_endpoint_auth_method=none/,
+    );
   });
 
   it("includes the first public API paths in the generated OpenAPI document", () => {

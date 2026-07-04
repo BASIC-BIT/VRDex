@@ -10,11 +10,17 @@ import {
   normalizeOAuthClientSecretHash,
   normalizeOAuthClientSecretPrefix,
   normalizeOAuthClientType,
+  normalizeDynamicMcpScopes,
+  normalizeOAuthContactValues,
   normalizeOAuthGrantTypes,
   normalizeOAuthOptionalUrl,
   normalizeOAuthRedirectUris,
+  normalizeOAuthRedirectHost,
+  normalizeOAuthResponseTypes,
+  normalizeOAuthTokenEndpointAuthMethod,
   normalizeOAuthResourceUri,
   normalizeOAuthScopes,
+  normalizeOAuthSoftwareValue,
   normalizeOAuthTokenExpiry,
   normalizeOAuthRevokeReason,
   validateOAuthAccessTokenRecord,
@@ -81,6 +87,26 @@ describe("OAuth application helpers", () => {
     assert.throws(() => normalizeOAuthScopes(["admin:everything"]), /Unsupported OAuth scope/);
     assert.throws(() => normalizeOAuthAccessTokenId("bad"), /access token id/);
     assert.throws(() => normalizeOAuthTokenExpiry(1_000, 2_000), /future timestamp/);
+  });
+
+  it("normalizes constrained dynamic MCP client registration fields", () => {
+    assert.deepEqual(normalizeDynamicMcpScopes(undefined), ["public:read", "mcp:read"]);
+    assert.deepEqual(normalizeDynamicMcpScopes(["mcp:read", "public:read", "mcp:read"]), [
+      "mcp:read",
+      "public:read",
+    ]);
+    assert.equal(normalizeOAuthRedirectHost("http://localhost:3456/callback"), "localhost:3456");
+    assert.deepEqual(normalizeOAuthResponseTypes(undefined), ["code"]);
+    assert.equal(normalizeOAuthTokenEndpointAuthMethod(undefined), "none");
+    assert.deepEqual(normalizeOAuthContactValues([" dev@example.test ", "dev@example.test"]), [
+      "dev@example.test",
+    ]);
+    assert.equal(normalizeOAuthSoftwareValue("  com.example.agent  ", "software_id"), "com.example.agent");
+
+    assert.throws(() => normalizeDynamicMcpScopes(["profile:read"]), /public:read and mcp:read/);
+    assert.throws(() => normalizeDynamicMcpScopes(["public:read"]), /mcp:read/);
+    assert.throws(() => normalizeOAuthResponseTypes(["token"]), /response type/);
+    assert.throws(() => normalizeOAuthTokenEndpointAuthMethod("client_secret_basic"), /token_endpoint_auth_method=none/);
   });
 
   it("validates OAuth access token records against resource and scopes", () => {

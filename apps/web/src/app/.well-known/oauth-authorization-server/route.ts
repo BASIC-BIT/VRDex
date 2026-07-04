@@ -12,6 +12,7 @@ export function GET(request: Request) {
     {
       issuer,
       token_endpoint: `${issuer}/oauth/token`,
+      registration_endpoint: `${issuer}/oauth/register`,
       revocation_endpoint: `${issuer}/oauth/revoke`,
       jwks_uri: `${issuer}/oauth/jwks.json`,
       grant_types_supported: ["client_credentials"],

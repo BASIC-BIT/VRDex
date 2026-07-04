@@ -26,6 +26,7 @@ export const apiRouteClassValidator = v.union(
   v.literal("developer_credential_management"),
   v.literal("oauth_authorize"),
   v.literal("oauth_token"),
+  v.literal("oauth_dynamic_client_registration"),
   v.literal("asset_upload_intent"),
   v.literal("public_write"),
   v.literal("anonymous_mcp_public_read"),
@@ -76,6 +77,7 @@ export type ApiRouteClass =
   | "developer_credential_management"
   | "oauth_authorize"
   | "oauth_token"
+  | "oauth_dynamic_client_registration"
   | "asset_upload_intent"
   | "public_write"
   | "anonymous_mcp_public_read"

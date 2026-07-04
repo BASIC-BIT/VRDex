@@ -63,7 +63,10 @@ import {
   oauthClientSecretHashVersion,
   oauthClientSecretStatusValidator,
   oauthClientTypeValidator,
+  oauthDynamicClientStatusValidator,
   oauthGrantTypeValidator,
+  oauthResponseTypeValidator,
+  oauthTokenEndpointAuthMethodValidator,
 } from "./_oauth";
 import {
   seedImportBatchReviewStateValidator,
@@ -1149,8 +1152,34 @@ export default defineSchema({
     .index("by_applicationId_status_createdAt", ["applicationId", "status", "createdAt"])
     .index("by_clientId_status_createdAt", ["clientId", "status", "createdAt"])
     .index("by_secretPrefix", ["secretPrefix"]),
+  oauthDynamicClients: defineTable({
+    clientId: v.string(),
+    clientName: v.string(),
+    clientUri: v.optional(v.string()),
+    logoUri: v.optional(v.string()),
+    redirectUris: v.array(v.string()),
+    primaryRedirectHost: v.string(),
+    grantTypes: v.array(oauthGrantTypeValidator),
+    responseTypes: v.array(oauthResponseTypeValidator),
+    tokenEndpointAuthMethod: oauthTokenEndpointAuthMethodValidator,
+    contacts: v.array(v.string()),
+    softwareId: v.optional(v.string()),
+    softwareVersion: v.optional(v.string()),
+    allowedScopes: v.array(apiScopeValidator),
+    resource: v.string(),
+    status: oauthDynamicClientStatusValidator,
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    lastUsedAt: v.optional(v.number()),
+    promotedApplicationId: v.optional(v.id("oauthApplications")),
+    revokedAt: v.optional(v.number()),
+  })
+    .index("by_clientId", ["clientId"])
+    .index("by_status_createdAt", ["status", "createdAt"])
+    .index("by_primaryRedirectHost_createdAt", ["primaryRedirectHost", "createdAt"]),
   oauthClientEvents: defineTable({
     applicationId: v.optional(v.id("oauthApplications")),
+    dynamicClientId: v.optional(v.id("oauthDynamicClients")),
     clientId: v.optional(v.string()),
     secretPrefix: v.optional(v.string()),
     ownerKind: v.optional(oauthApplicationOwnerKindValidator),

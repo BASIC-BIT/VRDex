@@ -22,6 +22,7 @@ export const apiRouteClasses = [
   "developer_credential_management",
   "oauth_authorize",
   "oauth_token",
+  "oauth_dynamic_client_registration",
   "asset_upload_intent",
   "public_write",
   "anonymous_mcp_public_read",

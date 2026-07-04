@@ -19,9 +19,9 @@ first-party session route outside the public `/api/v0` contract, so it is not
 included in the public OpenAPI document. Signed-in developers can also register
 user-owned OAuth client apps at `/developers/apps`; the app registry and hashed
 client-secret storage are in place. OAuth metadata, JWKS, client-credentials
-token issuance, and token revocation endpoints are also in place; user-delegated
-authorization, consent, and refresh-token rotation remain later implementation
-checkpoints.
+token issuance, token revocation, and constrained dynamic client registration
+for hosted MCP clients are also in place; user-delegated authorization,
+consent, and refresh-token rotation remain later implementation checkpoints.
 
 Implemented public reads are anonymous by default and accept optional scoped
 API bearer tokens or OAuth access tokens for authenticated public-read traffic:
@@ -71,6 +71,7 @@ Current OAuth app registry primitives:
 - `oauthApps.createPersonalApplication`
 - `oauthApps.listPersonalApplications`
 - `oauthApps.revokePersonalApplication`
+- `oauthApps.createDynamicMcpClient`
 - `oauthApps.issueClientCredentialsAccessToken`
 - `oauthApps.revokeClientAccessToken`
 
@@ -79,8 +80,16 @@ Current OAuth issuer routes:
 - `GET /.well-known/oauth-authorization-server`
 - `GET /.well-known/oauth-protected-resource`
 - `GET /oauth/jwks.json`
+- `POST /oauth/register`, for constrained hosted MCP Dynamic Client Registration
 - `POST /oauth/token`, currently for `client_credentials`
 - `POST /oauth/revoke`, currently for JWT access-token revocation
+
+`POST /oauth/register` is not the normal developer-app creation path. It creates
+separate public dynamic MCP clients with exact redirect URIs, `authorization_code`
+grant metadata, `code` response type metadata, `token_endpoint_auth_method=none`,
+the MCP resource, and only `mcp:read` plus optional `public:read` scope. These
+clients are for hosted MCP OAuth compatibility and will become useful for
+sign-in once the `/oauth/authorize` PKCE/consent checkpoint lands.
 
 Current hosted MCP route:
 

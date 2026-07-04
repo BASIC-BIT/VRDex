@@ -6,6 +6,7 @@ import { mutation, query } from "./_generated/server";
 import { getCurrentUser, requireCurrentUser } from "./accounts";
 import { apiScopeValidator, hasRequiredApiScopes, timingSafeEqualString } from "./_apiTokens";
 import {
+  normalizeDynamicMcpScopes,
   normalizeOAuthAccessTokenId,
   normalizeOAuthApplicationDescription,
   normalizeOAuthApplicationName,
@@ -13,15 +14,22 @@ import {
   normalizeOAuthClientSecretHash,
   normalizeOAuthClientSecretPrefix,
   normalizeOAuthClientType,
+  normalizeOAuthContactValues,
   normalizeOAuthGrantTypes,
   normalizeOAuthOptionalUrl,
   normalizeOAuthRedirectUris,
+  normalizeOAuthRedirectHost,
+  normalizeOAuthResponseTypes,
+  normalizeOAuthTokenEndpointAuthMethod,
   normalizeOAuthRevokeReason,
   normalizeOAuthResourceUri,
   normalizeOAuthScopes,
+  normalizeOAuthSoftwareValue,
   normalizeOAuthTokenExpiry,
   oauthClientSecretHashVersion,
   oauthGrantTypeValidator,
+  oauthResponseTypeValidator,
+  oauthTokenEndpointAuthMethodValidator,
   validateOAuthAccessTokenRecord,
 } from "./_oauth";
 
@@ -65,6 +73,30 @@ function toApplicationSummary(
   };
 }
 
+function toDynamicMcpClientSummary(dynamicClient: Doc<"oauthDynamicClients">) {
+  return {
+    id: dynamicClient._id,
+    clientId: dynamicClient.clientId,
+    clientName: dynamicClient.clientName,
+    clientUri: dynamicClient.clientUri,
+    logoUri: dynamicClient.logoUri,
+    redirectUris: dynamicClient.redirectUris,
+    grantTypes: dynamicClient.grantTypes,
+    responseTypes: dynamicClient.responseTypes,
+    tokenEndpointAuthMethod: dynamicClient.tokenEndpointAuthMethod,
+    contacts: dynamicClient.contacts,
+    softwareId: dynamicClient.softwareId,
+    softwareVersion: dynamicClient.softwareVersion,
+    allowedScopes: dynamicClient.allowedScopes,
+    resource: dynamicClient.resource,
+    status: dynamicClient.status,
+    createdAt: dynamicClient.createdAt,
+    updatedAt: dynamicClient.updatedAt,
+    lastUsedAt: dynamicClient.lastUsedAt,
+    promotedApplicationId: dynamicClient.promotedApplicationId,
+  };
+}
+
 async function activeSecretsForApplication(ctx: MutationCtx, applicationId: Doc<"oauthApplications">["_id"]) {
   return await ctx.db
     .query("oauthApplicationSecrets")
@@ -78,17 +110,20 @@ async function recordOAuthClientEvent(
   ctx: MutationCtx,
   args: {
     application?: Doc<"oauthApplications">;
+    dynamicClient?: Doc<"oauthDynamicClients">;
     clientId?: string;
     secretPrefix?: string;
     eventType: Doc<"oauthClientEvents">["eventType"];
     result: Doc<"oauthClientEvents">["result"];
+    routeClass?: Doc<"oauthClientEvents">["routeClass"];
     now: number;
   },
 ) {
-  const clientId = args.application?.clientId ?? args.clientId;
+  const clientId = args.application?.clientId ?? args.dynamicClient?.clientId ?? args.clientId;
 
   await ctx.db.insert("oauthClientEvents", {
     ...(args.application === undefined ? {} : { applicationId: args.application._id }),
+    ...(args.dynamicClient === undefined ? {} : { dynamicClientId: args.dynamicClient._id }),
     ...(clientId === undefined ? {} : { clientId }),
     ...(args.secretPrefix === undefined ? {} : { secretPrefix: args.secretPrefix }),
     ...(args.application === undefined ? {} : { ownerKind: args.application.ownerKind }),
@@ -96,7 +131,7 @@ async function recordOAuthClientEvent(
     ...(args.application?.ownerCommunityProfileId === undefined
       ? {}
       : { ownerCommunityProfileId: args.application.ownerCommunityProfileId }),
-    routeClass: "developer_credential_management",
+    routeClass: args.routeClass ?? "developer_credential_management",
     eventType: args.eventType,
     result: args.result,
     createdAt: args.now,
@@ -264,6 +299,91 @@ export const createPersonalApplication = mutation({
     }
 
     return toApplicationSummary(application, activeSecrets);
+  },
+});
+
+export const createDynamicMcpClient = mutation({
+  args: {
+    clientId: v.string(),
+    clientName: v.string(),
+    clientUri: v.optional(v.string()),
+    logoUri: v.optional(v.string()),
+    redirectUris: v.array(v.string()),
+    grantTypes: v.optional(v.array(oauthGrantTypeValidator)),
+    responseTypes: v.optional(v.array(oauthResponseTypeValidator)),
+    tokenEndpointAuthMethod: v.optional(oauthTokenEndpointAuthMethodValidator),
+    contacts: v.optional(v.array(v.string())),
+    softwareId: v.optional(v.string()),
+    softwareVersion: v.optional(v.string()),
+    allowedScopes: v.optional(v.array(apiScopeValidator)),
+    resource: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const clientId = normalizeOAuthClientId(args.clientId);
+    const clientName = normalizeOAuthApplicationName(args.clientName);
+    const clientUri = normalizeOAuthOptionalUrl(args.clientUri, "client_uri");
+    const logoUri = normalizeOAuthOptionalUrl(args.logoUri, "logo_uri");
+    const redirectUris = normalizeOAuthRedirectUris(args.redirectUris);
+    const grantTypes = normalizeOAuthGrantTypes(args.grantTypes, "public");
+    const responseTypes = normalizeOAuthResponseTypes(args.responseTypes);
+    const tokenEndpointAuthMethod = normalizeOAuthTokenEndpointAuthMethod(args.tokenEndpointAuthMethod);
+    const contacts = normalizeOAuthContactValues(args.contacts);
+    const softwareId = normalizeOAuthSoftwareValue(args.softwareId, "software_id");
+    const softwareVersion = normalizeOAuthSoftwareValue(args.softwareVersion, "software_version");
+    const allowedScopes = normalizeDynamicMcpScopes(args.allowedScopes);
+    const resource = normalizeOAuthResourceUri(args.resource);
+    const existingApplication = await ctx.db
+      .query("oauthApplications")
+      .withIndex("by_clientId", (index) => index.eq("clientId", clientId))
+      .unique();
+    const existingDynamicClient = await ctx.db
+      .query("oauthDynamicClients")
+      .withIndex("by_clientId", (index) => index.eq("clientId", clientId))
+      .unique();
+
+    if (existingApplication !== null || existingDynamicClient !== null) {
+      throw new Error("OAuth client id collision. Generate a new client id and retry.");
+    }
+
+    if (!grantTypes.includes("authorization_code")) {
+      throw new Error("Dynamic MCP clients must support authorization_code.");
+    }
+
+    const dynamicClientId = await ctx.db.insert("oauthDynamicClients", {
+      clientId,
+      clientName,
+      ...(clientUri === undefined ? {} : { clientUri }),
+      ...(logoUri === undefined ? {} : { logoUri }),
+      redirectUris,
+      primaryRedirectHost: normalizeOAuthRedirectHost(redirectUris[0]),
+      grantTypes,
+      responseTypes,
+      tokenEndpointAuthMethod,
+      contacts,
+      ...(softwareId === undefined ? {} : { softwareId }),
+      ...(softwareVersion === undefined ? {} : { softwareVersion }),
+      allowedScopes,
+      resource,
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const dynamicClient = await ctx.db.get(dynamicClientId);
+
+    if (dynamicClient === null) {
+      throw new Error("Dynamic MCP client creation failed.");
+    }
+
+    await recordOAuthClientEvent(ctx, {
+      dynamicClient,
+      eventType: "dynamic_client_registered",
+      result: "accepted",
+      routeClass: "oauth_dynamic_client_registration",
+      now,
+    });
+
+    return toDynamicMcpClientSummary(dynamicClient);
   },
 });
 

@@ -32,6 +32,7 @@ const defaultPolicies: Record<ApiRouteClass, ApiRateLimitPolicy> = {
   developer_credential_management: { limit: 30, windowMs: 60_000 },
   oauth_authorize: { limit: 60, windowMs: 60_000 },
   oauth_token: { limit: 30, windowMs: 60_000 },
+  oauth_dynamic_client_registration: { limit: 10, windowMs: 60_000 },
   asset_upload_intent: { limit: 30, windowMs: 60_000 },
   public_write: { limit: 30, windowMs: 60_000 },
   anonymous_mcp_public_read: { limit: 60, windowMs: 60_000 },

@@ -74,12 +74,21 @@ describe("public API rate limiting", () => {
       identity: { kind: "oauth_client", value: "client123" },
       now: 1_000,
     });
+    const dynamicRegistration = checkMemoryApiRateLimit({
+      store,
+      policy,
+      routeClass: "oauth_dynamic_client_registration",
+      identity: { kind: "ip", value: "203.0.113.10" },
+      now: 1_000,
+    });
 
     assert.equal(anonymous.allowed, true);
     assert.equal(authenticated.allowed, true);
     assert.equal(oauthClient.allowed, true);
+    assert.equal(dynamicRegistration.allowed, true);
     assert.notEqual(anonymous.key, authenticated.key);
     assert.notEqual(authenticated.key, oauthClient.key);
+    assert.notEqual(anonymous.key, dynamicRegistration.key);
   });
 
   it("extracts the first forwarded IP before falling back to x-real-ip", () => {

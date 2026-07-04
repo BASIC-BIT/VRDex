@@ -11,15 +11,37 @@ const oauthClientSecretPattern = new RegExp(
 export const oauthClientTypes = ["public", "confidential"] as const;
 export const oauthGrantTypes = ["authorization_code", "refresh_token", "client_credentials"] as const;
 export const oauthApplicationStatuses = ["active", "revoked"] as const;
+export const oauthDynamicClientStatuses = ["active", "revoked", "promoted"] as const;
+export const oauthResponseTypes = ["code"] as const;
+export const oauthTokenEndpointAuthMethods = ["none"] as const;
+export const dynamicMcpClientScopes = ["public:read", "mcp:read"] as const;
 
 export type OAuthClientType = (typeof oauthClientTypes)[number];
 export type OAuthGrantType = (typeof oauthGrantTypes)[number];
 export type OAuthApplicationStatus = (typeof oauthApplicationStatuses)[number];
+export type OAuthDynamicClientStatus = (typeof oauthDynamicClientStatuses)[number];
+export type OAuthResponseType = (typeof oauthResponseTypes)[number];
+export type OAuthTokenEndpointAuthMethod = (typeof oauthTokenEndpointAuthMethods)[number];
 
 export type OAuthClientSecretParts = {
   secretPrefix: string;
   secretValue: string;
   verifier: string;
+};
+
+export type DynamicMcpClientRegistration = {
+  allowedScopes: ApiScope[];
+  clientName: string;
+  clientType: "public";
+  clientUri?: string;
+  contacts: string[];
+  grantTypes: OAuthGrantType[];
+  logoUri?: string;
+  redirectUris: string[];
+  responseTypes: OAuthResponseType[];
+  softwareId?: string;
+  softwareVersion?: string;
+  tokenEndpointAuthMethod: OAuthTokenEndpointAuthMethod;
 };
 
 function randomHex(byteLength: number) {
@@ -217,4 +239,147 @@ export function normalizeOAuthGrantTypes(
   }
 
   return uniqueGrantTypes as OAuthGrantType[];
+}
+
+export function normalizeOAuthResponseTypes(values: readonly string[] | undefined): OAuthResponseType[] {
+  const requested = values === undefined || values.length === 0 ? ["code"] : values;
+  const uniqueResponseTypes = [...new Set(requested)];
+
+  for (const responseType of uniqueResponseTypes) {
+    if (!(oauthResponseTypes as readonly string[]).includes(responseType)) {
+      throw new Error(`Unsupported OAuth response type: ${responseType}`);
+    }
+  }
+
+  return uniqueResponseTypes as OAuthResponseType[];
+}
+
+export function normalizeOAuthTokenEndpointAuthMethod(
+  value: string | undefined,
+): OAuthTokenEndpointAuthMethod {
+  const method = value?.trim() || "none";
+
+  if ((oauthTokenEndpointAuthMethods as readonly string[]).includes(method)) {
+    return method as OAuthTokenEndpointAuthMethod;
+  }
+
+  throw new Error("Dynamic MCP clients must use token_endpoint_auth_method=none.");
+}
+
+export function normalizeOAuthContactValues(values: readonly string[] | undefined) {
+  const contacts = values
+    ?.map((value) => value.trim())
+    .filter(Boolean)
+    .map((value) => value.slice(0, 160)) ?? [];
+
+  if (contacts.length > 5) {
+    throw new Error("Dynamic MCP clients can register at most 5 contacts.");
+  }
+
+  return [...new Set(contacts)];
+}
+
+export function normalizeOAuthSoftwareValue(value: string | undefined, label: string) {
+  const normalized = value?.trim().replace(/\s+/g, " ");
+
+  if (!normalized) {
+    return undefined;
+  }
+
+  if (normalized.length > 120) {
+    throw new Error(`${label} must be 120 characters or fewer.`);
+  }
+
+  return normalized;
+}
+
+function stringArray(value: unknown, label: string) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value)) {
+    throw new Error(`${label} must be an array of strings.`);
+  }
+
+  return value.map((entry) => String(entry));
+}
+
+function optionalString(value: unknown, label: string) {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  if (typeof value !== "string") {
+    throw new Error(`${label} must be a string.`);
+  }
+
+  return value;
+}
+
+function scopeValues(value: unknown) {
+  if (value === undefined || value === null || value === "") {
+    return [...dynamicMcpClientScopes];
+  }
+
+  if (typeof value !== "string") {
+    throw new Error("scope must be a space-delimited string.");
+  }
+
+  return value.trim().split(/\s+/);
+}
+
+export function normalizeDynamicMcpClientRegistration(input: Record<string, unknown>): DynamicMcpClientRegistration {
+  const clientName = normalizeOAuthApplicationName(optionalString(input.client_name, "client_name") ?? "VRDex MCP Client");
+  const redirectUris = normalizeOAuthRedirectUris(stringArray(input.redirect_uris, "redirect_uris") ?? []);
+  const grantTypes = normalizeOAuthGrantTypes(stringArray(input.grant_types, "grant_types"), "public").filter(
+    (grantType) => grantType !== "client_credentials",
+  );
+  const responseTypes = normalizeOAuthResponseTypes(stringArray(input.response_types, "response_types"));
+  const tokenEndpointAuthMethod = normalizeOAuthTokenEndpointAuthMethod(
+    optionalString(input.token_endpoint_auth_method, "token_endpoint_auth_method"),
+  );
+  const allowedScopes = normalizeOAuthScopes(scopeValues(input.scope));
+  const unsupportedScopes = allowedScopes.filter(
+    (scope) => !(dynamicMcpClientScopes as readonly string[]).includes(scope),
+  );
+
+  if (unsupportedScopes.length > 0) {
+    throw new Error(`Dynamic MCP clients can only request ${dynamicMcpClientScopes.join(" ")}.`);
+  }
+
+  if (!allowedScopes.includes("mcp:read")) {
+    throw new Error("Dynamic MCP clients must request mcp:read.");
+  }
+
+  if (!grantTypes.includes("authorization_code")) {
+    throw new Error("Dynamic MCP clients must support authorization_code.");
+  }
+
+  if (!responseTypes.includes("code")) {
+    throw new Error("Dynamic MCP clients must support response_type=code.");
+  }
+
+  const clientUri = normalizeOAuthOptionalUrl(optionalString(input.client_uri, "client_uri"), "client_uri");
+  const logoUri = normalizeOAuthOptionalUrl(optionalString(input.logo_uri, "logo_uri"), "logo_uri");
+  const softwareId = normalizeOAuthSoftwareValue(optionalString(input.software_id, "software_id"), "software_id");
+  const softwareVersion = normalizeOAuthSoftwareValue(
+    optionalString(input.software_version, "software_version"),
+    "software_version",
+  );
+
+  return {
+    allowedScopes,
+    clientName,
+    clientType: "public",
+    ...(clientUri === undefined ? {} : { clientUri }),
+    contacts: normalizeOAuthContactValues(stringArray(input.contacts, "contacts")),
+    grantTypes,
+    ...(logoUri === undefined ? {} : { logoUri }),
+    redirectUris,
+    responseTypes,
+    ...(softwareId === undefined ? {} : { softwareId }),
+    ...(softwareVersion === undefined ? {} : { softwareVersion }),
+    tokenEndpointAuthMethod,
+  };
 }
