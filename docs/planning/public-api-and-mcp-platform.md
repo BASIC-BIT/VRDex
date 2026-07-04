@@ -536,9 +536,11 @@ Implementation checkpoint:
 - `/oauth/register` stores dynamic MCP clients in a separate Convex table from
   user-owned OAuth applications.
 - registration is public-client-only and returns no client secret.
-- the route advertises `authorization_code` client metadata, but OAuth
-  Authorization Code with PKCE is still a separate checkpoint before those
-  dynamic clients can complete signed-in consent.
+- `/oauth/authorize` supports public-client Authorization Code with PKCE using
+  `code_challenge_method=S256`.
+- `/oauth/token` exchanges public-client authorization codes for short-lived
+  resource-bound JWT access tokens; refresh-token rotation remains a later
+  checkpoint.
 
 ### Scopes
 

@@ -19,9 +19,10 @@ first-party session route outside the public `/api/v0` contract, so it is not
 included in the public OpenAPI document. Signed-in developers can also register
 user-owned OAuth client apps at `/developers/apps`; the app registry and hashed
 client-secret storage are in place. OAuth metadata, JWKS, client-credentials
-token issuance, token revocation, and constrained dynamic client registration
-for hosted MCP clients are also in place; user-delegated authorization,
-consent, and refresh-token rotation remain later implementation checkpoints.
+token issuance, token revocation, constrained dynamic client registration for
+hosted MCP clients, and public-client Authorization Code with PKCE are also in
+place; refresh-token rotation and confidential-client authorization-code
+exchange remain later implementation checkpoints.
 
 Implemented public reads are anonymous by default and accept optional scoped
 API bearer tokens or OAuth access tokens for authenticated public-read traffic:
@@ -72,6 +73,9 @@ Current OAuth app registry primitives:
 - `oauthApps.listPersonalApplications`
 - `oauthApps.revokePersonalApplication`
 - `oauthApps.createDynamicMcpClient`
+- `oauthApps.resolveAuthorizationClient`
+- `oauthApps.issueAuthorizationCode`
+- `oauthApps.consumeAuthorizationCode`
 - `oauthApps.issueClientCredentialsAccessToken`
 - `oauthApps.revokeClientAccessToken`
 
@@ -79,17 +83,23 @@ Current OAuth issuer routes:
 
 - `GET /.well-known/oauth-authorization-server`
 - `GET /.well-known/oauth-protected-resource`
+- `GET /oauth/authorize`, for public-client Authorization Code with PKCE consent
 - `GET /oauth/jwks.json`
 - `POST /oauth/register`, for constrained hosted MCP Dynamic Client Registration
-- `POST /oauth/token`, currently for `client_credentials`
+- `POST /oauth/token`, for public-client `authorization_code` and confidential `client_credentials`
 - `POST /oauth/revoke`, currently for JWT access-token revocation
 
 `POST /oauth/register` is not the normal developer-app creation path. It creates
 separate public dynamic MCP clients with exact redirect URIs, `authorization_code`
 grant metadata, `code` response type metadata, `token_endpoint_auth_method=none`,
 the MCP resource, and only `mcp:read` plus optional `public:read` scope. These
-clients are for hosted MCP OAuth compatibility and will become useful for
-sign-in once the `/oauth/authorize` PKCE/consent checkpoint lands.
+clients are for hosted MCP OAuth compatibility.
+
+`GET /oauth/authorize` currently supports public clients with
+`code_challenge_method=S256`. Approval creates a short-lived single-use
+authorization code, and `POST /oauth/token` exchanges that code for a
+resource-bound JWT access token. Refresh tokens are intentionally not issued in
+this checkpoint.
 
 Current hosted MCP route:
 
@@ -101,6 +111,7 @@ Current token validation behavior:
 - scope-insufficient bearer tokens return `403`
 - public read routes currently require `public:read`
 - OAuth access tokens must be issued for the API resource to count as authenticated API traffic
+- OAuth access tokens issued for the MCP resource and carrying `mcp:read` count as authenticated MCP traffic
 - anonymous public reads still work without credentials
 
 ## Locked Direction

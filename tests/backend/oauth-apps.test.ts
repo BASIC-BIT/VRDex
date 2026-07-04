@@ -6,6 +6,9 @@ import {
   normalizeOAuthApplicationDescription,
   normalizeOAuthApplicationName,
   normalizeOAuthAccessTokenId,
+  normalizeOAuthAuthorizationCodeHash,
+  normalizeOAuthCodeChallenge,
+  normalizeOAuthCodeChallengeMethod,
   normalizeOAuthClientId,
   normalizeOAuthClientSecretHash,
   normalizeOAuthClientSecretPrefix,
@@ -28,6 +31,7 @@ import {
 
 const accessTokenRecordId = "accessToken123" as Id<"oauthAccessTokens">;
 const applicationId = "application123" as Id<"oauthApplications">;
+const dynamicClientId = "dynamicClient123" as Id<"oauthDynamicClients">;
 type OAuthAccessTokenRecord = NonNullable<Parameters<typeof validateOAuthAccessTokenRecord>[0]>;
 
 function oauthAccessTokenRecord(overrides: Partial<OAuthAccessTokenRecord> = {}): OAuthAccessTokenRecord {
@@ -76,6 +80,12 @@ describe("OAuth application helpers", () => {
     ]);
     assert.equal(normalizeOAuthClientSecretPrefix("vrdx_secret_0123456789abcdef"), "vrdx_secret_0123456789abcdef");
     assert.equal(normalizeOAuthAccessTokenId("vrdx_at_0123456789abcdef0123456789abcdef"), "vrdx_at_0123456789abcdef0123456789abcdef");
+    assert.equal(
+      normalizeOAuthAuthorizationCodeHash("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"),
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    );
+    assert.equal(normalizeOAuthCodeChallenge("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"), "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
+    assert.equal(normalizeOAuthCodeChallengeMethod("S256"), "S256");
     assert.equal(normalizeOAuthResourceUri("http://127.0.0.1:3000/mcp"), "http://127.0.0.1:3000/mcp");
     assert.equal(normalizeOAuthTokenExpiry(2_000, 1_000), 2_000);
     assert.equal(
@@ -86,6 +96,9 @@ describe("OAuth application helpers", () => {
     assert.throws(() => normalizeOAuthGrantTypes(["client_credentials"], "public"), /Public OAuth clients/);
     assert.throws(() => normalizeOAuthScopes(["admin:everything"]), /Unsupported OAuth scope/);
     assert.throws(() => normalizeOAuthAccessTokenId("bad"), /access token id/);
+    assert.throws(() => normalizeOAuthAuthorizationCodeHash("bad"), /authorization code hash/);
+    assert.throws(() => normalizeOAuthCodeChallenge("bad"), /code_challenge/);
+    assert.throws(() => normalizeOAuthCodeChallengeMethod("plain"), /S256/);
     assert.throws(() => normalizeOAuthTokenExpiry(1_000, 2_000), /future timestamp/);
   });
 
@@ -110,6 +123,26 @@ describe("OAuth application helpers", () => {
   });
 
   it("validates OAuth access token records against resource and scopes", () => {
+    assert.deepEqual(
+      validateOAuthAccessTokenRecord(oauthAccessTokenRecord({ applicationId: undefined, dynamicClientId }), {
+        clientId: "vrdx_app_0123456789abcdef01234567",
+        tokenId: "vrdx_at_0123456789abcdef0123456789abcdef",
+        resource: "https://api.example.test",
+        requiredScopes: ["mcp:read"],
+        now: 1_000,
+      }),
+      {
+        ok: true,
+        tokenId: "vrdx_at_0123456789abcdef0123456789abcdef",
+        accessTokenRecordId,
+        dynamicClientId,
+        clientId: "vrdx_app_0123456789abcdef01234567",
+        subjectType: "client",
+        resource: "https://api.example.test",
+        scopes: ["public:read", "mcp:read"],
+      },
+    );
+
     assert.deepEqual(
       validateOAuthAccessTokenRecord(oauthAccessTokenRecord(), {
         clientId: "vrdx_app_0123456789abcdef01234567",

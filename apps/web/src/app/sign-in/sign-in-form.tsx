@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuthActions } from "@convex-dev/auth/react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useState, useTransition } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -40,9 +40,21 @@ function stringField(value: FormDataEntryValue | null): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function safeRedirectTo(value: string | null) {
+  const redirectTo = value?.trim();
+
+  if (redirectTo?.startsWith("/") && !redirectTo.startsWith("//")) {
+    return redirectTo;
+  }
+
+  return "/account";
+}
+
 function ConnectedSignInForm() {
   const { signIn } = useAuthActions();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTo = safeRedirectTo(searchParams.get("redirectTo"));
   const [mode, setMode] = useState<PasswordMode>("signIn");
   const [status, setStatus] = useState<AuthStatus>({ kind: "idle" });
   const [, startTransition] = useTransition();
@@ -68,7 +80,7 @@ function ConnectedSignInForm() {
           return;
         }
 
-        router.replace("/account");
+        router.replace(redirectTo);
         return;
       }
 
@@ -79,7 +91,7 @@ function ConnectedSignInForm() {
       });
 
       if (result.signingIn) {
-        router.replace("/account");
+        router.replace(redirectTo);
         return;
       }
 
@@ -98,11 +110,11 @@ function ConnectedSignInForm() {
         <button
           className="rounded-control bg-[#5865f2] px-5 py-3 text-sm font-medium text-white transition hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5865f2]/35"
           type="button"
-          onClick={() => void signIn("discord", { redirectTo: "/account" })}
+          onClick={() => void signIn("discord", { redirectTo })}
         >
           Continue with Discord
         </button>
-        <Button size="lg" type="button" onClick={() => void signIn("google", { redirectTo: "/account" })}>
+        <Button size="lg" type="button" onClick={() => void signIn("google", { redirectTo })}>
           Continue with Google
         </Button>
       </div>

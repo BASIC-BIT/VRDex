@@ -56,8 +56,10 @@ import {
   oauthApplicationOwnerKindValidator,
   oauthApplicationStatusValidator,
   oauthApplicationTrustTierValidator,
+  oauthAuthorizationCodeStatusValidator,
   oauthAccessTokenStatusValidator,
   oauthAccessTokenSubjectTypeValidator,
+  oauthCodeChallengeMethodValidator,
   oauthClientEventResultValidator,
   oauthClientEventTypeValidator,
   oauthClientSecretHashVersion,
@@ -1194,9 +1196,31 @@ export default defineSchema({
     .index("by_clientId_createdAt", ["clientId", "createdAt"])
     .index("by_ownerUserId_createdAt", ["ownerUserId", "createdAt"])
     .index("by_eventType_createdAt", ["eventType", "createdAt"]),
+  oauthAuthorizationCodes: defineTable({
+    codeHash: v.string(),
+    applicationId: v.optional(v.id("oauthApplications")),
+    dynamicClientId: v.optional(v.id("oauthDynamicClients")),
+    clientId: v.string(),
+    userId: v.id("users"),
+    redirectUri: v.string(),
+    resource: v.string(),
+    scopes: v.array(apiScopeValidator),
+    codeChallenge: v.string(),
+    codeChallengeMethod: oauthCodeChallengeMethodValidator,
+    status: oauthAuthorizationCodeStatusValidator,
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    consumedAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+  })
+    .index("by_codeHash", ["codeHash"])
+    .index("by_clientId_expiresAt", ["clientId", "expiresAt"])
+    .index("by_userId_createdAt", ["userId", "createdAt"])
+    .index("by_status_expiresAt", ["status", "expiresAt"]),
   oauthAccessTokens: defineTable({
     tokenId: v.string(),
-    applicationId: v.id("oauthApplications"),
+    applicationId: v.optional(v.id("oauthApplications")),
+    dynamicClientId: v.optional(v.id("oauthDynamicClients")),
     clientId: v.string(),
     subjectType: oauthAccessTokenSubjectTypeValidator,
     userId: v.optional(v.id("users")),
@@ -1211,6 +1235,7 @@ export default defineSchema({
     .index("by_tokenId", ["tokenId"])
     .index("by_clientId_expiresAt", ["clientId", "expiresAt"])
     .index("by_applicationId_issuedAt", ["applicationId", "issuedAt"])
+    .index("by_dynamicClientId_issuedAt", ["dynamicClientId", "issuedAt"])
     .index("by_status_expiresAt", ["status", "expiresAt"]),
   billingCustomerMappings: defineTable({
     ownerKind: billingOwnerKindValidator,

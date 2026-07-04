@@ -1,8 +1,10 @@
 import Link from "next/link";
+import { Suspense } from "react";
 
 import { SignInForm } from "./sign-in-form";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, Eyebrow } from "@/components/ui/card";
+import { Notice } from "@/components/ui/notice";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 
 export default function SignInPage() {
@@ -29,7 +31,9 @@ export default function SignInPage() {
             </div>
 
             <Card surface="glass">
-              <SignInForm />
+              <Suspense fallback={<Notice>Loading sign-in options...</Notice>}>
+                <SignInForm />
+              </Suspense>
             </Card>
           </div>
         </section>

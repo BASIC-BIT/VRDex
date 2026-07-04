@@ -2,6 +2,7 @@ import { api } from "@convex-generated-api";
 import {
   hashOAuthClientSecretValue,
   normalizeOAuthClientId,
+  normalizeOAuthRedirectUris,
   parseOAuthClientSecretValue,
 } from "@vrdex/api-contracts";
 
@@ -11,11 +12,18 @@ import {
   oauthAccessTokenExpiresAt,
   oauthAccessTokenExpiresInSeconds,
   oauthIssuerUrl,
+  oauthMcpResourceUri,
   oauthScopeString,
   oauthSupportedResources,
   parseOAuthScopeString,
   signOAuthAccessToken,
 } from "@/lib/server/oauth-jwt";
+import {
+  deriveS256CodeChallenge,
+  hashOAuthAuthorizationCodeValue,
+  normalizeOAuthAuthorizationCodeValue,
+  normalizeOAuthCodeVerifier,
+} from "@/lib/server/oauth-pkce";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -101,6 +109,105 @@ function requestedResource(request: Request, form: FormData) {
   return resource;
 }
 
+function requestedAuthorizationCodeResource(request: Request, form: FormData) {
+  const resource = String(form.get("resource") ?? "").trim();
+
+  if (!resource) {
+    return oauthMcpResourceUri(request);
+  }
+
+  if (!oauthSupportedResources(request).includes(resource)) {
+    throw new Error("The requested OAuth resource is not supported by this deployment.");
+  }
+
+  return resource;
+}
+
+function requiredFormString(form: FormData, name: string) {
+  const value = String(form.get(name) ?? "").trim();
+
+  if (!value) {
+    throw new Error(`${name} is required.`);
+  }
+
+  return value;
+}
+
+async function authorizationCodeTokenResponse(request: Request, form: FormData) {
+  if (basicClientCredentials(request).clientId !== undefined || String(form.get("client_secret") ?? "").trim()) {
+    return oauthProblem(401, "invalid_client", "Client authentication is not supported for public PKCE clients.");
+  }
+
+  let clientId: string;
+  let codeHash: string;
+  let redirectUri: string;
+  let resource: string;
+  let derivedCodeChallenge: string;
+
+  try {
+    clientId = normalizeOAuthClientId(requiredFormString(form, "client_id"));
+    codeHash = hashOAuthAuthorizationCodeValue(normalizeOAuthAuthorizationCodeValue(requiredFormString(form, "code")));
+    redirectUri = normalizeOAuthRedirectUris([requiredFormString(form, "redirect_uri")])[0];
+    resource = requestedAuthorizationCodeResource(request, form);
+    derivedCodeChallenge = deriveS256CodeChallenge(normalizeOAuthCodeVerifier(requiredFormString(form, "code_verifier")));
+  } catch (error) {
+    return oauthProblem(
+      400,
+      "invalid_request",
+      error instanceof Error ? error.message : "The authorization-code token request is invalid.",
+    );
+  }
+
+  const now = Date.now();
+  const expiresAt = oauthAccessTokenExpiresAt(now);
+  const tokenId = createOAuthAccessTokenId();
+  const result = await convexHttpClient().mutation(api.oauthApps.consumeAuthorizationCode, {
+    clientId,
+    codeHash,
+    redirectUri,
+    resource,
+    derivedCodeChallenge,
+    tokenId,
+    expiresAt,
+  });
+
+  if (!result.ok) {
+    if (result.reason === "invalid_client") {
+      return oauthProblem(401, "invalid_client", "Client authentication failed.");
+    }
+
+    return oauthProblem(400, "invalid_grant", "The authorization code is invalid, expired, or already used.");
+  }
+
+  const issuer = oauthIssuerUrl(request);
+  const issuedAtSeconds = Math.floor(now / 1000);
+  const accessToken = signOAuthAccessToken({
+    aud: result.resource,
+    client_id: result.clientId,
+    exp: Math.floor(result.expiresAt / 1000),
+    iat: issuedAtSeconds,
+    iss: issuer,
+    jti: result.tokenId,
+    scope: oauthScopeString(result.scopes),
+    sub: result.userId,
+  });
+
+  return Response.json(
+    {
+      access_token: accessToken,
+      token_type: "Bearer",
+      expires_in: oauthAccessTokenExpiresInSeconds(),
+      scope: oauthScopeString(result.scopes),
+    },
+    {
+      headers: {
+        "cache-control": "no-store",
+        pragma: "no-cache",
+      },
+    },
+  );
+}
+
 export async function POST(request: Request) {
   let form: FormData;
 
@@ -116,8 +223,12 @@ export async function POST(request: Request) {
 
   const grantType = String(form.get("grant_type") ?? "");
 
+  if (grantType === "authorization_code") {
+    return await authorizationCodeTokenResponse(request, form);
+  }
+
   if (grantType !== "client_credentials") {
-    return oauthProblem(400, "unsupported_grant_type", "Only client_credentials is implemented in this checkpoint.");
+    return oauthProblem(400, "unsupported_grant_type", "Supported grant types are authorization_code and client_credentials.");
   }
 
   const basicCredentials = basicClientCredentials(request);

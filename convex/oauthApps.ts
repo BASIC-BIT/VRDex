@@ -1,15 +1,18 @@
 import { v } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";
-import type { MutationCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { getCurrentUser, requireCurrentUser } from "./accounts";
 import { apiScopeValidator, hasRequiredApiScopes, timingSafeEqualString } from "./_apiTokens";
 import {
   normalizeDynamicMcpScopes,
   normalizeOAuthAccessTokenId,
+  normalizeOAuthAuthorizationCodeHash,
   normalizeOAuthApplicationDescription,
   normalizeOAuthApplicationName,
+  normalizeOAuthCodeChallenge,
+  normalizeOAuthCodeChallengeMethod,
   normalizeOAuthClientId,
   normalizeOAuthClientSecretHash,
   normalizeOAuthClientSecretPrefix,
@@ -27,6 +30,7 @@ import {
   normalizeOAuthSoftwareValue,
   normalizeOAuthTokenExpiry,
   oauthClientSecretHashVersion,
+  oauthCodeChallengeMethodValidator,
   oauthGrantTypeValidator,
   oauthResponseTypeValidator,
   oauthTokenEndpointAuthMethodValidator,
@@ -97,6 +101,46 @@ function toDynamicMcpClientSummary(dynamicClient: Doc<"oauthDynamicClients">) {
   };
 }
 
+function toAuthorizationClientSummary(
+  client:
+    | { kind: "application"; record: Doc<"oauthApplications"> }
+    | { kind: "dynamic_client"; record: Doc<"oauthDynamicClients"> },
+  args: {
+    redirectUri: string;
+    requestedScopes: ReturnType<typeof normalizeOAuthScopes>;
+    resource: string;
+  },
+) {
+  if (client.kind === "application") {
+    return {
+      ok: true as const,
+      clientKind: client.kind,
+      applicationId: client.record._id,
+      clientId: client.record.clientId,
+      displayName: client.record.displayName,
+      description: client.record.description,
+      docsUrl: client.record.docsUrl,
+      privacyUrl: client.record.privacyUrl,
+      redirectUri: args.redirectUri,
+      resource: args.resource,
+      requestedScopes: args.requestedScopes,
+    };
+  }
+
+  return {
+    ok: true as const,
+    clientKind: client.kind,
+    dynamicClientId: client.record._id,
+    clientId: client.record.clientId,
+    displayName: client.record.clientName,
+    clientUri: client.record.clientUri,
+    logoUri: client.record.logoUri,
+    redirectUri: args.redirectUri,
+    resource: args.resource,
+    requestedScopes: args.requestedScopes,
+  };
+}
+
 async function activeSecretsForApplication(ctx: MutationCtx, applicationId: Doc<"oauthApplications">["_id"]) {
   return await ctx.db
     .query("oauthApplicationSecrets")
@@ -136,6 +180,78 @@ async function recordOAuthClientEvent(
     result: args.result,
     createdAt: args.now,
   });
+}
+
+async function resolvePublicAuthorizationClient(
+  ctx: QueryCtx | MutationCtx,
+  args: {
+    clientId: string;
+    redirectUri: string;
+    requestedScopes?: string[];
+    resource: string;
+  },
+) {
+  const clientId = normalizeOAuthClientId(args.clientId);
+  const redirectUri = normalizeOAuthRedirectUris([args.redirectUri])[0];
+  const requestedScopes = normalizeOAuthScopes(args.requestedScopes);
+  const resource = normalizeOAuthResourceUri(args.resource);
+  const application = await ctx.db
+    .query("oauthApplications")
+    .withIndex("by_clientId", (index) => index.eq("clientId", clientId))
+    .unique();
+
+  if (application !== null) {
+    if (
+      application.status !== "active" ||
+      application.clientType !== "public" ||
+      !application.allowedGrants.includes("authorization_code")
+    ) {
+      return { ok: false as const, reason: "invalid_client" as const };
+    }
+
+    if (!application.redirectUris.includes(redirectUri)) {
+      return { ok: false as const, reason: "invalid_redirect_uri" as const };
+    }
+
+    if (!hasRequiredApiScopes(application.allowedScopes, requestedScopes)) {
+      return { ok: false as const, reason: "invalid_scope" as const };
+    }
+
+    return toAuthorizationClientSummary(
+      { kind: "application", record: application },
+      { redirectUri, requestedScopes, resource },
+    );
+  }
+
+  const dynamicClient = await ctx.db
+    .query("oauthDynamicClients")
+    .withIndex("by_clientId", (index) => index.eq("clientId", clientId))
+    .unique();
+
+  if (dynamicClient === null) {
+    return { ok: false as const, reason: "not_found" as const };
+  }
+
+  if (dynamicClient.status !== "active" || !dynamicClient.grantTypes.includes("authorization_code")) {
+    return { ok: false as const, reason: "invalid_client" as const };
+  }
+
+  if (!dynamicClient.redirectUris.includes(redirectUri)) {
+    return { ok: false as const, reason: "invalid_redirect_uri" as const };
+  }
+
+  if (dynamicClient.resource !== resource) {
+    return { ok: false as const, reason: "wrong_resource" as const };
+  }
+
+  if (!hasRequiredApiScopes(dynamicClient.allowedScopes, requestedScopes)) {
+    return { ok: false as const, reason: "invalid_scope" as const };
+  }
+
+  return toAuthorizationClientSummary(
+    { kind: "dynamic_client", record: dynamicClient },
+    { redirectUri, requestedScopes, resource },
+  );
 }
 
 export const listPersonalApplications = query({
@@ -387,6 +503,89 @@ export const createDynamicMcpClient = mutation({
   },
 });
 
+export const resolveAuthorizationClient = query({
+  args: {
+    clientId: v.string(),
+    redirectUri: v.string(),
+    requestedScopes: v.optional(v.array(apiScopeValidator)),
+    resource: v.string(),
+  },
+  handler: async (ctx, args) => {
+    return await resolvePublicAuthorizationClient(ctx, args);
+  },
+});
+
+export const issueAuthorizationCode = mutation({
+  args: {
+    clientId: v.string(),
+    redirectUri: v.string(),
+    requestedScopes: v.optional(v.array(apiScopeValidator)),
+    resource: v.string(),
+    codeHash: v.string(),
+    codeChallenge: v.string(),
+    codeChallengeMethod: oauthCodeChallengeMethodValidator,
+    expiresAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const user = await requireCurrentUser(ctx);
+    const now = Date.now();
+    const client = await resolvePublicAuthorizationClient(ctx, args);
+
+    if (!client.ok) {
+      return client;
+    }
+
+    const codeHash = normalizeOAuthAuthorizationCodeHash(args.codeHash);
+    const codeChallenge = normalizeOAuthCodeChallenge(args.codeChallenge);
+    const codeChallengeMethod = normalizeOAuthCodeChallengeMethod(args.codeChallengeMethod);
+    const expiresAt = normalizeOAuthTokenExpiry(args.expiresAt, now);
+    const existingCode = await ctx.db
+      .query("oauthAuthorizationCodes")
+      .withIndex("by_codeHash", (index) => index.eq("codeHash", codeHash))
+      .unique();
+
+    if (existingCode !== null) {
+      throw new Error("OAuth authorization code collision. Generate a new code and retry.");
+    }
+
+    await ctx.db.insert("oauthAuthorizationCodes", {
+      codeHash,
+      ...(client.clientKind === "application" ? { applicationId: client.applicationId } : {}),
+      ...(client.clientKind === "dynamic_client" ? { dynamicClientId: client.dynamicClientId } : {}),
+      clientId: client.clientId,
+      userId: user._id,
+      redirectUri: client.redirectUri,
+      resource: client.resource,
+      scopes: client.requestedScopes,
+      codeChallenge,
+      codeChallengeMethod,
+      status: "active",
+      createdAt: now,
+      expiresAt,
+    });
+
+    await recordOAuthClientEvent(ctx, {
+      ...(client.clientKind === "application"
+        ? { application: await ctx.db.get(client.applicationId) ?? undefined }
+        : { dynamicClient: await ctx.db.get(client.dynamicClientId) ?? undefined }),
+      clientId: client.clientId,
+      eventType: "authorization_code_issued",
+      result: "accepted",
+      routeClass: "oauth_authorize",
+      now,
+    });
+
+    return {
+      ok: true as const,
+      clientId: client.clientId,
+      redirectUri: client.redirectUri,
+      resource: client.resource,
+      scopes: client.requestedScopes,
+      expiresAt,
+    };
+  },
+});
+
 export const revokePersonalApplication = mutation({
   args: {
     applicationId: v.id("oauthApplications"),
@@ -570,6 +769,131 @@ export const issueClientCredentialsAccessToken = mutation({
   },
 });
 
+export const consumeAuthorizationCode = mutation({
+  args: {
+    clientId: v.string(),
+    codeHash: v.string(),
+    redirectUri: v.string(),
+    resource: v.string(),
+    derivedCodeChallenge: v.string(),
+    tokenId: v.string(),
+    expiresAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const clientId = normalizeOAuthClientId(args.clientId);
+    const codeHash = normalizeOAuthAuthorizationCodeHash(args.codeHash);
+    const redirectUri = normalizeOAuthRedirectUris([args.redirectUri])[0];
+    const resource = normalizeOAuthResourceUri(args.resource);
+    const derivedCodeChallenge = normalizeOAuthCodeChallenge(args.derivedCodeChallenge);
+    const tokenId = normalizeOAuthAccessTokenId(args.tokenId);
+    const expiresAt = normalizeOAuthTokenExpiry(args.expiresAt, now);
+    const code = await ctx.db
+      .query("oauthAuthorizationCodes")
+      .withIndex("by_codeHash", (index) => index.eq("codeHash", codeHash))
+      .unique();
+
+    if (
+      code === null ||
+      code.clientId !== clientId ||
+      code.redirectUri !== redirectUri ||
+      code.resource !== resource ||
+      code.status !== "active" ||
+      code.expiresAt <= now ||
+      code.codeChallengeMethod !== "S256" ||
+      code.codeChallenge !== derivedCodeChallenge
+    ) {
+      return { ok: false as const, reason: "invalid_grant" as const };
+    }
+
+    const application = code.applicationId === undefined ? null : await ctx.db.get(code.applicationId);
+    const dynamicClient = code.dynamicClientId === undefined ? null : await ctx.db.get(code.dynamicClientId);
+
+    if (
+      application === null &&
+      dynamicClient === null
+    ) {
+      return { ok: false as const, reason: "invalid_client" as const };
+    }
+
+    if (
+      application !== null &&
+      (application.clientId !== clientId ||
+        application.status !== "active" ||
+        application.clientType !== "public" ||
+        !application.allowedGrants.includes("authorization_code"))
+    ) {
+      return { ok: false as const, reason: "invalid_client" as const };
+    }
+
+    if (
+      dynamicClient !== null &&
+      (dynamicClient.clientId !== clientId ||
+        dynamicClient.status !== "active" ||
+        !dynamicClient.grantTypes.includes("authorization_code") ||
+        dynamicClient.resource !== resource)
+    ) {
+      return { ok: false as const, reason: "invalid_client" as const };
+    }
+
+    const existingAccessToken = await ctx.db
+      .query("oauthAccessTokens")
+      .withIndex("by_tokenId", (index) => index.eq("tokenId", tokenId))
+      .unique();
+
+    if (existingAccessToken !== null) {
+      throw new Error("OAuth access token id collision. Generate a new token id and retry.");
+    }
+
+    await ctx.db.patch(code._id, {
+      status: "consumed",
+      consumedAt: now,
+    });
+    await ctx.db.insert("oauthAccessTokens", {
+      tokenId,
+      ...(application === null ? {} : { applicationId: application._id }),
+      ...(dynamicClient === null ? {} : { dynamicClientId: dynamicClient._id }),
+      clientId,
+      subjectType: "user",
+      userId: code.userId,
+      resource,
+      scopes: code.scopes,
+      status: "active",
+      issuedAt: now,
+      expiresAt,
+    });
+
+    if (application !== null) {
+      await ctx.db.patch(application._id, { lastUsedAt: now, updatedAt: now });
+    }
+
+    if (dynamicClient !== null) {
+      await ctx.db.patch(dynamicClient._id, { lastUsedAt: now, updatedAt: now });
+    }
+
+    await recordOAuthClientEvent(ctx, {
+      ...(application === null ? {} : { application }),
+      ...(dynamicClient === null ? {} : { dynamicClient }),
+      clientId,
+      eventType: "authorization_code_redeemed",
+      result: "accepted",
+      routeClass: "oauth_token",
+      now,
+    });
+
+    return {
+      ok: true as const,
+      clientId,
+      resource,
+      scopes: code.scopes,
+      tokenId,
+      subjectType: "user" as const,
+      userId: code.userId,
+      expiresAt,
+    };
+  },
+});
+
 export const revokeClientAccessToken = mutation({
   args: {
     clientId: v.string(),
@@ -594,10 +918,13 @@ export const revokeClientAccessToken = mutation({
       revokedByClientId: clientId,
     });
 
-    const application = await ctx.db.get(token.applicationId);
+    const application = token.applicationId === undefined ? null : await ctx.db.get(token.applicationId);
+    const dynamicClient = token.dynamicClientId === undefined ? null : await ctx.db.get(token.dynamicClientId);
 
     await recordOAuthClientEvent(ctx, {
-      ...(application === null ? { clientId } : { application }),
+      ...(application === null ? {} : { application }),
+      ...(dynamicClient === null ? {} : { dynamicClient }),
+      clientId,
       eventType: "token_revoked",
       result: "accepted",
       now,
@@ -636,14 +963,39 @@ export const validateAccessToken = query({
       return result;
     }
 
-    const application = await ctx.db.get(result.applicationId);
+    const application = result.applicationId === undefined ? null : await ctx.db.get(result.applicationId);
+    const dynamicClient = result.dynamicClientId === undefined ? null : await ctx.db.get(result.dynamicClientId);
 
-    if (application === null || application.clientId !== clientId) {
+    if (application === null && dynamicClient === null) {
       return { ok: false as const, reason: "not_found" as const };
     }
 
-    if (application.status !== "active") {
+    if (application !== null && application.clientId !== clientId) {
+      return { ok: false as const, reason: "not_found" as const };
+    }
+
+    if (dynamicClient !== null && dynamicClient.clientId !== clientId) {
+      return { ok: false as const, reason: "not_found" as const };
+    }
+
+    if (application !== null && application.status !== "active") {
       return { ok: false as const, reason: "revoked" as const };
+    }
+
+    if (dynamicClient !== null && dynamicClient.status !== "active") {
+      return { ok: false as const, reason: "revoked" as const };
+    }
+
+    if (dynamicClient !== null) {
+      return {
+        ...result,
+        dynamicClientId: dynamicClient._id,
+        trustTier: "standard" as const,
+      };
+    }
+
+    if (application === null) {
+      return { ok: false as const, reason: "not_found" as const };
     }
 
     return {

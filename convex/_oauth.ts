@@ -14,6 +14,12 @@ export const oauthDynamicClientStatusValidator = v.union(
   v.literal("revoked"),
   v.literal("promoted"),
 );
+export const oauthAuthorizationCodeStatusValidator = v.union(
+  v.literal("active"),
+  v.literal("consumed"),
+  v.literal("revoked"),
+);
+export const oauthCodeChallengeMethodValidator = v.literal("S256");
 export const oauthGrantTypeValidator = v.union(
   v.literal("authorization_code"),
   v.literal("refresh_token"),
@@ -26,6 +32,8 @@ export const oauthClientEventTypeValidator = v.union(
   v.literal("application_created"),
   v.literal("application_updated"),
   v.literal("application_revoked"),
+  v.literal("authorization_code_issued"),
+  v.literal("authorization_code_redeemed"),
   v.literal("dynamic_client_registered"),
   v.literal("secret_created"),
   v.literal("secret_revoked"),
@@ -41,12 +49,14 @@ export type OAuthClientType = "public" | "confidential";
 export type OAuthGrantType = "authorization_code" | "refresh_token" | "client_credentials";
 export type OAuthResponseType = "code";
 export type OAuthTokenEndpointAuthMethod = "none";
+export type OAuthCodeChallengeMethod = "S256";
 export type OAuthAccessTokenValidationResult =
   | {
       ok: true;
       tokenId: string;
       accessTokenRecordId: Id<"oauthAccessTokens">;
-      applicationId: Id<"oauthApplications">;
+      applicationId?: Id<"oauthApplications">;
+      dynamicClientId?: Id<"oauthDynamicClients">;
       clientId: string;
       subjectType: "client" | "user";
       userId?: Id<"users">;
@@ -84,6 +94,8 @@ const clientIdPattern = /^vrdx_app_[0-9a-f]{24}$/;
 const secretPrefixPattern = /^vrdx_secret_[0-9a-f]{16}$/;
 const verifierHashPattern = /^[0-9a-f]{64}$/;
 const tokenIdPattern = /^vrdx_at_[0-9a-f]{32}$/;
+const authorizationCodeHashPattern = /^[0-9a-f]{64}$/;
+const codeChallengePattern = /^[A-Za-z0-9_-]{43,128}$/;
 
 function isLoopbackHostname(hostname: string) {
   const normalized = hostname.toLowerCase();
@@ -248,6 +260,36 @@ export function normalizeOAuthTokenEndpointAuthMethod(value: string | undefined)
   throw new Error("Dynamic MCP clients must use token_endpoint_auth_method=none.");
 }
 
+export function normalizeOAuthCodeChallengeMethod(value: string | undefined): OAuthCodeChallengeMethod {
+  const method = value?.trim() || "S256";
+
+  if (method === "S256") {
+    return method;
+  }
+
+  throw new Error("OAuth authorization code requests must use PKCE code_challenge_method=S256.");
+}
+
+export function normalizeOAuthCodeChallenge(value: string) {
+  const codeChallenge = value.trim();
+
+  if (!codeChallengePattern.test(codeChallenge)) {
+    throw new Error("OAuth code_challenge must be a valid base64url S256 challenge.");
+  }
+
+  return codeChallenge;
+}
+
+export function normalizeOAuthAuthorizationCodeHash(value: string) {
+  const codeHash = value.trim();
+
+  if (!authorizationCodeHashPattern.test(codeHash)) {
+    throw new Error("OAuth authorization code hash must be a 64-character lowercase hex digest.");
+  }
+
+  return codeHash;
+}
+
 export function normalizeOAuthContactValues(values: readonly string[] | undefined) {
   const contacts =
     values
@@ -343,7 +385,8 @@ export function validateOAuthAccessTokenRecord(
   token: {
     _id: Id<"oauthAccessTokens">;
     tokenId: string;
-    applicationId: Id<"oauthApplications">;
+    applicationId?: Id<"oauthApplications">;
+    dynamicClientId?: Id<"oauthDynamicClients">;
     clientId: string;
     subjectType: "client" | "user";
     userId?: Id<"users">;
@@ -384,7 +427,8 @@ export function validateOAuthAccessTokenRecord(
     ok: true,
     tokenId: token.tokenId,
     accessTokenRecordId: token._id,
-    applicationId: token.applicationId,
+    ...(token.applicationId === undefined ? {} : { applicationId: token.applicationId }),
+    ...(token.dynamicClientId === undefined ? {} : { dynamicClientId: token.dynamicClientId }),
     clientId: token.clientId,
     subjectType: token.subjectType,
     ...(token.userId === undefined ? {} : { userId: token.userId }),
