@@ -870,8 +870,10 @@ Secrets and signing:
 
 Rate limiting:
 
-- `VRDEX_RATE_LIMIT_STORE`
-- `VRDEX_RATE_LIMIT_REDIS_URL`, if Redis is selected
+- `VRDEX_RATE_LIMIT_STORE`, currently `memory`, `redis-rest`, `upstash`, or `disabled`
+- `VRDEX_RATE_LIMIT_REDIS_REST_URL`, if a Redis-compatible REST adapter is selected
+- `VRDEX_RATE_LIMIT_REDIS_REST_TOKEN`, if a Redis-compatible REST adapter is selected
+- `VRDEX_RATE_LIMIT_REDIS_URL`, if a direct Redis adapter is added later
 - `VRDEX_RATE_LIMIT_REDIS_PREFIX`, if shared Redis infrastructure is used
 
 Feature flags:

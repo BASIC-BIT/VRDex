@@ -118,6 +118,16 @@ overrides, coarse usage summaries, and audit events. Local development can use
 an in-memory adapter; self-hosted production should document a
 Redis-compatible option.
 
+Current implementation:
+
+- `VRDEX_RATE_LIMIT_STORE=memory` uses a process-local fixed-window counter.
+- `VRDEX_RATE_LIMIT_STORE=redis-rest` or `upstash` uses a Redis-compatible REST
+  pipeline with `VRDEX_RATE_LIMIT_REDIS_REST_URL` and
+  `VRDEX_RATE_LIMIT_REDIS_REST_TOKEN`.
+- `VRDEX_RATE_LIMIT_REDIS_PREFIX` isolates keys when shared infrastructure is
+  used.
+- `VRDEX_RATE_LIMIT_STORE=disabled` is only for local diagnostics.
+
 ## Response Safety Rules
 
 Public API responses must:

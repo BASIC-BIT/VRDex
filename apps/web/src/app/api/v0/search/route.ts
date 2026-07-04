@@ -4,7 +4,7 @@ import {
   apiJson,
   parseBoundedLimit,
   rejectBearerTokenQuery,
-  rejectInvalidOptionalApiBearerToken,
+  rejectInvalidOrRateLimitedPublicApiRequest,
 } from "@/lib/server/api-v0";
 import { convexHttpClient } from "@/lib/server/convex-http";
 
@@ -34,7 +34,7 @@ export async function GET(request: Request) {
     return rejected;
   }
 
-  const rejectedBearerToken = await rejectInvalidOptionalApiBearerToken(request);
+  const rejectedBearerToken = await rejectInvalidOrRateLimitedPublicApiRequest(request);
   if (rejectedBearerToken !== null) {
     return rejectedBearerToken;
   }

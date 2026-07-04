@@ -1,5 +1,5 @@
 import { api } from "@convex-generated-api";
-import { rejectBearerTokenQuery, rejectInvalidOptionalApiBearerToken } from "@/lib/server/api-v0";
+import { rejectBearerTokenQuery, rejectInvalidOrRateLimitedPublicApiRequest } from "@/lib/server/api-v0";
 import { convexHttpClient } from "@/lib/server/convex-http";
 import { getProfileAssetObject, isProfileAssetStorageConfigured } from "@/lib/server/profile-asset-storage";
 import { createStoredZip } from "@/lib/server/zip";
@@ -30,7 +30,7 @@ export async function GET(request: Request, context: RouteContext) {
     return rejected;
   }
 
-  const rejectedBearerToken = await rejectInvalidOptionalApiBearerToken(request);
+  const rejectedBearerToken = await rejectInvalidOrRateLimitedPublicApiRequest(request);
   if (rejectedBearerToken !== null) {
     return rejectedBearerToken;
   }

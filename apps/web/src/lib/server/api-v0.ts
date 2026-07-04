@@ -12,6 +12,11 @@ import {
 import { api } from "@convex-generated-api";
 import { NextResponse } from "next/server";
 
+import {
+  checkApiRateLimit,
+  clientIpForRequest,
+  type ApiRateLimitIdentity,
+} from "@/lib/server/api-rate-limit";
 import { convexHttpClient } from "@/lib/server/convex-http";
 
 type ApiResponseSchema = {
@@ -36,7 +41,7 @@ function apiTokenPepper() {
   return pepper;
 }
 
-function apiBearerProblem(status: 401 | 403 | 500, title: string, detail: string) {
+function apiBearerProblem(status: 401 | 403 | 429 | 500, title: string, detail: string) {
   return apiProblemResponse({
     type: "about:blank",
     title,
@@ -53,7 +58,7 @@ function invalidBearerTokenResponse() {
   );
 }
 
-export async function rejectInvalidOptionalApiBearerToken(
+async function authenticateOptionalApiBearerToken(
   request: Request,
   options: {
     requiredScopes?: ApiScope[];
@@ -63,13 +68,16 @@ export async function rejectInvalidOptionalApiBearerToken(
   const tokenValue = getBearerTokenFromAuthorizationHeader(request.headers.get("authorization"));
 
   if (tokenValue === null) {
-    return null;
+    return {
+      ok: true as const,
+      identity: { kind: "ip", value: clientIpForRequest(request) } satisfies ApiRateLimitIdentity,
+    };
   }
 
   const parsed = parseApiTokenValue(tokenValue);
 
   if (parsed === null) {
-    return invalidBearerTokenResponse();
+    return { ok: false as const, response: invalidBearerTokenResponse() };
   }
 
   let verifierHash: string;
@@ -77,11 +85,14 @@ export async function rejectInvalidOptionalApiBearerToken(
   try {
     verifierHash = await hashApiTokenValue(tokenValue, apiTokenPepper());
   } catch {
-    return apiBearerProblem(
-      500,
-      "API bearer token verification is unavailable",
-      "The server is not configured to verify API bearer tokens.",
-    );
+    return {
+      ok: false as const,
+      response: apiBearerProblem(
+        500,
+        "API bearer token verification is unavailable",
+        "The server is not configured to verify API bearer tokens.",
+      ),
+    };
   }
 
   const validation = await convexHttpClient().mutation(api.apiTokens.validateBearerTokenHash, {
@@ -92,18 +103,86 @@ export async function rejectInvalidOptionalApiBearerToken(
   });
 
   if (validation.ok) {
-    return null;
+    return {
+      ok: true as const,
+      identity: { kind: "api_token", value: validation.tokenId } satisfies ApiRateLimitIdentity,
+    };
   }
 
   if (validation.reason === "missing_scope") {
+    return {
+      ok: false as const,
+      response: apiBearerProblem(
+        403,
+        "API token scope is insufficient",
+        "The supplied bearer token does not include the required scope for this request.",
+      ),
+    };
+  }
+
+  return { ok: false as const, response: invalidBearerTokenResponse() };
+}
+
+export async function rejectInvalidOptionalApiBearerToken(
+  request: Request,
+  options: {
+    requiredScopes?: ApiScope[];
+    routeClass?: ApiRouteClass;
+  } = {},
+) {
+  const authentication = await authenticateOptionalApiBearerToken(request, options);
+
+  return authentication.ok ? null : authentication.response;
+}
+
+export async function rejectInvalidOrRateLimitedPublicApiRequest(
+  request: Request,
+  options: {
+    requiredScopes?: ApiScope[];
+    routeClass?: ApiRouteClass;
+  } = {},
+) {
+  const authentication = await authenticateOptionalApiBearerToken(request, options);
+
+  if (!authentication.ok) {
+    return authentication.response;
+  }
+
+  const routeClass =
+    authentication.identity.kind === "api_token"
+      ? options.routeClass ?? "authenticated_public_read"
+      : "anonymous_public_read";
+  let rateLimit;
+
+  try {
+    rateLimit = await checkApiRateLimit({
+      identity: authentication.identity,
+      routeClass,
+    });
+  } catch {
     return apiBearerProblem(
-      403,
-      "API token scope is insufficient",
-      "The supplied bearer token does not include the required scope for this request.",
+      500,
+      "API rate limiting is unavailable",
+      "The server is not configured to evaluate API rate limits.",
     );
   }
 
-  return invalidBearerTokenResponse();
+  if (rateLimit.allowed) {
+    return null;
+  }
+
+  const response = apiBearerProblem(
+    429,
+    "API rate limit exceeded",
+    "This client exceeded the current rate limit for the requested API route class.",
+  );
+
+  response.headers.set("Retry-After", String(rateLimit.retryAfterSeconds));
+  response.headers.set("RateLimit-Limit", String(rateLimit.limit));
+  response.headers.set("RateLimit-Remaining", String(rateLimit.remaining));
+  response.headers.set("RateLimit-Reset", String(Math.ceil(rateLimit.resetAt / 1_000)));
+
+  return response;
 }
 
 export function apiJson(schema: ApiResponseSchema, value: unknown) {
