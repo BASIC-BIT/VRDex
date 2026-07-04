@@ -689,7 +689,8 @@ Current checkpoint:
 
 - implemented in the web app with `@modelcontextprotocol/server`
 - anonymous public read tools are served through the `anonymous_mcp_public_read` rate-limit class
-- OAuth protected-resource metadata exists; OAuth-protected MCP tools remain a later checkpoint
+- OAuth access tokens issued for the MCP resource are accepted for the authenticated MCP rate-limit class
+- OAuth protected-resource metadata exists; non-public OAuth-protected MCP tools remain a later checkpoint
 
 Required metadata:
 

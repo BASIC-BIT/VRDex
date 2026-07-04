@@ -24,7 +24,7 @@ authorization, consent, and refresh-token rotation remain later implementation
 checkpoints.
 
 Implemented public reads are anonymous by default and accept optional scoped
-API bearer tokens for authenticated public-read traffic:
+API bearer tokens or OAuth access tokens for authenticated public-read traffic:
 
 | Route | Purpose |
 | --- | --- |
@@ -48,11 +48,16 @@ All public read routes reject bearer tokens in URL query parameters. Send API
 tokens and future OAuth access tokens through the `Authorization` header only.
 
 When a public read request has no bearer token, it is treated as anonymous
-traffic. When it has an API bearer token, the Next.js route handler parses the
-opaque `vrdx_...` token, hashes it with `VRDEX_API_TOKEN_PEPPER`, and asks
+traffic. When it has an opaque API bearer token, the Next.js route handler
+parses the `vrdx_...` token, hashes it with `VRDEX_API_TOKEN_PEPPER`, and asks
 Convex to validate the token prefix, hash, status, expiry, and required scopes.
-Convex stores token prefixes, hashes, ownership, scopes, lifecycle metadata,
-and audit events, but never the raw token value.
+When it has an OAuth JWT access token, the route handler validates the issuer,
+audience/resource, signature, expiry, and scope claims with
+`VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY`, then asks Convex to confirm the stored
+access-token id, client id, resource, status, expiry, and scopes. Convex stores
+token prefixes, hashes, OAuth access-token ids, ownership, scopes, lifecycle
+metadata, and audit events, but never raw personal token or OAuth client-secret
+values.
 
 Current personal API token backend primitives:
 
@@ -86,6 +91,7 @@ Current token validation behavior:
 - malformed, unknown, revoked, or expired bearer tokens return `401`
 - scope-insufficient bearer tokens return `403`
 - public read routes currently require `public:read`
+- OAuth access tokens must be issued for the API resource to count as authenticated API traffic
 - anonymous public reads still work without credentials
 
 ## Locked Direction

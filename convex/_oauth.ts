@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 
-import { apiScopeValidator, type ApiScope } from "./_apiTokens";
+import type { Id } from "./_generated/dataModel";
+import { apiScopeValidator, hasRequiredApiScopes, type ApiScope } from "./_apiTokens";
 
 export const oauthClientSecretHashVersion = "sha256-pepper-v1";
 
@@ -30,6 +31,22 @@ export const oauthAccessTokenStatusValidator = v.union(v.literal("active"), v.li
 
 export type OAuthClientType = "public" | "confidential";
 export type OAuthGrantType = "authorization_code" | "refresh_token" | "client_credentials";
+export type OAuthAccessTokenValidationResult =
+  | {
+      ok: true;
+      tokenId: string;
+      accessTokenRecordId: Id<"oauthAccessTokens">;
+      applicationId: Id<"oauthApplications">;
+      clientId: string;
+      subjectType: "client" | "user";
+      userId?: Id<"users">;
+      resource: string;
+      scopes: ApiScope[];
+    }
+  | {
+      ok: false;
+      reason: "not_found" | "wrong_resource" | "revoked" | "expired" | "missing_scope";
+    };
 
 const apiScopes = new Set<ApiScope>([
   "public:read",
@@ -236,6 +253,60 @@ export function normalizeOAuthTokenExpiry(expiresAt: number, now = Date.now()) {
   }
 
   return Math.floor(expiresAt);
+}
+
+export function validateOAuthAccessTokenRecord(
+  token: {
+    _id: Id<"oauthAccessTokens">;
+    tokenId: string;
+    applicationId: Id<"oauthApplications">;
+    clientId: string;
+    subjectType: "client" | "user";
+    userId?: Id<"users">;
+    resource: string;
+    scopes: ApiScope[];
+    status: "active" | "revoked";
+    expiresAt: number;
+  } | null,
+  input: {
+    clientId: string;
+    resource: string;
+    requiredScopes: ApiScope[];
+    tokenId: string;
+    now?: number;
+  },
+): OAuthAccessTokenValidationResult {
+  if (token === null || token.tokenId !== input.tokenId || token.clientId !== input.clientId) {
+    return { ok: false, reason: "not_found" };
+  }
+
+  if (token.resource !== input.resource) {
+    return { ok: false, reason: "wrong_resource" };
+  }
+
+  if (token.status === "revoked") {
+    return { ok: false, reason: "revoked" };
+  }
+
+  if (token.expiresAt <= (input.now ?? Date.now())) {
+    return { ok: false, reason: "expired" };
+  }
+
+  if (!hasRequiredApiScopes(token.scopes, input.requiredScopes)) {
+    return { ok: false, reason: "missing_scope" };
+  }
+
+  return {
+    ok: true,
+    tokenId: token.tokenId,
+    accessTokenRecordId: token._id,
+    applicationId: token.applicationId,
+    clientId: token.clientId,
+    subjectType: token.subjectType,
+    ...(token.userId === undefined ? {} : { userId: token.userId }),
+    resource: token.resource,
+    scopes: token.scopes,
+  };
 }
 
 export function normalizeOAuthRevokeReason(value: string | undefined) {

@@ -34,6 +34,10 @@ function signingKeyPem() {
   return key.replace(/\\n/g, "\n");
 }
 
+export function oauthAccessTokenSigningConfigured() {
+  return Boolean(process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY?.trim());
+}
+
 function signingKeyId() {
   return process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID?.trim() || "vrdex-local";
 }
@@ -60,6 +64,10 @@ function apiResourceFromRequest(request: Request) {
 
 export function oauthIssuerUrl(request: Request) {
   return issuerFromRequest(request);
+}
+
+export function oauthApiResourceUri(request: Request) {
+  return apiResourceFromRequest(request);
 }
 
 export function oauthMcpResourceUri(request: Request) {

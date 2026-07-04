@@ -22,6 +22,7 @@ import {
   normalizeOAuthTokenExpiry,
   oauthClientSecretHashVersion,
   oauthGrantTypeValidator,
+  validateOAuthAccessTokenRecord,
 } from "./_oauth";
 
 function boundedLimit(value: number | undefined, fallback: number, max: number) {
@@ -483,5 +484,54 @@ export const revokeClientAccessToken = mutation({
     });
 
     return { ok: true as const };
+  },
+});
+
+export const validateAccessToken = query({
+  args: {
+    clientId: v.string(),
+    tokenId: v.string(),
+    resource: v.string(),
+    requiredScopes: v.optional(v.array(apiScopeValidator)),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const clientId = normalizeOAuthClientId(args.clientId);
+    const tokenId = normalizeOAuthAccessTokenId(args.tokenId);
+    const resource = normalizeOAuthResourceUri(args.resource);
+    const requiredScopes = normalizeOAuthScopes(args.requiredScopes);
+    const token = await ctx.db
+      .query("oauthAccessTokens")
+      .withIndex("by_tokenId", (index) => index.eq("tokenId", tokenId))
+      .unique();
+    const result = validateOAuthAccessTokenRecord(token, {
+      clientId,
+      tokenId,
+      resource,
+      requiredScopes,
+      now,
+    });
+
+    if (!result.ok) {
+      return result;
+    }
+
+    const application = await ctx.db.get(result.applicationId);
+
+    if (application === null || application.clientId !== clientId) {
+      return { ok: false as const, reason: "not_found" as const };
+    }
+
+    if (application.status !== "active") {
+      return { ok: false as const, reason: "revoked" as const };
+    }
+
+    return {
+      ...result,
+      ownerKind: application.ownerKind,
+      ownerUserId: application.ownerUserId,
+      ownerCommunityProfileId: application.ownerCommunityProfileId,
+      trustTier: application.trustTier,
+    };
   },
 });

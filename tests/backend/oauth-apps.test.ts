@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import type { Id } from "../../convex/_generated/dataModel";
 import {
   normalizeOAuthApplicationDescription,
   normalizeOAuthApplicationName,
@@ -16,7 +17,27 @@ import {
   normalizeOAuthScopes,
   normalizeOAuthTokenExpiry,
   normalizeOAuthRevokeReason,
+  validateOAuthAccessTokenRecord,
 } from "../../convex/_oauth";
+
+const accessTokenRecordId = "accessToken123" as Id<"oauthAccessTokens">;
+const applicationId = "application123" as Id<"oauthApplications">;
+type OAuthAccessTokenRecord = NonNullable<Parameters<typeof validateOAuthAccessTokenRecord>[0]>;
+
+function oauthAccessTokenRecord(overrides: Partial<OAuthAccessTokenRecord> = {}): OAuthAccessTokenRecord {
+  return {
+    _id: accessTokenRecordId,
+    tokenId: "vrdx_at_0123456789abcdef0123456789abcdef",
+    applicationId,
+    clientId: "vrdx_app_0123456789abcdef01234567",
+    subjectType: "client",
+    resource: "https://api.example.test",
+    scopes: ["public:read", "mcp:read"],
+    status: "active",
+    expiresAt: 2_000,
+    ...overrides,
+  };
+}
 
 describe("OAuth application helpers", () => {
   it("normalizes application identity and metadata", () => {
@@ -60,5 +81,78 @@ describe("OAuth application helpers", () => {
     assert.throws(() => normalizeOAuthScopes(["admin:everything"]), /Unsupported OAuth scope/);
     assert.throws(() => normalizeOAuthAccessTokenId("bad"), /access token id/);
     assert.throws(() => normalizeOAuthTokenExpiry(1_000, 2_000), /future timestamp/);
+  });
+
+  it("validates OAuth access token records against resource and scopes", () => {
+    assert.deepEqual(
+      validateOAuthAccessTokenRecord(oauthAccessTokenRecord(), {
+        clientId: "vrdx_app_0123456789abcdef01234567",
+        tokenId: "vrdx_at_0123456789abcdef0123456789abcdef",
+        resource: "https://api.example.test",
+        requiredScopes: ["public:read"],
+        now: 1_000,
+      }),
+      {
+        ok: true,
+        tokenId: "vrdx_at_0123456789abcdef0123456789abcdef",
+        accessTokenRecordId,
+        applicationId,
+        clientId: "vrdx_app_0123456789abcdef01234567",
+        subjectType: "client",
+        resource: "https://api.example.test",
+        scopes: ["public:read", "mcp:read"],
+      },
+    );
+
+    assert.deepEqual(
+      validateOAuthAccessTokenRecord(oauthAccessTokenRecord(), {
+        clientId: "vrdx_app_ffffffffffffffffffffffff",
+        tokenId: "vrdx_at_0123456789abcdef0123456789abcdef",
+        resource: "https://api.example.test",
+        requiredScopes: ["public:read"],
+        now: 1_000,
+      }),
+      { ok: false, reason: "not_found" },
+    );
+    assert.deepEqual(
+      validateOAuthAccessTokenRecord(oauthAccessTokenRecord(), {
+        clientId: "vrdx_app_0123456789abcdef01234567",
+        tokenId: "vrdx_at_0123456789abcdef0123456789abcdef",
+        resource: "https://mcp.example.test",
+        requiredScopes: ["public:read"],
+        now: 1_000,
+      }),
+      { ok: false, reason: "wrong_resource" },
+    );
+    assert.deepEqual(
+      validateOAuthAccessTokenRecord(oauthAccessTokenRecord({ status: "revoked" }), {
+        clientId: "vrdx_app_0123456789abcdef01234567",
+        tokenId: "vrdx_at_0123456789abcdef0123456789abcdef",
+        resource: "https://api.example.test",
+        requiredScopes: ["public:read"],
+        now: 1_000,
+      }),
+      { ok: false, reason: "revoked" },
+    );
+    assert.deepEqual(
+      validateOAuthAccessTokenRecord(oauthAccessTokenRecord({ expiresAt: 1_000 }), {
+        clientId: "vrdx_app_0123456789abcdef01234567",
+        tokenId: "vrdx_at_0123456789abcdef0123456789abcdef",
+        resource: "https://api.example.test",
+        requiredScopes: ["public:read"],
+        now: 1_000,
+      }),
+      { ok: false, reason: "expired" },
+    );
+    assert.deepEqual(
+      validateOAuthAccessTokenRecord(oauthAccessTokenRecord(), {
+        clientId: "vrdx_app_0123456789abcdef01234567",
+        tokenId: "vrdx_at_0123456789abcdef0123456789abcdef",
+        resource: "https://api.example.test",
+        requiredScopes: ["events:write"],
+        now: 1_000,
+      }),
+      { ok: false, reason: "missing_scope" },
+    );
   });
 });

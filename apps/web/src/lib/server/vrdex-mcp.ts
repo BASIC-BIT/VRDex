@@ -5,6 +5,7 @@ import {
 } from "@modelcontextprotocol/server";
 import { api } from "@convex-generated-api";
 import {
+  getBearerTokenFromAuthorizationHeader,
   hasBearerTokenInUrl,
   PublicActiveWorldsResponseSchema,
   PublicEventSchema,
@@ -17,6 +18,13 @@ import {
 
 import { checkApiRateLimit, clientIpForRequest } from "@/lib/server/api-rate-limit";
 import { convexHttpClient } from "@/lib/server/convex-http";
+import {
+  oauthAccessTokenSigningConfigured,
+  oauthIssuerUrl,
+  oauthMcpResourceUri,
+  parseOAuthScopeString,
+  verifyOAuthAccessToken,
+} from "@/lib/server/oauth-jwt";
 
 type ResponseSchema<T> = {
   parse: (value: unknown) => T;
@@ -78,6 +86,97 @@ function mcpJsonRpcError(status: number, code: number, message: string) {
   );
 }
 
+function hasRequiredScopes(grantedScopes: readonly string[], requiredScopes: readonly string[]) {
+  const granted = new Set(grantedScopes);
+
+  return requiredScopes.every((scope) => granted.has(scope));
+}
+
+function looksLikeCompactJwt(value: string) {
+  return value.split(".").length === 3;
+}
+
+function mcpWwwAuthenticateHeader(request: Request) {
+  return `Bearer resource_metadata="${oauthIssuerUrl(request)}/.well-known/oauth-protected-resource"`;
+}
+
+async function authenticateMcpBearerToken(request: Request, tokenValue: string) {
+  if (!oauthAccessTokenSigningConfigured()) {
+    if (!looksLikeCompactJwt(tokenValue)) {
+      const response = mcpJsonRpcError(401, -32600, "OAuth bearer token is invalid.");
+
+      response.headers.set("WWW-Authenticate", mcpWwwAuthenticateHeader(request));
+
+      return { ok: false as const, response };
+    }
+
+    return {
+      ok: false as const,
+      response: mcpJsonRpcError(500, -32603, "OAuth bearer token verification is unavailable."),
+    };
+  }
+
+  const issuer = oauthIssuerUrl(request);
+  const resource = oauthMcpResourceUri(request);
+  let claims: ReturnType<typeof verifyOAuthAccessToken>;
+  let tokenScopes: string[];
+
+  try {
+    claims = verifyOAuthAccessToken(tokenValue, { audience: resource, issuer });
+    tokenScopes = parseOAuthScopeString(claims.scope, []);
+  } catch {
+    const response = mcpJsonRpcError(401, -32600, "OAuth bearer token is invalid.");
+
+    response.headers.set("WWW-Authenticate", mcpWwwAuthenticateHeader(request));
+
+    return { ok: false as const, response };
+  }
+
+  if (!hasRequiredScopes(tokenScopes, ["mcp:read"])) {
+    return {
+      ok: false as const,
+      response: mcpJsonRpcError(403, -32600, "OAuth bearer token scope is insufficient."),
+    };
+  }
+
+  let validation;
+
+  try {
+    validation = await convexHttpClient().query(api.oauthApps.validateAccessToken, {
+      clientId: claims.client_id,
+      tokenId: claims.jti,
+      resource,
+      requiredScopes: ["mcp:read"],
+    });
+  } catch {
+    const response = mcpJsonRpcError(401, -32600, "OAuth bearer token is invalid.");
+
+    response.headers.set("WWW-Authenticate", mcpWwwAuthenticateHeader(request));
+
+    return { ok: false as const, response };
+  }
+
+  if (!validation.ok) {
+    if (validation.reason === "missing_scope") {
+      return {
+        ok: false as const,
+        response: mcpJsonRpcError(403, -32600, "OAuth bearer token scope is insufficient."),
+      };
+    }
+
+    const response = mcpJsonRpcError(401, -32600, "OAuth bearer token is invalid.");
+
+    response.headers.set("WWW-Authenticate", mcpWwwAuthenticateHeader(request));
+
+    return { ok: false as const, response };
+  }
+
+  return {
+    ok: true as const,
+    identity: { kind: "oauth_client" as const, value: validation.clientId },
+  };
+}
+
 function setMcpHttpHeaders(headers: Headers) {
   headers.set("access-control-allow-origin", "*");
   headers.set("access-control-allow-methods", "GET, POST, DELETE, OPTIONS");
@@ -110,14 +209,25 @@ export async function rejectInvalidOrRateLimitedMcpRequest(request: Request) {
     return mcpJsonRpcError(400, -32600, "Bearer tokens must be sent in the Authorization header, not the URL.");
   }
 
-  const identity = { kind: "ip" as const, value: clientIpForRequest(request) };
+  const bearerToken = getBearerTokenFromAuthorizationHeader(request.headers.get("authorization"));
+  const authentication =
+    bearerToken === null
+      ? { ok: true as const, identity: { kind: "ip" as const, value: clientIpForRequest(request) } }
+      : await authenticateMcpBearerToken(request, bearerToken);
+
+  if (!authentication.ok) {
+    return authentication.response;
+  }
+
+  const routeClass =
+    authentication.identity.kind === "oauth_client" ? "authenticated_mcp" : "anonymous_mcp_public_read";
 
   let rateLimit;
 
   try {
     rateLimit = await checkApiRateLimit({
-      identity,
-      routeClass: "anonymous_mcp_public_read",
+      identity: authentication.identity,
+      routeClass,
     });
   } catch {
     return mcpJsonRpcError(500, -32603, "MCP rate limiting is unavailable.");

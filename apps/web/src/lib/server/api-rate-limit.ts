@@ -6,7 +6,7 @@ type ApiRateLimitPolicy = {
 };
 
 export type ApiRateLimitIdentity = {
-  kind: "api_token" | "ip";
+  kind: "api_token" | "ip" | "oauth_client";
   value: string;
 };
 

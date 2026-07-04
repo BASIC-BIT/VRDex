@@ -18,6 +18,13 @@ import {
   type ApiRateLimitIdentity,
 } from "@/lib/server/api-rate-limit";
 import { convexHttpClient } from "@/lib/server/convex-http";
+import {
+  oauthAccessTokenSigningConfigured,
+  oauthApiResourceUri,
+  oauthIssuerUrl,
+  parseOAuthScopeString,
+  verifyOAuthAccessToken,
+} from "@/lib/server/oauth-jwt";
 
 type ApiResponseSchema = {
   parse: (value: unknown) => unknown;
@@ -58,6 +65,89 @@ function invalidBearerTokenResponse() {
   );
 }
 
+function missingBearerScopeResponse() {
+  return apiBearerProblem(
+    403,
+    "Bearer token scope is insufficient",
+    "The supplied bearer token does not include the required scope for this request.",
+  );
+}
+
+function hasRequiredScopes(grantedScopes: readonly ApiScope[], requiredScopes: readonly ApiScope[]) {
+  const granted = new Set(grantedScopes);
+
+  return requiredScopes.every((scope) => granted.has(scope));
+}
+
+function looksLikeCompactJwt(value: string) {
+  return value.split(".").length === 3;
+}
+
+async function authenticateOptionalOAuthBearerToken(
+  request: Request,
+  tokenValue: string,
+  options: {
+    requiredScopes: ApiScope[];
+  },
+) {
+  if (!oauthAccessTokenSigningConfigured()) {
+    if (!looksLikeCompactJwt(tokenValue)) {
+      return { ok: false as const, response: invalidBearerTokenResponse() };
+    }
+
+    return {
+      ok: false as const,
+      response: apiBearerProblem(
+        500,
+        "OAuth bearer token verification is unavailable",
+        "The server is not configured to verify OAuth access tokens.",
+      ),
+    };
+  }
+
+  const issuer = oauthIssuerUrl(request);
+  const resource = oauthApiResourceUri(request);
+  let claims: ReturnType<typeof verifyOAuthAccessToken>;
+  let tokenScopes: ApiScope[];
+
+  try {
+    claims = verifyOAuthAccessToken(tokenValue, { audience: resource, issuer });
+    tokenScopes = parseOAuthScopeString(claims.scope, []);
+  } catch {
+    return { ok: false as const, response: invalidBearerTokenResponse() };
+  }
+
+  if (!hasRequiredScopes(tokenScopes, options.requiredScopes)) {
+    return { ok: false as const, response: missingBearerScopeResponse() };
+  }
+
+  let validation;
+
+  try {
+    validation = await convexHttpClient().query(api.oauthApps.validateAccessToken, {
+      clientId: claims.client_id,
+      tokenId: claims.jti,
+      resource,
+      requiredScopes: options.requiredScopes,
+    });
+  } catch {
+    return { ok: false as const, response: invalidBearerTokenResponse() };
+  }
+
+  if (validation.ok) {
+    return {
+      ok: true as const,
+      identity: { kind: "oauth_client", value: validation.clientId } satisfies ApiRateLimitIdentity,
+    };
+  }
+
+  if (validation.reason === "missing_scope") {
+    return { ok: false as const, response: missingBearerScopeResponse() };
+  }
+
+  return { ok: false as const, response: invalidBearerTokenResponse() };
+}
+
 async function authenticateOptionalApiBearerToken(
   request: Request,
   options: {
@@ -66,6 +156,7 @@ async function authenticateOptionalApiBearerToken(
   } = {},
 ) {
   const tokenValue = getBearerTokenFromAuthorizationHeader(request.headers.get("authorization"));
+  const requiredScopes: ApiScope[] = options.requiredScopes ?? ["public:read"];
 
   if (tokenValue === null) {
     return {
@@ -77,7 +168,7 @@ async function authenticateOptionalApiBearerToken(
   const parsed = parseApiTokenValue(tokenValue);
 
   if (parsed === null) {
-    return { ok: false as const, response: invalidBearerTokenResponse() };
+    return await authenticateOptionalOAuthBearerToken(request, tokenValue, { requiredScopes });
   }
 
   let verifierHash: string;
@@ -98,7 +189,7 @@ async function authenticateOptionalApiBearerToken(
   const validation = await convexHttpClient().mutation(api.apiTokens.validateBearerTokenHash, {
     tokenPrefix: parsed.tokenPrefix,
     verifierHash,
-    requiredScopes: options.requiredScopes ?? ["public:read"],
+    requiredScopes,
     routeClass: options.routeClass ?? "authenticated_public_read",
   });
 
@@ -110,14 +201,7 @@ async function authenticateOptionalApiBearerToken(
   }
 
   if (validation.reason === "missing_scope") {
-    return {
-      ok: false as const,
-      response: apiBearerProblem(
-        403,
-        "API token scope is insufficient",
-        "The supplied bearer token does not include the required scope for this request.",
-      ),
-    };
+    return { ok: false as const, response: missingBearerScopeResponse() };
   }
 
   return { ok: false as const, response: invalidBearerTokenResponse() };
@@ -149,7 +233,7 @@ export async function rejectInvalidOrRateLimitedPublicApiRequest(
   }
 
   const routeClass =
-    authentication.identity.kind === "api_token"
+    authentication.identity.kind === "api_token" || authentication.identity.kind === "oauth_client"
       ? options.routeClass ?? "authenticated_public_read"
       : "anonymous_public_read";
   let rateLimit;

@@ -4,8 +4,10 @@ import { describe, it } from "node:test";
 
 import {
   createOAuthAccessTokenId,
+  oauthAccessTokenSigningConfigured,
   oauthAccessTokenExpiresAt,
   oauthAccessTokenExpiresInSeconds,
+  oauthApiResourceUri,
   oauthScopeString,
   parseOAuthScopeString,
   signOAuthAccessToken,
@@ -83,5 +85,32 @@ describe("OAuth JWT access tokens", () => {
     ]);
     assert.deepEqual(parseOAuthScopeString("", ["public:read"]), ["public:read"]);
     assert.throws(() => parseOAuthScopeString("bad:scope", ["public:read"]), /Unsupported/);
+  });
+
+  it("normalizes configured API resources and signing-key availability", () => {
+    const previousApiBaseUrl = process.env.VRDEX_PUBLIC_API_BASE_URL;
+    const previousSigningKey = process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY;
+
+    process.env.VRDEX_PUBLIC_API_BASE_URL = "https://api.example.test/api/v0";
+    delete process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY;
+
+    try {
+      assert.equal(oauthApiResourceUri(new Request("https://app.example.test/mcp")), "https://api.example.test");
+      assert.equal(oauthAccessTokenSigningConfigured(), false);
+      process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY = "key";
+      assert.equal(oauthAccessTokenSigningConfigured(), true);
+    } finally {
+      if (previousApiBaseUrl === undefined) {
+        delete process.env.VRDEX_PUBLIC_API_BASE_URL;
+      } else {
+        process.env.VRDEX_PUBLIC_API_BASE_URL = previousApiBaseUrl;
+      }
+
+      if (previousSigningKey === undefined) {
+        delete process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY;
+      } else {
+        process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY = previousSigningKey;
+      }
+    }
   });
 });

@@ -67,10 +67,19 @@ describe("public API rate limiting", () => {
       identity: { kind: "api_token", value: "token123" },
       now: 1_000,
     });
+    const oauthClient = checkMemoryApiRateLimit({
+      store,
+      policy,
+      routeClass: "authenticated_public_read",
+      identity: { kind: "oauth_client", value: "client123" },
+      now: 1_000,
+    });
 
     assert.equal(anonymous.allowed, true);
     assert.equal(authenticated.allowed, true);
+    assert.equal(oauthClient.allowed, true);
     assert.notEqual(anonymous.key, authenticated.key);
+    assert.notEqual(authenticated.key, oauthClient.key);
   });
 
   it("extracts the first forwarded IP before falling back to x-real-ip", () => {
