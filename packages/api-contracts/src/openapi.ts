@@ -2,6 +2,8 @@ import { createDocument, type ZodOpenApiObject, type ZodOpenApiResponsesObject }
 
 import { apiScopes } from "./auth";
 import {
+  ApiEventCreateRequestSchema,
+  ApiEventWriteResponseSchema,
   ApiProblemSchema,
   ApiTokenPathParamsSchema,
   DeveloperCredentialListQueryParamsSchema,
@@ -94,6 +96,10 @@ const communityReadSecurity: Array<Record<string, string[]>> = [
 const eventsReadSecurity: Array<Record<string, string[]>> = [
   { bearerAuth: [] },
   { oauth2: ["events:read"] },
+];
+const eventsWriteSecurity: Array<Record<string, string[]>> = [
+  { bearerAuth: [] },
+  { oauth2: ["events:write"] },
 ];
 const developerReadSecurity: Array<Record<string, string[]>> = [
   { bearerAuth: [] },
@@ -672,6 +678,39 @@ export const openApiSource = {
             content: jsonContent(PublicEventSchema),
           },
           ...publicReadProblemResponses,
+        },
+      },
+    },
+    "/api/v0/events": {
+      post: {
+        operationId: "createCurrentUserCommunityEvent",
+        tags: ["Events"],
+        summary: "Create a current user's community event",
+        description:
+          "Creates a public event attached to a community profile owned by a bearer credential with user authority and events:write scope.",
+        security: eventsWriteSecurity,
+        requestBody: {
+          required: true,
+          content: jsonContent(ApiEventCreateRequestSchema),
+        },
+        responses: {
+          "200": {
+            description: "Created event identifiers and paths.",
+            content: jsonContent(ApiEventWriteResponseSchema),
+          },
+          "400": {
+            description: "The event creation request was malformed.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "401": {
+            description: "Bearer authentication is required or invalid.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "403": {
+            description: "The bearer credential lacks events:write scope, user authority, or ownership of the target community.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "429": publicReadProblemResponses["429"],
         },
       },
     },

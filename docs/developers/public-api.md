@@ -55,6 +55,7 @@ Implemented authenticated reads require a valid bearer credential:
 | `GET /api/v0/me/profiles` | List current user's owned profile summaries. |
 | `GET /api/v0/me/communities` | List current user's owned community profile summaries. |
 | `GET /api/v0/me/events` | List current user's community-managed event summaries. |
+| `POST /api/v0/events` | Create a public event attached to a community profile the current user owns. |
 | `GET /api/v0/developer/tokens` | List current user's personal API token metadata. |
 | `POST /api/v0/developer/tokens` | Create a current user's personal API token and return its value once. |
 | `GET /api/v0/developer/oauth-apps` | List current user's OAuth application metadata. |
@@ -69,6 +70,11 @@ requires `community:read`; `/api/v0/me/events` requires `events:read`. The
 current event inventory covers events attached to community profiles the user
 owns. Submitter-only event inventory can be added after there is an efficient
 user/event index and authorization shape.
+
+`POST /api/v0/events` requires `events:write`, user authority, and ownership of
+the target `communitySlug`. The first public write version only creates events
+attached to owned community profiles; it does not create standalone
+submitter-only events.
 
 Developer list routes require `developer:read` plus user authority. Developer
 creation and revocation routes require `developer:write` plus user authority.
@@ -104,6 +110,7 @@ Current personal API token backend primitives:
 Current owner inventory backend primitives:
 
 - `profiles.listProfilesForApiOwner`
+- `events.createCommunityEventForApiOwner`
 - `events.listCommunityManagedEventsForApiOwner`
 
 Current OAuth app registry primitives:

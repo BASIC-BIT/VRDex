@@ -72,4 +72,36 @@ describe("current API caller route", () => {
       assert.match(output, /"title":"Bearer token query parameters are not allowed"/);
     });
   }
+
+  it("requires a bearer credential for event creation", () => {
+    const output = runMeRouteProbe(`
+      import { POST } from "./apps/web/src/app/api/v0/events/route.ts";
+
+      const response = await POST(new Request("https://app.example.test/api/v0/events", {
+        method: "POST",
+        body: JSON.stringify({ title: "Club Night", communitySlug: "club-name", startAt: 1770000000000 }),
+      }));
+      console.log(response.status);
+      console.log(JSON.stringify(await response.json()));
+    `);
+
+    assert.match(output, /^401/m);
+    assert.match(output, /"title":"Bearer token required"/);
+  });
+
+  it("rejects bearer-token query parameters for event creation", () => {
+    const output = runMeRouteProbe(`
+      import { POST } from "./apps/web/src/app/api/v0/events/route.ts";
+
+      const response = await POST(new Request("https://app.example.test/api/v0/events?token=secret", {
+        method: "POST",
+        body: JSON.stringify({ title: "Club Night", communitySlug: "club-name", startAt: 1770000000000 }),
+      }));
+      console.log(response.status);
+      console.log(JSON.stringify(await response.json()));
+    `);
+
+    assert.match(output, /^400/m);
+    assert.match(output, /"title":"Bearer token query parameters are not allowed"/);
+  });
 });

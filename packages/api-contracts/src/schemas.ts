@@ -298,6 +298,88 @@ export const PublicEventsResponseSchema = z
     id: "PublicEventsResponse",
   });
 
+export const ApiEventCreateRequestSchema = z
+  .object({
+    title: z.string().min(2).max(120),
+    communitySlug: slug,
+    startAt: timestampMs,
+    doorsOpenAt: timestampMs.optional(),
+    endAt: timestampMs.optional(),
+    timezone: z.string().max(64).optional(),
+    worldSlug: slug.optional(),
+    preferredSlug: slug.optional(),
+    summary: z.string().max(240).optional(),
+    notes: z.string().max(1_200).optional(),
+    sourceLabel: z.string().max(120).optional(),
+    sourceUrl: absoluteUrl.optional(),
+    posterImageUrl: absoluteUrl.optional(),
+    bannerImageUrl: absoluteUrl.optional(),
+    thumbnailImageUrl: absoluteUrl.optional(),
+    watchSurfaceEnabled: z.boolean().optional(),
+    mediaLinks: z
+      .array(
+        z
+          .object({
+            type: z.enum(["event_page", "watch", "stream", "vrcdn", "discord", "ticket", "other"]),
+            label: z.string().min(1).max(80),
+            url: absoluteUrl,
+            presentation: z.enum(["open", "copy"]).optional(),
+          })
+          .passthrough(),
+      )
+      .max(8)
+      .optional(),
+    participantLinks: z
+      .array(
+        z
+          .object({
+            personSlug: slug,
+            roleLabel: z.string().max(48).optional(),
+            sourceLabel: z.string().max(120).optional(),
+            sourceUrl: absoluteUrl.optional(),
+            notes: z.string().max(1_200).optional(),
+          })
+          .passthrough(),
+      )
+      .max(80)
+      .optional(),
+    slotLinks: z
+      .array(
+        z
+          .object({
+            personSlug: slug.optional(),
+            displayLabel: z.string().min(1).max(120),
+            roleLabel: z.string().max(48).optional(),
+            startAt: timestampMs,
+            endAt: timestampMs.optional(),
+            sourceLabel: z.string().max(120).optional(),
+            sourceUrl: absoluteUrl.optional(),
+            notes: z.string().max(1_200).optional(),
+          })
+          .passthrough(),
+      )
+      .max(80)
+      .optional(),
+  })
+  .meta({
+    description:
+      "Create a public event attached to a community profile owned by the current authenticated API user.",
+    id: "ApiEventCreateRequest",
+  });
+
+export const ApiEventWriteResponseSchema = z
+  .object({
+    eventId: z.string().min(1),
+    slug,
+    eventPath: z.string().min(1),
+    shortLinkCode: z.string().min(1).optional(),
+    shortLinkPath: z.string().min(1).optional(),
+  })
+  .meta({
+    description: "Created or updated event write result.",
+    id: "ApiEventWriteResponse",
+  });
+
 export const PublicWorldEventPreviewSchema = z
   .object({
     bannerImageUrl: absoluteUrl.optional(),

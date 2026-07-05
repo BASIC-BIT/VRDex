@@ -35,6 +35,8 @@ Public API and MCP platform foundation checkpoint:
 - added `GET /api/v0/me/profiles`, `GET /api/v0/me/communities`, and
   `GET /api/v0/me/events` for user-authorized profile, community, and
   community-managed event inventory
+- added `POST /api/v0/events` for `events:write` public event creation against
+  community profiles owned by the current authenticated user
 - added `GET /api/v0/developer/tokens` and
   `GET /api/v0/developer/oauth-apps` for `developer:read` user-owned
   credential metadata lists

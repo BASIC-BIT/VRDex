@@ -2,6 +2,7 @@ import { v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import {
+  internalMutation,
   internalQuery,
   mutation,
   query,
@@ -30,11 +31,12 @@ import {
   sanitizeEventMediaWorkerSchedule,
   sanitizeVrcdnOperatorOwnedOutputSetup,
 } from "./_eventMediaControl";
-import { sanitizeEventDraftInput } from "./_eventInputs";
+import { sanitizeEventDraftInput, type SanitizedEventDraftInput } from "./_eventInputs";
 import { findEventOperationSlots } from "./_eventOperations";
 import { getPublicCommunityHostedEvents, getPublicEventBySlug } from "./_eventPublic";
 import { findAvailableEventSlug, getEventBySlug, validateEventSlug } from "./_eventSlugs";
 import { canReadProfile } from "./_profilePermissions";
+import { userOwnsProfile } from "./_profileOwnership";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { createEventSearchDocument, upsertSearchDocument, vocabularyForEvent } from "./_searchDocuments";
 import { ensureShortLinkForTarget } from "./_shortLinks";
@@ -564,6 +566,33 @@ function toApiManagedEventSummary(event: Doc<"events">, community: Doc<"profiles
   };
 }
 
+function apiOwnerAuthSubject(ownerUserId: Id<"users">): AuthSubject {
+  return {
+    tokenIdentifier: `api:user:${ownerUserId}`,
+    issuer: "vrdex-api",
+    subject: ownerUserId,
+    displayName: "VRDex API",
+  };
+}
+
+async function requireApiOwnedPublishedCommunity(
+  db: DatabaseReader,
+  communitySlug: string | undefined,
+  ownerUserId: Id<"users">,
+) {
+  if (communitySlug === undefined) {
+    throw new Error("Community slug is required for API event creation.");
+  }
+
+  const community = await getPublishedCommunityBySlug(db, communitySlug);
+
+  if (community === undefined || !(await userOwnsProfile(db, community._id, ownerUserId))) {
+    throw new Error("You do not have permission to create events for this community.");
+  }
+
+  return community;
+}
+
 export const listCommunityManagedEventsForApiOwner = internalQuery({
   args: {
     ownerUserId: v.id("users"),
@@ -605,6 +634,80 @@ export const listCommunityManagedEventsForApiOwner = internalQuery({
       .map(({ community, event }) => toApiManagedEventSummary(event, community));
   },
 });
+
+async function insertCommunityEventRecord(
+  db: DatabaseWriter,
+  options: {
+    input: SanitizedEventDraftInput;
+    community?: Doc<"profiles">;
+    world?: Doc<"worlds">;
+    submitter: AuthSubject;
+  },
+) {
+  const { community, input, submitter, world } = options;
+  const now = Date.now();
+  const slug = await findAvailableEventSlug(db, {
+    title: input.title,
+    startAt: input.startAt,
+    preferredSlug: input.preferredSlug,
+  });
+  const eventId = await db.insert("events", {
+    slug,
+    title: input.title,
+    sortTitle: input.sortTitle,
+    startAt: input.startAt,
+    ...optionalValue("doorsOpenAt", input.doorsOpenAt),
+    ...optionalValue("endAt", input.endAt),
+    ...optionalValue("timezone", input.timezone),
+    ...optionalValue("communityProfileId", community?._id),
+    ...optionalValue("communityName", community?.displayName),
+    ...optionalValue("summary", input.summary),
+    ...optionalValue("notes", input.notes),
+    ...optionalValue("posterImageUrl", input.posterImageUrl),
+    ...optionalValue("bannerImageUrl", input.bannerImageUrl),
+    ...optionalValue("thumbnailImageUrl", input.thumbnailImageUrl),
+    watchSurfaceEnabled: input.watchSurfaceEnabled,
+    mediaLinks: input.mediaLinks,
+    sourceType: "community",
+    sourceLabel: input.sourceLabel,
+    ...optionalValue("sourceUrl", input.sourceUrl),
+    submitter,
+    publicationState: "published",
+    publishedAt: now,
+    createdAt: now,
+    updatedAt: now,
+  });
+  const shortLink = await ensureShortLinkForTarget(
+    db,
+    { targetType: "event", targetId: eventId },
+    now,
+  );
+
+  await replaceEventWorldLink(db, eventId, input.startAt, world, now);
+  await replaceEventSlots(db, eventId, input.startAt, input.slotLinks, now);
+  const participantLinks = participantLinksWithSlotPerformers(input);
+  await replaceEventParticipants(db, eventId, input.startAt, participantLinks, now);
+
+  const event = await db.get(eventId);
+  if (event !== null) {
+    const roleLabels = participantLinks.map((participant) => participant.roleLabel);
+    await Promise.all([
+      upsertSearchDocument(
+        db,
+        createEventSearchDocument(event, { community, world, roleLabels }),
+      ),
+      recordVocabularyTerms(db, vocabularyForEvent(event, roleLabels), now),
+    ]);
+  }
+
+  return {
+    eventId,
+    slug,
+    eventPath: `/e/${slug}`,
+    shortLinkCode: shortLink.code,
+    shortLinkPath: shortLink.shortLinkPath,
+  };
+}
 
 async function getOrCreateEventMediaProgram(
   db: DatabaseWriter,
@@ -1518,68 +1621,27 @@ export const createCommunityEvent = mutation({
     const input = sanitizeEventDraftInput(args);
     const community = await getPublishedCommunityBySlug(ctx.db, input.communitySlug);
     const world = await getPublishedWorldBySlug(ctx.db, input.worldSlug);
-    const now = Date.now();
-    const slug = await findAvailableEventSlug(ctx.db, {
-      title: input.title,
-      startAt: input.startAt,
-      preferredSlug: input.preferredSlug,
+
+    return await insertCommunityEventRecord(ctx.db, { input, community, world, submitter: subject });
+  },
+});
+
+export const createCommunityEventForApiOwner = internalMutation({
+  args: {
+    ownerUserId: v.id("users"),
+    ...eventDraftArgs,
+  },
+  handler: async (ctx, args) => {
+    const input = sanitizeEventDraftInput(args);
+    const community = await requireApiOwnedPublishedCommunity(ctx.db, input.communitySlug, args.ownerUserId);
+    const world = await getPublishedWorldBySlug(ctx.db, input.worldSlug);
+
+    return await insertCommunityEventRecord(ctx.db, {
+      input,
+      community,
+      world,
+      submitter: apiOwnerAuthSubject(args.ownerUserId),
     });
-    const eventId = await ctx.db.insert("events", {
-      slug,
-      title: input.title,
-      sortTitle: input.sortTitle,
-      startAt: input.startAt,
-      ...optionalValue("doorsOpenAt", input.doorsOpenAt),
-      ...optionalValue("endAt", input.endAt),
-      ...optionalValue("timezone", input.timezone),
-      ...optionalValue("communityProfileId", community?._id),
-      ...optionalValue("communityName", community?.displayName),
-      ...optionalValue("summary", input.summary),
-      ...optionalValue("notes", input.notes),
-      ...optionalValue("posterImageUrl", input.posterImageUrl),
-      ...optionalValue("bannerImageUrl", input.bannerImageUrl),
-      ...optionalValue("thumbnailImageUrl", input.thumbnailImageUrl),
-      watchSurfaceEnabled: input.watchSurfaceEnabled,
-      mediaLinks: input.mediaLinks,
-      sourceType: "community",
-      sourceLabel: input.sourceLabel,
-      ...optionalValue("sourceUrl", input.sourceUrl),
-      submitter: subject,
-      publicationState: "published",
-      publishedAt: now,
-      createdAt: now,
-      updatedAt: now,
-    });
-    const shortLink = await ensureShortLinkForTarget(
-      ctx.db,
-      { targetType: "event", targetId: eventId },
-      now,
-    );
-
-    await replaceEventWorldLink(ctx.db, eventId, input.startAt, world, now);
-    await replaceEventSlots(ctx.db, eventId, input.startAt, input.slotLinks, now);
-    const participantLinks = participantLinksWithSlotPerformers(input);
-    await replaceEventParticipants(ctx.db, eventId, input.startAt, participantLinks, now);
-
-    const event = await ctx.db.get(eventId);
-    if (event !== null) {
-      const roleLabels = participantLinks.map((participant) => participant.roleLabel);
-      await Promise.all([
-        upsertSearchDocument(
-          ctx.db,
-          createEventSearchDocument(event, { community, world, roleLabels }),
-        ),
-        recordVocabularyTerms(ctx.db, vocabularyForEvent(event, roleLabels), now),
-      ]);
-    }
-
-    return {
-      eventId,
-      slug,
-      eventPath: `/e/${slug}`,
-      shortLinkCode: shortLink.code,
-      shortLinkPath: shortLink.shortLinkPath,
-    };
   },
 });
 

@@ -1,4 +1,8 @@
-import { getBearerTokenFromAuthorizationHeader, type ApiScope } from "@vrdex/api-contracts";
+import {
+  getBearerTokenFromAuthorizationHeader,
+  type ApiRouteClass,
+  type ApiScope,
+} from "@vrdex/api-contracts";
 
 import {
   apiProblemResponse,
@@ -61,10 +65,11 @@ export function apiUserAuthorityForCredential(credential: ApiBearerCredentialCon
   return { ok: false, reason: "non_user_authority" };
 }
 
-export async function evaluateApiUserReadRequest(
+async function evaluateApiUserCredentialRequest(
   request: Request,
   options: {
     requiredScope: ApiScope;
+    routeClass: ApiRouteClass;
   },
 ): Promise<
   | {
@@ -83,7 +88,7 @@ export async function evaluateApiUserReadRequest(
 
   const evaluation = await evaluateOptionalApiBearerRequest(request, {
     requiredScopes: [options.requiredScope],
-    routeClass: "authenticated_public_read",
+    routeClass: options.routeClass,
   });
 
   if (!evaluation.ok) {
@@ -101,4 +106,28 @@ export async function evaluateApiUserReadRequest(
     context: evaluation.context,
     ownerUserId: authority.ownerUserId,
   };
+}
+
+export async function evaluateApiUserReadRequest(
+  request: Request,
+  options: {
+    requiredScope: ApiScope;
+  },
+) {
+  return await evaluateApiUserCredentialRequest(request, {
+    ...options,
+    routeClass: "authenticated_public_read",
+  });
+}
+
+export async function evaluateApiUserWriteRequest(
+  request: Request,
+  options: {
+    requiredScope: ApiScope;
+  },
+) {
+  return await evaluateApiUserCredentialRequest(request, {
+    ...options,
+    routeClass: "public_write",
+  });
 }

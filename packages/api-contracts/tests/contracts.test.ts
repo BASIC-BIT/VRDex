@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  ApiEventCreateRequestSchema,
+  ApiEventWriteResponseSchema,
   createBearerTokenQueryProblem,
   createPublicNotFoundProblem,
   ApiMeCommunitiesResponseSchema,
@@ -108,6 +110,47 @@ describe("@vrdex/api-contracts", () => {
         startAt: 1770000000000,
         source: { sourceType: "manual", label: "Owner-authored" },
       },
+    });
+  });
+
+  it("parses event creation contracts", () => {
+    ApiEventCreateRequestSchema.parse({
+      title: "Club Night",
+      communitySlug: "club-name",
+      startAt: 1770000000000,
+      endAt: 1770003600000,
+      timezone: "America/New_York",
+      worldSlug: "afterglow-harbor",
+      summary: "A public community event.",
+      mediaLinks: [
+        {
+          type: "watch",
+          label: "Watch",
+          url: "https://example.test/watch",
+        },
+      ],
+      participantLinks: [
+        {
+          personSlug: "artist-name",
+          roleLabel: "DJ",
+        },
+      ],
+      slotLinks: [
+        {
+          displayLabel: "Opening set",
+          roleLabel: "DJ",
+          startAt: 1770000000000,
+          endAt: 1770003600000,
+        },
+      ],
+    });
+
+    ApiEventWriteResponseSchema.parse({
+      eventId: "event123",
+      slug: "club-night",
+      eventPath: "/e/club-night",
+      shortLinkCode: "abc123",
+      shortLinkPath: "/s/abc123",
     });
   });
 
@@ -486,6 +529,7 @@ describe("@vrdex/api-contracts", () => {
     assert.ok(document.paths?.["/api/v0/people/{slug}/events"]);
     assert.ok(document.paths?.["/api/v0/communities/{slug}"]);
     assert.ok(document.paths?.["/api/v0/communities/{slug}/events"]);
+    assert.ok(document.paths?.["/api/v0/events"]?.post);
     assert.ok(document.paths?.["/api/v0/events/{slug}"]);
     assert.ok(document.paths?.["/api/v0/events/upcoming"]);
     assert.ok(document.paths?.["/api/v0/worlds/{slug}"]);

@@ -127,6 +127,21 @@ These routes require user authority. User-owned personal API tokens and
 user-delegated API-resource OAuth access tokens qualify. Anonymous callers,
 community-owned tokens, and OAuth client-credentials tokens do not.
 
+## Current Event Writes
+
+Use `POST /api/v0/events` to create a public event attached to a community
+profile owned by the current authenticated user.
+
+Current constraints:
+
+- requires `events:write`
+- requires user authority
+- requires `communitySlug`
+- requires ownership of the target community profile
+- creates a published public event using the same sanitizers as the web event
+  editor
+- does not create standalone submitter-only events in this checkpoint
+
 ## Developer Resource Lists
 
 Use `GET /api/v0/developer/tokens` and
