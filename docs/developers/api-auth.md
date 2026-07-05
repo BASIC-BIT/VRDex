@@ -197,22 +197,25 @@ Use `GET /api/v0/developer/tokens` and
 `GET /api/v0/developer/oauth-apps` to list developer credential metadata for
 the current user. Use `POST /api/v0/developer/tokens` to create a user-owned
 personal API token and receive its raw value once. Use
-`POST /api/v0/developer/oauth-apps` to create a user-owned OAuth application;
-confidential clients receive their raw client secret value once. Use
+`POST /api/v0/developer/oauth-apps` to create a user-owned OAuth application,
+or include `ownerCommunitySlug` to create an OAuth application for a claimed
+community profile the current user actively owns. Confidential clients receive
+their raw client secret value once. Use
 `PATCH /api/v0/developer/oauth-apps/:clientId` to update app metadata,
 redirects, allowed grants, and allowed scopes. Use
 `POST /api/v0/developer/oauth-apps/:clientId/secrets` to create an additional
 confidential-client secret and receive that raw secret once. Use
 `DELETE /api/v0/developer/tokens/:tokenId` and
-`DELETE /api/v0/developer/oauth-apps/:clientId` to revoke user-owned
-developer credentials. List routes require `developer:read`; creation and
-revocation routes require `developer:write`. All require a credential with user
-authority:
+`DELETE /api/v0/developer/oauth-apps/:clientId` to revoke manageable developer
+credentials. OAuth app list, update, secret-rotation, and revocation routes
+cover user-owned apps plus apps owned by communities the current user actively
+owns. List routes require `developer:read`; creation and revocation routes
+require `developer:write`. All require a credential with user authority:
 
 - user-owned personal API tokens qualify
 - user-delegated API-resource OAuth access tokens qualify
 - OAuth client-credentials tokens do not imply user authority
-- dynamic hosted MCP clients do not list user-owned developer resources
+- dynamic hosted MCP clients do not list developer resources
 
 Raw personal token values and raw OAuth client secrets are never returned. OAuth
 app revocation also revokes active client secrets for that app.

@@ -44,13 +44,27 @@ function oauthClientSecretPepper() {
   return pepper;
 }
 
-function problem(status: 400 | 500, title: string, detail: string) {
+function problem(status: 400 | 403 | 404 | 500, title: string, detail: string) {
   return apiProblemResponse({
     type: "about:blank",
     title,
     status,
     detail,
   });
+}
+
+function createFailureResponse(error: unknown) {
+  const detail = error instanceof Error ? error.message : "The OAuth app could not be created.";
+
+  if (detail.includes("not found")) {
+    return problem(404, "Community profile not found", detail);
+  }
+
+  if (detail.includes("permission") || detail.includes("Only the community owner")) {
+    return problem(403, "OAuth app owner is not manageable", detail);
+  }
+
+  return problem(400, "Invalid OAuth app request", detail);
 }
 
 export async function GET(request: Request) {
@@ -152,22 +166,29 @@ export async function POST(request: Request) {
     );
   }
 
-  const application = await convexAdminHttpClient().mutation(internal.oauthApps.createDeveloperApplicationForApiOwner, {
-    ownerUserId: evaluation.ownerUserId as Id<"users">,
-    clientId,
-    clientType,
-    displayName,
-    redirectUris,
-    allowedGrants,
-    allowedScopes,
-    ...(description === undefined ? {} : { description }),
-    ...(logoUrl === undefined ? {} : { logoUrl }),
-    ...(docsUrl === undefined ? {} : { docsUrl }),
-    ...(privacyUrl === undefined ? {} : { privacyUrl }),
-    ...(termsUrl === undefined ? {} : { termsUrl }),
-    ...(clientSecret === undefined ? {} : { clientSecretPrefix: clientSecret.secretPrefix }),
-    ...(verifierHash === undefined ? {} : { verifierHash }),
-  });
+  let application: unknown;
+
+  try {
+    application = await convexAdminHttpClient().mutation(internal.oauthApps.createDeveloperApplicationForApiOwner, {
+      ownerUserId: evaluation.ownerUserId as Id<"users">,
+      clientId,
+      clientType,
+      displayName,
+      redirectUris,
+      allowedGrants,
+      allowedScopes,
+      ...(description === undefined ? {} : { description }),
+      ...(logoUrl === undefined ? {} : { logoUrl }),
+      ...(docsUrl === undefined ? {} : { docsUrl }),
+      ...(privacyUrl === undefined ? {} : { privacyUrl }),
+      ...(termsUrl === undefined ? {} : { termsUrl }),
+      ...(body.data.ownerCommunitySlug === undefined ? {} : { ownerCommunitySlug: body.data.ownerCommunitySlug }),
+      ...(clientSecret === undefined ? {} : { clientSecretPrefix: clientSecret.secretPrefix }),
+      ...(verifierHash === undefined ? {} : { verifierHash }),
+    });
+  } catch (error) {
+    return createFailureResponse(error);
+  }
 
   const response = apiJson(DeveloperOAuthAppCreateResponseSchema, {
     application,

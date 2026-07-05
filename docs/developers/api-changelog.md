@@ -53,18 +53,23 @@ Public API and MCP platform foundation checkpoint:
 - added `GET /api/v0/developer/tokens` and
   `GET /api/v0/developer/oauth-apps` for `developer:read` user-owned
   credential metadata lists
+- extended `GET /api/v0/developer/oauth-apps` to include OAuth apps owned by
+  claimed community profiles the current authenticated user actively owns
 - added `POST /api/v0/developer/tokens` for `developer:write` user-owned
   personal API token creation with one-time token value return
 - added `POST /api/v0/developer/oauth-apps` for `developer:write` user-owned
   OAuth application creation with one-time confidential client secret return
+- added `ownerCommunitySlug` to `POST /api/v0/developer/oauth-apps` for
+  owner-only community OAuth application creation
 - added `PATCH /api/v0/developer/oauth-apps/:clientId` for `developer:write`
-  user-owned OAuth application metadata, redirect, grant, and scope updates
+  user-owned and community-owned OAuth application metadata, redirect, grant,
+  and scope updates
 - added `POST /api/v0/developer/oauth-apps/:clientId/secrets` for
-  `developer:write` confidential OAuth client secret creation with one-time
-  secret return
+  `developer:write` user-owned and community-owned confidential OAuth client
+  secret creation with one-time secret return
 - added `DELETE /api/v0/developer/tokens/:tokenId` and
   `DELETE /api/v0/developer/oauth-apps/:clientId` for `developer:write`
-  user-owned credential revocation
+  user-owned and community-owned credential revocation
 - added developer docs for public API posture, auth, OAuth apps, rate limits,
   MCP tools, and rollout checks
 

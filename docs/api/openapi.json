@@ -729,7 +729,7 @@
           "Developer"
         ],
         "summary": "List current developer OAuth apps",
-        "description": "Returns user-owned OAuth application metadata for a bearer credential with user authority and developer:read scope.",
+        "description": "Returns user-owned and community-owned OAuth application metadata for a bearer credential with user authority and developer:read scope.",
         "security": [
           {
             "bearerAuth": []
@@ -764,7 +764,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Current user's OAuth applications.",
+            "description": "Current user's OAuth applications, including apps for communities they own.",
             "content": {
               "application/json": {
                 "schema": {
@@ -830,7 +830,7 @@
           "Developer"
         ],
         "summary": "Create a current developer OAuth app",
-        "description": "Creates a user-owned OAuth application for a bearer credential with user authority and developer:write scope. Confidential clients receive a one-time client secret value.",
+        "description": "Creates a user-owned OAuth application, or a community-owned OAuth application when ownerCommunitySlug is supplied, for a bearer credential with user authority and developer:write scope. Confidential clients receive a one-time client secret value.",
         "security": [
           {
             "bearerAuth": []
@@ -883,7 +883,17 @@
             }
           },
           "403": {
-            "description": "The bearer credential lacks developer:write scope or user authority.",
+            "description": "The bearer credential lacks developer:write scope or user authority, or the user does not own the requested community.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The requested owner community profile was not found.",
             "content": {
               "application/json": {
                 "schema": {
@@ -921,7 +931,7 @@
           "Developer"
         ],
         "summary": "Update a current developer OAuth app",
-        "description": "Updates editable metadata, redirect URIs, allowed grants, and allowed scopes for a user-owned OAuth application.",
+        "description": "Updates editable metadata, redirect URIs, allowed grants, and allowed scopes for a user-owned or community-owned OAuth application.",
         "security": [
           {
             "bearerAuth": []
@@ -997,7 +1007,7 @@
             }
           },
           "404": {
-            "description": "The OAuth application was not found for the current user.",
+            "description": "The OAuth application was not found for the current user or their owned communities.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1033,7 +1043,7 @@
           "Developer"
         ],
         "summary": "Revoke a current developer OAuth app",
-        "description": "Revokes a user-owned OAuth application and its active secrets for a bearer credential with user authority and developer:write scope.",
+        "description": "Revokes a user-owned or community-owned OAuth application and its active secrets for a bearer credential with user authority and developer:write scope.",
         "security": [
           {
             "bearerAuth": []
@@ -1099,7 +1109,7 @@
             }
           },
           "404": {
-            "description": "The OAuth application was not found for the current user.",
+            "description": "The OAuth application was not found for the current user or their owned communities.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1137,7 +1147,7 @@
           "Developer"
         ],
         "summary": "Create a current developer OAuth app secret",
-        "description": "Creates an additional client secret for a user-owned confidential OAuth application. The raw client secret value is returned once.",
+        "description": "Creates an additional client secret for a user-owned or community-owned confidential OAuth application. The raw client secret value is returned once.",
         "security": [
           {
             "bearerAuth": []
@@ -1213,7 +1223,7 @@
             }
           },
           "404": {
-            "description": "The OAuth application was not found for the current user.",
+            "description": "The OAuth application was not found for the current user or their owned communities.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2942,13 +2952,18 @@
               ],
               "description": "Public API or MCP credential scope."
             }
+          },
+          "ownerCommunitySlug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
           }
         },
         "required": [
           "displayName",
           "redirectUris"
         ],
-        "description": "Create a user-owned OAuth application. Confidential clients receive a one-time client secret value."
+        "description": "Create a user-owned or community-owned OAuth application. Confidential clients receive a one-time client secret value."
       },
       "DeveloperOAuthAppUpdateRequest": {
         "type": "object",
@@ -3057,7 +3072,7 @@
             }
           }
         },
-        "description": "Update editable metadata, redirects, scopes, and grants for a user-owned OAuth application."
+        "description": "Update editable metadata, redirects, scopes, and grants for a user-owned or community-owned OAuth application."
       },
       "DeveloperOAuthAppSecretCreateRequest": {
         "type": "object",
@@ -3068,7 +3083,7 @@
             "maxLength": 80
           }
         },
-        "description": "Create an additional secret for a user-owned confidential OAuth application."
+        "description": "Create an additional secret for a user-owned or community-owned confidential OAuth application."
       },
       "ApiProfileUpdateRequest": {
         "type": "object",
@@ -4442,7 +4457,7 @@
           "applications"
         ],
         "additionalProperties": false,
-        "description": "User-owned OAuth application list."
+        "description": "User-owned and community-owned OAuth application list."
       },
       "OAuthApplicationSummary": {
         "type": "object",
@@ -4612,7 +4627,7 @@
           "activeSecretPrefixes"
         ],
         "additionalProperties": false,
-        "description": "User-owned OAuth application metadata. Raw client secrets are never returned."
+        "description": "User- or community-owned OAuth application metadata. Raw client secrets are never returned."
       },
       "DeveloperOAuthAppCreateResponse": {
         "type": "object",
@@ -4642,7 +4657,7 @@
           "application"
         ],
         "additionalProperties": false,
-        "description": "User-owned OAuth application response."
+        "description": "User-owned or community-owned OAuth application response."
       },
       "DeveloperOAuthAppSecretCreateResponse": {
         "type": "object",

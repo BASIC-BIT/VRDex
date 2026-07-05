@@ -5,6 +5,8 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { getCurrentUser, requireCurrentUser } from "./accounts";
 import { apiScopeValidator, hasRequiredApiScopes, timingSafeEqualString } from "./_apiTokens";
+import { userOwnsProfile } from "./_profileOwnership";
+import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import {
   normalizeDynamicMcpScopes,
   normalizeOAuthAccessTokenId,
@@ -156,13 +158,31 @@ function toAuthorizationClientSummary(
   };
 }
 
-async function activeSecretsForApplication(ctx: MutationCtx, applicationId: Doc<"oauthApplications">["_id"]) {
+async function activeSecretsForApplication(
+  ctx: QueryCtx | MutationCtx,
+  applicationId: Doc<"oauthApplications">["_id"],
+) {
   return await ctx.db
     .query("oauthApplicationSecrets")
     .withIndex("by_applicationId_status_createdAt", (index) =>
       index.eq("applicationId", applicationId).eq("status", "active"),
     )
     .collect();
+}
+
+async function applicationSummaries(
+  ctx: QueryCtx | MutationCtx,
+  applications: Doc<"oauthApplications">[],
+) {
+  const summaries: ReturnType<typeof toApplicationSummary>[] = [];
+
+  for (const application of applications) {
+    const activeSecrets = await activeSecretsForApplication(ctx, application._id);
+
+    summaries.push(toApplicationSummary(application, activeSecrets));
+  }
+
+  return summaries;
 }
 
 async function validatedActiveApplicationSecret(
@@ -207,29 +227,146 @@ async function listUserOwnedApplicationSummaries(
   },
 ) {
   const limit = boundedLimit(args.limit, 50, 100);
-  const applications = await ctx.db
-    .query("oauthApplications")
-    .withIndex("by_ownerUserId_createdAt", (index) => index.eq("ownerUserId", args.ownerUserId))
-    .order("desc")
-    .take(limit * 2);
-  const visibleApplications = applications
-    .filter((application) => application.ownerKind === "user")
-    .filter((application) => args.includeRevoked === true || application.status === "active")
-    .slice(0, limit);
-  const summaries = [];
+  const visibleApplications =
+    args.includeRevoked === true
+      ? await ctx.db
+          .query("oauthApplications")
+          .withIndex("by_ownerKind_ownerUserId_createdAt", (index) =>
+            index.eq("ownerKind", "user").eq("ownerUserId", args.ownerUserId),
+          )
+          .order("desc")
+          .take(limit)
+      : await ctx.db
+          .query("oauthApplications")
+          .withIndex("by_ownerKind_ownerUserId_status_createdAt", (index) =>
+            index.eq("ownerKind", "user").eq("ownerUserId", args.ownerUserId).eq("status", "active"),
+          )
+          .order("desc")
+          .take(limit);
 
-  for (const application of visibleApplications) {
-    const activeSecrets = await ctx.db
-      .query("oauthApplicationSecrets")
-      .withIndex("by_applicationId_status_createdAt", (index) =>
-        index.eq("applicationId", application._id).eq("status", "active"),
+  return await applicationSummaries(ctx, visibleApplications);
+}
+
+async function communityProfilesOwnedByUser(
+  ctx: QueryCtx | MutationCtx,
+  ownerUserId: Doc<"users">["_id"],
+) {
+  const owners = await ctx.db
+    .query("profileOwners")
+    .withIndex("by_userId_state", (index) => index.eq("userId", ownerUserId).eq("state", "active"))
+    .collect();
+  const profiles = await Promise.all(owners.map((owner) => ctx.db.get(owner.profileId)));
+
+  return profiles.filter(
+    (profile): profile is Doc<"profiles"> =>
+      profile !== null &&
+      profile.profileType === "community" &&
+      profile.claimState !== "unclaimed",
+  );
+}
+
+async function listDeveloperApplicationSummaries(
+  ctx: QueryCtx,
+  args: {
+    includeRevoked?: boolean;
+    limit?: number;
+    ownerUserId: Doc<"users">["_id"];
+  },
+) {
+  const limit = boundedLimit(args.limit, 50, 100);
+  const visibleDirectApplications =
+    args.includeRevoked === true
+      ? await ctx.db
+          .query("oauthApplications")
+          .withIndex("by_ownerKind_ownerUserId_createdAt", (index) =>
+            index.eq("ownerKind", "user").eq("ownerUserId", args.ownerUserId),
+          )
+          .order("desc")
+          .take(limit)
+      : await ctx.db
+          .query("oauthApplications")
+          .withIndex("by_ownerKind_ownerUserId_status_createdAt", (index) =>
+            index.eq("ownerKind", "user").eq("ownerUserId", args.ownerUserId).eq("status", "active"),
+          )
+          .order("desc")
+          .take(limit);
+  const ownedCommunities = await communityProfilesOwnedByUser(ctx, args.ownerUserId);
+  const communityApplications: Doc<"oauthApplications">[] = [];
+
+  for (const community of ownedCommunities) {
+    const applications = await ctx.db
+      .query("oauthApplications")
+      .withIndex("by_ownerCommunityProfileId_status_createdAt", (index) =>
+        args.includeRevoked === true
+          ? index.eq("ownerCommunityProfileId", community._id)
+          : index.eq("ownerCommunityProfileId", community._id).eq("status", "active"),
       )
-      .collect();
+      .order("desc")
+      .take(limit);
 
-    summaries.push(toApplicationSummary(application, activeSecrets));
+    communityApplications.push(...applications);
   }
 
-  return summaries;
+  const seenApplicationIds = new Set<Doc<"oauthApplications">["_id"]>();
+  const visibleApplications = [...visibleDirectApplications, ...communityApplications]
+    .filter((application) => {
+      if (seenApplicationIds.has(application._id)) {
+        return false;
+      }
+
+      seenApplicationIds.add(application._id);
+      return true;
+    })
+    .sort((first, second) => second.createdAt - first.createdAt || second.updatedAt - first.updatedAt)
+    .slice(0, limit);
+
+  return await applicationSummaries(ctx, visibleApplications);
+}
+
+async function requireOwnedCommunityProfileBySlug(
+  ctx: QueryCtx | MutationCtx,
+  args: {
+    ownerCommunitySlug: string;
+    ownerUserId: Doc<"users">["_id"];
+  },
+) {
+  const validation = validateProfileSlug(args.ownerCommunitySlug);
+
+  if (!validation.ok) {
+    throw new Error("Community slug is invalid.");
+  }
+
+  const profile = await getProfileBySlug(ctx.db, validation.slug);
+
+  if (profile === null || profile.profileType !== "community") {
+    throw new Error("Community profile was not found.");
+  }
+
+  if (profile.claimState === "unclaimed") {
+    throw new Error("Only claimed community profiles can own OAuth apps.");
+  }
+
+  if (!(await userOwnsProfile(ctx.db, profile._id, args.ownerUserId))) {
+    throw new Error("Only the community owner can manage community OAuth apps.");
+  }
+
+  return profile;
+}
+
+async function canManageApplication(
+  ctx: QueryCtx | MutationCtx,
+  application: Doc<"oauthApplications">,
+  ownerUserId: Doc<"users">["_id"],
+) {
+  if (application.ownerKind === "user") {
+    return application.ownerUserId === ownerUserId;
+  }
+
+  if (application.ownerCommunityProfileId === undefined) {
+    return false;
+  }
+
+  return await userOwnsProfile(ctx.db, application.ownerCommunityProfileId, ownerUserId);
 }
 
 async function recordOAuthClientEvent(
@@ -264,7 +401,7 @@ async function recordOAuthClientEvent(
   });
 }
 
-async function revokeUserOwnedApplication(
+async function revokeManageableApplication(
   ctx: MutationCtx,
   args: {
     application: Doc<"oauthApplications"> | null;
@@ -274,7 +411,7 @@ async function revokeUserOwnedApplication(
 ) {
   const application = args.application;
 
-  if (application === null || application.ownerKind !== "user" || application.ownerUserId !== args.ownerUserId) {
+  if (application === null || !(await canManageApplication(ctx, application, args.ownerUserId))) {
     return { ok: false as const, reason: "not_found" as const };
   }
 
@@ -418,11 +555,11 @@ export const listDeveloperApplicationsForApiOwner = internalQuery({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    return await listUserOwnedApplicationSummaries(ctx, args);
+    return await listDeveloperApplicationSummaries(ctx, args);
   },
 });
 
-async function createUserOwnedApplication(
+async function createOwnedApplication(
   ctx: MutationCtx,
   args: {
     allowedGrants?: readonly string[];
@@ -434,6 +571,7 @@ async function createUserOwnedApplication(
     displayName: string;
     docsUrl?: string;
     logoUrl?: string;
+    ownerCommunityProfileId?: Doc<"profiles">["_id"];
     ownerUserId: Doc<"users">["_id"];
     privacyUrl?: string;
     redirectUris: readonly string[];
@@ -472,8 +610,11 @@ async function createUserOwnedApplication(
 
   const applicationId = await ctx.db.insert("oauthApplications", {
     clientId,
-    ownerKind: "user",
+    ownerKind: args.ownerCommunityProfileId === undefined ? "user" : "community",
     ownerUserId: args.ownerUserId,
+    ...(args.ownerCommunityProfileId === undefined
+      ? {}
+      : { ownerCommunityProfileId: args.ownerCommunityProfileId }),
     clientType,
     displayName,
     ...(description === undefined ? {} : { description }),
@@ -566,7 +707,7 @@ export const createPersonalApplication = mutation({
   handler: async (ctx, args) => {
     const user = await requireCurrentUser(ctx);
 
-    return await createUserOwnedApplication(ctx, { ...args, ownerUserId: user._id });
+    return await createOwnedApplication(ctx, { ...args, ownerUserId: user._id });
   },
 });
 
@@ -586,9 +727,21 @@ export const createDeveloperApplicationForApiOwner = internalMutation({
     allowedScopes: v.optional(v.array(apiScopeValidator)),
     clientSecretPrefix: v.optional(v.string()),
     verifierHash: v.optional(v.string()),
+    ownerCommunitySlug: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    return await createUserOwnedApplication(ctx, args);
+    const ownerCommunity =
+      args.ownerCommunitySlug === undefined
+        ? undefined
+        : await requireOwnedCommunityProfileBySlug(ctx, {
+            ownerCommunitySlug: args.ownerCommunitySlug,
+            ownerUserId: args.ownerUserId,
+          });
+
+    return await createOwnedApplication(ctx, {
+      ...args,
+      ...(ownerCommunity === undefined ? {} : { ownerCommunityProfileId: ownerCommunity._id }),
+    });
   },
 });
 
@@ -610,8 +763,7 @@ export const createDeveloperApplicationSecretForApiOwner = internalMutation({
 
     if (
       application === null ||
-      application.ownerKind !== "user" ||
-      application.ownerUserId !== args.ownerUserId ||
+      !(await canManageApplication(ctx, application, args.ownerUserId)) ||
       application.status !== "active"
     ) {
       return { ok: false as const, reason: "not_found" as const };
@@ -695,8 +847,7 @@ export const updateDeveloperApplicationForApiOwner = internalMutation({
 
     if (
       application === null ||
-      application.ownerKind !== "user" ||
-      application.ownerUserId !== args.ownerUserId ||
+      !(await canManageApplication(ctx, application, args.ownerUserId)) ||
       application.status !== "active"
     ) {
       return { ok: false as const, reason: "not_found" as const };
@@ -806,7 +957,7 @@ export const revokeDeveloperApplicationForApiOwner = internalMutation({
       .withIndex("by_clientId", (index) => index.eq("clientId", clientId))
       .unique();
 
-    return await revokeUserOwnedApplication(ctx, {
+    return await revokeManageableApplication(ctx, {
       application,
       ownerUserId: args.ownerUserId,
       reason: args.reason,
@@ -990,7 +1141,7 @@ export const revokePersonalApplication = mutation({
   handler: async (ctx, args) => {
     const user = await requireCurrentUser(ctx);
     const application = await ctx.db.get(args.applicationId);
-    const result = await revokeUserOwnedApplication(ctx, {
+    const result = await revokeManageableApplication(ctx, {
       application,
       ownerUserId: user._id,
       reason: args.reason,

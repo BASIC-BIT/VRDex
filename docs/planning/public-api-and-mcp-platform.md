@@ -52,7 +52,7 @@ The first useful version should feel small and sharp:
 - `Locked decision`: OAuth access tokens must be audience/resource-bound. VRDex must not accept or pass through tokens minted for another resource.
 - `Locked decision`: Hosted MCP over HTTP follows the current MCP authorization model and Streamable HTTP transport.
 - `Locked decision`: Local stdio MCP uses environment or local config credentials and does not try to run the HTTP MCP authorization handshake over stdio.
-- `Locked decision`: The first normal developer app ownership model is user-owned. Community-owned OAuth apps are an early follow-up, not the first blocker.
+- `Locked decision`: Normal developer apps support user-owned apps plus owner-managed community-owned apps. Staff/admin delegation for community-owned apps is a later capability.
 
 ## Current Recommendations
 
@@ -67,7 +67,7 @@ The first useful version should feel small and sharp:
 - `Current recommendation`: Use Zod 4 plus `zod-openapi` as the first contract toolchain. The implementation spike has validated the route shape enough to keep this as the current path.
 - `Current recommendation`: Use opaque hashed personal API tokens. Use short-lived RFC 9068-style JWT OAuth access tokens with audience/resource binding, plus opaque refresh-token rotation for user-delegated OAuth flows.
 - `Current recommendation`: Support OAuth Authorization Code with PKCE for user-delegated apps and Client Credentials for app-only access.
-- `Current recommendation`: Start normal developer apps with manual OAuth app registration in the VRDex developer dashboard. Include constrained Dynamic Client Registration for hosted MCP OAuth on day one, stored separately from user/community-owned apps until reviewed or promoted.
+- `Current recommendation`: Start normal developer apps with manual OAuth app registration in the VRDex developer dashboard and API. Include constrained Dynamic Client Registration for hosted MCP OAuth on day one, stored separately from user/community-owned apps until reviewed or promoted.
 - `Current recommendation`: Treat Client ID Metadata Documents as a compatibility path for MCP clients that prefer preconfigured metadata over Dynamic Client Registration. Keep DCR as the first implemented automatic path, but include CIMD in the hosted-client smoke matrix before external readiness.
 - `Current recommendation`: Rate-limit by route class, IP, token, OAuth client, user, app owner, and dynamic MCP client. Do not use one global bucket for every caller.
 - `Current recommendation`: Use a Redis-compatible TTL counter store for high-volume hosted anonymous public API and MCP traffic. Keep Convex as the durable source for policy, app/token ownership, partner overrides, coarse usage summaries, and audit events.
@@ -88,7 +88,7 @@ The first useful version should feel small and sharp:
 - `Interview later`: Whether partner application flows can access anything beyond public data before formal partner contracts exist.
 - `Interview later`: Whether self-hosted deployments need built-in multi-tenant OAuth issuer support or only one issuer per deployment.
 - `Interview later`: Whether paid tiers should raise API and MCP limits at launch or only after organic demand appears.
-- `Interview later`: Which community-owned OAuth app workflows are needed immediately after user-owned developer apps.
+- `Interview later`: Which staff/admin delegation workflows are needed for community-owned OAuth apps after the owner-only first pass.
 
 ## Client Classes
 
@@ -469,8 +469,8 @@ Implementation requirements:
 - HTTPS redirect URIs except localhost loopback development redirects
 - public clients require PKCE
 - confidential clients store hashed secrets only
-- app ownership starts user-owned
-- community-owned apps are an early follow-up once community owner/admin
+- app ownership supports user-owned apps and owner-managed community apps
+- community-owned staff/admin delegation is deferred until broader community
   authority is stable enough
 - reviewed/trusted partner status is a manual operator decision with explicit
   contact ownership, quota class, monitoring, and revocation
@@ -553,13 +553,13 @@ Current recommendation:
 - allow only exact redirect URIs and localhost loopback development redirects
 - allow only MCP resource access and the initial public/read-oriented scopes
 - rate-limit registrations by IP, software metadata, and redirect host
-- expose dynamic clients separately from manually created user-owned developer apps in admin/ops views
+- expose dynamic clients separately from manually created normal developer apps in admin/ops views
 - allow manual promotion from dynamic MCP client to reviewed developer app later
 
 Implementation checkpoint:
 
 - `/oauth/register` stores dynamic MCP clients in a separate Convex table from
-  user-owned OAuth applications.
+  user- and community-owned OAuth applications.
 - registration is public-client-only and returns no client secret.
 - `/oauth/authorize` supports Authorization Code with PKCE using
   `code_challenge_method=S256` for public apps, confidential apps, and dynamic
@@ -880,7 +880,8 @@ Required capabilities:
 First ownership pass:
 
 - user-owned developer apps
-- community-owned developer apps as early follow-up once community owner/admin authority is stable enough
+- community-owned developer apps for claimed community profiles managed by the active singleton owner
+- staff/admin delegation for community-owned developer apps after broader community authority is stable enough
 - dynamically registered MCP clients visible to admins/operators, not normal self-serve developer app management at first
 
 UX rules:
@@ -1272,8 +1273,8 @@ Security-specific tests:
 - The rate-limit backend question means where high-cardinality request counters live. Current recommendation is Redis-compatible TTL counters for hosted anonymous/high-volume traffic, with Convex retaining durable policy and audit state.
 - Hosted MCP should support anonymous public read tools from day one.
 - Day-one MCP support should target every major MCP client available at implementation time through a compatibility matrix.
-- First-pass developer apps should be user-owned.
-- Community-owned OAuth apps should be considered early after user-owned apps.
+- First-pass developer apps support user-owned apps and owner-managed community-owned apps.
+- Community-owned OAuth app staff/admin delegation should be considered after broader community authority is stable enough.
 - Trusted partner access is manually reviewed and should have much higher practical quotas than normal personal tokens, while retaining monitoring, cost controls, and revocation.
 - Rate-limit backend language refers to hot, expiring request counters rather than durable product state; Convex keeps durable ownership, policy, review, summary, and audit records.
 
@@ -1283,5 +1284,4 @@ Security-specific tests:
 - Define OAuth signing-key rotation operations once deployment secret management is wired. The current checkpoint uses Node's built-in crypto APIs for RS256 JWT access tokens and advertises an explicit JWT key id when configured.
 - Confirm the hosted rate-limit provider for production, such as Upstash, Vercel KV, Valkey, or another Redis-compatible store.
 - Run the implementation-time major MCP client smoke matrix against a deployed preview or production-like environment, including anonymous hosted reads, OAuth through Dynamic Client Registration, OAuth through Client ID Metadata Documents where supported, and local stdio configuration.
-- Decide whether community-owned OAuth apps can fit into the first implementation PR after user-owned apps are working.
 - Choose final default quota numbers and partner escalation thresholds after initial traffic and operator cost signals exist.

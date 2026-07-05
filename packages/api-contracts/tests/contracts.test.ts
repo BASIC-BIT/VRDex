@@ -398,6 +398,14 @@ describe("@vrdex/api-contracts", () => {
       allowedScopes: ["public:read", "mcp:read"],
     });
 
+    DeveloperOAuthAppCreateRequestSchema.parse({
+      clientType: "public",
+      displayName: "Community MCP client",
+      ownerCommunitySlug: "club-example",
+      redirectUris: ["https://community.example.test/oauth/callback"],
+      allowedScopes: ["public:read", "mcp:read"],
+    });
+
     DeveloperOAuthAppCreateResponseSchema.parse({
       clientSecretValue: "vrdx_secret_lookup.verifier",
       application: {
@@ -415,6 +423,26 @@ describe("@vrdex/api-contracts", () => {
         createdAt: 1770000000000,
         updatedAt: 1770000000000,
         activeSecretPrefixes: ["vrdx_secret_lookup"],
+      },
+    });
+
+    DeveloperOAuthAppCreateResponseSchema.parse({
+      application: {
+        id: "application456",
+        clientId: "vrdx_app_fedcba9876543210fedcba98",
+        ownerKind: "community",
+        ownerUserId: "user123",
+        ownerCommunityProfileId: "profile456",
+        clientType: "public",
+        displayName: "Community MCP client",
+        redirectUris: ["https://community.example.test/oauth/callback"],
+        allowedGrants: ["authorization_code", "refresh_token"],
+        allowedScopes: ["public:read", "mcp:read"],
+        status: "active",
+        trustTier: "standard",
+        createdAt: 1770000000000,
+        updatedAt: 1770000000000,
+        activeSecretPrefixes: [],
       },
     });
   });

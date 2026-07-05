@@ -16,7 +16,8 @@ the same generated document at `GET /api/v0/openapi.json`. The web app renders
 the generated API reference at `/developers/api`. Signed-in developers can
 manage personal API tokens at `/developers/tokens` and user-owned OAuth client
 apps at `/developers/apps`; bearer-authorized `/api/v0/developer/...` routes
-also support developer credential listing, creation, and revocation. OAuth
+also support developer credential listing, creation, and revocation, including
+owner-managed community OAuth apps via `ownerCommunitySlug`. OAuth
 metadata, JWKS, client-credentials token issuance, token revocation, constrained
 dynamic client registration for hosted MCP clients, Authorization Code with
 PKCE for public and confidential apps, and refresh-token rotation are also in
@@ -61,12 +62,12 @@ Implemented authenticated reads require a valid bearer credential:
 | `PATCH /api/v0/events/:slug` | Update a public event attached to a community profile the current user owns. |
 | `GET /api/v0/developer/tokens` | List current user's personal API token metadata. |
 | `POST /api/v0/developer/tokens` | Create a current user's personal API token and return its value once. |
-| `GET /api/v0/developer/oauth-apps` | List current user's OAuth application metadata. |
-| `POST /api/v0/developer/oauth-apps` | Create a current user's OAuth application and return any confidential client secret once. |
-| `PATCH /api/v0/developer/oauth-apps/:clientId` | Update a current user's OAuth application metadata, redirects, grants, and scopes. |
+| `GET /api/v0/developer/oauth-apps` | List OAuth application metadata for the current user and owned communities. |
+| `POST /api/v0/developer/oauth-apps` | Create a user-owned or community-owned OAuth application and return any confidential client secret once. |
+| `PATCH /api/v0/developer/oauth-apps/:clientId` | Update metadata, redirects, grants, and scopes for a user-owned or community-owned OAuth application. |
 | `POST /api/v0/developer/oauth-apps/:clientId/secrets` | Create an additional confidential OAuth client secret and return it once. |
 | `DELETE /api/v0/developer/tokens/:tokenId` | Revoke a current user's personal API token. |
-| `DELETE /api/v0/developer/oauth-apps/:clientId` | Revoke a current user's OAuth application and active secrets. |
+| `DELETE /api/v0/developer/oauth-apps/:clientId` | Revoke a user-owned or community-owned OAuth application and active secrets. |
 
 `/api/v0/me/profiles` requires `profile:read`; `/api/v0/me/communities`
 requires `community:read`; `/api/v0/me/events` requires `events:read`. The

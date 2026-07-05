@@ -845,7 +845,7 @@ export const OAuthApplicationSummarySchema = z
     activeSecretPrefixes: z.array(z.string().min(1)),
   })
   .meta({
-    description: "User-owned OAuth application metadata. Raw client secrets are never returned.",
+    description: "User- or community-owned OAuth application metadata. Raw client secrets are never returned.",
     id: "OAuthApplicationSummary",
   });
 
@@ -861,10 +861,11 @@ export const DeveloperOAuthAppCreateRequestSchema = z
     redirectUris: z.array(z.string().min(1)).min(1).max(10),
     allowedGrants: z.array(OAuthGrantTypeSchema).optional(),
     allowedScopes: z.array(ApiScopeSchema).optional(),
+    ownerCommunitySlug: slug.optional(),
   })
   .meta({
     description:
-      "Create a user-owned OAuth application. Confidential clients receive a one-time client secret value.",
+      "Create a user-owned or community-owned OAuth application. Confidential clients receive a one-time client secret value.",
     id: "DeveloperOAuthAppCreateRequest",
   });
 
@@ -882,7 +883,7 @@ export const DeveloperOAuthAppUpdateRequestSchema = z
   })
   .meta({
     description:
-      "Update editable metadata, redirects, scopes, and grants for a user-owned OAuth application.",
+      "Update editable metadata, redirects, scopes, and grants for a user-owned or community-owned OAuth application.",
     id: "DeveloperOAuthAppUpdateRequest",
   });
 
@@ -919,7 +920,7 @@ export const DeveloperOAuthAppsResponseSchema = z
     applications: z.array(OAuthApplicationSummarySchema),
   })
   .meta({
-    description: "User-owned OAuth application list.",
+    description: "User-owned and community-owned OAuth application list.",
     id: "DeveloperOAuthAppsResponse",
   });
 
@@ -928,7 +929,7 @@ export const DeveloperOAuthAppResponseSchema = z
     application: OAuthApplicationSummarySchema,
   })
   .meta({
-    description: "User-owned OAuth application response.",
+    description: "User-owned or community-owned OAuth application response.",
     id: "DeveloperOAuthAppResponse",
   });
 
@@ -947,7 +948,7 @@ export const DeveloperOAuthAppSecretCreateRequestSchema = z
     label: z.string().min(1).max(80).optional(),
   })
   .meta({
-    description: "Create an additional secret for a user-owned confidential OAuth application.",
+    description: "Create an additional secret for a user-owned or community-owned confidential OAuth application.",
     id: "DeveloperOAuthAppSecretCreateRequest",
   });
 

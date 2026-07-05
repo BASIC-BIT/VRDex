@@ -2,24 +2,32 @@
 
 ## Status
 
-Current implementation checkpoint for user-owned developer OAuth apps.
+Current implementation checkpoint for user-owned and owner-managed community
+developer OAuth apps.
 
 Normal developer apps are created from `/developers/apps` or
-`POST /api/v0/developer/oauth-apps`. Community-owned OAuth apps remain an early
-follow-up after community owner/admin authority is stable enough for app
-ownership and revocation workflows.
+`POST /api/v0/developer/oauth-apps`. The API can also create community-owned
+apps when the request supplies `ownerCommunitySlug` for a claimed community
+profile actively owned by the current token's user.
 
 ## App Ownership
 
 Current implementation:
 
 - user-owned apps are supported
-- community-owned apps are deferred
-- dynamic MCP clients are stored separately from user-owned apps
+- community-owned apps are supported for active community owners
+- staff/admin delegation for community-owned apps is deferred
+- dynamic MCP clients are stored separately from normal developer apps
 - trusted partner review is manual, not self-serve
 
 OAuth app records include client identity, owner, redirect URIs, allowed grants,
 allowed scopes, status, trust tier, and lifecycle timestamps.
+
+Omit `ownerCommunitySlug` when creating a user-owned app. Include
+`ownerCommunitySlug` to create an app owned by that community. Only claimed
+community profiles can own OAuth apps, and only the active singleton community
+owner can create, update, rotate secrets for, or revoke the app in this first
+pass.
 
 Use `PATCH /api/v0/developer/oauth-apps/:clientId` to update app metadata,
 redirect URIs, allowed grants, and allowed scopes. Client type is immutable;
@@ -101,9 +109,9 @@ that is appropriate.
 
 Client ID Metadata Documents are tracked as a hosted MCP compatibility path for
 clients that prefer preconfigured metadata over Dynamic Client Registration.
-They do not change the first-pass ownership model: normal developer apps stay
-user-owned, dynamic MCP clients stay separate, and community-owned apps remain
-an early follow-up.
+They do not change the self-serve ownership model: normal developer apps are
+user-owned or owned by communities the current user actively owns, while dynamic
+MCP clients stay separate.
 
 ## Trusted Partner Review
 

@@ -380,14 +380,14 @@ export const openApiSource = {
         tags: ["Developer"],
         summary: "List current developer OAuth apps",
         description:
-          "Returns user-owned OAuth application metadata for a bearer credential with user authority and developer:read scope.",
+          "Returns user-owned and community-owned OAuth application metadata for a bearer credential with user authority and developer:read scope.",
         security: developerReadSecurity,
         requestParams: {
           query: DeveloperCredentialListQueryParamsSchema,
         },
         responses: {
           "200": {
-            description: "Current user's OAuth applications.",
+            description: "Current user's OAuth applications, including apps for communities they own.",
             content: jsonContent(DeveloperOAuthAppsResponseSchema),
           },
           "400": publicReadProblemResponses["400"],
@@ -407,7 +407,7 @@ export const openApiSource = {
         tags: ["Developer"],
         summary: "Create a current developer OAuth app",
         description:
-          "Creates a user-owned OAuth application for a bearer credential with user authority and developer:write scope. Confidential clients receive a one-time client secret value.",
+          "Creates a user-owned OAuth application, or a community-owned OAuth application when ownerCommunitySlug is supplied, for a bearer credential with user authority and developer:write scope. Confidential clients receive a one-time client secret value.",
         security: developerWriteSecurity,
         requestBody: {
           required: true,
@@ -427,7 +427,11 @@ export const openApiSource = {
             content: jsonContent(ApiProblemSchema),
           },
           "403": {
-            description: "The bearer credential lacks developer:write scope or user authority.",
+            description: "The bearer credential lacks developer:write scope or user authority, or the user does not own the requested community.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "404": {
+            description: "The requested owner community profile was not found.",
             content: jsonContent(ApiProblemSchema),
           },
           "429": publicReadProblemResponses["429"],
@@ -440,7 +444,7 @@ export const openApiSource = {
         tags: ["Developer"],
         summary: "Update a current developer OAuth app",
         description:
-          "Updates editable metadata, redirect URIs, allowed grants, and allowed scopes for a user-owned OAuth application.",
+          "Updates editable metadata, redirect URIs, allowed grants, and allowed scopes for a user-owned or community-owned OAuth application.",
         security: developerWriteSecurity,
         requestParams: {
           path: OAuthClientPathParamsSchema,
@@ -467,7 +471,7 @@ export const openApiSource = {
             content: jsonContent(ApiProblemSchema),
           },
           "404": {
-            description: "The OAuth application was not found for the current user.",
+            description: "The OAuth application was not found for the current user or their owned communities.",
             content: jsonContent(ApiProblemSchema),
           },
           "429": publicReadProblemResponses["429"],
@@ -478,7 +482,7 @@ export const openApiSource = {
         tags: ["Developer"],
         summary: "Revoke a current developer OAuth app",
         description:
-          "Revokes a user-owned OAuth application and its active secrets for a bearer credential with user authority and developer:write scope.",
+          "Revokes a user-owned or community-owned OAuth application and its active secrets for a bearer credential with user authority and developer:write scope.",
         security: developerWriteSecurity,
         requestParams: {
           path: OAuthClientPathParamsSchema,
@@ -498,7 +502,7 @@ export const openApiSource = {
             content: jsonContent(ApiProblemSchema),
           },
           "404": {
-            description: "The OAuth application was not found for the current user.",
+            description: "The OAuth application was not found for the current user or their owned communities.",
             content: jsonContent(ApiProblemSchema),
           },
           "429": publicReadProblemResponses["429"],
@@ -511,7 +515,7 @@ export const openApiSource = {
         tags: ["Developer"],
         summary: "Create a current developer OAuth app secret",
         description:
-          "Creates an additional client secret for a user-owned confidential OAuth application. The raw client secret value is returned once.",
+          "Creates an additional client secret for a user-owned or community-owned confidential OAuth application. The raw client secret value is returned once.",
         security: developerWriteSecurity,
         requestParams: {
           path: OAuthClientPathParamsSchema,
@@ -538,7 +542,7 @@ export const openApiSource = {
             content: jsonContent(ApiProblemSchema),
           },
           "404": {
-            description: "The OAuth application was not found for the current user.",
+            description: "The OAuth application was not found for the current user or their owned communities.",
             content: jsonContent(ApiProblemSchema),
           },
           "429": publicReadProblemResponses["429"],

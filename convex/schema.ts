@@ -1138,6 +1138,13 @@ export default defineSchema({
     .index("by_clientId", ["clientId"])
     .index("by_ownerUserId_createdAt", ["ownerUserId", "createdAt"])
     .index("by_ownerUserId_status_createdAt", ["ownerUserId", "status", "createdAt"])
+    .index("by_ownerKind_ownerUserId_createdAt", ["ownerKind", "ownerUserId", "createdAt"])
+    .index("by_ownerKind_ownerUserId_status_createdAt", [
+      "ownerKind",
+      "ownerUserId",
+      "status",
+      "createdAt",
+    ])
     .index("by_ownerCommunityProfileId_status_createdAt", [
       "ownerCommunityProfileId",
       "status",
