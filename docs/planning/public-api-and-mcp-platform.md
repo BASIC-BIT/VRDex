@@ -1136,7 +1136,8 @@ Validation:
 Implementation checkpoint:
 
 - final developer docs now include API auth, OAuth apps, rate limits, MCP read
-  tools, an API/MCP changelog, and a rollout checklist
+  tools, an MCP client compatibility matrix, an API/MCP changelog, and a
+  rollout checklist
 - self-hosting docs include the current API, OAuth, hosted MCP, rate-limit, and
   local stdio MCP environment inventory
 
@@ -1234,6 +1235,6 @@ Security-specific tests:
 - Confirm the exact schema/OpenAPI generator after a short Zod 4 and OpenAPI generation spike.
 - Define OAuth signing-key rotation operations once deployment secret management is wired. The current checkpoint uses Node's built-in crypto APIs for RS256 JWT access tokens and advertises an explicit JWT key id when configured.
 - Confirm the hosted rate-limit provider for production, such as Upstash, Vercel KV, Valkey, or another Redis-compatible store.
-- Build the implementation-time major MCP client compatibility list and identify which clients require Dynamic Client Registration.
+- Run the implementation-time major MCP client smoke matrix against a deployed preview or production-like environment.
 - Decide whether community-owned OAuth apps can fit into the first implementation PR after user-owned apps are working.
 - Choose final default quota numbers and partner escalation thresholds.

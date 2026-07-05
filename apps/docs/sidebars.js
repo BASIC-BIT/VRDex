@@ -20,6 +20,7 @@ const sidebars = {
         "developers/api-rate-limits",
         "developers/self-hosting-and-iac",
         "developers/vrdex-mcp-read-tools",
+        "developers/mcp-client-compatibility",
         "developers/api-changelog",
         "developers/api-mcp-rollout-checklist",
         {

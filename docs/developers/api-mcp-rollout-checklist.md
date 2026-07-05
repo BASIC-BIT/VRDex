@@ -45,8 +45,9 @@ one PR.
 - Local stdio MCP supports hosted and self-hosted API base URLs.
 - Local stdio MCP can run with anonymous reads, personal API tokens, or
   API-resource OAuth access tokens.
-- Compatibility smoke results should cover the major MCP clients available at
-  PR review time before declaring external readiness.
+- `docs/developers/mcp-client-compatibility.md` lists the current major-client
+  matrix and must have manual smoke results before external readiness is
+  declared.
 
 ## Validation Commands
 

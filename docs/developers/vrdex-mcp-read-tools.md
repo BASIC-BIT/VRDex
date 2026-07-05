@@ -199,6 +199,11 @@ the common `mcpServers` JSON shape can use the same command, args, and env
 block. Registry install snippets can replace the workspace command after the
 package is published.
 
+The current implementation-time client matrix lives in
+`docs/developers/mcp-client-compatibility.md`. Use it before declaring hosted
+or local MCP externally ready, because day-one support needs real smokes across
+major clients rather than only repo-level protocol tests.
+
 ## Safety Rules
 
 - Use public API/query behavior, not website scraping.

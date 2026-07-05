@@ -37,6 +37,7 @@ Audience:
 - [API and MCP rate limits](./api-rate-limits.md)
 - [Self-hosting and IaC](./self-hosting-and-iac.md)
 - [VRDex MCP read tools](./vrdex-mcp-read-tools.md)
+- [MCP client compatibility matrix](./mcp-client-compatibility.md)
 - [API and MCP changelog](./api-changelog.md)
 - [API and MCP rollout checklist](./api-mcp-rollout-checklist.md)
 - [Service cross-link map](../engineering/service-map.md)
@@ -51,6 +52,7 @@ Files:
 - `docs/developers/api-rate-limits.md`
 - `docs/developers/self-hosting-and-iac.md`
 - `docs/developers/vrdex-mcp-read-tools.md`
+- `docs/developers/mcp-client-compatibility.md`
 - `docs/developers/api-changelog.md`
 - `docs/developers/api-mcp-rollout-checklist.md`
 - `docs/engineering/service-map.md`
