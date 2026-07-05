@@ -21,6 +21,10 @@ Current implementation:
 OAuth app records include client identity, owner, redirect URIs, allowed grants,
 allowed scopes, status, trust tier, and lifecycle timestamps.
 
+Use `PATCH /api/v0/developer/oauth-apps/:clientId` to update app metadata,
+redirect URIs, allowed grants, and allowed scopes. Client type is immutable;
+create a replacement app when moving between public and confidential clients.
+
 ## Client Types
 
 | Client type | Current use |

@@ -10,6 +10,7 @@ import {
   DeveloperOAuthAppCreateResponseSchema,
   DeveloperOAuthAppSecretCreateRequestSchema,
   DeveloperOAuthAppSecretCreateResponseSchema,
+  DeveloperOAuthAppUpdateRequestSchema,
   DeveloperTokenCreateRequestSchema,
   DeveloperTokenCreateResponseSchema,
   getBearerTokenFromAuthorizationHeader,
@@ -254,6 +255,17 @@ describe("@vrdex/api-contracts", () => {
     });
   });
 
+  it("parses developer OAuth app update contracts", () => {
+    DeveloperOAuthAppUpdateRequestSchema.parse({
+      displayName: "Updated MCP client",
+      description: null,
+      docsUrl: "https://example.test/docs",
+      redirectUris: ["http://127.0.0.1:3333/callback"],
+      allowedGrants: ["authorization_code", "refresh_token"],
+      allowedScopes: ["public:read", "mcp:read"],
+    });
+  });
+
 
   it("creates RFC 9457-compatible problem details", () => {
     assert.deepEqual(createPublicNotFoundProblem("Profile"), {
@@ -421,6 +433,7 @@ describe("@vrdex/api-contracts", () => {
     assert.ok(document.paths?.["/api/v0/developer/oauth-apps"]);
     assert.ok(document.paths?.["/api/v0/developer/oauth-apps"]?.post);
     assert.ok(document.paths?.["/api/v0/developer/oauth-apps/{clientId}"]);
+    assert.ok(document.paths?.["/api/v0/developer/oauth-apps/{clientId}"]?.patch);
     assert.ok(document.paths?.["/api/v0/developer/oauth-apps/{clientId}/secrets"]?.post);
   });
 

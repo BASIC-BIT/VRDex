@@ -173,6 +173,25 @@ describe("developer read API authority", () => {
     assert.match(output, /"title":"Bearer token required"/);
   });
 
+  it("requires a bearer credential on developer OAuth app updates", () => {
+    const output = runDeveloperReadProbe(`
+      import { PATCH } from "./apps/web/src/app/api/v0/developer/oauth-apps/[clientId]/route.ts";
+
+      const response = await PATCH(
+        new Request("https://app.example.test/api/v0/developer/oauth-apps/vrdx_app_000000000000000000000000", {
+          method: "PATCH",
+          body: JSON.stringify({ displayName: "Updated MCP client" }),
+        }),
+        { params: Promise.resolve({ clientId: "vrdx_app_000000000000000000000000" }) },
+      );
+      console.log(response.status);
+      console.log(JSON.stringify(await response.json()));
+    `);
+
+    assert.match(output, /^401/m);
+    assert.match(output, /"title":"Bearer token required"/);
+  });
+
   it("requires a bearer credential on developer token revocation", () => {
     const output = runDeveloperReadProbe(`
       import { DELETE } from "./apps/web/src/app/api/v0/developer/tokens/[tokenId]/route.ts";

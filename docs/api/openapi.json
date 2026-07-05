@@ -628,6 +628,118 @@
       }
     },
     "/api/v0/developer/oauth-apps/{clientId}": {
+      "patch": {
+        "operationId": "updateCurrentDeveloperOAuthApp",
+        "tags": [
+          "Developer"
+        ],
+        "summary": "Update a current developer OAuth app",
+        "description": "Updates editable metadata, redirect URIs, allowed grants, and allowed scopes for a user-owned OAuth application.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "oauth2": [
+              "developer:write"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "clientId",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "OAuth client id."
+            },
+            "required": true,
+            "description": "OAuth client id."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeveloperOAuthAppUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated OAuth application metadata.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeveloperOAuthAppResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The OAuth app update request was malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Bearer authentication is required or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The bearer credential lacks developer:write scope or user authority.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The OAuth application was not found for the current user.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
+      },
       "delete": {
         "operationId": "revokeCurrentDeveloperOAuthApp",
         "tags": [
@@ -2031,6 +2143,115 @@
           "redirectUris"
         ],
         "description": "Create a user-owned OAuth application. Confidential clients receive a one-time client secret value."
+      },
+      "DeveloperOAuthAppUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "logoUrl": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "docsUrl": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "privacyUrl": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "termsUrl": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "redirectUris": {
+            "minItems": 1,
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "allowedGrants": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "authorization_code",
+                "refresh_token",
+                "client_credentials"
+              ],
+              "description": "OAuth grant type allowed for an application."
+            }
+          },
+          "allowedScopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "public:read",
+                "profile:read",
+                "profile:write",
+                "community:read",
+                "community:write",
+                "events:read",
+                "events:write",
+                "assets:read",
+                "assets:write",
+                "developer:read",
+                "developer:write",
+                "mcp:read",
+                "mcp:write"
+              ],
+              "description": "Public API or MCP credential scope."
+            }
+          }
+        },
+        "description": "Update editable metadata, redirects, scopes, and grants for a user-owned OAuth application."
       },
       "DeveloperOAuthAppSecretCreateRequest": {
         "type": "object",

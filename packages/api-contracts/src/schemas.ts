@@ -565,6 +565,24 @@ export const DeveloperOAuthAppCreateRequestSchema = z
     id: "DeveloperOAuthAppCreateRequest",
   });
 
+export const DeveloperOAuthAppUpdateRequestSchema = z
+  .object({
+    displayName: z.string().min(1).max(80).optional(),
+    description: z.string().max(500).nullable().optional(),
+    logoUrl: z.string().min(1).nullable().optional(),
+    docsUrl: z.string().min(1).nullable().optional(),
+    privacyUrl: z.string().min(1).nullable().optional(),
+    termsUrl: z.string().min(1).nullable().optional(),
+    redirectUris: z.array(z.string().min(1)).min(1).max(10).optional(),
+    allowedGrants: z.array(OAuthGrantTypeSchema).optional(),
+    allowedScopes: z.array(ApiScopeSchema).optional(),
+  })
+  .meta({
+    description:
+      "Update editable metadata, redirects, scopes, and grants for a user-owned OAuth application.",
+    id: "DeveloperOAuthAppUpdateRequest",
+  });
+
 export const DeveloperTokensResponseSchema = z
   .object({
     tokens: z.array(ApiTokenSummarySchema),

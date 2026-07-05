@@ -39,6 +39,8 @@ Public API and MCP platform foundation checkpoint:
   personal API token creation with one-time token value return
 - added `POST /api/v0/developer/oauth-apps` for `developer:write` user-owned
   OAuth application creation with one-time confidential client secret return
+- added `PATCH /api/v0/developer/oauth-apps/:clientId` for `developer:write`
+  user-owned OAuth application metadata, redirect, grant, and scope updates
 - added `POST /api/v0/developer/oauth-apps/:clientId/secrets` for
   `developer:write` confidential OAuth client secret creation with one-time
   secret return

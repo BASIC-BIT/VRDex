@@ -639,6 +639,128 @@ export const createDeveloperApplicationSecretForApiOwner = internalMutation({
   },
 });
 
+export const updateDeveloperApplicationForApiOwner = internalMutation({
+  args: {
+    ownerUserId: v.id("users"),
+    clientId: v.string(),
+    displayName: v.optional(v.string()),
+    description: v.optional(v.union(v.string(), v.null())),
+    logoUrl: v.optional(v.union(v.string(), v.null())),
+    docsUrl: v.optional(v.union(v.string(), v.null())),
+    privacyUrl: v.optional(v.union(v.string(), v.null())),
+    termsUrl: v.optional(v.union(v.string(), v.null())),
+    redirectUris: v.optional(v.array(v.string())),
+    allowedGrants: v.optional(v.array(oauthGrantTypeValidator)),
+    allowedScopes: v.optional(v.array(apiScopeValidator)),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const clientId = normalizeOAuthClientId(args.clientId);
+    const application = await ctx.db
+      .query("oauthApplications")
+      .withIndex("by_clientId", (index) => index.eq("clientId", clientId))
+      .unique();
+
+    if (
+      application === null ||
+      application.ownerKind !== "user" ||
+      application.ownerUserId !== args.ownerUserId ||
+      application.status !== "active"
+    ) {
+      return { ok: false as const, reason: "not_found" as const };
+    }
+
+    const patch: {
+      allowedGrants?: ReturnType<typeof normalizeOAuthGrantTypes>;
+      allowedScopes?: ReturnType<typeof normalizeOAuthScopes>;
+      description?: string | undefined;
+      displayName?: string;
+      docsUrl?: string | undefined;
+      logoUrl?: string | undefined;
+      privacyUrl?: string | undefined;
+      redirectUris?: string[];
+      termsUrl?: string | undefined;
+      updatedAt: number;
+    } = { updatedAt: now };
+    let hasUpdate = false;
+
+    if (args.displayName !== undefined) {
+      patch.displayName = normalizeOAuthApplicationName(args.displayName);
+      hasUpdate = true;
+    }
+
+    if (args.description !== undefined) {
+      patch.description = args.description === null ? undefined : normalizeOAuthApplicationDescription(args.description);
+      hasUpdate = true;
+    }
+
+    if (args.logoUrl !== undefined) {
+      patch.logoUrl = args.logoUrl === null ? undefined : normalizeOAuthOptionalUrl(args.logoUrl, "Logo URL");
+      hasUpdate = true;
+    }
+
+    if (args.docsUrl !== undefined) {
+      patch.docsUrl = args.docsUrl === null ? undefined : normalizeOAuthOptionalUrl(args.docsUrl, "Docs URL");
+      hasUpdate = true;
+    }
+
+    if (args.privacyUrl !== undefined) {
+      patch.privacyUrl = args.privacyUrl === null ? undefined : normalizeOAuthOptionalUrl(args.privacyUrl, "Privacy URL");
+      hasUpdate = true;
+    }
+
+    if (args.termsUrl !== undefined) {
+      patch.termsUrl = args.termsUrl === null ? undefined : normalizeOAuthOptionalUrl(args.termsUrl, "Terms URL");
+      hasUpdate = true;
+    }
+
+    if (args.redirectUris !== undefined) {
+      patch.redirectUris = normalizeOAuthRedirectUris(args.redirectUris);
+      hasUpdate = true;
+    }
+
+    if (args.allowedScopes !== undefined) {
+      patch.allowedScopes = normalizeOAuthScopes(args.allowedScopes);
+      hasUpdate = true;
+    }
+
+    if (args.allowedGrants !== undefined) {
+      try {
+        patch.allowedGrants = normalizeOAuthGrantTypes(args.allowedGrants, application.clientType);
+      } catch (error) {
+        return {
+          ok: false as const,
+          reason: "invalid_update" as const,
+          detail: error instanceof Error ? error.message : "The OAuth application update is invalid.",
+        };
+      }
+      hasUpdate = true;
+    }
+
+    if (!hasUpdate) {
+      throw new Error("OAuth application update must include at least one field.");
+    }
+
+    await ctx.db.patch(application._id, patch);
+
+    const updatedApplication = { ...application, ...patch };
+
+    await recordOAuthClientEvent(ctx, {
+      application: updatedApplication,
+      eventType: "application_updated",
+      result: "accepted",
+      now,
+    });
+
+    const activeSecrets = await activeSecretsForApplication(ctx, application._id);
+
+    return {
+      ok: true as const,
+      application: toApplicationSummary(updatedApplication, activeSecrets),
+    };
+  },
+});
+
 export const revokeDeveloperApplicationForApiOwner = internalMutation({
   args: {
     ownerUserId: v.id("users"),

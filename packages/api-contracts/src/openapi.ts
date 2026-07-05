@@ -10,6 +10,7 @@ import {
   DeveloperOAuthAppResponseSchema,
   DeveloperOAuthAppSecretCreateRequestSchema,
   DeveloperOAuthAppSecretCreateResponseSchema,
+  DeveloperOAuthAppUpdateRequestSchema,
   DeveloperOAuthAppsResponseSchema,
   DeveloperTokenCreateRequestSchema,
   DeveloperTokenCreateResponseSchema,
@@ -307,6 +308,44 @@ export const openApiSource = {
       },
     },
     "/api/v0/developer/oauth-apps/{clientId}": {
+      patch: {
+        operationId: "updateCurrentDeveloperOAuthApp",
+        tags: ["Developer"],
+        summary: "Update a current developer OAuth app",
+        description:
+          "Updates editable metadata, redirect URIs, allowed grants, and allowed scopes for a user-owned OAuth application.",
+        security: developerWriteSecurity,
+        requestParams: {
+          path: OAuthClientPathParamsSchema,
+        },
+        requestBody: {
+          required: true,
+          content: jsonContent(DeveloperOAuthAppUpdateRequestSchema),
+        },
+        responses: {
+          "200": {
+            description: "Updated OAuth application metadata.",
+            content: jsonContent(DeveloperOAuthAppResponseSchema),
+          },
+          "400": {
+            description: "The OAuth app update request was malformed.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "401": {
+            description: "Bearer authentication is required or invalid.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "403": {
+            description: "The bearer credential lacks developer:write scope or user authority.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "404": {
+            description: "The OAuth application was not found for the current user.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "429": publicReadProblemResponses["429"],
+        },
+      },
       delete: {
         operationId: "revokeCurrentDeveloperOAuthApp",
         tags: ["Developer"],
