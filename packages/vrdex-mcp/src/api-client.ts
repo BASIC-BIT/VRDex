@@ -46,8 +46,28 @@ function appendSearchParam(searchParams: URLSearchParams, key: string, value: nu
   }
 }
 
+function trimLeadingSlashes(value: string) {
+  let start = 0;
+
+  while (start < value.length && value.charCodeAt(start) === 47) {
+    start += 1;
+  }
+
+  return value.slice(start);
+}
+
+function trimTrailingSlashes(value: string) {
+  let end = value.length;
+
+  while (end > 0 && value.charCodeAt(end - 1) === 47) {
+    end -= 1;
+  }
+
+  return value.slice(0, end);
+}
+
 function buildApiUrl(apiBaseUrl: string, path: string, searchParams: Record<string, number | string | undefined> = {}) {
-  const url = new URL(`${apiBaseUrl.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`);
+  const url = new URL(`${trimTrailingSlashes(apiBaseUrl)}/${trimLeadingSlashes(path)}`);
 
   for (const [key, value] of Object.entries(searchParams)) {
     appendSearchParam(url.searchParams, key, value);

@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 
 const authorizationCodePattern = /^vrdx_code_[0-9a-f]{32}$/;
 const refreshTokenPattern = /^vrdx_rt_[0-9a-f]{48}$/;
@@ -19,8 +19,20 @@ export function normalizeOAuthAuthorizationCodeValue(value: string) {
   return code;
 }
 
-export function hashOAuthAuthorizationCodeValue(value: string) {
-  return createHash("sha256").update(normalizeOAuthAuthorizationCodeValue(value)).digest("hex");
+function bytesToHex(bytes: ArrayBuffer) {
+  return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function bytesToBase64Url(bytes: ArrayBuffer) {
+  return Buffer.from(bytes).toString("base64url");
+}
+
+async function sha256Digest(value: string) {
+  return await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+}
+
+export async function hashOAuthAuthorizationCodeValue(value: string) {
+  return bytesToHex(await sha256Digest(normalizeOAuthAuthorizationCodeValue(value)));
 }
 
 export function createOAuthRefreshTokenValue() {
@@ -37,8 +49,8 @@ export function normalizeOAuthRefreshTokenValue(value: string) {
   return refreshToken;
 }
 
-export function hashOAuthRefreshTokenValue(value: string) {
-  return createHash("sha256").update(normalizeOAuthRefreshTokenValue(value)).digest("hex");
+export async function hashOAuthRefreshTokenValue(value: string) {
+  return bytesToHex(await sha256Digest(normalizeOAuthRefreshTokenValue(value)));
 }
 
 export function normalizeOAuthCodeVerifier(value: string) {
@@ -71,6 +83,6 @@ export function normalizeOAuthCodeChallengeMethod(value: string) {
   return method;
 }
 
-export function deriveS256CodeChallenge(verifier: string) {
-  return createHash("sha256").update(normalizeOAuthCodeVerifier(verifier)).digest("base64url");
+export async function deriveS256CodeChallenge(verifier: string) {
+  return bytesToBase64Url(await sha256Digest(normalizeOAuthCodeVerifier(verifier)));
 }

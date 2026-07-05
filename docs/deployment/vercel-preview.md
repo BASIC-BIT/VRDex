@@ -119,6 +119,7 @@ GitHub Actions uses these repository settings for hosted mutation health:
 - variable `VRDEX_HOSTED_E2E_EXTENDED_PROFILE_FLOW=true`
 - variable `VRDEX_HOSTED_E2E_AUTH_HELPERS=true`
 - variable `VRDEX_HOSTED_E2E_ADAPTER_HELPERS=true`
+- variable `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true`: optional; keep unset until staging has the developer token, OAuth app, and OAuth token endpoints under test
 - secret `VRDEX_HOSTED_E2E_BROWSER_TOKEN`
 
 The `Staging Deploy` workflow runs after `Baseline Checks` succeeds on `main` and can also be run manually. It requires these settings:

@@ -543,6 +543,7 @@ jobs:
           VRDEX_ENABLE_E2E_EXTENDED_PROFILE_FLOW: ${{ vars.VRDEX_HOSTED_E2E_EXTENDED_PROFILE_FLOW }}
           VRDEX_ENABLE_E2E_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
           VRDEX_ENABLE_E2E_ADAPTER_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_ADAPTER_HELPERS }}
+          VRDEX_ENABLE_E2E_DEVELOPER_CREDENTIALS: ${{ vars.VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS }}
           VRDEX_E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
           VRDEX_E2E_RUN_ID: pr-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
         run: pnpm test:e2e:hosted
@@ -555,6 +556,7 @@ jobs:
           HOSTED_EXTENDED_PROFILE_FLOW: ${{ vars.VRDEX_HOSTED_E2E_EXTENDED_PROFILE_FLOW }}
           HOSTED_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
           HOSTED_ADAPTER_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_ADAPTER_HELPERS }}
+          HOSTED_DEVELOPER_CREDENTIALS: ${{ vars.VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           mkdir -p apps/web/playwright-artifacts
@@ -570,6 +572,8 @@ jobs:
           Hosted auth helpers: ${HOSTED_AUTH_HELPERS:-skipped}
 
           Hosted adapter helpers: ${HOSTED_ADAPTER_HELPERS:-skipped}
+
+          Hosted developer credentials: ${HOSTED_DEVELOPER_CREDENTIALS:-skipped}
 
           Captured flow:
           - hosted test-gated profile submission form
@@ -603,6 +607,7 @@ jobs:
           HOSTED_EXTENDED_PROFILE_FLOW: ${{ vars.VRDEX_HOSTED_E2E_EXTENDED_PROFILE_FLOW }}
           HOSTED_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
           HOSTED_ADAPTER_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_ADAPTER_HELPERS }}
+          HOSTED_DEVELOPER_CREDENTIALS: ${{ vars.VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS }}
           ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
         with:
           script: |
@@ -617,6 +622,7 @@ jobs:
             const extendedProfileFlow = process.env.HOSTED_EXTENDED_PROFILE_FLOW === "true" ? "enabled" : "skipped";
             const authHelpers = process.env.HOSTED_AUTH_HELPERS === "true" ? "enabled" : "skipped";
             const adapterHelpers = process.env.HOSTED_ADAPTER_HELPERS === "true" ? "enabled" : "skipped";
+            const developerCredentials = process.env.HOSTED_DEVELOPER_CREDENTIALS === "true" ? "enabled" : "skipped";
             const artifactLine = artifactUrl
               ? `Artifact: [playwright-hosted-data-flow](${artifactUrl})`
               : "Artifact: not generated";
@@ -628,6 +634,7 @@ jobs:
               `Hosted extended profile flow: ${extendedProfileFlow}`,
               `Hosted auth helpers: ${authHelpers}`,
               `Hosted adapter helpers: ${adapterHelpers}`,
+              `Hosted developer credentials: ${developerCredentials}`,
               `Run: ${runUrl}`,
               artifactLine,
               "",

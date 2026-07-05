@@ -96,7 +96,7 @@ export async function POST(request: Request) {
     redirectUri: authorization.redirectUri,
     requestedScopes: authorization.requestedScopes,
     resource: authorization.resource,
-    codeHash: hashOAuthAuthorizationCodeValue(code),
+    codeHash: await hashOAuthAuthorizationCodeValue(code),
     codeChallenge: authorization.codeChallenge,
     codeChallengeMethod: authorization.codeChallengeMethod,
     expiresAt: now + authorizationCodeTtlMs,

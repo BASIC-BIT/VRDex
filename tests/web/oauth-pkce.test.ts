@@ -21,19 +21,19 @@ import {
 import { createOAuthClientSecretValue } from "../../packages/api-contracts/src/oauth";
 
 describe("OAuth PKCE authorization helpers", () => {
-  it("generates hashed authorization codes and derives RFC-compatible S256 challenges", () => {
+  it("generates hashed authorization codes and derives RFC-compatible S256 challenges", async () => {
     const code = createOAuthAuthorizationCodeValue();
 
     assert.match(code, /^vrdx_code_[0-9a-f]{32}$/);
     assert.equal(normalizeOAuthAuthorizationCodeValue(code), code);
-    assert.match(hashOAuthAuthorizationCodeValue(code), /^[0-9a-f]{64}$/);
+    assert.match(await hashOAuthAuthorizationCodeValue(code), /^[0-9a-f]{64}$/);
     const refreshToken = createOAuthRefreshTokenValue();
 
     assert.match(refreshToken, /^vrdx_rt_[0-9a-f]{48}$/);
     assert.equal(normalizeOAuthRefreshTokenValue(refreshToken), refreshToken);
-    assert.match(hashOAuthRefreshTokenValue(refreshToken), /^[0-9a-f]{64}$/);
+    assert.match(await hashOAuthRefreshTokenValue(refreshToken), /^[0-9a-f]{64}$/);
     assert.equal(
-      deriveS256CodeChallenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
+      await deriveS256CodeChallenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
       "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
     );
     assert.throws(() => normalizeOAuthAuthorizationCodeValue("bad"), /authorization code/);
@@ -44,8 +44,8 @@ describe("OAuth PKCE authorization helpers", () => {
     assert.throws(() => normalizeOAuthCodeChallengeMethod("plain"), /S256/);
   });
 
-  it("normalizes authorization requests and redirect results", () => {
-    const codeChallenge = deriveS256CodeChallenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk");
+  it("normalizes authorization requests and redirect results", async () => {
+    const codeChallenge = await deriveS256CodeChallenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk");
     const clientId = "https://client.example.test/oauth/client.json?app=vrdex";
     const params = new URLSearchParams({
       client_id: clientId,

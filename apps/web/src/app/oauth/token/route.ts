@@ -121,10 +121,10 @@ async function authorizationCodeTokenResponse(request: Request, form: FormData) 
   let derivedCodeChallenge: string;
 
   try {
-    codeHash = hashOAuthAuthorizationCodeValue(normalizeOAuthAuthorizationCodeValue(requiredFormString(form, "code")));
+    codeHash = await hashOAuthAuthorizationCodeValue(normalizeOAuthAuthorizationCodeValue(requiredFormString(form, "code")));
     redirectUri = normalizeOAuthRedirectUris([requiredFormString(form, "redirect_uri")])[0];
     resource = requestedAuthorizationCodeResource(request, form);
-    derivedCodeChallenge = deriveS256CodeChallenge(normalizeOAuthCodeVerifier(requiredFormString(form, "code_verifier")));
+    derivedCodeChallenge = await deriveS256CodeChallenge(normalizeOAuthCodeVerifier(requiredFormString(form, "code_verifier")));
   } catch (error) {
     return oauthProblem(
       400,
@@ -145,7 +145,7 @@ async function authorizationCodeTokenResponse(request: Request, form: FormData) 
     derivedCodeChallenge,
     tokenId,
     expiresAt,
-    refreshTokenHash: hashOAuthRefreshTokenValue(refreshToken),
+    refreshTokenHash: await hashOAuthRefreshTokenValue(refreshToken),
     refreshTokenExpiresAt: now + refreshTokenTtlMs,
     ...(clientAuthentication.secretPrefix === undefined
       ? {}
@@ -204,7 +204,7 @@ async function refreshTokenResponse(request: Request, form: FormData) {
   let scopes: ReturnType<typeof parseOAuthScopeString> | undefined;
 
   try {
-    refreshTokenHash = hashOAuthRefreshTokenValue(normalizeOAuthRefreshTokenValue(requiredFormString(form, "refresh_token")));
+    refreshTokenHash = await hashOAuthRefreshTokenValue(normalizeOAuthRefreshTokenValue(requiredFormString(form, "refresh_token")));
     resource = requestedAuthorizationCodeResource(request, form);
     scopes = String(form.get("scope") ?? "").trim()
       ? parseOAuthScopeString(String(form.get("scope") ?? ""), [])
@@ -224,7 +224,7 @@ async function refreshTokenResponse(request: Request, form: FormData) {
   const result = await convexHttpClient().mutation(api.oauthApps.rotateRefreshToken, {
     clientId: clientAuthentication.clientId,
     refreshTokenHash,
-    replacementRefreshTokenHash: hashOAuthRefreshTokenValue(replacementRefreshToken),
+    replacementRefreshTokenHash: await hashOAuthRefreshTokenValue(replacementRefreshToken),
     requestedScopes: scopes,
     resource,
     tokenId,

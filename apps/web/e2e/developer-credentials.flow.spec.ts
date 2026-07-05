@@ -107,6 +107,10 @@ test("developer credentials work with v0 bearer APIs and OAuth PKCE @flow", asyn
     Boolean(process.env.PLAYWRIGHT_BASE_URL) && process.env.VRDEX_ENABLE_E2E_AUTH_HELPERS !== "true",
     "Hosted auth E2E helpers are not enabled for this target.",
   );
+  test.skip(
+    Boolean(process.env.PLAYWRIGHT_BASE_URL) && process.env.VRDEX_ENABLE_E2E_DEVELOPER_CREDENTIALS !== "true",
+    "Hosted developer credentials E2E is not enabled for this target.",
+  );
 
   const e2eToken = e2eBrowserToken();
   const runId = e2eRunId(testInfo);
