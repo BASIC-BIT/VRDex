@@ -1411,6 +1411,119 @@
             }
           }
         }
+      },
+      "patch": {
+        "operationId": "updateCurrentUserProfile",
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Update a current user's profile",
+        "description": "Updates owner-editable metadata for a claimed profile owned by a bearer credential with user authority and profile:write scope.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "oauth2": [
+              "profile:write"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "description": "Public slug."
+            },
+            "required": true,
+            "description": "Public slug."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApiProfileUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated profile identifiers and public path.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProfileWriteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The profile update request was malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Bearer authentication is required or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The bearer credential lacks profile:write scope, user authority, ownership, or claimed-owner field permission.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The profile was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v0/profiles/{slug}/assets": {
@@ -2750,6 +2863,125 @@
           }
         },
         "description": "Create an additional secret for a user-owned confidential OAuth application."
+      },
+      "ApiProfileUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 80
+          },
+          "aliases": {
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 60
+            }
+          },
+          "tags": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 32
+            }
+          },
+          "headline": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 160
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "bio": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 600
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "person": {
+            "type": "object",
+            "properties": {
+              "pronouns": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 80
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "roleTags": {
+                "maxItems": 12,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 32
+                }
+              }
+            }
+          },
+          "community": {
+            "type": "object",
+            "properties": {
+              "subtype": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 40
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "categoryTags": {
+                "maxItems": 12,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 32
+                }
+              }
+            }
+          }
+        },
+        "description": "Update owner-editable metadata for a claimed profile owned by the current authenticated API user."
       },
       "ApiEventUpdateRequest": {
         "type": "object",
@@ -4727,6 +4959,40 @@
         ],
         "additionalProperties": {},
         "description": "Public profile response. Unknown fields are preserved while the API is still stabilizing."
+      },
+      "ApiProfileWriteResponse": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "profileType": {
+            "type": "string",
+            "enum": [
+              "person",
+              "community"
+            ],
+            "description": "The public profile entity class."
+          },
+          "profilePath": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "profileId",
+          "slug",
+          "profileType",
+          "profilePath"
+        ],
+        "additionalProperties": false,
+        "description": "Updated profile identifiers and public path."
       },
       "PublicProfileAssetsResponse": {
         "type": "object",

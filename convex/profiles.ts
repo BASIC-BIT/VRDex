@@ -1,8 +1,9 @@
 import { v } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";
-import { internalQuery, mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { getPublicCommunityHostedEvents, getPublicPersonUpcomingEvents } from "./_eventPublic";
+import type { AuthSubject } from "./_communityAuthority";
 import { toPublicProfileAppearance } from "./_profileAppearance";
 import { toProfileLookupResult } from "./_profileLookup";
 import {
@@ -25,9 +26,33 @@ import {
 } from "./_searchDocuments";
 import { ensureShortLinkForTarget } from "./_shortLinks";
 import { recordVocabularyTerms } from "./_vocabulary";
+import { userOwnsProfile } from "./_profileOwnership";
+import { applyApiProfileUpdate } from "./_profileUpdates";
 
 const profileType = v.union(v.literal("person"), v.literal("community"));
 const PROFILE_LOOKUP_RESULT_LIMIT = 12;
+const nullableString = v.union(v.string(), v.null());
+const apiProfileUpdateArgs = {
+  displayName: v.optional(v.string()),
+  aliases: v.optional(v.array(v.string())),
+  tags: v.optional(v.array(v.string())),
+  headline: v.optional(nullableString),
+  bio: v.optional(nullableString),
+  region: v.optional(nullableString),
+  timezone: v.optional(nullableString),
+  person: v.optional(
+    v.object({
+      pronouns: v.optional(nullableString),
+      roleTags: v.optional(v.array(v.string())),
+    }),
+  ),
+  community: v.optional(
+    v.object({
+      subtype: v.optional(nullableString),
+      categoryTags: v.optional(v.array(v.string())),
+    }),
+  ),
+};
 
 function boundedLimit(value: number | undefined, fallback: number, max: number): number {
   return Math.max(1, Math.min(value ?? fallback, max));
@@ -47,6 +72,24 @@ function toApiOwnedProfileSummary(profile: Doc<"profiles">) {
     claimedAt: profile.claimedAt,
     publishedAt: profile.publishedAt,
     updatedAt: profile.updatedAt,
+  };
+}
+
+function toApiProfileWriteResponse(profile: Doc<"profiles">) {
+  return {
+    profileId: profile._id,
+    slug: profile.slug,
+    profileType: profile.profileType,
+    profilePath: profile.profileType === "person" ? `/p/${profile.slug}` : `/c/${profile.slug}`,
+  };
+}
+
+function apiOwnerAuthSubject(userId: Doc<"users">["_id"]): AuthSubject {
+  return {
+    tokenIdentifier: `api:${userId}`,
+    issuer: "vrdex:api",
+    subject: String(userId),
+    displayName: "API user",
   };
 }
 
@@ -85,6 +128,49 @@ export const listProfilesForApiOwner = internalQuery({
       .sort((first, second) => first.displayName.localeCompare(second.displayName))
       .slice(0, limit)
       .map(toApiOwnedProfileSummary);
+  },
+});
+
+export const updateProfileForApiOwner = internalMutation({
+  args: {
+    ownerUserId: v.id("users"),
+    currentSlug: v.string(),
+    ...apiProfileUpdateArgs,
+  },
+  handler: async (ctx, args) => {
+    const validation = validateProfileSlug(args.currentSlug);
+
+    if (!validation.ok) {
+      throw new Error("Current profile slug is invalid.");
+    }
+
+    const profile = await getProfileBySlug(ctx.db, validation.slug);
+
+    if (profile === null) {
+      throw new Error("Profile was not found.");
+    }
+
+    if (!(await userOwnsProfile(ctx.db, profile._id, args.ownerUserId))) {
+      throw new Error("You do not have permission to update this profile.");
+    }
+
+    const now = Date.now();
+    const { changedFields, profile: updatedProfile } = await applyApiProfileUpdate(ctx.db, {
+      profile,
+      input: args,
+      now,
+    });
+
+    await ctx.db.insert("profileAuditEvents", {
+      profileId: profile._id,
+      action: "api_profile_updated",
+      actor: apiOwnerAuthSubject(args.ownerUserId),
+      sourceType: "owner",
+      note: `Public API profile update: ${changedFields.join(", ")}.`,
+      createdAt: now,
+    });
+
+    return toApiProfileWriteResponse(updatedProfile);
   },
 });
 

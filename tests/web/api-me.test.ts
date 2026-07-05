@@ -142,4 +142,42 @@ describe("current API caller route", () => {
     assert.match(output, /^400/m);
     assert.match(output, /"title":"Bearer token query parameters are not allowed"/);
   });
+
+  it("requires a bearer credential for profile updates", () => {
+    const output = runMeRouteProbe(`
+      import { PATCH } from "./apps/web/src/app/api/v0/profiles/[slug]/route.ts";
+
+      const response = await PATCH(
+        new Request("https://app.example.test/api/v0/profiles/artist-name", {
+          method: "PATCH",
+          body: JSON.stringify({ headline: "Updated profile" }),
+        }),
+        { params: Promise.resolve({ slug: "artist-name" }) },
+      );
+      console.log(response.status);
+      console.log(JSON.stringify(await response.json()));
+    `);
+
+    assert.match(output, /^401/m);
+    assert.match(output, /"title":"Bearer token required"/);
+  });
+
+  it("rejects bearer-token query parameters for profile updates", () => {
+    const output = runMeRouteProbe(`
+      import { PATCH } from "./apps/web/src/app/api/v0/profiles/[slug]/route.ts";
+
+      const response = await PATCH(
+        new Request("https://app.example.test/api/v0/profiles/artist-name?token=secret", {
+          method: "PATCH",
+          body: JSON.stringify({ headline: "Updated profile" }),
+        }),
+        { params: Promise.resolve({ slug: "artist-name" }) },
+      );
+      console.log(response.status);
+      console.log(JSON.stringify(await response.json()));
+    `);
+
+    assert.match(output, /^400/m);
+    assert.match(output, /"title":"Bearer token query parameters are not allowed"/);
+  });
 });

@@ -39,6 +39,7 @@ import {
   sanitizeCommunitySubmissionProfileInput,
   sanitizeProfileTextList,
 } from "../../convex/_profileSubmissions";
+import { sanitizeApiProfileUpdateInput } from "../../convex/_profileUpdates";
 import { createClaimedDiscordProfileForUser } from "../../convex/_profileClaimCreation";
 import { createPublicProfileWorldCredits } from "../../convex/_profileWorldCredits";
 import {
@@ -772,6 +773,76 @@ describe("profile submission helpers", () => {
           },
         }),
       /Community fields cannot be submitted for a person profile/,
+    );
+  });
+});
+
+describe("API profile update helpers", () => {
+  const claimedPerson = {
+    _id: "profile-api-update" as Id<"profiles">,
+    _creationTime: 1,
+    profileType: "person",
+    slug: "dj-celine",
+    displayName: "DJ Celine",
+    sortName: "dj celine",
+    aliases: [],
+    tags: [],
+    outboundLinks: [],
+    claimState: "claimed_unverified",
+    publicationState: "published",
+    publicSurfacingState: "public",
+    publicSurfacingUpdatedAt: 1,
+    creationSource: "self",
+    claimedAt: 1,
+    publishedAt: 1,
+    updatedAt: 1,
+    person: {
+      pronouns: "she/her",
+      roleTags: ["DJ"],
+    },
+  } as Doc<"profiles">;
+
+  it("normalizes owner-editable profile update fields", () => {
+    const result = sanitizeApiProfileUpdateInput(claimedPerson, {
+      displayName: "  DJ   Celine  ",
+      aliases: ["Celine", "celine"],
+      bio: " ",
+      person: {
+        pronouns: null,
+        roleTags: [" DJ ", "dj", "VJ"],
+      },
+    });
+
+    assert.deepEqual(result.changedFields, ["displayName", "aliases", "bio", "person"]);
+    assert.deepEqual(result.patch, {
+      displayName: "DJ Celine",
+      sortName: "dj celine",
+      aliases: ["Celine"],
+      bio: undefined,
+      person: {
+        roleTags: ["DJ", "VJ"],
+      },
+    });
+  });
+
+  it("requires claimed-owner edit permission and compatible type fields", () => {
+    assert.throws(
+      () =>
+        sanitizeApiProfileUpdateInput(
+          { ...claimedPerson, claimState: "unclaimed" } as Doc<"profiles">,
+          { headline: "Updated" },
+        ),
+      /Only a claimed profile owner can update the headline field/,
+    );
+
+    assert.throws(
+      () =>
+        sanitizeApiProfileUpdateInput(claimedPerson, {
+          community: {
+            subtype: "Club",
+          },
+        }),
+      /Community fields cannot be updated for a person profile/,
     );
   });
 });

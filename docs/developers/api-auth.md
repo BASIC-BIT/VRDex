@@ -127,6 +127,25 @@ These routes require user authority. User-owned personal API tokens and
 user-delegated API-resource OAuth access tokens qualify. Anonymous callers,
 community-owned tokens, and OAuth client-credentials tokens do not.
 
+## Current Profile Writes
+
+Use `PATCH /api/v0/profiles/:slug` to update public metadata for a claimed
+person or community profile owned by the current authenticated user.
+
+Current constraints:
+
+- requires `profile:write`
+- requires user authority
+- requires active ownership of the target profile
+- requires claimed-owner field permission
+- updates display name, aliases, tags, headline, bio, region, timezone, person
+  pronouns and role tags, or community subtype and category tags
+- clears optional text fields when they are sent as `null` or blank strings
+- refreshes public search and vocabulary projections
+- writes a profile audit event
+- does not update slugs, claim state, publication state, field visibility,
+  outbound links, media-kit assets, or page-builder settings in this checkpoint
+
 ## Current Event Writes
 
 Use `POST /api/v0/events` to create a public event attached to a community

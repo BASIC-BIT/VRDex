@@ -312,6 +312,14 @@ Acceptance criteria:
 - writes that affect public pages have validation and moderation hooks
 - claim-level actions still require verified email and product-specific claim checks
 
+Implementation checkpoint:
+
+- `PATCH /api/v0/profiles/:slug` now updates claimed-owner profile metadata for
+  active owners with `profile:write`, refreshes search/vocabulary projections,
+  and writes a profile audit event. Slug changes, claims, publication state,
+  field visibility, outbound links, media-kit assets, and page-builder settings
+  remain out of this checkpoint.
+
 ## Auth Platform
 
 ### Data Model

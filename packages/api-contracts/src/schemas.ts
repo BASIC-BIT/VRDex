@@ -386,6 +386,46 @@ export const ApiEventWriteResponseSchema = z
     id: "ApiEventWriteResponse",
   });
 
+export const ApiProfileUpdateRequestSchema = z
+  .object({
+    displayName: z.string().min(2).max(80).optional(),
+    aliases: z.array(z.string().max(60)).max(8).optional(),
+    tags: z.array(z.string().max(32)).max(12).optional(),
+    headline: z.string().max(160).nullable().optional(),
+    bio: z.string().max(600).nullable().optional(),
+    region: z.string().max(80).nullable().optional(),
+    timezone: z.string().max(80).nullable().optional(),
+    person: z
+      .object({
+        pronouns: z.string().max(80).nullable().optional(),
+        roleTags: z.array(z.string().max(32)).max(12).optional(),
+      })
+      .optional(),
+    community: z
+      .object({
+        subtype: z.string().max(40).nullable().optional(),
+        categoryTags: z.array(z.string().max(32)).max(12).optional(),
+      })
+      .optional(),
+  })
+  .meta({
+    description:
+      "Update owner-editable metadata for a claimed profile owned by the current authenticated API user.",
+    id: "ApiProfileUpdateRequest",
+  });
+
+export const ApiProfileWriteResponseSchema = z
+  .object({
+    profileId: z.string().min(1),
+    slug,
+    profileType: ProfileTypeSchema,
+    profilePath: z.string().min(1),
+  })
+  .meta({
+    description: "Updated profile identifiers and public path.",
+    id: "ApiProfileWriteResponse",
+  });
+
 export const PublicWorldEventPreviewSchema = z
   .object({
     bannerImageUrl: absoluteUrl.optional(),

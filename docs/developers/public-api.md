@@ -55,6 +55,7 @@ Implemented authenticated reads require a valid bearer credential:
 | `GET /api/v0/me/profiles` | List current user's owned profile summaries. |
 | `GET /api/v0/me/communities` | List current user's owned community profile summaries. |
 | `GET /api/v0/me/events` | List current user's community-managed event summaries. |
+| `PATCH /api/v0/profiles/:slug` | Update public metadata for a claimed profile the current user owns. |
 | `POST /api/v0/events` | Create a public event attached to a community profile the current user owns. |
 | `PATCH /api/v0/events/:slug` | Update a public event attached to a community profile the current user owns. |
 | `GET /api/v0/developer/tokens` | List current user's personal API token metadata. |
@@ -71,6 +72,14 @@ requires `community:read`; `/api/v0/me/events` requires `events:read`. The
 current event inventory covers events attached to community profiles the user
 owns. Submitter-only event inventory can be added after there is an efficient
 user/event index and authorization shape.
+
+`PATCH /api/v0/profiles/:slug` requires `profile:write`, user authority, active
+ownership of the target profile, and claimed-owner edit permission. The first
+write version updates owner-editable public metadata only: display name,
+aliases, tags, headline, bio, region, timezone, person pronouns and role tags,
+or community subtype and category tags. It does not change profile slugs,
+claims, publication state, field visibility, outbound links, media-kit assets,
+or page-builder settings.
 
 `POST /api/v0/events` and `PATCH /api/v0/events/:slug` require `events:write`,
 user authority, and ownership of the target `communitySlug`. Event updates also
@@ -112,6 +121,7 @@ Current personal API token backend primitives:
 Current owner inventory backend primitives:
 
 - `profiles.listProfilesForApiOwner`
+- `profiles.updateProfileForApiOwner`
 - `events.createCommunityEventForApiOwner`
 - `events.listCommunityManagedEventsForApiOwner`
 - `events.updateCommunityEventForApiOwner`

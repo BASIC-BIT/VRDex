@@ -25,6 +25,8 @@ import {
   ApiMeInventoryQueryParamsSchema,
   ApiMeProfilesResponseSchema,
   ApiMeResponseSchema,
+  ApiProfileUpdateRequestSchema,
+  ApiProfileWriteResponseSchema,
   ApiRateLimitUsageResponseSchema,
   LimitQueryParamsSchema,
   PublicActiveWorldsResponseSchema,
@@ -89,6 +91,10 @@ const authenticatedPublicReadSecurity: Array<Record<string, string[]>> = [
 const profileReadSecurity: Array<Record<string, string[]>> = [
   { bearerAuth: [] },
   { oauth2: ["profile:read"] },
+];
+const profileWriteSecurity: Array<Record<string, string[]>> = [
+  { bearerAuth: [] },
+  { oauth2: ["profile:write"] },
 ];
 const communityReadSecurity: Array<Record<string, string[]>> = [
   { bearerAuth: [] },
@@ -559,6 +565,45 @@ export const openApiSource = {
             content: jsonContent(PublicProfileSchema),
           },
           ...publicReadProblemResponses,
+        },
+      },
+      patch: {
+        operationId: "updateCurrentUserProfile",
+        tags: ["Profiles"],
+        summary: "Update a current user's profile",
+        description:
+          "Updates owner-editable metadata for a claimed profile owned by a bearer credential with user authority and profile:write scope.",
+        security: profileWriteSecurity,
+        requestParams: {
+          path: SlugPathParamsSchema,
+        },
+        requestBody: {
+          required: true,
+          content: jsonContent(ApiProfileUpdateRequestSchema),
+        },
+        responses: {
+          "200": {
+            description: "Updated profile identifiers and public path.",
+            content: jsonContent(ApiProfileWriteResponseSchema),
+          },
+          "400": {
+            description: "The profile update request was malformed.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "401": {
+            description: "Bearer authentication is required or invalid.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "403": {
+            description:
+              "The bearer credential lacks profile:write scope, user authority, ownership, or claimed-owner field permission.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "404": {
+            description: "The profile was not found.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "429": publicReadProblemResponses["429"],
         },
       },
     },

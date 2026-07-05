@@ -11,6 +11,8 @@ import {
   ApiMeEventsResponseSchema,
   ApiMeProfilesResponseSchema,
   ApiMeResponseSchema,
+  ApiProfileUpdateRequestSchema,
+  ApiProfileWriteResponseSchema,
   ApiRateLimitUsageResponseSchema,
   DeveloperOAuthAppCreateRequestSchema,
   DeveloperOAuthAppCreateResponseSchema,
@@ -158,6 +160,36 @@ describe("@vrdex/api-contracts", () => {
       title: "Club Night Updated",
       communitySlug: "club-name",
       startAt: 1770000000000,
+    });
+  });
+
+  it("parses profile update contracts", () => {
+    ApiProfileUpdateRequestSchema.parse({
+      displayName: "Artist Name",
+      aliases: ["Artist"],
+      tags: ["House", "VRDJ"],
+      headline: "Late-night VRChat floors",
+      bio: null,
+      region: "NA",
+      timezone: "America/New_York",
+      person: {
+        pronouns: "they/them",
+        roleTags: ["DJ", "Producer"],
+      },
+    });
+
+    ApiProfileUpdateRequestSchema.parse({
+      community: {
+        subtype: "Club night",
+        categoryTags: ["Music", "Social"],
+      },
+    });
+
+    ApiProfileWriteResponseSchema.parse({
+      profileId: "profile123",
+      slug: "artist-name",
+      profileType: "person",
+      profilePath: "/p/artist-name",
     });
   });
 
@@ -530,6 +562,7 @@ describe("@vrdex/api-contracts", () => {
     assert.ok(document.paths?.["/api/v0/me/events"]);
     assert.ok(document.paths?.["/api/v0/search"]);
     assert.ok(document.paths?.["/api/v0/profiles/{slug}"]);
+    assert.ok(document.paths?.["/api/v0/profiles/{slug}"]?.patch);
     assert.ok(document.paths?.["/api/v0/profiles/{slug}/assets"]);
     assert.ok(document.paths?.["/api/v0/profiles/{slug}/logos"]);
     assert.ok(document.paths?.["/api/v0/people/{slug}"]);
