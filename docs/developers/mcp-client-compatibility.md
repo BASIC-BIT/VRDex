@@ -48,6 +48,12 @@ pnpm smoke:mcp-compat
 PR Baseline Checks run the same local stdio protocol smoke through
 `pnpm verify:vrdex-mcp`.
 
+PR Baseline Checks also run `Hosted MCP Preview Smoke` after the Vercel preview
+deployment. That lane runs this smoke against the preview `/mcp` endpoint with
+Dynamic Client Registration enabled when `CONVEX_DEPLOY_KEY_PREVIEW` is
+configured. If the same-branch Convex preview backend is unavailable, the lane
+skips and records the missing prerequisite.
+
 The command starts the local stdio MCP package against a local API fixture and
 replays initialize, tool-list, and `vrdex_search` calls with protocol profiles
 for Claude Desktop, Claude Code, VS Code, Cursor, Devin Desktop / Windsurf
@@ -60,8 +66,11 @@ To include a deployed hosted MCP endpoint, set:
 VRDEX_MCP_SMOKE_URL=https://staging.vrdex.net/mcp pnpm smoke:mcp-compat
 ```
 
-The hosted smoke covers anonymous Streamable HTTP initialization/tool listing
-and the OAuth protected-resource challenge for invalid bearer tokens. Add
+The hosted smoke covers anonymous Streamable HTTP initialization/tool listing,
+OAuth protected-resource metadata, authorization-server metadata, and the OAuth
+protected-resource challenge for invalid bearer tokens. Add
+`VRDEX_MCP_SMOKE_DCR=1` when you want the smoke to register a constrained public
+MCP client through Dynamic Client Registration. Add
 `VRDEX_MCP_SMOKE_TOKEN=<mcp-resource-token>` only for a local terminal run when
 you want to test an authenticated hosted tool list. Do not commit real tokens
 or smoke output containing credentials.
@@ -188,7 +197,8 @@ VS Code hosted config:
 
 0. Run `pnpm smoke:mcp-compat`; for hosted protocol coverage, include
    `VRDEX_MCP_SMOKE_URL` pointed at the deployed preview or production-like
-   `/mcp` endpoint.
+   `/mcp` endpoint. Add `VRDEX_MCP_SMOKE_DCR=1` when the smoke should create a
+   temporary dynamic public MCP client.
 1. Claude Desktop local stdio starts, lists six tools, and calls
    `vrdex_search`.
 2. Claude Desktop hosted Custom Connector lists anonymous tools and completes

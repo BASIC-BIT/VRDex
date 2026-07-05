@@ -2,9 +2,10 @@
 
 ## Locked Decision
 
-VRDex keeps three Convex execution targets separate:
+VRDex keeps four Convex execution targets separate:
 
 - local development: anonymous local Convex from `pnpm dev:backend:local` or `pnpm verify:backend:local`
+- pull request preview testing: branch-specific Convex preview deployments when a Vercel preview must exercise same-branch backend functions
 - deployed smoke testing: the shared development Convex deployment
 - production release: the production Convex deployment
 
@@ -19,15 +20,32 @@ Current recommendation: define environment variable names and target scopes in d
 
 GitHub Actions secret names:
 
+- `CONVEX_DEPLOY_KEY_PREVIEW`: preview deployment key used by PR Vercel previews that need same-branch backend functions
 - `CONVEX_DEPLOY_KEY_DEV`: development deployment key
 - `CONVEX_DEPLOY_KEY_PROD`: production deployment key used by the main-branch deploy workflow
 
 Local ignored env names:
 
+- `CONVEX_DEPLOY_KEY_PREVIEW`
 - `CONVEX_DEPLOY_KEY_DEV`
 - `CONVEX_DEPLOY_KEY_PROD`
 - `CONVEX_URL_DEV`
 - `CONVEX_URL_PROD`
+
+## Pull Request Preview Backends
+
+Baseline Checks deploys Vercel PR previews after local lint, type, docs,
+contract, backend, and visual checks pass. When `CONVEX_DEPLOY_KEY_PREVIEW` is
+configured, the Vercel preview job first creates or updates a Convex preview
+deployment named for the PR and builds the web app with that preview Convex URL.
+
+The `Hosted MCP Preview Smoke` job depends on that same-branch Convex preview.
+It runs `pnpm smoke:mcp-compat` against the Vercel preview `/mcp` endpoint with
+Dynamic Client Registration enabled. If `CONVEX_DEPLOY_KEY_PREVIEW` is missing,
+the job skips and records that DCR was not smoked against a same-branch backend.
+
+Do not use production deploy keys for PR previews. Preview deployments are for
+schema/function compatibility and hosted smoke validation before merge.
 
 ## Auth Email Environment
 

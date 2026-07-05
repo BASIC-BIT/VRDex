@@ -58,7 +58,12 @@ one PR.
 - Baseline Checks runs `pnpm verify:vrdex-mcp`, including
   `pnpm smoke:mcp-compat`, for package typechecking, package tests, and shared
   local stdio protocol coverage. The smoke can optionally probe a deployed
-  hosted `/mcp` endpoint with `VRDEX_MCP_SMOKE_URL`.
+  hosted `/mcp` endpoint with `VRDEX_MCP_SMOKE_URL`, and can include a
+  constrained Dynamic Client Registration probe with `VRDEX_MCP_SMOKE_DCR=1`.
+- Baseline Checks runs `Hosted MCP Preview Smoke` after the Vercel preview. It
+  runs the hosted smoke with Dynamic Client Registration when a same-branch
+  Convex preview backend is available, and records a skip when
+  `CONVEX_DEPLOY_KEY_PREVIEW` is not configured.
 - `docs/developers/mcp-client-compatibility.md` lists the current major-client
   matrix and must have manual smoke results before external readiness is
   declared.

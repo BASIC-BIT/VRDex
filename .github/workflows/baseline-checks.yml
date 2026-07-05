@@ -537,6 +537,69 @@ jobs:
               await github.rest.issues.createComment({ owner, repo, issue_number, body });
             }
 
+  hosted-mcp-preview-smoke:
+    name: Hosted MCP Preview Smoke
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
+    needs: [vercel-preview]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check hosted MCP smoke target
+        id: gate
+        env:
+          CONVEX_PREVIEW_ENABLED: ${{ needs.vercel-preview.outputs.convex-preview-enabled }}
+          DEPLOYMENT_URL: ${{ needs.vercel-preview.outputs.deployment-url }}
+        run: |
+          if [ -z "$DEPLOYMENT_URL" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## Hosted MCP preview smoke"
+              echo "Skipped because the Vercel preview deployment URL is unavailable."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if [ "$CONVEX_PREVIEW_ENABLED" != "true" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## Hosted MCP preview smoke"
+              echo "Skipped because Convex preview deployment is unavailable."
+              echo ""
+              echo "Set repository secret CONVEX_DEPLOY_KEY_PREVIEW to smoke Dynamic Client Registration against a same-branch backend."
+              echo "Target was $DEPLOYMENT_URL/mcp."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+          echo "mcp_url=$DEPLOYMENT_URL/mcp" >> "$GITHUB_OUTPUT"
+
+      - name: Setup pnpm
+        if: steps.gate.outputs.enabled == 'true'
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        if: steps.gate.outputs.enabled == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.gate.outputs.enabled == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Run hosted MCP smoke
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          VRDEX_MCP_SMOKE_DCR: "1"
+          VRDEX_MCP_SMOKE_URL: ${{ steps.gate.outputs.mcp_url }}
+        run: pnpm smoke:mcp-compat
+
   playwright-hosted-data-flow:
     name: Playwright Hosted Data Flow
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
@@ -1338,6 +1401,10 @@ jobs:
       contents: read
       issues: write
       pull-requests: write
+    outputs:
+      convex-preview-enabled: ${{ steps.convex-preview-gate.outputs.enabled }}
+      convex-preview-url: ${{ steps.convex-preview.outputs.convex_url }}
+      deployment-url: ${{ steps.deploy.outputs.url }}
 
     steps:
       - name: Checkout
@@ -1456,6 +1523,8 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         uses: actions/github-script@v9
         env:
+          CONVEX_PREVIEW_ENABLED: ${{ steps.convex-preview-gate.outputs.enabled }}
+          CONVEX_PREVIEW_URL: ${{ steps.convex-preview.outputs.convex_url }}
           DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
         with:
           script: |
@@ -1464,11 +1533,17 @@ jobs:
             const repo = context.repo.repo;
             const issue_number = context.issue.number;
             const deploymentUrl = process.env.DEPLOYMENT_URL;
+            const convexPreviewEnabled = process.env.CONVEX_PREVIEW_ENABLED === "true";
+            const convexPreviewUrl = process.env.CONVEX_PREVIEW_URL || "";
             const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`;
+            const convexLine = convexPreviewEnabled && convexPreviewUrl
+              ? `Convex preview: ${convexPreviewUrl}`
+              : "Convex preview: not deployed; preview uses the pulled Vercel preview environment";
             const body = [
               marker,
               "## Vercel Preview Deployment",
               `Preview: ${deploymentUrl}`,
+              convexLine,
               `Deployment check: ${deploymentUrl}/deployment`,
               `Run: ${runUrl}`,
             ].join("\n");

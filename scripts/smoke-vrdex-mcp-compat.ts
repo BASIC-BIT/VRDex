@@ -18,6 +18,12 @@ type SmokeResult = {
   status: "pass" | "skip";
 };
 
+type HostedOAuthMetadata = {
+  issuer: string;
+  registrationEndpoint: string;
+  resource: string;
+};
+
 const expectedTools = [
   "vrdex_search",
   "vrdex_get_profile",
@@ -239,9 +245,12 @@ function hostedSmokeUrl() {
   }
 
   const url = new URL(rawUrl);
+  const pathname = trimTrailingSlashes(url.pathname);
 
-  if (!url.pathname.endsWith("/mcp")) {
-    url.pathname = `${trimTrailingSlashes(url.pathname)}/mcp`;
+  if (!pathname.endsWith("/mcp")) {
+    url.pathname = `${pathname}/mcp`;
+  } else {
+    url.pathname = pathname;
   }
 
   return url;
@@ -267,6 +276,140 @@ async function postMcpJsonRpc(url: URL, body: JsonRpcMessage, authorization?: st
       "mcp-protocol-version": "2025-06-18",
     },
     body: JSON.stringify(body),
+  });
+}
+
+async function responseJson(response: Response, label: string) {
+  const text = await response.text();
+
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new Error(`${label} did not return JSON: ${text.slice(0, 300)}`);
+  }
+}
+
+function urlForPath(origin: string, pathname: string) {
+  const url = new URL(origin);
+
+  url.pathname = pathname;
+  url.search = "";
+  url.hash = "";
+
+  return url;
+}
+
+function stringField(value: unknown, label: string): string {
+  assert.equal(typeof value, "string", `${label} must be a string`);
+
+  return value as string;
+}
+
+function stringArrayField(value: unknown, label: string): string[] {
+  assert.equal(Array.isArray(value), true, `${label} must be an array`);
+
+  return (value as unknown[]).map((item, index) => stringField(item, `${label}[${index}]`));
+}
+
+function smokeDynamicRegistrationEnabled() {
+  const value = process.env.VRDEX_MCP_SMOKE_DCR?.trim().toLowerCase();
+
+  return value === "1" || value === "true" || value === "yes";
+}
+
+async function smokeHostedOAuthMetadata(url: URL, results: SmokeResult[]): Promise<HostedOAuthMetadata> {
+  const protectedResourceUrl = urlForPath(url.origin, "/.well-known/oauth-protected-resource");
+  const protectedResource = await fetch(protectedResourceUrl, { headers: { accept: "application/json" } });
+
+  assert.equal(protectedResource.status, 200);
+
+  const protectedResourceBody = await responseJson(protectedResource, "OAuth protected-resource metadata");
+  const resource = stringField(protectedResourceBody.resource, "protected resource");
+  const authorizationServers = stringArrayField(
+    protectedResourceBody.authorization_servers,
+    "authorization servers",
+  );
+  const scopes = stringArrayField(protectedResourceBody.scopes_supported, "protected resource scopes");
+
+  assert.equal(resource, url.toString());
+  assert.equal(scopes.includes("mcp:read"), true);
+
+  const issuer = authorizationServers[0];
+
+  assert.notEqual(issuer, undefined);
+
+  const authorizationServerUrl = urlForPath(issuer, "/.well-known/oauth-authorization-server");
+  const authorizationServer = await fetch(authorizationServerUrl, { headers: { accept: "application/json" } });
+
+  assert.equal(authorizationServer.status, 200);
+
+  const authorizationServerBody = await responseJson(authorizationServer, "OAuth authorization-server metadata");
+  const registrationEndpoint = stringField(
+    authorizationServerBody.registration_endpoint,
+    "registration endpoint",
+  );
+  const protectedResources = stringArrayField(
+    authorizationServerBody.protected_resources,
+    "authorization-server protected resources",
+  );
+
+  assert.equal(stringField(authorizationServerBody.issuer, "issuer"), issuer);
+  assert.equal(authorizationServerBody.client_id_metadata_document_supported, true);
+  assert.equal(protectedResources.includes(resource), true);
+
+  results.push({
+    details: "protected-resource and authorization-server metadata passed",
+    name: "Hosted OAuth metadata",
+    status: "pass",
+  });
+
+  return { issuer, registrationEndpoint, resource };
+}
+
+async function smokeHostedDynamicClientRegistration(metadata: HostedOAuthMetadata, results: SmokeResult[]) {
+  if (!smokeDynamicRegistrationEnabled()) {
+    results.push({
+      details: "set VRDEX_MCP_SMOKE_DCR=1 to register a smoke public MCP client",
+      name: "Hosted Dynamic Client Registration",
+      status: "skip",
+    });
+
+    return;
+  }
+
+  const registration = await fetch(metadata.registrationEndpoint, {
+    body: JSON.stringify({
+      client_name: "VRDex MCP Smoke Client",
+      contacts: ["mailto:smoke@example.invalid"],
+      grant_types: ["authorization_code", "refresh_token"],
+      redirect_uris: ["http://localhost:8765/callback"],
+      response_types: ["code"],
+      scope: "mcp:read public:read",
+      software_id: "vrdex-mcp-compat-smoke",
+      software_version: "0.0.0",
+      token_endpoint_auth_method: "none",
+    }),
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+    },
+    method: "POST",
+  });
+
+  assert.equal(registration.status, 201);
+
+  const body = await responseJson(registration, "Dynamic Client Registration");
+
+  assert.match(stringField(body.client_id, "client id"), /^vrdx_app_[0-9a-f]{24}$/);
+  assert.equal(stringField(body.resource, "registered resource"), metadata.resource);
+  assert.equal(stringField(body.authorization_server, "authorization server"), metadata.issuer);
+  assert.equal(stringField(body.token_endpoint_auth_method, "token endpoint auth method"), "none");
+  assert.equal(stringField(body.scope, "registered scope").split(/\s+/).includes("mcp:read"), true);
+
+  results.push({
+    details: "public MCP client registration passed",
+    name: "Hosted Dynamic Client Registration",
+    status: "pass",
   });
 }
 
@@ -325,6 +468,10 @@ async function smokeHostedHttp(results: SmokeResult[]) {
   assert.equal(invalidBearer.status, 401);
   assert.match(invalidBearer.headers.get("www-authenticate") ?? "", /resource_metadata=/);
   assert.match(invalidBearer.headers.get("www-authenticate") ?? "", /scope="mcp:read"/);
+
+  const metadata = await smokeHostedOAuthMetadata(url, results);
+
+  await smokeHostedDynamicClientRegistration(metadata, results);
 
   const token = process.env.VRDEX_MCP_SMOKE_TOKEN?.trim();
 
