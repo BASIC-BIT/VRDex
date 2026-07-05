@@ -55,6 +55,8 @@
     "ops:event-media:ecs-bridge": "node scripts/event-media-ecs-bridge.mjs",
     "preops:api-rate-limits": "node scripts/guard-main-worktree.mjs",
     "ops:api-rate-limits": "node --import tsx scripts/print-api-rate-limit-policies.ts",
+    "presmoke:mcp-compat": "node scripts/guard-main-worktree.mjs",
+    "smoke:mcp-compat": "node --import tsx scripts/smoke-vrdex-mcp-compat.ts",
     "prelint:web": "node scripts/guard-main-worktree.mjs",
     "lint:web": "pnpm --filter web lint",
     "pretest:e2e": "node scripts/guard-main-worktree.mjs",

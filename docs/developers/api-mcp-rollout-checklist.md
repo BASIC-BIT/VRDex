@@ -53,6 +53,9 @@ one PR.
 - Local stdio MCP supports hosted and self-hosted API base URLs.
 - Local stdio MCP can run with anonymous reads, personal API tokens, or
   API-resource OAuth access tokens.
+- `pnpm smoke:mcp-compat` covers the shared local stdio protocol path and can
+  optionally smoke a deployed hosted `/mcp` endpoint with
+  `VRDEX_MCP_SMOKE_URL`.
 - `docs/developers/mcp-client-compatibility.md` lists the current major-client
   matrix and must have manual smoke results before external readiness is
   declared.
@@ -67,6 +70,7 @@ pnpm check:api-openapi
 pnpm typecheck:api-contracts
 pnpm typecheck:vrdex-mcp
 pnpm test:vrdex-mcp
+pnpm smoke:mcp-compat
 pnpm typecheck:backend
 pnpm test:backend
 pnpm typecheck:web
