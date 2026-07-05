@@ -30,14 +30,16 @@ create a replacement app when moving between public and confidential clients.
 | Client type | Current use |
 | --- | --- |
 | Public | Authorization Code with PKCE and refresh-token rotation. |
-| Confidential | Client Credentials and hashed client-secret validation. |
+| Confidential | Authorization Code with PKCE, refresh-token rotation, Client Credentials, and hashed client-secret validation. |
 
 Public clients must use PKCE and do not have client secrets.
 
 Confidential clients can receive a client secret at app creation and can create
 additional secrets through
 `POST /api/v0/developer/oauth-apps/:clientId/secrets`. Secret values are
-displayed once. VRDex stores only the secret prefix and hash.
+displayed once. VRDex stores only the secret prefix and hash. Confidential
+clients also use PKCE for authorization-code flow and must authenticate with an
+active client secret when exchanging codes or rotating refresh tokens.
 
 ## Redirect URIs
 
@@ -73,11 +75,13 @@ Most current public-read integrations should request only `public:read` or
 
 Authorization Code with PKCE:
 
-1. Developer registers a public app and exact redirect URI.
+1. Developer registers a public or confidential app and exact redirect URI.
 2. Client sends the user to `GET /oauth/authorize`.
 3. User approves the consent screen.
 4. Client exchanges the code with `POST /oauth/token`.
-5. Client rotates refresh tokens through the `refresh_token` grant.
+5. Confidential clients authenticate with an active client secret during code
+   exchange and refresh.
+6. Client rotates refresh tokens through the `refresh_token` grant.
 
 Client Credentials:
 

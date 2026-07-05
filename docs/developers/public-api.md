@@ -18,9 +18,9 @@ manage personal API tokens at `/developers/tokens` and user-owned OAuth client
 apps at `/developers/apps`; bearer-authorized `/api/v0/developer/...` routes
 also support developer credential listing, creation, and revocation. OAuth
 metadata, JWKS, client-credentials token issuance, token revocation, constrained
-dynamic client registration for hosted MCP clients, public-client Authorization
-Code with PKCE, and refresh-token rotation are also in place; confidential-client
-authorization-code exchange remains a later implementation checkpoint.
+dynamic client registration for hosted MCP clients, Authorization Code with
+PKCE for public and confidential apps, and refresh-token rotation are also in
+place.
 
 Implemented public reads are anonymous by default and accept optional scoped
 API bearer tokens or OAuth access tokens for authenticated public-read traffic:
@@ -163,10 +163,10 @@ Current OAuth issuer routes:
 
 - `GET /.well-known/oauth-authorization-server`
 - `GET /.well-known/oauth-protected-resource`
-- `GET /oauth/authorize`, for public-client Authorization Code with PKCE consent
+- `GET /oauth/authorize`, for Authorization Code with PKCE consent
 - `GET /oauth/jwks.json`
 - `POST /oauth/register`, for constrained hosted MCP Dynamic Client Registration
-- `POST /oauth/token`, for public-client `authorization_code` and confidential `client_credentials`
+- `POST /oauth/token`, for `authorization_code`, `refresh_token`, and confidential `client_credentials`
 - `POST /oauth/revoke`, currently for JWT access-token revocation
 
 `POST /oauth/register` is not the normal developer-app creation path. It creates
@@ -175,11 +175,13 @@ grant metadata, `code` response type metadata, `token_endpoint_auth_method=none`
 the MCP resource, and only `mcp:read` plus optional `public:read` scope. These
 clients are for hosted MCP OAuth compatibility.
 
-`GET /oauth/authorize` currently supports public clients with
-`code_challenge_method=S256`. Approval creates a short-lived single-use
-authorization code, and `POST /oauth/token` exchanges that code for a
-resource-bound JWT access token plus an opaque refresh token. Refresh-token
-grant requests rotate the refresh token on every successful use.
+`GET /oauth/authorize` currently requires `code_challenge_method=S256`.
+Approval creates a short-lived single-use authorization code, and
+`POST /oauth/token` exchanges that code for a resource-bound JWT access token
+plus an opaque refresh token. Public apps and dynamic MCP clients exchange and
+refresh without a client secret. Confidential apps must authenticate with an
+active client secret when exchanging authorization codes and rotating refresh
+tokens.
 
 Current hosted MCP route:
 

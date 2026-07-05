@@ -8,6 +8,11 @@ import {
 
 import { convexHttpClient } from "@/lib/server/convex-http";
 import {
+  basicClientCredentials,
+  clientSecretPepper,
+  tokenClientAuthentication,
+} from "@/lib/server/oauth-token-client-auth";
+import {
   createOAuthAccessTokenId,
   oauthAccessTokenExpiresAt,
   oauthAccessTokenExpiresInSeconds,
@@ -53,40 +58,6 @@ function oauthProblem(
       status,
     },
   );
-}
-
-function clientSecretPepper() {
-  const pepper = process.env.VRDEX_OAUTH_CLIENT_SECRET_PEPPER?.trim();
-
-  if (!pepper) {
-    throw new Error("VRDEX_OAUTH_CLIENT_SECRET_PEPPER is required for OAuth client secret validation.");
-  }
-
-  return pepper;
-}
-
-function basicClientCredentials(request: Request) {
-  const authorization = request.headers.get("authorization");
-
-  if (!authorization?.startsWith("Basic ")) {
-    return {};
-  }
-
-  try {
-    const decoded = Buffer.from(authorization.slice("Basic ".length), "base64").toString("utf8");
-    const separatorIndex = decoded.indexOf(":");
-
-    if (separatorIndex < 0) {
-      return {};
-    }
-
-    return {
-      clientId: decodeURIComponent(decoded.slice(0, separatorIndex)),
-      clientSecret: decodeURIComponent(decoded.slice(separatorIndex + 1)),
-    };
-  } catch {
-    return {};
-  }
 }
 
 async function formData(request: Request) {
@@ -139,18 +110,17 @@ function requiredFormString(form: FormData, name: string) {
 }
 
 async function authorizationCodeTokenResponse(request: Request, form: FormData) {
-  if (basicClientCredentials(request).clientId !== undefined || String(form.get("client_secret") ?? "").trim()) {
-    return oauthProblem(401, "invalid_client", "Client authentication is not supported for public PKCE clients.");
+  const clientAuthentication = await tokenClientAuthentication(request, form);
+  if (!clientAuthentication.ok) {
+    return clientAuthentication.response;
   }
 
-  let clientId: string;
   let codeHash: string;
   let redirectUri: string;
   let resource: string;
   let derivedCodeChallenge: string;
 
   try {
-    clientId = normalizeOAuthClientId(requiredFormString(form, "client_id"));
     codeHash = hashOAuthAuthorizationCodeValue(normalizeOAuthAuthorizationCodeValue(requiredFormString(form, "code")));
     redirectUri = normalizeOAuthRedirectUris([requiredFormString(form, "redirect_uri")])[0];
     resource = requestedAuthorizationCodeResource(request, form);
@@ -168,7 +138,7 @@ async function authorizationCodeTokenResponse(request: Request, form: FormData) 
   const tokenId = createOAuthAccessTokenId();
   const refreshToken = createOAuthRefreshTokenValue();
   const result = await convexHttpClient().mutation(api.oauthApps.consumeAuthorizationCode, {
-    clientId,
+    clientId: clientAuthentication.clientId,
     codeHash,
     redirectUri,
     resource,
@@ -177,6 +147,12 @@ async function authorizationCodeTokenResponse(request: Request, form: FormData) 
     expiresAt,
     refreshTokenHash: hashOAuthRefreshTokenValue(refreshToken),
     refreshTokenExpiresAt: now + refreshTokenTtlMs,
+    ...(clientAuthentication.secretPrefix === undefined
+      ? {}
+      : { secretPrefix: clientAuthentication.secretPrefix }),
+    ...(clientAuthentication.verifierHash === undefined
+      ? {}
+      : { verifierHash: clientAuthentication.verifierHash }),
   });
 
   if (!result.ok) {
@@ -218,17 +194,16 @@ async function authorizationCodeTokenResponse(request: Request, form: FormData) 
 }
 
 async function refreshTokenResponse(request: Request, form: FormData) {
-  if (basicClientCredentials(request).clientId !== undefined || String(form.get("client_secret") ?? "").trim()) {
-    return oauthProblem(401, "invalid_client", "Client authentication is not supported for public refresh-token clients.");
+  const clientAuthentication = await tokenClientAuthentication(request, form);
+  if (!clientAuthentication.ok) {
+    return clientAuthentication.response;
   }
 
-  let clientId: string;
   let refreshTokenHash: string;
   let resource: string;
   let scopes: ReturnType<typeof parseOAuthScopeString> | undefined;
 
   try {
-    clientId = normalizeOAuthClientId(requiredFormString(form, "client_id"));
     refreshTokenHash = hashOAuthRefreshTokenValue(normalizeOAuthRefreshTokenValue(requiredFormString(form, "refresh_token")));
     resource = requestedAuthorizationCodeResource(request, form);
     scopes = String(form.get("scope") ?? "").trim()
@@ -247,7 +222,7 @@ async function refreshTokenResponse(request: Request, form: FormData) {
   const tokenId = createOAuthAccessTokenId();
   const replacementRefreshToken = createOAuthRefreshTokenValue();
   const result = await convexHttpClient().mutation(api.oauthApps.rotateRefreshToken, {
-    clientId,
+    clientId: clientAuthentication.clientId,
     refreshTokenHash,
     replacementRefreshTokenHash: hashOAuthRefreshTokenValue(replacementRefreshToken),
     requestedScopes: scopes,
@@ -255,6 +230,12 @@ async function refreshTokenResponse(request: Request, form: FormData) {
     tokenId,
     expiresAt,
     refreshTokenExpiresAt: now + refreshTokenTtlMs,
+    ...(clientAuthentication.secretPrefix === undefined
+      ? {}
+      : { secretPrefix: clientAuthentication.secretPrefix }),
+    ...(clientAuthentication.verifierHash === undefined
+      ? {}
+      : { verifierHash: clientAuthentication.verifierHash }),
   });
 
   if (!result.ok) {

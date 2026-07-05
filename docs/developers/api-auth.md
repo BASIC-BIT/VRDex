@@ -21,8 +21,8 @@ Authorization: Bearer <token>
 | No bearer token | Anonymous public API and hosted MCP read tools. |
 | Personal API token | Local scripts, private/local MCP, and authenticated public API reads. |
 | OAuth access token | User-delegated and application-owned API/MCP access. |
-| OAuth refresh token | Rotates public-client authorization-code sessions. |
-| OAuth client secret | Confidential client-credentials flow only. |
+| OAuth refresh token | Rotates user-delegated authorization-code sessions. |
+| OAuth client secret | Confidential client authentication for token, refresh, and client-credentials requests. |
 
 ## Personal API Tokens
 
@@ -69,7 +69,7 @@ JWT signature and audience.
 | --- | --- |
 | `GET /.well-known/oauth-authorization-server` | OAuth issuer metadata. |
 | `GET /.well-known/oauth-protected-resource` | MCP protected-resource metadata. |
-| `GET /oauth/authorize` | Public-client Authorization Code with PKCE. |
+| `GET /oauth/authorize` | Authorization Code with PKCE. |
 | `POST /oauth/token` | `authorization_code`, `refresh_token`, and `client_credentials`. |
 | `POST /oauth/revoke` | Access-token revocation. |
 | `POST /oauth/register` | Constrained Dynamic Client Registration for hosted MCP clients. |
@@ -87,7 +87,10 @@ approval.
 
 Current constraints:
 
-- public clients only for authorization-code exchange
+- public and confidential registered apps can use authorization-code exchange
+- confidential apps must authenticate with an active client secret on code
+  exchange and refresh
+- dynamic MCP clients stay public/no-secret
 - `code_challenge_method=S256`
 - exact redirect URI matching
 - single-use short-lived authorization codes

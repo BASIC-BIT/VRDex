@@ -24,6 +24,9 @@ Public API and MCP platform foundation checkpoint:
 - added OAuth metadata, JWKS, token, revoke, constrained dynamic MCP
   registration, Authorization Code with PKCE, refresh-token rotation, and
   Client Credentials support
+- added confidential-client support for OAuth authorization-code and
+  refresh-token exchange, requiring active client-secret authentication while
+  keeping PKCE mandatory
 - added hosted Streamable HTTP MCP at `/mcp` with anonymous public read tools
   and OAuth-authenticated MCP bearer handling
 - added local stdio MCP workspace package `@basicbit/vrdex-mcp`

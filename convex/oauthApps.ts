@@ -165,6 +165,39 @@ async function activeSecretsForApplication(ctx: MutationCtx, applicationId: Doc<
     .collect();
 }
 
+async function validatedActiveApplicationSecret(
+  ctx: MutationCtx,
+  args: {
+    application: Doc<"oauthApplications">;
+    clientId: string;
+    secretPrefix?: string;
+    verifierHash?: string;
+  },
+) {
+  if (args.secretPrefix === undefined || args.verifierHash === undefined) {
+    return null;
+  }
+
+  const secretPrefix = normalizeOAuthClientSecretPrefix(args.secretPrefix);
+  const verifierHash = normalizeOAuthClientSecretHash(args.verifierHash);
+  const secret = await ctx.db
+    .query("oauthApplicationSecrets")
+    .withIndex("by_secretPrefix", (index) => index.eq("secretPrefix", secretPrefix))
+    .unique();
+
+  if (
+    secret === null ||
+    secret.applicationId !== args.application._id ||
+    secret.clientId !== args.clientId ||
+    secret.status !== "active" ||
+    !timingSafeEqualString(secret.verifierHash, verifierHash)
+  ) {
+    return null;
+  }
+
+  return secret;
+}
+
 async function listUserOwnedApplicationSummaries(
   ctx: QueryCtx,
   args: {
@@ -312,7 +345,6 @@ async function resolvePublicAuthorizationClient(
   if (application !== null) {
     if (
       application.status !== "active" ||
-      application.clientType !== "public" ||
       !application.allowedGrants.includes("authorization_code")
     ) {
       return { ok: false as const, reason: "invalid_client" as const };
@@ -1102,6 +1134,8 @@ export const consumeAuthorizationCode = mutation({
     expiresAt: v.number(),
     refreshTokenHash: v.string(),
     refreshTokenExpiresAt: v.number(),
+    secretPrefix: v.optional(v.string()),
+    verifierHash: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -1134,6 +1168,7 @@ export const consumeAuthorizationCode = mutation({
 
     const application = code.applicationId === undefined ? null : await ctx.db.get(code.applicationId);
     const dynamicClient = code.dynamicClientId === undefined ? null : await ctx.db.get(code.dynamicClientId);
+    let authenticatedSecret: Doc<"oauthApplicationSecrets"> | null = null;
 
     if (
       application === null &&
@@ -1146,10 +1181,46 @@ export const consumeAuthorizationCode = mutation({
       application !== null &&
       (application.clientId !== clientId ||
         application.status !== "active" ||
-        application.clientType !== "public" ||
         !application.allowedGrants.includes("authorization_code"))
     ) {
       return { ok: false as const, reason: "invalid_client" as const };
+    }
+
+    if (application !== null && application.clientType === "public") {
+      if (args.secretPrefix !== undefined || args.verifierHash !== undefined) {
+        await recordOAuthClientEvent(ctx, {
+          application,
+          ...(args.secretPrefix === undefined ? {} : { secretPrefix: args.secretPrefix }),
+          eventType: "authorization_code_redeemed",
+          result: "rejected",
+          routeClass: "oauth_token",
+          now,
+        });
+
+        return { ok: false as const, reason: "invalid_client" as const };
+      }
+    }
+
+    if (application !== null && application.clientType === "confidential") {
+      authenticatedSecret = await validatedActiveApplicationSecret(ctx, {
+        application,
+        clientId,
+        secretPrefix: args.secretPrefix,
+        verifierHash: args.verifierHash,
+      });
+
+      if (authenticatedSecret === null) {
+        await recordOAuthClientEvent(ctx, {
+          application,
+          ...(args.secretPrefix === undefined ? {} : { secretPrefix: args.secretPrefix }),
+          eventType: "authorization_code_redeemed",
+          result: "rejected",
+          routeClass: "oauth_token",
+          now,
+        });
+
+        return { ok: false as const, reason: "invalid_client" as const };
+      }
     }
 
     if (
@@ -1159,6 +1230,20 @@ export const consumeAuthorizationCode = mutation({
         !dynamicClient.grantTypes.includes("authorization_code") ||
         dynamicClient.resource !== resource)
     ) {
+      return { ok: false as const, reason: "invalid_client" as const };
+    }
+
+    if (dynamicClient !== null && (args.secretPrefix !== undefined || args.verifierHash !== undefined)) {
+      await recordOAuthClientEvent(ctx, {
+        dynamicClient,
+        clientId,
+        ...(args.secretPrefix === undefined ? {} : { secretPrefix: args.secretPrefix }),
+        eventType: "authorization_code_redeemed",
+        result: "rejected",
+        routeClass: "oauth_token",
+        now,
+      });
+
       return { ok: false as const, reason: "invalid_client" as const };
     }
 
@@ -1214,6 +1299,10 @@ export const consumeAuthorizationCode = mutation({
       await ctx.db.patch(application._id, { lastUsedAt: now, updatedAt: now });
     }
 
+    if (authenticatedSecret !== null) {
+      await ctx.db.patch(authenticatedSecret._id, { lastUsedAt: now, updatedAt: now });
+    }
+
     if (dynamicClient !== null) {
       await ctx.db.patch(dynamicClient._id, { lastUsedAt: now, updatedAt: now });
     }
@@ -1222,6 +1311,7 @@ export const consumeAuthorizationCode = mutation({
       ...(application === null ? {} : { application }),
       ...(dynamicClient === null ? {} : { dynamicClient }),
       clientId,
+      ...(authenticatedSecret === null ? {} : { secretPrefix: authenticatedSecret.secretPrefix }),
       eventType: "authorization_code_redeemed",
       result: "accepted",
       routeClass: "oauth_token",
@@ -1252,6 +1342,8 @@ export const rotateRefreshToken = mutation({
     tokenId: v.string(),
     expiresAt: v.number(),
     refreshTokenExpiresAt: v.number(),
+    secretPrefix: v.optional(v.string()),
+    verifierHash: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -1287,6 +1379,7 @@ export const rotateRefreshToken = mutation({
 
     const application = refreshToken.applicationId === undefined ? null : await ctx.db.get(refreshToken.applicationId);
     const dynamicClient = refreshToken.dynamicClientId === undefined ? null : await ctx.db.get(refreshToken.dynamicClientId);
+    let authenticatedSecret: Doc<"oauthApplicationSecrets"> | null = null;
 
     if (application === null && dynamicClient === null) {
       return { ok: false as const, reason: "invalid_client" as const };
@@ -1296,10 +1389,46 @@ export const rotateRefreshToken = mutation({
       application !== null &&
       (application.clientId !== clientId ||
         application.status !== "active" ||
-        application.clientType !== "public" ||
         !application.allowedGrants.includes("refresh_token"))
     ) {
       return { ok: false as const, reason: "invalid_client" as const };
+    }
+
+    if (application !== null && application.clientType === "public") {
+      if (args.secretPrefix !== undefined || args.verifierHash !== undefined) {
+        await recordOAuthClientEvent(ctx, {
+          application,
+          ...(args.secretPrefix === undefined ? {} : { secretPrefix: args.secretPrefix }),
+          eventType: "refresh_token_rotated",
+          result: "rejected",
+          routeClass: "oauth_token",
+          now,
+        });
+
+        return { ok: false as const, reason: "invalid_client" as const };
+      }
+    }
+
+    if (application !== null && application.clientType === "confidential") {
+      authenticatedSecret = await validatedActiveApplicationSecret(ctx, {
+        application,
+        clientId,
+        secretPrefix: args.secretPrefix,
+        verifierHash: args.verifierHash,
+      });
+
+      if (authenticatedSecret === null) {
+        await recordOAuthClientEvent(ctx, {
+          application,
+          ...(args.secretPrefix === undefined ? {} : { secretPrefix: args.secretPrefix }),
+          eventType: "refresh_token_rotated",
+          result: "rejected",
+          routeClass: "oauth_token",
+          now,
+        });
+
+        return { ok: false as const, reason: "invalid_client" as const };
+      }
     }
 
     if (
@@ -1309,6 +1438,20 @@ export const rotateRefreshToken = mutation({
         !dynamicClient.grantTypes.includes("refresh_token") ||
         dynamicClient.resource !== resource)
     ) {
+      return { ok: false as const, reason: "invalid_client" as const };
+    }
+
+    if (dynamicClient !== null && (args.secretPrefix !== undefined || args.verifierHash !== undefined)) {
+      await recordOAuthClientEvent(ctx, {
+        dynamicClient,
+        clientId,
+        ...(args.secretPrefix === undefined ? {} : { secretPrefix: args.secretPrefix }),
+        eventType: "refresh_token_rotated",
+        result: "rejected",
+        routeClass: "oauth_token",
+        now,
+      });
+
       return { ok: false as const, reason: "invalid_client" as const };
     }
 
@@ -1365,6 +1508,10 @@ export const rotateRefreshToken = mutation({
       await ctx.db.patch(application._id, { lastUsedAt: now, updatedAt: now });
     }
 
+    if (authenticatedSecret !== null) {
+      await ctx.db.patch(authenticatedSecret._id, { lastUsedAt: now, updatedAt: now });
+    }
+
     if (dynamicClient !== null) {
       await ctx.db.patch(dynamicClient._id, { lastUsedAt: now, updatedAt: now });
     }
@@ -1373,6 +1520,7 @@ export const rotateRefreshToken = mutation({
       ...(application === null ? {} : { application }),
       ...(dynamicClient === null ? {} : { dynamicClient }),
       clientId,
+      ...(authenticatedSecret === null ? {} : { secretPrefix: authenticatedSecret.secretPrefix }),
       eventType: "refresh_token_rotated",
       result: "accepted",
       routeClass: "oauth_token",

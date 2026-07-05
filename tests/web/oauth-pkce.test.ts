@@ -5,6 +5,7 @@ import {
   normalizeOAuthAuthorizationRequest,
   redirectUriWithOAuthResult,
 } from "../../apps/web/src/lib/server/oauth-authorization-request";
+import { tokenClientAuthentication } from "../../apps/web/src/lib/server/oauth-token-client-auth";
 import {
   createOAuthAuthorizationCodeValue,
   createOAuthRefreshTokenValue,
@@ -17,6 +18,7 @@ import {
   normalizeOAuthCodeVerifier,
   normalizeOAuthRefreshTokenValue,
 } from "../../apps/web/src/lib/server/oauth-pkce";
+import { createOAuthClientSecretValue } from "../../packages/api-contracts/src/oauth";
 
 describe("OAuth PKCE authorization helpers", () => {
   it("generates hashed authorization codes and derives RFC-compatible S256 challenges", () => {
@@ -77,5 +79,67 @@ describe("OAuth PKCE authorization helpers", () => {
       () => normalizeOAuthAuthorizationRequest(new URLSearchParams({ response_type: "token" }), request),
       /response_type/,
     );
+  });
+
+  it("parses public and confidential token client authentication", async () => {
+    const previousPepper = process.env.VRDEX_OAUTH_CLIENT_SECRET_PEPPER;
+    process.env.VRDEX_OAUTH_CLIENT_SECRET_PEPPER = "test-pepper";
+
+    try {
+      const publicForm = new FormData();
+      publicForm.set("client_id", "vrdx_app_0123456789abcdef01234567");
+
+      assert.deepEqual(
+        await tokenClientAuthentication(new Request("https://app.example.test/oauth/token"), publicForm),
+        {
+          ok: true,
+          clientId: "vrdx_app_0123456789abcdef01234567",
+        },
+      );
+
+      const secret = createOAuthClientSecretValue();
+      const confidentialForm = new FormData();
+      const confidentialRequest = new Request("https://app.example.test/oauth/token", {
+        headers: {
+          authorization: `Basic ${Buffer.from(`vrdx_app_0123456789abcdef01234567:${secret.secretValue}`).toString("base64")}`,
+        },
+      });
+      const confidential = await tokenClientAuthentication(confidentialRequest, confidentialForm);
+
+      assert.equal(confidential.ok, true);
+      if (confidential.ok) {
+        assert.equal(confidential.clientId, "vrdx_app_0123456789abcdef01234567");
+        assert.equal(confidential.secretPrefix, secret.secretPrefix);
+        assert.match(confidential.verifierHash ?? "", /^[0-9a-f]{64}$/);
+      }
+
+      const duplicateMethodForm = new FormData();
+      duplicateMethodForm.set("client_secret", secret.secretValue);
+      const duplicateMethod = await tokenClientAuthentication(confidentialRequest, duplicateMethodForm);
+
+      assert.equal(duplicateMethod.ok, false);
+      if (!duplicateMethod.ok) {
+        assert.equal(duplicateMethod.response.status, 400);
+      }
+
+      const invalidSecretForm = new FormData();
+      invalidSecretForm.set("client_id", "vrdx_app_0123456789abcdef01234567");
+      invalidSecretForm.set("client_secret", "bad-secret");
+      const invalidSecret = await tokenClientAuthentication(
+        new Request("https://app.example.test/oauth/token"),
+        invalidSecretForm,
+      );
+
+      assert.equal(invalidSecret.ok, false);
+      if (!invalidSecret.ok) {
+        assert.equal(invalidSecret.response.status, 401);
+      }
+    } finally {
+      if (previousPepper === undefined) {
+        delete process.env.VRDEX_OAUTH_CLIENT_SECRET_PEPPER;
+      } else {
+        process.env.VRDEX_OAUTH_CLIENT_SECRET_PEPPER = previousPepper;
+      }
+    }
   });
 });
