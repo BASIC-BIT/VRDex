@@ -47,6 +47,10 @@
     {
       "name": "Me",
       "description": "Authenticated caller introspection surfaces."
+    },
+    {
+      "name": "Developer",
+      "description": "Authenticated developer credential-management surfaces."
     }
   ],
   "paths": {
@@ -105,6 +109,212 @@
           },
           "403": {
             "description": "The bearer credential does not include the required scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v0/developer/tokens": {
+      "get": {
+        "operationId": "listCurrentDeveloperApiTokens",
+        "tags": [
+          "Developer"
+        ],
+        "summary": "List current developer API tokens",
+        "description": "Returns user-owned personal API token metadata for a bearer credential with user authority and developer:read scope.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "oauth2": [
+              "developer:read"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "includeRevoked",
+            "schema": {
+              "description": "Include revoked credentials.",
+              "type": "boolean"
+            },
+            "description": "Include revoked credentials."
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Maximum result count.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "description": "Maximum result count."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current user's personal API tokens.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeveloperTokensResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or used an unsupported bearer-token location.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Bearer authentication is required or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The bearer credential lacks developer:read scope or user authority.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v0/developer/oauth-apps": {
+      "get": {
+        "operationId": "listCurrentDeveloperOAuthApps",
+        "tags": [
+          "Developer"
+        ],
+        "summary": "List current developer OAuth apps",
+        "description": "Returns user-owned OAuth application metadata for a bearer credential with user authority and developer:read scope.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "oauth2": [
+              "developer:read"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "includeRevoked",
+            "schema": {
+              "description": "Include revoked credentials.",
+              "type": "boolean"
+            },
+            "description": "Include revoked credentials."
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Maximum result count.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "description": "Maximum result count."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current user's OAuth applications.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeveloperOAuthAppsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or used an unsupported bearer-token location.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Bearer authentication is required or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The bearer credential lacks developer:read scope or user authority.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1445,6 +1655,337 @@
         ],
         "additionalProperties": false,
         "description": "RFC 9457 problem details error response."
+      },
+      "DeveloperTokensResponse": {
+        "type": "object",
+        "properties": {
+          "tokens": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApiTokenSummary"
+            }
+          }
+        },
+        "required": [
+          "tokens"
+        ],
+        "additionalProperties": false,
+        "description": "User-owned personal API token list."
+      },
+      "ApiTokenSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tokenPrefix": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ownerKind": {
+            "type": "string",
+            "enum": [
+              "community",
+              "user"
+            ],
+            "description": "Developer credential owner class."
+          },
+          "ownerUserId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ownerCommunityProfileId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "public:read",
+                "profile:read",
+                "profile:write",
+                "community:read",
+                "community:write",
+                "events:read",
+                "events:write",
+                "assets:read",
+                "assets:write",
+                "developer:read",
+                "developer:write",
+                "mcp:read",
+                "mcp:write"
+              ],
+              "description": "Public API or MCP credential scope."
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "revoked"
+            ],
+            "description": "Developer credential lifecycle status."
+          },
+          "trustTier": {
+            "type": "string",
+            "enum": [
+              "personal",
+              "trusted_partner"
+            ],
+            "description": "Personal API token trust tier."
+          },
+          "expiresAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "createdAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "updatedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "lastUsedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "lastUsedRouteClass": {
+            "type": "string",
+            "enum": [
+              "anonymous_public_read",
+              "authenticated_public_read",
+              "developer_credential_management",
+              "oauth_authorize",
+              "oauth_token",
+              "oauth_dynamic_client_registration",
+              "asset_upload_intent",
+              "public_write",
+              "anonymous_mcp_public_read",
+              "authenticated_mcp"
+            ],
+            "description": "Public API and MCP rate-limit route class."
+          },
+          "revokedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "revokeReason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tokenPrefix",
+          "ownerKind",
+          "ownerUserId",
+          "label",
+          "scopes",
+          "status",
+          "trustTier",
+          "createdAt",
+          "updatedAt"
+        ],
+        "additionalProperties": false,
+        "description": "User-owned personal API token metadata. Raw token values are never returned."
+      },
+      "DeveloperOAuthAppsResponse": {
+        "type": "object",
+        "properties": {
+          "applications": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OAuthApplicationSummary"
+            }
+          }
+        },
+        "required": [
+          "applications"
+        ],
+        "additionalProperties": false,
+        "description": "User-owned OAuth application list."
+      },
+      "OAuthApplicationSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "clientId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ownerKind": {
+            "type": "string",
+            "enum": [
+              "community",
+              "user"
+            ],
+            "description": "Developer credential owner class."
+          },
+          "ownerUserId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ownerCommunityProfileId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "clientType": {
+            "type": "string",
+            "enum": [
+              "public",
+              "confidential"
+            ],
+            "description": "OAuth application client type."
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string"
+          },
+          "logoUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "docsUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "privacyUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "termsUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "redirectUris": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          "allowedGrants": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "authorization_code",
+                "refresh_token",
+                "client_credentials"
+              ],
+              "description": "OAuth grant type allowed for an application."
+            }
+          },
+          "allowedScopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "public:read",
+                "profile:read",
+                "profile:write",
+                "community:read",
+                "community:write",
+                "events:read",
+                "events:write",
+                "assets:read",
+                "assets:write",
+                "developer:read",
+                "developer:write",
+                "mcp:read",
+                "mcp:write"
+              ],
+              "description": "Public API or MCP credential scope."
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "revoked"
+            ],
+            "description": "Developer credential lifecycle status."
+          },
+          "trustTier": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "trusted_partner"
+            ],
+            "description": "OAuth application trust tier."
+          },
+          "createdAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "updatedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "lastUsedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "reviewedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "revokedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "revokeReason": {
+            "type": "string"
+          },
+          "activeSecretPrefixes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "required": [
+          "id",
+          "clientId",
+          "ownerKind",
+          "ownerUserId",
+          "clientType",
+          "displayName",
+          "redirectUris",
+          "allowedGrants",
+          "allowedScopes",
+          "status",
+          "trustTier",
+          "createdAt",
+          "updatedAt",
+          "activeSecretPrefixes"
+        ],
+        "additionalProperties": false,
+        "description": "User-owned OAuth application metadata. Raw client secrets are never returned."
       },
       "PublicSearchResponse": {
         "type": "object",

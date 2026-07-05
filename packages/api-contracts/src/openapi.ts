@@ -3,6 +3,9 @@ import { createDocument, type ZodOpenApiObject, type ZodOpenApiResponsesObject }
 import { apiScopes } from "./auth";
 import {
   ApiProblemSchema,
+  DeveloperCredentialListQueryParamsSchema,
+  DeveloperOAuthAppsResponseSchema,
+  DeveloperTokensResponseSchema,
   ApiMeResponseSchema,
   ApiRateLimitUsageResponseSchema,
   LimitQueryParamsSchema,
@@ -65,6 +68,10 @@ const authenticatedPublicReadSecurity: Array<Record<string, string[]>> = [
   { bearerAuth: [] },
   { oauth2: ["public:read"] },
 ];
+const developerReadSecurity: Array<Record<string, string[]>> = [
+  { bearerAuth: [] },
+  { oauth2: ["developer:read"] },
+];
 
 export const openApiSource = {
   openapi: "3.1.0",
@@ -93,6 +100,7 @@ export const openApiSource = {
     { name: "Claims", description: "Public claim-status read surfaces." },
     { name: "Usage", description: "API usage and rate-limit surfaces." },
     { name: "Me", description: "Authenticated caller introspection surfaces." },
+    { name: "Developer", description: "Authenticated developer credential-management surfaces." },
   ],
   paths: {
     "/api/v0/openapi.json": {
@@ -125,6 +133,64 @@ export const openApiSource = {
           },
           "403": {
             description: "The bearer credential does not include the required scope.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "429": publicReadProblemResponses["429"],
+        },
+      },
+    },
+    "/api/v0/developer/tokens": {
+      get: {
+        operationId: "listCurrentDeveloperApiTokens",
+        tags: ["Developer"],
+        summary: "List current developer API tokens",
+        description:
+          "Returns user-owned personal API token metadata for a bearer credential with user authority and developer:read scope.",
+        security: developerReadSecurity,
+        requestParams: {
+          query: DeveloperCredentialListQueryParamsSchema,
+        },
+        responses: {
+          "200": {
+            description: "Current user's personal API tokens.",
+            content: jsonContent(DeveloperTokensResponseSchema),
+          },
+          "400": publicReadProblemResponses["400"],
+          "401": {
+            description: "Bearer authentication is required or invalid.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "403": {
+            description: "The bearer credential lacks developer:read scope or user authority.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "429": publicReadProblemResponses["429"],
+        },
+      },
+    },
+    "/api/v0/developer/oauth-apps": {
+      get: {
+        operationId: "listCurrentDeveloperOAuthApps",
+        tags: ["Developer"],
+        summary: "List current developer OAuth apps",
+        description:
+          "Returns user-owned OAuth application metadata for a bearer credential with user authority and developer:read scope.",
+        security: developerReadSecurity,
+        requestParams: {
+          query: DeveloperCredentialListQueryParamsSchema,
+        },
+        responses: {
+          "200": {
+            description: "Current user's OAuth applications.",
+            content: jsonContent(DeveloperOAuthAppsResponseSchema),
+          },
+          "400": publicReadProblemResponses["400"],
+          "401": {
+            description: "Bearer authentication is required or invalid.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "403": {
+            description: "The bearer credential lacks developer:read scope or user authority.",
             content: jsonContent(ApiProblemSchema),
           },
           "429": publicReadProblemResponses["429"],

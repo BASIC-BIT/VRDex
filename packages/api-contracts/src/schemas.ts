@@ -455,6 +455,104 @@ export const ApiMeResponseSchema = z
     id: "ApiMeResponse",
   });
 
+export const ApiCredentialOwnerKindSchema = z
+  .enum(["community", "user"])
+  .meta({ description: "Developer credential owner class." });
+
+export const ApiCredentialStatusSchema = z
+  .enum(["active", "revoked"])
+  .meta({ description: "Developer credential lifecycle status." });
+
+export const ApiTokenTrustTierSchema = z
+  .enum(["personal", "trusted_partner"])
+  .meta({ description: "Personal API token trust tier." });
+
+export const OAuthClientTypeSchema = z
+  .enum(["public", "confidential"])
+  .meta({ description: "OAuth application client type." });
+
+export const OAuthGrantTypeSchema = z
+  .enum(["authorization_code", "refresh_token", "client_credentials"])
+  .meta({ description: "OAuth grant type allowed for an application." });
+
+export const OAuthApplicationTrustTierSchema = z
+  .enum(["standard", "trusted_partner"])
+  .meta({ description: "OAuth application trust tier." });
+
+export const ApiTokenSummarySchema = z
+  .object({
+    id: z.string().min(1),
+    tokenPrefix: z.string().min(1),
+    ownerKind: ApiCredentialOwnerKindSchema,
+    ownerUserId: z.string().min(1),
+    ownerCommunityProfileId: z.string().min(1).optional(),
+    label: z.string().min(1),
+    scopes: z.array(ApiScopeSchema),
+    status: ApiCredentialStatusSchema,
+    trustTier: ApiTokenTrustTierSchema,
+    expiresAt: timestampMs.optional(),
+    createdAt: timestampMs,
+    updatedAt: timestampMs,
+    lastUsedAt: timestampMs.optional(),
+    lastUsedRouteClass: ApiRouteClassSchema.optional(),
+    revokedAt: timestampMs.optional(),
+    revokeReason: z.string().optional(),
+  })
+  .meta({
+    description: "User-owned personal API token metadata. Raw token values are never returned.",
+    id: "ApiTokenSummary",
+  });
+
+export const OAuthApplicationSummarySchema = z
+  .object({
+    id: z.string().min(1),
+    clientId: z.string().min(1),
+    ownerKind: ApiCredentialOwnerKindSchema,
+    ownerUserId: z.string().min(1),
+    ownerCommunityProfileId: z.string().min(1).optional(),
+    clientType: OAuthClientTypeSchema,
+    displayName: z.string().min(1),
+    description: z.string().optional(),
+    logoUrl: absoluteUrl.optional(),
+    docsUrl: absoluteUrl.optional(),
+    privacyUrl: absoluteUrl.optional(),
+    termsUrl: absoluteUrl.optional(),
+    redirectUris: z.array(absoluteUrl),
+    allowedGrants: z.array(OAuthGrantTypeSchema),
+    allowedScopes: z.array(ApiScopeSchema),
+    status: ApiCredentialStatusSchema,
+    trustTier: OAuthApplicationTrustTierSchema,
+    createdAt: timestampMs,
+    updatedAt: timestampMs,
+    lastUsedAt: timestampMs.optional(),
+    reviewedAt: timestampMs.optional(),
+    revokedAt: timestampMs.optional(),
+    revokeReason: z.string().optional(),
+    activeSecretPrefixes: z.array(z.string().min(1)),
+  })
+  .meta({
+    description: "User-owned OAuth application metadata. Raw client secrets are never returned.",
+    id: "OAuthApplicationSummary",
+  });
+
+export const DeveloperTokensResponseSchema = z
+  .object({
+    tokens: z.array(ApiTokenSummarySchema),
+  })
+  .meta({
+    description: "User-owned personal API token list.",
+    id: "DeveloperTokensResponse",
+  });
+
+export const DeveloperOAuthAppsResponseSchema = z
+  .object({
+    applications: z.array(OAuthApplicationSummarySchema),
+  })
+  .meta({
+    description: "User-owned OAuth application list.",
+    id: "DeveloperOAuthAppsResponse",
+  });
+
 export const ApiProblemSchema = z
   .object({
     detail: z.string().optional(),
@@ -485,6 +583,11 @@ export const SearchQueryParamsSchema = z.object({
 
 export const LimitQueryParamsSchema = z.object({
   limit: z.number().int().min(1).max(50).optional().meta({ description: "Maximum result count." }),
+});
+
+export const DeveloperCredentialListQueryParamsSchema = z.object({
+  includeRevoked: z.boolean().optional().meta({ description: "Include revoked credentials." }),
+  limit: z.number().int().min(1).max(100).optional().meta({ description: "Maximum result count." }),
 });
 
 export const AssetPathParamsSchema = SlugPathParamsSchema;

@@ -113,6 +113,20 @@ token to verify the credential class, owner/subject metadata, granted scopes,
 trust tier, and current authenticated public-read rate-limit window. This route
 does not list all of a user's tokens or OAuth apps.
 
+## Developer Resource Lists
+
+Use `GET /api/v0/developer/tokens` and
+`GET /api/v0/developer/oauth-apps` to list developer credential metadata for
+the current user. These routes require `developer:read` and a credential with
+user authority:
+
+- user-owned personal API tokens qualify
+- user-delegated API-resource OAuth access tokens qualify
+- OAuth client-credentials tokens do not imply user authority
+- dynamic hosted MCP clients do not list user-owned developer resources
+
+Raw personal token values and raw OAuth client secrets are never returned.
+
 ## Dynamic MCP Registration
 
 `POST /oauth/register` exists for hosted MCP client compatibility. It does not
@@ -136,6 +150,8 @@ client release supports both.
 
 - malformed, unknown, revoked, or expired bearer tokens return `401`
 - missing scopes return `403`
+- client-credentials tokens without user authority return `403` on developer
+  list routes even when the app owner is known
 - bearer tokens in URLs return `400`
 - rate-limited requests return `429` with rate-limit headers
 - failed auth must not reveal whether a private or suppressed object exists

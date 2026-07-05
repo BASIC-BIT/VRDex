@@ -1,8 +1,8 @@
 import { v } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";
-import type { MutationCtx } from "./_generated/server";
-import { mutation, query } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { internalQuery, mutation, query } from "./_generated/server";
 import { getCurrentUser, requireCurrentUser } from "./accounts";
 import {
   apiRouteClassValidator,
@@ -46,6 +46,28 @@ function toTokenSummary(token: Doc<"apiTokens">) {
     revokedAt: token.revokedAt,
     revokeReason: token.revokeReason,
   };
+}
+
+async function listUserOwnedTokenSummaries(
+  ctx: QueryCtx,
+  args: {
+    includeRevoked?: boolean;
+    limit?: number;
+    ownerUserId: Doc<"users">["_id"];
+  },
+) {
+  const limit = boundedLimit(args.limit, 50, 100);
+  const tokens = await ctx.db
+    .query("apiTokens")
+    .withIndex("by_ownerUserId_createdAt", (index) => index.eq("ownerUserId", args.ownerUserId))
+    .order("desc")
+    .take(limit * 2);
+
+  return tokens
+    .filter((token) => token.ownerKind === "user")
+    .filter((token) => args.includeRevoked === true || token.status === "active")
+    .slice(0, limit)
+    .map(toTokenSummary);
 }
 
 async function recordApiTokenEvent(
@@ -94,18 +116,18 @@ export const listPersonalTokens = query({
       return null;
     }
 
-    const limit = boundedLimit(args.limit, 50, 100);
-    const tokens = await ctx.db
-      .query("apiTokens")
-      .withIndex("by_ownerUserId_createdAt", (index) => index.eq("ownerUserId", user._id))
-      .order("desc")
-      .take(limit * 2);
+    return await listUserOwnedTokenSummaries(ctx, { ...args, ownerUserId: user._id });
+  },
+});
 
-    return tokens
-      .filter((token) => token.ownerKind === "user")
-      .filter((token) => args.includeRevoked === true || token.status === "active")
-      .slice(0, limit)
-      .map(toTokenSummary);
+export const listDeveloperTokensForApiOwner = internalQuery({
+  args: {
+    ownerUserId: v.id("users"),
+    includeRevoked: v.optional(v.boolean()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    return await listUserOwnedTokenSummaries(ctx, args);
   },
 });
 

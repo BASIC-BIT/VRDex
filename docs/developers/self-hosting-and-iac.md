@@ -65,6 +65,7 @@ Current API/MCP variables read by the web app:
 
 | Variable | Scope | Required when | Notes |
 | --- | --- | --- | --- |
+| `CONVEX_ADMIN_TOKEN` | Web server secret | Route handlers call internal Convex functions. | Needed for server-side internal Convex list queries such as developer credential inventory. Use an environment-specific Convex admin/deploy token and rotate through the provider secret store. |
 | `VRDEX_API_TOKEN_PEPPER` | Web server secret | Personal API tokens are created or validated. | Rotate by minting replacement tokens; old token hashes depend on the old pepper. |
 | `VRDEX_OAUTH_CLIENT_SECRET_PEPPER` | Web server secret | Confidential OAuth client secrets are created or validated. | Rotate by issuing replacement client secrets. |
 | `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY` | Web server secret | OAuth access tokens, JWKS, or OAuth bearer validation are used. | RSA private key PEM; keep in provider secret store. |

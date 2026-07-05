@@ -2,7 +2,7 @@ import { v } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { mutation, query } from "./_generated/server";
+import { internalQuery, mutation, query } from "./_generated/server";
 import { getCurrentUser, requireCurrentUser } from "./accounts";
 import { apiScopeValidator, hasRequiredApiScopes, timingSafeEqualString } from "./_apiTokens";
 import {
@@ -151,6 +151,40 @@ async function activeSecretsForApplication(ctx: MutationCtx, applicationId: Doc<
     .collect();
 }
 
+async function listUserOwnedApplicationSummaries(
+  ctx: QueryCtx,
+  args: {
+    includeRevoked?: boolean;
+    limit?: number;
+    ownerUserId: Doc<"users">["_id"];
+  },
+) {
+  const limit = boundedLimit(args.limit, 50, 100);
+  const applications = await ctx.db
+    .query("oauthApplications")
+    .withIndex("by_ownerUserId_createdAt", (index) => index.eq("ownerUserId", args.ownerUserId))
+    .order("desc")
+    .take(limit * 2);
+  const visibleApplications = applications
+    .filter((application) => application.ownerKind === "user")
+    .filter((application) => args.includeRevoked === true || application.status === "active")
+    .slice(0, limit);
+  const summaries = [];
+
+  for (const application of visibleApplications) {
+    const activeSecrets = await ctx.db
+      .query("oauthApplicationSecrets")
+      .withIndex("by_applicationId_status_createdAt", (index) =>
+        index.eq("applicationId", application._id).eq("status", "active"),
+      )
+      .collect();
+
+    summaries.push(toApplicationSummary(application, activeSecrets));
+  }
+
+  return summaries;
+}
+
 async function recordOAuthClientEvent(
   ctx: MutationCtx,
   args: {
@@ -267,30 +301,18 @@ export const listPersonalApplications = query({
       return null;
     }
 
-    const limit = boundedLimit(args.limit, 50, 100);
-    const applications = await ctx.db
-      .query("oauthApplications")
-      .withIndex("by_ownerUserId_createdAt", (index) => index.eq("ownerUserId", user._id))
-      .order("desc")
-      .take(limit * 2);
-    const visibleApplications = applications
-      .filter((application) => application.ownerKind === "user")
-      .filter((application) => args.includeRevoked === true || application.status === "active")
-      .slice(0, limit);
-    const summaries = [];
+    return await listUserOwnedApplicationSummaries(ctx, { ...args, ownerUserId: user._id });
+  },
+});
 
-    for (const application of visibleApplications) {
-      const activeSecrets = await ctx.db
-        .query("oauthApplicationSecrets")
-        .withIndex("by_applicationId_status_createdAt", (index) =>
-          index.eq("applicationId", application._id).eq("status", "active"),
-        )
-        .collect();
-
-      summaries.push(toApplicationSummary(application, activeSecrets));
-    }
-
-    return summaries;
+export const listDeveloperApplicationsForApiOwner = internalQuery({
+  args: {
+    ownerUserId: v.id("users"),
+    includeRevoked: v.optional(v.boolean()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    return await listUserOwnedApplicationSummaries(ctx, args);
   },
 });
 

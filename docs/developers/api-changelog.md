@@ -32,6 +32,9 @@ Public API and MCP platform foundation checkpoint:
 - added `GET /api/v0/usage/rate-limit` for route-class quota policy and caller
   window introspection
 - added `GET /api/v0/me` for authenticated caller introspection
+- added `GET /api/v0/developer/tokens` and
+  `GET /api/v0/developer/oauth-apps` for `developer:read` user-owned
+  credential metadata lists
 - added developer docs for public API posture, auth, OAuth apps, rate limits,
   MCP tools, and rollout checks
 
@@ -41,5 +44,7 @@ Compatibility notes:
 - MCP-resource OAuth tokens are required for hosted `/mcp`
 - local stdio MCP calls `/api/v0`, so it uses API-resource OAuth tokens
 - bearer credentials in URL query parameters are rejected
+- developer list routes require user authority; app-only OAuth tokens cannot
+  enumerate a user's token or OAuth app inventory
 - final quota numbers and trusted-partner escalation thresholds are still
   pre-launch decisions
