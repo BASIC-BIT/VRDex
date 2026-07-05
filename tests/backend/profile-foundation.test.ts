@@ -7,7 +7,9 @@ import {
   toPublicProfileAppearance,
 } from "../../convex/_profileAppearance";
 import {
+  createProfileAssetUploadIntentRecord,
   createProfileAssetStorageKey,
+  finalizeProfileAssetUploadIntentUpload,
   getPublicProfileMediaKit,
   normalizeProfileAvatarAppearance,
   normalizeProfileAssetMimeType,
@@ -1234,6 +1236,89 @@ describe("profile media kit asset helpers", () => {
       }),
       "profile-assets/2026-06-15/abcdef0123456789abcdef01/asset.png",
     );
+  });
+
+  it("consumes API-targeted upload intents into active profile assets", async () => {
+    type AssetTable =
+      | "profileAssetUploadIntents"
+      | "profileAssets"
+      | "profileAssetPlacements"
+      | "profileAuditEvents";
+    type AssetRow = Record<string, unknown> & {
+      _id: string;
+      _creationTime: number;
+    };
+    const tables: Record<AssetTable, AssetRow[]> = {
+      profileAssetUploadIntents: [],
+      profileAssets: [],
+      profileAssetPlacements: [],
+      profileAuditEvents: [],
+    };
+    const db = {
+      async get(id: string) {
+        return Object.values(tables).flat().find((row) => row._id === id) ?? null;
+      },
+      async insert(tableName: AssetTable, row: Record<string, unknown>) {
+        const id = `${tableName}:${tables[tableName].length + 1}`;
+        tables[tableName].push({
+          _id: id,
+          _creationTime: 1,
+          ...row,
+        });
+
+        return id;
+      },
+      async patch(id: string, patch: Record<string, unknown>) {
+        for (const rows of Object.values(tables)) {
+          const row = rows.find((candidate) => candidate._id === id);
+          if (row !== undefined) {
+            Object.assign(row, patch);
+            return;
+          }
+        }
+
+        throw new Error(`Missing test row ${id}.`);
+      },
+    };
+    const requestedBy = {
+      tokenIdentifier: "api:user123",
+      issuer: "vrdex:api",
+      subject: "user123",
+      displayName: "API user",
+    };
+    const intent = await createProfileAssetUploadIntentRecord(db as never, {
+      requestedBy,
+      targetProfileId: "profile123" as Id<"profiles">,
+      originalFileName: " Logo.PNG ",
+      mimeType: "image/png",
+      byteSize: 2048,
+      label: "  Primary   logo ",
+      caption: " Brand mark ",
+      placements: ["primary_logo"],
+      source: "owner_authored",
+      now: 1000,
+    });
+
+    assert.equal(tables.profileAssetUploadIntents[0]?.targetProfileId, "profile123");
+    assert.equal(tables.profileAssetUploadIntents[0]?.label, "Primary logo");
+    assert.deepEqual(tables.profileAssetUploadIntents[0]?.placements, ["primary_logo"]);
+
+    const completed = await finalizeProfileAssetUploadIntentUpload(db as never, {
+      intentId: intent.intentId,
+      uploadToken: intent.uploadToken,
+      mimeType: "image/png",
+      byteSize: 4096,
+      now: 1500,
+    });
+
+    assert.deepEqual(completed.assetIds, ["profileAssets:1"]);
+    assert.equal(tables.profileAssetUploadIntents[0]?.state, "consumed");
+    assert.equal(tables.profileAssets[0]?.profileId, "profile123");
+    assert.equal(tables.profileAssets[0]?.byteSize, 4096);
+    assert.equal(tables.profileAssets[0]?.label, "Primary logo");
+    assert.equal(tables.profileAssets[0]?.source, "owner_authored");
+    assert.equal(tables.profileAssetPlacements[0]?.placement, "primary_logo");
+    assert.equal(tables.profileAuditEvents[0]?.action, "api_profile_asset_uploaded");
   });
 
   it("normalizes avatar appearance controls to a safe display range", () => {

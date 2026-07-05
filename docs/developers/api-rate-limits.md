@@ -64,6 +64,11 @@ Current defaults:
 | `anonymous_mcp_public_read` | 60 | 60s |
 | `authenticated_mcp` | 300 | 60s |
 
+`POST /api/v0/profiles/:slug/assets/upload-intent` uses
+`asset_upload_intent` so one-time upload target creation can be throttled
+separately from ordinary authenticated writes. The file/import upload transport
+uses the returned one-time upload token and does not accept bearer credentials.
+
 The public API also exposes:
 
 - `GET /api/v0/usage/rate-limit`, returning the same default route-class

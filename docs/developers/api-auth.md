@@ -146,6 +146,28 @@ Current constraints:
 - does not update slugs, claim state, publication state, field visibility,
   outbound links, media-kit assets, or page-builder settings in this checkpoint
 
+## Current Profile Asset Uploads
+
+Use `POST /api/v0/profiles/:slug/assets/upload-intent` to create a one-time
+media-kit upload intent for a claimed person or community profile owned by the
+current authenticated user.
+
+Current constraints:
+
+- requires `assets:write`
+- requires user authority
+- requires active ownership of the target profile
+- requires a claimed profile
+- accepts `originalFileName` for direct multipart uploads or `sourceUrl` for
+  server-side imports
+- accepts PNG, SVG, JPEG, and WebP image assets up to 12 MB
+- returns `uploadUrl`, `uploadToken`, and `uploadTokenHeader`
+- completes by posting the file or source import to `uploadUrl` with the
+  returned `x-vrdex-upload-token` value
+- consumes completed API-created intents into an active public profile asset
+  with any supplied placement metadata
+- uses the separate `asset_upload_intent` route class
+
 ## Current Event Writes
 
 Use `POST /api/v0/events` to create a public event attached to a community

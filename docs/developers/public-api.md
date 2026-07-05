@@ -56,6 +56,7 @@ Implemented authenticated reads require a valid bearer credential:
 | `GET /api/v0/me/communities` | List current user's owned community profile summaries. |
 | `GET /api/v0/me/events` | List current user's community-managed event summaries. |
 | `PATCH /api/v0/profiles/:slug` | Update public metadata for a claimed profile the current user owns. |
+| `POST /api/v0/profiles/:slug/assets/upload-intent` | Create a one-time media-kit upload intent for a claimed profile the current user owns. |
 | `POST /api/v0/events` | Create a public event attached to a community profile the current user owns. |
 | `PATCH /api/v0/events/:slug` | Update a public event attached to a community profile the current user owns. |
 | `GET /api/v0/developer/tokens` | List current user's personal API token metadata. |
@@ -80,6 +81,13 @@ aliases, tags, headline, bio, region, timezone, person pronouns and role tags,
 or community subtype and category tags. It does not change profile slugs,
 claims, publication state, field visibility, outbound links, media-kit assets,
 or page-builder settings.
+
+`POST /api/v0/profiles/:slug/assets/upload-intent` requires `assets:write`,
+user authority, active ownership of the target profile, and a claimed profile.
+It returns an upload URL plus the `x-vrdex-upload-token` header value to use
+when posting the file or source import to the existing upload transport. When
+that upload completes, the intent is consumed into an active public profile
+asset and any supplied media-kit placement metadata.
 
 `POST /api/v0/events` and `PATCH /api/v0/events/:slug` require `events:write`,
 user authority, and ownership of the target `communitySlug`. Event updates also
@@ -125,6 +133,12 @@ Current owner inventory backend primitives:
 - `events.createCommunityEventForApiOwner`
 - `events.listCommunityManagedEventsForApiOwner`
 - `events.updateCommunityEventForApiOwner`
+
+Current profile media backend primitives:
+
+- `profileAssets.createUploadIntentForApiProfileOwner`
+- `profileAssets.validateUploadIntentForStorage`
+- `profileAssets.markUploadIntentUploaded`
 
 Current OAuth app registry primitives:
 

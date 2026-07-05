@@ -37,6 +37,9 @@ Public API and MCP platform foundation checkpoint:
   community-managed event inventory
 - added `PATCH /api/v0/profiles/:slug` for `profile:write` claimed-owner
   metadata updates against profiles owned by the current authenticated user
+- added `POST /api/v0/profiles/:slug/assets/upload-intent` for `assets:write`
+  one-time media-kit uploads against claimed profiles owned by the current
+  authenticated user
 - added `POST /api/v0/events` for `events:write` public event creation against
   community profiles owned by the current authenticated user
 - added `PATCH /api/v0/events/:slug` for `events:write` public event updates
@@ -67,5 +70,7 @@ Compatibility notes:
 - bearer credentials in URL query parameters are rejected
 - developer list routes require user authority; app-only OAuth tokens cannot
   enumerate a user's token or OAuth app inventory
+- profile asset upload-intent creation uses the `asset_upload_intent`
+  route-limit class, while the upload transport uses the one-time upload token
 - final quota numbers and trusted-partner escalation thresholds are still
   pre-launch decisions

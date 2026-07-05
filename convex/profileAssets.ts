@@ -1,8 +1,9 @@
 import { v } from "convex/values";
 
 import { getCurrentUser, requireCurrentUser } from "./accounts";
-import type { Id } from "./_generated/dataModel";
-import { query, mutation, type MutationCtx } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
+import { internalMutation, query, mutation, type MutationCtx } from "./_generated/server";
+import type { AuthSubject } from "./_communityAuthority";
 import {
   normalizeProfilePublicSectionOrder,
   toPublicProfileAppearance,
@@ -11,15 +12,11 @@ import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { userOwnsProfile } from "./_profileOwnership";
 import { canReadProfile } from "./_profilePermissions";
 import {
-  createProfileAssetStorageKey,
-  createUploadToken,
+  createProfileAssetUploadIntentRecord,
+  finalizeProfileAssetUploadIntentUpload,
   getProfileAssetDisplayPreference,
   getPublicProfileMediaKit,
   normalizeProfileAvatarAppearance,
-  normalizeProfileAssetMimeType,
-  normalizeProfileAssetSourceUrl,
-  PROFILE_ASSET_UPLOAD_INTENT_TTL_MS,
-  validateProfileAssetByteSize,
 } from "./_profileAssets";
 
 const profileAssetUploadIntentId = v.id("profileAssetUploadIntents");
@@ -32,6 +29,24 @@ const profilePublicSection = v.union(
   v.literal("worlds"),
   v.literal("details"),
 );
+const profileAssetPlacement = v.union(
+  v.literal("profile_image"),
+  v.literal("banner"),
+  v.literal("primary_logo"),
+  v.literal("additional_logo"),
+);
+const profileAssetUploadIntentArgs = {
+  originalFileName: v.optional(v.string()),
+  sourceUrl: v.optional(v.string()),
+  mimeType: v.string(),
+  byteSize: v.optional(v.number()),
+};
+const profileAssetAttachMetadataArgs = {
+  label: v.optional(v.string()),
+  caption: v.optional(v.string()),
+  placements: v.optional(v.array(profileAssetPlacement)),
+  position: v.optional(v.number()),
+};
 
 function optionalIdentityDisplayName(name: string | undefined): string | undefined {
   const trimmed = name?.trim();
@@ -41,12 +56,6 @@ function optionalIdentityDisplayName(name: string | undefined): string | undefin
   }
 
   return trimmed.slice(0, 120);
-}
-
-function normalizeOptionalFileName(value: string | undefined): string | undefined {
-  const normalized = value?.trim().replace(/\s+/g, " ");
-
-  return normalized ? normalized.slice(0, 180) : undefined;
 }
 
 async function requireOwnedAppearanceProfile(ctx: MutationCtx, requestedProfileId: Id<"profiles">) {
@@ -59,6 +68,47 @@ async function requireOwnedAppearanceProfile(ctx: MutationCtx, requestedProfileI
 
   if (!(await userOwnsProfile(ctx.db, profile._id, user._id))) {
     throw new Error("Only the profile owner can update profile appearance.");
+  }
+
+  return profile;
+}
+
+function apiOwnerAuthSubject(userId: Doc<"users">["_id"]): AuthSubject {
+  return {
+    tokenIdentifier: `api:${userId}`,
+    issuer: "vrdex:api",
+    subject: String(userId),
+    displayName: "API user",
+  };
+}
+
+function profilePath(profile: Doc<"profiles">): string {
+  return profile.profileType === "person" ? `/p/${profile.slug}` : `/c/${profile.slug}`;
+}
+
+async function requireApiOwnedClaimedProfileBySlug(
+  ctx: MutationCtx,
+  slug: string,
+  ownerUserId: Id<"users">,
+) {
+  const validation = validateProfileSlug(slug);
+
+  if (!validation.ok) {
+    throw new Error("Current profile slug is invalid.");
+  }
+
+  const profile = await getProfileBySlug(ctx.db, validation.slug);
+
+  if (profile === null) {
+    throw new Error("Profile was not found.");
+  }
+
+  if (!(await userOwnsProfile(ctx.db, profile._id, ownerUserId))) {
+    throw new Error("You do not have permission to update this profile.");
+  }
+
+  if (profile.claimState === "unclaimed") {
+    throw new Error("Only a claimed profile owner can update profile assets.");
   }
 
   return profile;
@@ -92,12 +142,7 @@ async function patchProfileDisplayPreference(
 }
 
 export const createUploadIntent = mutation({
-  args: {
-    originalFileName: v.optional(v.string()),
-    sourceUrl: v.optional(v.string()),
-    mimeType: v.string(),
-    byteSize: v.optional(v.number()),
-  },
+  args: profileAssetUploadIntentArgs,
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
 
@@ -105,23 +150,7 @@ export const createUploadIntent = mutation({
       throw new Error("Profile media uploads require a signed-in user.");
     }
 
-    const originalFileName = normalizeOptionalFileName(args.originalFileName);
-    const sourceUrl = normalizeProfileAssetSourceUrl(args.sourceUrl);
-
-    if (originalFileName === undefined && sourceUrl === undefined) {
-      throw new Error("Profile media uploads require a file name or HTTPS source URL.");
-    }
-
-    const mimeType = normalizeProfileAssetMimeType(args.mimeType);
-    const byteSize = validateProfileAssetByteSize(args.byteSize ?? 1);
     const now = Date.now();
-    const uploadToken = createUploadToken();
-    const storageKey = createProfileAssetStorageKey({
-      token: uploadToken,
-      originalFileName,
-      mimeType,
-      now,
-    });
     const displayName = optionalIdentityDisplayName(identity.name);
     const requestedBy = {
       tokenIdentifier: identity.tokenIdentifier,
@@ -129,25 +158,50 @@ export const createUploadIntent = mutation({
       subject: identity.subject,
       ...(displayName !== undefined ? { displayName } : {}),
     };
-    const intentId = await ctx.db.insert("profileAssetUploadIntents", {
-      uploadToken,
+
+    return await createProfileAssetUploadIntentRecord(ctx.db, {
       requestedBy,
-      ...(originalFileName !== undefined ? { originalFileName } : {}),
-      ...(sourceUrl !== undefined ? { sourceUrl } : {}),
-      mimeType,
-      byteSize,
-      storageKey,
-      state: "pending",
-      createdAt: now,
-      expiresAt: now + PROFILE_ASSET_UPLOAD_INTENT_TTL_MS,
-      updatedAt: now,
+      ...args,
+      now,
+    });
+  },
+});
+
+export const createUploadIntentForApiProfileOwner = internalMutation({
+  args: {
+    ownerUserId: v.id("users"),
+    slug: v.string(),
+    ...profileAssetUploadIntentArgs,
+    ...profileAssetAttachMetadataArgs,
+  },
+  handler: async (ctx, args) => {
+    const profile = await requireApiOwnedClaimedProfileBySlug(ctx, args.slug, args.ownerUserId);
+    const now = Date.now();
+    const intent = await createProfileAssetUploadIntentRecord(ctx.db, {
+      requestedBy: apiOwnerAuthSubject(args.ownerUserId),
+      targetProfileId: profile._id,
+      originalFileName: args.originalFileName,
+      sourceUrl: args.sourceUrl,
+      mimeType: args.mimeType,
+      byteSize: args.byteSize,
+      label: args.label,
+      caption: args.caption,
+      placements: args.placements,
+      position: args.position,
+      source: "owner_authored",
+      now,
     });
 
     return {
-      intentId,
-      uploadToken,
-      storageKey,
-      expiresAt: now + PROFILE_ASSET_UPLOAD_INTENT_TTL_MS,
+      profileId: profile._id,
+      slug: profile.slug,
+      profileType: profile.profileType,
+      profilePath: profilePath(profile),
+      intentId: intent.intentId,
+      uploadToken: intent.uploadToken,
+      uploadUrl: `/api/v0/profile-assets/upload-intents/${intent.intentId}`,
+      uploadTokenHeader: "x-vrdex-upload-token",
+      expiresAt: intent.expiresAt,
     };
   },
 });
@@ -189,26 +243,9 @@ export const markUploadIntentUploaded = mutation({
     byteSize: v.number(),
   },
   handler: async (ctx, args) => {
-    const intent = await ctx.db.get(args.intentId);
     const now = Date.now();
 
-    if (intent === null || intent.uploadToken !== args.uploadToken) {
-      throw new Error("Profile media upload intent was not found.");
-    }
-
-    if (intent.state !== "pending" || intent.expiresAt < now) {
-      throw new Error("Profile media upload intent is no longer pending.");
-    }
-
-    await ctx.db.patch(intent._id, {
-      mimeType: normalizeProfileAssetMimeType(args.mimeType),
-      byteSize: validateProfileAssetByteSize(args.byteSize),
-      state: "uploaded",
-      uploadedAt: now,
-      updatedAt: now,
-    });
-
-    return { ok: true };
+    return await finalizeProfileAssetUploadIntentUpload(ctx.db, { ...args, now });
   },
 });
 

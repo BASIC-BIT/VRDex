@@ -426,6 +426,52 @@ export const ApiProfileWriteResponseSchema = z
     id: "ApiProfileWriteResponse",
   });
 
+export const ProfileAssetPlacementSchema = z
+  .enum(["profile_image", "banner", "primary_logo", "additional_logo"])
+  .meta({ description: "Profile media-kit placement to apply after upload completion." });
+
+export const ProfileAssetMimeTypeSchema = z
+  .enum(["image/png", "image/svg+xml", "image/jpeg", "image/webp"])
+  .meta({ description: "Supported profile media upload MIME type." });
+
+export const ApiProfileAssetUploadIntentCreateRequestSchema = z
+  .object({
+    originalFileName: z.string().min(1).max(180).optional(),
+    sourceUrl: absoluteUrl.optional(),
+    mimeType: ProfileAssetMimeTypeSchema,
+    byteSize: z.number().int().positive().max(12 * 1024 * 1024).optional(),
+    label: z.string().max(80).optional(),
+    caption: z.string().max(240).optional(),
+    placements: z.array(ProfileAssetPlacementSchema).max(8).optional(),
+    position: z.number().int().nonnegative().optional(),
+  })
+  .refine((value) => value.originalFileName !== undefined || value.sourceUrl !== undefined, {
+    message: "Send originalFileName for direct uploads or sourceUrl for server-side imports.",
+  })
+  .meta({
+    description:
+      "Create a one-time profile media upload intent for a claimed profile owned by the current authenticated API user.",
+    id: "ApiProfileAssetUploadIntentCreateRequest",
+  });
+
+export const ApiProfileAssetUploadIntentCreateResponseSchema = z
+  .object({
+    profileId: z.string().min(1),
+    slug,
+    profileType: ProfileTypeSchema,
+    profilePath: z.string().min(1),
+    intentId: z.string().min(1),
+    uploadToken: z.string().min(1),
+    uploadUrl: z.string().min(1),
+    uploadTokenHeader: z.literal("x-vrdex-upload-token"),
+    expiresAt: timestampMs,
+  })
+  .meta({
+    description:
+      "One-time upload target and upload-token header for profile media. The token is only valid for this upload intent.",
+    id: "ApiProfileAssetUploadIntentCreateResponse",
+  });
+
 export const PublicWorldEventPreviewSchema = z
   .object({
     bannerImageUrl: absoluteUrl.optional(),

@@ -25,6 +25,8 @@ import {
   ApiMeInventoryQueryParamsSchema,
   ApiMeProfilesResponseSchema,
   ApiMeResponseSchema,
+  ApiProfileAssetUploadIntentCreateRequestSchema,
+  ApiProfileAssetUploadIntentCreateResponseSchema,
   ApiProfileUpdateRequestSchema,
   ApiProfileWriteResponseSchema,
   ApiRateLimitUsageResponseSchema,
@@ -108,6 +110,10 @@ const eventsWriteSecurity: Array<Record<string, string[]>> = [
   { bearerAuth: [] },
   { oauth2: ["events:write"] },
 ];
+const assetsWriteSecurity: Array<Record<string, string[]>> = [
+  { bearerAuth: [] },
+  { oauth2: ["assets:write"] },
+];
 const developerReadSecurity: Array<Record<string, string[]>> = [
   { bearerAuth: [] },
   { oauth2: ["developer:read"] },
@@ -138,6 +144,7 @@ export const openApiSource = {
   tags: [
     { name: "API", description: "API contract and metadata surfaces." },
     { name: "Profiles", description: "Public profile read surfaces." },
+    { name: "Assets", description: "Public and owner-managed profile asset surfaces." },
     { name: "Search", description: "Public discovery and search surfaces." },
     { name: "Events", description: "Public event read surfaces." },
     { name: "Worlds", description: "Public world read surfaces." },
@@ -621,6 +628,46 @@ export const openApiSource = {
             content: jsonContent(PublicProfileAssetsResponseSchema),
           },
           ...publicReadProblemResponses,
+        },
+      },
+    },
+    "/api/v0/profiles/{slug}/assets/upload-intent": {
+      post: {
+        operationId: "createCurrentUserProfileAssetUploadIntent",
+        tags: ["Profiles", "Assets"],
+        summary: "Create a profile asset upload intent",
+        description:
+          "Creates a one-time upload intent for a claimed profile owned by a bearer credential with user authority and assets:write scope. Complete the upload by posting the image file or source import to the returned uploadUrl with the returned upload-token header.",
+        security: assetsWriteSecurity,
+        requestParams: {
+          path: SlugPathParamsSchema,
+        },
+        requestBody: {
+          required: true,
+          content: jsonContent(ApiProfileAssetUploadIntentCreateRequestSchema),
+        },
+        responses: {
+          "200": {
+            description: "One-time upload target for profile media.",
+            content: jsonContent(ApiProfileAssetUploadIntentCreateResponseSchema),
+          },
+          "400": {
+            description: "The upload-intent request was malformed.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "401": {
+            description: "Bearer authentication is required or invalid.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "403": {
+            description: "The bearer credential lacks assets:write scope, user authority, ownership, or a claimed profile.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "404": {
+            description: "The profile was not found.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "429": publicReadProblemResponses["429"],
         },
       },
     },

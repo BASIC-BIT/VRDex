@@ -131,3 +131,15 @@ export async function evaluateApiUserWriteRequest(
     routeClass: "public_write",
   });
 }
+
+export async function evaluateApiUserAssetUploadRequest(
+  request: Request,
+  options: {
+    requiredScope: ApiScope;
+  },
+) {
+  return await evaluateApiUserCredentialRequest(request, {
+    ...options,
+    routeClass: "asset_upload_intent",
+  });
+}

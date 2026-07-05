@@ -11,6 +11,8 @@ import {
   ApiMeEventsResponseSchema,
   ApiMeProfilesResponseSchema,
   ApiMeResponseSchema,
+  ApiProfileAssetUploadIntentCreateRequestSchema,
+  ApiProfileAssetUploadIntentCreateResponseSchema,
   ApiProfileUpdateRequestSchema,
   ApiProfileWriteResponseSchema,
   ApiRateLimitUsageResponseSchema,
@@ -190,6 +192,36 @@ describe("@vrdex/api-contracts", () => {
       slug: "artist-name",
       profileType: "person",
       profilePath: "/p/artist-name",
+    });
+  });
+
+  it("parses profile asset upload-intent contracts", () => {
+    ApiProfileAssetUploadIntentCreateRequestSchema.parse({
+      originalFileName: "logo.png",
+      mimeType: "image/png",
+      byteSize: 1024,
+      label: "Primary logo",
+      placements: ["primary_logo"],
+    });
+
+    ApiProfileAssetUploadIntentCreateRequestSchema.parse({
+      sourceUrl: "https://example.test/logo.webp",
+      mimeType: "image/webp",
+      caption: "Imported brand mark",
+      placements: ["additional_logo"],
+      position: 1,
+    });
+
+    ApiProfileAssetUploadIntentCreateResponseSchema.parse({
+      profileId: "profile123",
+      slug: "artist-name",
+      profileType: "person",
+      profilePath: "/p/artist-name",
+      intentId: "intent123",
+      uploadToken: "upload-token",
+      uploadUrl: "/api/v0/profile-assets/upload-intents/intent123",
+      uploadTokenHeader: "x-vrdex-upload-token",
+      expiresAt: 1770000000000,
     });
   });
 
@@ -564,6 +596,7 @@ describe("@vrdex/api-contracts", () => {
     assert.ok(document.paths?.["/api/v0/profiles/{slug}"]);
     assert.ok(document.paths?.["/api/v0/profiles/{slug}"]?.patch);
     assert.ok(document.paths?.["/api/v0/profiles/{slug}/assets"]);
+    assert.ok(document.paths?.["/api/v0/profiles/{slug}/assets/upload-intent"]?.post);
     assert.ok(document.paths?.["/api/v0/profiles/{slug}/logos"]);
     assert.ok(document.paths?.["/api/v0/people/{slug}"]);
     assert.ok(document.paths?.["/api/v0/people/{slug}/events"]);

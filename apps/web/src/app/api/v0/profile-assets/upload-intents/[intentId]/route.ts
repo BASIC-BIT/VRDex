@@ -449,7 +449,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       body: upload.body,
       contentType: upload.mimeType,
     });
-    await convex.mutation(api.profileAssets.markUploadIntentUploaded, {
+    const completed = await convex.mutation(api.profileAssets.markUploadIntentUploaded, {
       intentId: intent.intentId,
       uploadToken,
       mimeType: upload.mimeType,
@@ -461,6 +461,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       storageKey: intent.storageKey,
       mimeType: upload.mimeType,
       byteSize: upload.body.byteLength,
+      assetIds: completed.assetIds,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Profile media upload failed.";

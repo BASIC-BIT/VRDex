@@ -300,7 +300,7 @@ Candidate endpoints:
 - `PATCH /api/v0/developer/oauth-apps/:clientId`
 - `POST /api/v0/developer/oauth-apps/:clientId/secrets`
 - `POST /api/v0/events`
-- `PATCH /api/v0/events/:id`
+- `PATCH /api/v0/events/:slug`
 - `POST /api/v0/events/:id/assets/upload-intent`
 - `PATCH /api/v0/profiles/:slug`
 - `POST /api/v0/profiles/:slug/assets/upload-intent`
@@ -319,6 +319,14 @@ Implementation checkpoint:
   and writes a profile audit event. Slug changes, claims, publication state,
   field visibility, outbound links, media-kit assets, and page-builder settings
   remain out of this checkpoint.
+- `POST /api/v0/profiles/:slug/assets/upload-intent` now creates one-time
+  profile media upload intents for active claimed-profile owners with
+  `assets:write`. Completed uploads are consumed into active public profile
+  assets and optional media-kit placements through the existing upload-token
+  transport.
+- `POST /api/v0/events/:id/assets/upload-intent` remains deferred until event
+  asset storage and placement semantics exist; the profile media-kit path uses
+  existing storage primitives and does not invent an event asset model.
 
 ## Auth Platform
 

@@ -180,4 +180,52 @@ describe("current API caller route", () => {
     assert.match(output, /^400/m);
     assert.match(output, /"title":"Bearer token query parameters are not allowed"/);
   });
+
+  it("requires a bearer credential for profile asset upload intents", () => {
+    const output = runMeRouteProbe(`
+      import { POST } from "./apps/web/src/app/api/v0/profiles/[slug]/assets/upload-intent/route.ts";
+
+      const response = await POST(
+        new Request("https://app.example.test/api/v0/profiles/artist-name/assets/upload-intent", {
+          method: "POST",
+          body: JSON.stringify({
+            originalFileName: "logo.png",
+            mimeType: "image/png",
+            byteSize: 1024,
+            placements: ["primary_logo"],
+          }),
+        }),
+        { params: Promise.resolve({ slug: "artist-name" }) },
+      );
+      console.log(response.status);
+      console.log(JSON.stringify(await response.json()));
+    `);
+
+    assert.match(output, /^401/m);
+    assert.match(output, /"title":"Bearer token required"/);
+  });
+
+  it("rejects bearer-token query parameters for profile asset upload intents", () => {
+    const output = runMeRouteProbe(`
+      import { POST } from "./apps/web/src/app/api/v0/profiles/[slug]/assets/upload-intent/route.ts";
+
+      const response = await POST(
+        new Request("https://app.example.test/api/v0/profiles/artist-name/assets/upload-intent?access_token=secret", {
+          method: "POST",
+          body: JSON.stringify({
+            originalFileName: "logo.png",
+            mimeType: "image/png",
+            byteSize: 1024,
+            placements: ["primary_logo"],
+          }),
+        }),
+        { params: Promise.resolve({ slug: "artist-name" }) },
+      );
+      console.log(response.status);
+      console.log(JSON.stringify(await response.json()));
+    `);
+
+    assert.match(output, /^400/m);
+    assert.match(output, /"title":"Bearer token query parameters are not allowed"/);
+  });
 });

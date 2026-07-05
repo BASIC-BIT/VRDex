@@ -25,6 +25,10 @@
       "description": "Public profile read surfaces."
     },
     {
+      "name": "Assets",
+      "description": "Public and owner-managed profile asset surfaces."
+    },
+    {
       "name": "Search",
       "description": "Public discovery and search surfaces."
     },
@@ -1600,6 +1604,122 @@
         }
       }
     },
+    "/api/v0/profiles/{slug}/assets/upload-intent": {
+      "post": {
+        "operationId": "createCurrentUserProfileAssetUploadIntent",
+        "tags": [
+          "Profiles",
+          "Assets"
+        ],
+        "summary": "Create a profile asset upload intent",
+        "description": "Creates a one-time upload intent for a claimed profile owned by a bearer credential with user authority and assets:write scope. Complete the upload by posting the image file or source import to the returned uploadUrl with the returned upload-token header.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "oauth2": [
+              "assets:write"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "description": "Public slug."
+            },
+            "required": true,
+            "description": "Public slug."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApiProfileAssetUploadIntentCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "One-time upload target for profile media.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProfileAssetUploadIntentCreateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The upload-intent request was malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Bearer authentication is required or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The bearer credential lacks assets:write scope, user authority, ownership, or a claimed profile.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The profile was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v0/profiles/{slug}/logos": {
       "get": {
         "operationId": "getPublicProfileLogos",
@@ -2982,6 +3102,66 @@
           }
         },
         "description": "Update owner-editable metadata for a claimed profile owned by the current authenticated API user."
+      },
+      "ApiProfileAssetUploadIntentCreateRequest": {
+        "type": "object",
+        "properties": {
+          "originalFileName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 180
+          },
+          "sourceUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "mimeType": {
+            "type": "string",
+            "enum": [
+              "image/png",
+              "image/svg+xml",
+              "image/jpeg",
+              "image/webp"
+            ],
+            "description": "Supported profile media upload MIME type."
+          },
+          "byteSize": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 12582912
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "caption": {
+            "type": "string",
+            "maxLength": 240
+          },
+          "placements": {
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "profile_image",
+                "banner",
+                "primary_logo",
+                "additional_logo"
+              ],
+              "description": "Profile media-kit placement to apply after upload completion."
+            }
+          },
+          "position": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "mimeType"
+        ],
+        "description": "Create a one-time profile media upload intent for a claimed profile owned by the current authenticated API user."
       },
       "ApiEventUpdateRequest": {
         "type": "object",
@@ -5317,6 +5497,66 @@
         ],
         "additionalProperties": {},
         "description": "Public assets for a profile."
+      },
+      "ApiProfileAssetUploadIntentCreateResponse": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "profileType": {
+            "type": "string",
+            "enum": [
+              "person",
+              "community"
+            ],
+            "description": "The public profile entity class."
+          },
+          "profilePath": {
+            "type": "string",
+            "minLength": 1
+          },
+          "intentId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uploadToken": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uploadUrl": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uploadTokenHeader": {
+            "type": "string",
+            "const": "x-vrdex-upload-token"
+          },
+          "expiresAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "profileId",
+          "slug",
+          "profileType",
+          "profilePath",
+          "intentId",
+          "uploadToken",
+          "uploadUrl",
+          "uploadTokenHeader",
+          "expiresAt"
+        ],
+        "additionalProperties": false,
+        "description": "One-time upload target and upload-token header for profile media. The token is only valid for this upload intent."
       },
       "PublicProfileLogosResponse": {
         "type": "object",
