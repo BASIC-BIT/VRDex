@@ -1,6 +1,6 @@
 import { apiScopes } from "@vrdex/api-contracts";
 
-import { oauthIssuerUrl, oauthMcpResourceUri } from "@/lib/server/oauth-jwt";
+import { oauthIssuerUrl, oauthSupportedResources } from "@/lib/server/oauth-jwt";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -22,7 +22,7 @@ export function GET(request: Request) {
       token_endpoint_auth_methods_supported: ["none", "client_secret_basic", "client_secret_post"],
       scopes_supported: apiScopes,
       resource_indicators_supported: true,
-      protected_resources: [issuer, oauthMcpResourceUri(request)],
+      protected_resources: oauthSupportedResources(request),
     },
     {
       headers: {
