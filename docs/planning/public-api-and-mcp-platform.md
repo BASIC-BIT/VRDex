@@ -450,8 +450,11 @@ Implementation requirements:
 - HTTPS redirect URIs except localhost loopback development redirects
 - public clients require PKCE
 - confidential clients store hashed secrets only
-- app ownership can be user-owned first and community-owned later
-- reviewed/trusted partner status must be explicit if added
+- app ownership starts user-owned
+- community-owned apps are an early follow-up once community owner/admin
+  authority is stable enough
+- reviewed/trusted partner status is a manual operator decision with explicit
+  contact ownership, quota class, monitoring, and revocation
 
 Issuer placement:
 
@@ -597,6 +600,8 @@ Route classes:
 
 Backend choice:
 
+- the backend is the storage/execution path for hot per-window request counters,
+  not the source of quota policy or durable audit history
 - high-volume hosted anonymous API and hosted MCP counters should use a Redis-compatible TTL counter store
 - Convex should store quota policy, token/app ownership, trusted partner overrides, coarse usage summaries, and durable audit events
 - local development can use an in-memory adapter
@@ -606,6 +611,8 @@ Why this is a separate question:
 
 - anonymous public reads can create high-cardinality counters keyed by IP, route class, and window
 - those counters expire quickly and do not need to be part of the core product database
+- Redis-style increment-plus-expiry counters are a standard fit for public API
+  rate limiting because the data is intentionally short-lived
 - trusted app/token policy and audit data are durable business records and do belong in Convex
 - separating hot TTL counters from durable policy avoids turning every anonymous search/MCP request into a Convex write
 
@@ -620,7 +627,12 @@ Quota values:
 
 - `Interview later`: choose real numbers after API endpoint shape and hosting cost are clearer
 - `Current recommendation`: document placeholder classes before implementation, then set conservative defaults in code
-- `Current recommendation`: trusted partners should have very high practical quotas compared with normal personal tokens, controlled by manual review, contact ownership, monitoring, and revocation instead of a self-serve automatic upgrade
+- `Current recommendation`: trusted partners should have very high practical
+  quotas compared with normal personal tokens, high enough that normal partner
+  workloads do not feel personal-token caps
+- `Current recommendation`: trusted partner access is not literally unmetered;
+  it remains controlled by manual review, contact ownership, monitoring, cost
+  guardrails, and fast revocation instead of a self-serve automatic upgrade
 
 ### Abuse Rules
 
@@ -714,7 +726,8 @@ Required metadata:
 
 Auth behavior:
 
-- anonymous read tools are allowed for public-safe read operations
+- anonymous read tools are required for public-safe search/browser-like read operations
+- anonymous read tools must not trigger OAuth or client registration prompts
 - anonymous MCP callers use separate route classes and quotas from anonymous HTTP API callers
 - authenticated tools require `Authorization: Bearer <access-token>`
 - MCP tokens must be issued for the VRDex MCP resource
@@ -726,7 +739,7 @@ Day-one client compatibility:
 
 - support Streamable HTTP for hosted MCP
 - support stdio for private/local MCP
-- maintain an implementation-time compatibility matrix for the major MCP clients available then
+- maintain an implementation-time compatibility matrix for the major MCP clients available then, including Claude Desktop, Claude Code, VS Code/Copilot surfaces, Cursor, OpenAI/ChatGPT MCP-capable surfaces, Devin/Windsurf, and MCP Inspector unless the current ecosystem has shifted
 - test anonymous hosted read tools, OAuth hosted tools, and local stdio token configuration separately
 - do not declare hosted MCP ready until the matrix covers the mainstream clients VRDex users and partner agents are likely to use
 
@@ -1205,7 +1218,10 @@ Security-specific tests:
 - [MCP Authorization](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization)
 - [MCP Transports](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports)
 - [MCP remote server guide](https://modelcontextprotocol.io/docs/develop/connect-remote-servers)
+- [MCP Inspector](https://modelcontextprotocol.io/docs/tools/inspector)
 - [Claude Code MCP docs](https://docs.anthropic.com/en/docs/claude-code/mcp)
+- [VS Code MCP servers](https://code.visualstudio.com/docs/agent-customization/mcp-servers)
+- [Devin Desktop / Windsurf Cascade MCP](https://docs.devin.ai/desktop/cascade/mcp)
 - [OpenAI MCP and Connectors](https://platform.openai.com/docs/mcp)
 - [OpenAPI Specification](https://spec.openapis.org/oas/latest.html)
 - [Zod 4 JSON Schema conversion](https://zod.dev/v4)
@@ -1224,6 +1240,7 @@ Security-specific tests:
 - [RFC 7662: OAuth 2.0 Token Introspection](https://datatracker.ietf.org/doc/html/rfc7662)
 - [RFC 6585: 429 Too Many Requests](https://www.rfc-editor.org/rfc/rfc6585.html)
 - [RFC 9457: Problem Details for HTTP APIs](https://www.rfc-editor.org/rfc/rfc9457.html)
+- [Redis rate limiter pattern](https://redis.io/docs/latest/commands/incr/)
 
 ## Follow-Up Decisions From Maintainer Review
 
@@ -1236,7 +1253,7 @@ Security-specific tests:
 - First-pass developer apps should be user-owned.
 - Community-owned OAuth apps should be considered early after user-owned apps.
 - Trusted partner access is manually reviewed and should have much higher practical quotas than normal personal tokens, while retaining monitoring, cost controls, and revocation.
-- The rate-limit backend decision is about hot, expiring request counters rather than durable product state. Hosted high-volume API/MCP traffic should use Redis-compatible TTL counters; Convex should keep durable ownership, policy, review, summary, and audit records.
+- Rate-limit backend language refers to hot, expiring request counters rather than durable product state; Convex keeps durable ownership, policy, review, summary, and audit records.
 
 ## Remaining Open Research
 

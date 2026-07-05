@@ -18,6 +18,11 @@ If an OAuth bearer token is supplied to `/mcp`, it must be issued for the MCP
 resource and include `mcp:read`; otherwise the anonymous public read tools still
 work without credentials.
 
+Anonymous hosted reads are a day-one requirement, not a degraded fallback. They
+must stay limited to public-safe read tools and use the anonymous MCP
+rate-limit class, but clients should be able to search and browse public VRDex
+records without completing OAuth first.
+
 The OAuth issuer exposes `POST /oauth/register` for constrained Dynamic Client
 Registration by hosted MCP clients and `GET /oauth/authorize` for public-client
 Authorization Code with PKCE. Registered dynamic clients are public clients only:

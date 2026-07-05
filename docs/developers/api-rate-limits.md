@@ -13,6 +13,10 @@ contract. Trusted partner access remains manually reviewed and should use much
 higher practical quotas only after contact ownership, monitoring, cost controls,
 and revocation paths are in place.
 
+In this guide, the rate-limit backend is the storage path for hot expiring
+request counters. It is separate from durable quota policy, credential ownership,
+partner review state, usage summaries, and audit events, which stay in Convex.
+
 ## Store Modes
 
 Set `VRDEX_RATE_LIMIT_STORE` on the web deployment:
@@ -32,6 +36,10 @@ Redis REST mode requires:
 
 The Redis adapter uses a fixed-window counter with `INCR`, `PEXPIRE NX`, and
 `PTTL` in one pipeline request.
+
+Use a Redis-compatible store for hosted production anonymous API and hosted MCP
+traffic. Convex-only counters are acceptable only for low-volume self-hosted
+deployments that knowingly accept the extra write load and cost tradeoff.
 
 ## Default Route Classes
 
@@ -110,6 +118,7 @@ Manual review should confirm:
 - expected quota class and monitoring plan
 
 The implementation already has `trustTier` fields for personal tokens and OAuth
-applications. Raising partner quotas should be a deliberate operator action
-with documentation, monitoring, and fast revocation rather than an automatic
-upgrade path.
+applications. Raising partner quotas should be a deliberate operator action.
+Partner limits can be very high compared with normal personal tokens, but they
+are still metered, monitored, cost-aware, and quickly revocable rather than an
+automatic or literally unlimited upgrade path.
