@@ -11,6 +11,18 @@ This matrix separates repo-verified protocol behavior from manual client
 smokes. Do not declare the public MCP surface externally ready until the manual
 smoke rows are run against a deployed preview or production-like environment.
 
+Source-backed client requirements from the current docs pass:
+
+- hosted MCP must keep Streamable HTTP working for remote clients
+- local MCP must keep stdio working for clients that run command-based servers
+- hosted OAuth must support metadata discovery, Client ID Metadata Documents
+  where clients prefer them, and constrained Dynamic Client Registration for
+  clients that register automatically
+- static bearer-token headers remain a diagnostic fallback, not the preferred
+  hosted OAuth setup
+- do not publish client-specific setup snippets unless that client's current
+  docs or a manual smoke confirms the config shape
+
 ## Repo-Verified Protocol Checks
 
 | Surface | Evidence |
@@ -29,8 +41,8 @@ smoke rows are run against a deployed preview or production-like environment.
 | Claude Desktop | Uses `mcpServers` JSON with `command`, `args`, and optional `env`. | Remote setup should use Claude's current Custom Connector path. | Hosted `/mcp` should complete OAuth through protected-resource metadata. | Local stdio config ready; hosted manual smoke pending. |
 | Claude Code | Supports stdio with `claude mcp add --transport stdio`. | Supports HTTP with `claude mcp add --transport http`. | Supports OAuth from `/mcp` or `claude mcp login`, with Dynamic Client Registration or Client ID Metadata Documents depending on server metadata. | Local stdio and hosted command shapes ready; manual smoke pending. |
 | VS Code | Uses `.vscode/mcp.json` or user MCP config with `servers` entries. | Supports `type: "http"` and `url`. | Avoid hardcoded secrets; use inputs or environment files. OAuth manual smoke pending. | Config snippets ready; manual smoke pending. |
-| Cursor | MCP support is listed by the official MCP ecosystem docs. | Treat hosted HTTP and local stdio as required smoke targets. | Confirm current OAuth behavior during manual smoke. | Client support identified; current config docs need manual confirmation. |
-| OpenAI and ChatGPT MCP-capable surfaces | Treat local stdio as unsupported until the current product surface says otherwise. | Treat hosted HTTP as the expected route when custom MCP connectors are available. | Current docs recommend OAuth with Client ID Metadata Documents when supported and keep Dynamic Client Registration supported when configured. | Ecosystem support identified; install path intentionally not documented until current official setup is verified. |
+| Cursor | Treat local stdio as a required smoke target if the current release still supports command-based MCP config. | Treat hosted HTTP as a required smoke target if the current release supports remote MCP URLs. | Confirm current OAuth behavior during manual smoke. | Major-client smoke target; do not publish Cursor-specific snippets until the current docs or smoke run confirm them. |
+| OpenAI and ChatGPT MCP-capable surfaces | Treat local stdio as unsupported until the current product surface says otherwise. | Use hosted remote MCP when ChatGPT Apps, deep research, or API integration setup supports custom MCP servers. | Prefer Client ID Metadata Documents when supported; keep Dynamic Client Registration available for compatible clients. | Hosted remote MCP target identified; exact setup must be verified in the relevant OpenAI surface before launch docs publish snippets. |
 | Devin Desktop / Windsurf Cascade | Uses `mcp_config.json` with `mcpServers`. | Supports `serverUrl` or `url` for remote HTTP MCPs. | Docs state OAuth support for stdio, Streamable HTTP, and SSE. | Local and hosted config shapes ready; manual smoke pending. |
 | MCP Inspector | Use as a protocol-level stdio debugger. | Connect directly to hosted `/mcp` for remote debugging. | Exercise anonymous and OAuth paths separately. | Recommended diagnostic tool; manual smoke pending. |
 
