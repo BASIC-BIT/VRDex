@@ -130,6 +130,8 @@ community-owned tokens, and OAuth client-credentials tokens do not.
 ## Current Event Writes
 
 Use `POST /api/v0/events` to create a public event attached to a community
+profile owned by the current authenticated user. Use
+`PATCH /api/v0/events/:slug` to update an existing event attached to a community
 profile owned by the current authenticated user.
 
 Current constraints:
@@ -138,9 +140,10 @@ Current constraints:
 - requires user authority
 - requires `communitySlug`
 - requires ownership of the target community profile
+- update also requires ownership of the event's current community profile
 - creates a published public event using the same sanitizers as the web event
   editor
-- does not create standalone submitter-only events in this checkpoint
+- does not create or update standalone submitter-only events in this checkpoint
 
 ## Developer Resource Lists
 

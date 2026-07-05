@@ -104,4 +104,42 @@ describe("current API caller route", () => {
     assert.match(output, /^400/m);
     assert.match(output, /"title":"Bearer token query parameters are not allowed"/);
   });
+
+  it("requires a bearer credential for event updates", () => {
+    const output = runMeRouteProbe(`
+      import { PATCH } from "./apps/web/src/app/api/v0/events/[slug]/route.ts";
+
+      const response = await PATCH(
+        new Request("https://app.example.test/api/v0/events/club-night", {
+          method: "PATCH",
+          body: JSON.stringify({ title: "Club Night", communitySlug: "club-name", startAt: 1770000000000 }),
+        }),
+        { params: Promise.resolve({ slug: "club-night" }) },
+      );
+      console.log(response.status);
+      console.log(JSON.stringify(await response.json()));
+    `);
+
+    assert.match(output, /^401/m);
+    assert.match(output, /"title":"Bearer token required"/);
+  });
+
+  it("rejects bearer-token query parameters for event updates", () => {
+    const output = runMeRouteProbe(`
+      import { PATCH } from "./apps/web/src/app/api/v0/events/[slug]/route.ts";
+
+      const response = await PATCH(
+        new Request("https://app.example.test/api/v0/events/club-night?api_token=secret", {
+          method: "PATCH",
+          body: JSON.stringify({ title: "Club Night", communitySlug: "club-name", startAt: 1770000000000 }),
+        }),
+        { params: Promise.resolve({ slug: "club-night" }) },
+      );
+      console.log(response.status);
+      console.log(JSON.stringify(await response.json()));
+    `);
+
+    assert.match(output, /^400/m);
+    assert.match(output, /"title":"Bearer token query parameters are not allowed"/);
+  });
 });

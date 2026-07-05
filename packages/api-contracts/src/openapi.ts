@@ -3,6 +3,7 @@ import { createDocument, type ZodOpenApiObject, type ZodOpenApiResponsesObject }
 import { apiScopes } from "./auth";
 import {
   ApiEventCreateRequestSchema,
+  ApiEventUpdateRequestSchema,
   ApiEventWriteResponseSchema,
   ApiProblemSchema,
   ApiTokenPathParamsSchema,
@@ -678,6 +679,44 @@ export const openApiSource = {
             content: jsonContent(PublicEventSchema),
           },
           ...publicReadProblemResponses,
+        },
+      },
+      patch: {
+        operationId: "updateCurrentUserCommunityEvent",
+        tags: ["Events"],
+        summary: "Update a current user's community event",
+        description:
+          "Updates a public event attached to a community profile owned by a bearer credential with user authority and events:write scope.",
+        security: eventsWriteSecurity,
+        requestParams: {
+          path: SlugPathParamsSchema,
+        },
+        requestBody: {
+          required: true,
+          content: jsonContent(ApiEventUpdateRequestSchema),
+        },
+        responses: {
+          "200": {
+            description: "Updated event identifiers and paths.",
+            content: jsonContent(ApiEventWriteResponseSchema),
+          },
+          "400": {
+            description: "The event update request was malformed.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "401": {
+            description: "Bearer authentication is required or invalid.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "403": {
+            description: "The bearer credential lacks events:write scope, user authority, or ownership of the target event/community.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "404": {
+            description: "The event was not found.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "429": publicReadProblemResponses["429"],
         },
       },
     },

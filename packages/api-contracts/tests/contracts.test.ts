@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   ApiEventCreateRequestSchema,
+  ApiEventUpdateRequestSchema,
   ApiEventWriteResponseSchema,
   createBearerTokenQueryProblem,
   createPublicNotFoundProblem,
@@ -151,6 +152,12 @@ describe("@vrdex/api-contracts", () => {
       eventPath: "/e/club-night",
       shortLinkCode: "abc123",
       shortLinkPath: "/s/abc123",
+    });
+
+    ApiEventUpdateRequestSchema.parse({
+      title: "Club Night Updated",
+      communitySlug: "club-name",
+      startAt: 1770000000000,
     });
   });
 
@@ -531,6 +538,7 @@ describe("@vrdex/api-contracts", () => {
     assert.ok(document.paths?.["/api/v0/communities/{slug}/events"]);
     assert.ok(document.paths?.["/api/v0/events"]?.post);
     assert.ok(document.paths?.["/api/v0/events/{slug}"]);
+    assert.ok(document.paths?.["/api/v0/events/{slug}"]?.patch);
     assert.ok(document.paths?.["/api/v0/events/upcoming"]);
     assert.ok(document.paths?.["/api/v0/worlds/{slug}"]);
     assert.ok(document.paths?.["/api/v0/worlds/active"]);

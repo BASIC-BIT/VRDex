@@ -1942,6 +1942,119 @@
             }
           }
         }
+      },
+      "patch": {
+        "operationId": "updateCurrentUserCommunityEvent",
+        "tags": [
+          "Events"
+        ],
+        "summary": "Update a current user's community event",
+        "description": "Updates a public event attached to a community profile owned by a bearer credential with user authority and events:write scope.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "oauth2": [
+              "events:write"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "description": "Public slug."
+            },
+            "required": true,
+            "description": "Public slug."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApiEventUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated event identifiers and paths.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEventWriteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The event update request was malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Bearer authentication is required or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The bearer credential lacks events:write scope, user authority, or ownership of the target event/community.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The event was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v0/events": {
@@ -2637,6 +2750,214 @@
           }
         },
         "description": "Create an additional secret for a user-owned confidential OAuth application."
+      },
+      "ApiEventUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 120
+          },
+          "communitySlug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "startAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "doorsOpenAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "endAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "timezone": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "worldSlug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "preferredSlug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 240
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 1200
+          },
+          "sourceLabel": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "sourceUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "posterImageUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "bannerImageUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "thumbnailImageUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "watchSurfaceEnabled": {
+            "type": "boolean"
+          },
+          "mediaLinks": {
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "event_page",
+                    "watch",
+                    "stream",
+                    "vrcdn",
+                    "discord",
+                    "ticket",
+                    "other"
+                  ]
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "presentation": {
+                  "type": "string",
+                  "enum": [
+                    "open",
+                    "copy"
+                  ]
+                }
+              },
+              "required": [
+                "type",
+                "label",
+                "url"
+              ],
+              "additionalProperties": {}
+            }
+          },
+          "participantLinks": {
+            "maxItems": 80,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "personSlug": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160
+                },
+                "roleLabel": {
+                  "type": "string",
+                  "maxLength": 48
+                },
+                "sourceLabel": {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                "sourceUrl": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "notes": {
+                  "type": "string",
+                  "maxLength": 1200
+                }
+              },
+              "required": [
+                "personSlug"
+              ],
+              "additionalProperties": {}
+            }
+          },
+          "slotLinks": {
+            "maxItems": 80,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "personSlug": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160
+                },
+                "displayLabel": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                },
+                "roleLabel": {
+                  "type": "string",
+                  "maxLength": 48
+                },
+                "startAt": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "endAt": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "sourceLabel": {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                "sourceUrl": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "notes": {
+                  "type": "string",
+                  "maxLength": 1200
+                }
+              },
+              "required": [
+                "displayLabel",
+                "startAt"
+              ],
+              "additionalProperties": {}
+            }
+          }
+        },
+        "required": [
+          "title",
+          "communitySlug",
+          "startAt"
+        ],
+        "description": "Update a public event attached to a community profile owned by the current authenticated API user."
       },
       "ApiEventCreateRequest": {
         "type": "object",

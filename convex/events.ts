@@ -709,6 +709,73 @@ async function insertCommunityEventRecord(
   };
 }
 
+async function updateCommunityEventRecord(
+  db: DatabaseWriter,
+  options: {
+    event: Doc<"events">;
+    input: SanitizedEventDraftInput;
+    community?: Doc<"profiles">;
+    world?: Doc<"worlds">;
+  },
+) {
+  const { community, event, input, world } = options;
+  const now = Date.now();
+  const slug = await findAvailableEventSlug(
+    db,
+    {
+      title: input.title,
+      startAt: input.startAt,
+      preferredSlug: input.preferredSlug ?? event.slug,
+    },
+    { excludingEventId: event._id },
+  );
+
+  await db.patch(event._id, {
+    slug,
+    title: input.title,
+    sortTitle: input.sortTitle,
+    startAt: input.startAt,
+    doorsOpenAt: input.doorsOpenAt,
+    endAt: input.endAt,
+    timezone: input.timezone,
+    communityProfileId: community?._id,
+    communityName: community?.displayName,
+    summary: input.summary,
+    notes: input.notes,
+    posterImageUrl: input.posterImageUrl,
+    bannerImageUrl: input.bannerImageUrl,
+    thumbnailImageUrl: input.thumbnailImageUrl,
+    watchSurfaceEnabled: input.watchSurfaceEnabled,
+    mediaLinks: input.mediaLinks,
+    sourceLabel: input.sourceLabel,
+    sourceUrl: input.sourceUrl,
+    updatedAt: now,
+  });
+
+  await replaceEventWorldLink(db, event._id, input.startAt, world, now);
+  await replaceEventSlots(db, event._id, input.startAt, input.slotLinks, now);
+  const participantLinks = participantLinksWithSlotPerformers(input);
+  await replaceEventParticipants(db, event._id, input.startAt, participantLinks, now);
+
+  const updatedEvent = await db.get(event._id);
+  if (updatedEvent !== null) {
+    const roleLabels = participantLinks.map((participant) => participant.roleLabel);
+    await Promise.all([
+      upsertSearchDocument(
+        db,
+        createEventSearchDocument(updatedEvent, { community, world, roleLabels }),
+      ),
+      recordVocabularyTerms(db, vocabularyForEvent(updatedEvent, roleLabels), now),
+    ]);
+  }
+
+  return {
+    eventId: event._id,
+    slug,
+    eventPath: `/e/${slug}`,
+  };
+}
+
 async function getOrCreateEventMediaProgram(
   db: DatabaseWriter,
   event: Doc<"events">,
@@ -1645,6 +1712,40 @@ export const createCommunityEventForApiOwner = internalMutation({
   },
 });
 
+export const updateCommunityEventForApiOwner = internalMutation({
+  args: {
+    ownerUserId: v.id("users"),
+    currentSlug: v.string(),
+    ...eventDraftArgs,
+  },
+  handler: async (ctx, args) => {
+    const validation = validateEventSlug(args.currentSlug);
+
+    if (!validation.ok) {
+      throw new Error("Current event slug is invalid.");
+    }
+
+    const event = await getEventBySlug(ctx.db, validation.slug);
+
+    if (event === null) {
+      throw new Error("Event was not found.");
+    }
+
+    if (
+      event.communityProfileId === undefined ||
+      !(await userOwnsProfile(ctx.db, event.communityProfileId, args.ownerUserId))
+    ) {
+      throw new Error("You do not have permission to update this event.");
+    }
+
+    const input = sanitizeEventDraftInput(args);
+    const community = await requireApiOwnedPublishedCommunity(ctx.db, input.communitySlug, args.ownerUserId);
+    const world = await getPublishedWorldBySlug(ctx.db, input.worldSlug);
+
+    return await updateCommunityEventRecord(ctx.db, { event, input, community, world });
+  },
+});
+
 export const updateCommunityEvent = mutation({
   args: {
     currentSlug: v.string(),
@@ -1678,61 +1779,8 @@ export const updateCommunityEvent = mutation({
     }
 
     const world = await getPublishedWorldBySlug(ctx.db, input.worldSlug);
-    const now = Date.now();
-    const slug = await findAvailableEventSlug(
-      ctx.db,
-      {
-        title: input.title,
-        startAt: input.startAt,
-        preferredSlug: input.preferredSlug ?? event.slug,
-      },
-      { excludingEventId: event._id },
-    );
 
-    await ctx.db.patch(event._id, {
-      slug,
-      title: input.title,
-      sortTitle: input.sortTitle,
-      startAt: input.startAt,
-      doorsOpenAt: input.doorsOpenAt,
-      endAt: input.endAt,
-      timezone: input.timezone,
-      communityProfileId: community?._id,
-      communityName: community?.displayName,
-      summary: input.summary,
-      notes: input.notes,
-      posterImageUrl: input.posterImageUrl,
-      bannerImageUrl: input.bannerImageUrl,
-      thumbnailImageUrl: input.thumbnailImageUrl,
-      watchSurfaceEnabled: input.watchSurfaceEnabled,
-      mediaLinks: input.mediaLinks,
-      sourceLabel: input.sourceLabel,
-      sourceUrl: input.sourceUrl,
-      updatedAt: now,
-    });
-
-    await replaceEventWorldLink(ctx.db, event._id, input.startAt, world, now);
-    await replaceEventSlots(ctx.db, event._id, input.startAt, input.slotLinks, now);
-    const participantLinks = participantLinksWithSlotPerformers(input);
-    await replaceEventParticipants(ctx.db, event._id, input.startAt, participantLinks, now);
-
-    const updatedEvent = await ctx.db.get(event._id);
-    if (updatedEvent !== null) {
-      const roleLabels = participantLinks.map((participant) => participant.roleLabel);
-      await Promise.all([
-        upsertSearchDocument(
-          ctx.db,
-          createEventSearchDocument(updatedEvent, { community, world, roleLabels }),
-        ),
-        recordVocabularyTerms(ctx.db, vocabularyForEvent(updatedEvent, roleLabels), now),
-      ]);
-    }
-
-    return {
-      eventId: event._id,
-      slug,
-      eventPath: `/e/${slug}`,
-    };
+    return await updateCommunityEventRecord(ctx.db, { event, input, community, world });
   },
 });
 

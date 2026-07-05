@@ -367,6 +367,12 @@ export const ApiEventCreateRequestSchema = z
     id: "ApiEventCreateRequest",
   });
 
+export const ApiEventUpdateRequestSchema = ApiEventCreateRequestSchema.extend({}).meta({
+  description:
+    "Update a public event attached to a community profile owned by the current authenticated API user.",
+  id: "ApiEventUpdateRequest",
+});
+
 export const ApiEventWriteResponseSchema = z
   .object({
     eventId: z.string().min(1),
