@@ -50,8 +50,9 @@ PR Baseline Checks run the same local stdio protocol smoke through
 
 PR Baseline Checks also run `Hosted MCP Preview Smoke` after the Vercel preview
 deployment. When the preview URL exists, that lane runs this smoke against the
-preview `/mcp` endpoint for anonymous Streamable HTTP, OAuth metadata, and bearer
-challenge coverage. Dynamic Client Registration is enabled only when
+preview `/mcp` endpoint for anonymous Streamable HTTP, an anonymous
+`vrdex_search` tool call, OAuth metadata, and bearer challenge coverage. Dynamic
+Client Registration is enabled only when
 `CONVEX_DEPLOY_KEY_PREVIEW` provisions a same-branch Convex preview backend; if
 that backend is unavailable, the lane records the DCR prerequisite and still runs
 the non-DCR hosted smoke.
@@ -68,9 +69,10 @@ To include a deployed hosted MCP endpoint, set:
 VRDEX_MCP_SMOKE_URL=https://staging.vrdex.net/mcp pnpm smoke:mcp-compat
 ```
 
-The hosted smoke covers anonymous Streamable HTTP initialization/tool listing,
-OAuth protected-resource metadata, authorization-server metadata, and the OAuth
-protected-resource challenge for invalid bearer tokens. Add
+The hosted smoke covers anonymous Streamable HTTP initialization/tool listing, an
+anonymous `vrdex_search` tool call, OAuth protected-resource metadata,
+authorization-server metadata, and the OAuth protected-resource challenge for
+invalid bearer tokens. Add
 `VRDEX_MCP_SMOKE_DCR=1` when you want the smoke to register a constrained public
 MCP client through Dynamic Client Registration. Add
 `VRDEX_MCP_SMOKE_TOKEN=<mcp-resource-token>` only for a local terminal run when

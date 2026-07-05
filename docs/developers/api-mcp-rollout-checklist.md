@@ -61,10 +61,11 @@ one PR.
   hosted `/mcp` endpoint with `VRDEX_MCP_SMOKE_URL`, and can include a
   constrained Dynamic Client Registration probe with `VRDEX_MCP_SMOKE_DCR=1`.
 - Baseline Checks runs `Hosted MCP Preview Smoke` after the Vercel preview. It
-  runs anonymous hosted Streamable HTTP, OAuth metadata, and bearer-challenge
-  checks whenever a preview URL exists. It adds Dynamic Client Registration when
-  a same-branch Convex preview backend is available, and records that DCR
-  prerequisite when `CONVEX_DEPLOY_KEY_PREVIEW` is not configured.
+  runs anonymous hosted Streamable HTTP, an anonymous `vrdex_search` tool call,
+  OAuth metadata, and bearer-challenge checks whenever a preview URL exists. It
+  adds Dynamic Client Registration when a same-branch Convex preview backend is
+  available, and records that DCR prerequisite when `CONVEX_DEPLOY_KEY_PREVIEW`
+  is not configured.
 - `docs/developers/mcp-client-compatibility.md` lists the current major-client
   matrix and must have manual smoke results before external readiness is
   declared.

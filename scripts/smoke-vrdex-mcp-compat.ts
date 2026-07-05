@@ -454,11 +454,45 @@ async function smokeHostedHttp(results: SmokeResult[]) {
     assert.match(toolsBody, new RegExp(`"name":"${toolName}"`));
   }
 
+  const anonymousSearch = await postMcpJsonRpc(url, {
+    jsonrpc: "2.0",
+    id: 3,
+    method: "tools/call",
+    params: {
+      arguments: { limit: 1, query: "", type: "all" },
+      name: "vrdex_search",
+    },
+  });
+
+  assert.equal(anonymousSearch.status, 200);
+
+  const searchBody = (await parseMcpHttpResponse(anonymousSearch)) as {
+    error?: unknown;
+    result?: {
+      structuredContent?: {
+        query?: unknown;
+        results?: unknown;
+        type?: unknown;
+      };
+    };
+  };
+
+  assert.equal(searchBody.error, undefined);
+  assert.equal(searchBody.result?.structuredContent?.query, "");
+  assert.equal(searchBody.result?.structuredContent?.type, "all");
+  assert.equal(Array.isArray(searchBody.result?.structuredContent?.results), true);
+
+  results.push({
+    details: "anonymous vrdex_search invocation returned structured public-read content",
+    name: "Hosted anonymous read tool call",
+    status: "pass",
+  });
+
   const invalidBearer = await postMcpJsonRpc(
     url,
     {
       jsonrpc: "2.0",
-      id: 3,
+      id: 4,
       method: "tools/list",
       params: {},
     },
@@ -480,7 +514,7 @@ async function smokeHostedHttp(results: SmokeResult[]) {
       url,
       {
         jsonrpc: "2.0",
-        id: 4,
+        id: 5,
         method: "tools/list",
         params: {},
       },
@@ -492,7 +526,9 @@ async function smokeHostedHttp(results: SmokeResult[]) {
   }
 
   results.push({
-    details: token ? "anonymous, OAuth challenge, and supplied bearer token passed" : "anonymous and OAuth challenge passed",
+    details: token
+      ? "anonymous, read tool, OAuth challenge, and supplied bearer token passed"
+      : "anonymous, read tool, and OAuth challenge passed",
     name: "Hosted Streamable HTTP MCP",
     status: "pass",
   });
