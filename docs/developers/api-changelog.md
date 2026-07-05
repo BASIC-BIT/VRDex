@@ -29,6 +29,8 @@ Public API and MCP platform foundation checkpoint:
 - added local stdio MCP workspace package `@basicbit/vrdex-mcp`
 - added default API/MCP rate-limit classes with memory and Redis REST store
   modes
+- added `GET /api/v0/usage/rate-limit` for route-class quota policy and caller
+  window introspection
 - added developer docs for public API posture, auth, OAuth apps, rate limits,
   MCP tools, and rollout checks
 

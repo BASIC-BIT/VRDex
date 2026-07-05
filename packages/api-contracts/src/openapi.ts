@@ -3,6 +3,7 @@ import { createDocument, type ZodOpenApiObject, type ZodOpenApiResponsesObject }
 import { apiScopes } from "./auth";
 import {
   ApiProblemSchema,
+  ApiRateLimitUsageResponseSchema,
   LimitQueryParamsSchema,
   PublicActiveWorldsResponseSchema,
   PublicClaimStatusResponseSchema,
@@ -54,6 +55,11 @@ const scopeDescriptions = Object.fromEntries(apiScopes.map((scope) => [scope, sc
   (typeof apiScopes)[number],
   string
 >;
+const optionalPublicReadSecurity: Array<Record<string, string[]>> = [
+  { bearerAuth: [] },
+  { oauth2: ["public:read"] },
+  {},
+];
 
 export const openApiSource = {
   openapi: "3.1.0",
@@ -80,6 +86,7 @@ export const openApiSource = {
     { name: "Events", description: "Public event read surfaces." },
     { name: "Worlds", description: "Public world read surfaces." },
     { name: "Claims", description: "Public claim-status read surfaces." },
+    { name: "Usage", description: "API usage and rate-limit surfaces." },
   ],
   paths: {
     "/api/v0/openapi.json": {
@@ -308,6 +315,23 @@ export const openApiSource = {
           "200": {
             description: "Public claim and trust status.",
             content: jsonContent(PublicClaimStatusResponseSchema),
+          },
+          ...publicReadProblemResponses,
+        },
+      },
+    },
+    "/api/v0/usage/rate-limit": {
+      get: {
+        operationId: "getApiRateLimitUsage",
+        tags: ["Usage"],
+        summary: "Get API and MCP rate-limit policy information",
+        description:
+          "Returns the default route-class policy table and the current request's effective API rate-limit window.",
+        security: optionalPublicReadSecurity,
+        responses: {
+          "200": {
+            description: "Rate-limit policy and current caller window.",
+            content: jsonContent(ApiRateLimitUsageResponseSchema),
           },
           ...publicReadProblemResponses,
         },

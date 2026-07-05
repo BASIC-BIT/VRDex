@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { describe, it } from "node:test";
 
 import {
@@ -9,6 +10,18 @@ import {
   listDefaultApiRateLimitPolicies,
 } from "../../apps/web/src/lib/server/api-rate-limit";
 import { apiRouteClasses } from "../../packages/api-contracts/src/auth";
+
+function runRateLimitRouteProbe(script: string) {
+  return execFileSync(process.execPath, ["--import", "tsx", "-e", script], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      TSX_TSCONFIG_PATH: "apps/web/tsconfig.json",
+      VRDEX_RATE_LIMIT_STORE: "memory",
+    },
+  });
+}
 
 describe("public API rate limiting", () => {
   it("exports a default policy for every route class", () => {
@@ -203,5 +216,36 @@ describe("public API rate limiting", () => {
       restoreEnv("VRDEX_RATE_LIMIT_REDIS_REST_TOKEN", previousToken);
       restoreEnv("VRDEX_RATE_LIMIT_REDIS_PREFIX", previousPrefix);
     }
+  });
+
+  it("serves anonymous rate-limit usage through the public API", () => {
+    const output = runRateLimitRouteProbe(`
+      import { GET } from "./apps/web/src/app/api/v0/usage/rate-limit/route.ts";
+
+      const response = await GET(new Request("https://app.example.test/api/v0/usage/rate-limit", {
+        headers: { "x-forwarded-for": "198.51.100.77" },
+      }));
+      console.log(response.status);
+      console.log(JSON.stringify(await response.json()));
+    `);
+
+    assert.match(output, /^200/m);
+    assert.match(output, /"credentialKind":"anonymous"/);
+    assert.match(output, /"routeClass":"anonymous_public_read"/);
+    assert.match(output, /"policies":\[/);
+    assert.match(output, /"routeClass":"authenticated_public_read"/);
+  });
+
+  it("rejects bearer-token query parameters on rate-limit usage", () => {
+    const output = runRateLimitRouteProbe(`
+      import { GET } from "./apps/web/src/app/api/v0/usage/rate-limit/route.ts";
+
+      const response = await GET(new Request("https://app.example.test/api/v0/usage/rate-limit?access_token=secret"));
+      console.log(response.status);
+      console.log(JSON.stringify(await response.json()));
+    `);
+
+    assert.match(output, /^400/m);
+    assert.match(output, /"title":"Bearer token query parameters are not allowed"/);
   });
 });

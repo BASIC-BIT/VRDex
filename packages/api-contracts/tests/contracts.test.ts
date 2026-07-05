@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   createBearerTokenQueryProblem,
   createPublicNotFoundProblem,
+  ApiRateLimitUsageResponseSchema,
   getBearerTokenFromAuthorizationHeader,
   getOpenApiDocument,
   hasBearerTokenInUrl,
@@ -96,6 +97,31 @@ describe("@vrdex/api-contracts", () => {
         startAt: 1770000000000,
         source: { sourceType: "manual", label: "Owner-authored" },
       },
+    });
+  });
+
+  it("parses rate-limit usage responses", () => {
+    ApiRateLimitUsageResponseSchema.parse({
+      caller: {
+        authenticated: false,
+        credentialKind: "anonymous",
+        routeClass: "anonymous_public_read",
+      },
+      currentWindow: {
+        limit: 120,
+        remaining: 119,
+        resetAt: 1770000000000,
+        retryAfterSeconds: 60,
+        routeClass: "anonymous_public_read",
+        windowMs: 60_000,
+      },
+      policies: [
+        {
+          limit: 120,
+          routeClass: "anonymous_public_read",
+          windowMs: 60_000,
+        },
+      ],
     });
   });
 
@@ -257,6 +283,7 @@ describe("@vrdex/api-contracts", () => {
     assert.ok(document.paths?.["/api/v0/worlds/{slug}"]);
     assert.ok(document.paths?.["/api/v0/worlds/active"]);
     assert.ok(document.paths?.["/api/v0/claims/{slug}/status"]);
+    assert.ok(document.paths?.["/api/v0/usage/rate-limit"]);
   });
 
   it("advertises the real OAuth route surface in security metadata", () => {

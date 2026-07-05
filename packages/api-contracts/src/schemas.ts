@@ -1,5 +1,7 @@
 import * as z from "zod/v4";
 
+import { apiRouteClasses } from "./auth";
+
 export { z };
 
 const absoluteUrl = z.url();
@@ -368,6 +370,50 @@ export const PublicActiveWorldsResponseSchema = z
   .meta({
     description: "Public active worlds response.",
     id: "PublicActiveWorldsResponse",
+  });
+
+export const ApiRouteClassSchema = z
+  .enum(apiRouteClasses)
+  .meta({ description: "Public API and MCP rate-limit route class." });
+
+export const ApiRateLimitCallerKindSchema = z
+  .enum(["anonymous", "personal_api_token", "oauth_client"])
+  .meta({ description: "Credential class used to choose the caller's current rate-limit bucket." });
+
+export const ApiRateLimitPolicySchema = z
+  .object({
+    limit: z.number().int().positive(),
+    routeClass: ApiRouteClassSchema,
+    windowMs: z.number().int().positive(),
+  })
+  .meta({ description: "Default fixed-window quota policy for a route class.", id: "ApiRateLimitPolicy" });
+
+export const ApiRateLimitCurrentWindowSchema = z
+  .object({
+    limit: z.number().int().positive(),
+    remaining: z.number().int().nonnegative(),
+    resetAt: timestampMs,
+    retryAfterSeconds: z.number().int().positive(),
+    routeClass: ApiRouteClassSchema,
+    windowMs: z.number().int().positive(),
+  })
+  .meta({ description: "The caller's current rate-limit window for this request.", id: "ApiRateLimitCurrentWindow" });
+
+export const ApiRateLimitUsageResponseSchema = z
+  .object({
+    caller: z
+      .object({
+        authenticated: z.boolean(),
+        credentialKind: ApiRateLimitCallerKindSchema,
+        routeClass: ApiRouteClassSchema,
+      })
+      .meta({ description: "Caller classification used for rate-limit policy selection." }),
+    currentWindow: ApiRateLimitCurrentWindowSchema,
+    policies: z.array(ApiRateLimitPolicySchema),
+  })
+  .meta({
+    description: "Rate-limit policy table plus the current request's effective caller window.",
+    id: "ApiRateLimitUsageResponse",
   });
 
 export const ApiProblemSchema = z

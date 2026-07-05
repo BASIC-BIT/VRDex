@@ -39,6 +39,10 @@
     {
       "name": "Claims",
       "description": "Public claim-status read surfaces."
+    },
+    {
+      "name": "Usage",
+      "description": "API usage and rate-limit surfaces."
     }
   ],
   "paths": {
@@ -995,6 +999,78 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PublicClaimStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or used an unsupported bearer-token location.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The requested public resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v0/usage/rate-limit": {
+      "get": {
+        "operationId": "getApiRateLimitUsage",
+        "tags": [
+          "Usage"
+        ],
+        "summary": "Get API and MCP rate-limit policy information",
+        "description": "Returns the default route-class policy table and the current request's effective API rate-limit window.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "oauth2": [
+              "public:read"
+            ]
+          },
+          {}
+        ],
+        "responses": {
+          "200": {
+            "description": "Rate-limit policy and current caller window.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiRateLimitUsageResponse"
                 }
               }
             }
@@ -3084,6 +3160,161 @@
         ],
         "additionalProperties": {},
         "description": "Public claim and trust state for a public profile."
+      },
+      "ApiRateLimitUsageResponse": {
+        "type": "object",
+        "properties": {
+          "caller": {
+            "type": "object",
+            "properties": {
+              "authenticated": {
+                "type": "boolean"
+              },
+              "credentialKind": {
+                "type": "string",
+                "enum": [
+                  "anonymous",
+                  "personal_api_token",
+                  "oauth_client"
+                ],
+                "description": "Credential class used to choose the caller's current rate-limit bucket."
+              },
+              "routeClass": {
+                "type": "string",
+                "enum": [
+                  "anonymous_public_read",
+                  "authenticated_public_read",
+                  "developer_credential_management",
+                  "oauth_authorize",
+                  "oauth_token",
+                  "oauth_dynamic_client_registration",
+                  "asset_upload_intent",
+                  "public_write",
+                  "anonymous_mcp_public_read",
+                  "authenticated_mcp"
+                ],
+                "description": "Public API and MCP rate-limit route class."
+              }
+            },
+            "required": [
+              "authenticated",
+              "credentialKind",
+              "routeClass"
+            ],
+            "additionalProperties": false,
+            "description": "Caller classification used for rate-limit policy selection."
+          },
+          "currentWindow": {
+            "$ref": "#/components/schemas/ApiRateLimitCurrentWindow"
+          },
+          "policies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApiRateLimitPolicy"
+            }
+          }
+        },
+        "required": [
+          "caller",
+          "currentWindow",
+          "policies"
+        ],
+        "additionalProperties": false,
+        "description": "Rate-limit policy table plus the current request's effective caller window."
+      },
+      "ApiRateLimitCurrentWindow": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "remaining": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "resetAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "retryAfterSeconds": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "routeClass": {
+            "type": "string",
+            "enum": [
+              "anonymous_public_read",
+              "authenticated_public_read",
+              "developer_credential_management",
+              "oauth_authorize",
+              "oauth_token",
+              "oauth_dynamic_client_registration",
+              "asset_upload_intent",
+              "public_write",
+              "anonymous_mcp_public_read",
+              "authenticated_mcp"
+            ],
+            "description": "Public API and MCP rate-limit route class."
+          },
+          "windowMs": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "limit",
+          "remaining",
+          "resetAt",
+          "retryAfterSeconds",
+          "routeClass",
+          "windowMs"
+        ],
+        "additionalProperties": false,
+        "description": "The caller's current rate-limit window for this request."
+      },
+      "ApiRateLimitPolicy": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "routeClass": {
+            "type": "string",
+            "enum": [
+              "anonymous_public_read",
+              "authenticated_public_read",
+              "developer_credential_management",
+              "oauth_authorize",
+              "oauth_token",
+              "oauth_dynamic_client_registration",
+              "asset_upload_intent",
+              "public_write",
+              "anonymous_mcp_public_read",
+              "authenticated_mcp"
+            ],
+            "description": "Public API and MCP rate-limit route class."
+          },
+          "windowMs": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "limit",
+          "routeClass",
+          "windowMs"
+        ],
+        "additionalProperties": false,
+        "description": "Default fixed-window quota policy for a route class."
       }
     },
     "securitySchemes": {

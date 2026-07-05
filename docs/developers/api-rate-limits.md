@@ -56,6 +56,14 @@ Current defaults:
 | `anonymous_mcp_public_read` | 60 | 60s |
 | `authenticated_mcp` | 300 | 60s |
 
+The public API also exposes:
+
+- `GET /api/v0/usage/rate-limit`, returning the same default route-class
+  policy table plus the caller's current public API window. Without a bearer
+  credential, the response is classified as anonymous public-read traffic. With
+  a valid personal API token or API-resource OAuth access token, the response is
+  classified as authenticated public-read traffic.
+
 Identity keys include the route class and one of:
 
 - IP address for anonymous public API and MCP reads

@@ -44,6 +44,7 @@ API bearer tokens or OAuth access tokens for authenticated public-read traffic:
 | `GET /api/v0/worlds/:slug` | Read a public world. |
 | `GET /api/v0/worlds/active` | List worlds with upcoming or live public events. |
 | `GET /api/v0/claims/:slug/status` | Read public claim and trust state. |
+| `GET /api/v0/usage/rate-limit` | Read route-class quota policies and the caller's current public API window. |
 
 All public read routes reject bearer tokens in URL query parameters. Send API
 tokens and future OAuth access tokens through the `Authorization` header only.

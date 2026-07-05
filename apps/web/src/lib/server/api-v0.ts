@@ -13,9 +13,11 @@ import { api } from "@convex-generated-api";
 import { NextResponse } from "next/server";
 
 import {
+  defaultApiRateLimitPolicies,
   checkApiRateLimit,
   clientIpForRequest,
   type ApiRateLimitIdentity,
+  type ApiRateLimitResult,
 } from "@/lib/server/api-rate-limit";
 import { convexHttpClient } from "@/lib/server/convex-http";
 import {
@@ -28,6 +30,13 @@ import {
 
 type ApiResponseSchema = {
   parse: (value: unknown) => unknown;
+};
+
+export type ApiBearerRequestContext = {
+  identityKind: ApiRateLimitIdentity["kind"];
+  rateLimit: ApiRateLimitResult;
+  routeClass: ApiRouteClass;
+  windowMs: number;
 };
 
 export function rejectBearerTokenQuery(request: Request) {
@@ -226,10 +235,22 @@ export async function rejectInvalidOrRateLimitedPublicApiRequest(
     routeClass?: ApiRouteClass;
   } = {},
 ) {
+  const evaluation = await evaluateOptionalApiBearerRequest(request, options);
+
+  return evaluation.ok ? null : evaluation.response;
+}
+
+export async function evaluateOptionalApiBearerRequest(
+  request: Request,
+  options: {
+    requiredScopes?: ApiScope[];
+    routeClass?: ApiRouteClass;
+  } = {},
+) {
   const authentication = await authenticateOptionalApiBearerToken(request, options);
 
   if (!authentication.ok) {
-    return authentication.response;
+    return { ok: false as const, response: authentication.response };
   }
 
   const routeClass =
@@ -244,15 +265,26 @@ export async function rejectInvalidOrRateLimitedPublicApiRequest(
       routeClass,
     });
   } catch {
-    return apiBearerProblem(
-      500,
-      "API rate limiting is unavailable",
-      "The server is not configured to evaluate API rate limits.",
-    );
+    return {
+      ok: false as const,
+      response: apiBearerProblem(
+        500,
+        "API rate limiting is unavailable",
+        "The server is not configured to evaluate API rate limits.",
+      ),
+    };
   }
 
   if (rateLimit.allowed) {
-    return null;
+    return {
+      ok: true as const,
+      context: {
+        identityKind: authentication.identity.kind,
+        rateLimit,
+        routeClass,
+        windowMs: defaultApiRateLimitPolicies[routeClass].windowMs,
+      } satisfies ApiBearerRequestContext,
+    };
   }
 
   const response = apiBearerProblem(
@@ -266,7 +298,7 @@ export async function rejectInvalidOrRateLimitedPublicApiRequest(
   response.headers.set("RateLimit-Remaining", String(rateLimit.remaining));
   response.headers.set("RateLimit-Reset", String(Math.ceil(rateLimit.resetAt / 1_000)));
 
-  return response;
+  return { ok: false as const, response };
 }
 
 export function apiJson(schema: ApiResponseSchema, value: unknown) {
