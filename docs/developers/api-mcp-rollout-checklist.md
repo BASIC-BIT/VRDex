@@ -62,8 +62,8 @@ the PR:
 ```sh
 pnpm check:api-openapi
 pnpm typecheck:api-contracts
-pnpm --filter @basicbit/vrdex-mcp typecheck
-pnpm --filter @basicbit/vrdex-mcp test
+pnpm typecheck:vrdex-mcp
+pnpm test:vrdex-mcp
 pnpm typecheck:backend
 pnpm test:backend
 pnpm typecheck:web
