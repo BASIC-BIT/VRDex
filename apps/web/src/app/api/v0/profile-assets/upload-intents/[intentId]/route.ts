@@ -6,6 +6,7 @@ import { isIP } from "node:net";
 import { NextRequest, NextResponse } from "next/server";
 import type { GenericId } from "convex/values";
 
+import { ApiProfileAssetUploadIntentCompleteResponseSchema } from "@vrdex/api-contracts";
 import { api } from "@convex-generated-api";
 import { convexHttpClient } from "@/lib/server/convex-http";
 import { isProfileAssetStorageConfigured, putProfileAssetObject } from "@/lib/server/profile-asset-storage";
@@ -456,13 +457,15 @@ export async function POST(request: NextRequest, context: RouteContext) {
       byteSize: upload.body.byteLength,
     });
 
-    return NextResponse.json({
+    const responseBody = ApiProfileAssetUploadIntentCompleteResponseSchema.parse({
       intentId: intent.intentId,
       storageKey: intent.storageKey,
       mimeType: upload.mimeType,
       byteSize: upload.body.byteLength,
       assetIds: completed.assetIds,
     });
+
+    return NextResponse.json(responseBody);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Profile media upload failed.";
 

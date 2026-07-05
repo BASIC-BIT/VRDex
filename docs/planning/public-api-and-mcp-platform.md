@@ -324,6 +324,9 @@ Implementation checkpoint:
   `assets:write`. Completed uploads are consumed into active public profile
   assets and optional media-kit placements through the existing upload-token
   transport.
+- `POST /api/v0/profile-assets/upload-intents/:intentId` is now described in
+  the generated OpenAPI contract as the one-time upload-token transport that
+  completes direct file uploads or source imports.
 - `POST /api/v0/events/:id/assets/upload-intent` remains deferred until event
   asset storage and placement semantics exist; the profile media-kit path uses
   existing storage primitives and does not invent an event asset model.

@@ -1794,6 +1794,92 @@
         }
       }
     },
+    "/api/v0/profile-assets/upload-intents/{intentId}": {
+      "post": {
+        "operationId": "completeProfileAssetUploadIntent",
+        "tags": [
+          "Assets"
+        ],
+        "summary": "Complete a profile asset upload intent",
+        "description": "Uploads the image file for a direct-upload intent, or triggers the server-side source import for a sourceUrl intent. Send the one-time x-vrdex-upload-token value returned by the upload-intent creation endpoint. Do not send bearer credentials on this transport.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "intentId",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Profile asset upload intent id."
+            },
+            "required": true,
+            "description": "Profile asset upload intent id."
+          },
+          {
+            "in": "header",
+            "name": "x-vrdex-upload-token",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "One-time upload token returned by the profile asset upload-intent creation endpoint."
+            },
+            "required": true,
+            "description": "One-time upload token returned by the profile asset upload-intent creation endpoint."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Completed profile media upload result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProfileAssetUploadIntentCompleteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The upload body or source import was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProfileAssetUploadErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The one-time upload token was missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProfileAssetUploadErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The upload intent was not found or has expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProfileAssetUploadErrorResponse"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Profile asset storage is not configured for this deployment.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProfileAssetUploadErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v0/people/{slug}": {
       "get": {
         "operationId": "getPublicPersonProfileBySlug",
@@ -5693,6 +5779,64 @@
         ],
         "additionalProperties": {},
         "description": "Public logo assets for a profile."
+      },
+      "ApiProfileAssetUploadIntentCompleteResponse": {
+        "type": "object",
+        "properties": {
+          "intentId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "storageKey": {
+            "type": "string",
+            "minLength": 1
+          },
+          "mimeType": {
+            "type": "string",
+            "enum": [
+              "image/png",
+              "image/svg+xml",
+              "image/jpeg",
+              "image/webp"
+            ],
+            "description": "Supported profile media upload MIME type."
+          },
+          "byteSize": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 12582912
+          },
+          "assetIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "required": [
+          "intentId",
+          "storageKey",
+          "mimeType",
+          "byteSize",
+          "assetIds"
+        ],
+        "additionalProperties": false,
+        "description": "Completed profile media upload result. API-created targeted intents include attached asset ids; untargeted submission intents return an empty assetIds array."
+      },
+      "ApiProfileAssetUploadErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false,
+        "description": "Profile asset upload transport error response."
       },
       "PublicEventsResponse": {
         "type": "object",

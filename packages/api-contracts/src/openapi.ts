@@ -25,6 +25,8 @@ import {
   ApiMeInventoryQueryParamsSchema,
   ApiMeProfilesResponseSchema,
   ApiMeResponseSchema,
+  ApiProfileAssetUploadErrorResponseSchema,
+  ApiProfileAssetUploadIntentCompleteResponseSchema,
   ApiProfileAssetUploadIntentCreateRequestSchema,
   ApiProfileAssetUploadIntentCreateResponseSchema,
   ApiProfileUpdateRequestSchema,
@@ -40,6 +42,8 @@ import {
   PublicProfileSchema,
   PublicSearchResponseSchema,
   PublicWorldSchema,
+  ProfileAssetUploadIntentPathParamsSchema,
+  ProfileAssetUploadTokenHeaderSchema,
   SearchQueryParamsSchema,
   SlugPathParamsSchema,
   type z,
@@ -685,6 +689,41 @@ export const openApiSource = {
             content: jsonContent(PublicProfileLogosResponseSchema),
           },
           ...publicReadProblemResponses,
+        },
+      },
+    },
+    "/api/v0/profile-assets/upload-intents/{intentId}": {
+      post: {
+        operationId: "completeProfileAssetUploadIntent",
+        tags: ["Assets"],
+        summary: "Complete a profile asset upload intent",
+        description:
+          "Uploads the image file for a direct-upload intent, or triggers the server-side source import for a sourceUrl intent. Send the one-time x-vrdex-upload-token value returned by the upload-intent creation endpoint. Do not send bearer credentials on this transport.",
+        requestParams: {
+          path: ProfileAssetUploadIntentPathParamsSchema,
+          header: ProfileAssetUploadTokenHeaderSchema,
+        },
+        responses: {
+          "200": {
+            description: "Completed profile media upload result.",
+            content: jsonContent(ApiProfileAssetUploadIntentCompleteResponseSchema),
+          },
+          "400": {
+            description: "The upload body or source import was invalid.",
+            content: jsonContent(ApiProfileAssetUploadErrorResponseSchema),
+          },
+          "403": {
+            description: "The one-time upload token was missing or invalid.",
+            content: jsonContent(ApiProfileAssetUploadErrorResponseSchema),
+          },
+          "404": {
+            description: "The upload intent was not found or has expired.",
+            content: jsonContent(ApiProfileAssetUploadErrorResponseSchema),
+          },
+          "501": {
+            description: "Profile asset storage is not configured for this deployment.",
+            content: jsonContent(ApiProfileAssetUploadErrorResponseSchema),
+          },
         },
       },
     },

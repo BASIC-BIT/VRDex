@@ -162,8 +162,10 @@ Current constraints:
   server-side imports
 - accepts PNG, SVG, JPEG, and WebP image assets up to 12 MB
 - returns `uploadUrl`, `uploadToken`, and `uploadTokenHeader`
-- completes by posting the file or source import to `uploadUrl` with the
-  returned `x-vrdex-upload-token` value
+- completes by posting the file or source import to `uploadUrl`, currently
+  `POST /api/v0/profile-assets/upload-intents/:intentId`, with the returned
+  `x-vrdex-upload-token` value
+- does not accept bearer credentials on the upload transport
 - consumes completed API-created intents into an active public profile asset
   with any supplied placement metadata
 - uses the separate `asset_upload_intent` route class

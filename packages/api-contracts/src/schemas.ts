@@ -472,6 +472,43 @@ export const ApiProfileAssetUploadIntentCreateResponseSchema = z
     id: "ApiProfileAssetUploadIntentCreateResponse",
   });
 
+export const ProfileAssetUploadIntentPathParamsSchema = z
+  .object({
+    intentId: z.string().min(1).meta({ description: "Profile asset upload intent id." }),
+  })
+  .meta({ description: "Profile asset upload intent path parameters." });
+
+export const ProfileAssetUploadTokenHeaderSchema = z
+  .object({
+    "x-vrdex-upload-token": z.string().min(1).meta({
+      description: "One-time upload token returned by the profile asset upload-intent creation endpoint.",
+    }),
+  })
+  .meta({ description: "Profile asset upload-token header." });
+
+export const ApiProfileAssetUploadIntentCompleteResponseSchema = z
+  .object({
+    intentId: z.string().min(1),
+    storageKey: z.string().min(1),
+    mimeType: ProfileAssetMimeTypeSchema,
+    byteSize: z.number().int().positive().max(12 * 1024 * 1024),
+    assetIds: z.array(z.string().min(1)),
+  })
+  .meta({
+    description:
+      "Completed profile media upload result. API-created targeted intents include attached asset ids; untargeted submission intents return an empty assetIds array.",
+    id: "ApiProfileAssetUploadIntentCompleteResponse",
+  });
+
+export const ApiProfileAssetUploadErrorResponseSchema = z
+  .object({
+    error: z.string().min(1),
+  })
+  .meta({
+    description: "Profile asset upload transport error response.",
+    id: "ApiProfileAssetUploadErrorResponse",
+  });
+
 export const PublicWorldEventPreviewSchema = z
   .object({
     bannerImageUrl: absoluteUrl.optional(),

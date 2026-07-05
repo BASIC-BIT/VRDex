@@ -11,6 +11,8 @@ import {
   ApiMeEventsResponseSchema,
   ApiMeProfilesResponseSchema,
   ApiMeResponseSchema,
+  ApiProfileAssetUploadErrorResponseSchema,
+  ApiProfileAssetUploadIntentCompleteResponseSchema,
   ApiProfileAssetUploadIntentCreateRequestSchema,
   ApiProfileAssetUploadIntentCreateResponseSchema,
   ApiProfileUpdateRequestSchema,
@@ -222,6 +224,18 @@ describe("@vrdex/api-contracts", () => {
       uploadUrl: "/api/v0/profile-assets/upload-intents/intent123",
       uploadTokenHeader: "x-vrdex-upload-token",
       expiresAt: 1770000000000,
+    });
+
+    ApiProfileAssetUploadIntentCompleteResponseSchema.parse({
+      intentId: "intent123",
+      storageKey: "profile-assets/2026-07-05/token/logo.png",
+      mimeType: "image/png",
+      byteSize: 1024,
+      assetIds: ["asset123"],
+    });
+
+    ApiProfileAssetUploadErrorResponseSchema.parse({
+      error: "Upload token is required.",
     });
   });
 
@@ -597,6 +611,7 @@ describe("@vrdex/api-contracts", () => {
     assert.ok(document.paths?.["/api/v0/profiles/{slug}"]?.patch);
     assert.ok(document.paths?.["/api/v0/profiles/{slug}/assets"]);
     assert.ok(document.paths?.["/api/v0/profiles/{slug}/assets/upload-intent"]?.post);
+    assert.ok(document.paths?.["/api/v0/profile-assets/upload-intents/{intentId}"]?.post);
     assert.ok(document.paths?.["/api/v0/profiles/{slug}/logos"]);
     assert.ok(document.paths?.["/api/v0/people/{slug}"]);
     assert.ok(document.paths?.["/api/v0/people/{slug}/events"]);

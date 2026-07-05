@@ -40,6 +40,9 @@ Public API and MCP platform foundation checkpoint:
 - added `POST /api/v0/profiles/:slug/assets/upload-intent` for `assets:write`
   one-time media-kit uploads against claimed profiles owned by the current
   authenticated user
+- documented `POST /api/v0/profile-assets/upload-intents/:intentId` in the
+  generated OpenAPI contract as the one-time upload-token transport for direct
+  file uploads and server-side source imports
 - added `POST /api/v0/events` for `events:write` public event creation against
   community profiles owned by the current authenticated user
 - added `PATCH /api/v0/events/:slug` for `events:write` public event updates

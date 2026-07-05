@@ -85,9 +85,11 @@ or page-builder settings.
 `POST /api/v0/profiles/:slug/assets/upload-intent` requires `assets:write`,
 user authority, active ownership of the target profile, and a claimed profile.
 It returns an upload URL plus the `x-vrdex-upload-token` header value to use
-when posting the file or source import to the existing upload transport. When
-that upload completes, the intent is consumed into an active public profile
-asset and any supplied media-kit placement metadata.
+when posting the file or source import to
+`POST /api/v0/profile-assets/upload-intents/:intentId`. The upload transport
+does not accept bearer credentials; the one-time upload token is the credential
+for that operation. When that upload completes, the intent is consumed into an
+active public profile asset and any supplied media-kit placement metadata.
 
 `POST /api/v0/events` and `PATCH /api/v0/events/:slug` require `events:write`,
 user authority, and ownership of the target `communitySlug`. Event updates also
