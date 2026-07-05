@@ -240,6 +240,95 @@
             }
           }
         }
+      },
+      "post": {
+        "operationId": "createCurrentDeveloperApiToken",
+        "tags": [
+          "Developer"
+        ],
+        "summary": "Create a current developer API token",
+        "description": "Creates a user-owned personal API token for a bearer credential with user authority and developer:write scope. The raw token value is returned once.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "oauth2": [
+              "developer:write"
+            ]
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeveloperTokenCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Created personal API token and one-time raw token value.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeveloperTokenCreateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The token creation request was malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Bearer authentication is required or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The bearer credential lacks developer:write scope or user authority.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v0/developer/tokens/{tokenId}": {
@@ -1613,6 +1702,47 @@
   },
   "components": {
     "schemas": {
+      "DeveloperTokenCreateRequest": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "public:read",
+                "profile:read",
+                "profile:write",
+                "community:read",
+                "community:write",
+                "events:read",
+                "events:write",
+                "assets:read",
+                "assets:write",
+                "developer:read",
+                "developer:write",
+                "mcp:read",
+                "mcp:write"
+              ],
+              "description": "Public API or MCP credential scope."
+            }
+          },
+          "expiresAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "label"
+        ],
+        "description": "Create a user-owned personal API token. The raw token value is returned once."
+      },
       "ApiMeResponse": {
         "type": "object",
         "properties": {
@@ -2008,6 +2138,24 @@
         ],
         "additionalProperties": false,
         "description": "User-owned personal API token metadata. Raw token values are never returned."
+      },
+      "DeveloperTokenCreateResponse": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "$ref": "#/components/schemas/ApiTokenSummary"
+          },
+          "tokenValue": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "token",
+          "tokenValue"
+        ],
+        "additionalProperties": false,
+        "description": "Created personal API token plus one-time raw token value."
       },
       "DeveloperTokenResponse": {
         "type": "object",

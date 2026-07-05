@@ -503,6 +503,17 @@ export const ApiTokenSummarySchema = z
     id: "ApiTokenSummary",
   });
 
+export const DeveloperTokenCreateRequestSchema = z
+  .object({
+    label: z.string().min(1).max(80),
+    scopes: z.array(ApiScopeSchema).optional(),
+    expiresAt: timestampMs.optional(),
+  })
+  .meta({
+    description: "Create a user-owned personal API token. The raw token value is returned once.",
+    id: "DeveloperTokenCreateRequest",
+  });
+
 export const OAuthApplicationSummarySchema = z
   .object({
     id: z.string().min(1),
@@ -551,6 +562,16 @@ export const DeveloperTokenResponseSchema = z
   .meta({
     description: "User-owned personal API token response.",
     id: "DeveloperTokenResponse",
+  });
+
+export const DeveloperTokenCreateResponseSchema = z
+  .object({
+    token: ApiTokenSummarySchema,
+    tokenValue: z.string().min(1),
+  })
+  .meta({
+    description: "Created personal API token plus one-time raw token value.",
+    id: "DeveloperTokenCreateResponse",
   });
 
 export const DeveloperOAuthAppsResponseSchema = z

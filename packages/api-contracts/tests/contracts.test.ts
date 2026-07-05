@@ -6,6 +6,8 @@ import {
   createPublicNotFoundProblem,
   ApiMeResponseSchema,
   ApiRateLimitUsageResponseSchema,
+  DeveloperTokenCreateRequestSchema,
+  DeveloperTokenCreateResponseSchema,
   getBearerTokenFromAuthorizationHeader,
   getOpenApiDocument,
   hasBearerTokenInUrl,
@@ -161,6 +163,30 @@ describe("@vrdex/api-contracts", () => {
         retryAfterSeconds: 60,
         routeClass: "authenticated_public_read",
         windowMs: 60_000,
+      },
+    });
+  });
+
+  it("parses developer token creation contracts", () => {
+    DeveloperTokenCreateRequestSchema.parse({
+      label: "Local MCP",
+      scopes: ["public:read", "developer:read"],
+      expiresAt: 1770000000000,
+    });
+
+    DeveloperTokenCreateResponseSchema.parse({
+      tokenValue: "vrdx_lookup.verifier",
+      token: {
+        id: "token123",
+        tokenPrefix: "vrdx_lookup",
+        ownerKind: "user",
+        ownerUserId: "user123",
+        label: "Local MCP",
+        scopes: ["public:read", "developer:read"],
+        status: "active",
+        trustTier: "personal",
+        createdAt: 1770000000000,
+        updatedAt: 1770000000000,
       },
     });
   });
@@ -326,6 +352,10 @@ describe("@vrdex/api-contracts", () => {
     assert.ok(document.paths?.["/api/v0/worlds/active"]);
     assert.ok(document.paths?.["/api/v0/claims/{slug}/status"]);
     assert.ok(document.paths?.["/api/v0/usage/rate-limit"]);
+    assert.ok(document.paths?.["/api/v0/developer/tokens"]);
+    assert.ok(document.paths?.["/api/v0/developer/tokens/{tokenId}"]);
+    assert.ok(document.paths?.["/api/v0/developer/oauth-apps"]);
+    assert.ok(document.paths?.["/api/v0/developer/oauth-apps/{clientId}"]);
   });
 
   it("advertises the real OAuth route surface in security metadata", () => {

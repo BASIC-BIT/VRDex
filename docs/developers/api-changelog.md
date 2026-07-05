@@ -35,6 +35,8 @@ Public API and MCP platform foundation checkpoint:
 - added `GET /api/v0/developer/tokens` and
   `GET /api/v0/developer/oauth-apps` for `developer:read` user-owned
   credential metadata lists
+- added `POST /api/v0/developer/tokens` for `developer:write` user-owned
+  personal API token creation with one-time token value return
 - added `DELETE /api/v0/developer/tokens/:tokenId` and
   `DELETE /api/v0/developer/oauth-apps/:clientId` for `developer:write`
   user-owned credential revocation

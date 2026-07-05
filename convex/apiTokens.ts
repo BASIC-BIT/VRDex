@@ -148,6 +148,65 @@ async function revokeUserOwnedToken(
   return { ok: true as const, token: toTokenSummary(updatedToken) };
 }
 
+async function createUserOwnedToken(
+  ctx: MutationCtx,
+  args: {
+    expiresAt?: number;
+    label: string;
+    ownerUserId: Doc<"users">["_id"];
+    scopes?: Doc<"apiTokens">["scopes"];
+    tokenPrefix: string;
+    verifierHash: string;
+  },
+) {
+  const now = Date.now();
+  const tokenPrefix = normalizeApiTokenPrefix(args.tokenPrefix);
+  const verifierHash = normalizeApiTokenVerifierHash(args.verifierHash);
+  const label = normalizeApiTokenLabel(args.label);
+  const scopes = normalizeApiTokenScopes(args.scopes);
+  const expiresAt = normalizeApiTokenExpiry(args.expiresAt, now);
+  const existingToken = await ctx.db
+    .query("apiTokens")
+    .withIndex("by_tokenPrefix", (index) => index.eq("tokenPrefix", tokenPrefix))
+    .unique();
+
+  if (existingToken !== null) {
+    throw new Error("API token prefix collision. Generate a new token and retry.");
+  }
+
+  const tokenId = await ctx.db.insert("apiTokens", {
+    tokenPrefix,
+    verifierHash,
+    hashVersion: apiTokenHashVersion,
+    ownerKind: "user",
+    ownerUserId: args.ownerUserId,
+    label,
+    scopes,
+    status: "active",
+    trustTier: "personal",
+    ...(expiresAt !== undefined ? { expiresAt } : {}),
+    createdAt: now,
+    updatedAt: now,
+  });
+  const token = await ctx.db.get(tokenId);
+
+  if (token === null) {
+    throw new Error("API token creation failed.");
+  }
+
+  await recordApiTokenEvent(ctx, {
+    token,
+    routeClass: "developer_credential_management",
+    eventType: "created",
+    result: "accepted",
+    requiredScopes: [],
+    grantedScopes: scopes,
+    now,
+  });
+
+  return toTokenSummary(token);
+}
+
 export const listPersonalTokens = query({
   args: {
     includeRevoked: v.optional(v.boolean()),
@@ -185,52 +244,22 @@ export const createPersonalToken = mutation({
   },
   handler: async (ctx, args) => {
     const user = await requireCurrentUser(ctx);
-    const now = Date.now();
-    const tokenPrefix = normalizeApiTokenPrefix(args.tokenPrefix);
-    const verifierHash = normalizeApiTokenVerifierHash(args.verifierHash);
-    const label = normalizeApiTokenLabel(args.label);
-    const scopes = normalizeApiTokenScopes(args.scopes);
-    const expiresAt = normalizeApiTokenExpiry(args.expiresAt, now);
-    const existingToken = await ctx.db
-      .query("apiTokens")
-      .withIndex("by_tokenPrefix", (index) => index.eq("tokenPrefix", tokenPrefix))
-      .unique();
 
-    if (existingToken !== null) {
-      throw new Error("API token prefix collision. Generate a new token and retry.");
-    }
+    return await createUserOwnedToken(ctx, { ...args, ownerUserId: user._id });
+  },
+});
 
-    const tokenId = await ctx.db.insert("apiTokens", {
-      tokenPrefix,
-      verifierHash,
-      hashVersion: apiTokenHashVersion,
-      ownerKind: "user",
-      ownerUserId: user._id,
-      label,
-      scopes,
-      status: "active",
-      trustTier: "personal",
-      ...(expiresAt !== undefined ? { expiresAt } : {}),
-      createdAt: now,
-      updatedAt: now,
-    });
-    const token = await ctx.db.get(tokenId);
-
-    if (token === null) {
-      throw new Error("API token creation failed.");
-    }
-
-    await recordApiTokenEvent(ctx, {
-      token,
-      routeClass: "developer_credential_management",
-      eventType: "created",
-      result: "accepted",
-      requiredScopes: [],
-      grantedScopes: scopes,
-      now,
-    });
-
-    return toTokenSummary(token);
+export const createDeveloperTokenForApiOwner = internalMutation({
+  args: {
+    ownerUserId: v.id("users"),
+    tokenPrefix: v.string(),
+    verifierHash: v.string(),
+    label: v.string(),
+    scopes: v.optional(v.array(apiScopeValidator)),
+    expiresAt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    return await createUserOwnedToken(ctx, args);
   },
 });
 

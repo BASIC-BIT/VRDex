@@ -119,6 +119,22 @@ describe("developer read API authority", () => {
     assert.match(output, /"title":"Bearer token query parameters are not allowed"/);
   });
 
+  it("requires a bearer credential on developer token creation", () => {
+    const output = runDeveloperReadProbe(`
+      import { POST } from "./apps/web/src/app/api/v0/developer/tokens/route.ts";
+
+      const response = await POST(new Request("https://app.example.test/api/v0/developer/tokens", {
+        method: "POST",
+        body: JSON.stringify({ label: "Local MCP" }),
+      }));
+      console.log(response.status);
+      console.log(JSON.stringify(await response.json()));
+    `);
+
+    assert.match(output, /^401/m);
+    assert.match(output, /"title":"Bearer token required"/);
+  });
+
   it("requires a bearer credential on developer token revocation", () => {
     const output = runDeveloperReadProbe(`
       import { DELETE } from "./apps/web/src/app/api/v0/developer/tokens/[tokenId]/route.ts";

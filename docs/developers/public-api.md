@@ -55,6 +55,7 @@ Implemented authenticated reads require a valid bearer credential:
 | --- | --- |
 | `GET /api/v0/me` | Read metadata for the current API token or API-resource OAuth caller. |
 | `GET /api/v0/developer/tokens` | List current user's personal API token metadata. |
+| `POST /api/v0/developer/tokens` | Create a current user's personal API token and return its value once. |
 | `GET /api/v0/developer/oauth-apps` | List current user's OAuth application metadata. |
 | `DELETE /api/v0/developer/tokens/:tokenId` | Revoke a current user's personal API token. |
 | `DELETE /api/v0/developer/oauth-apps/:clientId` | Revoke a current user's OAuth application and active secrets. |
@@ -83,6 +84,7 @@ values.
 Current personal API token backend primitives:
 
 - `apiTokens.createPersonalToken`
+- `apiTokens.createDeveloperTokenForApiOwner`
 - `apiTokens.listDeveloperTokensForApiOwner`
 - `apiTokens.listPersonalTokens`
 - `apiTokens.revokeDeveloperTokenForApiOwner`
