@@ -3,6 +3,7 @@ import { createDocument, type ZodOpenApiObject, type ZodOpenApiResponsesObject }
 import { apiScopes } from "./auth";
 import {
   ApiProblemSchema,
+  ApiMeResponseSchema,
   ApiRateLimitUsageResponseSchema,
   LimitQueryParamsSchema,
   PublicActiveWorldsResponseSchema,
@@ -60,6 +61,10 @@ const optionalPublicReadSecurity: Array<Record<string, string[]>> = [
   { oauth2: ["public:read"] },
   {},
 ];
+const authenticatedPublicReadSecurity: Array<Record<string, string[]>> = [
+  { bearerAuth: [] },
+  { oauth2: ["public:read"] },
+];
 
 export const openApiSource = {
   openapi: "3.1.0",
@@ -87,6 +92,7 @@ export const openApiSource = {
     { name: "Worlds", description: "Public world read surfaces." },
     { name: "Claims", description: "Public claim-status read surfaces." },
     { name: "Usage", description: "API usage and rate-limit surfaces." },
+    { name: "Me", description: "Authenticated caller introspection surfaces." },
   ],
   paths: {
     "/api/v0/openapi.json": {
@@ -98,6 +104,30 @@ export const openApiSource = {
           "200": {
             description: "The current OpenAPI document.",
           },
+        },
+      },
+    },
+    "/api/v0/me": {
+      get: {
+        operationId: "getCurrentApiCaller",
+        tags: ["Me"],
+        summary: "Get the current API caller",
+        description: "Returns metadata for the validated bearer credential used on this request.",
+        security: authenticatedPublicReadSecurity,
+        responses: {
+          "200": {
+            description: "Current authenticated API caller.",
+            content: jsonContent(ApiMeResponseSchema),
+          },
+          "401": {
+            description: "Bearer authentication is required or invalid.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "403": {
+            description: "The bearer credential does not include the required scope.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "429": publicReadProblemResponses["429"],
         },
       },
     },

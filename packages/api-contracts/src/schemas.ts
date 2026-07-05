@@ -1,6 +1,6 @@
 import * as z from "zod/v4";
 
-import { apiRouteClasses } from "./auth";
+import { apiRouteClasses, apiScopes } from "./auth";
 
 export { z };
 
@@ -376,6 +376,8 @@ export const ApiRouteClassSchema = z
   .enum(apiRouteClasses)
   .meta({ description: "Public API and MCP rate-limit route class." });
 
+export const ApiScopeSchema = z.enum(apiScopes).meta({ description: "Public API or MCP credential scope." });
+
 export const ApiRateLimitCallerKindSchema = z
   .enum(["anonymous", "personal_api_token", "oauth_client"])
   .meta({ description: "Credential class used to choose the caller's current rate-limit bucket." });
@@ -414,6 +416,43 @@ export const ApiRateLimitUsageResponseSchema = z
   .meta({
     description: "Rate-limit policy table plus the current request's effective caller window.",
     id: "ApiRateLimitUsageResponse",
+  });
+
+export const ApiMeCredentialSchema = z
+  .discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("api_token"),
+      ownerCommunityProfileId: z.string().optional(),
+      ownerKind: z.enum(["community", "user"]),
+      ownerUserId: z.string(),
+      scopes: z.array(ApiScopeSchema),
+      tokenId: z.string(),
+      trustTier: z.enum(["personal", "trusted_partner"]),
+    }),
+    z.object({
+      kind: z.literal("oauth"),
+      applicationId: z.string().optional(),
+      clientId: z.string(),
+      dynamicClientId: z.string().optional(),
+      ownerCommunityProfileId: z.string().optional(),
+      ownerKind: z.enum(["community", "user"]).optional(),
+      ownerUserId: z.string().optional(),
+      scopes: z.array(ApiScopeSchema),
+      subjectType: z.enum(["client", "user"]),
+      trustTier: z.enum(["standard", "trusted_partner"]),
+      userId: z.string().optional(),
+    }),
+  ])
+  .meta({ description: "Validated bearer credential metadata for the current API caller.", id: "ApiMeCredential" });
+
+export const ApiMeResponseSchema = z
+  .object({
+    credential: ApiMeCredentialSchema,
+    rateLimit: ApiRateLimitCurrentWindowSchema,
+  })
+  .meta({
+    description: "Current authenticated API caller and effective public-read rate-limit window.",
+    id: "ApiMeResponse",
   });
 
 export const ApiProblemSchema = z

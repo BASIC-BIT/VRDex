@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   createBearerTokenQueryProblem,
   createPublicNotFoundProblem,
+  ApiMeResponseSchema,
   ApiRateLimitUsageResponseSchema,
   getBearerTokenFromAuthorizationHeader,
   getOpenApiDocument,
@@ -124,6 +125,46 @@ describe("@vrdex/api-contracts", () => {
       ],
     });
   });
+
+  it("parses authenticated current-caller responses", () => {
+    ApiMeResponseSchema.parse({
+      credential: {
+        kind: "api_token",
+        ownerKind: "user",
+        ownerUserId: "user123",
+        scopes: ["public:read"],
+        tokenId: "token123",
+        trustTier: "personal",
+      },
+      rateLimit: {
+        limit: 600,
+        remaining: 599,
+        resetAt: 1770000000000,
+        retryAfterSeconds: 60,
+        routeClass: "authenticated_public_read",
+        windowMs: 60_000,
+      },
+    });
+
+    ApiMeResponseSchema.parse({
+      credential: {
+        kind: "oauth",
+        clientId: "vrdx_app_0123456789abcdef01234567",
+        scopes: ["public:read"],
+        subjectType: "client",
+        trustTier: "standard",
+      },
+      rateLimit: {
+        limit: 600,
+        remaining: 599,
+        resetAt: 1770000000000,
+        retryAfterSeconds: 60,
+        routeClass: "authenticated_public_read",
+        windowMs: 60_000,
+      },
+    });
+  });
+
 
   it("creates RFC 9457-compatible problem details", () => {
     assert.deepEqual(createPublicNotFoundProblem("Profile"), {
@@ -270,6 +311,7 @@ describe("@vrdex/api-contracts", () => {
 
     assert.equal(document.openapi, "3.1.0");
     assert.ok(document.paths?.["/api/v0/openapi.json"]);
+    assert.ok(document.paths?.["/api/v0/me"]);
     assert.ok(document.paths?.["/api/v0/search"]);
     assert.ok(document.paths?.["/api/v0/profiles/{slug}"]);
     assert.ok(document.paths?.["/api/v0/profiles/{slug}/assets"]);

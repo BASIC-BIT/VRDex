@@ -31,6 +31,7 @@ Public API and MCP platform foundation checkpoint:
   modes
 - added `GET /api/v0/usage/rate-limit` for route-class quota policy and caller
   window introspection
+- added `GET /api/v0/me` for authenticated caller introspection
 - added developer docs for public API posture, auth, OAuth apps, rate limits,
   MCP tools, and rollout checks
 

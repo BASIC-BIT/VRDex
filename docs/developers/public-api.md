@@ -49,6 +49,12 @@ API bearer tokens or OAuth access tokens for authenticated public-read traffic:
 All public read routes reject bearer tokens in URL query parameters. Send API
 tokens and future OAuth access tokens through the `Authorization` header only.
 
+Implemented authenticated reads require a valid bearer credential:
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/v0/me` | Read metadata for the current API token or API-resource OAuth caller. |
+
 When a public read request has no bearer token, it is treated as anonymous
 traffic. When it has an opaque API bearer token, the Next.js route handler
 parses the `vrdx_...` token, hashes it with `VRDEX_API_TOKEN_PEPPER`, and asks

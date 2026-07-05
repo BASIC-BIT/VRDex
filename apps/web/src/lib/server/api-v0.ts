@@ -33,11 +33,39 @@ type ApiResponseSchema = {
 };
 
 export type ApiBearerRequestContext = {
+  credential: ApiBearerCredentialContext;
   identityKind: ApiRateLimitIdentity["kind"];
   rateLimit: ApiRateLimitResult;
   routeClass: ApiRouteClass;
   windowMs: number;
 };
+
+export type ApiBearerCredentialContext =
+  | {
+      kind: "anonymous";
+    }
+  | {
+      kind: "api_token";
+      ownerCommunityProfileId?: string;
+      ownerKind: "community" | "user";
+      ownerUserId: string;
+      scopes: ApiScope[];
+      tokenId: string;
+      trustTier: "personal" | "trusted_partner";
+    }
+  | {
+      kind: "oauth";
+      applicationId?: string;
+      clientId: string;
+      dynamicClientId?: string;
+      ownerCommunityProfileId?: string;
+      ownerKind?: "community" | "user";
+      ownerUserId?: string;
+      scopes: ApiScope[];
+      subjectType: "client" | "user";
+      trustTier: "standard" | "trusted_partner";
+      userId?: string;
+    };
 
 export function rejectBearerTokenQuery(request: Request) {
   if (!hasBearerTokenInUrl(request.url)) {
@@ -146,6 +174,21 @@ async function authenticateOptionalOAuthBearerToken(
   if (validation.ok) {
     return {
       ok: true as const,
+      credential: {
+        kind: "oauth",
+        ...(validation.applicationId === undefined ? {} : { applicationId: String(validation.applicationId) }),
+        ...(validation.dynamicClientId === undefined ? {} : { dynamicClientId: String(validation.dynamicClientId) }),
+        clientId: validation.clientId,
+        subjectType: validation.subjectType,
+        ...(validation.userId === undefined ? {} : { userId: String(validation.userId) }),
+        ...("ownerKind" in validation ? { ownerKind: validation.ownerKind } : {}),
+        ...("ownerUserId" in validation ? { ownerUserId: String(validation.ownerUserId) } : {}),
+        ...("ownerCommunityProfileId" in validation && validation.ownerCommunityProfileId !== undefined
+          ? { ownerCommunityProfileId: String(validation.ownerCommunityProfileId) }
+          : {}),
+        scopes: validation.scopes,
+        trustTier: validation.trustTier,
+      } satisfies ApiBearerCredentialContext,
       identity: { kind: "oauth_client", value: validation.clientId } satisfies ApiRateLimitIdentity,
     };
   }
@@ -170,6 +213,7 @@ async function authenticateOptionalApiBearerToken(
   if (tokenValue === null) {
     return {
       ok: true as const,
+      credential: { kind: "anonymous" } satisfies ApiBearerCredentialContext,
       identity: { kind: "ip", value: clientIpForRequest(request) } satisfies ApiRateLimitIdentity,
     };
   }
@@ -205,6 +249,17 @@ async function authenticateOptionalApiBearerToken(
   if (validation.ok) {
     return {
       ok: true as const,
+      credential: {
+        kind: "api_token",
+        tokenId: String(validation.tokenId),
+        ownerKind: validation.ownerKind,
+        ownerUserId: String(validation.ownerUserId),
+        ...(validation.ownerCommunityProfileId === undefined
+          ? {}
+          : { ownerCommunityProfileId: String(validation.ownerCommunityProfileId) }),
+        scopes: validation.scopes,
+        trustTier: validation.trustTier,
+      } satisfies ApiBearerCredentialContext,
       identity: { kind: "api_token", value: validation.tokenId } satisfies ApiRateLimitIdentity,
     };
   }
@@ -279,6 +334,7 @@ export async function evaluateOptionalApiBearerRequest(
     return {
       ok: true as const,
       context: {
+        credential: authentication.credential,
         identityKind: authentication.identity.kind,
         rateLimit,
         routeClass,

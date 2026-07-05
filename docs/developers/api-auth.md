@@ -106,6 +106,13 @@ Current constraints:
 - access tokens are still resource-bound
 - there is no implicit user authority
 
+## Current Caller Introspection
+
+Use `GET /api/v0/me` with a personal API token or API-resource OAuth access
+token to verify the credential class, owner/subject metadata, granted scopes,
+trust tier, and current authenticated public-read rate-limit window. This route
+does not list all of a user's tokens or OAuth apps.
+
 ## Dynamic MCP Registration
 
 `POST /oauth/register` exists for hosted MCP client compatibility. It does not

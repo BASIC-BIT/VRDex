@@ -43,6 +43,10 @@
     {
       "name": "Usage",
       "description": "API usage and rate-limit surfaces."
+    },
+    {
+      "name": "Me",
+      "description": "Authenticated caller introspection surfaces."
     }
   ],
   "paths": {
@@ -56,6 +60,77 @@
         "responses": {
           "200": {
             "description": "The current OpenAPI document."
+          }
+        }
+      }
+    },
+    "/api/v0/me": {
+      "get": {
+        "operationId": "getCurrentApiCaller",
+        "tags": [
+          "Me"
+        ],
+        "summary": "Get the current API caller",
+        "description": "Returns metadata for the validated bearer credential used on this request.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "oauth2": [
+              "public:read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current authenticated API caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Bearer authentication is required or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The bearer credential does not include the required scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -1120,6 +1195,257 @@
   },
   "components": {
     "schemas": {
+      "ApiMeResponse": {
+        "type": "object",
+        "properties": {
+          "credential": {
+            "$ref": "#/components/schemas/ApiMeCredential"
+          },
+          "rateLimit": {
+            "$ref": "#/components/schemas/ApiRateLimitCurrentWindow"
+          }
+        },
+        "required": [
+          "credential",
+          "rateLimit"
+        ],
+        "additionalProperties": false,
+        "description": "Current authenticated API caller and effective public-read rate-limit window."
+      },
+      "ApiMeCredential": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "api_token"
+              },
+              "ownerCommunityProfileId": {
+                "type": "string"
+              },
+              "ownerKind": {
+                "type": "string",
+                "enum": [
+                  "community",
+                  "user"
+                ]
+              },
+              "ownerUserId": {
+                "type": "string"
+              },
+              "scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "public:read",
+                    "profile:read",
+                    "profile:write",
+                    "community:read",
+                    "community:write",
+                    "events:read",
+                    "events:write",
+                    "assets:read",
+                    "assets:write",
+                    "developer:read",
+                    "developer:write",
+                    "mcp:read",
+                    "mcp:write"
+                  ],
+                  "description": "Public API or MCP credential scope."
+                }
+              },
+              "tokenId": {
+                "type": "string"
+              },
+              "trustTier": {
+                "type": "string",
+                "enum": [
+                  "personal",
+                  "trusted_partner"
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "ownerKind",
+              "ownerUserId",
+              "scopes",
+              "tokenId",
+              "trustTier"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "oauth"
+              },
+              "applicationId": {
+                "type": "string"
+              },
+              "clientId": {
+                "type": "string"
+              },
+              "dynamicClientId": {
+                "type": "string"
+              },
+              "ownerCommunityProfileId": {
+                "type": "string"
+              },
+              "ownerKind": {
+                "type": "string",
+                "enum": [
+                  "community",
+                  "user"
+                ]
+              },
+              "ownerUserId": {
+                "type": "string"
+              },
+              "scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "public:read",
+                    "profile:read",
+                    "profile:write",
+                    "community:read",
+                    "community:write",
+                    "events:read",
+                    "events:write",
+                    "assets:read",
+                    "assets:write",
+                    "developer:read",
+                    "developer:write",
+                    "mcp:read",
+                    "mcp:write"
+                  ],
+                  "description": "Public API or MCP credential scope."
+                }
+              },
+              "subjectType": {
+                "type": "string",
+                "enum": [
+                  "client",
+                  "user"
+                ]
+              },
+              "trustTier": {
+                "type": "string",
+                "enum": [
+                  "standard",
+                  "trusted_partner"
+                ]
+              },
+              "userId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "clientId",
+              "scopes",
+              "subjectType",
+              "trustTier"
+            ],
+            "additionalProperties": false
+          }
+        ],
+        "description": "Validated bearer credential metadata for the current API caller.",
+        "type": "object"
+      },
+      "ApiRateLimitCurrentWindow": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "remaining": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "resetAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "retryAfterSeconds": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "routeClass": {
+            "type": "string",
+            "enum": [
+              "anonymous_public_read",
+              "authenticated_public_read",
+              "developer_credential_management",
+              "oauth_authorize",
+              "oauth_token",
+              "oauth_dynamic_client_registration",
+              "asset_upload_intent",
+              "public_write",
+              "anonymous_mcp_public_read",
+              "authenticated_mcp"
+            ],
+            "description": "Public API and MCP rate-limit route class."
+          },
+          "windowMs": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "limit",
+          "remaining",
+          "resetAt",
+          "retryAfterSeconds",
+          "routeClass",
+          "windowMs"
+        ],
+        "additionalProperties": false,
+        "description": "The caller's current rate-limit window for this request."
+      },
+      "ApiProblem": {
+        "type": "object",
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 599
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "type": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "status",
+          "title",
+          "type"
+        ],
+        "additionalProperties": false,
+        "description": "RFC 9457 problem details error response."
+      },
       "PublicSearchResponse": {
         "type": "object",
         "properties": {
@@ -1257,37 +1583,6 @@
         ],
         "additionalProperties": {},
         "description": "Compact public discovery/search result."
-      },
-      "ApiProblem": {
-        "type": "object",
-        "properties": {
-          "detail": {
-            "type": "string"
-          },
-          "instance": {
-            "type": "string"
-          },
-          "status": {
-            "type": "integer",
-            "minimum": 100,
-            "maximum": 599
-          },
-          "title": {
-            "type": "string",
-            "minLength": 1
-          },
-          "type": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "required": [
-          "status",
-          "title",
-          "type"
-        ],
-        "additionalProperties": false,
-        "description": "RFC 9457 problem details error response."
       },
       "PublicProfile": {
         "type": "object",
@@ -3221,62 +3516,6 @@
         ],
         "additionalProperties": false,
         "description": "Rate-limit policy table plus the current request's effective caller window."
-      },
-      "ApiRateLimitCurrentWindow": {
-        "type": "object",
-        "properties": {
-          "limit": {
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 9007199254740991
-          },
-          "remaining": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          },
-          "resetAt": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          },
-          "retryAfterSeconds": {
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 9007199254740991
-          },
-          "routeClass": {
-            "type": "string",
-            "enum": [
-              "anonymous_public_read",
-              "authenticated_public_read",
-              "developer_credential_management",
-              "oauth_authorize",
-              "oauth_token",
-              "oauth_dynamic_client_registration",
-              "asset_upload_intent",
-              "public_write",
-              "anonymous_mcp_public_read",
-              "authenticated_mcp"
-            ],
-            "description": "Public API and MCP rate-limit route class."
-          },
-          "windowMs": {
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 9007199254740991
-          }
-        },
-        "required": [
-          "limit",
-          "remaining",
-          "resetAt",
-          "retryAfterSeconds",
-          "routeClass",
-          "windowMs"
-        ],
-        "additionalProperties": false,
-        "description": "The caller's current rate-limit window for this request."
       },
       "ApiRateLimitPolicy": {
         "type": "object",
