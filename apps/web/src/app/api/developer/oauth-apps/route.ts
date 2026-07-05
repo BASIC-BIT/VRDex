@@ -28,13 +28,27 @@ function oauthClientSecretPepper() {
   return pepper;
 }
 
-function problem(status: 400 | 401 | 500, title: string, detail: string) {
+function problem(status: 400 | 401 | 403 | 404 | 500, title: string, detail: string) {
   return apiProblemResponse({
     type: "about:blank",
     title,
     status,
     detail,
   });
+}
+
+function createFailureResponse(error: unknown) {
+  const detail = error instanceof Error ? error.message : "The OAuth app could not be created.";
+
+  if (detail.includes("not found")) {
+    return problem(404, "Community profile not found", detail);
+  }
+
+  if (detail.includes("permission") || detail.includes("Only the community owner")) {
+    return problem(403, "OAuth app owner is not manageable", detail);
+  }
+
+  return problem(400, "Invalid OAuth app request", detail);
 }
 
 function requestBodyValue(body: unknown) {
@@ -69,6 +83,7 @@ export async function POST(request: Request) {
   let description: string | undefined;
   let docsUrl: string | undefined;
   let privacyUrl: string | undefined;
+  let ownerCommunitySlug: string | undefined;
   let redirectUris: string[];
   let allowedScopes: ReturnType<typeof normalizeOAuthScopes>;
   let allowedGrants: ReturnType<typeof normalizeOAuthGrantTypes>;
@@ -79,6 +94,7 @@ export async function POST(request: Request) {
     description = normalizeOAuthApplicationDescription(optionalString(body.description));
     docsUrl = normalizeOAuthOptionalUrl(optionalString(body.docsUrl), "Docs URL");
     privacyUrl = normalizeOAuthOptionalUrl(optionalString(body.privacyUrl), "Privacy URL");
+    ownerCommunitySlug = optionalString(body.ownerCommunitySlug);
     redirectUris = normalizeOAuthRedirectUris(stringList(body.redirectUris));
     allowedScopes = normalizeOAuthScopes(stringList(body.allowedScopes));
     allowedGrants = normalizeOAuthGrantTypes(stringList(body.allowedGrants), clientType);
@@ -111,19 +127,26 @@ export async function POST(request: Request) {
 
   convex.setAuth(authToken);
 
-  const application = await convex.mutation(api.oauthApps.createPersonalApplication, {
-    clientId,
-    clientType,
-    displayName,
-    redirectUris,
-    allowedGrants,
-    allowedScopes,
-    ...(description === undefined ? {} : { description }),
-    ...(docsUrl === undefined ? {} : { docsUrl }),
-    ...(privacyUrl === undefined ? {} : { privacyUrl }),
-    ...(clientSecret === undefined ? {} : { clientSecretPrefix: clientSecret.secretPrefix }),
-    ...(verifierHash === undefined ? {} : { verifierHash }),
-  });
+  let application: unknown;
+
+  try {
+    application = await convex.mutation(api.oauthApps.createPersonalApplication, {
+      clientId,
+      clientType,
+      displayName,
+      redirectUris,
+      allowedGrants,
+      allowedScopes,
+      ...(description === undefined ? {} : { description }),
+      ...(docsUrl === undefined ? {} : { docsUrl }),
+      ...(privacyUrl === undefined ? {} : { privacyUrl }),
+      ...(ownerCommunitySlug === undefined ? {} : { ownerCommunitySlug }),
+      ...(clientSecret === undefined ? {} : { clientSecretPrefix: clientSecret.secretPrefix }),
+      ...(verifierHash === undefined ? {} : { verifierHash }),
+    });
+  } catch (error) {
+    return createFailureResponse(error);
+  }
 
   return Response.json(
     {

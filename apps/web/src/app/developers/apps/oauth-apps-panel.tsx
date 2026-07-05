@@ -54,11 +54,28 @@ function clientTypeText(clientType: string) {
   return clientType === "confidential" ? "Confidential" : "Public";
 }
 
+function ownerText(
+  application: { ownerKind: string; ownerCommunityProfileId?: string },
+  communitiesById: ReadonlyMap<string, { displayName: string; slug: string }>,
+) {
+  if (application.ownerKind !== "community" || application.ownerCommunityProfileId === undefined) {
+    return "Personal account";
+  }
+
+  const community = communitiesById.get(application.ownerCommunityProfileId);
+
+  return community === undefined ? "Community" : community.displayName;
+}
+
 function ConnectedOAuthAppsPanel() {
   const { isAuthenticated, isLoading } = useConvexAuth();
   const applications = useQuery(
     api.oauthApps.listPersonalApplications,
     isAuthenticated ? { includeRevoked: true } : "skip",
+  );
+  const ownershipOptions = useQuery(
+    api.oauthApps.listPersonalApplicationOwnershipOptions,
+    isAuthenticated ? {} : "skip",
   );
   const revokeApplication = useMutation(api.oauthApps.revokePersonalApplication);
   const [clientType, setClientType] = useState("public");
@@ -72,6 +89,7 @@ function ConnectedOAuthAppsPanel() {
     const form = event.currentTarget;
     const formData = new FormData(form);
     const selectedClientType = String(formData.get("clientType") ?? "public");
+    const ownerCommunitySlug = optionalField(formData.get("ownerCommunitySlug"));
 
     setStatus(null);
     setCreatedClientId(null);
@@ -88,6 +106,7 @@ function ConnectedOAuthAppsPanel() {
           description: optionalField(formData.get("description")),
           docsUrl: optionalField(formData.get("docsUrl")),
           privacyUrl: optionalField(formData.get("privacyUrl")),
+          ...(ownerCommunitySlug === undefined ? {} : { ownerCommunitySlug }),
           redirectUris: splitLines(formData.get("redirectUris")),
           allowedScopes: formData.getAll("scope").map(String),
         }),
@@ -146,6 +165,21 @@ function ConnectedOAuthAppsPanel() {
     return <p className="text-sm text-muted">Loading OAuth apps...</p>;
   }
 
+  if (ownershipOptions === undefined) {
+    return <p className="text-sm text-muted">Loading app owners...</p>;
+  }
+
+  const ownedCommunities = ownershipOptions?.communities ?? [];
+  const communitiesById = new Map<string, { displayName: string; slug: string }>(
+    ownedCommunities.map((community) => [
+      String(community.id),
+      {
+        displayName: community.displayName,
+        slug: community.slug,
+      },
+    ] as const),
+  );
+
   return (
     <div className="grid gap-5 lg:grid-cols-[0.9fr_1.2fr]">
       <Card surface="strong">
@@ -154,6 +188,19 @@ function ConnectedOAuthAppsPanel() {
           <Field>
             App name
             <Input name="displayName" placeholder="Local MCP client" required />
+          </Field>
+
+          <Field>
+            Owner
+            <Select name="ownerCommunitySlug">
+              <option value="">Personal account</option>
+              {ownedCommunities.map((community) => (
+                <option key={community.id} value={community.slug}>
+                  {community.displayName}
+                </option>
+              ))}
+            </Select>
+            <FieldText>Personal account or claimed community.</FieldText>
           </Field>
 
           <Field>
@@ -258,6 +305,7 @@ function ConnectedOAuthAppsPanel() {
                 <TableHead>
                   <tr>
                     <TableHeaderCell>App</TableHeaderCell>
+                    <TableHeaderCell>Owner</TableHeaderCell>
                     <TableHeaderCell>Type</TableHeaderCell>
                     <TableHeaderCell>Status</TableHeaderCell>
                     <TableHeaderCell>Scopes</TableHeaderCell>
@@ -273,6 +321,9 @@ function ConnectedOAuthAppsPanel() {
                         <div className="font-medium">{application.displayName}</div>
                         <div className="mt-1 font-mono text-xs text-muted">{application.clientId}</div>
                         <div className="mt-1 text-xs text-muted">Created {formatDate(application.createdAt)}</div>
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-sm">{ownerText(application, communitiesById)}</span>
                       </TableCell>
                       <TableCell>{clientTypeText(application.clientType)}</TableCell>
                       <TableCell>{statusText(application.status)}</TableCell>

@@ -61,6 +61,8 @@ Public API and MCP platform foundation checkpoint:
   OAuth application creation with one-time confidential client secret return
 - added `ownerCommunitySlug` to `POST /api/v0/developer/oauth-apps` for
   owner-only community OAuth application creation
+- added claimed-community owner selection to `/developers/apps` so the
+  dashboard can create and list community-owned OAuth apps
 - added `PATCH /api/v0/developer/oauth-apps/:clientId` for `developer:write`
   user-owned and community-owned OAuth application metadata, redirect, grant,
   and scope updates

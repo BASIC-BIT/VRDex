@@ -6,9 +6,9 @@ Current implementation checkpoint for user-owned and owner-managed community
 developer OAuth apps.
 
 Normal developer apps are created from `/developers/apps` or
-`POST /api/v0/developer/oauth-apps`. The API can also create community-owned
-apps when the request supplies `ownerCommunitySlug` for a claimed community
-profile actively owned by the current token's user.
+`POST /api/v0/developer/oauth-apps`. Choose a claimed community in the
+dashboard, or supply `ownerCommunitySlug` to the API, to create an app owned by
+a community profile actively owned by the current user.
 
 ## App Ownership
 

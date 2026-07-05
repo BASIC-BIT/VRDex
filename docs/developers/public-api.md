@@ -14,10 +14,11 @@ The full implementation-facing plan for API tokens, OAuth apps, rate limiting, S
 The checked-in OpenAPI artifact is `docs/api/openapi.json`, and the web app serves
 the same generated document at `GET /api/v0/openapi.json`. The web app renders
 the generated API reference at `/developers/api`. Signed-in developers can
-manage personal API tokens at `/developers/tokens` and user-owned OAuth client
-apps at `/developers/apps`; bearer-authorized `/api/v0/developer/...` routes
-also support developer credential listing, creation, and revocation, including
-owner-managed community OAuth apps via `ownerCommunitySlug`. OAuth
+manage personal API tokens at `/developers/tokens` and user-owned or
+community-owned OAuth client apps at `/developers/apps`; bearer-authorized
+`/api/v0/developer/...` routes also support developer credential listing,
+creation, and revocation, including owner-managed community OAuth apps via
+`ownerCommunitySlug`. OAuth
 metadata, JWKS, client-credentials token issuance, token revocation, constrained
 dynamic client registration for hosted MCP clients, Authorization Code with
 PKCE for public and confidential apps, and refresh-token rotation are also in
