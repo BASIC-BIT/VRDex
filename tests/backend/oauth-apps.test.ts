@@ -102,6 +102,8 @@ describe("OAuth application helpers", () => {
     );
     assert.equal(normalizeOAuthCodeChallenge("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"), "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
     assert.equal(normalizeOAuthCodeChallengeMethod("S256"), "S256");
+    assert.equal(normalizeOAuthResourceUri("http://127.0.0.1:3000"), "http://127.0.0.1:3000");
+    assert.equal(normalizeOAuthResourceUri("http://127.0.0.1:3000/"), "http://127.0.0.1:3000");
     assert.equal(normalizeOAuthResourceUri("http://127.0.0.1:3000/mcp"), "http://127.0.0.1:3000/mcp");
     assert.equal(normalizeOAuthTokenExpiry(2_000, 1_000), 2_000);
     assert.equal(

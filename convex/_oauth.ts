@@ -435,7 +435,14 @@ export function normalizeOAuthAccessTokenId(value: string) {
 }
 
 export function normalizeOAuthResourceUri(value: string) {
-  return normalizeUrlString(value, { label: "OAuth resource URI", allowLoopbackHttp: true });
+  const normalized = normalizeUrlString(value, { label: "OAuth resource URI", allowLoopbackHttp: true });
+  const url = new URL(normalized);
+
+  if (url.pathname === "/" && !url.search) {
+    return url.origin;
+  }
+
+  return normalized;
 }
 
 export function normalizeOAuthTokenExpiry(expiresAt: number, now = Date.now()) {

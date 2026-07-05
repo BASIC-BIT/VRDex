@@ -34,6 +34,7 @@ import type * as _profilePublic from "../_profilePublic.js";
 import type * as _profileSlugs from "../_profileSlugs.js";
 import type * as _profileStates from "../_profileStates.js";
 import type * as _profileSubmissions from "../_profileSubmissions.js";
+import type * as _profileUpdates from "../_profileUpdates.js";
 import type * as _profileWorldCredits from "../_profileWorldCredits.js";
 import type * as _publicFields from "../_publicFields.js";
 import type * as _searchDocuments from "../_searchDocuments.js";
@@ -99,6 +100,7 @@ declare const fullApi: ApiFromModules<{
   _profileSlugs: typeof _profileSlugs;
   _profileStates: typeof _profileStates;
   _profileSubmissions: typeof _profileSubmissions;
+  _profileUpdates: typeof _profileUpdates;
   _profileWorldCredits: typeof _profileWorldCredits;
   _publicFields: typeof _publicFields;
   _searchDocuments: typeof _searchDocuments;
