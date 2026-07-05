@@ -258,4 +258,24 @@ describe("@vrdex/api-contracts", () => {
     assert.ok(document.paths?.["/api/v0/worlds/active"]);
     assert.ok(document.paths?.["/api/v0/claims/{slug}/status"]);
   });
+
+  it("advertises the real OAuth route surface in security metadata", () => {
+    const document = getOpenApiDocument();
+    const securitySchemes = document.components?.securitySchemes;
+
+    assert.ok(securitySchemes);
+    const oauth2 = securitySchemes.oauth2 as {
+      flows?: {
+        authorizationCode?: {
+          authorizationUrl?: string;
+          tokenUrl?: string;
+        };
+      };
+      type?: string;
+    };
+
+    assert.equal(oauth2?.type, "oauth2");
+    assert.equal(oauth2.flows?.authorizationCode?.authorizationUrl, "/oauth/authorize");
+    assert.equal(oauth2.flows?.authorizationCode?.tokenUrl, "/oauth/token");
+  });
 });

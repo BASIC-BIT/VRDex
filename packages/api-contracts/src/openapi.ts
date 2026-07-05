@@ -326,8 +326,8 @@ export const openApiSource = {
         type: "oauth2",
         flows: {
           authorizationCode: {
-            authorizationUrl: "/api/v0/oauth/authorize",
-            tokenUrl: "/api/v0/oauth/token",
+            authorizationUrl: "/oauth/authorize",
+            tokenUrl: "/oauth/token",
             scopes: scopeDescriptions,
           },
         },
