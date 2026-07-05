@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 
-import { mutation, query } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
+import { internalQuery, mutation, query } from "./_generated/server";
 import { getPublicCommunityHostedEvents, getPublicPersonUpcomingEvents } from "./_eventPublic";
 import { toPublicProfileAppearance } from "./_profileAppearance";
 import { toProfileLookupResult } from "./_profileLookup";
@@ -32,6 +33,23 @@ function boundedLimit(value: number | undefined, fallback: number, max: number):
   return Math.max(1, Math.min(value ?? fallback, max));
 }
 
+function toApiOwnedProfileSummary(profile: Doc<"profiles">) {
+  return {
+    id: profile._id,
+    slug: profile.slug,
+    profileType: profile.profileType,
+    displayName: profile.displayName,
+    headline: profile.headline,
+    claimState: profile.claimState,
+    publicationState: profile.publicationState,
+    publicSurfacingState: profile.publicSurfacingState,
+    creationSource: profile.creationSource,
+    claimedAt: profile.claimedAt,
+    publishedAt: profile.publishedAt,
+    updatedAt: profile.updatedAt,
+  };
+}
+
 const profileAssetPlacement = v.union(
   v.literal("profile_image"),
   v.literal("banner"),
@@ -45,6 +63,29 @@ const profileAssetUploadInput = v.object({
   caption: v.optional(v.string()),
   placements: v.array(profileAssetPlacement),
   position: v.optional(v.number()),
+});
+
+export const listProfilesForApiOwner = internalQuery({
+  args: {
+    ownerUserId: v.id("users"),
+    profileType: v.optional(profileType),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = boundedLimit(args.limit, 50, 100);
+    const owners = await ctx.db
+      .query("profileOwners")
+      .withIndex("by_userId_state", (index) => index.eq("userId", args.ownerUserId).eq("state", "active"))
+      .collect();
+    const profiles = await Promise.all(owners.map((owner) => ctx.db.get(owner.profileId)));
+
+    return profiles
+      .filter((profile): profile is Doc<"profiles"> => profile !== null)
+      .filter((profile) => args.profileType === undefined || profile.profileType === args.profileType)
+      .sort((first, second) => first.displayName.localeCompare(second.displayName))
+      .slice(0, limit)
+      .map(toApiOwnedProfileSummary);
+  },
 });
 
 function optionalIdentityDisplayName(name: string | undefined): string | undefined {

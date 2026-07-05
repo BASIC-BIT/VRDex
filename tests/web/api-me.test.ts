@@ -40,4 +40,36 @@ describe("current API caller route", () => {
     assert.match(output, /^400/m);
     assert.match(output, /"title":"Bearer token query parameters are not allowed"/);
   });
+
+  for (const route of [
+    "me/profiles",
+    "me/communities",
+    "me/events",
+  ]) {
+    it(`requires a bearer credential for /api/v0/${route}`, () => {
+      const output = runMeRouteProbe(`
+        import { GET } from "./apps/web/src/app/api/v0/${route}/route.ts";
+
+        const response = await GET(new Request("https://app.example.test/api/v0/${route}"));
+        console.log(response.status);
+        console.log(JSON.stringify(await response.json()));
+      `);
+
+      assert.match(output, /^401/m);
+      assert.match(output, /"title":"Bearer token required"/);
+    });
+
+    it(`rejects bearer-token query parameters for /api/v0/${route}`, () => {
+      const output = runMeRouteProbe(`
+        import { GET } from "./apps/web/src/app/api/v0/${route}/route.ts";
+
+        const response = await GET(new Request("https://app.example.test/api/v0/${route}?access_token=secret"));
+        console.log(response.status);
+        console.log(JSON.stringify(await response.json()));
+      `);
+
+      assert.match(output, /^400/m);
+      assert.match(output, /"title":"Bearer token query parameters are not allowed"/);
+    });
+  }
 });

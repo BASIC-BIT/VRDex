@@ -4,6 +4,9 @@ import { describe, it } from "node:test";
 import {
   createBearerTokenQueryProblem,
   createPublicNotFoundProblem,
+  ApiMeCommunitiesResponseSchema,
+  ApiMeEventsResponseSchema,
+  ApiMeProfilesResponseSchema,
   ApiMeResponseSchema,
   ApiRateLimitUsageResponseSchema,
   DeveloperOAuthAppCreateRequestSchema,
@@ -169,6 +172,65 @@ describe("@vrdex/api-contracts", () => {
         routeClass: "authenticated_public_read",
         windowMs: 60_000,
       },
+    });
+  });
+
+  it("parses authenticated current-user inventory responses", () => {
+    ApiMeProfilesResponseSchema.parse({
+      profiles: [
+        {
+          id: "profile123",
+          slug: "artist-name",
+          profileType: "person",
+          displayName: "Artist Name",
+          headline: "DJ and world hopper",
+          claimState: "claimed_verified",
+          publicationState: "published",
+          publicSurfacingState: "public",
+          creationSource: "self",
+          claimedAt: 1770000000000,
+          publishedAt: 1770000000000,
+          updatedAt: 1770000000000,
+        },
+      ],
+    });
+
+    ApiMeCommunitiesResponseSchema.parse({
+      communities: [
+        {
+          id: "profile456",
+          slug: "club-name",
+          profileType: "community",
+          displayName: "Club Name",
+          claimState: "claimed_verified",
+          publicationState: "published",
+          publicSurfacingState: "public",
+          creationSource: "self",
+          updatedAt: 1770000000000,
+        },
+      ],
+    });
+
+    ApiMeEventsResponseSchema.parse({
+      events: [
+        {
+          id: "event123",
+          slug: "club-night",
+          title: "Club Night",
+          startAt: 1770000000000,
+          endAt: 1770003600000,
+          timezone: "America/New_York",
+          communityProfileId: "profile456",
+          communitySlug: "club-name",
+          communityName: "Club Name",
+          sourceType: "community",
+          sourceLabel: "Owner",
+          publicationState: "draft_private",
+          watchSurfaceEnabled: false,
+          createdAt: 1770000000000,
+          updatedAt: 1770000000000,
+        },
+      ],
     });
   });
 
@@ -413,6 +475,9 @@ describe("@vrdex/api-contracts", () => {
     assert.equal(document.openapi, "3.1.0");
     assert.ok(document.paths?.["/api/v0/openapi.json"]);
     assert.ok(document.paths?.["/api/v0/me"]);
+    assert.ok(document.paths?.["/api/v0/me/profiles"]);
+    assert.ok(document.paths?.["/api/v0/me/communities"]);
+    assert.ok(document.paths?.["/api/v0/me/events"]);
     assert.ok(document.paths?.["/api/v0/search"]);
     assert.ok(document.paths?.["/api/v0/profiles/{slug}"]);
     assert.ok(document.paths?.["/api/v0/profiles/{slug}/assets"]);

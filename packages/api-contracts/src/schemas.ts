@@ -20,6 +20,18 @@ export const PublicClaimStateSchema = z
   .enum(["unclaimed", "claimed_unverified", "claimed_verified"])
   .meta({ description: "The public claim state without private owner account details." });
 
+export const ProfilePublicationStateSchema = z
+  .enum(["draft_private", "published"])
+  .meta({ description: "Profile or event publication state for an authenticated owner inventory." });
+
+export const ProfilePublicSurfacingStateSchema = z
+  .enum(["public", "opted_out", "suppressed"])
+  .meta({ description: "Profile public surfacing state for an authenticated owner inventory." });
+
+export const ProfileCreationSourceSchema = z
+  .enum(["self", "community", "concierge", "import", "moderator"])
+  .meta({ description: "How the profile was originally created." });
+
 export const PublicSourceTypeSchema = z
   .enum(["manual", "owner", "community", "partner", "import", "moderator", "ai_suggested"])
   .meta({ description: "Public source or provenance class." });
@@ -455,6 +467,86 @@ export const ApiMeResponseSchema = z
     id: "ApiMeResponse",
   });
 
+export const ApiMeProfileSummarySchema = z
+  .object({
+    id: z.string().min(1),
+    slug,
+    profileType: ProfileTypeSchema,
+    displayName: z.string().min(1),
+    headline: z.string().optional(),
+    claimState: PublicClaimStateSchema,
+    publicationState: ProfilePublicationStateSchema,
+    publicSurfacingState: ProfilePublicSurfacingStateSchema,
+    creationSource: ProfileCreationSourceSchema,
+    claimedAt: timestampMs.optional(),
+    publishedAt: timestampMs.optional(),
+    updatedAt: timestampMs,
+  })
+  .meta({
+    description: "Compact profile summary for the current authenticated API user.",
+    id: "ApiMeProfileSummary",
+  });
+
+export const ApiMeCommunitySummarySchema = ApiMeProfileSummarySchema.extend({
+  profileType: z.literal("community"),
+}).meta({
+  description: "Compact community profile summary for the current authenticated API user.",
+  id: "ApiMeCommunitySummary",
+});
+
+export const ApiMeEventSummarySchema = z
+  .object({
+    id: z.string().min(1),
+    slug: slug.optional(),
+    title: z.string().min(1),
+    startAt: timestampMs,
+    doorsOpenAt: timestampMs.optional(),
+    endAt: timestampMs.optional(),
+    timezone: z.string().optional(),
+    communityProfileId: z.string().min(1).optional(),
+    communitySlug: slug.optional(),
+    communityName: z.string().optional(),
+    summary: z.string().optional(),
+    sourceType: PublicEventSourceTypeSchema,
+    sourceLabel: z.string().min(1),
+    publicationState: ProfilePublicationStateSchema,
+    watchSurfaceEnabled: z.boolean(),
+    createdAt: timestampMs.optional(),
+    publishedAt: timestampMs.optional(),
+    updatedAt: timestampMs,
+  })
+  .meta({
+    description: "Compact community-managed event summary for the current authenticated API user.",
+    id: "ApiMeEventSummary",
+  });
+
+export const ApiMeProfilesResponseSchema = z
+  .object({
+    profiles: z.array(ApiMeProfileSummarySchema),
+  })
+  .meta({
+    description: "Profile inventory for the current authenticated API user.",
+    id: "ApiMeProfilesResponse",
+  });
+
+export const ApiMeCommunitiesResponseSchema = z
+  .object({
+    communities: z.array(ApiMeCommunitySummarySchema),
+  })
+  .meta({
+    description: "Community profile inventory for the current authenticated API user.",
+    id: "ApiMeCommunitiesResponse",
+  });
+
+export const ApiMeEventsResponseSchema = z
+  .object({
+    events: z.array(ApiMeEventSummarySchema),
+  })
+  .meta({
+    description: "Community-managed event inventory for the current authenticated API user.",
+    id: "ApiMeEventsResponse",
+  });
+
 export const ApiCredentialOwnerKindSchema = z
   .enum(["community", "user"])
   .meta({ description: "Developer credential owner class." });
@@ -692,6 +784,10 @@ export const LimitQueryParamsSchema = z.object({
 
 export const DeveloperCredentialListQueryParamsSchema = z.object({
   includeRevoked: z.boolean().optional().meta({ description: "Include revoked credentials." }),
+  limit: z.number().int().min(1).max(100).optional().meta({ description: "Maximum result count." }),
+});
+
+export const ApiMeInventoryQueryParamsSchema = z.object({
   limit: z.number().int().min(1).max(100).optional().meta({ description: "Maximum result count." }),
 });
 

@@ -139,6 +139,289 @@
         }
       }
     },
+    "/api/v0/me/profiles": {
+      "get": {
+        "operationId": "listCurrentApiUserProfiles",
+        "tags": [
+          "Me"
+        ],
+        "summary": "List the current user's profiles",
+        "description": "Returns compact profile inventory for a bearer credential with user authority and profile:read scope.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "oauth2": [
+              "profile:read"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Maximum result count.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "description": "Maximum result count."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current user's owned profiles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMeProfilesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or used an unsupported bearer-token location.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Bearer authentication is required or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The bearer credential lacks profile:read scope or user authority.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v0/me/communities": {
+      "get": {
+        "operationId": "listCurrentApiUserCommunities",
+        "tags": [
+          "Me"
+        ],
+        "summary": "List the current user's communities",
+        "description": "Returns compact community profile inventory for a bearer credential with user authority and community:read scope.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "oauth2": [
+              "community:read"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Maximum result count.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "description": "Maximum result count."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current user's owned community profiles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMeCommunitiesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or used an unsupported bearer-token location.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Bearer authentication is required or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The bearer credential lacks community:read scope or user authority.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v0/me/events": {
+      "get": {
+        "operationId": "listCurrentApiUserEvents",
+        "tags": [
+          "Me",
+          "Events"
+        ],
+        "summary": "List the current user's community-managed events",
+        "description": "Returns compact event inventory for communities owned by a bearer credential with user authority and events:read scope.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "oauth2": [
+              "events:read"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Maximum result count.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "description": "Maximum result count."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current user's community-managed events.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMeEventsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or used an unsupported bearer-token location.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Bearer authentication is required or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The bearer credential lacks events:read scope or user authority.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v0/developer/tokens": {
       "get": {
         "operationId": "listCurrentDeveloperApiTokens",
@@ -2514,6 +2797,342 @@
         ],
         "additionalProperties": false,
         "description": "RFC 9457 problem details error response."
+      },
+      "ApiMeProfilesResponse": {
+        "type": "object",
+        "properties": {
+          "profiles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApiMeProfileSummary"
+            }
+          }
+        },
+        "required": [
+          "profiles"
+        ],
+        "additionalProperties": false,
+        "description": "Profile inventory for the current authenticated API user."
+      },
+      "ApiMeProfileSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "profileType": {
+            "type": "string",
+            "enum": [
+              "person",
+              "community"
+            ],
+            "description": "The public profile entity class."
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "headline": {
+            "type": "string"
+          },
+          "claimState": {
+            "type": "string",
+            "enum": [
+              "unclaimed",
+              "claimed_unverified",
+              "claimed_verified"
+            ],
+            "description": "The public claim state without private owner account details."
+          },
+          "publicationState": {
+            "type": "string",
+            "enum": [
+              "draft_private",
+              "published"
+            ],
+            "description": "Profile or event publication state for an authenticated owner inventory."
+          },
+          "publicSurfacingState": {
+            "type": "string",
+            "enum": [
+              "public",
+              "opted_out",
+              "suppressed"
+            ],
+            "description": "Profile public surfacing state for an authenticated owner inventory."
+          },
+          "creationSource": {
+            "type": "string",
+            "enum": [
+              "self",
+              "community",
+              "concierge",
+              "import",
+              "moderator"
+            ],
+            "description": "How the profile was originally created."
+          },
+          "claimedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "publishedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "updatedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "profileType",
+          "displayName",
+          "claimState",
+          "publicationState",
+          "publicSurfacingState",
+          "creationSource",
+          "updatedAt"
+        ],
+        "additionalProperties": false,
+        "description": "Compact profile summary for the current authenticated API user."
+      },
+      "ApiMeCommunitiesResponse": {
+        "type": "object",
+        "properties": {
+          "communities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApiMeCommunitySummary"
+            }
+          }
+        },
+        "required": [
+          "communities"
+        ],
+        "additionalProperties": false,
+        "description": "Community profile inventory for the current authenticated API user."
+      },
+      "ApiMeCommunitySummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "profileType": {
+            "type": "string",
+            "const": "community"
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "headline": {
+            "type": "string"
+          },
+          "claimState": {
+            "type": "string",
+            "enum": [
+              "unclaimed",
+              "claimed_unverified",
+              "claimed_verified"
+            ],
+            "description": "The public claim state without private owner account details."
+          },
+          "publicationState": {
+            "type": "string",
+            "enum": [
+              "draft_private",
+              "published"
+            ],
+            "description": "Profile or event publication state for an authenticated owner inventory."
+          },
+          "publicSurfacingState": {
+            "type": "string",
+            "enum": [
+              "public",
+              "opted_out",
+              "suppressed"
+            ],
+            "description": "Profile public surfacing state for an authenticated owner inventory."
+          },
+          "creationSource": {
+            "type": "string",
+            "enum": [
+              "self",
+              "community",
+              "concierge",
+              "import",
+              "moderator"
+            ],
+            "description": "How the profile was originally created."
+          },
+          "claimedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "publishedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "updatedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "profileType",
+          "displayName",
+          "claimState",
+          "publicationState",
+          "publicSurfacingState",
+          "creationSource",
+          "updatedAt"
+        ],
+        "additionalProperties": false,
+        "description": "Compact community profile summary for the current authenticated API user."
+      },
+      "ApiMeEventsResponse": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApiMeEventSummary"
+            }
+          }
+        },
+        "required": [
+          "events"
+        ],
+        "additionalProperties": false,
+        "description": "Community-managed event inventory for the current authenticated API user."
+      },
+      "ApiMeEventSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "startAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "doorsOpenAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "endAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "communityProfileId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "communitySlug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "communityName": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "sourceType": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "community",
+              "partner",
+              "import",
+              "ai_suggested"
+            ],
+            "description": "Public event source class."
+          },
+          "sourceLabel": {
+            "type": "string",
+            "minLength": 1
+          },
+          "publicationState": {
+            "type": "string",
+            "enum": [
+              "draft_private",
+              "published"
+            ],
+            "description": "Profile or event publication state for an authenticated owner inventory."
+          },
+          "watchSurfaceEnabled": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "publishedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "updatedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "startAt",
+          "sourceType",
+          "sourceLabel",
+          "publicationState",
+          "watchSurfaceEnabled",
+          "updatedAt"
+        ],
+        "additionalProperties": false,
+        "description": "Compact community-managed event summary for the current authenticated API user."
       },
       "DeveloperTokensResponse": {
         "type": "object",

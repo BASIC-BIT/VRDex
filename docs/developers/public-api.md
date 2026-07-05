@@ -52,6 +52,9 @@ Implemented authenticated reads require a valid bearer credential:
 | Route | Purpose |
 | --- | --- |
 | `GET /api/v0/me` | Read metadata for the current API token or API-resource OAuth caller. |
+| `GET /api/v0/me/profiles` | List current user's owned profile summaries. |
+| `GET /api/v0/me/communities` | List current user's owned community profile summaries. |
+| `GET /api/v0/me/events` | List current user's community-managed event summaries. |
 | `GET /api/v0/developer/tokens` | List current user's personal API token metadata. |
 | `POST /api/v0/developer/tokens` | Create a current user's personal API token and return its value once. |
 | `GET /api/v0/developer/oauth-apps` | List current user's OAuth application metadata. |
@@ -61,10 +64,16 @@ Implemented authenticated reads require a valid bearer credential:
 | `DELETE /api/v0/developer/tokens/:tokenId` | Revoke a current user's personal API token. |
 | `DELETE /api/v0/developer/oauth-apps/:clientId` | Revoke a current user's OAuth application and active secrets. |
 
+`/api/v0/me/profiles` requires `profile:read`; `/api/v0/me/communities`
+requires `community:read`; `/api/v0/me/events` requires `events:read`. The
+current event inventory covers events attached to community profiles the user
+owns. Submitter-only event inventory can be added after there is an efficient
+user/event index and authorization shape.
+
 Developer list routes require `developer:read` plus user authority. Developer
-creation and revocation routes require `developer:write` plus user authority. User-owned
-personal API tokens qualify. User-delegated API-resource OAuth access tokens
-qualify. App-only client-credentials tokens and anonymous callers do not act on
+creation and revocation routes require `developer:write` plus user authority.
+User-owned personal API tokens qualify. User-delegated API-resource OAuth access
+tokens qualify. App-only client-credentials tokens and anonymous callers do not act on
 a user's developer resources. The Next.js gateway validates the bearer
 credential first, then calls internal Convex developer credential functions with
 server-side admin auth so arbitrary owner ids are not exposed through public
@@ -91,6 +100,11 @@ Current personal API token backend primitives:
 - `apiTokens.revokeDeveloperTokenForApiOwner`
 - `apiTokens.revokePersonalToken`
 - `apiTokens.validateBearerTokenHash`
+
+Current owner inventory backend primitives:
+
+- `profiles.listProfilesForApiOwner`
+- `events.listCommunityManagedEventsForApiOwner`
 
 Current OAuth app registry primitives:
 

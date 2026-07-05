@@ -1,7 +1,15 @@
 import { v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
-import { mutation, query, type DatabaseReader, type DatabaseWriter, type MutationCtx, type QueryCtx } from "./_generated/server";
+import {
+  internalQuery,
+  mutation,
+  query,
+  type DatabaseReader,
+  type DatabaseWriter,
+  type MutationCtx,
+  type QueryCtx,
+} from "./_generated/server";
 import {
   isSameAuthSubject,
   subjectHasAnyCommunityCapability,
@@ -201,6 +209,10 @@ const eventMediaWorkerBridgeTaskStatusArgs = {
   health: v.optional(eventMediaWorkerHealthInput),
   artifactLinks: v.optional(v.array(eventMediaWorkerArtifactLinkInput)),
 };
+
+function boundedLimit(value: number | undefined, fallback: number, max: number): number {
+  return Math.max(1, Math.min(value ?? fallback, max));
+}
 
 async function requireAuthenticatedSubject(ctx: MutationCtx | QueryCtx) {
   const identity = await ctx.auth.getUserIdentity();
@@ -528,6 +540,71 @@ function participantLinksWithSlotPerformers(input: ReturnType<typeof sanitizeEve
 function optionalValue<T>(key: string, value: T | undefined): Record<string, T> {
   return value === undefined ? {} : { [key]: value };
 }
+
+function toApiManagedEventSummary(event: Doc<"events">, community: Doc<"profiles"> | undefined) {
+  return {
+    id: event._id,
+    slug: event.slug,
+    title: event.title,
+    startAt: event.startAt,
+    doorsOpenAt: event.doorsOpenAt,
+    endAt: event.endAt,
+    timezone: event.timezone,
+    communityProfileId: event.communityProfileId,
+    communitySlug: community?.slug,
+    communityName: community?.displayName ?? event.communityName,
+    summary: event.summary,
+    sourceType: event.sourceType,
+    sourceLabel: event.sourceLabel,
+    publicationState: event.publicationState,
+    watchSurfaceEnabled: event.watchSurfaceEnabled ?? false,
+    createdAt: event.createdAt,
+    publishedAt: event.publishedAt,
+    updatedAt: event.updatedAt,
+  };
+}
+
+export const listCommunityManagedEventsForApiOwner = internalQuery({
+  args: {
+    ownerUserId: v.id("users"),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = boundedLimit(args.limit, 50, 100);
+    const owners = await ctx.db
+      .query("profileOwners")
+      .withIndex("by_userId_state", (index) => index.eq("userId", args.ownerUserId).eq("state", "active"))
+      .collect();
+    const profiles = await Promise.all(owners.map((owner) => ctx.db.get(owner.profileId)));
+    const communities = profiles.filter(
+      (profile): profile is Doc<"profiles"> => profile !== null && profile.profileType === "community",
+    );
+    const records: Array<{ event: Doc<"events">; community: Doc<"profiles"> }> = [];
+    const seenEventIds = new Set<Doc<"events">["_id"]>();
+
+    for (const community of communities) {
+      const events = await ctx.db
+        .query("events")
+        .withIndex("by_communityProfileId_startAt", (index) => index.eq("communityProfileId", community._id))
+        .order("desc")
+        .take(limit);
+
+      for (const event of events) {
+        if (seenEventIds.has(event._id)) {
+          continue;
+        }
+
+        seenEventIds.add(event._id);
+        records.push({ event, community });
+      }
+    }
+
+    return records
+      .sort((first, second) => second.event.startAt - first.event.startAt || second.event.updatedAt - first.event.updatedAt)
+      .slice(0, limit)
+      .map(({ community, event }) => toApiManagedEventSummary(event, community));
+  },
+});
 
 async function getOrCreateEventMediaProgram(
   db: DatabaseWriter,

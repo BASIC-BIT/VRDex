@@ -17,6 +17,10 @@ import {
   DeveloperTokenResponseSchema,
   DeveloperTokensResponseSchema,
   OAuthClientPathParamsSchema,
+  ApiMeCommunitiesResponseSchema,
+  ApiMeEventsResponseSchema,
+  ApiMeInventoryQueryParamsSchema,
+  ApiMeProfilesResponseSchema,
   ApiMeResponseSchema,
   ApiRateLimitUsageResponseSchema,
   LimitQueryParamsSchema,
@@ -78,6 +82,18 @@ const optionalPublicReadSecurity: Array<Record<string, string[]>> = [
 const authenticatedPublicReadSecurity: Array<Record<string, string[]>> = [
   { bearerAuth: [] },
   { oauth2: ["public:read"] },
+];
+const profileReadSecurity: Array<Record<string, string[]>> = [
+  { bearerAuth: [] },
+  { oauth2: ["profile:read"] },
+];
+const communityReadSecurity: Array<Record<string, string[]>> = [
+  { bearerAuth: [] },
+  { oauth2: ["community:read"] },
+];
+const eventsReadSecurity: Array<Record<string, string[]>> = [
+  { bearerAuth: [] },
+  { oauth2: ["events:read"] },
 ];
 const developerReadSecurity: Array<Record<string, string[]>> = [
   { bearerAuth: [] },
@@ -148,6 +164,93 @@ export const openApiSource = {
           },
           "403": {
             description: "The bearer credential does not include the required scope.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "429": publicReadProblemResponses["429"],
+        },
+      },
+    },
+    "/api/v0/me/profiles": {
+      get: {
+        operationId: "listCurrentApiUserProfiles",
+        tags: ["Me"],
+        summary: "List the current user's profiles",
+        description:
+          "Returns compact profile inventory for a bearer credential with user authority and profile:read scope.",
+        security: profileReadSecurity,
+        requestParams: {
+          query: ApiMeInventoryQueryParamsSchema,
+        },
+        responses: {
+          "200": {
+            description: "Current user's owned profiles.",
+            content: jsonContent(ApiMeProfilesResponseSchema),
+          },
+          "400": publicReadProblemResponses["400"],
+          "401": {
+            description: "Bearer authentication is required or invalid.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "403": {
+            description: "The bearer credential lacks profile:read scope or user authority.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "429": publicReadProblemResponses["429"],
+        },
+      },
+    },
+    "/api/v0/me/communities": {
+      get: {
+        operationId: "listCurrentApiUserCommunities",
+        tags: ["Me"],
+        summary: "List the current user's communities",
+        description:
+          "Returns compact community profile inventory for a bearer credential with user authority and community:read scope.",
+        security: communityReadSecurity,
+        requestParams: {
+          query: ApiMeInventoryQueryParamsSchema,
+        },
+        responses: {
+          "200": {
+            description: "Current user's owned community profiles.",
+            content: jsonContent(ApiMeCommunitiesResponseSchema),
+          },
+          "400": publicReadProblemResponses["400"],
+          "401": {
+            description: "Bearer authentication is required or invalid.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "403": {
+            description: "The bearer credential lacks community:read scope or user authority.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "429": publicReadProblemResponses["429"],
+        },
+      },
+    },
+    "/api/v0/me/events": {
+      get: {
+        operationId: "listCurrentApiUserEvents",
+        tags: ["Me", "Events"],
+        summary: "List the current user's community-managed events",
+        description:
+          "Returns compact event inventory for communities owned by a bearer credential with user authority and events:read scope.",
+        security: eventsReadSecurity,
+        requestParams: {
+          query: ApiMeInventoryQueryParamsSchema,
+        },
+        responses: {
+          "200": {
+            description: "Current user's community-managed events.",
+            content: jsonContent(ApiMeEventsResponseSchema),
+          },
+          "400": publicReadProblemResponses["400"],
+          "401": {
+            description: "Bearer authentication is required or invalid.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "403": {
+            description: "The bearer credential lacks events:read scope or user authority.",
             content: jsonContent(ApiProblemSchema),
           },
           "429": publicReadProblemResponses["429"],

@@ -32,6 +32,9 @@ Public API and MCP platform foundation checkpoint:
 - added `GET /api/v0/usage/rate-limit` for route-class quota policy and caller
   window introspection
 - added `GET /api/v0/me` for authenticated caller introspection
+- added `GET /api/v0/me/profiles`, `GET /api/v0/me/communities`, and
+  `GET /api/v0/me/events` for user-authorized profile, community, and
+  community-managed event inventory
 - added `GET /api/v0/developer/tokens` and
   `GET /api/v0/developer/oauth-apps` for `developer:read` user-owned
   credential metadata lists

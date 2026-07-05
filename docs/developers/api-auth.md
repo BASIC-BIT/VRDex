@@ -113,6 +113,20 @@ token to verify the credential class, owner/subject metadata, granted scopes,
 trust tier, and current authenticated public-read rate-limit window. This route
 does not list all of a user's tokens or OAuth apps.
 
+## Current User Inventory
+
+Use these endpoints for compact owner-scoped inventory:
+
+| Endpoint | Required scope | Purpose |
+| --- | --- | --- |
+| `GET /api/v0/me/profiles` | `profile:read` | Owned person and community profile summaries. |
+| `GET /api/v0/me/communities` | `community:read` | Owned community profile summaries. |
+| `GET /api/v0/me/events` | `events:read` | Event summaries attached to owned community profiles. |
+
+These routes require user authority. User-owned personal API tokens and
+user-delegated API-resource OAuth access tokens qualify. Anonymous callers,
+community-owned tokens, and OAuth client-credentials tokens do not.
+
 ## Developer Resource Lists
 
 Use `GET /api/v0/developer/tokens` and
