@@ -49,10 +49,12 @@ PR Baseline Checks run the same local stdio protocol smoke through
 `pnpm verify:vrdex-mcp`.
 
 PR Baseline Checks also run `Hosted MCP Preview Smoke` after the Vercel preview
-deployment. That lane runs this smoke against the preview `/mcp` endpoint with
-Dynamic Client Registration enabled when `CONVEX_DEPLOY_KEY_PREVIEW` is
-configured. If the same-branch Convex preview backend is unavailable, the lane
-skips and records the missing prerequisite.
+deployment. When the preview URL exists, that lane runs this smoke against the
+preview `/mcp` endpoint for anonymous Streamable HTTP, OAuth metadata, and bearer
+challenge coverage. Dynamic Client Registration is enabled only when
+`CONVEX_DEPLOY_KEY_PREVIEW` provisions a same-branch Convex preview backend; if
+that backend is unavailable, the lane records the DCR prerequisite and still runs
+the non-DCR hosted smoke.
 
 The command starts the local stdio MCP package against a local API fixture and
 replays initialize, tool-list, and `vrdex_search` calls with protocol profiles

@@ -563,20 +563,28 @@ jobs:
             exit 0
           fi
 
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+          echo "mcp_url=$DEPLOYMENT_URL/mcp" >> "$GITHUB_OUTPUT"
+
           if [ "$CONVEX_PREVIEW_ENABLED" != "true" ]; then
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "dcr_enabled=false" >> "$GITHUB_OUTPUT"
             {
               echo "## Hosted MCP preview smoke"
-              echo "Skipped because Convex preview deployment is unavailable."
+              echo "Running hosted MCP preview smoke without Dynamic Client Registration because Convex preview deployment is unavailable."
               echo ""
-              echo "Set repository secret CONVEX_DEPLOY_KEY_PREVIEW to smoke Dynamic Client Registration against a same-branch backend."
+              echo "Set repository secret CONVEX_DEPLOY_KEY_PREVIEW to add same-branch Dynamic Client Registration coverage."
               echo "Target was $DEPLOYMENT_URL/mcp."
             } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
 
-          echo "enabled=true" >> "$GITHUB_OUTPUT"
-          echo "mcp_url=$DEPLOYMENT_URL/mcp" >> "$GITHUB_OUTPUT"
+          echo "dcr_enabled=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Hosted MCP preview smoke"
+            echo "Running hosted MCP preview smoke with Dynamic Client Registration against a same-branch Convex preview backend."
+            echo ""
+            echo "Target is $DEPLOYMENT_URL/mcp."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup pnpm
         if: steps.gate.outputs.enabled == 'true'
@@ -596,7 +604,7 @@ jobs:
       - name: Run hosted MCP smoke
         if: steps.gate.outputs.enabled == 'true'
         env:
-          VRDEX_MCP_SMOKE_DCR: "1"
+          VRDEX_MCP_SMOKE_DCR: ${{ steps.gate.outputs.dcr_enabled }}
           VRDEX_MCP_SMOKE_URL: ${{ steps.gate.outputs.mcp_url }}
         run: pnpm smoke:mcp-compat
 
