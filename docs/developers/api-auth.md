@@ -117,15 +117,18 @@ does not list all of a user's tokens or OAuth apps.
 
 Use `GET /api/v0/developer/tokens` and
 `GET /api/v0/developer/oauth-apps` to list developer credential metadata for
-the current user. These routes require `developer:read` and a credential with
-user authority:
+the current user. Use `DELETE /api/v0/developer/tokens/:tokenId` and
+`DELETE /api/v0/developer/oauth-apps/:clientId` to revoke user-owned
+developer credentials. List routes require `developer:read`; revocation routes
+require `developer:write`. Both require a credential with user authority:
 
 - user-owned personal API tokens qualify
 - user-delegated API-resource OAuth access tokens qualify
 - OAuth client-credentials tokens do not imply user authority
 - dynamic hosted MCP clients do not list user-owned developer resources
 
-Raw personal token values and raw OAuth client secrets are never returned.
+Raw personal token values and raw OAuth client secrets are never returned. OAuth
+app revocation also revokes active client secrets for that app.
 
 ## Dynamic MCP Registration
 

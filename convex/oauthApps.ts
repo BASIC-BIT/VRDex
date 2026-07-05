@@ -2,7 +2,7 @@ import { v } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { internalQuery, mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { getCurrentUser, requireCurrentUser } from "./accounts";
 import { apiScopeValidator, hasRequiredApiScopes, timingSafeEqualString } from "./_apiTokens";
 import {
@@ -215,6 +215,66 @@ async function recordOAuthClientEvent(
     result: args.result,
     createdAt: args.now,
   });
+}
+
+async function revokeUserOwnedApplication(
+  ctx: MutationCtx,
+  args: {
+    application: Doc<"oauthApplications"> | null;
+    ownerUserId: Doc<"users">["_id"];
+    reason?: string;
+  },
+) {
+  const application = args.application;
+
+  if (application === null || application.ownerKind !== "user" || application.ownerUserId !== args.ownerUserId) {
+    return { ok: false as const, reason: "not_found" as const };
+  }
+
+  if (application.status === "revoked") {
+    return { ok: true as const, application: toApplicationSummary(application, []) };
+  }
+
+  const now = Date.now();
+  const revokeReason = normalizeOAuthRevokeReason(args.reason);
+  const patch = {
+    status: "revoked" as const,
+    revokedAt: now,
+    revokedByUserId: args.ownerUserId,
+    updatedAt: now,
+    ...(revokeReason === undefined ? {} : { revokeReason }),
+  };
+  const activeSecrets = await activeSecretsForApplication(ctx, application._id);
+
+  await ctx.db.patch(application._id, patch);
+
+  for (const secret of activeSecrets) {
+    await ctx.db.patch(secret._id, {
+      status: "revoked",
+      revokedAt: now,
+      revokedByUserId: args.ownerUserId,
+      updatedAt: now,
+    });
+
+    await recordOAuthClientEvent(ctx, {
+      application,
+      secretPrefix: secret.secretPrefix,
+      eventType: "secret_revoked",
+      result: "accepted",
+      now,
+    });
+  }
+
+  const updatedApplication = { ...application, ...patch };
+
+  await recordOAuthClientEvent(ctx, {
+    application: updatedApplication,
+    eventType: "application_revoked",
+    result: "accepted",
+    now,
+  });
+
+  return { ok: true as const, application: toApplicationSummary(updatedApplication, []) };
 }
 
 async function resolvePublicAuthorizationClient(
@@ -441,6 +501,27 @@ export const createPersonalApplication = mutation({
   },
 });
 
+export const revokeDeveloperApplicationForApiOwner = internalMutation({
+  args: {
+    ownerUserId: v.id("users"),
+    clientId: v.string(),
+    reason: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const clientId = normalizeOAuthClientId(args.clientId);
+    const application = await ctx.db
+      .query("oauthApplications")
+      .withIndex("by_clientId", (index) => index.eq("clientId", clientId))
+      .unique();
+
+    return await revokeUserOwnedApplication(ctx, {
+      application,
+      ownerUserId: args.ownerUserId,
+      reason: args.reason,
+    });
+  },
+});
+
 export const createDynamicMcpClient = mutation({
   args: {
     clientId: v.string(),
@@ -617,59 +698,17 @@ export const revokePersonalApplication = mutation({
   handler: async (ctx, args) => {
     const user = await requireCurrentUser(ctx);
     const application = await ctx.db.get(args.applicationId);
+    const result = await revokeUserOwnedApplication(ctx, {
+      application,
+      ownerUserId: user._id,
+      reason: args.reason,
+    });
 
-    if (
-      application === null ||
-      application.ownerKind !== "user" ||
-      application.ownerUserId !== user._id
-    ) {
+    if (!result.ok) {
       throw new Error("OAuth application was not found for the current account.");
     }
 
-    if (application.status === "revoked") {
-      return toApplicationSummary(application, []);
-    }
-
-    const now = Date.now();
-    const revokeReason = normalizeOAuthRevokeReason(args.reason);
-    const patch = {
-      status: "revoked" as const,
-      revokedAt: now,
-      revokedByUserId: user._id,
-      updatedAt: now,
-      ...(revokeReason === undefined ? {} : { revokeReason }),
-    };
-    const activeSecrets = await activeSecretsForApplication(ctx, application._id);
-
-    await ctx.db.patch(application._id, patch);
-
-    for (const secret of activeSecrets) {
-      await ctx.db.patch(secret._id, {
-        status: "revoked",
-        revokedAt: now,
-        revokedByUserId: user._id,
-        updatedAt: now,
-      });
-
-      await recordOAuthClientEvent(ctx, {
-        application,
-        secretPrefix: secret.secretPrefix,
-        eventType: "secret_revoked",
-        result: "accepted",
-        now,
-      });
-    }
-
-    const updatedApplication = { ...application, ...patch };
-
-    await recordOAuthClientEvent(ctx, {
-      application: updatedApplication,
-      eventType: "application_revoked",
-      result: "accepted",
-      now,
-    });
-
-    return toApplicationSummary(updatedApplication, []);
+    return result.application;
   },
 });
 

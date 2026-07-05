@@ -3,9 +3,13 @@ import { createDocument, type ZodOpenApiObject, type ZodOpenApiResponsesObject }
 import { apiScopes } from "./auth";
 import {
   ApiProblemSchema,
+  ApiTokenPathParamsSchema,
   DeveloperCredentialListQueryParamsSchema,
+  DeveloperOAuthAppResponseSchema,
   DeveloperOAuthAppsResponseSchema,
+  DeveloperTokenResponseSchema,
   DeveloperTokensResponseSchema,
+  OAuthClientPathParamsSchema,
   ApiMeResponseSchema,
   ApiRateLimitUsageResponseSchema,
   LimitQueryParamsSchema,
@@ -71,6 +75,10 @@ const authenticatedPublicReadSecurity: Array<Record<string, string[]>> = [
 const developerReadSecurity: Array<Record<string, string[]>> = [
   { bearerAuth: [] },
   { oauth2: ["developer:read"] },
+];
+const developerWriteSecurity: Array<Record<string, string[]>> = [
+  { bearerAuth: [] },
+  { oauth2: ["developer:write"] },
 ];
 
 export const openApiSource = {
@@ -168,6 +176,39 @@ export const openApiSource = {
         },
       },
     },
+    "/api/v0/developer/tokens/{tokenId}": {
+      delete: {
+        operationId: "revokeCurrentDeveloperApiToken",
+        tags: ["Developer"],
+        summary: "Revoke a current developer API token",
+        description:
+          "Revokes a user-owned personal API token for a bearer credential with user authority and developer:write scope.",
+        security: developerWriteSecurity,
+        requestParams: {
+          path: ApiTokenPathParamsSchema,
+        },
+        responses: {
+          "200": {
+            description: "Revoked or already-revoked personal API token metadata.",
+            content: jsonContent(DeveloperTokenResponseSchema),
+          },
+          "400": publicReadProblemResponses["400"],
+          "401": {
+            description: "Bearer authentication is required or invalid.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "403": {
+            description: "The bearer credential lacks developer:write scope or user authority.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "404": {
+            description: "The token was not found for the current user.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "429": publicReadProblemResponses["429"],
+        },
+      },
+    },
     "/api/v0/developer/oauth-apps": {
       get: {
         operationId: "listCurrentDeveloperOAuthApps",
@@ -191,6 +232,39 @@ export const openApiSource = {
           },
           "403": {
             description: "The bearer credential lacks developer:read scope or user authority.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "429": publicReadProblemResponses["429"],
+        },
+      },
+    },
+    "/api/v0/developer/oauth-apps/{clientId}": {
+      delete: {
+        operationId: "revokeCurrentDeveloperOAuthApp",
+        tags: ["Developer"],
+        summary: "Revoke a current developer OAuth app",
+        description:
+          "Revokes a user-owned OAuth application and its active secrets for a bearer credential with user authority and developer:write scope.",
+        security: developerWriteSecurity,
+        requestParams: {
+          path: OAuthClientPathParamsSchema,
+        },
+        responses: {
+          "200": {
+            description: "Revoked or already-revoked OAuth application metadata.",
+            content: jsonContent(DeveloperOAuthAppResponseSchema),
+          },
+          "400": publicReadProblemResponses["400"],
+          "401": {
+            description: "Bearer authentication is required or invalid.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "403": {
+            description: "The bearer credential lacks developer:write scope or user authority.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "404": {
+            description: "The OAuth application was not found for the current user.",
             content: jsonContent(ApiProblemSchema),
           },
           "429": publicReadProblemResponses["429"],

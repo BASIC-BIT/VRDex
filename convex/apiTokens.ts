@@ -2,7 +2,7 @@ import { v } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { internalQuery, mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { getCurrentUser, requireCurrentUser } from "./accounts";
 import {
   apiRouteClassValidator,
@@ -104,6 +104,50 @@ async function recordApiTokenEvent(
   });
 }
 
+async function revokeUserOwnedToken(
+  ctx: MutationCtx,
+  args: {
+    ownerUserId: Doc<"users">["_id"];
+    reason?: string;
+    tokenId: Doc<"apiTokens">["_id"];
+  },
+) {
+  const token = await ctx.db.get(args.tokenId);
+
+  if (token === null || token.ownerKind !== "user" || token.ownerUserId !== args.ownerUserId) {
+    return { ok: false as const, reason: "not_found" as const };
+  }
+
+  if (token.status === "revoked") {
+    return { ok: true as const, token: toTokenSummary(token) };
+  }
+
+  const now = Date.now();
+  const revokeReason = normalizeApiTokenRevokeReason(args.reason);
+  const patch = {
+    status: "revoked" as const,
+    revokedAt: now,
+    revokedByUserId: args.ownerUserId,
+    updatedAt: now,
+    ...(revokeReason !== undefined ? { revokeReason } : {}),
+  };
+
+  await ctx.db.patch(token._id, patch);
+  const updatedToken = { ...token, ...patch };
+
+  await recordApiTokenEvent(ctx, {
+    token: updatedToken,
+    routeClass: "developer_credential_management",
+    eventType: "revoked",
+    result: "accepted",
+    requiredScopes: [],
+    grantedScopes: updatedToken.scopes,
+    now,
+  });
+
+  return { ok: true as const, token: toTokenSummary(updatedToken) };
+}
+
 export const listPersonalTokens = query({
   args: {
     includeRevoked: v.optional(v.boolean()),
@@ -190,6 +234,17 @@ export const createPersonalToken = mutation({
   },
 });
 
+export const revokeDeveloperTokenForApiOwner = internalMutation({
+  args: {
+    ownerUserId: v.id("users"),
+    tokenId: v.id("apiTokens"),
+    reason: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    return await revokeUserOwnedToken(ctx, args);
+  },
+});
+
 export const revokePersonalToken = mutation({
   args: {
     tokenId: v.id("apiTokens"),
@@ -197,40 +252,17 @@ export const revokePersonalToken = mutation({
   },
   handler: async (ctx, args) => {
     const user = await requireCurrentUser(ctx);
-    const token = await ctx.db.get(args.tokenId);
+    const result = await revokeUserOwnedToken(ctx, {
+      ownerUserId: user._id,
+      tokenId: args.tokenId,
+      reason: args.reason,
+    });
 
-    if (token === null || token.ownerKind !== "user" || token.ownerUserId !== user._id) {
+    if (!result.ok) {
       throw new Error("API token was not found for the current account.");
     }
 
-    if (token.status === "revoked") {
-      return toTokenSummary(token);
-    }
-
-    const now = Date.now();
-    const revokeReason = normalizeApiTokenRevokeReason(args.reason);
-    const patch = {
-      status: "revoked" as const,
-      revokedAt: now,
-      revokedByUserId: user._id,
-      updatedAt: now,
-      ...(revokeReason !== undefined ? { revokeReason } : {}),
-    };
-
-    await ctx.db.patch(token._id, patch);
-    const updatedToken = { ...token, ...patch };
-
-    await recordApiTokenEvent(ctx, {
-      token: updatedToken,
-      routeClass: "developer_credential_management",
-      eventType: "revoked",
-      result: "accepted",
-      requiredScopes: [],
-      grantedScopes: updatedToken.scopes,
-      now,
-    });
-
-    return toTokenSummary(updatedToken);
+    return result.token;
   },
 });
 

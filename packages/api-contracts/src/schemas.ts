@@ -544,6 +544,15 @@ export const DeveloperTokensResponseSchema = z
     id: "DeveloperTokensResponse",
   });
 
+export const DeveloperTokenResponseSchema = z
+  .object({
+    token: ApiTokenSummarySchema,
+  })
+  .meta({
+    description: "User-owned personal API token response.",
+    id: "DeveloperTokenResponse",
+  });
+
 export const DeveloperOAuthAppsResponseSchema = z
   .object({
     applications: z.array(OAuthApplicationSummarySchema),
@@ -551,6 +560,15 @@ export const DeveloperOAuthAppsResponseSchema = z
   .meta({
     description: "User-owned OAuth application list.",
     id: "DeveloperOAuthAppsResponse",
+  });
+
+export const DeveloperOAuthAppResponseSchema = z
+  .object({
+    application: OAuthApplicationSummarySchema,
+  })
+  .meta({
+    description: "User-owned OAuth application response.",
+    id: "DeveloperOAuthAppResponse",
   });
 
 export const ApiProblemSchema = z
@@ -588,6 +606,14 @@ export const LimitQueryParamsSchema = z.object({
 export const DeveloperCredentialListQueryParamsSchema = z.object({
   includeRevoked: z.boolean().optional().meta({ description: "Include revoked credentials." }),
   limit: z.number().int().min(1).max(100).optional().meta({ description: "Maximum result count." }),
+});
+
+export const ApiTokenPathParamsSchema = z.object({
+  tokenId: z.string().min(1).meta({ description: "API token id returned by the developer token list." }),
+});
+
+export const OAuthClientPathParamsSchema = z.object({
+  clientId: z.string().min(1).meta({ description: "OAuth client id." }),
 });
 
 export const AssetPathParamsSchema = SlugPathParamsSchema;

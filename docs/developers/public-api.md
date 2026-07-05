@@ -56,13 +56,17 @@ Implemented authenticated reads require a valid bearer credential:
 | `GET /api/v0/me` | Read metadata for the current API token or API-resource OAuth caller. |
 | `GET /api/v0/developer/tokens` | List current user's personal API token metadata. |
 | `GET /api/v0/developer/oauth-apps` | List current user's OAuth application metadata. |
+| `DELETE /api/v0/developer/tokens/:tokenId` | Revoke a current user's personal API token. |
+| `DELETE /api/v0/developer/oauth-apps/:clientId` | Revoke a current user's OAuth application and active secrets. |
 
-Developer list routes require `developer:read` plus user authority. User-owned
+Developer list routes require `developer:read` plus user authority. Developer
+revocation routes require `developer:write` plus user authority. User-owned
 personal API tokens qualify. User-delegated API-resource OAuth access tokens
-qualify. App-only client-credentials tokens and anonymous callers do not list a
-user's developer resources. The Next.js gateway validates the bearer credential
-first, then calls internal Convex list queries with server-side admin auth so
-arbitrary owner ids are not exposed through public Convex functions.
+qualify. App-only client-credentials tokens and anonymous callers do not act on
+a user's developer resources. The Next.js gateway validates the bearer
+credential first, then calls internal Convex list and revoke functions with
+server-side admin auth so arbitrary owner ids are not exposed through public
+Convex functions.
 
 When a public read request has no bearer token, it is treated as anonymous
 traffic. When it has an opaque API bearer token, the Next.js route handler
@@ -81,6 +85,7 @@ Current personal API token backend primitives:
 - `apiTokens.createPersonalToken`
 - `apiTokens.listDeveloperTokensForApiOwner`
 - `apiTokens.listPersonalTokens`
+- `apiTokens.revokeDeveloperTokenForApiOwner`
 - `apiTokens.revokePersonalToken`
 - `apiTokens.validateBearerTokenHash`
 
@@ -89,6 +94,7 @@ Current OAuth app registry primitives:
 - `oauthApps.createPersonalApplication`
 - `oauthApps.listDeveloperApplicationsForApiOwner`
 - `oauthApps.listPersonalApplications`
+- `oauthApps.revokeDeveloperApplicationForApiOwner`
 - `oauthApps.revokePersonalApplication`
 - `oauthApps.createDynamicMcpClient`
 - `oauthApps.resolveAuthorizationClient`

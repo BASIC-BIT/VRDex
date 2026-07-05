@@ -118,4 +118,36 @@ describe("developer read API authority", () => {
     assert.match(output, /^400/m);
     assert.match(output, /"title":"Bearer token query parameters are not allowed"/);
   });
+
+  it("requires a bearer credential on developer token revocation", () => {
+    const output = runDeveloperReadProbe(`
+      import { DELETE } from "./apps/web/src/app/api/v0/developer/tokens/[tokenId]/route.ts";
+
+      const response = await DELETE(
+        new Request("https://app.example.test/api/v0/developer/tokens/token_123", { method: "DELETE" }),
+        { params: Promise.resolve({ tokenId: "token_123" }) },
+      );
+      console.log(response.status);
+      console.log(JSON.stringify(await response.json()));
+    `);
+
+    assert.match(output, /^401/m);
+    assert.match(output, /"title":"Bearer token required"/);
+  });
+
+  it("rejects bearer-token query parameters on developer OAuth app revocation", () => {
+    const output = runDeveloperReadProbe(`
+      import { DELETE } from "./apps/web/src/app/api/v0/developer/oauth-apps/[clientId]/route.ts";
+
+      const response = await DELETE(
+        new Request("https://app.example.test/api/v0/developer/oauth-apps/vrdx_app_000000000000000000000000?token=secret", { method: "DELETE" }),
+        { params: Promise.resolve({ clientId: "vrdx_app_000000000000000000000000" }) },
+      );
+      console.log(response.status);
+      console.log(JSON.stringify(await response.json()));
+    `);
+
+    assert.match(output, /^400/m);
+    assert.match(output, /"title":"Bearer token query parameters are not allowed"/);
+  });
 });

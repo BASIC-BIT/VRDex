@@ -242,6 +242,110 @@
         }
       }
     },
+    "/api/v0/developer/tokens/{tokenId}": {
+      "delete": {
+        "operationId": "revokeCurrentDeveloperApiToken",
+        "tags": [
+          "Developer"
+        ],
+        "summary": "Revoke a current developer API token",
+        "description": "Revokes a user-owned personal API token for a bearer credential with user authority and developer:write scope.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "oauth2": [
+              "developer:write"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tokenId",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "API token id returned by the developer token list."
+            },
+            "required": true,
+            "description": "API token id returned by the developer token list."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revoked or already-revoked personal API token metadata.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeveloperTokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or used an unsupported bearer-token location.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Bearer authentication is required or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The bearer credential lacks developer:write scope or user authority.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The token was not found for the current user.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v0/developer/oauth-apps": {
       "get": {
         "operationId": "listCurrentDeveloperOAuthApps",
@@ -315,6 +419,110 @@
           },
           "403": {
             "description": "The bearer credential lacks developer:read scope or user authority.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v0/developer/oauth-apps/{clientId}": {
+      "delete": {
+        "operationId": "revokeCurrentDeveloperOAuthApp",
+        "tags": [
+          "Developer"
+        ],
+        "summary": "Revoke a current developer OAuth app",
+        "description": "Revokes a user-owned OAuth application and its active secrets for a bearer credential with user authority and developer:write scope.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "oauth2": [
+              "developer:write"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "clientId",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "OAuth client id."
+            },
+            "required": true,
+            "description": "OAuth client id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revoked or already-revoked OAuth application metadata.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeveloperOAuthAppResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or used an unsupported bearer-token location.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Bearer authentication is required or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The bearer credential lacks developer:write scope or user authority.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The OAuth application was not found for the current user.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1801,6 +2009,19 @@
         "additionalProperties": false,
         "description": "User-owned personal API token metadata. Raw token values are never returned."
       },
+      "DeveloperTokenResponse": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "$ref": "#/components/schemas/ApiTokenSummary"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "additionalProperties": false,
+        "description": "User-owned personal API token response."
+      },
       "DeveloperOAuthAppsResponse": {
         "type": "object",
         "properties": {
@@ -1986,6 +2207,19 @@
         ],
         "additionalProperties": false,
         "description": "User-owned OAuth application metadata. Raw client secrets are never returned."
+      },
+      "DeveloperOAuthAppResponse": {
+        "type": "object",
+        "properties": {
+          "application": {
+            "$ref": "#/components/schemas/OAuthApplicationSummary"
+          }
+        },
+        "required": [
+          "application"
+        ],
+        "additionalProperties": false,
+        "description": "User-owned OAuth application response."
       },
       "PublicSearchResponse": {
         "type": "object",

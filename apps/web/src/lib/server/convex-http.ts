@@ -1,5 +1,7 @@
 import { ConvexHttpClient } from "convex/browser";
+import type { HttpMutationOptions } from "convex/browser";
 import type {
+  ArgsAndOptions,
   FunctionReference,
   FunctionReturnType,
   OptionalRestArgs,
@@ -10,6 +12,10 @@ type ConvexHttpClientWithAdminAuth = ConvexHttpClient & {
     query: Query,
     ...args: OptionalRestArgs<Query>
   ): Promise<FunctionReturnType<Query>>;
+  mutation<Mutation extends FunctionReference<"mutation", "public" | "internal">>(
+    mutation: Mutation,
+    ...args: ArgsAndOptions<Mutation, HttpMutationOptions>
+  ): Promise<FunctionReturnType<Mutation>>;
   setAdminAuth(token: string): void;
 };
 

@@ -18,22 +18,22 @@ export type DeveloperReadAuthority =
       reason: "anonymous" | "non_user_authority";
     };
 
-function missingDeveloperBearerResponse() {
+function missingDeveloperBearerResponse(requiredScope: "developer:read" | "developer:write") {
   return apiProblemResponse({
     type: "about:blank",
     title: "Bearer token required",
     status: 401,
-    detail: "Send a personal API token or API-resource OAuth access token with developer:read scope.",
+    detail: `Send a personal API token or API-resource OAuth access token with ${requiredScope} scope.`,
   });
 }
 
-function insufficientDeveloperAuthorityResponse() {
+function insufficientDeveloperAuthorityResponse(requiredScope: "developer:read" | "developer:write") {
   return apiProblemResponse({
     type: "about:blank",
-    title: "Developer read authority is insufficient",
+    title: "Developer authority is insufficient",
     status: 403,
     detail:
-      "This route requires a user-owned personal API token or a user-delegated API-resource OAuth access token with developer:read scope.",
+      `This route requires a user-owned personal API token or a user-delegated API-resource OAuth access token with ${requiredScope} scope.`,
   });
 }
 
@@ -63,7 +63,12 @@ export function developerReadAuthorityForCredential(
   return { ok: false, reason: "non_user_authority" };
 }
 
-export async function evaluateDeveloperReadRequest(request: Request): Promise<
+async function evaluateDeveloperCredentialRequest(
+  request: Request,
+  options: {
+    requiredScope: "developer:read" | "developer:write";
+  },
+): Promise<
   | {
       ok: true;
       context: ApiBearerRequestContext;
@@ -75,11 +80,11 @@ export async function evaluateDeveloperReadRequest(request: Request): Promise<
     }
 > {
   if (getBearerTokenFromAuthorizationHeader(request.headers.get("authorization")) === null) {
-    return { ok: false, response: missingDeveloperBearerResponse() };
+    return { ok: false, response: missingDeveloperBearerResponse(options.requiredScope) };
   }
 
   const evaluation = await evaluateOptionalApiBearerRequest(request, {
-    requiredScopes: ["developer:read"],
+    requiredScopes: [options.requiredScope],
     routeClass: "developer_credential_management",
   });
 
@@ -90,7 +95,7 @@ export async function evaluateDeveloperReadRequest(request: Request): Promise<
   const authority = developerReadAuthorityForCredential(evaluation.context.credential);
 
   if (!authority.ok) {
-    return { ok: false, response: insufficientDeveloperAuthorityResponse() };
+    return { ok: false, response: insufficientDeveloperAuthorityResponse(options.requiredScope) };
   }
 
   return {
@@ -98,4 +103,12 @@ export async function evaluateDeveloperReadRequest(request: Request): Promise<
     context: evaluation.context,
     ownerUserId: authority.ownerUserId,
   };
+}
+
+export async function evaluateDeveloperReadRequest(request: Request) {
+  return await evaluateDeveloperCredentialRequest(request, { requiredScope: "developer:read" });
+}
+
+export async function evaluateDeveloperWriteRequest(request: Request) {
+  return await evaluateDeveloperCredentialRequest(request, { requiredScope: "developer:write" });
 }
