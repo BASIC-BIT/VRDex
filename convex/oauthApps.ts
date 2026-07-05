@@ -376,6 +376,131 @@ export const listDeveloperApplicationsForApiOwner = internalQuery({
   },
 });
 
+async function createUserOwnedApplication(
+  ctx: MutationCtx,
+  args: {
+    allowedGrants?: readonly string[];
+    allowedScopes?: readonly string[];
+    clientId: string;
+    clientSecretPrefix?: string;
+    clientType: string;
+    description?: string;
+    displayName: string;
+    docsUrl?: string;
+    logoUrl?: string;
+    ownerUserId: Doc<"users">["_id"];
+    privacyUrl?: string;
+    redirectUris: readonly string[];
+    termsUrl?: string;
+    verifierHash?: string;
+  },
+) {
+  const now = Date.now();
+  const clientId = normalizeOAuthClientId(args.clientId);
+  const clientType = normalizeOAuthClientType(args.clientType);
+  const displayName = normalizeOAuthApplicationName(args.displayName);
+  const description = normalizeOAuthApplicationDescription(args.description);
+  const logoUrl = normalizeOAuthOptionalUrl(args.logoUrl, "Logo URL");
+  const docsUrl = normalizeOAuthOptionalUrl(args.docsUrl, "Docs URL");
+  const privacyUrl = normalizeOAuthOptionalUrl(args.privacyUrl, "Privacy URL");
+  const termsUrl = normalizeOAuthOptionalUrl(args.termsUrl, "Terms URL");
+  const redirectUris = normalizeOAuthRedirectUris(args.redirectUris);
+  const allowedScopes = normalizeOAuthScopes(args.allowedScopes);
+  const allowedGrants = normalizeOAuthGrantTypes(args.allowedGrants, clientType);
+  const existingApplication = await ctx.db
+    .query("oauthApplications")
+    .withIndex("by_clientId", (index) => index.eq("clientId", clientId))
+    .unique();
+
+  if (existingApplication !== null) {
+    throw new Error("OAuth client id collision. Generate a new client id and retry.");
+  }
+
+  if (clientType === "confidential" && (args.clientSecretPrefix === undefined || args.verifierHash === undefined)) {
+    throw new Error("Confidential OAuth applications require a generated client secret hash.");
+  }
+
+  if (clientType === "public" && (args.clientSecretPrefix !== undefined || args.verifierHash !== undefined)) {
+    throw new Error("Public OAuth applications must not store client secrets.");
+  }
+
+  const applicationId = await ctx.db.insert("oauthApplications", {
+    clientId,
+    ownerKind: "user",
+    ownerUserId: args.ownerUserId,
+    clientType,
+    displayName,
+    ...(description === undefined ? {} : { description }),
+    ...(logoUrl === undefined ? {} : { logoUrl }),
+    ...(docsUrl === undefined ? {} : { docsUrl }),
+    ...(privacyUrl === undefined ? {} : { privacyUrl }),
+    ...(termsUrl === undefined ? {} : { termsUrl }),
+    redirectUris,
+    allowedGrants,
+    allowedScopes,
+    status: "active",
+    trustTier: "standard",
+    createdAt: now,
+    updatedAt: now,
+  });
+  const application = await ctx.db.get(applicationId);
+
+  if (application === null) {
+    throw new Error("OAuth application creation failed.");
+  }
+
+  await recordOAuthClientEvent(ctx, {
+    application,
+    eventType: "application_created",
+    result: "accepted",
+    now,
+  });
+
+  let activeSecrets: Doc<"oauthApplicationSecrets">[] = [];
+
+  if (clientType === "confidential") {
+    const secretPrefix = normalizeOAuthClientSecretPrefix(args.clientSecretPrefix ?? "");
+    const verifierHash = normalizeOAuthClientSecretHash(args.verifierHash ?? "");
+    const existingSecret = await ctx.db
+      .query("oauthApplicationSecrets")
+      .withIndex("by_secretPrefix", (index) => index.eq("secretPrefix", secretPrefix))
+      .unique();
+
+    if (existingSecret !== null) {
+      throw new Error("OAuth client secret prefix collision. Generate a new secret and retry.");
+    }
+
+    const secretId = await ctx.db.insert("oauthApplicationSecrets", {
+      applicationId,
+      clientId,
+      secretPrefix,
+      verifierHash,
+      hashVersion: oauthClientSecretHashVersion,
+      status: "active",
+      label: "Initial secret",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const secret = await ctx.db.get(secretId);
+
+    if (secret === null) {
+      throw new Error("OAuth client secret creation failed.");
+    }
+
+    activeSecrets = [secret];
+
+    await recordOAuthClientEvent(ctx, {
+      application,
+      secretPrefix,
+      eventType: "secret_created",
+      result: "accepted",
+      now,
+    });
+  }
+
+  return toApplicationSummary(application, activeSecrets);
+}
+
 export const createPersonalApplication = mutation({
   args: {
     clientId: v.string(),
@@ -394,110 +519,30 @@ export const createPersonalApplication = mutation({
   },
   handler: async (ctx, args) => {
     const user = await requireCurrentUser(ctx);
-    const now = Date.now();
-    const clientId = normalizeOAuthClientId(args.clientId);
-    const clientType = normalizeOAuthClientType(args.clientType);
-    const displayName = normalizeOAuthApplicationName(args.displayName);
-    const description = normalizeOAuthApplicationDescription(args.description);
-    const logoUrl = normalizeOAuthOptionalUrl(args.logoUrl, "Logo URL");
-    const docsUrl = normalizeOAuthOptionalUrl(args.docsUrl, "Docs URL");
-    const privacyUrl = normalizeOAuthOptionalUrl(args.privacyUrl, "Privacy URL");
-    const termsUrl = normalizeOAuthOptionalUrl(args.termsUrl, "Terms URL");
-    const redirectUris = normalizeOAuthRedirectUris(args.redirectUris);
-    const allowedScopes = normalizeOAuthScopes(args.allowedScopes);
-    const allowedGrants = normalizeOAuthGrantTypes(args.allowedGrants, clientType);
-    const existingApplication = await ctx.db
-      .query("oauthApplications")
-      .withIndex("by_clientId", (index) => index.eq("clientId", clientId))
-      .unique();
 
-    if (existingApplication !== null) {
-      throw new Error("OAuth client id collision. Generate a new client id and retry.");
-    }
+    return await createUserOwnedApplication(ctx, { ...args, ownerUserId: user._id });
+  },
+});
 
-    if (clientType === "confidential" && (args.clientSecretPrefix === undefined || args.verifierHash === undefined)) {
-      throw new Error("Confidential OAuth applications require a generated client secret hash.");
-    }
-
-    if (clientType === "public" && (args.clientSecretPrefix !== undefined || args.verifierHash !== undefined)) {
-      throw new Error("Public OAuth applications must not store client secrets.");
-    }
-
-    const applicationId = await ctx.db.insert("oauthApplications", {
-      clientId,
-      ownerKind: "user",
-      ownerUserId: user._id,
-      clientType,
-      displayName,
-      ...(description === undefined ? {} : { description }),
-      ...(logoUrl === undefined ? {} : { logoUrl }),
-      ...(docsUrl === undefined ? {} : { docsUrl }),
-      ...(privacyUrl === undefined ? {} : { privacyUrl }),
-      ...(termsUrl === undefined ? {} : { termsUrl }),
-      redirectUris,
-      allowedGrants,
-      allowedScopes,
-      status: "active",
-      trustTier: "standard",
-      createdAt: now,
-      updatedAt: now,
-    });
-    const application = await ctx.db.get(applicationId);
-
-    if (application === null) {
-      throw new Error("OAuth application creation failed.");
-    }
-
-    await recordOAuthClientEvent(ctx, {
-      application,
-      eventType: "application_created",
-      result: "accepted",
-      now,
-    });
-
-    let activeSecrets: Doc<"oauthApplicationSecrets">[] = [];
-
-    if (clientType === "confidential") {
-      const secretPrefix = normalizeOAuthClientSecretPrefix(args.clientSecretPrefix ?? "");
-      const verifierHash = normalizeOAuthClientSecretHash(args.verifierHash ?? "");
-      const existingSecret = await ctx.db
-        .query("oauthApplicationSecrets")
-        .withIndex("by_secretPrefix", (index) => index.eq("secretPrefix", secretPrefix))
-        .unique();
-
-      if (existingSecret !== null) {
-        throw new Error("OAuth client secret prefix collision. Generate a new secret and retry.");
-      }
-
-      const secretId = await ctx.db.insert("oauthApplicationSecrets", {
-        applicationId,
-        clientId,
-        secretPrefix,
-        verifierHash,
-        hashVersion: oauthClientSecretHashVersion,
-        status: "active",
-        label: "Initial secret",
-        createdAt: now,
-        updatedAt: now,
-      });
-      const secret = await ctx.db.get(secretId);
-
-      if (secret === null) {
-        throw new Error("OAuth client secret creation failed.");
-      }
-
-      activeSecrets = [secret];
-
-      await recordOAuthClientEvent(ctx, {
-        application,
-        secretPrefix,
-        eventType: "secret_created",
-        result: "accepted",
-        now,
-      });
-    }
-
-    return toApplicationSummary(application, activeSecrets);
+export const createDeveloperApplicationForApiOwner = internalMutation({
+  args: {
+    ownerUserId: v.id("users"),
+    clientId: v.string(),
+    clientType: v.string(),
+    displayName: v.string(),
+    description: v.optional(v.string()),
+    logoUrl: v.optional(v.string()),
+    docsUrl: v.optional(v.string()),
+    privacyUrl: v.optional(v.string()),
+    termsUrl: v.optional(v.string()),
+    redirectUris: v.array(v.string()),
+    allowedGrants: v.optional(v.array(oauthGrantTypeValidator)),
+    allowedScopes: v.optional(v.array(apiScopeValidator)),
+    clientSecretPrefix: v.optional(v.string()),
+    verifierHash: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    return await createUserOwnedApplication(ctx, args);
   },
 });
 

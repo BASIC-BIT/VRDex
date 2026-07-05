@@ -5,6 +5,8 @@ import {
   ApiProblemSchema,
   ApiTokenPathParamsSchema,
   DeveloperCredentialListQueryParamsSchema,
+  DeveloperOAuthAppCreateRequestSchema,
+  DeveloperOAuthAppCreateResponseSchema,
   DeveloperOAuthAppResponseSchema,
   DeveloperOAuthAppsResponseSchema,
   DeveloperTokenCreateRequestSchema,
@@ -265,6 +267,37 @@ export const openApiSource = {
           },
           "403": {
             description: "The bearer credential lacks developer:read scope or user authority.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "429": publicReadProblemResponses["429"],
+        },
+      },
+      post: {
+        operationId: "createCurrentDeveloperOAuthApp",
+        tags: ["Developer"],
+        summary: "Create a current developer OAuth app",
+        description:
+          "Creates a user-owned OAuth application for a bearer credential with user authority and developer:write scope. Confidential clients receive a one-time client secret value.",
+        security: developerWriteSecurity,
+        requestBody: {
+          required: true,
+          content: jsonContent(DeveloperOAuthAppCreateRequestSchema),
+        },
+        responses: {
+          "200": {
+            description: "Created OAuth application and optional one-time client secret value.",
+            content: jsonContent(DeveloperOAuthAppCreateResponseSchema),
+          },
+          "400": {
+            description: "The OAuth app creation request was malformed.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "401": {
+            description: "Bearer authentication is required or invalid.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "403": {
+            description: "The bearer credential lacks developer:write scope or user authority.",
             content: jsonContent(ApiProblemSchema),
           },
           "429": publicReadProblemResponses["429"],

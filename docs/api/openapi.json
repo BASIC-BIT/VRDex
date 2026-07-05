@@ -536,6 +536,95 @@
             }
           }
         }
+      },
+      "post": {
+        "operationId": "createCurrentDeveloperOAuthApp",
+        "tags": [
+          "Developer"
+        ],
+        "summary": "Create a current developer OAuth app",
+        "description": "Creates a user-owned OAuth application for a bearer credential with user authority and developer:write scope. Confidential clients receive a one-time client secret value.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "oauth2": [
+              "developer:write"
+            ]
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeveloperOAuthAppCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Created OAuth application and optional one-time client secret value.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeveloperOAuthAppCreateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The OAuth app creation request was malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Bearer authentication is required or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The bearer credential lacks developer:write scope or user authority.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v0/developer/oauth-apps/{clientId}": {
@@ -1743,6 +1832,92 @@
         ],
         "description": "Create a user-owned personal API token. The raw token value is returned once."
       },
+      "DeveloperOAuthAppCreateRequest": {
+        "type": "object",
+        "properties": {
+          "clientType": {
+            "type": "string",
+            "enum": [
+              "public",
+              "confidential"
+            ],
+            "description": "OAuth application client type."
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "logoUrl": {
+            "type": "string",
+            "minLength": 1
+          },
+          "docsUrl": {
+            "type": "string",
+            "minLength": 1
+          },
+          "privacyUrl": {
+            "type": "string",
+            "minLength": 1
+          },
+          "termsUrl": {
+            "type": "string",
+            "minLength": 1
+          },
+          "redirectUris": {
+            "minItems": 1,
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "allowedGrants": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "authorization_code",
+                "refresh_token",
+                "client_credentials"
+              ],
+              "description": "OAuth grant type allowed for an application."
+            }
+          },
+          "allowedScopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "public:read",
+                "profile:read",
+                "profile:write",
+                "community:read",
+                "community:write",
+                "events:read",
+                "events:write",
+                "assets:read",
+                "assets:write",
+                "developer:read",
+                "developer:write",
+                "mcp:read",
+                "mcp:write"
+              ],
+              "description": "Public API or MCP credential scope."
+            }
+          }
+        },
+        "required": [
+          "displayName",
+          "redirectUris"
+        ],
+        "description": "Create a user-owned OAuth application. Confidential clients receive a one-time client secret value."
+      },
       "ApiMeResponse": {
         "type": "object",
         "properties": {
@@ -2355,6 +2530,23 @@
         ],
         "additionalProperties": false,
         "description": "User-owned OAuth application metadata. Raw client secrets are never returned."
+      },
+      "DeveloperOAuthAppCreateResponse": {
+        "type": "object",
+        "properties": {
+          "application": {
+            "$ref": "#/components/schemas/OAuthApplicationSummary"
+          },
+          "clientSecretValue": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "application"
+        ],
+        "additionalProperties": false,
+        "description": "Created OAuth application plus one-time client secret value for confidential clients."
       },
       "DeveloperOAuthAppResponse": {
         "type": "object",

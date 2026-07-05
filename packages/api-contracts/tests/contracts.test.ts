@@ -6,6 +6,8 @@ import {
   createPublicNotFoundProblem,
   ApiMeResponseSchema,
   ApiRateLimitUsageResponseSchema,
+  DeveloperOAuthAppCreateRequestSchema,
+  DeveloperOAuthAppCreateResponseSchema,
   DeveloperTokenCreateRequestSchema,
   DeveloperTokenCreateResponseSchema,
   getBearerTokenFromAuthorizationHeader,
@@ -191,6 +193,39 @@ describe("@vrdex/api-contracts", () => {
     });
   });
 
+  it("parses developer OAuth app creation contracts", () => {
+    DeveloperOAuthAppCreateRequestSchema.parse({
+      clientType: "confidential",
+      displayName: "Local MCP client",
+      description: "Local development client",
+      docsUrl: "https://example.test/docs",
+      privacyUrl: "https://example.test/privacy",
+      redirectUris: ["https://example.test/oauth/callback"],
+      allowedGrants: ["authorization_code", "refresh_token", "client_credentials"],
+      allowedScopes: ["public:read", "mcp:read"],
+    });
+
+    DeveloperOAuthAppCreateResponseSchema.parse({
+      clientSecretValue: "vrdx_secret_lookup.verifier",
+      application: {
+        id: "application123",
+        clientId: "vrdx_app_0123456789abcdef01234567",
+        ownerKind: "user",
+        ownerUserId: "user123",
+        clientType: "confidential",
+        displayName: "Local MCP client",
+        redirectUris: ["https://example.test/oauth/callback"],
+        allowedGrants: ["authorization_code", "refresh_token", "client_credentials"],
+        allowedScopes: ["public:read", "mcp:read"],
+        status: "active",
+        trustTier: "standard",
+        createdAt: 1770000000000,
+        updatedAt: 1770000000000,
+        activeSecretPrefixes: ["vrdx_secret_lookup"],
+      },
+    });
+  });
+
 
   it("creates RFC 9457-compatible problem details", () => {
     assert.deepEqual(createPublicNotFoundProblem("Profile"), {
@@ -353,8 +388,10 @@ describe("@vrdex/api-contracts", () => {
     assert.ok(document.paths?.["/api/v0/claims/{slug}/status"]);
     assert.ok(document.paths?.["/api/v0/usage/rate-limit"]);
     assert.ok(document.paths?.["/api/v0/developer/tokens"]);
+    assert.ok(document.paths?.["/api/v0/developer/tokens"]?.post);
     assert.ok(document.paths?.["/api/v0/developer/tokens/{tokenId}"]);
     assert.ok(document.paths?.["/api/v0/developer/oauth-apps"]);
+    assert.ok(document.paths?.["/api/v0/developer/oauth-apps"]?.post);
     assert.ok(document.paths?.["/api/v0/developer/oauth-apps/{clientId}"]);
   });
 

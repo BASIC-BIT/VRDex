@@ -119,6 +119,8 @@ Use `GET /api/v0/developer/tokens` and
 `GET /api/v0/developer/oauth-apps` to list developer credential metadata for
 the current user. Use `POST /api/v0/developer/tokens` to create a user-owned
 personal API token and receive its raw value once. Use
+`POST /api/v0/developer/oauth-apps` to create a user-owned OAuth application;
+confidential clients receive their raw client secret value once. Use
 `DELETE /api/v0/developer/tokens/:tokenId` and
 `DELETE /api/v0/developer/oauth-apps/:clientId` to revoke user-owned
 developer credentials. List routes require `developer:read`; creation and

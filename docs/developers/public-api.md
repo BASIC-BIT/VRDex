@@ -14,14 +14,12 @@ The full implementation-facing plan for API tokens, OAuth apps, rate limiting, S
 The checked-in OpenAPI artifact is `docs/api/openapi.json`, and the web app serves
 the same generated document at `GET /api/v0/openapi.json`. The web app renders
 the generated API reference at `/developers/api`. Signed-in developers can
-manage personal API tokens at `/developers/tokens`; token creation uses a
-first-party session route outside the public `/api/v0` contract, so it is not
-included in the public OpenAPI document. Signed-in developers can also register
-user-owned OAuth client apps at `/developers/apps`; the app registry and hashed
-client-secret storage are in place. OAuth metadata, JWKS, client-credentials
-token issuance, token revocation, constrained dynamic client registration for
-hosted MCP clients, public-client Authorization Code with PKCE, and
-refresh-token rotation are also in place; confidential-client
+manage personal API tokens at `/developers/tokens` and user-owned OAuth client
+apps at `/developers/apps`; bearer-authorized `/api/v0/developer/...` routes
+also support developer credential listing, creation, and revocation. OAuth
+metadata, JWKS, client-credentials token issuance, token revocation, constrained
+dynamic client registration for hosted MCP clients, public-client Authorization
+Code with PKCE, and refresh-token rotation are also in place; confidential-client
 authorization-code exchange remains a later implementation checkpoint.
 
 Implemented public reads are anonymous by default and accept optional scoped
@@ -57,15 +55,16 @@ Implemented authenticated reads require a valid bearer credential:
 | `GET /api/v0/developer/tokens` | List current user's personal API token metadata. |
 | `POST /api/v0/developer/tokens` | Create a current user's personal API token and return its value once. |
 | `GET /api/v0/developer/oauth-apps` | List current user's OAuth application metadata. |
+| `POST /api/v0/developer/oauth-apps` | Create a current user's OAuth application and return any confidential client secret once. |
 | `DELETE /api/v0/developer/tokens/:tokenId` | Revoke a current user's personal API token. |
 | `DELETE /api/v0/developer/oauth-apps/:clientId` | Revoke a current user's OAuth application and active secrets. |
 
 Developer list routes require `developer:read` plus user authority. Developer
-revocation routes require `developer:write` plus user authority. User-owned
+creation and revocation routes require `developer:write` plus user authority. User-owned
 personal API tokens qualify. User-delegated API-resource OAuth access tokens
 qualify. App-only client-credentials tokens and anonymous callers do not act on
 a user's developer resources. The Next.js gateway validates the bearer
-credential first, then calls internal Convex list and revoke functions with
+credential first, then calls internal Convex developer credential functions with
 server-side admin auth so arbitrary owner ids are not exposed through public
 Convex functions.
 
@@ -93,6 +92,7 @@ Current personal API token backend primitives:
 
 Current OAuth app registry primitives:
 
+- `oauthApps.createDeveloperApplicationForApiOwner`
 - `oauthApps.createPersonalApplication`
 - `oauthApps.listDeveloperApplicationsForApiOwner`
 - `oauthApps.listPersonalApplications`

@@ -546,6 +546,25 @@ export const OAuthApplicationSummarySchema = z
     id: "OAuthApplicationSummary",
   });
 
+export const DeveloperOAuthAppCreateRequestSchema = z
+  .object({
+    clientType: OAuthClientTypeSchema.optional(),
+    displayName: z.string().min(1).max(80),
+    description: z.string().max(500).optional(),
+    logoUrl: z.string().min(1).optional(),
+    docsUrl: z.string().min(1).optional(),
+    privacyUrl: z.string().min(1).optional(),
+    termsUrl: z.string().min(1).optional(),
+    redirectUris: z.array(z.string().min(1)).min(1).max(10),
+    allowedGrants: z.array(OAuthGrantTypeSchema).optional(),
+    allowedScopes: z.array(ApiScopeSchema).optional(),
+  })
+  .meta({
+    description:
+      "Create a user-owned OAuth application. Confidential clients receive a one-time client secret value.",
+    id: "DeveloperOAuthAppCreateRequest",
+  });
+
 export const DeveloperTokensResponseSchema = z
   .object({
     tokens: z.array(ApiTokenSummarySchema),
@@ -590,6 +609,16 @@ export const DeveloperOAuthAppResponseSchema = z
   .meta({
     description: "User-owned OAuth application response.",
     id: "DeveloperOAuthAppResponse",
+  });
+
+export const DeveloperOAuthAppCreateResponseSchema = z
+  .object({
+    application: OAuthApplicationSummarySchema,
+    clientSecretValue: z.string().min(1).optional(),
+  })
+  .meta({
+    description: "Created OAuth application plus one-time client secret value for confidential clients.",
+    id: "DeveloperOAuthAppCreateResponse",
   });
 
 export const ApiProblemSchema = z
