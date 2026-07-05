@@ -88,6 +88,12 @@ Dynamic clients are not normal self-serve developer apps. They are stored in a
 separate table and can be reviewed or promoted later if an operator decides
 that is appropriate.
 
+Client ID Metadata Documents are tracked as a hosted MCP compatibility path for
+clients that prefer preconfigured metadata over Dynamic Client Registration.
+They do not change the first-pass ownership model: normal developer apps stay
+user-owned, dynamic MCP clients stay separate, and community-owned apps remain
+an early follow-up.
+
 ## Trusted Partner Review
 
 Trusted partner access is a manual operator process.

@@ -75,6 +75,11 @@ JWT signature and audience.
 | `POST /oauth/register` | Constrained Dynamic Client Registration for hosted MCP clients. |
 | `GET /oauth/jwks.json` | Public signing keys for JWT access tokens. |
 
+Client ID Metadata Documents are a compatibility path to test for hosted MCP
+clients that prefer preconfigured client metadata over Dynamic Client
+Registration. DCR remains the first automatic registration path in this
+checkpoint.
+
 ## Authorization Code With PKCE
 
 Use this for user-delegated clients and hosted MCP clients that need user
@@ -115,6 +120,10 @@ Dynamic MCP clients are constrained to:
 - `token_endpoint_auth_method=none`
 - MCP resource access
 - `mcp:read` plus optional `public:read`
+
+Before hosted MCP is declared externally ready, smoke both DCR and Client ID
+Metadata Document OAuth paths in the major-client matrix where the current
+client release supports both.
 
 ## Error Rules
 

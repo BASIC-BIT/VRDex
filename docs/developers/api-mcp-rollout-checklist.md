@@ -25,6 +25,8 @@ one PR.
 - Authorization Code uses PKCE with `S256`.
 - Redirect URI matching is exact.
 - API and MCP resources are validated separately.
+- Hosted MCP OAuth is tested through Dynamic Client Registration and Client ID
+  Metadata Documents where current major clients support both paths.
 - Revoked credentials are rejected and produce durable event metadata.
 
 ## Rate Limits And Operations

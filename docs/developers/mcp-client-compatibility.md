@@ -27,10 +27,10 @@ smoke rows are run against a deployed preview or production-like environment.
 | Client | Local stdio config | Hosted HTTP config | OAuth expectation | Current status |
 | --- | --- | --- | --- | --- |
 | Claude Desktop | Uses `mcpServers` JSON with `command`, `args`, and optional `env`. | Remote setup should use Claude's current Custom Connector path. | Hosted `/mcp` should complete OAuth through protected-resource metadata. | Local stdio config ready; hosted manual smoke pending. |
-| Claude Code | Supports stdio with `claude mcp add --transport stdio`. | Supports HTTP with `claude mcp add --transport http`. | Supports OAuth from `/mcp` or `claude mcp login`, with Dynamic Client Registration when no client id is provided. | Local stdio and hosted command shapes ready; manual smoke pending. |
+| Claude Code | Supports stdio with `claude mcp add --transport stdio`. | Supports HTTP with `claude mcp add --transport http`. | Supports OAuth from `/mcp` or `claude mcp login`, with Dynamic Client Registration or Client ID Metadata Documents depending on server metadata. | Local stdio and hosted command shapes ready; manual smoke pending. |
 | VS Code | Uses `.vscode/mcp.json` or user MCP config with `servers` entries. | Supports `type: "http"` and `url`. | Avoid hardcoded secrets; use inputs or environment files. OAuth manual smoke pending. | Config snippets ready; manual smoke pending. |
 | Cursor | MCP support is listed by the official MCP ecosystem docs. | Treat hosted HTTP and local stdio as required smoke targets. | Confirm current OAuth behavior during manual smoke. | Client support identified; current config docs need manual confirmation. |
-| OpenAI and ChatGPT MCP-capable surfaces | Treat local stdio as unsupported until the current product surface says otherwise. | Treat hosted HTTP as the expected route when custom MCP connectors are available. | Confirm current OAuth and connector review requirements during manual smoke. | Ecosystem support identified; install path intentionally not documented until current official setup is verified. |
+| OpenAI and ChatGPT MCP-capable surfaces | Treat local stdio as unsupported until the current product surface says otherwise. | Treat hosted HTTP as the expected route when custom MCP connectors are available. | Current docs recommend OAuth with Client ID Metadata Documents when supported and keep Dynamic Client Registration supported when configured. | Ecosystem support identified; install path intentionally not documented until current official setup is verified. |
 | Devin Desktop / Windsurf Cascade | Uses `mcp_config.json` with `mcpServers`. | Supports `serverUrl` or `url` for remote HTTP MCPs. | Docs state OAuth support for stdio, Streamable HTTP, and SSE. | Local and hosted config shapes ready; manual smoke pending. |
 | MCP Inspector | Use as a protocol-level stdio debugger. | Connect directly to hosted `/mcp` for remote debugging. | Exercise anonymous and OAuth paths separately. | Recommended diagnostic tool; manual smoke pending. |
 
@@ -147,11 +147,15 @@ VS Code hosted config:
 2. Claude Desktop hosted Custom Connector lists anonymous tools and completes
    OAuth for `mcp:read` when protected tools are enabled.
 3. Claude Code local stdio starts, hosted HTTP anonymous tool listing works,
-   and hosted OAuth completes with `mcp:read`.
+   and hosted OAuth completes with `mcp:read`. Run both Dynamic Client
+   Registration and Client ID Metadata Document paths when the current client
+   release exposes both.
 4. VS Code local stdio lists six tools and hosted HTTP anonymous reads work.
 5. Cursor local stdio and hosted HTTP read tools work in the current release.
 6. OpenAI or ChatGPT MCP-capable surfaces connect to hosted `/mcp` if the
-   current product supports custom remote MCP connectors.
+   current product supports custom remote MCP connectors. Record whether the
+   connector used Client ID Metadata Documents, Dynamic Client Registration, or
+   a reviewed app submission path.
 7. Devin Desktop or Windsurf Cascade local stdio and hosted HTTP read tools
    work; OAuth is tested when team MCP access allows it.
 8. MCP Inspector hosted anonymous read and OAuth-protected read paths return
@@ -170,3 +174,4 @@ and screenshots.
 - [Claude Code MCP docs](https://docs.anthropic.com/en/docs/claude-code/mcp)
 - [VS Code MCP servers](https://code.visualstudio.com/docs/agent-customization/mcp-servers)
 - [Devin Desktop / Windsurf Cascade MCP](https://docs.devin.ai/desktop/cascade/mcp)
+- [OpenAI MCP and Connectors](https://platform.openai.com/docs/mcp)
