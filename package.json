@@ -110,7 +110,7 @@
     "preverify:api-contracts": "node scripts/guard-main-worktree.mjs",
     "verify:api-contracts": "pnpm check:api-openapi && pnpm typecheck:api-contracts && pnpm test:api-contracts",
     "preverify:vrdex-mcp": "node scripts/guard-main-worktree.mjs",
-    "verify:vrdex-mcp": "pnpm typecheck:vrdex-mcp && pnpm test:vrdex-mcp",
+    "verify:vrdex-mcp": "pnpm typecheck:vrdex-mcp && pnpm test:vrdex-mcp && pnpm smoke:mcp-compat",
     "preverify": "node scripts/guard-main-worktree.mjs",
     "verify": "pnpm verify:api-contracts && pnpm verify:vrdex-mcp && pnpm verify:docs && pnpm verify:web && pnpm check:backend:generated && pnpm typecheck:backend && pnpm test:backend",
     "prepare": "husky"

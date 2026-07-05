@@ -45,6 +45,9 @@ Run this before manual client smokes:
 pnpm smoke:mcp-compat
 ```
 
+PR Baseline Checks run the same local stdio protocol smoke through
+`pnpm verify:vrdex-mcp`.
+
 The command starts the local stdio MCP package against a local API fixture and
 replays initialize, tool-list, and `vrdex_search` calls with protocol profiles
 for Claude Desktop, Claude Code, VS Code, Cursor, Devin Desktop / Windsurf

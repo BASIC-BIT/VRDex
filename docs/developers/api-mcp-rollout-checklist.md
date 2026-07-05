@@ -10,6 +10,8 @@ one PR.
 - OpenAPI is generated from shared schemas, not hand-written in parallel.
 - `docs/api/openapi.json` matches the generated contract.
 - `/api/v0/openapi.json` serves the same generated document.
+- Baseline Checks runs `pnpm verify:api-contracts` so OpenAPI drift,
+  contract typechecking, and contract tests are enforced in PR CI.
 - Developer docs cover public API, auth, OAuth apps, rate limits, MCP tools,
   self-hosting variables, and changelog notes.
 - The Docusaurus docs build succeeds.
@@ -53,9 +55,10 @@ one PR.
 - Local stdio MCP supports hosted and self-hosted API base URLs.
 - Local stdio MCP can run with anonymous reads, personal API tokens, or
   API-resource OAuth access tokens.
-- `pnpm smoke:mcp-compat` covers the shared local stdio protocol path and can
-  optionally smoke a deployed hosted `/mcp` endpoint with
-  `VRDEX_MCP_SMOKE_URL`.
+- Baseline Checks runs `pnpm verify:vrdex-mcp`, including
+  `pnpm smoke:mcp-compat`, for package typechecking, package tests, and shared
+  local stdio protocol coverage. The smoke can optionally probe a deployed
+  hosted `/mcp` endpoint with `VRDEX_MCP_SMOKE_URL`.
 - `docs/developers/mcp-client-compatibility.md` lists the current major-client
   matrix and must have manual smoke results before external readiness is
   declared.
