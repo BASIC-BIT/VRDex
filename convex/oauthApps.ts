@@ -46,6 +46,20 @@ function boundedLimit(value: number | undefined, fallback: number, max: number) 
   return Math.max(1, Math.min(Math.floor(value), max));
 }
 
+function normalizeOAuthClientSecretLabel(value: string | undefined) {
+  const label = value?.trim().replace(/\s+/g, " ");
+
+  if (!label) {
+    return undefined;
+  }
+
+  if (label.length > 80) {
+    throw new Error("OAuth client secret label must be 80 characters or fewer.");
+  }
+
+  return label;
+}
+
 function toApplicationSummary(
   application: Doc<"oauthApplications">,
   activeSecrets: Doc<"oauthApplicationSecrets">[],
@@ -543,6 +557,85 @@ export const createDeveloperApplicationForApiOwner = internalMutation({
   },
   handler: async (ctx, args) => {
     return await createUserOwnedApplication(ctx, args);
+  },
+});
+
+export const createDeveloperApplicationSecretForApiOwner = internalMutation({
+  args: {
+    ownerUserId: v.id("users"),
+    clientId: v.string(),
+    secretPrefix: v.string(),
+    verifierHash: v.string(),
+    label: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const clientId = normalizeOAuthClientId(args.clientId);
+    const application = await ctx.db
+      .query("oauthApplications")
+      .withIndex("by_clientId", (index) => index.eq("clientId", clientId))
+      .unique();
+
+    if (
+      application === null ||
+      application.ownerKind !== "user" ||
+      application.ownerUserId !== args.ownerUserId ||
+      application.status !== "active"
+    ) {
+      return { ok: false as const, reason: "not_found" as const };
+    }
+
+    if (application.clientType !== "confidential") {
+      return { ok: false as const, reason: "not_confidential" as const };
+    }
+
+    const secretPrefix = normalizeOAuthClientSecretPrefix(args.secretPrefix);
+    const verifierHash = normalizeOAuthClientSecretHash(args.verifierHash);
+    const label = normalizeOAuthClientSecretLabel(args.label) ?? "Rotated secret";
+    const existingSecret = await ctx.db
+      .query("oauthApplicationSecrets")
+      .withIndex("by_secretPrefix", (index) => index.eq("secretPrefix", secretPrefix))
+      .unique();
+
+    if (existingSecret !== null) {
+      throw new Error("OAuth client secret prefix collision. Generate a new secret and retry.");
+    }
+
+    const secretId = await ctx.db.insert("oauthApplicationSecrets", {
+      applicationId: application._id,
+      clientId,
+      secretPrefix,
+      verifierHash,
+      hashVersion: oauthClientSecretHashVersion,
+      status: "active",
+      label,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const secret = await ctx.db.get(secretId);
+
+    if (secret === null) {
+      throw new Error("OAuth client secret creation failed.");
+    }
+
+    await ctx.db.patch(application._id, { updatedAt: now });
+
+    const updatedApplication = { ...application, updatedAt: now };
+
+    await recordOAuthClientEvent(ctx, {
+      application: updatedApplication,
+      secretPrefix,
+      eventType: "secret_created",
+      result: "accepted",
+      now,
+    });
+
+    const activeSecrets = await activeSecretsForApplication(ctx, application._id);
+
+    return {
+      ok: true as const,
+      application: toApplicationSummary(updatedApplication, activeSecrets),
+    };
   },
 });
 

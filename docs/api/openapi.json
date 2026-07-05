@@ -731,6 +731,120 @@
         }
       }
     },
+    "/api/v0/developer/oauth-apps/{clientId}/secrets": {
+      "post": {
+        "operationId": "createCurrentDeveloperOAuthAppSecret",
+        "tags": [
+          "Developer"
+        ],
+        "summary": "Create a current developer OAuth app secret",
+        "description": "Creates an additional client secret for a user-owned confidential OAuth application. The raw client secret value is returned once.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "oauth2": [
+              "developer:write"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "clientId",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "OAuth client id."
+            },
+            "required": true,
+            "description": "OAuth client id."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeveloperOAuthAppSecretCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated OAuth application and one-time client secret value.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeveloperOAuthAppSecretCreateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The OAuth app secret creation request was malformed or the app is public.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Bearer authentication is required or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The bearer credential lacks developer:write scope or user authority.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The OAuth application was not found for the current user.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v0/search": {
       "get": {
         "operationId": "searchPublicCatalog",
@@ -1918,6 +2032,17 @@
         ],
         "description": "Create a user-owned OAuth application. Confidential clients receive a one-time client secret value."
       },
+      "DeveloperOAuthAppSecretCreateRequest": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        },
+        "description": "Create an additional secret for a user-owned confidential OAuth application."
+      },
       "ApiMeResponse": {
         "type": "object",
         "properties": {
@@ -2560,6 +2685,24 @@
         ],
         "additionalProperties": false,
         "description": "User-owned OAuth application response."
+      },
+      "DeveloperOAuthAppSecretCreateResponse": {
+        "type": "object",
+        "properties": {
+          "application": {
+            "$ref": "#/components/schemas/OAuthApplicationSummary"
+          },
+          "clientSecretValue": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "application",
+          "clientSecretValue"
+        ],
+        "additionalProperties": false,
+        "description": "Updated OAuth application plus one-time client secret value."
       },
       "PublicSearchResponse": {
         "type": "object",

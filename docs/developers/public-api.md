@@ -56,6 +56,7 @@ Implemented authenticated reads require a valid bearer credential:
 | `POST /api/v0/developer/tokens` | Create a current user's personal API token and return its value once. |
 | `GET /api/v0/developer/oauth-apps` | List current user's OAuth application metadata. |
 | `POST /api/v0/developer/oauth-apps` | Create a current user's OAuth application and return any confidential client secret once. |
+| `POST /api/v0/developer/oauth-apps/:clientId/secrets` | Create an additional confidential OAuth client secret and return it once. |
 | `DELETE /api/v0/developer/tokens/:tokenId` | Revoke a current user's personal API token. |
 | `DELETE /api/v0/developer/oauth-apps/:clientId` | Revoke a current user's OAuth application and active secrets. |
 
@@ -93,6 +94,7 @@ Current personal API token backend primitives:
 Current OAuth app registry primitives:
 
 - `oauthApps.createDeveloperApplicationForApiOwner`
+- `oauthApps.createDeveloperApplicationSecretForApiOwner`
 - `oauthApps.createPersonalApplication`
 - `oauthApps.listDeveloperApplicationsForApiOwner`
 - `oauthApps.listPersonalApplications`

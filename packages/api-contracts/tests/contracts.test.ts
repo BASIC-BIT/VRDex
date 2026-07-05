@@ -8,6 +8,8 @@ import {
   ApiRateLimitUsageResponseSchema,
   DeveloperOAuthAppCreateRequestSchema,
   DeveloperOAuthAppCreateResponseSchema,
+  DeveloperOAuthAppSecretCreateRequestSchema,
+  DeveloperOAuthAppSecretCreateResponseSchema,
   DeveloperTokenCreateRequestSchema,
   DeveloperTokenCreateResponseSchema,
   getBearerTokenFromAuthorizationHeader,
@@ -226,6 +228,32 @@ describe("@vrdex/api-contracts", () => {
     });
   });
 
+  it("parses developer OAuth app secret creation contracts", () => {
+    DeveloperOAuthAppSecretCreateRequestSchema.parse({
+      label: "Production rotation",
+    });
+
+    DeveloperOAuthAppSecretCreateResponseSchema.parse({
+      clientSecretValue: "vrdx_secret_lookup.verifier",
+      application: {
+        id: "application123",
+        clientId: "vrdx_app_0123456789abcdef01234567",
+        ownerKind: "user",
+        ownerUserId: "user123",
+        clientType: "confidential",
+        displayName: "Local MCP client",
+        redirectUris: ["https://example.test/oauth/callback"],
+        allowedGrants: ["authorization_code", "refresh_token", "client_credentials"],
+        allowedScopes: ["public:read", "mcp:read"],
+        status: "active",
+        trustTier: "standard",
+        createdAt: 1770000000000,
+        updatedAt: 1770000000000,
+        activeSecretPrefixes: ["vrdx_secret_lookup", "vrdx_secret_second"],
+      },
+    });
+  });
+
 
   it("creates RFC 9457-compatible problem details", () => {
     assert.deepEqual(createPublicNotFoundProblem("Profile"), {
@@ -393,6 +421,7 @@ describe("@vrdex/api-contracts", () => {
     assert.ok(document.paths?.["/api/v0/developer/oauth-apps"]);
     assert.ok(document.paths?.["/api/v0/developer/oauth-apps"]?.post);
     assert.ok(document.paths?.["/api/v0/developer/oauth-apps/{clientId}"]);
+    assert.ok(document.paths?.["/api/v0/developer/oauth-apps/{clientId}/secrets"]?.post);
   });
 
   it("advertises the real OAuth route surface in security metadata", () => {

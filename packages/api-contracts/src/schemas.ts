@@ -621,6 +621,25 @@ export const DeveloperOAuthAppCreateResponseSchema = z
     id: "DeveloperOAuthAppCreateResponse",
   });
 
+export const DeveloperOAuthAppSecretCreateRequestSchema = z
+  .object({
+    label: z.string().min(1).max(80).optional(),
+  })
+  .meta({
+    description: "Create an additional secret for a user-owned confidential OAuth application.",
+    id: "DeveloperOAuthAppSecretCreateRequest",
+  });
+
+export const DeveloperOAuthAppSecretCreateResponseSchema = z
+  .object({
+    application: OAuthApplicationSummarySchema,
+    clientSecretValue: z.string().min(1),
+  })
+  .meta({
+    description: "Updated OAuth application plus one-time client secret value.",
+    id: "DeveloperOAuthAppSecretCreateResponse",
+  });
+
 export const ApiProblemSchema = z
   .object({
     detail: z.string().optional(),

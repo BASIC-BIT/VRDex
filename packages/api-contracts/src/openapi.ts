@@ -8,6 +8,8 @@ import {
   DeveloperOAuthAppCreateRequestSchema,
   DeveloperOAuthAppCreateResponseSchema,
   DeveloperOAuthAppResponseSchema,
+  DeveloperOAuthAppSecretCreateRequestSchema,
+  DeveloperOAuthAppSecretCreateResponseSchema,
   DeveloperOAuthAppsResponseSchema,
   DeveloperTokenCreateRequestSchema,
   DeveloperTokenCreateResponseSchema,
@@ -321,6 +323,46 @@ export const openApiSource = {
             content: jsonContent(DeveloperOAuthAppResponseSchema),
           },
           "400": publicReadProblemResponses["400"],
+          "401": {
+            description: "Bearer authentication is required or invalid.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "403": {
+            description: "The bearer credential lacks developer:write scope or user authority.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "404": {
+            description: "The OAuth application was not found for the current user.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "429": publicReadProblemResponses["429"],
+        },
+      },
+    },
+    "/api/v0/developer/oauth-apps/{clientId}/secrets": {
+      post: {
+        operationId: "createCurrentDeveloperOAuthAppSecret",
+        tags: ["Developer"],
+        summary: "Create a current developer OAuth app secret",
+        description:
+          "Creates an additional client secret for a user-owned confidential OAuth application. The raw client secret value is returned once.",
+        security: developerWriteSecurity,
+        requestParams: {
+          path: OAuthClientPathParamsSchema,
+        },
+        requestBody: {
+          required: true,
+          content: jsonContent(DeveloperOAuthAppSecretCreateRequestSchema),
+        },
+        responses: {
+          "200": {
+            description: "Updated OAuth application and one-time client secret value.",
+            content: jsonContent(DeveloperOAuthAppSecretCreateResponseSchema),
+          },
+          "400": {
+            description: "The OAuth app secret creation request was malformed or the app is public.",
+            content: jsonContent(ApiProblemSchema),
+          },
           "401": {
             description: "Bearer authentication is required or invalid.",
             content: jsonContent(ApiProblemSchema),

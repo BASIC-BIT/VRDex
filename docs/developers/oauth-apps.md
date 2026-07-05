@@ -4,9 +4,10 @@
 
 Current implementation checkpoint for user-owned developer OAuth apps.
 
-Normal developer apps are created from `/developers/apps`. Community-owned
-OAuth apps remain an early follow-up after community owner/admin authority is
-stable enough for app ownership and revocation workflows.
+Normal developer apps are created from `/developers/apps` or
+`POST /api/v0/developer/oauth-apps`. Community-owned OAuth apps remain an early
+follow-up after community owner/admin authority is stable enough for app
+ownership and revocation workflows.
 
 ## App Ownership
 
@@ -29,8 +30,10 @@ allowed scopes, status, trust tier, and lifecycle timestamps.
 
 Public clients must use PKCE and do not have client secrets.
 
-Confidential clients can receive a client secret. Secret values are displayed
-once. VRDex stores only the secret prefix and hash.
+Confidential clients can receive a client secret at app creation and can create
+additional secrets through
+`POST /api/v0/developer/oauth-apps/:clientId/secrets`. Secret values are
+displayed once. VRDex stores only the secret prefix and hash.
 
 ## Redirect URIs
 

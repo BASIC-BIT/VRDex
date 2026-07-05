@@ -154,6 +154,25 @@ describe("developer read API authority", () => {
     assert.match(output, /"title":"Bearer token required"/);
   });
 
+  it("requires a bearer credential on developer OAuth app secret creation", () => {
+    const output = runDeveloperReadProbe(`
+      import { POST } from "./apps/web/src/app/api/v0/developer/oauth-apps/[clientId]/secrets/route.ts";
+
+      const response = await POST(
+        new Request("https://app.example.test/api/v0/developer/oauth-apps/vrdx_app_000000000000000000000000/secrets", {
+          method: "POST",
+          body: JSON.stringify({ label: "Production rotation" }),
+        }),
+        { params: Promise.resolve({ clientId: "vrdx_app_000000000000000000000000" }) },
+      );
+      console.log(response.status);
+      console.log(JSON.stringify(await response.json()));
+    `);
+
+    assert.match(output, /^401/m);
+    assert.match(output, /"title":"Bearer token required"/);
+  });
+
   it("requires a bearer credential on developer token revocation", () => {
     const output = runDeveloperReadProbe(`
       import { DELETE } from "./apps/web/src/app/api/v0/developer/tokens/[tokenId]/route.ts";
