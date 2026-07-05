@@ -261,6 +261,38 @@ export async function expectDeploymentPage(page: Page) {
   await expect(page.getByText(/Deployment facts/i)).toBeVisible();
 }
 
+export async function expectDeveloperApiPage(page: Page) {
+  await expect(page.getByRole("heading", { name: /VRDex Public API/i })).toBeVisible();
+  await expect(page.getByRole("link", { name: "OpenAPI JSON" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Developer tokens" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "OAuth apps" })).toBeVisible();
+  await expect(page.getByText("operations", { exact: false })).toBeVisible();
+  await expect(page.getByText("/api/v0/search", { exact: true })).toBeVisible();
+  await expect(page.getByText("/api/v0/openapi.json", { exact: true })).toBeVisible();
+}
+
+export async function expectDeveloperTokensPage(page: Page) {
+  await expect(page.getByRole("heading", { name: "Developer tokens" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "API reference" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "OAuth apps" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sign in required" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Sign in" })).toBeVisible();
+}
+
+export async function expectOAuthAppsPage(page: Page) {
+  await expect(page.getByRole("heading", { name: "OAuth apps" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Developer tokens" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "API reference" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sign in required" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Sign in" })).toBeVisible();
+}
+
+export async function expectOAuthAuthorizeProblemPage(page: Page) {
+  await expect(page.getByRole("heading", { name: "Authorization request failed" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "API docs" })).toBeVisible();
+  await expect(page.getByText(/response_type/i)).toBeVisible();
+}
+
 export async function expectPersonProfilePage(page: Page) {
   await expect(page.getByRole("heading", { name: "DJ Aurora" })).toBeVisible();
   await expect(page.getByText(/Jan 1, 2025/i)).toBeVisible();
@@ -416,6 +448,26 @@ export const capturedRoutes: CapturedRoute[] = [
     name: "deployment",
     path: "/deployment",
     expectPage: expectDeploymentPage,
+  },
+  {
+    name: "developer-api",
+    path: "/developers/api",
+    expectPage: expectDeveloperApiPage,
+  },
+  {
+    name: "developer-tokens-signed-out",
+    path: "/developers/tokens",
+    expectPage: expectDeveloperTokensPage,
+  },
+  {
+    name: "developer-oauth-apps-signed-out",
+    path: "/developers/apps",
+    expectPage: expectOAuthAppsPage,
+  },
+  {
+    name: "oauth-authorize-invalid",
+    path: "/oauth/authorize",
+    expectPage: expectOAuthAuthorizeProblemPage,
   },
   {
     name: "person-profile",
