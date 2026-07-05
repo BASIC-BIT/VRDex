@@ -1,9 +1,10 @@
-import { createPrivateKey, createPublicKey, randomBytes, sign, verify } from "node:crypto";
+import { createPrivateKey, createPublicKey, randomBytes, sign, verify, type JsonWebKey } from "node:crypto";
 
 import { apiScopes, type ApiScope } from "@vrdex/api-contracts";
 
 const accessTokenTtlSeconds = 60 * 60;
 const signingAlgorithm = "RS256";
+const publicKeyUse = "sig";
 
 export type OAuthAccessTokenClaims = {
   aud: string;
@@ -14,6 +15,12 @@ export type OAuthAccessTokenClaims = {
   jti: string;
   scope: string;
   sub: string;
+};
+
+type OAuthPublicJwk = JsonWebKey & {
+  alg?: string;
+  kid?: string;
+  use?: string;
 };
 
 function base64UrlEncode(value: Buffer | string) {
@@ -40,6 +47,74 @@ export function oauthAccessTokenSigningConfigured() {
 
 function signingKeyId() {
   return process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID?.trim() || "vrdex-local";
+}
+
+function currentPublicJwk() {
+  const publicJwk = createPublicKey(signingKeyPem()).export({ format: "jwk" });
+
+  return withPublicJwkMetadata(publicJwk, signingKeyId());
+}
+
+function withPublicJwkMetadata(jwk: JsonWebKey, kid: string) {
+  return {
+    ...jwk,
+    alg: signingAlgorithm,
+    kid,
+    use: publicKeyUse,
+  } satisfies OAuthPublicJwk;
+}
+
+function normalizeAdditionalPublicJwk(value: unknown, index: number) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`VRDEX_OAUTH_ACCESS_TOKEN_ADDITIONAL_PUBLIC_JWKS key ${index} must be a JSON object.`);
+  }
+
+  const jwk = value as OAuthPublicJwk;
+  const kid = jwk.kid?.trim();
+
+  if (!kid) {
+    throw new Error(`VRDEX_OAUTH_ACCESS_TOKEN_ADDITIONAL_PUBLIC_JWKS key ${index} must include kid.`);
+  }
+
+  if (jwk.alg && jwk.alg !== signingAlgorithm) {
+    throw new Error(`VRDEX_OAUTH_ACCESS_TOKEN_ADDITIONAL_PUBLIC_JWKS key ${kid} must use ${signingAlgorithm}.`);
+  }
+
+  if (jwk.use && jwk.use !== publicKeyUse) {
+    throw new Error(`VRDEX_OAUTH_ACCESS_TOKEN_ADDITIONAL_PUBLIC_JWKS key ${kid} must use ${publicKeyUse}.`);
+  }
+
+  const publicJwk = createPublicKey({ key: jwk, format: "jwk" }).export({ format: "jwk" });
+
+  return withPublicJwkMetadata(publicJwk, kid);
+}
+
+function additionalPublicJwks() {
+  const value = process.env.VRDEX_OAUTH_ACCESS_TOKEN_ADDITIONAL_PUBLIC_JWKS?.trim();
+
+  if (!value) {
+    return [];
+  }
+
+  const parsed = JSON.parse(value) as { keys?: unknown };
+
+  if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.keys)) {
+    throw new Error("VRDEX_OAUTH_ACCESS_TOKEN_ADDITIONAL_PUBLIC_JWKS must be a JWKS object with a keys array.");
+  }
+
+  return parsed.keys.map(normalizeAdditionalPublicJwk);
+}
+
+function oauthPublicVerificationJwks() {
+  const byKid = new Map<string, OAuthPublicJwk>();
+
+  for (const jwk of [currentPublicJwk(), ...additionalPublicJwks()]) {
+    if (jwk.kid && !byKid.has(jwk.kid)) {
+      byKid.set(jwk.kid, jwk);
+    }
+  }
+
+  return [...byKid.values()];
 }
 
 function issuerFromRequest(request: Request) {
@@ -145,11 +220,21 @@ export function verifyOAuthAccessToken(token: string, options: { audience: strin
   }
 
   const signingInput = `${encodedHeader}.${encodedPayload}`;
-  const isValid = verify(
-    "RSA-SHA256",
-    Buffer.from(signingInput),
-    createPublicKey(signingKeyPem()),
-    Buffer.from(encodedSignature, "base64url"),
+  const kid = typeof header.kid === "string" ? header.kid : undefined;
+  const publicKeys = oauthPublicVerificationJwks();
+  const matchingKeys = kid ? publicKeys.filter((jwk) => jwk.kid === kid) : publicKeys;
+
+  if (matchingKeys.length === 0) {
+    throw new Error("OAuth access token signing key is unknown.");
+  }
+
+  const isValid = matchingKeys.some((jwk) =>
+    verify(
+      "RSA-SHA256",
+      Buffer.from(signingInput),
+      createPublicKey({ key: jwk, format: "jwk" }),
+      Buffer.from(encodedSignature, "base64url"),
+    ),
   );
 
   if (!isValid) {
@@ -185,16 +270,7 @@ export function verifyOAuthAccessToken(token: string, options: { audience: strin
 }
 
 export function oauthPublicJwks() {
-  const publicJwk = createPublicKey(signingKeyPem()).export({ format: "jwk" });
-
   return {
-    keys: [
-      {
-        ...publicJwk,
-        alg: signingAlgorithm,
-        kid: signingKeyId(),
-        use: "sig",
-      },
-    ],
+    keys: oauthPublicVerificationJwks(),
   };
 }

@@ -63,6 +63,12 @@ The API and MCP resources are intentionally distinct:
 The current implementation also checks Convex token state after verifying the
 JWT signature and audience.
 
+Signing-key rotation uses `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID` for the active
+key id and `VRDEX_OAUTH_ACCESS_TOKEN_ADDITIONAL_PUBLIC_JWKS` for retained
+previous public keys. During rotation, deploy the new private signing key and
+new key id, keep the previous public key in the additional JWKS for at least
+the access-token lifetime, then remove it after old access tokens have expired.
+
 ## OAuth Endpoints
 
 | Endpoint | Purpose |

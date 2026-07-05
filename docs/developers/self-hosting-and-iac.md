@@ -70,6 +70,7 @@ Current API/MCP variables read by the web app:
 | `VRDEX_OAUTH_CLIENT_SECRET_PEPPER` | Web server secret | Confidential OAuth client secrets are created or validated. | Rotate by issuing replacement client secrets. |
 | `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY` | Web server secret | OAuth access tokens, JWKS, or OAuth bearer validation are used. | RSA private key PEM; keep in provider secret store. |
 | `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID` | Web server config | Optional. | Advertised JWT key id; defaults to `vrdex-local`. |
+| `VRDEX_OAUTH_ACCESS_TOKEN_ADDITIONAL_PUBLIC_JWKS` | Web server config | Optional during OAuth signing-key rotation. | JWKS JSON containing previous public keys to keep advertising and accepting until outstanding access tokens expire. |
 | `VRDEX_OAUTH_ISSUER_URL` | Public URL config | Optional in single-origin deployments. | Overrides issuer origin for metadata and tokens. |
 | `VRDEX_PUBLIC_API_BASE_URL` | Public URL config | Optional in single-origin deployments. | Defines the API resource/audience origin. |
 | `VRDEX_MCP_RESOURCE_URI` | Public URL config | Optional in single-origin deployments. | Defaults to `<issuer>/mcp`. |

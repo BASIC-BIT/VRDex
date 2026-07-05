@@ -21,6 +21,8 @@ one PR.
 - OAuth client secrets are displayed once and stored as hashes.
 - OAuth access tokens are short-lived JWTs with issuer, audience, client id,
   token id, scope, and expiry validation.
+- OAuth signing-key rotation keeps previous public keys in JWKS and bearer
+  verification until outstanding access tokens expire.
 - Refresh tokens rotate on successful refresh.
 - Authorization Code uses PKCE with `S256`.
 - Redirect URI matching is exact.

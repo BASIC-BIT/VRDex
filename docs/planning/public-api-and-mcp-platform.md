@@ -1282,11 +1282,12 @@ Security-specific tests:
 - Trusted partner access is manually reviewed and should have much higher practical quotas than normal personal tokens, while retaining monitoring, cost controls, and revocation.
 - Rate-limit backend language refers to hot, expiring request counters rather than durable product state; Convex keeps durable ownership, policy, review, summary, and audit records.
 - Current MCP/OAuth research says DCR and public-client CIMD should both remain in the hosted MCP path. Confidential-client CIMD with public-key client authentication remains deferred until a concrete major-client requirement appears.
+- OAuth signing-key rotation keeps the active private signing key in `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY`, advertises the active key id through `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID`, and retains previous public keys through `VRDEX_OAUTH_ACCESS_TOKEN_ADDITIONAL_PUBLIC_JWKS` until outstanding access tokens expire.
 
 ## Remaining Open Research
 
 - Track OpenAPI 3.2.0 generator and Swagger UI support. The current checked-in artifact stays on 3.1.x.
-- Define OAuth signing-key rotation operations once deployment secret management is wired. The current checkpoint uses Node's built-in crypto APIs for RS256 JWT access tokens and advertises an explicit JWT key id when configured.
+- Automate OAuth signing-key rotation in deployment secret management after the hosted secret store workflow is wired. The current checkpoint documents and supports manual current-key plus retained-previous-public-key rotation.
 - Confirm the hosted rate-limit provider for production, such as Upstash, Vercel KV, Valkey, or another Redis-compatible store.
 - Run the implementation-time major MCP client smoke matrix against a deployed preview or production-like environment, including anonymous hosted reads, OAuth through Dynamic Client Registration, OAuth through public-client Client ID Metadata Documents, and local stdio configuration.
 - Decide whether confidential-client CIMD is needed after the deployed major-client smoke matrix. If yes, add public-key client authentication rather than shared-secret behavior.
