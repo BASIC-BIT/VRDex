@@ -26,8 +26,7 @@ one PR.
 - Redirect URI matching is exact.
 - API and MCP resources are validated separately.
 - Hosted MCP OAuth is tested through Dynamic Client Registration.
-- Client ID Metadata Document support is either implemented and smoke-tested or
-  explicitly marked as the launch blocker/follow-up for clients that require
+- Client ID Metadata Document support is smoke-tested for clients that prefer
   URL-form client IDs.
 - Revoked credentials are rejected and produce durable event metadata.
 

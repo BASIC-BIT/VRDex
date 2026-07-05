@@ -107,13 +107,12 @@ Dynamic clients are not normal self-serve developer apps. They are stored in a
 separate table and can be reviewed or promoted later if an operator decides
 that is appropriate.
 
-Client ID Metadata Documents are tracked as a hosted MCP compatibility path for
-clients that prefer preconfigured metadata over Dynamic Client Registration.
-VRDex should not advertise CIMD support until URL-form client IDs, metadata
-fetch/caching, and SSRF controls are implemented. CIMD does not change the
-self-serve ownership model: normal developer apps are user-owned or owned by
-communities the current user actively owns, while dynamic MCP clients stay
-separate.
+Client ID Metadata Documents are supported as a hosted MCP compatibility path
+for public clients that prefer preconfigured metadata over Dynamic Client
+Registration. Accepted CIMD clients are stored as dynamic MCP clients and stay
+public/no-secret in this checkpoint. CIMD does not change the self-serve
+ownership model: normal developer apps are user-owned or owned by communities
+the current user actively owns, while dynamic MCP clients stay separate.
 
 ## Trusted Partner Review
 

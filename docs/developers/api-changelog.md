@@ -24,6 +24,8 @@ Public API and MCP platform foundation checkpoint:
 - added OAuth metadata, JWKS, token, revoke, constrained dynamic MCP
   registration, Authorization Code with PKCE, refresh-token rotation, and
   Client Credentials support
+- added public-client Client ID Metadata Document support for hosted MCP OAuth
+  clients that use URL-form client ids
 - added confidential-client support for OAuth authorization-code and
   refresh-token exchange, requiring active client-secret authentication while
   keeping PKCE mandatory

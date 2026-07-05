@@ -1,6 +1,7 @@
 import { apiScopes, type ApiScope } from "./auth";
 
 const oauthClientIdHexLength = 24;
+const oauthClientMetadataDocumentMaxLength = 2048;
 const oauthSecretLookupHexLength = 16;
 const oauthSecretVerifierHexLength = 64;
 const oauthClientIdPattern = new RegExp(`^vrdx_app_[0-9a-f]{${oauthClientIdHexLength}}$`);
@@ -95,14 +96,69 @@ export function createOAuthClientId() {
   return `vrdx_app_${randomHex(12)}`;
 }
 
+export function normalizeOAuthClientMetadataDocumentUrl(value: string) {
+  const raw = value.trim();
+  let url: URL;
+
+  if (raw.length > oauthClientMetadataDocumentMaxLength) {
+    throw new Error("OAuth client metadata document URL must be 2048 characters or fewer.");
+  }
+
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error("OAuth client metadata document URL must be an absolute URL.");
+  }
+
+  if (url.protocol !== "https:") {
+    throw new Error("OAuth client metadata document URL must use HTTPS.");
+  }
+
+  if (url.username || url.password) {
+    throw new Error("OAuth client metadata document URL must not contain credentials.");
+  }
+
+  if (url.hash) {
+    throw new Error("OAuth client metadata document URL must not contain a fragment.");
+  }
+
+  if (!url.pathname || url.pathname === "/") {
+    throw new Error("OAuth client metadata document URL must include a non-root path.");
+  }
+
+  const schemeSeparatorIndex = raw.indexOf("://");
+  const afterAuthority = schemeSeparatorIndex < 0 ? "" : raw.slice(schemeSeparatorIndex + 3);
+  const rawPathWithSearch = afterAuthority.includes("/") ? afterAuthority.slice(afterAuthority.indexOf("/")) : "";
+  const rawPath = rawPathWithSearch.split(/[?#]/)[0] ?? "";
+
+  if (rawPath.split("/").some((segment) => segment === "." || segment === "..")) {
+    throw new Error("OAuth client metadata document URL must not contain dot path segments.");
+  }
+
+  return url.toString();
+}
+
+export function isOAuthClientMetadataDocumentUrl(value: string) {
+  try {
+    normalizeOAuthClientMetadataDocumentUrl(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function normalizeOAuthClientId(value: string) {
   const clientId = value.trim();
 
-  if (!oauthClientIdPattern.test(clientId)) {
-    throw new Error("OAuth client id must use the vrdx_app_<24 hex> format.");
+  if (oauthClientIdPattern.test(clientId)) {
+    return clientId;
   }
 
-  return clientId;
+  try {
+    return normalizeOAuthClientMetadataDocumentUrl(clientId);
+  } catch {
+    throw new Error("OAuth client id must use the vrdx_app_<24 hex> format or an HTTPS client metadata document URL.");
+  }
 }
 
 export function createOAuthClientSecretValue(): OAuthClientSecretParts {

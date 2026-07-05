@@ -68,7 +68,7 @@ The first useful version should feel small and sharp:
 - `Current recommendation`: Use opaque hashed personal API tokens. Use short-lived RFC 9068-style JWT OAuth access tokens with audience/resource binding, plus opaque refresh-token rotation for user-delegated OAuth flows.
 - `Current recommendation`: Support OAuth Authorization Code with PKCE for user-delegated apps and Client Credentials for app-only access.
 - `Current recommendation`: Start normal developer apps with manual OAuth app registration in the VRDex developer dashboard and API. Include constrained Dynamic Client Registration for hosted MCP OAuth on day one, stored separately from user/community-owned apps until reviewed or promoted.
-- `Current recommendation`: Treat Client ID Metadata Documents as a high-priority compatibility follow-up for MCP clients that prefer URL-form client IDs over Dynamic Client Registration. Keep DCR as the first implemented automatic path, and do not advertise CIMD support until URL client IDs, metadata fetch/caching, and SSRF controls are implemented.
+- `Current recommendation`: Support Client ID Metadata Documents for hosted MCP public clients that prefer URL-form client IDs over Dynamic Client Registration. Keep DCR available for clients that register automatically, and defer confidential-client CIMD until a real client requires public-key client authentication.
 - `Current recommendation`: Rate-limit by route class, IP, token, OAuth client, user, app owner, and dynamic MCP client. Do not use one global bucket for every caller.
 - `Current recommendation`: Use a Redis-compatible TTL counter store for high-volume hosted anonymous public API and MCP traffic. Keep Convex as the durable source for policy, app/token ownership, partner overrides, coarse usage summaries, and audit events.
 - `Current recommendation`: Launch the hosted MCP as read-oriented first, even if the auth platform already supports scopes that make later write tools possible.
@@ -507,7 +507,7 @@ Candidate optional endpoints:
 
 - `POST /oauth/introspect`, if trusted partners, self-hosted components, or future opaque-token use cases need resource-server lookup
 - `POST /oauth/register`, for constrained MCP Dynamic Client Registration if required for major client compatibility
-- Client ID Metadata Document support for MCP clients that prefer URL-form client IDs instead of Dynamic Client Registration
+- Client ID Metadata Document support for MCP public clients that prefer URL-form client IDs instead of Dynamic Client Registration
 
 Behavior:
 
@@ -548,7 +548,7 @@ Purpose:
 Current recommendation:
 
 - include `POST /oauth/register` for hosted MCP clients in the first MCP OAuth implementation
-- implement Client ID Metadata Document compatibility before external hosted MCP readiness if major clients require or materially prefer CIMD as an alternative to Dynamic Client Registration
+- support Client ID Metadata Document compatibility for hosted MCP public clients that prefer CIMD as an alternative to Dynamic Client Registration
 - restrict dynamically registered clients to public-client behavior until manually reviewed
 - allow only exact redirect URIs and localhost loopback development redirects
 - allow only MCP resource access and the initial public/read-oriented scopes
@@ -560,6 +560,9 @@ Implementation checkpoint:
 
 - `/oauth/register` stores dynamic MCP clients in a separate Convex table from
   user- and community-owned OAuth applications.
+- Client ID Metadata Document authorization requests fetch and validate the
+  `client_id` URL, then store accepted metadata in the same dynamic MCP client
+  table.
 - registration is public-client-only and returns no client secret.
 - `/oauth/authorize` supports Authorization Code with PKCE using
   `code_challenge_method=S256` for public apps, confidential apps, and dynamic
@@ -1278,13 +1281,13 @@ Security-specific tests:
 - Community-owned OAuth app staff/admin delegation should be considered after broader community authority is stable enough.
 - Trusted partner access is manually reviewed and should have much higher practical quotas than normal personal tokens, while retaining monitoring, cost controls, and revocation.
 - Rate-limit backend language refers to hot, expiring request counters rather than durable product state; Convex keeps durable ownership, policy, review, summary, and audit records.
-- Current MCP/OAuth research says DCR remains implemented, but CIMD should be scoped as a real follow-up rather than a vague smoke-test item because it changes client-id parsing, authorization lookup, consent display, token exchange, metadata caching, SSRF controls, and audit records.
+- Current MCP/OAuth research says DCR and public-client CIMD should both remain in the hosted MCP path. Confidential-client CIMD with public-key client authentication remains deferred until a concrete major-client requirement appears.
 
 ## Remaining Open Research
 
 - Track OpenAPI 3.2.0 generator and Swagger UI support. The current checked-in artifact stays on 3.1.x.
 - Define OAuth signing-key rotation operations once deployment secret management is wired. The current checkpoint uses Node's built-in crypto APIs for RS256 JWT access tokens and advertises an explicit JWT key id when configured.
 - Confirm the hosted rate-limit provider for production, such as Upstash, Vercel KV, Valkey, or another Redis-compatible store.
-- Run the implementation-time major MCP client smoke matrix against a deployed preview or production-like environment, including anonymous hosted reads, OAuth through Dynamic Client Registration, any implemented Client ID Metadata Document path, and local stdio configuration.
-- Decide whether CIMD is a launch blocker after the deployed major-client smoke matrix. If yes, implement URL-form client IDs with metadata fetch/caching, response-size limits, special-use IP/SSRF guards, exact redirect URI extraction, consent display host cues, and token-exchange validation.
+- Run the implementation-time major MCP client smoke matrix against a deployed preview or production-like environment, including anonymous hosted reads, OAuth through Dynamic Client Registration, OAuth through public-client Client ID Metadata Documents, and local stdio configuration.
+- Decide whether confidential-client CIMD is needed after the deployed major-client smoke matrix. If yes, add public-key client authentication rather than shared-secret behavior.
 - Choose final default quota numbers and partner escalation thresholds after initial traffic and operator cost signals exist.

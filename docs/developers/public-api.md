@@ -177,6 +177,11 @@ grant metadata, `code` response type metadata, `token_endpoint_auth_method=none`
 the MCP resource, and only `mcp:read` plus optional `public:read` scope. These
 clients are for hosted MCP OAuth compatibility.
 
+Hosted MCP OAuth also supports Client ID Metadata Documents for public clients
+that use an HTTPS URL as `client_id`. Accepted CIMD metadata is fetched during
+authorization, constrained to the same public/no-secret MCP client shape, and
+stored as a dynamic MCP client.
+
 `GET /oauth/authorize` currently requires `code_challenge_method=S256`.
 Approval creates a short-lived single-use authorization code, and
 `POST /oauth/token` exchanges that code for a resource-bound JWT access token

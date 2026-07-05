@@ -22,6 +22,7 @@ export function GET(request: Request) {
       token_endpoint_auth_methods_supported: ["none", "client_secret_basic", "client_secret_post"],
       scopes_supported: apiScopes,
       resource_indicators_supported: true,
+      client_id_metadata_document_supported: true,
       protected_resources: oauthSupportedResources(request),
     },
     {

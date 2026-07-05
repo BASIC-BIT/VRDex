@@ -33,9 +33,11 @@ metadata, `token_endpoint_auth_method=none`, the MCP resource, and only
 `mcp:read` plus optional `public:read` scope. Anonymous MCP reads remain
 available without OAuth.
 
-Client ID Metadata Document support is tracked as a hosted MCP compatibility
-follow-up. VRDex should not advertise CIMD support until URL-form client IDs,
-metadata fetch/caching, and SSRF controls are implemented.
+Client ID Metadata Documents are supported for hosted MCP public clients that
+prefer URL-form client IDs over Dynamic Client Registration. VRDex fetches the
+metadata document during authorization, rejects redirects, requires exact
+`client_id` document matching, caps responses at 5 KB, rejects special-use
+address resolution, and stores accepted documents as dynamic MCP clients.
 
 ## Locked Direction
 

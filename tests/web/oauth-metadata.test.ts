@@ -32,6 +32,7 @@ describe("OAuth metadata routes", () => {
     assert.match(output, /"revocation_endpoint":"https:\/\/app\.example\.test\/oauth\/revoke"/);
     assert.match(output, /"jwks_uri":"https:\/\/app\.example\.test\/oauth\/jwks\.json"/);
     assert.match(output, /"resource_indicators_supported":true/);
+    assert.match(output, /"client_id_metadata_document_supported":true/);
     assert.match(output, /"protected_resources":\["https:\/\/app\.example\.test","https:\/\/app\.example\.test\/mcp"\]/);
   });
 

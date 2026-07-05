@@ -1,5 +1,6 @@
 import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
 import { api } from "@convex-generated-api";
+import { isOAuthClientMetadataDocumentUrl } from "@vrdex/api-contracts";
 import { headers } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -8,12 +9,14 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
+import { checkApiRateLimit, clientIpForRequest } from "@/lib/server/api-rate-limit";
 import { convexHttpClient } from "@/lib/server/convex-http";
+import { fetchOAuthClientMetadataDocument } from "@/lib/server/oauth-client-metadata-document";
 import {
   normalizeOAuthAuthorizationRequest,
   type OAuthAuthorizationRequest,
 } from "@/lib/server/oauth-authorization-request";
-import { oauthScopeString } from "@/lib/server/oauth-jwt";
+import { oauthMcpResourceUri, oauthScopeString } from "@/lib/server/oauth-jwt";
 
 type AuthorizePageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -41,8 +44,21 @@ async function requestForAuthorize(searchParams: URLSearchParams) {
   const headerList = await headers();
   const proto = headerList.get("x-forwarded-proto") ?? "http";
   const host = headerList.get("x-forwarded-host") ?? headerList.get("host") ?? "localhost:3000";
+  const requestHeaders = new Headers();
+  const forwardedFor = headerList.get("x-forwarded-for");
+  const realIp = headerList.get("x-real-ip");
 
-  return new Request(`${proto}://${host}/oauth/authorize?${searchParams.toString()}`);
+  if (forwardedFor !== null) {
+    requestHeaders.set("x-forwarded-for", forwardedFor);
+  }
+
+  if (realIp !== null) {
+    requestHeaders.set("x-real-ip", realIp);
+  }
+
+  return new Request(`${proto}://${host}/oauth/authorize?${searchParams.toString()}`, {
+    headers: requestHeaders,
+  });
 }
 
 function scopeLabel(scope: string) {
@@ -92,6 +108,43 @@ function HiddenAuthorizationFields({ authorization }: { authorization: OAuthAuth
   );
 }
 
+async function ensureClientMetadataDocumentClient(authorization: OAuthAuthorizationRequest, request: Request) {
+  if (!isOAuthClientMetadataDocumentUrl(authorization.clientId)) {
+    return;
+  }
+
+  if (authorization.resource !== oauthMcpResourceUri(request)) {
+    throw new Error("Client metadata document clients can only request the hosted MCP resource.");
+  }
+
+  const rateLimit = await checkApiRateLimit({
+    identity: { kind: "ip", value: clientIpForRequest(request) },
+    routeClass: "oauth_dynamic_client_registration",
+  });
+
+  if (!rateLimit.allowed) {
+    throw new Error("Too many client metadata document requests were sent from this network.");
+  }
+
+  const metadata = await fetchOAuthClientMetadataDocument(authorization.clientId);
+
+  await convexHttpClient().mutation(api.oauthApps.upsertClientMetadataDocumentMcpClient, {
+    clientId: metadata.clientId,
+    clientName: metadata.clientName,
+    ...(metadata.clientUri === undefined ? {} : { clientUri: metadata.clientUri }),
+    ...(metadata.logoUri === undefined ? {} : { logoUri: metadata.logoUri }),
+    redirectUris: metadata.redirectUris,
+    grantTypes: metadata.grantTypes,
+    responseTypes: metadata.responseTypes,
+    tokenEndpointAuthMethod: metadata.tokenEndpointAuthMethod,
+    contacts: metadata.contacts,
+    ...(metadata.softwareId === undefined ? {} : { softwareId: metadata.softwareId }),
+    ...(metadata.softwareVersion === undefined ? {} : { softwareVersion: metadata.softwareVersion }),
+    allowedScopes: metadata.allowedScopes,
+    resource: authorization.resource,
+  });
+}
+
 export default async function AuthorizePage({ searchParams }: AuthorizePageProps) {
   const params = await searchParams;
   const normalizedParams = urlSearchParamsFromRecord(params);
@@ -100,6 +153,7 @@ export default async function AuthorizePage({ searchParams }: AuthorizePageProps
 
   try {
     authorization = normalizeOAuthAuthorizationRequest(normalizedParams, request);
+    await ensureClientMetadataDocumentClient(authorization, request);
   } catch (error) {
     return <AuthorizationProblem detail={error instanceof Error ? error.message : "The authorization request is invalid."} />;
   }

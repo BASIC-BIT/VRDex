@@ -75,11 +75,12 @@ JWT signature and audience.
 | `POST /oauth/register` | Constrained Dynamic Client Registration for hosted MCP clients. |
 | `GET /oauth/jwks.json` | Public signing keys for JWT access tokens. |
 
-Client ID Metadata Documents are a compatibility path to test for hosted MCP
-clients that prefer preconfigured client metadata over Dynamic Client
-Registration. DCR remains the first automatic registration path in this
-checkpoint, and VRDex should not advertise CIMD support until URL-form client
-IDs, metadata fetch/caching, and SSRF controls are implemented.
+Client ID Metadata Documents are supported for hosted MCP public clients that
+prefer URL-form client IDs over Dynamic Client Registration. VRDex fetches the
+metadata document during authorization, rejects redirects, requires exact
+`client_id` document matching, caps responses at 5 KB, rejects special-use
+address resolution, and materializes accepted documents as dynamic MCP clients.
+DCR remains available for clients that register automatically.
 
 ## Authorization Code With PKCE
 
@@ -92,6 +93,7 @@ Current constraints:
 - confidential apps must authenticate with an active client secret on code
   exchange and refresh
 - dynamic MCP clients stay public/no-secret
+- Client ID Metadata Document clients stay public/no-secret in this checkpoint
 - `code_challenge_method=S256`
 - exact redirect URI matching
 - single-use short-lived authorization codes
@@ -239,8 +241,8 @@ Dynamic MCP clients are constrained to:
 - `mcp:read` plus optional `public:read`
 
 Before hosted MCP is declared externally ready, smoke DCR in the major-client
-matrix and implement/smoke Client ID Metadata Document OAuth if current major
-clients require or materially prefer it for public launch.
+matrix and smoke Client ID Metadata Document OAuth against major clients that
+prefer URL-form client IDs.
 
 ## Error Rules
 

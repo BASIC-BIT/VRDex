@@ -46,8 +46,9 @@ describe("OAuth PKCE authorization helpers", () => {
 
   it("normalizes authorization requests and redirect results", () => {
     const codeChallenge = deriveS256CodeChallenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk");
+    const clientId = "https://client.example.test/oauth/client.json?app=vrdex";
     const params = new URLSearchParams({
-      client_id: "vrdx_app_0123456789abcdef01234567",
+      client_id: clientId,
       code_challenge: codeChallenge,
       code_challenge_method: "S256",
       redirect_uri: "http://localhost:3333/callback",
@@ -59,7 +60,7 @@ describe("OAuth PKCE authorization helpers", () => {
     const normalized = normalizeOAuthAuthorizationRequest(params, request);
 
     assert.deepEqual(normalized, {
-      clientId: "vrdx_app_0123456789abcdef01234567",
+      clientId,
       codeChallenge,
       codeChallengeMethod: "S256",
       redirectUri: "http://localhost:3333/callback",
@@ -94,6 +95,17 @@ describe("OAuth PKCE authorization helpers", () => {
         {
           ok: true,
           clientId: "vrdx_app_0123456789abcdef01234567",
+        },
+      );
+
+      const metadataDocumentForm = new FormData();
+      metadataDocumentForm.set("client_id", "https://client.example.test/oauth/client.json?app=vrdex");
+
+      assert.deepEqual(
+        await tokenClientAuthentication(new Request("https://app.example.test/oauth/token"), metadataDocumentForm),
+        {
+          ok: true,
+          clientId: "https://client.example.test/oauth/client.json?app=vrdex",
         },
       );
 

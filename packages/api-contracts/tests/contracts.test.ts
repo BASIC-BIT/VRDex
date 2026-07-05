@@ -38,12 +38,14 @@ import {
   createOAuthClientSecretValue,
   hashApiTokenValue,
   hashOAuthClientSecretValue,
+  isOAuthClientMetadataDocumentUrl,
   normalizeApiTokenLabel,
   normalizeApiTokenScopes,
   normalizeDynamicMcpClientRegistration,
   normalizeOAuthApplicationDescription,
   normalizeOAuthApplicationName,
   normalizeOAuthClientId,
+  normalizeOAuthClientMetadataDocumentUrl,
   normalizeOAuthClientType,
   normalizeOAuthGrantTypes,
   normalizeOAuthOptionalUrl,
@@ -545,10 +547,22 @@ describe("@vrdex/api-contracts", () => {
     const parsedSecret = parseOAuthClientSecretValue(secret.secretValue);
 
     assert.equal(normalizeOAuthClientId(clientId), clientId);
+    assert.equal(
+      normalizeOAuthClientId("https://client.example.test/oauth/client.json?app=vrdex"),
+      "https://client.example.test/oauth/client.json?app=vrdex",
+    );
+    assert.equal(
+      normalizeOAuthClientMetadataDocumentUrl("https://client.example.test/oauth/client.json?app=vrdex"),
+      "https://client.example.test/oauth/client.json?app=vrdex",
+    );
+    assert.equal(isOAuthClientMetadataDocumentUrl("https://client.example.test/oauth/client.json"), true);
+    assert.equal(isOAuthClientMetadataDocumentUrl("vrdx_app_0123456789abcdef01234567"), false);
     assert.equal(parsedSecret?.secretPrefix, secret.secretPrefix);
     assert.equal(parsedSecret?.verifier, secret.verifier);
     assert.match(await hashOAuthClientSecretValue(secret.secretValue, "pepper"), /^[0-9a-f]{64}$/);
     assert.throws(() => normalizeOAuthClientId("bad"), /client id/);
+    assert.throws(() => normalizeOAuthClientMetadataDocumentUrl("http://client.example.test/oauth/client.json"), /HTTPS/);
+    assert.throws(() => normalizeOAuthClientMetadataDocumentUrl("https://client.example.test/../client.json"), /dot path/);
     assert.equal(parseOAuthClientSecretValue("bad"), null);
   });
 

@@ -44,6 +44,7 @@ export const oauthClientEventTypeValidator = v.union(
   v.literal("secret_created"),
   v.literal("secret_revoked"),
   v.literal("client_credentials_rejected"),
+  v.literal("dynamic_client_metadata_refreshed"),
   v.literal("token_issued"),
   v.literal("token_revoked"),
 );
@@ -96,6 +97,7 @@ const oauthGrantTypes = new Set<OAuthGrantType>([
 ]);
 const oauthResponseTypes = new Set<OAuthResponseType>(["code"]);
 const dynamicMcpScopes = new Set<ApiScope>(["public:read", "mcp:read"]);
+const clientMetadataDocumentMaxLength = 2048;
 const clientIdPattern = /^vrdx_app_[0-9a-f]{24}$/;
 const secretPrefixPattern = /^vrdx_secret_[0-9a-f]{16}$/;
 const verifierHashPattern = /^[0-9a-f]{64}$/;
@@ -141,11 +143,57 @@ function normalizeUrlString(value: string, options: { label: string; allowLoopba
 export function normalizeOAuthClientId(value: string) {
   const clientId = value.trim();
 
-  if (!clientIdPattern.test(clientId)) {
-    throw new Error("OAuth client id must use the vrdx_app_<24 hex> format.");
+  if (clientIdPattern.test(clientId)) {
+    return clientId;
   }
 
-  return clientId;
+  try {
+    return normalizeOAuthClientMetadataDocumentUrl(clientId);
+  } catch {
+    throw new Error("OAuth client id must use the vrdx_app_<24 hex> format or an HTTPS client metadata document URL.");
+  }
+}
+
+export function normalizeOAuthClientMetadataDocumentUrl(value: string) {
+  const raw = value.trim();
+  let url: URL;
+
+  if (raw.length > clientMetadataDocumentMaxLength) {
+    throw new Error("OAuth client metadata document URL must be 2048 characters or fewer.");
+  }
+
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error("OAuth client metadata document URL must be an absolute URL.");
+  }
+
+  if (url.protocol !== "https:") {
+    throw new Error("OAuth client metadata document URL must use HTTPS.");
+  }
+
+  if (url.username || url.password) {
+    throw new Error("OAuth client metadata document URL must not contain credentials.");
+  }
+
+  if (url.hash) {
+    throw new Error("OAuth client metadata document URL must not contain a fragment.");
+  }
+
+  if (!url.pathname || url.pathname === "/") {
+    throw new Error("OAuth client metadata document URL must include a non-root path.");
+  }
+
+  const schemeSeparatorIndex = raw.indexOf("://");
+  const afterAuthority = schemeSeparatorIndex < 0 ? "" : raw.slice(schemeSeparatorIndex + 3);
+  const rawPathWithSearch = afterAuthority.includes("/") ? afterAuthority.slice(afterAuthority.indexOf("/")) : "";
+  const rawPath = rawPathWithSearch.split(/[?#]/)[0] ?? "";
+
+  if (rawPath.split("/").some((segment) => segment === "." || segment === "..")) {
+    throw new Error("OAuth client metadata document URL must not contain dot path segments.");
+  }
+
+  return url.toString();
 }
 
 export function normalizeOAuthClientType(value: string): OAuthClientType {

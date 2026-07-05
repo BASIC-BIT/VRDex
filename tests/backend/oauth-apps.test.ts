@@ -10,6 +10,7 @@ import {
   normalizeOAuthCodeChallenge,
   normalizeOAuthCodeChallengeMethod,
   normalizeOAuthClientId,
+  normalizeOAuthClientMetadataDocumentUrl,
   normalizeOAuthClientSecretHash,
   normalizeOAuthClientSecretPrefix,
   normalizeOAuthClientType,
@@ -53,12 +54,22 @@ function oauthAccessTokenRecord(overrides: Partial<OAuthAccessTokenRecord> = {})
 describe("OAuth application helpers", () => {
   it("normalizes application identity and metadata", () => {
     assert.equal(normalizeOAuthClientId("vrdx_app_0123456789abcdef01234567"), "vrdx_app_0123456789abcdef01234567");
+    assert.equal(
+      normalizeOAuthClientId("https://client.example.test/oauth/client.json?app=vrdex"),
+      "https://client.example.test/oauth/client.json?app=vrdex",
+    );
+    assert.equal(
+      normalizeOAuthClientMetadataDocumentUrl("https://client.example.test/oauth/client.json?app=vrdex"),
+      "https://client.example.test/oauth/client.json?app=vrdex",
+    );
     assert.equal(normalizeOAuthClientType("confidential"), "confidential");
     assert.equal(normalizeOAuthApplicationName("  Local   MCP client  "), "Local MCP client");
     assert.equal(normalizeOAuthApplicationDescription("  Reads public profiles  "), "Reads public profiles");
     assert.equal(normalizeOAuthOptionalUrl("https://example.com/privacy", "Privacy URL"), "https://example.com/privacy");
     assert.equal(normalizeOAuthRevokeReason("  Retired   app  "), "Retired app");
     assert.throws(() => normalizeOAuthClientId("bad"), /client id/);
+    assert.throws(() => normalizeOAuthClientMetadataDocumentUrl("http://client.example.test/oauth/client.json"), /HTTPS/);
+    assert.throws(() => normalizeOAuthClientMetadataDocumentUrl("https://client.example.test/./client.json"), /dot path/);
     assert.throws(() => normalizeOAuthOptionalUrl("http://example.com", "Docs URL"), /HTTPS/);
   });
 
