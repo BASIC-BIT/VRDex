@@ -16,7 +16,9 @@ of scraping web pages. A local stdio MCP workspace package now exists at
 routes and can run against hosted or self-hosted deployments.
 If an OAuth bearer token is supplied to `/mcp`, it must be issued for the MCP
 resource and include `mcp:read`; otherwise the anonymous public read tools still
-work without credentials.
+work without credentials. Invalid or under-scoped bearer tokens return
+`WWW-Authenticate` challenges with the protected-resource metadata URL and the
+required `mcp:read` scope.
 
 Anonymous hosted reads are a day-one requirement, not a degraded fallback. They
 must stay limited to public-safe read tools and use the anonymous MCP
@@ -30,6 +32,10 @@ exact redirect URIs, `authorization_code` metadata, `code` response type
 metadata, `token_endpoint_auth_method=none`, the MCP resource, and only
 `mcp:read` plus optional `public:read` scope. Anonymous MCP reads remain
 available without OAuth.
+
+Client ID Metadata Document support is tracked as a hosted MCP compatibility
+follow-up. VRDex should not advertise CIMD support until URL-form client IDs,
+metadata fetch/caching, and SSRF controls are implemented.
 
 ## Locked Direction
 

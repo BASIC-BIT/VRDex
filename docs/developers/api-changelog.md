@@ -29,6 +29,9 @@ Public API and MCP platform foundation checkpoint:
   keeping PKCE mandatory
 - added hosted Streamable HTTP MCP at `/mcp` with anonymous public read tools
   and OAuth-authenticated MCP bearer handling
+- added MCP protected-resource scope metadata and scope-aware
+  `WWW-Authenticate` challenges for malformed, invalid, or insufficient OAuth
+  bearer tokens
 - added local stdio MCP workspace package `@basicbit/vrdex-mcp`
 - added default API/MCP rate-limit classes with memory and Redis REST store
   modes

@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { describe, it } from "node:test";
 
 function runMcpProbe(script: string) {
-  return execFileSync(process.execPath, ["--import", "tsx", "-e", script], {
+  return execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], {
     cwd: process.cwd(),
     encoding: "utf8",
     env: {
@@ -79,5 +79,67 @@ describe("VRDex MCP server", () => {
     assert.match(output, /"name":"vrdex_list_upcoming_events"/);
     assert.match(output, /"name":"vrdex_list_active_worlds"/);
     assert.match(output, /"readOnlyHint":true/);
+  });
+
+  it("returns OAuth discovery details for malformed bearer tokens", () => {
+    const output = runMcpProbe(`
+      import { rejectInvalidOrRateLimitedMcpRequest } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      const response = await rejectInvalidOrRateLimitedMcpRequest(new Request("https://app.example.test/mcp", {
+        headers: {
+          authorization: "Bearer not-a-jwt",
+        },
+      }));
+
+      console.log(response?.status);
+      console.log(response?.headers.get("www-authenticate"));
+      console.log(await response?.text());
+    `);
+
+    assert.match(output, /^401/m);
+    assert.match(
+      output,
+      /Bearer resource_metadata="https:\/\/app\.example\.test\/\.well-known\/oauth-protected-resource", scope="mcp:read", error="invalid_token"/,
+    );
+    assert.match(output, /OAuth bearer token is invalid/);
+  });
+
+  it("returns insufficient-scope challenges for valid MCP-resource tokens without mcp:read", () => {
+    const output = runMcpProbe(`
+      import { generateKeyPairSync } from "node:crypto";
+      import { createOAuthAccessTokenId, signOAuthAccessToken } from "./apps/web/src/lib/server/oauth-jwt.ts";
+      import { rejectInvalidOrRateLimitedMcpRequest } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+      process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY = privateKey.export({ format: "pem", type: "pkcs8" }).toString();
+      process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID = "test-key";
+
+      const accessToken = signOAuthAccessToken({
+        aud: "https://app.example.test/mcp",
+        client_id: "vrdx_app_0123456789abcdef01234567",
+        exp: Math.floor((Date.now() + 60_000) / 1000),
+        iat: Math.floor(Date.now() / 1000),
+        iss: "https://app.example.test",
+        jti: createOAuthAccessTokenId(),
+        scope: "public:read",
+        sub: "user_123",
+      });
+      const response = await rejectInvalidOrRateLimitedMcpRequest(new Request("https://app.example.test/mcp", {
+        headers: {
+          authorization: \`Bearer \${accessToken}\`,
+        },
+      }));
+
+      console.log(response?.status);
+      console.log(response?.headers.get("www-authenticate"));
+      console.log(await response?.text());
+    `);
+
+    assert.match(output, /^403/m);
+    assert.match(
+      output,
+      /Bearer resource_metadata="https:\/\/app\.example\.test\/\.well-known\/oauth-protected-resource", scope="mcp:read", error="insufficient_scope"/,
+    );
+    assert.match(output, /OAuth bearer token scope is insufficient/);
   });
 });

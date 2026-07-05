@@ -68,7 +68,7 @@ The first useful version should feel small and sharp:
 - `Current recommendation`: Use opaque hashed personal API tokens. Use short-lived RFC 9068-style JWT OAuth access tokens with audience/resource binding, plus opaque refresh-token rotation for user-delegated OAuth flows.
 - `Current recommendation`: Support OAuth Authorization Code with PKCE for user-delegated apps and Client Credentials for app-only access.
 - `Current recommendation`: Start normal developer apps with manual OAuth app registration in the VRDex developer dashboard and API. Include constrained Dynamic Client Registration for hosted MCP OAuth on day one, stored separately from user/community-owned apps until reviewed or promoted.
-- `Current recommendation`: Treat Client ID Metadata Documents as a compatibility path for MCP clients that prefer preconfigured metadata over Dynamic Client Registration. Keep DCR as the first implemented automatic path, but include CIMD in the hosted-client smoke matrix before external readiness.
+- `Current recommendation`: Treat Client ID Metadata Documents as a high-priority compatibility follow-up for MCP clients that prefer URL-form client IDs over Dynamic Client Registration. Keep DCR as the first implemented automatic path, and do not advertise CIMD support until URL client IDs, metadata fetch/caching, and SSRF controls are implemented.
 - `Current recommendation`: Rate-limit by route class, IP, token, OAuth client, user, app owner, and dynamic MCP client. Do not use one global bucket for every caller.
 - `Current recommendation`: Use a Redis-compatible TTL counter store for high-volume hosted anonymous public API and MCP traffic. Keep Convex as the durable source for policy, app/token ownership, partner overrides, coarse usage summaries, and audit events.
 - `Current recommendation`: Launch the hosted MCP as read-oriented first, even if the auth platform already supports scopes that make later write tools possible.
@@ -507,7 +507,7 @@ Candidate optional endpoints:
 
 - `POST /oauth/introspect`, if trusted partners, self-hosted components, or future opaque-token use cases need resource-server lookup
 - `POST /oauth/register`, for constrained MCP Dynamic Client Registration if required for major client compatibility
-- Client ID Metadata Document publication for MCP clients that support CIMD instead of Dynamic Client Registration
+- Client ID Metadata Document support for MCP clients that prefer URL-form client IDs instead of Dynamic Client Registration
 
 Behavior:
 
@@ -548,7 +548,7 @@ Purpose:
 Current recommendation:
 
 - include `POST /oauth/register` for hosted MCP clients in the first MCP OAuth implementation
-- test Client ID Metadata Document compatibility before external hosted MCP readiness, especially for clients that support CIMD as an alternative to Dynamic Client Registration
+- implement Client ID Metadata Document compatibility before external hosted MCP readiness if major clients require or materially prefer CIMD as an alternative to Dynamic Client Registration
 - restrict dynamically registered clients to public-client behavior until manually reviewed
 - allow only exact redirect URIs and localhost loopback development redirects
 - allow only MCP resource access and the initial public/read-oriented scopes
@@ -738,7 +738,7 @@ Current checkpoint:
 - implemented in the web app with `@modelcontextprotocol/server`
 - anonymous public read tools are served through the `anonymous_mcp_public_read` rate-limit class
 - OAuth access tokens issued for the MCP resource are accepted for the authenticated MCP rate-limit class
-- OAuth protected-resource metadata exists; non-public OAuth-protected MCP tools remain a later checkpoint
+- OAuth protected-resource metadata includes the required `mcp:read` scope; non-public OAuth-protected MCP tools remain a later checkpoint
 
 Required metadata:
 
@@ -754,7 +754,7 @@ Auth behavior:
 - authenticated tools require `Authorization: Bearer <access-token>`
 - MCP tokens must be issued for the VRDex MCP resource
 - do not accept tokens issued for the plain web app, another MCP, or another resource
-- return `WWW-Authenticate` with protected resource metadata when auth is required
+- return `WWW-Authenticate` with protected resource metadata and required scope hints when bearer tokens are invalid or under-scoped
 - support constrained Dynamic Client Registration if required by major MCP clients
 
 Day-one client compatibility:
@@ -1256,6 +1256,7 @@ Security-specific tests:
 - [RFC 9700: Best Current Practice for OAuth 2.0 Security](https://www.rfc-editor.org/rfc/rfc9700.html)
 - [RFC 8414: OAuth 2.0 Authorization Server Metadata](https://datatracker.ietf.org/doc/html/rfc8414)
 - [RFC 7591: OAuth 2.0 Dynamic Client Registration Protocol](https://datatracker.ietf.org/doc/html/rfc7591)
+- [OAuth Client ID Metadata Document draft](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-client-id-metadata-document)
 - [RFC 9728: OAuth 2.0 Protected Resource Metadata](https://datatracker.ietf.org/doc/html/rfc9728)
 - [RFC 8707: Resource Indicators for OAuth 2.0](https://datatracker.ietf.org/doc/html/rfc8707)
 - [RFC 9068: JSON Web Token Profile for OAuth 2.0 Access Tokens](https://datatracker.ietf.org/doc/html/rfc9068)
@@ -1277,11 +1278,13 @@ Security-specific tests:
 - Community-owned OAuth app staff/admin delegation should be considered after broader community authority is stable enough.
 - Trusted partner access is manually reviewed and should have much higher practical quotas than normal personal tokens, while retaining monitoring, cost controls, and revocation.
 - Rate-limit backend language refers to hot, expiring request counters rather than durable product state; Convex keeps durable ownership, policy, review, summary, and audit records.
+- Current MCP/OAuth research says DCR remains implemented, but CIMD should be scoped as a real follow-up rather than a vague smoke-test item because it changes client-id parsing, authorization lookup, consent display, token exchange, metadata caching, SSRF controls, and audit records.
 
 ## Remaining Open Research
 
 - Track OpenAPI 3.2.0 generator and Swagger UI support. The current checked-in artifact stays on 3.1.x.
 - Define OAuth signing-key rotation operations once deployment secret management is wired. The current checkpoint uses Node's built-in crypto APIs for RS256 JWT access tokens and advertises an explicit JWT key id when configured.
 - Confirm the hosted rate-limit provider for production, such as Upstash, Vercel KV, Valkey, or another Redis-compatible store.
-- Run the implementation-time major MCP client smoke matrix against a deployed preview or production-like environment, including anonymous hosted reads, OAuth through Dynamic Client Registration, OAuth through Client ID Metadata Documents where supported, and local stdio configuration.
+- Run the implementation-time major MCP client smoke matrix against a deployed preview or production-like environment, including anonymous hosted reads, OAuth through Dynamic Client Registration, any implemented Client ID Metadata Document path, and local stdio configuration.
+- Decide whether CIMD is a launch blocker after the deployed major-client smoke matrix. If yes, implement URL-form client IDs with metadata fetch/caching, response-size limits, special-use IP/SSRF guards, exact redirect URI extraction, consent display host cues, and token-exchange validation.
 - Choose final default quota numbers and partner escalation thresholds after initial traffic and operator cost signals exist.

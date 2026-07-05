@@ -78,7 +78,8 @@ JWT signature and audience.
 Client ID Metadata Documents are a compatibility path to test for hosted MCP
 clients that prefer preconfigured client metadata over Dynamic Client
 Registration. DCR remains the first automatic registration path in this
-checkpoint.
+checkpoint, and VRDex should not advertise CIMD support until URL-form client
+IDs, metadata fetch/caching, and SSRF controls are implemented.
 
 ## Authorization Code With PKCE
 
@@ -96,6 +97,8 @@ Current constraints:
 - single-use short-lived authorization codes
 - rotating refresh tokens on every refresh
 - scopes limited by registered client metadata
+- hosted `/mcp` bearer challenges advertise the protected-resource metadata URL
+  and the required `mcp:read` scope
 
 ## Client Credentials
 
@@ -235,9 +238,9 @@ Dynamic MCP clients are constrained to:
 - MCP resource access
 - `mcp:read` plus optional `public:read`
 
-Before hosted MCP is declared externally ready, smoke both DCR and Client ID
-Metadata Document OAuth paths in the major-client matrix where the current
-client release supports both.
+Before hosted MCP is declared externally ready, smoke DCR in the major-client
+matrix and implement/smoke Client ID Metadata Document OAuth if current major
+clients require or materially prefer it for public launch.
 
 ## Error Rules
 

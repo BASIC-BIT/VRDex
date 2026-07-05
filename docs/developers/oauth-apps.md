@@ -109,9 +109,11 @@ that is appropriate.
 
 Client ID Metadata Documents are tracked as a hosted MCP compatibility path for
 clients that prefer preconfigured metadata over Dynamic Client Registration.
-They do not change the self-serve ownership model: normal developer apps are
-user-owned or owned by communities the current user actively owns, while dynamic
-MCP clients stay separate.
+VRDex should not advertise CIMD support until URL-form client IDs, metadata
+fetch/caching, and SSRF controls are implemented. CIMD does not change the
+self-serve ownership model: normal developer apps are user-owned or owned by
+communities the current user actively owns, while dynamic MCP clients stay
+separate.
 
 ## Trusted Partner Review
 

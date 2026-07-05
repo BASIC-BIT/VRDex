@@ -69,7 +69,9 @@ describe("OAuth metadata routes", () => {
     assert.match(output, /^200/m);
     assert.match(output, /"resource":"https:\/\/app\.example\.test\/mcp"/);
     assert.match(output, /"authorization_servers":\["https:\/\/app\.example\.test"\]/);
+    assert.match(output, /"scopes_supported":\["mcp:read"\]/);
     assert.match(output, /"bearer_methods_supported":\["header"\]/);
+    assert.match(output, /"resource_name":"VRDex MCP"/);
     assert.match(output, /"resource_documentation":"https:\/\/app\.example\.test\/developers\/api"/);
   });
 });

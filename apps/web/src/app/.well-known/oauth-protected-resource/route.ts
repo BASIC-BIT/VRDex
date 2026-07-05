@@ -11,7 +11,9 @@ export function GET(request: Request) {
     {
       resource,
       authorization_servers: [issuer],
+      scopes_supported: ["mcp:read"],
       bearer_methods_supported: ["header"],
+      resource_name: "VRDex MCP",
       resource_documentation: `${issuer}/developers/api`,
     },
     {

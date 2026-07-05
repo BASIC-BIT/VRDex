@@ -25,8 +25,10 @@ one PR.
 - Authorization Code uses PKCE with `S256`.
 - Redirect URI matching is exact.
 - API and MCP resources are validated separately.
-- Hosted MCP OAuth is tested through Dynamic Client Registration and Client ID
-  Metadata Documents where current major clients support both paths.
+- Hosted MCP OAuth is tested through Dynamic Client Registration.
+- Client ID Metadata Document support is either implemented and smoke-tested or
+  explicitly marked as the launch blocker/follow-up for clients that require
+  URL-form client IDs.
 - Revoked credentials are rejected and produce durable event metadata.
 
 ## Rate Limits And Operations
@@ -44,6 +46,8 @@ one PR.
 
 - Hosted `/mcp` supports anonymous public read tools.
 - Hosted `/mcp` accepts MCP-resource OAuth tokens with `mcp:read`.
+- Hosted `/mcp` returns protected-resource metadata and `mcp:read` scope hints
+  in bearer challenges for invalid or insufficient OAuth tokens.
 - Local stdio MCP supports hosted and self-hosted API base URLs.
 - Local stdio MCP can run with anonymous reads, personal API tokens, or
   API-resource OAuth access tokens.

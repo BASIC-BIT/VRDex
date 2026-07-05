@@ -22,6 +22,7 @@ import {
   oauthAccessTokenSigningConfigured,
   oauthIssuerUrl,
   oauthMcpResourceUri,
+  oauthScopeString,
   parseOAuthScopeString,
   verifyOAuthAccessToken,
 } from "@/lib/server/oauth-jwt";
@@ -38,6 +39,7 @@ type VrdexMcpServerOptions = {
 };
 
 const mcpSearchTypes = ["all", "person", "community", "profile", "world", "event"] as const;
+const mcpRequiredScopes = ["mcp:read"] as const;
 const mcpSlugSchema = z.string().min(1).max(160);
 const mcpLimitSchema = z.number().int().min(1);
 
@@ -96,18 +98,51 @@ function looksLikeCompactJwt(value: string) {
   return value.split(".").length === 3;
 }
 
-function mcpWwwAuthenticateHeader(request: Request) {
-  return `Bearer resource_metadata="${oauthIssuerUrl(request)}/.well-known/oauth-protected-resource"`;
+function quoteAuthParamValue(value: string) {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+function mcpWwwAuthenticateHeader(
+  request: Request,
+  options: {
+    error?: "invalid_request" | "invalid_token" | "insufficient_scope";
+    errorDescription?: string;
+  } = {},
+) {
+  const params = [
+    ["resource_metadata", `${oauthIssuerUrl(request)}/.well-known/oauth-protected-resource`],
+    ["scope", oauthScopeString(mcpRequiredScopes)],
+    ...(options.error === undefined ? [] : [["error", options.error] as const]),
+    ...(options.errorDescription === undefined ? [] : [["error_description", options.errorDescription] as const]),
+  ];
+
+  return `Bearer ${params.map(([key, value]) => `${key}=${quoteAuthParamValue(value)}`).join(", ")}`;
+}
+
+function mcpAuthenticationErrorResponse(
+  request: Request,
+  status: 400 | 401 | 403,
+  code: number,
+  message: string,
+  options: Parameters<typeof mcpWwwAuthenticateHeader>[1],
+) {
+  const response = mcpJsonRpcError(status, code, message);
+
+  response.headers.set("WWW-Authenticate", mcpWwwAuthenticateHeader(request, options));
+
+  return response;
 }
 
 async function authenticateMcpBearerToken(request: Request, tokenValue: string) {
   if (!oauthAccessTokenSigningConfigured()) {
     if (!looksLikeCompactJwt(tokenValue)) {
-      const response = mcpJsonRpcError(401, -32600, "OAuth bearer token is invalid.");
-
-      response.headers.set("WWW-Authenticate", mcpWwwAuthenticateHeader(request));
-
-      return { ok: false as const, response };
+      return {
+        ok: false as const,
+        response: mcpAuthenticationErrorResponse(request, 401, -32600, "OAuth bearer token is invalid.", {
+          error: "invalid_token",
+          errorDescription: "The bearer token is malformed or invalid.",
+        }),
+      };
     }
 
     return {
@@ -125,17 +160,22 @@ async function authenticateMcpBearerToken(request: Request, tokenValue: string) 
     claims = verifyOAuthAccessToken(tokenValue, { audience: resource, issuer });
     tokenScopes = parseOAuthScopeString(claims.scope, []);
   } catch {
-    const response = mcpJsonRpcError(401, -32600, "OAuth bearer token is invalid.");
-
-    response.headers.set("WWW-Authenticate", mcpWwwAuthenticateHeader(request));
-
-    return { ok: false as const, response };
-  }
-
-  if (!hasRequiredScopes(tokenScopes, ["mcp:read"])) {
     return {
       ok: false as const,
-      response: mcpJsonRpcError(403, -32600, "OAuth bearer token scope is insufficient."),
+      response: mcpAuthenticationErrorResponse(request, 401, -32600, "OAuth bearer token is invalid.", {
+        error: "invalid_token",
+        errorDescription: "The bearer token is expired, malformed, or issued for the wrong resource.",
+      }),
+    };
+  }
+
+  if (!hasRequiredScopes(tokenScopes, mcpRequiredScopes)) {
+    return {
+      ok: false as const,
+      response: mcpAuthenticationErrorResponse(request, 403, -32600, "OAuth bearer token scope is insufficient.", {
+        error: "insufficient_scope",
+        errorDescription: "The bearer token must include the mcp:read scope.",
+      }),
     };
   }
 
@@ -146,29 +186,36 @@ async function authenticateMcpBearerToken(request: Request, tokenValue: string) 
       clientId: claims.client_id,
       tokenId: claims.jti,
       resource,
-      requiredScopes: ["mcp:read"],
+      requiredScopes: [...mcpRequiredScopes],
     });
   } catch {
-    const response = mcpJsonRpcError(401, -32600, "OAuth bearer token is invalid.");
-
-    response.headers.set("WWW-Authenticate", mcpWwwAuthenticateHeader(request));
-
-    return { ok: false as const, response };
+    return {
+      ok: false as const,
+      response: mcpAuthenticationErrorResponse(request, 401, -32600, "OAuth bearer token is invalid.", {
+        error: "invalid_token",
+        errorDescription: "The bearer token could not be validated.",
+      }),
+    };
   }
 
   if (!validation.ok) {
     if (validation.reason === "missing_scope") {
       return {
         ok: false as const,
-        response: mcpJsonRpcError(403, -32600, "OAuth bearer token scope is insufficient."),
+        response: mcpAuthenticationErrorResponse(request, 403, -32600, "OAuth bearer token scope is insufficient.", {
+          error: "insufficient_scope",
+          errorDescription: "The bearer token must include the mcp:read scope.",
+        }),
       };
     }
 
-    const response = mcpJsonRpcError(401, -32600, "OAuth bearer token is invalid.");
-
-    response.headers.set("WWW-Authenticate", mcpWwwAuthenticateHeader(request));
-
-    return { ok: false as const, response };
+    return {
+      ok: false as const,
+      response: mcpAuthenticationErrorResponse(request, 401, -32600, "OAuth bearer token is invalid.", {
+        error: "invalid_token",
+        errorDescription: "The bearer token is expired, revoked, or issued for the wrong resource.",
+      }),
+    };
   }
 
   return {
@@ -206,7 +253,16 @@ export function withMcpHttpHeaders(response: Response) {
 
 export async function rejectInvalidOrRateLimitedMcpRequest(request: Request) {
   if (hasBearerTokenInUrl(request.url)) {
-    return mcpJsonRpcError(400, -32600, "Bearer tokens must be sent in the Authorization header, not the URL.");
+    return mcpAuthenticationErrorResponse(
+      request,
+      400,
+      -32600,
+      "Bearer tokens must be sent in the Authorization header, not the URL.",
+      {
+        error: "invalid_request",
+        errorDescription: "Bearer tokens must be sent in the Authorization header.",
+      },
+    );
   }
 
   const bearerToken = getBearerTokenFromAuthorizationHeader(request.headers.get("authorization"));
