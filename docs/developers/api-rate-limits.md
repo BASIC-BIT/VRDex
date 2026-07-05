@@ -16,6 +16,9 @@ and revocation paths are in place.
 In this guide, the rate-limit backend is the storage path for hot expiring
 request counters. It is separate from durable quota policy, credential ownership,
 partner review state, usage summaries, and audit events, which stay in Convex.
+The backend choice is an infrastructure question about where per-request
+`INCR`/TTL counters live, not a product question about whether Convex remains
+the source of truth for API clients and partner policy.
 
 ## Store Modes
 
@@ -40,6 +43,10 @@ The Redis adapter uses a fixed-window counter with `INCR`, `PEXPIRE NX`, and
 Use a Redis-compatible store for hosted production anonymous API and hosted MCP
 traffic. Convex-only counters are acceptable only for low-volume self-hosted
 deployments that knowingly accept the extra write load and cost tradeoff.
+For BASIC BIT hosted production, prefer the `redis-rest`/`upstash` adapter
+until traffic proves a direct Redis/Valkey connection is worth the extra
+operational surface. The important contract is Redis-compatible expiring
+counters behind the adapter, not the specific vendor brand.
 
 ## Default Route Classes
 

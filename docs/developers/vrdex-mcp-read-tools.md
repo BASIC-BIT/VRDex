@@ -25,6 +25,13 @@ must stay limited to public-safe read tools and use the anonymous MCP
 rate-limit class, but clients should be able to search and browse public VRDex
 records without completing OAuth first.
 
+Clients that understand per-tool auth metadata should treat the current public
+read tools as no-auth callable. OAuth is still available for authenticated MCP
+traffic and future privileged tools, but public search/browser-like use should
+not display a login prompt before a safe read. The server remains authoritative:
+it validates any bearer token it receives, rejects wrong-resource tokens, and
+applies anonymous or authenticated MCP route-class limits after auth resolution.
+
 The OAuth issuer exposes `POST /oauth/register` for constrained Dynamic Client
 Registration by hosted MCP clients and `GET /oauth/authorize` for public-client
 Authorization Code with PKCE. Registered dynamic clients are public clients only:
@@ -232,6 +239,9 @@ Candidate direction:
 
 - hosted/remote MCP is suitable for public read-only data because VRDex public data is not tied to private VRChat cookies
 - anonymous hosted MCP read tools should be allowed for public-safe search/browser-like use cases, with their own rate-limit class
+- no-auth tool metadata should be preferred for public read tools when a hosted
+  client supports it, so anonymous search/browse workflows do not get forced
+  into OAuth setup
 - OAuth-authenticated hosted MCP callers use the authenticated MCP rate-limit class when the token is valid for the MCP resource
 - dynamic MCP client registrations are stored separately from normal developer apps until an operator promotes or reviews them
 - public-client PKCE consent issues short-lived MCP-bound access tokens and rotating refresh tokens

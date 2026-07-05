@@ -71,6 +71,12 @@ the access-token lifetime, then remove it after old access tokens have expired.
 
 ## OAuth Endpoints
 
+VRDex's OAuth issuer is implemented by Next.js route handlers backed by Convex
+state. Convex remains the durable store for apps, grants, consents, tokens,
+revocation state, and audit events; the web app owns browser redirects,
+metadata, token HTTP semantics, CORS, and consent UX. Convex Auth still handles
+first-party sign-in and is not the external developer-platform issuer.
+
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /.well-known/oauth-authorization-server` | OAuth issuer metadata. |

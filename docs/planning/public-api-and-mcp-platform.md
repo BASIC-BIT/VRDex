@@ -62,6 +62,7 @@ The first useful version should feel small and sharp:
 - `Current recommendation`: Use Convex as the authoritative application data and policy layer, with Next.js route handlers as the public HTTP gateway.
 - `Current recommendation`: Put the VRDex OAuth authorization server in Next.js route handlers backed by Convex tables and internal Convex functions. Convex remains the data/control plane; Next owns browser redirects, consent UX, metadata endpoints, token routes, CORS, and HTTP semantics.
 - `Current recommendation`: Do not treat Convex Auth's inbound sign-in providers as the third-party developer OAuth issuer. Convex Auth remains first-party account authentication; the VRDex developer platform issues tokens for external clients.
+- `Current recommendation`: Keep the first issuer in the web app instead of adding a separate identity provider. VRDex needs app-specific developer ownership, dynamic MCP client handling, self-hosted behavior, and product policy checks in the same deployment boundary; an external IdP can be revisited only if it cleanly owns those custom platform rules.
 - `Current recommendation`: Use shared TypeScript API contract schemas as the source of truth for runtime validation, response typing, example generation, and OpenAPI generation. Convex validators remain the database/function boundary.
 - `Current recommendation`: Keep the generated artifact on OpenAPI 3.1.x for Swagger UI and `zod-openapi` compatibility, even though OpenAPI 3.2.0 is the latest published spec. Track 3.2.0 as a later generator/tooling upgrade, not a launch blocker.
 - `Current recommendation`: Use Zod 4 plus `zod-openapi` as the first contract toolchain. The implementation spike has validated the route shape enough to keep this as the current path.
@@ -72,6 +73,7 @@ The first useful version should feel small and sharp:
 - `Current recommendation`: Rate-limit by route class, IP, token, OAuth client, user, app owner, and dynamic MCP client. Do not use one global bucket for every caller.
 - `Current recommendation`: Use a Redis-compatible TTL counter store for high-volume hosted anonymous public API and MCP traffic. Keep Convex as the durable source for policy, app/token ownership, partner overrides, coarse usage summaries, and audit events.
 - `Current recommendation`: Launch the hosted MCP as read-oriented first, even if the auth platform already supports scopes that make later write tools possible.
+- `Current recommendation`: Treat anonymous hosted MCP reads as a first-class no-auth tool path. Where a client or SDK supports per-tool auth metadata, public read tools should advertise no-auth access and OAuth as an optional or later privileged path; the server still enforces scopes, audience/resource binding, and rate limits on every request.
 - `Current recommendation`: Trusted partner access is a manual review tier with very high quotas compared with normal personal tokens, but it still needs contact ownership, abuse/cost guardrails, observability, and fast revocation.
 
 ## Candidate Directions
@@ -754,6 +756,7 @@ Auth behavior:
 
 - anonymous read tools are required for public-safe search/browser-like read operations
 - anonymous read tools must not trigger OAuth or client registration prompts
+- clients that support tool-level auth metadata should see these public read tools as callable without auth, while authenticated or future write tools advertise OAuth scopes explicitly
 - anonymous MCP callers use separate route classes and quotas from anonymous HTTP API callers
 - authenticated tools require `Authorization: Bearer <access-token>`
 - MCP tokens must be issued for the VRDex MCP resource
@@ -1250,6 +1253,7 @@ Security-specific tests:
 - [VS Code MCP servers](https://code.visualstudio.com/docs/agent-customization/mcp-servers)
 - [Devin Desktop / Windsurf Cascade MCP](https://docs.devin.ai/desktop/cascade/mcp)
 - [OpenAI MCP and Connectors](https://platform.openai.com/docs/mcp)
+- [OpenAI Apps SDK authentication](https://developers.openai.com/apps-sdk/build/auth)
 - [OpenAPI Specification](https://spec.openapis.org/oas/latest.html)
 - [Zod 4 JSON Schema conversion](https://zod.dev/v4)
 - [zod-openapi](https://github.com/samchungy/zod-openapi)
@@ -1284,6 +1288,7 @@ Security-specific tests:
 - Rate-limit backend language refers to hot, expiring request counters rather than durable product state; Convex keeps durable ownership, policy, review, summary, and audit records.
 - Current MCP/OAuth research says DCR and public-client CIMD should both remain in the hosted MCP path. Confidential-client CIMD with public-key client authentication remains deferred until a concrete major-client requirement appears.
 - OAuth signing-key rotation keeps the active private signing key in `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY`, advertises the active key id through `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID`, and retains previous public keys through `VRDEX_OAUTH_ACCESS_TOKEN_ADDITIONAL_PUBLIC_JWKS` until outstanding access tokens expire.
+- Hosted MCP auth metadata should make anonymous public read tools genuinely usable without login in clients that distinguish `noauth` from OAuth tools. The current server behavior is authoritative; client-specific metadata and UI behavior remain part of the manual matrix.
 
 ## Remaining Open Research
 

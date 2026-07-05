@@ -20,6 +20,9 @@ Source-backed client requirements from the current docs pass:
   that register automatically
 - Client ID Metadata Documents are supported for hosted MCP public clients that
   prefer URL-form client IDs
+- hosted public read tools should be callable without OAuth in clients that
+  understand no-auth tool metadata, while OAuth remains available for
+  authenticated MCP reads and future privileged tools
 - static bearer-token headers remain a diagnostic fallback, not the preferred
   hosted OAuth setup
 - do not publish client-specific setup snippets unless that client's current
@@ -30,7 +33,7 @@ Source-backed client requirements from the current docs pass:
 | Surface | Evidence |
 | --- | --- |
 | Hosted Streamable HTTP MCP | `node --import tsx --test tests/web/**/*.test.ts` covers initialization and curated tool listing. |
-| Hosted anonymous public reads | Hosted `/mcp` allows no-bearer public read tools through the `anonymous_mcp_public_read` route class. |
+| Hosted anonymous public reads | Hosted `/mcp` allows no-bearer public read tools through the `anonymous_mcp_public_read` route class. Manual client smokes must also confirm the client UI does not force OAuth before public read calls. |
 | Hosted OAuth bearer handling | Web MCP and OAuth JWT tests cover MCP-resource audience validation, `mcp:read` scope validation, and protected-resource bearer challenges. |
 | Hosted Client ID Metadata Documents | Web OAuth helper tests cover URL-form client IDs, exact `client_id` matching, redirect rejection, response-size limits, and special-use address rejection. |
 | Local stdio MCP | `pnpm --filter @basicbit/vrdex-mcp test` runs a JSON-RPC stdio `vrdex_search` call against a local API fixture. |
@@ -222,8 +225,9 @@ VS Code hosted config:
    expected tool lists and errors.
 
 For each smoke, record client version, OS, transport, auth mode, result, exact
-config shape, and issue link if it fails. Keep real tokens out of docs, logs,
-and screenshots.
+config shape, whether the client distinguishes anonymous/no-auth tools from
+OAuth-required tools, and issue link if it fails. Keep real tokens out of docs,
+logs, and screenshots.
 
 ## Source Trail
 
