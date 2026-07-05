@@ -28,6 +28,7 @@ import {
   normalizeOAuthSoftwareValue,
   normalizeOAuthTokenExpiry,
   normalizeOAuthRevokeReason,
+  oauthAccessTokenValidationEventMetadata,
   validateOAuthAccessTokenRecord,
 } from "../../convex/_oauth";
 
@@ -231,6 +232,42 @@ describe("OAuth application helpers", () => {
         now: 1_000,
       }),
       { ok: false, reason: "missing_scope" },
+    );
+  });
+
+  it("maps revoked OAuth access token validation to rejected event metadata", () => {
+    assert.deepEqual(
+      oauthAccessTokenValidationEventMetadata(
+        validateOAuthAccessTokenRecord(oauthAccessTokenRecord({ status: "revoked" }), {
+          clientId: "vrdx_app_0123456789abcdef01234567",
+          tokenId: "vrdx_at_0123456789abcdef0123456789abcdef",
+          resource: "https://api.example.test",
+          requiredScopes: ["public:read"],
+          now: 1_000,
+        }),
+      ),
+      {
+        eventType: "validation_rejected",
+        result: "revoked",
+        statusCodeClass: "4xx",
+      },
+    );
+
+    assert.deepEqual(
+      oauthAccessTokenValidationEventMetadata(
+        validateOAuthAccessTokenRecord(oauthAccessTokenRecord(), {
+          clientId: "vrdx_app_0123456789abcdef01234567",
+          tokenId: "vrdx_at_0123456789abcdef0123456789abcdef",
+          resource: "https://api.example.test",
+          requiredScopes: ["public:read"],
+          now: 1_000,
+        }),
+      ),
+      {
+        eventType: "validation_accepted",
+        result: "accepted",
+        statusCodeClass: "2xx",
+      },
     );
   });
 });

@@ -26,6 +26,8 @@ Public API and MCP platform foundation checkpoint:
   Client Credentials support
 - added OAuth access-token signing-key rotation support for retaining previous
   public keys in JWKS and bearer verification until outstanding tokens expire
+- added OAuth access-token validation event metadata for accepted and rejected
+  API/MCP bearer checks
 - added public-client Client ID Metadata Document support for hosted MCP OAuth
   clients that use URL-form client ids
 - added confidential-client support for OAuth authorization-code and

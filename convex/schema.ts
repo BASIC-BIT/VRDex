@@ -56,6 +56,7 @@ import {
   oauthApplicationOwnerKindValidator,
   oauthApplicationStatusValidator,
   oauthApplicationTrustTierValidator,
+  oauthAccessTokenValidationResultValidator,
   oauthAuthorizationCodeStatusValidator,
   oauthAccessTokenStatusValidator,
   oauthAccessTokenSubjectTypeValidator,
@@ -1197,6 +1198,7 @@ export default defineSchema({
     applicationId: v.optional(v.id("oauthApplications")),
     dynamicClientId: v.optional(v.id("oauthDynamicClients")),
     clientId: v.optional(v.string()),
+    accessTokenId: v.optional(v.string()),
     secretPrefix: v.optional(v.string()),
     ownerKind: v.optional(oauthApplicationOwnerKindValidator),
     ownerUserId: v.optional(v.id("users")),
@@ -1204,6 +1206,7 @@ export default defineSchema({
     routeClass: apiRouteClassValidator,
     eventType: oauthClientEventTypeValidator,
     result: oauthClientEventResultValidator,
+    validationResult: v.optional(oauthAccessTokenValidationResultValidator),
     createdAt: v.number(),
   })
     .index("by_applicationId_createdAt", ["applicationId", "createdAt"])

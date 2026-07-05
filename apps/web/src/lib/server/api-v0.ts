@@ -125,6 +125,7 @@ async function authenticateOptionalOAuthBearerToken(
   tokenValue: string,
   options: {
     requiredScopes: ApiScope[];
+    routeClass: ApiRouteClass;
   },
 ) {
   if (!oauthAccessTokenSigningConfigured()) {
@@ -161,11 +162,12 @@ async function authenticateOptionalOAuthBearerToken(
   let validation;
 
   try {
-    validation = await convexHttpClient().query(api.oauthApps.validateAccessToken, {
+    validation = await convexHttpClient().mutation(api.oauthApps.validateAccessToken, {
       clientId: claims.client_id,
       tokenId: claims.jti,
       resource,
       requiredScopes: options.requiredScopes,
+      routeClass: options.routeClass,
     });
   } catch {
     return { ok: false as const, response: invalidBearerTokenResponse() };
@@ -221,7 +223,10 @@ async function authenticateOptionalApiBearerToken(
   const parsed = parseApiTokenValue(tokenValue);
 
   if (parsed === null) {
-    return await authenticateOptionalOAuthBearerToken(request, tokenValue, { requiredScopes });
+    return await authenticateOptionalOAuthBearerToken(request, tokenValue, {
+      requiredScopes,
+      routeClass: options.routeClass ?? "authenticated_public_read",
+    });
   }
 
   let verifierHash: string;

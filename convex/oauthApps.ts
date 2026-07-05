@@ -4,7 +4,7 @@ import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { getCurrentUser, requireCurrentUser } from "./accounts";
-import { apiScopeValidator, hasRequiredApiScopes, timingSafeEqualString } from "./_apiTokens";
+import { apiRouteClassValidator, apiScopeValidator, hasRequiredApiScopes, timingSafeEqualString } from "./_apiTokens";
 import { userOwnsProfile } from "./_profileOwnership";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import {
@@ -33,12 +33,15 @@ import {
   normalizeOAuthScopes,
   normalizeOAuthSoftwareValue,
   normalizeOAuthTokenExpiry,
+  oauthAccessTokenValidationEventMetadata,
   oauthClientSecretHashVersion,
   oauthCodeChallengeMethodValidator,
   oauthGrantTypeValidator,
   oauthResponseTypeValidator,
   oauthTokenEndpointAuthMethodValidator,
   validateOAuthAccessTokenRecord,
+  type OAuthAccessTokenValidationResult,
+  type OAuthAccessTokenValidationResultLabel,
 } from "./_oauth";
 
 function boundedLimit(value: number | undefined, fallback: number, max: number) {
@@ -347,10 +350,12 @@ async function recordOAuthClientEvent(
     application?: Doc<"oauthApplications">;
     dynamicClient?: Doc<"oauthDynamicClients">;
     clientId?: string;
+    accessTokenId?: string;
     secretPrefix?: string;
     eventType: Doc<"oauthClientEvents">["eventType"];
     result: Doc<"oauthClientEvents">["result"];
     routeClass?: Doc<"oauthClientEvents">["routeClass"];
+    validationResult?: OAuthAccessTokenValidationResultLabel;
     now: number;
   },
 ) {
@@ -360,6 +365,7 @@ async function recordOAuthClientEvent(
     ...(args.application === undefined ? {} : { applicationId: args.application._id }),
     ...(args.dynamicClient === undefined ? {} : { dynamicClientId: args.dynamicClient._id }),
     ...(clientId === undefined ? {} : { clientId }),
+    ...(args.accessTokenId === undefined ? {} : { accessTokenId: args.accessTokenId }),
     ...(args.secretPrefix === undefined ? {} : { secretPrefix: args.secretPrefix }),
     ...(args.application === undefined ? {} : { ownerKind: args.application.ownerKind }),
     ...(args.application === undefined ? {} : { ownerUserId: args.application.ownerUserId }),
@@ -369,6 +375,7 @@ async function recordOAuthClientEvent(
     routeClass: args.routeClass ?? "developer_credential_management",
     eventType: args.eventType,
     result: args.result,
+    ...(args.validationResult === undefined ? {} : { validationResult: args.validationResult }),
     createdAt: args.now,
   });
 }
@@ -1863,12 +1870,13 @@ export const revokeClientAccessToken = mutation({
   },
 });
 
-export const validateAccessToken = query({
+export const validateAccessToken = mutation({
   args: {
     clientId: v.string(),
     tokenId: v.string(),
     resource: v.string(),
     requiredScopes: v.optional(v.array(apiScopeValidator)),
+    routeClass: v.optional(apiRouteClassValidator),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -1876,10 +1884,34 @@ export const validateAccessToken = query({
     const tokenId = normalizeOAuthAccessTokenId(args.tokenId);
     const resource = normalizeOAuthResourceUri(args.resource);
     const requiredScopes = normalizeOAuthScopes(args.requiredScopes);
+    const routeClass = args.routeClass ?? "authenticated_public_read";
     const token = await ctx.db
       .query("oauthAccessTokens")
       .withIndex("by_tokenId", (index) => index.eq("tokenId", tokenId))
       .unique();
+    const eventApplication =
+      token !== null && token.clientId === clientId && token.applicationId !== undefined
+        ? await ctx.db.get(token.applicationId)
+        : null;
+    const eventDynamicClient =
+      token !== null && token.clientId === clientId && token.dynamicClientId !== undefined
+        ? await ctx.db.get(token.dynamicClientId)
+        : null;
+    const recordValidationEvent = async (validation: OAuthAccessTokenValidationResult) => {
+      const metadata = oauthAccessTokenValidationEventMetadata(validation);
+
+      await recordOAuthClientEvent(ctx, {
+        ...(eventApplication === null ? {} : { application: eventApplication }),
+        ...(eventDynamicClient === null ? {} : { dynamicClient: eventDynamicClient }),
+        clientId,
+        accessTokenId: tokenId,
+        eventType: metadata.eventType,
+        result: metadata.statusCodeClass === "2xx" ? "accepted" : "rejected",
+        validationResult: metadata.result,
+        routeClass,
+        now,
+      });
+    };
     const result = validateOAuthAccessTokenRecord(token, {
       clientId,
       tokenId,
@@ -1889,6 +1921,8 @@ export const validateAccessToken = query({
     });
 
     if (!result.ok) {
+      await recordValidationEvent(result);
+
       return result;
     }
 
@@ -1896,43 +1930,75 @@ export const validateAccessToken = query({
     const dynamicClient = result.dynamicClientId === undefined ? null : await ctx.db.get(result.dynamicClientId);
 
     if (application === null && dynamicClient === null) {
-      return { ok: false as const, reason: "not_found" as const };
+      const validation = { ok: false as const, reason: "not_found" as const };
+
+      await recordValidationEvent(validation);
+
+      return validation;
     }
 
     if (application !== null && application.clientId !== clientId) {
-      return { ok: false as const, reason: "not_found" as const };
+      const validation = { ok: false as const, reason: "not_found" as const };
+
+      await recordValidationEvent(validation);
+
+      return validation;
     }
 
     if (dynamicClient !== null && dynamicClient.clientId !== clientId) {
-      return { ok: false as const, reason: "not_found" as const };
+      const validation = { ok: false as const, reason: "not_found" as const };
+
+      await recordValidationEvent(validation);
+
+      return validation;
     }
 
     if (application !== null && application.status !== "active") {
-      return { ok: false as const, reason: "revoked" as const };
+      const validation = { ok: false as const, reason: "revoked" as const };
+
+      await recordValidationEvent(validation);
+
+      return validation;
     }
 
     if (dynamicClient !== null && dynamicClient.status !== "active") {
-      return { ok: false as const, reason: "revoked" as const };
+      const validation = { ok: false as const, reason: "revoked" as const };
+
+      await recordValidationEvent(validation);
+
+      return validation;
     }
 
     if (dynamicClient !== null) {
-      return {
+      const validation = {
         ...result,
         dynamicClientId: dynamicClient._id,
         trustTier: "standard" as const,
       };
+
+      await recordValidationEvent(validation);
+
+      return validation;
     }
 
     if (application === null) {
-      return { ok: false as const, reason: "not_found" as const };
+      const validation = { ok: false as const, reason: "not_found" as const };
+
+      await recordValidationEvent(validation);
+
+      return validation;
     }
 
-    return {
+    const validation = {
       ...result,
       ownerKind: application.ownerKind,
       ownerUserId: application.ownerUserId,
       ownerCommunityProfileId: application.ownerCommunityProfileId,
       trustTier: application.trustTier,
     };
+
+    await recordValidationEvent(validation);
+
+    return validation;
   },
 });

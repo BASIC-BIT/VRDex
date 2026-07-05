@@ -182,11 +182,12 @@ async function authenticateMcpBearerToken(request: Request, tokenValue: string) 
   let validation;
 
   try {
-    validation = await convexHttpClient().query(api.oauthApps.validateAccessToken, {
+    validation = await convexHttpClient().mutation(api.oauthApps.validateAccessToken, {
       clientId: claims.client_id,
       tokenId: claims.jti,
       resource,
       requiredScopes: [...mcpRequiredScopes],
+      routeClass: "authenticated_mcp",
     });
   } catch {
     return {

@@ -104,7 +104,8 @@ Current durable event tables:
 - `apiTokenEvents`: personal token creation, revocation, accepted validation,
   and rejected validation attempts.
 - `oauthClientEvents`: OAuth application lifecycle, dynamic MCP registration,
-  token issuance, revocation, and rejected client-credential attempts.
+  token issuance, revocation, accepted access-token validation, rejected
+  access-token validation, and rejected client-credential attempts.
 
 Do not log bearer token values, OAuth client secrets, full Authorization
 headers, or raw refresh tokens. Event rows should store ids, prefixes, route

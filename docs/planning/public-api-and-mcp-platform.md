@@ -424,6 +424,7 @@ Token event fields:
 - user id, if user-bound
 - client id, if OAuth-bound
 - route class
+- validation result for accepted, revoked, expired, missing-scope, wrong-resource, or not-found credentials
 - scope result
 - rate-limit result
 - status code class

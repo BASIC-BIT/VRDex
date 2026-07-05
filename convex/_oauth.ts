@@ -47,10 +47,20 @@ export const oauthClientEventTypeValidator = v.union(
   v.literal("dynamic_client_metadata_refreshed"),
   v.literal("token_issued"),
   v.literal("token_revoked"),
+  v.literal("validation_accepted"),
+  v.literal("validation_rejected"),
 );
 export const oauthClientEventResultValidator = v.union(v.literal("accepted"), v.literal("rejected"));
 export const oauthAccessTokenSubjectTypeValidator = v.union(v.literal("client"), v.literal("user"));
 export const oauthAccessTokenStatusValidator = v.union(v.literal("active"), v.literal("revoked"));
+export const oauthAccessTokenValidationResultValidator = v.union(
+  v.literal("accepted"),
+  v.literal("not_found"),
+  v.literal("wrong_resource"),
+  v.literal("revoked"),
+  v.literal("expired"),
+  v.literal("missing_scope"),
+);
 
 export type OAuthClientType = "public" | "confidential";
 export type OAuthGrantType = "authorization_code" | "refresh_token" | "client_credentials";
@@ -74,6 +84,18 @@ export type OAuthAccessTokenValidationResult =
       ok: false;
       reason: "not_found" | "wrong_resource" | "revoked" | "expired" | "missing_scope";
     };
+export type OAuthAccessTokenValidationResultLabel =
+  | "accepted"
+  | "not_found"
+  | "wrong_resource"
+  | "revoked"
+  | "expired"
+  | "missing_scope";
+export type OAuthAccessTokenValidationEventMetadata = {
+  eventType: "validation_accepted" | "validation_rejected";
+  result: OAuthAccessTokenValidationResultLabel;
+  statusCodeClass: "2xx" | "4xx";
+};
 
 const apiScopes = new Set<ApiScope>([
   "public:read",
@@ -506,6 +528,24 @@ export function validateOAuthAccessTokenRecord(
     ...(token.userId === undefined ? {} : { userId: token.userId }),
     resource: token.resource,
     scopes: token.scopes,
+  };
+}
+
+export function oauthAccessTokenValidationEventMetadata(
+  result: OAuthAccessTokenValidationResult,
+): OAuthAccessTokenValidationEventMetadata {
+  if (result.ok) {
+    return {
+      eventType: "validation_accepted",
+      result: "accepted",
+      statusCodeClass: "2xx",
+    };
+  }
+
+  return {
+    eventType: "validation_rejected",
+    result: result.reason,
+    statusCodeClass: "4xx",
   };
 }
 

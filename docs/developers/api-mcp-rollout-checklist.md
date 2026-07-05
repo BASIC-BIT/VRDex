@@ -30,7 +30,8 @@ one PR.
 - Hosted MCP OAuth is tested through Dynamic Client Registration.
 - Client ID Metadata Document support is smoke-tested for clients that prefer
   URL-form client IDs.
-- Revoked credentials are rejected and produce durable event metadata.
+- Revoked credentials are rejected and produce durable event metadata for
+  personal API-token and OAuth access-token validation.
 
 ## Rate Limits And Operations
 
