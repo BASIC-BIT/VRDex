@@ -86,6 +86,10 @@ one PR.
   declared. Record those manual rows with `pnpm record:mcp-client-smoke` so
   pass/fail entries include a run date, target environment, and sanitized
   evidence pointer.
+- `pnpm check:api-mcp-rollout` summarizes the generated OpenAPI contract,
+  required docs, verification scripts, MCP client matrix, and hosted MCP
+  production-like evidence state. It reports pending required items in normal
+  mode and becomes a failing external-readiness gate with `--require-ready`.
 - Claude Code local stdio and hosted anonymous HTTP can be real-client smoked
   with `pnpm smoke:mcp-claude-code`, which runs the installed Claude Code CLI
   through a strict temporary MCP config. Use hosted mode with `--hosted-data`
@@ -120,6 +124,7 @@ pnpm typecheck:vrdex-mcp
 pnpm test:vrdex-mcp
 pnpm smoke:mcp-compat
 pnpm check:mcp-client-matrix
+pnpm check:api-mcp-rollout
 pnpm smoke:mcp-inspector -- --hosted-url <preview-or-production-like-/mcp-url>
 pnpm typecheck:backend
 pnpm test:backend

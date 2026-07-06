@@ -20,6 +20,9 @@ docs update and a changelog entry so early consumers and agents can adapt.
 - added `pnpm smoke:mcp-inspector` as a repeatable hosted MCP Inspector CLI
   smoke for tool-list/auth-metadata coverage and optional data-backed public
   search readiness
+- added `pnpm check:api-mcp-rollout` as an aggregate readiness audit for the
+  generated OpenAPI artifact, required docs, verification scripts, MCP client
+  matrix, and production-like hosted MCP evidence state
 - added hosted MCP tool descriptor auth metadata so every curated public read
   tool advertises `_meta["securitySchemes"]` with `noauth` plus optional
   `oauth2`/`mcp:read`

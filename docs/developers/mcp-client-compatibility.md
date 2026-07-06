@@ -167,6 +167,18 @@ readiness, require every required manual row to pass:
 pnpm check:mcp-client-matrix -- --require-ready
 ```
 
+For the broader public API/MCP launch audit, run:
+
+```sh
+pnpm check:api-mcp-rollout
+```
+
+That command summarizes the generated OpenAPI artifact, required docs,
+verification scripts, manual MCP matrix, and hosted production-like evidence
+state. Use `--require-ready` only when the PR is being declared externally
+ready; it fails while required client rows or hosted data/DCR/CIMD/OAuth
+evidence are still pending.
+
 To include a deployed hosted MCP endpoint, pass:
 
 ```sh

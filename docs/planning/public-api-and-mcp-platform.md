@@ -1222,6 +1222,8 @@ Required before PR readiness:
 - hosted MCP tool descriptor auth metadata tests
 - stdio MCP smoke test
 - major MCP client compatibility matrix results
+- aggregate `pnpm check:api-mcp-rollout -- --require-ready` audit before
+  declaring external readiness
 - MCP tool auth metadata verification for anonymous/no-auth public reads where a major client requires per-tool declarations
 - docs build
 - visual verification for developer dashboard, consent screen, and Swagger docs
