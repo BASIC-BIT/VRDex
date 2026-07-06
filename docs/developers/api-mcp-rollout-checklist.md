@@ -31,6 +31,9 @@ one PR.
 - Redirect URI matching is exact.
 - API and MCP resources are validated separately.
 - Hosted MCP OAuth is tested through Dynamic Client Registration.
+- The `/oauth/register` route has deterministic route-handler coverage for
+  schema normalization, registration mutation inputs, rate-limit errors, and
+  backend failures.
 - Client ID Metadata Document support is smoke-tested through the checked-in
   public MCP client metadata document when a same-branch Convex preview backend
   is available.

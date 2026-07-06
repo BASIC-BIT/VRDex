@@ -1209,6 +1209,8 @@ Required before PR readiness:
 - typecheck
 - unit tests for token, OAuth, scope, rate-limit, and schema helpers
 - route integration tests for anonymous and authenticated API requests
+- route-handler tests for OAuth Dynamic Client Registration, including schema
+  normalization, rate-limit errors, and backend failures
 - OpenAPI validation
 - Swagger UI smoke test
 - API token E2E
