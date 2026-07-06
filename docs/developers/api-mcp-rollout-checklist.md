@@ -147,6 +147,7 @@ pnpm check:mcp-client-matrix
 pnpm ops:mcp-installed-clients
 pnpm ops:mcp-client-smokes
 pnpm check:api-mcp-rollout
+pnpm smoke:mcp-compat -- --hosted-only --hosted-url <preview-or-production-like-/mcp-url>
 pnpm smoke:mcp-inspector -- --hosted-url <preview-or-production-like-/mcp-url>
 pnpm typecheck:backend
 pnpm test:backend

@@ -228,7 +228,9 @@ backed by same-branch or production-like Convex functions and indexes; that path
 requires non-empty anonymous `vrdex_search` to return structured content instead
 of a tool error. When a data-backed tool call fails, the smoke prints a
 sanitized summary of the MCP error content to make backend, fixture, and tool
-contract failures easier to distinguish. Add `--dcr` when you want the smoke to register a
+contract failures easier to distinguish. Add `--hosted-only` when you are
+rechecking a remote target and do not need the local stdio profile sweep. Add
+`--dcr` when you want the smoke to register a
 constrained public MCP client through Dynamic Client Registration. Add `--cimd`
 when you want the smoke to exercise a URL-form public client id against
 `GET /oauth/authorize`; the smoke uses
@@ -375,14 +377,15 @@ pnpm ops:mcp-client-smokes -- \
 ```
 
 0. Run `pnpm smoke:mcp-compat`; for hosted protocol coverage, add
-   `--hosted-url <preview-or-production-like-/mcp-url>`. Add `--hosted-data`
-   when the deployed target has same-branch or production-like Convex functions
-   and indexes. Add `--dcr` when the smoke should create a temporary dynamic
-   public MCP client, and `--cimd` when the smoke should materialize the public
-   client metadata document flow through `/oauth/authorize`. For GitHub-hosted
-   evidence against a deployed target, run the manual `Deployed Health Checks`
-   workflow with target `hosted-mcp-smoke`, `base_url=<target-/mcp-url>`, and
-   the matching `mcp_data`/`mcp_dcr`/`mcp_cimd` toggles.
+   `--hosted-url <preview-or-production-like-/mcp-url>`. Use `--hosted-only`
+   for focused remote-target retries. Add `--hosted-data` when the deployed
+   target has same-branch or production-like Convex functions and indexes. Add
+   `--dcr` when the smoke should create a temporary dynamic public MCP client,
+   and `--cimd` when the smoke should materialize the public client metadata
+   document flow through `/oauth/authorize`. For GitHub-hosted evidence against
+   a deployed target, run the manual `Deployed Health Checks` workflow with
+   target `hosted-mcp-smoke`, `base_url=<target-/mcp-url>`, and the matching
+   `mcp_data`/`mcp_dcr`/`mcp_cimd` toggles.
 1. Claude Desktop local stdio starts, lists six tools, and calls
    `vrdex_search`.
 2. Claude Desktop hosted Custom Connector lists anonymous tools and completes

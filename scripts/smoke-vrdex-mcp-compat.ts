@@ -30,6 +30,7 @@ type HostedOAuthMetadata = {
 type SmokeOptions = {
   clientMetadataDocument: boolean;
   dynamicRegistration: boolean;
+  hostedOnly: boolean;
   hostedDataPublicReads: boolean;
   hostedUrl?: string;
 };
@@ -95,6 +96,7 @@ function parseArgs(argv: string[]): SmokeOptions {
   const options: SmokeOptions = {
     clientMetadataDocument: envFlag("VRDEX_MCP_SMOKE_CIMD"),
     dynamicRegistration: envFlag("VRDEX_MCP_SMOKE_DCR"),
+    hostedOnly: envFlag("VRDEX_MCP_SMOKE_HOSTED_ONLY"),
     hostedDataPublicReads: envFlag("VRDEX_MCP_SMOKE_DATA"),
   };
 
@@ -125,6 +127,9 @@ function parseArgs(argv: string[]): SmokeOptions {
       case "--hosted-data":
       case "--hosted-data-public-reads":
         options.hostedDataPublicReads = true;
+        break;
+      case "--hosted-only":
+        options.hostedOnly = true;
         break;
       default:
         throw new Error(`Unknown option: ${arg}`);
@@ -807,13 +812,15 @@ async function main() {
   const options = parseArgs(process.argv.slice(2));
   const results: SmokeResult[] = [];
 
-  for (const profile of localClientProfiles) {
-    await smokeLocalStdioProfile(profile);
-    results.push({
-      details: "stdio initialize, tool list, and all curated read tool calls passed",
-      name: `Local stdio MCP - ${profile.name}`,
-      status: "pass",
-    });
+  if (!options.hostedOnly) {
+    for (const profile of localClientProfiles) {
+      await smokeLocalStdioProfile(profile);
+      results.push({
+        details: "stdio initialize, tool list, and all curated read tool calls passed",
+        name: `Local stdio MCP - ${profile.name}`,
+        status: "pass",
+      });
+    }
   }
 
   await smokeHostedHttp(results, options);
@@ -828,5 +835,5 @@ async function main() {
 
 main().catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : error);
-  process.exit(1);
+  process.exitCode = 1;
 });

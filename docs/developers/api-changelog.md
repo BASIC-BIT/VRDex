@@ -43,6 +43,8 @@ docs update and a changelog entry so early consumers and agents can adapt.
   include sanitized error content instead of a generic failure
 - returned non-empty public-safe hosted MCP tool errors when the public data
   backend is unavailable, without exposing backend exception text
+- added `pnpm smoke:mcp-compat -- --hosted-only` for focused remote hosted MCP
+  target checks without rerunning local stdio profile smokes
 - added hosted MCP tool descriptor auth metadata so every curated public read
   tool advertises `_meta["securitySchemes"]` with `noauth` plus optional
   `oauth2`/`mcp:read`
