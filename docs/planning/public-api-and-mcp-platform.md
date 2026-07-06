@@ -77,7 +77,7 @@ The first useful version should feel small and sharp:
 - `Current recommendation`: Use a Redis-compatible TTL counter store for high-volume hosted anonymous public API and MCP traffic. Keep Convex as the durable source for policy, app/token ownership, partner overrides, coarse usage summaries, and audit events.
 - `Current recommendation`: Launch the hosted MCP as read-oriented first, even if the auth platform already supports scopes that make later write tools possible.
 - `Current recommendation`: Treat anonymous hosted MCP reads as a first-class no-auth tool path. Where a client or SDK supports per-tool auth metadata, public read tools should advertise no-auth access and OAuth as an optional or later privileged path; the server still enforces scopes, audience/resource binding, and rate limits on every request.
-- `Current recommendation`: For OpenAI/ChatGPT-style MCP clients, advertise public read tools with per-tool `noauth` plus optional `oauth2` security metadata, including the `_meta["securitySchemes"]` compatibility mirror when the SDK path supports it.
+- `Current recommendation`: For OpenAI/ChatGPT-style MCP clients, advertise public read tools with per-tool `noauth` plus optional `oauth2` security metadata. The current MCP SDK emits this through the `_meta["securitySchemes"]` descriptor extension; do not add non-standard top-level tool fields unless the SDK or a verified client surface requires a compatible extension point.
 - `Current recommendation`: Trusted partner access is a manual review tier with very high quotas compared with normal personal tokens, but it still needs contact ownership, abuse/cost guardrails, observability, and fast revocation.
 
 ## Candidate Directions
@@ -1218,6 +1218,7 @@ Required before PR readiness:
 - API token E2E
 - OAuth test-client E2E
 - hosted MCP handshake/tool tests
+- hosted MCP tool descriptor auth metadata tests
 - stdio MCP smoke test
 - major MCP client compatibility matrix results
 - MCP tool auth metadata verification for anonymous/no-auth public reads where a major client requires per-tool declarations
@@ -1294,7 +1295,7 @@ Security-specific tests:
 - Current MCP/OAuth research says DCR and public-client CIMD should both remain in the hosted MCP path. OpenAI/ChatGPT-style clients prefer CIMD when available, while Claude Code and other clients can use DCR or preconfigured OAuth credentials.
 - Confidential-client CIMD with public-key client authentication remains deferred until a concrete major-client requirement appears.
 - OAuth signing-key rotation keeps the active private signing key in `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY`, advertises the active key id through `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID`, and retains previous public keys through `VRDEX_OAUTH_ACCESS_TOKEN_ADDITIONAL_PUBLIC_JWKS` until outstanding access tokens expire.
-- Hosted MCP auth metadata should make anonymous public read tools genuinely usable without login in clients that distinguish `noauth` from OAuth tools. The current server behavior is authoritative; client-specific metadata and UI behavior remain part of the manual matrix.
+- Hosted MCP auth metadata should make anonymous public read tools genuinely usable without login in clients that distinguish `noauth` from OAuth tools. The current hosted MCP tool descriptors expose `_meta["securitySchemes"]` with `noauth` plus optional `oauth2`/`mcp:read`; client-specific UI behavior remains part of the manual matrix.
 
 ## Remaining Open Research
 
@@ -1302,6 +1303,6 @@ Security-specific tests:
 - Automate OAuth signing-key rotation in deployment secret management after the hosted secret store workflow is wired. The current checkpoint documents and supports manual current-key plus retained-previous-public-key rotation.
 - Choose the initial hosted Redis-compatible rate-limit provider, such as Upstash, Vercel KV, Valkey, or another Redis-compatible store. This is a deployment/vendor choice, not an open product architecture decision.
 - Run the implementation-time major MCP client smoke matrix against a deployed preview or production-like environment, including anonymous hosted reads, OAuth through Dynamic Client Registration, OAuth through public-client Client ID Metadata Documents, and local stdio configuration. Track results in `docs/developers/mcp-client-smoke-results.json` and run `pnpm check:mcp-client-matrix -- --require-ready` before external readiness.
-- Confirm whether the current MCP SDK can emit both standard tool `securitySchemes` and `_meta["securitySchemes"]` for OpenAI/ChatGPT-style clients, or whether VRDex needs a small descriptor-metadata shim until upstream support is sufficient.
+- Verify OpenAI/ChatGPT-style client behavior against the hosted MCP tool descriptors. The current SDK supports `_meta["securitySchemes"]`; if a verified client surface requires a different standard field later, add that through an SDK-supported path or a narrow compatibility shim.
 - Decide whether confidential-client CIMD is needed after the deployed major-client smoke matrix. If yes, add public-key client authentication rather than shared-secret behavior.
 - Choose final default quota numbers and partner escalation thresholds after initial traffic and operator cost signals exist.

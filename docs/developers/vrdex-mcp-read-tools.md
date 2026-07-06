@@ -32,8 +32,8 @@ not display a login prompt before a safe read. The server remains authoritative:
 it validates any bearer token it receives, rejects wrong-resource tokens, and
 applies anonymous or authenticated MCP route-class limits after auth resolution.
 OpenAI/ChatGPT-style clients should receive per-tool `noauth` plus optional
-`oauth2` security metadata, including the `_meta["securitySchemes"]`
-compatibility mirror when the SDK path supports it.
+`oauth2` security metadata. The current hosted tool descriptors emit this
+through `_meta["securitySchemes"]` for every curated public read tool.
 
 The OAuth issuer exposes `POST /oauth/register` for constrained Dynamic Client
 Registration by hosted MCP clients and `GET /oauth/authorize` for public-client
@@ -245,6 +245,8 @@ Current recommendation:
 - no-auth tool metadata should be preferred for public read tools when a hosted
   client supports it, so anonymous search/browse workflows do not get forced
   into OAuth setup
+- current hosted read tools advertise `_meta["securitySchemes"]` with
+  `noauth` plus optional `oauth2`/`mcp:read`
 - OAuth-authenticated hosted MCP callers use the authenticated MCP rate-limit class when the token is valid for the MCP resource
 - dynamic MCP client registrations are stored separately from normal developer apps until an operator promotes or reviews them
 - public-client PKCE consent issues short-lived MCP-bound access tokens and rotating refresh tokens

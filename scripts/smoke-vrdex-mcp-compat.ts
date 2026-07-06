@@ -32,6 +32,11 @@ type SmokeOptions = {
   hostedUrl?: string;
 };
 
+type HostedToolDescriptor = {
+  _meta?: unknown;
+  name?: unknown;
+};
+
 const expectedTools = [
   "vrdex_search",
   "vrdex_get_profile",
@@ -40,6 +45,24 @@ const expectedTools = [
   "vrdex_get_world",
   "vrdex_list_active_worlds",
 ];
+
+function assertHostedPublicReadSecuritySchemes(tool: HostedToolDescriptor) {
+  assert.equal(typeof tool._meta, "object", `Hosted tool ${String(tool.name)} is missing _meta.`);
+  assert.notEqual(tool._meta, null, `Hosted tool ${String(tool.name)} is missing _meta.`);
+
+  const metadata = tool._meta as {
+    securitySchemes?: unknown;
+  };
+
+  assert.deepEqual(
+    metadata.securitySchemes,
+    [
+      { type: "noauth" },
+      { scopes: ["mcp:read"], type: "oauth2" },
+    ],
+    `Hosted tool ${String(tool.name)} is missing public-read auth metadata.`,
+  );
+}
 
 const localClientProfiles = [
   { name: "Claude Desktop", clientName: "claude-desktop" },
@@ -621,10 +644,23 @@ async function smokeHostedHttp(results: SmokeResult[], options: SmokeOptions) {
   });
 
   await assertHttpStatus(listed, 200, "Hosted tools/list");
-  const toolsBody = JSON.stringify(await parseMcpHttpResponse(listed));
+  const toolsResponse = (await parseMcpHttpResponse(listed)) as {
+    result?: {
+      tools?: HostedToolDescriptor[];
+    };
+  };
+  const listedTools = toolsResponse.result?.tools;
+
+  assert.equal(Array.isArray(listedTools), true, "Hosted tools/list did not return a tools array.");
+
+  const toolsBody = JSON.stringify(toolsResponse);
 
   for (const toolName of expectedTools) {
     assert.match(toolsBody, new RegExp(`"name":"${toolName}"`));
+  }
+
+  for (const tool of listedTools ?? []) {
+    assertHostedPublicReadSecuritySchemes(tool);
   }
 
   const anonymousSearch = await postMcpJsonRpc(url, {

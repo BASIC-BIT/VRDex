@@ -40,10 +40,29 @@ function jsonBodyFromProbe(output: string) {
   return JSON.parse(eventData ?? payload) as {
     result?: {
       tools?: Array<{
+        _meta?: unknown;
+        name?: string;
         outputSchema?: unknown;
       }>;
     };
   };
+}
+
+function assertPublicReadSecuritySchemes(value: unknown) {
+  assert.equal(typeof value, "object");
+  assert.notEqual(value, null);
+
+  const metadata = value as {
+    securitySchemes?: Array<{
+      scopes?: unknown;
+      type?: unknown;
+    }>;
+  };
+
+  assert.deepEqual(metadata.securitySchemes, [
+    { type: "noauth" },
+    { scopes: ["mcp:read"], type: "oauth2" },
+  ]);
 }
 
 describe("VRDex MCP server", () => {
@@ -114,8 +133,13 @@ describe("VRDex MCP server", () => {
     assert.match(output, /"readOnlyHint":true/);
 
     const body = jsonBodyFromProbe(output);
+    const tools = body.result?.tools ?? [];
 
-    assert.equal(body.result?.tools?.every((tool) => !hasLegacySchemaId(tool.outputSchema)), true);
+    assert.equal(tools.every((tool) => !hasLegacySchemaId(tool.outputSchema)), true);
+
+    for (const tool of tools) {
+      assertPublicReadSecuritySchemes(tool._meta);
+    }
   });
 
   it("returns OAuth discovery details for malformed bearer tokens", () => {

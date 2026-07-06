@@ -14,6 +14,9 @@ docs update and a changelog entry so early consumers and agents can adapt.
   JSON
 - added `pnpm smoke:mcp-claude-code` as a repeatable real-client Claude Code
   local stdio and hosted anonymous HTTP smoke
+- added hosted MCP tool descriptor auth metadata so every curated public read
+  tool advertises `_meta["securitySchemes"]` with `noauth` plus optional
+  `oauth2`/`mcp:read`
 
 ## 2026-07-04
 

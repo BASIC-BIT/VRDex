@@ -40,6 +40,13 @@ type VrdexMcpServerOptions = {
 
 const mcpSearchTypes = ["all", "person", "community", "profile", "world", "event"] as const;
 const mcpRequiredScopes = ["mcp:read"] as const;
+const mcpPublicReadSecuritySchemes = [
+  { type: "noauth" },
+  { scopes: [...mcpRequiredScopes], type: "oauth2" },
+] satisfies Array<Record<string, unknown>>;
+const mcpPublicReadToolMeta = {
+  securitySchemes: mcpPublicReadSecuritySchemes,
+} satisfies Record<string, unknown>;
 const mcpSlugSchema = z.string().min(1).max(160);
 const mcpLimitSchema = z.number().int().min(1);
 
@@ -328,6 +335,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       }),
       outputSchema: mcpOutputSchema(PublicSearchResponseSchema),
       annotations: { readOnlyHint: true, idempotentHint: true },
+      _meta: mcpPublicReadToolMeta,
     },
     async ({ limit, query, type }) => {
       const normalizedType = type ?? "all";
@@ -372,6 +380,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       }),
       outputSchema: mcpOutputSchema(PublicProfileSchema),
       annotations: { readOnlyHint: true, idempotentHint: true },
+      _meta: mcpPublicReadToolMeta,
     },
     async ({ profileType, slug }) => {
       const profile = await convex().query(api.profiles.getPublicBySlug, {
@@ -398,6 +407,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       }),
       outputSchema: mcpOutputSchema(PublicEventSchema),
       annotations: { readOnlyHint: true, idempotentHint: true },
+      _meta: mcpPublicReadToolMeta,
     },
     async ({ slug }) => {
       const event = await convex().query(api.events.getPublicBySlug, { slug });
@@ -420,6 +430,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       }),
       outputSchema: mcpOutputSchema(PublicEventsResponseSchema),
       annotations: { readOnlyHint: true, idempotentHint: true },
+      _meta: mcpPublicReadToolMeta,
     },
     async ({ limit }) => {
       const cappedLimit = boundedLimit(limit, 8, 24);
@@ -441,6 +452,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       }),
       outputSchema: mcpOutputSchema(PublicWorldSchema),
       annotations: { readOnlyHint: true, idempotentHint: true },
+      _meta: mcpPublicReadToolMeta,
     },
     async ({ slug }) => {
       const world = await convex().query(api.worlds.getPublicBySlug, { slug, now: now() });
@@ -463,6 +475,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       }),
       outputSchema: mcpOutputSchema(PublicActiveWorldsResponseSchema),
       annotations: { readOnlyHint: true, idempotentHint: true },
+      _meta: mcpPublicReadToolMeta,
     },
     async ({ limit }) => {
       const cappedLimit = boundedLimit(limit, 3, 6);
