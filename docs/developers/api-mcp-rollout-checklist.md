@@ -92,6 +92,10 @@ one PR.
 - `pnpm ops:mcp-client-smokes` generates the current day-one client smoke run
   plan from the matrix, including repo preflight commands, manual evidence
   prompts, and recorder command templates for pending rows.
+- `pnpm ops:mcp-installed-clients` performs a read-only local preflight for
+  installed Claude Code, VS Code, Cursor, and Windsurf CLI versions plus MCP
+  configuration support. It catches client drift before manual smoke sessions
+  but does not replace manual matrix evidence.
 - `pnpm check:api-mcp-rollout` summarizes the generated OpenAPI contract,
   required docs, verification scripts, MCP client matrix, and hosted MCP
   production-like evidence state. It reports pending required items in normal
@@ -130,6 +134,7 @@ pnpm typecheck:vrdex-mcp
 pnpm test:vrdex-mcp
 pnpm smoke:mcp-compat
 pnpm check:mcp-client-matrix
+pnpm ops:mcp-installed-clients
 pnpm ops:mcp-client-smokes
 pnpm check:api-mcp-rollout
 pnpm smoke:mcp-inspector -- --hosted-url <preview-or-production-like-/mcp-url>

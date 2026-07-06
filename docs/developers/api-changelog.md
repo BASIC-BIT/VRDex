@@ -29,6 +29,8 @@ docs update and a changelog entry so early consumers and agents can adapt.
 - added deterministic `/oauth/token` route-helper coverage for Authorization
   Code, refresh-token rotation, Client Credentials, and no-store OAuth errors
   before malformed exchanges reach Convex
+- added `pnpm ops:mcp-installed-clients` to capture installed MCP client CLI
+  version/configuration preflight evidence before manual day-one client smokes
 - added hosted MCP tool descriptor auth metadata so every curated public read
   tool advertises `_meta["securitySchemes"]` with `noauth` plus optional
   `oauth2`/`mcp:read`

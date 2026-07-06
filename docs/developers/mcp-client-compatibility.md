@@ -155,6 +155,19 @@ run first, the client-side evidence to capture, and the exact
 `--include-passed` when producing a full day-one evidence packet instead of
 only the pending work.
 
+Before coordinating desktop/client sessions on a local machine, run the
+installed-client preflight:
+
+```sh
+pnpm ops:mcp-installed-clients
+```
+
+This read-only check records the detected Claude Code, VS Code, Cursor, and
+Windsurf CLI versions and verifies that installed clients still expose the MCP
+configuration surface their matrix rows depend on. It does not write client
+configuration, launch GUI smoke sessions, or turn any manual row green by
+itself. Use it to catch local client drift before the human smoke pass.
+
 Record manual pass or fail results with the recorder command instead of
 hand-editing the JSON:
 
