@@ -54,8 +54,11 @@
           "surface": "hosted_http_anonymous",
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
-          "manualStatus": "pending",
-          "notes": "Run claude mcp add --transport http and confirm anonymous tools/list and vrdex_search."
+          "manualStatus": "pass",
+          "notes": "Real Claude Code hosted anonymous HTTP smoke using strict temporary --mcp-config; OAuth row remains pending.",
+          "environment": "Windows / Claude Code 2.1.176 / PR #159 Vercel preview / hosted Streamable HTTP",
+          "manualEvidence": "pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url https://vr-dex-web-git-codex-public-api-mcp-planning-basicbit.vercel.app/mcp --model claude-haiku-4-5-20251001 proved mcp__vrdex__vrdex_search tool_use with query empty string, type all, limit 1 and structuredContent results array",
+          "lastRunAt": "2026-07-06"
         },
         {
           "id": "hosted-oauth",

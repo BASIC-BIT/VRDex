@@ -86,9 +86,9 @@ one PR.
   declared. Record those manual rows with `pnpm record:mcp-client-smoke` so
   pass/fail entries include a run date, target environment, and sanitized
   evidence pointer.
-- Claude Code local stdio can be real-client smoked with
-  `pnpm smoke:mcp-claude-code`, which runs the installed Claude Code CLI against
-  the repo fixture through a strict temporary MCP config.
+- Claude Code local stdio and hosted anonymous HTTP can be real-client smoked
+  with `pnpm smoke:mcp-claude-code`, which runs the installed Claude Code CLI
+  through a strict temporary MCP config.
 
 Use a command shaped like this for each manual matrix row:
 

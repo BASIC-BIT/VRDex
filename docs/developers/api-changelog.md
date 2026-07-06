@@ -13,7 +13,7 @@ docs update and a changelog entry so early consumers and agents can adapt.
   smoke evidence into the checked compatibility matrix without hand-editing
   JSON
 - added `pnpm smoke:mcp-claude-code` as a repeatable real-client Claude Code
-  local stdio smoke against the repo API fixture
+  local stdio and hosted anonymous HTTP smoke
 
 ## 2026-07-04
 
