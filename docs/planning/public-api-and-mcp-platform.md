@@ -78,7 +78,7 @@ The first useful version should feel small and sharp:
 - `Current recommendation`: Launch the hosted MCP as read-oriented first, even if the auth platform already supports scopes that make later write tools possible.
 - `Current recommendation`: Treat anonymous hosted MCP reads as a first-class no-auth tool path. Where a client or SDK supports per-tool auth metadata, public read tools should advertise no-auth access and OAuth as an optional or later privileged path; the server still enforces scopes, audience/resource binding, and rate limits on every request.
 - `Current recommendation`: For OpenAI/ChatGPT-style MCP clients, advertise public read tools with per-tool `noauth` plus optional `oauth2` security metadata. The current MCP SDK emits this through the `_meta["securitySchemes"]` descriptor extension; do not add non-standard top-level tool fields unless the SDK or a verified client surface requires a compatible extension point.
-- `Current recommendation`: Trusted partner access is a manual review tier with very high quotas compared with normal personal tokens, but it still needs contact ownership, abuse/cost guardrails, observability, and fast revocation.
+- `Current recommendation`: Trusted partner access is a manual review tier with very high quotas compared with normal personal tokens. In the current implementation, a `trusted_partner` credential gets a 100x effective quota on authenticated API/MCP traffic classes while credential-management and OAuth handshake routes stay on standard limits.
 
 ## Candidate Directions
 
@@ -1158,12 +1158,14 @@ Validation:
 Implementation checkpoint:
 
 - default route-class policies are exported from the web rate-limit helper
-- `pnpm ops:api-rate-limits` prints the default policy table for operators
+- `pnpm ops:api-rate-limits` prints standard and trusted-partner policy
+  tables for operators
 - Redis REST fixed-window counter behavior is covered by direct TTL/window tests
 - revoked API-token validation maps to a rejected usage-event metadata shape in
   backend tests
-- `docs/developers/api-rate-limits.md` documents store modes, current default
-  quotas, response headers, credential events, and trusted-partner escalation
+- `docs/developers/api-rate-limits.md` documents store modes, standard and
+  trusted-partner quotas, response headers, credential events, and
+  trusted-partner escalation
 
 ### Slice 8: Final Docs And Rollout
 
@@ -1297,7 +1299,7 @@ Security-specific tests:
 - Day-one MCP support should target every major MCP client available at implementation time through a compatibility matrix.
 - First-pass developer apps support user-owned apps and owner-managed community-owned apps.
 - Community-owned OAuth app staff/admin delegation should be considered after broader community authority is stable enough.
-- Trusted partner access is manually reviewed by BASIC BIT operators and should have much higher practical quotas than normal personal tokens, while retaining monitoring, cost controls, and revocation.
+- Trusted partner access is manually reviewed by BASIC BIT operators and gets much higher practical quotas than normal personal tokens for authenticated API/MCP traffic, while retaining monitoring, cost controls, and revocation.
 - Current MCP/OAuth research says DCR and public-client CIMD should both remain in the hosted MCP path. OpenAI/ChatGPT-style clients prefer CIMD when available, while Claude Code and other clients can use DCR or preconfigured OAuth credentials.
 - Confidential-client CIMD with public-key client authentication remains deferred until a concrete major-client requirement appears.
 - OAuth signing-key rotation keeps the active private signing key in `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY`, advertises the active key id through `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID`, and retains previous public keys through `VRDEX_OAUTH_ACCESS_TOKEN_ADDITIONAL_PUBLIC_JWKS` until outstanding access tokens expire.

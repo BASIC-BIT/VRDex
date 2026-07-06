@@ -9,9 +9,11 @@ authenticated public reads, hosted MCP reads, OAuth token requests, and
 developer credential management each have separate default quotas.
 
 These defaults are conservative launch values, not a stable billing or partner
-contract. Trusted partner access remains manually reviewed and should use much
-higher practical quotas only after contact ownership, monitoring, cost controls,
-and revocation paths are in place.
+contract. Trusted partner access remains manually reviewed. Once an operator
+promotes a personal token or OAuth application to `trusted_partner`, the
+runtime limiter applies much higher effective quotas to authenticated API and
+MCP traffic while keeping credential-management and OAuth handshake endpoints
+on their standard limits.
 
 In this guide, the rate-limit backend is only the storage path for hot expiring
 request counters. It is separate from durable quota policy, credential
@@ -58,7 +60,8 @@ not the specific vendor brand.
 
 ## Default Route Classes
 
-Run this command to print the default policy table from code:
+Run this command to print the standard and trusted-partner policy table from
+code:
 
 ```sh
 pnpm ops:api-rate-limits
@@ -66,18 +69,18 @@ pnpm ops:api-rate-limits
 
 Current defaults:
 
-| Route class | Default limit | Window |
-| --- | ---: | ---: |
-| `anonymous_public_read` | 120 | 60s |
-| `authenticated_public_read` | 600 | 60s |
-| `developer_credential_management` | 30 | 60s |
-| `oauth_authorize` | 60 | 60s |
-| `oauth_token` | 30 | 60s |
-| `oauth_dynamic_client_registration` | 10 | 60s |
-| `asset_upload_intent` | 30 | 60s |
-| `public_write` | 30 | 60s |
-| `anonymous_mcp_public_read` | 60 | 60s |
-| `authenticated_mcp` | 300 | 60s |
+| Route class | Standard limit | Trusted partner limit | Window |
+| --- | ---: | ---: | ---: |
+| `anonymous_public_read` | 120 | 120 | 60s |
+| `authenticated_public_read` | 600 | 60,000 | 60s |
+| `developer_credential_management` | 30 | 30 | 60s |
+| `oauth_authorize` | 60 | 60 | 60s |
+| `oauth_token` | 30 | 30 | 60s |
+| `oauth_dynamic_client_registration` | 10 | 10 | 60s |
+| `asset_upload_intent` | 30 | 3,000 | 60s |
+| `public_write` | 30 | 3,000 | 60s |
+| `anonymous_mcp_public_read` | 60 | 60 | 60s |
+| `authenticated_mcp` | 300 | 30,000 | 60s |
 
 `POST /api/v0/profiles/:slug/assets/upload-intent` uses
 `asset_upload_intent` so one-time upload target creation can be throttled
@@ -86,11 +89,11 @@ uses the returned one-time upload token and does not accept bearer credentials.
 
 The public API also exposes:
 
-- `GET /api/v0/usage/rate-limit`, returning the same default route-class
-  policy table plus the caller's current public API window. Without a bearer
-  credential, the response is classified as anonymous public-read traffic. With
-  a valid personal API token or API-resource OAuth access token, the response is
-  classified as authenticated public-read traffic.
+- `GET /api/v0/usage/rate-limit`, returning the default route-class policy
+  table plus the caller's current public API window and effective `quotaTier`.
+  Without a bearer credential, the response is classified as anonymous
+  public-read traffic. With a valid personal API token or API-resource OAuth
+  access token, the response is classified as authenticated public-read traffic.
 
 Identity keys include the route class and one of:
 
@@ -138,8 +141,12 @@ Manual review should confirm:
 - revocation path for the token or OAuth app
 - expected quota class and monitoring plan
 
-The implementation already has `trustTier` fields for personal tokens and OAuth
+The implementation has `trustTier` fields for personal tokens and OAuth
 applications. Raising partner quotas should be a deliberate operator action.
-Partner limits can be very high compared with normal personal tokens. They are
-still metered, monitored, cost-aware, and quickly revocable rather than an
-automatic or literally unlimited upgrade path.
+When a credential is marked `trusted_partner`, authenticated public reads,
+public writes, asset upload-intent creation, and authenticated MCP traffic use a
+100x policy multiplier. Anonymous access, OAuth authorization, OAuth token
+exchange, dynamic MCP client registration, and developer credential management
+stay on the standard launch limits. Partner limits are still metered,
+monitored, cost-aware, and quickly revocable rather than an automatic or
+literally unlimited upgrade path.

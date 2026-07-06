@@ -76,6 +76,8 @@ Public API and MCP platform foundation checkpoint:
 - added local stdio MCP workspace package `@basicbit/vrdex-mcp`
 - added default API/MCP rate-limit classes with memory and Redis REST store
   modes
+- added trusted-partner effective rate-limit policies for validated
+  trusted-partner personal tokens and OAuth applications
 - added a checked manual MCP client smoke-results artifact and verifier so
   day-one client compatibility evidence is explicit before external readiness
 - added `GET /api/v0/usage/rate-limit` for route-class quota policy and caller
@@ -135,5 +137,6 @@ Compatibility notes:
   enumerate a user's token or OAuth app inventory
 - profile asset upload-intent creation uses the `asset_upload_intent`
   route-limit class, while the upload transport uses the one-time upload token
-- final quota numbers and trusted-partner escalation thresholds are still
-  pre-launch decisions
+- final quota numbers and trusted-partner escalation thresholds remain
+  pre-launch tuning decisions even though trusted-partner credentials now have a
+  distinct effective quota tier

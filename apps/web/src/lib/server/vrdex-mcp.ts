@@ -233,6 +233,7 @@ async function authenticateMcpBearerToken(request: Request, tokenValue: string) 
   return {
     ok: true as const,
     identity: { kind: "oauth_client" as const, value: validation.clientId },
+    quotaTier: validation.trustTier === "trusted_partner" ? "trusted_partner" as const : "standard" as const,
   };
 }
 
@@ -280,7 +281,11 @@ export async function rejectInvalidOrRateLimitedMcpRequest(request: Request) {
   const bearerToken = getBearerTokenFromAuthorizationHeader(request.headers.get("authorization"));
   const authentication =
     bearerToken === null
-      ? { ok: true as const, identity: { kind: "ip" as const, value: clientIpForRequest(request) } }
+      ? {
+          ok: true as const,
+          identity: { kind: "ip" as const, value: clientIpForRequest(request) },
+          quotaTier: "standard" as const,
+        }
       : await authenticateMcpBearerToken(request, bearerToken);
 
   if (!authentication.ok) {
@@ -295,6 +300,7 @@ export async function rejectInvalidOrRateLimitedMcpRequest(request: Request) {
   try {
     rateLimit = await checkApiRateLimit({
       identity: authentication.identity,
+      quotaTier: authentication.quotaTier,
       routeClass,
     });
   } catch {

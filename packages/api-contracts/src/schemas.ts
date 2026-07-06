@@ -614,6 +614,10 @@ export const ApiRateLimitCallerKindSchema = z
   .enum(["anonymous", "personal_api_token", "oauth_client"])
   .meta({ description: "Credential class used to choose the caller's current rate-limit bucket." });
 
+export const ApiRateLimitQuotaTierSchema = z
+  .enum(["standard", "trusted_partner"])
+  .meta({ description: "Effective quota tier applied to the caller's current rate-limit window." });
+
 export const ApiRateLimitPolicySchema = z
   .object({
     limit: z.number().int().positive(),
@@ -639,6 +643,7 @@ export const ApiRateLimitUsageResponseSchema = z
       .object({
         authenticated: z.boolean(),
         credentialKind: ApiRateLimitCallerKindSchema,
+        quotaTier: ApiRateLimitQuotaTierSchema,
         routeClass: ApiRouteClassSchema,
       })
       .meta({ description: "Caller classification used for rate-limit policy selection." }),

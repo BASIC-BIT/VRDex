@@ -13,10 +13,11 @@ import { api } from "@convex-generated-api";
 import { NextResponse } from "next/server";
 
 import {
-  defaultApiRateLimitPolicies,
+  apiRateLimitPolicyForRouteClass,
   checkApiRateLimit,
   clientIpForRequest,
   type ApiRateLimitIdentity,
+  type ApiRateLimitQuotaTier,
   type ApiRateLimitResult,
 } from "@/lib/server/api-rate-limit";
 import { convexHttpClient } from "@/lib/server/convex-http";
@@ -35,6 +36,7 @@ type ApiResponseSchema = {
 export type ApiBearerRequestContext = {
   credential: ApiBearerCredentialContext;
   identityKind: ApiRateLimitIdentity["kind"];
+  quotaTier: ApiRateLimitQuotaTier;
   rateLimit: ApiRateLimitResult;
   routeClass: ApiRouteClass;
   windowMs: number;
@@ -118,6 +120,18 @@ function hasRequiredScopes(grantedScopes: readonly ApiScope[], requiredScopes: r
 
 function looksLikeCompactJwt(value: string) {
   return value.split(".").length === 3;
+}
+
+function quotaTierForCredential(credential: ApiBearerCredentialContext): ApiRateLimitQuotaTier {
+  if (credential.kind === "api_token" && credential.trustTier === "trusted_partner") {
+    return "trusted_partner";
+  }
+
+  if (credential.kind === "oauth" && credential.trustTier === "trusted_partner") {
+    return "trusted_partner";
+  }
+
+  return "standard";
 }
 
 async function authenticateOptionalOAuthBearerToken(
@@ -317,11 +331,14 @@ export async function evaluateOptionalApiBearerRequest(
     authentication.identity.kind === "api_token" || authentication.identity.kind === "oauth_client"
       ? options.routeClass ?? "authenticated_public_read"
       : "anonymous_public_read";
+  const quotaTier = quotaTierForCredential(authentication.credential);
+  const policy = apiRateLimitPolicyForRouteClass(routeClass, quotaTier);
   let rateLimit;
 
   try {
     rateLimit = await checkApiRateLimit({
       identity: authentication.identity,
+      quotaTier,
       routeClass,
     });
   } catch {
@@ -341,9 +358,10 @@ export async function evaluateOptionalApiBearerRequest(
       context: {
         credential: authentication.credential,
         identityKind: authentication.identity.kind,
+        quotaTier,
         rateLimit,
         routeClass,
-        windowMs: defaultApiRateLimitPolicies[routeClass].windowMs,
+        windowMs: policy.windowMs,
       } satisfies ApiBearerRequestContext,
     };
   }

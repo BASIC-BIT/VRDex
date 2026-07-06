@@ -290,6 +290,7 @@ describe("@vrdex/api-contracts", () => {
       caller: {
         authenticated: false,
         credentialKind: "anonymous",
+        quotaTier: "standard",
         routeClass: "anonymous_public_read",
       },
       currentWindow: {

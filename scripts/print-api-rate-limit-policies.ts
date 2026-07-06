@@ -1,14 +1,22 @@
-import { listDefaultApiRateLimitPolicies } from "../apps/web/src/lib/server/api-rate-limit";
+import {
+  listApiRateLimitPolicies,
+  type ApiRateLimitQuotaTier,
+} from "../apps/web/src/lib/server/api-rate-limit";
 
-console.log("routeClass,limit,windowMs,windowSeconds");
+console.log("quotaTier,routeClass,limit,windowMs,windowSeconds");
 
-for (const policy of listDefaultApiRateLimitPolicies()) {
-  console.log(
-    [
-      policy.routeClass,
-      String(policy.limit),
-      String(policy.windowMs),
-      String(policy.windowMs / 1_000),
-    ].join(","),
-  );
+const quotaTiers: ApiRateLimitQuotaTier[] = ["standard", "trusted_partner"];
+
+for (const quotaTier of quotaTiers) {
+  for (const policy of listApiRateLimitPolicies(quotaTier)) {
+    console.log(
+      [
+        policy.quotaTier,
+        policy.routeClass,
+        String(policy.limit),
+        String(policy.windowMs),
+        String(policy.windowMs / 1_000),
+      ].join(","),
+    );
+  }
 }

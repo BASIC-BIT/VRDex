@@ -3,11 +3,13 @@ import { execFileSync } from "node:child_process";
 import { describe, it } from "node:test";
 
 import {
+  apiRateLimitPolicyForRouteClass,
   checkMemoryApiRateLimit,
   checkRedisRestApiRateLimit,
   clientIpForRequest,
   createMemoryApiRateLimitStore,
   listDefaultApiRateLimitPolicies,
+  trustedPartnerApiRateLimitMultiplier,
 } from "../../apps/web/src/lib/server/api-rate-limit";
 import { apiRouteClasses } from "../../packages/api-contracts/src/auth";
 
@@ -38,6 +40,37 @@ describe("public API rate limiting", () => {
       assert.equal(Number.isInteger(policy.windowMs), true);
       assert.equal(policy.windowMs > 0, true);
     }
+  });
+
+  it("boosts trusted partner quotas only for authenticated traffic classes", () => {
+    assert.equal(
+      apiRateLimitPolicyForRouteClass("authenticated_public_read", "trusted_partner").limit,
+      apiRateLimitPolicyForRouteClass("authenticated_public_read").limit * trustedPartnerApiRateLimitMultiplier,
+    );
+    assert.equal(
+      apiRateLimitPolicyForRouteClass("authenticated_mcp", "trusted_partner").limit,
+      apiRateLimitPolicyForRouteClass("authenticated_mcp").limit * trustedPartnerApiRateLimitMultiplier,
+    );
+    assert.equal(
+      apiRateLimitPolicyForRouteClass("asset_upload_intent", "trusted_partner").limit,
+      apiRateLimitPolicyForRouteClass("asset_upload_intent").limit * trustedPartnerApiRateLimitMultiplier,
+    );
+    assert.equal(
+      apiRateLimitPolicyForRouteClass("public_write", "trusted_partner").limit,
+      apiRateLimitPolicyForRouteClass("public_write").limit * trustedPartnerApiRateLimitMultiplier,
+    );
+    assert.equal(
+      apiRateLimitPolicyForRouteClass("anonymous_public_read", "trusted_partner").limit,
+      apiRateLimitPolicyForRouteClass("anonymous_public_read").limit,
+    );
+    assert.equal(
+      apiRateLimitPolicyForRouteClass("oauth_token", "trusted_partner").limit,
+      apiRateLimitPolicyForRouteClass("oauth_token").limit,
+    );
+    assert.equal(
+      apiRateLimitPolicyForRouteClass("oauth_dynamic_client_registration", "trusted_partner").limit,
+      apiRateLimitPolicyForRouteClass("oauth_dynamic_client_registration").limit,
+    );
   });
 
   it("tracks fixed-window limits by route class and identity", () => {
@@ -231,6 +264,7 @@ describe("public API rate limiting", () => {
 
     assert.match(output, /^200/m);
     assert.match(output, /"credentialKind":"anonymous"/);
+    assert.match(output, /"quotaTier":"standard"/);
     assert.match(output, /"routeClass":"anonymous_public_read"/);
     assert.match(output, /"policies":\[/);
     assert.match(output, /"routeClass":"authenticated_public_read"/);

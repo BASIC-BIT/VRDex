@@ -10,6 +10,8 @@ export type ApiRateLimitIdentity = {
   value: string;
 };
 
+export type ApiRateLimitQuotaTier = "standard" | "trusted_partner";
+
 export type ApiRateLimitResult = {
   allowed: boolean;
   key: string;
@@ -39,6 +41,15 @@ export const defaultApiRateLimitPolicies: Record<ApiRouteClass, ApiRateLimitPoli
   authenticated_mcp: { limit: 300, windowMs: 60_000 },
 };
 
+export const trustedPartnerApiRateLimitMultiplier = 100;
+
+const trustedPartnerBoostedRouteClasses = new Set<ApiRouteClass>([
+  "authenticated_public_read",
+  "asset_upload_intent",
+  "public_write",
+  "authenticated_mcp",
+]);
+
 const globalRateLimitState = globalThis as typeof globalThis & {
   __vrdexApiRateLimitMemory?: MemoryApiRateLimitStore;
 };
@@ -64,8 +75,28 @@ export function listDefaultApiRateLimitPolicies() {
   }));
 }
 
-function policyForRouteClass(routeClass: ApiRouteClass) {
-  return defaultApiRateLimitPolicies[routeClass];
+export function apiRateLimitPolicyForRouteClass(
+  routeClass: ApiRouteClass,
+  quotaTier: ApiRateLimitQuotaTier = "standard",
+) {
+  const policy = defaultApiRateLimitPolicies[routeClass];
+
+  if (quotaTier !== "trusted_partner" || !trustedPartnerBoostedRouteClasses.has(routeClass)) {
+    return policy;
+  }
+
+  return {
+    ...policy,
+    limit: policy.limit * trustedPartnerApiRateLimitMultiplier,
+  };
+}
+
+export function listApiRateLimitPolicies(quotaTier: ApiRateLimitQuotaTier = "standard") {
+  return apiRouteClasses.map((routeClass) => ({
+    routeClass,
+    quotaTier,
+    ...apiRateLimitPolicyForRouteClass(routeClass, quotaTier),
+  }));
 }
 
 function identitySegment(identity: ApiRateLimitIdentity) {
@@ -188,9 +219,10 @@ export async function checkRedisRestApiRateLimit(args: {
 export async function checkApiRateLimit(args: {
   identity: ApiRateLimitIdentity;
   now?: number;
+  quotaTier?: ApiRateLimitQuotaTier;
   routeClass: ApiRouteClass;
 }) {
-  const policy = policyForRouteClass(args.routeClass);
+  const policy = apiRateLimitPolicyForRouteClass(args.routeClass, args.quotaTier);
   const now = args.now ?? Date.now();
   const mode = rateLimitStoreMode();
 

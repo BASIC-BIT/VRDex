@@ -34,6 +34,7 @@ export async function GET(request: Request) {
     caller: {
       authenticated: credentialKind !== "anonymous",
       credentialKind,
+      quotaTier: evaluation.context.quotaTier,
       routeClass: evaluation.context.routeClass,
     },
     currentWindow: {

@@ -52,10 +52,12 @@ one PR.
   requests, and developer credential management use separate route classes.
 - Hosted high-volume deployments use a Redis-compatible counter store.
 - Local development can use the memory store.
-- `pnpm ops:api-rate-limits` prints the default policy table.
+- `pnpm ops:api-rate-limits` prints standard and trusted-partner policy
+  tables.
 - Rate-limited responses include `Retry-After`, `RateLimit-Limit`,
   `RateLimit-Remaining`, and `RateLimit-Reset`.
-- Trusted partner quota changes remain manual and revocable.
+- Trusted partner quota changes remain manual and revocable, and the runtime
+  limiter applies the trusted-partner tier only after credential validation.
 
 ## MCP Compatibility
 

@@ -7105,6 +7105,14 @@
                 ],
                 "description": "Credential class used to choose the caller's current rate-limit bucket."
               },
+              "quotaTier": {
+                "type": "string",
+                "enum": [
+                  "standard",
+                  "trusted_partner"
+                ],
+                "description": "Effective quota tier applied to the caller's current rate-limit window."
+              },
               "routeClass": {
                 "type": "string",
                 "enum": [
@@ -7125,6 +7133,7 @@
             "required": [
               "authenticated",
               "credentialKind",
+              "quotaTier",
               "routeClass"
             ],
             "additionalProperties": false,

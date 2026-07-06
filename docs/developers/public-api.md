@@ -281,6 +281,8 @@ Current implementation:
 - `VRDEX_RATE_LIMIT_REDIS_PREFIX` isolates keys when shared infrastructure is
   used.
 - `VRDEX_RATE_LIMIT_STORE=disabled` is only for local diagnostics.
+- `trusted_partner` personal tokens and OAuth apps get higher effective quotas
+  on authenticated API/MCP traffic after operator review.
 
 The dedicated rate-limit guide lives in
 `docs/developers/api-rate-limits.md`.
