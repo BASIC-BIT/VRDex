@@ -55,10 +55,11 @@ PR Baseline Checks also run `Hosted MCP Preview Smoke` after the Vercel preview
 deployment. When the preview URL exists, that lane runs this smoke against the
 preview `/mcp` endpoint for anonymous Streamable HTTP, an anonymous
 `vrdex_search` tool call, OAuth metadata, and bearer challenge coverage. Dynamic
-Client Registration is enabled only when
+Client Registration and Client ID Metadata Document authorization are enabled
+only when
 `CONVEX_DEPLOY_KEY_PREVIEW` provisions a same-branch Convex preview backend; if
-that backend is unavailable, the lane records the DCR prerequisite and still runs
-the non-DCR hosted smoke.
+that backend is unavailable, the lane records the preview-backend prerequisite
+and still runs the non-mutating hosted smoke.
 
 The command starts the local stdio MCP package against a local API fixture and
 replays initialize, tool-list, and `vrdex_search` calls with protocol profiles
@@ -78,6 +79,10 @@ authorization-server metadata, and the OAuth protected-resource challenge for
 invalid bearer tokens. Add
 `VRDEX_MCP_SMOKE_DCR=1` when you want the smoke to register a constrained public
 MCP client through Dynamic Client Registration. Add
+`VRDEX_MCP_SMOKE_CIMD=1` when you want the smoke to exercise a URL-form public
+client id against `GET /oauth/authorize`; the smoke uses
+`/.well-known/oauth-client/vrdex-mcp-public-client` and expects the
+unauthenticated sign-in redirect after metadata validation succeeds. Add
 `VRDEX_MCP_SMOKE_TOKEN=<mcp-resource-token>` only for a local terminal run when
 you want to test an authenticated hosted tool list. Do not commit real tokens
 or smoke output containing credentials.
@@ -205,7 +210,9 @@ VS Code hosted config:
 0. Run `pnpm smoke:mcp-compat`; for hosted protocol coverage, include
    `VRDEX_MCP_SMOKE_URL` pointed at the deployed preview or production-like
    `/mcp` endpoint. Add `VRDEX_MCP_SMOKE_DCR=1` when the smoke should create a
-   temporary dynamic public MCP client.
+   temporary dynamic public MCP client, and `VRDEX_MCP_SMOKE_CIMD=1` when the
+   smoke should materialize the public client metadata document flow through
+   `/oauth/authorize`.
 1. Claude Desktop local stdio starts, lists six tools, and calls
    `vrdex_search`.
 2. Claude Desktop hosted Custom Connector lists anonymous tools and completes

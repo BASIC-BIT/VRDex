@@ -86,6 +86,7 @@ first-party sign-in and is not the external developer-platform issuer.
 | `POST /oauth/revoke` | Access-token revocation. |
 | `POST /oauth/register` | Constrained Dynamic Client Registration for hosted MCP clients. |
 | `GET /oauth/jwks.json` | Public signing keys for JWT access tokens. |
+| `GET /.well-known/oauth-client/vrdex-mcp-public-client` | Constrained public MCP client metadata document for CIMD compatibility smoke tests. |
 
 Client ID Metadata Documents are supported for hosted MCP public clients that
 prefer URL-form client IDs over Dynamic Client Registration. VRDex fetches the
@@ -93,6 +94,10 @@ metadata document during authorization, rejects redirects, requires exact
 `client_id` document matching, caps responses at 5 KB, rejects special-use
 address resolution, and materializes accepted documents as dynamic MCP clients.
 DCR remains available for clients that register automatically.
+The checked-in public client metadata document is intentionally constrained to
+local loopback redirects, `token_endpoint_auth_method=none`, and `mcp:read`
+plus `public:read`; it exists to make hosted CIMD compatibility smoke tests
+reproducible without publishing a privileged shared client secret.
 
 ## Authorization Code With PKCE
 

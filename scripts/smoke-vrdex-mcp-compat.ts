@@ -19,6 +19,7 @@ type SmokeResult = {
 };
 
 type HostedOAuthMetadata = {
+  authorizationEndpoint: string;
   issuer: string;
   registrationEndpoint: string;
   resource: string;
@@ -317,6 +318,12 @@ function smokeDynamicRegistrationEnabled() {
   return value === "1" || value === "true" || value === "yes";
 }
 
+function smokeClientMetadataDocumentEnabled() {
+  const value = process.env.VRDEX_MCP_SMOKE_CIMD?.trim().toLowerCase();
+
+  return value === "1" || value === "true" || value === "yes";
+}
+
 async function smokeHostedOAuthMetadata(url: URL, results: SmokeResult[]): Promise<HostedOAuthMetadata> {
   const protectedResourceUrl = urlForPath(url.origin, "/.well-known/oauth-protected-resource");
   const protectedResource = await fetch(protectedResourceUrl, { headers: { accept: "application/json" } });
@@ -344,6 +351,10 @@ async function smokeHostedOAuthMetadata(url: URL, results: SmokeResult[]): Promi
   assert.equal(authorizationServer.status, 200);
 
   const authorizationServerBody = await responseJson(authorizationServer, "OAuth authorization-server metadata");
+  const authorizationEndpoint = stringField(
+    authorizationServerBody.authorization_endpoint,
+    "authorization endpoint",
+  );
   const registrationEndpoint = stringField(
     authorizationServerBody.registration_endpoint,
     "registration endpoint",
@@ -354,6 +365,7 @@ async function smokeHostedOAuthMetadata(url: URL, results: SmokeResult[]): Promi
   );
 
   assert.equal(stringField(authorizationServerBody.issuer, "issuer"), issuer);
+  assert.equal(authorizationEndpoint, `${issuer}/oauth/authorize`);
   assert.equal(authorizationServerBody.client_id_metadata_document_supported, true);
   assert.equal(protectedResources.includes(resource), true);
 
@@ -363,7 +375,7 @@ async function smokeHostedOAuthMetadata(url: URL, results: SmokeResult[]): Promi
     status: "pass",
   });
 
-  return { issuer, registrationEndpoint, resource };
+  return { authorizationEndpoint, issuer, registrationEndpoint, resource };
 }
 
 async function smokeHostedDynamicClientRegistration(metadata: HostedOAuthMetadata, results: SmokeResult[]) {
@@ -409,6 +421,65 @@ async function smokeHostedDynamicClientRegistration(metadata: HostedOAuthMetadat
   results.push({
     details: "public MCP client registration passed",
     name: "Hosted Dynamic Client Registration",
+    status: "pass",
+  });
+}
+
+async function smokeHostedClientMetadataDocument(metadata: HostedOAuthMetadata, results: SmokeResult[]) {
+  if (!smokeClientMetadataDocumentEnabled()) {
+    results.push({
+      details: "set VRDEX_MCP_SMOKE_CIMD=1 to probe public-client Client ID Metadata Documents",
+      name: "Hosted Client ID Metadata Document",
+      status: "skip",
+    });
+
+    return;
+  }
+
+  if (new URL(metadata.issuer).protocol !== "https:") {
+    results.push({
+      details: "Client ID Metadata Document client ids require HTTPS issuer URLs",
+      name: "Hosted Client ID Metadata Document",
+      status: "skip",
+    });
+
+    return;
+  }
+
+  const clientMetadataUrl = urlForPath(
+    metadata.issuer,
+    "/.well-known/oauth-client/vrdex-mcp-public-client",
+  ).toString();
+  const authorizationUrl = new URL(metadata.authorizationEndpoint);
+
+  authorizationUrl.searchParams.set("response_type", "code");
+  authorizationUrl.searchParams.set("client_id", clientMetadataUrl);
+  authorizationUrl.searchParams.set("redirect_uri", "http://localhost:8765/callback");
+  authorizationUrl.searchParams.set("resource", metadata.resource);
+  authorizationUrl.searchParams.set("scope", "mcp:read public:read");
+  authorizationUrl.searchParams.set("code_challenge", "a".repeat(43));
+  authorizationUrl.searchParams.set("code_challenge_method", "S256");
+  authorizationUrl.searchParams.set("state", "vrdex-cimd-smoke");
+
+  const authorization = await fetch(authorizationUrl, {
+    headers: { accept: "text/html" },
+    redirect: "manual",
+  });
+
+  assert.equal(
+    authorization.status >= 300 && authorization.status < 400,
+    true,
+    `Client ID Metadata Document authorization expected a redirect, got HTTP ${authorization.status}: ${(await authorization.text()).slice(0, 300)}`,
+  );
+
+  const location = authorization.headers.get("location") ?? "";
+
+  assert.match(location, /\/sign-in\?/);
+  assert.match(decodeURIComponent(location), /\/oauth\/authorize\?/);
+
+  results.push({
+    details: "URL-form public client id metadata was accepted before the expected sign-in redirect",
+    name: "Hosted Client ID Metadata Document",
     status: "pass",
   });
 }
@@ -506,6 +577,7 @@ async function smokeHostedHttp(results: SmokeResult[]) {
   const metadata = await smokeHostedOAuthMetadata(url, results);
 
   await smokeHostedDynamicClientRegistration(metadata, results);
+  await smokeHostedClientMetadataDocument(metadata, results);
 
   const token = process.env.VRDEX_MCP_SMOKE_TOKEN?.trim();
 

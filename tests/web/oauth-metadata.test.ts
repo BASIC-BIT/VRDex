@@ -75,4 +75,23 @@ describe("OAuth metadata routes", () => {
     assert.match(output, /"resource_name":"VRDex MCP"/);
     assert.match(output, /"resource_documentation":"https:\/\/app\.example\.test\/developers\/api"/);
   });
+
+  it("serves constrained public MCP client metadata for CIMD smoke tests", () => {
+    const output = runRouteProbe(`
+      import { GET } from "./apps/web/src/app/.well-known/oauth-client/vrdex-mcp-public-client/route.ts";
+
+      const response = GET(new Request("https://app.example.test/.well-known/oauth-client/vrdex-mcp-public-client"));
+      console.log(response.status);
+      console.log(JSON.stringify(await response.json()));
+    `);
+
+    assert.match(output, /^200/m);
+    assert.match(output, /"client_id":"https:\/\/app\.example\.test\/\.well-known\/oauth-client\/vrdex-mcp-public-client"/);
+    assert.match(output, /"client_name":"VRDex MCP Public Client"/);
+    assert.match(output, /"redirect_uris":\["http:\/\/localhost:8765\/callback"\]/);
+    assert.match(output, /"grant_types":\["authorization_code","refresh_token"\]/);
+    assert.match(output, /"response_types":\["code"\]/);
+    assert.match(output, /"token_endpoint_auth_method":"none"/);
+    assert.match(output, /"scope":"mcp:read public:read"/);
+  });
 });

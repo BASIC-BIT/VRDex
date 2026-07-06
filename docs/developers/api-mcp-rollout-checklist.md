@@ -30,8 +30,9 @@ one PR.
 - Redirect URI matching is exact.
 - API and MCP resources are validated separately.
 - Hosted MCP OAuth is tested through Dynamic Client Registration.
-- Client ID Metadata Document support is smoke-tested for clients that prefer
-  URL-form client IDs.
+- Client ID Metadata Document support is smoke-tested through the checked-in
+  public MCP client metadata document when a same-branch Convex preview backend
+  is available.
 - Revoked credentials are rejected and produce durable event metadata for
   personal API-token and OAuth access-token validation.
 
@@ -63,9 +64,10 @@ one PR.
 - Baseline Checks runs `Hosted MCP Preview Smoke` after the Vercel preview. It
   runs anonymous hosted Streamable HTTP, an anonymous `vrdex_search` tool call,
   OAuth metadata, and bearer-challenge checks whenever a preview URL exists. It
-  adds Dynamic Client Registration when a same-branch Convex preview backend is
-  available, and records that DCR prerequisite when `CONVEX_DEPLOY_KEY_PREVIEW`
-  is not configured.
+  adds Dynamic Client Registration and Client ID Metadata Document authorization
+  when a same-branch Convex preview backend is available, and records that
+  preview-backend prerequisite when `CONVEX_DEPLOY_KEY_PREVIEW` is not
+  configured.
 - `docs/developers/mcp-client-compatibility.md` lists the current major-client
   matrix and must have manual smoke results before external readiness is
   declared.
