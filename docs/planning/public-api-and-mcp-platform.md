@@ -521,7 +521,10 @@ Behavior:
 - access tokens are short-lived
 - refresh tokens rotate
 - scope downgrades are supported
-- revocation removes refresh tokens and invalidates outstanding access tokens where practical
+- `/oauth/revoke` supports JWT access-token revocation and opaque refresh-token
+  revocation; refresh-token revocation also invalidates active access tokens
+  for the same client, user, and resource where stored token state supports
+  that relationship
 
 Token format:
 

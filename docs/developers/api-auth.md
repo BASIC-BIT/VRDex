@@ -83,7 +83,7 @@ first-party sign-in and is not the external developer-platform issuer.
 | `GET /.well-known/oauth-protected-resource` | MCP protected-resource metadata. |
 | `GET /oauth/authorize` | Authorization Code with PKCE. |
 | `POST /oauth/token` | `authorization_code`, `refresh_token`, and `client_credentials`. |
-| `POST /oauth/revoke` | Access-token revocation. |
+| `POST /oauth/revoke` | Access-token and refresh-token revocation. |
 | `POST /oauth/register` | Constrained Dynamic Client Registration for hosted MCP clients. |
 | `GET /oauth/jwks.json` | Public signing keys for JWT access tokens. |
 | `GET /.well-known/oauth-client/vrdex-mcp-public-client` | Constrained public MCP client metadata document for CIMD compatibility smoke tests. |
@@ -264,6 +264,17 @@ Dynamic MCP clients are constrained to:
 Before hosted MCP is declared externally ready, smoke DCR in the major-client
 matrix and smoke Client ID Metadata Document OAuth against major clients that
 prefer URL-form client IDs.
+
+## Token Revocation
+
+`POST /oauth/revoke` accepts form-encoded RFC 7009-style revocation requests.
+JWT access-token revocation validates the issuer, resource audience, client id,
+and token id before marking the access token revoked. Opaque refresh-token
+revocation hashes the submitted refresh token, binds it to `client_id`, and
+requires active client-secret authentication for confidential apps. Revoking a
+refresh token also revokes active user access tokens for the same client, user,
+resource, and application or dynamic-client binding when that relationship can
+be determined from stored token state.
 
 ## Error Rules
 

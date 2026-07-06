@@ -27,6 +27,9 @@ one PR.
 - OAuth signing-key rotation keeps previous public keys in JWKS and bearer
   verification until outstanding access tokens expire.
 - Refresh tokens rotate on successful refresh.
+- Refresh tokens can be revoked through `/oauth/revoke`; revocation also
+  revokes active access tokens for the same client, user, and resource where
+  stored token state supports that relationship.
 - Authorization Code uses PKCE with `S256`.
 - Redirect URI matching is exact.
 - API and MCP resources are validated separately.

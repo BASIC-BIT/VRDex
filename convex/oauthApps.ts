@@ -1863,6 +1863,155 @@ export const revokeClientAccessToken = mutation({
       clientId,
       eventType: "token_revoked",
       result: "accepted",
+      routeClass: "oauth_token",
+      now,
+    });
+
+    return { ok: true as const };
+  },
+});
+
+export const revokeClientRefreshToken = mutation({
+  args: {
+    clientId: v.string(),
+    refreshTokenHash: v.string(),
+    secretPrefix: v.optional(v.string()),
+    verifierHash: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const clientId = normalizeOAuthClientId(args.clientId);
+    const refreshTokenHash = normalizeOAuthRefreshTokenHash(args.refreshTokenHash);
+    const refreshToken = await ctx.db
+      .query("oauthRefreshTokens")
+      .withIndex("by_tokenHash", (index) => index.eq("tokenHash", refreshTokenHash))
+      .unique();
+
+    if (refreshToken === null || refreshToken.clientId !== clientId || refreshToken.status === "revoked") {
+      return { ok: true as const };
+    }
+
+    const application = refreshToken.applicationId === undefined ? null : await ctx.db.get(refreshToken.applicationId);
+    const dynamicClient = refreshToken.dynamicClientId === undefined ? null : await ctx.db.get(refreshToken.dynamicClientId);
+    let authenticatedSecret: Doc<"oauthApplicationSecrets"> | null = null;
+
+    if (application === null && dynamicClient === null) {
+      return { ok: true as const };
+    }
+
+    if (
+      application !== null &&
+      (application.clientId !== clientId ||
+        application.status !== "active" ||
+        !application.allowedGrants.includes("refresh_token"))
+    ) {
+      return { ok: true as const };
+    }
+
+    if (application !== null && application.clientType === "public") {
+      if (args.secretPrefix !== undefined || args.verifierHash !== undefined) {
+        await recordOAuthClientEvent(ctx, {
+          application,
+          ...(args.secretPrefix === undefined ? {} : { secretPrefix: args.secretPrefix }),
+          eventType: "token_revoked",
+          result: "rejected",
+          routeClass: "oauth_token",
+          now,
+        });
+
+        return { ok: true as const };
+      }
+    }
+
+    if (application !== null && application.clientType === "confidential") {
+      authenticatedSecret = await validatedActiveApplicationSecret(ctx, {
+        application,
+        clientId,
+        secretPrefix: args.secretPrefix,
+        verifierHash: args.verifierHash,
+      });
+
+      if (authenticatedSecret === null) {
+        await recordOAuthClientEvent(ctx, {
+          application,
+          ...(args.secretPrefix === undefined ? {} : { secretPrefix: args.secretPrefix }),
+          eventType: "token_revoked",
+          result: "rejected",
+          routeClass: "oauth_token",
+          now,
+        });
+
+        return { ok: true as const };
+      }
+    }
+
+    if (
+      dynamicClient !== null &&
+      (dynamicClient.clientId !== clientId ||
+        dynamicClient.status !== "active" ||
+        !dynamicClient.grantTypes.includes("refresh_token"))
+    ) {
+      return { ok: true as const };
+    }
+
+    if (dynamicClient !== null && (args.secretPrefix !== undefined || args.verifierHash !== undefined)) {
+      await recordOAuthClientEvent(ctx, {
+        dynamicClient,
+        clientId,
+        ...(args.secretPrefix === undefined ? {} : { secretPrefix: args.secretPrefix }),
+        eventType: "token_revoked",
+        result: "rejected",
+        routeClass: "oauth_token",
+        now,
+      });
+
+      return { ok: true as const };
+    }
+
+    await ctx.db.patch(refreshToken._id, {
+      status: "revoked",
+      revokedAt: now,
+    });
+
+    const relatedAccessTokens = await ctx.db
+      .query("oauthAccessTokens")
+      .withIndex("by_clientId_expiresAt", (index) => index.eq("clientId", clientId).gt("expiresAt", now))
+      .collect();
+    const accessTokensToRevoke = relatedAccessTokens.filter((token) =>
+      token.status === "active" &&
+      token.subjectType === "user" &&
+      token.userId === refreshToken.userId &&
+      token.resource === refreshToken.resource &&
+      token.applicationId === refreshToken.applicationId &&
+      token.dynamicClientId === refreshToken.dynamicClientId
+    );
+
+    await Promise.all(
+      accessTokensToRevoke.map((token) =>
+        ctx.db.patch(token._id, {
+          status: "revoked",
+          revokedAt: now,
+          revokedByClientId: clientId,
+        }),
+      ),
+    );
+
+    if (authenticatedSecret !== null) {
+      await ctx.db.patch(authenticatedSecret._id, { lastUsedAt: now, updatedAt: now });
+    }
+
+    if (dynamicClient !== null) {
+      await ctx.db.patch(dynamicClient._id, { lastUsedAt: now, updatedAt: now });
+    }
+
+    await recordOAuthClientEvent(ctx, {
+      ...(application === null ? {} : { application }),
+      ...(dynamicClient === null ? {} : { dynamicClient }),
+      clientId,
+      ...(authenticatedSecret === null ? {} : { secretPrefix: authenticatedSecret.secretPrefix }),
+      eventType: "token_revoked",
+      result: "accepted",
+      routeClass: "oauth_token",
       now,
     });
 

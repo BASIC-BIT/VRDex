@@ -160,6 +160,7 @@ Current OAuth app registry primitives:
 - `oauthApps.consumeAuthorizationCode`
 - `oauthApps.issueClientCredentialsAccessToken`
 - `oauthApps.revokeClientAccessToken`
+- `oauthApps.revokeClientRefreshToken`
 
 Current OAuth issuer routes:
 
@@ -169,7 +170,7 @@ Current OAuth issuer routes:
 - `GET /oauth/jwks.json`
 - `POST /oauth/register`, for constrained hosted MCP Dynamic Client Registration
 - `POST /oauth/token`, for `authorization_code`, `refresh_token`, and confidential `client_credentials`
-- `POST /oauth/revoke`, currently for JWT access-token revocation
+- `POST /oauth/revoke`, for JWT access-token and opaque refresh-token revocation
 
 `POST /oauth/register` is not the normal developer-app creation path. It creates
 separate public dynamic MCP clients with exact redirect URIs, `authorization_code`
