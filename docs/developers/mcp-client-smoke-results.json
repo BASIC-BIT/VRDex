@@ -55,7 +55,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
           "manualStatus": "pending",
-          "notes": "Real Claude Code hosted no-auth transport/tool invocation passed against the PR #159 preview with an empty vrdex_search query on 2026-07-06, but data-backed non-empty public reads remain pending because the current preview lacks same-branch Convex backend coverage."
+          "notes": "Real Claude Code hosted no-auth transport/tool invocation passed against the PR #159 preview with an empty vrdex_search query on 2026-07-06. Record this row only after rerunning pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-data against a same-branch or production-like backend."
         },
         {
           "id": "hosted-oauth",

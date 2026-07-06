@@ -33,19 +33,65 @@ type ClaudeStreamEvent = {
 };
 
 type SmokeMode = "hosted-http" | "local-stdio";
+type HostedSearchType = "all" | "community" | "event" | "person" | "profile" | "world";
+
+type HostedSearchArgs = {
+  limit: number;
+  query: string;
+  type: HostedSearchType;
+};
 
 type SmokeOptions = {
   claudeCommand: string;
+  hostedDataPublicReads: boolean;
+  hostedSearch: HostedSearchArgs;
   hostedUrl?: string;
   maxBudgetUsd: string;
   mode: SmokeMode;
   model?: string;
 };
 
+const hostedSearchTypes = new Set<HostedSearchType>(["all", "community", "event", "person", "profile", "world"]);
+
 function nonEmpty(value: string | undefined) {
   const trimmed = value?.trim();
 
   return trimmed ? trimmed : undefined;
+}
+
+function envFlag(name: string) {
+  const value = process.env[name]?.trim().toLowerCase();
+
+  return value === "1" || value === "true" || value === "yes";
+}
+
+function takeValue(args: string[], index: number, name: string) {
+  const value = args[index + 1];
+
+  assert(value !== undefined && !value.startsWith("--"), `${name} requires a value.`);
+
+  return value;
+}
+
+function parseHostedSearchType(value: string | undefined): HostedSearchType {
+  const normalized = nonEmpty(value) ?? "all";
+
+  assert(
+    hostedSearchTypes.has(normalized as HostedSearchType),
+    `Hosted search type must be one of ${[...hostedSearchTypes].join(", ")}.`,
+  );
+
+  return normalized as HostedSearchType;
+}
+
+function parseHostedSearchLimit(value: string | undefined) {
+  const normalized = nonEmpty(value) ?? "1";
+  const parsed = Number.parseInt(normalized, 10);
+
+  assert(Number.isSafeInteger(parsed), "Hosted search limit must be an integer.");
+  assert(parsed >= 1 && parsed <= 50, "Hosted search limit must be between 1 and 50.");
+
+  return parsed;
 }
 
 function defaultClaudeCommand() {
@@ -68,6 +114,12 @@ function defaultClaudeCommand() {
 function parseArgs(argv: string[]): SmokeOptions {
   const options: SmokeOptions = {
     claudeCommand: nonEmpty(process.env.VRDEX_CLAUDE_CODE_COMMAND) ?? defaultClaudeCommand(),
+    hostedDataPublicReads: envFlag("VRDEX_CLAUDE_CODE_HOSTED_DATA"),
+    hostedSearch: {
+      limit: parseHostedSearchLimit(process.env.VRDEX_CLAUDE_CODE_HOSTED_LIMIT),
+      query: process.env.VRDEX_CLAUDE_CODE_HOSTED_QUERY?.trim() ?? "",
+      type: parseHostedSearchType(process.env.VRDEX_CLAUDE_CODE_HOSTED_TYPE),
+    },
     hostedUrl: nonEmpty(process.env.VRDEX_CLAUDE_CODE_HOSTED_URL),
     maxBudgetUsd: nonEmpty(process.env.VRDEX_CLAUDE_CODE_MAX_BUDGET_USD) ?? "0.25",
     mode: "local-stdio",
@@ -82,18 +134,31 @@ function parseArgs(argv: string[]): SmokeOptions {
       case "--":
         break;
       case "--claude-command":
-        assert(next !== undefined && !next.startsWith("--"), "--claude-command requires a value.");
-        options.claudeCommand = next;
+        options.claudeCommand = takeValue(argv, index, arg);
+        index += 1;
+        break;
+      case "--hosted-data":
+      case "--hosted-data-public-reads":
+        options.hostedDataPublicReads = true;
+        break;
+      case "--hosted-limit":
+        options.hostedSearch.limit = parseHostedSearchLimit(takeValue(argv, index, arg));
+        index += 1;
+        break;
+      case "--hosted-query":
+        options.hostedSearch.query = takeValue(argv, index, arg).trim();
+        index += 1;
+        break;
+      case "--hosted-type":
+        options.hostedSearch.type = parseHostedSearchType(takeValue(argv, index, arg));
         index += 1;
         break;
       case "--max-budget-usd":
-        assert(next !== undefined && !next.startsWith("--"), "--max-budget-usd requires a value.");
-        options.maxBudgetUsd = next;
+        options.maxBudgetUsd = takeValue(argv, index, arg);
         index += 1;
         break;
       case "--hosted-url":
-        assert(next !== undefined && !next.startsWith("--"), "--hosted-url requires a value.");
-        options.hostedUrl = next;
+        options.hostedUrl = takeValue(argv, index, arg);
         index += 1;
         break;
       case "--mode":
@@ -102,8 +167,7 @@ function parseArgs(argv: string[]): SmokeOptions {
         index += 1;
         break;
       case "--model":
-        assert(next !== undefined && !next.startsWith("--"), "--model requires a value.");
-        options.model = next;
+        options.model = takeValue(argv, index, arg);
         index += 1;
         break;
       default:
@@ -111,10 +175,16 @@ function parseArgs(argv: string[]): SmokeOptions {
     }
   }
 
+  if (options.hostedDataPublicReads && !options.hostedSearch.query) {
+    options.hostedSearch.query = "club";
+  }
   assert.notEqual(options.claudeCommand.trim(), "", "--claude-command must not be empty.");
   assert.notEqual(options.maxBudgetUsd.trim(), "", "--max-budget-usd must not be empty.");
   if (options.mode === "hosted-http") {
     assert.ok(nonEmpty(options.hostedUrl), "--hosted-url or VRDEX_CLAUDE_CODE_HOSTED_URL is required for hosted-http.");
+    if (options.hostedDataPublicReads) {
+      assert.notEqual(options.hostedSearch.query, "", "--hosted-data requires a non-empty hosted search query.");
+    }
   }
 
   return options;
@@ -300,7 +370,21 @@ function textFromToolResult(content: unknown) {
   return content === undefined ? "" : JSON.stringify(content);
 }
 
-function assertHostedToolUse(events: ClaudeStreamEvent[]) {
+function parseToolResultText(text: string | undefined) {
+  assert.ok(text !== undefined, "Hosted vrdex_search did not return text content.");
+
+  try {
+    return JSON.parse(text) as {
+      query?: unknown;
+      results?: unknown;
+      type?: unknown;
+    };
+  } catch {
+    throw new Error(`Hosted vrdex_search did not return JSON text content: ${text.slice(0, 300)}`);
+  }
+}
+
+function assertHostedToolUse(events: ClaudeStreamEvent[], expectedSearch: HostedSearchArgs) {
   let toolUseId: string | undefined;
   let toolResultText: string | undefined;
   let toolResultError: boolean | undefined;
@@ -313,9 +397,9 @@ function assertHostedToolUse(events: ClaudeStreamEvent[]) {
 
         const input = content.input as { limit?: unknown; query?: unknown; type?: unknown };
 
-        assert.equal(input.query, "");
-        assert.equal(input.type, "all");
-        assert.equal(input.limit, 1);
+        assert.equal(input.query, expectedSearch.query);
+        assert.equal(input.type, expectedSearch.type);
+        assert.equal(input.limit, expectedSearch.limit);
       }
 
       if (content.type === "tool_result" && content.tool_use_id === toolUseId) {
@@ -327,9 +411,11 @@ function assertHostedToolUse(events: ClaudeStreamEvent[]) {
 
   assert.ok(toolUseId, "Claude Code did not call mcp__vrdex__vrdex_search.");
   assert.notEqual(toolResultError, true, `Hosted vrdex_search failed: ${toolResultText}`);
-  assert.match(toolResultText ?? "", /"query"\s*:\s*""/);
-  assert.match(toolResultText ?? "", /"type"\s*:\s*"all"/);
-  assert.match(toolResultText ?? "", /"results"\s*:\s*\[/);
+  const parsed = parseToolResultText(toolResultText);
+
+  assert.equal(parsed.query, expectedSearch.query);
+  assert.equal(parsed.type, expectedSearch.type);
+  assert.equal(Array.isArray(parsed.results), true);
 
   const finalResult = events.findLast((event) => event.type === "result")?.result?.trim();
 
@@ -341,12 +427,13 @@ async function smokeHostedHttp(configPath: string, options: SmokeOptions, repoRo
 
   assert.ok(hostedUrl, "Hosted URL is required.");
   await writeHostedHttpConfig(configPath, hostedUrl);
+  const hostedSearch = options.hostedSearch;
 
   const args = buildBaseClaudeArgs(configPath, options, "stream-json");
   args.push(
     [
       "You must call the VRDex MCP tool named mcp__vrdex__vrdex_search exactly once before answering.",
-      "Use these exact input fields: query is the empty string, type is \"all\", and limit is 1.",
+      `Use these exact input fields: query is ${JSON.stringify(hostedSearch.query)}, type is ${JSON.stringify(hostedSearch.type)}, and limit is ${hostedSearch.limit}.`,
       "After the tool returns, respond exactly hosted-ok and no other text.",
     ].join(" "),
   );
@@ -354,13 +441,13 @@ async function smokeHostedHttp(configPath: string, options: SmokeOptions, repoRo
   const result = await run(options.claudeCommand, args, { cwd: repoRoot, timeoutMs: 180_000 });
 
   assert.equal(result.code, 0, result.stderr || `${options.claudeCommand} exited with ${result.code}.`);
-  assertHostedToolUse(parseStreamEvents(result.stdout));
+  assertHostedToolUse(parseStreamEvents(result.stdout), hostedSearch);
 
   console.log(
     [
       "| Smoke target | Status | Details |",
       "| --- | --- | --- |",
-      `| Claude Code hosted anonymous HTTP MCP | pass | vrdex_search returned structuredContent for ${hostedUrl} with query=\"\", type=all, limit=1 |`,
+      `| Claude Code hosted anonymous HTTP MCP | pass | vrdex_search returned structured content for ${hostedUrl} with query=${JSON.stringify(hostedSearch.query)}, type=${hostedSearch.type}, limit=${hostedSearch.limit} |`,
     ].join("\n"),
   );
 }

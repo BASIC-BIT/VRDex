@@ -88,7 +88,9 @@ one PR.
   evidence pointer.
 - Claude Code local stdio and hosted anonymous HTTP can be real-client smoked
   with `pnpm smoke:mcp-claude-code`, which runs the installed Claude Code CLI
-  through a strict temporary MCP config.
+  through a strict temporary MCP config. Use hosted mode with `--hosted-data`
+  against a same-branch or production-like backend before recording Claude Code
+  hosted anonymous-read readiness.
 
 Use a command shaped like this for each manual matrix row:
 

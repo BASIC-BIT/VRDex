@@ -64,13 +64,31 @@ pnpm smoke:mcp-claude-code
 
 In hosted HTTP mode, it points Claude Code at a deployed Streamable HTTP MCP
 endpoint and parses Claude Code's stream JSON to prove the exact hosted
-`vrdex_search` tool call and structured result:
+`vrdex_search` tool call and structured result. The default hosted command keeps
+the lightweight empty-query transport check:
 
 ```sh
 pnpm smoke:mcp-claude-code -- \
   --mode hosted-http \
   --hosted-url https://staging.vrdex.net/mcp
 ```
+
+For external-readiness evidence, add `--hosted-data` so the real Claude Code
+client must call a non-empty public search and receive structured content from
+the target backend:
+
+```sh
+pnpm smoke:mcp-claude-code -- \
+  --mode hosted-http \
+  --hosted-url https://staging.vrdex.net/mcp \
+  --hosted-data
+```
+
+Use `--hosted-query`, `--hosted-type`, and `--hosted-limit` when the staging
+seed data needs a different public search fixture. The equivalent environment
+variables are `VRDEX_CLAUDE_CODE_HOSTED_DATA`,
+`VRDEX_CLAUDE_CODE_HOSTED_QUERY`, `VRDEX_CLAUDE_CODE_HOSTED_TYPE`, and
+`VRDEX_CLAUDE_CODE_HOSTED_LIMIT`.
 
 PR Baseline Checks run the same local stdio protocol smoke through
 `pnpm verify:vrdex-mcp`.
@@ -291,9 +309,10 @@ VS Code hosted config:
 2. Claude Desktop hosted Custom Connector lists anonymous tools and completes
    OAuth for `mcp:read` when protected tools are enabled.
 3. Claude Code local stdio and hosted HTTP anonymous reads pass through
-   `pnpm smoke:mcp-claude-code`; hosted anonymous readiness includes a
-   data-backed non-empty search against the target backend, and hosted OAuth
-   completes with `mcp:read` through DCR and public-client CIMD.
+   `pnpm smoke:mcp-claude-code`; hosted anonymous readiness uses
+   `--hosted-data` for a data-backed non-empty search against the target
+   backend, and hosted OAuth completes with `mcp:read` through DCR and
+   public-client CIMD.
 4. VS Code local stdio lists six tools and hosted HTTP anonymous reads work.
 5. Cursor local stdio and hosted HTTP read tools work in the current release.
 6. OpenAI or ChatGPT MCP-capable surfaces connect to hosted `/mcp` if the
