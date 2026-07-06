@@ -34,6 +34,9 @@ one PR.
 - The `/oauth/register` route has deterministic route-handler coverage for
   schema normalization, registration mutation inputs, rate-limit errors, and
   backend failures.
+- The `/oauth/token` route has deterministic route-helper coverage for
+  Authorization Code, refresh-token rotation, Client Credentials, and no-store
+  OAuth errors before malformed exchanges reach Convex.
 - Client ID Metadata Document support is smoke-tested through the checked-in
   public MCP client metadata document when a same-branch Convex preview backend
   is available.

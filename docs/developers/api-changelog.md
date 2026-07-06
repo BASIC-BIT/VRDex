@@ -26,6 +26,9 @@ docs update and a changelog entry so early consumers and agents can adapt.
 - added `pnpm check:api-mcp-rollout` as an aggregate readiness audit for the
   generated OpenAPI artifact, required docs, verification scripts, MCP client
   matrix, and production-like hosted MCP evidence state
+- added deterministic `/oauth/token` route-helper coverage for Authorization
+  Code, refresh-token rotation, Client Credentials, and no-store OAuth errors
+  before malformed exchanges reach Convex
 - added hosted MCP tool descriptor auth metadata so every curated public read
   tool advertises `_meta["securitySchemes"]` with `noauth` plus optional
   `oauth2`/`mcp:read`
