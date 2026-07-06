@@ -49,10 +49,10 @@ is enabled only when `CONVEX_DEPLOY_KEY_PREVIEW` provisions the same-branch
 Convex preview backend; otherwise, the job records that DCR was not smoked
 against same-branch backend functions.
 
-Use the manual `Hosted MCP Smoke` workflow when DCR/CIMD evidence needs to come
-from a staging, production-like, or otherwise Convex-backed target. Pass the
-target `/mcp` URL and enable the `dcr` and `cimd` inputs for the hosted OAuth
-compatibility gate.
+Use the manual `Deployed Health Checks` workflow target `hosted-mcp-smoke` when
+DCR/CIMD evidence needs to come from a staging, production-like, or otherwise
+Convex-backed target. Pass the target `/mcp` URL as `base_url` and enable the
+`mcp_dcr` and `mcp_cimd` inputs for the hosted OAuth compatibility gate.
 
 Do not use production deploy keys for PR previews. Preview deployments are for
 schema/function compatibility and hosted smoke validation before merge.

@@ -76,10 +76,11 @@ one PR.
   when a same-branch Convex preview backend is available, and records that
   preview-backend prerequisite when `CONVEX_DEPLOY_KEY_PREVIEW` is not
   configured.
-- The manual `Hosted MCP Smoke` workflow can run the same hosted smoke against
-  a staging, production-like, or same-branch Convex preview target. Use its
-  `dcr` and `cimd` inputs for external-readiness evidence when the automatic PR
-  preview lane cannot enable those probes.
+- The manual `Deployed Health Checks` workflow target `hosted-mcp-smoke` can run
+  the same hosted smoke against a staging, production-like, or same-branch
+  Convex preview target. Use its `mcp_dcr` and `mcp_cimd` inputs for
+  external-readiness evidence when the automatic PR preview lane cannot enable
+  those probes.
 - `docs/developers/mcp-client-compatibility.md` lists the current major-client
   matrix and must have manual smoke results before external readiness is
   declared. Record those manual rows with `pnpm record:mcp-client-smoke` so

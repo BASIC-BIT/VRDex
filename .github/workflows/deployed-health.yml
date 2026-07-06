@@ -16,10 +16,21 @@ on:
           - all
           - staging-mutation
           - production-smoke
+          - hosted-mcp-smoke
       base_url:
         description: Optional URL override for the selected target
         required: false
         type: string
+      mcp_dcr:
+        default: false
+        description: Probe hosted MCP Dynamic Client Registration
+        required: true
+        type: boolean
+      mcp_cimd:
+        default: false
+        description: Probe hosted MCP Client ID Metadata Document authorization
+        required: true
+        type: boolean
   schedule:
     - cron: "17 11 * * *"
 
@@ -284,3 +295,76 @@ jobs:
             apps/web/playwright-report
             apps/web/test-results
             apps/web/playwright-artifacts
+
+  hosted-mcp-smoke:
+    name: Hosted MCP Smoke Health
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'hosted-mcp-smoke'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check hosted MCP smoke configuration
+        id: gate
+        env:
+          MCP_BASE_URL_OVERRIDE: ${{ inputs.base_url }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$MCP_BASE_URL_OVERRIDE" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## Hosted MCP smoke health"
+              echo "Skipped because base_url was not provided."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+          echo "mcp_url=$MCP_BASE_URL_OVERRIDE" >> "$GITHUB_OUTPUT"
+
+      - name: Setup pnpm
+        if: steps.gate.outputs.enabled == 'true'
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        if: steps.gate.outputs.enabled == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.gate.outputs.enabled == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Run hosted MCP smoke
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          SMOKE_CIMD: ${{ inputs.mcp_cimd }}
+          SMOKE_DCR: ${{ inputs.mcp_dcr }}
+          SMOKE_URL: ${{ steps.gate.outputs.mcp_url }}
+        run: |
+          set -euo pipefail
+
+          args=(--hosted-url "$SMOKE_URL")
+
+          if [ "$SMOKE_DCR" = "true" ]; then
+            args+=(--dcr)
+          fi
+
+          if [ "$SMOKE_CIMD" = "true" ]; then
+            args+=(--cimd)
+          fi
+
+          {
+            echo "## Hosted MCP smoke health"
+            echo ""
+            echo "- Target: \`$SMOKE_URL\`"
+            echo "- Dynamic Client Registration: \`$SMOKE_DCR\`"
+            echo "- Client ID Metadata Document: \`$SMOKE_CIMD\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          pnpm smoke:mcp-compat -- "${args[@]}"
