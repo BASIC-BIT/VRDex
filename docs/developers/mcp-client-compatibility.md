@@ -189,9 +189,10 @@ are not required for external readiness.
 
 For required hosted rows, a `pass` also requires `--target-environment` naming
 a same-branch Convex preview, staging, production-like, or production target.
-The recorder rejects hosted pass rows that still describe pending, skipped,
-unavailable, or non-data-backed evidence. This keeps lightweight PR preview
-transport smokes separate from external-readiness evidence.
+The recorder and matrix verifier reject hosted pass rows that still describe
+pending, skipped, unavailable, or non-data-backed evidence. This keeps
+lightweight PR preview transport smokes separate from external-readiness
+evidence, even if the JSON artifact is hand-edited.
 
 By default, the check accepts `pending` manual rows because repository protocol
 checks can run before the desktop/web client smokes are available. For external

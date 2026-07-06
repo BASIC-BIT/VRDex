@@ -34,6 +34,11 @@ docs update and a changelog entry so early consumers and agents can adapt.
 - tightened MCP smoke result recording so required hosted rows need an explicit
   same-branch, staging, production-like, or production target before they can
   be marked as external-readiness pass evidence
+- tightened MCP client matrix verification so hand-edited required hosted pass
+  rows still need non-pending same-branch, staging, production-like, or
+  production target evidence
+- added `pnpm test:scripts` to exercise repo script regression tests from the
+  MCP verification path
 - added hosted MCP tool descriptor auth metadata so every curated public read
   tool advertises `_meta["securitySchemes"]` with `noauth` plus optional
   `oauth2`/`mcp:read`

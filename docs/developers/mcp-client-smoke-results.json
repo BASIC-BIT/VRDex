@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "lastReviewed": "2026-07-06",
   "readinessMode": "repo-protocol-smoked-hosted-transport-smoked-data-backed-client-smokes-pending",
-  "targetEnvironment": "PR #159 Vercel preview https://vr-dex-9imqwlzdt-basicbit.vercel.app/mcp; latest Baseline run skipped Convex preview deployment, so data-backed hosted public reads plus DCR/CIMD hosted OAuth rows need a same-branch Convex preview or production-like backend.",
+  "targetEnvironment": "PR #159 Vercel preview transport smoke passes on the latest Baseline run, but Convex preview deployment is skipped because CONVEX_DEPLOY_KEY_PREVIEW is not configured; data-backed hosted public reads plus DCR/CIMD hosted OAuth rows need a same-branch Convex preview or production-like backend.",
   "clients": [
     {
       "id": "claude-desktop",

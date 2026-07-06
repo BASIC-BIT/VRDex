@@ -59,6 +59,8 @@ const allowedSurfaces = new Set<SmokeSurface>([
 ]);
 
 const allowedManualStatuses = new Set<ManualStatus>(["fail", "not_applicable", "pass", "pending"]);
+const hostedEvidenceTargetPattern = /\b(same-branch|production-like|staging|production)\b/i;
+const pendingHostedEvidencePattern = /\b(pending|need|needs|lack|lacks|skipped|unavailable|not deployed|without data-backed)\b/i;
 
 function envFlag(name: string) {
   const value = process.env[name]?.trim().toLowerCase();
@@ -113,7 +115,7 @@ function parseSmokeMatrix(raw: string): SmokeMatrix {
   return parsed;
 }
 
-function validateSmokeCheck(clientId: string, check: SmokeCheck) {
+function validateSmokeCheck(clientId: string, check: SmokeCheck, matrix: SmokeMatrix) {
   assertString(check.id, `${clientId} check id`);
   assert.equal(allowedSurfaces.has(check.surface), true, `${clientId}/${check.id} has unsupported surface`);
   assert.equal(
@@ -149,6 +151,20 @@ function validateSmokeCheck(clientId: string, check: SmokeCheck) {
     assertString(check.environment, `${clientId}/${check.id} environment`);
     assertString(check.manualEvidence, `${clientId}/${check.id} manualEvidence`);
   }
+
+  if (check.manualStatus === "pass" && check.requiredForExternalReadiness && check.surface.startsWith("hosted_http")) {
+    assertString(matrix.targetEnvironment, "targetEnvironment");
+    assert.match(
+      matrix.targetEnvironment,
+      hostedEvidenceTargetPattern,
+      `${clientId}/${check.id} hosted pass targetEnvironment must name a same-branch, staging, production-like, or production target`,
+    );
+    assert.doesNotMatch(
+      matrix.targetEnvironment,
+      pendingHostedEvidencePattern,
+      `${clientId}/${check.id} hosted pass targetEnvironment must not describe pending, skipped, unavailable, or non-data-backed evidence`,
+    );
+  }
 }
 
 function validateSmokeMatrix(matrix: SmokeMatrix) {
@@ -173,7 +189,7 @@ function validateSmokeMatrix(matrix: SmokeMatrix) {
     const seenChecks = new Set<string>();
 
     for (const check of client.checks) {
-      validateSmokeCheck(client.id, check);
+      validateSmokeCheck(client.id, check, matrix);
       assert.equal(seenChecks.has(check.id), false, `duplicate check ${client.id}/${check.id}`);
       seenChecks.add(check.id);
 

@@ -94,11 +94,10 @@ one PR.
   declared. Record those manual rows with `pnpm record:mcp-client-smoke` so
   pass/fail entries include a run date, target environment, and sanitized
   evidence pointer.
-- Required hosted matrix rows cannot be recorded as `pass` unless
-  `pnpm record:mcp-client-smoke` receives a `--target-environment` that names a
-  same-branch Convex preview, staging, production-like, or production target.
-  Lightweight PR preview transport evidence must stay separate from
-  external-readiness evidence.
+- Required hosted matrix rows cannot be recorded or verified as `pass` unless
+  the matrix target environment names a same-branch Convex preview, staging,
+  production-like, or production target. Lightweight PR preview transport
+  evidence must stay separate from external-readiness evidence.
 - `pnpm ops:mcp-client-smokes` generates the current day-one client smoke run
   plan from the matrix, including repo preflight commands, manual evidence
   prompts, and recorder command templates for pending rows.
@@ -142,6 +141,7 @@ pnpm check:api-openapi
 pnpm typecheck:api-contracts
 pnpm typecheck:vrdex-mcp
 pnpm test:vrdex-mcp
+pnpm test:scripts
 pnpm smoke:mcp-compat
 pnpm check:mcp-client-matrix
 pnpm ops:mcp-installed-clients
