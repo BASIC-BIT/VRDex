@@ -124,6 +124,11 @@ Set `VRDEX_MCP_SMOKE_TOKEN` only for a local terminal run when you want to test
 an authenticated hosted tool list. Do not commit real tokens or smoke output
 containing credentials.
 
+GitHub also has a manual `Hosted MCP Smoke` workflow for production-like or
+same-branch Convex preview targets. Use it when `Hosted MCP Preview Smoke`
+cannot enable DCR/CIMD because the PR preview lacks `CONVEX_DEPLOY_KEY_PREVIEW`,
+or when validating a staging target before external readiness.
+
 ## Day-One Client Matrix
 
 | Client | Local stdio config | Hosted HTTP config | OAuth expectation | Current status |
@@ -248,7 +253,8 @@ VS Code hosted config:
    `--hosted-url <preview-or-production-like-/mcp-url>`. Add `--dcr` when the
    smoke should create a temporary dynamic public MCP client, and `--cimd` when
    the smoke should materialize the public client metadata document flow through
-   `/oauth/authorize`.
+   `/oauth/authorize`. For GitHub-hosted evidence against a deployed target,
+   run the manual `Hosted MCP Smoke` workflow with the same toggles.
 1. Claude Desktop local stdio starts, lists six tools, and calls
    `vrdex_search`.
 2. Claude Desktop hosted Custom Connector lists anonymous tools and completes
