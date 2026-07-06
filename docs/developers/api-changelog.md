@@ -9,6 +9,9 @@ docs update and a changelog entry so early consumers and agents can adapt.
 
 ## 2026-07-06
 
+- added `GET /api/v0/worlds/:slug/events` with a shared
+  `PublicWorldEventsResponse` contract for recent and upcoming public events
+  linked to a published world
 - added `pnpm ops:mcp-client-smokes` to generate the current day-one MCP
   client smoke run plan, including repo preflight commands, manual evidence
   prompts, and recorder command templates from the checked matrix

@@ -64,6 +64,7 @@ const requiredOpenApiPaths = [
   "/api/v0/events/{slug}",
   "/api/v0/events/upcoming",
   "/api/v0/worlds/{slug}",
+  "/api/v0/worlds/{slug}/events",
   "/api/v0/worlds/active",
   "/api/v0/claims/{slug}/status",
   "/api/v0/me",

@@ -2812,6 +2812,80 @@
         }
       }
     },
+    "/api/v0/worlds/{slug}/events": {
+      "get": {
+        "operationId": "getPublicWorldEventsBySlug",
+        "tags": [
+          "Worlds"
+        ],
+        "summary": "List public events for a world",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "description": "Public slug."
+            },
+            "required": true,
+            "description": "Public slug."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Upcoming and recent public events linked to the world.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicWorldEventsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or used an unsupported bearer-token location.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The requested public resource was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v0/worlds/active": {
       "get": {
         "operationId": "listPublicActiveWorlds",
@@ -6481,310 +6555,7 @@
             "minLength": 1
           },
           "eventContext": {
-            "type": "object",
-            "properties": {
-              "recent": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "bannerImageUrl": {
-                      "type": "string",
-                      "format": "uri"
-                    },
-                    "communityName": {
-                      "type": "string"
-                    },
-                    "doorsOpenAt": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 9007199254740991
-                    },
-                    "endAt": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 9007199254740991
-                    },
-                    "mediaLinks": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "label": {
-                            "type": "string",
-                            "minLength": 1
-                          },
-                          "presentation": {
-                            "type": "string",
-                            "enum": [
-                              "open",
-                              "copy"
-                            ]
-                          },
-                          "type": {
-                            "type": "string",
-                            "enum": [
-                              "event_page",
-                              "watch",
-                              "stream",
-                              "vrcdn",
-                              "discord",
-                              "ticket",
-                              "other"
-                            ]
-                          },
-                          "url": {
-                            "type": "string",
-                            "format": "uri"
-                          }
-                        },
-                        "required": [
-                          "label",
-                          "presentation",
-                          "type",
-                          "url"
-                        ],
-                        "additionalProperties": {},
-                        "description": "Public event media or outbound link."
-                      }
-                    },
-                    "posterImageUrl": {
-                      "type": "string",
-                      "format": "uri"
-                    },
-                    "slug": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 160
-                    },
-                    "source": {
-                      "type": "object",
-                      "properties": {
-                        "label": {
-                          "type": "string",
-                          "minLength": 1
-                        },
-                        "sourceType": {
-                          "type": "string",
-                          "enum": [
-                            "manual",
-                            "community",
-                            "partner",
-                            "import",
-                            "ai_suggested"
-                          ],
-                          "description": "Public event source class."
-                        },
-                        "url": {
-                          "type": "string",
-                          "format": "uri"
-                        }
-                      },
-                      "required": [
-                        "label",
-                        "sourceType"
-                      ],
-                      "additionalProperties": {},
-                      "description": "Public event source summary."
-                    },
-                    "startAt": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 9007199254740991
-                    },
-                    "summary": {
-                      "type": "string"
-                    },
-                    "thumbnailImageUrl": {
-                      "type": "string",
-                      "format": "uri"
-                    },
-                    "timezone": {
-                      "type": "string"
-                    },
-                    "title": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "worldAssociation": {
-                      "type": "object",
-                      "properties": {
-                        "confirmationState": {
-                          "type": "string",
-                          "const": "confirmed"
-                        }
-                      },
-                      "required": [
-                        "confirmationState"
-                      ],
-                      "additionalProperties": {}
-                    }
-                  },
-                  "required": [
-                    "mediaLinks",
-                    "source",
-                    "startAt",
-                    "title",
-                    "worldAssociation"
-                  ],
-                  "additionalProperties": {},
-                  "description": "Public event card as shown in world context."
-                }
-              },
-              "upcoming": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "bannerImageUrl": {
-                      "type": "string",
-                      "format": "uri"
-                    },
-                    "communityName": {
-                      "type": "string"
-                    },
-                    "doorsOpenAt": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 9007199254740991
-                    },
-                    "endAt": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 9007199254740991
-                    },
-                    "mediaLinks": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "label": {
-                            "type": "string",
-                            "minLength": 1
-                          },
-                          "presentation": {
-                            "type": "string",
-                            "enum": [
-                              "open",
-                              "copy"
-                            ]
-                          },
-                          "type": {
-                            "type": "string",
-                            "enum": [
-                              "event_page",
-                              "watch",
-                              "stream",
-                              "vrcdn",
-                              "discord",
-                              "ticket",
-                              "other"
-                            ]
-                          },
-                          "url": {
-                            "type": "string",
-                            "format": "uri"
-                          }
-                        },
-                        "required": [
-                          "label",
-                          "presentation",
-                          "type",
-                          "url"
-                        ],
-                        "additionalProperties": {},
-                        "description": "Public event media or outbound link."
-                      }
-                    },
-                    "posterImageUrl": {
-                      "type": "string",
-                      "format": "uri"
-                    },
-                    "slug": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 160
-                    },
-                    "source": {
-                      "type": "object",
-                      "properties": {
-                        "label": {
-                          "type": "string",
-                          "minLength": 1
-                        },
-                        "sourceType": {
-                          "type": "string",
-                          "enum": [
-                            "manual",
-                            "community",
-                            "partner",
-                            "import",
-                            "ai_suggested"
-                          ],
-                          "description": "Public event source class."
-                        },
-                        "url": {
-                          "type": "string",
-                          "format": "uri"
-                        }
-                      },
-                      "required": [
-                        "label",
-                        "sourceType"
-                      ],
-                      "additionalProperties": {},
-                      "description": "Public event source summary."
-                    },
-                    "startAt": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 9007199254740991
-                    },
-                    "summary": {
-                      "type": "string"
-                    },
-                    "thumbnailImageUrl": {
-                      "type": "string",
-                      "format": "uri"
-                    },
-                    "timezone": {
-                      "type": "string"
-                    },
-                    "title": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "worldAssociation": {
-                      "type": "object",
-                      "properties": {
-                        "confirmationState": {
-                          "type": "string",
-                          "const": "confirmed"
-                        }
-                      },
-                      "required": [
-                        "confirmationState"
-                      ],
-                      "additionalProperties": {}
-                    }
-                  },
-                  "required": [
-                    "mediaLinks",
-                    "source",
-                    "startAt",
-                    "title",
-                    "worldAssociation"
-                  ],
-                  "additionalProperties": {},
-                  "description": "Public event card as shown in world context."
-                }
-              }
-            },
-            "required": [
-              "recent",
-              "upcoming"
-            ],
-            "additionalProperties": {}
+            "$ref": "#/components/schemas/PublicWorldEventsResponse"
           },
           "heroImageUrl": {
             "type": "string",
@@ -6898,6 +6669,313 @@
         ],
         "additionalProperties": {},
         "description": "Public world detail response."
+      },
+      "PublicWorldEventsResponse": {
+        "type": "object",
+        "properties": {
+          "recent": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "bannerImageUrl": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "communityName": {
+                  "type": "string"
+                },
+                "doorsOpenAt": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "endAt": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "mediaLinks": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "presentation": {
+                        "type": "string",
+                        "enum": [
+                          "open",
+                          "copy"
+                        ]
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "event_page",
+                          "watch",
+                          "stream",
+                          "vrcdn",
+                          "discord",
+                          "ticket",
+                          "other"
+                        ]
+                      },
+                      "url": {
+                        "type": "string",
+                        "format": "uri"
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "presentation",
+                      "type",
+                      "url"
+                    ],
+                    "additionalProperties": {},
+                    "description": "Public event media or outbound link."
+                  }
+                },
+                "posterImageUrl": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "slug": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160
+                },
+                "source": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "sourceType": {
+                      "type": "string",
+                      "enum": [
+                        "manual",
+                        "community",
+                        "partner",
+                        "import",
+                        "ai_suggested"
+                      ],
+                      "description": "Public event source class."
+                    },
+                    "url": {
+                      "type": "string",
+                      "format": "uri"
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "sourceType"
+                  ],
+                  "additionalProperties": {},
+                  "description": "Public event source summary."
+                },
+                "startAt": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "thumbnailImageUrl": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "timezone": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "worldAssociation": {
+                  "type": "object",
+                  "properties": {
+                    "confirmationState": {
+                      "type": "string",
+                      "const": "confirmed"
+                    }
+                  },
+                  "required": [
+                    "confirmationState"
+                  ],
+                  "additionalProperties": {}
+                }
+              },
+              "required": [
+                "mediaLinks",
+                "source",
+                "startAt",
+                "title",
+                "worldAssociation"
+              ],
+              "additionalProperties": {},
+              "description": "Public event card as shown in world context."
+            }
+          },
+          "upcoming": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "bannerImageUrl": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "communityName": {
+                  "type": "string"
+                },
+                "doorsOpenAt": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "endAt": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "mediaLinks": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "presentation": {
+                        "type": "string",
+                        "enum": [
+                          "open",
+                          "copy"
+                        ]
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "event_page",
+                          "watch",
+                          "stream",
+                          "vrcdn",
+                          "discord",
+                          "ticket",
+                          "other"
+                        ]
+                      },
+                      "url": {
+                        "type": "string",
+                        "format": "uri"
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "presentation",
+                      "type",
+                      "url"
+                    ],
+                    "additionalProperties": {},
+                    "description": "Public event media or outbound link."
+                  }
+                },
+                "posterImageUrl": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "slug": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160
+                },
+                "source": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "sourceType": {
+                      "type": "string",
+                      "enum": [
+                        "manual",
+                        "community",
+                        "partner",
+                        "import",
+                        "ai_suggested"
+                      ],
+                      "description": "Public event source class."
+                    },
+                    "url": {
+                      "type": "string",
+                      "format": "uri"
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "sourceType"
+                  ],
+                  "additionalProperties": {},
+                  "description": "Public event source summary."
+                },
+                "startAt": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "thumbnailImageUrl": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "timezone": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "worldAssociation": {
+                  "type": "object",
+                  "properties": {
+                    "confirmationState": {
+                      "type": "string",
+                      "const": "confirmed"
+                    }
+                  },
+                  "required": [
+                    "confirmationState"
+                  ],
+                  "additionalProperties": {}
+                }
+              },
+              "required": [
+                "mediaLinks",
+                "source",
+                "startAt",
+                "title",
+                "worldAssociation"
+              ],
+              "additionalProperties": {},
+              "description": "Public event card as shown in world context."
+            }
+          }
+        },
+        "required": [
+          "recent",
+          "upcoming"
+        ],
+        "additionalProperties": {},
+        "description": "Public world event context response."
       },
       "PublicActiveWorldsResponse": {
         "type": "object",

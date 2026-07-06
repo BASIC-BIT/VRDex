@@ -538,19 +538,24 @@ export const PublicWorldEventPreviewSchema = z
   .passthrough()
   .meta({ description: "Public event card as shown in world context." });
 
+export const PublicWorldEventsResponseSchema = z
+  .object({
+    recent: z.array(PublicWorldEventPreviewSchema),
+    upcoming: z.array(PublicWorldEventPreviewSchema),
+  })
+  .passthrough()
+  .meta({
+    description: "Public world event context response.",
+    id: "PublicWorldEventsResponse",
+  });
+
 export const PublicWorldSchema = z
   .object({
     canonicalVrchatWorldUrl: absoluteUrl.optional(),
     creatorAttributions: z.array(z.unknown()),
     description: z.string().optional(),
     displayName: z.string().min(1),
-    eventContext: z
-      .object({
-        recent: z.array(PublicWorldEventPreviewSchema),
-        upcoming: z.array(PublicWorldEventPreviewSchema),
-      })
-      .passthrough()
-      .optional(),
+    eventContext: PublicWorldEventsResponseSchema.optional(),
     heroImageUrl: absoluteUrl.optional(),
     media: z.array(z.unknown()),
     outboundLinks: z.array(PublicOutboundLinkSchema),

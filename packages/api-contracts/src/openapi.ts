@@ -43,6 +43,7 @@ import {
   PublicProfileLogosResponseSchema,
   PublicProfileSchema,
   PublicSearchResponseSchema,
+  PublicWorldEventsResponseSchema,
   PublicWorldSchema,
   ProfileAssetUploadIntentPathParamsSchema,
   ProfileAssetUploadTokenHeaderSchema,
@@ -976,6 +977,23 @@ export const openApiSource = {
           "200": {
             description: "The public world.",
             content: jsonContent(PublicWorldSchema),
+          },
+          ...publicReadProblemResponses,
+        },
+      },
+    },
+    "/api/v0/worlds/{slug}/events": {
+      get: {
+        operationId: "getPublicWorldEventsBySlug",
+        tags: ["Worlds"],
+        summary: "List public events for a world",
+        requestParams: {
+          path: SlugPathParamsSchema,
+        },
+        responses: {
+          "200": {
+            description: "Upcoming and recent public events linked to the world.",
+            content: jsonContent(PublicWorldEventsResponseSchema),
           },
           ...publicReadProblemResponses,
         },

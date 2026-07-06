@@ -42,6 +42,7 @@ API bearer tokens or OAuth access tokens for authenticated public-read traffic:
 | `GET /api/v0/events/:slug` | Read a public event. |
 | `GET /api/v0/events/upcoming` | List upcoming public events from discovery data. |
 | `GET /api/v0/worlds/:slug` | Read a public world. |
+| `GET /api/v0/worlds/:slug/events` | Read recent and upcoming public events linked to a world. |
 | `GET /api/v0/worlds/active` | List worlds with upcoming or live public events. |
 | `GET /api/v0/claims/:slug/status` | Read public claim and trust state. |
 | `GET /api/v0/usage/rate-limit` | Read route-class quota policies and the caller's current public API window. |
@@ -237,7 +238,6 @@ Candidate first public API endpoints:
 - `GET /api/v0/search?q=`
 - `GET /api/v0/cards/:slug`
 - `GET /api/v0/worlds/:slug`
-- `GET /api/v0/worlds/:slug/events`
 - `GET /api/v0/worlds/active`
 - `GET /api/v0/people/:slug/events`
 - `GET /api/v0/communities/:slug/events`

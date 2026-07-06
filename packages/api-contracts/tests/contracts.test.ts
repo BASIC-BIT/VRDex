@@ -33,6 +33,7 @@ import {
   PublicEventSchema,
   PublicProfileSchema,
   PublicSearchResponseSchema,
+  PublicWorldEventsResponseSchema,
   PublicWorldSchema,
   z,
   createApiTokenValue,
@@ -125,6 +126,19 @@ describe("@vrdex/api-contracts", () => {
       creatorAttributions: [],
       outboundLinks: [],
       eventContext: { upcoming: [], recent: [] },
+    });
+
+    PublicWorldEventsResponseSchema.parse({
+      upcoming: [
+        {
+          title: "Afterglow Night",
+          startAt: 1770000000000,
+          mediaLinks: [],
+          source: { sourceType: "manual", label: "Owner-authored" },
+          worldAssociation: { confirmationState: "confirmed" },
+        },
+      ],
+      recent: [],
     });
 
     PublicActiveWorldSchema.parse({
@@ -711,6 +725,7 @@ describe("@vrdex/api-contracts", () => {
     assert.ok(document.paths?.["/api/v0/events/{slug}"]?.patch);
     assert.ok(document.paths?.["/api/v0/events/upcoming"]);
     assert.ok(document.paths?.["/api/v0/worlds/{slug}"]);
+    assert.ok(document.paths?.["/api/v0/worlds/{slug}/events"]);
     assert.ok(document.paths?.["/api/v0/worlds/active"]);
     assert.ok(document.paths?.["/api/v0/claims/{slug}/status"]);
     assert.ok(document.paths?.["/api/v0/usage/rate-limit"]);
