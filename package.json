@@ -65,6 +65,8 @@
     "check:api-mcp-rollout": "node --import tsx scripts/check-api-mcp-rollout-readiness.ts",
     "prerecord:mcp-client-smoke": "node scripts/guard-main-worktree.mjs",
     "record:mcp-client-smoke": "node --import tsx scripts/record-mcp-client-smoke.ts",
+    "prerecord:mcp-hosted-evidence": "node scripts/guard-main-worktree.mjs",
+    "record:mcp-hosted-evidence": "node --import tsx scripts/record-hosted-mcp-evidence.ts",
     "presmoke:mcp-compat": "node scripts/guard-main-worktree.mjs",
     "smoke:mcp-compat": "node --import tsx scripts/smoke-vrdex-mcp-compat.ts",
     "presmoke:mcp-claude-code": "node scripts/guard-main-worktree.mjs",

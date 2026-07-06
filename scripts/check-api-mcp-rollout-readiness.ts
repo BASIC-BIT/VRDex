@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 
 type ManualStatus = "fail" | "not_applicable" | "pass" | "pending";
+type HostedReadinessStatus = "fail" | "pass" | "pending";
 
 type SmokeCheck = {
   id: string;
@@ -15,8 +16,17 @@ type ClientEntry = {
   name: string;
 };
 
+type HostedReadinessCheck = {
+  id: string;
+  requiredForExternalReadiness: boolean;
+  status: HostedReadinessStatus;
+};
+
 type SmokeMatrix = {
   clients: ClientEntry[];
+  hostedReadiness?: {
+    checks: HostedReadinessCheck[];
+  };
   readinessMode: string;
   schemaVersion: 1;
   targetEnvironment: string | null;
@@ -86,10 +96,16 @@ const requiredScripts = [
   "verify:api-contracts",
   "verify:vrdex-mcp",
   "verify:docs",
+  "record:mcp-hosted-evidence",
 ];
 
 const hostedEvidenceTargetPattern = /\b(same-branch|production-like|staging|production)\b/i;
 const pendingHostedEvidencePattern = /\b(pending|need|needs|lack|lacks|skipped|unavailable|not deployed|without data-backed)\b/i;
+const requiredHostedReadinessChecks = new Map<string, string>([
+  ["hosted-data-backed-anonymous-read", "data-backed anonymous hosted MCP public read"],
+  ["hosted-dynamic-client-registration", "hosted OAuth Dynamic Client Registration"],
+  ["hosted-client-id-metadata-document", "hosted OAuth Client ID Metadata Document"],
+]);
 
 function matrixPath() {
   return process.env.VRDEX_MCP_CLIENT_MATRIX_PATH?.trim()
@@ -202,14 +218,36 @@ async function checkHostedReadinessMode() {
   const hasPendingMode = /\bpending\b/i.test(matrix.readinessMode);
   const hasPendingTarget = pendingHostedEvidencePattern.test(target);
   const hasAcceptableTarget = hostedEvidenceTargetPattern.test(target) && !hasPendingTarget;
+  const hostedReadinessChecks = matrix.hostedReadiness?.checks ?? [];
+  const hostedReadinessBlockers: string[] = [];
+  const seenHostedReadinessChecks = new Set<string>();
 
-  return hasPendingMode || hasPendingTarget || !hasAcceptableTarget
+  for (const hostedCheck of hostedReadinessChecks) {
+    seenHostedReadinessChecks.add(hostedCheck.id);
+
+    if (hostedCheck.requiredForExternalReadiness && hostedCheck.status !== "pass") {
+      hostedReadinessBlockers.push(
+        `${requiredHostedReadinessChecks.get(hostedCheck.id) ?? hostedCheck.id}: ${hostedCheck.status}`,
+      );
+    }
+  }
+
+  for (const [checkId, label] of requiredHostedReadinessChecks) {
+    if (!seenHostedReadinessChecks.has(checkId)) {
+      hostedReadinessBlockers.push(`${label}: missing`);
+    }
+  }
+
+  return hasPendingMode || hasPendingTarget || !hasAcceptableTarget || hostedReadinessBlockers.length > 0
     ? check(
         "Production-like hosted MCP evidence",
         "pending",
         [
           `readinessMode=${matrix.readinessMode}`,
           `targetEnvironment=${target}`,
+          hostedReadinessBlockers.length > 0
+            ? `hostedReadiness=${hostedReadinessBlockers.join(", ")}`
+            : "hostedReadiness=all required checks pass",
           hasAcceptableTarget
             ? "target classification accepted"
             : "targetEnvironment must name a same-branch, staging, production-like, or production target",

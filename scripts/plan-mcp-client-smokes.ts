@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 type ManualStatus = "fail" | "not_applicable" | "pass" | "pending";
+type HostedReadinessStatus = "fail" | "pass" | "pending";
 type SmokeSurface =
   | "hosted_http_anonymous"
   | "hosted_http_diagnostic"
@@ -25,8 +26,18 @@ type ClientEntry = {
   name: string;
 };
 
+type HostedReadinessCheck = {
+  id: string;
+  notes?: string;
+  requiredForExternalReadiness: boolean;
+  status: HostedReadinessStatus;
+};
+
 type SmokeMatrix = {
   clients: ClientEntry[];
+  hostedReadiness?: {
+    checks: HostedReadinessCheck[];
+  };
   lastReviewed: string;
   readinessMode: string;
   schemaVersion: 1;
@@ -207,11 +218,51 @@ function shouldPrint(check: SmokeCheck, options: Options) {
 }
 
 function countPendingRequired(matrix: SmokeMatrix) {
-  return matrix.clients.reduce(
+  const pendingClientRows = matrix.clients.reduce(
     (total, client) =>
       total + client.checks.filter((check) => check.requiredForExternalReadiness && check.manualStatus !== "pass").length,
     0,
   );
+  const pendingHostedRows = (matrix.hostedReadiness?.checks ?? [])
+    .filter((check) => check.requiredForExternalReadiness && check.status !== "pass")
+    .length;
+
+  return pendingClientRows + pendingHostedRows;
+}
+
+function hostedReadinessCommand(check: HostedReadinessCheck, options: Options) {
+  const target = hostedTarget(options);
+  const base = `pnpm smoke:mcp-compat -- --hosted-only --hosted-url ${target}`;
+
+  switch (check.id) {
+    case "hosted-data-backed-anonymous-read":
+      return `${base} --hosted-data`;
+    case "hosted-dynamic-client-registration":
+      return `${base} --dcr`;
+    case "hosted-client-id-metadata-document":
+      return `${base} --cimd`;
+    default:
+      return base;
+  }
+}
+
+function hostedReadinessRecorderCommand(check: HostedReadinessCheck) {
+  return [
+    "pnpm record:mcp-hosted-evidence --",
+    `--check ${check.id}`,
+    "--status pass",
+    '--target-environment "<same-branch Convex preview / staging / production-like target>"',
+    '--environment "<OS / runner / target>"',
+    '--evidence "<sanitized workflow link or command output>"',
+  ].join(" ");
+}
+
+function shouldPrintHostedReadiness(check: HostedReadinessCheck, options: Options) {
+  if (options.checkId !== undefined && check.id !== options.checkId) {
+    return false;
+  }
+
+  return options.includePassed || check.status !== "pass";
 }
 
 function printPlan(matrix: SmokeMatrix, options: Options) {
@@ -225,6 +276,25 @@ function printPlan(matrix: SmokeMatrix, options: Options) {
   console.log(`Target environment: ${matrix.targetEnvironment ?? "not recorded"}`);
   console.log(`Hosted URL for generated commands: ${hostedTarget(options)}`);
   console.log(`Pending required rows: ${pendingRequired}`);
+  console.log("");
+  console.log("| Hosted evidence | Status | Repo smoke | Recorder command |");
+  console.log("| --- | --- | --- | --- |");
+
+  for (const check of matrix.hostedReadiness?.checks ?? []) {
+    if (!shouldPrintHostedReadiness(check, options)) {
+      continue;
+    }
+
+    console.log(
+      `| ${[
+        markdownCell(check.id),
+        markdownCell(check.status),
+        markdownCell(inlineCode(hostedReadinessCommand(check, options))),
+        markdownCell(inlineCode(hostedReadinessRecorderCommand(check))),
+      ].join(" | ")} |`,
+    );
+  }
+
   console.log("");
   console.log("| Client | Check | Status | Repo preflight | Manual evidence | Recorder command |");
   console.log("| --- | --- | --- | --- | --- | --- |");

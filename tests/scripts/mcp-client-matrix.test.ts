@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 
 type ManualStatus = "fail" | "not_applicable" | "pass" | "pending";
+type HostedReadinessStatus = "fail" | "pass" | "pending";
 type SmokeSurface =
   | "hosted_http_anonymous"
   | "hosted_http_diagnostic"
@@ -30,8 +31,21 @@ type ClientEntry = {
   name: string;
 };
 
+type HostedReadinessCheck = {
+  environment?: string;
+  evidence?: string;
+  id: string;
+  lastRunAt?: string;
+  notes?: string;
+  requiredForExternalReadiness: boolean;
+  status: HostedReadinessStatus;
+};
+
 type SmokeMatrix = {
   clients: ClientEntry[];
+  hostedReadiness?: {
+    checks: HostedReadinessCheck[];
+  };
   lastReviewed: string;
   readinessMode: string;
   schemaVersion: 1;
@@ -80,6 +94,17 @@ function markHostedInspectorPass(matrix: SmokeMatrix) {
   check.lastRunAt = "2026-07-06";
 }
 
+function markHostedReadinessPass(matrix: SmokeMatrix, checkId: string) {
+  const check = matrix.hostedReadiness?.checks.find((entry) => entry.id === checkId);
+
+  assert.ok(check, `${checkId} hosted readiness row must exist`);
+
+  check.status = "pass";
+  check.environment = "GitHub Actions / deployed hosted MCP smoke";
+  check.evidence = "sanitized hosted smoke workflow evidence";
+  check.lastRunAt = "2026-07-06";
+}
+
 describe("MCP client matrix verifier", () => {
   it("rejects hosted pass rows when the target still describes pending preview evidence", async () => {
     const { directory, path } = await writeMatrixCopy("pending-hosted-target", (matrix) => {
@@ -111,6 +136,25 @@ describe("MCP client matrix verifier", () => {
 
       assert.equal(result.status, 0, result.stderr);
       assert.match(result.stdout, /MCP Inspector/);
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  it("rejects hosted readiness pass rows when the target still describes pending preview evidence", async () => {
+    const { directory, path } = await writeMatrixCopy("pending-hosted-readiness-target", (matrix) => {
+      matrix.targetEnvironment = "same-branch preview transport smoke; Convex preview backend unavailable";
+      markHostedReadinessPass(matrix, "hosted-data-backed-anonymous-read");
+    });
+
+    try {
+      const result = runMatrixCheck(path);
+
+      assert.notEqual(result.status, 0);
+      assert.match(
+        result.stderr,
+        /hostedReadiness\/hosted-data-backed-anonymous-read pass targetEnvironment must not describe pending/i,
+      );
     } finally {
       await rm(directory, { force: true, recursive: true });
     }

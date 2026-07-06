@@ -3,6 +3,28 @@
   "lastReviewed": "2026-07-06",
   "readinessMode": "repo-protocol-smoked-hosted-transport-smoked-data-backed-client-smokes-pending",
   "targetEnvironment": "PR #159 Vercel preview transport smoke passes on the latest Baseline run, but Convex preview deployment is skipped because CONVEX_DEPLOY_KEY_PREVIEW is not configured; staging https://staging.vrdex.net/mcp returned HTTP 404 on 2026-07-06; data-backed hosted public reads plus DCR/CIMD hosted OAuth rows need a same-branch Convex preview or production-like backend.",
+  "hostedReadiness": {
+    "checks": [
+      {
+        "id": "hosted-data-backed-anonymous-read",
+        "requiredForExternalReadiness": true,
+        "status": "pending",
+        "notes": "Run pnpm smoke:mcp-compat -- --hosted-only --hosted-url <same-branch-or-production-like-/mcp-url> --hosted-data and require non-empty vrdex_search structured content without a tool error."
+      },
+      {
+        "id": "hosted-dynamic-client-registration",
+        "requiredForExternalReadiness": true,
+        "status": "pending",
+        "notes": "Run pnpm smoke:mcp-compat -- --hosted-only --hosted-url <same-branch-or-production-like-/mcp-url> --dcr against a backend with OAuth dynamic client registration enabled."
+      },
+      {
+        "id": "hosted-client-id-metadata-document",
+        "requiredForExternalReadiness": true,
+        "status": "pending",
+        "notes": "Run pnpm smoke:mcp-compat -- --hosted-only --hosted-url <same-branch-or-production-like-/mcp-url> --cimd and require the public-client metadata document authorization path to pass metadata validation."
+      }
+    ]
+  },
   "clients": [
     {
       "id": "claude-desktop",

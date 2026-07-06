@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 type ManualStatus = "fail" | "not_applicable" | "pass" | "pending";
+type HostedReadinessStatus = "fail" | "pass" | "pending";
 type SmokeSurface =
   | "hosted_http_anonymous"
   | "hosted_http_diagnostic"
@@ -26,8 +27,21 @@ type ClientEntry = {
   name: string;
 };
 
+type HostedReadinessCheck = {
+  environment?: string;
+  evidence?: string;
+  id: string;
+  lastRunAt?: string;
+  notes?: string;
+  requiredForExternalReadiness: boolean;
+  status: HostedReadinessStatus;
+};
+
 type SmokeMatrix = {
   clients: ClientEntry[];
+  hostedReadiness?: {
+    checks: HostedReadinessCheck[];
+  };
   lastReviewed: string;
   readinessMode: string;
   schemaVersion: 1;
@@ -59,8 +73,14 @@ const allowedSurfaces = new Set<SmokeSurface>([
 ]);
 
 const allowedManualStatuses = new Set<ManualStatus>(["fail", "not_applicable", "pass", "pending"]);
+const allowedHostedReadinessStatuses = new Set<HostedReadinessStatus>(["fail", "pass", "pending"]);
 const hostedEvidenceTargetPattern = /\b(same-branch|production-like|staging|production)\b/i;
 const pendingHostedEvidencePattern = /\b(pending|need|needs|lack|lacks|skipped|unavailable|not deployed|without data-backed)\b/i;
+const requiredHostedReadinessChecks = new Map<string, string>([
+  ["hosted-data-backed-anonymous-read", "data-backed anonymous hosted MCP public read"],
+  ["hosted-dynamic-client-registration", "hosted OAuth Dynamic Client Registration"],
+  ["hosted-client-id-metadata-document", "hosted OAuth Client ID Metadata Document"],
+]);
 
 function envFlag(name: string) {
   const value = process.env[name]?.trim().toLowerCase();
@@ -207,6 +227,75 @@ function validateSmokeMatrix(matrix: SmokeMatrix) {
     assert.equal(seenClients.has(clientId), true, `matrix is missing ${clientId}`);
   }
 
+  const hostedBlockers = validateHostedReadiness(matrix);
+
+  blockers.push(...hostedBlockers);
+
+  return blockers;
+}
+
+function validateHostedReadinessCheck(check: HostedReadinessCheck, matrix: SmokeMatrix) {
+  assertString(check.id, `hostedReadiness/${check.id} id`);
+  assert.equal(
+    typeof check.requiredForExternalReadiness,
+    "boolean",
+    `hostedReadiness/${check.id} requiredForExternalReadiness must be a boolean`,
+  );
+  assert.equal(
+    allowedHostedReadinessStatuses.has(check.status),
+    true,
+    `hostedReadiness/${check.id} has unsupported status`,
+  );
+  assertOptionalString(check.environment, `hostedReadiness/${check.id} environment`);
+  assertOptionalString(check.evidence, `hostedReadiness/${check.id} evidence`);
+  assertOptionalString(check.lastRunAt, `hostedReadiness/${check.id} lastRunAt`);
+  assertOptionalString(check.notes, `hostedReadiness/${check.id} notes`);
+
+  if (check.status === "pass" || check.status === "fail") {
+    assertString(check.lastRunAt, `hostedReadiness/${check.id} lastRunAt`);
+    assertString(check.environment, `hostedReadiness/${check.id} environment`);
+    assertString(check.evidence, `hostedReadiness/${check.id} evidence`);
+  }
+
+  if (check.status === "pass" && check.requiredForExternalReadiness) {
+    assertString(matrix.targetEnvironment, "targetEnvironment");
+    assert.match(
+      matrix.targetEnvironment,
+      hostedEvidenceTargetPattern,
+      `hostedReadiness/${check.id} pass targetEnvironment must name a same-branch, staging, production-like, or production target`,
+    );
+    assert.doesNotMatch(
+      matrix.targetEnvironment,
+      pendingHostedEvidencePattern,
+      `hostedReadiness/${check.id} pass targetEnvironment must not describe pending, skipped, unavailable, or non-data-backed evidence`,
+    );
+  }
+}
+
+function validateHostedReadiness(matrix: SmokeMatrix) {
+  const blockers: string[] = [];
+  const checks = matrix.hostedReadiness?.checks;
+
+  assert.equal(Array.isArray(checks), true, "hostedReadiness.checks must be an array");
+
+  const seenChecks = new Set<string>();
+
+  for (const check of checks ?? []) {
+    validateHostedReadinessCheck(check, matrix);
+    assert.equal(seenChecks.has(check.id), false, `duplicate hostedReadiness check ${check.id}`);
+    seenChecks.add(check.id);
+
+    if (check.requiredForExternalReadiness && check.status !== "pass") {
+      blockers.push(`Hosted MCP ${requiredHostedReadinessChecks.get(check.id) ?? check.id}: ${check.status}`);
+    }
+  }
+
+  for (const [checkId, label] of requiredHostedReadinessChecks) {
+    if (!seenChecks.has(checkId)) {
+      blockers.push(`Hosted MCP ${label}: missing`);
+    }
+  }
+
   return blockers;
 }
 
@@ -221,6 +310,14 @@ function summarize(matrix: SmokeMatrix) {
       .join(", ");
 
     console.log(`| ${client.name} | ${requiredChecks.length} | ${statuses} |`);
+  }
+
+  console.log("");
+  console.log("| Hosted readiness check | Required | Status |");
+  console.log("| --- | --- | --- |");
+
+  for (const check of matrix.hostedReadiness?.checks ?? []) {
+    console.log(`| ${check.id} | ${check.requiredForExternalReadiness ? "yes" : "no"} | ${check.status} |`);
   }
 }
 

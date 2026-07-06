@@ -1194,6 +1194,9 @@ Implementation checkpoint:
   rollout checklist
 - self-hosting docs include the current API, OAuth, hosted MCP, rate-limit, and
   local stdio MCP environment inventory
+- production-like hosted MCP evidence is now tracked as structured matrix rows
+  for data-backed anonymous reads, Dynamic Client Registration, and Client ID
+  Metadata Document coverage, separate from manual client UI smoke rows
 
 ## Suggested Issue Slices
 

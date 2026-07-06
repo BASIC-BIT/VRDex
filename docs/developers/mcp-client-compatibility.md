@@ -150,8 +150,8 @@ pnpm ops:mcp-client-smokes -- \
 ```
 
 The planner prints every pending required row, the repo preflight command to
-run first, the client-side evidence to capture, and the exact
-`pnpm record:mcp-client-smoke` command shape for recording a pass. Add
+run first, the client-side evidence to capture, the production-like hosted MCP
+evidence rows, and the exact recorder command shapes for recording passes. Add
 `--include-passed` when producing a full day-one evidence packet instead of
 only the pending work.
 
@@ -193,6 +193,28 @@ The recorder and matrix verifier reject hosted pass rows that still describe
 pending, skipped, unavailable, or non-data-backed evidence. This keeps
 lightweight PR preview transport smokes separate from external-readiness
 evidence, even if the JSON artifact is hand-edited.
+
+Record the top-level hosted MCP production-like evidence rows with
+`pnpm record:mcp-hosted-evidence` after the corresponding hosted smoke passes:
+
+```sh
+pnpm record:mcp-hosted-evidence -- \
+  --check hosted-data-backed-anonymous-read \
+  --status pass \
+  --target-environment "production-like staging https://vrdex.net/mcp" \
+  --environment "GitHub Actions / hosted-mcp-smoke" \
+  --evidence "sanitized workflow link or command output"
+```
+
+The required hosted evidence rows are:
+
+- `hosted-data-backed-anonymous-read`
+- `hosted-dynamic-client-registration`
+- `hosted-client-id-metadata-document`
+
+These rows are checked separately from manual client UI rows so a lightweight
+PR preview transport smoke cannot accidentally satisfy the production-like
+data-backed, DCR, and CIMD readiness gate.
 
 By default, the check accepts `pending` manual rows because repository protocol
 checks can run before the desktop/web client smokes are available. For external

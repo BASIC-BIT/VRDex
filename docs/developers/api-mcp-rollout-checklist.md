@@ -73,10 +73,10 @@ one PR.
   local stdio protocol coverage across every curated read tool. The verifier
   also validates
   `docs/developers/mcp-client-smoke-results.json` so the manual matrix keeps
-  every required day-one client row. The smoke can optionally probe a deployed
-  hosted `/mcp` endpoint with `--hosted-url`, and can include constrained
-  Dynamic Client Registration and Client ID Metadata Document probes with
-  `--dcr` and `--cimd`.
+  every required day-one client row and every production-like hosted-readiness
+  evidence row. The smoke can optionally probe a deployed hosted `/mcp`
+  endpoint with `--hosted-url`, and can include constrained Dynamic Client
+  Registration and Client ID Metadata Document probes with `--dcr` and `--cimd`.
 - Baseline Checks runs `Hosted MCP Preview Smoke` after the Vercel preview. It
   runs anonymous hosted Streamable HTTP, an anonymous `vrdex_search` tool call,
   OAuth metadata, and bearer-challenge checks whenever a preview URL exists. It
@@ -88,7 +88,10 @@ one PR.
   the same hosted smoke against a staging, production-like, or same-branch
   Convex preview target. Use its `mcp_dcr` and `mcp_cimd` inputs for
   external-readiness evidence when the automatic PR preview lane cannot enable
-  those probes.
+  those probes. Record the production-like hosted-readiness rows with
+  `pnpm record:mcp-hosted-evidence` so the aggregate readiness gate can verify
+  data-backed anonymous reads, Dynamic Client Registration, and Client ID
+  Metadata Document evidence separately from client UI smoke rows.
 - `docs/developers/mcp-client-compatibility.md` lists the current major-client
   matrix and must have manual smoke results before external readiness is
   declared. Record those manual rows with `pnpm record:mcp-client-smoke` so
@@ -129,6 +132,17 @@ pnpm record:mcp-client-smoke -- \
   --status pass \
   --environment "<client/version/env>" \
   --evidence "<sanitized evidence link>"
+```
+
+Use a command shaped like this for each hosted production-like evidence row:
+
+```sh
+pnpm record:mcp-hosted-evidence -- \
+  --check hosted-data-backed-anonymous-read \
+  --status pass \
+  --target-environment "<same-branch Convex preview / staging / production-like target>" \
+  --environment "<runner / target>" \
+  --evidence "<sanitized workflow link or command output>"
 ```
 
 ## Validation Commands

@@ -91,6 +91,9 @@ Public API and MCP platform foundation checkpoint:
   trusted-partner personal tokens and OAuth applications
 - added a checked manual MCP client smoke-results artifact and verifier so
   day-one client compatibility evidence is explicit before external readiness
+- added structured hosted MCP readiness evidence rows and a recorder command so
+  data-backed anonymous reads, DCR, and CIMD proof are checked separately from
+  client UI smoke rows
 - added `GET /api/v0/usage/rate-limit` for route-class quota policy and caller
   window introspection
 - added `GET /api/v0/me` for authenticated caller introspection
