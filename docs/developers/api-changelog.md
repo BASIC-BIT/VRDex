@@ -9,6 +9,9 @@ docs update and a changelog entry so early consumers and agents can adapt.
 
 ## 2026-07-06
 
+- added `pnpm ops:mcp-client-smokes` to generate the current day-one MCP
+  client smoke run plan, including repo preflight commands, manual evidence
+  prompts, and recorder command templates from the checked matrix
 - added `pnpm record:mcp-client-smoke` to record sanitized manual MCP client
   smoke evidence into the checked compatibility matrix without hand-editing
   JSON

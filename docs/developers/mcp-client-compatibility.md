@@ -141,6 +141,20 @@ required smoke row. Run this explicit check when updating matrix evidence:
 pnpm check:mcp-client-matrix
 ```
 
+Generate the next smoke-run plan from the current matrix before coordinating
+manual client sessions:
+
+```sh
+pnpm ops:mcp-client-smokes -- \
+  --hosted-url https://staging.vrdex.net/mcp
+```
+
+The planner prints every pending required row, the repo preflight command to
+run first, the client-side evidence to capture, and the exact
+`pnpm record:mcp-client-smoke` command shape for recording a pass. Add
+`--include-passed` when producing a full day-one evidence packet instead of
+only the pending work.
+
 Record manual pass or fail results with the recorder command instead of
 hand-editing the JSON:
 
@@ -329,6 +343,13 @@ VS Code hosted config:
 ```
 
 ## Manual Smoke Checklist
+
+Start by generating the current plan:
+
+```sh
+pnpm ops:mcp-client-smokes -- \
+  --hosted-url <preview-or-production-like-/mcp-url>
+```
 
 0. Run `pnpm smoke:mcp-compat`; for hosted protocol coverage, add
    `--hosted-url <preview-or-production-like-/mcp-url>`. Add `--hosted-data`

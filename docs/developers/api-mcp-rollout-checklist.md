@@ -86,6 +86,9 @@ one PR.
   declared. Record those manual rows with `pnpm record:mcp-client-smoke` so
   pass/fail entries include a run date, target environment, and sanitized
   evidence pointer.
+- `pnpm ops:mcp-client-smokes` generates the current day-one client smoke run
+  plan from the matrix, including repo preflight commands, manual evidence
+  prompts, and recorder command templates for pending rows.
 - `pnpm check:api-mcp-rollout` summarizes the generated OpenAPI contract,
   required docs, verification scripts, MCP client matrix, and hosted MCP
   production-like evidence state. It reports pending required items in normal
@@ -124,6 +127,7 @@ pnpm typecheck:vrdex-mcp
 pnpm test:vrdex-mcp
 pnpm smoke:mcp-compat
 pnpm check:mcp-client-matrix
+pnpm ops:mcp-client-smokes
 pnpm check:api-mcp-rollout
 pnpm smoke:mcp-inspector -- --hosted-url <preview-or-production-like-/mcp-url>
 pnpm typecheck:backend

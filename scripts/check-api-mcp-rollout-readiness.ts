@@ -78,6 +78,7 @@ const requiredDeveloperDocs = [
 const requiredScripts = [
   "check:api-openapi",
   "check:mcp-client-matrix",
+  "ops:mcp-client-smokes",
   "smoke:mcp-compat",
   "smoke:mcp-claude-code",
   "smoke:mcp-inspector",
