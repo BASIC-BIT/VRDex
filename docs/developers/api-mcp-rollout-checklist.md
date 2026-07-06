@@ -77,7 +77,20 @@ one PR.
   configured.
 - `docs/developers/mcp-client-compatibility.md` lists the current major-client
   matrix and must have manual smoke results before external readiness is
-  declared.
+  declared. Record those manual rows with `pnpm record:mcp-client-smoke` so
+  pass/fail entries include a run date, target environment, and sanitized
+  evidence pointer.
+
+Use a command shaped like this for each manual matrix row:
+
+```sh
+pnpm record:mcp-client-smoke -- \
+  --client mcp-inspector \
+  --check hosted-anonymous-read \
+  --status pass \
+  --environment "<client/version/env>" \
+  --evidence "<sanitized evidence link>"
+```
 
 ## Validation Commands
 

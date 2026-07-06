@@ -34,7 +34,8 @@ type SmokeMatrix = {
   targetEnvironment: string | null;
 };
 
-const matrixPath = "docs/developers/mcp-client-smoke-results.json";
+const matrixPath = process.env.VRDEX_MCP_CLIENT_MATRIX_PATH?.trim()
+  || "docs/developers/mcp-client-smoke-results.json";
 
 const requiredClientChecks = new Map<string, string[]>([
   ["claude-desktop", ["local-stdio", "hosted-anonymous-read", "hosted-oauth"]],

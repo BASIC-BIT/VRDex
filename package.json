@@ -57,6 +57,8 @@
     "ops:api-rate-limits": "node --import tsx scripts/print-api-rate-limit-policies.ts",
     "precheck:mcp-client-matrix": "node scripts/guard-main-worktree.mjs",
     "check:mcp-client-matrix": "node --import tsx scripts/check-mcp-client-matrix.ts",
+    "prerecord:mcp-client-smoke": "node scripts/guard-main-worktree.mjs",
+    "record:mcp-client-smoke": "node --import tsx scripts/record-mcp-client-smoke.ts",
     "presmoke:mcp-compat": "node scripts/guard-main-worktree.mjs",
     "smoke:mcp-compat": "node --import tsx scripts/smoke-vrdex-mcp-compat.ts",
     "prelint:web": "node scripts/guard-main-worktree.mjs",

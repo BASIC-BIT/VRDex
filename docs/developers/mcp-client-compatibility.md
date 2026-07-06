@@ -76,6 +76,24 @@ required smoke row. Run this explicit check when updating matrix evidence:
 pnpm check:mcp-client-matrix
 ```
 
+Record manual pass or fail results with the recorder command instead of
+hand-editing the JSON:
+
+```sh
+pnpm record:mcp-client-smoke -- \
+  --client mcp-inspector \
+  --check hosted-anonymous-read \
+  --status pass \
+  --environment "Windows 11 / MCP Inspector <version> / https://vrdex.net/mcp" \
+  --evidence "sanitized screenshot or PR evidence link"
+```
+
+Use `--matrix <path>` or `VRDEX_MCP_CLIENT_MATRIX_PATH=<path>` to rehearse an
+update against a temporary copy before writing the canonical matrix. A `pass`
+or `fail` entry requires an environment and evidence pointer; `pending` clears
+run evidence; `not_applicable` requires notes and is allowed only for rows that
+are not required for external readiness.
+
 By default, the check accepts `pending` manual rows because repository protocol
 checks can run before the desktop/web client smokes are available. For external
 readiness, require every required manual row to pass:
@@ -253,10 +271,10 @@ config shape, whether the client distinguishes anonymous/no-auth tools from
 OAuth-required tools, and issue link if it fails. Keep real tokens out of docs,
 logs, and screenshots.
 
-Record those results in `docs/developers/mcp-client-smoke-results.json`. A
-`pass` or `fail` row must include the run date, environment, and a sanitized
-evidence pointer. Leave a row as `pending` only while the PR is not being
-declared externally ready.
+Record those results with `pnpm record:mcp-client-smoke`. The command updates
+`docs/developers/mcp-client-smoke-results.json` and preserves the matrix shape
+expected by `pnpm check:mcp-client-matrix`. Leave a row as `pending` only while
+the PR is not being declared externally ready.
 
 ## Source Trail
 

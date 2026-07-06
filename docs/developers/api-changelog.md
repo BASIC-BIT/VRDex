@@ -7,6 +7,12 @@ Changelog for the unstable `/api/v0` and MCP platform foundation.
 `v0` is allowed to change before public launch. Breaking changes still need a
 docs update and a changelog entry so early consumers and agents can adapt.
 
+## 2026-07-06
+
+- added `pnpm record:mcp-client-smoke` to record sanitized manual MCP client
+  smoke evidence into the checked compatibility matrix without hand-editing
+  JSON
+
 ## 2026-07-04
 
 Public API and MCP platform foundation checkpoint:
