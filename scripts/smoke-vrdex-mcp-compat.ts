@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 
 import { startVrdexMcpApiFixture } from "../packages/vrdex-mcp/tests/api-fixture";
+import { summarizeMcpToolFailure } from "./lib/mcp-smoke-diagnostics";
 
 type JsonRpcMessage = {
   error?: unknown;
@@ -728,8 +729,16 @@ async function smokeHostedHttp(results: SmokeResult[], options: SmokeOptions) {
       };
     };
 
-    assert.equal(dataSearchBody.error, undefined);
-    assert.notEqual(dataSearchBody.result?.isError, true, "Hosted data-backed vrdex_search returned a tool error.");
+    assert.equal(
+      dataSearchBody.error,
+      undefined,
+      `Hosted data-backed vrdex_search returned a JSON-RPC error: ${summarizeMcpToolFailure(dataSearchBody)}`,
+    );
+    assert.notEqual(
+      dataSearchBody.result?.isError,
+      true,
+      `Hosted data-backed vrdex_search returned a tool error: ${summarizeMcpToolFailure(dataSearchBody)}`,
+    );
     assert.equal(dataSearchBody.result?.structuredContent?.query, "club");
     assert.equal(dataSearchBody.result?.structuredContent?.type, "all");
     assert.equal(Array.isArray(dataSearchBody.result?.structuredContent?.results), true);

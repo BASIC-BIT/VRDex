@@ -142,6 +142,52 @@ describe("VRDex MCP server", () => {
     }
   });
 
+  it("returns a public-safe tool error when hosted public data is unavailable", () => {
+    const output = runMcpProbe(`
+      import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      const handler = createVrdexMcpHandler({
+        convex: {
+          query: async () => {
+            throw new Error("secret backend failure");
+          },
+        },
+      });
+      const request = new Request("http://localhost:3000/mcp", {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 3,
+          method: "tools/call",
+          params: {
+            arguments: { query: "club", type: "all", limit: 1 },
+            name: "vrdex_search",
+          },
+        }),
+      });
+      const response = await handler.fetch(request);
+
+      console.log(response.status);
+      console.log(await response.text());
+    `);
+    const body = jsonBodyFromProbe(output) as {
+      result?: {
+        content?: Array<{ text?: string; type?: string }>;
+        isError?: boolean;
+      };
+    };
+    const errorText = body.result?.content?.find((entry) => entry.type === "text")?.text ?? "";
+
+    assert.match(output, /^200/m);
+    assert.equal(body.result?.isError, true);
+    assert.match(errorText, /VRDex public data is temporarily unavailable for search/);
+    assert.doesNotMatch(errorText, /secret backend failure/);
+  });
+
   it("returns OAuth discovery details for malformed bearer tokens", () => {
     const output = runMcpProbe(`
       import { rejectInvalidOrRateLimitedMcpRequest } from "./apps/web/src/lib/server/vrdex-mcp.ts";

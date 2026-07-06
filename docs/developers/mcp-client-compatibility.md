@@ -226,7 +226,9 @@ metadata, authorization-server metadata, and the OAuth protected-resource
 challenge for invalid bearer tokens. Add `--hosted-data` when the target is
 backed by same-branch or production-like Convex functions and indexes; that path
 requires non-empty anonymous `vrdex_search` to return structured content instead
-of a tool error. Add `--dcr` when you want the smoke to register a
+of a tool error. When a data-backed tool call fails, the smoke prints a
+sanitized summary of the MCP error content to make backend, fixture, and tool
+contract failures easier to distinguish. Add `--dcr` when you want the smoke to register a
 constrained public MCP client through Dynamic Client Registration. Add `--cimd`
 when you want the smoke to exercise a URL-form public client id against
 `GET /oauth/authorize`; the smoke uses

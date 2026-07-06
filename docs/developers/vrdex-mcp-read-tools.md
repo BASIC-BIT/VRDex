@@ -235,6 +235,9 @@ external readiness.
 
 - Use public API/query behavior, not website scraping.
 - Treat not found, private, opted-out, and suppressed records as the same public-safe absence unless the public API deliberately exposes a safer status.
+- Return a public-safe MCP tool error with non-empty text when the hosted
+  public data backend is temporarily unavailable; do not leak backend exception
+  details.
 - Do not expose raw provider IDs unless they are already public and documented as safe.
 - Do not expose private contact details or moderation-only fields.
 - Do not imply owner confirmation for unclaimed, imported, community-submitted, or partner-provided records.

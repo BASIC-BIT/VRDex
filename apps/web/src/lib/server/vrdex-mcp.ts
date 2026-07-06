@@ -86,6 +86,18 @@ function mcpNotFound(resourceName: string, slug: string) {
   };
 }
 
+function mcpPublicReadUnavailable(operation: string) {
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `VRDex public data is temporarily unavailable for ${operation}. Try again later.`,
+      },
+    ],
+    isError: true as const,
+  };
+}
+
 function mcpJsonRpcError(status: number, code: number, message: string) {
   return withMcpHttpHeaders(
     Response.json(
@@ -357,11 +369,18 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       }
 
       const entityType = entityTypeForSearchType(normalizedType);
-      const results = await convex().query(api.search.searchUniversal, {
-        query: searchText,
-        limit: cappedLimit,
-        ...(entityType === undefined ? {} : { entityType }),
-      });
+      let results;
+
+      try {
+        results = await convex().query(api.search.searchUniversal, {
+          query: searchText,
+          limit: cappedLimit,
+          ...(entityType === undefined ? {} : { entityType }),
+        });
+      } catch {
+        return mcpPublicReadUnavailable("search");
+      }
+
       const filteredResults =
         normalizedType === "person" || normalizedType === "community"
           ? results.filter((result) => result.profileType === normalizedType)
@@ -389,11 +408,17 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       _meta: mcpPublicReadToolMeta,
     },
     async ({ profileType, slug }) => {
-      const profile = await convex().query(api.profiles.getPublicBySlug, {
-        slug,
-        ...(profileType === undefined ? {} : { profileType }),
-        now: now(),
-      });
+      let profile;
+
+      try {
+        profile = await convex().query(api.profiles.getPublicBySlug, {
+          slug,
+          ...(profileType === undefined ? {} : { profileType }),
+          now: now(),
+        });
+      } catch {
+        return mcpPublicReadUnavailable("profile lookup");
+      }
 
       if (profile === null) {
         return mcpNotFound("Profile", slug);
@@ -416,7 +441,13 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       _meta: mcpPublicReadToolMeta,
     },
     async ({ slug }) => {
-      const event = await convex().query(api.events.getPublicBySlug, { slug });
+      let event;
+
+      try {
+        event = await convex().query(api.events.getPublicBySlug, { slug });
+      } catch {
+        return mcpPublicReadUnavailable("event lookup");
+      }
 
       if (event === null) {
         return mcpNotFound("Event", slug);
@@ -440,7 +471,13 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     },
     async ({ limit }) => {
       const cappedLimit = boundedLimit(limit, 8, 24);
-      const discovery = await convex().query(api.search.listDiscovery, { now: now() });
+      let discovery;
+
+      try {
+        discovery = await convex().query(api.search.listDiscovery, { now: now() });
+      } catch {
+        return mcpPublicReadUnavailable("upcoming events");
+      }
 
       return mcpJsonResult(PublicEventsResponseSchema, {
         events: discovery.upcomingEvents.slice(0, cappedLimit),
@@ -461,7 +498,13 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       _meta: mcpPublicReadToolMeta,
     },
     async ({ slug }) => {
-      const world = await convex().query(api.worlds.getPublicBySlug, { slug, now: now() });
+      let world;
+
+      try {
+        world = await convex().query(api.worlds.getPublicBySlug, { slug, now: now() });
+      } catch {
+        return mcpPublicReadUnavailable("world lookup");
+      }
 
       if (world === null) {
         return mcpNotFound("World", slug);
@@ -485,7 +528,13 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     },
     async ({ limit }) => {
       const cappedLimit = boundedLimit(limit, 3, 6);
-      const worlds = await convex().query(api.worlds.listHomeActiveWorlds, { now: now(), limit: cappedLimit });
+      let worlds;
+
+      try {
+        worlds = await convex().query(api.worlds.listHomeActiveWorlds, { now: now(), limit: cappedLimit });
+      } catch {
+        return mcpPublicReadUnavailable("active worlds");
+      }
 
       return mcpJsonResult(PublicActiveWorldsResponseSchema, { worlds });
     },
@@ -494,8 +543,8 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
   return server;
 }
 
-export function createVrdexMcpHandler(): McpHttpHandler {
-  return createMcpHandler(() => buildVrdexMcpServer(), {
+export function createVrdexMcpHandler(options: VrdexMcpServerOptions = {}): McpHttpHandler {
+  return createMcpHandler(() => buildVrdexMcpServer(options), {
     legacy: "stateless",
   });
 }
