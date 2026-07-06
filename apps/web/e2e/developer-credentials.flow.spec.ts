@@ -282,12 +282,13 @@ test("developer credentials work with v0 bearer APIs and OAuth PKCE @flow", asyn
 
     await expect(oauthRateLimitResponse).toBeOK();
     const oauthRateLimit = (await oauthRateLimitResponse.json()) as {
-      caller?: { authenticated?: boolean; credentialKind?: string; routeClass?: string };
+      caller?: { authenticated?: boolean; credentialKind?: string; quotaTier?: string; routeClass?: string };
     };
 
     expect(oauthRateLimit.caller).toEqual({
       authenticated: true,
       credentialKind: "oauth_client",
+      quotaTier: "standard",
       routeClass: "authenticated_public_read",
     });
 
