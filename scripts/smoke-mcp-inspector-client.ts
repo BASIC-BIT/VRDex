@@ -1,0 +1,297 @@
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+
+type InspectorOptions = {
+  hostedDataPublicReads: boolean;
+  hostedUrl?: string;
+  inspectorCommand: string;
+  search: {
+    limit: number;
+    query: string;
+    type: "all" | "community" | "event" | "person" | "profile" | "world";
+  };
+};
+
+type InspectorResult = {
+  code: number | null;
+  stderr: string;
+  stdout: string;
+};
+
+type ToolDescriptor = {
+  _meta?: {
+    securitySchemes?: unknown;
+  };
+  name?: unknown;
+};
+
+const expectedTools = [
+  "vrdex_search",
+  "vrdex_get_profile",
+  "vrdex_get_event",
+  "vrdex_list_upcoming_events",
+  "vrdex_get_world",
+  "vrdex_list_active_worlds",
+];
+const searchTypes = new Set<InspectorOptions["search"]["type"]>([
+  "all",
+  "community",
+  "event",
+  "person",
+  "profile",
+  "world",
+]);
+
+function nonEmpty(value: string | undefined) {
+  const trimmed = value?.trim();
+
+  return trimmed ? trimmed : undefined;
+}
+
+function envFlag(name: string) {
+  const value = process.env[name]?.trim().toLowerCase();
+
+  return value === "1" || value === "true" || value === "yes";
+}
+
+function takeValue(args: string[], index: number, name: string) {
+  const value = args[index + 1];
+
+  assert(value !== undefined && !value.startsWith("--"), `${name} requires a value.`);
+
+  return value;
+}
+
+function parseSearchType(value: string | undefined): InspectorOptions["search"]["type"] {
+  const normalized = nonEmpty(value) ?? "all";
+
+  assert(
+    searchTypes.has(normalized as InspectorOptions["search"]["type"]),
+    `Search type must be one of ${[...searchTypes].join(", ")}.`,
+  );
+
+  return normalized as InspectorOptions["search"]["type"];
+}
+
+function parseLimit(value: string | undefined) {
+  const normalized = nonEmpty(value) ?? "1";
+  const parsed = Number.parseInt(normalized, 10);
+
+  assert(Number.isSafeInteger(parsed), "Search limit must be an integer.");
+  assert(parsed >= 1 && parsed <= 50, "Search limit must be between 1 and 50.");
+
+  return parsed;
+}
+
+function parseArgs(argv: string[]): InspectorOptions {
+  const options: InspectorOptions = {
+    hostedDataPublicReads: envFlag("VRDEX_MCP_INSPECTOR_HOSTED_DATA"),
+    hostedUrl: nonEmpty(process.env.VRDEX_MCP_INSPECTOR_HOSTED_URL),
+    inspectorCommand: nonEmpty(process.env.VRDEX_MCP_INSPECTOR_COMMAND)
+      ?? (process.platform === "win32" ? "npx.cmd" : "npx"),
+    search: {
+      limit: parseLimit(process.env.VRDEX_MCP_INSPECTOR_LIMIT),
+      query: process.env.VRDEX_MCP_INSPECTOR_QUERY?.trim() ?? "",
+      type: parseSearchType(process.env.VRDEX_MCP_INSPECTOR_TYPE),
+    },
+  };
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+
+    switch (arg) {
+      case "--":
+        break;
+      case "--hosted-data":
+      case "--hosted-data-public-reads":
+        options.hostedDataPublicReads = true;
+        break;
+      case "--hosted-url":
+        options.hostedUrl = takeValue(argv, index, arg);
+        index += 1;
+        break;
+      case "--inspector-command":
+        options.inspectorCommand = takeValue(argv, index, arg);
+        index += 1;
+        break;
+      case "--limit":
+        options.search.limit = parseLimit(takeValue(argv, index, arg));
+        index += 1;
+        break;
+      case "--query":
+        options.search.query = takeValue(argv, index, arg).trim();
+        index += 1;
+        break;
+      case "--type":
+        options.search.type = parseSearchType(takeValue(argv, index, arg));
+        index += 1;
+        break;
+      default:
+        throw new Error(`Unknown option: ${arg}`);
+    }
+  }
+
+  if (options.hostedDataPublicReads && !options.search.query) {
+    options.search.query = "club";
+  }
+
+  assert.ok(nonEmpty(options.hostedUrl), "--hosted-url or VRDEX_MCP_INSPECTOR_HOSTED_URL is required.");
+  assert.notEqual(options.inspectorCommand.trim(), "", "--inspector-command must not be empty.");
+  if (options.hostedDataPublicReads) {
+    assert.notEqual(options.search.query, "", "--hosted-data requires a non-empty search query.");
+  }
+
+  return options;
+}
+
+function runInspector(options: InspectorOptions, args: string[]) {
+  return new Promise<InspectorResult>((resolve, reject) => {
+    const command = inspectorSpawn(options, args);
+    const child = spawn(command.command, command.args, {
+      cwd: process.cwd(),
+      shell: false,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const timeout = setTimeout(() => {
+      child.kill();
+      reject(new Error(`${options.inspectorCommand} timed out after 120000ms.`));
+    }, 120_000);
+    const stderr: Buffer[] = [];
+    const stdout: Buffer[] = [];
+
+    child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+    child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
+    child.on("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timeout);
+      resolve({
+        code,
+        stderr: Buffer.concat(stderr).toString("utf8"),
+        stdout: Buffer.concat(stdout).toString("utf8"),
+      });
+    });
+  });
+}
+
+function parseInspectorJson<T>(result: InspectorResult, label: string) {
+  assert.equal(result.code, 0, result.stderr || `${label} exited with ${result.code}.`);
+
+  try {
+    return JSON.parse(result.stdout) as T;
+  } catch {
+    throw new Error(`${label} did not return JSON: ${result.stdout.slice(0, 500)}`);
+  }
+}
+
+function hostedInspectorArgs(hostedUrl: string, method: string) {
+  return [
+    "--yes",
+    "@modelcontextprotocol/inspector",
+    "--cli",
+    hostedUrl,
+    "--transport",
+    "http",
+    "--method",
+    method,
+  ];
+}
+
+function inspectorSpawn(options: InspectorOptions, args: string[]) {
+  if (process.platform !== "win32") {
+    return { args, command: options.inspectorCommand };
+  }
+
+  return {
+    args: ["/d", "/s", "/c", options.inspectorCommand, ...args],
+    command: process.env.ComSpec ?? "cmd.exe",
+  };
+}
+
+function assertPublicReadSecuritySchemes(tool: ToolDescriptor) {
+  assert.deepEqual(
+    tool._meta?.securitySchemes,
+    [
+      { type: "noauth" },
+      { scopes: ["mcp:read"], type: "oauth2" },
+    ],
+    `Hosted Inspector tool ${String(tool.name)} is missing public-read auth metadata.`,
+  );
+}
+
+async function smokeHostedToolList(options: InspectorOptions) {
+  const result = await runInspector(options, hostedInspectorArgs(options.hostedUrl!, "tools/list"));
+  const body = parseInspectorJson<{ tools?: ToolDescriptor[] }>(result, "MCP Inspector tools/list");
+
+  assert.equal(Array.isArray(body.tools), true, "MCP Inspector tools/list did not return tools.");
+
+  const toolNames = (body.tools ?? []).map((tool) => tool.name);
+
+  assert.deepEqual(toolNames, expectedTools);
+  for (const tool of body.tools ?? []) {
+    assertPublicReadSecuritySchemes(tool);
+  }
+}
+
+async function smokeHostedDataSearch(options: InspectorOptions) {
+  if (!options.hostedDataPublicReads) {
+    return "skip";
+  }
+
+  const result = await runInspector(options, [
+    ...hostedInspectorArgs(options.hostedUrl!, "tools/call"),
+    "--tool-name",
+    "vrdex_search",
+    "--tool-arg",
+    `query=${options.search.query}`,
+    `type=${options.search.type}`,
+    `limit=${options.search.limit}`,
+  ]);
+  const body = parseInspectorJson<{
+    content?: Array<{ text?: unknown; type?: unknown }>;
+    isError?: unknown;
+  }>(result, "MCP Inspector tools/call");
+
+  assert.notEqual(body.isError, true, `MCP Inspector hosted vrdex_search returned a tool error: ${JSON.stringify(body)}`);
+
+  const text = body.content?.find((entry) => entry.type === "text")?.text;
+
+  assert.equal(typeof text, "string", "MCP Inspector hosted vrdex_search did not return text JSON.");
+
+  const structuredContent = JSON.parse(text as string) as {
+    query?: unknown;
+    results?: unknown;
+    type?: unknown;
+  };
+
+  assert.equal(structuredContent.query, options.search.query);
+  assert.equal(structuredContent.type, options.search.type);
+  assert.equal(Array.isArray(structuredContent.results), true);
+
+  return "pass";
+}
+
+async function main() {
+  const options = parseArgs(process.argv.slice(2));
+
+  await smokeHostedToolList(options);
+  const dataStatus = await smokeHostedDataSearch(options);
+
+  console.log("| Smoke target | Status | Details |");
+  console.log("| --- | --- | --- |");
+  console.log(
+    `| MCP Inspector hosted tools/list | pass | listed six VRDex tools and public-read auth metadata for ${options.hostedUrl} |`,
+  );
+  console.log(
+    dataStatus === "pass"
+      ? `| MCP Inspector hosted data-backed vrdex_search | pass | query=${JSON.stringify(options.search.query)}, type=${options.search.type}, limit=${options.search.limit} returned structured content |`
+      : "| MCP Inspector hosted data-backed vrdex_search | skip | pass --hosted-data against a same-branch or production-like backend |",
+  );
+}
+
+main().catch((error: unknown) => {
+  console.error(error instanceof Error ? error.message : error);
+  process.exit(1);
+});

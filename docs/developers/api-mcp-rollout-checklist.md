@@ -91,6 +91,11 @@ one PR.
   through a strict temporary MCP config. Use hosted mode with `--hosted-data`
   against a same-branch or production-like backend before recording Claude Code
   hosted anonymous-read readiness.
+- MCP Inspector hosted anonymous HTTP can be smoke-tested with
+  `pnpm smoke:mcp-inspector`, which uses the Inspector CLI to validate hosted
+  tool listing and public-read auth metadata. Use `--hosted-data` against a
+  same-branch or production-like backend before recording Inspector hosted
+  anonymous-read readiness.
 
 Use a command shaped like this for each manual matrix row:
 
@@ -115,6 +120,7 @@ pnpm typecheck:vrdex-mcp
 pnpm test:vrdex-mcp
 pnpm smoke:mcp-compat
 pnpm check:mcp-client-matrix
+pnpm smoke:mcp-inspector -- --hosted-url <preview-or-production-like-/mcp-url>
 pnpm typecheck:backend
 pnpm test:backend
 pnpm typecheck:web

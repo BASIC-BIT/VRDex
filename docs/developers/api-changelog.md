@@ -17,6 +17,9 @@ docs update and a changelog entry so early consumers and agents can adapt.
 - extended `pnpm smoke:mcp-claude-code -- --mode hosted-http` with
   `--hosted-data` so Claude Code hosted anonymous-read readiness can require a
   non-empty data-backed public search
+- added `pnpm smoke:mcp-inspector` as a repeatable hosted MCP Inspector CLI
+  smoke for tool-list/auth-metadata coverage and optional data-backed public
+  search readiness
 - added hosted MCP tool descriptor auth metadata so every curated public read
   tool advertises `_meta["securitySchemes"]` with `noauth` plus optional
   `oauth2`/`mcp:read`

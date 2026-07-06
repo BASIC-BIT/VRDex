@@ -63,6 +63,8 @@
     "smoke:mcp-compat": "node --import tsx scripts/smoke-vrdex-mcp-compat.ts",
     "presmoke:mcp-claude-code": "node scripts/guard-main-worktree.mjs",
     "smoke:mcp-claude-code": "node --import tsx scripts/smoke-claude-code-mcp-client.ts",
+    "presmoke:mcp-inspector": "node scripts/guard-main-worktree.mjs",
+    "smoke:mcp-inspector": "node --import tsx scripts/smoke-mcp-inspector-client.ts",
     "prelint:web": "node scripts/guard-main-worktree.mjs",
     "lint:web": "pnpm --filter web lint",
     "pretest:e2e": "node scripts/guard-main-worktree.mjs",

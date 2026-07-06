@@ -90,6 +90,29 @@ variables are `VRDEX_CLAUDE_CODE_HOSTED_DATA`,
 `VRDEX_CLAUDE_CODE_HOSTED_QUERY`, `VRDEX_CLAUDE_CODE_HOSTED_TYPE`, and
 `VRDEX_CLAUDE_CODE_HOSTED_LIMIT`.
 
+MCP Inspector has a hosted CLI wrapper that runs `npx --yes
+@modelcontextprotocol/inspector`, validates the hosted tool list, and confirms
+each public read tool advertises `noauth` plus optional `oauth2` metadata:
+
+```sh
+pnpm smoke:mcp-inspector -- \
+  --hosted-url https://staging.vrdex.net/mcp
+```
+
+For external-readiness evidence, add `--hosted-data` so Inspector must call a
+non-empty public search against the target backend:
+
+```sh
+pnpm smoke:mcp-inspector -- \
+  --hosted-url https://staging.vrdex.net/mcp \
+  --hosted-data
+```
+
+Use `--query`, `--type`, and `--limit` when the staging seed data needs a
+different public search fixture. The equivalent environment variables are
+`VRDEX_MCP_INSPECTOR_HOSTED_DATA`, `VRDEX_MCP_INSPECTOR_QUERY`,
+`VRDEX_MCP_INSPECTOR_TYPE`, and `VRDEX_MCP_INSPECTOR_LIMIT`.
+
 PR Baseline Checks run the same local stdio protocol smoke through
 `pnpm verify:vrdex-mcp`.
 
@@ -185,7 +208,7 @@ validating a staging target before external readiness.
 | Cursor | Treat local stdio as a required smoke target if the current release still supports command-based MCP config. | Treat hosted HTTP as a required smoke target if the current release supports remote MCP URLs. | Confirm current OAuth behavior during manual smoke. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; do not publish Cursor-specific snippets until the current docs or smoke run confirm them. |
 | OpenAI and ChatGPT MCP-capable surfaces | Treat local stdio as unsupported until the current product surface says otherwise. | Use hosted remote MCP when ChatGPT Apps, deep research, or API integration setup supports custom MCP servers. | Current OpenAI docs recommend CIMD when the authorization server supports it and keep DCR as a supported path when configured; VRDex implements both DCR and public-client CIMD. Public read tools advertise `_meta["securitySchemes"]` with `noauth` plus optional `oauth2`. | Hosted remote MCP target identified; exact setup and per-tool auth metadata behavior must be verified in the relevant OpenAI surface before launch docs publish snippets. |
 | Devin Desktop / Windsurf Cascade | Uses `mcp_config.json` with `mcpServers`. | Supports `serverUrl` or `url` for remote HTTP MCPs. | Docs state OAuth support for stdio, Streamable HTTP, and SSE. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; hosted config shape ready; manual smoke pending. |
-| MCP Inspector | Use as a protocol-level stdio debugger; local stdio `vrdex_search` is manually verified in the smoke matrix. | Connect directly to hosted `/mcp` for remote debugging; anonymous hosted tool listing is manually verified in the smoke matrix. | Exercise OAuth separately. | Local stdio diagnostic smoke passes; hosted tool listing and auth metadata pass on the PR preview, while data-backed hosted anonymous reads and hosted OAuth remain pending. |
+| MCP Inspector | Use as a protocol-level stdio debugger; local stdio `vrdex_search` is manually verified in the smoke matrix. | Connect directly to hosted `/mcp` for remote debugging; `pnpm smoke:mcp-inspector` validates hosted tool listing and auth metadata. | Exercise OAuth separately. | Local stdio diagnostic smoke passes; hosted tool listing/auth metadata can be repeated through `pnpm smoke:mcp-inspector`; data-backed hosted anonymous reads and hosted OAuth remain pending until run against a production-like backend. |
 
 ## Shared Local Stdio Config
 
@@ -323,8 +346,9 @@ VS Code hosted config:
 7. Devin Desktop or Windsurf Cascade local stdio and hosted HTTP read tools
    work; OAuth is tested when team MCP access allows it.
 8. MCP Inspector local stdio and hosted anonymous read paths return expected
-   tool lists, auth metadata, and data-backed search results; OAuth-protected
-   read behavior still needs a separate hosted smoke.
+   tool lists, auth metadata, and data-backed search results. Use
+   `pnpm smoke:mcp-inspector -- --hosted-data` for the hosted data-backed row;
+   OAuth-protected read behavior still needs a separate hosted smoke.
 
 For each smoke, record client version, OS, transport, auth mode, result, exact
 config shape, whether the client distinguishes anonymous/no-auth tools from

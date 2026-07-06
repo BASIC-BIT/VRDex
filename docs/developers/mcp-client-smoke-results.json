@@ -207,7 +207,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
           "manualStatus": "pending",
-          "notes": "MCP Inspector CLI hosted tools/list passed against the PR #159 preview on 2026-07-06 and showed all six curated tools with _meta securitySchemes. Data-backed hosted tool calls remain pending because the current preview lacks same-branch Convex backend coverage."
+          "notes": "MCP Inspector CLI hosted tools/list passed against the PR #159 preview on 2026-07-06 and can be repeated with pnpm smoke:mcp-inspector. Record this row only after rerunning pnpm smoke:mcp-inspector -- --hosted-data against a same-branch or production-like backend."
         },
         {
           "id": "hosted-oauth",
