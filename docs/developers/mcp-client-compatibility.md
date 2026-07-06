@@ -102,25 +102,27 @@ readiness, require every required manual row to pass:
 pnpm check:mcp-client-matrix -- --require-ready
 ```
 
-To include a deployed hosted MCP endpoint, set:
+To include a deployed hosted MCP endpoint, pass:
 
 ```sh
-VRDEX_MCP_SMOKE_URL=https://staging.vrdex.net/mcp pnpm smoke:mcp-compat
+pnpm smoke:mcp-compat -- --hosted-url https://staging.vrdex.net/mcp
 ```
 
 The hosted smoke covers anonymous Streamable HTTP initialization/tool listing, an
 anonymous `vrdex_search` tool call, OAuth protected-resource metadata,
 authorization-server metadata, and the OAuth protected-resource challenge for
-invalid bearer tokens. Add
-`VRDEX_MCP_SMOKE_DCR=1` when you want the smoke to register a constrained public
-MCP client through Dynamic Client Registration. Add
-`VRDEX_MCP_SMOKE_CIMD=1` when you want the smoke to exercise a URL-form public
-client id against `GET /oauth/authorize`; the smoke uses
+invalid bearer tokens. Add `--dcr` when you want the smoke to register a
+constrained public MCP client through Dynamic Client Registration. Add `--cimd`
+when you want the smoke to exercise a URL-form public client id against
+`GET /oauth/authorize`; the smoke uses
 `/.well-known/oauth-client/vrdex-mcp-public-client` and expects the
-unauthenticated sign-in redirect after metadata validation succeeds. Add
-`VRDEX_MCP_SMOKE_TOKEN=<mcp-resource-token>` only for a local terminal run when
-you want to test an authenticated hosted tool list. Do not commit real tokens
-or smoke output containing credentials.
+unauthenticated sign-in redirect after metadata validation succeeds.
+
+The equivalent environment variables remain supported for CI:
+`VRDEX_MCP_SMOKE_URL`, `VRDEX_MCP_SMOKE_DCR`, and `VRDEX_MCP_SMOKE_CIMD`.
+Set `VRDEX_MCP_SMOKE_TOKEN` only for a local terminal run when you want to test
+an authenticated hosted tool list. Do not commit real tokens or smoke output
+containing credentials.
 
 ## Day-One Client Matrix
 
@@ -242,11 +244,10 @@ VS Code hosted config:
 
 ## Manual Smoke Checklist
 
-0. Run `pnpm smoke:mcp-compat`; for hosted protocol coverage, include
-   `VRDEX_MCP_SMOKE_URL` pointed at the deployed preview or production-like
-   `/mcp` endpoint. Add `VRDEX_MCP_SMOKE_DCR=1` when the smoke should create a
-   temporary dynamic public MCP client, and `VRDEX_MCP_SMOKE_CIMD=1` when the
-   smoke should materialize the public client metadata document flow through
+0. Run `pnpm smoke:mcp-compat`; for hosted protocol coverage, add
+   `--hosted-url <preview-or-production-like-/mcp-url>`. Add `--dcr` when the
+   smoke should create a temporary dynamic public MCP client, and `--cimd` when
+   the smoke should materialize the public client metadata document flow through
    `/oauth/authorize`.
 1. Claude Desktop local stdio starts, lists six tools, and calls
    `vrdex_search`.

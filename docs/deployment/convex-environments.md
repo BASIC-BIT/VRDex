@@ -40,12 +40,14 @@ configured, the Vercel preview job first creates or updates a Convex preview
 deployment named for the PR and builds the web app with that preview Convex URL.
 
 The `Hosted MCP Preview Smoke` job always runs `pnpm smoke:mcp-compat` against
-the Vercel preview `/mcp` endpoint when the preview URL exists. That keeps
-anonymous hosted Streamable HTTP, OAuth metadata, and bearer-challenge behavior
-covered even before a branch-specific backend is configured. Dynamic Client
-Registration is enabled only when `CONVEX_DEPLOY_KEY_PREVIEW` provisions the
-same-branch Convex preview backend; otherwise, the job records that DCR was not
-smoked against same-branch backend functions.
+the Vercel preview `/mcp` endpoint when the preview URL exists. CI passes that
+target through `VRDEX_MCP_SMOKE_URL`; local runs can use
+`pnpm smoke:mcp-compat -- --hosted-url <preview-/mcp-url>`. That keeps anonymous
+hosted Streamable HTTP, OAuth metadata, and bearer-challenge behavior covered
+even before a branch-specific backend is configured. Dynamic Client Registration
+is enabled only when `CONVEX_DEPLOY_KEY_PREVIEW` provisions the same-branch
+Convex preview backend; otherwise, the job records that DCR was not smoked
+against same-branch backend functions.
 
 Do not use production deploy keys for PR previews. Preview deployments are for
 schema/function compatibility and hosted smoke validation before merge.

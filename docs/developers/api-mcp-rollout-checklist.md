@@ -66,8 +66,9 @@ one PR.
   also validates
   `docs/developers/mcp-client-smoke-results.json` so the manual matrix keeps
   every required day-one client row. The smoke can optionally probe a deployed
-  hosted `/mcp` endpoint with `VRDEX_MCP_SMOKE_URL`, and can include a
-  constrained Dynamic Client Registration probe with `VRDEX_MCP_SMOKE_DCR=1`.
+  hosted `/mcp` endpoint with `--hosted-url`, and can include constrained
+  Dynamic Client Registration and Client ID Metadata Document probes with
+  `--dcr` and `--cimd`.
 - Baseline Checks runs `Hosted MCP Preview Smoke` after the Vercel preview. It
   runs anonymous hosted Streamable HTTP, an anonymous `vrdex_search` tool call,
   OAuth metadata, and bearer-challenge checks whenever a preview URL exists. It

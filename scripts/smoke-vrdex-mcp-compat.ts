@@ -26,6 +26,12 @@ type HostedOAuthMetadata = {
   resource: string;
 };
 
+type SmokeOptions = {
+  clientMetadataDocument: boolean;
+  dynamicRegistration: boolean;
+  hostedUrl?: string;
+};
+
 const expectedTools = [
   "vrdex_search",
   "vrdex_get_profile",
@@ -43,6 +49,60 @@ const localClientProfiles = [
   { name: "Devin Desktop / Windsurf Cascade", clientName: "devin-windsurf-cascade" },
   { name: "MCP Inspector", clientName: "mcp-inspector" },
 ];
+
+function envFlag(name: string) {
+  const value = process.env[name]?.trim().toLowerCase();
+
+  return value === "1" || value === "true" || value === "yes";
+}
+
+function takeValue(args: string[], index: number, name: string) {
+  const value = args[index + 1];
+
+  if (value === undefined || value.startsWith("--")) {
+    throw new Error(`${name} requires a value.`);
+  }
+
+  return value;
+}
+
+function parseArgs(argv: string[]): SmokeOptions {
+  const options: SmokeOptions = {
+    clientMetadataDocument: envFlag("VRDEX_MCP_SMOKE_CIMD"),
+    dynamicRegistration: envFlag("VRDEX_MCP_SMOKE_DCR"),
+  };
+
+  const hostedUrl = process.env.VRDEX_MCP_SMOKE_URL?.trim();
+
+  if (hostedUrl) {
+    options.hostedUrl = hostedUrl;
+  }
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+
+    switch (arg) {
+      case "--":
+        break;
+      case "--cimd":
+      case "--client-metadata-document":
+        options.clientMetadataDocument = true;
+        break;
+      case "--dcr":
+      case "--dynamic-client-registration":
+        options.dynamicRegistration = true;
+        break;
+      case "--hosted-url":
+        options.hostedUrl = takeValue(argv, index, arg).trim();
+        index += 1;
+        break;
+      default:
+        throw new Error(`Unknown option: ${arg}`);
+    }
+  }
+
+  return options;
+}
 
 async function callTool(args: {
   id: number;
@@ -273,8 +333,8 @@ async function parseMcpHttpResponse(response: Response) {
   return dataLine === undefined ? undefined : (JSON.parse(dataLine.slice("data:".length).trim()) as unknown);
 }
 
-function hostedSmokeUrl() {
-  const rawUrl = process.env.VRDEX_MCP_SMOKE_URL?.trim();
+function hostedSmokeUrl(options: SmokeOptions) {
+  const rawUrl = options.hostedUrl;
 
   if (!rawUrl) {
     return undefined;
@@ -358,18 +418,6 @@ function stringArrayField(value: unknown, label: string): string[] {
   return (value as unknown[]).map((item, index) => stringField(item, `${label}[${index}]`));
 }
 
-function smokeDynamicRegistrationEnabled() {
-  const value = process.env.VRDEX_MCP_SMOKE_DCR?.trim().toLowerCase();
-
-  return value === "1" || value === "true" || value === "yes";
-}
-
-function smokeClientMetadataDocumentEnabled() {
-  const value = process.env.VRDEX_MCP_SMOKE_CIMD?.trim().toLowerCase();
-
-  return value === "1" || value === "true" || value === "yes";
-}
-
 async function smokeHostedOAuthMetadata(url: URL, results: SmokeResult[]): Promise<HostedOAuthMetadata> {
   const protectedResourceUrl = urlForPath(url.origin, "/.well-known/oauth-protected-resource");
   const protectedResource = await fetch(protectedResourceUrl, { headers: { accept: "application/json" } });
@@ -424,10 +472,14 @@ async function smokeHostedOAuthMetadata(url: URL, results: SmokeResult[]): Promi
   return { authorizationEndpoint, issuer, registrationEndpoint, resource };
 }
 
-async function smokeHostedDynamicClientRegistration(metadata: HostedOAuthMetadata, results: SmokeResult[]) {
-  if (!smokeDynamicRegistrationEnabled()) {
+async function smokeHostedDynamicClientRegistration(
+  metadata: HostedOAuthMetadata,
+  options: SmokeOptions,
+  results: SmokeResult[],
+) {
+  if (!options.dynamicRegistration) {
     results.push({
-      details: "set VRDEX_MCP_SMOKE_DCR=1 to register a smoke public MCP client",
+      details: "pass --dcr or set VRDEX_MCP_SMOKE_DCR=1 to register a smoke public MCP client",
       name: "Hosted Dynamic Client Registration",
       status: "skip",
     });
@@ -471,10 +523,14 @@ async function smokeHostedDynamicClientRegistration(metadata: HostedOAuthMetadat
   });
 }
 
-async function smokeHostedClientMetadataDocument(metadata: HostedOAuthMetadata, results: SmokeResult[]) {
-  if (!smokeClientMetadataDocumentEnabled()) {
+async function smokeHostedClientMetadataDocument(
+  metadata: HostedOAuthMetadata,
+  options: SmokeOptions,
+  results: SmokeResult[],
+) {
+  if (!options.clientMetadataDocument) {
     results.push({
-      details: "set VRDEX_MCP_SMOKE_CIMD=1 to probe public-client Client ID Metadata Documents",
+      details: "pass --cimd or set VRDEX_MCP_SMOKE_CIMD=1 to probe public-client Client ID Metadata Documents",
       name: "Hosted Client ID Metadata Document",
       status: "skip",
     });
@@ -530,12 +586,12 @@ async function smokeHostedClientMetadataDocument(metadata: HostedOAuthMetadata, 
   });
 }
 
-async function smokeHostedHttp(results: SmokeResult[]) {
-  const url = hostedSmokeUrl();
+async function smokeHostedHttp(results: SmokeResult[], options: SmokeOptions) {
+  const url = hostedSmokeUrl(options);
 
   if (url === undefined) {
     results.push({
-      details: "set VRDEX_MCP_SMOKE_URL to test a deployed Streamable HTTP endpoint",
+      details: "pass --hosted-url or set VRDEX_MCP_SMOKE_URL to test a deployed Streamable HTTP endpoint",
       name: "Hosted Streamable HTTP MCP",
       status: "skip",
     });
@@ -622,8 +678,8 @@ async function smokeHostedHttp(results: SmokeResult[]) {
 
   const metadata = await smokeHostedOAuthMetadata(url, results);
 
-  await smokeHostedDynamicClientRegistration(metadata, results);
-  await smokeHostedClientMetadataDocument(metadata, results);
+  await smokeHostedDynamicClientRegistration(metadata, options, results);
+  await smokeHostedClientMetadataDocument(metadata, options, results);
 
   const token = process.env.VRDEX_MCP_SMOKE_TOKEN?.trim();
 
@@ -653,6 +709,7 @@ async function smokeHostedHttp(results: SmokeResult[]) {
 }
 
 async function main() {
+  const options = parseArgs(process.argv.slice(2));
   const results: SmokeResult[] = [];
 
   for (const profile of localClientProfiles) {
@@ -664,7 +721,7 @@ async function main() {
     });
   }
 
-  await smokeHostedHttp(results);
+  await smokeHostedHttp(results, options);
 
   console.log("| Smoke target | Status | Details |");
   console.log("| --- | --- | --- |");
