@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createInterface } from "node:readline";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+
+import { startVrdexMcpApiFixture } from "./api-fixture";
 
 type JsonRpcMessage = {
   error?: unknown;
@@ -14,47 +15,30 @@ type JsonRpcMessage = {
   result?: unknown;
 };
 
-function writeJson(response: ServerResponse, status: number, body: unknown) {
-  response.writeHead(status, { "content-type": "application/json" });
-  response.end(JSON.stringify(body));
-}
-
-function handleFixtureRequest(request: IncomingMessage, response: ServerResponse, captured: string[]) {
-  const url = new URL(request.url ?? "/", "http://127.0.0.1");
-
-  captured.push(`${url.pathname}?${url.searchParams.toString()}`);
-
-  writeJson(response, 200, {
-    query: url.searchParams.get("q") ?? "",
-    type: url.searchParams.get("type") ?? "all",
-    results: [
-      {
-        entityType: "event",
-        routePath: "/events/club-night",
-        score: 1,
-        slug: "club-night",
-        title: "Club Night",
-      },
-    ],
-  });
-}
-
-async function startFixtureServer() {
-  const captured: string[] = [];
-  const server = createServer((request, response) => handleFixtureRequest(request, response, captured));
-
-  await new Promise<void>((resolve) => {
-    server.listen(0, "127.0.0.1", resolve);
+async function callTool(args: {
+  id: number;
+  messages: JsonRpcMessage[];
+  name: string;
+  onMessage: (listener: () => void) => void;
+  send: (message: JsonRpcMessage) => void;
+  stderr: string[];
+  toolArgs: Record<string, unknown>;
+}) {
+  args.send({
+    jsonrpc: "2.0",
+    id: args.id,
+    method: "tools/call",
+    params: {
+      arguments: args.toolArgs,
+      name: args.name,
+    },
   });
 
-  const address = server.address();
-  assert(address !== null && typeof address === "object");
+  const call = await waitForMessage(args.messages, args.onMessage, args.id, args.stderr);
 
-  return {
-    captured,
-    close: () => new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))),
-    origin: `http://127.0.0.1:${address.port}`,
-  };
+  assert.equal(Boolean(call.error), false, `${args.name} returned a JSON-RPC error`);
+
+  return call;
 }
 
 function waitForMessage(
@@ -99,7 +83,7 @@ function pnpmExecCommand(repoRoot: string) {
 }
 
 test("serves VRDex tools over stdio and calls the configured API base URL", async () => {
-  const fixture = await startFixtureServer();
+  const fixture = await startVrdexMcpApiFixture();
   const messages: JsonRpcMessage[] = [];
   const stderr: string[] = [];
   const messageListeners = new Set<() => void>();
@@ -168,20 +152,17 @@ test("serves VRDex tools over stdio and calls the configured API base URL", asyn
       ],
     );
 
-    send({
-      jsonrpc: "2.0",
+    const search = await callTool({
       id: 3,
-      method: "tools/call",
-      params: {
-        arguments: { limit: 2, query: "club", type: "event" },
-        name: "vrdex_search",
-      },
+      messages,
+      name: "vrdex_search",
+      onMessage,
+      send,
+      stderr,
+      toolArgs: { limit: 2, query: "club", type: "event" },
     });
 
-    const call = await waitForMessage(messages, onMessage, 3, stderr);
-
-    assert.equal(Boolean(call.error), false);
-    assert.deepEqual((call.result as { structuredContent: unknown }).structuredContent, {
+    assert.deepEqual((search.result as { structuredContent: unknown }).structuredContent, {
       query: "club",
       type: "event",
       results: [
@@ -194,14 +175,69 @@ test("serves VRDex tools over stdio and calls the configured API base URL", asyn
         },
       ],
     });
-    assert.equal(fixture.captured.length, 1);
+    await callTool({
+      id: 4,
+      messages,
+      name: "vrdex_get_profile",
+      onMessage,
+      send,
+      stderr,
+      toolArgs: { profileType: "community", slug: "basic-bit" },
+    });
+    await callTool({
+      id: 5,
+      messages,
+      name: "vrdex_get_event",
+      onMessage,
+      send,
+      stderr,
+      toolArgs: { slug: "club-night" },
+    });
+    await callTool({
+      id: 6,
+      messages,
+      name: "vrdex_list_upcoming_events",
+      onMessage,
+      send,
+      stderr,
+      toolArgs: { limit: 1 },
+    });
+    await callTool({
+      id: 7,
+      messages,
+      name: "vrdex_get_world",
+      onMessage,
+      send,
+      stderr,
+      toolArgs: { slug: "club-world" },
+    });
+    await callTool({
+      id: 8,
+      messages,
+      name: "vrdex_list_active_worlds",
+      onMessage,
+      send,
+      stderr,
+      toolArgs: { limit: 1 },
+    });
 
-    const requestUrl = new URL(fixture.captured[0] ?? "", "http://127.0.0.1");
-
-    assert.equal(requestUrl.pathname, "/api/v0/search");
-    assert.equal(requestUrl.searchParams.get("q"), "club");
-    assert.equal(requestUrl.searchParams.get("type"), "event");
-    assert.equal(requestUrl.searchParams.get("limit"), "2");
+    assert.equal(fixture.captured.length, 6);
+    assert.deepEqual(
+      fixture.captured.map((request) => request.pathname),
+      [
+        "/api/v0/search",
+        "/api/v0/communities/basic-bit",
+        "/api/v0/events/club-night",
+        "/api/v0/events/upcoming",
+        "/api/v0/worlds/club-world",
+        "/api/v0/worlds/active",
+      ],
+    );
+    assert.equal(fixture.captured[0]?.searchParams.get("q"), "club");
+    assert.equal(fixture.captured[0]?.searchParams.get("type"), "event");
+    assert.equal(fixture.captured[0]?.searchParams.get("limit"), "2");
+    assert.equal(fixture.captured[3]?.searchParams.get("limit"), "1");
+    assert.equal(fixture.captured[5]?.searchParams.get("limit"), "1");
   } finally {
     child.stdin.end();
     child.kill();

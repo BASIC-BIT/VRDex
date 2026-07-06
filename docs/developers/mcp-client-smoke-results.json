@@ -12,7 +12,7 @@
           "id": "local-stdio",
           "surface": "local_stdio",
           "requiredForExternalReadiness": true,
-          "repoEvidence": "pnpm smoke:mcp-compat local profile: Claude Desktop",
+          "repoEvidence": "pnpm smoke:mcp-compat local profile: Claude Desktop, including all curated read tools",
           "manualStatus": "pending",
           "notes": "Run Claude Desktop with mcpServers command config and call vrdex_search."
         },
@@ -42,7 +42,7 @@
           "id": "local-stdio",
           "surface": "local_stdio",
           "requiredForExternalReadiness": true,
-          "repoEvidence": "pnpm smoke:mcp-compat local profile: Claude Code",
+          "repoEvidence": "pnpm smoke:mcp-compat local profile: Claude Code, including all curated read tools",
           "manualStatus": "pending",
           "notes": "Run claude mcp add --transport stdio and call vrdex_search."
         },
@@ -72,7 +72,7 @@
           "id": "local-stdio",
           "surface": "local_stdio",
           "requiredForExternalReadiness": true,
-          "repoEvidence": "pnpm smoke:mcp-compat local profile: VS Code",
+          "repoEvidence": "pnpm smoke:mcp-compat local profile: VS Code, including all curated read tools",
           "manualStatus": "pending",
           "notes": "Run with .vscode/mcp.json or user MCP config and call vrdex_search."
         },
@@ -102,7 +102,7 @@
           "id": "local-stdio",
           "surface": "local_stdio",
           "requiredForExternalReadiness": true,
-          "repoEvidence": "pnpm smoke:mcp-compat local profile: Cursor",
+          "repoEvidence": "pnpm smoke:mcp-compat local profile: Cursor, including all curated read tools",
           "manualStatus": "pending",
           "notes": "Confirm the current Cursor release still supports command-based MCP config."
         },
@@ -161,7 +161,7 @@
           "id": "local-stdio",
           "surface": "local_stdio",
           "requiredForExternalReadiness": true,
-          "repoEvidence": "pnpm smoke:mcp-compat local profile: Devin Desktop / Windsurf Cascade",
+          "repoEvidence": "pnpm smoke:mcp-compat local profile: Devin Desktop / Windsurf Cascade, including all curated read tools",
           "manualStatus": "pending",
           "notes": "Run mcp_config.json with command-based stdio and call vrdex_search."
         },
@@ -191,7 +191,7 @@
           "id": "local-stdio",
           "surface": "local_stdio",
           "requiredForExternalReadiness": true,
-          "repoEvidence": "pnpm smoke:mcp-compat local profile: MCP Inspector",
+          "repoEvidence": "pnpm smoke:mcp-compat local profile: MCP Inspector, including all curated read tools",
           "manualStatus": "pending",
           "notes": "Use Inspector as the interactive local protocol debugger."
         },

@@ -36,7 +36,7 @@ Source-backed client requirements from the current docs pass:
 | Hosted anonymous public reads | Hosted `/mcp` allows no-bearer public read tools through the `anonymous_mcp_public_read` route class. Manual client smokes must also confirm the client UI does not force OAuth before public read calls. |
 | Hosted OAuth bearer handling | Web MCP and OAuth JWT tests cover MCP-resource audience validation, `mcp:read` scope validation, and protected-resource bearer challenges. |
 | Hosted Client ID Metadata Documents | Web OAuth helper tests cover URL-form client IDs, exact `client_id` matching, redirect rejection, response-size limits, and special-use address rejection. |
-| Local stdio MCP | `pnpm --filter @basicbit/vrdex-mcp test` runs a JSON-RPC stdio `vrdex_search` call against a local API fixture. |
+| Local stdio MCP | `pnpm --filter @basicbit/vrdex-mcp test` runs JSON-RPC stdio calls for every curated read tool against a local API fixture. |
 | Local API token config | `packages/vrdex-mcp` tests cover bearer forwarding to `/api/v0`. |
 | Self-hosted base URL config | `packages/vrdex-mcp` tests cover origin and explicit `/api/v0` normalization. |
 
@@ -62,10 +62,10 @@ that backend is unavailable, the lane records the preview-backend prerequisite
 and still runs the non-mutating hosted smoke.
 
 The command starts the local stdio MCP package against a local API fixture and
-replays initialize, tool-list, and `vrdex_search` calls with protocol profiles
-for Claude Desktop, Claude Code, VS Code, Cursor, Devin Desktop / Windsurf
-Cascade, and MCP Inspector. It verifies the shared MCP protocol path these
-clients use, not the clients' UI or account flows.
+replays initialize, tool-list, and every curated read-tool call with protocol
+profiles for Claude Desktop, Claude Code, VS Code, Cursor, Devin Desktop /
+Windsurf Cascade, and MCP Inspector. It verifies the shared MCP protocol path
+these clients use, not the clients' UI or account flows.
 
 The manual smoke result artifact is
 `docs/developers/mcp-client-smoke-results.json`. `pnpm verify:vrdex-mcp`
