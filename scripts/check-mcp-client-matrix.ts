@@ -34,6 +34,10 @@ type SmokeMatrix = {
   targetEnvironment: string | null;
 };
 
+type CheckOptions = {
+  requireReady: boolean;
+};
+
 const matrixPath = process.env.VRDEX_MCP_CLIENT_MATRIX_PATH?.trim()
   || "docs/developers/mcp-client-smoke-results.json";
 
@@ -60,6 +64,26 @@ function envFlag(name: string) {
   const value = process.env[name]?.trim().toLowerCase();
 
   return value === "1" || value === "true" || value === "yes";
+}
+
+function parseArgs(argv: string[]): CheckOptions {
+  const options: CheckOptions = {
+    requireReady: envFlag("VRDEX_MCP_CLIENT_MATRIX_REQUIRE_READY"),
+  };
+
+  for (const arg of argv) {
+    switch (arg) {
+      case "--":
+        break;
+      case "--require-ready":
+        options.requireReady = true;
+        break;
+      default:
+        throw new Error(`Unknown option: ${arg}`);
+    }
+  }
+
+  return options;
 }
 
 function assertString(value: unknown, label: string) {
@@ -185,12 +209,13 @@ function summarize(matrix: SmokeMatrix) {
 }
 
 async function main() {
+  const options = parseArgs(process.argv.slice(2));
   const matrix = parseSmokeMatrix(await readFile(matrixPath, "utf8"));
   const blockers = validateSmokeMatrix(matrix);
 
   summarize(matrix);
 
-  if (envFlag("VRDEX_MCP_CLIENT_MATRIX_REQUIRE_READY") && blockers.length > 0) {
+  if (options.requireReady && blockers.length > 0) {
     throw new Error(`Manual MCP client smokes are not ready:\n${blockers.join("\n")}`);
   }
 
@@ -199,7 +224,7 @@ async function main() {
       [
         "",
         "Manual MCP client smokes are still pending.",
-        "Set VRDEX_MCP_CLIENT_MATRIX_REQUIRE_READY=1 to make pending or failed required rows fail this check.",
+        "Run pnpm check:mcp-client-matrix -- --require-ready to make pending or failed required rows fail this check.",
       ].join("\n"),
     );
   }

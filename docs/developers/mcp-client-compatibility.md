@@ -99,7 +99,7 @@ checks can run before the desktop/web client smokes are available. For external
 readiness, require every required manual row to pass:
 
 ```sh
-VRDEX_MCP_CLIENT_MATRIX_REQUIRE_READY=1 pnpm check:mcp-client-matrix
+pnpm check:mcp-client-matrix -- --require-ready
 ```
 
 To include a deployed hosted MCP endpoint, set:
