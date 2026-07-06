@@ -132,7 +132,7 @@ or smoke output containing credentials.
 | Cursor | Treat local stdio as a required smoke target if the current release still supports command-based MCP config. | Treat hosted HTTP as a required smoke target if the current release supports remote MCP URLs. | Confirm current OAuth behavior during manual smoke. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; do not publish Cursor-specific snippets until the current docs or smoke run confirm them. |
 | OpenAI and ChatGPT MCP-capable surfaces | Treat local stdio as unsupported until the current product surface says otherwise. | Use hosted remote MCP when ChatGPT Apps, deep research, or API integration setup supports custom MCP servers. | Current OpenAI docs recommend CIMD when the authorization server supports it and keep DCR as a supported path when configured; VRDex implements both DCR and public-client CIMD. | Hosted remote MCP target identified; exact setup must be verified in the relevant OpenAI surface before launch docs publish snippets. |
 | Devin Desktop / Windsurf Cascade | Uses `mcp_config.json` with `mcpServers`. | Supports `serverUrl` or `url` for remote HTTP MCPs. | Docs state OAuth support for stdio, Streamable HTTP, and SSE. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; hosted config shape ready; manual smoke pending. |
-| MCP Inspector | Use as a protocol-level stdio debugger. | Connect directly to hosted `/mcp` for remote debugging. | Exercise anonymous and OAuth paths separately. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; manual hosted diagnostic smoke pending. |
+| MCP Inspector | Use as a protocol-level stdio debugger; local stdio `vrdex_search` is manually verified in the smoke matrix. | Connect directly to hosted `/mcp` for remote debugging; anonymous hosted tool listing is manually verified in the smoke matrix. | Exercise OAuth separately. | Local stdio and hosted anonymous diagnostic smokes pass; hosted OAuth remains pending. |
 
 ## Shared Local Stdio Config
 
@@ -263,8 +263,9 @@ VS Code hosted config:
    reviewed app submission path.
 7. Devin Desktop or Windsurf Cascade local stdio and hosted HTTP read tools
    work; OAuth is tested when team MCP access allows it.
-8. MCP Inspector hosted anonymous read and OAuth-protected read paths return
-   expected tool lists and errors.
+8. MCP Inspector local stdio and hosted anonymous read paths return expected
+   tool lists and search results; OAuth-protected read behavior still needs a
+   separate hosted smoke.
 
 For each smoke, record client version, OS, transport, auth mode, result, exact
 config shape, whether the client distinguishes anonymous/no-auth tools from
