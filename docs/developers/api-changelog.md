@@ -57,6 +57,10 @@ Public API and MCP platform foundation checkpoint:
 - documented `POST /api/v0/profile-assets/upload-intents/:intentId` in the
   generated OpenAPI contract as the one-time upload-token transport for direct
   file uploads and server-side source imports
+- documented `GET /api/v0/profiles/:slug/assets/:assetId/file` and
+  `GET /api/v0/profiles/:slug/logos.zip` in the generated OpenAPI contract as
+  binary download routes, and added route/OpenAPI parity checking to the
+  contract drift check
 - added `POST /api/v0/events` for `events:write` public event creation against
   community profiles owned by the current authenticated user
 - added `PATCH /api/v0/events/:slug` for `events:write` public event updates

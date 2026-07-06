@@ -2,6 +2,7 @@ import { createDocument, type ZodOpenApiObject, type ZodOpenApiResponsesObject }
 
 import { apiScopes } from "./auth";
 import {
+  ApiSimpleErrorResponseSchema,
   ApiEventCreateRequestSchema,
   ApiEventUpdateRequestSchema,
   ApiEventWriteResponseSchema,
@@ -19,6 +20,7 @@ import {
   DeveloperTokenCreateResponseSchema,
   DeveloperTokenResponseSchema,
   DeveloperTokensResponseSchema,
+  AssetPathParamsSchema,
   OAuthClientPathParamsSchema,
   ApiMeCommunitiesResponseSchema,
   ApiMeEventsResponseSchema,
@@ -56,6 +58,14 @@ const jsonContent = (schema: JsonSchema) => ({
     schema,
   },
 });
+
+const binaryBodySchema = {
+  type: "string",
+  format: "binary",
+} as const;
+
+const binaryContent = (...mediaTypes: string[]) =>
+  Object.fromEntries(mediaTypes.map((mediaType) => [mediaType, { schema: binaryBodySchema }]));
 
 const publicReadProblemResponses = {
   "400": {
@@ -639,6 +649,32 @@ export const openApiSource = {
         },
       },
     },
+    "/api/v0/profiles/{slug}/assets/{assetId}/file": {
+      get: {
+        operationId: "downloadPublicProfileAssetFile",
+        tags: ["Profiles", "Assets"],
+        summary: "Download a public profile asset file",
+        requestParams: {
+          path: AssetPathParamsSchema,
+        },
+        responses: {
+          "200": {
+            description: "The stored public profile asset file.",
+            content: binaryContent("image/png", "image/jpeg", "image/webp", "image/svg+xml"),
+          },
+          "404": {
+            description: "The profile asset or stored object was not found.",
+            content: jsonContent(ApiSimpleErrorResponseSchema),
+          },
+          "501": {
+            description: "Profile asset storage is not configured for this deployment.",
+            content: jsonContent(ApiSimpleErrorResponseSchema),
+          },
+          "400": publicReadProblemResponses["400"],
+          "429": publicReadProblemResponses["429"],
+        },
+      },
+    },
     "/api/v0/profiles/{slug}/assets/upload-intent": {
       post: {
         operationId: "createCurrentUserProfileAssetUploadIntent",
@@ -693,6 +729,32 @@ export const openApiSource = {
             content: jsonContent(PublicProfileLogosResponseSchema),
           },
           ...publicReadProblemResponses,
+        },
+      },
+    },
+    "/api/v0/profiles/{slug}/logos.zip": {
+      get: {
+        operationId: "downloadPublicProfileLogosZip",
+        tags: ["Profiles", "Assets"],
+        summary: "Download public profile logos as a ZIP",
+        requestParams: {
+          path: SlugPathParamsSchema,
+        },
+        responses: {
+          "200": {
+            description: "A ZIP archive containing public profile logos.",
+            content: binaryContent("application/zip"),
+          },
+          "404": {
+            description: "The profile, logos, or stored logo objects were not found.",
+            content: jsonContent(ApiSimpleErrorResponseSchema),
+          },
+          "501": {
+            description: "Profile asset storage is not configured for this deployment.",
+            content: jsonContent(ApiSimpleErrorResponseSchema),
+          },
+          "400": publicReadProblemResponses["400"],
+          "429": publicReadProblemResponses["429"],
         },
       },
     },

@@ -11,7 +11,8 @@ one PR.
 - `docs/api/openapi.json` matches the generated contract.
 - `/api/v0/openapi.json` serves the same generated document.
 - Baseline Checks runs `pnpm verify:api-contracts` so OpenAPI drift,
-  contract typechecking, and contract tests are enforced in PR CI.
+  route/OpenAPI parity, contract typechecking, and contract tests are enforced
+  in PR CI.
 - Developer docs cover public API, auth, OAuth apps, rate limits, MCP tools,
   self-hosting variables, and changelog notes.
 - The Docusaurus docs build succeeds.

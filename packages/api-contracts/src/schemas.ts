@@ -509,6 +509,15 @@ export const ApiProfileAssetUploadErrorResponseSchema = z
     id: "ApiProfileAssetUploadErrorResponse",
   });
 
+export const ApiSimpleErrorResponseSchema = z
+  .object({
+    error: z.string().min(1),
+  })
+  .meta({
+    description: "Simple JSON error response.",
+    id: "ApiSimpleErrorResponse",
+  });
+
 export const PublicWorldEventPreviewSchema = z
   .object({
     bannerImageUrl: absoluteUrl.optional(),
@@ -1011,4 +1020,11 @@ export const OAuthClientPathParamsSchema = z.object({
   clientId: z.string().min(1).meta({ description: "OAuth client id." }),
 });
 
-export const AssetPathParamsSchema = SlugPathParamsSchema;
+export const AssetPathParamsSchema = z.object({
+  slug: slug.meta({
+    description: "Public profile slug.",
+  }),
+  assetId: z.string().min(1).meta({
+    description: "Public profile asset id.",
+  }),
+});

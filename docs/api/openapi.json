@@ -1614,6 +1614,121 @@
         }
       }
     },
+    "/api/v0/profiles/{slug}/assets/{assetId}/file": {
+      "get": {
+        "operationId": "downloadPublicProfileAssetFile",
+        "tags": [
+          "Profiles",
+          "Assets"
+        ],
+        "summary": "Download a public profile asset file",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "description": "Public profile slug."
+            },
+            "required": true,
+            "description": "Public profile slug."
+          },
+          {
+            "in": "path",
+            "name": "assetId",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Public profile asset id."
+            },
+            "required": true,
+            "description": "Public profile asset id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stored public profile asset file.",
+            "content": {
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/svg+xml": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or used an unsupported bearer-token location.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The profile asset or stored object was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiSimpleErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Profile asset storage is not configured for this deployment.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiSimpleErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v0/profiles/{slug}/assets/upload-intent": {
       "post": {
         "operationId": "createCurrentUserProfileAssetUploadIntent",
@@ -1797,6 +1912,92 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v0/profiles/{slug}/logos.zip": {
+      "get": {
+        "operationId": "downloadPublicProfileLogosZip",
+        "tags": [
+          "Profiles",
+          "Assets"
+        ],
+        "summary": "Download public profile logos as a ZIP",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "description": "Public slug."
+            },
+            "required": true,
+            "description": "Public slug."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A ZIP archive containing public profile logos.",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or used an unsupported bearer-token location.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The profile, logos, or stored logo objects were not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiSimpleErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Profile asset storage is not configured for this deployment.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiSimpleErrorResponse"
                 }
               }
             }
@@ -5598,6 +5799,20 @@
         ],
         "additionalProperties": {},
         "description": "Public assets for a profile."
+      },
+      "ApiSimpleErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false,
+        "description": "Simple JSON error response."
       },
       "ApiProfileAssetUploadIntentCreateResponse": {
         "type": "object",

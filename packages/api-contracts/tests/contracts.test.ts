@@ -652,9 +652,11 @@ describe("@vrdex/api-contracts", () => {
     assert.ok(document.paths?.["/api/v0/profiles/{slug}"]);
     assert.ok(document.paths?.["/api/v0/profiles/{slug}"]?.patch);
     assert.ok(document.paths?.["/api/v0/profiles/{slug}/assets"]);
+    assert.ok(document.paths?.["/api/v0/profiles/{slug}/assets/{assetId}/file"]);
     assert.ok(document.paths?.["/api/v0/profiles/{slug}/assets/upload-intent"]?.post);
     assert.ok(document.paths?.["/api/v0/profile-assets/upload-intents/{intentId}"]?.post);
     assert.ok(document.paths?.["/api/v0/profiles/{slug}/logos"]);
+    assert.ok(document.paths?.["/api/v0/profiles/{slug}/logos.zip"]);
     assert.ok(document.paths?.["/api/v0/people/{slug}"]);
     assert.ok(document.paths?.["/api/v0/people/{slug}/events"]);
     assert.ok(document.paths?.["/api/v0/communities/{slug}"]);
