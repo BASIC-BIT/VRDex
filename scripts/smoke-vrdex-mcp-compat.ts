@@ -325,6 +325,17 @@ async function responseJson(response: Response, label: string) {
   }
 }
 
+async function assertHttpStatus(response: Response, expectedStatus: number, label: string) {
+  if (response.status === expectedStatus) {
+    return;
+  }
+
+  const text = await response.text();
+  const body = text.trim() ? text.slice(0, 500) : "<empty body>";
+
+  throw new Error(`${label} expected HTTP ${expectedStatus}, got HTTP ${response.status}: ${body}`);
+}
+
 function urlForPath(origin: string, pathname: string) {
   const url = new URL(origin);
 
@@ -363,7 +374,7 @@ async function smokeHostedOAuthMetadata(url: URL, results: SmokeResult[]): Promi
   const protectedResourceUrl = urlForPath(url.origin, "/.well-known/oauth-protected-resource");
   const protectedResource = await fetch(protectedResourceUrl, { headers: { accept: "application/json" } });
 
-  assert.equal(protectedResource.status, 200);
+  await assertHttpStatus(protectedResource, 200, "OAuth protected-resource metadata");
 
   const protectedResourceBody = await responseJson(protectedResource, "OAuth protected-resource metadata");
   const resource = stringField(protectedResourceBody.resource, "protected resource");
@@ -383,7 +394,7 @@ async function smokeHostedOAuthMetadata(url: URL, results: SmokeResult[]): Promi
   const authorizationServerUrl = urlForPath(issuer, "/.well-known/oauth-authorization-server");
   const authorizationServer = await fetch(authorizationServerUrl, { headers: { accept: "application/json" } });
 
-  assert.equal(authorizationServer.status, 200);
+  await assertHttpStatus(authorizationServer, 200, "OAuth authorization-server metadata");
 
   const authorizationServerBody = await responseJson(authorizationServer, "OAuth authorization-server metadata");
   const authorizationEndpoint = stringField(
@@ -443,7 +454,7 @@ async function smokeHostedDynamicClientRegistration(metadata: HostedOAuthMetadat
     method: "POST",
   });
 
-  assert.equal(registration.status, 201);
+  await assertHttpStatus(registration, 201, "Dynamic Client Registration");
 
   const body = await responseJson(registration, "Dynamic Client Registration");
 
@@ -543,7 +554,7 @@ async function smokeHostedHttp(results: SmokeResult[]) {
     },
   });
 
-  assert.equal(initialized.status, 200);
+  await assertHttpStatus(initialized, 200, "Hosted initialize");
   assert.match(JSON.stringify(await parseMcpHttpResponse(initialized)), /"name":"vrdex"/);
 
   const listed = await postMcpJsonRpc(url, {
@@ -553,7 +564,7 @@ async function smokeHostedHttp(results: SmokeResult[]) {
     params: {},
   });
 
-  assert.equal(listed.status, 200);
+  await assertHttpStatus(listed, 200, "Hosted tools/list");
   const toolsBody = JSON.stringify(await parseMcpHttpResponse(listed));
 
   for (const toolName of expectedTools) {
@@ -570,7 +581,7 @@ async function smokeHostedHttp(results: SmokeResult[]) {
     },
   });
 
-  assert.equal(anonymousSearch.status, 200);
+  await assertHttpStatus(anonymousSearch, 200, "Hosted anonymous vrdex_search");
 
   const searchBody = (await parseMcpHttpResponse(anonymousSearch)) as {
     error?: unknown;
@@ -605,7 +616,7 @@ async function smokeHostedHttp(results: SmokeResult[]) {
     "Bearer not-a-jwt",
   );
 
-  assert.equal(invalidBearer.status, 401);
+  await assertHttpStatus(invalidBearer, 401, "Hosted invalid bearer challenge");
   assert.match(invalidBearer.headers.get("www-authenticate") ?? "", /resource_metadata=/);
   assert.match(invalidBearer.headers.get("www-authenticate") ?? "", /scope="mcp:read"/);
 
@@ -628,7 +639,7 @@ async function smokeHostedHttp(results: SmokeResult[]) {
       `Bearer ${token}`,
     );
 
-    assert.equal(authenticated.status, 200);
+    await assertHttpStatus(authenticated, 200, "Hosted authenticated tools/list");
     assert.match(JSON.stringify(await parseMcpHttpResponse(authenticated)), /"tools"/);
   }
 
