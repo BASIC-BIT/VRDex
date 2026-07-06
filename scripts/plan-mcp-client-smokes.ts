@@ -178,14 +178,20 @@ function manualEvidencePrompt(client: ClientEntry, check: SmokeCheck) {
 }
 
 function recordCommand(client: ClientEntry, check: SmokeCheck) {
-  return [
+  const parts = [
     "pnpm record:mcp-client-smoke --",
     `--client ${client.id}`,
     `--check ${check.id}`,
     "--status pass",
     '--environment "<OS / client version / target>"',
     '--evidence "<sanitized evidence link or command output>"',
-  ].join(" ");
+  ];
+
+  if (check.requiredForExternalReadiness && check.surface.startsWith("hosted_http")) {
+    parts.push('--target-environment "<same-branch Convex preview / staging / production-like target>"');
+  }
+
+  return parts.join(" ");
 }
 
 function shouldPrint(check: SmokeCheck, options: Options) {

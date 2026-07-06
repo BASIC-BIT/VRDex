@@ -44,6 +44,8 @@ type RecordOptions = {
 };
 
 const allowedStatuses = new Set<ManualStatus>(["fail", "not_applicable", "pass", "pending"]);
+const hostedEvidenceTargetPattern = /\b(same-branch|production-like|staging|production)\b/i;
+const pendingHostedEvidencePattern = /\b(pending|need|needs|lack|lacks|skipped|unavailable|not deployed|without data-backed)\b/i;
 
 function todayUtc() {
   return new Date().toISOString().slice(0, 10);
@@ -155,6 +157,30 @@ function validateStatusUpdate(check: SmokeCheck, options: RecordOptions) {
   if (options.status === "pass" || options.status === "fail") {
     assert.ok(nonEmpty(options.environment), "--environment is required for pass or fail.");
     assert.ok(nonEmpty(options.evidence), "--evidence is required for pass or fail.");
+  }
+
+  if (
+    options.status === "pass" &&
+    check.requiredForExternalReadiness &&
+    check.surface.startsWith("hosted_http")
+  ) {
+    assert.ok(
+      options.targetEnvironment !== undefined,
+      "--target-environment is required when recording a required hosted MCP row as pass.",
+    );
+
+    const target = nonEmpty(options.targetEnvironment ?? undefined) ?? "";
+
+    assert.match(
+      target,
+      hostedEvidenceTargetPattern,
+      "--target-environment for a hosted pass must name a same-branch, staging, production-like, or production target.",
+    );
+    assert.doesNotMatch(
+      target,
+      pendingHostedEvidencePattern,
+      "--target-environment for a hosted pass must not describe pending, skipped, unavailable, or non-data-backed evidence.",
+    );
   }
 
   if (options.status === "not_applicable") {

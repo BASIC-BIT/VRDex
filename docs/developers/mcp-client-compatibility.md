@@ -177,6 +177,7 @@ pnpm record:mcp-client-smoke -- \
   --check hosted-anonymous-read \
   --status pass \
   --environment "Windows 11 / MCP Inspector <version> / https://vrdex.net/mcp" \
+  --target-environment "production-like staging https://vrdex.net/mcp" \
   --evidence "sanitized screenshot or PR evidence link"
 ```
 
@@ -185,6 +186,12 @@ update against a temporary copy before writing the canonical matrix. A `pass`
 or `fail` entry requires an environment and evidence pointer; `pending` clears
 run evidence; `not_applicable` requires notes and is allowed only for rows that
 are not required for external readiness.
+
+For required hosted rows, a `pass` also requires `--target-environment` naming
+a same-branch Convex preview, staging, production-like, or production target.
+The recorder rejects hosted pass rows that still describe pending, skipped,
+unavailable, or non-data-backed evidence. This keeps lightweight PR preview
+transport smokes separate from external-readiness evidence.
 
 By default, the check accepts `pending` manual rows because repository protocol
 checks can run before the desktop/web client smokes are available. For external

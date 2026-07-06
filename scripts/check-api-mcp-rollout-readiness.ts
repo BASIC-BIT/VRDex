@@ -88,6 +88,14 @@ const requiredScripts = [
   "verify:docs",
 ];
 
+const hostedEvidenceTargetPattern = /\b(same-branch|production-like|staging|production)\b/i;
+const pendingHostedEvidencePattern = /\b(pending|need|needs|lack|lacks|skipped|unavailable|not deployed|without data-backed)\b/i;
+
+function matrixPath() {
+  return process.env.VRDEX_MCP_CLIENT_MATRIX_PATH?.trim()
+    || "docs/developers/mcp-client-smoke-results.json";
+}
+
 function envFlag(name: string) {
   const value = process.env[name]?.trim().toLowerCase();
 
@@ -168,7 +176,7 @@ async function checkScripts() {
 }
 
 async function checkMcpMatrix() {
-  const matrix = JSON.parse(await readFile("docs/developers/mcp-client-smoke-results.json", "utf8")) as SmokeMatrix;
+  const matrix = JSON.parse(await readFile(matrixPath(), "utf8")) as SmokeMatrix;
 
   assert.equal(matrix.schemaVersion, 1, "MCP client smoke matrix schemaVersion must be 1.");
   assert.equal(Array.isArray(matrix.clients), true, "MCP client smoke matrix clients must be an array.");
@@ -189,15 +197,23 @@ async function checkMcpMatrix() {
 }
 
 async function checkHostedReadinessMode() {
-  const matrix = JSON.parse(await readFile("docs/developers/mcp-client-smoke-results.json", "utf8")) as SmokeMatrix;
+  const matrix = JSON.parse(await readFile(matrixPath(), "utf8")) as SmokeMatrix;
   const target = matrix.targetEnvironment ?? "not recorded";
-  const isPending = /\bpending\b/i.test(matrix.readinessMode) || /\bneed\b|\blacks?\b/i.test(target);
+  const hasPendingMode = /\bpending\b/i.test(matrix.readinessMode);
+  const hasPendingTarget = pendingHostedEvidencePattern.test(target);
+  const hasAcceptableTarget = hostedEvidenceTargetPattern.test(target) && !hasPendingTarget;
 
-  return isPending
+  return hasPendingMode || hasPendingTarget || !hasAcceptableTarget
     ? check(
         "Production-like hosted MCP evidence",
         "pending",
-        `readinessMode=${matrix.readinessMode}; targetEnvironment=${target}`,
+        [
+          `readinessMode=${matrix.readinessMode}`,
+          `targetEnvironment=${target}`,
+          hasAcceptableTarget
+            ? "target classification accepted"
+            : "targetEnvironment must name a same-branch, staging, production-like, or production target",
+        ].join("; "),
       )
     : check("Production-like hosted MCP evidence", "pass", `readinessMode=${matrix.readinessMode}`);
 }
