@@ -29,6 +29,7 @@ type HostedOAuthMetadata = {
 type SmokeOptions = {
   clientMetadataDocument: boolean;
   dynamicRegistration: boolean;
+  hostedDataPublicReads: boolean;
   hostedUrl?: string;
 };
 
@@ -93,6 +94,7 @@ function parseArgs(argv: string[]): SmokeOptions {
   const options: SmokeOptions = {
     clientMetadataDocument: envFlag("VRDEX_MCP_SMOKE_CIMD"),
     dynamicRegistration: envFlag("VRDEX_MCP_SMOKE_DCR"),
+    hostedDataPublicReads: envFlag("VRDEX_MCP_SMOKE_DATA"),
   };
 
   const hostedUrl = process.env.VRDEX_MCP_SMOKE_URL?.trim();
@@ -118,6 +120,10 @@ function parseArgs(argv: string[]): SmokeOptions {
       case "--hosted-url":
         options.hostedUrl = takeValue(argv, index, arg).trim();
         index += 1;
+        break;
+      case "--hosted-data":
+      case "--hosted-data-public-reads":
+        options.hostedDataPublicReads = true;
         break;
       default:
         throw new Error(`Unknown option: ${arg}`);
@@ -697,11 +703,55 @@ async function smokeHostedHttp(results: SmokeResult[], options: SmokeOptions) {
     status: "pass",
   });
 
+  if (options.hostedDataPublicReads) {
+    const dataBackedSearch = await postMcpJsonRpc(url, {
+      jsonrpc: "2.0",
+      id: 4,
+      method: "tools/call",
+      params: {
+        arguments: { limit: 1, query: "club", type: "all" },
+        name: "vrdex_search",
+      },
+    });
+
+    await assertHttpStatus(dataBackedSearch, 200, "Hosted data-backed vrdex_search");
+
+    const dataSearchBody = (await parseMcpHttpResponse(dataBackedSearch)) as {
+      error?: unknown;
+      result?: {
+        isError?: unknown;
+        structuredContent?: {
+          query?: unknown;
+          results?: unknown;
+          type?: unknown;
+        };
+      };
+    };
+
+    assert.equal(dataSearchBody.error, undefined);
+    assert.notEqual(dataSearchBody.result?.isError, true, "Hosted data-backed vrdex_search returned a tool error.");
+    assert.equal(dataSearchBody.result?.structuredContent?.query, "club");
+    assert.equal(dataSearchBody.result?.structuredContent?.type, "all");
+    assert.equal(Array.isArray(dataSearchBody.result?.structuredContent?.results), true);
+
+    results.push({
+      details: "non-empty anonymous vrdex_search reached the hosted public data backend",
+      name: "Hosted data-backed public read tool call",
+      status: "pass",
+    });
+  } else {
+    results.push({
+      details: "pass --hosted-data or set VRDEX_MCP_SMOKE_DATA=1 to exercise non-empty search against a production-like Convex backend",
+      name: "Hosted data-backed public read tool call",
+      status: "skip",
+    });
+  }
+
   const invalidBearer = await postMcpJsonRpc(
     url,
     {
       jsonrpc: "2.0",
-      id: 4,
+      id: 5,
       method: "tools/list",
       params: {},
     },
@@ -724,7 +774,7 @@ async function smokeHostedHttp(results: SmokeResult[], options: SmokeOptions) {
       url,
       {
         jsonrpc: "2.0",
-        id: 5,
+        id: 6,
         method: "tools/list",
         params: {},
       },

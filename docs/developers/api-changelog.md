@@ -17,6 +17,10 @@ docs update and a changelog entry so early consumers and agents can adapt.
 - added hosted MCP tool descriptor auth metadata so every curated public read
   tool advertises `_meta["securitySchemes"]` with `noauth` plus optional
   `oauth2`/`mcp:read`
+- split hosted MCP smoke coverage so lightweight preview checks still cover
+  transport, descriptors, OAuth metadata, and bearer challenges, while
+  `--hosted-data` / `VRDEX_MCP_SMOKE_DATA` gates non-empty public reads against
+  a same-branch or production-like Convex backend
 
 ## 2026-07-04
 

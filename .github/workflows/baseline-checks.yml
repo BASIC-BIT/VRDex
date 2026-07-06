@@ -569,11 +569,12 @@ jobs:
           if [ "$CONVEX_PREVIEW_ENABLED" != "true" ]; then
             echo "dcr_enabled=false" >> "$GITHUB_OUTPUT"
             echo "cimd_enabled=false" >> "$GITHUB_OUTPUT"
+            echo "hosted_data_enabled=false" >> "$GITHUB_OUTPUT"
             {
               echo "## Hosted MCP preview smoke"
-              echo "Running hosted MCP preview smoke without Dynamic Client Registration or Client ID Metadata Document authorization because Convex preview deployment is unavailable."
+              echo "Running hosted MCP preview smoke without data-backed public reads, Dynamic Client Registration, or Client ID Metadata Document authorization because Convex preview deployment is unavailable."
               echo ""
-              echo "Set repository secret CONVEX_DEPLOY_KEY_PREVIEW to add same-branch Dynamic Client Registration and Client ID Metadata Document coverage."
+              echo "Set repository secret CONVEX_DEPLOY_KEY_PREVIEW to add same-branch data-backed public read, Dynamic Client Registration, and Client ID Metadata Document coverage."
               echo "Target was $DEPLOYMENT_URL/mcp."
             } >> "$GITHUB_STEP_SUMMARY"
             exit 0
@@ -581,9 +582,10 @@ jobs:
 
           echo "dcr_enabled=true" >> "$GITHUB_OUTPUT"
           echo "cimd_enabled=true" >> "$GITHUB_OUTPUT"
+          echo "hosted_data_enabled=true" >> "$GITHUB_OUTPUT"
           {
             echo "## Hosted MCP preview smoke"
-            echo "Running hosted MCP preview smoke with Dynamic Client Registration and Client ID Metadata Document authorization against a same-branch Convex preview backend."
+            echo "Running hosted MCP preview smoke with data-backed public reads, Dynamic Client Registration, and Client ID Metadata Document authorization against a same-branch Convex preview backend."
             echo ""
             echo "Target is $DEPLOYMENT_URL/mcp."
           } >> "$GITHUB_STEP_SUMMARY"
@@ -608,6 +610,7 @@ jobs:
         env:
           VRDEX_MCP_SMOKE_CIMD: ${{ steps.gate.outputs.cimd_enabled }}
           VRDEX_MCP_SMOKE_DCR: ${{ steps.gate.outputs.dcr_enabled }}
+          VRDEX_MCP_SMOKE_DATA: ${{ steps.gate.outputs.hosted_data_enabled }}
           VRDEX_MCP_SMOKE_URL: ${{ steps.gate.outputs.mcp_url }}
         run: pnpm smoke:mcp-compat
 

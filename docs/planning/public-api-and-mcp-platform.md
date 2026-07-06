@@ -1218,6 +1218,7 @@ Required before PR readiness:
 - API token E2E
 - OAuth test-client E2E
 - hosted MCP handshake/tool tests
+- hosted MCP data-backed public read smoke against a same-branch or production-like backend
 - hosted MCP tool descriptor auth metadata tests
 - stdio MCP smoke test
 - major MCP client compatibility matrix results
@@ -1296,13 +1297,14 @@ Security-specific tests:
 - Confidential-client CIMD with public-key client authentication remains deferred until a concrete major-client requirement appears.
 - OAuth signing-key rotation keeps the active private signing key in `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY`, advertises the active key id through `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID`, and retains previous public keys through `VRDEX_OAUTH_ACCESS_TOKEN_ADDITIONAL_PUBLIC_JWKS` until outstanding access tokens expire.
 - Hosted MCP auth metadata should make anonymous public read tools genuinely usable without login in clients that distinguish `noauth` from OAuth tools. The current hosted MCP tool descriptors expose `_meta["securitySchemes"]` with `noauth` plus optional `oauth2`/`mcp:read`; client-specific UI behavior remains part of the manual matrix.
+- Current PR preview hosted MCP smoke is split into lightweight transport/descriptor coverage and production-like data-backed coverage. The data-backed path is gated by `VRDEX_MCP_SMOKE_DATA` / `--hosted-data` and should run with a same-branch Convex preview or equivalent backend before external readiness.
 
 ## Remaining Open Research
 
 - Track OpenAPI 3.2.0 generator and Swagger UI support. The current checked-in artifact stays on 3.1.x.
 - Automate OAuth signing-key rotation in deployment secret management after the hosted secret store workflow is wired. The current checkpoint documents and supports manual current-key plus retained-previous-public-key rotation.
 - Choose the initial hosted Redis-compatible rate-limit provider, such as Upstash, Vercel KV, Valkey, or another Redis-compatible store. This is a deployment/vendor choice, not an open product architecture decision.
-- Run the implementation-time major MCP client smoke matrix against a deployed preview or production-like environment, including anonymous hosted reads, OAuth through Dynamic Client Registration, OAuth through public-client Client ID Metadata Documents, and local stdio configuration. Track results in `docs/developers/mcp-client-smoke-results.json` and run `pnpm check:mcp-client-matrix -- --require-ready` before external readiness.
+- Run the implementation-time major MCP client smoke matrix against a deployed preview or production-like environment, including data-backed anonymous hosted reads, OAuth through Dynamic Client Registration, OAuth through public-client Client ID Metadata Documents, and local stdio configuration. Track results in `docs/developers/mcp-client-smoke-results.json` and run `pnpm check:mcp-client-matrix -- --require-ready` before external readiness.
 - Verify OpenAI/ChatGPT-style client behavior against the hosted MCP tool descriptors. The current SDK supports `_meta["securitySchemes"]`; if a verified client surface requires a different standard field later, add that through an SDK-supported path or a narrow compatibility shim.
 - Decide whether confidential-client CIMD is needed after the deployed major-client smoke matrix. If yes, add public-key client authentication rather than shared-secret behavior.
 - Choose final default quota numbers and partner escalation thresholds after initial traffic and operator cost signals exist.

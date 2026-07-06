@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "lastReviewed": "2026-07-06",
-  "readinessMode": "repo-protocol-smoked-manual-client-smokes-pending",
-  "targetEnvironment": "PR #159 Vercel preview https://vr-dex-web-git-codex-public-api-mcp-planning-basicbit.vercel.app/mcp; latest Baseline run skipped Convex preview deployment, so DCR/CIMD hosted OAuth rows need a same-branch Convex preview or production-like backend.",
+  "readinessMode": "repo-protocol-smoked-hosted-transport-smoked-data-backed-client-smokes-pending",
+  "targetEnvironment": "PR #159 Vercel preview https://vr-dex-9imqwlzdt-basicbit.vercel.app/mcp; latest Baseline run skipped Convex preview deployment, so data-backed hosted public reads plus DCR/CIMD hosted OAuth rows need a same-branch Convex preview or production-like backend.",
   "clients": [
     {
       "id": "claude-desktop",
@@ -54,11 +54,8 @@
           "surface": "hosted_http_anonymous",
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
-          "manualStatus": "pass",
-          "notes": "Real Claude Code hosted anonymous HTTP smoke using strict temporary --mcp-config; OAuth row remains pending.",
-          "environment": "Windows / Claude Code 2.1.176 / PR #159 Vercel preview / hosted Streamable HTTP",
-          "manualEvidence": "pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url https://vr-dex-web-git-codex-public-api-mcp-planning-basicbit.vercel.app/mcp --model claude-haiku-4-5-20251001 proved mcp__vrdex__vrdex_search tool_use with query empty string, type all, limit 1 and structuredContent results array",
-          "lastRunAt": "2026-07-06"
+          "manualStatus": "pending",
+          "notes": "Real Claude Code hosted no-auth transport/tool invocation passed against the PR #159 preview with an empty vrdex_search query on 2026-07-06, but data-backed non-empty public reads remain pending because the current preview lacks same-branch Convex backend coverage."
         },
         {
           "id": "hosted-oauth",
@@ -209,11 +206,8 @@
           "surface": "hosted_http_anonymous",
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
-          "manualStatus": "pass",
-          "notes": "Anonymous hosted tools/list verified through MCP Inspector CLI after stripping legacy schema-level id keywords from MCP output schemas.",
-          "environment": "Windows / npx @modelcontextprotocol/inspector CLI / PR #159 Vercel preview https://vr-dex-web-git-codex-public-api-mcp-planning-basicbit.vercel.app/mcp",
-          "manualEvidence": "npx --yes @modelcontextprotocol/inspector --cli --transport http --method tools/list https://vr-dex-web-git-codex-public-api-mcp-planning-basicbit.vercel.app/mcp returned the six curated VRDex tools on commit be9d637",
-          "lastRunAt": "2026-07-06"
+          "manualStatus": "pending",
+          "notes": "MCP Inspector CLI hosted tools/list passed against the PR #159 preview on 2026-07-06 and showed all six curated tools with _meta securitySchemes. Data-backed hosted tool calls remain pending because the current preview lacks same-branch Convex backend coverage."
         },
         {
           "id": "hosted-oauth",

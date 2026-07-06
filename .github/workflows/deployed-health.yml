@@ -26,6 +26,11 @@ on:
         description: Probe hosted MCP Dynamic Client Registration
         required: true
         type: boolean
+      mcp_data:
+        default: false
+        description: Probe hosted MCP data-backed public reads
+        required: true
+        type: boolean
       mcp_cimd:
         default: false
         description: Probe hosted MCP Client ID Metadata Document authorization
@@ -344,12 +349,17 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         env:
           SMOKE_CIMD: ${{ inputs.mcp_cimd }}
+          SMOKE_DATA: ${{ inputs.mcp_data }}
           SMOKE_DCR: ${{ inputs.mcp_dcr }}
           SMOKE_URL: ${{ steps.gate.outputs.mcp_url }}
         run: |
           set -euo pipefail
 
           args=(--hosted-url "$SMOKE_URL")
+
+          if [ "$SMOKE_DATA" = "true" ]; then
+            args+=(--hosted-data)
+          fi
 
           if [ "$SMOKE_DCR" = "true" ]; then
             args+=(--dcr)
@@ -363,6 +373,7 @@ jobs:
             echo "## Hosted MCP smoke health"
             echo ""
             echo "- Target: \`$SMOKE_URL\`"
+            echo "- Data-backed public reads: \`$SMOKE_DATA\`"
             echo "- Dynamic Client Registration: \`$SMOKE_DCR\`"
             echo "- Client ID Metadata Document: \`$SMOKE_CIMD\`"
           } >> "$GITHUB_STEP_SUMMARY"

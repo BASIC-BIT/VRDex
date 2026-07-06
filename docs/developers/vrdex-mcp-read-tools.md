@@ -226,6 +226,10 @@ The current implementation-time client matrix lives in
 `docs/developers/mcp-client-compatibility.md`. Use it before declaring hosted
 or local MCP externally ready, because day-one support needs real smokes across
 major clients rather than only repo-level protocol tests.
+For hosted preview validation, treat empty-query transport checks and
+data-backed public reads separately: `pnpm smoke:mcp-compat -- --hosted-data`
+must pass against a same-branch or production-like Convex backend before
+external readiness.
 
 ## Safety Rules
 
