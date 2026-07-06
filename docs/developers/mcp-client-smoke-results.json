@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "lastReviewed": "2026-07-06",
   "readinessMode": "repo-protocol-smoked-manual-client-smokes-pending",
-  "targetEnvironment": "PR #159 Vercel preview https://vr-dex-web-git-codex-public-api-mcp-planning-basicbit.vercel.app/mcp",
+  "targetEnvironment": "PR #159 Vercel preview https://vr-dex-web-git-codex-public-api-mcp-planning-basicbit.vercel.app/mcp; latest Baseline run skipped Convex preview deployment, so DCR/CIMD hosted OAuth rows need a same-branch Convex preview or production-like backend.",
   "clients": [
     {
       "id": "claude-desktop",
@@ -215,7 +215,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
           "manualStatus": "pending",
-          "notes": "Exercise OAuth-protected read behavior and expected bearer challenges."
+          "notes": "Hosted OAuth remains pending. The current PR preview is valid for anonymous hosted reads, OAuth metadata, and bearer-challenge smoke, but not for DCR/CIMD pass evidence because Convex preview deployment was skipped."
         }
       ]
     }
