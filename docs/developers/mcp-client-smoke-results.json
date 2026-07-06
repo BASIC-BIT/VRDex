@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "lastReviewed": "2026-07-06",
   "readinessMode": "repo-protocol-smoked-manual-client-smokes-pending",
-  "targetEnvironment": null,
+  "targetEnvironment": "PR #159 Vercel preview https://vr-dex-web-git-codex-public-api-mcp-planning-basicbit.vercel.app/mcp",
   "clients": [
     {
       "id": "claude-desktop",
@@ -200,8 +200,11 @@
           "surface": "hosted_http_anonymous",
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
-          "manualStatus": "pending",
-          "notes": "Connect Inspector directly to hosted /mcp and call anonymous vrdex_search."
+          "manualStatus": "pass",
+          "notes": "Anonymous hosted tools/list verified through MCP Inspector CLI after stripping legacy schema-level id keywords from MCP output schemas.",
+          "environment": "Windows / npx @modelcontextprotocol/inspector CLI / PR #159 Vercel preview https://vr-dex-web-git-codex-public-api-mcp-planning-basicbit.vercel.app/mcp",
+          "manualEvidence": "npx --yes @modelcontextprotocol/inspector --cli --transport http --method tools/list https://vr-dex-web-git-codex-public-api-mcp-planning-basicbit.vercel.app/mcp returned the six curated VRDex tools on commit be9d637",
+          "lastRunAt": "2026-07-06"
         },
         {
           "id": "hosted-oauth",
