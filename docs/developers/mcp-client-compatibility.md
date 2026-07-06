@@ -48,6 +48,15 @@ Run this before manual client smokes:
 pnpm smoke:mcp-compat
 ```
 
+Claude Code local stdio has an additional real-client harness. It starts the
+repo API fixture, runs the installed Claude Code CLI with a strict temporary
+`--mcp-config`, calls `vrdex_search`, and fails unless the fixture receives the
+expected search request:
+
+```sh
+pnpm smoke:mcp-claude-code
+```
+
 PR Baseline Checks run the same local stdio protocol smoke through
 `pnpm verify:vrdex-mcp`.
 
@@ -135,7 +144,7 @@ before external readiness.
 | Client | Local stdio config | Hosted HTTP config | OAuth expectation | Current status |
 | --- | --- | --- | --- | --- |
 | Claude Desktop | Uses `mcpServers` JSON with `command`, `args`, and optional `env`. | Remote setup should use Claude's current Custom Connector path. | Hosted `/mcp` should complete OAuth through protected-resource metadata. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; hosted manual smoke pending. |
-| Claude Code | Supports stdio with `claude mcp add --transport stdio`. | Supports HTTP with `claude mcp add --transport http`. | Supports OAuth from `/mcp` or `claude mcp login`; DCR and public-client CIMD are implemented. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; hosted command shape ready; manual smoke pending. |
+| Claude Code | Supports stdio with `claude mcp add --transport stdio`. | Supports HTTP with `claude mcp add --transport http`. | Supports OAuth from `/mcp` or `claude mcp login`; DCR and public-client CIMD are implemented. | Local stdio real-client smoke passes through `pnpm smoke:mcp-claude-code`; hosted anonymous and OAuth smokes remain pending. |
 | VS Code | Uses `.vscode/mcp.json` or user MCP config with `servers` entries. | Supports `type: "http"` and `url`. | Avoid hardcoded secrets; use inputs or environment files. OAuth manual smoke pending. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; config snippets ready; manual smoke pending. |
 | Cursor | Treat local stdio as a required smoke target if the current release still supports command-based MCP config. | Treat hosted HTTP as a required smoke target if the current release supports remote MCP URLs. | Confirm current OAuth behavior during manual smoke. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; do not publish Cursor-specific snippets until the current docs or smoke run confirm them. |
 | OpenAI and ChatGPT MCP-capable surfaces | Treat local stdio as unsupported until the current product surface says otherwise. | Use hosted remote MCP when ChatGPT Apps, deep research, or API integration setup supports custom MCP servers. | Current OpenAI docs recommend CIMD when the authorization server supports it and keep DCR as a supported path when configured; VRDex implements both DCR and public-client CIMD. | Hosted remote MCP target identified; exact setup must be verified in the relevant OpenAI surface before launch docs publish snippets. |
@@ -262,9 +271,9 @@ VS Code hosted config:
    `vrdex_search`.
 2. Claude Desktop hosted Custom Connector lists anonymous tools and completes
    OAuth for `mcp:read` when protected tools are enabled.
-3. Claude Code local stdio starts, hosted HTTP anonymous tool listing works,
-   and hosted OAuth completes with `mcp:read` through DCR and public-client
-   CIMD.
+3. Claude Code local stdio starts through `pnpm smoke:mcp-claude-code`;
+   hosted HTTP anonymous tool listing works, and hosted OAuth completes with
+   `mcp:read` through DCR and public-client CIMD.
 4. VS Code local stdio lists six tools and hosted HTTP anonymous reads work.
 5. Cursor local stdio and hosted HTTP read tools work in the current release.
 6. OpenAI or ChatGPT MCP-capable surfaces connect to hosted `/mcp` if the

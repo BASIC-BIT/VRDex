@@ -43,8 +43,11 @@
           "surface": "local_stdio",
           "requiredForExternalReadiness": true,
           "repoEvidence": "pnpm smoke:mcp-compat local profile: Claude Code, including all curated read tools",
-          "manualStatus": "pending",
-          "notes": "Run claude mcp add --transport stdio and call vrdex_search."
+          "manualStatus": "pass",
+          "notes": "Real Claude Code client smoke using strict temporary --mcp-config and the local stdio package; repo and user Claude MCP config were not modified.",
+          "environment": "Windows / Claude Code 2.1.176 / pnpm smoke:mcp-claude-code / local API fixture",
+          "manualEvidence": "pnpm smoke:mcp-claude-code -- --model claude-haiku-4-5-20251001 returned club-night and fixture captured /api/v0/search?q=club&type=event&limit=1",
+          "lastRunAt": "2026-07-06"
         },
         {
           "id": "hosted-anonymous-read",
