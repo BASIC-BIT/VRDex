@@ -13,6 +13,39 @@ function runMcpProbe(script: string) {
   });
 }
 
+const namedSchemaMapKeys = new Set(["$defs", "definitions", "dependentSchemas", "patternProperties", "properties"]);
+
+function hasLegacySchemaId(value: unknown, insideNamedSchemaMap = false): boolean {
+  if (Array.isArray(value)) {
+    return value.some((item) => hasLegacySchemaId(item));
+  }
+
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  return Object.entries(value).some(
+    ([key, child]) =>
+      (key === "id" && !insideNamedSchemaMap) || hasLegacySchemaId(child, namedSchemaMapKeys.has(key)),
+  );
+}
+
+function jsonBodyFromProbe(output: string) {
+  const payload = output.trim().split(/\r?\n/).slice(1).join("\n");
+  const eventData = payload
+    .split(/\r?\n/)
+    .find((line) => line.startsWith("data: "))
+    ?.slice("data: ".length);
+
+  return JSON.parse(eventData ?? payload) as {
+    result?: {
+      tools?: Array<{
+        outputSchema?: unknown;
+      }>;
+    };
+  };
+}
+
 describe("VRDex MCP server", () => {
   it("serves MCP initialization without requiring Convex for tool listing", () => {
     const output = runMcpProbe(`
@@ -79,6 +112,10 @@ describe("VRDex MCP server", () => {
     assert.match(output, /"name":"vrdex_list_upcoming_events"/);
     assert.match(output, /"name":"vrdex_list_active_worlds"/);
     assert.match(output, /"readOnlyHint":true/);
+
+    const body = jsonBodyFromProbe(output);
+
+    assert.equal(body.result?.tools?.every((tool) => !hasLegacySchemaId(tool.outputSchema)), true);
   });
 
   it("returns OAuth discovery details for malformed bearer tokens", () => {

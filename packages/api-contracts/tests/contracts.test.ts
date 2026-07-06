@@ -28,11 +28,13 @@ import {
   getBearerTokenFromAuthorizationHeader,
   getOpenApiDocument,
   hasBearerTokenInUrl,
+  mcpOutputJsonSchemaForZodSchema,
   PublicActiveWorldSchema,
   PublicEventSchema,
   PublicProfileSchema,
   PublicSearchResponseSchema,
   PublicWorldSchema,
+  z,
   createApiTokenValue,
   createOAuthClientId,
   createOAuthClientSecretValue,
@@ -55,6 +57,23 @@ import {
   parseOAuthClientSecretValue,
   timingSafeEqualString,
 } from "../src";
+
+const namedSchemaMapKeys = new Set(["$defs", "definitions", "dependentSchemas", "patternProperties", "properties"]);
+
+function hasLegacySchemaId(value: unknown, insideNamedSchemaMap = false): boolean {
+  if (Array.isArray(value)) {
+    return value.some((item) => hasLegacySchemaId(item));
+  }
+
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  return Object.entries(value).some(
+    ([key, child]) =>
+      (key === "id" && !insideNamedSchemaMap) || hasLegacySchemaId(child, namedSchemaMapKeys.has(key)),
+  );
+}
 
 describe("@vrdex/api-contracts", () => {
   it("parses public profiles while preserving future response fields", () => {
@@ -120,6 +139,31 @@ describe("@vrdex/api-contracts", () => {
         source: { sourceType: "manual", label: "Owner-authored" },
       },
     });
+  });
+
+  it("generates MCP-safe JSON Schema from shared Zod contracts", () => {
+    const jsonSchema = mcpOutputJsonSchemaForZodSchema(
+      z
+        .object({
+          id: z.string(),
+          nested: z
+            .object({
+              id: z.string(),
+            })
+            .meta({ id: "NestedSchemaWithIdField" }),
+        })
+        .meta({ id: "RootSchemaWithIdField" }),
+    );
+
+    assert.equal(hasLegacySchemaId(jsonSchema), false);
+    assert.ok((jsonSchema.properties as Record<string, unknown>).id);
+    assert.ok(
+      (
+        ((jsonSchema.$defs as Record<string, unknown>).NestedSchemaWithIdField as {
+          properties?: Record<string, unknown>;
+        }).properties ?? {}
+      ).id,
+    );
   });
 
   it("parses event creation contracts", () => {

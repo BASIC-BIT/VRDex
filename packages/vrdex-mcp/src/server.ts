@@ -1,5 +1,6 @@
-import { McpServer } from "@modelcontextprotocol/server";
+import { fromJsonSchema, McpServer } from "@modelcontextprotocol/server";
 import {
+  mcpOutputJsonSchemaForZodSchema,
   PublicActiveWorldsResponseSchema,
   PublicEventSchema,
   PublicEventsResponseSchema,
@@ -13,9 +14,7 @@ import { createVrdexApiClient, type VrdexApiClient, type VrdexApiFailure } from 
 import type { VrdexMcpConfig, VrdexMcpOutputMode } from "./config";
 import { loadVrdexMcpConfig } from "./config";
 
-type ResponseSchema<T> = {
-  parse(value: unknown): T;
-};
+type ResponseSchema<T> = z.ZodType<T>;
 
 export type VrdexMcpServerOptions = {
   apiClient?: VrdexApiClient;
@@ -41,6 +40,10 @@ function mcpJsonResult<T>(schema: ResponseSchema<T>, value: unknown, outputMode:
     content: [{ type: "text" as const, text: formatJson(structuredContent, outputMode) }],
     structuredContent,
   };
+}
+
+function mcpOutputSchema<T>(schema: ResponseSchema<T>) {
+  return fromJsonSchema<T>(mcpOutputJsonSchemaForZodSchema(schema));
 }
 
 function mcpNotFound(resourceName: string, slug: string) {
@@ -85,7 +88,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
         query: z.string().trim().max(160),
         type: z.enum(mcpSearchTypes).optional(),
       }),
-      outputSchema: PublicSearchResponseSchema,
+      outputSchema: mcpOutputSchema(PublicSearchResponseSchema),
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
     async ({ limit, query, type }) => {
@@ -120,7 +123,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
         profileType: z.enum(["person", "community"]).optional(),
         slug: mcpSlugSchema,
       }),
-      outputSchema: PublicProfileSchema,
+      outputSchema: mcpOutputSchema(PublicProfileSchema),
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
     async ({ profileType, slug }) => {
@@ -142,7 +145,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       inputSchema: z.object({
         slug: mcpSlugSchema,
       }),
-      outputSchema: PublicEventSchema,
+      outputSchema: mcpOutputSchema(PublicEventSchema),
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
     async ({ slug }) => {
@@ -164,7 +167,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       inputSchema: z.object({
         limit: mcpLimitSchema.max(24).optional(),
       }),
-      outputSchema: PublicEventsResponseSchema,
+      outputSchema: mcpOutputSchema(PublicEventsResponseSchema),
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
     async ({ limit }) => {
@@ -182,7 +185,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       inputSchema: z.object({
         slug: mcpSlugSchema,
       }),
-      outputSchema: PublicWorldSchema,
+      outputSchema: mcpOutputSchema(PublicWorldSchema),
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
     async ({ slug }) => {
@@ -204,7 +207,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       inputSchema: z.object({
         limit: mcpLimitSchema.max(6).optional(),
       }),
-      outputSchema: PublicActiveWorldsResponseSchema,
+      outputSchema: mcpOutputSchema(PublicActiveWorldsResponseSchema),
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
     async ({ limit }) => {

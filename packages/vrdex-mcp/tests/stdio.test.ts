@@ -15,6 +15,23 @@ type JsonRpcMessage = {
   result?: unknown;
 };
 
+const namedSchemaMapKeys = new Set(["$defs", "definitions", "dependentSchemas", "patternProperties", "properties"]);
+
+function hasLegacySchemaId(value: unknown, insideNamedSchemaMap = false): boolean {
+  if (Array.isArray(value)) {
+    return value.some((item) => hasLegacySchemaId(item));
+  }
+
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  return Object.entries(value).some(
+    ([key, child]) =>
+      (key === "id" && !insideNamedSchemaMap) || hasLegacySchemaId(child, namedSchemaMapKeys.has(key)),
+  );
+}
+
 async function callTool(args: {
   id: number;
   messages: JsonRpcMessage[];
@@ -140,8 +157,10 @@ test("serves VRDex tools over stdio and calls the configured API base URL", asyn
     send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
 
     const tools = await waitForMessage(messages, onMessage, 2, stderr);
+    const listedTools = (tools.result as { tools: Array<{ name: string; outputSchema?: unknown }> }).tools;
+
     assert.deepEqual(
-      ((tools.result as { tools: Array<{ name: string }> }).tools).map((tool) => tool.name),
+      listedTools.map((tool) => tool.name),
       [
         "vrdex_search",
         "vrdex_get_profile",
@@ -151,6 +170,7 @@ test("serves VRDex tools over stdio and calls the configured API base URL", asyn
         "vrdex_list_active_worlds",
       ],
     );
+    assert.equal(listedTools.every((tool) => !hasLegacySchemaId(tool.outputSchema)), true);
 
     const search = await callTool({
       id: 3,
