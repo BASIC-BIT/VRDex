@@ -192,8 +192,11 @@
           "surface": "local_stdio",
           "requiredForExternalReadiness": true,
           "repoEvidence": "pnpm smoke:mcp-compat local profile: MCP Inspector, including all curated read tools",
-          "manualStatus": "pending",
-          "notes": "Use Inspector as the interactive local protocol debugger."
+          "manualStatus": "pass",
+          "notes": "Local stdio compatibility verified through MCP Inspector CLI against the repo API fixture, including a real vrdex_search tool call and structured content result.",
+          "environment": "Windows / MCP Inspector CLI 0.22.0 direct CLI entrypoint / local stdio package command / repo API fixture",
+          "manualEvidence": "node @modelcontextprotocol/inspector/cli/build/index.js corepack pnpm --silent --dir D:/bench/VRDex-wt/public-api-mcp-planning exec tsx packages/vrdex-mcp/src/stdio.ts --method tools/call --tool-name vrdex_search --tool-arg query=club type=event limit=1 returned structuredContent.results[0].slug=club-night and fixture captured /api/v0/search?q=club&type=event&limit=1",
+          "lastRunAt": "2026-07-06"
         },
         {
           "id": "hosted-anonymous-read",
