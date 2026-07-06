@@ -47,12 +47,15 @@ The first useful version should feel small and sharp:
 - `Locked decision`: Structured integrations should prefer public API or MCP tools over website scraping.
 - `Locked decision`: OpenAPI artifacts must be generated from shared API contract schemas, not hand-rolled as a parallel source of truth.
 - `Locked decision`: Hosted MCP should expose anonymous public read tools on day one, with anonymous callers treated as a distinct rate-limit class.
+- `Locked decision`: Hosted public read tools must remain genuinely callable without login in clients that support anonymous/no-auth MCP tools.
 - `Locked decision`: Token values must never be stored in plaintext. Display newly minted API tokens and OAuth client secrets only once, then store verifier hashes plus metadata.
 - `Locked decision`: Bearer tokens must not be accepted from URL query parameters.
 - `Locked decision`: OAuth access tokens must be audience/resource-bound. VRDex must not accept or pass through tokens minted for another resource.
 - `Locked decision`: Hosted MCP over HTTP follows the current MCP authorization model and Streamable HTTP transport.
+- `Locked decision`: Hosted MCP readiness requires OAuth protected-resource metadata, authorization-server metadata, constrained Dynamic Client Registration, and public-client Client ID Metadata Document support.
 - `Locked decision`: Local stdio MCP uses environment or local config credentials and does not try to run the HTTP MCP authorization handshake over stdio.
 - `Locked decision`: Normal developer apps support user-owned apps plus owner-managed community-owned apps. Staff/admin delegation for community-owned apps is a later capability.
+- `Locked decision`: Day-one MCP support targets every major MCP client available at implementation time, with required matrix evidence before external readiness.
 
 ## Current Recommendations
 
@@ -74,14 +77,13 @@ The first useful version should feel small and sharp:
 - `Current recommendation`: Use a Redis-compatible TTL counter store for high-volume hosted anonymous public API and MCP traffic. Keep Convex as the durable source for policy, app/token ownership, partner overrides, coarse usage summaries, and audit events.
 - `Current recommendation`: Launch the hosted MCP as read-oriented first, even if the auth platform already supports scopes that make later write tools possible.
 - `Current recommendation`: Treat anonymous hosted MCP reads as a first-class no-auth tool path. Where a client or SDK supports per-tool auth metadata, public read tools should advertise no-auth access and OAuth as an optional or later privileged path; the server still enforces scopes, audience/resource binding, and rate limits on every request.
+- `Current recommendation`: For OpenAI/ChatGPT-style MCP clients, advertise public read tools with per-tool `noauth` plus optional `oauth2` security metadata, including the `_meta["securitySchemes"]` compatibility mirror when the SDK path supports it.
 - `Current recommendation`: Trusted partner access is a manual review tier with very high quotas compared with normal personal tokens, but it still needs contact ownership, abuse/cost guardrails, observability, and fast revocation.
 
 ## Candidate Directions
 
 - `Candidate direction`: Add a dedicated API hostname later, but keep the first public route shape under the web app until operational pressure justifies a split.
-- `Candidate direction`: Publish `/.well-known/oauth-authorization-server` and OAuth protected-resource metadata from the web app route-handler surface.
 - `Candidate direction`: Use an adapter interface for rate-limit storage so hosted deployments can use Upstash/Vercel KV/Valkey/Redis-compatible infrastructure, local development can use an in-memory adapter, and self-hosted production can bring its own Redis-compatible store.
-- `Candidate direction`: Add a hosted MCP compatibility matrix for every major MCP client available at implementation time. The matrix should cover anonymous Streamable HTTP reads, OAuth hosted tools, and stdio private/local configuration.
 - `Candidate direction`: Add an optional generated MCP coverage layer from OpenAPI only after curated tools prove useful.
 
 ## Interview Later
@@ -1195,7 +1197,7 @@ If this epic is split before implementation, keep the issue count small:
 1. Public API contracts, OpenAPI, and Swagger docs.
 2. API token auth, developer token UI, and Redis-compatible rate limits.
 3. OAuth app registry, Next.js-backed issuer routes, Authorization Code with PKCE, Client Credentials, and metadata endpoints.
-4. Hosted VRDex MCP with anonymous public reads, OAuth, Dynamic Client Registration if needed, and read-only curated tools.
+4. Hosted VRDex MCP with anonymous public reads, OAuth, Dynamic Client Registration, public-client Client ID Metadata Documents, major-client compatibility evidence, and read-only curated tools.
 5. Private/local `@basicbit/vrdex-mcp` package with token and OAuth configuration.
 6. Developer docs, self-hosting docs, observability, and rollout checks.
 
@@ -1218,6 +1220,7 @@ Required before PR readiness:
 - hosted MCP handshake/tool tests
 - stdio MCP smoke test
 - major MCP client compatibility matrix results
+- MCP tool auth metadata verification for anonymous/no-auth public reads where a major client requires per-tool declarations
 - docs build
 - visual verification for developer dashboard, consent screen, and Swagger docs
 
@@ -1279,16 +1282,17 @@ Security-specific tests:
 ## Follow-Up Decisions From Maintainer Review
 
 - OpenAPI should be generated from shared schemas rather than hand-rolled.
-- OAuth issuer placement is a technical design decision; current recommendation is Next.js route handlers backed by Convex state.
-- OAuth access token format is a technical design decision; current recommendation is short-lived JWT access tokens plus opaque rotated refresh tokens.
-- The rate-limit backend question means where high-cardinality request counters live. Current recommendation is Redis-compatible TTL counters for hosted anonymous/high-volume traffic, with Convex retaining durable policy and audit state.
-- Hosted MCP should support anonymous public read tools from day one.
+- OAuth issuer placement is a technical design decision; current recommendation is Next.js route handlers backed by Convex state because VRDex needs self-hostable, app-specific ownership, dynamic MCP client handling, and product policy checks in the same deployment boundary.
+- OAuth access token format is a technical design decision; current recommendation is short-lived RFC 9068-style JWT access tokens plus opaque rotated refresh tokens.
+- The rate-limit backend question means where high-cardinality request counters live. This is not a question about whether Convex owns developer apps, quotas, trust policy, or audit state.
+- Hosted production should use Redis-compatible TTL counters for anonymous/high-volume API and MCP traffic. Convex keeps durable ownership, policy, review, summary, and audit records.
+- Hosted MCP should support anonymous public read tools from day one, and anonymous callers should be treated as anonymous accounts for rate-limiting purposes.
 - Day-one MCP support should target every major MCP client available at implementation time through a compatibility matrix.
 - First-pass developer apps support user-owned apps and owner-managed community-owned apps.
 - Community-owned OAuth app staff/admin delegation should be considered after broader community authority is stable enough.
-- Trusted partner access is manually reviewed and should have much higher practical quotas than normal personal tokens, while retaining monitoring, cost controls, and revocation.
-- Rate-limit backend language refers to hot, expiring request counters rather than durable product state; Convex keeps durable ownership, policy, review, summary, and audit records.
-- Current MCP/OAuth research says DCR and public-client CIMD should both remain in the hosted MCP path. Confidential-client CIMD with public-key client authentication remains deferred until a concrete major-client requirement appears.
+- Trusted partner access is manually reviewed by BASIC BIT operators and should have much higher practical quotas than normal personal tokens, while retaining monitoring, cost controls, and revocation.
+- Current MCP/OAuth research says DCR and public-client CIMD should both remain in the hosted MCP path. OpenAI/ChatGPT-style clients prefer CIMD when available, while Claude Code and other clients can use DCR or preconfigured OAuth credentials.
+- Confidential-client CIMD with public-key client authentication remains deferred until a concrete major-client requirement appears.
 - OAuth signing-key rotation keeps the active private signing key in `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY`, advertises the active key id through `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID`, and retains previous public keys through `VRDEX_OAUTH_ACCESS_TOKEN_ADDITIONAL_PUBLIC_JWKS` until outstanding access tokens expire.
 - Hosted MCP auth metadata should make anonymous public read tools genuinely usable without login in clients that distinguish `noauth` from OAuth tools. The current server behavior is authoritative; client-specific metadata and UI behavior remain part of the manual matrix.
 
@@ -1296,7 +1300,8 @@ Security-specific tests:
 
 - Track OpenAPI 3.2.0 generator and Swagger UI support. The current checked-in artifact stays on 3.1.x.
 - Automate OAuth signing-key rotation in deployment secret management after the hosted secret store workflow is wired. The current checkpoint documents and supports manual current-key plus retained-previous-public-key rotation.
-- Confirm the hosted rate-limit provider for production, such as Upstash, Vercel KV, Valkey, or another Redis-compatible store.
+- Choose the initial hosted Redis-compatible rate-limit provider, such as Upstash, Vercel KV, Valkey, or another Redis-compatible store. This is a deployment/vendor choice, not an open product architecture decision.
 - Run the implementation-time major MCP client smoke matrix against a deployed preview or production-like environment, including anonymous hosted reads, OAuth through Dynamic Client Registration, OAuth through public-client Client ID Metadata Documents, and local stdio configuration. Track results in `docs/developers/mcp-client-smoke-results.json` and run `pnpm check:mcp-client-matrix -- --require-ready` before external readiness.
+- Confirm whether the current MCP SDK can emit both standard tool `securitySchemes` and `_meta["securitySchemes"]` for OpenAI/ChatGPT-style clients, or whether VRDex needs a small descriptor-metadata shim until upstream support is sufficient.
 - Decide whether confidential-client CIMD is needed after the deployed major-client smoke matrix. If yes, add public-key client authentication rather than shared-secret behavior.
 - Choose final default quota numbers and partner escalation thresholds after initial traffic and operator cost signals exist.

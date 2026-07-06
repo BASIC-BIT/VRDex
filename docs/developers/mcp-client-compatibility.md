@@ -5,7 +5,7 @@
 Implementation-time compatibility matrix for the public API and MCP platform
 foundation.
 
-Last reviewed: 2026-07-05.
+Last reviewed: 2026-07-06.
 
 This matrix separates repo-verified protocol behavior from manual client
 smokes. Do not declare the public MCP surface externally ready until the manual
@@ -23,6 +23,9 @@ Source-backed client requirements from the current docs pass:
 - hosted public read tools should be callable without OAuth in clients that
   understand no-auth tool metadata, while OAuth remains available for
   authenticated MCP reads and future privileged tools
+- OpenAI/ChatGPT-style clients need per-tool `securitySchemes` and the
+  `_meta["securitySchemes"]` compatibility mirror to distinguish anonymous
+  public-read tools from OAuth-required tools
 - static bearer-token headers remain a diagnostic fallback, not the preferred
   hosted OAuth setup
 - do not publish client-specific setup snippets unless that client's current
@@ -157,7 +160,7 @@ before external readiness.
 | Claude Code | Supports stdio with `claude mcp add --transport stdio`. | Supports HTTP with `claude mcp add --transport http`. | Supports OAuth from `/mcp` or `claude mcp login`; DCR and public-client CIMD are implemented. | Local stdio and hosted anonymous real-client smokes pass through `pnpm smoke:mcp-claude-code`; hosted OAuth remains pending. |
 | VS Code | Uses `.vscode/mcp.json` or user MCP config with `servers` entries. | Supports `type: "http"` and `url`. | Avoid hardcoded secrets; use inputs or environment files. OAuth manual smoke pending. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; config snippets ready; manual smoke pending. |
 | Cursor | Treat local stdio as a required smoke target if the current release still supports command-based MCP config. | Treat hosted HTTP as a required smoke target if the current release supports remote MCP URLs. | Confirm current OAuth behavior during manual smoke. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; do not publish Cursor-specific snippets until the current docs or smoke run confirm them. |
-| OpenAI and ChatGPT MCP-capable surfaces | Treat local stdio as unsupported until the current product surface says otherwise. | Use hosted remote MCP when ChatGPT Apps, deep research, or API integration setup supports custom MCP servers. | Current OpenAI docs recommend CIMD when the authorization server supports it and keep DCR as a supported path when configured; VRDex implements both DCR and public-client CIMD. | Hosted remote MCP target identified; exact setup must be verified in the relevant OpenAI surface before launch docs publish snippets. |
+| OpenAI and ChatGPT MCP-capable surfaces | Treat local stdio as unsupported until the current product surface says otherwise. | Use hosted remote MCP when ChatGPT Apps, deep research, or API integration setup supports custom MCP servers. | Current OpenAI docs recommend CIMD when the authorization server supports it and keep DCR as a supported path when configured; VRDex implements both DCR and public-client CIMD. Public read tools should advertise `noauth` plus optional `oauth2` metadata. | Hosted remote MCP target identified; exact setup and per-tool auth metadata behavior must be verified in the relevant OpenAI surface before launch docs publish snippets. |
 | Devin Desktop / Windsurf Cascade | Uses `mcp_config.json` with `mcpServers`. | Supports `serverUrl` or `url` for remote HTTP MCPs. | Docs state OAuth support for stdio, Streamable HTTP, and SSE. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; hosted config shape ready; manual smoke pending. |
 | MCP Inspector | Use as a protocol-level stdio debugger; local stdio `vrdex_search` is manually verified in the smoke matrix. | Connect directly to hosted `/mcp` for remote debugging; anonymous hosted tool listing is manually verified in the smoke matrix. | Exercise OAuth separately. | Local stdio and hosted anonymous diagnostic smokes pass; hosted OAuth remains pending. |
 
@@ -289,7 +292,8 @@ VS Code hosted config:
 6. OpenAI or ChatGPT MCP-capable surfaces connect to hosted `/mcp` if the
    current product supports custom remote MCP connectors. Record whether the
    connector accepts DCR, requires Client ID Metadata Documents, or follows a
-   reviewed app submission path.
+   reviewed app submission path. Also record whether public read tools appear
+   as anonymous/no-auth tools instead of forcing OAuth before a safe search.
 7. Devin Desktop or Windsurf Cascade local stdio and hosted HTTP read tools
    work; OAuth is tested when team MCP access allows it.
 8. MCP Inspector local stdio and hosted anonymous read paths return expected
@@ -316,3 +320,5 @@ the PR is not being declared externally ready.
 - [VS Code MCP servers](https://code.visualstudio.com/docs/agent-customization/mcp-servers)
 - [Devin Desktop / Windsurf Cascade MCP](https://docs.devin.ai/desktop/cascade/mcp)
 - [OpenAI MCP and Connectors](https://platform.openai.com/docs/mcp)
+- [OpenAI Apps SDK authentication](https://developers.openai.com/apps-sdk/build/auth)
+- [OpenAI Apps SDK reference](https://developers.openai.com/apps-sdk/reference)

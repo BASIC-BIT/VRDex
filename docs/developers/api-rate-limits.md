@@ -13,9 +13,17 @@ contract. Trusted partner access remains manually reviewed and should use much
 higher practical quotas only after contact ownership, monitoring, cost controls,
 and revocation paths are in place.
 
-In this guide, the rate-limit backend is the storage path for hot expiring
-request counters. It is separate from durable quota policy, credential ownership,
-partner review state, usage summaries, and audit events, which stay in Convex.
+In this guide, the rate-limit backend is only the storage path for hot expiring
+request counters. It is separate from durable quota policy, credential
+ownership, partner review state, usage summaries, and audit events, which stay
+in Convex.
+
+For example, an anonymous hosted MCP search increments a short-lived key for
+the anonymous MCP route class plus request identity. The counter expires with
+the rate-limit window and is used only to decide whether the next request gets a
+`429`. Convex still owns the API token, OAuth app, trust tier, partner review,
+and credential event records.
+
 The backend choice is an infrastructure question about where per-request
 `INCR`/TTL counters live, not a product question about whether Convex remains
 the source of truth for API clients and partner policy.
@@ -43,10 +51,10 @@ The Redis adapter uses a fixed-window counter with `INCR`, `PEXPIRE NX`, and
 Use a Redis-compatible store for hosted production anonymous API and hosted MCP
 traffic. Convex-only counters are acceptable only for low-volume self-hosted
 deployments that knowingly accept the extra write load and cost tradeoff.
-For BASIC BIT hosted production, prefer the `redis-rest`/`upstash` adapter
-until traffic proves a direct Redis/Valkey connection is worth the extra
-operational surface. The important contract is Redis-compatible expiring
-counters behind the adapter, not the specific vendor brand.
+For BASIC BIT hosted production, prefer the `redis-rest`/`upstash` adapter for
+the first hosted deployment unless provider pricing or latency says otherwise.
+The important contract is Redis-compatible expiring counters behind the adapter,
+not the specific vendor brand.
 
 ## Default Route Classes
 
@@ -132,6 +140,6 @@ Manual review should confirm:
 
 The implementation already has `trustTier` fields for personal tokens and OAuth
 applications. Raising partner quotas should be a deliberate operator action.
-Partner limits can be very high compared with normal personal tokens, but they
-are still metered, monitored, cost-aware, and quickly revocable rather than an
+Partner limits can be very high compared with normal personal tokens. They are
+still metered, monitored, cost-aware, and quickly revocable rather than an
 automatic or literally unlimited upgrade path.

@@ -31,6 +31,9 @@ traffic and future privileged tools, but public search/browser-like use should
 not display a login prompt before a safe read. The server remains authoritative:
 it validates any bearer token it receives, rejects wrong-resource tokens, and
 applies anonymous or authenticated MCP route-class limits after auth resolution.
+OpenAI/ChatGPT-style clients should receive per-tool `noauth` plus optional
+`oauth2` security metadata, including the `_meta["securitySchemes"]`
+compatibility mirror when the SDK path supports it.
 
 The OAuth issuer exposes `POST /oauth/register` for constrained Dynamic Client
 Registration by hosted MCP clients and `GET /oauth/authorize` for public-client
@@ -235,7 +238,7 @@ major clients rather than only repo-level protocol tests.
 
 ## Hosted Vs Local MCP
 
-Candidate direction:
+Current recommendation:
 
 - hosted/remote MCP is suitable for public read-only data because VRDex public data is not tied to private VRChat cookies
 - anonymous hosted MCP read tools should be allowed for public-safe search/browser-like use cases, with their own rate-limit class
