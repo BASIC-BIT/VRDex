@@ -31,6 +31,7 @@ import {
   normalizeOAuthAuthorizationCodeValue,
   normalizeOAuthCodeVerifier,
   normalizeOAuthRefreshTokenValue,
+  refreshTokenPepper,
 } from "@/lib/server/oauth-pkce";
 
 export const dynamic = "force-dynamic";
@@ -137,6 +138,18 @@ async function authorizationCodeTokenResponse(request: Request, form: FormData) 
   const expiresAt = oauthAccessTokenExpiresAt(now);
   const tokenId = createOAuthAccessTokenId();
   const refreshToken = createOAuthRefreshTokenValue();
+  let refreshTokenHash: string;
+
+  try {
+    refreshTokenHash = await hashOAuthRefreshTokenValue(refreshToken, refreshTokenPepper());
+  } catch {
+    return oauthProblem(
+      500,
+      "server_error",
+      "The server is not configured to issue OAuth refresh tokens.",
+    );
+  }
+
   const result = await convexHttpClient().mutation(api.oauthApps.consumeAuthorizationCode, {
     clientId: clientAuthentication.clientId,
     codeHash,
@@ -145,7 +158,7 @@ async function authorizationCodeTokenResponse(request: Request, form: FormData) 
     derivedCodeChallenge,
     tokenId,
     expiresAt,
-    refreshTokenHash: await hashOAuthRefreshTokenValue(refreshToken),
+    refreshTokenHash,
     refreshTokenExpiresAt: now + refreshTokenTtlMs,
     ...(clientAuthentication.secretPrefix === undefined
       ? {}
@@ -199,12 +212,12 @@ async function refreshTokenResponse(request: Request, form: FormData) {
     return clientAuthentication.response;
   }
 
-  let refreshTokenHash: string;
+  let refreshToken: string;
   let resource: string;
   let scopes: ReturnType<typeof parseOAuthScopeString> | undefined;
 
   try {
-    refreshTokenHash = await hashOAuthRefreshTokenValue(normalizeOAuthRefreshTokenValue(requiredFormString(form, "refresh_token")));
+    refreshToken = normalizeOAuthRefreshTokenValue(requiredFormString(form, "refresh_token"));
     resource = requestedAuthorizationCodeResource(request, form);
     scopes = String(form.get("scope") ?? "").trim()
       ? parseOAuthScopeString(String(form.get("scope") ?? ""), [])
@@ -221,10 +234,26 @@ async function refreshTokenResponse(request: Request, form: FormData) {
   const expiresAt = oauthAccessTokenExpiresAt(now);
   const tokenId = createOAuthAccessTokenId();
   const replacementRefreshToken = createOAuthRefreshTokenValue();
+  let refreshTokenHash: string;
+  let replacementRefreshTokenHash: string;
+
+  try {
+    const pepper = refreshTokenPepper();
+
+    refreshTokenHash = await hashOAuthRefreshTokenValue(refreshToken, pepper);
+    replacementRefreshTokenHash = await hashOAuthRefreshTokenValue(replacementRefreshToken, pepper);
+  } catch {
+    return oauthProblem(
+      500,
+      "server_error",
+      "The server is not configured to validate OAuth refresh tokens.",
+    );
+  }
+
   const result = await convexHttpClient().mutation(api.oauthApps.rotateRefreshToken, {
     clientId: clientAuthentication.clientId,
     refreshTokenHash,
-    replacementRefreshTokenHash: await hashOAuthRefreshTokenValue(replacementRefreshToken),
+    replacementRefreshTokenHash,
     requestedScopes: scopes,
     resource,
     tokenId,

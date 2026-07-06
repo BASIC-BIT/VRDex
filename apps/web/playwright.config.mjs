@@ -43,6 +43,8 @@ const localApiCredentialEnv = hostedBaseURL
         VRDEX_API_TOKEN_PEPPER: process.env.VRDEX_API_TOKEN_PEPPER ?? "local-playwright-api-token-pepper",
         VRDEX_OAUTH_CLIENT_SECRET_PEPPER:
           process.env.VRDEX_OAUTH_CLIENT_SECRET_PEPPER ?? "local-playwright-oauth-client-secret-pepper",
+        VRDEX_OAUTH_REFRESH_TOKEN_PEPPER:
+          process.env.VRDEX_OAUTH_REFRESH_TOKEN_PEPPER ?? "local-playwright-oauth-refresh-token-pepper",
         VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY:
           process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY ?? oauthSigningKey,
         VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID:

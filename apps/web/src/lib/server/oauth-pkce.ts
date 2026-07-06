@@ -49,8 +49,24 @@ export function normalizeOAuthRefreshTokenValue(value: string) {
   return refreshToken;
 }
 
-export async function hashOAuthRefreshTokenValue(value: string) {
-  return bytesToHex(await sha256Digest(normalizeOAuthRefreshTokenValue(value)));
+export function refreshTokenPepper() {
+  const pepper = process.env.VRDEX_OAUTH_REFRESH_TOKEN_PEPPER?.trim();
+
+  if (!pepper) {
+    throw new Error("VRDEX_OAUTH_REFRESH_TOKEN_PEPPER is required for OAuth refresh token hashing.");
+  }
+
+  return pepper;
+}
+
+export async function hashOAuthRefreshTokenValue(value: string, pepper: string) {
+  const normalizedPepper = pepper.trim();
+
+  if (!normalizedPepper) {
+    throw new Error("OAuth refresh token pepper is required.");
+  }
+
+  return bytesToHex(await sha256Digest(`${normalizedPepper}:${normalizeOAuthRefreshTokenValue(value)}`));
 }
 
 export function normalizeOAuthCodeVerifier(value: string) {

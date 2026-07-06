@@ -119,6 +119,10 @@ Current constraints:
 - hosted `/mcp` bearer challenges advertise the protected-resource metadata URL
   and the required `mcp:read` scope
 
+Refresh token verifier hashes are derived with
+`VRDEX_OAUTH_REFRESH_TOKEN_PEPPER`. Rotating that pepper invalidates outstanding
+refresh tokens, so pair rotation with user re-authorization.
+
 ## Client Credentials
 
 Use this for confidential server-to-server clients.

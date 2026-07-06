@@ -48,6 +48,14 @@ Set these in the Vercel project as needed:
 - `NEXT_PUBLIC_POSTHOG_KEY`: optional public PostHog project key; BASIC BIT hosted deployments should set this through `infra/terraform/vercel` for PostHog project `447783`.
 - `NEXT_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com`: optional PostHog ingestion host; also managed through `infra/terraform/vercel` for hosted deployments.
 
+Public API, OAuth, and hosted MCP runtime routes also need the server-side
+variables inventoried in `docs/developers/self-hosting-and-iac.md`, including
+`VRDEX_API_TOKEN_PEPPER`, `VRDEX_OAUTH_CLIENT_SECRET_PEPPER`,
+`VRDEX_OAUTH_REFRESH_TOKEN_PEPPER`, OAuth access-token signing keys, issuer and
+resource URLs, and the selected rate-limit backend settings. Keep secret values
+in Vercel or the deployment secret store; commit only variable names, scope, and
+rotation guidance.
+
 Do not set `VRDEX_ENABLE_PLAYWRIGHT_FIXTURES` in Vercel. Fixture profiles are for Playwright-only local/CI preview screenshots and must not be exposed from hosted previews.
 
 Hosted dev/staging E2E targets must set these only on the dev/staging environment, not production:
@@ -109,6 +117,9 @@ The `staging` Vercel environment points at the shared Convex development deploym
 - `DISCORD_BOT_TOKEN`: staging-only adapter token matching Convex dev env `DISCORD_BOT_TOKEN`
 - `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`: staging-only adapter token matching Convex dev env `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`
 
+Staging must set the API/OAuth/MCP runtime variables listed above before the
+developer-credential or hosted MCP E2E lanes are enabled.
+
 The Convex client URL is separate from the Convex Auth callback host. Staging Auth callbacks use `https://db.staging.vrdex.net`; the Convex HTTP Actions custom domain is verified, both OAuth providers include the callback URL, and deployment `scrupulous-corgi-247` selects it as `CONVEX_SITE_URL`.
 
 Current ownership: these staging E2E environment variables are bootstrap-managed manual Vercel settings, not Terraform-owned. `infra/terraform/web-domains` owns production web domains. The `infra/terraform/vercel` stack currently owns hosted PostHog client environment variables (`NEXT_PUBLIC_POSTHOG_KEY` and `NEXT_PUBLIC_POSTHOG_HOST`) for production, default preview, and configured staging custom environment IDs. Until E2E helper variables are explicitly added to or imported into Terraform, update this document and the Vercel secret store together, and never commit secret values.
@@ -141,6 +152,9 @@ Production Vercel hosting uses the same `vr-dex-web` project with the production
 - `VRDEX_ENABLE_E2E_HELPERS=false` or unset
 - `VRDEX_ENABLE_E2E_AUTH_HELPERS` unset
 - `VRDEX_ENABLE_E2E_ADAPTER_HELPERS` unset
+
+Production must set the same API/OAuth/MCP runtime variables for any enabled
+developer API, OAuth issuer, or hosted MCP surface.
 
 The Convex client URL remains separate from the Convex Auth callback host. Production Auth callbacks use `https://db.vrdex.net`, and deployment `superb-pig-954` selects that URL as its canonical `CONVEX_SITE_URL`.
 

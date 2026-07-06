@@ -17,6 +17,7 @@ import {
   normalizeOAuthCodeChallengeMethod,
   normalizeOAuthCodeVerifier,
   normalizeOAuthRefreshTokenValue,
+  refreshTokenPepper,
 } from "../../apps/web/src/lib/server/oauth-pkce";
 import { createOAuthClientSecretValue } from "../../packages/api-contracts/src/oauth";
 
@@ -31,7 +32,10 @@ describe("OAuth PKCE authorization helpers", () => {
 
     assert.match(refreshToken, /^vrdx_rt_[0-9a-f]{48}$/);
     assert.equal(normalizeOAuthRefreshTokenValue(refreshToken), refreshToken);
-    assert.match(await hashOAuthRefreshTokenValue(refreshToken), /^[0-9a-f]{64}$/);
+    const refreshTokenHash = await hashOAuthRefreshTokenValue(refreshToken, "refresh-pepper");
+    assert.match(refreshTokenHash, /^[0-9a-f]{64}$/);
+    assert.notEqual(refreshTokenHash, await hashOAuthRefreshTokenValue(refreshToken, "other-pepper"));
+    await assert.rejects(() => hashOAuthRefreshTokenValue(refreshToken, " "), /pepper/);
     assert.equal(
       await deriveS256CodeChallenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
       "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
@@ -42,6 +46,25 @@ describe("OAuth PKCE authorization helpers", () => {
     assert.throws(() => normalizeOAuthCodeChallenge("bad"), /code_challenge/);
     assert.equal(normalizeOAuthCodeChallengeMethod("S256"), "S256");
     assert.throws(() => normalizeOAuthCodeChallengeMethod("plain"), /S256/);
+  });
+
+  it("requires an environment pepper for OAuth refresh token hashing", () => {
+    const previousPepper = process.env.VRDEX_OAUTH_REFRESH_TOKEN_PEPPER;
+
+    try {
+      process.env.VRDEX_OAUTH_REFRESH_TOKEN_PEPPER = " test-refresh-pepper ";
+
+      assert.equal(refreshTokenPepper(), "test-refresh-pepper");
+
+      delete process.env.VRDEX_OAUTH_REFRESH_TOKEN_PEPPER;
+      assert.throws(refreshTokenPepper, /VRDEX_OAUTH_REFRESH_TOKEN_PEPPER/);
+    } finally {
+      if (previousPepper === undefined) {
+        delete process.env.VRDEX_OAUTH_REFRESH_TOKEN_PEPPER;
+      } else {
+        process.env.VRDEX_OAUTH_REFRESH_TOKEN_PEPPER = previousPepper;
+      }
+    }
   });
 
   it("normalizes authorization requests and redirect results", async () => {
