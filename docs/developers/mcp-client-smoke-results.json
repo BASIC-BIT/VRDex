@@ -1,0 +1,217 @@
+{
+  "schemaVersion": 1,
+  "lastReviewed": "2026-07-06",
+  "readinessMode": "repo-protocol-smoked-manual-client-smokes-pending",
+  "targetEnvironment": null,
+  "clients": [
+    {
+      "id": "claude-desktop",
+      "name": "Claude Desktop",
+      "checks": [
+        {
+          "id": "local-stdio",
+          "surface": "local_stdio",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "pnpm smoke:mcp-compat local profile: Claude Desktop",
+          "manualStatus": "pending",
+          "notes": "Run Claude Desktop with mcpServers command config and call vrdex_search."
+        },
+        {
+          "id": "hosted-anonymous-read",
+          "surface": "hosted_http_anonymous",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
+          "manualStatus": "pending",
+          "notes": "Use the current Custom Connector path and confirm tools list without forcing login."
+        },
+        {
+          "id": "hosted-oauth",
+          "surface": "hosted_http_oauth",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
+          "manualStatus": "pending",
+          "notes": "Confirm protected-resource metadata discovery and an mcp:read OAuth session."
+        }
+      ]
+    },
+    {
+      "id": "claude-code",
+      "name": "Claude Code",
+      "checks": [
+        {
+          "id": "local-stdio",
+          "surface": "local_stdio",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "pnpm smoke:mcp-compat local profile: Claude Code",
+          "manualStatus": "pending",
+          "notes": "Run claude mcp add --transport stdio and call vrdex_search."
+        },
+        {
+          "id": "hosted-anonymous-read",
+          "surface": "hosted_http_anonymous",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
+          "manualStatus": "pending",
+          "notes": "Run claude mcp add --transport http and confirm anonymous tools/list and vrdex_search."
+        },
+        {
+          "id": "hosted-oauth",
+          "surface": "hosted_http_oauth",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
+          "manualStatus": "pending",
+          "notes": "Confirm claude mcp login or equivalent OAuth path reaches an mcp:read session."
+        }
+      ]
+    },
+    {
+      "id": "vscode",
+      "name": "VS Code",
+      "checks": [
+        {
+          "id": "local-stdio",
+          "surface": "local_stdio",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "pnpm smoke:mcp-compat local profile: VS Code",
+          "manualStatus": "pending",
+          "notes": "Run with .vscode/mcp.json or user MCP config and call vrdex_search."
+        },
+        {
+          "id": "hosted-anonymous-read",
+          "surface": "hosted_http_anonymous",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
+          "manualStatus": "pending",
+          "notes": "Confirm type=http url config lists tools and can call anonymous public reads."
+        },
+        {
+          "id": "hosted-oauth",
+          "surface": "hosted_http_oauth",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
+          "manualStatus": "pending",
+          "notes": "Confirm the current VS Code OAuth behavior or record the supported token fallback."
+        }
+      ]
+    },
+    {
+      "id": "cursor",
+      "name": "Cursor",
+      "checks": [
+        {
+          "id": "local-stdio",
+          "surface": "local_stdio",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "pnpm smoke:mcp-compat local profile: Cursor",
+          "manualStatus": "pending",
+          "notes": "Confirm the current Cursor release still supports command-based MCP config."
+        },
+        {
+          "id": "hosted-anonymous-read",
+          "surface": "hosted_http_anonymous",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
+          "manualStatus": "pending",
+          "notes": "Confirm the current Cursor release supports remote HTTP MCP URLs."
+        },
+        {
+          "id": "hosted-oauth",
+          "surface": "hosted_http_oauth",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
+          "manualStatus": "pending",
+          "notes": "Record whether Cursor follows OAuth, requires static bearer headers, or lacks hosted auth."
+        }
+      ]
+    },
+    {
+      "id": "openai-chatgpt",
+      "name": "OpenAI and ChatGPT MCP-capable surfaces",
+      "checks": [
+        {
+          "id": "local-stdio",
+          "surface": "local_stdio",
+          "requiredForExternalReadiness": false,
+          "manualStatus": "not_applicable",
+          "notes": "Treat local stdio as unsupported until the current OpenAI product surface documents it."
+        },
+        {
+          "id": "hosted-anonymous-read",
+          "surface": "hosted_http_anonymous",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
+          "manualStatus": "pending",
+          "notes": "Verify in the relevant OpenAI or ChatGPT connector surface before publishing snippets."
+        },
+        {
+          "id": "hosted-oauth",
+          "surface": "hosted_http_oauth",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
+          "manualStatus": "pending",
+          "notes": "Record whether the surface accepts DCR, requires CIMD, or follows app review."
+        }
+      ]
+    },
+    {
+      "id": "devin-windsurf",
+      "name": "Devin Desktop / Windsurf Cascade",
+      "checks": [
+        {
+          "id": "local-stdio",
+          "surface": "local_stdio",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "pnpm smoke:mcp-compat local profile: Devin Desktop / Windsurf Cascade",
+          "manualStatus": "pending",
+          "notes": "Run mcp_config.json with command-based stdio and call vrdex_search."
+        },
+        {
+          "id": "hosted-anonymous-read",
+          "surface": "hosted_http_anonymous",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
+          "manualStatus": "pending",
+          "notes": "Confirm serverUrl or url config lists tools and calls anonymous public reads."
+        },
+        {
+          "id": "hosted-oauth",
+          "surface": "hosted_http_oauth",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
+          "manualStatus": "pending",
+          "notes": "Confirm OAuth behavior for Streamable HTTP in the current client release."
+        }
+      ]
+    },
+    {
+      "id": "mcp-inspector",
+      "name": "MCP Inspector",
+      "checks": [
+        {
+          "id": "local-stdio",
+          "surface": "local_stdio",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "pnpm smoke:mcp-compat local profile: MCP Inspector",
+          "manualStatus": "pending",
+          "notes": "Use Inspector as the interactive local protocol debugger."
+        },
+        {
+          "id": "hosted-anonymous-read",
+          "surface": "hosted_http_anonymous",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
+          "manualStatus": "pending",
+          "notes": "Connect Inspector directly to hosted /mcp and call anonymous vrdex_search."
+        },
+        {
+          "id": "hosted-oauth",
+          "surface": "hosted_http_oauth",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
+          "manualStatus": "pending",
+          "notes": "Exercise OAuth-protected read behavior and expected bearer challenges."
+        }
+      ]
+    }
+  ]
+}

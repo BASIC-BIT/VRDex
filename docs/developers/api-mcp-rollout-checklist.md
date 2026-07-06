@@ -58,7 +58,9 @@ one PR.
   API-resource OAuth access tokens.
 - Baseline Checks runs `pnpm verify:vrdex-mcp`, including
   `pnpm smoke:mcp-compat`, for package typechecking, package tests, and shared
-  local stdio protocol coverage. The smoke can optionally probe a deployed
+  local stdio protocol coverage. The verifier also validates
+  `docs/developers/mcp-client-smoke-results.json` so the manual matrix keeps
+  every required day-one client row. The smoke can optionally probe a deployed
   hosted `/mcp` endpoint with `VRDEX_MCP_SMOKE_URL`, and can include a
   constrained Dynamic Client Registration probe with `VRDEX_MCP_SMOKE_DCR=1`.
 - Baseline Checks runs `Hosted MCP Preview Smoke` after the Vercel preview. It
@@ -83,6 +85,7 @@ pnpm typecheck:api-contracts
 pnpm typecheck:vrdex-mcp
 pnpm test:vrdex-mcp
 pnpm smoke:mcp-compat
+pnpm check:mcp-client-matrix
 pnpm typecheck:backend
 pnpm test:backend
 pnpm typecheck:web

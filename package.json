@@ -55,6 +55,8 @@
     "ops:event-media:ecs-bridge": "node scripts/event-media-ecs-bridge.mjs",
     "preops:api-rate-limits": "node scripts/guard-main-worktree.mjs",
     "ops:api-rate-limits": "node --import tsx scripts/print-api-rate-limit-policies.ts",
+    "precheck:mcp-client-matrix": "node scripts/guard-main-worktree.mjs",
+    "check:mcp-client-matrix": "node --import tsx scripts/check-mcp-client-matrix.ts",
     "presmoke:mcp-compat": "node scripts/guard-main-worktree.mjs",
     "smoke:mcp-compat": "node --import tsx scripts/smoke-vrdex-mcp-compat.ts",
     "prelint:web": "node scripts/guard-main-worktree.mjs",
@@ -110,7 +112,7 @@
     "preverify:api-contracts": "node scripts/guard-main-worktree.mjs",
     "verify:api-contracts": "pnpm check:api-openapi && pnpm typecheck:api-contracts && pnpm test:api-contracts",
     "preverify:vrdex-mcp": "node scripts/guard-main-worktree.mjs",
-    "verify:vrdex-mcp": "pnpm typecheck:vrdex-mcp && pnpm test:vrdex-mcp && pnpm smoke:mcp-compat",
+    "verify:vrdex-mcp": "pnpm typecheck:vrdex-mcp && pnpm test:vrdex-mcp && pnpm smoke:mcp-compat && pnpm check:mcp-client-matrix",
     "preverify": "node scripts/guard-main-worktree.mjs",
     "verify": "pnpm verify:api-contracts && pnpm verify:vrdex-mcp && pnpm verify:docs && pnpm verify:web && pnpm check:backend:generated && pnpm typecheck:backend && pnpm test:backend",
     "prepare": "husky"

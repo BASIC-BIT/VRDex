@@ -67,6 +67,23 @@ for Claude Desktop, Claude Code, VS Code, Cursor, Devin Desktop / Windsurf
 Cascade, and MCP Inspector. It verifies the shared MCP protocol path these
 clients use, not the clients' UI or account flows.
 
+The manual smoke result artifact is
+`docs/developers/mcp-client-smoke-results.json`. `pnpm verify:vrdex-mcp`
+validates that the artifact still lists every required day-one client and
+required smoke row. Run this explicit check when updating matrix evidence:
+
+```sh
+pnpm check:mcp-client-matrix
+```
+
+By default, the check accepts `pending` manual rows because repository protocol
+checks can run before the desktop/web client smokes are available. For external
+readiness, require every required manual row to pass:
+
+```sh
+VRDEX_MCP_CLIENT_MATRIX_REQUIRE_READY=1 pnpm check:mcp-client-matrix
+```
+
 To include a deployed hosted MCP endpoint, set:
 
 ```sh
@@ -235,6 +252,11 @@ For each smoke, record client version, OS, transport, auth mode, result, exact
 config shape, whether the client distinguishes anonymous/no-auth tools from
 OAuth-required tools, and issue link if it fails. Keep real tokens out of docs,
 logs, and screenshots.
+
+Record those results in `docs/developers/mcp-client-smoke-results.json`. A
+`pass` or `fail` row must include the run date, environment, and a sanitized
+evidence pointer. Leave a row as `pending` only while the PR is not being
+declared externally ready.
 
 ## Source Trail
 
