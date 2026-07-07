@@ -36,6 +36,11 @@ on:
         description: Probe hosted MCP Client ID Metadata Document authorization
         required: true
         type: boolean
+      mcp_oauth:
+        default: false
+        description: Probe hosted MCP Inspector OAuth with configured smoke credentials
+        required: true
+        type: boolean
   schedule:
     - cron: "17 11 * * *"
 
@@ -315,11 +320,16 @@ jobs:
         id: gate
         env:
           MCP_BASE_URL_OVERRIDE: ${{ inputs.base_url }}
+          MCP_OAUTH_CLIENT_ID: ${{ secrets.VRDEX_MCP_OAUTH_CLIENT_ID }}
+          MCP_OAUTH_CLIENT_SECRET: ${{ secrets.VRDEX_MCP_OAUTH_CLIENT_SECRET }}
+          MCP_OAUTH_REQUESTED: ${{ inputs.mcp_oauth }}
+          MCP_INSPECTOR_OAUTH_TOKEN: ${{ secrets.VRDEX_MCP_INSPECTOR_OAUTH_TOKEN }}
         run: |
           set -euo pipefail
 
           if [ -z "$MCP_BASE_URL_OVERRIDE" ]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "oauth_enabled=false" >> "$GITHUB_OUTPUT"
             {
               echo "## Hosted MCP smoke health"
               echo "Skipped because base_url was not provided."
@@ -327,8 +337,22 @@ jobs:
             exit 0
           fi
 
+          OAUTH_ENABLED=false
+          if [ "$MCP_OAUTH_REQUESTED" = "true" ]; then
+            if { [ -n "$MCP_OAUTH_CLIENT_ID" ] && [ -n "$MCP_OAUTH_CLIENT_SECRET" ]; } || [ -n "$MCP_INSPECTOR_OAUTH_TOKEN" ]; then
+              OAUTH_ENABLED=true
+            else
+              {
+                echo "## Hosted MCP smoke health"
+                echo ""
+                echo "Hosted MCP Inspector OAuth was requested but skipped because neither VRDEX_MCP_OAUTH_CLIENT_ID plus VRDEX_MCP_OAUTH_CLIENT_SECRET nor VRDEX_MCP_INSPECTOR_OAUTH_TOKEN is configured."
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+
           echo "enabled=true" >> "$GITHUB_OUTPUT"
           echo "mcp_url=$MCP_BASE_URL_OVERRIDE" >> "$GITHUB_OUTPUT"
+          echo "oauth_enabled=$OAUTH_ENABLED" >> "$GITHUB_OUTPUT"
 
       - name: Setup pnpm
         if: steps.gate.outputs.enabled == 'true'
@@ -351,6 +375,8 @@ jobs:
           SMOKE_CIMD: ${{ inputs.mcp_cimd }}
           SMOKE_DATA: ${{ inputs.mcp_data }}
           SMOKE_DCR: ${{ inputs.mcp_dcr }}
+          SMOKE_OAUTH: ${{ inputs.mcp_oauth }}
+          SMOKE_OAUTH_ENABLED: ${{ steps.gate.outputs.oauth_enabled }}
           SMOKE_URL: ${{ steps.gate.outputs.mcp_url }}
         run: |
           set -euo pipefail
@@ -376,7 +402,29 @@ jobs:
             echo "- Data-backed public reads: \`$SMOKE_DATA\`"
             echo "- Dynamic Client Registration: \`$SMOKE_DCR\`"
             echo "- Client ID Metadata Document: \`$SMOKE_CIMD\`"
+            echo "- Inspector OAuth requested: \`$SMOKE_OAUTH\`"
+            echo "- Inspector OAuth enabled: \`$SMOKE_OAUTH_ENABLED\`"
             echo "- Continue selected hosted diagnostics after a subcheck failure: \`true\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
           pnpm smoke:mcp-compat -- "${args[@]}"
+
+      - name: Run hosted MCP Inspector OAuth smoke
+        if: steps.gate.outputs.enabled == 'true' && steps.gate.outputs.oauth_enabled == 'true'
+        env:
+          VRDEX_MCP_INSPECTOR_OAUTH_TOKEN: ${{ secrets.VRDEX_MCP_INSPECTOR_OAUTH_TOKEN }}
+          VRDEX_MCP_OAUTH_CLIENT_ID: ${{ secrets.VRDEX_MCP_OAUTH_CLIENT_ID }}
+          VRDEX_MCP_OAUTH_CLIENT_SECRET: ${{ secrets.VRDEX_MCP_OAUTH_CLIENT_SECRET }}
+          SMOKE_URL: ${{ steps.gate.outputs.mcp_url }}
+        run: |
+          set -euo pipefail
+
+          {
+            echo ""
+            echo "## Hosted MCP Inspector OAuth smoke"
+            echo ""
+            echo "- Target: \`$SMOKE_URL\`"
+            echo "- OAuth credential source: configured repository secret"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          pnpm smoke:mcp-inspector -- --hosted-url "$SMOKE_URL" --hosted-data

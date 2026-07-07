@@ -166,6 +166,13 @@ one PR.
   `VRDEX_MCP_INSPECTOR_OAUTH_CLIENT_*` overrides; the smoke exchanges them for
   a short-lived MCP-resource token and validates an authenticated `tools/list`
   without printing the token or client secret.
+- The `deployed-health.yml` `hosted-mcp-smoke` dispatch can also run the
+  Inspector hosted OAuth smoke when `mcp_oauth=true` and repository secrets
+  provide either `VRDEX_MCP_OAUTH_CLIENT_ID` plus
+  `VRDEX_MCP_OAUTH_CLIENT_SECRET` or `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN`. The job
+  skips that OAuth subcheck cleanly when the input is enabled but the secrets are
+  absent, so anonymous/data/DCR/CIMD health evidence is not blocked on reviewed
+  OAuth credentials.
 
 Use a command shaped like this for each manual matrix row:
 
@@ -212,6 +219,7 @@ pnpm smoke:mcp-compat -- --hosted-only --hosted-url <production-like-/mcp-url> -
 VRDEX_MCP_OAUTH_CLIENT_ID=<reviewed-client-id> VRDEX_MCP_OAUTH_CLIENT_SECRET=<client-secret> pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url <production-like-/mcp-url> --hosted-data
 pnpm smoke:mcp-inspector -- --hosted-url <preview-or-production-like-/mcp-url>
 VRDEX_MCP_OAUTH_CLIENT_ID=<reviewed-client-id> VRDEX_MCP_OAUTH_CLIENT_SECRET=<client-secret> pnpm smoke:mcp-inspector -- --hosted-url <production-like-/mcp-url> --hosted-data
+gh workflow run deployed-health.yml --ref <branch> -f target=hosted-mcp-smoke -f base_url=<production-like-/mcp-url> -f mcp_data=true -f mcp_dcr=true -f mcp_cimd=true -f mcp_oauth=true
 pnpm typecheck:backend
 pnpm test:backend
 pnpm typecheck:web

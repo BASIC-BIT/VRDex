@@ -332,8 +332,17 @@ The required hosted evidence rows are:
 - `hosted-client-id-metadata-document`
 
 Current PR #159 status: all three hosted evidence rows are recorded as `pass`
-against `https://staging.vrdex.net/mcp` after deploying head `5386f28` through
-staging deploy run `28858214531`.
+against `https://staging.vrdex.net/mcp`. The staging runtime was originally
+deployed from PR head `5386f28` through staging deploy run `28858214531`; hosted
+MCP health run `28898206743` refreshed data-backed public reads, DCR, and CIMD
+from PR head `e58e310` on 2026-07-07.
+
+The `deployed-health.yml` `hosted-mcp-smoke` workflow can additionally run the
+Inspector hosted OAuth smoke when dispatched with `mcp_oauth=true` and repository
+secrets provide either `VRDEX_MCP_OAUTH_CLIENT_ID` plus
+`VRDEX_MCP_OAUTH_CLIENT_SECRET` or `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN`. The
+workflow leaves anonymous/data/DCR/CIMD evidence runnable even when reviewed
+OAuth smoke credentials are absent.
 
 These rows are checked separately from manual client UI rows so a lightweight
 PR preview transport smoke cannot accidentally satisfy the production-like
