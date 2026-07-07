@@ -334,8 +334,10 @@ The required hosted evidence rows are:
 Current PR #159 status: all three hosted evidence rows are recorded as `pass`
 against `https://staging.vrdex.net/mcp`. The staging runtime was originally
 deployed from PR head `5386f28` through staging deploy run `28858214531`; hosted
-MCP health run `28898206743` refreshed data-backed public reads, DCR, and CIMD
-from PR head `e58e310` on 2026-07-07.
+MCP health run `28899646323` refreshed data-backed public reads, DCR, and CIMD
+from PR head `d6b5571` on 2026-07-07. That run also exercised the
+`mcp_oauth=true` workflow path and skipped Inspector OAuth because the repository
+smoke secrets were not configured.
 
 The `deployed-health.yml` `hosted-mcp-smoke` workflow can additionally run the
 Inspector hosted OAuth smoke when dispatched with `mcp_oauth=true` and repository
