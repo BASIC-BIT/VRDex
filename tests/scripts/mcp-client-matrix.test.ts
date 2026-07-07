@@ -105,6 +105,19 @@ function markHostedReadinessPass(matrix: SmokeMatrix, checkId: string) {
   check.lastRunAt = "2026-07-06";
 }
 
+function resetHostedClientPasses(matrix: SmokeMatrix) {
+  for (const client of matrix.clients) {
+    for (const check of client.checks) {
+      if (check.surface.startsWith("hosted_http") && check.manualStatus === "pass") {
+        check.manualStatus = "pending";
+        delete check.environment;
+        delete check.manualEvidence;
+        delete check.lastRunAt;
+      }
+    }
+  }
+}
+
 describe("MCP client matrix verifier", () => {
   it("rejects hosted pass rows when the target still describes pending preview evidence", async () => {
     const { directory, path } = await writeMatrixCopy("pending-hosted-target", (matrix) => {
@@ -144,6 +157,7 @@ describe("MCP client matrix verifier", () => {
   it("rejects hosted readiness pass rows when the target still describes pending preview evidence", async () => {
     const { directory, path } = await writeMatrixCopy("pending-hosted-readiness-target", (matrix) => {
       matrix.targetEnvironment = "same-branch preview transport smoke; Convex preview backend unavailable";
+      resetHostedClientPasses(matrix);
       markHostedReadinessPass(matrix, "hosted-data-backed-anonymous-read");
     });
 

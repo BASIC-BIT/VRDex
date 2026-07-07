@@ -117,8 +117,9 @@ Next execution checkpoint:
    Dynamic Client Registration, and public-client Client ID Metadata Documents
    in `docs/developers/mcp-client-smoke-results.json`.
 3. Complete the major-client matrix rows against that same staging target,
-   starting with the locally installed clients that can be smoke-tested now:
-   Claude Code, VS Code, Cursor, Windsurf, and MCP Inspector.
+   continuing with the locally installed clients that still need smoke-tested
+   rows: VS Code, Cursor, and Windsurf, plus hosted OAuth coverage for Claude
+   Code and MCP Inspector.
 4. Keep OpenAI/ChatGPT evidence as hosted-product manual evidence; do not mark
    that row ready from local CLI checks.
 
@@ -1335,7 +1336,7 @@ Security-specific tests:
 - Confidential-client CIMD with public-key client authentication remains deferred until a concrete major-client requirement appears.
 - OAuth signing-key rotation keeps the active private signing key in `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY`, advertises the active key id through `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID`, and retains previous public keys through `VRDEX_OAUTH_ACCESS_TOKEN_ADDITIONAL_PUBLIC_JWKS` until outstanding access tokens expire.
 - Hosted MCP auth metadata should make anonymous public read tools genuinely usable without login in clients that distinguish `noauth` from OAuth tools. The current hosted MCP tool descriptors expose `_meta["securitySchemes"]` with `noauth` plus optional `oauth2`/`mcp:read`; client-specific UI behavior remains part of the manual matrix.
-- Current PR preview hosted MCP smoke is split into lightweight transport/descriptor coverage and production-like data-backed coverage. The data-backed path is gated by `VRDEX_MCP_SMOKE_DATA` / `--hosted-data` and should run with a same-branch Convex preview or equivalent backend before external readiness.
+- Hosted MCP smoke coverage is split into lightweight transport/descriptor coverage and production-like data-backed coverage. The data-backed path is gated by `VRDEX_MCP_SMOKE_DATA` / `--hosted-data`; staging evidence from PR #159 now covers data-backed anonymous reads, DCR, and CIMD, while per-client UI and OAuth rows remain tracked in the manual matrix.
 
 ## Remaining Open Research
 

@@ -85,8 +85,11 @@
           "surface": "hosted_http_anonymous",
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
-          "manualStatus": "pending",
-          "notes": "Real Claude Code hosted no-auth transport/tool invocation passed against the PR #159 preview with an empty vrdex_search query on 2026-07-06. Rerun pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url https://staging.vrdex.net/mcp --hosted-data against the staging target before recording this row."
+          "manualStatus": "pass",
+          "notes": "Real Claude Code hosted no-auth Streamable HTTP MCP tool invocation passed against the staging target on 2026-07-07 using a data-backed anonymous vrdex_search call.",
+          "environment": "Windows / Claude Code 2.1.176 / pnpm smoke:mcp-claude-code / staging https://staging.vrdex.net/mcp",
+          "manualEvidence": "corepack pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url https://staging.vrdex.net/mcp --hosted-data --model claude-haiku-4-5-20251001 returned hosted-ok after one vrdex_search tool call with query=club type=all limit=1",
+          "lastRunAt": "2026-07-07"
         },
         {
           "id": "hosted-oauth",
@@ -237,8 +240,11 @@
           "surface": "hosted_http_anonymous",
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
-          "manualStatus": "pending",
-          "notes": "MCP Inspector CLI hosted tools/list passed against the PR #159 preview on 2026-07-06 and can be repeated with pnpm smoke:mcp-inspector. Rerun pnpm smoke:mcp-inspector -- --hosted-url https://staging.vrdex.net/mcp --hosted-data against the staging target before recording this row."
+          "manualStatus": "pass",
+          "notes": "MCP Inspector CLI hosted tools/list and data-backed anonymous vrdex_search passed against the staging target on 2026-07-07.",
+          "environment": "Windows / MCP Inspector CLI via npx / staging https://staging.vrdex.net/mcp",
+          "manualEvidence": "corepack pnpm smoke:mcp-inspector -- --hosted-url https://staging.vrdex.net/mcp --hosted-data listed six tools with public-read auth metadata and passed a data-backed vrdex_search query=club type=all limit=1",
+          "lastRunAt": "2026-07-07"
         },
         {
           "id": "hosted-oauth",
