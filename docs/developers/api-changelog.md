@@ -55,6 +55,10 @@ docs update and a changelog entry so early consumers and agents can adapt.
   transport, descriptors, OAuth metadata, and bearer challenges, while
   `--hosted-data` / `VRDEX_MCP_SMOKE_DATA` gates non-empty public reads against
   a same-branch or production-like Convex backend
+- added `pnpm smoke:mcp-compat -- --continue-on-failure` and
+  `VRDEX_MCP_SMOKE_CONTINUE_ON_FAILURE` so production-like hosted diagnostics
+  can report data-backed read, DCR, and CIMD subcheck failures in one run while
+  still exiting non-zero when any selected probe fails
 
 ## 2026-07-04
 

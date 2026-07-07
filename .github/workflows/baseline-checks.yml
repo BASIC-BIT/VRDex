@@ -608,6 +608,7 @@ jobs:
       - name: Run hosted MCP smoke
         if: steps.gate.outputs.enabled == 'true'
         env:
+          VRDEX_MCP_SMOKE_CONTINUE_ON_FAILURE: "true"
           VRDEX_MCP_SMOKE_CIMD: ${{ steps.gate.outputs.cimd_enabled }}
           VRDEX_MCP_SMOKE_DCR: ${{ steps.gate.outputs.dcr_enabled }}
           VRDEX_MCP_SMOKE_DATA: ${{ steps.gate.outputs.hosted_data_enabled }}

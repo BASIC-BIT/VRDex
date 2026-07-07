@@ -355,7 +355,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          args=(--hosted-url "$SMOKE_URL")
+          args=(--hosted-url "$SMOKE_URL" --continue-on-failure)
 
           if [ "$SMOKE_DATA" = "true" ]; then
             args+=(--hosted-data)
@@ -376,6 +376,7 @@ jobs:
             echo "- Data-backed public reads: \`$SMOKE_DATA\`"
             echo "- Dynamic Client Registration: \`$SMOKE_DCR\`"
             echo "- Client ID Metadata Document: \`$SMOKE_CIMD\`"
+            echo "- Continue selected hosted diagnostics after a subcheck failure: \`true\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
           pnpm smoke:mcp-compat -- "${args[@]}"

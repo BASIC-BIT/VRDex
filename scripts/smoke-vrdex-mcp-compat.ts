@@ -17,7 +17,7 @@ type JsonRpcMessage = {
 type SmokeResult = {
   details: string;
   name: string;
-  status: "pass" | "skip";
+  status: "fail" | "pass" | "skip";
 };
 
 type HostedOAuthMetadata = {
@@ -29,6 +29,7 @@ type HostedOAuthMetadata = {
 
 type SmokeOptions = {
   clientMetadataDocument: boolean;
+  continueOnFailure: boolean;
   dynamicRegistration: boolean;
   hostedOnly: boolean;
   hostedDataPublicReads: boolean;
@@ -92,9 +93,18 @@ function takeValue(args: string[], index: number, name: string) {
   return value;
 }
 
+function markdownCell(value: string) {
+  return value
+    .replaceAll("\r", " ")
+    .replaceAll("\n", " ")
+    .replaceAll("|", "\\|")
+    .trim();
+}
+
 function parseArgs(argv: string[]): SmokeOptions {
   const options: SmokeOptions = {
     clientMetadataDocument: envFlag("VRDEX_MCP_SMOKE_CIMD"),
+    continueOnFailure: envFlag("VRDEX_MCP_SMOKE_CONTINUE_ON_FAILURE"),
     dynamicRegistration: envFlag("VRDEX_MCP_SMOKE_DCR"),
     hostedOnly: envFlag("VRDEX_MCP_SMOKE_HOSTED_ONLY"),
     hostedDataPublicReads: envFlag("VRDEX_MCP_SMOKE_DATA"),
@@ -119,6 +129,9 @@ function parseArgs(argv: string[]): SmokeOptions {
       case "--dcr":
       case "--dynamic-client-registration":
         options.dynamicRegistration = true;
+        break;
+      case "--continue-on-failure":
+        options.continueOnFailure = true;
         break;
       case "--hosted-url":
         options.hostedUrl = takeValue(argv, index, arg).trim();
@@ -453,6 +466,34 @@ function stringArrayField(value: unknown, label: string): string[] {
   return (value as unknown[]).map((item, index) => stringField(item, `${label}[${index}]`));
 }
 
+function failureDetails(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+
+  return summarizeMcpToolFailure({ error: message });
+}
+
+async function runHostedDiagnosticStep(
+  results: SmokeResult[],
+  options: SmokeOptions,
+  name: string,
+  step: () => Promise<void>,
+) {
+  if (!options.continueOnFailure) {
+    await step();
+    return;
+  }
+
+  try {
+    await step();
+  } catch (error: unknown) {
+    results.push({
+      details: failureDetails(error),
+      name,
+      status: "fail",
+    });
+  }
+}
+
 async function smokeHostedOAuthMetadata(url: URL, results: SmokeResult[]): Promise<HostedOAuthMetadata> {
   const protectedResourceUrl = urlForPath(url.origin, "/.well-known/oauth-protected-resource");
   const protectedResource = await fetch(protectedResourceUrl, { headers: { accept: "application/json" } });
@@ -621,6 +662,62 @@ async function smokeHostedClientMetadataDocument(
   });
 }
 
+async function smokeHostedDataBackedPublicRead(url: URL, options: SmokeOptions, results: SmokeResult[]) {
+  if (!options.hostedDataPublicReads) {
+    results.push({
+      details: "pass --hosted-data or set VRDEX_MCP_SMOKE_DATA=1 to exercise non-empty search against a production-like Convex backend",
+      name: "Hosted data-backed public read tool call",
+      status: "skip",
+    });
+
+    return;
+  }
+
+  const dataBackedSearch = await postMcpJsonRpc(url, {
+    jsonrpc: "2.0",
+    id: 4,
+    method: "tools/call",
+    params: {
+      arguments: { limit: 1, query: "club", type: "all" },
+      name: "vrdex_search",
+    },
+  });
+
+  await assertHttpStatus(dataBackedSearch, 200, "Hosted data-backed vrdex_search");
+
+  const dataSearchBody = (await parseMcpHttpResponse(dataBackedSearch)) as {
+    error?: unknown;
+    result?: {
+      isError?: unknown;
+      structuredContent?: {
+        query?: unknown;
+        results?: unknown;
+        type?: unknown;
+      };
+    };
+  };
+
+  assert.equal(
+    dataSearchBody.error,
+    undefined,
+    `Hosted data-backed vrdex_search returned a JSON-RPC error: ${summarizeMcpToolFailure(dataSearchBody)}`,
+  );
+  assert.notEqual(
+    dataSearchBody.result?.isError,
+    true,
+    `Hosted data-backed vrdex_search returned a tool error: ${summarizeMcpToolFailure(dataSearchBody)}`,
+  );
+  assert.equal(dataSearchBody.result?.structuredContent?.query, "club");
+  assert.equal(dataSearchBody.result?.structuredContent?.type, "all");
+  assert.equal(Array.isArray(dataSearchBody.result?.structuredContent?.results), true);
+
+  results.push({
+    details: "non-empty anonymous vrdex_search reached the hosted public data backend",
+    name: "Hosted data-backed public read tool call",
+    status: "pass",
+  });
+}
+
 async function smokeHostedHttp(results: SmokeResult[], options: SmokeOptions) {
   const url = hostedSmokeUrl(options);
 
@@ -709,57 +806,9 @@ async function smokeHostedHttp(results: SmokeResult[], options: SmokeOptions) {
     status: "pass",
   });
 
-  if (options.hostedDataPublicReads) {
-    const dataBackedSearch = await postMcpJsonRpc(url, {
-      jsonrpc: "2.0",
-      id: 4,
-      method: "tools/call",
-      params: {
-        arguments: { limit: 1, query: "club", type: "all" },
-        name: "vrdex_search",
-      },
-    });
-
-    await assertHttpStatus(dataBackedSearch, 200, "Hosted data-backed vrdex_search");
-
-    const dataSearchBody = (await parseMcpHttpResponse(dataBackedSearch)) as {
-      error?: unknown;
-      result?: {
-        isError?: unknown;
-        structuredContent?: {
-          query?: unknown;
-          results?: unknown;
-          type?: unknown;
-        };
-      };
-    };
-
-    assert.equal(
-      dataSearchBody.error,
-      undefined,
-      `Hosted data-backed vrdex_search returned a JSON-RPC error: ${summarizeMcpToolFailure(dataSearchBody)}`,
-    );
-    assert.notEqual(
-      dataSearchBody.result?.isError,
-      true,
-      `Hosted data-backed vrdex_search returned a tool error: ${summarizeMcpToolFailure(dataSearchBody)}`,
-    );
-    assert.equal(dataSearchBody.result?.structuredContent?.query, "club");
-    assert.equal(dataSearchBody.result?.structuredContent?.type, "all");
-    assert.equal(Array.isArray(dataSearchBody.result?.structuredContent?.results), true);
-
-    results.push({
-      details: "non-empty anonymous vrdex_search reached the hosted public data backend",
-      name: "Hosted data-backed public read tool call",
-      status: "pass",
-    });
-  } else {
-    results.push({
-      details: "pass --hosted-data or set VRDEX_MCP_SMOKE_DATA=1 to exercise non-empty search against a production-like Convex backend",
-      name: "Hosted data-backed public read tool call",
-      status: "skip",
-    });
-  }
+  await runHostedDiagnosticStep(results, options, "Hosted data-backed public read tool call", () =>
+    smokeHostedDataBackedPublicRead(url, options, results),
+  );
 
   const invalidBearer = await postMcpJsonRpc(
     url,
@@ -778,8 +827,12 @@ async function smokeHostedHttp(results: SmokeResult[], options: SmokeOptions) {
 
   const metadata = await smokeHostedOAuthMetadata(url, results);
 
-  await smokeHostedDynamicClientRegistration(metadata, options, results);
-  await smokeHostedClientMetadataDocument(metadata, options, results);
+  await runHostedDiagnosticStep(results, options, "Hosted Dynamic Client Registration", () =>
+    smokeHostedDynamicClientRegistration(metadata, options, results),
+  );
+  await runHostedDiagnosticStep(results, options, "Hosted Client ID Metadata Document", () =>
+    smokeHostedClientMetadataDocument(metadata, options, results),
+  );
 
   const token = process.env.VRDEX_MCP_SMOKE_TOKEN?.trim();
 
@@ -829,7 +882,12 @@ async function main() {
   console.log("| --- | --- | --- |");
 
   for (const result of results) {
-    console.log(`| ${result.name} | ${result.status} | ${result.details} |`);
+    console.log(`| ${markdownCell(result.name)} | ${result.status} | ${markdownCell(result.details)} |`);
+  }
+
+  const failed = results.filter((result) => result.status === "fail");
+  if (failed.length > 0) {
+    throw new Error(`Hosted MCP smoke failed: ${failed.map((result) => result.name).join(", ")}`);
   }
 }
 

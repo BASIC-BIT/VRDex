@@ -252,7 +252,10 @@ of a tool error. When a data-backed tool call fails, the smoke prints a
 sanitized summary of the MCP error content to make backend, fixture, and tool
 contract failures easier to distinguish. Add `--hosted-only` when you are
 rechecking a remote target and do not need the local stdio profile sweep. Add
-`--dcr` when you want the smoke to register a
+`--continue-on-failure` for production-like readiness diagnostics when you want
+the data-backed read, DCR, and CIMD probes to keep running after one selected
+subcheck fails; the command still exits non-zero if any selected probe fails.
+Add `--dcr` when you want the smoke to register a
 constrained public MCP client through Dynamic Client Registration. Add `--cimd`
 when you want the smoke to exercise a URL-form public client id against
 `GET /oauth/authorize`; the smoke uses
@@ -260,16 +263,19 @@ when you want the smoke to exercise a URL-form public client id against
 unauthenticated sign-in redirect after metadata validation succeeds.
 
 The equivalent environment variables remain supported for CI:
-`VRDEX_MCP_SMOKE_URL`, `VRDEX_MCP_SMOKE_DATA`, `VRDEX_MCP_SMOKE_DCR`, and
-`VRDEX_MCP_SMOKE_CIMD`. Set `VRDEX_MCP_SMOKE_TOKEN` only for a local terminal
-run when you want to test an authenticated hosted tool list. Do not commit real
-tokens or smoke output containing credentials.
+`VRDEX_MCP_SMOKE_URL`, `VRDEX_MCP_SMOKE_DATA`, `VRDEX_MCP_SMOKE_DCR`,
+`VRDEX_MCP_SMOKE_CIMD`, and `VRDEX_MCP_SMOKE_CONTINUE_ON_FAILURE`. Set
+`VRDEX_MCP_SMOKE_TOKEN` only for a local terminal run when you want to test an
+authenticated hosted tool list. Do not commit real tokens or smoke output
+containing credentials.
 
 GitHub also has a manual `Deployed Health Checks` workflow target named
 `hosted-mcp-smoke` for production-like or same-branch Convex preview targets.
 Use it when `Hosted MCP Preview Smoke` cannot enable data-backed reads, DCR, or
 CIMD because the PR preview lacks `CONVEX_DEPLOY_KEY_PREVIEW`, or when
-validating a staging target before external readiness.
+validating a staging target before external readiness. That manual workflow
+keeps selected hosted diagnostics running after a subcheck failure so the run
+log can distinguish backend data, DCR, and CIMD blockers in one attempt.
 
 ## Day-One Client Matrix
 

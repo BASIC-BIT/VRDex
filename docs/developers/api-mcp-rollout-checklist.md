@@ -88,7 +88,10 @@ one PR.
   the same hosted smoke against a staging, production-like, or same-branch
   Convex preview target. Use its `mcp_dcr` and `mcp_cimd` inputs for
   external-readiness evidence when the automatic PR preview lane cannot enable
-  those probes. Record the production-like hosted-readiness rows with
+  those probes. The manual workflow keeps selected hosted diagnostics running
+  after a subcheck failure, so one run can expose data-backed read, DCR, and
+  CIMD blockers separately while still failing if any selected probe fails.
+  Record the production-like hosted-readiness rows with
   `pnpm record:mcp-hosted-evidence` so the aggregate readiness gate can verify
   data-backed anonymous reads, Dynamic Client Registration, and Client ID
   Metadata Document evidence separately from client UI smoke rows.
@@ -162,6 +165,7 @@ pnpm ops:mcp-installed-clients
 pnpm ops:mcp-client-smokes
 pnpm check:api-mcp-rollout
 pnpm smoke:mcp-compat -- --hosted-only --hosted-url <preview-or-production-like-/mcp-url>
+pnpm smoke:mcp-compat -- --hosted-only --hosted-url <production-like-/mcp-url> --hosted-data --dcr --cimd --continue-on-failure
 pnpm smoke:mcp-inspector -- --hosted-url <preview-or-production-like-/mcp-url>
 pnpm typecheck:backend
 pnpm test:backend
