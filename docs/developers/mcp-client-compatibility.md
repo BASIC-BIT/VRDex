@@ -150,10 +150,12 @@ pnpm ops:mcp-client-smokes -- \
 ```
 
 The planner prints every pending required row, the repo preflight command to
-run first, the client-side evidence to capture, the production-like hosted MCP
-evidence rows, and the exact recorder command shapes for recording passes. Add
-`--include-passed` when producing a full day-one evidence packet instead of
-only the pending work.
+run first, client-specific setup hints, the client-side evidence to capture,
+the production-like hosted MCP evidence rows, and the exact recorder command
+shapes for recording passes. Setup hints are not evidence by themselves; record
+a matrix row only after the real client lists tools and calls `vrdex_search` or
+completes the required `mcp:read` OAuth path. Add `--include-passed` when
+producing a full day-one evidence packet instead of only the pending work.
 
 Before coordinating desktop/client sessions on a local machine, run the
 installed-client preflight:

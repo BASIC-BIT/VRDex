@@ -129,8 +129,61 @@ function inlineCode(value: string) {
   return `\`${value.replaceAll("`", "\\`")}\``;
 }
 
+function jsonInline(value: unknown) {
+  return JSON.stringify(value).replaceAll("`", "\\`");
+}
+
 function hostedTarget(options: Options) {
   return options.hostedUrl ?? hostedPlaceholder;
+}
+
+function hostedOrigin(options: Options) {
+  const target = hostedTarget(options);
+
+  if (target === hostedPlaceholder) {
+    return "<production-like-origin>";
+  }
+
+  const url = new URL(target);
+  const pathname = url.pathname.replace(/\/mcp\/?$/, "");
+
+  url.pathname = pathname === "" ? "/" : pathname;
+  url.search = "";
+  url.hash = "";
+
+  return url.toString().replace(/\/$/, "");
+}
+
+function repoRootForConfig() {
+  return process.cwd().replaceAll("\\", "/");
+}
+
+function stdioAddMcpDefinition(options: Options) {
+  return {
+    args: [
+      "pnpm",
+      "--silent",
+      "--dir",
+      repoRootForConfig(),
+      "exec",
+      "tsx",
+      "packages/vrdex-mcp/src/stdio.ts",
+    ],
+    command: process.platform === "win32" ? "corepack.cmd" : "corepack",
+    env: {
+      VRDEX_API_BASE_URL: hostedOrigin(options),
+      VRDEX_MCP_OUTPUT_MODE: "compact",
+    },
+    name: "vrdex",
+  };
+}
+
+function hostedAddMcpDefinition(options: Options) {
+  return {
+    name: "vrdex",
+    type: "http",
+    url: hostedTarget(options),
+  };
 }
 
 function repoPreflightCommand(client: ClientEntry, check: SmokeCheck, options: Options) {
@@ -189,6 +242,70 @@ function manualEvidencePrompt(client: ClientEntry, check: SmokeCheck) {
   }
 
   return "Record the current client behavior with sanitized evidence.";
+}
+
+function setupHint(client: ClientEntry, check: SmokeCheck, options: Options) {
+  const stdioDefinition = jsonInline(stdioAddMcpDefinition(options));
+  const hostedDefinition = jsonInline(hostedAddMcpDefinition(options));
+  const target = hostedTarget(options);
+
+  if (client.id === "claude-code" && check.id === "hosted-oauth") {
+    return `claude mcp add --transport http --callback-port 8765 vrdex ${target}; then run claude mcp login vrdex and confirm an mcp:read session.`;
+  }
+
+  if (client.id === "vscode" && check.id === "local-stdio") {
+    return `code --profile vrdex-mcp-smoke --add-mcp '${stdioDefinition}'`;
+  }
+
+  if (client.id === "vscode" && check.id === "hosted-anonymous-read") {
+    return `code --profile vrdex-mcp-smoke --add-mcp '${hostedDefinition}'`;
+  }
+
+  if (client.id === "vscode" && check.id === "hosted-oauth") {
+    return `code --profile vrdex-mcp-smoke --add-mcp '${hostedDefinition}'; then use VS Code Chat to trigger hosted OAuth and record whether mcp:read succeeds or a token fallback is required.`;
+  }
+
+  if (client.id === "cursor" && check.id === "local-stdio") {
+    return `cursor --add-mcp '${stdioDefinition}'`;
+  }
+
+  if (client.id === "cursor" && check.id === "hosted-anonymous-read") {
+    return `cursor --add-mcp '${hostedDefinition}'`;
+  }
+
+  if (client.id === "cursor" && check.id === "hosted-oauth") {
+    return `cursor --add-mcp '${hostedDefinition}'; then use Cursor Chat/Agent to trigger hosted OAuth and record whether mcp:read succeeds or a token fallback is required.`;
+  }
+
+  if (client.id === "devin-windsurf" && check.id === "local-stdio") {
+    return `windsurf --profile vrdex-mcp-smoke --add-mcp '${stdioDefinition}'`;
+  }
+
+  if (client.id === "devin-windsurf" && check.id === "hosted-anonymous-read") {
+    return `windsurf --profile vrdex-mcp-smoke --add-mcp '${hostedDefinition}'`;
+  }
+
+  if (client.id === "devin-windsurf" && check.id === "hosted-oauth") {
+    return `windsurf --profile vrdex-mcp-smoke --add-mcp '${hostedDefinition}'; then use Windsurf Cascade to trigger hosted OAuth and record whether mcp:read succeeds.`;
+  }
+
+  if (client.id === "claude-desktop" && check.id === "local-stdio") {
+    return `Add mcpServers.vrdex with command ${stdioAddMcpDefinition(options).command} and args/env from the shared local stdio config, then call vrdex_search.`;
+  }
+
+  if (client.id === "claude-desktop" && check.surface.startsWith("hosted_http")) {
+    return `Use Claude Desktop Custom Connector for ${target}; verify hosted anonymous read first, then hosted OAuth for mcp:read.`;
+  }
+
+  if (client.id === "openai-chatgpt") {
+    return `Configure the relevant OpenAI/ChatGPT connector surface for ${target}; verify noauth public reads separately from OAuth/CIMD behavior.`;
+  }
+
+  if (client.id === "mcp-inspector" && check.id === "hosted-oauth") {
+    return `npx --yes @modelcontextprotocol/inspector --cli --transport http --server-url ${target}; use protocol OAuth/DCR/CIMD evidence plus an mcp:read bearer-token tool list when available.`;
+  }
+
+  return "Use the docs matrix row to configure the current client release, then record exact evidence.";
 }
 
 function recordCommand(client: ClientEntry, check: SmokeCheck) {
@@ -336,8 +453,8 @@ function printPlan(matrix: SmokeMatrix, options: Options) {
   }
 
   console.log("");
-  console.log("| Client | Check | Status | Repo preflight | Manual evidence | Notes | Recorder command |");
-  console.log("| --- | --- | --- | --- | --- | --- | --- |");
+  console.log("| Client | Check | Status | Repo preflight | Setup hint | Manual evidence | Notes | Recorder command |");
+  console.log("| --- | --- | --- | --- | --- | --- | --- | --- |");
 
   for (const client of matrix.clients) {
     if (options.clientId !== undefined && client.id !== options.clientId) {
@@ -355,6 +472,7 @@ function printPlan(matrix: SmokeMatrix, options: Options) {
           markdownCell(check.id),
           markdownCell(check.manualStatus),
           markdownCell(inlineCode(repoPreflightCommand(client, check, options))),
+          markdownCell(inlineCode(setupHint(client, check, options))),
           markdownCell(manualEvidencePrompt(client, check)),
           markdownCell(check.notes),
           markdownCell(inlineCode(recordCommand(client, check))),
