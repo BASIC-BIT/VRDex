@@ -289,6 +289,7 @@ async function writeEvidenceTemplate(outputPath: string, template: EvidenceTempl
   const targetLine = template.hosted
     ? `Target environment: ${template.targetEnvironment}`
     : "Target environment: not applicable for local stdio";
+  const evidenceFileRecorder = `pnpm record:mcp-client-smoke -- --evidence-file ${psSingleQuote(outputPath)}`;
   const content = [
     `# ${template.clientName} ${template.check} MCP Smoke Evidence`,
     "",
@@ -321,9 +322,17 @@ async function writeEvidenceTemplate(outputPath: string, template: EvidenceTempl
     "",
     "## Sanitized Evidence Summary",
     "",
-    "Replace this paragraph with the sanitized screenshot path, transcript path, or PR artifact URL before running the recorder command.",
+    "Replace this paragraph with the sanitized screenshot path, transcript path, or PR artifact URL before running the recorder command. Keep tokens, OAuth client secrets, full authorization headers, and private account details out of this section.",
     "",
     "## Recorder Command",
+    "",
+    "After the client session is complete, change the `Status:` line above to `pass` or `fail`, replace the sanitized evidence summary, then run:",
+    "",
+    "```powershell",
+    evidenceFileRecorder,
+    "```",
+    "",
+    "Expanded recorder command, for reference:",
     "",
     "```powershell",
     template.recorder,

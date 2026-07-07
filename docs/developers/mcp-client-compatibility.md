@@ -243,7 +243,18 @@ commands. The generated `evidence/` templates are pending worksheets for each
 row; fill them with sanitized real-client screenshot or transcript evidence
 before running the recorder command. The pack is not evidence by itself; use it
 to run the real client session and then record the matrix row only after the
-client lists tools and calls `vrdex_search`.
+client lists tools and calls `vrdex_search`. Completed worksheets can be
+recorded directly:
+
+```sh
+pnpm record:mcp-client-smoke -- \
+  --evidence-file .tmp-gh-artifacts/mcp-client-smoke-session/evidence/vscode-hosted-anonymous-read.md
+```
+
+The worksheet recorder infers the matrix row, environment, target environment,
+status, and evidence summary from the file. It rejects untouched `pending`
+worksheets, generated placeholder text, placeholder target values, and evidence
+summaries that appear to contain tokens, secrets, or authorization headers.
 
 Record manual pass or fail results with the recorder command instead of
 hand-editing the JSON:

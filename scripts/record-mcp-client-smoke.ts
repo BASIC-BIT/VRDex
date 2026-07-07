@@ -30,23 +30,33 @@ type SmokeMatrix = {
 };
 
 type RecordOptions = {
-  checkId: string;
-  clientId: string;
+  checkId?: string;
+  clientId?: string;
   dryRun: boolean;
   environment?: string;
   evidence?: string;
+  evidenceFile?: string;
   lastRunAt: string;
   matrixPath: string;
   notes?: string;
   readinessMode?: string;
-  status: ManualStatus;
+  status?: ManualStatus;
   targetEnvironment?: string | null;
+};
+
+type ResolvedRecordOptions = RecordOptions & {
+  checkId: string;
+  clientId: string;
+  status: ManualStatus;
 };
 
 const allowedStatuses = new Set<ManualStatus>(["fail", "not_applicable", "pass", "pending"]);
 const hostedEvidenceTargetPattern = /\b(same-branch|production-like|staging|production)\b/i;
 const pendingHostedEvidencePattern = /\b(pending|need|needs|lack|lacks|skipped|unavailable|not deployed|without data-backed)\b/i;
 const placeholderPattern = /<[^>]+>/;
+const generatedEvidenceSummaryPattern = /^replace this paragraph\b/i;
+const sensitiveEvidencePattern =
+  /\b(authorization\s*:\s*bearer|bearer\s+[a-z0-9._~+/-]{12,}|client_secret\s*[=:]|vrdex_(?:api|mcp)?_?token\s*[=:]|secret\s*[=:]\s*[a-z0-9._~+/-]{12,}|eyJ[a-z0-9_-]{10,}\.[a-z0-9_-]{10,}\.[a-z0-9_-]{10,})\b/i;
 
 function todayUtc() {
   return new Date().toISOString().slice(0, 10);
@@ -105,6 +115,10 @@ function parseArgs(argv: string[]): RecordOptions {
         options.evidence = takeValue(argv, index, arg);
         index += 1;
         break;
+      case "--evidence-file":
+        options.evidenceFile = takeValue(argv, index, arg);
+        index += 1;
+        break;
       case "--last-run-at":
         options.lastRunAt = takeValue(argv, index, arg);
         index += 1;
@@ -141,16 +155,160 @@ function parseArgs(argv: string[]): RecordOptions {
     }
   }
 
-  assert.equal(typeof options.clientId, "string", "--client is required.");
-  assert.equal(typeof options.checkId, "string", "--check is required.");
-  assert.equal(typeof options.status, "string", "--status is required.");
   assert.equal(typeof options.matrixPath, "string", "--matrix or VRDEX_MCP_CLIENT_MATRIX_PATH is required.");
   assert.equal(typeof options.lastRunAt, "string", "--last-run-at must be a string.");
 
   return options as RecordOptions;
 }
 
-function validateStatusUpdate(check: SmokeCheck, options: RecordOptions) {
+function fieldLine(raw: string, label: string) {
+  const prefix = `${label}:`;
+  const line = raw
+    .split(/\r?\n/)
+    .find((candidate) => candidate.toLowerCase().startsWith(prefix.toLowerCase()));
+
+  return nonEmpty(line?.slice(prefix.length));
+}
+
+function normalizeEvidenceStatus(value: string | undefined, filePath: string) {
+  if (value === undefined) {
+    throw new Error(`${filePath} is missing a Status line.`);
+  }
+
+  if (/^pass\b/i.test(value)) {
+    return "pass" as const;
+  }
+
+  if (/^fail\b/i.test(value)) {
+    return "fail" as const;
+  }
+
+  if (/^pending\b/i.test(value)) {
+    return "pending" as const;
+  }
+
+  if (/^not[_ -]?applicable\b/i.test(value)) {
+    return "not_applicable" as const;
+  }
+
+  throw new Error(`${filePath} has unsupported Status value: ${value}`);
+}
+
+function sectionText(raw: string, heading: string) {
+  const lines = raw.split(/\r?\n/);
+  const headingLine = `## ${heading}`.toLowerCase();
+  const start = lines.findIndex((line) => line.trim().toLowerCase() === headingLine);
+
+  if (start === -1) {
+    return undefined;
+  }
+
+  const body: string[] = [];
+
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const line = lines[index];
+
+    if (/^##\s+/.test(line)) {
+      break;
+    }
+
+    body.push(line);
+  }
+
+  return nonEmpty(body.join("\n"));
+}
+
+function compactEvidenceSummary(value: string, filePath: string) {
+  const summary = value
+    .replaceAll(/\r?\n/g, " ")
+    .replaceAll(/\s+/g, " ")
+    .trim();
+
+  assert.ok(summary, `${filePath} Sanitized Evidence Summary must not be empty.`);
+  assert.doesNotMatch(
+    summary,
+    generatedEvidenceSummaryPattern,
+    `${filePath} Sanitized Evidence Summary still contains the generated placeholder text.`,
+  );
+  assertConcreteValue(summary, `${filePath} Sanitized Evidence Summary`);
+  assert.doesNotMatch(
+    summary,
+    sensitiveEvidencePattern,
+    `${filePath} Sanitized Evidence Summary appears to contain a token, secret, or authorization header.`,
+  );
+
+  return summary;
+}
+
+async function applyEvidenceFile(options: RecordOptions) {
+  if (options.evidenceFile === undefined) {
+    return options;
+  }
+
+  const raw = await readFile(options.evidenceFile, "utf8");
+  const status = normalizeEvidenceStatus(fieldLine(raw, "Status"), options.evidenceFile);
+  const row = fieldLine(raw, "Matrix row");
+  const environment = fieldLine(raw, "Environment");
+  const targetEnvironment = fieldLine(raw, "Target environment");
+  const evidence = sectionText(raw, "Sanitized Evidence Summary");
+
+  assert.ok(row, `${options.evidenceFile} is missing Matrix row.`);
+
+  const rowMatch = /^([^/]+)\/(.+)$/.exec(row);
+
+  assert.ok(rowMatch, `${options.evidenceFile} Matrix row must be formatted as client/check.`);
+
+  if (options.clientId !== undefined) {
+    assert.equal(options.clientId, rowMatch[1], "--client does not match evidence file Matrix row.");
+  }
+
+  if (options.checkId !== undefined) {
+    assert.equal(options.checkId, rowMatch[2], "--check does not match evidence file Matrix row.");
+  }
+
+  if (options.status !== undefined) {
+    assert.equal(options.status, status, "--status does not match evidence file Status.");
+  }
+
+  if (status === "pending") {
+    throw new Error(`${options.evidenceFile} is still pending; update Status after running the real client smoke.`);
+  }
+
+  if (status === "pass" || status === "fail") {
+    assert.ok(environment, `${options.evidenceFile} is missing Environment.`);
+    assert.ok(evidence, `${options.evidenceFile} is missing Sanitized Evidence Summary.`);
+  }
+
+  const evidenceSummary = evidence === undefined ? undefined : compactEvidenceSummary(evidence, options.evidenceFile);
+  const resolved: RecordOptions = {
+    ...options,
+    checkId: options.checkId ?? rowMatch[2],
+    clientId: options.clientId ?? rowMatch[1],
+    environment: options.environment ?? environment,
+    evidence: options.evidence ?? evidenceSummary,
+    status: options.status ?? status,
+  };
+
+  if (
+    options.targetEnvironment === undefined
+    && targetEnvironment !== undefined
+    && !/^not applicable\b/i.test(targetEnvironment)
+  ) {
+    resolved.targetEnvironment = targetEnvironment;
+  }
+
+  return resolved;
+}
+
+function resolveOptions(options: RecordOptions): ResolvedRecordOptions {
+  assert.equal(typeof options.clientId, "string", "--client or --evidence-file Matrix row is required.");
+  assert.equal(typeof options.checkId, "string", "--check or --evidence-file Matrix row is required.");
+  assert.equal(typeof options.status, "string", "--status or --evidence-file Status is required.");
+
+  return options as ResolvedRecordOptions;
+}
+
+function validateStatusUpdate(check: SmokeCheck, options: ResolvedRecordOptions) {
   if (check.requiredForExternalReadiness) {
     assert.notEqual(
       options.status,
@@ -199,7 +357,7 @@ function validateStatusUpdate(check: SmokeCheck, options: RecordOptions) {
   }
 }
 
-function applyStatusUpdate(matrix: SmokeMatrix, options: RecordOptions) {
+function applyStatusUpdate(matrix: SmokeMatrix, options: ResolvedRecordOptions) {
   const client = matrix.clients.find((entry) => entry.id === options.clientId);
   assert.ok(client, `Unknown client: ${options.clientId}`);
 
@@ -240,7 +398,7 @@ function applyStatusUpdate(matrix: SmokeMatrix, options: RecordOptions) {
 }
 
 async function main() {
-  const options = parseArgs(process.argv.slice(2));
+  const options = resolveOptions(await applyEvidenceFile(parseArgs(process.argv.slice(2))));
   const raw = await readFile(options.matrixPath, "utf8");
   const matrix = JSON.parse(raw) as SmokeMatrix;
   const { check, client } = applyStatusUpdate(matrix, options);

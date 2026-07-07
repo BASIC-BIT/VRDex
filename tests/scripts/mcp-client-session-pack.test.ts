@@ -136,6 +136,7 @@ describe("MCP client smoke session pack", () => {
       assert.match(vscodeEvidence, /Status: pending until a real client session lists tools/);
       assert.match(vscodeEvidence, /Matrix row: vscode\/local-stdio/);
       assert.match(vscodeEvidence, /Client lists the expected VRDex tools/);
+      assert.match(vscodeEvidence, /--evidence-file/);
       assert.match(vscodeEvidence, /pnpm record:mcp-client-smoke -- --client vscode --check local-stdio/);
       assert.doesNotMatch(vscodeEvidence, /--target-environment "staging https:\/\/staging\.vrdex\.net\/mcp"/);
 
@@ -147,6 +148,7 @@ describe("MCP client smoke session pack", () => {
       assert.match(geminiHostedEvidence, /Matrix row: gemini-cli\/hosted-oauth/);
       assert.match(geminiHostedEvidence, /Target environment: staging https:\/\/staging\.vrdex\.net\/mcp/);
       assert.match(geminiHostedEvidence, /No bearer tokens, OAuth client secrets/);
+      assert.match(geminiHostedEvidence, /--evidence-file/);
       assert.match(geminiHostedEvidence, /pnpm record:mcp-client-smoke -- --client gemini-cli --check hosted-oauth/);
     } finally {
       await rm(outputDir, { force: true, recursive: true });

@@ -33,6 +33,123 @@ async function writeMatrixCopy(name: string) {
 }
 
 describe("MCP client smoke recorder", () => {
+  it("records a completed generated evidence worksheet", async () => {
+    const { directory, path } = await writeMatrixCopy("evidence-file");
+    const evidencePath = join(directory, "vscode-hosted-anonymous-read.md");
+
+    await writeFile(
+      evidencePath,
+      [
+        "# VS Code hosted-anonymous-read MCP Smoke Evidence",
+        "",
+        "Status: pass",
+        "",
+        "Matrix row: vscode/hosted-anonymous-read",
+        "Environment: Windows / VS Code 1.127.0 / profile vrdex-mcp-smoke / https://staging.vrdex.net/mcp",
+        "Target environment: staging https://staging.vrdex.net/mcp",
+        "",
+        "## Sanitized Evidence Summary",
+        "",
+        "Sanitized screenshot artifact .tmp-gh-artifacts/vscode-hosted-anonymous.png shows tools/list and one vrdex_search query=club type=all limit=1 returning slug club-night.",
+        "",
+      ].join("\n"),
+    );
+
+    try {
+      const result = runRecorder([
+        "--matrix",
+        path,
+        "--evidence-file",
+        evidencePath,
+        "--dry-run",
+      ]);
+
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, /Recorded VS Code \/ hosted-anonymous-read: pass/);
+      assert.match(result.stdout, /"manualStatus": "pass"/);
+      assert.match(result.stdout, /"targetEnvironment": "staging https:\/\/staging\.vrdex\.net\/mcp"/);
+      assert.match(result.stdout, /vscode-hosted-anonymous\.png shows tools\/list/);
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  it("rejects a generated evidence worksheet that is still pending", async () => {
+    const { directory, path } = await writeMatrixCopy("pending-evidence-file");
+    const evidencePath = join(directory, "vscode-local-stdio.md");
+
+    await writeFile(
+      evidencePath,
+      [
+        "# VS Code local-stdio MCP Smoke Evidence",
+        "",
+        "Status: pending until a real client session lists tools and calls `vrdex_search`.",
+        "",
+        "Matrix row: vscode/local-stdio",
+        "Environment: Windows / VS Code / profile vrdex-mcp-smoke / local stdio",
+        "Target environment: not applicable for local stdio",
+        "",
+        "## Sanitized Evidence Summary",
+        "",
+        "Replace this paragraph with the sanitized screenshot path, transcript path, or PR artifact URL before running the recorder command.",
+        "",
+      ].join("\n"),
+    );
+
+    try {
+      const result = runRecorder([
+        "--matrix",
+        path,
+        "--evidence-file",
+        evidencePath,
+      ]);
+
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /is still pending/);
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  it("rejects a completed worksheet when its evidence summary still has placeholder text", async () => {
+    const { directory, path } = await writeMatrixCopy("placeholder-evidence-file");
+    const evidencePath = join(directory, "vscode-local-stdio.md");
+
+    await writeFile(
+      evidencePath,
+      [
+        "# VS Code local-stdio MCP Smoke Evidence",
+        "",
+        "Status: pass",
+        "",
+        "Matrix row: vscode/local-stdio",
+        "Environment: Windows / VS Code / profile vrdex-mcp-smoke / local stdio",
+        "Target environment: not applicable for local stdio",
+        "",
+        "## Sanitized Evidence Summary",
+        "",
+        "Replace this paragraph with the sanitized screenshot path, transcript path, or PR artifact URL before running the recorder command.",
+        "",
+      ].join("\n"),
+    );
+
+    try {
+      const result = runRecorder([
+        "--matrix",
+        path,
+        "--evidence-file",
+        evidencePath,
+        "--evidence",
+        "manual evidence override should not hide an untouched worksheet summary",
+      ]);
+
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /placeholder text/);
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
   it("rejects placeholder evidence for pass rows", async () => {
     const { directory, path } = await writeMatrixCopy("placeholder-evidence");
 

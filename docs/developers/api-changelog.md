@@ -30,6 +30,10 @@ docs update and a changelog entry so early consumers and agents can adapt.
   Cursor, Windsurf, and Gemini CLI MCP smoke-session configs, prompts, launch
   commands where supported, per-row evidence templates, and recorder commands
   under `.tmp-gh-artifacts/`
+- extended `pnpm record:mcp-client-smoke` with `--evidence-file` so a completed
+  generated worksheet can drive a matrix update while still rejecting pending
+  worksheets, placeholders, and evidence summaries that appear to contain
+  tokens, secrets, or authorization headers
 - extended `pnpm ops:mcp-installed-clients` to report hosted OAuth smoke
   credential readiness for Claude Code and MCP Inspector without printing
   secret values

@@ -122,7 +122,10 @@ one PR.
   evidence templates, and recorder commands. It does not replace manual matrix
   evidence; use it to keep those installed-client smoke sessions repeatable and
   to capture sanitized screenshot or transcript evidence before recording a
-  row.
+  row. Filled evidence templates can be recorded with
+  `pnpm record:mcp-client-smoke -- --evidence-file <template.md>`; the recorder
+  rejects untouched pending worksheets, placeholders, and evidence summaries
+  that appear to contain tokens, secrets, or authorization headers.
 - `pnpm check:api-mcp-rollout` summarizes the generated OpenAPI contract,
   required docs, verification scripts, MCP client matrix, and hosted MCP
   production-like evidence state. The gate asserts every current checked-in
