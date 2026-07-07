@@ -24,6 +24,7 @@ The hosted BASIC BIT deployment uses:
 - AWS SES for auth email
 - Route 53 for `vrdex.net` DNS records
 - PostHog project `447783` for hosted product analytics
+- Upstash Redis through the Redis REST adapter for hosted API/MCP rate-limit counters
 - Terraform stacks under `infra/terraform/`
 - GitHub Actions for baseline checks, deployed health, CodeQL, and staging deploys
 - GitHub Actions Terraform CI/CD for provider-backed plan/apply after merge
@@ -38,6 +39,7 @@ The hosted BASIC BIT deployment uses:
 | PostHog project metadata | `infra/terraform/posthog` | Imports hosted project `447783`; sensitive project token output feeds Vercel stack locally. |
 | Hosted Vercel web domains | `infra/terraform/web-domains` | Owns the `vrdex.net` and `www.vrdex.net` Vercel project-domain bindings and Route 53 records. |
 | Hosted Vercel PostHog env vars | `infra/terraform/vercel` | Owns `NEXT_PUBLIC_POSTHOG_KEY`/`NEXT_PUBLIC_POSTHOG_HOST` for production, default preview, and configured staging custom environment IDs. |
+| Hosted API/MCP rate-limit Redis | planned Terraform or documented manual bootstrap | First BASIC BIT hosted target is Upstash Redis through the Redis REST adapter. Commit the expected Vercel variables and owner before enabling hosted production rate limits; keep secret values in provider secret stores. |
 | Vercel project, staging environment, and E2E helper vars | manual bootstrap plus docs | Documented in `docs/deployment/vercel-preview.md`; not Terraform-owned yet. |
 | Docs Vercel project and `docs.vrdex.net` domain | `infra/terraform/docs-site` plus workflow | Owns the docs Vercel project, Vercel domain binding, and Route 53 DNS record; runbook lives in `docs/deployment/docs-site.md`. |
 | Convex deployment keys and env vars | provider secret store plus docs | Documented in `docs/deployment/convex-environments.md` and `docs/deployment/ses-auth-email.md`. |

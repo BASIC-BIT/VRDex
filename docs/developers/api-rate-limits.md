@@ -54,9 +54,11 @@ Use a Redis-compatible store for hosted production anonymous API and hosted MCP
 traffic. Convex-only counters are acceptable only for low-volume self-hosted
 deployments that knowingly accept the extra write load and cost tradeoff.
 For BASIC BIT hosted production, prefer the `redis-rest`/`upstash` adapter for
-the first hosted deployment unless provider pricing or latency says otherwise.
-The important contract is Redis-compatible expiring counters behind the adapter,
-not the specific vendor brand.
+the first hosted deployment, backed by Upstash Redis unless provider pricing or
+latency says otherwise. Vercel KV is not a new-project option; if provisioning
+through Vercel, use a Marketplace Redis integration and still wire VRDex through
+the Redis REST adapter variables. The important contract is Redis-compatible
+expiring counters behind the adapter, not the specific vendor brand.
 
 ## Default Route Classes
 

@@ -76,6 +76,7 @@ The first useful version should feel small and sharp:
 - `Current recommendation`: Support Client ID Metadata Documents for hosted MCP public clients that prefer URL-form client IDs over Dynamic Client Registration. Keep DCR available for clients that register automatically, and defer confidential-client CIMD until a real client requires public-key client authentication.
 - `Current recommendation`: Rate-limit by route class, IP, token, OAuth client, user, app owner, and dynamic MCP client. Do not use one global bucket for every caller.
 - `Current recommendation`: Use a Redis-compatible TTL counter store for high-volume hosted anonymous public API and MCP traffic. Keep Convex as the durable source for policy, app/token ownership, partner overrides, coarse usage summaries, and audit events.
+- `Current recommendation`: Use Upstash Redis through the Redis REST adapter for the first BASIC BIT hosted deployment, while keeping the runtime contract vendor-neutral behind `VRDEX_RATE_LIMIT_STORE=redis-rest`/`upstash`.
 - `Current recommendation`: Launch the hosted MCP as read-oriented first, even if the auth platform already supports scopes that make later write tools possible.
 - `Current recommendation`: Treat anonymous hosted MCP reads as a first-class no-auth tool path. Where a client or SDK supports per-tool auth metadata, public read tools should advertise no-auth access and OAuth as an optional or later privileged path; the server still enforces scopes, audience/resource binding, and rate limits on every request.
 - `Current recommendation`: For OpenAI/ChatGPT-style MCP clients, advertise public read tools with per-tool `noauth` plus optional `oauth2` security metadata. The current MCP SDK emits this through the `_meta["securitySchemes"]` descriptor extension; do not add non-standard top-level tool fields unless the SDK or a verified client surface requires a compatible extension point.
@@ -84,7 +85,7 @@ The first useful version should feel small and sharp:
 ## Candidate Directions
 
 - `Candidate direction`: Add a dedicated API hostname later, but keep the first public route shape under the web app until operational pressure justifies a split.
-- `Candidate direction`: Use an adapter interface for rate-limit storage so hosted deployments can use Upstash/Vercel KV/Valkey/Redis-compatible infrastructure, local development can use an in-memory adapter, and self-hosted production can bring its own Redis-compatible store.
+- `Candidate direction`: Keep the adapter interface for rate-limit storage so hosted deployments can move to another Redis-compatible provider later, local development can use an in-memory adapter, and self-hosted production can bring its own Redis-compatible store.
 - `Candidate direction`: Add an optional generated MCP coverage layer from OpenAPI only after curated tools prove useful.
 - `Candidate direction`: If OAuth implementation complexity grows beyond the narrow platform subset, revisit an external IdP or adapter-backed issuer before hardening `v1`. That revisit should preserve VRDex-owned developer app ownership, community-owner rules, quota tiers, audit events, DCR/CIMD policy, and self-hosted setup.
 
@@ -1320,6 +1321,9 @@ Security-specific tests:
 - [RFC 6585: 429 Too Many Requests](https://www.rfc-editor.org/rfc/rfc6585.html)
 - [RFC 9457: Problem Details for HTTP APIs](https://www.rfc-editor.org/rfc/rfc9457.html)
 - [Redis rate limiter pattern](https://redis.io/docs/latest/commands/incr/)
+- [Upstash Redis REST API](https://upstash.com/docs/redis/features/restapi)
+- [Upstash Terraform provider](https://upstash.com/docs/devops/terraform/overview)
+- [Vercel Redis](https://vercel.com/docs/redis)
 
 ## Follow-Up Decisions From Maintainer Review
 
@@ -1344,7 +1348,7 @@ Security-specific tests:
 
 - Track OpenAPI 3.2.0 generator and Swagger UI support. The current checked-in artifact stays on 3.1.x.
 - Automate OAuth signing-key rotation in deployment secret management after the hosted secret store workflow is wired. The current checkpoint documents and supports manual current-key plus retained-previous-public-key rotation.
-- Choose the initial hosted Redis-compatible rate-limit provider, such as Upstash, Vercel KV, Valkey, or another Redis-compatible store. This is a deployment/vendor choice, not an open product architecture decision.
+- Provision the first BASIC BIT hosted rate-limit store with Upstash Redis, preferably through checked-in Terraform or an immediately documented manual bootstrap. Vercel KV is not a new-project option; if the Vercel Marketplace integration is used, treat it as provider provisioning and still wire VRDex through the Redis REST adapter variables.
 - Run the implementation-time major MCP client smoke matrix against a deployed preview or production-like environment, including data-backed anonymous hosted reads, OAuth through Dynamic Client Registration, OAuth through public-client Client ID Metadata Documents, and local stdio configuration. Track results in `docs/developers/mcp-client-smoke-results.json` and run `pnpm check:mcp-client-matrix -- --require-ready` before external readiness.
 - Verify OpenAI/ChatGPT-style client behavior against the hosted MCP tool descriptors. The current SDK supports `_meta["securitySchemes"]`; if a verified client surface requires a different standard field later, add that through an SDK-supported path or a narrow compatibility shim.
 - Decide whether confidential-client CIMD is needed after the deployed major-client smoke matrix. If yes, add public-key client authentication rather than shared-secret behavior.
