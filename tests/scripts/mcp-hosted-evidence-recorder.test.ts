@@ -33,12 +33,13 @@ function runRecorder(args: string[]) {
   );
 }
 
-async function writeMatrixCopy(name: string) {
+async function writeMatrixCopy(name: string, mutate?: (matrix: SmokeMatrix) => void) {
   const directory = await mkdtemp(join(tmpdir(), `vrdex-mcp-hosted-evidence-${name}-`));
-  const raw = await readFile(matrixPath, "utf8");
+  const matrix = JSON.parse(await readFile(matrixPath, "utf8")) as SmokeMatrix;
   const path = join(directory, "matrix.json");
 
-  await writeFile(path, raw);
+  mutate?.(matrix);
+  await writeFile(path, `${JSON.stringify(matrix, null, 2)}\n`);
 
   return { directory, path };
 }
@@ -82,7 +83,15 @@ describe("hosted MCP evidence recorder", () => {
   });
 
   it("rejects hosted readiness passes that still describe unavailable backend evidence", async () => {
-    const { directory, path } = await writeMatrixCopy("reject-pending-target");
+    const { directory, path } = await writeMatrixCopy("reject-pending-target", (matrix) => {
+      const check = matrix.hostedReadiness.checks.find((entry) => entry.id === "hosted-dynamic-client-registration");
+
+      assert.ok(check);
+      check.status = "pending";
+      delete check.environment;
+      delete check.evidence;
+      delete check.lastRunAt;
+    });
 
     try {
       const result = runRecorder([

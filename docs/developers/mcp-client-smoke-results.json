@@ -1,27 +1,36 @@
 {
   "schemaVersion": 1,
   "lastReviewed": "2026-07-07",
-  "readinessMode": "repo-protocol-smoked-hosted-transport-smoked-data-backed-client-smokes-pending",
-  "targetEnvironment": "PR #159 Vercel preview https://vr-dex-2vtqfzq27-basicbit.vercel.app/mcp passed lightweight transport smoke on 2026-07-07, but Convex preview deployment is unavailable; stronger --hosted-data smoke returned a tool error: VRDex public data is temporarily unavailable for search. Data-backed hosted public reads need CONVEX_DEPLOY_KEY_PREVIEW or an equivalent same-branch or production-like backend.",
+  "readinessMode": "repo-protocol-smoked-hosted-staging-data-backed-client-smokes-open",
+  "targetEnvironment": "staging https://staging.vrdex.net/mcp deployed from PR #159 head 80864eb via staging deploy run 28856019045",
   "hostedReadiness": {
     "checks": [
       {
         "id": "hosted-data-backed-anonymous-read",
         "requiredForExternalReadiness": true,
-        "status": "pending",
-        "notes": "2026-07-07: corepack pnpm smoke:mcp-compat -- --hosted-only --hosted-url https://vr-dex-2vtqfzq27-basicbit.vercel.app/mcp --hosted-data --dcr --cimd failed at hosted data-backed vrdex_search with isError=true and content saying public data is temporarily unavailable for search."
+        "status": "pass",
+        "notes": "2026-07-07: staging target deployed from PR #159 head 80864eb; full hosted MCP smoke passed non-empty anonymous vrdex_search against staging public data backend.",
+        "environment": "Windows local Codex / staging deploy run 28856019045 / https://staging.vrdex.net/mcp",
+        "evidence": "corepack pnpm smoke:mcp-compat -- --hosted-only --hosted-url https://staging.vrdex.net/mcp --hosted-data --dcr --cimd --continue-on-failure passed hosted data-backed public read on 2026-07-07",
+        "lastRunAt": "2026-07-07"
       },
       {
         "id": "hosted-dynamic-client-registration",
         "requiredForExternalReadiness": true,
-        "status": "pending",
-        "notes": "2026-07-07: corepack pnpm smoke:mcp-compat -- --hosted-only --hosted-url https://vr-dex-2vtqfzq27-basicbit.vercel.app/mcp --dcr --cimd failed at Dynamic Client Registration with HTTP 500 server_error. Re-run against same-branch Convex preview or production-like backend after CONVEX_DEPLOY_KEY_PREVIEW or equivalent target is available."
+        "status": "pass",
+        "notes": "2026-07-07: staging target deployed from PR #159 head 80864eb; full hosted MCP smoke created a constrained public MCP dynamic client and verified mcp:read registration metadata.",
+        "environment": "Windows local Codex / staging deploy run 28856019045 / https://staging.vrdex.net/mcp",
+        "evidence": "corepack pnpm smoke:mcp-compat -- --hosted-only --hosted-url https://staging.vrdex.net/mcp --hosted-data --dcr --cimd --continue-on-failure passed hosted Dynamic Client Registration on 2026-07-07",
+        "lastRunAt": "2026-07-07"
       },
       {
         "id": "hosted-client-id-metadata-document",
         "requiredForExternalReadiness": true,
-        "status": "pending",
-        "notes": "2026-07-07: corepack pnpm smoke:mcp-compat -- --hosted-only --hosted-url https://vr-dex-2vtqfzq27-basicbit.vercel.app/mcp --cimd fetched /oauth/authorize with the public-client metadata document but got HTTP 200 Authorization request failed instead of sign-in redirect. Re-run against same-branch Convex preview or production-like backend after CONVEX_DEPLOY_KEY_PREVIEW or equivalent target is available."
+        "status": "pass",
+        "notes": "2026-07-07: staging target deployed from PR #159 head 80864eb; full hosted MCP smoke accepted the URL-form public client id metadata document before the expected unauthenticated sign-in redirect.",
+        "environment": "Windows local Codex / staging deploy run 28856019045 / https://staging.vrdex.net/mcp",
+        "evidence": "corepack pnpm smoke:mcp-compat -- --hosted-only --hosted-url https://staging.vrdex.net/mcp --hosted-data --dcr --cimd --continue-on-failure passed hosted public-client Client ID Metadata Document authorization on 2026-07-07",
+        "lastRunAt": "2026-07-07"
       }
     ]
   },
@@ -77,7 +86,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
           "manualStatus": "pending",
-          "notes": "Real Claude Code hosted no-auth transport/tool invocation passed against the PR #159 preview with an empty vrdex_search query on 2026-07-06. Record this row only after rerunning pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-data against a same-branch or production-like backend."
+          "notes": "Real Claude Code hosted no-auth transport/tool invocation passed against the PR #159 preview with an empty vrdex_search query on 2026-07-06. Rerun pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url https://staging.vrdex.net/mcp --hosted-data against the staging target before recording this row."
         },
         {
           "id": "hosted-oauth",
@@ -229,7 +238,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
           "manualStatus": "pending",
-          "notes": "MCP Inspector CLI hosted tools/list passed against the PR #159 preview on 2026-07-06 and can be repeated with pnpm smoke:mcp-inspector. Record this row only after rerunning pnpm smoke:mcp-inspector -- --hosted-data against a same-branch or production-like backend."
+          "notes": "MCP Inspector CLI hosted tools/list passed against the PR #159 preview on 2026-07-06 and can be repeated with pnpm smoke:mcp-inspector. Rerun pnpm smoke:mcp-inspector -- --hosted-url https://staging.vrdex.net/mcp --hosted-data against the staging target before recording this row."
         },
         {
           "id": "hosted-oauth",
@@ -237,7 +246,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
           "manualStatus": "pending",
-          "notes": "Hosted OAuth remains pending. The current PR preview is valid for anonymous hosted reads, OAuth metadata, and bearer-challenge smoke, but not for DCR/CIMD pass evidence because Convex preview deployment was skipped."
+          "notes": "Top-level staging hosted OAuth protocol evidence is recorded as pass. This client row remains pending until Inspector or an equivalent protocol client verifies hosted OAuth behavior against https://staging.vrdex.net/mcp."
         }
       ]
     }

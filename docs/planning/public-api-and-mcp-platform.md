@@ -102,22 +102,24 @@ Deliver this as `EPIC-12 Public API foundation and MCP platform`: one coherent
 PR with commit-level checkpoints for API contracts, generated OpenAPI, auth,
 OAuth apps, hosted MCP, local MCP, rate limits, docs, and rollout evidence.
 
-The highest-leverage remaining checkpoint is hosted MCP production-like
-readiness, not choosing the final Redis-compatible vendor. The rate-limit vendor
-choice is intentionally hidden behind the Redis-compatible adapter; hosted MCP
-readiness is what unlocks external launch confidence.
+The highest-leverage remaining checkpoint is the major-client MCP matrix, not
+choosing the final Redis-compatible vendor. The rate-limit vendor choice is
+intentionally hidden behind the Redis-compatible adapter; the hosted MCP
+production-like protocol evidence is now available from the staging target, so
+client compatibility is what unlocks external launch confidence.
 
 Next execution checkpoint:
 
-1. Provision or identify a same-branch Convex preview, staging, or
-   production-like backend for the PR's `/mcp` endpoint.
-2. Run data-backed anonymous hosted reads against that target.
-3. Run hosted OAuth protocol evidence for Dynamic Client Registration and
-   public-client Client ID Metadata Documents.
-4. Use the same target for the major-client matrix rows, starting with the
-   locally installed clients that can be smoke-tested now: Claude Code, VS Code,
-   Cursor, Windsurf, and MCP Inspector.
-5. Keep OpenAI/ChatGPT evidence as hosted-product manual evidence; do not mark
+1. Use the staging target deployed from PR #159 head `80864eb` as the current
+   production-like hosted MCP evidence source:
+   `https://staging.vrdex.net/mcp`.
+2. Keep the recorded hosted evidence rows for data-backed anonymous reads,
+   Dynamic Client Registration, and public-client Client ID Metadata Documents
+   in `docs/developers/mcp-client-smoke-results.json`.
+3. Complete the major-client matrix rows against that same staging target,
+   starting with the locally installed clients that can be smoke-tested now:
+   Claude Code, VS Code, Cursor, Windsurf, and MCP Inspector.
+4. Keep OpenAI/ChatGPT evidence as hosted-product manual evidence; do not mark
    that row ready from local CLI checks.
 
 ## Client Classes

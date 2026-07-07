@@ -212,6 +212,10 @@ The required hosted evidence rows are:
 - `hosted-dynamic-client-registration`
 - `hosted-client-id-metadata-document`
 
+Current PR #159 status: all three hosted evidence rows are recorded as `pass`
+against `https://staging.vrdex.net/mcp` after deploying head `80864eb` through
+staging deploy run `28856019045`.
+
 These rows are checked separately from manual client UI rows so a lightweight
 PR preview transport smoke cannot accidentally satisfy the production-like
 data-backed, DCR, and CIMD readiness gate.
