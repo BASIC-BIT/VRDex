@@ -252,15 +252,16 @@ function installCommand(client: Client, outputDir: string, configFile: string, r
   const userDataDir = path.join(outputDir, "user-data", client.id);
 
   return [
-    client.cli,
-    "--user-data-dir",
-    psSingleQuote(userDataDir),
-    "--profile",
-    "vrdex-mcp-smoke",
-    "--add-mcp",
-    `(Get-Content -Raw ${psSingleQuote(configFile)})`,
-    psSingleQuote(repoRoot),
-  ].join(" ");
+    `$mcpJson = (Get-Content -Raw ${psSingleQuote(configFile)}).Trim().Replace('"', '\\"')`,
+    [
+      client.cli,
+      "--user-data-dir",
+      psSingleQuote(userDataDir),
+      "--add-mcp",
+      "$mcpJson",
+      psSingleQuote(repoRoot),
+    ].join(" "),
+  ].join("\n");
 }
 
 function recorderCommand(args: {
@@ -625,8 +626,8 @@ async function writeSessionPack(options: Options) {
     await writeJson(hostedConfig, hostedDefinition(options));
     await writeJson(hostedTokenConfig, hostedDefinition(options, true));
 
-    const localEnvironment = `Windows / ${client.name} / profile vrdex-mcp-smoke / local stdio`;
-    const hostedEnvironment = `Windows / ${client.name} / profile vrdex-mcp-smoke / ${hostedMcpUrl(options.hostedUrl!)}`;
+    const localEnvironment = `Windows / ${client.name} / isolated user-data / local stdio`;
+    const hostedEnvironment = `Windows / ${client.name} / isolated user-data / ${hostedMcpUrl(options.hostedUrl!)}`;
     const commands = {
       hostedAnonymous: installCommand(client, outputDir, hostedConfig, repoRoot),
       hostedOauthFallback: installCommand(client, outputDir, hostedTokenConfig, repoRoot),

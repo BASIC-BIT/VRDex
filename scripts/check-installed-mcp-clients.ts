@@ -87,7 +87,7 @@ const clients: ClientProbe[] = [
       {
         command: "code",
         args: ["--help"],
-        evidence: "VS Code CLI exposes --add-mcp for safe profile-scoped MCP configuration",
+        evidence: "VS Code CLI exposes --add-mcp for isolated user-data MCP configuration",
         patterns: [/Model Context Protocol/i, /--add-mcp <json>/i],
       },
     ],

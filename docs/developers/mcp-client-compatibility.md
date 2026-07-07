@@ -242,6 +242,10 @@ and Windsurf plus Gemini CLI `settings.json` snippets for local stdio, hosted
 anonymous HTTP, and hosted token-header fallback setups. It also includes
 manual-only worksheets for Claude Desktop, Claude Code hosted OAuth,
 OpenAI/ChatGPT hosted rows, and MCP Inspector hosted OAuth. The generated
+VS Code, Cursor, and Windsurf PowerShell commands use an isolated
+`--user-data-dir` and escape JSON quotes before passing `--add-mcp`; direct
+fresh-profile `--add-mcp` and raw `(Get-Content -Raw ...)` JSON both fail on
+the current Windows CLIs. The generated
 `evidence/` templates are pending worksheets for each row; fill them with
 sanitized real-client screenshot or transcript evidence before running the
 recorder command. The pack is not evidence by itself; use it to run the real

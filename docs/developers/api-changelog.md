@@ -41,6 +41,10 @@ docs update and a changelog entry so early consumers and agents can adapt.
 - tightened `pnpm ops:mcp-client-session-pack` so it reads the MCP client smoke
   matrix and fails if a required row that is not already `pass` lacks a
   generated worksheet
+- corrected VS Code, Cursor, and Windsurf smoke-session setup commands to use
+  isolated `--user-data-dir` paths and PowerShell-safe escaped JSON for
+  `--add-mcp` after the current Windows CLIs rejected fresh named profiles and
+  raw `(Get-Content -Raw ...)` JSON arguments
 - extended `pnpm ops:mcp-installed-clients` to report hosted OAuth smoke
   credential readiness for Claude Code and MCP Inspector without printing
   secret values

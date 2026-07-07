@@ -49,6 +49,10 @@ describe("MCP client smoke session pack", () => {
       assert.match(readme, /evidence[\\/]openai-chatgpt-hosted-anonymous-read\.md/);
       assert.match(readme, /evidence[\\/]mcp-inspector-hosted-oauth\.md/);
       assert.match(readme, /Get-Content -Raw/);
+      assert.match(readme, /\.Trim\(\)\.Replace/);
+      assert.match(readme, /--user-data-dir/);
+      assert.match(readme, /isolated user-data/);
+      assert.doesNotMatch(readme, /--profile vrdex-mcp-smoke/);
       assert.match(readme, /\/mcp auth vrdex/);
       assert.match(readme, /Generated Evidence Templates/);
       assert.match(readme, /Pending Matrix Worksheet Coverage/);

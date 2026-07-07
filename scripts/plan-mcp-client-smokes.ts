@@ -133,6 +133,18 @@ function jsonInline(value: unknown) {
   return JSON.stringify(value).replaceAll("`", "\\`");
 }
 
+function psEscapedJsonAssignment(value: unknown) {
+  return `$mcpJson = '${JSON.stringify(value).replaceAll("'", "''").replaceAll('"', '\\"')}'`;
+}
+
+function addMcpCommand(cli: string, value: unknown, userDataId: string, suffix?: string) {
+  return [
+    psEscapedJsonAssignment(value),
+    `${cli} --user-data-dir .tmp-gh-artifacts/mcp-client-smoke-session/user-data/${userDataId} --add-mcp $mcpJson`,
+    suffix === undefined ? undefined : `# ${suffix}`,
+  ].filter(Boolean).join("; ");
+}
+
 function hostedTarget(options: Options) {
   return options.hostedUrl ?? hostedPlaceholder;
 }
@@ -265,8 +277,6 @@ function manualEvidencePrompt(client: ClientEntry, check: SmokeCheck) {
 }
 
 function setupHint(client: ClientEntry, check: SmokeCheck, options: Options) {
-  const stdioDefinition = jsonInline(stdioAddMcpDefinition(options));
-  const hostedDefinition = jsonInline(hostedAddMcpDefinition(options));
   const target = hostedTarget(options);
 
   if (client.id === "claude-code" && check.id === "hosted-oauth") {
@@ -274,39 +284,54 @@ function setupHint(client: ClientEntry, check: SmokeCheck, options: Options) {
   }
 
   if (client.id === "vscode" && check.id === "local-stdio") {
-    return `code --profile vrdex-mcp-smoke --add-mcp '${stdioDefinition}'`;
+    return addMcpCommand("code", stdioAddMcpDefinition(options), "vscode");
   }
 
   if (client.id === "vscode" && check.id === "hosted-anonymous-read") {
-    return `code --profile vrdex-mcp-smoke --add-mcp '${hostedDefinition}'`;
+    return addMcpCommand("code", hostedAddMcpDefinition(options), "vscode");
   }
 
   if (client.id === "vscode" && check.id === "hosted-oauth") {
-    return `code --profile vrdex-mcp-smoke --add-mcp '${hostedDefinition}'; then use VS Code Chat to trigger hosted OAuth and record whether mcp:read succeeds or a token fallback is required.`;
+    return addMcpCommand(
+      "code",
+      hostedAddMcpDefinition(options),
+      "vscode",
+      "then use VS Code Chat to trigger hosted OAuth and record whether mcp:read succeeds or a token fallback is required.",
+    );
   }
 
   if (client.id === "cursor" && check.id === "local-stdio") {
-    return `cursor --add-mcp '${stdioDefinition}'`;
+    return addMcpCommand("cursor", stdioAddMcpDefinition(options), "cursor");
   }
 
   if (client.id === "cursor" && check.id === "hosted-anonymous-read") {
-    return `cursor --add-mcp '${hostedDefinition}'`;
+    return addMcpCommand("cursor", hostedAddMcpDefinition(options), "cursor");
   }
 
   if (client.id === "cursor" && check.id === "hosted-oauth") {
-    return `cursor --add-mcp '${hostedDefinition}'; then use Cursor Chat/Agent to trigger hosted OAuth and record whether mcp:read succeeds or a token fallback is required.`;
+    return addMcpCommand(
+      "cursor",
+      hostedAddMcpDefinition(options),
+      "cursor",
+      "then use Cursor Chat/Agent to trigger hosted OAuth and record whether mcp:read succeeds or a token fallback is required.",
+    );
   }
 
   if (client.id === "devin-windsurf" && check.id === "local-stdio") {
-    return `windsurf --profile vrdex-mcp-smoke --add-mcp '${stdioDefinition}'`;
+    return addMcpCommand("windsurf", stdioAddMcpDefinition(options), "windsurf");
   }
 
   if (client.id === "devin-windsurf" && check.id === "hosted-anonymous-read") {
-    return `windsurf --profile vrdex-mcp-smoke --add-mcp '${hostedDefinition}'`;
+    return addMcpCommand("windsurf", hostedAddMcpDefinition(options), "windsurf");
   }
 
   if (client.id === "devin-windsurf" && check.id === "hosted-oauth") {
-    return `windsurf --profile vrdex-mcp-smoke --add-mcp '${hostedDefinition}'; then use Windsurf Cascade to trigger hosted OAuth and record whether mcp:read succeeds.`;
+    return addMcpCommand(
+      "windsurf",
+      hostedAddMcpDefinition(options),
+      "windsurf",
+      "then use Windsurf Cascade to trigger hosted OAuth and record whether mcp:read succeeds.",
+    );
   }
 
   if (client.id === "claude-desktop" && check.id === "local-stdio") {

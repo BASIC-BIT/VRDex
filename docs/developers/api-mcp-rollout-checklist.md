@@ -129,7 +129,10 @@ one PR.
   rejects untouched pending worksheets, placeholders, and evidence summaries
   that appear to contain tokens, secrets, or authorization headers. The session
   pack reads the checked matrix by default and fails if any required row that is
-  not already `pass` lacks a generated worksheet.
+  not already `pass` lacks a generated worksheet. VS Code-family setup commands
+  use isolated `--user-data-dir` paths and escaped JSON arguments because the
+  current Windows CLIs reject fresh named profiles and raw PowerShell JSON for
+  `--add-mcp`.
 - `pnpm check:api-mcp-rollout` summarizes the generated OpenAPI contract,
   required docs, verification scripts, MCP client matrix, and hosted MCP
   production-like evidence state. The gate asserts every current checked-in

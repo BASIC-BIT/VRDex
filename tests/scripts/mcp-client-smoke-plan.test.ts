@@ -26,8 +26,9 @@ describe("MCP client smoke planner", () => {
 
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /Setup hint/);
-    assert.match(result.stdout, /code --profile vrdex-mcp-smoke --add-mcp/);
-    assert.match(result.stdout, /"VRDEX_API_BASE_URL":"https:\/\/staging\.vrdex\.net"/);
+    assert.match(result.stdout, /code --user-data-dir \.tmp-gh-artifacts\/mcp-client-smoke-session\/user-data\/vscode --add-mcp \$mcpJson/);
+    assert.doesNotMatch(result.stdout, /--profile vrdex-mcp-smoke/);
+    assert.match(result.stdout, /\\?"VRDEX_API_BASE_URL\\?":\\?"https:\/\/staging\.vrdex\.net\\?"/);
   });
 
   it("prints hosted HTTP setup hints for Cursor without treating them as evidence", () => {
@@ -41,8 +42,8 @@ describe("MCP client smoke planner", () => {
     ]);
 
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /cursor --add-mcp/);
-    assert.match(result.stdout, /"type":"http"/);
+    assert.match(result.stdout, /cursor --user-data-dir \.tmp-gh-artifacts\/mcp-client-smoke-session\/user-data\/cursor --add-mcp \$mcpJson/);
+    assert.match(result.stdout, /\\?"type\\?":\\?"http\\?"/);
     assert.match(result.stdout, /Configure the current client release against hosted \/mcp and call vrdex_search without a bearer token/);
     assert.match(result.stdout, /--status pass/);
   });
