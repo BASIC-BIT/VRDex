@@ -49,6 +49,11 @@ docs update and a changelog entry so early consumers and agents can adapt.
   Cursor, and Windsurf CLIs accept the generated local stdio, hosted anonymous
   HTTP, and hosted token-header fallback `--add-mcp` definitions before a human
   starts manual tool-list and `vrdex_search` evidence capture
+- added `pnpm ops:mcp-oauth-smoke-credentials` to mint temporary staging OAuth
+  smoke credentials through the gated E2E auth helper path, verify
+  client-credentials `mcp:read` token issuance, and write ignored env files for
+  Claude Code and MCP Inspector hosted OAuth smokes without printing the client
+  secret
 - extended `pnpm ops:mcp-installed-clients` to report hosted OAuth smoke
   credential readiness for Claude Code and MCP Inspector without printing
   secret values

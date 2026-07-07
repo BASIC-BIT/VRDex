@@ -20,7 +20,7 @@ describe("API/MCP rollout readiness checker", () => {
 
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /Generated OpenAPI contract \| yes \| pass \| 30 required API paths are present/);
-    assert.match(result.stdout, /Rollout verification scripts \| yes \| pass \| 14 required scripts are defined/);
+    assert.match(result.stdout, /Rollout verification scripts \| yes \| pass \| 15 required scripts are defined/);
   });
 
   it("keeps external readiness failing while required MCP client rows are pending", () => {
@@ -38,5 +38,6 @@ describe("API/MCP rollout readiness checker", () => {
     assert.match(source, /record:mcp-client-smoke/);
     assert.match(source, /ops:mcp-client-session-pack/);
     assert.match(source, /ops:mcp-add-mcp-preflight/);
+    assert.match(source, /ops:mcp-oauth-smoke-credentials/);
   });
 });

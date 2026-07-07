@@ -140,6 +140,15 @@ one PR.
   default and fails rejected definitions. It does not replace manual matrix
   evidence because it does not list tools or call `vrdex_search` inside a real
   client session.
+- `pnpm ops:mcp-oauth-smoke-credentials` can mint temporary staging OAuth
+  smoke credentials through the existing gated E2E auth helper path when
+  `VRDEX_E2E_BROWSER_TOKEN` and the matching server-side helper configuration
+  are present. It creates a verified E2E account, creates a confidential
+  developer OAuth app with `client_credentials` and `mcp:read`, verifies the
+  token endpoint, and writes ignored env files under `.tmp-gh-artifacts/` for
+  the Claude Code and MCP Inspector hosted OAuth smokes. It prints no client
+  secret and refuses production origins unless `--allow-production` is passed
+  for an explicit emergency operator run.
 - `pnpm check:api-mcp-rollout` summarizes the generated OpenAPI contract,
   required docs, verification scripts, MCP client matrix, and hosted MCP
   production-like evidence state. The gate asserts every current checked-in
@@ -213,6 +222,7 @@ pnpm ops:mcp-installed-clients
 pnpm ops:mcp-client-smokes
 pnpm ops:mcp-client-session-pack -- --hosted-url <preview-or-production-like-/mcp-url>
 pnpm ops:mcp-add-mcp-preflight -- --hosted-url <preview-or-production-like-/mcp-url>
+VRDEX_E2E_BROWSER_TOKEN=<browser-token> pnpm ops:mcp-oauth-smoke-credentials -- --base-url <production-like-origin>
 pnpm check:api-mcp-rollout
 pnpm smoke:mcp-compat -- --hosted-only --hosted-url <preview-or-production-like-/mcp-url>
 pnpm smoke:mcp-compat -- --hosted-only --hosted-url <production-like-/mcp-url> --hosted-data --dcr --cimd --continue-on-failure

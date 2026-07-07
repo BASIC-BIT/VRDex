@@ -63,6 +63,8 @@
     "ops:mcp-add-mcp-preflight": "node --import tsx scripts/check-mcp-client-add-mcp-preflight.ts",
     "preops:mcp-installed-clients": "node scripts/guard-main-worktree.mjs",
     "ops:mcp-installed-clients": "node --import tsx scripts/check-installed-mcp-clients.ts",
+    "preops:mcp-oauth-smoke-credentials": "node scripts/guard-main-worktree.mjs",
+    "ops:mcp-oauth-smoke-credentials": "pnpm --dir apps/web exec tsx ../../scripts/prepare-mcp-oauth-smoke-credentials.ts",
     "precheck:mcp-client-matrix": "node scripts/guard-main-worktree.mjs",
     "check:mcp-client-matrix": "node --import tsx scripts/check-mcp-client-matrix.ts",
     "precheck:api-mcp-rollout": "node scripts/guard-main-worktree.mjs",

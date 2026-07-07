@@ -346,6 +346,28 @@ secrets provide either `VRDEX_MCP_OAUTH_CLIENT_ID` plus
 workflow leaves anonymous/data/DCR/CIMD evidence runnable even when reviewed
 OAuth smoke credentials are absent.
 
+When staging E2E auth helpers are enabled but those repository secrets have not
+yet been installed, an operator can mint a temporary reviewed smoke client
+through the normal hosted developer app flow:
+
+```sh
+VRDEX_E2E_BROWSER_TOKEN="<browser-token>" \
+  pnpm ops:mcp-oauth-smoke-credentials -- \
+    --base-url https://staging.vrdex.net
+```
+
+The helper creates a verified E2E account through the existing gated auth
+helpers, creates a confidential OAuth app with `client_credentials` and
+`mcp:read`, verifies the token endpoint, and writes ignored PowerShell/Bash env
+files under `.tmp-gh-artifacts/mcp-oauth-smoke-credentials/`. It prints the
+client id and file paths only; the one-time client secret is written only to the
+ignored env files. Source the generated env file, then run the Claude Code and
+Inspector hosted OAuth smokes before recording the two matrix rows. The helper
+fails closed unless the hosted target has `VRDEX_ENABLE_E2E_HELPERS`,
+`VRDEX_ENABLE_E2E_AUTH_HELPERS`, the matching browser token, and the server-side
+E2E Convex secret configured. It refuses production origins unless
+`--allow-production` is passed for an explicit emergency operator run.
+
 These rows are checked separately from manual client UI rows so a lightweight
 PR preview transport smoke cannot accidentally satisfy the production-like
 data-backed, DCR, and CIMD readiness gate.
