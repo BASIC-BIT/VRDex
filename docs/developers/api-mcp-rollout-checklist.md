@@ -126,7 +126,10 @@ one PR.
   `pnpm smoke:mcp-inspector`, which uses the Inspector CLI to validate hosted
   tool listing and public-read auth metadata. Use `--hosted-data` against a
   same-branch or production-like backend before recording Inspector hosted
-  anonymous-read readiness.
+  anonymous-read readiness. For Inspector hosted OAuth evidence, set
+  `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN` to a short-lived MCP-resource token with
+  `mcp:read`; the same smoke validates an authenticated `tools/list` without
+  printing the token value.
 
 Use a command shaped like this for each manual matrix row:
 
@@ -169,6 +172,7 @@ pnpm check:api-mcp-rollout
 pnpm smoke:mcp-compat -- --hosted-only --hosted-url <preview-or-production-like-/mcp-url>
 pnpm smoke:mcp-compat -- --hosted-only --hosted-url <production-like-/mcp-url> --hosted-data --dcr --cimd --continue-on-failure
 pnpm smoke:mcp-inspector -- --hosted-url <preview-or-production-like-/mcp-url>
+VRDEX_MCP_INSPECTOR_OAUTH_TOKEN=<mcp-resource-token> pnpm smoke:mcp-inspector -- --hosted-url <production-like-/mcp-url> --hosted-data
 pnpm typecheck:backend
 pnpm test:backend
 pnpm typecheck:web

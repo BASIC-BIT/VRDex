@@ -226,7 +226,7 @@ function manualEvidencePrompt(client: ClientEntry, check: SmokeCheck) {
   }
 
   if (client.id === "mcp-inspector" && check.id === "hosted-oauth") {
-    return "Use Inspector or a protocol client against the hosted OAuth path and record DCR/CIMD plus mcp:read behavior.";
+    return "Run Inspector with an MCP-resource OAuth token and record DCR/CIMD plus authenticated mcp:read behavior.";
   }
 
   if (check.id === "hosted-anonymous-read") {
@@ -302,7 +302,7 @@ function setupHint(client: ClientEntry, check: SmokeCheck, options: Options) {
   }
 
   if (client.id === "mcp-inspector" && check.id === "hosted-oauth") {
-    return `npx --yes @modelcontextprotocol/inspector --cli --transport http --server-url ${target}; use protocol OAuth/DCR/CIMD evidence plus an mcp:read bearer-token tool list when available.`;
+    return `Set VRDEX_MCP_INSPECTOR_OAUTH_TOKEN to an MCP-resource token, then run pnpm smoke:mcp-inspector -- --hosted-url ${target} --hosted-data; pair with pnpm smoke:mcp-compat -- --hosted-only --hosted-url ${target} --hosted-data --dcr --cimd for DCR/CIMD evidence.`;
   }
 
   return "Use the docs matrix row to configure the current client release, then record exact evidence.";

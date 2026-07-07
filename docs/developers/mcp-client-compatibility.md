@@ -113,6 +113,23 @@ different public search fixture. The equivalent environment variables are
 `VRDEX_MCP_INSPECTOR_HOSTED_DATA`, `VRDEX_MCP_INSPECTOR_QUERY`,
 `VRDEX_MCP_INSPECTOR_TYPE`, and `VRDEX_MCP_INSPECTOR_LIMIT`.
 
+For Inspector hosted OAuth evidence, set `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN` to
+a short-lived MCP-resource OAuth token with `mcp:read` before running the same
+smoke. The script passes that token as an HTTP `Authorization` header, validates
+an authenticated `tools/list`, and does not print the token value:
+
+```sh
+VRDEX_MCP_INSPECTOR_OAUTH_TOKEN="<mcp-resource-token>" \
+  pnpm smoke:mcp-inspector -- \
+    --hosted-url https://staging.vrdex.net/mcp \
+    --hosted-data
+```
+
+Pair that Inspector run with `pnpm smoke:mcp-compat -- --hosted-only
+--hosted-url <target> --hosted-data --dcr --cimd` when recording the
+`mcp-inspector/hosted-oauth` matrix row, so the evidence covers both
+DCR/CIMD protocol behavior and an authenticated `mcp:read` client call.
+
 PR Baseline Checks run the same local stdio protocol smoke through
 `pnpm verify:vrdex-mcp`.
 
@@ -293,7 +310,7 @@ log can distinguish backend data, DCR, and CIMD blockers in one attempt.
 | Cursor | Treat local stdio as a required smoke target if the current release still supports command-based MCP config. | Treat hosted HTTP as a required smoke target if the current release supports remote MCP URLs. | Confirm current OAuth behavior during manual smoke. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; do not publish Cursor-specific snippets until the current docs or smoke run confirm them. |
 | OpenAI and ChatGPT MCP-capable surfaces | Treat local stdio as unsupported until the current product surface says otherwise. | Use hosted remote MCP when ChatGPT Apps, deep research, or API integration setup supports custom MCP servers. | Current OpenAI docs recommend CIMD when the authorization server supports it and keep DCR as a supported path when configured; VRDex implements both DCR and public-client CIMD. Public read tools advertise `_meta["securitySchemes"]` with `noauth` plus optional `oauth2`. | Hosted remote MCP target identified; exact setup and per-tool auth metadata behavior must be verified in the relevant OpenAI surface before launch docs publish snippets. |
 | Devin Desktop / Windsurf Cascade | Uses `mcp_config.json` with `mcpServers`. | Supports `serverUrl` or `url` for remote HTTP MCPs. | Docs state OAuth support for stdio, Streamable HTTP, and SSE. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; hosted config shape ready; manual smoke pending. |
-| MCP Inspector | Use as a protocol-level stdio debugger; local stdio `vrdex_search` is manually verified in the smoke matrix. | Connect directly to hosted `/mcp` for remote debugging; `pnpm smoke:mcp-inspector` validates hosted tool listing and auth metadata. | Exercise OAuth separately. | Local stdio and staging data-backed hosted anonymous read smokes pass through `pnpm smoke:mcp-inspector`; hosted OAuth remains pending. |
+| MCP Inspector | Use as a protocol-level stdio debugger; local stdio `vrdex_search` is manually verified in the smoke matrix. | Connect directly to hosted `/mcp` for remote debugging; `pnpm smoke:mcp-inspector` validates hosted tool listing and auth metadata. | Set `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN` to an MCP-resource token with `mcp:read` to validate authenticated hosted `tools/list`; pair with the DCR/CIMD protocol smoke. | Local stdio and staging data-backed hosted anonymous read smokes pass through `pnpm smoke:mcp-inspector`; hosted OAuth remains pending until token-backed evidence is recorded. |
 
 ## Shared Local Stdio Config
 
@@ -441,7 +458,8 @@ pnpm ops:mcp-client-smokes -- \
 8. MCP Inspector local stdio and hosted anonymous read paths return expected
    tool lists, auth metadata, and data-backed search results. Use
    `pnpm smoke:mcp-inspector -- --hosted-data` for the hosted data-backed row;
-   OAuth-protected read behavior still needs a separate hosted smoke.
+   set `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN` for the hosted OAuth row and pair it
+   with the DCR/CIMD hosted protocol smoke.
 
 For each smoke, record client version, OS, transport, auth mode, result, exact
 config shape, whether the client distinguishes anonymous/no-auth tools from
