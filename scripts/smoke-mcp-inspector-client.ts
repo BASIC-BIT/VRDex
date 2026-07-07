@@ -1,8 +1,16 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 
+import {
+  fetchMcpOAuthClientCredentialsToken,
+  hasAnyMcpOAuthClientCredentials,
+  mcpOAuthClientCredentialsFromEnv,
+} from "./mcp-oauth-client-credentials";
+
 type InspectorOptions = {
   hostedDataPublicReads: boolean;
+  hostedOAuthClientId?: string;
+  hostedOAuthClientSecret?: string;
   hostedOAuthToken?: string;
   hostedUrl?: string;
   inspectorCommand: string;
@@ -85,8 +93,11 @@ function parseLimit(value: string | undefined) {
 }
 
 function parseArgs(argv: string[]): InspectorOptions {
+  const oauthClientCredentials = mcpOAuthClientCredentialsFromEnv(process.env, "MCP_INSPECTOR");
   const options: InspectorOptions = {
     hostedDataPublicReads: envFlag("VRDEX_MCP_INSPECTOR_HOSTED_DATA"),
+    hostedOAuthClientId: oauthClientCredentials.clientId,
+    hostedOAuthClientSecret: oauthClientCredentials.clientSecret,
     hostedOAuthToken: nonEmpty(process.env.VRDEX_MCP_INSPECTOR_OAUTH_TOKEN),
     hostedUrl: nonEmpty(process.env.VRDEX_MCP_INSPECTOR_HOSTED_URL),
     inspectorCommand: nonEmpty(process.env.VRDEX_MCP_INSPECTOR_COMMAND)
@@ -120,6 +131,19 @@ function parseArgs(argv: string[]): InspectorOptions {
         options.hostedOAuthToken = nonEmpty(takeValue(argv, index, arg));
         index += 1;
         break;
+      case "--oauth-client-id":
+        options.hostedOAuthClientId = takeValue(argv, index, arg).trim();
+        index += 1;
+        break;
+      case "--oauth-client-secret-env": {
+        const envName = takeValue(argv, index, arg);
+        const secret = nonEmpty(process.env[envName]);
+
+        assert.ok(secret, `${arg} ${envName} did not resolve to a non-empty environment variable.`);
+        options.hostedOAuthClientSecret = secret;
+        index += 1;
+        break;
+      }
       case "--limit":
         options.search.limit = parseLimit(takeValue(argv, index, arg));
         index += 1;
@@ -182,8 +206,25 @@ function runInspector(options: InspectorOptions, args: string[]) {
   });
 }
 
-function parseInspectorJson<T>(result: InspectorResult, label: string) {
-  assert.equal(result.code, 0, result.stderr || `${label} exited with ${result.code}.`);
+function redactSensitiveOutput(text: string, options: InspectorOptions) {
+  let redacted = text.replace(/Authorization:\s*Bearer\s+[^\s"'\\]+/gi, "Authorization: Bearer [REDACTED]");
+
+  if (options.hostedOAuthToken !== undefined) {
+    redacted = redacted.replaceAll(options.hostedOAuthToken, "[REDACTED]");
+  }
+  if (options.hostedOAuthClientSecret !== undefined) {
+    redacted = redacted.replaceAll(options.hostedOAuthClientSecret, "[REDACTED_CLIENT_SECRET]");
+  }
+
+  return redacted;
+}
+
+function parseInspectorJson<T>(result: InspectorResult, label: string, options: InspectorOptions) {
+  assert.equal(
+    result.code,
+    0,
+    redactSensitiveOutput(result.stderr, options) || `${label} exited with ${result.code}.`,
+  );
 
   try {
     return JSON.parse(result.stdout) as T;
@@ -239,7 +280,7 @@ function assertPublicReadSecuritySchemes(tool: ToolDescriptor) {
 
 async function smokeHostedToolList(options: InspectorOptions) {
   const result = await runInspector(options, hostedInspectorArgsWithHeaders(options.hostedUrl!, "tools/list"));
-  const body = parseInspectorJson<{ tools?: ToolDescriptor[] }>(result, "MCP Inspector tools/list");
+  const body = parseInspectorJson<{ tools?: ToolDescriptor[] }>(result, "MCP Inspector tools/list", options);
 
   assertHostedTools(body, "MCP Inspector tools/list");
 }
@@ -255,17 +296,19 @@ function assertHostedTools(body: { tools?: ToolDescriptor[] }, label: string) {
 }
 
 async function smokeHostedOAuthToolList(options: InspectorOptions) {
-  if (options.hostedOAuthToken === undefined) {
+  const token = await hostedOAuthToken(options);
+
+  if (token === undefined) {
     return "skip";
   }
 
   const result = await runInspector(
     options,
     hostedInspectorArgsWithHeaders(options.hostedUrl!, "tools/list", [
-      `Authorization: Bearer ${options.hostedOAuthToken}`,
+      `Authorization: Bearer ${token}`,
     ]),
   );
-  const body = parseInspectorJson<{ tools?: ToolDescriptor[] }>(result, "MCP Inspector OAuth tools/list");
+  const body = parseInspectorJson<{ tools?: ToolDescriptor[] }>(result, "MCP Inspector OAuth tools/list", options);
 
   assertHostedTools(body, "MCP Inspector OAuth tools/list");
 
@@ -289,7 +332,7 @@ async function smokeHostedDataSearch(options: InspectorOptions) {
   const body = parseInspectorJson<{
     content?: Array<{ text?: unknown; type?: unknown }>;
     isError?: unknown;
-  }>(result, "MCP Inspector tools/call");
+  }>(result, "MCP Inspector tools/call", options);
 
   assert.notEqual(body.isError, true, `MCP Inspector hosted vrdex_search returned a tool error: ${JSON.stringify(body)}`);
 
@@ -308,6 +351,29 @@ async function smokeHostedDataSearch(options: InspectorOptions) {
   assert.equal(Array.isArray(structuredContent.results), true);
 
   return "pass";
+}
+
+async function hostedOAuthToken(options: InspectorOptions) {
+  if (options.hostedOAuthToken !== undefined) {
+    return options.hostedOAuthToken;
+  }
+
+  if (!hasAnyMcpOAuthClientCredentials(options)) {
+    return undefined;
+  }
+
+  const hostedUrl = options.hostedUrl;
+
+  assert.ok(hostedUrl, "Hosted URL is required for OAuth client-credentials token acquisition.");
+  const result = await fetchMcpOAuthClientCredentialsToken({
+    clientId: options.hostedOAuthClientId,
+    clientSecret: options.hostedOAuthClientSecret,
+    hostedUrl,
+  });
+
+  options.hostedOAuthToken = result.accessToken;
+
+  return result.accessToken;
 }
 
 async function main() {
@@ -329,8 +395,8 @@ async function main() {
   );
   console.log(
     oauthStatus === "pass"
-      ? "| MCP Inspector hosted OAuth tools/list | pass | supplied MCP-resource OAuth token listed six VRDex tools without exposing the token value |"
-      : "| MCP Inspector hosted OAuth tools/list | skip | set VRDEX_MCP_INSPECTOR_OAUTH_TOKEN to an MCP-resource token with mcp:read |",
+      ? "| MCP Inspector hosted OAuth tools/list | pass | acquired or supplied MCP-resource OAuth token listed six VRDex tools without exposing the token or client secret |"
+      : "| MCP Inspector hosted OAuth tools/list | skip | set VRDEX_MCP_OAUTH_CLIENT_ID / VRDEX_MCP_OAUTH_CLIENT_SECRET or VRDEX_MCP_INSPECTOR_OAUTH_TOKEN for hosted OAuth evidence |",
   );
 }
 

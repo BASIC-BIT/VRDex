@@ -58,13 +58,14 @@ describe("MCP client smoke planner", () => {
     ]);
 
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /VRDEX_CLAUDE_CODE_OAUTH_TOKEN=<mcp-resource-token> pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url https:\/\/staging\.vrdex\.net\/mcp --hosted-data/);
+    assert.match(result.stdout, /VRDEX_CLAUDE_CODE_OAUTH_CLIENT_ID=<reviewed-client-id> VRDEX_CLAUDE_CODE_OAUTH_CLIENT_SECRET=<secret> pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url https:\/\/staging\.vrdex\.net\/mcp --hosted-data/);
+    assert.match(result.stdout, /VRDEX_CLAUDE_CODE_OAUTH_TOKEN/);
     assert.match(result.stdout, /claude mcp add --transport http --callback-port 8765 vrdex https:\/\/staging\.vrdex\.net\/mcp/);
     assert.match(result.stdout, /claude mcp login vrdex/);
-    assert.match(result.stdout, /Run Claude Code with an MCP-resource OAuth token and record the authenticated mcp:read result/);
+    assert.match(result.stdout, /Run Claude Code with a reviewed OAuth app client-credentials token acquisition/);
   });
 
-  it("prints token-backed hosted OAuth setup guidance for MCP Inspector", () => {
+  it("prints client-credentials hosted OAuth setup guidance for MCP Inspector", () => {
     const result = runPlan([
       "--hosted-url",
       "https://staging.vrdex.net/mcp",
@@ -75,6 +76,8 @@ describe("MCP client smoke planner", () => {
     ]);
 
     assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /VRDEX_MCP_INSPECTOR_OAUTH_CLIENT_ID/);
+    assert.match(result.stdout, /VRDEX_MCP_INSPECTOR_OAUTH_CLIENT_SECRET/);
     assert.match(result.stdout, /VRDEX_MCP_INSPECTOR_OAUTH_TOKEN/);
     assert.match(result.stdout, /pnpm smoke:mcp-inspector -- --hosted-url https:\/\/staging\.vrdex\.net\/mcp --hosted-data/);
     assert.match(result.stdout, /pnpm smoke:mcp-compat -- --hosted-only --hosted-url https:\/\/staging\.vrdex\.net\/mcp --hosted-data --dcr --cimd/);

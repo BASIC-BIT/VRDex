@@ -97,7 +97,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
           "manualStatus": "pending",
-          "notes": "Token-backed hosted OAuth harness is available with VRDEX_CLAUDE_CODE_OAUTH_TOKEN and pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-data; row remains pending until a real MCP-resource mcp:read token or interactive claude mcp login session is recorded."
+          "notes": "Hosted OAuth harness is available with reviewed OAuth app client credentials via VRDEX_MCP_OAUTH_CLIENT_ID / VRDEX_MCP_OAUTH_CLIENT_SECRET or VRDEX_CLAUDE_CODE_OAUTH_CLIENT_* overrides, plus VRDEX_CLAUDE_CODE_OAUTH_TOKEN fallback; row remains pending until a real authenticated mcp:read smoke or interactive claude mcp login session is recorded."
         }
       ]
     },
@@ -252,7 +252,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
           "manualStatus": "pending",
-          "notes": "Top-level staging hosted OAuth protocol evidence is recorded as pass. This client row remains pending until Inspector or an equivalent protocol client verifies hosted OAuth behavior against https://staging.vrdex.net/mcp."
+          "notes": "Top-level staging hosted OAuth protocol evidence is recorded as pass. Inspector can fetch a short-lived token from reviewed OAuth app client credentials via VRDEX_MCP_OAUTH_CLIENT_ID / VRDEX_MCP_OAUTH_CLIENT_SECRET or VRDEX_MCP_INSPECTOR_OAUTH_CLIENT_* overrides, with VRDEX_MCP_INSPECTOR_OAUTH_TOKEN fallback; this row remains pending until that authenticated behavior is recorded against https://staging.vrdex.net/mcp."
         }
       ]
     }

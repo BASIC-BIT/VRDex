@@ -6,6 +6,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { startVrdexMcpApiFixture } from "../packages/vrdex-mcp/tests/api-fixture";
+import {
+  fetchMcpOAuthClientCredentialsToken,
+  hasAnyMcpOAuthClientCredentials,
+  mcpOAuthClientCredentialsFromEnv,
+} from "./mcp-oauth-client-credentials";
 
 type ClaudeJsonResult = {
   is_error?: boolean;
@@ -44,6 +49,8 @@ type HostedSearchArgs = {
 type SmokeOptions = {
   claudeCommand: string;
   hostedDataPublicReads: boolean;
+  hostedOAuthClientId?: string;
+  hostedOAuthClientSecret?: string;
   hostedOAuthToken?: string;
   hostedSearch: HostedSearchArgs;
   hostedUrl?: string;
@@ -113,9 +120,12 @@ function defaultClaudeCommand() {
 }
 
 function parseArgs(argv: string[]): SmokeOptions {
+  const oauthClientCredentials = mcpOAuthClientCredentialsFromEnv(process.env, "CLAUDE_CODE");
   const options: SmokeOptions = {
     claudeCommand: nonEmpty(process.env.VRDEX_CLAUDE_CODE_COMMAND) ?? defaultClaudeCommand(),
     hostedDataPublicReads: envFlag("VRDEX_CLAUDE_CODE_HOSTED_DATA"),
+    hostedOAuthClientId: oauthClientCredentials.clientId,
+    hostedOAuthClientSecret: oauthClientCredentials.clientSecret,
     hostedOAuthToken: nonEmpty(process.env.VRDEX_CLAUDE_CODE_OAUTH_TOKEN),
     hostedSearch: {
       limit: parseHostedSearchLimit(process.env.VRDEX_CLAUDE_CODE_HOSTED_LIMIT),
@@ -176,6 +186,19 @@ function parseArgs(argv: string[]): SmokeOptions {
         options.hostedOAuthToken = nonEmpty(takeValue(argv, index, arg));
         index += 1;
         break;
+      case "--oauth-client-id":
+        options.hostedOAuthClientId = takeValue(argv, index, arg).trim();
+        index += 1;
+        break;
+      case "--oauth-client-secret-env": {
+        const envName = takeValue(argv, index, arg);
+        const secret = nonEmpty(process.env[envName]);
+
+        assert.ok(secret, `${arg} ${envName} did not resolve to a non-empty environment variable.`);
+        options.hostedOAuthClientSecret = secret;
+        index += 1;
+        break;
+      }
       default:
         throw new Error(`Unknown option: ${arg}`);
     }
@@ -232,6 +255,9 @@ function redactSensitiveOutput(text: string, options: SmokeOptions) {
 
   if (options.hostedOAuthToken !== undefined) {
     redacted = redacted.replaceAll(options.hostedOAuthToken, "[REDACTED]");
+  }
+  if (options.hostedOAuthClientSecret !== undefined) {
+    redacted = redacted.replaceAll(options.hostedOAuthClientSecret, "[REDACTED_CLIENT_SECRET]");
   }
 
   return redacted;
@@ -318,6 +344,29 @@ async function writeHostedHttpConfig(configPath: string, hostedUrl: string, host
   };
 
   await writeFile(configPath, `${JSON.stringify(mcpConfig)}\n`, "utf8");
+}
+
+async function hostedOAuthToken(options: SmokeOptions) {
+  if (options.hostedOAuthToken !== undefined) {
+    return options.hostedOAuthToken;
+  }
+
+  if (!hasAnyMcpOAuthClientCredentials(options)) {
+    return undefined;
+  }
+
+  const hostedUrl = options.hostedUrl;
+
+  assert.ok(hostedUrl, "Hosted URL is required for OAuth client-credentials token acquisition.");
+  const result = await fetchMcpOAuthClientCredentialsToken({
+    clientId: options.hostedOAuthClientId,
+    clientSecret: options.hostedOAuthClientSecret,
+    hostedUrl,
+  });
+
+  options.hostedOAuthToken = result.accessToken;
+
+  return result.accessToken;
 }
 
 async function smokeLocalStdio(configPath: string, options: SmokeOptions, repoRoot: string) {
@@ -456,7 +505,7 @@ async function smokeHostedHttp(configPath: string, options: SmokeOptions, repoRo
   const hostedUrl = options.hostedUrl;
 
   assert.ok(hostedUrl, "Hosted URL is required.");
-  await writeHostedHttpConfig(configPath, hostedUrl, options.hostedOAuthToken);
+  await writeHostedHttpConfig(configPath, hostedUrl, await hostedOAuthToken(options));
   const hostedSearch = options.hostedSearch;
 
   const args = buildBaseClaudeArgs(configPath, options, "stream-json");
@@ -480,7 +529,7 @@ async function smokeHostedHttp(configPath: string, options: SmokeOptions, repoRo
   const row =
     options.hostedOAuthToken === undefined
       ? `| Claude Code hosted anonymous HTTP MCP | pass | vrdex_search returned structured content for ${hostedUrl} with query=${JSON.stringify(hostedSearch.query)}, type=${hostedSearch.type}, limit=${hostedSearch.limit} |`
-      : `| Claude Code hosted OAuth HTTP MCP | pass | supplied MCP-resource OAuth token completed vrdex_search for ${hostedUrl} with query=${JSON.stringify(hostedSearch.query)}, type=${hostedSearch.type}, limit=${hostedSearch.limit} without exposing the token value |`;
+      : `| Claude Code hosted OAuth HTTP MCP | pass | acquired or supplied MCP-resource OAuth token completed vrdex_search for ${hostedUrl} with query=${JSON.stringify(hostedSearch.query)}, type=${hostedSearch.type}, limit=${hostedSearch.limit} without exposing the token or client secret |`;
 
   console.log(
     [
@@ -488,7 +537,7 @@ async function smokeHostedHttp(configPath: string, options: SmokeOptions, repoRo
       "| --- | --- | --- |",
       row,
       options.hostedOAuthToken === undefined
-        ? "| Claude Code hosted OAuth HTTP MCP | skip | set VRDEX_CLAUDE_CODE_OAUTH_TOKEN to an MCP-resource token with mcp:read |"
+        ? "| Claude Code hosted OAuth HTTP MCP | skip | set VRDEX_MCP_OAUTH_CLIENT_ID / VRDEX_MCP_OAUTH_CLIENT_SECRET or VRDEX_CLAUDE_CODE_OAUTH_TOKEN for hosted OAuth evidence |"
         : undefined,
     ].filter(Boolean).join("\n"),
   );

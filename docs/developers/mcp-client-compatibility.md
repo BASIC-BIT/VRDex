@@ -90,20 +90,28 @@ variables are `VRDEX_CLAUDE_CODE_HOSTED_DATA`,
 `VRDEX_CLAUDE_CODE_HOSTED_QUERY`, `VRDEX_CLAUDE_CODE_HOSTED_TYPE`, and
 `VRDEX_CLAUDE_CODE_HOSTED_LIMIT`.
 
-For Claude Code hosted OAuth evidence, set
-`VRDEX_CLAUDE_CODE_OAUTH_TOKEN` to a short-lived MCP-resource OAuth token with
-`mcp:read` before running the hosted smoke. The script writes the token only to
-a temporary MCP config as an `Authorization` header, validates an authenticated
-`vrdex_search` call, suppresses MCP debug logging for that token-backed run,
-and does not print the token value:
+For Claude Code hosted OAuth evidence, prefer a reviewed OAuth app that allows
+the Client Credentials grant and `mcp:read`. Set
+`VRDEX_MCP_OAUTH_CLIENT_ID` and `VRDEX_MCP_OAUTH_CLIENT_SECRET`, or the
+client-specific `VRDEX_CLAUDE_CODE_OAUTH_CLIENT_ID` and
+`VRDEX_CLAUDE_CODE_OAUTH_CLIENT_SECRET`, before running the hosted smoke. The
+script exchanges those credentials at `/oauth/token` for the hosted `/mcp`
+resource, writes the resulting short-lived bearer token only to a temporary MCP
+config, validates an authenticated `vrdex_search` call, suppresses MCP debug
+logging for that authenticated run, and does not print the token or client
+secret:
 
 ```sh
-VRDEX_CLAUDE_CODE_OAUTH_TOKEN="<mcp-resource-token>" \
+VRDEX_MCP_OAUTH_CLIENT_ID="<reviewed-client-id>" \
+VRDEX_MCP_OAUTH_CLIENT_SECRET="<client-secret>" \
   pnpm smoke:mcp-claude-code -- \
     --mode hosted-http \
     --hosted-url https://staging.vrdex.net/mcp \
     --hosted-data
 ```
+
+If an operator already has a short-lived MCP-resource token with `mcp:read`,
+`VRDEX_CLAUDE_CODE_OAUTH_TOKEN` remains supported as a fallback.
 
 Pair that Claude Code run with `pnpm smoke:mcp-compat -- --hosted-only
 --hosted-url <target> --hosted-data --dcr --cimd` when recording the
@@ -133,17 +141,25 @@ different public search fixture. The equivalent environment variables are
 `VRDEX_MCP_INSPECTOR_HOSTED_DATA`, `VRDEX_MCP_INSPECTOR_QUERY`,
 `VRDEX_MCP_INSPECTOR_TYPE`, and `VRDEX_MCP_INSPECTOR_LIMIT`.
 
-For Inspector hosted OAuth evidence, set `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN` to
-a short-lived MCP-resource OAuth token with `mcp:read` before running the same
-smoke. The script passes that token as an HTTP `Authorization` header, validates
-an authenticated `tools/list`, and does not print the token value:
+For Inspector hosted OAuth evidence, prefer the same reviewed OAuth app client
+credentials path. Set `VRDEX_MCP_OAUTH_CLIENT_ID` and
+`VRDEX_MCP_OAUTH_CLIENT_SECRET`, or the client-specific
+`VRDEX_MCP_INSPECTOR_OAUTH_CLIENT_ID` and
+`VRDEX_MCP_INSPECTOR_OAUTH_CLIENT_SECRET`, before running the same smoke. The
+script exchanges those credentials for a short-lived MCP-resource token,
+passes that token as an HTTP `Authorization` header, validates an authenticated
+`tools/list`, and does not print the token or client secret:
 
 ```sh
-VRDEX_MCP_INSPECTOR_OAUTH_TOKEN="<mcp-resource-token>" \
+VRDEX_MCP_OAUTH_CLIENT_ID="<reviewed-client-id>" \
+VRDEX_MCP_OAUTH_CLIENT_SECRET="<client-secret>" \
   pnpm smoke:mcp-inspector -- \
     --hosted-url https://staging.vrdex.net/mcp \
     --hosted-data
 ```
+
+If an operator already has a short-lived MCP-resource token with `mcp:read`,
+`VRDEX_MCP_INSPECTOR_OAUTH_TOKEN` remains supported as a fallback.
 
 Pair that Inspector run with `pnpm smoke:mcp-compat -- --hosted-only
 --hosted-url <target> --hosted-data --dcr --cimd` when recording the
@@ -341,12 +357,12 @@ log can distinguish backend data, DCR, and CIMD blockers in one attempt.
 | Client | Local stdio config | Hosted HTTP config | OAuth expectation | Current status |
 | --- | --- | --- | --- | --- |
 | Claude Desktop | Uses `mcpServers` JSON with `command`, `args`, and optional `env`. | Remote setup should use Claude's current Custom Connector path. | Hosted `/mcp` should complete OAuth through protected-resource metadata. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; hosted manual smoke pending. |
-| Claude Code | Supports stdio with `claude mcp add --transport stdio`. | Supports HTTP with `claude mcp add --transport http`. | Supports OAuth from `/mcp` or `claude mcp login`; token-backed header auth is available as a diagnostic evidence path. DCR and public-client CIMD are implemented. | Local stdio and staging data-backed hosted anonymous reads pass through `pnpm smoke:mcp-claude-code`; hosted OAuth has a token-backed smoke harness and remains pending until evidence is recorded. |
+| Claude Code | Supports stdio with `claude mcp add --transport stdio`. | Supports HTTP with `claude mcp add --transport http`. | Supports OAuth from `/mcp` or `claude mcp login`; reviewed-app client-credentials token acquisition and token-backed header auth are available as evidence paths. DCR and public-client CIMD are implemented. | Local stdio and staging data-backed hosted anonymous reads pass through `pnpm smoke:mcp-claude-code`; hosted OAuth has a client-credentials smoke harness and remains pending until evidence is recorded. |
 | VS Code | Uses `.vscode/mcp.json` or user MCP config with `servers` entries. | Supports `type: "http"` and `url`. | Avoid hardcoded secrets; use inputs or environment files. OAuth manual smoke pending. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; config snippets ready; manual smoke pending. |
 | Cursor | Treat local stdio as a required smoke target if the current release still supports command-based MCP config. | Treat hosted HTTP as a required smoke target if the current release supports remote MCP URLs. | Confirm current OAuth behavior during manual smoke. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; do not publish Cursor-specific snippets until the current docs or smoke run confirm them. |
 | OpenAI and ChatGPT MCP-capable surfaces | Treat local stdio as unsupported until the current product surface says otherwise. | Use hosted remote MCP when ChatGPT Apps, deep research, or API integration setup supports custom MCP servers. | Current OpenAI docs recommend CIMD when the authorization server supports it and keep DCR as a supported path when configured; VRDex implements both DCR and public-client CIMD. Public read tools advertise `_meta["securitySchemes"]` with `noauth` plus optional `oauth2`. | Hosted remote MCP target identified; exact setup and per-tool auth metadata behavior must be verified in the relevant OpenAI surface before launch docs publish snippets. |
 | Devin Desktop / Windsurf Cascade | Uses `mcp_config.json` with `mcpServers`. | Supports `serverUrl` or `url` for remote HTTP MCPs. | Docs state OAuth support for stdio, Streamable HTTP, and SSE. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; hosted config shape ready; manual smoke pending. |
-| MCP Inspector | Use as a protocol-level stdio debugger; local stdio `vrdex_search` is manually verified in the smoke matrix. | Connect directly to hosted `/mcp` for remote debugging; `pnpm smoke:mcp-inspector` validates hosted tool listing and auth metadata. | Set `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN` to an MCP-resource token with `mcp:read` to validate authenticated hosted `tools/list`; pair with the DCR/CIMD protocol smoke. | Local stdio and staging data-backed hosted anonymous read smokes pass through `pnpm smoke:mcp-inspector`; hosted OAuth remains pending until token-backed evidence is recorded. |
+| MCP Inspector | Use as a protocol-level stdio debugger; local stdio `vrdex_search` is manually verified in the smoke matrix. | Connect directly to hosted `/mcp` for remote debugging; `pnpm smoke:mcp-inspector` validates hosted tool listing and auth metadata. | Use reviewed-app client credentials or `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN` fallback to validate authenticated hosted `tools/list`; pair with the DCR/CIMD protocol smoke. | Local stdio and staging data-backed hosted anonymous read smokes pass through `pnpm smoke:mcp-inspector`; hosted OAuth remains pending until authenticated evidence is recorded. |
 
 ## Shared Local Stdio Config
 
@@ -481,9 +497,9 @@ pnpm ops:mcp-client-smokes -- \
    `pnpm smoke:mcp-claude-code`; hosted anonymous readiness uses
    `--hosted-data` for a data-backed non-empty search against the target
    backend. Hosted OAuth either completes interactively through `claude mcp
-   login` or uses `VRDEX_CLAUDE_CODE_OAUTH_TOKEN` for a token-backed
-   authenticated smoke, paired with DCR and public-client CIMD protocol
-   evidence.
+   login`, uses reviewed OAuth app client credentials, or uses
+   `VRDEX_CLAUDE_CODE_OAUTH_TOKEN` fallback for an authenticated smoke, paired
+   with DCR and public-client CIMD protocol evidence.
 4. VS Code local stdio lists six tools and hosted HTTP anonymous reads work.
 5. Cursor local stdio and hosted HTTP read tools work in the current release.
 6. OpenAI or ChatGPT MCP-capable surfaces connect to hosted `/mcp` if the
@@ -496,8 +512,9 @@ pnpm ops:mcp-client-smokes -- \
 8. MCP Inspector local stdio and hosted anonymous read paths return expected
    tool lists, auth metadata, and data-backed search results. Use
    `pnpm smoke:mcp-inspector -- --hosted-data` for the hosted data-backed row;
-   set `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN` for the hosted OAuth row and pair it
-   with the DCR/CIMD hosted protocol smoke.
+   set reviewed OAuth app client credentials or
+   `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN` fallback for the hosted OAuth row and pair
+   it with the DCR/CIMD hosted protocol smoke.
 
 For rows 4, 5, and 7, start from `pnpm ops:mcp-client-session-pack` so VS Code,
 Cursor, and Windsurf use the same generated local stdio and hosted HTTP

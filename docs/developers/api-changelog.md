@@ -12,13 +12,15 @@ docs update and a changelog entry so early consumers and agents can adapt.
 - tightened `pnpm check:api-mcp-rollout` so the aggregate readiness gate checks
   every current checked-in `/api/v0` OpenAPI path and requires both MCP evidence
   recorder scripts before launch-readiness claims
-- extended `pnpm smoke:mcp-inspector` with optional
-  `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN` support so Inspector hosted OAuth evidence
-  can validate authenticated `tools/list` with an MCP-resource `mcp:read` token
-- extended `pnpm smoke:mcp-claude-code -- --mode hosted-http` with optional
-  `VRDEX_CLAUDE_CODE_OAUTH_TOKEN` support so Claude Code hosted OAuth evidence
-  can validate an authenticated `vrdex_search` call with an MCP-resource
-  `mcp:read` token without printing the token value
+- extended `pnpm smoke:mcp-inspector` with reviewed OAuth app client-credentials
+  token acquisition plus `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN` fallback support so
+  Inspector hosted OAuth evidence can validate authenticated `tools/list` with
+  an MCP-resource `mcp:read` token without printing the token or client secret
+- extended `pnpm smoke:mcp-claude-code -- --mode hosted-http` with reviewed
+  OAuth app client-credentials token acquisition plus
+  `VRDEX_CLAUDE_CODE_OAUTH_TOKEN` fallback support so Claude Code hosted OAuth
+  evidence can validate an authenticated `vrdex_search` call with an
+  MCP-resource `mcp:read` token without printing the token or client secret
 - added `pnpm ops:mcp-client-session-pack` to generate disposable VS Code,
   Cursor, and Windsurf MCP smoke-session configs, prompts, launch commands,
   and recorder commands under `.tmp-gh-artifacts/`

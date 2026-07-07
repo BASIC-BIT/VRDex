@@ -126,18 +126,22 @@ one PR.
   with `pnpm smoke:mcp-claude-code`, which runs the installed Claude Code CLI
   through a strict temporary MCP config. Use hosted mode with `--hosted-data`
   against a same-branch or production-like backend before recording Claude Code
-  hosted anonymous-read readiness. For Claude Code hosted OAuth evidence, set
-  `VRDEX_CLAUDE_CODE_OAUTH_TOKEN` to a short-lived MCP-resource token with
-  `mcp:read`; the same hosted smoke validates an authenticated `vrdex_search`
-  call without printing the token value.
+  hosted anonymous-read readiness. For Claude Code hosted OAuth evidence, set a
+  reviewed OAuth app client id and secret through
+  `VRDEX_MCP_OAUTH_CLIENT_ID` / `VRDEX_MCP_OAUTH_CLIENT_SECRET` or the
+  `VRDEX_CLAUDE_CODE_OAUTH_CLIENT_*` overrides; the smoke exchanges them for a
+  short-lived MCP-resource token and validates an authenticated `vrdex_search`
+  call without printing the token or client secret. `VRDEX_CLAUDE_CODE_OAUTH_TOKEN`
+  remains supported for pre-minted token fallback runs.
 - MCP Inspector hosted anonymous HTTP can be smoke-tested with
   `pnpm smoke:mcp-inspector`, which uses the Inspector CLI to validate hosted
   tool listing and public-read auth metadata. Use `--hosted-data` against a
   same-branch or production-like backend before recording Inspector hosted
-  anonymous-read readiness. For Inspector hosted OAuth evidence, set
-  `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN` to a short-lived MCP-resource token with
-  `mcp:read`; the same smoke validates an authenticated `tools/list` without
-  printing the token value.
+  anonymous-read readiness. For Inspector hosted OAuth evidence, set the same
+  reviewed OAuth app credentials or the
+  `VRDEX_MCP_INSPECTOR_OAUTH_CLIENT_*` overrides; the smoke exchanges them for
+  a short-lived MCP-resource token and validates an authenticated `tools/list`
+  without printing the token or client secret.
 
 Use a command shaped like this for each manual matrix row:
 
@@ -180,9 +184,9 @@ pnpm ops:mcp-client-session-pack -- --hosted-url <preview-or-production-like-/mc
 pnpm check:api-mcp-rollout
 pnpm smoke:mcp-compat -- --hosted-only --hosted-url <preview-or-production-like-/mcp-url>
 pnpm smoke:mcp-compat -- --hosted-only --hosted-url <production-like-/mcp-url> --hosted-data --dcr --cimd --continue-on-failure
-VRDEX_CLAUDE_CODE_OAUTH_TOKEN=<mcp-resource-token> pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url <production-like-/mcp-url> --hosted-data
+VRDEX_MCP_OAUTH_CLIENT_ID=<reviewed-client-id> VRDEX_MCP_OAUTH_CLIENT_SECRET=<client-secret> pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url <production-like-/mcp-url> --hosted-data
 pnpm smoke:mcp-inspector -- --hosted-url <preview-or-production-like-/mcp-url>
-VRDEX_MCP_INSPECTOR_OAUTH_TOKEN=<mcp-resource-token> pnpm smoke:mcp-inspector -- --hosted-url <production-like-/mcp-url> --hosted-data
+VRDEX_MCP_OAUTH_CLIENT_ID=<reviewed-client-id> VRDEX_MCP_OAUTH_CLIENT_SECRET=<client-secret> pnpm smoke:mcp-inspector -- --hosted-url <production-like-/mcp-url> --hosted-data
 pnpm typecheck:backend
 pnpm test:backend
 pnpm typecheck:web
