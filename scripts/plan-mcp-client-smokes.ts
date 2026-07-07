@@ -197,6 +197,10 @@ function repoPreflightCommand(client: ClientEntry, check: SmokeCheck, options: O
     return `pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url ${target} --hosted-data`;
   }
 
+  if (client.id === "claude-code" && check.id === "hosted-oauth") {
+    return `VRDEX_CLAUDE_CODE_OAUTH_TOKEN=<mcp-resource-token> pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url ${target} --hosted-data`;
+  }
+
   if (client.id === "mcp-inspector" && check.id === "hosted-anonymous-read") {
     return `pnpm smoke:mcp-inspector -- --hosted-url ${target} --hosted-data`;
   }
@@ -218,7 +222,7 @@ function repoPreflightCommand(client: ClientEntry, check: SmokeCheck, options: O
 
 function manualEvidencePrompt(client: ClientEntry, check: SmokeCheck) {
   if (client.id === "claude-code" && check.id === "hosted-oauth") {
-    return "Run Claude Code HTTP OAuth login and record the mcp:read session result.";
+    return "Run Claude Code with an MCP-resource OAuth token and record the authenticated mcp:read result; pair with DCR/CIMD protocol evidence.";
   }
 
   if (client.id === "openai-chatgpt") {
@@ -250,7 +254,7 @@ function setupHint(client: ClientEntry, check: SmokeCheck, options: Options) {
   const target = hostedTarget(options);
 
   if (client.id === "claude-code" && check.id === "hosted-oauth") {
-    return `claude mcp add --transport http --callback-port 8765 vrdex ${target}; then run claude mcp login vrdex and confirm an mcp:read session.`;
+    return `Set VRDEX_CLAUDE_CODE_OAUTH_TOKEN to an MCP-resource token, then run pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url ${target} --hosted-data; for an interactive client-session check, use claude mcp add --transport http --callback-port 8765 vrdex ${target} followed by claude mcp login vrdex.`;
   }
 
   if (client.id === "vscode" && check.id === "local-stdio") {

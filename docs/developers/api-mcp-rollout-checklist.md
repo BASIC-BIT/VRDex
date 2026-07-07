@@ -121,7 +121,10 @@ one PR.
   with `pnpm smoke:mcp-claude-code`, which runs the installed Claude Code CLI
   through a strict temporary MCP config. Use hosted mode with `--hosted-data`
   against a same-branch or production-like backend before recording Claude Code
-  hosted anonymous-read readiness.
+  hosted anonymous-read readiness. For Claude Code hosted OAuth evidence, set
+  `VRDEX_CLAUDE_CODE_OAUTH_TOKEN` to a short-lived MCP-resource token with
+  `mcp:read`; the same hosted smoke validates an authenticated `vrdex_search`
+  call without printing the token value.
 - MCP Inspector hosted anonymous HTTP can be smoke-tested with
   `pnpm smoke:mcp-inspector`, which uses the Inspector CLI to validate hosted
   tool listing and public-read auth metadata. Use `--hosted-data` against a
@@ -171,6 +174,7 @@ pnpm ops:mcp-client-smokes
 pnpm check:api-mcp-rollout
 pnpm smoke:mcp-compat -- --hosted-only --hosted-url <preview-or-production-like-/mcp-url>
 pnpm smoke:mcp-compat -- --hosted-only --hosted-url <production-like-/mcp-url> --hosted-data --dcr --cimd --continue-on-failure
+VRDEX_CLAUDE_CODE_OAUTH_TOKEN=<mcp-resource-token> pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url <production-like-/mcp-url> --hosted-data
 pnpm smoke:mcp-inspector -- --hosted-url <preview-or-production-like-/mcp-url>
 VRDEX_MCP_INSPECTOR_OAUTH_TOKEN=<mcp-resource-token> pnpm smoke:mcp-inspector -- --hosted-url <production-like-/mcp-url> --hosted-data
 pnpm typecheck:backend

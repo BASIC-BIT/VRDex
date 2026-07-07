@@ -97,7 +97,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
           "manualStatus": "pending",
-          "notes": "Confirm claude mcp login or equivalent OAuth path reaches an mcp:read session."
+          "notes": "Token-backed hosted OAuth harness is available with VRDEX_CLAUDE_CODE_OAUTH_TOKEN and pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-data; row remains pending until a real MCP-resource mcp:read token or interactive claude mcp login session is recorded."
         }
       ]
     },

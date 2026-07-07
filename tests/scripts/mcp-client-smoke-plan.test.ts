@@ -58,9 +58,10 @@ describe("MCP client smoke planner", () => {
     ]);
 
     assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /VRDEX_CLAUDE_CODE_OAUTH_TOKEN=<mcp-resource-token> pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url https:\/\/staging\.vrdex\.net\/mcp --hosted-data/);
     assert.match(result.stdout, /claude mcp add --transport http --callback-port 8765 vrdex https:\/\/staging\.vrdex\.net\/mcp/);
     assert.match(result.stdout, /claude mcp login vrdex/);
-    assert.match(result.stdout, /Run Claude Code HTTP OAuth login and record the mcp:read session result/);
+    assert.match(result.stdout, /Run Claude Code with an MCP-resource OAuth token and record the authenticated mcp:read result/);
   });
 
   it("prints token-backed hosted OAuth setup guidance for MCP Inspector", () => {

@@ -44,6 +44,7 @@ type HostedSearchArgs = {
 type SmokeOptions = {
   claudeCommand: string;
   hostedDataPublicReads: boolean;
+  hostedOAuthToken?: string;
   hostedSearch: HostedSearchArgs;
   hostedUrl?: string;
   maxBudgetUsd: string;
@@ -115,6 +116,7 @@ function parseArgs(argv: string[]): SmokeOptions {
   const options: SmokeOptions = {
     claudeCommand: nonEmpty(process.env.VRDEX_CLAUDE_CODE_COMMAND) ?? defaultClaudeCommand(),
     hostedDataPublicReads: envFlag("VRDEX_CLAUDE_CODE_HOSTED_DATA"),
+    hostedOAuthToken: nonEmpty(process.env.VRDEX_CLAUDE_CODE_OAUTH_TOKEN),
     hostedSearch: {
       limit: parseHostedSearchLimit(process.env.VRDEX_CLAUDE_CODE_HOSTED_LIMIT),
       query: process.env.VRDEX_CLAUDE_CODE_HOSTED_QUERY?.trim() ?? "",
@@ -170,6 +172,10 @@ function parseArgs(argv: string[]): SmokeOptions {
         options.model = takeValue(argv, index, arg);
         index += 1;
         break;
+      case "--oauth-token":
+        options.hostedOAuthToken = nonEmpty(takeValue(argv, index, arg));
+        index += 1;
+        break;
       default:
         throw new Error(`Unknown option: ${arg}`);
     }
@@ -221,6 +227,16 @@ function run(command: string, args: string[], options: { cwd: string; timeoutMs:
   });
 }
 
+function redactSensitiveOutput(text: string, options: SmokeOptions) {
+  let redacted = text.replace(/Authorization:\s*Bearer\s+[^\s"'\\]+/gi, "Authorization: Bearer [REDACTED]");
+
+  if (options.hostedOAuthToken !== undefined) {
+    redacted = redacted.replaceAll(options.hostedOAuthToken, "[REDACTED]");
+  }
+
+  return redacted;
+}
+
 function buildBaseClaudeArgs(configPath: string, options: SmokeOptions, outputFormat: "json" | "stream-json") {
   const args = [
     "-p",
@@ -234,11 +250,13 @@ function buildBaseClaudeArgs(configPath: string, options: SmokeOptions, outputFo
     "bypassPermissions",
     "--output-format",
     outputFormat,
-    "--debug",
-    "mcp",
     "--max-budget-usd",
     options.maxBudgetUsd,
   ];
+
+  if (options.hostedOAuthToken === undefined) {
+    args.push("--debug", "mcp");
+  }
 
   if (options.model !== undefined) {
     args.push("--model", options.model);
@@ -277,13 +295,25 @@ async function writeLocalStdioConfig(configPath: string, repoRoot: string, apiBa
   await writeFile(configPath, `${JSON.stringify(mcpConfig)}\n`, "utf8");
 }
 
-async function writeHostedHttpConfig(configPath: string, hostedUrl: string) {
+async function writeHostedHttpConfig(configPath: string, hostedUrl: string, hostedOAuthToken: string | undefined) {
+  const serverConfig: {
+    headers?: Record<string, string>;
+    type: "http";
+    url: string;
+  } = {
+    type: "http",
+    url: hostedUrl,
+  };
+
+  if (hostedOAuthToken !== undefined) {
+    serverConfig.headers = {
+      Authorization: `Bearer ${hostedOAuthToken}`,
+    };
+  }
+
   const mcpConfig = {
     mcpServers: {
-      vrdex: {
-        type: "http",
-        url: hostedUrl,
-      },
+      vrdex: serverConfig,
     },
   };
 
@@ -426,7 +456,7 @@ async function smokeHostedHttp(configPath: string, options: SmokeOptions, repoRo
   const hostedUrl = options.hostedUrl;
 
   assert.ok(hostedUrl, "Hosted URL is required.");
-  await writeHostedHttpConfig(configPath, hostedUrl);
+  await writeHostedHttpConfig(configPath, hostedUrl, options.hostedOAuthToken);
   const hostedSearch = options.hostedSearch;
 
   const args = buildBaseClaudeArgs(configPath, options, "stream-json");
@@ -440,15 +470,27 @@ async function smokeHostedHttp(configPath: string, options: SmokeOptions, repoRo
 
   const result = await run(options.claudeCommand, args, { cwd: repoRoot, timeoutMs: 180_000 });
 
-  assert.equal(result.code, 0, result.stderr || `${options.claudeCommand} exited with ${result.code}.`);
+  assert.equal(
+    result.code,
+    0,
+    redactSensitiveOutput(result.stderr, options) || `${options.claudeCommand} exited with ${result.code}.`,
+  );
   assertHostedToolUse(parseStreamEvents(result.stdout), hostedSearch);
+
+  const row =
+    options.hostedOAuthToken === undefined
+      ? `| Claude Code hosted anonymous HTTP MCP | pass | vrdex_search returned structured content for ${hostedUrl} with query=${JSON.stringify(hostedSearch.query)}, type=${hostedSearch.type}, limit=${hostedSearch.limit} |`
+      : `| Claude Code hosted OAuth HTTP MCP | pass | supplied MCP-resource OAuth token completed vrdex_search for ${hostedUrl} with query=${JSON.stringify(hostedSearch.query)}, type=${hostedSearch.type}, limit=${hostedSearch.limit} without exposing the token value |`;
 
   console.log(
     [
       "| Smoke target | Status | Details |",
       "| --- | --- | --- |",
-      `| Claude Code hosted anonymous HTTP MCP | pass | vrdex_search returned structured content for ${hostedUrl} with query=${JSON.stringify(hostedSearch.query)}, type=${hostedSearch.type}, limit=${hostedSearch.limit} |`,
-    ].join("\n"),
+      row,
+      options.hostedOAuthToken === undefined
+        ? "| Claude Code hosted OAuth HTTP MCP | skip | set VRDEX_CLAUDE_CODE_OAUTH_TOKEN to an MCP-resource token with mcp:read |"
+        : undefined,
+    ].filter(Boolean).join("\n"),
   );
 }
 
