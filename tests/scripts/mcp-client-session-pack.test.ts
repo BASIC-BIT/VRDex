@@ -45,6 +45,9 @@ describe("MCP client smoke session pack", () => {
       assert.match(readme, /pnpm record:mcp-client-smoke -- --client gemini-cli --check hosted-oauth/);
       assert.match(readme, /Get-Content -Raw/);
       assert.match(readme, /\/mcp auth vrdex/);
+      assert.match(readme, /Generated Evidence Templates/);
+      assert.match(readme, /evidence[\\/]vscode-local-stdio\.md/);
+      assert.match(readme, /evidence[\\/]gemini-cli-hosted-oauth\.md/);
 
       const localConfig = JSON.parse(
         await readFile(join(outputDir, "configs", "vscode-local-stdio.add-mcp.json"), "utf8"),
@@ -127,6 +130,24 @@ describe("MCP client smoke session pack", () => {
         geminiHostedTokenSettings.mcpServers?.vrdex?.headers?.Authorization,
         "Bearer <mcp-resource-token>",
       );
+
+      const vscodeEvidence = await readFile(join(outputDir, "evidence", "vscode-local-stdio.md"), "utf8");
+
+      assert.match(vscodeEvidence, /Status: pending until a real client session lists tools/);
+      assert.match(vscodeEvidence, /Matrix row: vscode\/local-stdio/);
+      assert.match(vscodeEvidence, /Client lists the expected VRDex tools/);
+      assert.match(vscodeEvidence, /pnpm record:mcp-client-smoke -- --client vscode --check local-stdio/);
+      assert.doesNotMatch(vscodeEvidence, /--target-environment "staging https:\/\/staging\.vrdex\.net\/mcp"/);
+
+      const geminiHostedEvidence = await readFile(
+        join(outputDir, "evidence", "gemini-cli-hosted-oauth.md"),
+        "utf8",
+      );
+
+      assert.match(geminiHostedEvidence, /Matrix row: gemini-cli\/hosted-oauth/);
+      assert.match(geminiHostedEvidence, /Target environment: staging https:\/\/staging\.vrdex\.net\/mcp/);
+      assert.match(geminiHostedEvidence, /No bearer tokens, OAuth client secrets/);
+      assert.match(geminiHostedEvidence, /pnpm record:mcp-client-smoke -- --client gemini-cli --check hosted-oauth/);
     } finally {
       await rm(outputDir, { force: true, recursive: true });
     }

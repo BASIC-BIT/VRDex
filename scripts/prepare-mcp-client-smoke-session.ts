@@ -16,6 +16,20 @@ type Options = {
   targetEnvironment: string;
 };
 
+type CheckId = "hosted-anonymous-read" | "hosted-oauth" | "local-stdio";
+
+type EvidenceTemplate = {
+  check: CheckId;
+  clientName: string;
+  environment: string;
+  hosted: boolean;
+  matrixClient: string;
+  prompt: string;
+  recorder: string;
+  setup: string;
+  targetEnvironment: string;
+};
+
 const clients: Client[] = [
   {
     cli: "code",
@@ -222,7 +236,7 @@ function installCommand(client: Client, outputDir: string, configFile: string, r
 }
 
 function recorderCommand(args: {
-  check: "hosted-anonymous-read" | "hosted-oauth" | "local-stdio";
+  check: CheckId;
   client: Client;
   environment: string;
   hosted: boolean;
@@ -235,7 +249,7 @@ function recorderCommand(args: {
 }
 
 function recorderCommandForMatrixClient(args: {
-  check: "hosted-anonymous-read" | "hosted-oauth" | "local-stdio";
+  check: CheckId;
   environment: string;
   hosted: boolean;
   matrixClient: string;
@@ -252,7 +266,7 @@ function recorderCommandForMatrixClient(args: {
   ].filter(Boolean).join(" ");
 }
 
-function smokePrompt(mode: "hosted-anonymous-read" | "hosted-oauth" | "local-stdio") {
+function smokePrompt(mode: CheckId) {
   const authPhrase =
     mode === "hosted-oauth"
       ? "If the client prompts for OAuth, complete the login before calling the tool."
@@ -271,19 +285,72 @@ async function writeJson(pathname: string, value: unknown) {
   await writeFile(pathname, `${JSON.stringify(value)}\n`, "utf8");
 }
 
+async function writeEvidenceTemplate(outputPath: string, template: EvidenceTemplate) {
+  const targetLine = template.hosted
+    ? `Target environment: ${template.targetEnvironment}`
+    : "Target environment: not applicable for local stdio";
+  const content = [
+    `# ${template.clientName} ${template.check} MCP Smoke Evidence`,
+    "",
+    "Status: pending until a real client session lists tools and calls `vrdex_search`.",
+    "",
+    `Matrix row: ${template.matrixClient}/${template.check}`,
+    `Environment: ${template.environment}`,
+    targetLine,
+    "",
+    "## Setup",
+    "",
+    "```powershell",
+    template.setup,
+    "```",
+    "",
+    "## Smoke Prompt",
+    "",
+    "```txt",
+    template.prompt,
+    "```",
+    "",
+    "## Evidence Checklist",
+    "",
+    "- [ ] Client session shows the VRDex MCP server named `vrdex`.",
+    "- [ ] Client lists the expected VRDex tools.",
+    "- [ ] Client calls `vrdex_search` exactly once with query `club`, type `all`, and limit `1`.",
+    "- [ ] Client returns a non-error structured result and the first result slug is recorded.",
+    "- [ ] Screenshot or transcript is sanitized before the row is recorded.",
+    "- [ ] No bearer tokens, OAuth client secrets, full authorization headers, or private account details are captured.",
+    "",
+    "## Sanitized Evidence Summary",
+    "",
+    "Replace this paragraph with the sanitized screenshot path, transcript path, or PR artifact URL before running the recorder command.",
+    "",
+    "## Recorder Command",
+    "",
+    "```powershell",
+    template.recorder,
+    "```",
+    "",
+  ].join("\n");
+
+  await writeFile(outputPath, content, "utf8");
+}
+
 async function writeSessionPack(options: Options) {
   const outputDir = path.resolve(options.outputDir);
   const repoRoot = path.resolve(options.repoRoot);
   const configsDir = path.join(outputDir, "configs");
+  const evidenceDir = path.join(outputDir, "evidence");
 
   await mkdir(configsDir, { recursive: true });
+  await mkdir(evidenceDir, { recursive: true });
 
+  const evidenceRows: string[] = [];
   const rows: string[] = [];
   const readmeSections: string[] = [
     "# MCP Client Smoke Session Pack",
     "",
     "Generated disposable setup files for installed VS Code-family MCP clients and Gemini CLI.",
     "These files are operator aids, not matrix evidence. Record a row only after the real client lists tools and calls `vrdex_search`.",
+    "Evidence templates are pending worksheets until they are filled with sanitized real-client output.",
     "",
     `Hosted MCP URL: \`${hostedMcpUrl(options.hostedUrl!)}\``,
     `Local stdio API base URL: \`${hostedOrigin(options.hostedUrl!)}\``,
@@ -316,6 +383,65 @@ async function writeSessionPack(options: Options) {
       hostedOauthFallback: installCommand(client, outputDir, hostedTokenConfig, repoRoot),
       local: installCommand(client, outputDir, localConfig, repoRoot),
     };
+    const localRecorder = recorderCommand({
+      check: "local-stdio",
+      client,
+      environment: localEnvironment,
+      hosted: false,
+      targetEnvironment: options.targetEnvironment,
+    });
+    const hostedAnonymousRecorder = recorderCommand({
+      check: "hosted-anonymous-read",
+      client,
+      environment: hostedEnvironment,
+      hosted: true,
+      targetEnvironment: options.targetEnvironment,
+    });
+    const hostedOauthRecorder = recorderCommand({
+      check: "hosted-oauth",
+      client,
+      environment: `${hostedEnvironment} / hosted OAuth`,
+      hosted: true,
+      targetEnvironment: options.targetEnvironment,
+    });
+    const evidenceTemplates = [
+      {
+        check: "local-stdio" as const,
+        environment: localEnvironment,
+        hosted: false,
+        prompt: smokePrompt("local-stdio"),
+        recorder: localRecorder,
+        setup: commands.local,
+      },
+      {
+        check: "hosted-anonymous-read" as const,
+        environment: hostedEnvironment,
+        hosted: true,
+        prompt: smokePrompt("hosted-anonymous-read"),
+        recorder: hostedAnonymousRecorder,
+        setup: commands.hostedAnonymous,
+      },
+      {
+        check: "hosted-oauth" as const,
+        environment: `${hostedEnvironment} / hosted OAuth`,
+        hosted: true,
+        prompt: smokePrompt("hosted-oauth"),
+        recorder: hostedOauthRecorder,
+        setup: commands.hostedOauthFallback,
+      },
+    ];
+
+    for (const template of evidenceTemplates) {
+      const evidencePath = path.join(evidenceDir, `${client.matrixClient}-${template.check}.md`);
+
+      await writeEvidenceTemplate(evidencePath, {
+        ...template,
+        clientName: client.name,
+        matrixClient: client.matrixClient,
+        targetEnvironment: options.targetEnvironment,
+      });
+      evidenceRows.push(`| ${client.name} | ${template.check} | \`${evidencePath}\` |`);
+    }
 
     rows.push(
       `| ${client.name} | ${client.matrixClient} | \`${localConfig}\` | \`${hostedConfig}\` | \`${hostedTokenConfig}\` |`,
@@ -339,14 +465,10 @@ async function writeSessionPack(options: Options) {
       "Recorder:",
       "",
       "```powershell",
-      recorderCommand({
-        check: "local-stdio",
-        client,
-        environment: localEnvironment,
-        hosted: false,
-        targetEnvironment: options.targetEnvironment,
-      }),
+      localRecorder,
       "```",
+      "",
+      `Evidence template: \`${path.join(evidenceDir, `${client.matrixClient}-local-stdio.md`)}\``,
       "",
       "### Hosted Anonymous-Read Row",
       "",
@@ -363,14 +485,10 @@ async function writeSessionPack(options: Options) {
       "Recorder:",
       "",
       "```powershell",
-      recorderCommand({
-        check: "hosted-anonymous-read",
-        client,
-        environment: hostedEnvironment,
-        hosted: true,
-        targetEnvironment: options.targetEnvironment,
-      }),
+      hostedAnonymousRecorder,
       "```",
+      "",
+      `Evidence template: \`${path.join(evidenceDir, `${client.matrixClient}-hosted-anonymous-read.md`)}\``,
       "",
       "### Hosted OAuth Row",
       "",
@@ -391,14 +509,10 @@ async function writeSessionPack(options: Options) {
       "Recorder:",
       "",
       "```powershell",
-      recorderCommand({
-        check: "hosted-oauth",
-        client,
-        environment: `${hostedEnvironment} / hosted OAuth`,
-        hosted: true,
-        targetEnvironment: options.targetEnvironment,
-      }),
+      hostedOauthRecorder,
       "```",
+      "",
+      `Evidence template: \`${path.join(evidenceDir, `${client.matrixClient}-hosted-oauth.md`)}\``,
       "",
     );
   }
@@ -412,6 +526,66 @@ async function writeSessionPack(options: Options) {
   await writeJson(geminiLocalConfig, geminiLocalSettings({ ...options, repoRoot }));
   await writeJson(geminiHostedConfig, geminiHostedSettings(options));
   await writeJson(geminiHostedTokenConfig, geminiHostedSettings(options, true));
+
+  const geminiLocalRecorder = recorderCommandForMatrixClient({
+    check: "local-stdio",
+    environment: geminiLocalEnvironment,
+    hosted: false,
+    matrixClient: "gemini-cli",
+    targetEnvironment: options.targetEnvironment,
+  });
+  const geminiHostedAnonymousRecorder = recorderCommandForMatrixClient({
+    check: "hosted-anonymous-read",
+    environment: geminiHostedEnvironment,
+    hosted: true,
+    matrixClient: "gemini-cli",
+    targetEnvironment: options.targetEnvironment,
+  });
+  const geminiHostedOauthRecorder = recorderCommandForMatrixClient({
+    check: "hosted-oauth",
+    environment: `${geminiHostedEnvironment} / hosted OAuth`,
+    hosted: true,
+    matrixClient: "gemini-cli",
+    targetEnvironment: options.targetEnvironment,
+  });
+  const geminiEvidenceTemplates = [
+    {
+      check: "local-stdio" as const,
+      environment: geminiLocalEnvironment,
+      hosted: false,
+      prompt: smokePrompt("local-stdio"),
+      recorder: geminiLocalRecorder,
+      setup: `Merge settings snippet ${psSingleQuote(geminiLocalConfig)} into Gemini CLI settings.json.`,
+    },
+    {
+      check: "hosted-anonymous-read" as const,
+      environment: geminiHostedEnvironment,
+      hosted: true,
+      prompt: smokePrompt("hosted-anonymous-read"),
+      recorder: geminiHostedAnonymousRecorder,
+      setup: `Merge settings snippet ${psSingleQuote(geminiHostedConfig)} into Gemini CLI settings.json.`,
+    },
+    {
+      check: "hosted-oauth" as const,
+      environment: `${geminiHostedEnvironment} / hosted OAuth`,
+      hosted: true,
+      prompt: smokePrompt("hosted-oauth"),
+      recorder: geminiHostedOauthRecorder,
+      setup: `Merge OAuth-discovery settings snippet ${psSingleQuote(geminiHostedConfig)} into Gemini CLI settings.json; use ${psSingleQuote(geminiHostedTokenConfig)} only as the token-header fallback.`,
+    },
+  ];
+
+  for (const template of geminiEvidenceTemplates) {
+    const evidencePath = path.join(evidenceDir, `gemini-cli-${template.check}.md`);
+
+    await writeEvidenceTemplate(evidencePath, {
+      ...template,
+      clientName: "Gemini CLI",
+      matrixClient: "gemini-cli",
+      targetEnvironment: options.targetEnvironment,
+    });
+    evidenceRows.push(`| Gemini CLI | ${template.check} | \`${evidencePath}\` |`);
+  }
 
   rows.push(
     `| Gemini CLI | gemini-cli | \`${geminiLocalConfig}\` | \`${geminiHostedConfig}\` | \`${geminiHostedTokenConfig}\` |`,
@@ -435,14 +609,10 @@ async function writeSessionPack(options: Options) {
     "Recorder:",
     "",
     "```powershell",
-    recorderCommandForMatrixClient({
-      check: "local-stdio",
-      environment: geminiLocalEnvironment,
-      hosted: false,
-      matrixClient: "gemini-cli",
-      targetEnvironment: options.targetEnvironment,
-    }),
+    geminiLocalRecorder,
     "```",
+    "",
+    `Evidence template: \`${path.join(evidenceDir, "gemini-cli-local-stdio.md")}\``,
     "",
     "### Hosted Anonymous-Read Row",
     "",
@@ -457,14 +627,10 @@ async function writeSessionPack(options: Options) {
     "Recorder:",
     "",
     "```powershell",
-    recorderCommandForMatrixClient({
-      check: "hosted-anonymous-read",
-      environment: geminiHostedEnvironment,
-      hosted: true,
-      matrixClient: "gemini-cli",
-      targetEnvironment: options.targetEnvironment,
-    }),
+    geminiHostedAnonymousRecorder,
     "```",
+    "",
+    `Evidence template: \`${path.join(evidenceDir, "gemini-cli-hosted-anonymous-read.md")}\``,
     "",
     "### Hosted OAuth Row",
     "",
@@ -482,14 +648,10 @@ async function writeSessionPack(options: Options) {
     "Recorder:",
     "",
     "```powershell",
-    recorderCommandForMatrixClient({
-      check: "hosted-oauth",
-      environment: `${geminiHostedEnvironment} / hosted OAuth`,
-      hosted: true,
-      matrixClient: "gemini-cli",
-      targetEnvironment: options.targetEnvironment,
-    }),
+    geminiHostedOauthRecorder,
     "```",
+    "",
+    `Evidence template: \`${path.join(evidenceDir, "gemini-cli-hosted-oauth.md")}\``,
     "",
   );
 
@@ -501,6 +663,12 @@ async function writeSessionPack(options: Options) {
     "| --- | --- | --- | --- | --- |",
     ...rows,
     "",
+    "## Generated Evidence Templates",
+    "",
+    "| Client | Check | Evidence template |",
+    "| --- | --- | --- |",
+    ...evidenceRows,
+    "",
   ].join("\n");
 
   const readmePath = path.join(outputDir, "README.md");
@@ -511,6 +679,7 @@ async function writeSessionPack(options: Options) {
   console.log("| --- | --- |");
   console.log(`| MCP client smoke session pack | ${readmePath} |`);
   console.log(`| Config directory | ${configsDir} |`);
+  console.log(`| Evidence template directory | ${evidenceDir} |`);
   console.log(`| Hosted MCP URL | ${hostedMcpUrl(options.hostedUrl!)} |`);
 }
 

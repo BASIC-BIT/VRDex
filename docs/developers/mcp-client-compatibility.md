@@ -239,9 +239,11 @@ default. It contains compact `--add-mcp` JSON definitions for VS Code, Cursor,
 and Windsurf plus Gemini CLI `settings.json` snippets for local stdio, hosted
 anonymous HTTP, and hosted token-header fallback setups. It also includes
 PowerShell launch commands where supported, smoke prompts, and recorder
-commands. It is not evidence by itself; use it to run the real client session
-and then record the matrix row only after the client lists tools and calls
-`vrdex_search`.
+commands. The generated `evidence/` templates are pending worksheets for each
+row; fill them with sanitized real-client screenshot or transcript evidence
+before running the recorder command. The pack is not evidence by itself; use it
+to run the real client session and then record the matrix row only after the
+client lists tools and calls `vrdex_search`.
 
 Record manual pass or fail results with the recorder command instead of
 hand-editing the JSON:
