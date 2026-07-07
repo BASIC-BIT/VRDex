@@ -19,6 +19,9 @@ docs update and a changelog entry so early consumers and agents can adapt.
   `VRDEX_CLAUDE_CODE_OAUTH_TOKEN` support so Claude Code hosted OAuth evidence
   can validate an authenticated `vrdex_search` call with an MCP-resource
   `mcp:read` token without printing the token value
+- added `pnpm ops:mcp-client-session-pack` to generate disposable VS Code,
+  Cursor, and Windsurf MCP smoke-session configs, prompts, launch commands,
+  and recorder commands under `.tmp-gh-artifacts/`
 
 ## 2026-07-06
 

@@ -111,6 +111,11 @@ one PR.
   installed Claude Code, VS Code, Cursor, and Windsurf CLI versions plus MCP
   configuration support. It catches client drift before manual smoke sessions
   but does not replace manual matrix evidence.
+- `pnpm ops:mcp-client-session-pack` writes disposable VS Code, Cursor, and
+  Windsurf MCP setup files under `.tmp-gh-artifacts/`, including local stdio,
+  hosted anonymous HTTP, hosted token-header fallback configs, launch commands,
+  smoke prompts, and recorder commands. It does not replace manual matrix
+  evidence; use it to keep those installed-client smoke sessions repeatable.
 - `pnpm check:api-mcp-rollout` summarizes the generated OpenAPI contract,
   required docs, verification scripts, MCP client matrix, and hosted MCP
   production-like evidence state. The gate asserts every current checked-in
@@ -171,6 +176,7 @@ pnpm smoke:mcp-compat
 pnpm check:mcp-client-matrix
 pnpm ops:mcp-installed-clients
 pnpm ops:mcp-client-smokes
+pnpm ops:mcp-client-session-pack -- --hosted-url <preview-or-production-like-/mcp-url>
 pnpm check:api-mcp-rollout
 pnpm smoke:mcp-compat -- --hosted-only --hosted-url <preview-or-production-like-/mcp-url>
 pnpm smoke:mcp-compat -- --hosted-only --hosted-url <production-like-/mcp-url> --hosted-data --dcr --cimd --continue-on-failure

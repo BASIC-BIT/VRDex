@@ -106,6 +106,7 @@ const requiredScripts = [
   "check:mcp-client-matrix",
   "ops:mcp-installed-clients",
   "ops:mcp-client-smokes",
+  "ops:mcp-client-session-pack",
   "smoke:mcp-compat",
   "smoke:mcp-claude-code",
   "smoke:mcp-inspector",

@@ -207,6 +207,22 @@ configuration surface their matrix rows depend on. It does not write client
 configuration, launch GUI smoke sessions, or turn any manual row green by
 itself. Use it to catch local client drift before the human smoke pass.
 
+For installed VS Code-family clients, generate a disposable smoke-session pack
+after the preflight:
+
+```sh
+pnpm ops:mcp-client-session-pack -- \
+  --hosted-url https://staging.vrdex.net/mcp
+```
+
+The pack is written to `.tmp-gh-artifacts/mcp-client-smoke-session/` by
+default. It contains compact `--add-mcp` JSON definitions for VS Code, Cursor,
+and Windsurf local stdio, hosted anonymous HTTP, and hosted token-header
+fallback setups, plus PowerShell launch commands, smoke prompts, and recorder
+commands. It is not evidence by itself; use it to run the real client session
+and then record the matrix row only after the client lists tools and calls
+`vrdex_search`.
+
 Record manual pass or fail results with the recorder command instead of
 hand-editing the JSON:
 
@@ -482,6 +498,11 @@ pnpm ops:mcp-client-smokes -- \
    `pnpm smoke:mcp-inspector -- --hosted-data` for the hosted data-backed row;
    set `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN` for the hosted OAuth row and pair it
    with the DCR/CIMD hosted protocol smoke.
+
+For rows 4, 5, and 7, start from `pnpm ops:mcp-client-session-pack` so VS Code,
+Cursor, and Windsurf use the same generated local stdio and hosted HTTP
+definitions, isolated profile name, prompt, target URL, and recorder-command
+shape.
 
 For each smoke, record client version, OS, transport, auth mode, result, exact
 config shape, whether the client distinguishes anonymous/no-auth tools from
