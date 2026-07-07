@@ -269,6 +269,7 @@ export async function expectDeveloperApiPage(page: Page) {
   await expect(page.getByText("operations", { exact: false })).toBeVisible();
   await expect(page.getByText("/api/v0/search", { exact: true })).toBeVisible();
   await expect(page.getByText("/api/v0/openapi.json", { exact: true })).toBeVisible();
+  await expect(page.getByText("/api/v0/worlds/{slug}/events", { exact: true })).toBeVisible();
 }
 
 export async function expectDeveloperTokensPage(page: Page) {
