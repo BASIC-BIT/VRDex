@@ -119,10 +119,12 @@ one PR.
   Windsurf, and Gemini CLI MCP setup files under `.tmp-gh-artifacts/`,
   including local stdio, hosted anonymous HTTP, hosted token-header fallback
   configs, launch commands or settings snippets where supported, smoke prompts,
-  evidence templates, and recorder commands. It does not replace manual matrix
-  evidence; use it to keep those installed-client smoke sessions repeatable and
-  to capture sanitized screenshot or transcript evidence before recording a
-  row. Filled evidence templates can be recorded with
+  evidence templates, and recorder commands. It also writes manual-only
+  worksheets for Claude Desktop, Claude Code hosted OAuth, OpenAI/ChatGPT
+  hosted rows, and MCP Inspector hosted OAuth. It does not replace manual matrix
+  evidence; use it to keep those smoke sessions repeatable and to capture
+  sanitized screenshot or transcript evidence before recording a row. Filled
+  evidence templates can be recorded with
   `pnpm record:mcp-client-smoke -- --evidence-file <template.md>`; the recorder
   rejects untouched pending worksheets, placeholders, and evidence summaries
   that appear to contain tokens, secrets, or authorization headers.

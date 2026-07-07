@@ -34,6 +34,10 @@ docs update and a changelog entry so early consumers and agents can adapt.
   generated worksheet can drive a matrix update while still rejecting pending
   worksheets, placeholders, and evidence summaries that appear to contain
   tokens, secrets, or authorization headers
+- extended `pnpm ops:mcp-client-session-pack` with manual-only evidence
+  worksheets for Claude Desktop, Claude Code hosted OAuth, OpenAI/ChatGPT
+  hosted rows, and MCP Inspector hosted OAuth so every remaining required MCP
+  client row can use the same worksheet recorder flow
 - extended `pnpm ops:mcp-installed-clients` to report hosted OAuth smoke
   credential readiness for Claude Code and MCP Inspector without printing
   secret values

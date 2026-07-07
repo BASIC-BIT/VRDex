@@ -226,8 +226,10 @@ It does not write client configuration, launch GUI smoke sessions, or turn any
 manual row green by itself. Use it to catch local client drift and OAuth
 evidence blockers before the human smoke pass.
 
-For installed VS Code-family clients and Gemini CLI, generate a disposable
-smoke-session pack after the preflight:
+After the preflight, generate a disposable smoke-session pack for installed
+VS Code-family clients and Gemini CLI, plus manual-only worksheets for hosted
+product surfaces, missing desktop apps, and OAuth rows that need reviewed
+credentials:
 
 ```sh
 pnpm ops:mcp-client-session-pack -- \
@@ -238,13 +240,14 @@ The pack is written to `.tmp-gh-artifacts/mcp-client-smoke-session/` by
 default. It contains compact `--add-mcp` JSON definitions for VS Code, Cursor,
 and Windsurf plus Gemini CLI `settings.json` snippets for local stdio, hosted
 anonymous HTTP, and hosted token-header fallback setups. It also includes
-PowerShell launch commands where supported, smoke prompts, and recorder
-commands. The generated `evidence/` templates are pending worksheets for each
-row; fill them with sanitized real-client screenshot or transcript evidence
-before running the recorder command. The pack is not evidence by itself; use it
-to run the real client session and then record the matrix row only after the
-client lists tools and calls `vrdex_search`. Completed worksheets can be
-recorded directly:
+manual-only worksheets for Claude Desktop, Claude Code hosted OAuth,
+OpenAI/ChatGPT hosted rows, and MCP Inspector hosted OAuth. The generated
+`evidence/` templates are pending worksheets for each row; fill them with
+sanitized real-client screenshot or transcript evidence before running the
+recorder command. The pack is not evidence by itself; use it to run the real
+client session and then record the matrix row only after the client lists tools
+and calls `vrdex_search` or completes the required `mcp:read` OAuth path.
+Completed worksheets can be recorded directly:
 
 ```sh
 pnpm record:mcp-client-smoke -- \

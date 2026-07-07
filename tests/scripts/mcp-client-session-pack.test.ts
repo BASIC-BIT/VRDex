@@ -39,10 +39,14 @@ describe("MCP client smoke session pack", () => {
       assert.match(readme, /## Cursor/);
       assert.match(readme, /## Windsurf/);
       assert.match(readme, /## Gemini CLI/);
+      assert.match(readme, /## Manual-Only Evidence Rows/);
       assert.match(readme, /pnpm record:mcp-client-smoke -- --client vscode --check local-stdio/);
       assert.match(readme, /pnpm record:mcp-client-smoke -- --client cursor --check hosted-anonymous-read/);
       assert.match(readme, /pnpm record:mcp-client-smoke -- --client devin-windsurf --check hosted-oauth/);
       assert.match(readme, /pnpm record:mcp-client-smoke -- --client gemini-cli --check hosted-oauth/);
+      assert.match(readme, /evidence[\\/]claude-desktop-local-stdio\.md/);
+      assert.match(readme, /evidence[\\/]openai-chatgpt-hosted-anonymous-read\.md/);
+      assert.match(readme, /evidence[\\/]mcp-inspector-hosted-oauth\.md/);
       assert.match(readme, /Get-Content -Raw/);
       assert.match(readme, /\/mcp auth vrdex/);
       assert.match(readme, /Generated Evidence Templates/);
@@ -150,6 +154,25 @@ describe("MCP client smoke session pack", () => {
       assert.match(geminiHostedEvidence, /No bearer tokens, OAuth client secrets/);
       assert.match(geminiHostedEvidence, /--evidence-file/);
       assert.match(geminiHostedEvidence, /pnpm record:mcp-client-smoke -- --client gemini-cli --check hosted-oauth/);
+
+      const claudeCodeOauthEvidence = await readFile(
+        join(outputDir, "evidence", "claude-code-hosted-oauth.md"),
+        "utf8",
+      );
+
+      assert.match(claudeCodeOauthEvidence, /Matrix row: claude-code\/hosted-oauth/);
+      assert.match(claudeCodeOauthEvidence, /VRDEX_CLAUDE_CODE_OAUTH_CLIENT_ID/);
+      assert.match(claudeCodeOauthEvidence, /--evidence-file/);
+      assert.match(claudeCodeOauthEvidence, /Target environment: staging https:\/\/staging\.vrdex\.net\/mcp/);
+
+      const openAiAnonymousEvidence = await readFile(
+        join(outputDir, "evidence", "openai-chatgpt-hosted-anonymous-read.md"),
+        "utf8",
+      );
+
+      assert.match(openAiAnonymousEvidence, /Matrix row: openai-chatgpt\/hosted-anonymous-read/);
+      assert.match(openAiAnonymousEvidence, /anonymous\/no-auth tools/);
+      assert.match(openAiAnonymousEvidence, /No bearer tokens, OAuth client secrets/);
     } finally {
       await rm(outputDir, { force: true, recursive: true });
     }

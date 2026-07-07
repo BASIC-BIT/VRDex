@@ -27,6 +27,7 @@ type EvidenceTemplate = {
   prompt: string;
   recorder: string;
   setup: string;
+  setupLanguage?: "powershell" | "txt";
   targetEnvironment: string;
 };
 
@@ -281,6 +282,166 @@ function smokePrompt(mode: CheckId) {
   ].join(" ");
 }
 
+function manualEvidenceTemplates(options: Options): EvidenceTemplate[] {
+  const hostedUrl = hostedMcpUrl(options.hostedUrl!);
+  const origin = hostedOrigin(options.hostedUrl!);
+  const targetEnvironment = options.targetEnvironment;
+  const desktopLocal = localStdioDefinition({
+    ...options,
+    repoRoot: path.resolve(options.repoRoot),
+  });
+  const localDefinition = JSON.stringify({
+    args: desktopLocal.args,
+    command: desktopLocal.command,
+    env: desktopLocal.env,
+  });
+
+  return [
+    {
+      check: "local-stdio",
+      clientName: "Claude Desktop",
+      environment: "Claude Desktop / local stdio / current desktop app",
+      hosted: false,
+      matrixClient: "claude-desktop",
+      prompt: smokePrompt("local-stdio"),
+      recorder: recorderCommandForMatrixClient({
+        check: "local-stdio",
+        environment: "Claude Desktop / local stdio / current desktop app",
+        hosted: false,
+        matrixClient: "claude-desktop",
+        targetEnvironment,
+      }),
+      setup: `Add mcpServers.vrdex using this local stdio definition, then restart Claude Desktop if required: ${localDefinition}`,
+      setupLanguage: "txt",
+      targetEnvironment,
+    },
+    {
+      check: "hosted-anonymous-read",
+      clientName: "Claude Desktop",
+      environment: `Claude Desktop / Custom Connector / ${hostedUrl}`,
+      hosted: true,
+      matrixClient: "claude-desktop",
+      prompt: smokePrompt("hosted-anonymous-read"),
+      recorder: recorderCommandForMatrixClient({
+        check: "hosted-anonymous-read",
+        environment: `Claude Desktop / Custom Connector / ${hostedUrl}`,
+        hosted: true,
+        matrixClient: "claude-desktop",
+        targetEnvironment,
+      }),
+      setup: `Use Claude Desktop Custom Connector or the current remote MCP setup path for ${hostedUrl}. Verify anonymous public-read tools before starting OAuth.`,
+      setupLanguage: "txt",
+      targetEnvironment,
+    },
+    {
+      check: "hosted-oauth",
+      clientName: "Claude Desktop",
+      environment: `Claude Desktop / Custom Connector / ${hostedUrl} / hosted OAuth`,
+      hosted: true,
+      matrixClient: "claude-desktop",
+      prompt: smokePrompt("hosted-oauth"),
+      recorder: recorderCommandForMatrixClient({
+        check: "hosted-oauth",
+        environment: `Claude Desktop / Custom Connector / ${hostedUrl} / hosted OAuth`,
+        hosted: true,
+        matrixClient: "claude-desktop",
+        targetEnvironment,
+      }),
+      setup: `Use Claude Desktop Custom Connector or the current remote MCP setup path for ${hostedUrl}. Complete hosted OAuth when prompted and verify an mcp:read tool call.`,
+      setupLanguage: "txt",
+      targetEnvironment,
+    },
+    {
+      check: "hosted-oauth",
+      clientName: "Claude Code",
+      environment: `Windows / Claude Code / ${hostedUrl} / hosted OAuth`,
+      hosted: true,
+      matrixClient: "claude-code",
+      prompt: smokePrompt("hosted-oauth"),
+      recorder: recorderCommandForMatrixClient({
+        check: "hosted-oauth",
+        environment: `Windows / Claude Code / ${hostedUrl} / hosted OAuth`,
+        hosted: true,
+        matrixClient: "claude-code",
+        targetEnvironment,
+      }),
+      setup: [
+        "$env:VRDEX_CLAUDE_CODE_OAUTH_CLIENT_ID='<reviewed-client-id>'",
+        "$env:VRDEX_CLAUDE_CODE_OAUTH_CLIENT_SECRET='<client-secret>'",
+        `pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url ${hostedUrl} --hosted-data`,
+        "# Or use claude mcp login vrdex against the same hosted target and capture sanitized client output.",
+      ].join("\n"),
+      targetEnvironment,
+    },
+    {
+      check: "hosted-anonymous-read",
+      clientName: "OpenAI and ChatGPT MCP-capable surfaces",
+      environment: `OpenAI or ChatGPT hosted MCP surface / ${hostedUrl}`,
+      hosted: true,
+      matrixClient: "openai-chatgpt",
+      prompt: [
+        "Configure the relevant OpenAI or ChatGPT MCP-capable surface for the VRDex hosted MCP endpoint.",
+        "Verify the public read tools appear as anonymous/no-auth tools when the product surface exposes per-tool auth metadata.",
+        "Call vrdex_search exactly once with query \"club\", type \"all\", and limit 1.",
+        "Record whether the connector forced login before a safe public read.",
+      ].join(" "),
+      recorder: recorderCommandForMatrixClient({
+        check: "hosted-anonymous-read",
+        environment: `OpenAI or ChatGPT hosted MCP surface / ${hostedUrl}`,
+        hosted: true,
+        matrixClient: "openai-chatgpt",
+        targetEnvironment,
+      }),
+      setup: `Configure the current OpenAI or ChatGPT connector surface for ${hostedUrl}. Use ${origin} only when the product asks for an origin separate from the MCP endpoint.`,
+      setupLanguage: "txt",
+      targetEnvironment,
+    },
+    {
+      check: "hosted-oauth",
+      clientName: "OpenAI and ChatGPT MCP-capable surfaces",
+      environment: `OpenAI or ChatGPT hosted MCP surface / ${hostedUrl} / hosted OAuth`,
+      hosted: true,
+      matrixClient: "openai-chatgpt",
+      prompt: [
+        "Configure the relevant OpenAI or ChatGPT MCP-capable surface for hosted VRDex OAuth.",
+        "Record whether the surface accepts public-client Client ID Metadata Documents, uses Dynamic Client Registration, or requires an app review path.",
+        "Complete an mcp:read OAuth session if the surface allows it and call vrdex_search exactly once.",
+      ].join(" "),
+      recorder: recorderCommandForMatrixClient({
+        check: "hosted-oauth",
+        environment: `OpenAI or ChatGPT hosted MCP surface / ${hostedUrl} / hosted OAuth`,
+        hosted: true,
+        matrixClient: "openai-chatgpt",
+        targetEnvironment,
+      }),
+      setup: `Configure the current OpenAI or ChatGPT connector surface for ${hostedUrl}. Prefer the public-client Client ID Metadata Document flow when the surface supports it; record any product review requirement instead of marking pass if setup cannot complete.`,
+      setupLanguage: "txt",
+      targetEnvironment,
+    },
+    {
+      check: "hosted-oauth",
+      clientName: "MCP Inspector",
+      environment: `Windows / MCP Inspector CLI / ${hostedUrl} / hosted OAuth`,
+      hosted: true,
+      matrixClient: "mcp-inspector",
+      prompt: smokePrompt("hosted-oauth"),
+      recorder: recorderCommandForMatrixClient({
+        check: "hosted-oauth",
+        environment: `Windows / MCP Inspector CLI / ${hostedUrl} / hosted OAuth`,
+        hosted: true,
+        matrixClient: "mcp-inspector",
+        targetEnvironment,
+      }),
+      setup: [
+        "$env:VRDEX_MCP_INSPECTOR_OAUTH_CLIENT_ID='<reviewed-client-id>'",
+        "$env:VRDEX_MCP_INSPECTOR_OAUTH_CLIENT_SECRET='<client-secret>'",
+        `pnpm smoke:mcp-inspector -- --hosted-url ${hostedUrl} --hosted-data`,
+      ].join("\n"),
+      targetEnvironment,
+    },
+  ];
+}
+
 async function writeJson(pathname: string, value: unknown) {
   await writeFile(pathname, `${JSON.stringify(value)}\n`, "utf8");
 }
@@ -301,7 +462,7 @@ async function writeEvidenceTemplate(outputPath: string, template: EvidenceTempl
     "",
     "## Setup",
     "",
-    "```powershell",
+    `\`\`\`${template.setupLanguage ?? "powershell"}`,
     template.setup,
     "```",
     "",
@@ -357,7 +518,7 @@ async function writeSessionPack(options: Options) {
   const readmeSections: string[] = [
     "# MCP Client Smoke Session Pack",
     "",
-    "Generated disposable setup files for installed VS Code-family MCP clients and Gemini CLI.",
+    "Generated disposable setup files for installed VS Code-family MCP clients and Gemini CLI, plus recordable worksheets for manual-only MCP client rows.",
     "These files are operator aids, not matrix evidence. Record a row only after the real client lists tools and calls `vrdex_search`.",
     "Evidence templates are pending worksheets until they are filled with sanitized real-client output.",
     "",
@@ -661,6 +822,27 @@ async function writeSessionPack(options: Options) {
     "```",
     "",
     `Evidence template: \`${path.join(evidenceDir, "gemini-cli-hosted-oauth.md")}\``,
+    "",
+  );
+
+  const manualRows: string[] = [];
+
+  for (const template of manualEvidenceTemplates({ ...options, repoRoot })) {
+    const evidencePath = path.join(evidenceDir, `${template.matrixClient}-${template.check}.md`);
+
+    await writeEvidenceTemplate(evidencePath, template);
+    evidenceRows.push(`| ${template.clientName} | ${template.check} | \`${evidencePath}\` |`);
+    manualRows.push(`| ${template.clientName} | ${template.matrixClient} | ${template.check} | \`${evidencePath}\` |`);
+  }
+
+  readmeSections.push(
+    "## Manual-Only Evidence Rows",
+    "",
+    "These rows usually require a hosted product surface, a desktop app not present on this machine, or reviewed OAuth credentials. Fill the worksheet after the real client session and record it with the generated `--evidence-file` command.",
+    "",
+    "| Client | Matrix client id | Check | Evidence template |",
+    "| --- | --- | --- | --- |",
+    ...manualRows,
     "",
   );
 
