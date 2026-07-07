@@ -5,7 +5,7 @@
 Implementation-time compatibility matrix for the public API and MCP platform
 foundation.
 
-Last reviewed: 2026-07-06.
+Last reviewed: 2026-07-07.
 
 This matrix separates repo-verified protocol behavior from manual client
 smokes. Do not declare the public MCP surface externally ready until the manual
@@ -181,9 +181,9 @@ and still runs the non-mutating hosted smoke.
 
 The command starts the local stdio MCP package against a local API fixture and
 replays initialize, tool-list, and every curated read-tool call with protocol
-profiles for Claude Desktop, Claude Code, VS Code, Cursor, Devin Desktop /
-Windsurf Cascade, and MCP Inspector. It verifies the shared MCP protocol path
-these clients use, not the clients' UI or account flows.
+profiles for Claude Desktop, Claude Code, Gemini CLI, VS Code, Cursor, Devin
+Desktop / Windsurf Cascade, and MCP Inspector. It verifies the shared MCP
+protocol path these clients use, not the clients' UI or account flows.
 
 The manual smoke result artifact is
 `docs/developers/mcp-client-smoke-results.json`. `pnpm verify:vrdex-mcp`
@@ -217,11 +217,11 @@ installed-client preflight:
 pnpm ops:mcp-installed-clients
 ```
 
-This read-only check records the detected Claude Code, VS Code, Cursor, and
-Windsurf CLI versions and verifies that installed clients still expose the MCP
-configuration surface their matrix rows depend on. It does not write client
-configuration, launch GUI smoke sessions, or turn any manual row green by
-itself. Use it to catch local client drift before the human smoke pass.
+This read-only check records the detected Claude Code, Gemini CLI, VS Code,
+Cursor, and Windsurf CLI versions and verifies that installed clients still
+expose the MCP configuration surface their matrix rows depend on. It does not
+write client configuration, launch GUI smoke sessions, or turn any manual row
+green by itself. Use it to catch local client drift before the human smoke pass.
 
 For installed VS Code-family clients, generate a disposable smoke-session pack
 after the preflight:
@@ -361,6 +361,7 @@ log can distinguish backend data, DCR, and CIMD blockers in one attempt.
 | --- | --- | --- | --- | --- |
 | Claude Desktop | Uses `mcpServers` JSON with `command`, `args`, and optional `env`. | Remote setup should use Claude's current Custom Connector path. | Hosted `/mcp` should complete OAuth through protected-resource metadata. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; hosted manual smoke pending. |
 | Claude Code | Supports stdio with `claude mcp add --transport stdio`. | Supports HTTP with `claude mcp add --transport http`. | Supports OAuth from `/mcp` or `claude mcp login`; reviewed-app client-credentials token acquisition and token-backed header auth are available as evidence paths. DCR and public-client CIMD are implemented. | Local stdio and staging data-backed hosted anonymous reads pass through `pnpm smoke:mcp-claude-code`; hosted OAuth has a client-credentials smoke harness and remains pending until evidence is recorded. |
+| Gemini CLI | Uses `settings.json` `mcpServers` entries with `command` for stdio. | Supports Streamable HTTP through `httpUrl` and SSE through `url`. | Supports OAuth 2.0 for remote MCP, automatic discovery, Dynamic Client Registration, `/mcp auth`, and secure token storage. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; exact Gemini CLI client rows remain pending until interactive `/mcp` evidence is recorded. |
 | VS Code | Uses `.vscode/mcp.json` or user MCP config with `servers` entries. | Supports `type: "http"` and `url`. | Avoid hardcoded secrets; use inputs or environment files. OAuth manual smoke pending. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; config snippets ready; manual smoke pending. |
 | Cursor | Treat local stdio as a required smoke target if the current release still supports command-based MCP config. | Treat hosted HTTP as a required smoke target if the current release supports remote MCP URLs. | Confirm current OAuth behavior during manual smoke. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; do not publish Cursor-specific snippets until the current docs or smoke run confirm them. |
 | OpenAI and ChatGPT MCP-capable surfaces | Treat local stdio as unsupported until the current product surface says otherwise. | Use hosted remote MCP when ChatGPT Apps, deep research, or API integration setup supports custom MCP servers. | Current OpenAI docs recommend CIMD when the authorization server supports it and keep DCR as a supported path when configured; VRDex implements both DCR and public-client CIMD. Public read tools advertise `_meta["securitySchemes"]` with `noauth` plus optional `oauth2`. | Hosted remote MCP target identified; exact setup and per-tool auth metadata behavior must be verified in the relevant OpenAI surface before launch docs publish snippets. |
@@ -503,16 +504,19 @@ pnpm ops:mcp-client-smokes -- \
    login`, uses reviewed OAuth app client credentials, or uses
    `VRDEX_CLAUDE_CODE_OAUTH_TOKEN` fallback for an authenticated smoke, paired
    with DCR and public-client CIMD protocol evidence.
-4. VS Code local stdio lists six tools and hosted HTTP anonymous reads work.
-5. Cursor local stdio and hosted HTTP read tools work in the current release.
-6. OpenAI or ChatGPT MCP-capable surfaces connect to hosted `/mcp` if the
+4. Gemini CLI local stdio lists six tools through `/mcp`, hosted anonymous
+   reads work through `httpUrl`, and hosted OAuth succeeds through automatic
+   discovery or a documented static OAuth fallback.
+5. VS Code local stdio lists six tools and hosted HTTP anonymous reads work.
+6. Cursor local stdio and hosted HTTP read tools work in the current release.
+7. OpenAI or ChatGPT MCP-capable surfaces connect to hosted `/mcp` if the
    current product supports custom remote MCP connectors. Record whether the
    connector accepts DCR, requires Client ID Metadata Documents, or follows a
    reviewed app submission path. Also record whether public read tools appear
    as anonymous/no-auth tools instead of forcing OAuth before a safe search.
-7. Devin Desktop or Windsurf Cascade local stdio and hosted HTTP read tools
+8. Devin Desktop or Windsurf Cascade local stdio and hosted HTTP read tools
    work; OAuth is tested when team MCP access allows it.
-8. MCP Inspector local stdio and hosted anonymous read paths return expected
+9. MCP Inspector local stdio and hosted anonymous read paths return expected
    tool lists, auth metadata, and data-backed search results. Use
    `pnpm smoke:mcp-inspector -- --hosted-data` for the hosted data-backed row;
    set reviewed OAuth app client credentials or
@@ -541,6 +545,7 @@ the PR is not being declared externally ready.
 - [MCP overview](https://modelcontextprotocol.io/docs/getting-started/intro)
 - [MCP Inspector](https://modelcontextprotocol.io/docs/tools/inspector)
 - [Claude Code MCP docs](https://docs.anthropic.com/en/docs/claude-code/mcp)
+- [Gemini CLI MCP servers](https://raw.githubusercontent.com/google-gemini/gemini-cli/main/docs/tools/mcp-server.md)
 - [VS Code MCP servers](https://code.visualstudio.com/docs/agent-customization/mcp-servers)
 - [Devin Desktop / Windsurf Cascade MCP](https://docs.devin.ai/desktop/cascade/mcp)
 - [OpenAI MCP and Connectors](https://platform.openai.com/docs/mcp)

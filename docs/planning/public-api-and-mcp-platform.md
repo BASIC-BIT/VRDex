@@ -802,7 +802,7 @@ Day-one client compatibility:
 
 - support Streamable HTTP for hosted MCP
 - support stdio for private/local MCP
-- maintain an implementation-time compatibility matrix for the major MCP clients available then, including Claude Desktop, Claude Code, VS Code/Copilot surfaces, Cursor, OpenAI/ChatGPT MCP-capable surfaces, Devin/Windsurf, and MCP Inspector unless the current ecosystem has shifted
+- maintain an implementation-time compatibility matrix for the major MCP clients available then, including Claude Desktop, Claude Code, Gemini CLI, VS Code/Copilot surfaces, Cursor, OpenAI/ChatGPT MCP-capable surfaces, Devin/Windsurf, and MCP Inspector unless the current ecosystem has shifted
 - test anonymous hosted read tools, OAuth hosted tools, and local stdio token configuration separately
 - do not declare hosted MCP ready until the matrix covers the mainstream clients VRDex users and partner agents are likely to use
 
@@ -1296,6 +1296,7 @@ Security-specific tests:
 - [MCP remote server guide](https://modelcontextprotocol.io/docs/develop/connect-remote-servers)
 - [MCP Inspector](https://modelcontextprotocol.io/docs/tools/inspector)
 - [Claude Code MCP docs](https://docs.anthropic.com/en/docs/claude-code/mcp)
+- [Gemini CLI MCP servers](https://raw.githubusercontent.com/google-gemini/gemini-cli/main/docs/tools/mcp-server.md)
 - [VS Code MCP servers](https://code.visualstudio.com/docs/agent-customization/mcp-servers)
 - [Devin Desktop / Windsurf Cascade MCP](https://docs.devin.ai/desktop/cascade/mcp)
 - [OpenAI MCP and Connectors](https://platform.openai.com/docs/mcp)
@@ -1329,6 +1330,7 @@ Security-specific tests:
 - Hosted production should use Redis-compatible TTL counters for anonymous/high-volume API and MCP traffic. Convex keeps durable ownership, policy, review, summary, and audit records.
 - Hosted MCP should support anonymous public read tools from day one, and anonymous callers should be treated as anonymous accounts for rate-limiting purposes.
 - Day-one MCP support should target every major MCP client available at implementation time through a compatibility matrix.
+- Current client research adds Gemini CLI to the required day-one MCP matrix because its official docs cover stdio, SSE, Streamable HTTP, OAuth discovery, Dynamic Client Registration, and `/mcp auth`.
 - First-pass developer apps support user-owned apps and owner-managed community-owned apps.
 - Community-owned OAuth app staff/admin delegation should be considered after broader community authority is stable enough.
 - Trusted partner access is manually reviewed by BASIC BIT operators and gets much higher practical quotas than normal personal tokens for authenticated API/MCP traffic, while retaining monitoring, cost controls, and revocation.

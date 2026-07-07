@@ -58,6 +58,7 @@ const matrixPath = process.env.VRDEX_MCP_CLIENT_MATRIX_PATH?.trim()
 const requiredClientChecks = new Map<string, string[]>([
   ["claude-desktop", ["local-stdio", "hosted-anonymous-read", "hosted-oauth"]],
   ["claude-code", ["local-stdio", "hosted-anonymous-read", "hosted-oauth"]],
+  ["gemini-cli", ["local-stdio", "hosted-anonymous-read", "hosted-oauth"]],
   ["vscode", ["local-stdio", "hosted-anonymous-read", "hosted-oauth"]],
   ["cursor", ["local-stdio", "hosted-anonymous-read", "hosted-oauth"]],
   ["openai-chatgpt", ["local-stdio", "hosted-anonymous-read", "hosted-oauth"]],

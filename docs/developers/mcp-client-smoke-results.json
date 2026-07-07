@@ -102,6 +102,36 @@
       ]
     },
     {
+      "id": "gemini-cli",
+      "name": "Gemini CLI",
+      "checks": [
+        {
+          "id": "local-stdio",
+          "surface": "local_stdio",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "pnpm smoke:mcp-compat local profile: Gemini CLI, including all curated read tools",
+          "manualStatus": "pending",
+          "notes": "Gemini CLI supports command-based stdio MCP servers through settings.json. Run an interactive /mcp session and call vrdex_search before recording this row."
+        },
+        {
+          "id": "hosted-anonymous-read",
+          "surface": "hosted_http_anonymous",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
+          "manualStatus": "pending",
+          "notes": "Gemini CLI supports Streamable HTTP through settings.json httpUrl. Confirm /mcp lists anonymous public-read tools and can call vrdex_search without /mcp auth."
+        },
+        {
+          "id": "hosted-oauth",
+          "surface": "hosted_http_oauth",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
+          "manualStatus": "pending",
+          "notes": "Gemini CLI documents automatic OAuth discovery, Dynamic Client Registration, /mcp auth, and secure token storage for remote MCP servers. Record hosted mcp:read behavior against the deployed target."
+        }
+      ]
+    },
+    {
       "id": "vscode",
       "name": "VS Code",
       "checks": [

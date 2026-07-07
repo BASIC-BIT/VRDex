@@ -65,6 +65,23 @@ describe("MCP client smoke planner", () => {
     assert.match(result.stdout, /Run Claude Code with a reviewed OAuth app client-credentials token acquisition/);
   });
 
+  it("prints Gemini CLI settings guidance for Streamable HTTP OAuth", () => {
+    const result = runPlan([
+      "--hosted-url",
+      "https://staging.vrdex.net/mcp",
+      "--client",
+      "gemini-cli",
+      "--check",
+      "hosted-oauth",
+    ]);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Gemini CLI/);
+    assert.match(result.stdout, /"httpUrl":"https:\/\/staging\.vrdex\.net\/mcp"/);
+    assert.match(result.stdout, /\/mcp auth vrdex/);
+    assert.match(result.stdout, /Dynamic Client Registration|DCR/);
+  });
+
   it("prints client-credentials hosted OAuth setup guidance for MCP Inspector", () => {
     const result = runPlan([
       "--hosted-url",

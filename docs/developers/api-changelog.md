@@ -14,6 +14,9 @@ docs update and a changelog entry so early consumers and agents can adapt.
   recorder scripts before launch-readiness claims
 - tightened the MCP client and hosted evidence recorders so pass/fail entries
   cannot use generated `<placeholder>` evidence, environment, or target values
+- added Gemini CLI to the required day-one MCP client matrix after a current
+  docs pass confirmed stdio, Streamable HTTP, OAuth discovery, Dynamic Client
+  Registration, and `/mcp auth` support
 - extended `pnpm smoke:mcp-inspector` with reviewed OAuth app client-credentials
   token acquisition plus `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN` fallback support so
   Inspector hosted OAuth evidence can validate authenticated `tools/list` with

@@ -205,6 +205,10 @@ function repoPreflightCommand(client: ClientEntry, check: SmokeCheck, options: O
     return `pnpm smoke:mcp-inspector -- --hosted-url ${target} --hosted-data`;
   }
 
+  if (client.id === "gemini-cli" && check.id === "hosted-oauth") {
+    return `pnpm smoke:mcp-compat -- --hosted-only --hosted-url ${target} --hosted-data --dcr --cimd`;
+  }
+
   if (check.id === "local-stdio") {
     return "pnpm smoke:mcp-compat";
   }
@@ -231,6 +235,18 @@ function manualEvidencePrompt(client: ClientEntry, check: SmokeCheck) {
 
   if (client.id === "mcp-inspector" && check.id === "hosted-oauth") {
     return "Run Inspector with reviewed OAuth app client credentials or a pre-minted MCP-resource token and record DCR/CIMD plus authenticated mcp:read behavior.";
+  }
+
+  if (client.id === "gemini-cli" && check.id === "hosted-oauth") {
+    return "Run Gemini CLI with hosted Streamable HTTP OAuth discovery, use /mcp auth vrdex when required, and record whether automatic discovery, DCR, token storage, and mcp:read succeed.";
+  }
+
+  if (client.id === "gemini-cli" && check.id === "local-stdio") {
+    return "Configure Gemini CLI settings.json with a command-based MCP server, run /mcp, and call vrdex_search.";
+  }
+
+  if (client.id === "gemini-cli" && check.id === "hosted-anonymous-read") {
+    return "Configure Gemini CLI settings.json with httpUrl pointing at hosted /mcp, run /mcp, and call vrdex_search without authenticating.";
   }
 
   if (check.id === "hosted-anonymous-read") {
@@ -307,6 +323,18 @@ function setupHint(client: ClientEntry, check: SmokeCheck, options: Options) {
 
   if (client.id === "mcp-inspector" && check.id === "hosted-oauth") {
     return `Set VRDEX_MCP_INSPECTOR_OAUTH_CLIENT_ID and VRDEX_MCP_INSPECTOR_OAUTH_CLIENT_SECRET for a reviewed client-credentials app, then run pnpm smoke:mcp-inspector -- --hosted-url ${target} --hosted-data. As a fallback, set VRDEX_MCP_INSPECTOR_OAUTH_TOKEN to a pre-minted MCP-resource token. Pair with pnpm smoke:mcp-compat -- --hosted-only --hosted-url ${target} --hosted-data --dcr --cimd for DCR/CIMD evidence.`;
+  }
+
+  if (client.id === "gemini-cli" && check.id === "local-stdio") {
+    return `Add ${jsonInline({ mcpServers: { vrdex: stdioAddMcpDefinition(options) } })} to Gemini CLI settings.json, then run /mcp and call vrdex_search.`;
+  }
+
+  if (client.id === "gemini-cli" && check.id === "hosted-anonymous-read") {
+    return `Add ${jsonInline({ mcpServers: { vrdex: { httpUrl: target } } })} to Gemini CLI settings.json, then run /mcp and call vrdex_search without /mcp auth.`;
+  }
+
+  if (client.id === "gemini-cli" && check.id === "hosted-oauth") {
+    return `Add ${jsonInline({ mcpServers: { vrdex: { httpUrl: target } } })} to Gemini CLI settings.json, run /mcp auth vrdex if the server requires OAuth for protected tools, and record automatic OAuth discovery/DCR behavior. If the current release needs a static fallback, record the documented oauth or Authorization-header configuration separately.`;
   }
 
   return "Use the docs matrix row to configure the current client release, then record exact evidence.";

@@ -77,6 +77,25 @@ const clients: ClientProbe[] = [
     ],
   },
   {
+    id: "gemini-cli",
+    name: "Gemini CLI",
+    manualGap: "Use Gemini CLI settings.json and an interactive /mcp session to list tools and call vrdex_search before recording manual rows.",
+    version: {
+      command: "gemini",
+      args: ["--version"],
+      evidence: "installed Gemini CLI version",
+      patterns: [/.+/],
+    },
+    probes: [
+      {
+        command: "gemini",
+        args: ["--help"],
+        evidence: "Gemini CLI command is available; MCP smoke depends on settings.json plus interactive /mcp evidence",
+        patterns: [/.+/],
+      },
+    ],
+  },
+  {
     id: "cursor",
     name: "Cursor",
     manualGap: "Use the installed app or Cursor agent surface to list tools and call vrdex_search before recording manual rows.",

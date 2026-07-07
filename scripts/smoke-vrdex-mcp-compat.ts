@@ -71,6 +71,7 @@ function assertHostedPublicReadSecuritySchemes(tool: HostedToolDescriptor) {
 const localClientProfiles = [
   { name: "Claude Desktop", clientName: "claude-desktop" },
   { name: "Claude Code", clientName: "claude-code" },
+  { name: "Gemini CLI", clientName: "gemini-cli" },
   { name: "VS Code", clientName: "vscode" },
   { name: "Cursor", clientName: "cursor" },
   { name: "Devin Desktop / Windsurf Cascade", clientName: "devin-windsurf-cascade" },
