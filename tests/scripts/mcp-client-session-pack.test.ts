@@ -17,7 +17,7 @@ function runSessionPack(args: string[]) {
 }
 
 describe("MCP client smoke session pack", () => {
-  it("writes disposable VS Code-family MCP configs and recorder guidance", async () => {
+  it("writes disposable VS Code-family and Gemini CLI MCP configs with recorder guidance", async () => {
     const outputDir = await mkdtemp(join(tmpdir(), "vrdex-mcp-client-session-"));
 
     try {
@@ -38,10 +38,13 @@ describe("MCP client smoke session pack", () => {
       assert.match(readme, /## VS Code/);
       assert.match(readme, /## Cursor/);
       assert.match(readme, /## Windsurf/);
+      assert.match(readme, /## Gemini CLI/);
       assert.match(readme, /pnpm record:mcp-client-smoke -- --client vscode --check local-stdio/);
       assert.match(readme, /pnpm record:mcp-client-smoke -- --client cursor --check hosted-anonymous-read/);
       assert.match(readme, /pnpm record:mcp-client-smoke -- --client devin-windsurf --check hosted-oauth/);
+      assert.match(readme, /pnpm record:mcp-client-smoke -- --client gemini-cli --check hosted-oauth/);
       assert.match(readme, /Get-Content -Raw/);
+      assert.match(readme, /\/mcp auth vrdex/);
 
       const localConfig = JSON.parse(
         await readFile(join(outputDir, "configs", "vscode-local-stdio.add-mcp.json"), "utf8"),
@@ -66,6 +69,64 @@ describe("MCP client smoke session pack", () => {
       assert.equal(hostedTokenConfig.type, "http");
       assert.equal(hostedTokenConfig.url, "https://staging.vrdex.net/mcp");
       assert.equal(hostedTokenConfig.headers?.Authorization, "Bearer <mcp-resource-token>");
+
+      const geminiLocalSettings = JSON.parse(
+        await readFile(join(outputDir, "configs", "gemini-cli-local-stdio.settings.json"), "utf8"),
+      ) as {
+        mcp?: { allowed?: string[] };
+        mcpServers?: {
+          vrdex?: {
+            args?: string[];
+            command?: string;
+            env?: Record<string, string>;
+            name?: string;
+            timeout?: number;
+            trust?: boolean;
+          };
+        };
+      };
+
+      assert.deepEqual(geminiLocalSettings.mcp?.allowed, ["vrdex"]);
+      assert.equal(geminiLocalSettings.mcpServers?.vrdex?.name, undefined);
+      assert.equal(geminiLocalSettings.mcpServers?.vrdex?.env?.VRDEX_API_BASE_URL, "https://staging.vrdex.net");
+      assert.deepEqual(geminiLocalSettings.mcpServers?.vrdex?.args?.slice(-3), [
+        "exec",
+        "tsx",
+        "packages/vrdex-mcp/src/stdio.ts",
+      ]);
+      assert.equal(geminiLocalSettings.mcpServers?.vrdex?.timeout, 600_000);
+      assert.equal(geminiLocalSettings.mcpServers?.vrdex?.trust, false);
+
+      const geminiHostedSettings = JSON.parse(
+        await readFile(join(outputDir, "configs", "gemini-cli-hosted-http.settings.json"), "utf8"),
+      ) as {
+        mcpServers?: {
+          vrdex?: {
+            httpUrl?: string;
+            timeout?: number;
+            trust?: boolean;
+          };
+        };
+      };
+
+      assert.equal(geminiHostedSettings.mcpServers?.vrdex?.httpUrl, "https://staging.vrdex.net/mcp");
+      assert.equal(geminiHostedSettings.mcpServers?.vrdex?.timeout, 600_000);
+      assert.equal(geminiHostedSettings.mcpServers?.vrdex?.trust, false);
+
+      const geminiHostedTokenSettings = JSON.parse(
+        await readFile(join(outputDir, "configs", "gemini-cli-hosted-token.settings.json"), "utf8"),
+      ) as {
+        mcpServers?: {
+          vrdex?: {
+            headers?: Record<string, string>;
+          };
+        };
+      };
+
+      assert.equal(
+        geminiHostedTokenSettings.mcpServers?.vrdex?.headers?.Authorization,
+        "Bearer <mcp-resource-token>",
+      );
     } finally {
       await rm(outputDir, { force: true, recursive: true });
     }

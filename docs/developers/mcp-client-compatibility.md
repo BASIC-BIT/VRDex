@@ -223,8 +223,8 @@ expose the MCP configuration surface their matrix rows depend on. It does not
 write client configuration, launch GUI smoke sessions, or turn any manual row
 green by itself. Use it to catch local client drift before the human smoke pass.
 
-For installed VS Code-family clients, generate a disposable smoke-session pack
-after the preflight:
+For installed VS Code-family clients and Gemini CLI, generate a disposable
+smoke-session pack after the preflight:
 
 ```sh
 pnpm ops:mcp-client-session-pack -- \
@@ -233,8 +233,9 @@ pnpm ops:mcp-client-session-pack -- \
 
 The pack is written to `.tmp-gh-artifacts/mcp-client-smoke-session/` by
 default. It contains compact `--add-mcp` JSON definitions for VS Code, Cursor,
-and Windsurf local stdio, hosted anonymous HTTP, and hosted token-header
-fallback setups, plus PowerShell launch commands, smoke prompts, and recorder
+and Windsurf plus Gemini CLI `settings.json` snippets for local stdio, hosted
+anonymous HTTP, and hosted token-header fallback setups. It also includes
+PowerShell launch commands where supported, smoke prompts, and recorder
 commands. It is not evidence by itself; use it to run the real client session
 and then record the matrix row only after the client lists tools and calls
 `vrdex_search`.
@@ -523,10 +524,9 @@ pnpm ops:mcp-client-smokes -- \
    `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN` fallback for the hosted OAuth row and pair
    it with the DCR/CIMD hosted protocol smoke.
 
-For rows 4, 5, and 7, start from `pnpm ops:mcp-client-session-pack` so VS Code,
-Cursor, and Windsurf use the same generated local stdio and hosted HTTP
-definitions, isolated profile name, prompt, target URL, and recorder-command
-shape.
+For rows 4, 5, 6, and 8, start from `pnpm ops:mcp-client-session-pack` so
+Gemini CLI, VS Code, Cursor, and Windsurf use the same generated local stdio
+and hosted HTTP definitions, prompt, target URL, and recorder-command shape.
 
 For each smoke, record client version, OS, transport, auth mode, result, exact
 config shape, whether the client distinguishes anonymous/no-auth tools from

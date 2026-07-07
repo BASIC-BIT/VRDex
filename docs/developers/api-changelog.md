@@ -27,8 +27,8 @@ docs update and a changelog entry so early consumers and agents can adapt.
   evidence can validate an authenticated `vrdex_search` call with an
   MCP-resource `mcp:read` token without printing the token or client secret
 - added `pnpm ops:mcp-client-session-pack` to generate disposable VS Code,
-  Cursor, and Windsurf MCP smoke-session configs, prompts, launch commands,
-  and recorder commands under `.tmp-gh-artifacts/`
+  Cursor, Windsurf, and Gemini CLI MCP smoke-session configs, prompts, launch
+  commands where supported, and recorder commands under `.tmp-gh-artifacts/`
 
 ## 2026-07-06
 

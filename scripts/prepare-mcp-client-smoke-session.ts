@@ -161,6 +161,47 @@ function hostedDefinition(options: Options, tokenPlaceholder = false) {
   };
 }
 
+function geminiLocalSettings(options: Options) {
+  const local = localStdioDefinition(options);
+
+  return {
+    mcp: {
+      allowed: ["vrdex"],
+    },
+    mcpServers: {
+      vrdex: {
+        args: local.args,
+        command: local.command,
+        env: local.env,
+        timeout: 600_000,
+        trust: false,
+      },
+    },
+  };
+}
+
+function geminiHostedSettings(options: Options, tokenPlaceholder = false) {
+  return {
+    mcp: {
+      allowed: ["vrdex"],
+    },
+    mcpServers: {
+      vrdex: {
+        ...(tokenPlaceholder
+          ? {
+              headers: {
+                Authorization: "Bearer <mcp-resource-token>",
+              },
+            }
+          : {}),
+        httpUrl: hostedMcpUrl(options.hostedUrl!),
+        timeout: 600_000,
+        trust: false,
+      },
+    },
+  };
+}
+
 function psSingleQuote(value: string) {
   return `'${value.replaceAll("'", "''")}'`;
 }
@@ -187,9 +228,22 @@ function recorderCommand(args: {
   hosted: boolean;
   targetEnvironment: string;
 }) {
+  return recorderCommandForMatrixClient({
+    ...args,
+    matrixClient: args.client.matrixClient,
+  });
+}
+
+function recorderCommandForMatrixClient(args: {
+  check: "hosted-anonymous-read" | "hosted-oauth" | "local-stdio";
+  environment: string;
+  hosted: boolean;
+  matrixClient: string;
+  targetEnvironment: string;
+}) {
   return [
     "pnpm record:mcp-client-smoke --",
-    `--client ${args.client.matrixClient}`,
+    `--client ${args.matrixClient}`,
     `--check ${args.check}`,
     "--status pass",
     `--environment ${JSON.stringify(args.environment)}`,
@@ -228,7 +282,7 @@ async function writeSessionPack(options: Options) {
   const readmeSections: string[] = [
     "# MCP Client Smoke Session Pack",
     "",
-    "Generated disposable setup files for installed VS Code-family MCP clients.",
+    "Generated disposable setup files for installed VS Code-family MCP clients and Gemini CLI.",
     "These files are operator aids, not matrix evidence. Record a row only after the real client lists tools and calls `vrdex_search`.",
     "",
     `Hosted MCP URL: \`${hostedMcpUrl(options.hostedUrl!)}\``,
@@ -348,6 +402,96 @@ async function writeSessionPack(options: Options) {
       "",
     );
   }
+
+  const geminiLocalConfig = path.join(configsDir, "gemini-cli-local-stdio.settings.json");
+  const geminiHostedConfig = path.join(configsDir, "gemini-cli-hosted-http.settings.json");
+  const geminiHostedTokenConfig = path.join(configsDir, "gemini-cli-hosted-token.settings.json");
+  const geminiLocalEnvironment = "Windows / Gemini CLI / settings.json local stdio";
+  const geminiHostedEnvironment = `Windows / Gemini CLI / settings.json / ${hostedMcpUrl(options.hostedUrl!)}`;
+
+  await writeJson(geminiLocalConfig, geminiLocalSettings({ ...options, repoRoot }));
+  await writeJson(geminiHostedConfig, geminiHostedSettings(options));
+  await writeJson(geminiHostedTokenConfig, geminiHostedSettings(options, true));
+
+  rows.push(
+    `| Gemini CLI | gemini-cli | \`${geminiLocalConfig}\` | \`${geminiHostedConfig}\` | \`${geminiHostedTokenConfig}\` |`,
+  );
+
+  readmeSections.push(
+    "## Gemini CLI",
+    "",
+    "Merge the relevant generated settings snippet into Gemini CLI `settings.json` for the smoke session. Keep the server key as `vrdex`; Gemini CLI policy parsing can misread server names that contain underscores.",
+    "",
+    "### Local Stdio Row",
+    "",
+    `Settings snippet: \`${geminiLocalConfig}\``,
+    "",
+    "Prompt:",
+    "",
+    "```txt",
+    smokePrompt("local-stdio"),
+    "```",
+    "",
+    "Recorder:",
+    "",
+    "```powershell",
+    recorderCommandForMatrixClient({
+      check: "local-stdio",
+      environment: geminiLocalEnvironment,
+      hosted: false,
+      matrixClient: "gemini-cli",
+      targetEnvironment: options.targetEnvironment,
+    }),
+    "```",
+    "",
+    "### Hosted Anonymous-Read Row",
+    "",
+    `Settings snippet: \`${geminiHostedConfig}\``,
+    "",
+    "Prompt:",
+    "",
+    "```txt",
+    smokePrompt("hosted-anonymous-read"),
+    "```",
+    "",
+    "Recorder:",
+    "",
+    "```powershell",
+    recorderCommandForMatrixClient({
+      check: "hosted-anonymous-read",
+      environment: geminiHostedEnvironment,
+      hosted: true,
+      matrixClient: "gemini-cli",
+      targetEnvironment: options.targetEnvironment,
+    }),
+    "```",
+    "",
+    "### Hosted OAuth Row",
+    "",
+    "Prefer Gemini CLI's native OAuth discovery first. Run `/mcp auth vrdex` when the client reports that authentication is required for protected MCP tools. Use the token-header settings snippet only if the current release cannot complete OAuth but can prove authenticated MCP access with a short-lived MCP-resource token.",
+    "",
+    `OAuth-discovery settings snippet: \`${geminiHostedConfig}\``,
+    `Token-header fallback settings snippet: \`${geminiHostedTokenConfig}\``,
+    "",
+    "Prompt:",
+    "",
+    "```txt",
+    smokePrompt("hosted-oauth"),
+    "```",
+    "",
+    "Recorder:",
+    "",
+    "```powershell",
+    recorderCommandForMatrixClient({
+      check: "hosted-oauth",
+      environment: `${geminiHostedEnvironment} / hosted OAuth`,
+      hosted: true,
+      matrixClient: "gemini-cli",
+      targetEnvironment: options.targetEnvironment,
+    }),
+    "```",
+    "",
+  );
 
   const readme = [
     ...readmeSections,
