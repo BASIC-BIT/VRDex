@@ -218,10 +218,13 @@ pnpm ops:mcp-installed-clients
 ```
 
 This read-only check records the detected Claude Code, Gemini CLI, VS Code,
-Cursor, and Windsurf CLI versions and verifies that installed clients still
-expose the MCP configuration surface their matrix rows depend on. It does not
-write client configuration, launch GUI smoke sessions, or turn any manual row
-green by itself. Use it to catch local client drift before the human smoke pass.
+Cursor, and Windsurf CLI versions, verifies that installed clients still expose
+the MCP configuration surface their matrix rows depend on, and reports whether
+hosted OAuth smoke credential variables are present for the Claude Code and
+MCP Inspector OAuth rows. It prints variable names only, never secret values.
+It does not write client configuration, launch GUI smoke sessions, or turn any
+manual row green by itself. Use it to catch local client drift and OAuth
+evidence blockers before the human smoke pass.
 
 For installed VS Code-family clients and Gemini CLI, generate a disposable
 smoke-session pack after the preflight:

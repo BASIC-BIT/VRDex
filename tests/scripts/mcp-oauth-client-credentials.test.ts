@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   fetchMcpOAuthClientCredentialsToken,
   hostedMcpResourceUrl,
+  mcpOAuthCredentialSourcesFromEnv,
   mcpOAuthClientCredentialsFromEnv,
   oauthTokenEndpointFromHostedUrl,
 } from "../../scripts/mcp-oauth-client-credentials";
@@ -43,6 +44,48 @@ describe("MCP OAuth client credentials helper", () => {
       {
         clientId: "generic-id",
         clientSecret: "generic-secret",
+      },
+    );
+  });
+
+  it("reports OAuth credential source names without exposing values", () => {
+    assert.deepEqual(
+      mcpOAuthCredentialSourcesFromEnv(
+        {
+          VRDEX_CLAUDE_CODE_OAUTH_CLIENT_ID: "client-specific-id",
+          VRDEX_CLAUDE_CODE_OAUTH_CLIENT_SECRET: "client-specific-secret",
+          VRDEX_CLAUDE_CODE_OAUTH_TOKEN: "secret-token",
+          VRDEX_MCP_OAUTH_CLIENT_ID: "generic-id",
+          VRDEX_MCP_OAUTH_CLIENT_SECRET: "generic-secret",
+        },
+        "CLAUDE_CODE",
+        "VRDEX_CLAUDE_CODE_OAUTH_TOKEN",
+      ),
+      {
+        clientIdSource: "VRDEX_CLAUDE_CODE_OAUTH_CLIENT_ID",
+        clientSecretSource: "VRDEX_CLAUDE_CODE_OAUTH_CLIENT_SECRET",
+        hasCompleteClientCredentials: true,
+        hasPartialClientCredentials: false,
+        hasToken: true,
+        tokenSource: "VRDEX_CLAUDE_CODE_OAUTH_TOKEN",
+      },
+    );
+
+    assert.deepEqual(
+      mcpOAuthCredentialSourcesFromEnv(
+        {
+          VRDEX_MCP_OAUTH_CLIENT_ID: "generic-id",
+        },
+        "MCP_INSPECTOR",
+        "VRDEX_MCP_INSPECTOR_OAUTH_TOKEN",
+      ),
+      {
+        clientIdSource: "VRDEX_MCP_OAUTH_CLIENT_ID",
+        clientSecretSource: undefined,
+        hasCompleteClientCredentials: false,
+        hasPartialClientCredentials: true,
+        hasToken: false,
+        tokenSource: undefined,
       },
     );
   });

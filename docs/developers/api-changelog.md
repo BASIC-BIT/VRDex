@@ -29,6 +29,9 @@ docs update and a changelog entry so early consumers and agents can adapt.
 - added `pnpm ops:mcp-client-session-pack` to generate disposable VS Code,
   Cursor, Windsurf, and Gemini CLI MCP smoke-session configs, prompts, launch
   commands where supported, and recorder commands under `.tmp-gh-artifacts/`
+- extended `pnpm ops:mcp-installed-clients` to report hosted OAuth smoke
+  credential readiness for Claude Code and MCP Inspector without printing
+  secret values
 
 ## 2026-07-06
 

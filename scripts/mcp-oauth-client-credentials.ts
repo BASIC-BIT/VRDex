@@ -11,6 +11,15 @@ export type McpOAuthTokenResult = {
   scope?: string;
 };
 
+export type McpOAuthCredentialSources = {
+  clientIdSource?: string;
+  clientSecretSource?: string;
+  hasCompleteClientCredentials: boolean;
+  hasPartialClientCredentials: boolean;
+  hasToken: boolean;
+  tokenSource?: string;
+};
+
 type FetchTokenOptions = McpOAuthClientCredentials & {
   fetchImpl?: typeof fetch;
   hostedUrl: string;
@@ -63,6 +72,39 @@ export function mcpOAuthClientCredentialsFromEnv(env: NodeJS.ProcessEnv, clientS
       nonEmpty(env[`VRDEX_${clientSpecificPrefix}_OAUTH_CLIENT_SECRET`])
       ?? nonEmpty(env.VRDEX_MCP_OAUTH_CLIENT_SECRET),
   } satisfies McpOAuthClientCredentials;
+}
+
+function firstPresentEnvName(env: NodeJS.ProcessEnv, names: string[]) {
+  return names.find((name) => nonEmpty(env[name]) !== undefined);
+}
+
+export function mcpOAuthCredentialSourcesFromEnv(
+  env: NodeJS.ProcessEnv,
+  clientSpecificPrefix: string,
+  tokenEnvName?: string,
+): McpOAuthCredentialSources {
+  const clientIdSource = firstPresentEnvName(env, [
+    `VRDEX_${clientSpecificPrefix}_OAUTH_CLIENT_ID`,
+    "VRDEX_MCP_OAUTH_CLIENT_ID",
+  ]);
+  const clientSecretSource = firstPresentEnvName(env, [
+    `VRDEX_${clientSpecificPrefix}_OAUTH_CLIENT_SECRET`,
+    "VRDEX_MCP_OAUTH_CLIENT_SECRET",
+  ]);
+  const tokenSource = tokenEnvName === undefined
+    ? undefined
+    : firstPresentEnvName(env, [tokenEnvName]);
+
+  return {
+    clientIdSource,
+    clientSecretSource,
+    hasCompleteClientCredentials: clientIdSource !== undefined && clientSecretSource !== undefined,
+    hasPartialClientCredentials:
+      (clientIdSource !== undefined && clientSecretSource === undefined) ||
+      (clientIdSource === undefined && clientSecretSource !== undefined),
+    hasToken: tokenSource !== undefined,
+    tokenSource,
+  };
 }
 
 export function hasAnyMcpOAuthClientCredentials(credentials: McpOAuthClientCredentials) {

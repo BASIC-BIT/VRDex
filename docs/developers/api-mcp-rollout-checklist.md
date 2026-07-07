@@ -110,14 +110,17 @@ one PR.
   plan from the matrix, including repo preflight commands, manual evidence
   prompts, and recorder command templates for pending rows.
 - `pnpm ops:mcp-installed-clients` performs a read-only local preflight for
-  installed Claude Code, VS Code, Cursor, and Windsurf CLI versions plus MCP
-  configuration support. It catches client drift before manual smoke sessions
-  but does not replace manual matrix evidence.
-- `pnpm ops:mcp-client-session-pack` writes disposable VS Code, Cursor, and
-  Windsurf MCP setup files under `.tmp-gh-artifacts/`, including local stdio,
-  hosted anonymous HTTP, hosted token-header fallback configs, launch commands,
-  smoke prompts, and recorder commands. It does not replace manual matrix
-  evidence; use it to keep those installed-client smoke sessions repeatable.
+  installed Claude Code, Gemini CLI, VS Code, Cursor, and Windsurf CLI versions
+  plus MCP configuration support. It also reports hosted OAuth smoke credential
+  readiness for Claude Code and MCP Inspector by variable name only. It catches
+  client drift and OAuth evidence blockers before manual smoke sessions but
+  does not replace manual matrix evidence.
+- `pnpm ops:mcp-client-session-pack` writes disposable VS Code, Cursor,
+  Windsurf, and Gemini CLI MCP setup files under `.tmp-gh-artifacts/`,
+  including local stdio, hosted anonymous HTTP, hosted token-header fallback
+  configs, launch commands or settings snippets where supported, smoke prompts,
+  and recorder commands. It does not replace manual matrix evidence; use it to
+  keep those installed-client smoke sessions repeatable.
 - `pnpm check:api-mcp-rollout` summarizes the generated OpenAPI contract,
   required docs, verification scripts, MCP client matrix, and hosted MCP
   production-like evidence state. The gate asserts every current checked-in

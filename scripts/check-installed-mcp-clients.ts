@@ -1,5 +1,7 @@
 import { spawnSync } from "node:child_process";
 
+import { mcpOAuthCredentialSourcesFromEnv } from "./mcp-oauth-client-credentials";
+
 type Probe = {
   args: string[];
   command: string;
@@ -29,6 +31,20 @@ type ClientResult = {
   name: string;
   status: "fail" | "pass" | "skip";
   version: string;
+};
+
+type OAuthPrerequisite = {
+  clientSpecificPrefix: string;
+  matrixRow: string;
+  smokeCommand: string;
+  tokenEnvName: string;
+};
+
+type OAuthPrerequisiteResult = {
+  credentialSource: string;
+  matrixRow: string;
+  nextAction: string;
+  status: "missing" | "partial" | "pass";
 };
 
 const clients: ClientProbe[] = [
@@ -161,6 +177,21 @@ const clients: ClientProbe[] = [
   },
 ];
 
+const oauthPrerequisites: OAuthPrerequisite[] = [
+  {
+    clientSpecificPrefix: "CLAUDE_CODE",
+    matrixRow: "claude-code/hosted-oauth",
+    smokeCommand: "pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url <target-/mcp-url> --hosted-data",
+    tokenEnvName: "VRDEX_CLAUDE_CODE_OAUTH_TOKEN",
+  },
+  {
+    clientSpecificPrefix: "MCP_INSPECTOR",
+    matrixRow: "mcp-inspector/hosted-oauth",
+    smokeCommand: "pnpm smoke:mcp-inspector -- --hosted-url <target-/mcp-url> --hosted-data",
+    tokenEnvName: "VRDEX_MCP_INSPECTOR_OAUTH_TOKEN",
+  },
+];
+
 function commandLine(probe: Probe) {
   return [probe.command, ...probe.args].join(" ");
 }
@@ -262,11 +293,53 @@ function markdownCell(value: string) {
     .trim();
 }
 
-function printResults(results: ClientResult[]) {
+function evaluateOAuthPrerequisite(prerequisite: OAuthPrerequisite): OAuthPrerequisiteResult {
+  const sources = mcpOAuthCredentialSourcesFromEnv(
+    process.env,
+    prerequisite.clientSpecificPrefix,
+    prerequisite.tokenEnvName,
+  );
+  const credentialSource = [
+    sources.hasCompleteClientCredentials
+      ? `client credentials from ${sources.clientIdSource} + ${sources.clientSecretSource}`
+      : undefined,
+    sources.hasToken ? `token from ${sources.tokenSource}` : undefined,
+    sources.hasPartialClientCredentials
+      ? `partial client credentials from ${[sources.clientIdSource, sources.clientSecretSource].filter(Boolean).join(" + ")}`
+      : undefined,
+  ].filter(Boolean).join("; ") || "none";
+
+  if (sources.hasPartialClientCredentials && !sources.hasCompleteClientCredentials && !sources.hasToken) {
+    return {
+      credentialSource,
+      matrixRow: prerequisite.matrixRow,
+      nextAction: "Set both client id and client secret, or clear the partial variable before running the OAuth smoke.",
+      status: "partial",
+    };
+  }
+
+  if (sources.hasCompleteClientCredentials || sources.hasToken) {
+    return {
+      credentialSource,
+      matrixRow: prerequisite.matrixRow,
+      nextAction: prerequisite.smokeCommand,
+      status: "pass",
+    };
+  }
+
+  return {
+    credentialSource,
+    matrixRow: prerequisite.matrixRow,
+    nextAction: `Set VRDEX_MCP_OAUTH_CLIENT_ID + VRDEX_MCP_OAUTH_CLIENT_SECRET, or set ${prerequisite.tokenEnvName}, then run ${prerequisite.smokeCommand}.`,
+    status: "missing",
+  };
+}
+
+function printResults(results: ClientResult[], oauthResults: OAuthPrerequisiteResult[]) {
   console.log("# Installed MCP Client Preflight");
   console.log("");
   console.log("This read-only check inspects local CLI versions and MCP configuration support.");
-  console.log("It does not write MCP config, launch GUI sessions, or replace manual matrix smokes.");
+  console.log("It does not write MCP config, launch GUI sessions, print secrets, or replace manual matrix smokes.");
   console.log("");
   console.log("| Client | Status | Version | CLI evidence | Remaining manual gap |");
   console.log("| --- | --- | --- | --- | --- |");
@@ -282,16 +355,37 @@ function printResults(results: ClientResult[]) {
       ].join(" | ")} |`,
     );
   }
+
+  console.log("");
+  console.log("## Hosted OAuth Evidence Prerequisites");
+  console.log("");
+  console.log("| Matrix row | Status | Credential source | Next action |");
+  console.log("| --- | --- | --- | --- |");
+
+  for (const result of oauthResults) {
+    console.log(
+      `| ${[
+        markdownCell(result.matrixRow),
+        result.status,
+        markdownCell(result.credentialSource),
+        markdownCell(result.nextAction),
+      ].join(" | ")} |`,
+    );
+  }
 }
 
 function main() {
   const results = clients.map(evaluateClient);
-  const failures = results.filter((result) => result.status === "fail");
+  const oauthResults = oauthPrerequisites.map(evaluateOAuthPrerequisite);
+  const failures = [
+    ...results.filter((result) => result.status === "fail").map((result) => result.name),
+    ...oauthResults.filter((result) => result.status === "partial").map((result) => result.matrixRow),
+  ];
 
-  printResults(results);
+  printResults(results, oauthResults);
 
   if (failures.length > 0) {
-    throw new Error(`Installed MCP client preflight failed: ${failures.map((failure) => failure.name).join(", ")}`);
+    throw new Error(`Installed MCP client preflight failed: ${failures.join(", ")}`);
   }
 }
 
