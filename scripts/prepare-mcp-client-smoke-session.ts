@@ -248,8 +248,8 @@ function psSingleQuote(value: string) {
   return `'${value.replaceAll("'", "''")}'`;
 }
 
-function installCommand(client: Client, outputDir: string, configFile: string, repoRoot: string) {
-  const userDataDir = path.join(outputDir, "user-data", client.id);
+function installCommand(client: Client, outputDir: string, configFile: string, repoRoot: string, userDataKey: string) {
+  const userDataDir = path.join(outputDir, "user-data", client.id, userDataKey);
 
   return [
     `$mcpJson = (Get-Content -Raw ${psSingleQuote(configFile)}).Trim().Replace('"', '\\"')`,
@@ -601,6 +601,7 @@ async function writeSessionPack(options: Options) {
     "Generated disposable setup files for installed VS Code-family MCP clients and Gemini CLI, plus recordable worksheets for manual-only MCP client rows.",
     "These files are operator aids, not matrix evidence. Record a row only after the real client lists tools and calls `vrdex_search`.",
     "Evidence templates are pending worksheets until they are filled with sanitized real-client output.",
+    "Each VS Code-family row uses its own isolated user-data directory so local, hosted anonymous, and hosted token-fallback configs cannot overwrite each other.",
     "",
     `Hosted MCP URL: \`${hostedMcpUrl(options.hostedUrl!)}\``,
     `Local stdio API base URL: \`${hostedOrigin(options.hostedUrl!)}\``,
@@ -629,9 +630,21 @@ async function writeSessionPack(options: Options) {
     const localEnvironment = `Windows / ${client.name} / isolated user-data / local stdio`;
     const hostedEnvironment = `Windows / ${client.name} / isolated user-data / ${hostedMcpUrl(options.hostedUrl!)}`;
     const commands = {
-      hostedAnonymous: installCommand(client, outputDir, hostedConfig, repoRoot),
-      hostedOauthFallback: installCommand(client, outputDir, hostedTokenConfig, repoRoot),
-      local: installCommand(client, outputDir, localConfig, repoRoot),
+      hostedAnonymous: installCommand(
+        client,
+        outputDir,
+        hostedConfig,
+        repoRoot,
+        "hosted-anonymous-read",
+      ),
+      hostedOauthFallback: installCommand(
+        client,
+        outputDir,
+        hostedTokenConfig,
+        repoRoot,
+        "hosted-oauth-token-fallback",
+      ),
+      local: installCommand(client, outputDir, localConfig, repoRoot, "local-stdio"),
     };
     const localRecorder = recorderCommand({
       check: "local-stdio",

@@ -52,6 +52,9 @@ describe("MCP client smoke session pack", () => {
       assert.match(readme, /\.Trim\(\)\.Replace/);
       assert.match(readme, /--user-data-dir/);
       assert.match(readme, /isolated user-data/);
+      assert.match(readme, /user-data[\\/]vscode[\\/]local-stdio/);
+      assert.match(readme, /user-data[\\/]cursor[\\/]hosted-anonymous-read/);
+      assert.match(readme, /user-data[\\/]windsurf[\\/]hosted-oauth-token-fallback/);
       assert.doesNotMatch(readme, /--profile vrdex-mcp-smoke/);
       assert.match(readme, /\/mcp auth vrdex/);
       assert.match(readme, /Generated Evidence Templates/);

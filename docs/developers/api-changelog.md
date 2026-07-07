@@ -45,6 +45,10 @@ docs update and a changelog entry so early consumers and agents can adapt.
   isolated `--user-data-dir` paths and PowerShell-safe escaped JSON for
   `--add-mcp` after the current Windows CLIs rejected fresh named profiles and
   raw `(Get-Content -Raw ...)` JSON arguments
+- tightened `pnpm ops:mcp-client-session-pack` so each generated VS Code,
+  Cursor, and Windsurf row uses its own isolated user-data directory instead of
+  letting local, hosted anonymous, and token-fallback configs overwrite the same
+  `vrdex` server entry
 - added `pnpm ops:mcp-add-mcp-preflight` to verify that installed VS Code,
   Cursor, and Windsurf CLIs accept the generated local stdio, hosted anonymous
   HTTP, and hosted token-header fallback `--add-mcp` definitions before a human
