@@ -173,4 +173,46 @@ describe("MCP client matrix verifier", () => {
       await rm(directory, { force: true, recursive: true });
     }
   });
+
+  it("rejects placeholder client-row evidence in hand-edited matrix JSON", async () => {
+    const { directory, path } = await writeMatrixCopy("placeholder-client-evidence", (matrix) => {
+      markHostedInspectorPass(matrix);
+      matrix.targetEnvironment = "production-like staging https://staging.vrdex.net/mcp";
+      const client = matrix.clients.find((entry) => entry.id === "mcp-inspector");
+      const check = client?.checks.find((entry) => entry.id === "hosted-anonymous-read");
+
+      assert.ok(check);
+      check.manualEvidence = "<sanitized evidence link>";
+    });
+
+    try {
+      const result = runMatrixCheck(path);
+
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /mcp-inspector\/hosted-anonymous-read manualEvidence must be concrete/);
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  it("rejects placeholder hosted-readiness evidence in hand-edited matrix JSON", async () => {
+    const { directory, path } = await writeMatrixCopy("placeholder-hosted-evidence", (matrix) => {
+      resetHostedClientPasses(matrix);
+      matrix.targetEnvironment = "production-like staging https://staging.vrdex.net/mcp";
+      markHostedReadinessPass(matrix, "hosted-data-backed-anonymous-read");
+      const check = matrix.hostedReadiness?.checks.find((entry) => entry.id === "hosted-data-backed-anonymous-read");
+
+      assert.ok(check);
+      check.evidence = "<sanitized workflow link or command output>";
+    });
+
+    try {
+      const result = runMatrixCheck(path);
+
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /hostedReadiness\/hosted-data-backed-anonymous-read evidence must be concrete/);
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
 });

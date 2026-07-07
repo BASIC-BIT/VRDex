@@ -103,7 +103,9 @@ one PR.
 - Required hosted matrix rows cannot be recorded or verified as `pass` unless
   the matrix target environment names a same-branch Convex preview, staging,
   production-like, or production target. Lightweight PR preview transport
-  evidence must stay separate from external-readiness evidence.
+  evidence must stay separate from external-readiness evidence. Generated
+  recorder commands are templates; replace every `<placeholder>` value before
+  recording pass/fail evidence.
 - `pnpm ops:mcp-client-smokes` generates the current day-one client smoke run
   plan from the matrix, including repo preflight commands, manual evidence
   prompts, and recorder command templates for pending rows.

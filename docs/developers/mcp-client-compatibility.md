@@ -256,7 +256,10 @@ Use `--matrix <path>` or `VRDEX_MCP_CLIENT_MATRIX_PATH=<path>` to rehearse an
 update against a temporary copy before writing the canonical matrix. A `pass`
 or `fail` entry requires an environment and evidence pointer; `pending` clears
 run evidence; `not_applicable` requires notes and is allowed only for rows that
-are not required for external readiness.
+are not required for external readiness. Generated recorder commands are
+templates: replace every `<placeholder>` value before running them. The
+recorder and verifier reject placeholder evidence, environment, or target text
+for pass/fail rows.
 
 For required hosted rows, a `pass` also requires `--target-environment` naming
 a same-branch Convex preview, staging, production-like, or production target.

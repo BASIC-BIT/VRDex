@@ -46,6 +46,7 @@ type RecordOptions = {
 const allowedStatuses = new Set<ManualStatus>(["fail", "not_applicable", "pass", "pending"]);
 const hostedEvidenceTargetPattern = /\b(same-branch|production-like|staging|production)\b/i;
 const pendingHostedEvidencePattern = /\b(pending|need|needs|lack|lacks|skipped|unavailable|not deployed|without data-backed)\b/i;
+const placeholderPattern = /<[^>]+>/;
 
 function todayUtc() {
   return new Date().toISOString().slice(0, 10);
@@ -55,6 +56,10 @@ function nonEmpty(value: string | undefined) {
   const trimmed = value?.trim();
 
   return trimmed ? trimmed : undefined;
+}
+
+function assertConcreteValue(value: string, label: string) {
+  assert.doesNotMatch(value, placeholderPattern, `${label} must be concrete and must not contain <placeholder> text.`);
 }
 
 function takeValue(args: string[], index: number, name: string) {
@@ -155,8 +160,13 @@ function validateStatusUpdate(check: SmokeCheck, options: RecordOptions) {
   }
 
   if (options.status === "pass" || options.status === "fail") {
-    assert.ok(nonEmpty(options.environment), "--environment is required for pass or fail.");
-    assert.ok(nonEmpty(options.evidence), "--evidence is required for pass or fail.");
+    const environment = nonEmpty(options.environment);
+    const evidence = nonEmpty(options.evidence);
+
+    assert.ok(environment, "--environment is required for pass or fail.");
+    assert.ok(evidence, "--evidence is required for pass or fail.");
+    assertConcreteValue(environment, "--environment");
+    assertConcreteValue(evidence, "--evidence");
   }
 
   if (
@@ -171,6 +181,7 @@ function validateStatusUpdate(check: SmokeCheck, options: RecordOptions) {
 
     const target = nonEmpty(options.targetEnvironment ?? undefined) ?? "";
 
+    assertConcreteValue(target, "--target-environment");
     assert.match(
       target,
       hostedEvidenceTargetPattern,

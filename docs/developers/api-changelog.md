@@ -12,6 +12,8 @@ docs update and a changelog entry so early consumers and agents can adapt.
 - tightened `pnpm check:api-mcp-rollout` so the aggregate readiness gate checks
   every current checked-in `/api/v0` OpenAPI path and requires both MCP evidence
   recorder scripts before launch-readiness claims
+- tightened the MCP client and hosted evidence recorders so pass/fail entries
+  cannot use generated `<placeholder>` evidence, environment, or target values
 - extended `pnpm smoke:mcp-inspector` with reviewed OAuth app client-credentials
   token acquisition plus `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN` fallback support so
   Inspector hosted OAuth evidence can validate authenticated `tools/list` with

@@ -123,4 +123,56 @@ describe("hosted MCP evidence recorder", () => {
       await rm(directory, { force: true, recursive: true });
     }
   });
+
+  it("rejects placeholder evidence for hosted readiness pass rows", async () => {
+    const { directory, path } = await writeMatrixCopy("reject-placeholder-evidence");
+
+    try {
+      const result = runRecorder([
+        "--matrix",
+        path,
+        "--check",
+        "hosted-data-backed-anonymous-read",
+        "--status",
+        "pass",
+        "--target-environment",
+        "production-like staging https://staging.vrdex.net/mcp",
+        "--environment",
+        "GitHub Actions / hosted MCP smoke",
+        "--evidence",
+        "<sanitized workflow link or command output>",
+      ]);
+
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /--evidence must be concrete/);
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  it("rejects placeholder target environments for hosted readiness pass rows", async () => {
+    const { directory, path } = await writeMatrixCopy("reject-placeholder-target");
+
+    try {
+      const result = runRecorder([
+        "--matrix",
+        path,
+        "--check",
+        "hosted-data-backed-anonymous-read",
+        "--status",
+        "pass",
+        "--target-environment",
+        "<same-branch Convex preview / staging / production-like target>",
+        "--environment",
+        "GitHub Actions / hosted MCP smoke",
+        "--evidence",
+        "https://github.com/BASIC-BIT/VRDex/actions/runs/example",
+      ]);
+
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /--target-environment must be concrete/);
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
 });
