@@ -268,6 +268,22 @@ required row that is not already `pass` lacks a generated worksheet. Use
 `--matrix <path>` or `VRDEX_MCP_CLIENT_MATRIX_PATH=<path>` when rehearsing a
 matrix change against a temporary copy.
 
+Before opening the installed VS Code-family apps for manual evidence, run the
+isolated add-MCP preflight against the generated JSON shapes:
+
+```sh
+pnpm ops:mcp-add-mcp-preflight -- \
+  --hosted-url https://staging.vrdex.net/mcp
+```
+
+This writes disposable config and user-data directories under
+`.tmp-gh-artifacts/mcp-client-add-mcp-preflight/`, then asks VS Code, Cursor,
+and Windsurf to accept local stdio, hosted anonymous HTTP, and hosted
+token-header fallback definitions. Missing clients are skipped unless
+`--require-installed` is set. A passing preflight proves only that the current
+CLI accepts the setup definitions; it is still not matrix evidence because it
+does not list tools or call `vrdex_search` inside the app.
+
 Record manual pass or fail results with the recorder command instead of
 hand-editing the JSON:
 

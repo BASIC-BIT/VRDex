@@ -59,6 +59,8 @@
     "ops:mcp-client-smokes": "node --import tsx scripts/plan-mcp-client-smokes.ts",
     "preops:mcp-client-session-pack": "node scripts/guard-main-worktree.mjs",
     "ops:mcp-client-session-pack": "node --import tsx scripts/prepare-mcp-client-smoke-session.ts",
+    "preops:mcp-add-mcp-preflight": "node scripts/guard-main-worktree.mjs",
+    "ops:mcp-add-mcp-preflight": "node --import tsx scripts/check-mcp-client-add-mcp-preflight.ts",
     "preops:mcp-installed-clients": "node scripts/guard-main-worktree.mjs",
     "ops:mcp-installed-clients": "node --import tsx scripts/check-installed-mcp-clients.ts",
     "precheck:mcp-client-matrix": "node scripts/guard-main-worktree.mjs",

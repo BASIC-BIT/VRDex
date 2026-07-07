@@ -133,6 +133,13 @@ one PR.
   use isolated `--user-data-dir` paths and escaped JSON arguments because the
   current Windows CLIs reject fresh named profiles and raw PowerShell JSON for
   `--add-mcp`.
+- `pnpm ops:mcp-add-mcp-preflight` writes disposable VS Code, Cursor, and
+  Windsurf config/user-data directories and verifies that the installed CLIs
+  accept the generated local stdio, hosted anonymous HTTP, and hosted
+  token-header fallback `--add-mcp` definitions. It skips missing clients by
+  default and fails rejected definitions. It does not replace manual matrix
+  evidence because it does not list tools or call `vrdex_search` inside a real
+  client session.
 - `pnpm check:api-mcp-rollout` summarizes the generated OpenAPI contract,
   required docs, verification scripts, MCP client matrix, and hosted MCP
   production-like evidence state. The gate asserts every current checked-in
@@ -198,6 +205,7 @@ pnpm check:mcp-client-matrix
 pnpm ops:mcp-installed-clients
 pnpm ops:mcp-client-smokes
 pnpm ops:mcp-client-session-pack -- --hosted-url <preview-or-production-like-/mcp-url>
+pnpm ops:mcp-add-mcp-preflight -- --hosted-url <preview-or-production-like-/mcp-url>
 pnpm check:api-mcp-rollout
 pnpm smoke:mcp-compat -- --hosted-only --hosted-url <preview-or-production-like-/mcp-url>
 pnpm smoke:mcp-compat -- --hosted-only --hosted-url <production-like-/mcp-url> --hosted-data --dcr --cimd --continue-on-failure

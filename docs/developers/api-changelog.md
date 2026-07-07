@@ -45,6 +45,10 @@ docs update and a changelog entry so early consumers and agents can adapt.
   isolated `--user-data-dir` paths and PowerShell-safe escaped JSON for
   `--add-mcp` after the current Windows CLIs rejected fresh named profiles and
   raw `(Get-Content -Raw ...)` JSON arguments
+- added `pnpm ops:mcp-add-mcp-preflight` to verify that installed VS Code,
+  Cursor, and Windsurf CLIs accept the generated local stdio, hosted anonymous
+  HTTP, and hosted token-header fallback `--add-mcp` definitions before a human
+  starts manual tool-list and `vrdex_search` evidence capture
 - extended `pnpm ops:mcp-installed-clients` to report hosted OAuth smoke
   credential readiness for Claude Code and MCP Inspector without printing
   secret values
