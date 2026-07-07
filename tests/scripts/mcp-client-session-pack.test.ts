@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -32,6 +32,7 @@ describe("MCP client smoke session pack", () => {
 
       assert.equal(result.status, 0, result.stderr);
       assert.match(result.stdout, /MCP client smoke session pack/);
+      assert.match(result.stdout, /Pending required worksheet coverage \| 19 rows/);
 
       const readme = await readFile(join(outputDir, "README.md"), "utf8");
 
@@ -50,6 +51,8 @@ describe("MCP client smoke session pack", () => {
       assert.match(readme, /Get-Content -Raw/);
       assert.match(readme, /\/mcp auth vrdex/);
       assert.match(readme, /Generated Evidence Templates/);
+      assert.match(readme, /Pending Matrix Worksheet Coverage/);
+      assert.match(readme, /Pending required rows covered by generated worksheets: 19/);
       assert.match(readme, /evidence[\\/]vscode-local-stdio\.md/);
       assert.match(readme, /evidence[\\/]gemini-cli-hosted-oauth\.md/);
 
@@ -173,6 +176,56 @@ describe("MCP client smoke session pack", () => {
       assert.match(openAiAnonymousEvidence, /Matrix row: openai-chatgpt\/hosted-anonymous-read/);
       assert.match(openAiAnonymousEvidence, /anonymous\/no-auth tools/);
       assert.match(openAiAnonymousEvidence, /No bearer tokens, OAuth client secrets/);
+    } finally {
+      await rm(outputDir, { force: true, recursive: true });
+    }
+  });
+
+  it("fails when a pending required matrix row has no generated worksheet", async () => {
+    const outputDir = await mkdtemp(join(tmpdir(), "vrdex-mcp-client-session-"));
+    const matrixPath = join(outputDir, "matrix.json");
+    const matrix = JSON.parse(await readFile("docs/developers/mcp-client-smoke-results.json", "utf8")) as {
+      clients: Array<{
+        checks: Array<{
+          id: string;
+          manualStatus: string;
+          requiredForExternalReadiness: boolean;
+        }>;
+        id: string;
+        name: string;
+      }>;
+      schemaVersion: 1;
+    };
+
+    matrix.clients.push({
+      checks: [
+        {
+          id: "hosted-anonymous-read",
+          manualStatus: "pending",
+          requiredForExternalReadiness: true,
+        },
+      ],
+      id: "future-client",
+      name: "Future MCP Client",
+    });
+
+    await writeFile(matrixPath, `${JSON.stringify(matrix, null, 2)}\n`);
+
+    try {
+      const result = runSessionPack([
+        "--hosted-url",
+        "https://staging.vrdex.net/mcp",
+        "--output-dir",
+        join(outputDir, "pack"),
+        "--target-environment",
+        "staging https://staging.vrdex.net/mcp",
+        "--matrix",
+        matrixPath,
+      ]);
+
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /missing evidence worksheets/);
+      assert.match(result.stderr, /future-client\/hosted-anonymous-read/);
     } finally {
       await rm(outputDir, { force: true, recursive: true });
     }

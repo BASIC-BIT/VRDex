@@ -38,6 +38,9 @@ docs update and a changelog entry so early consumers and agents can adapt.
   worksheets for Claude Desktop, Claude Code hosted OAuth, OpenAI/ChatGPT
   hosted rows, and MCP Inspector hosted OAuth so every remaining required MCP
   client row can use the same worksheet recorder flow
+- tightened `pnpm ops:mcp-client-session-pack` so it reads the MCP client smoke
+  matrix and fails if a required row that is not already `pass` lacks a
+  generated worksheet
 - extended `pnpm ops:mcp-installed-clients` to report hosted OAuth smoke
   credential readiness for Claude Code and MCP Inspector without printing
   secret values

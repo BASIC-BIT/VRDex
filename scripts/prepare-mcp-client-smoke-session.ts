@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 type Client = {
@@ -11,6 +11,7 @@ type Client = {
 
 type Options = {
   hostedUrl?: string;
+  matrixPath: string;
   outputDir: string;
   repoRoot: string;
   targetEnvironment: string;
@@ -29,6 +30,25 @@ type EvidenceTemplate = {
   setup: string;
   setupLanguage?: "powershell" | "txt";
   targetEnvironment: string;
+};
+
+type ManualStatus = "fail" | "not_applicable" | "pass" | "pending";
+
+type SmokeCheck = {
+  id: string;
+  manualStatus: ManualStatus;
+  requiredForExternalReadiness: boolean;
+};
+
+type ClientEntry = {
+  checks: SmokeCheck[];
+  id: string;
+  name: string;
+};
+
+type SmokeMatrix = {
+  clients: ClientEntry[];
+  schemaVersion: 1;
 };
 
 const clients: Client[] = [
@@ -69,6 +89,8 @@ function takeValue(args: string[], index: number, name: string) {
 function parseArgs(argv: string[]): Options {
   const options: Options = {
     hostedUrl: nonEmpty(process.env.VRDEX_MCP_SMOKE_URL),
+    matrixPath: process.env.VRDEX_MCP_CLIENT_MATRIX_PATH?.trim()
+      || "docs/developers/mcp-client-smoke-results.json",
     outputDir: process.env.VRDEX_MCP_CLIENT_SESSION_DIR?.trim() || ".tmp-gh-artifacts/mcp-client-smoke-session",
     repoRoot: process.cwd(),
     targetEnvironment: process.env.VRDEX_MCP_TARGET_ENVIRONMENT?.trim() || "",
@@ -82,6 +104,10 @@ function parseArgs(argv: string[]): Options {
         break;
       case "--hosted-url":
         options.hostedUrl = takeValue(argv, index, arg);
+        index += 1;
+        break;
+      case "--matrix":
+        options.matrixPath = takeValue(argv, index, arg);
         index += 1;
         break;
       case "--output-dir":
@@ -102,6 +128,7 @@ function parseArgs(argv: string[]): Options {
   }
 
   assert.ok(nonEmpty(options.hostedUrl), "--hosted-url or VRDEX_MCP_SMOKE_URL is required.");
+  assert.notEqual(options.matrixPath.trim(), "", "--matrix or VRDEX_MCP_CLIENT_MATRIX_PATH must not be empty.");
   if (!nonEmpty(options.targetEnvironment)) {
     options.targetEnvironment = `staging ${hostedMcpUrl(options.hostedUrl!)}`;
   }
@@ -280,6 +307,57 @@ function smokePrompt(mode: CheckId) {
     authPhrase,
     "Record whether the client displayed the tool call, whether the call succeeded, and the first returned result slug.",
   ].join(" ");
+}
+
+function matrixRowKey(clientId: string, checkId: string) {
+  return `${clientId}/${checkId}`;
+}
+
+async function pendingRequiredMatrixRows(matrixPath: string) {
+  const matrix = JSON.parse(await readFile(matrixPath, "utf8")) as SmokeMatrix;
+
+  assert.equal(matrix.schemaVersion, 1, "MCP client smoke matrix schemaVersion must be 1.");
+  assert.equal(Array.isArray(matrix.clients), true, "MCP client smoke matrix clients must be an array.");
+
+  const rows: Array<{ checkId: string; clientId: string; clientName: string }> = [];
+
+  for (const client of matrix.clients) {
+    assert.equal(typeof client.id, "string", "MCP client smoke matrix client id must be a string.");
+    assert.equal(typeof client.name, "string", `${client.id} client name must be a string.`);
+    assert.equal(Array.isArray(client.checks), true, `${client.id} checks must be an array.`);
+
+    for (const check of client.checks) {
+      assert.equal(typeof check.id, "string", `${client.id} check id must be a string.`);
+      assert.equal(
+        typeof check.requiredForExternalReadiness,
+        "boolean",
+        `${client.id}/${check.id} requiredForExternalReadiness must be a boolean.`,
+      );
+
+      if (check.requiredForExternalReadiness && check.manualStatus !== "pass") {
+        rows.push({
+          checkId: check.id,
+          clientId: client.id,
+          clientName: client.name,
+        });
+      }
+    }
+  }
+
+  return rows;
+}
+
+async function verifyPendingWorksheetCoverage(matrixPath: string, generatedKeys: Set<string>) {
+  const pendingRows = await pendingRequiredMatrixRows(matrixPath);
+  const missingRows = pendingRows.filter((row) => !generatedKeys.has(matrixRowKey(row.clientId, row.checkId)));
+
+  assert.deepEqual(
+    missingRows.map((row) => matrixRowKey(row.clientId, row.checkId)),
+    [],
+    "MCP client session pack is missing evidence worksheets for pending required matrix rows.",
+  );
+
+  return pendingRows;
 }
 
 function manualEvidenceTemplates(options: Options): EvidenceTemplate[] {
@@ -514,6 +592,7 @@ async function writeSessionPack(options: Options) {
   await mkdir(evidenceDir, { recursive: true });
 
   const evidenceRows: string[] = [];
+  const generatedEvidenceKeys = new Set<string>();
   const rows: string[] = [];
   const readmeSections: string[] = [
     "# MCP Client Smoke Session Pack",
@@ -610,6 +689,7 @@ async function writeSessionPack(options: Options) {
         matrixClient: client.matrixClient,
         targetEnvironment: options.targetEnvironment,
       });
+      generatedEvidenceKeys.add(matrixRowKey(client.matrixClient, template.check));
       evidenceRows.push(`| ${client.name} | ${template.check} | \`${evidencePath}\` |`);
     }
 
@@ -754,6 +834,7 @@ async function writeSessionPack(options: Options) {
       matrixClient: "gemini-cli",
       targetEnvironment: options.targetEnvironment,
     });
+    generatedEvidenceKeys.add(matrixRowKey("gemini-cli", template.check));
     evidenceRows.push(`| Gemini CLI | ${template.check} | \`${evidencePath}\` |`);
   }
 
@@ -831,9 +912,12 @@ async function writeSessionPack(options: Options) {
     const evidencePath = path.join(evidenceDir, `${template.matrixClient}-${template.check}.md`);
 
     await writeEvidenceTemplate(evidencePath, template);
+    generatedEvidenceKeys.add(matrixRowKey(template.matrixClient, template.check));
     evidenceRows.push(`| ${template.clientName} | ${template.check} | \`${evidencePath}\` |`);
     manualRows.push(`| ${template.clientName} | ${template.matrixClient} | ${template.check} | \`${evidencePath}\` |`);
   }
+
+  const pendingRows = await verifyPendingWorksheetCoverage(options.matrixPath, generatedEvidenceKeys);
 
   readmeSections.push(
     "## Manual-Only Evidence Rows",
@@ -848,6 +932,11 @@ async function writeSessionPack(options: Options) {
 
   const readme = [
     ...readmeSections,
+    "## Pending Matrix Worksheet Coverage",
+    "",
+    `Matrix: \`${options.matrixPath}\``,
+    `Pending required rows covered by generated worksheets: ${pendingRows.length}`,
+    "",
     "## Generated Config Files",
     "",
     "| Client | Matrix client id | Local stdio | Hosted HTTP | Hosted token fallback |",
@@ -871,6 +960,7 @@ async function writeSessionPack(options: Options) {
   console.log(`| MCP client smoke session pack | ${readmePath} |`);
   console.log(`| Config directory | ${configsDir} |`);
   console.log(`| Evidence template directory | ${evidenceDir} |`);
+  console.log(`| Pending required worksheet coverage | ${pendingRows.length} rows |`);
   console.log(`| Hosted MCP URL | ${hostedMcpUrl(options.hostedUrl!)} |`);
 }
 

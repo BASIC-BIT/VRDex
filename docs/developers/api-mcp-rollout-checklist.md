@@ -127,7 +127,9 @@ one PR.
   evidence templates can be recorded with
   `pnpm record:mcp-client-smoke -- --evidence-file <template.md>`; the recorder
   rejects untouched pending worksheets, placeholders, and evidence summaries
-  that appear to contain tokens, secrets, or authorization headers.
+  that appear to contain tokens, secrets, or authorization headers. The session
+  pack reads the checked matrix by default and fails if any required row that is
+  not already `pass` lacks a generated worksheet.
 - `pnpm check:api-mcp-rollout` summarizes the generated OpenAPI contract,
   required docs, verification scripts, MCP client matrix, and hosted MCP
   production-like evidence state. The gate asserts every current checked-in

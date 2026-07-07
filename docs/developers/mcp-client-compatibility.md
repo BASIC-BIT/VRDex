@@ -258,6 +258,11 @@ The worksheet recorder infers the matrix row, environment, target environment,
 status, and evidence summary from the file. It rejects untouched `pending`
 worksheets, generated placeholder text, placeholder target values, and evidence
 summaries that appear to contain tokens, secrets, or authorization headers.
+The session-pack generator reads
+`docs/developers/mcp-client-smoke-results.json` by default and fails if any
+required row that is not already `pass` lacks a generated worksheet. Use
+`--matrix <path>` or `VRDEX_MCP_CLIENT_MATRIX_PATH=<path>` when rehearsing a
+matrix change against a temporary copy.
 
 Record manual pass or fail results with the recorder command instead of
 hand-editing the JSON:
