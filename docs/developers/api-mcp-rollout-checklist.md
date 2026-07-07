@@ -113,8 +113,10 @@ one PR.
   but does not replace manual matrix evidence.
 - `pnpm check:api-mcp-rollout` summarizes the generated OpenAPI contract,
   required docs, verification scripts, MCP client matrix, and hosted MCP
-  production-like evidence state. It reports pending required items in normal
-  mode and becomes a failing external-readiness gate with `--require-ready`.
+  production-like evidence state. The gate asserts every current checked-in
+  `/api/v0` OpenAPI path plus both MCP evidence recorder commands. It reports
+  pending required items in normal mode and becomes a failing external-readiness
+  gate with `--require-ready`.
 - Claude Code local stdio and hosted anonymous HTTP can be real-client smoked
   with `pnpm smoke:mcp-claude-code`, which runs the installed Claude Code CLI
   through a strict temporary MCP config. Use hosted mode with `--hosted-data`

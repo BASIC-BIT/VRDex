@@ -7,6 +7,12 @@ Changelog for the unstable `/api/v0` and MCP platform foundation.
 `v0` is allowed to change before public launch. Breaking changes still need a
 docs update and a changelog entry so early consumers and agents can adapt.
 
+## 2026-07-07
+
+- tightened `pnpm check:api-mcp-rollout` so the aggregate readiness gate checks
+  every current checked-in `/api/v0` OpenAPI path and requires both MCP evidence
+  recorder scripts before launch-readiness claims
+
 ## 2026-07-06
 
 - added `GET /api/v0/worlds/:slug/events` with a shared
