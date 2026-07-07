@@ -65,7 +65,8 @@ The first useful version should feel small and sharp:
 - `Current recommendation`: Use Convex as the authoritative application data and policy layer, with Next.js route handlers as the public HTTP gateway.
 - `Current recommendation`: Put the VRDex OAuth authorization server in Next.js route handlers backed by Convex tables and internal Convex functions. Convex remains the data/control plane; Next owns browser redirects, consent UX, metadata endpoints, token routes, CORS, and HTTP semantics.
 - `Current recommendation`: Do not treat Convex Auth's inbound sign-in providers as the third-party developer OAuth issuer. Convex Auth remains first-party account authentication; the VRDex developer platform issues tokens for external clients.
-- `Current recommendation`: Keep the first issuer in the web app instead of adding a separate identity provider. VRDex needs app-specific developer ownership, dynamic MCP client handling, self-hosted behavior, and product policy checks in the same deployment boundary; an external IdP can be revisited only if it cleanly owns those custom platform rules.
+- `Current recommendation`: Keep the first issuer in the web app instead of adding a separate identity provider. VRDex needs app-specific developer ownership, dynamic MCP client handling, self-hosted behavior, quota policy, audit records, and product checks in the same deployment boundary; an external IdP can be revisited only if it cleanly owns those custom platform rules.
+- `Current recommendation`: Treat the in-app issuer as narrow platform security code, not a broad replacement for first-party login providers. Current MCP/OpenAI guidance favors established identity providers for generic apps, so the VRDex issuer must stay intentionally small, heavily tested, and limited to the OAuth subset this platform needs: metadata discovery, Authorization Code with PKCE, Client Credentials, refresh-token rotation, revocation, constrained DCR, public-client CIMD, resource-bound JWT access tokens, and exact redirect validation.
 - `Current recommendation`: Use shared TypeScript API contract schemas as the source of truth for runtime validation, response typing, example generation, and OpenAPI generation. Convex validators remain the database/function boundary.
 - `Current recommendation`: Keep the generated artifact on OpenAPI 3.1.x for Swagger UI and `zod-openapi` compatibility, even though OpenAPI 3.2.0 is the latest published spec. Track 3.2.0 as a later generator/tooling upgrade, not a launch blocker.
 - `Current recommendation`: Use Zod 4 plus `zod-openapi` as the first contract toolchain. The implementation spike has validated the route shape enough to keep this as the current path.
@@ -85,6 +86,7 @@ The first useful version should feel small and sharp:
 - `Candidate direction`: Add a dedicated API hostname later, but keep the first public route shape under the web app until operational pressure justifies a split.
 - `Candidate direction`: Use an adapter interface for rate-limit storage so hosted deployments can use Upstash/Vercel KV/Valkey/Redis-compatible infrastructure, local development can use an in-memory adapter, and self-hosted production can bring its own Redis-compatible store.
 - `Candidate direction`: Add an optional generated MCP coverage layer from OpenAPI only after curated tools prove useful.
+- `Candidate direction`: If OAuth implementation complexity grows beyond the narrow platform subset, revisit an external IdP or adapter-backed issuer before hardening `v1`. That revisit should preserve VRDex-owned developer app ownership, community-owner rules, quota tiers, audit events, DCR/CIMD policy, and self-hosted setup.
 
 ## Interview Later
 
@@ -93,6 +95,30 @@ The first useful version should feel small and sharp:
 - `Interview later`: Whether self-hosted deployments need built-in multi-tenant OAuth issuer support or only one issuer per deployment.
 - `Interview later`: Whether paid tiers should raise API and MCP limits at launch or only after organic demand appears.
 - `Interview later`: Which staff/admin delegation workflows are needed for community-owned OAuth apps after the owner-only first pass.
+
+## Recommended Backlog Chunk
+
+Deliver this as `EPIC-12 Public API foundation and MCP platform`: one coherent
+PR with commit-level checkpoints for API contracts, generated OpenAPI, auth,
+OAuth apps, hosted MCP, local MCP, rate limits, docs, and rollout evidence.
+
+The highest-leverage remaining checkpoint is hosted MCP production-like
+readiness, not choosing the final Redis-compatible vendor. The rate-limit vendor
+choice is intentionally hidden behind the Redis-compatible adapter; hosted MCP
+readiness is what unlocks external launch confidence.
+
+Next execution checkpoint:
+
+1. Provision or identify a same-branch Convex preview, staging, or
+   production-like backend for the PR's `/mcp` endpoint.
+2. Run data-backed anonymous hosted reads against that target.
+3. Run hosted OAuth protocol evidence for Dynamic Client Registration and
+   public-client Client ID Metadata Documents.
+4. Use the same target for the major-client matrix rows, starting with the
+   locally installed clients that can be smoke-tested now: Claude Code, VS Code,
+   Cursor, Windsurf, and MCP Inspector.
+5. Keep OpenAI/ChatGPT evidence as hosted-product manual evidence; do not mark
+   that row ready from local CLI checks.
 
 ## Client Classes
 
