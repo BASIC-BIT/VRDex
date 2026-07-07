@@ -54,6 +54,9 @@ type Options = {
 };
 
 const defaultMatrixPath = "docs/developers/mcp-client-smoke-results.json";
+const hostedEvidenceTargetPattern = /\b(same-branch|production-like|staging|production)\b/i;
+const pendingHostedEvidencePattern =
+  /\b(pending|need|needs|lack|lacks|skipped|unavailable|not deployed|without data-backed|temporarily unavailable)\b/i;
 const hostedPlaceholder = "<production-like-/mcp-url>";
 
 function nonEmpty(value: string | undefined) {
@@ -230,6 +233,38 @@ function countPendingRequired(matrix: SmokeMatrix) {
   return pendingClientRows + pendingHostedRows;
 }
 
+function isHostedTargetReady(matrix: SmokeMatrix) {
+  const target = matrix.targetEnvironment ?? "";
+
+  return (
+    hostedEvidenceTargetPattern.test(target) &&
+    !pendingHostedEvidencePattern.test(target) &&
+    !/\bpending\b/i.test(matrix.readinessMode)
+  );
+}
+
+function pendingTargetWarning(matrix: SmokeMatrix, options: Options) {
+  const hasHostedWork =
+    (matrix.hostedReadiness?.checks ?? []).some(
+      (check) => shouldPrintHostedReadiness(check, options) && check.status !== "pass",
+    ) ||
+    matrix.clients.some((client) =>
+      client.checks.some(
+        (check) =>
+          shouldPrint(check, options) &&
+          check.requiredForExternalReadiness &&
+          check.surface.startsWith("hosted_http") &&
+          check.manualStatus !== "pass",
+      ),
+    );
+
+  if (!hasHostedWork || isHostedTargetReady(matrix)) {
+    return undefined;
+  }
+
+  return "the recorded target is not eligible for hosted pass evidence yet. Use these commands only as diagnostics until the target is a same-branch Convex preview, staging, production-like, or production backend with data-backed public reads and OAuth storage.";
+}
+
 function hostedReadinessCommand(check: HostedReadinessCheck, options: Options) {
   const target = hostedTarget(options);
   const base = `pnpm smoke:mcp-compat -- --hosted-only --hosted-url ${target}`;
@@ -267,6 +302,7 @@ function shouldPrintHostedReadiness(check: HostedReadinessCheck, options: Option
 
 function printPlan(matrix: SmokeMatrix, options: Options) {
   const pendingRequired = countPendingRequired(matrix);
+  const warning = pendingTargetWarning(matrix, options);
 
   console.log("# MCP Client Smoke Plan");
   console.log("");
@@ -276,9 +312,12 @@ function printPlan(matrix: SmokeMatrix, options: Options) {
   console.log(`Target environment: ${matrix.targetEnvironment ?? "not recorded"}`);
   console.log(`Hosted URL for generated commands: ${hostedTarget(options)}`);
   console.log(`Pending required rows: ${pendingRequired}`);
+  if (warning !== undefined) {
+    console.log(`Target warning: ${warning}`);
+  }
   console.log("");
-  console.log("| Hosted evidence | Status | Repo smoke | Recorder command |");
-  console.log("| --- | --- | --- | --- |");
+  console.log("| Hosted evidence | Status | Repo smoke | Notes | Recorder command |");
+  console.log("| --- | --- | --- | --- | --- |");
 
   for (const check of matrix.hostedReadiness?.checks ?? []) {
     if (!shouldPrintHostedReadiness(check, options)) {
@@ -290,14 +329,15 @@ function printPlan(matrix: SmokeMatrix, options: Options) {
         markdownCell(check.id),
         markdownCell(check.status),
         markdownCell(inlineCode(hostedReadinessCommand(check, options))),
+        markdownCell(check.notes),
         markdownCell(inlineCode(hostedReadinessRecorderCommand(check))),
       ].join(" | ")} |`,
     );
   }
 
   console.log("");
-  console.log("| Client | Check | Status | Repo preflight | Manual evidence | Recorder command |");
-  console.log("| --- | --- | --- | --- | --- | --- |");
+  console.log("| Client | Check | Status | Repo preflight | Manual evidence | Notes | Recorder command |");
+  console.log("| --- | --- | --- | --- | --- | --- | --- |");
 
   for (const client of matrix.clients) {
     if (options.clientId !== undefined && client.id !== options.clientId) {
@@ -316,6 +356,7 @@ function printPlan(matrix: SmokeMatrix, options: Options) {
           markdownCell(check.manualStatus),
           markdownCell(inlineCode(repoPreflightCommand(client, check, options))),
           markdownCell(manualEvidencePrompt(client, check)),
+          markdownCell(check.notes),
           markdownCell(inlineCode(recordCommand(client, check))),
         ].join(" | ")} |`,
       );
