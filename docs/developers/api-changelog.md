@@ -54,6 +54,10 @@ docs update and a changelog entry so early consumers and agents can adapt.
   client-credentials `mcp:read` token issuance, and write ignored env files for
   Claude Code and MCP Inspector hosted OAuth smokes without printing the client
   secret
+- wired the manual `deployed-health.yml` `hosted-mcp-smoke` OAuth path to mint
+  temporary staging smoke credentials through the same helper when repository
+  OAuth smoke secrets are absent but hosted E2E auth and developer-credential
+  helpers are enabled
 - extended `pnpm ops:mcp-installed-clients` to report hosted OAuth smoke
   credential readiness for Claude Code and MCP Inspector without printing
   secret values

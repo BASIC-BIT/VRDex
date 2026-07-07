@@ -40,4 +40,13 @@ describe("API/MCP rollout readiness checker", () => {
     assert.match(source, /ops:mcp-add-mcp-preflight/);
     assert.match(source, /ops:mcp-oauth-smoke-credentials/);
   });
+
+  it("keeps hosted MCP OAuth workflow wired to temporary smoke credential generation", async () => {
+    const workflow = await readFile(".github/workflows/deployed-health.yml", "utf8");
+
+    assert.match(workflow, /generate_oauth_credentials/);
+    assert.match(workflow, /ops:mcp-oauth-smoke-credentials/);
+    assert.match(workflow, /VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS/);
+    assert.match(workflow, /mcp-oauth-smoke-env\.sh/);
+  });
 });

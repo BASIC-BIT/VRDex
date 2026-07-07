@@ -340,11 +340,16 @@ from PR head `d6b5571` on 2026-07-07. That run also exercised the
 smoke secrets were not configured.
 
 The `deployed-health.yml` `hosted-mcp-smoke` workflow can additionally run the
-Inspector hosted OAuth smoke when dispatched with `mcp_oauth=true` and repository
-secrets provide either `VRDEX_MCP_OAUTH_CLIENT_ID` plus
-`VRDEX_MCP_OAUTH_CLIENT_SECRET` or `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN`. The
-workflow leaves anonymous/data/DCR/CIMD evidence runnable even when reviewed
-OAuth smoke credentials are absent.
+Inspector hosted OAuth smoke when dispatched with `mcp_oauth=true`. It prefers
+repository secrets that provide either `VRDEX_MCP_OAUTH_CLIENT_ID` plus
+`VRDEX_MCP_OAUTH_CLIENT_SECRET` or `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN`. If those
+secrets are absent on a staging or same-branch target, the workflow can mint a
+temporary reviewed smoke client through the same helper below when
+`VRDEX_HOSTED_E2E_AUTH_HELPERS=true`,
+`VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true`, and
+`VRDEX_HOSTED_E2E_BROWSER_TOKEN` is configured. The workflow leaves
+anonymous/data/DCR/CIMD evidence runnable even when reviewed OAuth smoke
+credentials and helper prerequisites are absent.
 
 When staging E2E auth helpers are enabled but those repository secrets have not
 yet been installed, an operator can mint a temporary reviewed smoke client
@@ -570,7 +575,9 @@ pnpm ops:mcp-client-smokes -- \
    document flow through `/oauth/authorize`. For GitHub-hosted evidence against
    a deployed target, run the manual `Deployed Health Checks` workflow with
    target `hosted-mcp-smoke`, `base_url=<target-/mcp-url>`, and the matching
-   `mcp_data`/`mcp_dcr`/`mcp_cimd` toggles.
+   `mcp_data`/`mcp_dcr`/`mcp_cimd` toggles. Add `mcp_oauth=true` when the run
+   should use configured repository OAuth smoke secrets or mint temporary
+   staging smoke credentials from the hosted E2E auth/developer helper path.
 1. Claude Desktop local stdio starts, lists six tools, and calls
    `vrdex_search`.
 2. Claude Desktop hosted Custom Connector lists anonymous tools and completes

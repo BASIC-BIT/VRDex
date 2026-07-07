@@ -90,7 +90,10 @@ one PR.
   external-readiness evidence when the automatic PR preview lane cannot enable
   those probes. The manual workflow keeps selected hosted diagnostics running
   after a subcheck failure, so one run can expose data-backed read, DCR, and
-  CIMD blockers separately while still failing if any selected probe fails.
+  CIMD blockers separately while still failing if any selected probe fails. Use
+  `mcp_oauth=true` when the run should use configured repository OAuth smoke
+  secrets or, on staging/same-branch targets, mint temporary smoke credentials
+  from hosted E2E auth and developer-credential helpers.
   Record the production-like hosted-readiness rows with
   `pnpm record:mcp-hosted-evidence` so the aggregate readiness gate can verify
   data-backed anonymous reads, Dynamic Client Registration, and Client ID
@@ -176,12 +179,17 @@ one PR.
   a short-lived MCP-resource token and validates an authenticated `tools/list`
   without printing the token or client secret.
 - The `deployed-health.yml` `hosted-mcp-smoke` dispatch can also run the
-  Inspector hosted OAuth smoke when `mcp_oauth=true` and repository secrets
-  provide either `VRDEX_MCP_OAUTH_CLIENT_ID` plus
-  `VRDEX_MCP_OAUTH_CLIENT_SECRET` or `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN`. The job
-  skips that OAuth subcheck cleanly when the input is enabled but the secrets are
-  absent, so anonymous/data/DCR/CIMD health evidence is not blocked on reviewed
-  OAuth credentials.
+  Inspector hosted OAuth smoke when `mcp_oauth=true`. It prefers repository
+  secrets that provide either `VRDEX_MCP_OAUTH_CLIENT_ID` plus
+  `VRDEX_MCP_OAUTH_CLIENT_SECRET` or `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN`. If
+  those are absent and `VRDEX_HOSTED_E2E_AUTH_HELPERS=true`,
+  `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true`, and
+  `VRDEX_HOSTED_E2E_BROWSER_TOKEN` are configured, the job mints temporary
+  smoke credentials through `pnpm ops:mcp-oauth-smoke-credentials`, masks the
+  generated secret, and feeds the credentials to the Inspector OAuth smoke. It
+  skips that OAuth subcheck cleanly when neither credential source is available,
+  so anonymous/data/DCR/CIMD health evidence is not blocked on reviewed OAuth
+  credentials.
 
 Use a command shaped like this for each manual matrix row:
 
