@@ -2,15 +2,15 @@
   "schemaVersion": 1,
   "lastReviewed": "2026-07-07",
   "readinessMode": "repo-protocol-smoked-hosted-staging-data-backed-client-smokes-open",
-  "targetEnvironment": "staging https://staging.vrdex.net/mcp deployed from PR #159 head 80864eb via staging deploy run 28856019045",
+  "targetEnvironment": "staging https://staging.vrdex.net/mcp deployed from PR #159 head 5386f28 via staging deploy run 28858214531",
   "hostedReadiness": {
     "checks": [
       {
         "id": "hosted-data-backed-anonymous-read",
         "requiredForExternalReadiness": true,
         "status": "pass",
-        "notes": "2026-07-07: staging target deployed from PR #159 head 80864eb; full hosted MCP smoke passed non-empty anonymous vrdex_search against staging public data backend.",
-        "environment": "Windows local Codex / staging deploy run 28856019045 / https://staging.vrdex.net/mcp",
+        "notes": "2026-07-07: staging target deployed from PR #159 head 5386f28; full hosted MCP smoke passed non-empty anonymous vrdex_search against staging public data backend.",
+        "environment": "Windows local Codex / staging deploy run 28858214531 / https://staging.vrdex.net/mcp",
         "evidence": "corepack pnpm smoke:mcp-compat -- --hosted-only --hosted-url https://staging.vrdex.net/mcp --hosted-data --dcr --cimd --continue-on-failure passed hosted data-backed public read on 2026-07-07",
         "lastRunAt": "2026-07-07"
       },
@@ -18,8 +18,8 @@
         "id": "hosted-dynamic-client-registration",
         "requiredForExternalReadiness": true,
         "status": "pass",
-        "notes": "2026-07-07: staging target deployed from PR #159 head 80864eb; full hosted MCP smoke created a constrained public MCP dynamic client and verified mcp:read registration metadata.",
-        "environment": "Windows local Codex / staging deploy run 28856019045 / https://staging.vrdex.net/mcp",
+        "notes": "2026-07-07: staging target deployed from PR #159 head 5386f28; full hosted MCP smoke created a constrained public MCP dynamic client and verified mcp:read registration metadata.",
+        "environment": "Windows local Codex / staging deploy run 28858214531 / https://staging.vrdex.net/mcp",
         "evidence": "corepack pnpm smoke:mcp-compat -- --hosted-only --hosted-url https://staging.vrdex.net/mcp --hosted-data --dcr --cimd --continue-on-failure passed hosted Dynamic Client Registration on 2026-07-07",
         "lastRunAt": "2026-07-07"
       },
@@ -27,8 +27,8 @@
         "id": "hosted-client-id-metadata-document",
         "requiredForExternalReadiness": true,
         "status": "pass",
-        "notes": "2026-07-07: staging target deployed from PR #159 head 80864eb; full hosted MCP smoke accepted the URL-form public client id metadata document before the expected unauthenticated sign-in redirect.",
-        "environment": "Windows local Codex / staging deploy run 28856019045 / https://staging.vrdex.net/mcp",
+        "notes": "2026-07-07: staging target deployed from PR #159 head 5386f28; full hosted MCP smoke accepted the URL-form public client id metadata document before the expected unauthenticated sign-in redirect.",
+        "environment": "Windows local Codex / staging deploy run 28858214531 / https://staging.vrdex.net/mcp",
         "evidence": "corepack pnpm smoke:mcp-compat -- --hosted-only --hosted-url https://staging.vrdex.net/mcp --hosted-data --dcr --cimd --continue-on-failure passed hosted public-client Client ID Metadata Document authorization on 2026-07-07",
         "lastRunAt": "2026-07-07"
       }
@@ -86,9 +86,9 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
           "manualStatus": "pass",
-          "notes": "Real Claude Code hosted no-auth Streamable HTTP MCP tool invocation passed against the staging target on 2026-07-07 using a data-backed anonymous vrdex_search call.",
+          "notes": "Real Claude Code hosted no-auth Streamable HTTP MCP tool invocation passed against the staging target deployed from PR #159 head 5386f28 on 2026-07-07 using a data-backed anonymous vrdex_search call.",
           "environment": "Windows / Claude Code 2.1.176 / pnpm smoke:mcp-claude-code / staging https://staging.vrdex.net/mcp",
-          "manualEvidence": "corepack pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url https://staging.vrdex.net/mcp --hosted-data --model claude-haiku-4-5-20251001 returned hosted-ok after one vrdex_search tool call with query=club type=all limit=1",
+          "manualEvidence": "corepack pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url https://staging.vrdex.net/mcp --hosted-data --model claude-haiku-4-5-20251001 returned hosted-ok after one vrdex_search tool call with query=club type=all limit=1 against staging deploy run 28858214531",
           "lastRunAt": "2026-07-07"
         },
         {
@@ -241,9 +241,9 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
           "manualStatus": "pass",
-          "notes": "MCP Inspector CLI hosted tools/list and data-backed anonymous vrdex_search passed against the staging target on 2026-07-07.",
+          "notes": "MCP Inspector CLI hosted tools/list and data-backed anonymous vrdex_search passed against the staging target deployed from PR #159 head 5386f28 on 2026-07-07.",
           "environment": "Windows / MCP Inspector CLI via npx / staging https://staging.vrdex.net/mcp",
-          "manualEvidence": "corepack pnpm smoke:mcp-inspector -- --hosted-url https://staging.vrdex.net/mcp --hosted-data listed six tools with public-read auth metadata and passed a data-backed vrdex_search query=club type=all limit=1",
+          "manualEvidence": "corepack pnpm smoke:mcp-inspector -- --hosted-url https://staging.vrdex.net/mcp --hosted-data listed six tools with public-read auth metadata and passed a data-backed vrdex_search query=club type=all limit=1 against staging deploy run 28858214531",
           "lastRunAt": "2026-07-07"
         },
         {

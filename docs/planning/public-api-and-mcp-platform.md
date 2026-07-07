@@ -110,7 +110,7 @@ client compatibility is what unlocks external launch confidence.
 
 Next execution checkpoint:
 
-1. Use the staging target deployed from PR #159 head `80864eb` as the current
+1. Use the staging target deployed from PR #159 head `5386f28` as the current
    production-like hosted MCP evidence source:
    `https://staging.vrdex.net/mcp`.
 2. Keep the recorded hosted evidence rows for data-backed anonymous reads,
