@@ -110,6 +110,32 @@ jobs:
       - name: Run MCP package verification
         run: pnpm verify:vrdex-mcp
 
+      - name: Generate MCP client session pack
+        if: github.event_name == 'pull_request'
+        run: |
+          pnpm ops:mcp-client-session-pack -- \
+            --hosted-url https://staging.vrdex.net/mcp \
+            --target-environment "staging https://staging.vrdex.net/mcp, PR #${{ github.event.pull_request.number }} head ${{ github.event.pull_request.head.sha }}"
+
+          {
+            echo "## MCP client session pack"
+            echo ""
+            echo "Generated repeatable client configs and evidence worksheets for the pending MCP client matrix rows."
+            echo ""
+            echo "- Target: \`https://staging.vrdex.net/mcp\`"
+            echo "- Artifact: \`mcp-client-session-pack\`"
+            echo "- Matrix: \`docs/developers/mcp-client-smoke-results.json\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload MCP client session pack
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: mcp-client-session-pack
+          if-no-files-found: error
+          retention-days: 7
+          path: .tmp-gh-artifacts/mcp-client-smoke-session
+
   typecheck-web:
     name: Typecheck Web
     runs-on: ubuntu-latest

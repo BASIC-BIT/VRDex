@@ -49,4 +49,13 @@ describe("API/MCP rollout readiness checker", () => {
     assert.match(workflow, /VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS/);
     assert.match(workflow, /mcp-oauth-smoke-env\.sh/);
   });
+
+  it("uploads the MCP client session pack from PR baseline checks", async () => {
+    const workflow = await readFile(".github/workflows/baseline-checks.yml", "utf8");
+
+    assert.match(workflow, /ops:mcp-client-session-pack/);
+    assert.match(workflow, /mcp-client-session-pack/);
+    assert.match(workflow, /actions\/upload-artifact@v7/);
+    assert.match(workflow, /docs\/developers\/mcp-client-smoke-results\.json/);
+  });
 });

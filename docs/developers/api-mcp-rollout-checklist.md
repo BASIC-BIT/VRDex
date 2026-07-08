@@ -77,6 +77,9 @@ one PR.
   evidence row. The smoke can optionally probe a deployed hosted `/mcp`
   endpoint with `--hosted-url`, and can include constrained Dynamic Client
   Registration and Client ID Metadata Document probes with `--dcr` and `--cimd`.
+  On pull requests, the same job uploads an `mcp-client-session-pack` artifact
+  with generated setup files and evidence worksheets for the remaining manual
+  client matrix rows.
 - Baseline Checks runs `Hosted MCP Preview Smoke` after the Vercel preview. It
   runs anonymous hosted Streamable HTTP, an anonymous `vrdex_search` tool call,
   OAuth metadata, and bearer-challenge checks whenever a preview URL exists. It
@@ -130,8 +133,10 @@ one PR.
   worksheets for Claude Desktop, Claude Code hosted OAuth, OpenAI/ChatGPT
   hosted rows, and MCP Inspector hosted OAuth. It does not replace manual matrix
   evidence; use it to keep those smoke sessions repeatable and to capture
-  sanitized screenshot or transcript evidence before recording a row. Filled
-  evidence templates can be recorded with
+  sanitized screenshot or transcript evidence before recording a row. PR
+  Baseline Checks upload the same pack as `mcp-client-session-pack` so reviewers
+  and operators do not have to regenerate it before client smoke sessions.
+  Filled evidence templates can be recorded with
   `pnpm record:mcp-client-smoke -- --evidence-file <template.md>`; the recorder
   rejects untouched pending worksheets, placeholders, and evidence summaries
   that appear to contain tokens, secrets, or authorization headers. The session

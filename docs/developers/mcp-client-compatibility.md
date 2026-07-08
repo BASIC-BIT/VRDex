@@ -241,10 +241,12 @@ pnpm ops:mcp-client-session-pack -- \
 ```
 
 The pack is written to `.tmp-gh-artifacts/mcp-client-smoke-session/` by
-default. It contains compact `--add-mcp` JSON definitions for VS Code, Cursor,
-and Windsurf plus Gemini CLI `settings.json` snippets for local stdio, hosted
-anonymous HTTP, and hosted token-header fallback setups. It also includes
-manual-only worksheets for Claude Desktop, Claude Code hosted OAuth,
+default. PR Baseline Checks also upload this directory as the
+`mcp-client-session-pack` artifact after `pnpm verify:vrdex-mcp`, using the
+staging hosted MCP target. It contains compact `--add-mcp` JSON definitions for
+VS Code, Cursor, and Windsurf plus Gemini CLI `settings.json` snippets for local
+stdio, hosted anonymous HTTP, and hosted token-header fallback setups. It also
+includes manual-only worksheets for Claude Desktop, Claude Code hosted OAuth,
 OpenAI/ChatGPT hosted rows, and MCP Inspector hosted OAuth. The generated
 VS Code, Cursor, and Windsurf PowerShell commands use an isolated
 `--user-data-dir` and escape JSON quotes before passing `--add-mcp`; direct

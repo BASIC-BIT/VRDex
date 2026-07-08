@@ -9,6 +9,10 @@ docs update and a changelog entry so early consumers and agents can adapt.
 
 ## 2026-07-08
 
+- wired PR Baseline Checks to upload the generated
+  `mcp-client-session-pack` artifact from the MCP verifier job so reviewers can
+  start the remaining manual client smoke rows from checked setup files and
+  evidence worksheets
 - extended `pnpm ops:mcp-installed-clients` to report whether the
   `deployed-health.yml` hosted MCP OAuth smoke can mint temporary credentials
   through the hosted E2E auth/developer-credential helper gate, without
