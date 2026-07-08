@@ -39,7 +39,7 @@ The hosted BASIC BIT deployment uses:
 | PostHog project metadata | `infra/terraform/posthog` | Imports hosted project `447783`; sensitive project token output feeds Vercel stack locally. |
 | Hosted Vercel web domains | `infra/terraform/web-domains` | Owns the `vrdex.net` and `www.vrdex.net` Vercel project-domain bindings and Route 53 records. |
 | Hosted Vercel PostHog env vars | `infra/terraform/vercel` | Owns `NEXT_PUBLIC_POSTHOG_KEY`/`NEXT_PUBLIC_POSTHOG_HOST` for production, default preview, and configured staging custom environment IDs. |
-| Hosted API/MCP rate-limit Redis | planned Terraform or documented manual bootstrap | First BASIC BIT hosted target is Upstash Redis through the Redis REST adapter. Commit the expected Vercel variables and owner before enabling hosted production rate limits; keep secret values in provider secret stores. |
+| Hosted API/MCP rate-limit Redis | `infra/terraform/rate-limit-redis` | Creates the Upstash Redis database for hot API/MCP counters and writes `VRDEX_RATE_LIMIT_STORE`, `VRDEX_RATE_LIMIT_REDIS_REST_URL`, `VRDEX_RATE_LIMIT_REDIS_REST_TOKEN`, and `VRDEX_RATE_LIMIT_REDIS_PREFIX` to the hosted Vercel project. Default PR previews stay unmanaged unless operators opt them into the shared store. |
 | Vercel project, staging environment, and E2E helper vars | manual bootstrap plus docs | Documented in `docs/deployment/vercel-preview.md`; not Terraform-owned yet. |
 | Docs Vercel project and `docs.vrdex.net` domain | `infra/terraform/docs-site` plus workflow | Owns the docs Vercel project, Vercel domain binding, and Route 53 DNS record; runbook lives in `docs/deployment/docs-site.md`. |
 | Convex deployment keys and env vars | provider secret store plus docs | Documented in `docs/deployment/convex-environments.md` and `docs/deployment/ses-auth-email.md`. |
@@ -78,9 +78,9 @@ Current API/MCP variables read by the web app:
 | `VRDEX_PUBLIC_API_BASE_URL` | Public URL config | Optional in single-origin deployments. | Defines the API resource/audience origin. |
 | `VRDEX_MCP_RESOURCE_URI` | Public URL config | Optional in single-origin deployments. | Defaults to `<issuer>/mcp`. |
 | `VRDEX_RATE_LIMIT_STORE` | Web server config | Rate limiting is enabled. | `memory`, `redis-rest`, `upstash`, or `disabled`. |
-| `VRDEX_RATE_LIMIT_REDIS_REST_URL` | Web server secret/config | Redis REST or Upstash mode. | Redis-compatible REST endpoint. |
-| `VRDEX_RATE_LIMIT_REDIS_REST_TOKEN` | Web server secret | Redis REST or Upstash mode. | Bearer token for the Redis-compatible REST endpoint. |
-| `VRDEX_RATE_LIMIT_REDIS_PREFIX` | Web server config | Optional. | Prefix for isolating keys in shared Redis stores. |
+| `VRDEX_RATE_LIMIT_REDIS_REST_URL` | Web server config | Redis REST or Upstash mode. | Redis-compatible REST endpoint. BASIC BIT hosted production/staging values are Terraform-owned by `infra/terraform/rate-limit-redis`. |
+| `VRDEX_RATE_LIMIT_REDIS_REST_TOKEN` | Web server secret | Redis REST or Upstash mode. | Bearer token for the Redis-compatible REST endpoint. BASIC BIT hosted production/staging values are written from the Upstash resource into Vercel by `infra/terraform/rate-limit-redis`; rotate by rotating the Upstash database credential and reapplying the stack. |
+| `VRDEX_RATE_LIMIT_REDIS_PREFIX` | Web server config | Optional. | Prefix for isolating keys in shared Redis stores. BASIC BIT hosted production/staging default is `vrdex:rate-limit`. |
 
 Current local stdio MCP variables:
 

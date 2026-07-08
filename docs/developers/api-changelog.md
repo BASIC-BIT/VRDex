@@ -9,6 +9,11 @@ docs update and a changelog entry so early consumers and agents can adapt.
 
 ## 2026-07-08
 
+- added `infra/terraform/rate-limit-redis` to provision the BASIC BIT hosted
+  Upstash Redis rate-limit counter store and write the corresponding Vercel
+  runtime variables for production/staging while leaving default PR previews
+  on memory unless operators explicitly opt them into the shared store; the
+  API/MCP rollout checker now requires the stack files and lockfile
 - added a Pending Blocker Summary to `pnpm ops:mcp-client-smokes` so the
   remaining day-one MCP client rows are grouped by the prerequisite that
   unlocks them, instead of appearing only as a flat pending matrix

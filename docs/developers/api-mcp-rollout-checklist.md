@@ -50,7 +50,9 @@ one PR.
 
 - Anonymous API reads, authenticated API reads, hosted MCP reads, OAuth token
   requests, and developer credential management use separate route classes.
-- Hosted high-volume deployments use a Redis-compatible counter store.
+- Hosted high-volume deployments use a Redis-compatible counter store, with
+  BASIC BIT hosted production/staging provisioning owned by
+  `infra/terraform/rate-limit-redis`.
 - Local development can use the memory store.
 - `pnpm ops:api-rate-limits` prints standard and trusted-partner policy
   tables.
@@ -175,11 +177,12 @@ one PR.
   readiness, never secret values. Use `--require-ready` when the hosted OAuth
   path must be treated as a hard external-readiness gate.
 - `pnpm check:api-mcp-rollout` summarizes the generated OpenAPI contract,
-  required docs, verification scripts, MCP client matrix, and hosted MCP
-  production-like evidence state. The gate asserts every current checked-in
-  `/api/v0` OpenAPI path plus both MCP evidence recorder commands. It reports
-  pending required items in normal mode and becomes a failing external-readiness
-  gate with `--require-ready`.
+  required docs, verification scripts, hosted rate-limit Terraform owner, MCP
+  client matrix, and hosted MCP production-like evidence state. The gate
+  asserts every current checked-in `/api/v0` OpenAPI path, the
+  `infra/terraform/rate-limit-redis` files and lockfile, plus both MCP evidence
+  recorder commands. It reports pending required items in normal mode and
+  becomes a failing external-readiness gate with `--require-ready`.
 - Claude Code local stdio and hosted anonymous HTTP can be real-client smoked
   with `pnpm smoke:mcp-claude-code`, which runs the installed Claude Code CLI
   through a strict temporary MCP config. Use hosted mode with `--hosted-data`

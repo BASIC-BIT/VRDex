@@ -122,6 +122,15 @@ const requiredScripts = [
   "record:mcp-hosted-evidence",
 ];
 
+const requiredInfrastructureFiles = [
+  "infra/terraform/rate-limit-redis/versions.tf",
+  "infra/terraform/rate-limit-redis/main.tf",
+  "infra/terraform/rate-limit-redis/variables.tf",
+  "infra/terraform/rate-limit-redis/outputs.tf",
+  "infra/terraform/rate-limit-redis/terraform.tfvars.example",
+  "infra/terraform/rate-limit-redis/.terraform.lock.hcl",
+];
+
 const hostedEvidenceTargetPattern = /\b(same-branch|production-like|staging|production)\b/i;
 const pendingHostedEvidencePattern = /\b(pending|need|needs|lack|lacks|skipped|unavailable|not deployed|without data-backed)\b/i;
 const sensitiveEvidencePattern =
@@ -221,6 +230,20 @@ async function checkScripts() {
     : check("Rollout verification scripts", "pending", `missing scripts: ${missingScripts.join(", ")}`);
 }
 
+async function checkInfrastructure() {
+  const missingFiles: string[] = [];
+
+  for (const file of requiredInfrastructureFiles) {
+    if (!(await pathExists(file))) {
+      missingFiles.push(file);
+    }
+  }
+
+  return missingFiles.length === 0
+    ? check("Hosted rate-limit IaC", "pass", `${requiredInfrastructureFiles.length} required Terraform files exist`)
+    : check("Hosted rate-limit IaC", "pending", `missing files: ${missingFiles.join(", ")}`);
+}
+
 async function checkMcpMatrix() {
   const matrix = JSON.parse(await readFile(matrixPath(), "utf8")) as SmokeMatrix;
 
@@ -312,6 +335,7 @@ async function main() {
     await checkOpenApi(),
     await checkDocs(),
     await checkScripts(),
+    await checkInfrastructure(),
     await checkMcpMatrix(),
     await checkHostedReadinessMode(),
   ];

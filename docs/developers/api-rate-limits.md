@@ -60,6 +60,14 @@ through Vercel, use a Marketplace Redis integration and still wire VRDex through
 the Redis REST adapter variables. The important contract is Redis-compatible
 expiring counters behind the adapter, not the specific vendor brand.
 
+BASIC BIT hosted production and staging provisioning is owned by
+`infra/terraform/rate-limit-redis`. That stack creates the Upstash Redis
+database, derives `VRDEX_RATE_LIMIT_REDIS_REST_URL` from the database endpoint,
+writes the standard REST token to
+`VRDEX_RATE_LIMIT_REDIS_REST_TOKEN` in Vercel, and sets the shared
+`VRDEX_RATE_LIMIT_REDIS_PREFIX`. Default PR previews intentionally stay off
+that shared store unless operators set `manage_preview_environment=true`.
+
 ## Default Route Classes
 
 Run this command to print the standard and trusted-partner policy table from
