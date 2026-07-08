@@ -206,9 +206,9 @@
           "id": "hosted-anonymous-read",
           "surface": "hosted_http_anonymous",
           "requiredForExternalReadiness": true,
-          "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
+          "repoEvidence": "pnpm smoke:mcp-openai -- --hosted-url <production-like-/mcp-url> --hosted-data when OPENAI_API_KEY is available; ChatGPT Apps/Connectors UI evidence remains separate",
           "manualStatus": "pending",
-          "notes": "Verify in the relevant OpenAI or ChatGPT connector surface before publishing snippets."
+          "notes": "2026-07-08: added a Responses API remote MCP smoke harness for hosted anonymous public reads, but OPENAI_API_KEY was absent in the local process so no live OpenAI pass is recorded. Verify ChatGPT Apps/Connectors UI behavior separately before publishing product-surface snippets."
         },
         {
           "id": "hosted-oauth",
@@ -216,7 +216,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
           "manualStatus": "pending",
-          "notes": "Record whether the surface accepts DCR, requires CIMD, or follows app review."
+          "notes": "Current OpenAI guidance recommends CIMD when supported and keeps DCR available; VRDex implements both public-client CIMD and DCR. Record ChatGPT Apps/Connectors hosted OAuth behavior, including app review requirements, before marking this row pass."
         }
       ]
     },

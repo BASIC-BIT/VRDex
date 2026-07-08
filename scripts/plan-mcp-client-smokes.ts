@@ -246,6 +246,10 @@ function repoPreflightCommand(client: ClientEntry, check: SmokeCheck, options: O
     return `VRDEX_GEMINI_CLI_OAUTH_TOKEN=<mcp-resource-token> pnpm smoke:mcp-gemini-cli -- --mode hosted-http --hosted-url ${target} --hosted-data`;
   }
 
+  if (client.id === "openai-chatgpt" && check.id === "hosted-anonymous-read") {
+    return `OPENAI_API_KEY=<api-key> pnpm smoke:mcp-openai -- --hosted-url ${target} --hosted-data`;
+  }
+
   if (check.id === "local-stdio") {
     return "pnpm smoke:mcp-compat";
   }
@@ -266,8 +270,12 @@ function manualEvidencePrompt(client: ClientEntry, check: SmokeCheck) {
     return "Run Claude Code with a reviewed OAuth app client-credentials token acquisition or a pre-minted MCP-resource token, then record the authenticated mcp:read result; pair with DCR/CIMD protocol evidence.";
   }
 
-  if (client.id === "openai-chatgpt") {
-    return "Run the relevant OpenAI or ChatGPT connector surface and record whether noauth/OAuth tool metadata behaves correctly.";
+  if (client.id === "openai-chatgpt" && check.id === "hosted-anonymous-read") {
+    return "Run pnpm smoke:mcp-openai with an OpenAI API key for Responses API remote MCP evidence, or record ChatGPT Apps/Connectors UI evidence. Confirm public reads do not require OAuth.";
+  }
+
+  if (client.id === "openai-chatgpt" && check.id === "hosted-oauth") {
+    return "Record ChatGPT Apps/Connectors hosted OAuth behavior, including whether the surface accepts public-client CIMD, uses DCR, or requires app review before mcp:read.";
   }
 
   if (client.id === "mcp-inspector" && check.id === "hosted-oauth") {
@@ -367,8 +375,12 @@ function setupHint(client: ClientEntry, check: SmokeCheck, options: Options) {
     return `Use Claude Desktop Custom Connector for ${target}; verify hosted anonymous read first, then hosted OAuth for mcp:read.`;
   }
 
-  if (client.id === "openai-chatgpt") {
-    return `Configure the relevant OpenAI/ChatGPT connector surface for ${target}; verify noauth public reads separately from OAuth/CIMD behavior.`;
+  if (client.id === "openai-chatgpt" && check.id === "hosted-anonymous-read") {
+    return `Set OPENAI_API_KEY and run pnpm smoke:mcp-openai -- --hosted-url ${target} --hosted-data for Responses API remote MCP integration evidence; record ChatGPT Apps/Connectors UI evidence separately when product-surface behavior matters.`;
+  }
+
+  if (client.id === "openai-chatgpt" && check.id === "hosted-oauth") {
+    return `Configure the current ChatGPT Apps/Connectors surface for ${target}; verify protected-resource metadata, public-client CIMD, DCR fallback, and any app review requirement before recording mcp:read.`;
   }
 
   if (client.id === "mcp-inspector" && check.id === "hosted-oauth") {
@@ -484,8 +496,8 @@ function blockerForClientRow(client: ClientEntry, check: SmokeCheck): { id: stri
   if (client.id === "openai-chatgpt") {
     return {
       id: "hosted-product-surface",
-      label: "Hosted product surface access",
-      nextAction: "Verify the current OpenAI or ChatGPT MCP-capable surface against hosted /mcp, including anonymous public-read behavior and OAuth expectations.",
+      label: "OpenAI API key or hosted product surface access",
+      nextAction: "Run pnpm smoke:mcp-openai with an OpenAI API key for Responses API remote MCP evidence, and separately verify ChatGPT Apps/Connectors UI plus OAuth behavior before launch snippets.",
     };
   }
 

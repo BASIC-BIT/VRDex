@@ -233,6 +233,13 @@ one PR.
   `VRDEX_MCP_INSPECTOR_OAUTH_CLIENT_*` overrides; the smoke exchanges them for
   a short-lived MCP-resource token and validates an authenticated `tools/list`
   without printing the token or client secret.
+- OpenAI Responses API remote MCP hosted anonymous-read evidence can be
+  smoke-tested with `pnpm smoke:mcp-openai` after setting `OPENAI_API_KEY`.
+  Use `--hosted-data` against a same-branch or production-like backend before
+  recording API integration evidence. This does not replace ChatGPT
+  Apps/Connectors UI or hosted OAuth evidence; those product-surface rows stay
+  pending until the current UI proves no-auth public reads and `mcp:read`
+  OAuth behavior.
 - The `deployed-health.yml` `hosted-mcp-smoke` dispatch can also run the
   Inspector hosted OAuth smoke when `mcp_oauth=true`. It prefers repository
   secrets that provide either `VRDEX_MCP_OAUTH_CLIENT_ID` plus
@@ -296,6 +303,7 @@ pnpm smoke:mcp-compat -- --hosted-only --hosted-url <production-like-/mcp-url> -
 VRDEX_MCP_OAUTH_CLIENT_ID=<reviewed-client-id> VRDEX_MCP_OAUTH_CLIENT_SECRET=<client-secret> pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url <production-like-/mcp-url> --hosted-data
 pnpm smoke:mcp-inspector -- --hosted-url <preview-or-production-like-/mcp-url>
 VRDEX_MCP_OAUTH_CLIENT_ID=<reviewed-client-id> VRDEX_MCP_OAUTH_CLIENT_SECRET=<client-secret> pnpm smoke:mcp-inspector -- --hosted-url <production-like-/mcp-url> --hosted-data
+OPENAI_API_KEY=<api-key> pnpm smoke:mcp-openai -- --hosted-url <production-like-/mcp-url> --hosted-data
 gh workflow run deployed-health.yml --ref <branch> -f target=hosted-mcp-smoke -f base_url=<production-like-/mcp-url> -f mcp_data=true -f mcp_dcr=true -f mcp_cimd=true -f mcp_oauth=true
 pnpm typecheck:backend
 pnpm test:backend

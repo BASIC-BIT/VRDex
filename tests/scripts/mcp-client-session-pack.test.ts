@@ -65,7 +65,7 @@ describe("MCP client smoke session pack", () => {
       assert.match(readme, /`gemini-cli\/local-stdio`, `gemini-cli\/hosted-anonymous-read`, `gemini-cli\/hosted-oauth`/);
       assert.match(readme, /Installed app tool-call session/);
       assert.match(readme, /`vscode\/local-stdio`, `vscode\/hosted-anonymous-read`/);
-      assert.match(readme, /Hosted product surface access/);
+      assert.match(readme, /OpenAI API key or hosted product surface access/);
       assert.match(readme, /`openai-chatgpt\/hosted-anonymous-read`, `openai-chatgpt\/hosted-oauth`/);
       assert.match(readme, /Pending Matrix Worksheet Coverage/);
       assert.match(readme, /Pending required rows covered by generated worksheets: 19/);
@@ -194,6 +194,8 @@ describe("MCP client smoke session pack", () => {
       );
 
       assert.match(openAiAnonymousEvidence, /Matrix row: openai-chatgpt\/hosted-anonymous-read/);
+      assert.match(openAiAnonymousEvidence, /pnpm smoke:mcp-openai -- --hosted-url https:\/\/staging\.vrdex\.net\/mcp --hosted-data/);
+      assert.match(openAiAnonymousEvidence, /OpenAI Responses API or ChatGPT hosted MCP surface/);
       assert.match(openAiAnonymousEvidence, /anonymous\/no-auth tools/);
       assert.match(openAiAnonymousEvidence, /No bearer tokens, OAuth client secrets/);
     } finally {

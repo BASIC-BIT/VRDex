@@ -406,8 +406,8 @@ function blockerForPendingRow(row: PendingMatrixRow): { id: string } & Omit<Pend
   if (row.clientId === "openai-chatgpt") {
     return {
       id: "hosted-product-surface",
-      label: "Hosted product surface access",
-      nextAction: "Verify the current OpenAI or ChatGPT MCP-capable surface against hosted /mcp, including anonymous public-read behavior and OAuth expectations.",
+      label: "OpenAI API key or hosted product surface access",
+      nextAction: "Run pnpm smoke:mcp-openai with an OpenAI API key for Responses API remote MCP evidence, and separately verify ChatGPT Apps/Connectors UI plus OAuth behavior before launch snippets.",
     };
   }
 
@@ -599,25 +599,28 @@ function manualEvidenceTemplates(options: Options): EvidenceTemplate[] {
     },
     {
       check: "hosted-anonymous-read",
-      clientName: "OpenAI and ChatGPT MCP-capable surfaces",
-      environment: `OpenAI or ChatGPT hosted MCP surface / ${hostedUrl}`,
+      clientName: "OpenAI Responses API and ChatGPT MCP-capable surfaces",
+      environment: `OpenAI Responses API or ChatGPT hosted MCP surface / ${hostedUrl}`,
       hosted: true,
       matrixClient: "openai-chatgpt",
       prompt: [
-        "Configure the relevant OpenAI or ChatGPT MCP-capable surface for the VRDex hosted MCP endpoint.",
+        "Run the OpenAI Responses API smoke or configure the relevant ChatGPT MCP-capable surface for the VRDex hosted MCP endpoint.",
         "Verify the public read tools appear as anonymous/no-auth tools when the product surface exposes per-tool auth metadata.",
         "Call vrdex_search exactly once with query \"club\", type \"all\", and limit 1.",
         "Record whether the connector forced login before a safe public read.",
       ].join(" "),
       recorder: recorderCommandForMatrixClient({
         check: "hosted-anonymous-read",
-        environment: `OpenAI or ChatGPT hosted MCP surface / ${hostedUrl}`,
+        environment: `OpenAI Responses API or ChatGPT hosted MCP surface / ${hostedUrl}`,
         hosted: true,
         matrixClient: "openai-chatgpt",
         targetEnvironment,
       }),
-      setup: `Configure the current OpenAI or ChatGPT connector surface for ${hostedUrl}. Use ${origin} only when the product asks for an origin separate from the MCP endpoint.`,
-      setupLanguage: "txt",
+      setup: [
+        "$env:OPENAI_API_KEY='<api-key>'",
+        `pnpm smoke:mcp-openai -- --hosted-url ${hostedUrl} --hosted-data`,
+        `# For ChatGPT Apps/Connectors UI evidence, configure the current product surface for ${hostedUrl}. Use ${origin} only when the product asks for an origin separate from the MCP endpoint.`,
+      ].join("\n"),
       targetEnvironment,
     },
     {

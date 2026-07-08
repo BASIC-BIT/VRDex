@@ -118,6 +118,7 @@ const requiredScripts = [
   "smoke:mcp-claude-code",
   "smoke:mcp-gemini-cli",
   "smoke:mcp-inspector",
+  "smoke:mcp-openai",
   "verify:api-contracts",
   "verify:vrdex-mcp",
   "verify:docs",

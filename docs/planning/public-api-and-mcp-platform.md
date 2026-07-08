@@ -131,8 +131,12 @@ Next execution checkpoint:
    `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true` are not configured. Enabling
    the developer-credentials gate is an operator action after staging has the
    developer credential routes and token endpoint under test.
-5. Keep OpenAI/ChatGPT evidence as hosted-product manual evidence; do not mark
-   that row ready from local CLI checks.
+5. Use `pnpm smoke:mcp-openai -- --hosted-url https://staging.vrdex.net/mcp
+   --hosted-data` with `OPENAI_API_KEY` for OpenAI Responses API hosted
+   anonymous-read evidence. Keep ChatGPT Apps/Connectors UI and hosted OAuth
+   as product-surface evidence; do not mark those rows ready from local CLI or
+   API-only checks. The 2026-07-08 local process did not have
+   `OPENAI_API_KEY`, so no live OpenAI pass is recorded yet.
 
 ## Client Classes
 
@@ -1324,8 +1328,9 @@ Security-specific tests:
 - [Gemini CLI MCP servers](https://raw.githubusercontent.com/google-gemini/gemini-cli/main/docs/tools/mcp-server.md)
 - [VS Code MCP servers](https://code.visualstudio.com/docs/agent-customization/mcp-servers)
 - [Devin Desktop / Windsurf Cascade MCP](https://docs.devin.ai/desktop/cascade/mcp)
-- [OpenAI MCP and Connectors](https://platform.openai.com/docs/mcp)
+- [OpenAI MCP and Connectors](https://developers.openai.com/api/docs/mcp)
 - [OpenAI Apps SDK authentication](https://developers.openai.com/apps-sdk/build/auth)
+- [OpenAI Apps SDK reference](https://developers.openai.com/apps-sdk/reference)
 - [OpenAPI Specification](https://spec.openapis.org/oas/latest.html)
 - [Zod 4 JSON Schema conversion](https://zod.dev/v4)
 - [zod-openapi](https://github.com/samchungy/zod-openapi)
