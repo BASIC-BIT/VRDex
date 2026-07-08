@@ -129,6 +129,8 @@ const requiredInfrastructureFiles = [
   "infra/terraform/rate-limit-redis/outputs.tf",
   "infra/terraform/rate-limit-redis/terraform.tfvars.example",
   "infra/terraform/rate-limit-redis/.terraform.lock.hcl",
+  "infra/terraform/README.md",
+  ".github/workflows/terraform.yml",
 ];
 
 const hostedEvidenceTargetPattern = /\b(same-branch|production-like|staging|production)\b/i;

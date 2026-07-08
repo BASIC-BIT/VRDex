@@ -180,9 +180,10 @@ one PR.
   required docs, verification scripts, hosted rate-limit Terraform owner, MCP
   client matrix, and hosted MCP production-like evidence state. The gate
   asserts every current checked-in `/api/v0` OpenAPI path, the
-  `infra/terraform/rate-limit-redis` files and lockfile, plus both MCP evidence
-  recorder commands. It reports pending required items in normal mode and
-  becomes a failing external-readiness gate with `--require-ready`.
+  `infra/terraform/rate-limit-redis` files, lockfile, README entry, and
+  Terraform workflow wiring, plus both MCP evidence recorder commands. It
+  reports pending required items in normal mode and becomes a failing
+  external-readiness gate with `--require-ready`.
 - Claude Code local stdio and hosted anonymous HTTP can be real-client smoked
   with `pnpm smoke:mcp-claude-code`, which runs the installed Claude Code CLI
   through a strict temporary MCP config. Use hosted mode with `--hosted-data`

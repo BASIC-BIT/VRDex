@@ -13,7 +13,8 @@ docs update and a changelog entry so early consumers and agents can adapt.
   Upstash Redis rate-limit counter store and write the corresponding Vercel
   runtime variables for production/staging while leaving default PR previews
   on memory unless operators explicitly opt them into the shared store; the
-  API/MCP rollout checker now requires the stack files and lockfile
+  Terraform workflow now validates/plans the stack with manual apply, and the
+  API/MCP rollout checker now requires the stack files, lockfile, and CI wiring
 - added a Pending Blocker Summary to `pnpm ops:mcp-client-smokes` so the
   remaining day-one MCP client rows are grouped by the prerequisite that
   unlocks them, instead of appearing only as a flat pending matrix
