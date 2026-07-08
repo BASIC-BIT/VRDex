@@ -13,6 +13,11 @@ import {
   apiTokenValidationResultValidator,
 } from "./_apiTokens";
 import {
+  apiRateLimitEventIdentityKindValidator,
+  apiRateLimitEventQuotaTierValidator,
+  apiRateLimitEventTypeValidator,
+} from "./_apiRateLimitEvents";
+import {
   billingCustomerCreatedFromValidator,
   billingCustomerStateValidator,
   billingEntitlementSourceValidator,
@@ -1117,6 +1122,21 @@ export default defineSchema({
     .index("by_ownerCommunityProfileId_createdAt", ["ownerCommunityProfileId", "createdAt"])
     .index("by_routeClass_createdAt", ["routeClass", "createdAt"])
     .index("by_eventType_createdAt", ["eventType", "createdAt"]),
+  apiRateLimitEvents: defineTable({
+    routeClass: apiRouteClassValidator,
+    identityKind: apiRateLimitEventIdentityKindValidator,
+    quotaTier: apiRateLimitEventQuotaTierValidator,
+    eventType: apiRateLimitEventTypeValidator,
+    limit: v.number(),
+    remaining: v.number(),
+    retryAfterSeconds: v.number(),
+    resetAt: v.number(),
+    windowMs: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_routeClass_createdAt", ["routeClass", "createdAt"])
+    .index("by_identityKind_createdAt", ["identityKind", "createdAt"])
+    .index("by_routeClass_identityKind_createdAt", ["routeClass", "identityKind", "createdAt"]),
   oauthApplications: defineTable({
     clientId: v.string(),
     ownerKind: oauthApplicationOwnerKindValidator,

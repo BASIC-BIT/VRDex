@@ -20,6 +20,7 @@ import {
   type ApiRateLimitQuotaTier,
   type ApiRateLimitResult,
 } from "@/lib/server/api-rate-limit";
+import { recordApiRateLimitBlockedEvent } from "@/lib/server/api-rate-limit-events";
 import { convexHttpClient } from "@/lib/server/convex-http";
 import {
   oauthAccessTokenSigningConfigured,
@@ -371,6 +372,14 @@ export async function evaluateOptionalApiBearerRequest(
     "API rate limit exceeded",
     "This client exceeded the current rate limit for the requested API route class.",
   );
+
+  await recordApiRateLimitBlockedEvent({
+    identity: authentication.identity,
+    quotaTier,
+    rateLimit,
+    routeClass,
+    windowMs: policy.windowMs,
+  });
 
   response.headers.set("Retry-After", String(rateLimit.retryAfterSeconds));
   response.headers.set("RateLimit-Limit", String(rateLimit.limit));

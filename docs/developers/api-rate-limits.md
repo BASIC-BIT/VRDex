@@ -129,6 +129,10 @@ Convex remains the durable policy and audit layer.
 
 Current durable event tables:
 
+- `apiRateLimitEvents`: blocked rate-limit attempts by route class, identity
+  kind, quota tier, limit metadata, and timestamp. Rows store identity kind
+  only, not IP addresses, token ids, OAuth client ids, Redis keys, or bearer
+  values.
 - `apiTokenEvents`: personal token creation, revocation, accepted validation,
   and rejected validation attempts.
 - `oauthClientEvents`: OAuth application lifecycle, dynamic MCP registration,

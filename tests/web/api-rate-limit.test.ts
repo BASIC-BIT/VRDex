@@ -11,6 +11,7 @@ import {
   listDefaultApiRateLimitPolicies,
   trustedPartnerApiRateLimitMultiplier,
 } from "../../apps/web/src/lib/server/api-rate-limit";
+import { apiRateLimitBlockedEventInput } from "../../apps/web/src/lib/server/api-rate-limit-events";
 import { apiRouteClasses } from "../../packages/api-contracts/src/auth";
 
 function runRateLimitRouteProbe(script: string) {
@@ -249,6 +250,35 @@ describe("public API rate limiting", () => {
       restoreEnv("VRDEX_RATE_LIMIT_REDIS_REST_TOKEN", previousToken);
       restoreEnv("VRDEX_RATE_LIMIT_REDIS_PREFIX", previousPrefix);
     }
+  });
+
+  it("builds redacted durable metadata for rate-limit block events", () => {
+    assert.deepEqual(
+      apiRateLimitBlockedEventInput({
+        identity: { kind: "ip", value: "203.0.113.10" },
+        quotaTier: "standard",
+        rateLimit: {
+          allowed: false,
+          key: "test-prefix:anonymous_public_read:ip:203.0.113.10",
+          limit: 120,
+          remaining: 0,
+          resetAt: 10_000,
+          retryAfterSeconds: 42,
+        },
+        routeClass: "anonymous_public_read",
+        windowMs: 60_000,
+      }),
+      {
+        identityKind: "ip",
+        limit: 120,
+        quotaTier: "standard",
+        remaining: 0,
+        resetAt: 10_000,
+        retryAfterSeconds: 42,
+        routeClass: "anonymous_public_read",
+        windowMs: 60_000,
+      },
+    );
   });
 
   it("serves anonymous rate-limit usage through the public API", () => {

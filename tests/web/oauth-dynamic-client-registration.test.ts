@@ -133,6 +133,7 @@ describe("OAuth dynamic client registration", () => {
   });
 
   it("returns OAuth rate-limit metadata when registration is temporarily unavailable", async () => {
+    const blockedEvents: unknown[] = [];
     const response = await dynamicMcpClientRegistrationResponse(registrationRequest({}), {
       checkRateLimit: async () => ({
         allowed: false,
@@ -142,9 +143,29 @@ describe("OAuth dynamic client registration", () => {
         resetAt: 1_700_000_060_000,
         retryAfterSeconds: 42,
       }),
+      recordRateLimitBlockedEvent: async (input) => {
+        blockedEvents.push(input);
+        return null;
+      },
     });
 
     assert.equal(response.status, 429);
+    assert.deepEqual(blockedEvents, [
+      {
+        identity: { kind: "ip", value: "203.0.113.8" },
+        quotaTier: "standard",
+        rateLimit: {
+          allowed: false,
+          key: "test:oauth_dynamic_client_registration:ip:203.0.113.8",
+          limit: 10,
+          remaining: 0,
+          resetAt: 1_700_000_060_000,
+          retryAfterSeconds: 42,
+        },
+        routeClass: "oauth_dynamic_client_registration",
+        windowMs: 60_000,
+      },
+    ]);
     assert.equal(response.headers.get("retry-after"), "42");
     assert.equal(response.headers.get("ratelimit-limit"), "10");
     assert.equal(response.headers.get("ratelimit-remaining"), "0");

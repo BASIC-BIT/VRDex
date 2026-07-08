@@ -58,6 +58,9 @@ one PR.
   tables.
 - Rate-limited responses include `Retry-After`, `RateLimit-Limit`,
   `RateLimit-Remaining`, and `RateLimit-Reset`.
+- Rate-limit blocks are recorded in `apiRateLimitEvents` by route class and
+  identity kind without storing IP addresses, credential ids, Redis keys, or
+  bearer values.
 - Accepted hosted MCP tool calls are recorded in `mcpToolEvents` by curated
   tool name and accepted MCP route class for anonymous/authenticated usage
   counts.

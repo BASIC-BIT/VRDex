@@ -4,10 +4,12 @@ import {
 } from "@vrdex/api-contracts";
 
 import {
+  apiRateLimitPolicyForRouteClass,
   checkApiRateLimit,
   clientIpForRequest,
   type ApiRateLimitResult,
 } from "./api-rate-limit";
+import { recordApiRateLimitBlockedEvent } from "./api-rate-limit-events";
 import {
   oauthIssuerUrl,
   oauthMcpResourceUri,
@@ -51,6 +53,7 @@ type RegisteredDynamicMcpClient = {
 export type DynamicMcpClientRegistrationDependencies = {
   checkRateLimit?: typeof checkApiRateLimit;
   createClientId?: () => string;
+  recordRateLimitBlockedEvent?: typeof recordApiRateLimitBlockedEvent;
   registerDynamicMcpClient?: (input: DynamicMcpClientMutationInput) => Promise<RegisteredDynamicMcpClient>;
 };
 
@@ -106,13 +109,17 @@ export async function dynamicMcpClientRegistrationResponse(
 ) {
   const checkRateLimit = dependencies.checkRateLimit ?? checkApiRateLimit;
   const createClientId = dependencies.createClientId ?? createOAuthClientId;
+  const recordRateLimitBlockedEvent = dependencies.recordRateLimitBlockedEvent ?? recordApiRateLimitBlockedEvent;
   const registerDynamicMcpClient = dependencies.registerDynamicMcpClient ?? defaultRegisterDynamicMcpClient;
+  const routeClass = "oauth_dynamic_client_registration";
+  const identity = { kind: "ip" as const, value: clientIpForRequest(request) };
+  const policy = apiRateLimitPolicyForRouteClass(routeClass);
   let rateLimit;
 
   try {
     rateLimit = await checkRateLimit({
-      identity: { kind: "ip", value: clientIpForRequest(request) },
-      routeClass: "oauth_dynamic_client_registration",
+      identity,
+      routeClass,
     });
   } catch {
     return registrationProblem(
@@ -123,6 +130,14 @@ export async function dynamicMcpClientRegistrationResponse(
   }
 
   if (!rateLimit.allowed) {
+    await recordRateLimitBlockedEvent({
+      identity,
+      quotaTier: "standard",
+      rateLimit,
+      routeClass,
+      windowMs: policy.windowMs,
+    });
+
     return registrationProblem(
       429,
       "temporarily_unavailable",

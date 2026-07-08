@@ -9,7 +9,12 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
-import { checkApiRateLimit, clientIpForRequest } from "@/lib/server/api-rate-limit";
+import {
+  apiRateLimitPolicyForRouteClass,
+  checkApiRateLimit,
+  clientIpForRequest,
+} from "@/lib/server/api-rate-limit";
+import { recordApiRateLimitBlockedEvent } from "@/lib/server/api-rate-limit-events";
 import { convexHttpClient } from "@/lib/server/convex-http";
 import { fetchOAuthClientMetadataDocument } from "@/lib/server/oauth-client-metadata-document";
 import {
@@ -117,12 +122,23 @@ async function ensureClientMetadataDocumentClient(authorization: OAuthAuthorizat
     throw new Error("Client metadata document clients can only request the hosted MCP resource.");
   }
 
+  const identity = { kind: "ip" as const, value: clientIpForRequest(request) };
+  const routeClass = "oauth_dynamic_client_registration";
+  const policy = apiRateLimitPolicyForRouteClass(routeClass);
   const rateLimit = await checkApiRateLimit({
-    identity: { kind: "ip", value: clientIpForRequest(request) },
-    routeClass: "oauth_dynamic_client_registration",
+    identity,
+    routeClass,
   });
 
   if (!rateLimit.allowed) {
+    await recordApiRateLimitBlockedEvent({
+      identity,
+      quotaTier: "standard",
+      rateLimit,
+      routeClass,
+      windowMs: policy.windowMs,
+    });
+
     throw new Error("Too many client metadata document requests were sent from this network.");
   }
 

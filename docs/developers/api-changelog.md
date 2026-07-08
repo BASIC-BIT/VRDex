@@ -9,6 +9,10 @@ docs update and a changelog entry so early consumers and agents can adapt.
 
 ## 2026-07-08
 
+- added durable `apiRateLimitEvents` rows for blocked public API, hosted MCP,
+  Dynamic Client Registration, and Client ID Metadata Document rate-limit
+  attempts, recording route class and identity kind without storing raw IPs,
+  credential ids, Redis keys, or bearer values
 - added durable `mcpToolEvents` records for accepted hosted MCP `tools/call`
   invocations so anonymous and authenticated tool usage can be counted by
   curated tool name and route class without storing bearer tokens or raw IP

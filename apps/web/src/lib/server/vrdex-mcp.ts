@@ -18,7 +18,12 @@ import {
   z,
 } from "@vrdex/api-contracts";
 
-import { checkApiRateLimit, clientIpForRequest } from "@/lib/server/api-rate-limit";
+import {
+  apiRateLimitPolicyForRouteClass,
+  checkApiRateLimit,
+  clientIpForRequest,
+} from "@/lib/server/api-rate-limit";
+import { recordApiRateLimitBlockedEvent } from "@/lib/server/api-rate-limit-events";
 import { convexAdminHttpClient, convexHttpClient } from "@/lib/server/convex-http";
 import {
   oauthAccessTokenSigningConfigured,
@@ -376,13 +381,15 @@ export async function rejectInvalidOrRateLimitedMcpRequest(request: Request) {
 
   const routeClass =
     authentication.identity.kind === "oauth_client" ? "authenticated_mcp" : "anonymous_mcp_public_read";
+  const quotaTier = authentication.quotaTier;
+  const policy = apiRateLimitPolicyForRouteClass(routeClass, quotaTier);
 
   let rateLimit;
 
   try {
     rateLimit = await checkApiRateLimit({
       identity: authentication.identity,
-      quotaTier: authentication.quotaTier,
+      quotaTier,
       routeClass,
     });
   } catch {
@@ -394,6 +401,14 @@ export async function rejectInvalidOrRateLimitedMcpRequest(request: Request) {
   }
 
   const response = mcpJsonRpcError(429, -32000, "MCP rate limit exceeded.");
+
+  await recordApiRateLimitBlockedEvent({
+    identity: authentication.identity,
+    quotaTier,
+    rateLimit,
+    routeClass,
+    windowMs: policy.windowMs,
+  });
 
   response.headers.set("Retry-After", String(rateLimit.retryAfterSeconds));
   response.headers.set("RateLimit-Limit", String(rateLimit.limit));

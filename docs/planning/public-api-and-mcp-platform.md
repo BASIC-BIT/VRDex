@@ -1035,7 +1035,8 @@ Docs:
 Required signals:
 
 - API request counts by route class
-- rate-limit blocks by route class and identity type
+- rate-limit blocks by route class and identity type, currently backed by
+  `apiRateLimitEvents` rows that omit raw identity values and rate-limit keys
 - OAuth grant success/failure counts
 - token validation failures
 - MCP tool invocation counts, currently backed by `mcpToolEvents` rows keyed by
