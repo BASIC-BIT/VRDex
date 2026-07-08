@@ -357,7 +357,7 @@ function evaluateOAuthCredentialGeneration(): OAuthCredentialGenerationResult {
     return {
       credentialSource,
       nextAction: "Dispatch deployed-health hosted-mcp-smoke with mcp_oauth=true; the workflow can mint temporary MCP OAuth smoke credentials.",
-      path: "GitHub hosted-mcp-smoke temporary OAuth credentials",
+      path: "Current process temporary OAuth credential generation inputs",
       status: "pass",
     };
   }
@@ -367,7 +367,7 @@ function evaluateOAuthCredentialGeneration(): OAuthCredentialGenerationResult {
   return {
     credentialSource,
     nextAction,
-    path: "GitHub hosted-mcp-smoke temporary OAuth credentials",
+    path: "Current process temporary OAuth credential generation inputs",
     status: sources.hasAnyInput ? "partial" : "missing",
   };
 }
@@ -416,6 +416,8 @@ function printResults(
 
   console.log("");
   console.log("## Hosted OAuth Credential Generation");
+  console.log("");
+  console.log("This section reads only the current process environment. Run pnpm ops:mcp-hosted-oauth-prereqs for the GitHub repository variable/secret audit.");
   console.log("");
   console.log("| Path | Status | Credential source | Next action |");
   console.log("| --- | --- | --- | --- |");

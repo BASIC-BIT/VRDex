@@ -124,7 +124,9 @@ one PR.
   `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS`, and
   `VRDEX_HOSTED_E2E_BROWSER_TOKEN`). It catches client drift and OAuth evidence
   blockers before manual smoke sessions but does not replace manual matrix
-  evidence.
+  evidence. Its credential-generation table reads the current process
+  environment only; run `pnpm ops:mcp-hosted-oauth-prereqs` for the repository
+  variable/secret audit.
 - `pnpm ops:mcp-client-session-pack` writes disposable VS Code, Cursor,
   Windsurf, and Gemini CLI MCP setup files under `.tmp-gh-artifacts/`,
   including local stdio, hosted anonymous HTTP, hosted token-header fallback

@@ -226,9 +226,11 @@ hosted-mcp-smoke workflow has the temporary OAuth credential-generation gate
 configured through `VRDEX_HOSTED_E2E_AUTH_HELPERS`,
 `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS`, and
 `VRDEX_HOSTED_E2E_BROWSER_TOKEN`. It prints variable names only, never secret
-values. It does not write client configuration, launch GUI smoke sessions, or
-turn any manual row green by itself. Use it to catch local client drift and
-OAuth evidence blockers before the human smoke pass.
+values. That credential-generation table reads the current process environment
+only; use `pnpm ops:mcp-hosted-oauth-prereqs` below for the repository
+variable/secret audit. It does not write client configuration, launch GUI smoke
+sessions, or turn any manual row green by itself. Use it to catch local client
+drift and OAuth evidence blockers before the human smoke pass.
 
 After the preflight, generate a disposable smoke-session pack for installed
 VS Code-family clients and Gemini CLI, plus manual-only worksheets for hosted

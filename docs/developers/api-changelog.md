@@ -13,6 +13,9 @@ docs update and a changelog entry so early consumers and agents can adapt.
   variable/secret audit for the hosted MCP OAuth evidence path, covering both
   reviewed OAuth smoke secrets and temporary credential generation without
   reading secret values
+- clarified that `pnpm ops:mcp-installed-clients` reads only current-process
+  OAuth credential-generation inputs and should be paired with
+  `pnpm ops:mcp-hosted-oauth-prereqs` for the repository variable/secret audit
 - wired PR Baseline Checks to upload the generated
   `mcp-client-session-pack` artifact from the MCP verifier job so reviewers can
   start the remaining manual client smoke rows from checked setup files and

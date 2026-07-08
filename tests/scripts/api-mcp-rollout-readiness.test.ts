@@ -40,6 +40,11 @@ describe("API/MCP rollout readiness checker", () => {
     assert.match(source, /ops:mcp-add-mcp-preflight/);
     assert.match(source, /ops:mcp-oauth-smoke-credentials/);
     assert.match(source, /ops:mcp-hosted-oauth-prereqs/);
+
+    const installedClientsSource = await readFile("scripts/check-installed-mcp-clients.ts", "utf8");
+
+    assert.match(installedClientsSource, /current process environment/);
+    assert.match(installedClientsSource, /ops:mcp-hosted-oauth-prereqs/);
   });
 
   it("keeps hosted MCP OAuth workflow wired to temporary smoke credential generation", async () => {
