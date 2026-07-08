@@ -1034,7 +1034,9 @@ Docs:
 
 Required signals:
 
-- API request counts by route class
+- API request counts by route class, currently backed by hot aggregate
+  route-class counter keys in the active rate-limit backend rather than
+  Convex per-request writes
 - rate-limit blocks by route class and identity type, currently backed by
   `apiRateLimitEvents` rows that omit raw identity values and rate-limit keys
 - OAuth grant success/failure counts

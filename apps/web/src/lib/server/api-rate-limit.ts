@@ -17,6 +17,7 @@ export type ApiRateLimitResult = {
   key: string;
   limit: number;
   remaining: number;
+  routeClassWindowCount?: number;
   resetAt: number;
   retryAfterSeconds: number;
 };
@@ -107,11 +108,16 @@ function rateLimitKey(routeClass: ApiRouteClass, identity: ApiRateLimitIdentity)
   return `${rateLimitPrefix()}:${routeClass}:${identitySegment(identity)}`;
 }
 
+export function apiRateLimitRouteClassRequestCounterKey(routeClass: ApiRouteClass) {
+  return `${rateLimitPrefix()}:${routeClass}:requests`;
+}
+
 function resultForCount(args: {
   count: number;
   key: string;
   now: number;
   policy: ApiRateLimitPolicy;
+  routeClassWindowCount?: number;
   resetAt: number;
 }): ApiRateLimitResult {
   const remaining = Math.max(0, args.policy.limit - args.count);
@@ -122,6 +128,7 @@ function resultForCount(args: {
     key: args.key,
     limit: args.policy.limit,
     remaining,
+    ...(args.routeClassWindowCount === undefined ? {} : { routeClassWindowCount: args.routeClassWindowCount }),
     resetAt: args.resetAt,
     retryAfterSeconds,
   };
@@ -138,6 +145,24 @@ export function createMemoryApiRateLimitStore(): MemoryApiRateLimitStore {
   return new Map();
 }
 
+function incrementMemoryApiRateLimitBucket(args: {
+  key: string;
+  now: number;
+  policy: ApiRateLimitPolicy;
+  store: MemoryApiRateLimitStore;
+}) {
+  const current = args.store.get(args.key);
+  const bucket =
+    current === undefined || current.resetAt <= args.now
+      ? { count: 0, resetAt: args.now + args.policy.windowMs }
+      : current;
+
+  bucket.count += 1;
+  args.store.set(args.key, bucket);
+
+  return bucket;
+}
+
 export function checkMemoryApiRateLimit(args: {
   identity: ApiRateLimitIdentity;
   now?: number;
@@ -147,20 +172,25 @@ export function checkMemoryApiRateLimit(args: {
 }) {
   const now = args.now ?? Date.now();
   const key = rateLimitKey(args.routeClass, args.identity);
-  const current = args.store.get(key);
-  const bucket =
-    current === undefined || current.resetAt <= now
-      ? { count: 0, resetAt: now + args.policy.windowMs }
-      : current;
-
-  bucket.count += 1;
-  args.store.set(key, bucket);
+  const bucket = incrementMemoryApiRateLimitBucket({
+    key,
+    now,
+    policy: args.policy,
+    store: args.store,
+  });
+  const routeClassBucket = incrementMemoryApiRateLimitBucket({
+    key: apiRateLimitRouteClassRequestCounterKey(args.routeClass),
+    now,
+    policy: args.policy,
+    store: args.store,
+  });
 
   return resultForCount({
     count: bucket.count,
     key,
     now,
     policy: args.policy,
+    routeClassWindowCount: routeClassBucket.count,
     resetAt: bucket.resetAt,
   });
 }
@@ -180,6 +210,7 @@ export async function checkRedisRestApiRateLimit(args: {
   }
 
   const key = rateLimitKey(args.routeClass, args.identity);
+  const routeClassCounterKey = apiRateLimitRouteClassRequestCounterKey(args.routeClass);
   const pipelineUrl = new URL("pipeline", restUrl.endsWith("/") ? restUrl : `${restUrl}/`);
   const fetcher = args.fetcher ?? fetch;
   const response = await fetcher(pipelineUrl, {
@@ -192,6 +223,8 @@ export async function checkRedisRestApiRateLimit(args: {
       ["INCR", key],
       ["PEXPIRE", key, String(args.policy.windowMs), "NX"],
       ["PTTL", key],
+      ["INCR", routeClassCounterKey],
+      ["PEXPIRE", routeClassCounterKey, String(args.policy.windowMs), "NX"],
     ]),
   });
 
@@ -202,6 +235,7 @@ export async function checkRedisRestApiRateLimit(args: {
   const payload = (await response.json()) as Array<{ result?: unknown }>;
   const count = Number(payload[0]?.result);
   const ttlMs = Number(payload[2]?.result);
+  const routeClassWindowCount = Number(payload[3]?.result);
 
   if (!Number.isFinite(count)) {
     throw new Error("Redis REST rate limit check returned an invalid counter.");
@@ -212,6 +246,7 @@ export async function checkRedisRestApiRateLimit(args: {
     key,
     now: args.now,
     policy: args.policy,
+    routeClassWindowCount: Number.isFinite(routeClassWindowCount) ? routeClassWindowCount : undefined,
     resetAt: args.now + (Number.isFinite(ttlMs) && ttlMs > 0 ? ttlMs : args.policy.windowMs),
   });
 }

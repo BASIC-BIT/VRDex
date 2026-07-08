@@ -55,6 +55,8 @@
     "ops:event-media:ecs-bridge": "node scripts/event-media-ecs-bridge.mjs",
     "preops:api-rate-limits": "node scripts/guard-main-worktree.mjs",
     "ops:api-rate-limits": "node --import tsx scripts/print-api-rate-limit-policies.ts",
+    "preops:api-rate-limit-counts": "node scripts/guard-main-worktree.mjs",
+    "ops:api-rate-limit-counts": "node --import tsx scripts/print-api-rate-limit-request-counts.ts",
     "preops:mcp-client-smokes": "node scripts/guard-main-worktree.mjs",
     "ops:mcp-client-smokes": "node --import tsx scripts/plan-mcp-client-smokes.ts",
     "preops:mcp-client-session-pack": "node scripts/guard-main-worktree.mjs",

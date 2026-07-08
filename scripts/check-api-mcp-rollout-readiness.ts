@@ -106,6 +106,7 @@ const requiredDeveloperDocs = [
 const requiredScripts = [
   "check:api-openapi",
   "check:mcp-client-matrix",
+  "ops:api-rate-limit-counts",
   "ops:mcp-installed-clients",
   "ops:mcp-client-smokes",
   "ops:mcp-client-session-pack",

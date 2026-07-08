@@ -56,8 +56,13 @@ one PR.
 - Local development can use the memory store.
 - `pnpm ops:api-rate-limits` prints standard and trusted-partner policy
   tables.
+- `pnpm ops:api-rate-limit-counts` prints current Redis REST aggregate request
+  counts and TTLs by route class when the hosted counter env vars are present.
 - Rate-limited responses include `Retry-After`, `RateLimit-Limit`,
   `RateLimit-Remaining`, and `RateLimit-Reset`.
+- API request counts are tracked through aggregate route-class counter keys in
+  the active rate-limit backend, separate from identity buckets used for
+  enforcement.
 - Rate-limit blocks are recorded in `apiRateLimitEvents` by route class and
   identity kind without storing IP addresses, credential ids, Redis keys, or
   bearer values.

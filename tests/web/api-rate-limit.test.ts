@@ -108,12 +108,16 @@ describe("public API rate limiting", () => {
 
     assert.equal(first.allowed, true);
     assert.equal(first.remaining, 1);
+    assert.equal(first.routeClassWindowCount, 1);
     assert.equal(second.allowed, true);
     assert.equal(second.remaining, 0);
+    assert.equal(second.routeClassWindowCount, 2);
     assert.equal(third.allowed, false);
+    assert.equal(third.routeClassWindowCount, 3);
     assert.equal(third.retryAfterSeconds, 1);
     assert.equal(reset.allowed, true);
     assert.equal(reset.remaining, 1);
+    assert.equal(reset.routeClassWindowCount, 1);
   });
 
   it("separates anonymous IP and authenticated token identities", () => {
@@ -155,6 +159,10 @@ describe("public API rate limiting", () => {
     assert.notEqual(anonymous.key, authenticated.key);
     assert.notEqual(authenticated.key, oauthClient.key);
     assert.notEqual(anonymous.key, dynamicRegistration.key);
+    assert.equal(anonymous.routeClassWindowCount, 1);
+    assert.equal(authenticated.routeClassWindowCount, 1);
+    assert.equal(oauthClient.routeClassWindowCount, 2);
+    assert.equal(dynamicRegistration.routeClassWindowCount, 1);
   });
 
   it("extracts the first forwarded IP before falling back to x-real-ip", () => {
@@ -213,6 +221,8 @@ describe("public API rate limiting", () => {
             { result: 3 },
             { result: 1 },
             { result: 43_000 },
+            { result: 1 },
+            { result: 1 },
           ]),
           { status: 200, headers: { "content-type": "application/json" } },
         );
@@ -231,6 +241,8 @@ describe("public API rate limiting", () => {
             ["INCR", "test-prefix:anonymous_public_read:ip:203.0.113.10"],
             ["PEXPIRE", "test-prefix:anonymous_public_read:ip:203.0.113.10", "60000", "NX"],
             ["PTTL", "test-prefix:anonymous_public_read:ip:203.0.113.10"],
+            ["INCR", "test-prefix:anonymous_public_read:requests"],
+            ["PEXPIRE", "test-prefix:anonymous_public_read:requests", "60000", "NX"],
           ],
           authorization: "Bearer redis-rest-token",
           contentType: "application/json",
@@ -242,6 +254,7 @@ describe("public API rate limiting", () => {
         key: "test-prefix:anonymous_public_read:ip:203.0.113.10",
         limit: 2,
         remaining: 0,
+        routeClassWindowCount: 1,
         resetAt: 53_000,
         retryAfterSeconds: 43,
       });

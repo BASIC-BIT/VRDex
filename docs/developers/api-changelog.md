@@ -9,6 +9,10 @@ docs update and a changelog entry so early consumers and agents can adapt.
 
 ## 2026-07-08
 
+- added aggregate route-class request counters to the hot rate-limit backend
+  and `pnpm ops:api-rate-limit-counts` so operators can read current
+  request-count signals from Redis without writing every API/MCP request to
+  Convex
 - added durable `apiRateLimitEvents` rows for blocked public API, hosted MCP,
   Dynamic Client Registration, and Client ID Metadata Document rate-limit
   attempts, recording route class and identity kind without storing raw IPs,

@@ -48,7 +48,13 @@ Redis REST mode requires:
 - `VRDEX_RATE_LIMIT_REDIS_PREFIX`, optional key prefix for shared stores
 
 The Redis adapter uses a fixed-window counter with `INCR`, `PEXPIRE NX`, and
-`PTTL` in one pipeline request.
+`PTTL` in one pipeline request. It increments two expiring counters per
+request:
+
+- an identity bucket keyed by route class plus IP, API-token id, or OAuth
+  client id, used for enforcement
+- a route-class request bucket keyed only by route class, used for aggregate
+  request-count observability without storing caller identities
 
 Use a Redis-compatible store for hosted production anonymous API and hosted MCP
 traffic. Convex-only counters are acceptable only for low-volume self-hosted
@@ -75,6 +81,13 @@ code:
 
 ```sh
 pnpm ops:api-rate-limits
+```
+
+When Redis REST env vars are available, run this command to print current
+route-class request counts and TTLs from the aggregate counter keys:
+
+```sh
+pnpm ops:api-rate-limit-counts
 ```
 
 Current defaults:
@@ -141,6 +154,11 @@ Current durable event tables:
 - `mcpToolEvents`: accepted hosted MCP `tools/call` invocations by curated
   tool name and accepted MCP route class, so operators can count anonymous and
   authenticated tool usage without storing bearer tokens or raw IP addresses.
+
+API request counts by route class come from the hot aggregate route-class
+counter keys in the active rate-limit backend. They intentionally stay outside
+Convex per-request writes; durable Convex rows are reserved for policy, owner
+state, credential validation events, rate-limit blocks, and coarser rollups.
 
 Do not log bearer token values, OAuth client secrets, full Authorization
 headers, or raw refresh tokens. Event rows should store ids, prefixes, route
