@@ -161,6 +161,12 @@ one PR.
   the Claude Code and MCP Inspector hosted OAuth smokes. It prints no client
   secret and refuses production origins unless `--allow-production` is passed
   for an explicit emergency operator run.
+- `pnpm ops:mcp-hosted-oauth-prereqs` reads GitHub Actions variable values and
+  secret names through `gh` and reports whether hosted MCP OAuth evidence can use
+  reviewed OAuth smoke secrets or the deployed-health temporary
+  credential-generation path. It prints only variable/secret names plus boolean
+  readiness, never secret values. Use `--require-ready` when the hosted OAuth
+  path must be treated as a hard external-readiness gate.
 - `pnpm check:api-mcp-rollout` summarizes the generated OpenAPI contract,
   required docs, verification scripts, MCP client matrix, and hosted MCP
   production-like evidence state. The gate asserts every current checked-in
@@ -240,6 +246,7 @@ pnpm ops:mcp-client-smokes
 pnpm ops:mcp-client-session-pack -- --hosted-url <preview-or-production-like-/mcp-url>
 pnpm ops:mcp-add-mcp-preflight -- --hosted-url <preview-or-production-like-/mcp-url>
 VRDEX_E2E_BROWSER_TOKEN=<browser-token> pnpm ops:mcp-oauth-smoke-credentials -- --base-url <production-like-origin>
+pnpm ops:mcp-hosted-oauth-prereqs
 pnpm check:api-mcp-rollout
 pnpm smoke:mcp-compat -- --hosted-only --hosted-url <preview-or-production-like-/mcp-url>
 pnpm smoke:mcp-compat -- --hosted-only --hosted-url <production-like-/mcp-url> --hosted-data --dcr --cimd --continue-on-failure

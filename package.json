@@ -65,6 +65,8 @@
     "ops:mcp-installed-clients": "node --import tsx scripts/check-installed-mcp-clients.ts",
     "preops:mcp-oauth-smoke-credentials": "node scripts/guard-main-worktree.mjs",
     "ops:mcp-oauth-smoke-credentials": "pnpm --dir apps/web exec tsx ../../scripts/prepare-mcp-oauth-smoke-credentials.ts",
+    "preops:mcp-hosted-oauth-prereqs": "node scripts/guard-main-worktree.mjs",
+    "ops:mcp-hosted-oauth-prereqs": "node --import tsx scripts/check-hosted-mcp-oauth-github-prereqs.ts",
     "precheck:mcp-client-matrix": "node scripts/guard-main-worktree.mjs",
     "check:mcp-client-matrix": "node --import tsx scripts/check-mcp-client-matrix.ts",
     "precheck:api-mcp-rollout": "node scripts/guard-main-worktree.mjs",

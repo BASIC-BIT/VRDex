@@ -9,6 +9,10 @@ docs update and a changelog entry so early consumers and agents can adapt.
 
 ## 2026-07-08
 
+- added `pnpm ops:mcp-hosted-oauth-prereqs` as a read-only GitHub Actions
+  variable/secret audit for the hosted MCP OAuth evidence path, covering both
+  reviewed OAuth smoke secrets and temporary credential generation without
+  reading secret values
 - wired PR Baseline Checks to upload the generated
   `mcp-client-session-pack` artifact from the MCP verifier job so reviewers can
   start the remaining manual client smoke rows from checked setup files and

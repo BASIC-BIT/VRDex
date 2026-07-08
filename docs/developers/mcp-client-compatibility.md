@@ -378,6 +378,23 @@ fails closed unless the hosted target has `VRDEX_ENABLE_E2E_HELPERS`,
 E2E Convex secret configured. It refuses production origins unless
 `--allow-production` is passed for an explicit emergency operator run.
 
+Before dispatching the workflow for hosted OAuth evidence, audit the repository
+prerequisites:
+
+```sh
+pnpm ops:mcp-hosted-oauth-prereqs
+```
+
+That read-only check uses `gh variable list` and `gh secret list` for the
+selected repository, then reports whether the hosted OAuth path can use
+reviewed `VRDEX_MCP_OAUTH_CLIENT_ID` / `VRDEX_MCP_OAUTH_CLIENT_SECRET`
+secrets or the temporary credential-generation gate
+(`VRDEX_HOSTED_E2E_AUTH_HELPERS=true`,
+`VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true`, and
+`VRDEX_HOSTED_E2E_BROWSER_TOKEN`). It prints only variable/secret names plus
+boolean readiness, never secret values. Add `--require-ready` when the audit
+should fail until one of those complete paths is configured.
+
 These rows are checked separately from manual client UI rows so a lightweight
 PR preview transport smoke cannot accidentally satisfy the production-like
 data-backed, DCR, and CIMD readiness gate.

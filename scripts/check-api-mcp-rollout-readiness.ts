@@ -109,6 +109,7 @@ const requiredScripts = [
   "ops:mcp-client-session-pack",
   "ops:mcp-add-mcp-preflight",
   "ops:mcp-oauth-smoke-credentials",
+  "ops:mcp-hosted-oauth-prereqs",
   "smoke:mcp-compat",
   "smoke:mcp-claude-code",
   "smoke:mcp-inspector",
