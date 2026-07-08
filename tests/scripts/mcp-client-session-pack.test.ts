@@ -62,6 +62,7 @@ describe("MCP client smoke session pack", () => {
       assert.match(readme, /Pending required rows covered by generated worksheets: 19/);
       assert.match(readme, /evidence[\\/]vscode-local-stdio\.md/);
       assert.match(readme, /evidence[\\/]gemini-cli-hosted-oauth\.md/);
+      assert.match(readme, /ops:mcp-hosted-oauth-prereqs/);
 
       const localConfig = JSON.parse(
         await readFile(join(outputDir, "configs", "vscode-local-stdio.add-mcp.json"), "utf8"),
@@ -162,6 +163,8 @@ describe("MCP client smoke session pack", () => {
       assert.match(geminiHostedEvidence, /Matrix row: gemini-cli\/hosted-oauth/);
       assert.match(geminiHostedEvidence, /Target environment: staging https:\/\/staging\.vrdex\.net\/mcp/);
       assert.match(geminiHostedEvidence, /No bearer tokens, OAuth client secrets/);
+      assert.match(geminiHostedEvidence, /Hosted OAuth Prerequisite Audit/);
+      assert.match(geminiHostedEvidence, /pnpm ops:mcp-hosted-oauth-prereqs/);
       assert.match(geminiHostedEvidence, /--evidence-file/);
       assert.match(geminiHostedEvidence, /pnpm record:mcp-client-smoke -- --client gemini-cli --check hosted-oauth/);
 
@@ -172,6 +175,7 @@ describe("MCP client smoke session pack", () => {
 
       assert.match(claudeCodeOauthEvidence, /Matrix row: claude-code\/hosted-oauth/);
       assert.match(claudeCodeOauthEvidence, /VRDEX_CLAUDE_CODE_OAUTH_CLIENT_ID/);
+      assert.match(claudeCodeOauthEvidence, /ops:mcp-hosted-oauth-prereqs -- --require-ready/);
       assert.match(claudeCodeOauthEvidence, /--evidence-file/);
       assert.match(claudeCodeOauthEvidence, /Target environment: staging https:\/\/staging\.vrdex\.net\/mcp/);
 

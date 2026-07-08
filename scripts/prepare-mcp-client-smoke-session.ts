@@ -530,6 +530,20 @@ async function writeEvidenceTemplate(outputPath: string, template: EvidenceTempl
     ? `Target environment: ${template.targetEnvironment}`
     : "Target environment: not applicable for local stdio";
   const evidenceFileRecorder = `pnpm record:mcp-client-smoke -- --evidence-file ${psSingleQuote(outputPath)}`;
+  const hostedOAuthPrereqSection = template.check === "hosted-oauth"
+    ? [
+        "## Hosted OAuth Prerequisite Audit",
+        "",
+        "Run this before attempting the hosted OAuth session:",
+        "",
+        "```powershell",
+        "pnpm ops:mcp-hosted-oauth-prereqs",
+        "```",
+        "",
+        "Use `pnpm ops:mcp-hosted-oauth-prereqs -- --require-ready` when this row must fail closed until reviewed OAuth secrets or temporary credential generation are configured.",
+        "",
+      ]
+    : [];
   const content = [
     `# ${template.clientName} ${template.check} MCP Smoke Evidence`,
     "",
@@ -539,6 +553,7 @@ async function writeEvidenceTemplate(outputPath: string, template: EvidenceTempl
     `Environment: ${template.environment}`,
     targetLine,
     "",
+    ...hostedOAuthPrereqSection,
     "## Setup",
     "",
     `\`\`\`${template.setupLanguage ?? "powershell"}`,
@@ -557,6 +572,9 @@ async function writeEvidenceTemplate(outputPath: string, template: EvidenceTempl
     "- [ ] Client lists the expected VRDex tools.",
     "- [ ] Client calls `vrdex_search` exactly once with query `club`, type `all`, and limit `1`.",
     "- [ ] Client returns a non-error structured result and the first result slug is recorded.",
+    template.check === "hosted-oauth"
+      ? "- [ ] Hosted OAuth prerequisites are ready, or the exact reviewed-secret / temporary-credential blocker is recorded."
+      : undefined,
     "- [ ] Screenshot or transcript is sanitized before the row is recorded.",
     "- [ ] No bearer tokens, OAuth client secrets, full authorization headers, or private account details are captured.",
     "",
@@ -578,7 +596,7 @@ async function writeEvidenceTemplate(outputPath: string, template: EvidenceTempl
     template.recorder,
     "```",
     "",
-  ].join("\n");
+  ].filter((line) => line !== undefined).join("\n");
 
   await writeFile(outputPath, content, "utf8");
 }
@@ -615,6 +633,7 @@ async function writeSessionPack(options: Options) {
     "```",
     "",
     "For hosted OAuth rows, allow the client to complete OAuth when prompted, or use the token-header fallback config only as documented fallback evidence.",
+    "Before starting any hosted OAuth row, run `pnpm ops:mcp-hosted-oauth-prereqs` and keep the result with the smoke notes so missing reviewed secrets or temporary credential-generation gates are visible.",
     "",
   ];
 

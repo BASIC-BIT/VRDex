@@ -16,6 +16,9 @@ docs update and a changelog entry so early consumers and agents can adapt.
 - clarified that `pnpm ops:mcp-installed-clients` reads only current-process
   OAuth credential-generation inputs and should be paired with
   `pnpm ops:mcp-hosted-oauth-prereqs` for the repository variable/secret audit
+- extended `pnpm ops:mcp-client-session-pack` hosted OAuth worksheets and
+  README guidance to include the GitHub prerequisite audit before manual OAuth
+  evidence capture
 - wired PR Baseline Checks to upload the generated
   `mcp-client-session-pack` artifact from the MCP verifier job so reviewers can
   start the remaining manual client smoke rows from checked setup files and
