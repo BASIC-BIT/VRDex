@@ -1,36 +1,36 @@
 {
   "schemaVersion": 1,
-  "lastReviewed": "2026-07-07",
+  "lastReviewed": "2026-07-08",
   "readinessMode": "repo-protocol-smoked-hosted-staging-data-backed-client-smokes-open",
-  "targetEnvironment": "staging https://staging.vrdex.net/mcp, originally deployed from PR #159 runtime head 5386f28 via staging deploy run 28858214531 and refreshed by hosted MCP health run 28899646323 from PR #159 head d6b5571 on 2026-07-07",
+  "targetEnvironment": "staging https://staging.vrdex.net/mcp, PR #159 head c8ec69e via hosted MCP health run 28907703967 on 2026-07-08",
   "hostedReadiness": {
     "checks": [
       {
         "id": "hosted-data-backed-anonymous-read",
         "requiredForExternalReadiness": true,
         "status": "pass",
-        "notes": "2026-07-07: staging target at https://staging.vrdex.net/mcp returned a data-backed hosted MCP pass. The target runtime was previously deployed from PR #159 head 5386f28; hosted MCP health run 28899646323 refreshed data-backed public reads, DCR, and CIMD from PR #159 head d6b5571.",
-        "environment": "GitHub Actions Hosted MCP Smoke Health run 28899646323 / PR #159 head d6b5571 / staging https://staging.vrdex.net/mcp",
-        "evidence": "gh run 28899646323 job 85732953689 ran pnpm smoke:mcp-compat -- --hosted-url https://staging.vrdex.net/mcp --continue-on-failure --hosted-data --dcr --cimd and passed hosted data-backed public read on 2026-07-07; mcp_oauth=true was requested but Inspector OAuth was disabled because the repository smoke secrets were not configured",
-        "lastRunAt": "2026-07-07"
+        "notes": "2026-07-08: staging target at https://staging.vrdex.net/mcp returned a data-backed hosted MCP pass from PR #159 head c8ec69e. The same run requested OAuth and confirmed OAuth credential generation is gated until hosted developer credentials or smoke secrets are configured.",
+        "environment": "GitHub Actions Hosted MCP Smoke Health run 28907703967 / job 85758214928 / PR #159 head c8ec69e / staging https://staging.vrdex.net/mcp",
+        "evidence": "gh run 28907703967 job 85758214928 ran pnpm smoke:mcp-compat -- --hosted-url https://staging.vrdex.net/mcp --continue-on-failure --hosted-data --dcr --cimd and passed hosted data-backed public read on 2026-07-08; mcp_oauth=true was requested but Inspector OAuth was disabled because hosted developer credentials and repository smoke credentials were not configured",
+        "lastRunAt": "2026-07-08"
       },
       {
         "id": "hosted-dynamic-client-registration",
         "requiredForExternalReadiness": true,
         "status": "pass",
-        "notes": "2026-07-07: staging target at https://staging.vrdex.net/mcp created a constrained public MCP dynamic client and verified mcp:read registration metadata. The target runtime was previously deployed from PR #159 head 5386f28; hosted MCP health run 28899646323 refreshed data-backed public reads, DCR, and CIMD from PR #159 head d6b5571.",
-        "environment": "GitHub Actions Hosted MCP Smoke Health run 28899646323 / PR #159 head d6b5571 / staging https://staging.vrdex.net/mcp",
-        "evidence": "gh run 28899646323 job 85732953689 ran pnpm smoke:mcp-compat -- --hosted-url https://staging.vrdex.net/mcp --continue-on-failure --hosted-data --dcr --cimd and passed hosted Dynamic Client Registration on 2026-07-07; mcp_oauth=true was requested but Inspector OAuth was disabled because the repository smoke secrets were not configured",
-        "lastRunAt": "2026-07-07"
+        "notes": "2026-07-08: staging target at https://staging.vrdex.net/mcp created a constrained public MCP dynamic client and verified mcp:read registration metadata from PR #159 head c8ec69e. The same run requested OAuth and confirmed OAuth credential generation is gated until hosted developer credentials or smoke secrets are configured.",
+        "environment": "GitHub Actions Hosted MCP Smoke Health run 28907703967 / job 85758214928 / PR #159 head c8ec69e / staging https://staging.vrdex.net/mcp",
+        "evidence": "gh run 28907703967 job 85758214928 ran pnpm smoke:mcp-compat -- --hosted-url https://staging.vrdex.net/mcp --continue-on-failure --hosted-data --dcr --cimd and passed hosted Dynamic Client Registration on 2026-07-08; mcp_oauth=true was requested but Inspector OAuth was disabled because hosted developer credentials and repository smoke credentials were not configured",
+        "lastRunAt": "2026-07-08"
       },
       {
         "id": "hosted-client-id-metadata-document",
         "requiredForExternalReadiness": true,
         "status": "pass",
-        "notes": "2026-07-07: staging target at https://staging.vrdex.net/mcp accepted the URL-form public client id metadata document before the expected unauthenticated sign-in redirect. The target runtime was previously deployed from PR #159 head 5386f28; hosted MCP health run 28899646323 refreshed data-backed public reads, DCR, and CIMD from PR #159 head d6b5571.",
-        "environment": "GitHub Actions Hosted MCP Smoke Health run 28899646323 / PR #159 head d6b5571 / staging https://staging.vrdex.net/mcp",
-        "evidence": "gh run 28899646323 job 85732953689 ran pnpm smoke:mcp-compat -- --hosted-url https://staging.vrdex.net/mcp --continue-on-failure --hosted-data --dcr --cimd and passed hosted public-client Client ID Metadata Document authorization on 2026-07-07; mcp_oauth=true was requested but Inspector OAuth was disabled because the repository smoke secrets were not configured",
-        "lastRunAt": "2026-07-07"
+        "notes": "2026-07-08: staging target at https://staging.vrdex.net/mcp accepted the URL-form public client id metadata document before the expected unauthenticated sign-in redirect from PR #159 head c8ec69e. The same run requested OAuth and confirmed OAuth credential generation is gated until hosted developer credentials or smoke secrets are configured.",
+        "environment": "GitHub Actions Hosted MCP Smoke Health run 28907703967 / job 85758214928 / PR #159 head c8ec69e / staging https://staging.vrdex.net/mcp",
+        "evidence": "gh run 28907703967 job 85758214928 ran pnpm smoke:mcp-compat -- --hosted-url https://staging.vrdex.net/mcp --continue-on-failure --hosted-data --dcr --cimd and passed hosted public-client Client ID Metadata Document authorization on 2026-07-08; mcp_oauth=true was requested but Inspector OAuth was disabled because hosted developer credentials and repository smoke credentials were not configured",
+        "lastRunAt": "2026-07-08"
       }
     ]
   },
@@ -282,7 +282,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
           "manualStatus": "pending",
-          "notes": "Top-level staging hosted OAuth protocol evidence is recorded as pass. Inspector can fetch a short-lived token from reviewed OAuth app client credentials via VRDEX_MCP_OAUTH_CLIENT_ID / VRDEX_MCP_OAUTH_CLIENT_SECRET or VRDEX_MCP_INSPECTOR_OAUTH_CLIENT_* overrides, with VRDEX_MCP_INSPECTOR_OAUTH_TOKEN fallback; run 28899646323 confirmed the workflow path skips cleanly when mcp_oauth=true but those repository smoke secrets are absent. This row remains pending until authenticated behavior is recorded against https://staging.vrdex.net/mcp."
+          "notes": "Top-level staging hosted OAuth protocol evidence is recorded as pass. Inspector can fetch a short-lived token from reviewed OAuth app client credentials via VRDEX_MCP_OAUTH_CLIENT_ID / VRDEX_MCP_OAUTH_CLIENT_SECRET or VRDEX_MCP_INSPECTOR_OAUTH_CLIENT_* overrides, with VRDEX_MCP_INSPECTOR_OAUTH_TOKEN fallback; run 28907703967 confirmed the workflow path skips cleanly when mcp_oauth=true but repository smoke secrets are absent and VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS is not enabled. This row remains pending until authenticated behavior is recorded against https://staging.vrdex.net/mcp."
         }
       ]
     }
