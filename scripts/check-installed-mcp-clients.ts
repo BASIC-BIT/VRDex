@@ -36,6 +36,14 @@ type ClientResult = {
   version: string;
 };
 
+type AutomationSurfaceResult = {
+  client: string;
+  evidence: string;
+  nextAction: string;
+  status: "manual_only" | "not_available";
+  surface: string;
+};
+
 type OAuthPrerequisite = {
   clientSpecificPrefix: string;
   matrixRow: string;
@@ -372,8 +380,79 @@ function evaluateOAuthCredentialGeneration(): OAuthCredentialGenerationResult {
   };
 }
 
+function runAutomationProbe(command: string, args: string[]) {
+  const result = runProbe({
+    args,
+    command,
+    evidence: `${[command, ...args].join(" ")} output`,
+    patterns: [],
+  });
+
+  return result.output;
+}
+
+function evaluateAutomationSurfaces(): AutomationSurfaceResult[] {
+  const vscodeChatHelp = runAutomationProbe("code", ["chat", "--help"]);
+  const vscodeIsolatedChatHelp = runAutomationProbe(
+    "code",
+    ["--user-data-dir", ".tmp-gh-artifacts/mcp-client-cli-probe/vscode-chat", "chat", "--help"],
+  );
+  const cursorAgentHelp = runAutomationProbe("cursor", ["agent", "--help"]);
+  const cursorChatHelp = runAutomationProbe("cursor", ["--chat", "--help"]);
+  const windsurfHelp = runAutomationProbe("windsurf", ["--help"]);
+
+  return [
+    {
+      client: "VS Code",
+      evidence: /Usage:\s+code(?:\.exe)?\s+chat/i.test(vscodeChatHelp)
+        ? "code chat is available with prompt and mode options, but help exposes no stdout transcript or tool-call export option"
+        : "code chat help was not available on PATH",
+      nextAction: "Use app-visible screenshot or transcript evidence after the real chat session lists tools and calls vrdex_search.",
+      status: /Usage:\s+code(?:\.exe)?\s+chat/i.test(vscodeChatHelp) ? "manual_only" : "not_available",
+      surface: "chat subcommand",
+    },
+    {
+      client: "VS Code",
+      evidence: /user-data-dir.+not in the list of known options for subcommand 'chat'/i.test(vscodeIsolatedChatHelp)
+        ? "code chat currently warns that --user-data-dir is not a known chat option, so isolated add-mcp profiles are setup aids rather than headless chat evidence"
+        : "code chat did not report the current isolated user-data warning; verify isolation manually before relying on this launch path",
+      nextAction: "Keep recording VS Code rows from the real app session, not from CLI handoff success.",
+      status: "manual_only",
+      surface: "isolated chat handoff",
+    },
+    {
+      client: "Cursor",
+      evidence: /Usage:\s+cursor(?:\.exe)?\s+\[options\]/i.test(cursorAgentHelp)
+        ? "cursor agent is advertised, but current help falls back to generic Cursor CLI help rather than a transcript-producing MCP smoke command"
+        : "cursor agent help shape changed; inspect manually before treating it as an automation path",
+      nextAction: "Use installed app or agent-surface screenshot/transcript evidence after the real session lists tools and calls vrdex_search.",
+      status: "manual_only",
+      surface: "agent subcommand",
+    },
+    {
+      client: "Cursor",
+      evidence: /--chat/i.test(cursorChatHelp)
+        ? "cursor --chat opens the standalone chat surface, but help exposes no stdout transcript or tool-call export option"
+        : "cursor --chat help was not available on PATH",
+      nextAction: "Use app-visible evidence for Cursor rows; do not record CLI launch success as a pass.",
+      status: /--chat/i.test(cursorChatHelp) ? "manual_only" : "not_available",
+      surface: "standalone chat flag",
+    },
+    {
+      client: "Windsurf",
+      evidence: /--add-mcp/i.test(windsurfHelp) && !/\b(chat|agent)\b/i.test(windsurfHelp)
+        ? "windsurf help exposes --add-mcp but no chat or agent subcommand for transcript-producing CLI smoke evidence"
+        : "windsurf help shape changed; inspect manually before treating it as an automation path",
+      nextAction: "Use installed app screenshot/transcript evidence after the real session lists tools and calls vrdex_search.",
+      status: /--add-mcp/i.test(windsurfHelp) ? "manual_only" : "not_available",
+      surface: "chat or agent CLI",
+    },
+  ];
+}
+
 function printResults(
   results: ClientResult[],
+  automationResults: AutomationSurfaceResult[],
   oauthResults: OAuthPrerequisiteResult[],
   oauthGenerationResults: OAuthCredentialGenerationResult[],
 ) {
@@ -381,6 +460,7 @@ function printResults(
   console.log("");
   console.log("This read-only check inspects local CLI versions and MCP configuration support.");
   console.log("It does not write MCP config, launch GUI sessions, print secrets, or replace manual matrix smokes.");
+  console.log("The CLI automation surface notes are informational and are not readiness evidence.");
   console.log("");
   console.log("| Client | Status | Version | CLI evidence | Remaining manual gap |");
   console.log("| --- | --- | --- | --- | --- |");
@@ -393,6 +473,24 @@ function printResults(
         markdownCell(result.version),
         markdownCell(result.evidence.join("; ")),
         markdownCell(result.manualGap),
+      ].join(" | ")} |`,
+    );
+  }
+
+  console.log("");
+  console.log("## CLI Automation Surface Notes");
+  console.log("");
+  console.log("| Client | Surface | Status | Evidence | Next action |");
+  console.log("| --- | --- | --- | --- | --- |");
+
+  for (const result of automationResults) {
+    console.log(
+      `| ${[
+        markdownCell(result.client),
+        markdownCell(result.surface),
+        result.status,
+        markdownCell(result.evidence),
+        markdownCell(result.nextAction),
       ].join(" | ")} |`,
     );
   }
@@ -436,6 +534,7 @@ function printResults(
 
 function main() {
   const results = clients.map(evaluateClient);
+  const automationResults = evaluateAutomationSurfaces();
   const oauthResults = oauthPrerequisites.map(evaluateOAuthPrerequisite);
   const oauthGenerationResults = [evaluateOAuthCredentialGeneration()];
   const failures = [
@@ -443,7 +542,7 @@ function main() {
     ...oauthResults.filter((result) => result.status === "partial").map((result) => result.matrixRow),
   ];
 
-  printResults(results, oauthResults, oauthGenerationResults);
+  printResults(results, automationResults, oauthResults, oauthGenerationResults);
 
   if (failures.length > 0) {
     throw new Error(`Installed MCP client preflight failed: ${failures.join(", ")}`);

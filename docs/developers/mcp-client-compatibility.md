@@ -232,6 +232,15 @@ variable/secret audit. It does not write client configuration, launch GUI smoke
 sessions, or turn any manual row green by itself. Use it to catch local client
 drift and OAuth evidence blockers before the human smoke pass.
 
+The preflight also prints informational CLI automation notes for installed
+VS Code-family clients. On the current Windows CLIs, VS Code `chat` and Cursor
+`--chat`/`agent` can open or advertise agent surfaces, but their help output
+does not expose a stdout transcript or tool-call export path suitable for
+matrix evidence; VS Code `chat` also warns that `--user-data-dir` is not a
+known chat option. Windsurf exposes `--add-mcp` but no chat or agent subcommand.
+Those notes are useful for choosing the manual smoke path, not for recording
+passes.
+
 After the preflight, generate a disposable smoke-session pack for installed
 VS Code-family clients and Gemini CLI, plus manual-only worksheets for hosted
 product surfaces, missing desktop apps, and OAuth rows that need reviewed
@@ -299,6 +308,10 @@ https://staging.vrdex.net/mcp --require-installed` passed all generated
 local-stdio, hosted-anonymous-read, and hosted-token-fallback definitions for
 those installed clients. Those rows remain pending until the real app session
 lists tools and calls `vrdex_search`.
+
+The same installed-client preflight reports that those CLIs remain manual-only
+for evidence capture: setup and chat launch success are not enough unless the
+client session itself shows the VRDex tool list and a `vrdex_search` result.
 
 Record manual pass or fail results with the recorder command instead of
 hand-editing the JSON:

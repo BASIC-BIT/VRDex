@@ -9,6 +9,10 @@ docs update and a changelog entry so early consumers and agents can adapt.
 
 ## 2026-07-08
 
+- extended `pnpm ops:mcp-installed-clients` with informational CLI automation
+  notes so VS Code `chat`, Cursor `--chat`/`agent`, and Windsurf setup-only
+  surfaces are clearly treated as manual-only evidence paths unless the real
+  client session lists tools and calls `vrdex_search`
 - recorded that the installed VS Code 1.127.0, Cursor 3.10.17, and Windsurf
   1.110.1 CLIs accept the generated local stdio, hosted anonymous HTTP, and
   hosted token-header fallback `--add-mcp` definitions while keeping those

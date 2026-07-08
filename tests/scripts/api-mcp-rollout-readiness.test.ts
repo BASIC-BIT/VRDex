@@ -101,6 +101,8 @@ describe("API/MCP rollout readiness checker", () => {
 
     assert.match(installedClientsSource, /current process environment/);
     assert.match(installedClientsSource, /ops:mcp-hosted-oauth-prereqs/);
+    assert.match(installedClientsSource, /CLI Automation Surface Notes/);
+    assert.match(installedClientsSource, /stdout transcript/);
   });
 
   it("keeps hosted MCP OAuth workflow wired to temporary smoke credential generation", async () => {

@@ -126,7 +126,10 @@ one PR.
   blockers before manual smoke sessions but does not replace manual matrix
   evidence. Its credential-generation table reads the current process
   environment only; run `pnpm ops:mcp-hosted-oauth-prereqs` for the repository
-  variable/secret audit.
+  variable/secret audit. Its CLI automation notes are informational: VS Code
+  `chat`, Cursor `--chat`/`agent`, and Windsurf setup CLI checks do not count
+  as matrix evidence unless the real client session lists tools and calls
+  `vrdex_search`.
 - `pnpm ops:mcp-client-session-pack` writes disposable VS Code, Cursor,
   Windsurf, and Gemini CLI MCP setup files under `.tmp-gh-artifacts/`,
   including local stdio, hosted anonymous HTTP, hosted token-header fallback
