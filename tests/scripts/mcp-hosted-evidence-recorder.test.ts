@@ -150,6 +150,32 @@ describe("hosted MCP evidence recorder", () => {
     }
   });
 
+  it("rejects token-shaped evidence for hosted readiness pass rows", async () => {
+    const { directory, path } = await writeMatrixCopy("reject-sensitive-evidence");
+
+    try {
+      const result = runRecorder([
+        "--matrix",
+        path,
+        "--check",
+        "hosted-data-backed-anonymous-read",
+        "--status",
+        "pass",
+        "--target-environment",
+        "production-like staging https://staging.vrdex.net/mcp",
+        "--environment",
+        "GitHub Actions / hosted MCP smoke",
+        "--evidence",
+        "workflow included Authorization: Bearer vrdx_mcp_token_abcdefghijklmnopqrstuvwxyz",
+      ]);
+
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /--evidence appears to contain a token, secret, or authorization header/);
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
   it("rejects placeholder target environments for hosted readiness pass rows", async () => {
     const { directory, path } = await writeMatrixCopy("reject-placeholder-target");
 

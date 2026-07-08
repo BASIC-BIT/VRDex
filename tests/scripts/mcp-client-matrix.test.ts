@@ -215,4 +215,46 @@ describe("MCP client matrix verifier", () => {
       await rm(directory, { force: true, recursive: true });
     }
   });
+
+  it("rejects token-shaped client-row evidence in hand-edited matrix JSON", async () => {
+    const { directory, path } = await writeMatrixCopy("sensitive-client-evidence", (matrix) => {
+      markHostedInspectorPass(matrix);
+      matrix.targetEnvironment = "production-like staging https://staging.vrdex.net/mcp";
+      const client = matrix.clients.find((entry) => entry.id === "mcp-inspector");
+      const check = client?.checks.find((entry) => entry.id === "hosted-anonymous-read");
+
+      assert.ok(check);
+      check.manualEvidence = "curl output included Authorization: Bearer vrdx_mcp_token_abcdefghijklmnopqrstuvwxyz";
+    });
+
+    try {
+      const result = runMatrixCheck(path);
+
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /mcp-inspector\/hosted-anonymous-read manualEvidence appears to contain a token/i);
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  it("rejects token-shaped hosted-readiness evidence in hand-edited matrix JSON", async () => {
+    const { directory, path } = await writeMatrixCopy("sensitive-hosted-evidence", (matrix) => {
+      resetHostedClientPasses(matrix);
+      matrix.targetEnvironment = "production-like staging https://staging.vrdex.net/mcp";
+      markHostedReadinessPass(matrix, "hosted-data-backed-anonymous-read");
+      const check = matrix.hostedReadiness?.checks.find((entry) => entry.id === "hosted-data-backed-anonymous-read");
+
+      assert.ok(check);
+      check.evidence = "workflow transcript included client_secret=abcdefghijklmnopqrstuvwxyz";
+    });
+
+    try {
+      const result = runMatrixCheck(path);
+
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /hostedReadiness\/hosted-data-backed-anonymous-read evidence appears to contain a token/i);
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
 });

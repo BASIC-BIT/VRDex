@@ -78,6 +78,8 @@ const allowedHostedReadinessStatuses = new Set<HostedReadinessStatus>(["fail", "
 const hostedEvidenceTargetPattern = /\b(same-branch|production-like|staging|production)\b/i;
 const pendingHostedEvidencePattern = /\b(pending|need|needs|lack|lacks|skipped|unavailable|not deployed|without data-backed)\b/i;
 const placeholderPattern = /<[^>]+>/;
+const sensitiveEvidencePattern =
+  /\b(authorization\s*:\s*bearer|bearer\s+[a-z0-9._~+/-]{12,}|client_secret\s*[=:]|vrdex_(?:api|mcp)?_?token\s*[=:]|secret\s*[=:]\s*[a-z0-9._~+/-]{12,}|eyJ[a-z0-9_-]{10,}\.[a-z0-9_-]{10,}\.[a-z0-9_-]{10,})\b/i;
 const requiredHostedReadinessChecks = new Map<string, string>([
   ["hosted-data-backed-anonymous-read", "data-backed anonymous hosted MCP public read"],
   ["hosted-dynamic-client-registration", "hosted OAuth Dynamic Client Registration"],
@@ -123,6 +125,11 @@ function assertOptionalString(value: unknown, label: string) {
 
 function assertConcreteValue(value: string, label: string) {
   assert.doesNotMatch(value, placeholderPattern, `${label} must be concrete and must not contain <placeholder> text`);
+}
+
+function assertSanitizedEvidence(value: string, label: string) {
+  assertConcreteValue(value, label);
+  assert.doesNotMatch(value, sensitiveEvidencePattern, `${label} appears to contain a token, secret, or authorization header`);
 }
 
 function parseSmokeMatrix(raw: string): SmokeMatrix {
@@ -177,7 +184,7 @@ function validateSmokeCheck(clientId: string, check: SmokeCheck, matrix: SmokeMa
     assertString(check.environment, `${clientId}/${check.id} environment`);
     assertString(check.manualEvidence, `${clientId}/${check.id} manualEvidence`);
     assertConcreteValue(check.environment, `${clientId}/${check.id} environment`);
-    assertConcreteValue(check.manualEvidence, `${clientId}/${check.id} manualEvidence`);
+    assertSanitizedEvidence(check.manualEvidence, `${clientId}/${check.id} manualEvidence`);
   }
 
   if (check.manualStatus === "pass" && check.requiredForExternalReadiness && check.surface.startsWith("hosted_http")) {
@@ -265,7 +272,7 @@ function validateHostedReadinessCheck(check: HostedReadinessCheck, matrix: Smoke
     assertString(check.environment, `hostedReadiness/${check.id} environment`);
     assertString(check.evidence, `hostedReadiness/${check.id} evidence`);
     assertConcreteValue(check.environment, `hostedReadiness/${check.id} environment`);
-    assertConcreteValue(check.evidence, `hostedReadiness/${check.id} evidence`);
+    assertSanitizedEvidence(check.evidence, `hostedReadiness/${check.id} evidence`);
   }
 
   if (check.status === "pass" && check.requiredForExternalReadiness) {

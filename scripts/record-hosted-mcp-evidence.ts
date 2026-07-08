@@ -40,6 +40,8 @@ const allowedStatuses = new Set<HostedReadinessStatus>(["fail", "pass", "pending
 const hostedEvidenceTargetPattern = /\b(same-branch|production-like|staging|production)\b/i;
 const pendingHostedEvidencePattern = /\b(pending|need|needs|lack|lacks|skipped|unavailable|not deployed|without data-backed)\b/i;
 const placeholderPattern = /<[^>]+>/;
+const sensitiveEvidencePattern =
+  /\b(authorization\s*:\s*bearer|bearer\s+[a-z0-9._~+/-]{12,}|client_secret\s*[=:]|vrdex_(?:api|mcp)?_?token\s*[=:]|secret\s*[=:]\s*[a-z0-9._~+/-]{12,}|eyJ[a-z0-9_-]{10,}\.[a-z0-9_-]{10,}\.[a-z0-9_-]{10,})\b/i;
 const knownHostedChecks = new Set([
   "hosted-data-backed-anonymous-read",
   "hosted-dynamic-client-registration",
@@ -58,6 +60,11 @@ function nonEmpty(value: string | undefined) {
 
 function assertConcreteValue(value: string, label: string) {
   assert.doesNotMatch(value, placeholderPattern, `${label} must be concrete and must not contain <placeholder> text.`);
+}
+
+function assertSanitizedEvidence(value: string, label: string) {
+  assertConcreteValue(value, label);
+  assert.doesNotMatch(value, sensitiveEvidencePattern, `${label} appears to contain a token, secret, or authorization header.`);
 }
 
 function takeValue(args: string[], index: number, name: string) {
@@ -153,7 +160,7 @@ function validateStatusUpdate(options: RecordOptions) {
     assert.ok(environment, "--environment is required for pass or fail.");
     assert.ok(evidence, "--evidence is required for pass or fail.");
     assertConcreteValue(environment, "--environment");
-    assertConcreteValue(evidence, "--evidence");
+    assertSanitizedEvidence(evidence, "--evidence");
   }
 
   if (options.status === "pass") {
