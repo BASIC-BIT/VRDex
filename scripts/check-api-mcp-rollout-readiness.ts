@@ -114,6 +114,7 @@ const requiredScripts = [
   "ops:mcp-hosted-oauth-prereqs",
   "smoke:mcp-compat",
   "smoke:mcp-claude-code",
+  "smoke:mcp-gemini-cli",
   "smoke:mcp-inspector",
   "verify:api-contracts",
   "verify:vrdex-mcp",

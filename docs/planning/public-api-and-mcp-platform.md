@@ -119,8 +119,10 @@ Next execution checkpoint:
    in `docs/developers/mcp-client-smoke-results.json`.
 3. Complete the major-client matrix rows against that same staging target,
    continuing with the locally installed clients that still need smoke-tested
-   rows: VS Code, Cursor, and Windsurf, plus hosted OAuth coverage for Claude
-   Code and MCP Inspector.
+   rows: VS Code, Cursor, and Windsurf; use `pnpm smoke:mcp-gemini-cli`
+   with Google auth or `--gemini-package @google/gemini-cli@latest` for the
+   Gemini CLI rows; and complete hosted OAuth coverage for Claude Code, Gemini
+   CLI, and MCP Inspector.
 4. Keep OpenAI/ChatGPT evidence as hosted-product manual evidence; do not mark
    that row ready from local CLI checks.
 

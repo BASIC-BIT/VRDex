@@ -111,7 +111,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "pnpm smoke:mcp-compat local profile: Gemini CLI, including all curated read tools",
           "manualStatus": "pending",
-          "notes": "Gemini CLI supports command-based stdio MCP servers through settings.json. pnpm ops:mcp-client-session-pack generates the disposable settings snippet and recorder command. Run an interactive /mcp session and call vrdex_search before recording this row."
+          "notes": "Gemini CLI supports command-based stdio MCP servers through settings.json. pnpm smoke:mcp-gemini-cli is the repeatable real-client path; use --gemini-package @google/gemini-cli@latest when Gemini CLI is not installed globally. Row remains pending until a Google-authenticated Gemini CLI run or equivalent interactive /mcp session calls vrdex_search."
         },
         {
           "id": "hosted-anonymous-read",
@@ -119,7 +119,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
           "manualStatus": "pending",
-          "notes": "Gemini CLI supports Streamable HTTP through settings.json httpUrl. pnpm ops:mcp-client-session-pack generates the disposable hosted settings snippet and recorder command. Confirm /mcp lists anonymous public-read tools and can call vrdex_search without /mcp auth."
+          "notes": "Gemini CLI supports Streamable HTTP through settings.json httpUrl. pnpm smoke:mcp-gemini-cli -- --mode hosted-http --hosted-data is the repeatable real-client path; use --gemini-package @google/gemini-cli@latest when needed. Row remains pending until a Google-authenticated Gemini CLI run or equivalent interactive /mcp session calls vrdex_search without OAuth."
         },
         {
           "id": "hosted-oauth",
@@ -127,7 +127,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
           "manualStatus": "pending",
-          "notes": "Gemini CLI documents automatic OAuth discovery, Dynamic Client Registration, /mcp auth, and secure token storage for remote MCP servers. pnpm ops:mcp-client-session-pack generates OAuth-discovery and token-header fallback snippets. Record hosted mcp:read behavior against the deployed target."
+          "notes": "Gemini CLI documents automatic OAuth discovery, Dynamic Client Registration, /mcp auth, and secure token storage for remote MCP servers. Prefer native OAuth evidence; pnpm smoke:mcp-gemini-cli also supports reviewed OAuth client credentials or VRDEX_GEMINI_CLI_OAUTH_TOKEN for repeatable token-backed fallback evidence. Record hosted mcp:read behavior against the deployed target before marking this row pass."
         }
       ]
     },

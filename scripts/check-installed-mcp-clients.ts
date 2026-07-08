@@ -113,7 +113,7 @@ const clients: ClientProbe[] = [
   {
     id: "gemini-cli",
     name: "Gemini CLI",
-    manualGap: "Use Gemini CLI settings.json and an interactive /mcp session to list tools and call vrdex_search before recording manual rows.",
+    manualGap: "Run pnpm smoke:mcp-gemini-cli with Google auth, or use Gemini CLI settings.json and an interactive /mcp session before recording rows. If Gemini CLI is not installed, the smoke supports --gemini-package @google/gemini-cli@latest.",
     version: {
       command: "gemini",
       args: ["--version"],
@@ -124,7 +124,7 @@ const clients: ClientProbe[] = [
       {
         command: "gemini",
         args: ["--help"],
-        evidence: "Gemini CLI command is available; MCP smoke depends on settings.json plus interactive /mcp evidence",
+        evidence: "Gemini CLI command is available; MCP smoke can run through pnpm smoke:mcp-gemini-cli or interactive /mcp evidence",
         patterns: [/.+/],
       },
     ],
@@ -207,6 +207,12 @@ const oauthPrerequisites: OAuthPrerequisite[] = [
     matrixRow: "mcp-inspector/hosted-oauth",
     smokeCommand: "pnpm smoke:mcp-inspector -- --hosted-url <target-/mcp-url> --hosted-data",
     tokenEnvName: "VRDEX_MCP_INSPECTOR_OAUTH_TOKEN",
+  },
+  {
+    clientSpecificPrefix: "GEMINI_CLI",
+    matrixRow: "gemini-cli/hosted-oauth",
+    smokeCommand: "pnpm smoke:mcp-gemini-cli -- --mode hosted-http --hosted-url <target-/mcp-url> --hosted-data",
+    tokenEnvName: "VRDEX_GEMINI_CLI_OAUTH_TOKEN",
   },
 ];
 

@@ -118,6 +118,55 @@ Pair that Claude Code run with `pnpm smoke:mcp-compat -- --hosted-only
 `claude-code/hosted-oauth` matrix row, so the evidence covers both DCR/CIMD
 protocol behavior and an authenticated client call.
 
+Gemini CLI also has a real-client harness. In local stdio mode, it writes a
+temporary `.gemini/settings.json`, starts the repo API fixture, runs Gemini CLI
+headlessly with stream-json output, calls `vrdex_search`, and fails unless the
+fixture receives the expected search request:
+
+```sh
+pnpm smoke:mcp-gemini-cli
+```
+
+If Gemini CLI is not installed globally, run the current package through
+`npx` without making a permanent install:
+
+```sh
+pnpm smoke:mcp-gemini-cli -- --gemini-package @google/gemini-cli@latest
+```
+
+In hosted HTTP mode, the harness points Gemini CLI at a deployed Streamable
+HTTP MCP endpoint and parses stream-json output for the `vrdex_search` call and
+structured result:
+
+```sh
+pnpm smoke:mcp-gemini-cli -- \
+  --mode hosted-http \
+  --hosted-url https://staging.vrdex.net/mcp \
+  --hosted-data
+```
+
+Use `--hosted-query`, `--hosted-type`, and `--hosted-limit` when the staging
+seed data needs a different public search fixture. The equivalent environment
+variables are `VRDEX_GEMINI_CLI_HOSTED_DATA`,
+`VRDEX_GEMINI_CLI_HOSTED_QUERY`, `VRDEX_GEMINI_CLI_HOSTED_TYPE`, and
+`VRDEX_GEMINI_CLI_HOSTED_LIMIT`.
+
+For Gemini CLI hosted OAuth evidence, prefer the current client's native OAuth
+discovery and `/mcp auth` behavior when collecting interactive evidence. For a
+repeatable token-backed smoke, set `VRDEX_MCP_OAUTH_CLIENT_ID` and
+`VRDEX_MCP_OAUTH_CLIENT_SECRET`, or the client-specific
+`VRDEX_GEMINI_CLI_OAUTH_CLIENT_ID` and
+`VRDEX_GEMINI_CLI_OAUTH_CLIENT_SECRET`, before running the hosted smoke. The
+script exchanges those credentials for a short-lived MCP-resource token, writes
+it only to a temporary Gemini settings file as an HTTP `Authorization` header,
+validates an authenticated `vrdex_search` call, and does not print the token or
+client secret. `VRDEX_GEMINI_CLI_OAUTH_TOKEN` is also supported as a fallback.
+
+Pair the Gemini OAuth run with `pnpm smoke:mcp-compat -- --hosted-only
+--hosted-url <target> --hosted-data --dcr --cimd` when recording the
+`gemini-cli/hosted-oauth` matrix row, so the evidence covers both DCR/CIMD
+protocol behavior and an authenticated client call.
+
 MCP Inspector has a hosted CLI wrapper that runs `npx --yes
 @modelcontextprotocol/inspector`, validates the hosted tool list, and confirms
 each public read tool advertises `noauth` plus optional `oauth2` metadata:
@@ -496,7 +545,7 @@ log can distinguish backend data, DCR, and CIMD blockers in one attempt.
 | --- | --- | --- | --- | --- |
 | Claude Desktop | Uses `mcpServers` JSON with `command`, `args`, and optional `env`. | Remote setup should use Claude's current Custom Connector path. | Hosted `/mcp` should complete OAuth through protected-resource metadata. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; hosted manual smoke pending. |
 | Claude Code | Supports stdio with `claude mcp add --transport stdio`. | Supports HTTP with `claude mcp add --transport http`. | Supports OAuth from `/mcp` or `claude mcp login`; reviewed-app client-credentials token acquisition and token-backed header auth are available as evidence paths. DCR and public-client CIMD are implemented. | Local stdio and staging data-backed hosted anonymous reads pass through `pnpm smoke:mcp-claude-code`; hosted OAuth has a client-credentials smoke harness and remains pending until evidence is recorded. |
-| Gemini CLI | Uses `settings.json` `mcpServers` entries with `command` for stdio. | Supports Streamable HTTP through `httpUrl` and SSE through `url`. | Supports OAuth 2.0 for remote MCP, automatic discovery, Dynamic Client Registration, `/mcp auth`, and secure token storage. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; exact Gemini CLI client rows remain pending until interactive `/mcp` evidence is recorded. |
+| Gemini CLI | Uses `settings.json` `mcpServers` entries with `command` for stdio. | Supports Streamable HTTP through `httpUrl` and SSE through `url`. | Supports OAuth 2.0 for remote MCP, automatic discovery, Dynamic Client Registration, `/mcp auth`, and secure token storage; token-backed fallback evidence is available through the Gemini smoke harness. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; exact Gemini CLI rows now have `pnpm smoke:mcp-gemini-cli` as the repeatable real-client path and remain pending until Google-authenticated evidence is recorded. |
 | VS Code | Uses `.vscode/mcp.json` or user MCP config with `servers` entries. | Supports `type: "http"` and `url`. | Avoid hardcoded secrets; use inputs or environment files. OAuth manual smoke pending. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; VS Code 1.127.0 accepted all generated `--add-mcp` definitions on 2026-07-08; manual tool-call smoke pending. |
 | Cursor | Treat local stdio as a required smoke target if the current release still supports command-based MCP config. | Treat hosted HTTP as a required smoke target if the current release supports remote MCP URLs. | Confirm current OAuth behavior during manual smoke. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; Cursor 3.10.17 accepted all generated `--add-mcp` definitions on 2026-07-08; manual tool-call smoke pending. |
 | OpenAI and ChatGPT MCP-capable surfaces | Treat local stdio as unsupported until the current product surface says otherwise. | Use hosted remote MCP when ChatGPT Apps, deep research, or API integration setup supports custom MCP servers. | Current OpenAI docs recommend CIMD when the authorization server supports it and keep DCR as a supported path when configured; VRDex implements both DCR and public-client CIMD. Public read tools advertise `_meta["securitySchemes"]` with `noauth` plus optional `oauth2`. | Hosted remote MCP target identified; exact setup and per-tool auth metadata behavior must be verified in the relevant OpenAI surface before launch docs publish snippets. |

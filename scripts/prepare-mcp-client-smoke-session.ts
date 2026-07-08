@@ -372,10 +372,18 @@ async function pendingRequiredMatrixRows(matrixPath: string) {
 
 function blockerForPendingRow(row: PendingMatrixRow): { id: string } & Omit<PendingBlocker, "rows"> {
   if (row.clientId === "gemini-cli") {
+    if (row.checkId === "hosted-oauth") {
+      return {
+        id: "missing-client-install",
+        label: "Missing client install or account setup",
+        nextAction: "Run the Gemini CLI real-client smoke with Google auth and native OAuth or a reviewed-token fallback; use --gemini-package @google/gemini-cli@latest if Gemini CLI is not installed.",
+      };
+    }
+
     return {
       id: "missing-client-install",
       label: "Missing client install or account setup",
-      nextAction: "Install or open Gemini CLI, apply the generated settings snippet, then capture an interactive /mcp tool-call session.",
+      nextAction: "Run the Gemini CLI real-client smoke with Google auth, or apply the generated settings snippet and capture an interactive /mcp tool-call session; use --gemini-package @google/gemini-cli@latest if Gemini CLI is not installed.",
     };
   }
 
@@ -975,7 +983,7 @@ async function writeSessionPack(options: Options) {
       hosted: false,
       prompt: smokePrompt("local-stdio"),
       recorder: geminiLocalRecorder,
-      setup: `Merge settings snippet ${psSingleQuote(geminiLocalConfig)} into Gemini CLI settings.json.`,
+      setup: `Prefer pnpm smoke:mcp-gemini-cli for repeatable evidence. Interactive fallback: merge settings snippet ${psSingleQuote(geminiLocalConfig)} into Gemini CLI settings.json.`,
     },
     {
       check: "hosted-anonymous-read" as const,
@@ -983,7 +991,7 @@ async function writeSessionPack(options: Options) {
       hosted: true,
       prompt: smokePrompt("hosted-anonymous-read"),
       recorder: geminiHostedAnonymousRecorder,
-      setup: `Merge settings snippet ${psSingleQuote(geminiHostedConfig)} into Gemini CLI settings.json.`,
+      setup: `Prefer pnpm smoke:mcp-gemini-cli -- --mode hosted-http --hosted-url ${hostedMcpUrl(options.hostedUrl!)} --hosted-data for repeatable evidence. Interactive fallback: merge settings snippet ${psSingleQuote(geminiHostedConfig)} into Gemini CLI settings.json.`,
     },
     {
       check: "hosted-oauth" as const,
@@ -991,7 +999,7 @@ async function writeSessionPack(options: Options) {
       hosted: true,
       prompt: smokePrompt("hosted-oauth"),
       recorder: geminiHostedOauthRecorder,
-      setup: `Merge OAuth-discovery settings snippet ${psSingleQuote(geminiHostedConfig)} into Gemini CLI settings.json; use ${psSingleQuote(geminiHostedTokenConfig)} only as the token-header fallback.`,
+      setup: `Prefer Gemini CLI native OAuth discovery first. For repeatable fallback evidence, set VRDEX_GEMINI_CLI_OAUTH_TOKEN or reviewed OAuth client credentials, then run pnpm smoke:mcp-gemini-cli -- --mode hosted-http --hosted-url ${hostedMcpUrl(options.hostedUrl!)} --hosted-data. Interactive fallback: merge OAuth-discovery settings snippet ${psSingleQuote(geminiHostedConfig)} into Gemini CLI settings.json; use ${psSingleQuote(geminiHostedTokenConfig)} only as the token-header fallback.`,
     },
   ];
 
@@ -1015,7 +1023,7 @@ async function writeSessionPack(options: Options) {
   readmeSections.push(
     "## Gemini CLI",
     "",
-    "Merge the relevant generated settings snippet into Gemini CLI `settings.json` for the smoke session. Keep the server key as `vrdex`; Gemini CLI policy parsing can misread server names that contain underscores.",
+    "Prefer `pnpm smoke:mcp-gemini-cli` for repeatable headless evidence. If Gemini CLI is not installed globally, append `--gemini-package @google/gemini-cli@latest` so the smoke runs through a disposable package. Interactive fallback: merge the relevant generated settings snippet into Gemini CLI `settings.json` and keep the server key as `vrdex`; Gemini CLI policy parsing can misread server names that contain underscores.",
     "",
     "### Local Stdio Row",
     "",
