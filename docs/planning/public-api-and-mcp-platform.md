@@ -1039,12 +1039,21 @@ Required signals:
   Convex per-request writes
 - rate-limit blocks by route class and identity type, currently backed by
   `apiRateLimitEvents` rows that omit raw identity values and rate-limit keys
-- OAuth grant success/failure counts
-- token validation failures
+- OAuth grant success/failure counts, currently summarized from
+  `oauthClientEvents`
+- token validation failures, currently summarized from `apiTokenEvents` and
+  `oauthClientEvents`
 - MCP tool invocation counts, currently backed by `mcpToolEvents` rows keyed by
   curated tool name and accepted MCP route class
-- write action audit trails
-- revoked credential usage attempts
+- write action audit trails, currently backed by `apiWriteAuditEvents` for
+  public API profile writes, event writes, upload-intent creation, and upload
+  completion
+- revoked credential usage attempts, currently backed by rejected validation
+  rows in `apiTokenEvents` and `oauthClientEvents`
+
+`pnpm ops:api-platform-observability` prints a bounded-window summary of these
+durable Convex event rows. Hot request-count totals by route class remain in
+the active rate-limit backend and are read with `pnpm ops:api-rate-limit-counts`.
 
 Do not log:
 

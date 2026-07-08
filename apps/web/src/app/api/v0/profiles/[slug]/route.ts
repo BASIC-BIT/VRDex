@@ -99,6 +99,7 @@ export async function PATCH(request: Request, context: RouteContext) {
 
   try {
     const result = await convexAdminHttpClient().mutation(internal.profiles.updateProfileForApiOwner, {
+      actorKind: evaluation.source,
       ownerUserId: evaluation.ownerUserId as Id<"users">,
       currentSlug: slug,
       ...body.data,

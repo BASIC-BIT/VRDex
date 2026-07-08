@@ -18,6 +18,10 @@ import {
   getPublicProfileMediaKit,
   normalizeProfileAvatarAppearance,
 } from "./_profileAssets";
+import {
+  apiWriteAuditActorKindValidator,
+  recordApiWriteAuditEvent,
+} from "./_apiWriteAuditEvents";
 
 const profileAssetUploadIntentId = v.id("profileAssetUploadIntents");
 const profileId = v.id("profiles");
@@ -169,6 +173,7 @@ export const createUploadIntent = mutation({
 
 export const createUploadIntentForApiProfileOwner = internalMutation({
   args: {
+    actorKind: apiWriteAuditActorKindValidator,
     ownerUserId: v.id("users"),
     slug: v.string(),
     ...profileAssetUploadIntentArgs,
@@ -189,6 +194,16 @@ export const createUploadIntentForApiProfileOwner = internalMutation({
       placements: args.placements,
       position: args.position,
       source: "owner_authored",
+      now,
+    });
+    await recordApiWriteAuditEvent(ctx.db, {
+      action: "profile_asset_upload_intent_created",
+      actorKind: args.actorKind,
+      ownerUserId: args.ownerUserId,
+      resourceType: "profile_asset_upload_intent",
+      routeClass: "asset_upload_intent",
+      targetProfileId: profile._id,
+      targetIntentId: intent.intentId,
       now,
     });
 

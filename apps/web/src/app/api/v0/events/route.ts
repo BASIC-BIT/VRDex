@@ -64,6 +64,7 @@ export async function POST(request: Request) {
 
   try {
     const result = await convexAdminHttpClient().mutation(internal.events.createCommunityEventForApiOwner, {
+      actorKind: evaluation.source,
       ownerUserId: evaluation.ownerUserId as Id<"users">,
       ...body.data,
     });

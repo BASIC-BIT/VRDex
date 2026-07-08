@@ -90,6 +90,14 @@ route-class request counts and TTLs from the aggregate counter keys:
 pnpm ops:api-rate-limit-counts
 ```
 
+When Convex admin credentials are available, run this command to print a
+sanitized API/MCP platform observability summary from durable Convex event
+rows:
+
+```sh
+pnpm ops:api-platform-observability
+```
+
 Current defaults:
 
 | Route class | Standard limit | Trusted partner limit | Window |
@@ -154,11 +162,19 @@ Current durable event tables:
 - `mcpToolEvents`: accepted hosted MCP `tools/call` invocations by curated
   tool name and accepted MCP route class, so operators can count anonymous and
   authenticated tool usage without storing bearer tokens or raw IP addresses.
+- `apiWriteAuditEvents`: public API write actions by route class, actor kind,
+  resource type, result, owner reference when available, and target resource
+  ids. Rows cover profile updates, event creates/updates, API upload-intent
+  creation, and API upload completion without storing bearer tokens or upload
+  token values.
 
 API request counts by route class come from the hot aggregate route-class
 counter keys in the active rate-limit backend. They intentionally stay outside
 Convex per-request writes; durable Convex rows are reserved for policy, owner
 state, credential validation events, rate-limit blocks, and coarser rollups.
+`pnpm ops:api-platform-observability` summarizes the durable event rows for
+rate-limit blocks, token validation, OAuth grant outcomes, MCP tool calls, and
+write audit trails over a bounded time window.
 
 Do not log bearer token values, OAuth client secrets, full Authorization
 headers, or raw refresh tokens. Event rows should store ids, prefixes, route

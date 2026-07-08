@@ -58,6 +58,10 @@ one PR.
   tables.
 - `pnpm ops:api-rate-limit-counts` prints current Redis REST aggregate request
   counts and TTLs by route class when the hosted counter env vars are present.
+- `pnpm ops:api-platform-observability` prints a sanitized Convex summary of
+  durable API/MCP event rows, including rate-limit blocks, token validation,
+  OAuth grant outcomes, MCP tool calls, and write-audit rows over a bounded
+  time window.
 - Rate-limited responses include `Retry-After`, `RateLimit-Limit`,
   `RateLimit-Remaining`, and `RateLimit-Reset`.
 - API request counts are tracked through aggregate route-class counter keys in
@@ -69,6 +73,13 @@ one PR.
 - Accepted hosted MCP tool calls are recorded in `mcpToolEvents` by curated
   tool name and accepted MCP route class for anonymous/authenticated usage
   counts.
+- Public API profile writes, event writes, API upload-intent creation, and API
+  upload completion are recorded in `apiWriteAuditEvents` by action, route
+  class, actor kind, resource type, result, owner reference where available,
+  and target resource ids.
+- OAuth grant outcomes and OAuth access-token validation failures are
+  summarized from `oauthClientEvents`; personal API-token validation failures
+  are summarized from `apiTokenEvents`.
 - Trusted partner quota changes remain manual and revocable, and the runtime
   limiter applies the trusted-partner tier only after credential validation.
 
@@ -269,6 +280,7 @@ pnpm ops:mcp-client-session-pack -- --hosted-url <preview-or-production-like-/mc
 pnpm ops:mcp-add-mcp-preflight -- --hosted-url <preview-or-production-like-/mcp-url>
 VRDEX_E2E_BROWSER_TOKEN=<browser-token> pnpm ops:mcp-oauth-smoke-credentials -- --base-url <production-like-origin>
 pnpm ops:mcp-hosted-oauth-prereqs
+pnpm ops:api-platform-observability
 pnpm check:api-mcp-rollout
 pnpm smoke:mcp-compat -- --hosted-only --hosted-url <preview-or-production-like-/mcp-url>
 pnpm smoke:mcp-compat -- --hosted-only --hosted-url <production-like-/mcp-url> --hosted-data --dcr --cimd --continue-on-failure

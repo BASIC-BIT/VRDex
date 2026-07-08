@@ -9,6 +9,11 @@ docs update and a changelog entry so early consumers and agents can adapt.
 
 ## 2026-07-08
 
+- added `apiWriteAuditEvents` and `pnpm ops:api-platform-observability` so
+  operators can summarize public API write actions, rate-limit blocks, token
+  validation failures, OAuth grant outcomes, and MCP tool calls from durable
+  Convex event rows without exposing bearer tokens, OAuth secrets, upload
+  tokens, or raw IP addresses
 - added aggregate route-class request counters to the hot rate-limit backend
   and `pnpm ops:api-rate-limit-counts` so operators can read current
   request-count signals from Redis without writing every API/MCP request to

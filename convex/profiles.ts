@@ -4,6 +4,10 @@ import type { Doc } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { getPublicCommunityHostedEvents, getPublicPersonUpcomingEvents } from "./_eventPublic";
 import type { AuthSubject } from "./_communityAuthority";
+import {
+  apiWriteAuditActorKindValidator,
+  recordApiWriteAuditEvent,
+} from "./_apiWriteAuditEvents";
 import { toPublicProfileAppearance } from "./_profileAppearance";
 import { toProfileLookupResult } from "./_profileLookup";
 import {
@@ -133,6 +137,7 @@ export const listProfilesForApiOwner = internalQuery({
 
 export const updateProfileForApiOwner = internalMutation({
   args: {
+    actorKind: apiWriteAuditActorKindValidator,
     ownerUserId: v.id("users"),
     currentSlug: v.string(),
     ...apiProfileUpdateArgs,
@@ -168,6 +173,15 @@ export const updateProfileForApiOwner = internalMutation({
       sourceType: "owner",
       note: `Public API profile update: ${changedFields.join(", ")}.`,
       createdAt: now,
+    });
+    await recordApiWriteAuditEvent(ctx.db, {
+      action: "profile_updated",
+      actorKind: args.actorKind,
+      ownerUserId: args.ownerUserId,
+      resourceType: "profile",
+      routeClass: "public_write",
+      targetProfileId: profile._id,
+      now,
     });
 
     return toApiProfileWriteResponse(updatedProfile);

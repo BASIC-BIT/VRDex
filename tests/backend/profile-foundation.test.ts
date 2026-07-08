@@ -1243,7 +1243,8 @@ describe("profile media kit asset helpers", () => {
       | "profileAssetUploadIntents"
       | "profileAssets"
       | "profileAssetPlacements"
-      | "profileAuditEvents";
+      | "profileAuditEvents"
+      | "apiWriteAuditEvents";
     type AssetRow = Record<string, unknown> & {
       _id: string;
       _creationTime: number;
@@ -1253,6 +1254,7 @@ describe("profile media kit asset helpers", () => {
       profileAssets: [],
       profileAssetPlacements: [],
       profileAuditEvents: [],
+      apiWriteAuditEvents: [],
     };
     const db = {
       async get(id: string) {
@@ -1319,6 +1321,10 @@ describe("profile media kit asset helpers", () => {
     assert.equal(tables.profileAssets[0]?.source, "owner_authored");
     assert.equal(tables.profileAssetPlacements[0]?.placement, "primary_logo");
     assert.equal(tables.profileAuditEvents[0]?.action, "api_profile_asset_uploaded");
+    assert.equal(tables.apiWriteAuditEvents[0]?.action, "profile_asset_upload_completed");
+    assert.equal(tables.apiWriteAuditEvents[0]?.actorKind, "upload_token");
+    assert.equal(tables.apiWriteAuditEvents[0]?.routeClass, "asset_upload_intent");
+    assert.deepEqual(tables.apiWriteAuditEvents[0]?.assetIds, ["profileAssets:1"]);
   });
 
   it("normalizes avatar appearance controls to a safe display range", () => {

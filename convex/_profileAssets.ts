@@ -2,6 +2,7 @@ import type { GenericId } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
+import { recordApiWriteAuditEvent } from "./_apiWriteAuditEvents";
 
 export const PROFILE_ASSET_UPLOAD_MAX_BYTES = 12 * 1024 * 1024;
 export const PROFILE_ASSET_UPLOAD_INTENT_TTL_MS = 30 * 60 * 1000;
@@ -536,6 +537,19 @@ export async function finalizeProfileAssetUploadIntentUpload(
       note: "Public API profile asset upload intent consumed.",
       createdAt: input.now,
     });
+
+    if (intent.requestedBy.issuer === "vrdex:api") {
+      await recordApiWriteAuditEvent(db, {
+        action: "profile_asset_upload_completed",
+        actorKind: "upload_token",
+        resourceType: "profile_asset",
+        routeClass: "asset_upload_intent",
+        targetProfileId: intent.targetProfileId,
+        targetIntentId: intent._id,
+        assetIds,
+        now: input.now,
+      });
+    }
   }
 
   return { ok: true as const, assetIds };

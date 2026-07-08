@@ -72,6 +72,7 @@ export async function POST(request: Request, context: RouteContext) {
 
   try {
     const result = await convexAdminHttpClient().mutation(internal.profileAssets.createUploadIntentForApiProfileOwner, {
+      actorKind: evaluation.source,
       ownerUserId: evaluation.ownerUserId as Id<"users">,
       slug,
       ...body.data,

@@ -13,6 +13,12 @@ import {
   apiTokenValidationResultValidator,
 } from "./_apiTokens";
 import {
+  apiWriteAuditActionValidator,
+  apiWriteAuditActorKindValidator,
+  apiWriteAuditResourceTypeValidator,
+  apiWriteAuditResultValidator,
+} from "./_apiWriteAuditEvents";
+import {
   apiRateLimitEventIdentityKindValidator,
   apiRateLimitEventQuotaTierValidator,
   apiRateLimitEventTypeValidator,
@@ -1137,6 +1143,22 @@ export default defineSchema({
     .index("by_routeClass_createdAt", ["routeClass", "createdAt"])
     .index("by_identityKind_createdAt", ["identityKind", "createdAt"])
     .index("by_routeClass_identityKind_createdAt", ["routeClass", "identityKind", "createdAt"]),
+  apiWriteAuditEvents: defineTable({
+    action: apiWriteAuditActionValidator,
+    actorKind: apiWriteAuditActorKindValidator,
+    ownerUserId: v.optional(v.id("users")),
+    resourceType: apiWriteAuditResourceTypeValidator,
+    result: apiWriteAuditResultValidator,
+    routeClass: apiRouteClassValidator,
+    targetProfileId: v.optional(v.id("profiles")),
+    targetEventId: v.optional(v.id("events")),
+    targetIntentId: v.optional(v.id("profileAssetUploadIntents")),
+    assetIds: v.optional(v.array(v.id("profileAssets"))),
+    createdAt: v.number(),
+  })
+    .index("by_routeClass_createdAt", ["routeClass", "createdAt"])
+    .index("by_action_createdAt", ["action", "createdAt"])
+    .index("by_ownerUserId_createdAt", ["ownerUserId", "createdAt"]),
   oauthApplications: defineTable({
     clientId: v.string(),
     ownerKind: oauthApplicationOwnerKindValidator,
@@ -1238,6 +1260,7 @@ export default defineSchema({
     .index("by_applicationId_createdAt", ["applicationId", "createdAt"])
     .index("by_clientId_createdAt", ["clientId", "createdAt"])
     .index("by_ownerUserId_createdAt", ["ownerUserId", "createdAt"])
+    .index("by_routeClass_createdAt", ["routeClass", "createdAt"])
     .index("by_eventType_createdAt", ["eventType", "createdAt"]),
   mcpToolEvents: defineTable({
     toolName: mcpToolNameValidator,

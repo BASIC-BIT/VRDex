@@ -76,6 +76,7 @@ async function evaluateApiUserCredentialRequest(
       ok: true;
       context: ApiBearerRequestContext;
       ownerUserId: string;
+      source: "personal_api_token" | "user_delegated_oauth";
     }
   | {
       ok: false;
@@ -105,6 +106,7 @@ async function evaluateApiUserCredentialRequest(
     ok: true,
     context: evaluation.context,
     ownerUserId: authority.ownerUserId,
+    source: authority.source,
   };
 }
 

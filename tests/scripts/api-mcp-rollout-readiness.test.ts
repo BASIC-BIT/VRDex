@@ -37,7 +37,7 @@ describe("API/MCP rollout readiness checker", () => {
 
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /Generated OpenAPI contract \| yes \| pass \| 30 required API paths are present/);
-    assert.match(result.stdout, /Rollout verification scripts \| yes \| pass \| 18 required scripts are defined/);
+    assert.match(result.stdout, /Rollout verification scripts \| yes \| pass \| 19 required scripts are defined/);
   });
 
   it("keeps external readiness failing while required MCP client rows are pending", () => {
@@ -96,6 +96,7 @@ describe("API/MCP rollout readiness checker", () => {
     assert.match(source, /ops:mcp-add-mcp-preflight/);
     assert.match(source, /ops:mcp-oauth-smoke-credentials/);
     assert.match(source, /ops:mcp-hosted-oauth-prereqs/);
+    assert.match(source, /ops:api-platform-observability/);
     assert.match(source, /smoke:mcp-gemini-cli/);
 
     const installedClientsSource = await readFile("scripts/check-installed-mcp-clients.ts", "utf8");

@@ -26,3 +26,8 @@ export type McpToolName =
   | "vrdex_list_active_worlds";
 
 export type McpToolEventRouteClass = "anonymous_mcp_public_read" | "authenticated_mcp";
+
+export const mcpToolEventRouteClassValues: McpToolEventRouteClass[] = [
+  "anonymous_mcp_public_read",
+  "authenticated_mcp",
+];

@@ -19,6 +19,10 @@ import {
   type AuthSubject,
 } from "./_communityAuthority";
 import {
+  apiWriteAuditActorKindValidator,
+  recordApiWriteAuditEvent,
+} from "./_apiWriteAuditEvents";
+import {
   eventMediaCommandTypeValidator,
   eventMediaPlaybackPlatformValidator,
   eventMediaSessionStatusValidator,
@@ -1695,6 +1699,7 @@ export const createCommunityEvent = mutation({
 
 export const createCommunityEventForApiOwner = internalMutation({
   args: {
+    actorKind: apiWriteAuditActorKindValidator,
     ownerUserId: v.id("users"),
     ...eventDraftArgs,
   },
@@ -1703,17 +1708,30 @@ export const createCommunityEventForApiOwner = internalMutation({
     const community = await requireApiOwnedPublishedCommunity(ctx.db, input.communitySlug, args.ownerUserId);
     const world = await getPublishedWorldBySlug(ctx.db, input.worldSlug);
 
-    return await insertCommunityEventRecord(ctx.db, {
+    const result = await insertCommunityEventRecord(ctx.db, {
       input,
       community,
       world,
       submitter: apiOwnerAuthSubject(args.ownerUserId),
     });
+    await recordApiWriteAuditEvent(ctx.db, {
+      action: "event_created",
+      actorKind: args.actorKind,
+      ownerUserId: args.ownerUserId,
+      resourceType: "event",
+      routeClass: "public_write",
+      targetEventId: result.eventId,
+      ...(community === undefined ? {} : { targetProfileId: community._id }),
+      now: Date.now(),
+    });
+
+    return result;
   },
 });
 
 export const updateCommunityEventForApiOwner = internalMutation({
   args: {
+    actorKind: apiWriteAuditActorKindValidator,
     ownerUserId: v.id("users"),
     currentSlug: v.string(),
     ...eventDraftArgs,
@@ -1742,7 +1760,19 @@ export const updateCommunityEventForApiOwner = internalMutation({
     const community = await requireApiOwnedPublishedCommunity(ctx.db, input.communitySlug, args.ownerUserId);
     const world = await getPublishedWorldBySlug(ctx.db, input.worldSlug);
 
-    return await updateCommunityEventRecord(ctx.db, { event, input, community, world });
+    const result = await updateCommunityEventRecord(ctx.db, { event, input, community, world });
+    await recordApiWriteAuditEvent(ctx.db, {
+      action: "event_updated",
+      actorKind: args.actorKind,
+      ownerUserId: args.ownerUserId,
+      resourceType: "event",
+      routeClass: "public_write",
+      targetEventId: event._id,
+      ...(community === undefined ? {} : { targetProfileId: community._id }),
+      now: Date.now(),
+    });
+
+    return result;
   },
 });
 
