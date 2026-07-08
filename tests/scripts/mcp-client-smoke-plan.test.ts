@@ -64,6 +64,7 @@ describe("MCP client smoke planner", () => {
     assert.match(result.stdout, /claude mcp add --transport http --callback-port 8765 vrdex https:\/\/staging\.vrdex\.net\/mcp/);
     assert.match(result.stdout, /claude mcp login vrdex/);
     assert.match(result.stdout, /Run Claude Code with a reviewed OAuth app client-credentials token acquisition/);
+    assert.match(result.stdout, /ops:mcp-hosted-oauth-prereqs/);
   });
 
   it("prints Gemini CLI settings guidance for Streamable HTTP OAuth", () => {
@@ -81,6 +82,7 @@ describe("MCP client smoke planner", () => {
     assert.match(result.stdout, /"httpUrl":"https:\/\/staging\.vrdex\.net\/mcp"/);
     assert.match(result.stdout, /\/mcp auth vrdex/);
     assert.match(result.stdout, /Dynamic Client Registration|DCR/);
+    assert.match(result.stdout, /ops:mcp-hosted-oauth-prereqs/);
   });
 
   it("prints client-credentials hosted OAuth setup guidance for MCP Inspector", () => {
@@ -99,5 +101,6 @@ describe("MCP client smoke planner", () => {
     assert.match(result.stdout, /VRDEX_MCP_INSPECTOR_OAUTH_TOKEN/);
     assert.match(result.stdout, /pnpm smoke:mcp-inspector -- --hosted-url https:\/\/staging\.vrdex\.net\/mcp --hosted-data/);
     assert.match(result.stdout, /pnpm smoke:mcp-compat -- --hosted-only --hosted-url https:\/\/staging\.vrdex\.net\/mcp --hosted-data --dcr --cimd/);
+    assert.match(result.stdout, /ops:mcp-hosted-oauth-prereqs/);
   });
 });

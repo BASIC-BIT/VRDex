@@ -19,6 +19,8 @@ docs update and a changelog entry so early consumers and agents can adapt.
 - extended `pnpm ops:mcp-client-session-pack` hosted OAuth worksheets and
   README guidance to include the GitHub prerequisite audit before manual OAuth
   evidence capture
+- extended `pnpm ops:mcp-client-smokes` hosted OAuth setup hints to point
+  operators at the same GitHub prerequisite audit before client sessions
 - wired PR Baseline Checks to upload the generated
   `mcp-client-session-pack` artifact from the MCP verifier job so reviewers can
   start the remaining manual client smoke rows from checked setup files and

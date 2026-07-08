@@ -365,6 +365,14 @@ function setupHint(client: ClientEntry, check: SmokeCheck, options: Options) {
   return "Use the docs matrix row to configure the current client release, then record exact evidence.";
 }
 
+function setupHintWithPrereqs(client: ClientEntry, check: SmokeCheck, options: Options) {
+  const hint = setupHint(client, check, options);
+
+  return check.id === "hosted-oauth"
+    ? `Run pnpm ops:mcp-hosted-oauth-prereqs before the client session. ${hint}`
+    : hint;
+}
+
 function recordCommand(client: ClientEntry, check: SmokeCheck) {
   const parts = [
     "pnpm record:mcp-client-smoke --",
@@ -529,7 +537,7 @@ function printPlan(matrix: SmokeMatrix, options: Options) {
           markdownCell(check.id),
           markdownCell(check.manualStatus),
           markdownCell(inlineCode(repoPreflightCommand(client, check, options))),
-          markdownCell(inlineCode(setupHint(client, check, options))),
+          markdownCell(inlineCode(setupHintWithPrereqs(client, check, options))),
           markdownCell(manualEvidencePrompt(client, check)),
           markdownCell(check.notes),
           markdownCell(inlineCode(recordCommand(client, check))),
