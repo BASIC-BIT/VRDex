@@ -9,6 +9,11 @@ docs update and a changelog entry so early consumers and agents can adapt.
 
 ## 2026-07-08
 
+- refreshed the production-like hosted MCP evidence rows from PR #159 head
+  `d14fbc5` with Hosted MCP health run `28917995030`, covering data-backed
+  anonymous reads, Dynamic Client Registration, and public-client Client ID
+  Metadata Document behavior while confirming hosted OAuth evidence remains
+  gated by missing reviewed smoke credentials or developer-credential helpers
 - extended `pnpm ops:mcp-installed-clients` with informational CLI automation
   notes so VS Code `chat`, Cursor `--chat`/`agent`, and Windsurf setup-only
   surfaces are clearly treated as manual-only evidence paths unless the real
