@@ -53,6 +53,12 @@ import {
   eventMediaWorkerTaskStatusValidator,
 } from "./_eventMediaControl";
 import {
+  mcpToolEventResultValidator,
+  mcpToolEventRouteClassValidator,
+  mcpToolEventTypeValidator,
+  mcpToolNameValidator,
+} from "./_mcpToolEvents";
+import {
   oauthApplicationOwnerKindValidator,
   oauthApplicationStatusValidator,
   oauthApplicationTrustTierValidator,
@@ -1213,6 +1219,16 @@ export default defineSchema({
     .index("by_clientId_createdAt", ["clientId", "createdAt"])
     .index("by_ownerUserId_createdAt", ["ownerUserId", "createdAt"])
     .index("by_eventType_createdAt", ["eventType", "createdAt"]),
+  mcpToolEvents: defineTable({
+    toolName: mcpToolNameValidator,
+    routeClass: mcpToolEventRouteClassValidator,
+    eventType: mcpToolEventTypeValidator,
+    result: mcpToolEventResultValidator,
+    createdAt: v.number(),
+  })
+    .index("by_toolName_createdAt", ["toolName", "createdAt"])
+    .index("by_routeClass_createdAt", ["routeClass", "createdAt"])
+    .index("by_routeClass_toolName_createdAt", ["routeClass", "toolName", "createdAt"]),
   oauthAuthorizationCodes: defineTable({
     codeHash: v.string(),
     applicationId: v.optional(v.id("oauthApplications")),

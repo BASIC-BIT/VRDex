@@ -4,7 +4,7 @@ import {
   type McpHttpHandler,
   McpServer,
 } from "@modelcontextprotocol/server";
-import { api } from "@convex-generated-api";
+import { api, internal } from "@convex-generated-api";
 import {
   getBearerTokenFromAuthorizationHeader,
   hasBearerTokenInUrl,
@@ -19,7 +19,7 @@ import {
 } from "@vrdex/api-contracts";
 
 import { checkApiRateLimit, clientIpForRequest } from "@/lib/server/api-rate-limit";
-import { convexHttpClient } from "@/lib/server/convex-http";
+import { convexAdminHttpClient, convexHttpClient } from "@/lib/server/convex-http";
 import {
   oauthAccessTokenSigningConfigured,
   oauthIssuerUrl,
@@ -32,6 +32,7 @@ import {
 type ResponseSchema<T> = z.ZodType<T>;
 
 type VrdexMcpConvexClient = Pick<ReturnType<typeof convexHttpClient>, "query">;
+type AcceptedMcpRouteClass = "anonymous_mcp_public_read" | "authenticated_mcp";
 
 type VrdexMcpServerOptions = {
   convex?: VrdexMcpConvexClient;
@@ -40,6 +41,14 @@ type VrdexMcpServerOptions = {
 
 const mcpSearchTypes = ["all", "person", "community", "profile", "world", "event"] as const;
 const mcpRequiredScopes = ["mcp:read"] as const;
+const mcpToolNames = [
+  "vrdex_search",
+  "vrdex_get_profile",
+  "vrdex_get_event",
+  "vrdex_list_upcoming_events",
+  "vrdex_get_world",
+  "vrdex_list_active_worlds",
+] as const;
 const mcpPublicReadSecuritySchemes = [
   { type: "noauth" },
   { scopes: [...mcpRequiredScopes], type: "oauth2" },
@@ -47,6 +56,7 @@ const mcpPublicReadSecuritySchemes = [
 const mcpPublicReadToolMeta = {
   securitySchemes: mcpPublicReadSecuritySchemes,
 } satisfies Record<string, unknown>;
+const mcpToolNameSet = new Set<string>(mcpToolNames);
 const mcpSlugSchema = z.string().min(1).max(160);
 const mcpLimitSchema = z.number().int().min(1);
 
@@ -64,6 +74,66 @@ function entityTypeForSearchType(type: (typeof mcpSearchTypes)[number]) {
   }
 
   return undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isKnownMcpToolName(value: unknown): value is (typeof mcpToolNames)[number] {
+  return typeof value === "string" && mcpToolNameSet.has(value);
+}
+
+export function mcpToolCallNamesFromPayload(payload: unknown) {
+  const messages = Array.isArray(payload) ? payload : [payload];
+  const toolNames: Array<(typeof mcpToolNames)[number]> = [];
+
+  for (const message of messages) {
+    if (!isRecord(message) || message.method !== "tools/call" || !isRecord(message.params)) {
+      continue;
+    }
+
+    if (isKnownMcpToolName(message.params.name)) {
+      toolNames.push(message.params.name);
+    }
+  }
+
+  return toolNames;
+}
+
+export async function mcpToolCallNamesFromRequest(request: Request) {
+  if (request.method !== "POST") {
+    return [];
+  }
+
+  try {
+    return mcpToolCallNamesFromPayload(await request.json());
+  } catch {
+    return [];
+  }
+}
+
+export function acceptedMcpRouteClassForRequest(request: Request): AcceptedMcpRouteClass {
+  return getBearerTokenFromAuthorizationHeader(request.headers.get("authorization")) === null
+    ? "anonymous_mcp_public_read"
+    : "authenticated_mcp";
+}
+
+export async function recordAcceptedMcpToolInvocations(request: Request) {
+  const toolNames = await mcpToolCallNamesFromRequest(request);
+
+  if (toolNames.length === 0) {
+    return { recorded: 0 };
+  }
+
+  try {
+    return await convexAdminHttpClient().mutation(internal.mcpToolEvents.recordInvocations, {
+      routeClass: acceptedMcpRouteClassForRequest(request),
+      toolNames,
+    });
+  } catch {
+    return { recorded: 0 };
+  }
 }
 
 function mcpJsonResult<T>(schema: ResponseSchema<T>, value: unknown) {

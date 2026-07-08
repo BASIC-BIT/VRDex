@@ -9,6 +9,10 @@ docs update and a changelog entry so early consumers and agents can adapt.
 
 ## 2026-07-08
 
+- added durable `mcpToolEvents` records for accepted hosted MCP `tools/call`
+  invocations so anonymous and authenticated tool usage can be counted by
+  curated tool name and route class without storing bearer tokens or raw IP
+  addresses
 - added `infra/terraform/rate-limit-redis` to provision the BASIC BIT hosted
   Upstash Redis rate-limit counter store and write the corresponding Vercel
   runtime variables for production/staging while leaving default PR previews

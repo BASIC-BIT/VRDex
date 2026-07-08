@@ -58,6 +58,9 @@ one PR.
   tables.
 - Rate-limited responses include `Retry-After`, `RateLimit-Limit`,
   `RateLimit-Remaining`, and `RateLimit-Reset`.
+- Accepted hosted MCP tool calls are recorded in `mcpToolEvents` by curated
+  tool name and accepted MCP route class for anonymous/authenticated usage
+  counts.
 - Trusted partner quota changes remain manual and revocable, and the runtime
   limiter applies the trusted-partner tier only after credential validation.
 

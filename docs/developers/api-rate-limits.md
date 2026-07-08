@@ -134,6 +134,9 @@ Current durable event tables:
 - `oauthClientEvents`: OAuth application lifecycle, dynamic MCP registration,
   token issuance, revocation, accepted access-token validation, rejected
   access-token validation, and rejected client-credential attempts.
+- `mcpToolEvents`: accepted hosted MCP `tools/call` invocations by curated
+  tool name and accepted MCP route class, so operators can count anonymous and
+  authenticated tool usage without storing bearer tokens or raw IP addresses.
 
 Do not log bearer token values, OAuth client secrets, full Authorization
 headers, or raw refresh tokens. Event rows should store ids, prefixes, route

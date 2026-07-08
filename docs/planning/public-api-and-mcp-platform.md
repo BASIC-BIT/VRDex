@@ -385,6 +385,7 @@ Candidate Convex tables:
 - `oauthConsents`
 - `oauthAuthorizationCodes`
 - `oauthClientEvents`
+- `mcpToolEvents`
 - `apiRateLimitEvents`
 
 API token fields:
@@ -1037,7 +1038,8 @@ Required signals:
 - rate-limit blocks by route class and identity type
 - OAuth grant success/failure counts
 - token validation failures
-- MCP tool invocation counts
+- MCP tool invocation counts, currently backed by `mcpToolEvents` rows keyed by
+  curated tool name and accepted MCP route class
 - write action audit trails
 - revoked credential usage attempts
 

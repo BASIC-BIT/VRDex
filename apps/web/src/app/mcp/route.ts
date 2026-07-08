@@ -1,5 +1,6 @@
 import {
   createVrdexMcpHandler,
+  recordAcceptedMcpToolInvocations,
   rejectInvalidOrRateLimitedMcpRequest,
   withMcpHttpHeaders,
 } from "@/lib/server/vrdex-mcp";
@@ -15,6 +16,8 @@ async function handleMcpRequest(request: Request) {
   if (rejected !== null) {
     return rejected;
   }
+
+  await recordAcceptedMcpToolInvocations(request.clone());
 
   return withMcpHttpHeaders(await handler.fetch(request));
 }

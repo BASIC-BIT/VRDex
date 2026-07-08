@@ -66,6 +66,98 @@ function assertPublicReadSecuritySchemes(value: unknown) {
 }
 
 describe("VRDex MCP server", () => {
+  it("extracts accepted curated tool calls for durable invocation counts", () => {
+    const output = runMcpProbe(`
+      import {
+        acceptedMcpRouteClassForRequest,
+        mcpToolCallNamesFromPayload,
+        mcpToolCallNamesFromRequest,
+      } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      const payloadNames = mcpToolCallNamesFromPayload([
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: {
+            name: "vrdex_search",
+            arguments: { query: "club" },
+          },
+        },
+        {
+          jsonrpc: "2.0",
+          id: 2,
+          method: "tools/list",
+          params: {},
+        },
+        {
+          jsonrpc: "2.0",
+          id: 3,
+          method: "tools/call",
+          params: {
+            name: "unknown_tool",
+            arguments: {},
+          },
+        },
+        {
+          jsonrpc: "2.0",
+          id: 4,
+          method: "tools/call",
+          params: {
+            name: "vrdex_get_world",
+            arguments: { slug: "world" },
+          },
+        },
+      ]);
+      const requestNames = await mcpToolCallNamesFromRequest(new Request("https://app.example.test/mcp", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 5,
+          method: "tools/call",
+          params: {
+            name: "vrdex_list_active_worlds",
+            arguments: {},
+          },
+        }),
+      }));
+      const malformedNames = await mcpToolCallNamesFromRequest(new Request("https://app.example.test/mcp", {
+        method: "POST",
+        body: "{",
+      }));
+      const anonymousRouteClass = acceptedMcpRouteClassForRequest(new Request("https://app.example.test/mcp"));
+      const authenticatedRouteClass = acceptedMcpRouteClassForRequest(new Request("https://app.example.test/mcp", {
+        headers: {
+          authorization: "Bearer test",
+        },
+      }));
+
+      console.log(JSON.stringify({
+        payloadNames,
+        requestNames,
+        malformedNames,
+        anonymousRouteClass,
+        authenticatedRouteClass,
+      }));
+    `);
+    const result = JSON.parse(output) as {
+      anonymousRouteClass: string;
+      authenticatedRouteClass: string;
+      malformedNames: string[];
+      payloadNames: string[];
+      requestNames: string[];
+    };
+
+    assert.deepEqual(result.payloadNames, ["vrdex_search", "vrdex_get_world"]);
+    assert.deepEqual(result.requestNames, ["vrdex_list_active_worlds"]);
+    assert.deepEqual(result.malformedNames, []);
+    assert.equal(result.anonymousRouteClass, "anonymous_mcp_public_read");
+    assert.equal(result.authenticatedRouteClass, "authenticated_mcp");
+  });
+
   it("serves MCP initialization without requiring Convex for tool listing", () => {
     const output = runMcpProbe(`
       import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
