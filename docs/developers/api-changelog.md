@@ -22,7 +22,7 @@ docs update and a changelog entry so early consumers and agents can adapt.
   Pending Blocker Summary so uploaded PR artifacts are directly usable for
   operator smoke-session batching
 - refreshed the production-like hosted MCP evidence rows from PR #159 head
-  `ec3a1a1` with Hosted MCP health run `28919681681`, covering data-backed
+  `812765d` with Hosted MCP health run `28927835179`, covering data-backed
   anonymous reads, Dynamic Client Registration, and public-client Client ID
   Metadata Document behavior while confirming hosted OAuth evidence remains
   gated by missing reviewed smoke credentials or developer-credential helpers
