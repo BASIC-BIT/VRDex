@@ -58,6 +58,15 @@ describe("MCP client smoke session pack", () => {
       assert.doesNotMatch(readme, /--profile vrdex-mcp-smoke/);
       assert.match(readme, /\/mcp auth vrdex/);
       assert.match(readme, /Generated Evidence Templates/);
+      assert.match(readme, /## Pending Blocker Summary/);
+      assert.match(readme, /OAuth smoke credentials/);
+      assert.match(readme, /`claude-code\/hosted-oauth`, `mcp-inspector\/hosted-oauth`/);
+      assert.match(readme, /Missing client install or account setup/);
+      assert.match(readme, /`gemini-cli\/local-stdio`, `gemini-cli\/hosted-anonymous-read`, `gemini-cli\/hosted-oauth`/);
+      assert.match(readme, /Installed app tool-call session/);
+      assert.match(readme, /`vscode\/local-stdio`, `vscode\/hosted-anonymous-read`/);
+      assert.match(readme, /Hosted product surface access/);
+      assert.match(readme, /`openai-chatgpt\/hosted-anonymous-read`, `openai-chatgpt\/hosted-oauth`/);
       assert.match(readme, /Pending Matrix Worksheet Coverage/);
       assert.match(readme, /Pending required rows covered by generated worksheets: 19/);
       assert.match(readme, /evidence[\\/]vscode-local-stdio\.md/);

@@ -135,10 +135,11 @@ one PR.
   Windsurf, and Gemini CLI MCP setup files under `.tmp-gh-artifacts/`,
   including local stdio, hosted anonymous HTTP, hosted token-header fallback
   configs, launch commands or settings snippets where supported, smoke prompts,
-  evidence templates, and recorder commands. It also writes manual-only
-  worksheets for Claude Desktop, Claude Code hosted OAuth, OpenAI/ChatGPT
-  hosted rows, and MCP Inspector hosted OAuth. It does not replace manual matrix
-  evidence; use it to keep those smoke sessions repeatable and to capture
+  evidence templates, recorder commands, and the same Pending Blocker Summary
+  as the smoke planner. It also writes manual-only worksheets for Claude
+  Desktop, Claude Code hosted OAuth, OpenAI/ChatGPT hosted rows, and MCP
+  Inspector hosted OAuth. It does not replace manual matrix evidence; use it to
+  keep those smoke sessions repeatable and to capture
   sanitized screenshot or transcript evidence before recording a row. PR
   Baseline Checks upload the same pack as `mcp-client-session-pack` so reviewers
   and operators do not have to regenerate it before client smoke sessions.

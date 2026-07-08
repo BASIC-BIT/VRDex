@@ -268,8 +268,10 @@ VS Code, Cursor, and Windsurf PowerShell commands use an isolated
 `--user-data-dir` and escape JSON quotes before passing `--add-mcp`; direct
 fresh-profile `--add-mcp` and raw `(Get-Content -Raw ...)` JSON both fail on
 the current Windows CLIs. The generated
-`evidence/` templates are pending worksheets for each row; fill them with
-sanitized real-client screenshot or transcript evidence before running the
+README includes the same Pending Blocker Summary as the smoke planner so the
+downloaded artifact can be used directly for smoke-session batching. The
+generated `evidence/` templates are pending worksheets for each row; fill them
+with sanitized real-client screenshot or transcript evidence before running the
 recorder command. The pack is not evidence by itself; use it to run the real
 client session and then record the matrix row only after the client lists tools
 and calls `vrdex_search` or completes the required `mcp:read` OAuth path.

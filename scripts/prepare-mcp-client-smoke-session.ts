@@ -51,6 +51,18 @@ type SmokeMatrix = {
   schemaVersion: 1;
 };
 
+type PendingMatrixRow = {
+  checkId: string;
+  clientId: string;
+  clientName: string;
+};
+
+type PendingBlocker = {
+  label: string;
+  nextAction: string;
+  rows: string[];
+};
+
 const clients: Client[] = [
   {
     cli: "code",
@@ -70,6 +82,16 @@ const clients: Client[] = [
     matrixClient: "devin-windsurf",
     name: "Windsurf",
   },
+];
+const installedAppClientIds = new Set(["cursor", "devin-windsurf", "vscode"]);
+const blockerOrder = [
+  "oauth-smoke-credentials",
+  "missing-client-install",
+  "installed-app-tool-call",
+  "installed-app-oauth",
+  "desktop-custom-connector",
+  "hosted-product-surface",
+  "manual-client-evidence",
 ];
 
 function nonEmpty(value: string | undefined) {
@@ -320,7 +342,7 @@ async function pendingRequiredMatrixRows(matrixPath: string) {
   assert.equal(matrix.schemaVersion, 1, "MCP client smoke matrix schemaVersion must be 1.");
   assert.equal(Array.isArray(matrix.clients), true, "MCP client smoke matrix clients must be an array.");
 
-  const rows: Array<{ checkId: string; clientId: string; clientName: string }> = [];
+  const rows: PendingMatrixRow[] = [];
 
   for (const client of matrix.clients) {
     assert.equal(typeof client.id, "string", "MCP client smoke matrix client id must be a string.");
@@ -346,6 +368,121 @@ async function pendingRequiredMatrixRows(matrixPath: string) {
   }
 
   return rows;
+}
+
+function blockerForPendingRow(row: PendingMatrixRow): { id: string } & Omit<PendingBlocker, "rows"> {
+  if (row.clientId === "gemini-cli") {
+    return {
+      id: "missing-client-install",
+      label: "Missing client install or account setup",
+      nextAction: "Install or open Gemini CLI, apply the generated settings snippet, then capture an interactive /mcp tool-call session.",
+    };
+  }
+
+  if (row.checkId === "hosted-oauth" && (row.clientId === "claude-code" || row.clientId === "mcp-inspector")) {
+    return {
+      id: "oauth-smoke-credentials",
+      label: "OAuth smoke credentials",
+      nextAction: "Provide reviewed OAuth smoke secrets or explicitly enable the temporary hosted credential-generation gate before running authenticated client smokes.",
+    };
+  }
+
+  if (row.clientId === "claude-desktop") {
+    return {
+      id: "desktop-custom-connector",
+      label: "Desktop or custom connector session",
+      nextAction: "Run Claude Desktop or its current Custom Connector path and capture a real tools/list plus vrdex_search result.",
+    };
+  }
+
+  if (row.clientId === "openai-chatgpt") {
+    return {
+      id: "hosted-product-surface",
+      label: "Hosted product surface access",
+      nextAction: "Verify the current OpenAI or ChatGPT MCP-capable surface against hosted /mcp, including anonymous public-read behavior and OAuth expectations.",
+    };
+  }
+
+  if (installedAppClientIds.has(row.clientId) && row.checkId === "hosted-oauth") {
+    return {
+      id: "installed-app-oauth",
+      label: "Installed app OAuth session",
+      nextAction: "Use the generated app setup and capture the current client's hosted OAuth behavior, falling back to a short-lived token only when documented.",
+    };
+  }
+
+  if (installedAppClientIds.has(row.clientId)) {
+    return {
+      id: "installed-app-tool-call",
+      label: "Installed app tool-call session",
+      nextAction: "Open the installed app with the generated session pack, list VRDex tools, call vrdex_search, and record sanitized evidence.",
+    };
+  }
+
+  return {
+    id: "manual-client-evidence",
+    label: "Manual client evidence",
+    nextAction: "Run the real client session from the generated worksheet and record sanitized tools/list plus vrdex_search evidence.",
+  };
+}
+
+function addPendingBlocker(
+  blockers: Map<string, PendingBlocker>,
+  blocker: { id: string } & Omit<PendingBlocker, "rows">,
+  row: PendingMatrixRow,
+) {
+  const rowKey = matrixRowKey(row.clientId, row.checkId);
+  const existing = blockers.get(blocker.id);
+
+  if (existing !== undefined) {
+    existing.rows.push(rowKey);
+
+    return;
+  }
+
+  blockers.set(blocker.id, {
+    label: blocker.label,
+    nextAction: blocker.nextAction,
+    rows: [rowKey],
+  });
+}
+
+function pendingBlockerSummary(pendingRows: PendingMatrixRow[]) {
+  const blockers = new Map<string, PendingBlocker>();
+
+  for (const row of pendingRows) {
+    addPendingBlocker(blockers, blockerForPendingRow(row), row);
+  }
+
+  return blockerOrder
+    .map((id) => blockers.get(id))
+    .filter((blocker): blocker is PendingBlocker => blocker !== undefined);
+}
+
+function pendingBlockerSummarySection(pendingRows: PendingMatrixRow[]) {
+  const blockers = pendingBlockerSummary(pendingRows);
+
+  if (blockers.length === 0) {
+    return [
+      "## Pending Blocker Summary",
+      "",
+      "All required rows are pass in the source matrix.",
+      "",
+    ];
+  }
+
+  return [
+    "## Pending Blocker Summary",
+    "",
+    "Generated from pending required rows in the source matrix. Use this section to choose the next manual smoke batch before filling individual evidence worksheets.",
+    "",
+    "| Blocker | Pending rows | Next action |",
+    "| --- | --- | --- |",
+    ...blockers.map((blocker) =>
+      `| ${blocker.label} | ${blocker.rows.map((row) => `\`${row}\``).join(", ")} | ${blocker.nextAction} |`,
+    ),
+    "",
+  ];
 }
 
 async function verifyPendingWorksheetCoverage(matrixPath: string, generatedKeys: Set<string>) {
@@ -965,6 +1102,7 @@ async function writeSessionPack(options: Options) {
 
   const readme = [
     ...readmeSections,
+    ...pendingBlockerSummarySection(pendingRows),
     "## Pending Matrix Worksheet Coverage",
     "",
     `Matrix: \`${options.matrixPath}\``,

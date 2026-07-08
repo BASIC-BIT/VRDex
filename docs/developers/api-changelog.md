@@ -12,6 +12,9 @@ docs update and a changelog entry so early consumers and agents can adapt.
 - added a Pending Blocker Summary to `pnpm ops:mcp-client-smokes` so the
   remaining day-one MCP client rows are grouped by the prerequisite that
   unlocks them, instead of appearing only as a flat pending matrix
+- extended the generated `mcp-client-session-pack` README with the same
+  Pending Blocker Summary so uploaded PR artifacts are directly usable for
+  operator smoke-session batching
 - refreshed the production-like hosted MCP evidence rows from PR #159 head
   `d14fbc5` with Hosted MCP health run `28917995030`, covering data-backed
   anonymous reads, Dynamic Client Registration, and public-client Client ID
