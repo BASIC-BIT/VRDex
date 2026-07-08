@@ -53,11 +53,28 @@ type Options = {
   requireHostedUrl: boolean;
 };
 
+type PendingBlocker = {
+  label: string;
+  nextAction: string;
+  rows: string[];
+};
+
 const defaultMatrixPath = "docs/developers/mcp-client-smoke-results.json";
 const hostedEvidenceTargetPattern = /\b(same-branch|production-like|staging|production)\b/i;
 const pendingHostedEvidencePattern =
   /\b(pending|need|needs|lack|lacks|skipped|unavailable|not deployed|without data-backed|temporarily unavailable)\b/i;
 const hostedPlaceholder = "<production-like-/mcp-url>";
+const installedAppClientIds = new Set(["cursor", "devin-windsurf", "vscode"]);
+const blockerOrder = [
+  "hosted-protocol-target",
+  "oauth-smoke-credentials",
+  "missing-client-install",
+  "installed-app-tool-call",
+  "installed-app-oauth",
+  "desktop-custom-connector",
+  "hosted-product-surface",
+  "manual-client-evidence",
+];
 
 function nonEmpty(value: string | undefined) {
   const trimmed = value?.trim();
@@ -415,6 +432,136 @@ function countPendingRequired(matrix: SmokeMatrix) {
   return pendingClientRows + pendingHostedRows;
 }
 
+function clientRowKey(client: ClientEntry, check: SmokeCheck) {
+  return `${client.id}/${check.id}`;
+}
+
+function hostedReadinessRowKey(check: HostedReadinessCheck) {
+  return `hostedReadiness/${check.id}`;
+}
+
+function blockerForClientRow(client: ClientEntry, check: SmokeCheck): { id: string } & Omit<PendingBlocker, "rows"> {
+  if (client.id === "gemini-cli") {
+    return {
+      id: "missing-client-install",
+      label: "Missing client install or account setup",
+      nextAction: "Install or open Gemini CLI, apply the generated settings snippet, then capture an interactive /mcp tool-call session.",
+    };
+  }
+
+  if (check.id === "hosted-oauth" && (client.id === "claude-code" || client.id === "mcp-inspector")) {
+    return {
+      id: "oauth-smoke-credentials",
+      label: "OAuth smoke credentials",
+      nextAction: "Provide reviewed OAuth smoke secrets or explicitly enable the temporary hosted credential-generation gate before running authenticated client smokes.",
+    };
+  }
+
+  if (client.id === "claude-desktop") {
+    return {
+      id: "desktop-custom-connector",
+      label: "Desktop or custom connector session",
+      nextAction: "Run Claude Desktop or its current Custom Connector path and capture a real tools/list plus vrdex_search result.",
+    };
+  }
+
+  if (client.id === "openai-chatgpt") {
+    return {
+      id: "hosted-product-surface",
+      label: "Hosted product surface access",
+      nextAction: "Verify the current OpenAI or ChatGPT MCP-capable surface against hosted /mcp, including anonymous public-read behavior and OAuth expectations.",
+    };
+  }
+
+  if (installedAppClientIds.has(client.id) && check.id === "hosted-oauth") {
+    return {
+      id: "installed-app-oauth",
+      label: "Installed app OAuth session",
+      nextAction: "Use the generated app setup and capture the current client's hosted OAuth behavior, falling back to a short-lived token only when documented.",
+    };
+  }
+
+  if (installedAppClientIds.has(client.id)) {
+    return {
+      id: "installed-app-tool-call",
+      label: "Installed app tool-call session",
+      nextAction: "Open the installed app with the generated session pack, list VRDex tools, call vrdex_search, and record sanitized evidence.",
+    };
+  }
+
+  if (check.id === "hosted-oauth") {
+    return {
+      id: "installed-app-oauth",
+      label: "Installed app OAuth session",
+      nextAction: "Run the real client OAuth flow and record whether protected mcp:read succeeds or needs a documented fallback.",
+    };
+  }
+
+  return {
+    id: "manual-client-evidence",
+    label: "Manual client evidence",
+    nextAction: "Run the real client session from the generated worksheet and record sanitized tools/list plus vrdex_search evidence.",
+  };
+}
+
+function addPendingBlocker(
+  blockers: Map<string, PendingBlocker>,
+  blocker: { id: string } & Omit<PendingBlocker, "rows">,
+  row: string,
+) {
+  const existing = blockers.get(blocker.id);
+
+  if (existing !== undefined) {
+    existing.rows.push(row);
+
+    return;
+  }
+
+  blockers.set(blocker.id, {
+    label: blocker.label,
+    nextAction: blocker.nextAction,
+    rows: [row],
+  });
+}
+
+function pendingBlockerSummary(matrix: SmokeMatrix, options: Options) {
+  const blockers = new Map<string, PendingBlocker>();
+
+  for (const check of matrix.hostedReadiness?.checks ?? []) {
+    if (!shouldPrintHostedReadiness(check, options) || check.status === "pass") {
+      continue;
+    }
+
+    addPendingBlocker(
+      blockers,
+      {
+        id: "hosted-protocol-target",
+        label: "Hosted protocol target evidence",
+        nextAction: "Run the hosted smoke against a same-branch, staging, production-like, or production backend and record data-backed read, DCR, and CIMD evidence.",
+      },
+      hostedReadinessRowKey(check),
+    );
+  }
+
+  for (const client of matrix.clients) {
+    if (options.clientId !== undefined && client.id !== options.clientId) {
+      continue;
+    }
+
+    for (const check of client.checks) {
+      if (!shouldPrint(check, options) || !check.requiredForExternalReadiness || check.manualStatus === "pass") {
+        continue;
+      }
+
+      addPendingBlocker(blockers, blockerForClientRow(client, check), clientRowKey(client, check));
+    }
+  }
+
+  return blockerOrder
+    .map((id) => blockers.get(id))
+    .filter((blocker): blocker is PendingBlocker => blocker !== undefined);
+}
+
 function isHostedTargetReady(matrix: SmokeMatrix) {
   const target = matrix.targetEnvironment ?? "";
 
@@ -496,6 +643,27 @@ function printPlan(matrix: SmokeMatrix, options: Options) {
   console.log(`Pending required rows: ${pendingRequired}`);
   if (warning !== undefined) {
     console.log(`Target warning: ${warning}`);
+  }
+  console.log("");
+  console.log("## Pending Blocker Summary");
+  console.log("");
+  const blockers = pendingBlockerSummary(matrix, options);
+
+  if (blockers.length === 0) {
+    console.log("All required rows that match the current filters are pass.");
+  } else {
+    console.log("| Blocker | Pending rows | Next action |");
+    console.log("| --- | --- | --- |");
+
+    for (const blocker of blockers) {
+      console.log(
+        `| ${[
+          markdownCell(blocker.label),
+          markdownCell(blocker.rows.map(inlineCode).join(", ")),
+          markdownCell(blocker.nextAction),
+        ].join(" | ")} |`,
+      );
+    }
   }
   console.log("");
   console.log("| Hosted evidence | Status | Repo smoke | Notes | Recorder command |");
