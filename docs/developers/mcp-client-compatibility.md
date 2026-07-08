@@ -340,8 +340,8 @@ The required hosted evidence rows are:
 - `hosted-client-id-metadata-document`
 
 Current PR #159 status: all three hosted evidence rows are recorded as `pass`
-against `https://staging.vrdex.net/mcp`. Hosted MCP health run `28907703967`
-refreshed data-backed public reads, DCR, and CIMD from PR head `c8ec69e` on
+against `https://staging.vrdex.net/mcp`. Hosted MCP health run `28916180590`
+refreshed data-backed public reads, DCR, and CIMD from PR head `cde4c88` on
 2026-07-08. That run also exercised the `mcp_oauth=true` workflow path and
 skipped Inspector OAuth because repository smoke secrets were absent and
 `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS` was not enabled.
