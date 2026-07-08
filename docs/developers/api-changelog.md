@@ -7,6 +7,13 @@ Changelog for the unstable `/api/v0` and MCP platform foundation.
 `v0` is allowed to change before public launch. Breaking changes still need a
 docs update and a changelog entry so early consumers and agents can adapt.
 
+## 2026-07-08
+
+- extended `pnpm ops:mcp-installed-clients` to report whether the
+  `deployed-health.yml` hosted MCP OAuth smoke can mint temporary credentials
+  through the hosted E2E auth/developer-credential helper gate, without
+  printing browser tokens or generated client secrets
+
 ## 2026-07-07
 
 - tightened `pnpm check:api-mcp-rollout` so the aggregate readiness gate checks

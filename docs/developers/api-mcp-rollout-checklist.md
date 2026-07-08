@@ -115,9 +115,13 @@ one PR.
 - `pnpm ops:mcp-installed-clients` performs a read-only local preflight for
   installed Claude Code, Gemini CLI, VS Code, Cursor, and Windsurf CLI versions
   plus MCP configuration support. It also reports hosted OAuth smoke credential
-  readiness for Claude Code and MCP Inspector by variable name only. It catches
-  client drift and OAuth evidence blockers before manual smoke sessions but
-  does not replace manual matrix evidence.
+  readiness for Claude Code and MCP Inspector by variable name only, including
+  the `deployed-health.yml` temporary credential-generation gate
+  (`VRDEX_HOSTED_E2E_AUTH_HELPERS`,
+  `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS`, and
+  `VRDEX_HOSTED_E2E_BROWSER_TOKEN`). It catches client drift and OAuth evidence
+  blockers before manual smoke sessions but does not replace manual matrix
+  evidence.
 - `pnpm ops:mcp-client-session-pack` writes disposable VS Code, Cursor,
   Windsurf, and Gemini CLI MCP setup files under `.tmp-gh-artifacts/`,
   including local stdio, hosted anonymous HTTP, hosted token-header fallback

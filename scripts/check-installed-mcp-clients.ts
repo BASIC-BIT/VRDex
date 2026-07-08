@@ -1,6 +1,9 @@
 import { spawnSync } from "node:child_process";
 
-import { mcpOAuthCredentialSourcesFromEnv } from "./mcp-oauth-client-credentials";
+import {
+  hostedMcpOAuthCredentialGenerationSourcesFromEnv,
+  mcpOAuthCredentialSourcesFromEnv,
+} from "./mcp-oauth-client-credentials";
 
 type Probe = {
   args: string[];
@@ -44,6 +47,13 @@ type OAuthPrerequisiteResult = {
   credentialSource: string;
   matrixRow: string;
   nextAction: string;
+  status: "missing" | "partial" | "pass";
+};
+
+type OAuthCredentialGenerationResult = {
+  credentialSource: string;
+  nextAction: string;
+  path: string;
   status: "missing" | "partial" | "pass";
 };
 
@@ -335,7 +345,38 @@ function evaluateOAuthPrerequisite(prerequisite: OAuthPrerequisite): OAuthPrereq
   };
 }
 
-function printResults(results: ClientResult[], oauthResults: OAuthPrerequisiteResult[]) {
+function evaluateOAuthCredentialGeneration(): OAuthCredentialGenerationResult {
+  const sources = hostedMcpOAuthCredentialGenerationSourcesFromEnv(process.env);
+  const credentialSource = [
+    sources.hasAuthHelpers ? `auth helpers from ${sources.authHelpersSource}` : undefined,
+    sources.hasDeveloperCredentials ? `developer credentials from ${sources.developerCredentialsSource}` : undefined,
+    sources.hasBrowserToken ? `browser token from ${sources.browserTokenSource}` : undefined,
+  ].filter(Boolean).join("; ") || "none";
+
+  if (sources.canGenerateCredentials) {
+    return {
+      credentialSource,
+      nextAction: "Dispatch deployed-health hosted-mcp-smoke with mcp_oauth=true; the workflow can mint temporary MCP OAuth smoke credentials.",
+      path: "GitHub hosted-mcp-smoke temporary OAuth credentials",
+      status: "pass",
+    };
+  }
+
+  const nextAction = "Configure VRDEX_HOSTED_E2E_AUTH_HELPERS=true, VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true, and secret VRDEX_HOSTED_E2E_BROWSER_TOKEN, or use reviewed OAuth smoke client credentials.";
+
+  return {
+    credentialSource,
+    nextAction,
+    path: "GitHub hosted-mcp-smoke temporary OAuth credentials",
+    status: sources.hasAnyInput ? "partial" : "missing",
+  };
+}
+
+function printResults(
+  results: ClientResult[],
+  oauthResults: OAuthPrerequisiteResult[],
+  oauthGenerationResults: OAuthCredentialGenerationResult[],
+) {
   console.log("# Installed MCP Client Preflight");
   console.log("");
   console.log("This read-only check inspects local CLI versions and MCP configuration support.");
@@ -372,17 +413,35 @@ function printResults(results: ClientResult[], oauthResults: OAuthPrerequisiteRe
       ].join(" | ")} |`,
     );
   }
+
+  console.log("");
+  console.log("## Hosted OAuth Credential Generation");
+  console.log("");
+  console.log("| Path | Status | Credential source | Next action |");
+  console.log("| --- | --- | --- | --- |");
+
+  for (const result of oauthGenerationResults) {
+    console.log(
+      `| ${[
+        markdownCell(result.path),
+        result.status,
+        markdownCell(result.credentialSource),
+        markdownCell(result.nextAction),
+      ].join(" | ")} |`,
+    );
+  }
 }
 
 function main() {
   const results = clients.map(evaluateClient);
   const oauthResults = oauthPrerequisites.map(evaluateOAuthPrerequisite);
+  const oauthGenerationResults = [evaluateOAuthCredentialGeneration()];
   const failures = [
     ...results.filter((result) => result.status === "fail").map((result) => result.name),
     ...oauthResults.filter((result) => result.status === "partial").map((result) => result.matrixRow),
   ];
 
-  printResults(results, oauthResults);
+  printResults(results, oauthResults, oauthGenerationResults);
 
   if (failures.length > 0) {
     throw new Error(`Installed MCP client preflight failed: ${failures.join(", ")}`);

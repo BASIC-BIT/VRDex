@@ -220,11 +220,15 @@ pnpm ops:mcp-installed-clients
 This read-only check records the detected Claude Code, Gemini CLI, VS Code,
 Cursor, and Windsurf CLI versions, verifies that installed clients still expose
 the MCP configuration surface their matrix rows depend on, and reports whether
-hosted OAuth smoke credential variables are present for the Claude Code and
-MCP Inspector OAuth rows. It prints variable names only, never secret values.
-It does not write client configuration, launch GUI smoke sessions, or turn any
-manual row green by itself. Use it to catch local client drift and OAuth
-evidence blockers before the human smoke pass.
+hosted OAuth smoke credential variables are present for the Claude Code and MCP
+Inspector OAuth rows. It also reports whether the `deployed-health.yml`
+hosted-mcp-smoke workflow has the temporary OAuth credential-generation gate
+configured through `VRDEX_HOSTED_E2E_AUTH_HELPERS`,
+`VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS`, and
+`VRDEX_HOSTED_E2E_BROWSER_TOKEN`. It prints variable names only, never secret
+values. It does not write client configuration, launch GUI smoke sessions, or
+turn any manual row green by itself. Use it to catch local client drift and
+OAuth evidence blockers before the human smoke pass.
 
 After the preflight, generate a disposable smoke-session pack for installed
 VS Code-family clients and Gemini CLI, plus manual-only worksheets for hosted

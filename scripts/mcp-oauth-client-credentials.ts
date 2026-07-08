@@ -20,6 +20,17 @@ export type McpOAuthCredentialSources = {
   tokenSource?: string;
 };
 
+export type HostedMcpOAuthCredentialGenerationSources = {
+  authHelpersSource?: string;
+  browserTokenSource?: string;
+  canGenerateCredentials: boolean;
+  developerCredentialsSource?: string;
+  hasAnyInput: boolean;
+  hasAuthHelpers: boolean;
+  hasBrowserToken: boolean;
+  hasDeveloperCredentials: boolean;
+};
+
 type FetchTokenOptions = McpOAuthClientCredentials & {
   fetchImpl?: typeof fetch;
   hostedUrl: string;
@@ -78,6 +89,16 @@ function firstPresentEnvName(env: NodeJS.ProcessEnv, names: string[]) {
   return names.find((name) => nonEmpty(env[name]) !== undefined);
 }
 
+function envFlag(value: string | undefined) {
+  const normalized = value?.trim().toLowerCase();
+
+  return normalized === "1" || normalized === "true" || normalized === "yes";
+}
+
+function firstEnabledEnvName(env: NodeJS.ProcessEnv, names: string[]) {
+  return names.find((name) => envFlag(env[name]));
+}
+
 export function mcpOAuthCredentialSourcesFromEnv(
   env: NodeJS.ProcessEnv,
   clientSpecificPrefix: string,
@@ -104,6 +125,40 @@ export function mcpOAuthCredentialSourcesFromEnv(
       (clientIdSource === undefined && clientSecretSource !== undefined),
     hasToken: tokenSource !== undefined,
     tokenSource,
+  };
+}
+
+export function hostedMcpOAuthCredentialGenerationSourcesFromEnv(
+  env: NodeJS.ProcessEnv,
+): HostedMcpOAuthCredentialGenerationSources {
+  const authHelpersSource = firstEnabledEnvName(env, [
+    "VRDEX_HOSTED_E2E_AUTH_HELPERS",
+    "MCP_HOSTED_E2E_AUTH_HELPERS",
+    "VRDEX_ENABLE_E2E_AUTH_HELPERS",
+  ]);
+  const developerCredentialsSource = firstEnabledEnvName(env, [
+    "VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS",
+    "MCP_HOSTED_E2E_DEVELOPER_CREDENTIALS",
+    "VRDEX_ENABLE_E2E_DEVELOPER_CREDENTIALS",
+  ]);
+  const browserTokenSource = firstPresentEnvName(env, [
+    "VRDEX_HOSTED_E2E_BROWSER_TOKEN",
+    "MCP_HOSTED_E2E_BROWSER_TOKEN",
+    "VRDEX_E2E_BROWSER_TOKEN",
+  ]);
+  const hasAuthHelpers = authHelpersSource !== undefined;
+  const hasDeveloperCredentials = developerCredentialsSource !== undefined;
+  const hasBrowserToken = browserTokenSource !== undefined;
+
+  return {
+    authHelpersSource,
+    browserTokenSource,
+    canGenerateCredentials: hasAuthHelpers && hasDeveloperCredentials && hasBrowserToken,
+    developerCredentialsSource,
+    hasAnyInput: hasAuthHelpers || hasDeveloperCredentials || hasBrowserToken,
+    hasAuthHelpers,
+    hasBrowserToken,
+    hasDeveloperCredentials,
   };
 }
 

@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   fetchMcpOAuthClientCredentialsToken,
+  hostedMcpOAuthCredentialGenerationSourcesFromEnv,
   hostedMcpResourceUrl,
   mcpOAuthCredentialSourcesFromEnv,
   mcpOAuthClientCredentialsFromEnv,
@@ -86,6 +87,43 @@ describe("MCP OAuth client credentials helper", () => {
         hasPartialClientCredentials: true,
         hasToken: false,
         tokenSource: undefined,
+      },
+    );
+  });
+
+  it("reports hosted workflow OAuth credential-generation inputs without exposing values", () => {
+    assert.deepEqual(
+      hostedMcpOAuthCredentialGenerationSourcesFromEnv({
+        VRDEX_HOSTED_E2E_AUTH_HELPERS: "true",
+        VRDEX_HOSTED_E2E_BROWSER_TOKEN: "browser-token",
+        VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS: "true",
+      }),
+      {
+        authHelpersSource: "VRDEX_HOSTED_E2E_AUTH_HELPERS",
+        browserTokenSource: "VRDEX_HOSTED_E2E_BROWSER_TOKEN",
+        canGenerateCredentials: true,
+        developerCredentialsSource: "VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS",
+        hasAnyInput: true,
+        hasAuthHelpers: true,
+        hasBrowserToken: true,
+        hasDeveloperCredentials: true,
+      },
+    );
+
+    assert.deepEqual(
+      hostedMcpOAuthCredentialGenerationSourcesFromEnv({
+        MCP_HOSTED_E2E_AUTH_HELPERS: "true",
+        MCP_HOSTED_E2E_BROWSER_TOKEN: "browser-token",
+      }),
+      {
+        authHelpersSource: "MCP_HOSTED_E2E_AUTH_HELPERS",
+        browserTokenSource: "MCP_HOSTED_E2E_BROWSER_TOKEN",
+        canGenerateCredentials: false,
+        developerCredentialsSource: undefined,
+        hasAnyInput: true,
+        hasAuthHelpers: true,
+        hasBrowserToken: true,
+        hasDeveloperCredentials: false,
       },
     );
   });
