@@ -1,17 +1,34 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it } from "node:test";
 
-function runRolloutCheck(args: string[] = []) {
+function runRolloutCheck(args: string[] = [], env: Record<string, string> = {}) {
   return spawnSync(
     process.execPath,
     ["--import", "tsx", "scripts/check-api-mcp-rollout-readiness.ts", "--", ...args],
     {
       cwd: process.cwd(),
       encoding: "utf8",
+      env: {
+        ...process.env,
+        ...env,
+      },
     },
   );
+}
+
+async function writeMatrixCopy(name: string, mutate: (matrix: any) => void) {
+  const directory = await mkdtemp(join(tmpdir(), `vrdex-api-mcp-rollout-${name}-`));
+  const matrix = JSON.parse(await readFile("docs/developers/mcp-client-smoke-results.json", "utf8"));
+  const path = join(directory, "matrix.json");
+
+  mutate(matrix);
+  await writeFile(path, `${JSON.stringify(matrix, null, 2)}\n`);
+
+  return { directory, path };
 }
 
 describe("API/MCP rollout readiness checker", () => {
@@ -29,6 +46,45 @@ describe("API/MCP rollout readiness checker", () => {
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /API\/MCP rollout is not externally ready/);
     assert.match(result.stderr, /Major MCP client matrix/);
+  });
+
+  it("rejects token-shaped manual matrix evidence", async () => {
+    const { directory, path } = await writeMatrixCopy("sensitive-client-evidence", (matrix) => {
+      const client = matrix.clients.find((entry: { id: string }) => entry.id === "mcp-inspector");
+      const check = client?.checks.find((entry: { id: string }) => entry.id === "hosted-anonymous-read");
+
+      assert.ok(check);
+      check.manualEvidence = "curl output included Authorization: Bearer vrdx_mcp_token_abcdefghijklmnopqrstuvwxyz";
+    });
+
+    try {
+      const result = runRolloutCheck([], { VRDEX_MCP_CLIENT_MATRIX_PATH: path });
+
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /MCP Inspector\/hosted-anonymous-read manualEvidence appears to contain a token/i);
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  it("rejects token-shaped hosted readiness evidence", async () => {
+    const { directory, path } = await writeMatrixCopy("sensitive-hosted-evidence", (matrix) => {
+      const check = matrix.hostedReadiness?.checks.find(
+        (entry: { id: string }) => entry.id === "hosted-data-backed-anonymous-read",
+      );
+
+      assert.ok(check);
+      check.evidence = "workflow transcript included client_secret=abcdefghijklmnopqrstuvwxyz";
+    });
+
+    try {
+      const result = runRolloutCheck([], { VRDEX_MCP_CLIENT_MATRIX_PATH: path });
+
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /hostedReadiness\/hosted-data-backed-anonymous-read evidence appears to contain a token/i);
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
   });
 
   it("tracks late-slice API and matrix-recorder requirements in the aggregate gate", async () => {

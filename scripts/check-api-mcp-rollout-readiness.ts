@@ -6,6 +6,7 @@ type HostedReadinessStatus = "fail" | "pass" | "pending";
 
 type SmokeCheck = {
   id: string;
+  manualEvidence?: string;
   manualStatus: ManualStatus;
   requiredForExternalReadiness: boolean;
 };
@@ -17,6 +18,7 @@ type ClientEntry = {
 };
 
 type HostedReadinessCheck = {
+  evidence?: string;
   id: string;
   requiredForExternalReadiness: boolean;
   status: HostedReadinessStatus;
@@ -122,6 +124,8 @@ const requiredScripts = [
 
 const hostedEvidenceTargetPattern = /\b(same-branch|production-like|staging|production)\b/i;
 const pendingHostedEvidencePattern = /\b(pending|need|needs|lack|lacks|skipped|unavailable|not deployed|without data-backed)\b/i;
+const sensitiveEvidencePattern =
+  /\b(authorization\s*:\s*bearer|bearer\s+[a-z0-9._~+/-]{12,}|client_secret\s*[=:]|vrdex_(?:api|mcp)?_?token\s*[=:]|secret\s*[=:]\s*[a-z0-9._~+/-]{12,}|eyJ[a-z0-9_-]{10,}\.[a-z0-9_-]{10,}\.[a-z0-9_-]{10,})\b/i;
 const requiredHostedReadinessChecks = new Map<string, string>([
   ["hosted-data-backed-anonymous-read", "data-backed anonymous hosted MCP public read"],
   ["hosted-dynamic-client-registration", "hosted OAuth Dynamic Client Registration"],
@@ -161,6 +165,11 @@ function parseArgs(argv: string[]): Options {
 
 function check(name: string, status: ReadinessCheck["status"], details: string, required = true): ReadinessCheck {
   return { details, name, required, status };
+}
+
+function assertSanitizedEvidence(value: string | undefined, label: string) {
+  assert.equal(typeof value, "string", `${label} must be present before recording pass or fail evidence.`);
+  assert.doesNotMatch(value, sensitiveEvidencePattern, `${label} appears to contain a token, secret, or authorization header.`);
 }
 
 async function pathExists(path: string) {
@@ -222,6 +231,10 @@ async function checkMcpMatrix() {
 
   for (const client of matrix.clients) {
     for (const smoke of client.checks) {
+      if (smoke.manualStatus === "pass" || smoke.manualStatus === "fail") {
+        assertSanitizedEvidence(smoke.manualEvidence, `${client.name}/${smoke.id} manualEvidence`);
+      }
+
       if (smoke.requiredForExternalReadiness && smoke.manualStatus !== "pass") {
         blockers.push(`${client.name}/${smoke.id}: ${smoke.manualStatus}`);
       }
@@ -245,6 +258,13 @@ async function checkHostedReadinessMode() {
 
   for (const hostedCheck of hostedReadinessChecks) {
     seenHostedReadinessChecks.add(hostedCheck.id);
+
+    if (hostedCheck.status === "pass" || hostedCheck.status === "fail") {
+      assertSanitizedEvidence(
+        hostedCheck.evidence,
+        `hostedReadiness/${hostedCheck.id} evidence`,
+      );
+    }
 
     if (hostedCheck.requiredForExternalReadiness && hostedCheck.status !== "pass") {
       hostedReadinessBlockers.push(
