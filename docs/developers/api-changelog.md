@@ -9,6 +9,10 @@ docs update and a changelog entry so early consumers and agents can adapt.
 
 ## 2026-07-08
 
+- recorded that the installed VS Code 1.127.0, Cursor 3.10.17, and Windsurf
+  1.110.1 CLIs accept the generated local stdio, hosted anonymous HTTP, and
+  hosted token-header fallback `--add-mcp` definitions while keeping those
+  matrix rows pending until real app tool-call evidence is captured
 - added `pnpm ops:mcp-hosted-oauth-prereqs` as a read-only GitHub Actions
   variable/secret audit for the hosted MCP OAuth evidence path, covering both
   reviewed OAuth smoke secrets and temporary credential generation without
