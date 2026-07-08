@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { startVrdexMcpApiFixture } from "../packages/vrdex-mcp/tests/api-fixture";
 import {
@@ -204,15 +205,41 @@ function parseArgs(argv: string[]): GeminiOptions {
   return options;
 }
 
-function geminiSpawn(options: GeminiOptions, args: string[]) {
-  if (options.geminiPackage !== undefined) {
+export function geminiSpawnForPlatform(args: {
+  comSpec?: string;
+  geminiCommand: string;
+  geminiPackage?: string;
+  platform: NodeJS.Platform;
+  promptArgs: string[];
+}) {
+  const base = args.geminiPackage === undefined
+    ? {
+        args: args.promptArgs,
+        command: args.geminiCommand,
+      }
+    : {
+        args: ["--yes", args.geminiPackage, ...args.promptArgs],
+        command: args.platform === "win32" ? "npx.cmd" : "npx",
+      };
+
+  if (args.platform === "win32") {
     return {
-      args: ["--yes", options.geminiPackage, ...args],
-      command: process.platform === "win32" ? "npx.cmd" : "npx",
+      args: ["/d", "/s", "/c", base.command, ...base.args],
+      command: args.comSpec ?? "cmd.exe",
     };
   }
 
-  return { args, command: options.geminiCommand };
+  return base;
+}
+
+function geminiSpawn(options: GeminiOptions, args: string[]) {
+  return geminiSpawnForPlatform({
+    comSpec: process.env.ComSpec,
+    geminiCommand: options.geminiCommand,
+    geminiPackage: options.geminiPackage,
+    platform: process.platform,
+    promptArgs: args,
+  });
 }
 
 function runGemini(options: GeminiOptions, args: string[], cwd: string) {
@@ -501,7 +528,9 @@ async function main() {
   }
 }
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exit(1);
-});
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exit(1);
+  });
+}

@@ -134,6 +134,13 @@ If Gemini CLI is not installed globally, run the current package through
 pnpm smoke:mcp-gemini-cli -- --gemini-package @google/gemini-cli@latest
 ```
 
+On Windows, the disposable package path is routed through `cmd.exe` so the
+smoke does not trip Node's `spawn EINVAL` behavior for `.cmd` shims. A
+2026-07-08 local preflight reached Gemini CLI `0.49.0` through
+`--gemini-package @google/gemini-cli@0.49.0`; the remaining local prerequisite
+was Gemini authentication through a CLI auth method, `GEMINI_API_KEY`, Vertex
+AI, or Google Cloud Assist.
+
 In hosted HTTP mode, the harness points Gemini CLI at a deployed Streamable
 HTTP MCP endpoint and parses stream-json output for the `vrdex_search` call and
 structured result:
