@@ -97,7 +97,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
           "manualStatus": "pending",
-          "notes": "Hosted OAuth harness is available with reviewed OAuth app client credentials via VRDEX_MCP_OAUTH_CLIENT_ID / VRDEX_MCP_OAUTH_CLIENT_SECRET or VRDEX_CLAUDE_CODE_OAUTH_CLIENT_* overrides, plus VRDEX_CLAUDE_CODE_OAUTH_TOKEN fallback; row remains pending until a real authenticated mcp:read smoke or interactive claude mcp login session is recorded."
+          "notes": "Hosted OAuth harness is available with reviewed OAuth app client credentials via VRDEX_MCP_OAUTH_CLIENT_ID / VRDEX_MCP_OAUTH_CLIENT_SECRET or VRDEX_CLAUDE_CODE_OAUTH_CLIENT_* overrides, plus VRDEX_CLAUDE_CODE_OAUTH_TOKEN fallback; 2026-07-08 GitHub prerequisite audit found the hosted OAuth evidence path partial because reviewed OAuth smoke secrets are absent and VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS is not enabled. Row remains pending until a real authenticated mcp:read smoke or interactive claude mcp login session is recorded."
         }
       ]
     },
@@ -282,7 +282,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
           "manualStatus": "pending",
-          "notes": "Top-level staging hosted OAuth protocol evidence is recorded as pass. Inspector can fetch a short-lived token from reviewed OAuth app client credentials via VRDEX_MCP_OAUTH_CLIENT_ID / VRDEX_MCP_OAUTH_CLIENT_SECRET or VRDEX_MCP_INSPECTOR_OAUTH_CLIENT_* overrides, with VRDEX_MCP_INSPECTOR_OAUTH_TOKEN fallback; run 28949509629 confirmed the workflow path skips cleanly when mcp_oauth=true but repository smoke secrets are absent and VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS is not enabled. This row remains pending until authenticated behavior is recorded against https://staging.vrdex.net/mcp."
+          "notes": "Top-level staging hosted OAuth protocol evidence is recorded as pass. Inspector can fetch a short-lived token from reviewed OAuth app client credentials via VRDEX_MCP_OAUTH_CLIENT_ID / VRDEX_MCP_OAUTH_CLIENT_SECRET or VRDEX_MCP_INSPECTOR_OAUTH_CLIENT_* overrides, with VRDEX_MCP_INSPECTOR_OAUTH_TOKEN fallback; run 28949509629 confirmed the workflow path skips cleanly when mcp_oauth=true but repository smoke secrets are absent and VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS is not enabled. The 2026-07-08 GitHub prerequisite audit found VRDEX_HOSTED_E2E_AUTH_HELPERS=true and VRDEX_HOSTED_E2E_BROWSER_TOKEN present, but reviewed OAuth smoke secrets, the Inspector token fallback, and VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS are absent. This row remains pending until authenticated behavior is recorded against https://staging.vrdex.net/mcp."
         }
       ]
     }

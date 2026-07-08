@@ -481,6 +481,17 @@ secrets or the temporary credential-generation gate
 boolean readiness, never secret values. Add `--require-ready` when the audit
 should fail until one of those complete paths is configured.
 
+Current PR #159 audit result from 2026-07-08: hosted OAuth evidence is
+`partial`. Reviewed OAuth client secrets are missing, the Inspector token
+fallback is missing, and temporary credential generation is one gate short:
+`VRDEX_HOSTED_E2E_AUTH_HELPERS=true` and
+`VRDEX_HOSTED_E2E_BROWSER_TOKEN` is present, but
+`VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS` is not enabled. Keep that variable
+unset until staging has the developer token routes, OAuth app registration
+routes, and OAuth token endpoint under test; after enabling it, rerun the audit
+and dispatch `deployed-health.yml` with `target=hosted-mcp-smoke` and
+`mcp_oauth=true` before recording hosted-OAuth client rows.
+
 These rows are checked separately from manual client UI rows so a lightweight
 PR preview transport smoke cannot accidentally satisfy the production-like
 data-backed, DCR, and CIMD readiness gate.
@@ -686,6 +697,10 @@ pnpm ops:mcp-client-smokes -- \
    `mcp_data`/`mcp_dcr`/`mcp_cimd` toggles. Add `mcp_oauth=true` when the run
    should use configured repository OAuth smoke secrets or mint temporary
    staging smoke credentials from the hosted E2E auth/developer helper path.
+   PR #159's 2026-07-08 repository audit shows that OAuth subcheck remains
+   gated until reviewed OAuth smoke secrets are installed or
+   `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true` is enabled alongside the
+   already-present hosted auth-helper inputs.
 1. Claude Desktop local stdio starts, lists six tools, and calls
    `vrdex_search`.
 2. Claude Desktop hosted Custom Connector lists anonymous tools and completes

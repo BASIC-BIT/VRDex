@@ -124,7 +124,14 @@ Next execution checkpoint:
    with Google auth or `--gemini-package @google/gemini-cli@latest` for the
    Gemini CLI rows; and complete hosted OAuth coverage for Claude Code, Gemini
    CLI, and MCP Inspector.
-4. Keep OpenAI/ChatGPT evidence as hosted-product manual evidence; do not mark
+4. Before hosted-OAuth rows are recorded, rerun
+   `pnpm ops:mcp-hosted-oauth-prereqs`. The 2026-07-08 PR #159 audit is
+   `partial`: hosted auth helpers and the browser token are present, but
+   reviewed OAuth smoke secrets, the Inspector token fallback, and
+   `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true` are not configured. Enabling
+   the developer-credentials gate is an operator action after staging has the
+   developer credential routes and token endpoint under test.
+5. Keep OpenAI/ChatGPT evidence as hosted-product manual evidence; do not mark
    that row ready from local CLI checks.
 
 ## Client Classes

@@ -155,6 +155,13 @@ one PR.
   `chat`, Cursor `--chat`/`agent`, and Windsurf setup CLI checks do not count
   as matrix evidence unless the real client session lists tools and calls
   `vrdex_search`.
+- Current 2026-07-08 repository audit for PR #159: hosted OAuth evidence is
+  still `partial`. `VRDEX_HOSTED_E2E_AUTH_HELPERS=true` and the
+  `VRDEX_HOSTED_E2E_BROWSER_TOKEN` secret are present, but reviewed OAuth smoke
+  secrets, `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN`, and
+  `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true` are absent. Do not mark hosted
+  OAuth rows pass until one complete credential path is configured and a
+  matching smoke run is recorded.
 - `pnpm ops:mcp-client-session-pack` writes disposable VS Code, Cursor,
   Windsurf, and Gemini CLI MCP setup files under `.tmp-gh-artifacts/`,
   including local stdio, hosted anonymous HTTP, hosted token-header fallback
@@ -237,7 +244,9 @@ one PR.
   generated secret, and feeds the credentials to the Inspector OAuth smoke. It
   skips that OAuth subcheck cleanly when neither credential source is available,
   so anonymous/data/DCR/CIMD health evidence is not blocked on reviewed OAuth
-  credentials.
+  credentials. Enabling `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS` is an operator
+  decision, not a routine PR edit; keep it unset until the staging target has
+  the developer credential routes and token endpoint under test.
 
 Use a command shaped like this for each manual matrix row:
 
