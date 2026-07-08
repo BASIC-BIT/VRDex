@@ -48,6 +48,10 @@ docs update and a changelog entry so early consumers and agents can adapt.
   notes so VS Code `chat`, Cursor `--chat`/`agent`, and Windsurf setup-only
   surfaces are clearly treated as manual-only evidence paths unless the real
   client session lists tools and calls `vrdex_search`
+- extended `pnpm ops:mcp-installed-clients` with read-only Claude Desktop
+  process/app-path detection plus OpenAI Responses API and Gemini CLI model
+  credential preconditions so missing provider setup is visible before a smoke
+  session starts
 - recorded that the installed VS Code 1.127.0, Cursor 3.10.17, and Windsurf
   1.110.1 CLIs accept the generated local stdio, hosted anonymous HTTP, and
   hosted token-header fallback `--add-mcp` definitions while keeping those

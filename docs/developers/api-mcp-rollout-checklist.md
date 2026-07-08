@@ -142,19 +142,19 @@ one PR.
   Summary that groups remaining work by the prerequisite needed to unlock it.
 - `pnpm ops:mcp-installed-clients` performs a read-only local preflight for
   installed Claude Code, Gemini CLI, VS Code, Cursor, and Windsurf CLI versions
-  plus MCP configuration support. It also reports hosted OAuth smoke credential
-  readiness for Claude Code and MCP Inspector by variable name only, including
-  the `deployed-health.yml` temporary credential-generation gate
+  plus MCP configuration support. It also reports Claude Desktop process or
+  common app-path availability on Windows, OpenAI Responses API and Gemini CLI
+  auth readiness, and hosted OAuth smoke credential readiness by variable name
+  only, including the `deployed-health.yml` temporary credential-generation gate
   (`VRDEX_HOSTED_E2E_AUTH_HELPERS`,
   `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS`, and
   `VRDEX_HOSTED_E2E_BROWSER_TOKEN`). It catches client drift and OAuth evidence
   blockers before manual smoke sessions but does not replace manual matrix
-  evidence. Its credential-generation table reads the current process
-  environment only; run `pnpm ops:mcp-hosted-oauth-prereqs` for the repository
-  variable/secret audit. Its CLI automation notes are informational: VS Code
-  `chat`, Cursor `--chat`/`agent`, and Windsurf setup CLI checks do not count
-  as matrix evidence unless the real client session lists tools and calls
-  `vrdex_search`.
+  evidence. Its credential tables read the current process environment only;
+  run `pnpm ops:mcp-hosted-oauth-prereqs` for the repository variable/secret
+  audit. Its CLI automation notes are informational: VS Code `chat`, Cursor
+  `--chat`/`agent`, and Windsurf setup CLI checks do not count as matrix
+  evidence unless the real client session lists tools and calls `vrdex_search`.
 - Current 2026-07-08 repository audit for PR #159: hosted OAuth evidence is
   still `partial`. `VRDEX_HOSTED_E2E_AUTH_HELPERS=true` and the
   `VRDEX_HOSTED_E2E_BROWSER_TOKEN` secret are present, but reviewed OAuth smoke

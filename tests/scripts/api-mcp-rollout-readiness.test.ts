@@ -104,6 +104,11 @@ describe("API/MCP rollout readiness checker", () => {
     assert.match(installedClientsSource, /current process environment/);
     assert.match(installedClientsSource, /ops:mcp-hosted-oauth-prereqs/);
     assert.match(installedClientsSource, /CLI Automation Surface Notes/);
+    assert.match(installedClientsSource, /Desktop And Hosted Product Preconditions/);
+    assert.match(installedClientsSource, /Model Provider Credential Preconditions/);
+    assert.match(installedClientsSource, /OPENAI_API_KEY/);
+    assert.match(installedClientsSource, /GEMINI_API_KEY/);
+    assert.match(installedClientsSource, /Claude Desktop/);
     assert.match(installedClientsSource, /stdout transcript/);
   });
 

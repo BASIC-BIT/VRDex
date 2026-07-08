@@ -44,6 +44,21 @@ type AutomationSurfaceResult = {
   surface: string;
 };
 
+type SurfacePreconditionResult = {
+  client: string;
+  evidence: string;
+  nextAction: string;
+  status: "missing" | "pass" | "skip";
+  surface: string;
+};
+
+type ProviderCredentialResult = {
+  credentialSource: string;
+  nextAction: string;
+  path: string;
+  status: "missing" | "partial" | "pass";
+};
+
 type OAuthPrerequisite = {
   clientSpecificPrefix: string;
   matrixRow: string;
@@ -317,6 +332,14 @@ function markdownCell(value: string) {
     .trim();
 }
 
+function envPresent(name: string) {
+  return Boolean(process.env[name]?.trim());
+}
+
+function envPresenceSummary(names: string[]) {
+  return names.map((name) => `${name}=${envPresent(name) ? "present" : "missing"}`).join("; ");
+}
+
 function evaluateOAuthPrerequisite(prerequisite: OAuthPrerequisite): OAuthPrerequisiteResult {
   const sources = mcpOAuthCredentialSourcesFromEnv(
     process.env,
@@ -384,6 +407,113 @@ function evaluateOAuthCredentialGeneration(): OAuthCredentialGenerationResult {
     path: "Current process temporary OAuth credential generation inputs",
     status: sources.hasAnyInput ? "partial" : "missing",
   };
+}
+
+function runPowerShell(script: string) {
+  if (process.platform !== "win32") {
+    return "";
+  }
+
+  const result = spawnSync("powershell", ["-NoProfile", "-Command", script], {
+    encoding: "utf8",
+    windowsHide: true,
+  });
+
+  return `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
+}
+
+function evaluateClaudeDesktopSurface(): SurfacePreconditionResult {
+  if (process.platform !== "win32") {
+    return {
+      client: "Claude Desktop",
+      evidence: "desktop app process/path detection is implemented for Windows only",
+      nextAction: "Verify Claude Desktop manually on this OS before recording matrix evidence.",
+      status: "skip",
+      surface: "desktop app availability",
+    };
+  }
+
+  const processNames = runPowerShell(
+    "Get-Process | Where-Object { $_.ProcessName -match 'Claude' } | Select-Object -First 5 -ExpandProperty ProcessName",
+  ).split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .filter((entry, index, entries) =>
+      entries.findIndex((candidate) => candidate.toLowerCase() === entry.toLowerCase()) === index,
+    );
+  const appPath = runPowerShell(
+    "$paths = @(" +
+      "$env:LOCALAPPDATA + '\\Programs\\Claude\\Claude.exe'," +
+      "$env:LOCALAPPDATA + '\\Claude\\Claude.exe'," +
+      "$env:ProgramFiles + '\\Claude\\Claude.exe'," +
+      "${env:ProgramFiles(x86)} + '\\Claude\\Claude.exe'" +
+      "); $paths | Where-Object { Test-Path $_ } | Select-Object -First 1",
+  ).split(/\r?\n/).map((entry) => entry.trim()).find(Boolean);
+
+  if (processNames.length > 0) {
+    return {
+      client: "Claude Desktop",
+      evidence: `running process detected: ${processNames.join(", ")}`,
+      nextAction: "Use the running desktop app or current Custom Connector path to capture tools/list plus vrdex_search evidence.",
+      status: "pass",
+      surface: "desktop app availability",
+    };
+  }
+
+  if (appPath !== undefined) {
+    return {
+      client: "Claude Desktop",
+      evidence: "common Windows install path detected",
+      nextAction: "Launch Claude Desktop and capture tools/list plus vrdex_search evidence.",
+      status: "pass",
+      surface: "desktop app availability",
+    };
+  }
+
+  return {
+    client: "Claude Desktop",
+    evidence: "no Claude Desktop process or common Windows install path detected",
+    nextAction: "Install or launch Claude Desktop, or use its current Custom Connector surface before recording matrix evidence.",
+    status: "missing",
+    surface: "desktop app availability",
+  };
+}
+
+function evaluateSurfacePreconditions(): SurfacePreconditionResult[] {
+  return [evaluateClaudeDesktopSurface()];
+}
+
+function evaluateProviderCredentials(): ProviderCredentialResult[] {
+  const openAiKeyEnvName = process.env.VRDEX_OPENAI_MCP_API_KEY_ENV?.trim() || "OPENAI_API_KEY";
+  const hasOpenAiKey = envPresent(openAiKeyEnvName);
+  const hasGeminiApiKey = envPresent("GEMINI_API_KEY");
+  const hasVertexProject = envPresent("GOOGLE_CLOUD_PROJECT");
+  const hasVertexLocation = envPresent("GOOGLE_CLOUD_LOCATION");
+  const usesVertex = /^(1|true|yes)$/i.test(process.env.GOOGLE_GENAI_USE_VERTEXAI?.trim() ?? "");
+  const geminiStatus = hasGeminiApiKey || (usesVertex && hasVertexProject && hasVertexLocation)
+    ? "pass"
+    : usesVertex || hasVertexProject || hasVertexLocation
+      ? "partial"
+      : "missing";
+
+  return [
+    {
+      credentialSource: `${openAiKeyEnvName}=${hasOpenAiKey ? "present" : "missing"}`,
+      nextAction: hasOpenAiKey
+        ? "Run pnpm smoke:mcp-openai -- --hosted-url <target-/mcp-url> --hosted-data."
+        : `Set ${openAiKeyEnvName}, then run pnpm smoke:mcp-openai -- --hosted-url <target-/mcp-url> --hosted-data.`,
+      path: "OpenAI Responses API remote MCP",
+      status: hasOpenAiKey ? "pass" : "missing",
+    },
+    {
+      credentialSource: envPresenceSummary(["GEMINI_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION"]),
+      nextAction: geminiStatus === "pass"
+        ? "Run pnpm smoke:mcp-gemini-cli with --gemini-package @google/gemini-cli@latest if Gemini CLI is not installed."
+        : "Set GEMINI_API_KEY, or configure complete Vertex AI Gemini CLI auth inputs, before running pnpm smoke:mcp-gemini-cli.",
+      path: "Gemini CLI model authentication",
+      status: geminiStatus,
+    },
+  ];
 }
 
 function runAutomationProbe(command: string, args: string[]) {
@@ -459,6 +589,8 @@ function evaluateAutomationSurfaces(): AutomationSurfaceResult[] {
 function printResults(
   results: ClientResult[],
   automationResults: AutomationSurfaceResult[],
+  surfaceResults: SurfacePreconditionResult[],
+  providerCredentialResults: ProviderCredentialResult[],
   oauthResults: OAuthPrerequisiteResult[],
   oauthGenerationResults: OAuthCredentialGenerationResult[],
 ) {
@@ -496,6 +628,45 @@ function printResults(
         markdownCell(result.surface),
         result.status,
         markdownCell(result.evidence),
+        markdownCell(result.nextAction),
+      ].join(" | ")} |`,
+    );
+  }
+
+  console.log("");
+  console.log("## Desktop And Hosted Product Preconditions");
+  console.log("");
+  console.log("These checks are setup signals only. They do not list MCP tools or replace manual matrix evidence.");
+  console.log("");
+  console.log("| Client | Surface | Status | Evidence | Next action |");
+  console.log("| --- | --- | --- | --- | --- |");
+
+  for (const result of surfaceResults) {
+    console.log(
+      `| ${[
+        markdownCell(result.client),
+        markdownCell(result.surface),
+        result.status,
+        markdownCell(result.evidence),
+        markdownCell(result.nextAction),
+      ].join(" | ")} |`,
+    );
+  }
+
+  console.log("");
+  console.log("## Model Provider Credential Preconditions");
+  console.log("");
+  console.log("This section reports only whether required environment variables are present. It does not print secret values.");
+  console.log("");
+  console.log("| Path | Status | Credential source | Next action |");
+  console.log("| --- | --- | --- | --- |");
+
+  for (const result of providerCredentialResults) {
+    console.log(
+      `| ${[
+        markdownCell(result.path),
+        result.status,
+        markdownCell(result.credentialSource),
         markdownCell(result.nextAction),
       ].join(" | ")} |`,
     );
@@ -541,6 +712,8 @@ function printResults(
 function main() {
   const results = clients.map(evaluateClient);
   const automationResults = evaluateAutomationSurfaces();
+  const surfaceResults = evaluateSurfacePreconditions();
+  const providerCredentialResults = evaluateProviderCredentials();
   const oauthResults = oauthPrerequisites.map(evaluateOAuthPrerequisite);
   const oauthGenerationResults = [evaluateOAuthCredentialGeneration()];
   const failures = [
@@ -548,7 +721,7 @@ function main() {
     ...oauthResults.filter((result) => result.status === "partial").map((result) => result.matrixRow),
   ];
 
-  printResults(results, automationResults, oauthResults, oauthGenerationResults);
+  printResults(results, automationResults, surfaceResults, providerCredentialResults, oauthResults, oauthGenerationResults);
 
   if (failures.length > 0) {
     throw new Error(`Installed MCP client preflight failed: ${failures.join(", ")}`);
