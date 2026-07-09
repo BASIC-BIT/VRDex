@@ -1000,27 +1000,97 @@ export const SlugPathParamsSchema = z.object({
   }),
 });
 
+const limitParam = (max: number) =>
+  z.number().int().min(1).max(max).optional().meta({ description: "Maximum result count." });
+
+function boundedLimit(value: string | null, options: { fallback: number; max: number }) {
+  if (value === null || value.trim() === "") {
+    return options.fallback;
+  }
+
+  const limit = Number(value);
+
+  if (!Number.isInteger(limit)) {
+    return options.fallback;
+  }
+
+  return Math.max(1, Math.min(limit, options.max));
+}
+
+function parseBooleanFlag(value: string | null) {
+  return value === "true";
+}
+
+const searchTypeValues = ["all", "person", "community", "profile", "world", "event"] as const;
+type SearchQueryType = (typeof searchTypeValues)[number];
+
 export const SearchQueryParamsSchema = z.object({
-  limit: z.number().int().min(1).max(50).optional().meta({ description: "Maximum result count." }),
+  limit: limitParam(50),
   q: z.string().optional().meta({ description: "Search query text." }),
-  type: z
-    .enum(["all", "person", "community", "profile", "world", "event"])
-    .optional()
-    .meta({ description: "Optional search result type filter." }),
+  type: z.enum(searchTypeValues).optional().meta({ description: "Optional search result type filter." }),
 });
 
-export const LimitQueryParamsSchema = z.object({
-  limit: z.number().int().min(1).max(50).optional().meta({ description: "Maximum result count." }),
+const searchTypes = new Set<SearchQueryType>(searchTypeValues);
+
+export function parseSearchQueryParams(searchParams: URLSearchParams): {
+  limit: number;
+  q: string;
+  type: SearchQueryType;
+} {
+  const rawType = searchParams.get("type");
+  const candidate = {
+    limit: boundedLimit(searchParams.get("limit"), { fallback: 24, max: 50 }),
+    q: searchParams.get("q")?.trim() ?? "",
+    type: rawType !== null && searchTypes.has(rawType as SearchQueryType) ? (rawType as SearchQueryType) : "all",
+  };
+
+  return SearchQueryParamsSchema.parse(candidate) as { limit: number; q: string; type: SearchQueryType };
+}
+
+export const PublicEventsListQueryParamsSchema = z.object({
+  limit: limitParam(24),
 });
+
+export function parsePublicEventsListQueryParams(searchParams: URLSearchParams, fallback = 8): { limit: number } {
+  return PublicEventsListQueryParamsSchema.parse({
+    limit: boundedLimit(searchParams.get("limit"), { fallback, max: 24 }),
+  }) as { limit: number };
+}
+
+export const PublicActiveWorldsQueryParamsSchema = z.object({
+  limit: limitParam(6),
+});
+
+export function parsePublicActiveWorldsQueryParams(searchParams: URLSearchParams): { limit: number } {
+  return PublicActiveWorldsQueryParamsSchema.parse({
+    limit: boundedLimit(searchParams.get("limit"), { fallback: 3, max: 6 }),
+  }) as { limit: number };
+}
+
+export const ApiMeInventoryQueryParamsSchema = z.object({
+  limit: limitParam(100),
+});
+
+export function parseApiMeInventoryQueryParams(searchParams: URLSearchParams): { limit: number } {
+  return ApiMeInventoryQueryParamsSchema.parse({
+    limit: boundedLimit(searchParams.get("limit"), { fallback: 50, max: 100 }),
+  }) as { limit: number };
+}
 
 export const DeveloperCredentialListQueryParamsSchema = z.object({
   includeRevoked: z.boolean().optional().meta({ description: "Include revoked credentials." }),
-  limit: z.number().int().min(1).max(100).optional().meta({ description: "Maximum result count." }),
+  limit: limitParam(100),
 });
 
-export const ApiMeInventoryQueryParamsSchema = z.object({
-  limit: z.number().int().min(1).max(100).optional().meta({ description: "Maximum result count." }),
-});
+export function parseDeveloperCredentialListQueryParams(searchParams: URLSearchParams): {
+  includeRevoked: boolean;
+  limit: number;
+} {
+  return DeveloperCredentialListQueryParamsSchema.parse({
+    includeRevoked: parseBooleanFlag(searchParams.get("includeRevoked")),
+    limit: boundedLimit(searchParams.get("limit"), { fallback: 50, max: 100 }),
+  }) as { includeRevoked: boolean; limit: number };
+}
 
 export const ApiTokenPathParamsSchema = z.object({
   tokenId: z.string().min(1).meta({ description: "API token id returned by the developer token list." }),

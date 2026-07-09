@@ -1,8 +1,7 @@
-import { PublicEventsResponseSchema } from "@vrdex/api-contracts";
+import { parsePublicEventsListQueryParams, PublicEventsResponseSchema } from "@vrdex/api-contracts";
 import { api } from "@convex-generated-api";
 import {
   apiJson,
-  parseBoundedLimit,
   publicNotFoundResponse,
   rejectBearerTokenQuery,
   rejectInvalidOrRateLimitedPublicApiRequest,
@@ -29,7 +28,7 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   const url = new URL(request.url);
-  const limit = parseBoundedLimit(url.searchParams, { fallback: 6, max: 24 });
+  const { limit } = parsePublicEventsListQueryParams(url.searchParams, 6);
   const { slug } = await context.params;
   const profile = await convexHttpClient().query(api.profiles.getPublicBySlug, {
     slug,

@@ -2342,7 +2342,7 @@
               "description": "Maximum result count.",
               "type": "integer",
               "minimum": 1,
-              "maximum": 50
+              "maximum": 24
             },
             "description": "Maximum result count."
           }
@@ -2685,6 +2685,19 @@
           "Events"
         ],
         "summary": "List upcoming public events",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Maximum result count.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 24
+            },
+            "description": "Maximum result count."
+          }
+        ],
         "responses": {
           "200": {
             "description": "Upcoming public events.",
@@ -2901,7 +2914,7 @@
               "description": "Maximum result count.",
               "type": "integer",
               "minimum": 1,
-              "maximum": 50
+              "maximum": 6
             },
             "description": "Maximum result count."
           }

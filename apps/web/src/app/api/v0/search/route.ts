@@ -1,20 +1,9 @@
-import { PublicSearchResponseSchema } from "@vrdex/api-contracts";
+import { parseSearchQueryParams, PublicSearchResponseSchema } from "@vrdex/api-contracts";
 import { api } from "@convex-generated-api";
-import {
-  apiJson,
-  parseBoundedLimit,
-  rejectBearerTokenQuery,
-  rejectInvalidOrRateLimitedPublicApiRequest,
-} from "@/lib/server/api-v0";
+import { apiJson, rejectBearerTokenQuery, rejectInvalidOrRateLimitedPublicApiRequest } from "@/lib/server/api-v0";
 import { convexHttpClient } from "@/lib/server/convex-http";
 
 export const dynamic = "force-dynamic";
-
-const searchTypes = new Set(["all", "person", "community", "profile", "world", "event"]);
-
-function parseSearchType(value: string | null) {
-  return value !== null && searchTypes.has(value) ? value : "all";
-}
 
 function entityTypeForSearchType(type: string) {
   if (type === "world" || type === "event") {
@@ -40,9 +29,7 @@ export async function GET(request: Request) {
   }
 
   const url = new URL(request.url);
-  const query = url.searchParams.get("q")?.trim() ?? "";
-  const type = parseSearchType(url.searchParams.get("type"));
-  const limit = parseBoundedLimit(url.searchParams, { fallback: 24, max: 50 });
+  const { limit, q: query, type } = parseSearchQueryParams(url.searchParams);
 
   if (query.length === 0) {
     return apiJson(PublicSearchResponseSchema, { query, type, results: [] });

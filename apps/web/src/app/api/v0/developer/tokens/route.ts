@@ -6,6 +6,7 @@ import {
   hashApiTokenValue,
   normalizeApiTokenLabel,
   normalizeApiTokenScopes,
+  parseDeveloperCredentialListQueryParams,
 } from "@vrdex/api-contracts";
 import { internal } from "@convex-generated-api";
 import type { Id } from "../../../../../../../../convex/_generated/dataModel";
@@ -13,7 +14,6 @@ import type { Id } from "../../../../../../../../convex/_generated/dataModel";
 import {
   apiJson,
   apiProblemResponse,
-  parseBoundedLimit,
   rejectBearerTokenQuery,
 } from "@/lib/server/api-v0";
 import {
@@ -23,10 +23,6 @@ import {
 import { convexAdminHttpClient } from "@/lib/server/convex-http";
 
 export const dynamic = "force-dynamic";
-
-function parseIncludeRevoked(searchParams: URLSearchParams) {
-  return searchParams.get("includeRevoked") === "true";
-}
 
 function apiTokenPepper() {
   const pepper = process.env.VRDEX_API_TOKEN_PEPPER?.trim();
@@ -59,10 +55,11 @@ export async function GET(request: Request) {
   }
 
   const url = new URL(request.url);
+  const { includeRevoked, limit } = parseDeveloperCredentialListQueryParams(url.searchParams);
   const tokens = await convexAdminHttpClient().query(internal.apiTokens.listDeveloperTokensForApiOwner, {
     ownerUserId: evaluation.ownerUserId as Id<"users">,
-    includeRevoked: parseIncludeRevoked(url.searchParams),
-    limit: parseBoundedLimit(url.searchParams, { fallback: 50, max: 100 }),
+    includeRevoked,
+    limit,
   });
 
   return apiJson(DeveloperTokensResponseSchema, { tokens });

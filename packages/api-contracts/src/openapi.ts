@@ -34,10 +34,11 @@ import {
   ApiProfileUpdateRequestSchema,
   ApiProfileWriteResponseSchema,
   ApiRateLimitUsageResponseSchema,
-  LimitQueryParamsSchema,
+  PublicActiveWorldsQueryParamsSchema,
   PublicActiveWorldsResponseSchema,
   PublicClaimStatusResponseSchema,
   PublicEventsResponseSchema,
+  PublicEventsListQueryParamsSchema,
   PublicEventSchema,
   PublicProfileAssetsResponseSchema,
   PublicProfileLogosResponseSchema,
@@ -852,7 +853,7 @@ export const openApiSource = {
         summary: "List public upcoming events hosted by a community profile",
         requestParams: {
           path: SlugPathParamsSchema,
-          query: LimitQueryParamsSchema,
+          query: PublicEventsListQueryParamsSchema,
         },
         responses: {
           "200": {
@@ -956,6 +957,9 @@ export const openApiSource = {
         operationId: "listPublicUpcomingEvents",
         tags: ["Events"],
         summary: "List upcoming public events",
+        requestParams: {
+          query: PublicEventsListQueryParamsSchema,
+        },
         responses: {
           "200": {
             description: "Upcoming public events.",
@@ -1005,7 +1009,7 @@ export const openApiSource = {
         tags: ["Worlds"],
         summary: "List public worlds hosting upcoming or live events",
         requestParams: {
-          query: LimitQueryParamsSchema,
+          query: PublicActiveWorldsQueryParamsSchema,
         },
         responses: {
           "200": {

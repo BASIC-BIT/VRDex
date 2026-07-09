@@ -9,6 +9,10 @@ docs update and a changelog entry so early consumers and agents can adapt.
 
 ## 2026-07-08
 
+- moved public API query parsing for search, event lists, active worlds,
+  authenticated owner inventory, and developer credential lists into shared API
+  contract helpers; the generated OpenAPI artifact now documents the actual
+  route-specific `limit` caps for upcoming/community events and active worlds
 - added `apiWriteAuditEvents` and `pnpm ops:api-platform-observability` so
   operators can summarize public API write actions, rate-limit blocks, token
   validation failures, OAuth grant outcomes, and MCP tool calls from durable

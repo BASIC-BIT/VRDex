@@ -402,19 +402,3 @@ export function apiProblemResponse(problem: unknown) {
 export function publicNotFoundResponse(resourceName: string) {
   return apiProblemResponse(createPublicNotFoundProblem(resourceName));
 }
-
-export function parseBoundedLimit(searchParams: URLSearchParams, options: { fallback: number; max: number }) {
-  const rawLimit = searchParams.get("limit");
-
-  if (rawLimit === null || rawLimit.trim() === "") {
-    return options.fallback;
-  }
-
-  const limit = Number(rawLimit);
-
-  if (!Number.isInteger(limit)) {
-    return options.fallback;
-  }
-
-  return Math.max(1, Math.min(limit, options.max));
-}

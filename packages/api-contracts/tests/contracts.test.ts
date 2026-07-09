@@ -56,10 +56,17 @@ import {
   normalizeOAuthScopes,
   parseApiTokenValue,
   parseOAuthClientSecretValue,
+  parseApiMeInventoryQueryParams,
+  parseDeveloperCredentialListQueryParams,
+  parsePublicActiveWorldsQueryParams,
+  parsePublicEventsListQueryParams,
+  parseSearchQueryParams,
   timingSafeEqualString,
 } from "../src";
 
 const namedSchemaMapKeys = new Set(["$defs", "definitions", "dependentSchemas", "patternProperties", "properties"]);
+
+type OpenApiPathItem = Record<string, { parameters?: Array<{ in?: string; name?: string; schema?: { maximum?: number } }> }>;
 
 function hasLegacySchemaId(value: unknown, insideNamedSchemaMap = false): boolean {
   if (Array.isArray(value)) {
@@ -322,6 +329,38 @@ describe("@vrdex/api-contracts", () => {
           windowMs: 60_000,
         },
       ],
+    });
+  });
+
+  it("parses public API query parameters through shared contract helpers", () => {
+    assert.deepEqual(parseSearchQueryParams(new URLSearchParams("q=%20club%20&type=event&limit=999")), {
+      limit: 50,
+      q: "club",
+      type: "event",
+    });
+    assert.deepEqual(parseSearchQueryParams(new URLSearchParams("type=unknown&limit=bad")), {
+      limit: 24,
+      q: "",
+      type: "all",
+    });
+
+    assert.deepEqual(parsePublicEventsListQueryParams(new URLSearchParams("limit=999")), { limit: 24 });
+    assert.deepEqual(parsePublicEventsListQueryParams(new URLSearchParams("limit=bad")), { limit: 8 });
+    assert.deepEqual(parsePublicEventsListQueryParams(new URLSearchParams(), 6), { limit: 6 });
+
+    assert.deepEqual(parsePublicActiveWorldsQueryParams(new URLSearchParams("limit=999")), { limit: 6 });
+    assert.deepEqual(parsePublicActiveWorldsQueryParams(new URLSearchParams("limit=bad")), { limit: 3 });
+
+    assert.deepEqual(parseApiMeInventoryQueryParams(new URLSearchParams("limit=999")), { limit: 100 });
+    assert.deepEqual(parseApiMeInventoryQueryParams(new URLSearchParams("limit=bad")), { limit: 50 });
+
+    assert.deepEqual(parseDeveloperCredentialListQueryParams(new URLSearchParams("includeRevoked=true&limit=999")), {
+      includeRevoked: true,
+      limit: 100,
+    });
+    assert.deepEqual(parseDeveloperCredentialListQueryParams(new URLSearchParams("includeRevoked=false&limit=bad")), {
+      includeRevoked: false,
+      limit: 50,
     });
   });
 
@@ -737,6 +776,25 @@ describe("@vrdex/api-contracts", () => {
     assert.ok(document.paths?.["/api/v0/developer/oauth-apps/{clientId}"]);
     assert.ok(document.paths?.["/api/v0/developer/oauth-apps/{clientId}"]?.patch);
     assert.ok(document.paths?.["/api/v0/developer/oauth-apps/{clientId}/secrets"]?.post);
+  });
+
+  it("documents route-specific query limits from the shared contract schemas", () => {
+    const document = getOpenApiDocument();
+    const queryMaximum = (path: string, method: string, name: string) => {
+      const pathItem = document.paths?.[path] as OpenApiPathItem | undefined;
+      const parameter = pathItem?.[method]?.parameters?.find(
+        (candidate) => candidate.in === "query" && candidate.name === name,
+      );
+
+      return parameter?.schema?.maximum;
+    };
+
+    assert.equal(queryMaximum("/api/v0/search", "get", "limit"), 50);
+    assert.equal(queryMaximum("/api/v0/events/upcoming", "get", "limit"), 24);
+    assert.equal(queryMaximum("/api/v0/communities/{slug}/events", "get", "limit"), 24);
+    assert.equal(queryMaximum("/api/v0/worlds/active", "get", "limit"), 6);
+    assert.equal(queryMaximum("/api/v0/me/profiles", "get", "limit"), 100);
+    assert.equal(queryMaximum("/api/v0/developer/tokens", "get", "limit"), 100);
   });
 
   it("advertises the real OAuth route surface in security metadata", () => {

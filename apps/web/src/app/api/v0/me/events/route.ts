@@ -1,8 +1,8 @@
-import { ApiMeEventsResponseSchema } from "@vrdex/api-contracts";
+import { ApiMeEventsResponseSchema, parseApiMeInventoryQueryParams } from "@vrdex/api-contracts";
 import { internal } from "@convex-generated-api";
 import type { Id } from "../../../../../../../../convex/_generated/dataModel";
 
-import { apiJson, parseBoundedLimit, rejectBearerTokenQuery } from "@/lib/server/api-v0";
+import { apiJson, rejectBearerTokenQuery } from "@/lib/server/api-v0";
 import { evaluateApiUserReadRequest } from "@/lib/server/api-user-authority";
 import { convexAdminHttpClient } from "@/lib/server/convex-http";
 
@@ -20,9 +20,10 @@ export async function GET(request: Request) {
   }
 
   const url = new URL(request.url);
+  const { limit } = parseApiMeInventoryQueryParams(url.searchParams);
   const events = await convexAdminHttpClient().query(internal.events.listCommunityManagedEventsForApiOwner, {
     ownerUserId: evaluation.ownerUserId as Id<"users">,
-    limit: parseBoundedLimit(url.searchParams, { fallback: 50, max: 100 }),
+    limit,
   });
 
   return apiJson(ApiMeEventsResponseSchema, { events });
