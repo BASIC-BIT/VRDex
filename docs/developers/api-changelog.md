@@ -9,13 +9,22 @@ docs update and a changelog entry so early consumers and agents can adapt.
 
 ## 2026-07-09
 
+- added `pnpm test:web` to the existing Typecheck Web baseline job and the
+  aggregate local verifier so the API, OAuth, MCP, and rate-limit route tests
+  under `tests/web` are enforced without creating another GitHub Actions job
+- applied standard bearer-query rejection and anonymous public-read rate
+  limiting to the profile asset storage probe, with route-level regression
+  coverage and matching OpenAPI security/error responses
+- documented the upload-intent completion route's optional
+  `multipart/form-data` body from the shared OpenAPI source: direct uploads
+  require a binary `file`, while `sourceUrl` imports omit the body
+
 - moved server-only API-token validation plus OAuth Dynamic Client Registration,
   Client ID Metadata Document materialization, authorization-client resolution,
   token exchange/rotation, revocation, and durable access-token validation to
   internal Convex functions; Next.js invokes them with Convex admin
   authentication, while user-authenticated consent issuance remains a public
   Convex mutation
-
 - added hosted MCP `search` and `fetch` compatibility aliases for OpenAI
   Responses API, ChatGPT deep research, and company-knowledge-style connectors;
   the aliases reuse the same anonymous public search/profile/event/world read

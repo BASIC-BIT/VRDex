@@ -248,6 +248,11 @@ Candidate first public API endpoints:
 - `GET /api/v0/people/:slug/events`
 - `GET /api/v0/communities/:slug/events`
 
+`GET /api/v0/cards/:slug` remains deferred until its compact schema,
+visibility behavior, and relationship to the existing profile response have a
+shared contract. Consumers should use the shipped profile endpoints in the
+meantime.
+
 The first public API should be read-only unless a specific write flow has an auth, rate-limit, audit, and abuse-handling design. `v0` can be replaced or deprecated before public launch if the implementation reveals a better shape.
 
 ## Client Classes
