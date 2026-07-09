@@ -368,7 +368,7 @@ async function main() {
     console.log(
       [
         "",
-        "Manual MCP client smokes are still pending.",
+        "Manual MCP client smokes are not externally ready.",
         "Run pnpm check:mcp-client-matrix -- --require-ready to make pending or failed required rows fail this check.",
       ].join("\n"),
     );

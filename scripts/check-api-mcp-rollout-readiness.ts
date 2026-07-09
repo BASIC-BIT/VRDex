@@ -357,8 +357,8 @@ async function main() {
     console.log(
       [
         "",
-        "API/MCP rollout external readiness is still pending.",
-        "Run pnpm check:api-mcp-rollout -- --require-ready to make pending required items fail this check.",
+        "API/MCP rollout external readiness is not ready.",
+        "Run pnpm check:api-mcp-rollout -- --require-ready to make required non-pass items fail this check.",
       ].join("\n"),
     );
   }

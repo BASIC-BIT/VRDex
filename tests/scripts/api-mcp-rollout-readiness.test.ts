@@ -40,12 +40,14 @@ describe("API/MCP rollout readiness checker", () => {
     assert.match(result.stdout, /Rollout verification scripts \| yes \| pass \| 20 required scripts are defined/);
   });
 
-  it("keeps external readiness failing while required MCP client rows are pending", () => {
+  it("keeps external readiness failing while required MCP client rows are not pass", () => {
     const result = runRolloutCheck(["--require-ready"]);
 
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /API\/MCP rollout is not externally ready/);
     assert.match(result.stderr, /Major MCP client matrix/);
+    assert.match(result.stderr, /Gemini CLI\/local-stdio: fail/);
+    assert.match(result.stderr, /Gemini CLI\/hosted-anonymous-read: fail/);
   });
 
   it("rejects token-shaped manual matrix evidence", async () => {

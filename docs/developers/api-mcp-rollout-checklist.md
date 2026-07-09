@@ -166,7 +166,7 @@ one PR.
   Windsurf, and Gemini CLI MCP setup files under `.tmp-gh-artifacts/`,
   including local stdio, hosted anonymous HTTP, hosted token-header fallback
   configs, launch commands or settings snippets where supported, smoke prompts,
-  evidence templates, recorder commands, and the same Pending Blocker Summary
+  evidence templates, recorder commands, and the same Open Blocker Summary
   as the smoke planner. It also writes manual-only worksheets for Claude
   Desktop, Claude Code hosted OAuth, OpenAI/ChatGPT hosted rows, and MCP
   Inspector hosted OAuth. It does not replace manual matrix evidence; use it to
@@ -211,7 +211,7 @@ one PR.
   asserts every current checked-in `/api/v0` OpenAPI path, the
   `infra/terraform/rate-limit-redis` files, lockfile, README entry, and
   Terraform workflow wiring, plus both MCP evidence recorder commands. It
-  reports pending required items in normal mode and becomes a failing
+  reports required items that are not pass in normal mode and becomes a failing
   external-readiness gate with `--require-ready`.
 - Claude Code local stdio and hosted anonymous HTTP can be real-client smoked
   with `pnpm smoke:mcp-claude-code`, which runs the installed Claude Code CLI

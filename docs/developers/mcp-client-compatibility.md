@@ -275,10 +275,10 @@ pnpm ops:mcp-client-smokes -- \
   --hosted-url https://staging.vrdex.net/mcp
 ```
 
-The planner prints every pending required row, the repo preflight command to
+The planner prints every open required row, the repo preflight command to
 run first, client-specific setup hints, the client-side evidence to capture,
 the production-like hosted MCP evidence rows, and the exact recorder command
-shapes for recording passes. It starts with a Pending Blocker Summary that
+shapes for recording passes. It starts with an Open Blocker Summary that
 groups remaining rows by the operator prerequisite that unlocks them: installed
 app tool-call sessions, installed app OAuth sessions, missing client install or
 account setup, desktop/custom connector access, hosted product surface access,
@@ -286,7 +286,7 @@ hosted protocol target evidence, or OAuth smoke credentials. Setup hints are
 not evidence by themselves; record a matrix row only after the real client
 lists tools and calls `vrdex_search` or completes the required `mcp:read` OAuth
 path. Add `--include-passed` when producing a full day-one evidence packet
-instead of only the pending work.
+instead of only the open work.
 
 Before coordinating desktop/client sessions on a local machine, run the
 installed-client preflight:
@@ -343,7 +343,7 @@ VS Code, Cursor, and Windsurf PowerShell commands use an isolated
 `--user-data-dir` and escape JSON quotes before passing `--add-mcp`; direct
 fresh-profile `--add-mcp` and raw `(Get-Content -Raw ...)` JSON both fail on
 the current Windows CLIs. The generated
-README includes the same Pending Blocker Summary as the smoke planner so the
+README includes the same Open Blocker Summary as the smoke planner so the
 downloaded artifact can be used directly for smoke-session batching. The
 generated `evidence/` templates are pending worksheets for each row; fill them
 with sanitized real-client screenshot or transcript evidence before running the
@@ -520,9 +520,9 @@ These rows are checked separately from manual client UI rows so a lightweight
 PR preview transport smoke cannot accidentally satisfy the production-like
 data-backed, DCR, and CIMD readiness gate.
 
-By default, the check accepts `pending` manual rows because repository protocol
-checks can run before the desktop/web client smokes are available. For external
-readiness, require every required manual row to pass:
+By default, the check accepts manual rows that are not yet `pass` because
+repository protocol checks can run before the desktop/web client smokes are
+available. For external readiness, require every required manual row to pass:
 
 ```sh
 pnpm check:mcp-client-matrix -- --require-ready
@@ -538,7 +538,7 @@ That command summarizes the generated OpenAPI artifact, required docs,
 verification scripts, manual MCP matrix, and hosted production-like evidence
 state. Use `--require-ready` only when the PR is being declared externally
 ready; it fails while required client rows or hosted data/DCR/CIMD/OAuth
-evidence are still pending.
+evidence are not pass.
 
 To include a deployed hosted MCP endpoint, pass:
 
@@ -587,7 +587,7 @@ log can distinguish backend data, DCR, and CIMD blockers in one attempt.
 | --- | --- | --- | --- | --- |
 | Claude Desktop | Uses `mcpServers` JSON with `command`, `args`, and optional `env`. | Remote setup should use Claude's current Custom Connector path. | Hosted `/mcp` should complete OAuth through protected-resource metadata. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; hosted manual smoke pending. |
 | Claude Code | Supports stdio with `claude mcp add --transport stdio`. | Supports HTTP with `claude mcp add --transport http`. | Supports OAuth from `/mcp` or `claude mcp login`; reviewed-app client-credentials token acquisition and token-backed header auth are available as evidence paths. DCR and public-client CIMD are implemented. | Local stdio and staging data-backed hosted anonymous reads pass through `pnpm smoke:mcp-claude-code`; hosted OAuth has a client-credentials smoke harness and remains pending until evidence is recorded. |
-| Gemini CLI | Uses `settings.json` `mcpServers` entries with `command` for stdio. | Supports Streamable HTTP through `httpUrl` and SSE through `url`. | Supports OAuth 2.0 for remote MCP, automatic discovery, Dynamic Client Registration, `/mcp auth`, and secure token storage; token-backed fallback evidence is available through the Gemini smoke harness. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; exact Gemini CLI rows now have `pnpm smoke:mcp-gemini-cli` as the repeatable real-client path and remain pending until Google-authenticated evidence is recorded. |
+| Gemini CLI | Uses `settings.json` `mcpServers` entries with `command` for stdio. | Supports Streamable HTTP through `httpUrl` and SSE through `url`. | Supports OAuth 2.0 for remote MCP, automatic discovery, Dynamic Client Registration, `/mcp auth`, and secure token storage; token-backed fallback evidence is available through the Gemini smoke harness. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; exact Gemini CLI rows now have `pnpm smoke:mcp-gemini-cli` as the repeatable real-client path, with local stdio and hosted anonymous reads recorded as failed on 2026-07-09 because Gemini API quota was exhausted before any MCP tool call. |
 | VS Code | Uses `.vscode/mcp.json` or user MCP config with `servers` entries. | Supports `type: "http"` and `url`. | Avoid hardcoded secrets; use inputs or environment files. OAuth manual smoke pending. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; VS Code 1.128.0 accepted all generated `--add-mcp` definitions on 2026-07-09; manual tool-call smoke pending. |
 | Cursor | Treat local stdio as a required smoke target if the current release still supports command-based MCP config. | Treat hosted HTTP as a required smoke target if the current release supports remote MCP URLs. | Confirm current OAuth behavior during manual smoke. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; Cursor 3.10.17 accepted all generated `--add-mcp` definitions on 2026-07-09; manual tool-call smoke pending. |
 | OpenAI and ChatGPT MCP-capable surfaces | Treat local stdio as unsupported until the current product surface says otherwise. | Use hosted remote MCP when ChatGPT Apps, deep research, or API integration setup supports custom MCP servers. | Current OpenAI docs recommend CIMD when the authorization server supports it and keep DCR as a supported path when configured; VRDex implements both DCR and public-client CIMD. Public read tools advertise `_meta["securitySchemes"]` with `noauth` plus optional `oauth2`. | `pnpm smoke:mcp-openai` can prove Responses API hosted anonymous-read integration when `OPENAI_API_KEY` is available; ChatGPT Apps/Connectors UI and hosted OAuth behavior remain pending until product-surface evidence is recorded. |

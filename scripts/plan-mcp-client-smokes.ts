@@ -439,17 +439,17 @@ function shouldPrint(check: SmokeCheck, options: Options) {
   return options.includePassed || check.manualStatus !== "pass";
 }
 
-function countPendingRequired(matrix: SmokeMatrix) {
-  const pendingClientRows = matrix.clients.reduce(
+function countOpenRequired(matrix: SmokeMatrix) {
+  const openClientRows = matrix.clients.reduce(
     (total, client) =>
       total + client.checks.filter((check) => check.requiredForExternalReadiness && check.manualStatus !== "pass").length,
     0,
   );
-  const pendingHostedRows = (matrix.hostedReadiness?.checks ?? [])
+  const openHostedRows = (matrix.hostedReadiness?.checks ?? [])
     .filter((check) => check.requiredForExternalReadiness && check.status !== "pass")
     .length;
 
-  return pendingClientRows + pendingHostedRows;
+  return openClientRows + openHostedRows;
 }
 
 function clientRowKey(client: ClientEntry, check: SmokeCheck) {
@@ -658,7 +658,7 @@ function shouldPrintHostedReadiness(check: HostedReadinessCheck, options: Option
 }
 
 function printPlan(matrix: SmokeMatrix, options: Options) {
-  const pendingRequired = countPendingRequired(matrix);
+  const openRequired = countOpenRequired(matrix);
   const warning = pendingTargetWarning(matrix, options);
 
   console.log("# MCP Client Smoke Plan");
@@ -668,19 +668,19 @@ function printPlan(matrix: SmokeMatrix, options: Options) {
   console.log(`Readiness mode: ${matrix.readinessMode}`);
   console.log(`Target environment: ${matrix.targetEnvironment ?? "not recorded"}`);
   console.log(`Hosted URL for generated commands: ${hostedTarget(options)}`);
-  console.log(`Pending required rows: ${pendingRequired}`);
+  console.log(`Open required rows: ${openRequired}`);
   if (warning !== undefined) {
     console.log(`Target warning: ${warning}`);
   }
   console.log("");
-  console.log("## Pending Blocker Summary");
+  console.log("## Open Blocker Summary");
   console.log("");
   const blockers = pendingBlockerSummary(matrix, options);
 
   if (blockers.length === 0) {
     console.log("All required rows that match the current filters are pass.");
   } else {
-    console.log("| Blocker | Pending rows | Next action |");
+    console.log("| Blocker | Open rows | Next action |");
     console.log("| --- | --- | --- |");
 
     for (const blocker of blockers) {

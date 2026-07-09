@@ -36,11 +36,11 @@ docs update and a changelog entry so early consumers and agents can adapt.
   on memory unless operators explicitly opt them into the shared store; the
   Terraform workflow now validates/plans the stack with manual apply, and the
   API/MCP rollout checker now requires the stack files, lockfile, and CI wiring
-- added a Pending Blocker Summary to `pnpm ops:mcp-client-smokes` so the
+- added an Open Blocker Summary to `pnpm ops:mcp-client-smokes` so the
   remaining day-one MCP client rows are grouped by the prerequisite that
-  unlocks them, instead of appearing only as a flat pending matrix
+  unlocks them, instead of appearing only as a flat non-pass matrix
 - extended the generated `mcp-client-session-pack` README with the same
-  Pending Blocker Summary so uploaded PR artifacts are directly usable for
+  Open Blocker Summary so uploaded PR artifacts are directly usable for
   operator smoke-session batching
 - refreshed the production-like hosted MCP evidence rows with a 2026-07-09
   staging `pnpm smoke:mcp-compat -- --hosted-only --hosted-data --dcr --cimd`

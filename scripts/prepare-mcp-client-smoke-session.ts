@@ -51,7 +51,7 @@ type SmokeMatrix = {
   schemaVersion: 1;
 };
 
-type PendingMatrixRow = {
+type OpenMatrixRow = {
   checkId: string;
   clientId: string;
   clientName: string;
@@ -336,13 +336,13 @@ function matrixRowKey(clientId: string, checkId: string) {
   return `${clientId}/${checkId}`;
 }
 
-async function pendingRequiredMatrixRows(matrixPath: string) {
+async function openRequiredMatrixRows(matrixPath: string) {
   const matrix = JSON.parse(await readFile(matrixPath, "utf8")) as SmokeMatrix;
 
   assert.equal(matrix.schemaVersion, 1, "MCP client smoke matrix schemaVersion must be 1.");
   assert.equal(Array.isArray(matrix.clients), true, "MCP client smoke matrix clients must be an array.");
 
-  const rows: PendingMatrixRow[] = [];
+  const rows: OpenMatrixRow[] = [];
 
   for (const client of matrix.clients) {
     assert.equal(typeof client.id, "string", "MCP client smoke matrix client id must be a string.");
@@ -370,7 +370,7 @@ async function pendingRequiredMatrixRows(matrixPath: string) {
   return rows;
 }
 
-function blockerForPendingRow(row: PendingMatrixRow): { id: string } & Omit<PendingBlocker, "rows"> {
+function blockerForOpenRow(row: OpenMatrixRow): { id: string } & Omit<PendingBlocker, "rows"> {
   if (row.clientId === "gemini-cli") {
     if (row.checkId === "hosted-oauth") {
       return {
@@ -437,7 +437,7 @@ function blockerForPendingRow(row: PendingMatrixRow): { id: string } & Omit<Pend
 function addPendingBlocker(
   blockers: Map<string, PendingBlocker>,
   blocker: { id: string } & Omit<PendingBlocker, "rows">,
-  row: PendingMatrixRow,
+  row: OpenMatrixRow,
 ) {
   const rowKey = matrixRowKey(row.clientId, row.checkId);
   const existing = blockers.get(blocker.id);
@@ -455,11 +455,11 @@ function addPendingBlocker(
   });
 }
 
-function pendingBlockerSummary(pendingRows: PendingMatrixRow[]) {
+function pendingBlockerSummary(openRows: OpenMatrixRow[]) {
   const blockers = new Map<string, PendingBlocker>();
 
-  for (const row of pendingRows) {
-    addPendingBlocker(blockers, blockerForPendingRow(row), row);
+  for (const row of openRows) {
+    addPendingBlocker(blockers, blockerForOpenRow(row), row);
   }
 
   return blockerOrder
@@ -467,12 +467,12 @@ function pendingBlockerSummary(pendingRows: PendingMatrixRow[]) {
     .filter((blocker): blocker is PendingBlocker => blocker !== undefined);
 }
 
-function pendingBlockerSummarySection(pendingRows: PendingMatrixRow[]) {
-  const blockers = pendingBlockerSummary(pendingRows);
+function pendingBlockerSummarySection(openRows: OpenMatrixRow[]) {
+  const blockers = pendingBlockerSummary(openRows);
 
   if (blockers.length === 0) {
     return [
-      "## Pending Blocker Summary",
+      "## Open Blocker Summary",
       "",
       "All required rows are pass in the source matrix.",
       "",
@@ -480,11 +480,11 @@ function pendingBlockerSummarySection(pendingRows: PendingMatrixRow[]) {
   }
 
   return [
-    "## Pending Blocker Summary",
+    "## Open Blocker Summary",
     "",
-    "Generated from pending required rows in the source matrix. Use this section to choose the next manual smoke batch before filling individual evidence worksheets.",
+    "Generated from required rows that are not pass in the source matrix. Use this section to choose the next manual smoke batch before filling individual evidence worksheets.",
     "",
-    "| Blocker | Pending rows | Next action |",
+    "| Blocker | Open rows | Next action |",
     "| --- | --- | --- |",
     ...blockers.map((blocker) =>
       `| ${blocker.label} | ${blocker.rows.map((row) => `\`${row}\``).join(", ")} | ${blocker.nextAction} |`,
@@ -493,17 +493,17 @@ function pendingBlockerSummarySection(pendingRows: PendingMatrixRow[]) {
   ];
 }
 
-async function verifyPendingWorksheetCoverage(matrixPath: string, generatedKeys: Set<string>) {
-  const pendingRows = await pendingRequiredMatrixRows(matrixPath);
-  const missingRows = pendingRows.filter((row) => !generatedKeys.has(matrixRowKey(row.clientId, row.checkId)));
+async function verifyOpenWorksheetCoverage(matrixPath: string, generatedKeys: Set<string>) {
+  const openRows = await openRequiredMatrixRows(matrixPath);
+  const missingRows = openRows.filter((row) => !generatedKeys.has(matrixRowKey(row.clientId, row.checkId)));
 
   assert.deepEqual(
     missingRows.map((row) => matrixRowKey(row.clientId, row.checkId)),
     [],
-    "MCP client session pack is missing evidence worksheets for pending required matrix rows.",
+    "MCP client session pack is missing evidence worksheets for open required matrix rows.",
   );
 
-  return pendingRows;
+  return openRows;
 }
 
 function manualEvidenceTemplates(options: Options): EvidenceTemplate[] {
@@ -1103,7 +1103,7 @@ async function writeSessionPack(options: Options) {
     manualRows.push(`| ${template.clientName} | ${template.matrixClient} | ${template.check} | \`${evidencePath}\` |`);
   }
 
-  const pendingRows = await verifyPendingWorksheetCoverage(options.matrixPath, generatedEvidenceKeys);
+  const openRows = await verifyOpenWorksheetCoverage(options.matrixPath, generatedEvidenceKeys);
 
   readmeSections.push(
     "## Manual-Only Evidence Rows",
@@ -1118,11 +1118,11 @@ async function writeSessionPack(options: Options) {
 
   const readme = [
     ...readmeSections,
-    ...pendingBlockerSummarySection(pendingRows),
-    "## Pending Matrix Worksheet Coverage",
+    ...pendingBlockerSummarySection(openRows),
+    "## Open Matrix Worksheet Coverage",
     "",
     `Matrix: \`${options.matrixPath}\``,
-    `Pending required rows covered by generated worksheets: ${pendingRows.length}`,
+    `Open required rows covered by generated worksheets: ${openRows.length}`,
     "",
     "## Generated Config Files",
     "",
@@ -1147,7 +1147,7 @@ async function writeSessionPack(options: Options) {
   console.log(`| MCP client smoke session pack | ${readmePath} |`);
   console.log(`| Config directory | ${configsDir} |`);
   console.log(`| Evidence template directory | ${evidenceDir} |`);
-  console.log(`| Pending required worksheet coverage | ${pendingRows.length} rows |`);
+  console.log(`| Open required worksheet coverage | ${openRows.length} rows |`);
   console.log(`| Hosted MCP URL | ${hostedMcpUrl(options.hostedUrl!)} |`);
 }
 

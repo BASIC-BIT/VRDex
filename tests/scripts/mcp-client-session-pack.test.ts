@@ -32,7 +32,7 @@ describe("MCP client smoke session pack", () => {
 
       assert.equal(result.status, 0, result.stderr);
       assert.match(result.stdout, /MCP client smoke session pack/);
-      assert.match(result.stdout, /Pending required worksheet coverage \| 19 rows/);
+      assert.match(result.stdout, /Open required worksheet coverage \| 19 rows/);
 
       const readme = await readFile(join(outputDir, "README.md"), "utf8");
 
@@ -60,7 +60,7 @@ describe("MCP client smoke session pack", () => {
       assert.doesNotMatch(readme, /--profile vrdex-mcp-smoke/);
       assert.match(readme, /\/mcp auth vrdex/);
       assert.match(readme, /Generated Evidence Templates/);
-      assert.match(readme, /## Pending Blocker Summary/);
+      assert.match(readme, /## Open Blocker Summary/);
       assert.match(readme, /OAuth smoke credentials/);
       assert.match(readme, /`claude-code\/hosted-oauth`, `mcp-inspector\/hosted-oauth`/);
       assert.match(readme, /Missing client install or account setup/);
@@ -69,8 +69,8 @@ describe("MCP client smoke session pack", () => {
       assert.match(readme, /`vscode\/local-stdio`, `vscode\/hosted-anonymous-read`/);
       assert.match(readme, /OpenAI API key or hosted product surface access/);
       assert.match(readme, /`openai-chatgpt\/hosted-anonymous-read`, `openai-chatgpt\/hosted-oauth`/);
-      assert.match(readme, /Pending Matrix Worksheet Coverage/);
-      assert.match(readme, /Pending required rows covered by generated worksheets: 19/);
+      assert.match(readme, /Open Matrix Worksheet Coverage/);
+      assert.match(readme, /Open required rows covered by generated worksheets: 19/);
       assert.match(readme, /evidence[\\/]vscode-local-stdio\.md/);
       assert.match(readme, /evidence[\\/]gemini-cli-hosted-oauth\.md/);
       assert.match(readme, /ops:mcp-hosted-oauth-prereqs/);
@@ -208,7 +208,7 @@ describe("MCP client smoke session pack", () => {
     }
   });
 
-  it("fails when a pending required matrix row has no generated worksheet", async () => {
+  it("fails when an open required matrix row has no generated worksheet", async () => {
     const outputDir = await mkdtemp(join(tmpdir(), "vrdex-mcp-client-session-"));
     const matrixPath = join(outputDir, "matrix.json");
     const matrix = JSON.parse(await readFile("docs/developers/mcp-client-smoke-results.json", "utf8")) as {

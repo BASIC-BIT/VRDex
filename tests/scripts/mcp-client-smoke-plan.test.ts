@@ -14,14 +14,14 @@ function runPlan(args: string[]) {
 }
 
 describe("MCP client smoke planner", () => {
-  it("groups pending manual rows by the operator prerequisite that unblocks them", () => {
+  it("groups open manual rows by the operator prerequisite that unblocks them", () => {
     const result = runPlan([
       "--hosted-url",
       "https://staging.vrdex.net/mcp",
     ]);
 
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /## Pending Blocker Summary/);
+    assert.match(result.stdout, /## Open Blocker Summary/);
     assert.match(result.stdout, /OAuth smoke credentials/);
     assert.match(result.stdout, /`claude-code\/hosted-oauth`, `mcp-inspector\/hosted-oauth`/);
     assert.match(result.stdout, /Missing client install or account setup/);
