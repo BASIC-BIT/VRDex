@@ -54,6 +54,8 @@ type CheckOptions = {
 
 const matrixPath = process.env.VRDEX_MCP_CLIENT_MATRIX_PATH?.trim()
   || "docs/developers/mcp-client-smoke-results.json";
+const compatibilityDocPath = process.env.VRDEX_MCP_CLIENT_COMPATIBILITY_DOC_PATH?.trim()
+  || "docs/developers/mcp-client-compatibility.md";
 
 const requiredClientChecks = new Map<string, string[]>([
   ["claude-desktop", ["local-stdio", "hosted-anonymous-read", "hosted-oauth"]],
@@ -340,10 +342,21 @@ function summarize(matrix: SmokeMatrix) {
   }
 }
 
+async function validateCompatibilityDocReviewDate(matrix: SmokeMatrix) {
+  const doc = await readFile(compatibilityDocPath, "utf8");
+
+  assert.match(
+    doc,
+    new RegExp(`^Last reviewed: ${matrix.lastReviewed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.$`, "m"),
+    `MCP client compatibility doc Last reviewed date must match matrix lastReviewed (${matrix.lastReviewed})`,
+  );
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const matrix = parseSmokeMatrix(await readFile(matrixPath, "utf8"));
   const blockers = validateSmokeMatrix(matrix);
+  await validateCompatibilityDocReviewDate(matrix);
 
   summarize(matrix);
 

@@ -54,7 +54,7 @@ type SmokeMatrix = {
 
 const matrixPath = "docs/developers/mcp-client-smoke-results.json";
 
-function runMatrixCheck(path: string) {
+function runMatrixCheck(path: string, env: NodeJS.ProcessEnv = {}) {
   return spawnSync(
     process.execPath,
     ["--import", "tsx", "scripts/check-mcp-client-matrix.ts"],
@@ -64,6 +64,7 @@ function runMatrixCheck(path: string) {
       env: {
         ...process.env,
         VRDEX_MCP_CLIENT_MATRIX_PATH: path,
+        ...env,
       },
     },
   );
@@ -253,6 +254,35 @@ describe("MCP client matrix verifier", () => {
 
       assert.notEqual(result.status, 0);
       assert.match(result.stderr, /hostedReadiness\/hosted-data-backed-anonymous-read evidence appears to contain a token/i);
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  it("rejects a stale compatibility doc review date", async () => {
+    const { directory, path } = await writeMatrixCopy("stale-compatibility-doc", () => {});
+    const docPath = join(directory, "mcp-client-compatibility.md");
+
+    await writeFile(
+      docPath,
+      [
+        "# MCP Client Compatibility Matrix",
+        "",
+        "Last reviewed: 2026-07-08.",
+        "",
+      ].join("\n"),
+    );
+
+    try {
+      const result = runMatrixCheck(path, {
+        VRDEX_MCP_CLIENT_COMPATIBILITY_DOC_PATH: docPath,
+      });
+
+      assert.notEqual(result.status, 0);
+      assert.match(
+        result.stderr,
+        /MCP client compatibility doc Last reviewed date must match matrix lastReviewed \(2026-07-09\)/,
+      );
     } finally {
       await rm(directory, { force: true, recursive: true });
     }

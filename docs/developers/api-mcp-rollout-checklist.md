@@ -155,7 +155,7 @@ one PR.
   audit. Its CLI automation notes are informational: VS Code `chat`, Cursor
   `--chat`/`agent`, and Windsurf setup CLI checks do not count as matrix
   evidence unless the real client session lists tools and calls `vrdex_search`.
-- Current 2026-07-08 repository audit for PR #159: hosted OAuth evidence is
+- Current 2026-07-09 repository audit for PR #159: hosted OAuth evidence is
   still `partial`. `VRDEX_HOSTED_E2E_AUTH_HELPERS=true` and the
   `VRDEX_HOSTED_E2E_BROWSER_TOKEN` secret are present, but reviewed OAuth smoke
   secrets, `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN`, and

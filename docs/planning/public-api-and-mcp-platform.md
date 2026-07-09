@@ -126,7 +126,7 @@ Next execution checkpoint:
    Gemini CLI rows; and complete hosted OAuth coverage for Claude Code, Gemini
    CLI, and MCP Inspector.
 4. Before hosted-OAuth rows are recorded, rerun
-   `pnpm ops:mcp-hosted-oauth-prereqs`. The 2026-07-08 PR #159 audit is
+   `pnpm ops:mcp-hosted-oauth-prereqs`. The 2026-07-09 PR #159 audit is
    `partial`: hosted auth helpers and the browser token are present, but
    reviewed OAuth smoke secrets, the Inspector token fallback, and
    `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true` are not configured. Enabling
@@ -136,7 +136,7 @@ Next execution checkpoint:
    --hosted-data` with `OPENAI_API_KEY` for OpenAI Responses API hosted
    anonymous-read evidence. Keep ChatGPT Apps/Connectors UI and hosted OAuth
    as product-surface evidence; do not mark those rows ready from local CLI or
-   API-only checks. The 2026-07-08 local process did not have
+   API-only checks. The 2026-07-09 local process did not have
    `OPENAI_API_KEY`, so no live OpenAI pass is recorded yet.
 
 ## Client Classes

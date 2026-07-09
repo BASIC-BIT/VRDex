@@ -70,8 +70,8 @@ docs update and a changelog entry so early consumers and agents can adapt.
   hosted OAuth evidence as separate product-surface rows
 - fixed the Gemini CLI smoke harness on Windows so disposable package execution
   routes through `cmd.exe` instead of spawning `npx.cmd` directly; local
-  preflight now reaches Gemini CLI `0.49.0` and fails closed only on missing
-  Gemini authentication
+  preflight can reach Gemini CLI and fails closed on provider auth/quota before
+  any matrix row is recorded
 - added `pnpm ops:mcp-hosted-oauth-prereqs` as a read-only GitHub Actions
   variable/secret audit for the hosted MCP OAuth evidence path, covering both
   reviewed OAuth smoke secrets and temporary credential generation without
