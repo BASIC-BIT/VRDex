@@ -297,10 +297,20 @@ jobs:
           account_id="$(aws sts get-caller-identity --query Account --output text)"
           provider_arn="arn:aws:iam::${account_id}:oidc-provider/oidc.vercel.com/${TERRAFORM_PROFILE_ASSETS_VERCEL_TEAM_SLUG}"
 
-          if ! aws iam get-open-id-connect-provider --open-id-connect-provider-arn "$provider_arn" >/tmp/vrdex-profile-assets-oidc-provider.json; then
+          provider_check="$(mktemp)"
+          if ! aws iam get-open-id-connect-provider --open-id-connect-provider-arn "$provider_arn" >"$provider_check" 2>&1; then
+            if grep -q "NoSuchEntity" "$provider_check"; then
+              {
+                echo "## Terraform profile-assets"
+                echo "No existing Vercel OIDC provider was found at \`$provider_arn\`."
+                echo "Terraform may create it during this apply if the CI role has the profile-assets IAM permissions from \`state-mgmt\`."
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+
             {
               echo "## Terraform profile-assets"
-              echo "Apply blocked before planning because the Terraform CI role cannot read the active Vercel OIDC provider."
+              echo "Apply blocked before planning because the Terraform CI role cannot inspect the Vercel OIDC provider."
               echo ""
               echo "Expected provider: \`$provider_arn\`"
               echo ""

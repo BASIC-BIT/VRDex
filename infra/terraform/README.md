@@ -39,10 +39,12 @@ Required CI settings by provider:
 
 `state-mgmt/` is validation-only in CI because it intentionally uses local bootstrap state and owns the GitHub Actions AWS role used by the provider-backed stacks. Apply it manually when changing the shared state bucket or Terraform CI role, then store `terraform output -raw github_actions_terraform_role_arn` in GitHub variable `AWS_TERRAFORM_ROLE_ARN`.
 
-The `profile-assets` apply path checks that the Terraform CI role can read the
-active Vercel OIDC provider before planning an apply. If that guard fails, apply
-`state-mgmt/` locally from a trusted operator machine and import any preexisting
-OIDC provider into the `profile-assets` remote state before rerunning the stack.
+The `profile-assets` apply path checks whether a preexisting Vercel OIDC
+provider is readable before planning an apply. A missing provider is allowed so
+Terraform can create it on first run. If the guard fails for any other reason,
+apply `state-mgmt/` locally from a trusted operator machine and import any
+preexisting OIDC provider into the `profile-assets` remote state before
+rerunning the stack.
 
 ## Stack Boundaries
 
