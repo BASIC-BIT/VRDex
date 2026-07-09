@@ -206,10 +206,20 @@ async function checkOpenApi() {
 
   const pathSet = new Set(Object.keys(document.paths ?? {}));
   const missingPaths = requiredOpenApiPaths.filter((path) => !pathSet.has(path));
+  const hasYamlArtifact = await pathExists("docs/api/openapi.yaml");
 
-  return missingPaths.length === 0
-    ? check("Generated OpenAPI contract", "pass", `${requiredOpenApiPaths.length} required API paths are present`)
-    : check("Generated OpenAPI contract", "pending", `missing paths: ${missingPaths.join(", ")}`);
+  return missingPaths.length === 0 && hasYamlArtifact
+    ? check("Generated OpenAPI contract", "pass", `${requiredOpenApiPaths.length} required API paths and JSON/YAML artifacts are present`)
+    : check(
+        "Generated OpenAPI contract",
+        "pending",
+        [
+          missingPaths.length > 0 ? `missing paths: ${missingPaths.join(", ")}` : null,
+          hasYamlArtifact ? null : "missing artifact: docs/api/openapi.yaml",
+        ]
+          .filter((detail): detail is string => detail !== null)
+          .join("; "),
+      );
 }
 
 async function checkDocs() {

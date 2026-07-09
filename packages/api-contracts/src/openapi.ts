@@ -1,4 +1,5 @@
 import { createDocument, type ZodOpenApiObject, type ZodOpenApiResponsesObject } from "zod-openapi";
+import { stringify as stringifyYaml } from "yaml";
 
 import { apiScopes } from "./auth";
 import {
@@ -1085,4 +1086,8 @@ export function getOpenApiDocument() {
 
 export function stringifyOpenApiDocument() {
   return `${JSON.stringify(openApiDocument, null, 2)}\n`;
+}
+
+export function stringifyOpenApiYamlDocument() {
+  return stringifyYaml(openApiDocument, { lineWidth: 0 });
 }

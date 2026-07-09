@@ -2,10 +2,11 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { getOpenApiDocument, stringifyOpenApiDocument } from "./openapi";
+import { getOpenApiDocument, stringifyOpenApiDocument, stringifyOpenApiYamlDocument } from "./openapi";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const outputPath = path.resolve(packageRoot, "../../docs/api/openapi.json");
+const jsonOutputPath = path.resolve(packageRoot, "../../docs/api/openapi.json");
+const yamlOutputPath = path.resolve(packageRoot, "../../docs/api/openapi.yaml");
 const appApiRoot = path.resolve(packageRoot, "../../apps/web/src/app/api/v0");
 const httpMethods = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
 const openApiHttpMethods = httpMethods.map((method) => method.toLowerCase());
@@ -126,17 +127,29 @@ async function assertOpenApiRouteParity() {
   }
 }
 
-const expected = stringifyOpenApiDocument();
-const actual = await readFile(outputPath, "utf8").catch((error: unknown) => {
+const expectedJson = stringifyOpenApiDocument();
+const actualJson = await readFile(jsonOutputPath, "utf8").catch((error: unknown) => {
   if (isEnoent(error)) {
-    throw new Error(`Missing generated OpenAPI artifact: ${outputPath}`);
+    throw new Error(`Missing generated OpenAPI artifact: ${jsonOutputPath}`);
+  }
+
+  throw error;
+});
+const expectedYaml = stringifyOpenApiYamlDocument();
+const actualYaml = await readFile(yamlOutputPath, "utf8").catch((error: unknown) => {
+  if (isEnoent(error)) {
+    throw new Error(`Missing generated OpenAPI artifact: ${yamlOutputPath}`);
   }
 
   throw error;
 });
 
-if (actual !== expected) {
+if (actualJson !== expectedJson) {
   throw new Error("docs/api/openapi.json is stale. Run pnpm generate:api-openapi.");
+}
+
+if (actualYaml !== expectedYaml) {
+  throw new Error("docs/api/openapi.yaml is stale. Run pnpm generate:api-openapi.");
 }
 
 await assertOpenApiRouteParity();

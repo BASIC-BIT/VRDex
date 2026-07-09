@@ -1,0 +1,4506 @@
+openapi: 3.1.0
+info:
+  title: VRDex Public API
+  version: 0.1.0
+  description: Public API contract for VRDex profile, event, asset, developer, OAuth, and MCP integrations.
+servers:
+  - url: https://vrdex.app
+    description: Production
+  - url: http://localhost:3000
+    description: Local web app
+tags:
+  - name: API
+    description: API contract and metadata surfaces.
+  - name: Profiles
+    description: Public profile read surfaces.
+  - name: Assets
+    description: Public and owner-managed profile asset surfaces.
+  - name: Search
+    description: Public discovery and search surfaces.
+  - name: Events
+    description: Public event read surfaces.
+  - name: Worlds
+    description: Public world read surfaces.
+  - name: Claims
+    description: Public claim-status read surfaces.
+  - name: Usage
+    description: API usage and rate-limit surfaces.
+  - name: Me
+    description: Authenticated caller introspection surfaces.
+  - name: Developer
+    description: Authenticated developer credential-management surfaces.
+paths:
+  /api/v0/openapi.json:
+    get:
+      operationId: getOpenApiDocument
+      tags:
+        - API
+      summary: Get the OpenAPI document
+      responses:
+        "200":
+          description: The current OpenAPI document.
+  /api/v0/me:
+    get:
+      operationId: getCurrentApiCaller
+      tags:
+        - Me
+      summary: Get the current API caller
+      description: Returns metadata for the validated bearer credential used on this request.
+      security:
+        - bearerAuth: []
+        - oauth2:
+            - public:read
+      responses:
+        "200":
+          description: Current authenticated API caller.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiMeResponse"
+        "401":
+          description: Bearer authentication is required or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "403":
+          description: The bearer credential does not include the required scope.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "429": &a1
+          description: The request exceeded a rate limit.
+          headers:
+            Retry-After:
+              description: Delay in seconds before retrying.
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+  /api/v0/me/profiles:
+    get:
+      operationId: listCurrentApiUserProfiles
+      tags:
+        - Me
+      summary: List the current user's profiles
+      description: Returns compact profile inventory for a bearer credential with user authority and profile:read scope.
+      security:
+        - bearerAuth: []
+        - oauth2:
+            - profile:read
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            description: Maximum result count.
+            type: integer
+            minimum: 1
+            maximum: 100
+          description: Maximum result count.
+      responses:
+        "200":
+          description: Current user's owned profiles.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiMeProfilesResponse"
+        "400": &a2
+          description: The request was malformed or used an unsupported bearer-token location.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "401":
+          description: Bearer authentication is required or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "403":
+          description: The bearer credential lacks profile:read scope or user authority.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "429": *a1
+  /api/v0/me/communities:
+    get:
+      operationId: listCurrentApiUserCommunities
+      tags:
+        - Me
+      summary: List the current user's communities
+      description: Returns compact community profile inventory for a bearer credential with user authority and community:read scope.
+      security:
+        - bearerAuth: []
+        - oauth2:
+            - community:read
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            description: Maximum result count.
+            type: integer
+            minimum: 1
+            maximum: 100
+          description: Maximum result count.
+      responses:
+        "200":
+          description: Current user's owned community profiles.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiMeCommunitiesResponse"
+        "400": *a2
+        "401":
+          description: Bearer authentication is required or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "403":
+          description: The bearer credential lacks community:read scope or user authority.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "429": *a1
+  /api/v0/me/events:
+    get:
+      operationId: listCurrentApiUserEvents
+      tags:
+        - Me
+        - Events
+      summary: List the current user's community-managed events
+      description: Returns compact event inventory for communities owned by a bearer credential with user authority and events:read scope.
+      security:
+        - bearerAuth: []
+        - oauth2:
+            - events:read
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            description: Maximum result count.
+            type: integer
+            minimum: 1
+            maximum: 100
+          description: Maximum result count.
+      responses:
+        "200":
+          description: Current user's community-managed events.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiMeEventsResponse"
+        "400": *a2
+        "401":
+          description: Bearer authentication is required or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "403":
+          description: The bearer credential lacks events:read scope or user authority.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "429": *a1
+  /api/v0/developer/tokens:
+    get:
+      operationId: listCurrentDeveloperApiTokens
+      tags:
+        - Developer
+      summary: List current developer API tokens
+      description: Returns user-owned personal API token metadata for a bearer credential with user authority and developer:read scope.
+      security: &a4
+        - bearerAuth: []
+        - oauth2:
+            - developer:read
+      parameters:
+        - in: query
+          name: includeRevoked
+          schema:
+            description: Include revoked credentials.
+            type: boolean
+          description: Include revoked credentials.
+        - in: query
+          name: limit
+          schema:
+            description: Maximum result count.
+            type: integer
+            minimum: 1
+            maximum: 100
+          description: Maximum result count.
+      responses:
+        "200":
+          description: Current user's personal API tokens.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeveloperTokensResponse"
+        "400": *a2
+        "401":
+          description: Bearer authentication is required or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "403":
+          description: The bearer credential lacks developer:read scope or user authority.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "429": *a1
+    post:
+      operationId: createCurrentDeveloperApiToken
+      tags:
+        - Developer
+      summary: Create a current developer API token
+      description: Creates a user-owned personal API token for a bearer credential with user authority and developer:write scope. The raw token value is returned once.
+      security: &a3
+        - bearerAuth: []
+        - oauth2:
+            - developer:write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeveloperTokenCreateRequest"
+      responses:
+        "200":
+          description: Created personal API token and one-time raw token value.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeveloperTokenCreateResponse"
+        "400":
+          description: The token creation request was malformed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "401":
+          description: Bearer authentication is required or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "403":
+          description: The bearer credential lacks developer:write scope or user authority.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "429": *a1
+  /api/v0/developer/tokens/{tokenId}:
+    delete:
+      operationId: revokeCurrentDeveloperApiToken
+      tags:
+        - Developer
+      summary: Revoke a current developer API token
+      description: Revokes a user-owned personal API token for a bearer credential with user authority and developer:write scope.
+      security: *a3
+      parameters:
+        - in: path
+          name: tokenId
+          schema:
+            type: string
+            minLength: 1
+            description: API token id returned by the developer token list.
+          required: true
+          description: API token id returned by the developer token list.
+      responses:
+        "200":
+          description: Revoked or already-revoked personal API token metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeveloperTokenResponse"
+        "400": *a2
+        "401":
+          description: Bearer authentication is required or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "403":
+          description: The bearer credential lacks developer:write scope or user authority.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "404":
+          description: The token was not found for the current user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "429": *a1
+  /api/v0/developer/oauth-apps:
+    get:
+      operationId: listCurrentDeveloperOAuthApps
+      tags:
+        - Developer
+      summary: List current developer OAuth apps
+      description: Returns user-owned and community-owned OAuth application metadata for a bearer credential with user authority and developer:read scope.
+      security: *a4
+      parameters:
+        - in: query
+          name: includeRevoked
+          schema:
+            description: Include revoked credentials.
+            type: boolean
+          description: Include revoked credentials.
+        - in: query
+          name: limit
+          schema:
+            description: Maximum result count.
+            type: integer
+            minimum: 1
+            maximum: 100
+          description: Maximum result count.
+      responses:
+        "200":
+          description: Current user's OAuth applications, including apps for communities they own.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeveloperOAuthAppsResponse"
+        "400": *a2
+        "401":
+          description: Bearer authentication is required or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "403":
+          description: The bearer credential lacks developer:read scope or user authority.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "429": *a1
+    post:
+      operationId: createCurrentDeveloperOAuthApp
+      tags:
+        - Developer
+      summary: Create a current developer OAuth app
+      description: Creates a user-owned OAuth application, or a community-owned OAuth application when ownerCommunitySlug is supplied, for a bearer credential with user authority and developer:write scope. Confidential clients receive a one-time client secret value.
+      security: *a3
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeveloperOAuthAppCreateRequest"
+      responses:
+        "200":
+          description: Created OAuth application and optional one-time client secret value.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeveloperOAuthAppCreateResponse"
+        "400":
+          description: The OAuth app creation request was malformed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "401":
+          description: Bearer authentication is required or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "403":
+          description: The bearer credential lacks developer:write scope or user authority, or the user does not own the requested community.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "404":
+          description: The requested owner community profile was not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "429": *a1
+  /api/v0/developer/oauth-apps/{clientId}:
+    patch:
+      operationId: updateCurrentDeveloperOAuthApp
+      tags:
+        - Developer
+      summary: Update a current developer OAuth app
+      description: Updates editable metadata, redirect URIs, allowed grants, and allowed scopes for a user-owned or community-owned OAuth application.
+      security: *a3
+      parameters:
+        - in: path
+          name: clientId
+          schema:
+            type: string
+            minLength: 1
+            description: OAuth client id.
+          required: true
+          description: OAuth client id.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeveloperOAuthAppUpdateRequest"
+      responses:
+        "200":
+          description: Updated OAuth application metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeveloperOAuthAppResponse"
+        "400":
+          description: The OAuth app update request was malformed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "401":
+          description: Bearer authentication is required or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "403":
+          description: The bearer credential lacks developer:write scope or user authority.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "404":
+          description: The OAuth application was not found for the current user or their owned communities.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "429": *a1
+    delete:
+      operationId: revokeCurrentDeveloperOAuthApp
+      tags:
+        - Developer
+      summary: Revoke a current developer OAuth app
+      description: Revokes a user-owned or community-owned OAuth application and its active secrets for a bearer credential with user authority and developer:write scope.
+      security: *a3
+      parameters:
+        - in: path
+          name: clientId
+          schema:
+            type: string
+            minLength: 1
+            description: OAuth client id.
+          required: true
+          description: OAuth client id.
+      responses:
+        "200":
+          description: Revoked or already-revoked OAuth application metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeveloperOAuthAppResponse"
+        "400": *a2
+        "401":
+          description: Bearer authentication is required or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "403":
+          description: The bearer credential lacks developer:write scope or user authority.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "404":
+          description: The OAuth application was not found for the current user or their owned communities.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "429": *a1
+  /api/v0/developer/oauth-apps/{clientId}/secrets:
+    post:
+      operationId: createCurrentDeveloperOAuthAppSecret
+      tags:
+        - Developer
+      summary: Create a current developer OAuth app secret
+      description: Creates an additional client secret for a user-owned or community-owned confidential OAuth application. The raw client secret value is returned once.
+      security: *a3
+      parameters:
+        - in: path
+          name: clientId
+          schema:
+            type: string
+            minLength: 1
+            description: OAuth client id.
+          required: true
+          description: OAuth client id.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeveloperOAuthAppSecretCreateRequest"
+      responses:
+        "200":
+          description: Updated OAuth application and one-time client secret value.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeveloperOAuthAppSecretCreateResponse"
+        "400":
+          description: The OAuth app secret creation request was malformed or the app is public.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "401":
+          description: Bearer authentication is required or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "403":
+          description: The bearer credential lacks developer:write scope or user authority.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "404":
+          description: The OAuth application was not found for the current user or their owned communities.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "429": *a1
+  /api/v0/search:
+    get:
+      operationId: searchPublicCatalog
+      tags:
+        - Search
+      summary: Search public profiles, events, and worlds
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            description: Maximum result count.
+            type: integer
+            minimum: 1
+            maximum: 50
+          description: Maximum result count.
+        - in: query
+          name: q
+          schema:
+            description: Search query text.
+            type: string
+          description: Search query text.
+        - in: query
+          name: type
+          schema:
+            description: Optional search result type filter.
+            type: string
+            enum:
+              - all
+              - person
+              - community
+              - profile
+              - world
+              - event
+          description: Optional search result type filter.
+      responses:
+        "200":
+          description: Public search results.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicSearchResponse"
+        "400": *a2
+        "404": &a5
+          description: The requested public resource was not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "429": *a1
+  /api/v0/profiles/{slug}:
+    get:
+      operationId: getPublicProfileBySlug
+      tags:
+        - Profiles
+      summary: Get a public profile
+      parameters:
+        - in: path
+          name: slug
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 160
+            description: Public slug.
+          required: true
+          description: Public slug.
+      responses:
+        "200":
+          description: The public profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicProfile"
+        "400": *a2
+        "404": *a5
+        "429": *a1
+    patch:
+      operationId: updateCurrentUserProfile
+      tags:
+        - Profiles
+      summary: Update a current user's profile
+      description: Updates owner-editable metadata for a claimed profile owned by a bearer credential with user authority and profile:write scope.
+      security:
+        - bearerAuth: []
+        - oauth2:
+            - profile:write
+      parameters:
+        - in: path
+          name: slug
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 160
+            description: Public slug.
+          required: true
+          description: Public slug.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApiProfileUpdateRequest"
+      responses:
+        "200":
+          description: Updated profile identifiers and public path.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProfileWriteResponse"
+        "400":
+          description: The profile update request was malformed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "401":
+          description: Bearer authentication is required or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "403":
+          description: The bearer credential lacks profile:write scope, user authority, ownership, or claimed-owner field permission.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "404":
+          description: The profile was not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "429": *a1
+  /api/v0/profiles/{slug}/assets:
+    get:
+      operationId: getPublicProfileAssets
+      tags:
+        - Profiles
+      summary: Get public profile assets
+      parameters:
+        - in: path
+          name: slug
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 160
+            description: Public slug.
+          required: true
+          description: Public slug.
+      responses:
+        "200":
+          description: Public profile assets.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicProfileAssetsResponse"
+        "400": *a2
+        "404": *a5
+        "429": *a1
+  /api/v0/profiles/{slug}/assets/{assetId}/file:
+    get:
+      operationId: downloadPublicProfileAssetFile
+      tags:
+        - Profiles
+        - Assets
+      summary: Download a public profile asset file
+      parameters:
+        - in: path
+          name: slug
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 160
+            description: Public profile slug.
+          required: true
+          description: Public profile slug.
+        - in: path
+          name: assetId
+          schema:
+            type: string
+            minLength: 1
+            description: Public profile asset id.
+          required: true
+          description: Public profile asset id.
+      responses:
+        "200":
+          description: The stored public profile asset file.
+          content:
+            image/png:
+              schema: &a6
+                type: string
+                format: binary
+            image/jpeg:
+              schema: *a6
+            image/webp:
+              schema: *a6
+            image/svg+xml:
+              schema: *a6
+        "400": *a2
+        "404":
+          description: The profile asset or stored object was not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiSimpleErrorResponse"
+        "429": *a1
+        "501":
+          description: Profile asset storage is not configured for this deployment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiSimpleErrorResponse"
+  /api/v0/profiles/{slug}/assets/upload-intent:
+    post:
+      operationId: createCurrentUserProfileAssetUploadIntent
+      tags:
+        - Profiles
+        - Assets
+      summary: Create a profile asset upload intent
+      description: Creates a one-time upload intent for a claimed profile owned by a bearer credential with user authority and assets:write scope. Complete the upload by posting the image file or source import to the returned uploadUrl with the returned upload-token header.
+      security:
+        - bearerAuth: []
+        - oauth2:
+            - assets:write
+      parameters:
+        - in: path
+          name: slug
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 160
+            description: Public slug.
+          required: true
+          description: Public slug.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApiProfileAssetUploadIntentCreateRequest"
+      responses:
+        "200":
+          description: One-time upload target for profile media.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProfileAssetUploadIntentCreateResponse"
+        "400":
+          description: The upload-intent request was malformed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "401":
+          description: Bearer authentication is required or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "403":
+          description: The bearer credential lacks assets:write scope, user authority, ownership, or a claimed profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "404":
+          description: The profile was not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "429": *a1
+  /api/v0/profiles/{slug}/logos:
+    get:
+      operationId: getPublicProfileLogos
+      tags:
+        - Profiles
+      summary: Get public profile logos
+      parameters:
+        - in: path
+          name: slug
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 160
+            description: Public slug.
+          required: true
+          description: Public slug.
+      responses:
+        "200":
+          description: Public profile logos.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicProfileLogosResponse"
+        "400": *a2
+        "404": *a5
+        "429": *a1
+  /api/v0/profiles/{slug}/logos.zip:
+    get:
+      operationId: downloadPublicProfileLogosZip
+      tags:
+        - Profiles
+        - Assets
+      summary: Download public profile logos as a ZIP
+      parameters:
+        - in: path
+          name: slug
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 160
+            description: Public slug.
+          required: true
+          description: Public slug.
+      responses:
+        "200":
+          description: A ZIP archive containing public profile logos.
+          content:
+            application/zip:
+              schema: *a6
+        "400": *a2
+        "404":
+          description: The profile, logos, or stored logo objects were not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiSimpleErrorResponse"
+        "429": *a1
+        "501":
+          description: Profile asset storage is not configured for this deployment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiSimpleErrorResponse"
+  /api/v0/profile-assets/upload-intents/{intentId}:
+    post:
+      operationId: completeProfileAssetUploadIntent
+      tags:
+        - Assets
+      summary: Complete a profile asset upload intent
+      description: Uploads the image file for a direct-upload intent, or triggers the server-side source import for a sourceUrl intent. Send the one-time x-vrdex-upload-token value returned by the upload-intent creation endpoint. Do not send bearer credentials on this transport.
+      parameters:
+        - in: path
+          name: intentId
+          schema:
+            type: string
+            minLength: 1
+            description: Profile asset upload intent id.
+          required: true
+          description: Profile asset upload intent id.
+        - in: header
+          name: x-vrdex-upload-token
+          schema:
+            type: string
+            minLength: 1
+            description: One-time upload token returned by the profile asset upload-intent creation endpoint.
+          required: true
+          description: One-time upload token returned by the profile asset upload-intent creation endpoint.
+      responses:
+        "200":
+          description: Completed profile media upload result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProfileAssetUploadIntentCompleteResponse"
+        "400":
+          description: The upload body or source import was invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProfileAssetUploadErrorResponse"
+        "403":
+          description: The one-time upload token was missing or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProfileAssetUploadErrorResponse"
+        "404":
+          description: The upload intent was not found or has expired.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProfileAssetUploadErrorResponse"
+        "501":
+          description: Profile asset storage is not configured for this deployment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProfileAssetUploadErrorResponse"
+  /api/v0/people/{slug}:
+    get:
+      operationId: getPublicPersonProfileBySlug
+      tags:
+        - Profiles
+      summary: Get a public person profile
+      parameters:
+        - in: path
+          name: slug
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 160
+            description: Public slug.
+          required: true
+          description: Public slug.
+      responses:
+        "200":
+          description: The public person profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicProfile"
+        "400": *a2
+        "404": *a5
+        "429": *a1
+  /api/v0/people/{slug}/events:
+    get:
+      operationId: listPublicPersonEvents
+      tags:
+        - Profiles
+        - Events
+      summary: List public upcoming events for a person profile
+      parameters:
+        - in: path
+          name: slug
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 160
+            description: Public slug.
+          required: true
+          description: Public slug.
+      responses:
+        "200":
+          description: Public upcoming events for the person profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicEventsResponse"
+        "400": *a2
+        "404": *a5
+        "429": *a1
+  /api/v0/communities/{slug}:
+    get:
+      operationId: getPublicCommunityProfileBySlug
+      tags:
+        - Profiles
+      summary: Get a public community profile
+      parameters:
+        - in: path
+          name: slug
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 160
+            description: Public slug.
+          required: true
+          description: Public slug.
+      responses:
+        "200":
+          description: The public community profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicProfile"
+        "400": *a2
+        "404": *a5
+        "429": *a1
+  /api/v0/communities/{slug}/events:
+    get:
+      operationId: listPublicCommunityEvents
+      tags:
+        - Profiles
+        - Events
+      summary: List public upcoming events hosted by a community profile
+      parameters:
+        - in: path
+          name: slug
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 160
+            description: Public slug.
+          required: true
+          description: Public slug.
+        - in: query
+          name: limit
+          schema:
+            description: Maximum result count.
+            type: integer
+            minimum: 1
+            maximum: 24
+          description: Maximum result count.
+      responses:
+        "200":
+          description: Public upcoming events for the community profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicEventsResponse"
+        "400": *a2
+        "404": *a5
+        "429": *a1
+  /api/v0/events/{slug}:
+    get:
+      operationId: getPublicEventBySlug
+      tags:
+        - Events
+      summary: Get a public event
+      parameters:
+        - in: path
+          name: slug
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 160
+            description: Public slug.
+          required: true
+          description: Public slug.
+      responses:
+        "200":
+          description: The public event.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicEvent"
+        "400": *a2
+        "404": *a5
+        "429": *a1
+    patch:
+      operationId: updateCurrentUserCommunityEvent
+      tags:
+        - Events
+      summary: Update a current user's community event
+      description: Updates a public event attached to a community profile owned by a bearer credential with user authority and events:write scope.
+      security: &a7
+        - bearerAuth: []
+        - oauth2:
+            - events:write
+      parameters:
+        - in: path
+          name: slug
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 160
+            description: Public slug.
+          required: true
+          description: Public slug.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApiEventUpdateRequest"
+      responses:
+        "200":
+          description: Updated event identifiers and paths.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEventWriteResponse"
+        "400":
+          description: The event update request was malformed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "401":
+          description: Bearer authentication is required or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "403":
+          description: The bearer credential lacks events:write scope, user authority, or ownership of the target event/community.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "404":
+          description: The event was not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "429": *a1
+  /api/v0/events:
+    post:
+      operationId: createCurrentUserCommunityEvent
+      tags:
+        - Events
+      summary: Create a current user's community event
+      description: Creates a public event attached to a community profile owned by a bearer credential with user authority and events:write scope.
+      security: *a7
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApiEventCreateRequest"
+      responses:
+        "200":
+          description: Created event identifiers and paths.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEventWriteResponse"
+        "400":
+          description: The event creation request was malformed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "401":
+          description: Bearer authentication is required or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "403":
+          description: The bearer credential lacks events:write scope, user authority, or ownership of the target community.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "429": *a1
+  /api/v0/events/upcoming:
+    get:
+      operationId: listPublicUpcomingEvents
+      tags:
+        - Events
+      summary: List upcoming public events
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            description: Maximum result count.
+            type: integer
+            minimum: 1
+            maximum: 24
+          description: Maximum result count.
+      responses:
+        "200":
+          description: Upcoming public events.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicEventsResponse"
+        "400": *a2
+        "404": *a5
+        "429": *a1
+  /api/v0/worlds/{slug}:
+    get:
+      operationId: getPublicWorldBySlug
+      tags:
+        - Worlds
+      summary: Get a public world
+      parameters:
+        - in: path
+          name: slug
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 160
+            description: Public slug.
+          required: true
+          description: Public slug.
+      responses:
+        "200":
+          description: The public world.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicWorld"
+        "400": *a2
+        "404": *a5
+        "429": *a1
+  /api/v0/worlds/{slug}/events:
+    get:
+      operationId: getPublicWorldEventsBySlug
+      tags:
+        - Worlds
+      summary: List public events for a world
+      parameters:
+        - in: path
+          name: slug
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 160
+            description: Public slug.
+          required: true
+          description: Public slug.
+      responses:
+        "200":
+          description: Upcoming and recent public events linked to the world.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicWorldEventsResponse"
+        "400": *a2
+        "404": *a5
+        "429": *a1
+  /api/v0/worlds/active:
+    get:
+      operationId: listPublicActiveWorlds
+      tags:
+        - Worlds
+      summary: List public worlds hosting upcoming or live events
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            description: Maximum result count.
+            type: integer
+            minimum: 1
+            maximum: 6
+          description: Maximum result count.
+      responses:
+        "200":
+          description: Active public worlds.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicActiveWorldsResponse"
+        "400": *a2
+        "404": *a5
+        "429": *a1
+  /api/v0/claims/{slug}/status:
+    get:
+      operationId: getPublicClaimStatus
+      tags:
+        - Claims
+      summary: Get public claim and trust status for a profile
+      parameters:
+        - in: path
+          name: slug
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 160
+            description: Public slug.
+          required: true
+          description: Public slug.
+      responses:
+        "200":
+          description: Public claim and trust status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicClaimStatusResponse"
+        "400": *a2
+        "404": *a5
+        "429": *a1
+  /api/v0/usage/rate-limit:
+    get:
+      operationId: getApiRateLimitUsage
+      tags:
+        - Usage
+      summary: Get API and MCP rate-limit policy information
+      description: Returns the default route-class policy table and the current request's effective API rate-limit window.
+      security:
+        - bearerAuth: []
+        - oauth2:
+            - public:read
+        - {}
+      responses:
+        "200":
+          description: Rate-limit policy and current caller window.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiRateLimitUsageResponse"
+        "400": *a2
+        "404": *a5
+        "429": *a1
+components:
+  schemas:
+    DeveloperTokenCreateRequest:
+      type: object
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 80
+        scopes:
+          type: array
+          items:
+            type: string
+            enum:
+              - public:read
+              - profile:read
+              - profile:write
+              - community:read
+              - community:write
+              - events:read
+              - events:write
+              - assets:read
+              - assets:write
+              - developer:read
+              - developer:write
+              - mcp:read
+              - mcp:write
+            description: Public API or MCP credential scope.
+        expiresAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+      required:
+        - label
+      description: Create a user-owned personal API token. The raw token value is returned once.
+    DeveloperOAuthAppCreateRequest:
+      type: object
+      properties:
+        clientType:
+          type: string
+          enum:
+            - public
+            - confidential
+          description: OAuth application client type.
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 80
+        description:
+          type: string
+          maxLength: 500
+        logoUrl:
+          type: string
+          minLength: 1
+        docsUrl:
+          type: string
+          minLength: 1
+        privacyUrl:
+          type: string
+          minLength: 1
+        termsUrl:
+          type: string
+          minLength: 1
+        redirectUris:
+          minItems: 1
+          maxItems: 10
+          type: array
+          items:
+            type: string
+            minLength: 1
+        allowedGrants:
+          type: array
+          items:
+            type: string
+            enum:
+              - authorization_code
+              - refresh_token
+              - client_credentials
+            description: OAuth grant type allowed for an application.
+        allowedScopes:
+          type: array
+          items:
+            type: string
+            enum:
+              - public:read
+              - profile:read
+              - profile:write
+              - community:read
+              - community:write
+              - events:read
+              - events:write
+              - assets:read
+              - assets:write
+              - developer:read
+              - developer:write
+              - mcp:read
+              - mcp:write
+            description: Public API or MCP credential scope.
+        ownerCommunitySlug:
+          type: string
+          minLength: 1
+          maxLength: 160
+      required:
+        - displayName
+        - redirectUris
+      description: Create a user-owned or community-owned OAuth application. Confidential clients receive a one-time client secret value.
+    DeveloperOAuthAppUpdateRequest:
+      type: object
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 80
+        description:
+          anyOf:
+            - type: string
+              maxLength: 500
+            - type: "null"
+        logoUrl:
+          anyOf:
+            - type: string
+              minLength: 1
+            - type: "null"
+        docsUrl:
+          anyOf:
+            - type: string
+              minLength: 1
+            - type: "null"
+        privacyUrl:
+          anyOf:
+            - type: string
+              minLength: 1
+            - type: "null"
+        termsUrl:
+          anyOf:
+            - type: string
+              minLength: 1
+            - type: "null"
+        redirectUris:
+          minItems: 1
+          maxItems: 10
+          type: array
+          items:
+            type: string
+            minLength: 1
+        allowedGrants:
+          type: array
+          items:
+            type: string
+            enum:
+              - authorization_code
+              - refresh_token
+              - client_credentials
+            description: OAuth grant type allowed for an application.
+        allowedScopes:
+          type: array
+          items:
+            type: string
+            enum:
+              - public:read
+              - profile:read
+              - profile:write
+              - community:read
+              - community:write
+              - events:read
+              - events:write
+              - assets:read
+              - assets:write
+              - developer:read
+              - developer:write
+              - mcp:read
+              - mcp:write
+            description: Public API or MCP credential scope.
+      description: Update editable metadata, redirects, scopes, and grants for a user-owned or community-owned OAuth application.
+    DeveloperOAuthAppSecretCreateRequest:
+      type: object
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 80
+      description: Create an additional secret for a user-owned or community-owned confidential OAuth application.
+    ApiProfileUpdateRequest:
+      type: object
+      properties:
+        displayName:
+          type: string
+          minLength: 2
+          maxLength: 80
+        aliases:
+          maxItems: 8
+          type: array
+          items:
+            type: string
+            maxLength: 60
+        tags:
+          maxItems: 12
+          type: array
+          items:
+            type: string
+            maxLength: 32
+        headline:
+          anyOf:
+            - type: string
+              maxLength: 160
+            - type: "null"
+        bio:
+          anyOf:
+            - type: string
+              maxLength: 600
+            - type: "null"
+        region:
+          anyOf:
+            - type: string
+              maxLength: 80
+            - type: "null"
+        timezone:
+          anyOf:
+            - type: string
+              maxLength: 80
+            - type: "null"
+        person:
+          type: object
+          properties:
+            pronouns:
+              anyOf:
+                - type: string
+                  maxLength: 80
+                - type: "null"
+            roleTags:
+              maxItems: 12
+              type: array
+              items:
+                type: string
+                maxLength: 32
+        community:
+          type: object
+          properties:
+            subtype:
+              anyOf:
+                - type: string
+                  maxLength: 40
+                - type: "null"
+            categoryTags:
+              maxItems: 12
+              type: array
+              items:
+                type: string
+                maxLength: 32
+      description: Update owner-editable metadata for a claimed profile owned by the current authenticated API user.
+    ApiProfileAssetUploadIntentCreateRequest:
+      type: object
+      properties:
+        originalFileName:
+          type: string
+          minLength: 1
+          maxLength: 180
+        sourceUrl:
+          type: string
+          format: uri
+        mimeType:
+          type: string
+          enum:
+            - image/png
+            - image/svg+xml
+            - image/jpeg
+            - image/webp
+          description: Supported profile media upload MIME type.
+        byteSize:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 12582912
+        label:
+          type: string
+          maxLength: 80
+        caption:
+          type: string
+          maxLength: 240
+        placements:
+          maxItems: 8
+          type: array
+          items:
+            type: string
+            enum:
+              - profile_image
+              - banner
+              - primary_logo
+              - additional_logo
+            description: Profile media-kit placement to apply after upload completion.
+        position:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+      required:
+        - mimeType
+      description: Create a one-time profile media upload intent for a claimed profile owned by the current authenticated API user.
+    ApiEventUpdateRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 2
+          maxLength: 120
+        communitySlug:
+          type: string
+          minLength: 1
+          maxLength: 160
+        startAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        doorsOpenAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        endAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        timezone:
+          type: string
+          maxLength: 64
+        worldSlug:
+          type: string
+          minLength: 1
+          maxLength: 160
+        preferredSlug:
+          type: string
+          minLength: 1
+          maxLength: 160
+        summary:
+          type: string
+          maxLength: 240
+        notes:
+          type: string
+          maxLength: 1200
+        sourceLabel:
+          type: string
+          maxLength: 120
+        sourceUrl:
+          type: string
+          format: uri
+        posterImageUrl:
+          type: string
+          format: uri
+        bannerImageUrl:
+          type: string
+          format: uri
+        thumbnailImageUrl:
+          type: string
+          format: uri
+        watchSurfaceEnabled:
+          type: boolean
+        mediaLinks:
+          maxItems: 8
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+                enum:
+                  - event_page
+                  - watch
+                  - stream
+                  - vrcdn
+                  - discord
+                  - ticket
+                  - other
+              label:
+                type: string
+                minLength: 1
+                maxLength: 80
+              url:
+                type: string
+                format: uri
+              presentation:
+                type: string
+                enum:
+                  - open
+                  - copy
+            required:
+              - type
+              - label
+              - url
+            additionalProperties: {}
+        participantLinks:
+          maxItems: 80
+          type: array
+          items:
+            type: object
+            properties:
+              personSlug:
+                type: string
+                minLength: 1
+                maxLength: 160
+              roleLabel:
+                type: string
+                maxLength: 48
+              sourceLabel:
+                type: string
+                maxLength: 120
+              sourceUrl:
+                type: string
+                format: uri
+              notes:
+                type: string
+                maxLength: 1200
+            required:
+              - personSlug
+            additionalProperties: {}
+        slotLinks:
+          maxItems: 80
+          type: array
+          items:
+            type: object
+            properties:
+              personSlug:
+                type: string
+                minLength: 1
+                maxLength: 160
+              displayLabel:
+                type: string
+                minLength: 1
+                maxLength: 120
+              roleLabel:
+                type: string
+                maxLength: 48
+              startAt:
+                type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              endAt:
+                type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              sourceLabel:
+                type: string
+                maxLength: 120
+              sourceUrl:
+                type: string
+                format: uri
+              notes:
+                type: string
+                maxLength: 1200
+            required:
+              - displayLabel
+              - startAt
+            additionalProperties: {}
+      required:
+        - title
+        - communitySlug
+        - startAt
+      description: Update a public event attached to a community profile owned by the current authenticated API user.
+    ApiEventCreateRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 2
+          maxLength: 120
+        communitySlug:
+          type: string
+          minLength: 1
+          maxLength: 160
+        startAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        doorsOpenAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        endAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        timezone:
+          type: string
+          maxLength: 64
+        worldSlug:
+          type: string
+          minLength: 1
+          maxLength: 160
+        preferredSlug:
+          type: string
+          minLength: 1
+          maxLength: 160
+        summary:
+          type: string
+          maxLength: 240
+        notes:
+          type: string
+          maxLength: 1200
+        sourceLabel:
+          type: string
+          maxLength: 120
+        sourceUrl:
+          type: string
+          format: uri
+        posterImageUrl:
+          type: string
+          format: uri
+        bannerImageUrl:
+          type: string
+          format: uri
+        thumbnailImageUrl:
+          type: string
+          format: uri
+        watchSurfaceEnabled:
+          type: boolean
+        mediaLinks:
+          maxItems: 8
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+                enum:
+                  - event_page
+                  - watch
+                  - stream
+                  - vrcdn
+                  - discord
+                  - ticket
+                  - other
+              label:
+                type: string
+                minLength: 1
+                maxLength: 80
+              url:
+                type: string
+                format: uri
+              presentation:
+                type: string
+                enum:
+                  - open
+                  - copy
+            required:
+              - type
+              - label
+              - url
+            additionalProperties: {}
+        participantLinks:
+          maxItems: 80
+          type: array
+          items:
+            type: object
+            properties:
+              personSlug:
+                type: string
+                minLength: 1
+                maxLength: 160
+              roleLabel:
+                type: string
+                maxLength: 48
+              sourceLabel:
+                type: string
+                maxLength: 120
+              sourceUrl:
+                type: string
+                format: uri
+              notes:
+                type: string
+                maxLength: 1200
+            required:
+              - personSlug
+            additionalProperties: {}
+        slotLinks:
+          maxItems: 80
+          type: array
+          items:
+            type: object
+            properties:
+              personSlug:
+                type: string
+                minLength: 1
+                maxLength: 160
+              displayLabel:
+                type: string
+                minLength: 1
+                maxLength: 120
+              roleLabel:
+                type: string
+                maxLength: 48
+              startAt:
+                type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              endAt:
+                type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              sourceLabel:
+                type: string
+                maxLength: 120
+              sourceUrl:
+                type: string
+                format: uri
+              notes:
+                type: string
+                maxLength: 1200
+            required:
+              - displayLabel
+              - startAt
+            additionalProperties: {}
+      required:
+        - title
+        - communitySlug
+        - startAt
+      description: Create a public event attached to a community profile owned by the current authenticated API user.
+    ApiMeResponse:
+      type: object
+      properties:
+        credential:
+          $ref: "#/components/schemas/ApiMeCredential"
+        rateLimit:
+          $ref: "#/components/schemas/ApiRateLimitCurrentWindow"
+      required:
+        - credential
+        - rateLimit
+      additionalProperties: false
+      description: Current authenticated API caller and effective public-read rate-limit window.
+    ApiMeCredential:
+      oneOf:
+        - type: object
+          properties:
+            kind:
+              type: string
+              const: api_token
+            ownerCommunityProfileId:
+              type: string
+            ownerKind:
+              type: string
+              enum:
+                - community
+                - user
+            ownerUserId:
+              type: string
+            scopes:
+              type: array
+              items:
+                type: string
+                enum:
+                  - public:read
+                  - profile:read
+                  - profile:write
+                  - community:read
+                  - community:write
+                  - events:read
+                  - events:write
+                  - assets:read
+                  - assets:write
+                  - developer:read
+                  - developer:write
+                  - mcp:read
+                  - mcp:write
+                description: Public API or MCP credential scope.
+            tokenId:
+              type: string
+            trustTier:
+              type: string
+              enum:
+                - personal
+                - trusted_partner
+          required:
+            - kind
+            - ownerKind
+            - ownerUserId
+            - scopes
+            - tokenId
+            - trustTier
+          additionalProperties: false
+        - type: object
+          properties:
+            kind:
+              type: string
+              const: oauth
+            applicationId:
+              type: string
+            clientId:
+              type: string
+            dynamicClientId:
+              type: string
+            ownerCommunityProfileId:
+              type: string
+            ownerKind:
+              type: string
+              enum:
+                - community
+                - user
+            ownerUserId:
+              type: string
+            scopes:
+              type: array
+              items:
+                type: string
+                enum:
+                  - public:read
+                  - profile:read
+                  - profile:write
+                  - community:read
+                  - community:write
+                  - events:read
+                  - events:write
+                  - assets:read
+                  - assets:write
+                  - developer:read
+                  - developer:write
+                  - mcp:read
+                  - mcp:write
+                description: Public API or MCP credential scope.
+            subjectType:
+              type: string
+              enum:
+                - client
+                - user
+            trustTier:
+              type: string
+              enum:
+                - standard
+                - trusted_partner
+            userId:
+              type: string
+          required:
+            - kind
+            - clientId
+            - scopes
+            - subjectType
+            - trustTier
+          additionalProperties: false
+      description: Validated bearer credential metadata for the current API caller.
+      type: object
+    ApiRateLimitCurrentWindow:
+      type: object
+      properties:
+        limit:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 9007199254740991
+        remaining:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        resetAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        retryAfterSeconds:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 9007199254740991
+        routeClass:
+          type: string
+          enum:
+            - anonymous_public_read
+            - authenticated_public_read
+            - developer_credential_management
+            - oauth_authorize
+            - oauth_token
+            - oauth_dynamic_client_registration
+            - asset_upload_intent
+            - public_write
+            - anonymous_mcp_public_read
+            - authenticated_mcp
+          description: Public API and MCP rate-limit route class.
+        windowMs:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 9007199254740991
+      required:
+        - limit
+        - remaining
+        - resetAt
+        - retryAfterSeconds
+        - routeClass
+        - windowMs
+      additionalProperties: false
+      description: The caller's current rate-limit window for this request.
+    ApiProblem:
+      type: object
+      properties:
+        detail:
+          type: string
+        instance:
+          type: string
+        status:
+          type: integer
+          minimum: 100
+          maximum: 599
+        title:
+          type: string
+          minLength: 1
+        type:
+          type: string
+          minLength: 1
+      required:
+        - status
+        - title
+        - type
+      additionalProperties: false
+      description: RFC 9457 problem details error response.
+    ApiMeProfilesResponse:
+      type: object
+      properties:
+        profiles:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiMeProfileSummary"
+      required:
+        - profiles
+      additionalProperties: false
+      description: Profile inventory for the current authenticated API user.
+    ApiMeProfileSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          minLength: 1
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 160
+        profileType:
+          type: string
+          enum:
+            - person
+            - community
+          description: The public profile entity class.
+        displayName:
+          type: string
+          minLength: 1
+        headline:
+          type: string
+        claimState:
+          type: string
+          enum:
+            - unclaimed
+            - claimed_unverified
+            - claimed_verified
+          description: The public claim state without private owner account details.
+        publicationState:
+          type: string
+          enum:
+            - draft_private
+            - published
+          description: Profile or event publication state for an authenticated owner inventory.
+        publicSurfacingState:
+          type: string
+          enum:
+            - public
+            - opted_out
+            - suppressed
+          description: Profile public surfacing state for an authenticated owner inventory.
+        creationSource:
+          type: string
+          enum:
+            - self
+            - community
+            - concierge
+            - import
+            - moderator
+          description: How the profile was originally created.
+        claimedAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        publishedAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        updatedAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+      required:
+        - id
+        - slug
+        - profileType
+        - displayName
+        - claimState
+        - publicationState
+        - publicSurfacingState
+        - creationSource
+        - updatedAt
+      additionalProperties: false
+      description: Compact profile summary for the current authenticated API user.
+    ApiMeCommunitiesResponse:
+      type: object
+      properties:
+        communities:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiMeCommunitySummary"
+      required:
+        - communities
+      additionalProperties: false
+      description: Community profile inventory for the current authenticated API user.
+    ApiMeCommunitySummary:
+      type: object
+      properties:
+        id:
+          type: string
+          minLength: 1
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 160
+        profileType:
+          type: string
+          const: community
+        displayName:
+          type: string
+          minLength: 1
+        headline:
+          type: string
+        claimState:
+          type: string
+          enum:
+            - unclaimed
+            - claimed_unverified
+            - claimed_verified
+          description: The public claim state without private owner account details.
+        publicationState:
+          type: string
+          enum:
+            - draft_private
+            - published
+          description: Profile or event publication state for an authenticated owner inventory.
+        publicSurfacingState:
+          type: string
+          enum:
+            - public
+            - opted_out
+            - suppressed
+          description: Profile public surfacing state for an authenticated owner inventory.
+        creationSource:
+          type: string
+          enum:
+            - self
+            - community
+            - concierge
+            - import
+            - moderator
+          description: How the profile was originally created.
+        claimedAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        publishedAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        updatedAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+      required:
+        - id
+        - slug
+        - profileType
+        - displayName
+        - claimState
+        - publicationState
+        - publicSurfacingState
+        - creationSource
+        - updatedAt
+      additionalProperties: false
+      description: Compact community profile summary for the current authenticated API user.
+    ApiMeEventsResponse:
+      type: object
+      properties:
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiMeEventSummary"
+      required:
+        - events
+      additionalProperties: false
+      description: Community-managed event inventory for the current authenticated API user.
+    ApiMeEventSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          minLength: 1
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 160
+        title:
+          type: string
+          minLength: 1
+        startAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        doorsOpenAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        endAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        timezone:
+          type: string
+        communityProfileId:
+          type: string
+          minLength: 1
+        communitySlug:
+          type: string
+          minLength: 1
+          maxLength: 160
+        communityName:
+          type: string
+        summary:
+          type: string
+        sourceType:
+          type: string
+          enum:
+            - manual
+            - community
+            - partner
+            - import
+            - ai_suggested
+          description: Public event source class.
+        sourceLabel:
+          type: string
+          minLength: 1
+        publicationState:
+          type: string
+          enum:
+            - draft_private
+            - published
+          description: Profile or event publication state for an authenticated owner inventory.
+        watchSurfaceEnabled:
+          type: boolean
+        createdAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        publishedAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        updatedAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+      required:
+        - id
+        - title
+        - startAt
+        - sourceType
+        - sourceLabel
+        - publicationState
+        - watchSurfaceEnabled
+        - updatedAt
+      additionalProperties: false
+      description: Compact community-managed event summary for the current authenticated API user.
+    DeveloperTokensResponse:
+      type: object
+      properties:
+        tokens:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiTokenSummary"
+      required:
+        - tokens
+      additionalProperties: false
+      description: User-owned personal API token list.
+    ApiTokenSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          minLength: 1
+        tokenPrefix:
+          type: string
+          minLength: 1
+        ownerKind:
+          type: string
+          enum:
+            - community
+            - user
+          description: Developer credential owner class.
+        ownerUserId:
+          type: string
+          minLength: 1
+        ownerCommunityProfileId:
+          type: string
+          minLength: 1
+        label:
+          type: string
+          minLength: 1
+        scopes:
+          type: array
+          items:
+            type: string
+            enum:
+              - public:read
+              - profile:read
+              - profile:write
+              - community:read
+              - community:write
+              - events:read
+              - events:write
+              - assets:read
+              - assets:write
+              - developer:read
+              - developer:write
+              - mcp:read
+              - mcp:write
+            description: Public API or MCP credential scope.
+        status:
+          type: string
+          enum:
+            - active
+            - revoked
+          description: Developer credential lifecycle status.
+        trustTier:
+          type: string
+          enum:
+            - personal
+            - trusted_partner
+          description: Personal API token trust tier.
+        expiresAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        createdAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        updatedAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        lastUsedAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        lastUsedRouteClass:
+          type: string
+          enum:
+            - anonymous_public_read
+            - authenticated_public_read
+            - developer_credential_management
+            - oauth_authorize
+            - oauth_token
+            - oauth_dynamic_client_registration
+            - asset_upload_intent
+            - public_write
+            - anonymous_mcp_public_read
+            - authenticated_mcp
+          description: Public API and MCP rate-limit route class.
+        revokedAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        revokeReason:
+          type: string
+      required:
+        - id
+        - tokenPrefix
+        - ownerKind
+        - ownerUserId
+        - label
+        - scopes
+        - status
+        - trustTier
+        - createdAt
+        - updatedAt
+      additionalProperties: false
+      description: User-owned personal API token metadata. Raw token values are never returned.
+    DeveloperTokenCreateResponse:
+      type: object
+      properties:
+        token:
+          $ref: "#/components/schemas/ApiTokenSummary"
+        tokenValue:
+          type: string
+          minLength: 1
+      required:
+        - token
+        - tokenValue
+      additionalProperties: false
+      description: Created personal API token plus one-time raw token value.
+    DeveloperTokenResponse:
+      type: object
+      properties:
+        token:
+          $ref: "#/components/schemas/ApiTokenSummary"
+      required:
+        - token
+      additionalProperties: false
+      description: User-owned personal API token response.
+    DeveloperOAuthAppsResponse:
+      type: object
+      properties:
+        applications:
+          type: array
+          items:
+            $ref: "#/components/schemas/OAuthApplicationSummary"
+      required:
+        - applications
+      additionalProperties: false
+      description: User-owned and community-owned OAuth application list.
+    OAuthApplicationSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          minLength: 1
+        clientId:
+          type: string
+          minLength: 1
+        ownerKind:
+          type: string
+          enum:
+            - community
+            - user
+          description: Developer credential owner class.
+        ownerUserId:
+          type: string
+          minLength: 1
+        ownerCommunityProfileId:
+          type: string
+          minLength: 1
+        clientType:
+          type: string
+          enum:
+            - public
+            - confidential
+          description: OAuth application client type.
+        displayName:
+          type: string
+          minLength: 1
+        description:
+          type: string
+        logoUrl:
+          type: string
+          format: uri
+        docsUrl:
+          type: string
+          format: uri
+        privacyUrl:
+          type: string
+          format: uri
+        termsUrl:
+          type: string
+          format: uri
+        redirectUris:
+          type: array
+          items:
+            type: string
+            format: uri
+        allowedGrants:
+          type: array
+          items:
+            type: string
+            enum:
+              - authorization_code
+              - refresh_token
+              - client_credentials
+            description: OAuth grant type allowed for an application.
+        allowedScopes:
+          type: array
+          items:
+            type: string
+            enum:
+              - public:read
+              - profile:read
+              - profile:write
+              - community:read
+              - community:write
+              - events:read
+              - events:write
+              - assets:read
+              - assets:write
+              - developer:read
+              - developer:write
+              - mcp:read
+              - mcp:write
+            description: Public API or MCP credential scope.
+        status:
+          type: string
+          enum:
+            - active
+            - revoked
+          description: Developer credential lifecycle status.
+        trustTier:
+          type: string
+          enum:
+            - standard
+            - trusted_partner
+          description: OAuth application trust tier.
+        createdAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        updatedAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        lastUsedAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        reviewedAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        revokedAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        revokeReason:
+          type: string
+        activeSecretPrefixes:
+          type: array
+          items:
+            type: string
+            minLength: 1
+      required:
+        - id
+        - clientId
+        - ownerKind
+        - ownerUserId
+        - clientType
+        - displayName
+        - redirectUris
+        - allowedGrants
+        - allowedScopes
+        - status
+        - trustTier
+        - createdAt
+        - updatedAt
+        - activeSecretPrefixes
+      additionalProperties: false
+      description: User- or community-owned OAuth application metadata. Raw client secrets are never returned.
+    DeveloperOAuthAppCreateResponse:
+      type: object
+      properties:
+        application:
+          $ref: "#/components/schemas/OAuthApplicationSummary"
+        clientSecretValue:
+          type: string
+          minLength: 1
+      required:
+        - application
+      additionalProperties: false
+      description: Created OAuth application plus one-time client secret value for confidential clients.
+    DeveloperOAuthAppResponse:
+      type: object
+      properties:
+        application:
+          $ref: "#/components/schemas/OAuthApplicationSummary"
+      required:
+        - application
+      additionalProperties: false
+      description: User-owned or community-owned OAuth application response.
+    DeveloperOAuthAppSecretCreateResponse:
+      type: object
+      properties:
+        application:
+          $ref: "#/components/schemas/OAuthApplicationSummary"
+        clientSecretValue:
+          type: string
+          minLength: 1
+      required:
+        - application
+        - clientSecretValue
+      additionalProperties: false
+      description: Updated OAuth application plus one-time client secret value.
+    PublicSearchResponse:
+      type: object
+      properties:
+        query:
+          type: string
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicSearchResult"
+        type:
+          type: string
+          enum:
+            - all
+            - person
+            - community
+            - profile
+            - world
+            - event
+      required:
+        - query
+        - results
+      additionalProperties: {}
+      description: Public search response.
+    PublicSearchResult:
+      type: object
+      properties:
+        entityType:
+          type: string
+          enum:
+            - profile
+            - world
+            - event
+          description: Search result entity class.
+        imageUrl:
+          type: string
+          format: uri
+        logoImageUrl:
+          type: string
+          format: uri
+        profileImageUrl:
+          type: string
+          format: uri
+        profileType:
+          type: string
+          enum:
+            - person
+            - community
+          description: The public profile entity class.
+        routePath:
+          type: string
+          minLength: 1
+        score:
+          type: number
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 160
+        source:
+          type: object
+          properties:
+            label:
+              type: string
+            sourceType:
+              type: string
+              enum:
+                - manual
+                - owner
+                - community
+                - partner
+                - import
+                - moderator
+                - ai_suggested
+              description: Public source or provenance class.
+            submittedAt:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            updatedAt:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            url:
+              type: string
+              format: uri
+          additionalProperties: {}
+          description: Public summary for community-submitted, imported, owner-authored, or reviewed data.
+        startsAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        subtitle:
+          type: string
+        summary:
+          type: string
+        title:
+          type: string
+          minLength: 1
+      required:
+        - entityType
+        - routePath
+        - score
+        - slug
+        - title
+      additionalProperties: {}
+      description: Compact public discovery/search result.
+    PublicProfile:
+      type: object
+      properties:
+        aliases:
+          type: array
+          items:
+            type: string
+        appearance: {}
+        avatarImageUrl:
+          type: string
+          format: uri
+        bannerImageUrl:
+          type: string
+          format: uri
+        bio:
+          type: string
+        displayName:
+          type: string
+          minLength: 1
+        genres:
+          type: array
+          items:
+            type: object
+            properties:
+              displayLabel:
+                type: string
+              displayName:
+                type: string
+                minLength: 1
+              featured:
+                type: boolean
+              slug:
+                type: string
+            required:
+              - displayName
+            additionalProperties: {}
+            description: A public genre or taxonomy label.
+        hostedEvents:
+          type: array
+          items: {}
+        mediaKit:
+          type: object
+          properties:
+            additionalLogos:
+              type: array
+              items:
+                type: object
+                properties:
+                  assetId:
+                    type: string
+                  byteSize:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                  caption:
+                    type: string
+                  downloadUrl:
+                    type: string
+                    format: uri
+                  imageUrl:
+                    type: string
+                    format: uri
+                  label:
+                    type: string
+                  mimeType:
+                    type: string
+                additionalProperties: {}
+                description: A public profile media or brand asset.
+            assets:
+              type: array
+              items:
+                type: object
+                properties:
+                  assetId:
+                    type: string
+                  byteSize:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                  caption:
+                    type: string
+                  downloadUrl:
+                    type: string
+                    format: uri
+                  imageUrl:
+                    type: string
+                    format: uri
+                  label:
+                    type: string
+                  mimeType:
+                    type: string
+                additionalProperties: {}
+                description: A public profile media or brand asset.
+            avatarAppearance:
+              type: object
+              properties:
+                borderColor:
+                  type: string
+                borderEnabled:
+                  type: boolean
+                borderSoftnessPx:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                borderWidthPx:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                radiusPercent:
+                  type: integer
+                  minimum: 0
+                  maximum: 50
+              required:
+                - borderColor
+                - borderEnabled
+                - borderSoftnessPx
+                - borderWidthPx
+                - radiusPercent
+              additionalProperties: {}
+              description: Bounded public avatar presentation hints.
+            banner:
+              type: object
+              properties:
+                assetId:
+                  type: string
+                byteSize:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                caption:
+                  type: string
+                downloadUrl:
+                  type: string
+                  format: uri
+                imageUrl:
+                  type: string
+                  format: uri
+                label:
+                  type: string
+                mimeType:
+                  type: string
+              additionalProperties: {}
+              description: A public profile media or brand asset.
+            compactDisplay:
+              type: string
+              enum:
+                - profile_image
+                - logo
+            logoZipUrl:
+              type: string
+              format: uri
+            logos:
+              type: array
+              items:
+                type: object
+                properties:
+                  assetId:
+                    type: string
+                  byteSize:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                  caption:
+                    type: string
+                  downloadUrl:
+                    type: string
+                    format: uri
+                  imageUrl:
+                    type: string
+                    format: uri
+                  label:
+                    type: string
+                  mimeType:
+                    type: string
+                additionalProperties: {}
+                description: A public profile media or brand asset.
+            primaryLogo:
+              type: object
+              properties:
+                assetId:
+                  type: string
+                byteSize:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                caption:
+                  type: string
+                downloadUrl:
+                  type: string
+                  format: uri
+                imageUrl:
+                  type: string
+                  format: uri
+                label:
+                  type: string
+                mimeType:
+                  type: string
+              additionalProperties: {}
+              description: A public profile media or brand asset.
+            profileImage:
+              type: object
+              properties:
+                assetId:
+                  type: string
+                byteSize:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                caption:
+                  type: string
+                downloadUrl:
+                  type: string
+                  format: uri
+                imageUrl:
+                  type: string
+                  format: uri
+                label:
+                  type: string
+                mimeType:
+                  type: string
+              additionalProperties: {}
+              description: A public profile media or brand asset.
+          required:
+            - additionalLogos
+            - assets
+            - logos
+          additionalProperties: {}
+          description: Public media kit metadata for a public profile.
+        outboundLinks:
+          type: array
+          items:
+            type: object
+            properties:
+              label:
+                type: string
+                minLength: 1
+              source:
+                type: string
+              type:
+                type: string
+              url:
+                type: string
+                format: uri
+            required:
+              - label
+              - url
+            additionalProperties: {}
+            description: A public outbound link.
+        profileType:
+          type: string
+          enum:
+            - person
+            - community
+          description: The public profile entity class.
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 160
+        source:
+          type: object
+          properties:
+            label:
+              type: string
+            sourceType:
+              type: string
+              enum:
+                - manual
+                - owner
+                - community
+                - partner
+                - import
+                - moderator
+                - ai_suggested
+              description: Public source or provenance class.
+            submittedAt:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            updatedAt:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            url:
+              type: string
+              format: uri
+          additionalProperties: {}
+          description: Public summary for community-submitted, imported, owner-authored, or reviewed data.
+        tags:
+          type: array
+          items:
+            type: string
+        trustLabel:
+          type: string
+          enum:
+            - community_submitted
+            - unclaimed
+            - claimed_unverified
+            - claimed_verified
+          description: The public trust and claim state shown for the profile.
+        upcomingEvents:
+          type: array
+          items: {}
+        worldCredits:
+          type: array
+          items: {}
+      required:
+        - displayName
+        - profileType
+        - slug
+        - trustLabel
+      additionalProperties: {}
+      description: Public profile response. Unknown fields are preserved while the API is still stabilizing.
+    ApiProfileWriteResponse:
+      type: object
+      properties:
+        profileId:
+          type: string
+          minLength: 1
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 160
+        profileType:
+          type: string
+          enum:
+            - person
+            - community
+          description: The public profile entity class.
+        profilePath:
+          type: string
+          minLength: 1
+      required:
+        - profileId
+        - slug
+        - profileType
+        - profilePath
+      additionalProperties: false
+      description: Updated profile identifiers and public path.
+    PublicProfileAssetsResponse:
+      type: object
+      properties:
+        assets:
+          type: array
+          items:
+            type: object
+            properties:
+              assetId:
+                type: string
+              byteSize:
+                type: integer
+                exclusiveMinimum: 0
+                maximum: 9007199254740991
+              caption:
+                type: string
+              downloadUrl:
+                type: string
+                format: uri
+              imageUrl:
+                type: string
+                format: uri
+              label:
+                type: string
+              mimeType:
+                type: string
+            additionalProperties: {}
+            description: A public profile media or brand asset.
+        displayName:
+          type: string
+          minLength: 1
+        mediaKit:
+          type: object
+          properties:
+            additionalLogos:
+              type: array
+              items:
+                type: object
+                properties:
+                  assetId:
+                    type: string
+                  byteSize:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                  caption:
+                    type: string
+                  downloadUrl:
+                    type: string
+                    format: uri
+                  imageUrl:
+                    type: string
+                    format: uri
+                  label:
+                    type: string
+                  mimeType:
+                    type: string
+                additionalProperties: {}
+                description: A public profile media or brand asset.
+            assets:
+              type: array
+              items:
+                type: object
+                properties:
+                  assetId:
+                    type: string
+                  byteSize:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                  caption:
+                    type: string
+                  downloadUrl:
+                    type: string
+                    format: uri
+                  imageUrl:
+                    type: string
+                    format: uri
+                  label:
+                    type: string
+                  mimeType:
+                    type: string
+                additionalProperties: {}
+                description: A public profile media or brand asset.
+            avatarAppearance:
+              type: object
+              properties:
+                borderColor:
+                  type: string
+                borderEnabled:
+                  type: boolean
+                borderSoftnessPx:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                borderWidthPx:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                radiusPercent:
+                  type: integer
+                  minimum: 0
+                  maximum: 50
+              required:
+                - borderColor
+                - borderEnabled
+                - borderSoftnessPx
+                - borderWidthPx
+                - radiusPercent
+              additionalProperties: {}
+              description: Bounded public avatar presentation hints.
+            banner:
+              type: object
+              properties:
+                assetId:
+                  type: string
+                byteSize:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                caption:
+                  type: string
+                downloadUrl:
+                  type: string
+                  format: uri
+                imageUrl:
+                  type: string
+                  format: uri
+                label:
+                  type: string
+                mimeType:
+                  type: string
+              additionalProperties: {}
+              description: A public profile media or brand asset.
+            compactDisplay:
+              type: string
+              enum:
+                - profile_image
+                - logo
+            logoZipUrl:
+              type: string
+              format: uri
+            logos:
+              type: array
+              items:
+                type: object
+                properties:
+                  assetId:
+                    type: string
+                  byteSize:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                  caption:
+                    type: string
+                  downloadUrl:
+                    type: string
+                    format: uri
+                  imageUrl:
+                    type: string
+                    format: uri
+                  label:
+                    type: string
+                  mimeType:
+                    type: string
+                additionalProperties: {}
+                description: A public profile media or brand asset.
+            primaryLogo:
+              type: object
+              properties:
+                assetId:
+                  type: string
+                byteSize:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                caption:
+                  type: string
+                downloadUrl:
+                  type: string
+                  format: uri
+                imageUrl:
+                  type: string
+                  format: uri
+                label:
+                  type: string
+                mimeType:
+                  type: string
+              additionalProperties: {}
+              description: A public profile media or brand asset.
+            profileImage:
+              type: object
+              properties:
+                assetId:
+                  type: string
+                byteSize:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                caption:
+                  type: string
+                downloadUrl:
+                  type: string
+                  format: uri
+                imageUrl:
+                  type: string
+                  format: uri
+                label:
+                  type: string
+                mimeType:
+                  type: string
+              additionalProperties: {}
+              description: A public profile media or brand asset.
+          required:
+            - additionalLogos
+            - assets
+            - logos
+          additionalProperties: {}
+          description: Public media kit metadata for a public profile.
+        profileType:
+          type: string
+          enum:
+            - person
+            - community
+          description: The public profile entity class.
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 160
+      required:
+        - assets
+        - displayName
+        - profileType
+        - slug
+      additionalProperties: {}
+      description: Public assets for a profile.
+    ApiSimpleErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          minLength: 1
+      required:
+        - error
+      additionalProperties: false
+      description: Simple JSON error response.
+    ApiProfileAssetUploadIntentCreateResponse:
+      type: object
+      properties:
+        profileId:
+          type: string
+          minLength: 1
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 160
+        profileType:
+          type: string
+          enum:
+            - person
+            - community
+          description: The public profile entity class.
+        profilePath:
+          type: string
+          minLength: 1
+        intentId:
+          type: string
+          minLength: 1
+        uploadToken:
+          type: string
+          minLength: 1
+        uploadUrl:
+          type: string
+          minLength: 1
+        uploadTokenHeader:
+          type: string
+          const: x-vrdex-upload-token
+        expiresAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+      required:
+        - profileId
+        - slug
+        - profileType
+        - profilePath
+        - intentId
+        - uploadToken
+        - uploadUrl
+        - uploadTokenHeader
+        - expiresAt
+      additionalProperties: false
+      description: One-time upload target and upload-token header for profile media. The token is only valid for this upload intent.
+    PublicProfileLogosResponse:
+      type: object
+      properties:
+        additionalLogos:
+          type: array
+          items:
+            type: object
+            properties:
+              assetId:
+                type: string
+              byteSize:
+                type: integer
+                exclusiveMinimum: 0
+                maximum: 9007199254740991
+              caption:
+                type: string
+              downloadUrl:
+                type: string
+                format: uri
+              imageUrl:
+                type: string
+                format: uri
+              label:
+                type: string
+              mimeType:
+                type: string
+            additionalProperties: {}
+            description: A public profile media or brand asset.
+        displayName:
+          type: string
+          minLength: 1
+        logoZipUrl:
+          type: string
+          format: uri
+        logos:
+          type: array
+          items:
+            type: object
+            properties:
+              assetId:
+                type: string
+              byteSize:
+                type: integer
+                exclusiveMinimum: 0
+                maximum: 9007199254740991
+              caption:
+                type: string
+              downloadUrl:
+                type: string
+                format: uri
+              imageUrl:
+                type: string
+                format: uri
+              label:
+                type: string
+              mimeType:
+                type: string
+            additionalProperties: {}
+            description: A public profile media or brand asset.
+        primaryLogo:
+          type: object
+          properties:
+            assetId:
+              type: string
+            byteSize:
+              type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+            caption:
+              type: string
+            downloadUrl:
+              type: string
+              format: uri
+            imageUrl:
+              type: string
+              format: uri
+            label:
+              type: string
+            mimeType:
+              type: string
+          additionalProperties: {}
+          description: A public profile media or brand asset.
+        profileType:
+          type: string
+          enum:
+            - person
+            - community
+          description: The public profile entity class.
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 160
+      required:
+        - displayName
+        - logos
+        - profileType
+        - slug
+      additionalProperties: {}
+      description: Public logo assets for a profile.
+    ApiProfileAssetUploadIntentCompleteResponse:
+      type: object
+      properties:
+        intentId:
+          type: string
+          minLength: 1
+        storageKey:
+          type: string
+          minLength: 1
+        mimeType:
+          type: string
+          enum:
+            - image/png
+            - image/svg+xml
+            - image/jpeg
+            - image/webp
+          description: Supported profile media upload MIME type.
+        byteSize:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 12582912
+        assetIds:
+          type: array
+          items:
+            type: string
+            minLength: 1
+      required:
+        - intentId
+        - storageKey
+        - mimeType
+        - byteSize
+        - assetIds
+      additionalProperties: false
+      description: Completed profile media upload result. API-created targeted intents include attached asset ids; untargeted submission intents return an empty assetIds array.
+    ApiProfileAssetUploadErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          minLength: 1
+      required:
+        - error
+      additionalProperties: false
+      description: Profile asset upload transport error response.
+    PublicEventsResponse:
+      type: object
+      properties:
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicEventPreview"
+      required:
+        - events
+      additionalProperties: {}
+      description: List of public event cards.
+    PublicEventPreview:
+      type: object
+      properties:
+        bannerImageUrl:
+          type: string
+          format: uri
+        communityImageUrl:
+          type: string
+          format: uri
+        communityName:
+          type: string
+        communitySlug:
+          type: string
+          minLength: 1
+          maxLength: 160
+        doorsOpenAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        endAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        participantCount:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        posterImageUrl:
+          type: string
+          format: uri
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 160
+        slotCount:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        source:
+          type: object
+          properties:
+            label:
+              type: string
+              minLength: 1
+            sourceType:
+              type: string
+              enum:
+                - manual
+                - community
+                - partner
+                - import
+                - ai_suggested
+              description: Public event source class.
+            url:
+              type: string
+              format: uri
+          required:
+            - label
+            - sourceType
+          additionalProperties: {}
+          description: Public event source summary.
+        startAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        summary:
+          type: string
+        thumbnailImageUrl:
+          type: string
+          format: uri
+        timezone:
+          type: string
+        title:
+          type: string
+          minLength: 1
+        worlds:
+          type: array
+          items:
+            type: object
+            properties:
+              displayName:
+                type: string
+                minLength: 1
+              slug:
+                type: string
+                minLength: 1
+                maxLength: 160
+            required:
+              - displayName
+              - slug
+            additionalProperties: {}
+            description: Public event world summary.
+      required:
+        - source
+        - startAt
+        - title
+      additionalProperties: {}
+      description: Compact public event card.
+    PublicEvent:
+      type: object
+      properties:
+        bannerImageUrl:
+          type: string
+          format: uri
+        communityImageUrl:
+          type: string
+          format: uri
+        communityName:
+          type: string
+        communitySlug:
+          type: string
+          minLength: 1
+          maxLength: 160
+        doorsOpenAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        endAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        participantCount:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        posterImageUrl:
+          type: string
+          format: uri
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 160
+        slotCount:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        source:
+          type: object
+          properties:
+            label:
+              type: string
+              minLength: 1
+            sourceType:
+              type: string
+              enum:
+                - manual
+                - community
+                - partner
+                - import
+                - ai_suggested
+              description: Public event source class.
+            url:
+              type: string
+              format: uri
+          required:
+            - label
+            - sourceType
+          additionalProperties: {}
+          description: Public event source summary.
+        startAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        summary:
+          type: string
+        thumbnailImageUrl:
+          type: string
+          format: uri
+        timezone:
+          type: string
+        title:
+          type: string
+          minLength: 1
+        worlds:
+          type: array
+          items: {}
+        authoredMediaLinks:
+          type: array
+          items:
+            type: object
+            properties:
+              label:
+                type: string
+                minLength: 1
+              presentation:
+                type: string
+                enum:
+                  - open
+                  - copy
+              type:
+                type: string
+                enum:
+                  - event_page
+                  - watch
+                  - stream
+                  - vrcdn
+                  - discord
+                  - ticket
+                  - other
+              url:
+                type: string
+                format: uri
+            required:
+              - label
+              - presentation
+              - type
+              - url
+            additionalProperties: {}
+            description: Public event media or outbound link.
+        id:
+          type: string
+        mediaLinks:
+          type: array
+          items:
+            type: object
+            properties:
+              label:
+                type: string
+                minLength: 1
+              presentation:
+                type: string
+                enum:
+                  - open
+                  - copy
+              type:
+                type: string
+                enum:
+                  - event_page
+                  - watch
+                  - stream
+                  - vrcdn
+                  - discord
+                  - ticket
+                  - other
+              url:
+                type: string
+                format: uri
+            required:
+              - label
+              - presentation
+              - type
+              - url
+            additionalProperties: {}
+            description: Public event media or outbound link.
+        notes:
+          type: string
+        participants:
+          type: array
+          items: {}
+        slots:
+          type: array
+          items: {}
+        watchSurfaceEnabled:
+          type: boolean
+      required:
+        - slug
+        - source
+        - startAt
+        - title
+        - id
+        - watchSurfaceEnabled
+      additionalProperties: {}
+      description: Public event detail response.
+    ApiEventWriteResponse:
+      type: object
+      properties:
+        eventId:
+          type: string
+          minLength: 1
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 160
+        eventPath:
+          type: string
+          minLength: 1
+        shortLinkCode:
+          type: string
+          minLength: 1
+        shortLinkPath:
+          type: string
+          minLength: 1
+      required:
+        - eventId
+        - slug
+        - eventPath
+      additionalProperties: false
+      description: Created or updated event write result.
+    PublicWorld:
+      type: object
+      properties:
+        canonicalVrchatWorldUrl:
+          type: string
+          format: uri
+        creatorAttributions:
+          type: array
+          items: {}
+        description:
+          type: string
+        displayName:
+          type: string
+          minLength: 1
+        eventContext:
+          $ref: "#/components/schemas/PublicWorldEventsResponse"
+        heroImageUrl:
+          type: string
+          format: uri
+        media:
+          type: array
+          items: {}
+        outboundLinks:
+          type: array
+          items:
+            type: object
+            properties:
+              label:
+                type: string
+                minLength: 1
+              source:
+                type: string
+              type:
+                type: string
+              url:
+                type: string
+                format: uri
+            required:
+              - label
+              - url
+            additionalProperties: {}
+            description: A public outbound link.
+        platformCompatibility:
+          type: array
+          items:
+            type: string
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 160
+        source:
+          type: object
+          properties:
+            label:
+              type: string
+            sourceType:
+              type: string
+              enum:
+                - manual
+                - owner
+                - community
+                - partner
+                - import
+                - moderator
+                - ai_suggested
+              description: Public source or provenance class.
+            submittedAt:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            updatedAt:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            url:
+              type: string
+              format: uri
+          additionalProperties: {}
+          description: Public summary for community-submitted, imported, owner-authored, or reviewed data.
+        summary:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        visibilityStatus:
+          type: string
+        vrchatWorldId:
+          type: string
+      required:
+        - creatorAttributions
+        - displayName
+        - media
+        - outboundLinks
+        - platformCompatibility
+        - slug
+        - tags
+        - visibilityStatus
+      additionalProperties: {}
+      description: Public world detail response.
+    PublicWorldEventsResponse:
+      type: object
+      properties:
+        recent:
+          type: array
+          items:
+            type: object
+            properties:
+              bannerImageUrl:
+                type: string
+                format: uri
+              communityName:
+                type: string
+              doorsOpenAt:
+                type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              endAt:
+                type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              mediaLinks:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    label:
+                      type: string
+                      minLength: 1
+                    presentation:
+                      type: string
+                      enum:
+                        - open
+                        - copy
+                    type:
+                      type: string
+                      enum:
+                        - event_page
+                        - watch
+                        - stream
+                        - vrcdn
+                        - discord
+                        - ticket
+                        - other
+                    url:
+                      type: string
+                      format: uri
+                  required:
+                    - label
+                    - presentation
+                    - type
+                    - url
+                  additionalProperties: {}
+                  description: Public event media or outbound link.
+              posterImageUrl:
+                type: string
+                format: uri
+              slug:
+                type: string
+                minLength: 1
+                maxLength: 160
+              source:
+                type: object
+                properties:
+                  label:
+                    type: string
+                    minLength: 1
+                  sourceType:
+                    type: string
+                    enum:
+                      - manual
+                      - community
+                      - partner
+                      - import
+                      - ai_suggested
+                    description: Public event source class.
+                  url:
+                    type: string
+                    format: uri
+                required:
+                  - label
+                  - sourceType
+                additionalProperties: {}
+                description: Public event source summary.
+              startAt:
+                type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              summary:
+                type: string
+              thumbnailImageUrl:
+                type: string
+                format: uri
+              timezone:
+                type: string
+              title:
+                type: string
+                minLength: 1
+              worldAssociation:
+                type: object
+                properties:
+                  confirmationState:
+                    type: string
+                    const: confirmed
+                required:
+                  - confirmationState
+                additionalProperties: {}
+            required:
+              - mediaLinks
+              - source
+              - startAt
+              - title
+              - worldAssociation
+            additionalProperties: {}
+            description: Public event card as shown in world context.
+        upcoming:
+          type: array
+          items:
+            type: object
+            properties:
+              bannerImageUrl:
+                type: string
+                format: uri
+              communityName:
+                type: string
+              doorsOpenAt:
+                type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              endAt:
+                type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              mediaLinks:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    label:
+                      type: string
+                      minLength: 1
+                    presentation:
+                      type: string
+                      enum:
+                        - open
+                        - copy
+                    type:
+                      type: string
+                      enum:
+                        - event_page
+                        - watch
+                        - stream
+                        - vrcdn
+                        - discord
+                        - ticket
+                        - other
+                    url:
+                      type: string
+                      format: uri
+                  required:
+                    - label
+                    - presentation
+                    - type
+                    - url
+                  additionalProperties: {}
+                  description: Public event media or outbound link.
+              posterImageUrl:
+                type: string
+                format: uri
+              slug:
+                type: string
+                minLength: 1
+                maxLength: 160
+              source:
+                type: object
+                properties:
+                  label:
+                    type: string
+                    minLength: 1
+                  sourceType:
+                    type: string
+                    enum:
+                      - manual
+                      - community
+                      - partner
+                      - import
+                      - ai_suggested
+                    description: Public event source class.
+                  url:
+                    type: string
+                    format: uri
+                required:
+                  - label
+                  - sourceType
+                additionalProperties: {}
+                description: Public event source summary.
+              startAt:
+                type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              summary:
+                type: string
+              thumbnailImageUrl:
+                type: string
+                format: uri
+              timezone:
+                type: string
+              title:
+                type: string
+                minLength: 1
+              worldAssociation:
+                type: object
+                properties:
+                  confirmationState:
+                    type: string
+                    const: confirmed
+                required:
+                  - confirmationState
+                additionalProperties: {}
+            required:
+              - mediaLinks
+              - source
+              - startAt
+              - title
+              - worldAssociation
+            additionalProperties: {}
+            description: Public event card as shown in world context.
+      required:
+        - recent
+        - upcoming
+      additionalProperties: {}
+      description: Public world event context response.
+    PublicActiveWorldsResponse:
+      type: object
+      properties:
+        worlds:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicActiveWorld"
+      required:
+        - worlds
+      additionalProperties: {}
+      description: Public active worlds response.
+    PublicActiveWorld:
+      type: object
+      properties:
+        activityLabel:
+          type: string
+          const: Hosting upcoming events
+        displayName:
+          type: string
+          minLength: 1
+        heroImageUrl:
+          type: string
+          format: uri
+        nextEvent:
+          type: object
+          properties:
+            communityName:
+              type: string
+            communitySlug:
+              type: string
+              minLength: 1
+              maxLength: 160
+            doorsOpenAt:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            endAt:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            slug:
+              type: string
+              minLength: 1
+              maxLength: 160
+            source:
+              type: object
+              properties:
+                label:
+                  type: string
+                  minLength: 1
+                sourceType:
+                  type: string
+                  enum:
+                    - manual
+                    - community
+                    - partner
+                    - import
+                    - ai_suggested
+                  description: Public event source class.
+                url:
+                  type: string
+                  format: uri
+              required:
+                - label
+                - sourceType
+              additionalProperties: {}
+              description: Public event source summary.
+            startAt:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            timezone:
+              type: string
+            title:
+              type: string
+              minLength: 1
+          required:
+            - source
+            - startAt
+            - title
+          additionalProperties: {}
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 160
+        summary:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        upcomingEventCount:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+      required:
+        - activityLabel
+        - displayName
+        - nextEvent
+        - slug
+        - tags
+        - upcomingEventCount
+      additionalProperties: {}
+      description: Public world currently hosting upcoming or live public events.
+    PublicClaimStatusResponse:
+      type: object
+      properties:
+        claimState:
+          type: string
+          enum:
+            - unclaimed
+            - claimed_unverified
+            - claimed_verified
+          description: The public claim state without private owner account details.
+        displayName:
+          type: string
+          minLength: 1
+        profileType:
+          type: string
+          enum:
+            - person
+            - community
+          description: The public profile entity class.
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 160
+        trustLabel:
+          type: string
+          enum:
+            - community_submitted
+            - unclaimed
+            - claimed_unverified
+            - claimed_verified
+          description: The public trust and claim state shown for the profile.
+      required:
+        - claimState
+        - displayName
+        - profileType
+        - slug
+        - trustLabel
+      additionalProperties: {}
+      description: Public claim and trust state for a public profile.
+    ApiRateLimitUsageResponse:
+      type: object
+      properties:
+        caller:
+          type: object
+          properties:
+            authenticated:
+              type: boolean
+            credentialKind:
+              type: string
+              enum:
+                - anonymous
+                - personal_api_token
+                - oauth_client
+              description: Credential class used to choose the caller's current rate-limit bucket.
+            quotaTier:
+              type: string
+              enum:
+                - standard
+                - trusted_partner
+              description: Effective quota tier applied to the caller's current rate-limit window.
+            routeClass:
+              type: string
+              enum:
+                - anonymous_public_read
+                - authenticated_public_read
+                - developer_credential_management
+                - oauth_authorize
+                - oauth_token
+                - oauth_dynamic_client_registration
+                - asset_upload_intent
+                - public_write
+                - anonymous_mcp_public_read
+                - authenticated_mcp
+              description: Public API and MCP rate-limit route class.
+          required:
+            - authenticated
+            - credentialKind
+            - quotaTier
+            - routeClass
+          additionalProperties: false
+          description: Caller classification used for rate-limit policy selection.
+        currentWindow:
+          $ref: "#/components/schemas/ApiRateLimitCurrentWindow"
+        policies:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiRateLimitPolicy"
+      required:
+        - caller
+        - currentWindow
+        - policies
+      additionalProperties: false
+      description: Rate-limit policy table plus the current request's effective caller window.
+    ApiRateLimitPolicy:
+      type: object
+      properties:
+        limit:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 9007199254740991
+        routeClass:
+          type: string
+          enum:
+            - anonymous_public_read
+            - authenticated_public_read
+            - developer_credential_management
+            - oauth_authorize
+            - oauth_token
+            - oauth_dynamic_client_registration
+            - asset_upload_intent
+            - public_write
+            - anonymous_mcp_public_read
+            - authenticated_mcp
+          description: Public API and MCP rate-limit route class.
+        windowMs:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 9007199254740991
+      required:
+        - limit
+        - routeClass
+        - windowMs
+      additionalProperties: false
+      description: Default fixed-window quota policy for a route class.
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT or opaque personal API token
+      description: Use OAuth access tokens or personal API tokens in the Authorization header.
+    oauth2:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: /oauth/authorize
+          tokenUrl: /oauth/token
+          scopes:
+            public:read: public:read
+            profile:read: profile:read
+            profile:write: profile:write
+            community:read: community:read
+            community:write: community:write
+            events:read: events:read
+            events:write: events:write
+            assets:read: assets:read
+            assets:write: assets:write
+            developer:read: developer:read
+            developer:write: developer:write
+            mcp:read: mcp:read
+            mcp:write: mcp:write

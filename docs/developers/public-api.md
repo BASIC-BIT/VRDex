@@ -11,9 +11,10 @@ The full implementation-facing plan for API tokens, OAuth apps, rate limiting, S
 ## Current v0 Implementation Checkpoint
 
 `/api/v0` is now backed by shared TypeScript contract schemas in `packages/api-contracts`.
-The checked-in OpenAPI artifact is `docs/api/openapi.json`, and the web app serves
-the same generated document at `GET /api/v0/openapi.json`. The web app renders
-the generated API reference at `/developers/api`. Signed-in developers can
+The checked-in OpenAPI artifacts are `docs/api/openapi.json` and
+`docs/api/openapi.yaml`; the web app serves the generated JSON document at
+`GET /api/v0/openapi.json`. The web app renders the generated API reference at
+`/developers/api`. Signed-in developers can
 manage personal API tokens at `/developers/tokens` and user-owned or
 community-owned OAuth client apps at `/developers/apps`; bearer-authorized
 `/api/v0/developer/...` routes also support developer credential listing,
