@@ -1783,7 +1783,7 @@ These drafts come from the July 9, 2026 onboarding and seed-access pass. See
 Problem:
 
 VRDex has reviewed seed-import staging foundations, but it still needs a safe
-operator path for importing a real permissioned DJ link list such as NWIN's
+operator path for importing a real permissioned DJ link list such as NWinn's
 master list without committing source files or publishing candidates by
 default.
 
@@ -1794,6 +1794,8 @@ Scope:
 - normalize names, aliases, and supported public outbound links
 - preserve source, batch, importer, review state, field confidence, and
   provenance metadata
+- add optional source-observed and field last-checked timestamps without
+  substituting import time when freshness is unknown
 - reject private notes, raw account identifiers, unsupported scraped fields, and
   non-HTTPS public links
 - produce readback that proves imported records remain private seed candidates
@@ -1802,6 +1804,7 @@ Non-goals:
 
 - committing real partner spreadsheets or raw list data
 - publishing imported records by default
+- publishing NWinn records directly as public unclaimed profiles
 - owner confirmation or handoff links
 - public API writes for partner imports
 
@@ -1809,9 +1812,12 @@ Acceptance criteria:
 
 - an operator can import a small real or local sample file into seed staging
 - imported candidates default to private review state
-- field-level provenance and confidence are stored
-- no imported candidate appears in public search, lookup, profile pages, or API
-  reads until reviewed publication exists
+- field-level provenance, confidence, and available freshness metadata are
+  stored
+- unknown source dates remain unknown rather than inheriting import or review
+  time
+- no NWinn candidate appears in public search, lookup, profile pages, or API
+  reads
 - docs explain the source-file, permission, and rollback expectations
 
 Likely dependencies:
@@ -1837,9 +1843,9 @@ Scope:
 
 - add a server-authorized private lookup read for seed candidates
 - support super-admin access first
-- leave room for beta seed access after the operator path is proven
 - show private seed candidates distinctly from public profiles in dense lookup
   rows
+- show source, review, and freshness context without using a verified mark
 - keep anonymous lookup backed only by public profile/search data
 - capture safe analytics events without private fields or raw account metadata
 
@@ -1848,7 +1854,9 @@ Non-goals:
 - using a client-side feature flag as the only data-access control
 - exposing private candidates through public API or MCP reads
 - broad community-generated candidate access
-- replacing reviewed publication into normal public profiles
+- beta grants before the operator-only path is proven
+- replacing reviewed publication into normal public profiles for sources that
+  permit publication
 
 Acceptance criteria:
 
@@ -1856,6 +1864,7 @@ Acceptance criteria:
 - signed-out and ordinary signed-in users cannot see unpublished seed data
 - backend authorization enforces the access boundary
 - private seed rows are visually and semantically distinct in the operator UI
+- review and freshness metadata do not imply owner verification
 - tests cover allowed and denied lookup reads
 
 Likely dependencies:
@@ -1870,13 +1879,64 @@ Suggested labels:
 - `area:search`
 - `area:privacy`
 
+### Add backend beta grants and PostHog cohort rollout
+
+Problem:
+
+VRDex needs a product-friendly way to invite a small beta group into private
+seed lookup. PostHog cohorts are useful for targeting and analysis, but private
+data authorization must remain available, auditable, and self-hostable when
+PostHog is unavailable.
+
+Scope:
+
+- add an auditable account feature-grant record with user, key, state, grant
+  actor, grant time, optional expiry, revocation, and update metadata
+- define the first grant key as `view_private_seed_lookup`
+- use one backend authorization helper for super-admin and beta lookup reads
+- add an operator-only grant and revoke path
+- return only the viewer's boolean capability result to the web client
+- mirror the backend grant to a stable PostHog person property and derive a
+  `Seed lookup beta` cohort from it
+- target a PostHog UI flag to the cohort and capture safe rollout events
+
+Non-goals:
+
+- using a PostHog cohort or client flag as backend authorization
+- building a general-purpose organization or community permission matrix
+- exposing private seed fields in analytics
+- publishing NWinn candidates as public profiles
+- broad self-service beta enrollment
+
+Acceptance criteria:
+
+- super-admin and explicitly granted beta users can read private seed lookup
+- ordinary signed-in and signed-out users cannot read private seed lookup
+- grant, revoke, and expiry decisions are enforced by Convex and audited
+- PostHog cohort membership follows backend grant state
+- PostHog downtime or stale flag state cannot grant or revoke data access
+- tests cover active, revoked, expired, ordinary-user, and signed-out reads
+
+Likely dependencies:
+
+- hard dependency on `Add private seed lookup access`
+- soft dependency on `Add PostHog rollout controls for onboarding and seed lookup`
+
+Suggested labels:
+
+- `phase:v1`
+- `area:profiles`
+- `area:analytics`
+- `area:privacy`
+
 ### Add reviewed seed publication into public unclaimed profiles
 
 Problem:
 
-Some permissioned DJ list records contain safe public links that can make lookup
-useful for real users, but publication must preserve provenance, opt-out, field
-visibility, and unclaimed trust boundaries.
+Some permissioned sources may explicitly allow reviewed records to become
+public profiles, but publication must preserve provenance, opt-out, field
+visibility, and unclaimed trust boundaries. This is a generic future capability;
+NWinn's list is not a publishable source for this path.
 
 Scope:
 
@@ -1890,6 +1950,7 @@ Scope:
 Non-goals:
 
 - publishing every imported candidate automatically
+- publishing NWinn candidates through this path
 - owner-confirming fields during publication
 - exposing private contacts, private notes, or raw provider identifiers
 - resolving all duplicate or contested identity cases
@@ -1956,7 +2017,7 @@ Likely dependencies:
 
 - hard dependency on `#17`
 - hard dependency on `#18`
-- soft dependency on `Add reviewed seed publication into public unclaimed profiles`
+- soft dependency on `Add private seed lookup access`
 
 Suggested labels:
 
@@ -1976,7 +2037,9 @@ and reverse-proxy posture before beta rollout.
 Scope:
 
 - add a small client helper for PostHog feature flags and onboarding events
+- mirror backend beta-grant state into a PostHog person property and cohort
 - document server-side authorization as the source of truth for private data
+  when PostHog is unavailable or stale
 - add safe events for seed lookup, handoff link open, claim start, field review,
   and publication
 - decide whether session replay is disabled, sampled, or route-limited for
@@ -1987,7 +2050,8 @@ Scope:
 
 Non-goals:
 
-- using PostHog cohorts as the only source of private-data authorization
+- using PostHog cohorts as the source of private-data authorization
+- syncing cohort decisions from PostHog into Convex grants
 - creating dashboards before the event taxonomy exists
 - adding a separate LaunchDarkly-style flag vendor
 - recording private imported fields or sensitive account data
@@ -1995,7 +2059,9 @@ Non-goals:
 Acceptance criteria:
 
 - onboarding and seed-access features have a documented rollout posture
-- feature flags can stage UI exposure without weakening backend access control
+- feature flags and cohorts can stage UI exposure without weakening backend
+  access control
+- the cohort reflects backend grant state rather than defining it
 - analytics events avoid private fields and raw auth identifiers
 - session replay behavior is explicitly configured or explicitly deferred
 - reverse proxy posture is documented and implemented only if justified

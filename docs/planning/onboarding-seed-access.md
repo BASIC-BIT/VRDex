@@ -21,10 +21,11 @@ VRDex already has planning and backend foundations for:
 The current gap is the connective product slice:
 
 - import a real permissioned DJ list
-- let the operator inspect and use it before publication
+- let the operator inspect and use it while it remains private
 - let trusted beta users see more than the public web sees, if desired
 - generate a pleasant link for a person to review and claim a prepared profile
-- publish only safe, reviewed public fields when the record is ready
+- keep public publication as a separate, source-specific decision rather than a
+  default import outcome
 
 Do not call this `draft users`. The useful object is a profile or import
 candidate, not a user account. User accounts should be created by the real
@@ -50,8 +51,10 @@ Covered:
 - `docs/planning/product-spec.md` already names concierge or handoff profiles,
   partner and list seed imports, and dense DJ lookup mode.
 - `docs/planning/seed-import-model.md` already defines seed import batches,
-  candidate profiles, candidate fields, review state, publication state, safe
-  public fields, and blockers for queueing publication.
+  candidate profiles, candidate fields, review state, confidence, publication
+  state, safe public fields, and blockers for queueing publication. The current
+  schema stores batch `receivedAt` and per-field `reviewedAt`, but not when
+  the source value was observed or last rechecked.
 - `docs/backend/profile-access-and-claims.md` already defines `draft_private`,
   public read boundaries, claim states, owner authority, and field visibility.
 - `docs/backend/search-discovery.md` already requires lookup/search to enforce
@@ -67,6 +70,8 @@ Missing or only partly covered:
 - beta user access to private seed lookup, if product-approved
 - handoff invitation links tied to a candidate or concierge profile
 - owner confirmation of prefilled fields before claim/publication
+- field-level source-observed and last-checked timestamps for freshness-sensitive
+  imported values
 - PostHog feature-flag implementation, session replay privacy posture, and
   reverse-proxy setup
 
@@ -91,12 +96,46 @@ Avoid:
 - public copy that says or implies VRDex owns the identity before claim
 - public copy that exposes import mechanics or provider uncertainty
 
+## Review, Verification, And Freshness
+
+Current implementation:
+
+- A seed batch has `receivedAt`.
+- Each imported field has review state, confidence, `reviewedBy`, and
+  `reviewedAt`.
+- Confidence can be `low`, `medium`, `high`, or
+  `owner_confirmed`.
+- There is no implemented timestamp for when the source value was observed or
+  when VRDex last checked it.
+
+Current recommendation:
+
+- `Reviewed` means an operator accepted the field for its intended private
+  use. It does not mean the field is current or owner-verified.
+- Add optional `sourceObservedAt` metadata when a source provides a real
+  snapshot or as-of date. Do not substitute import time when that date is
+  unknown.
+- Add optional field-level `lastCheckedAt` for values such as links after
+  a human or automated reachability check. A successful link check proves the
+  URL responded, not that the owner endorses it.
+- Keep unknown freshness explicitly unknown. Do not infer that an older source
+  is stale or a recent import is verified.
+- Set `owner_confirmed` only through an owner-controlled handoff or claim
+  action and preserve that action time in audit metadata.
+
+Authorized lookup can show compact internal metadata such as `Source: NWinn`,
+`Reviewed <date>`, and `Freshness unknown` or `Checked <date>`. It
+must not display a verified mark based only on partner provenance or operator
+review.
+
 ## Interview Notes
 
 Observed workflow:
 
-- NWIN has a DJ master list with names and public links gathered through event
+- NWinn has a DJ master list with names and public links gathered through event
   operations.
+- The source date for the current NWinn list is not known, so imported values
+  should start with unknown freshness even when the source itself is trusted.
 - Close friends can be sent a direct profile or handoff link with minimal
   explanation.
 - Less-close contacts need a short, human-written paragraph that explains why
@@ -110,7 +149,8 @@ Observed workflow:
 Implication:
 
 - The smallest useful onboarding loop is not "launch all imported profiles."
-  It is "import safely, inspect privately, publish or hand off deliberately."
+  It is "import safely, inspect privately, grant beta access deliberately, and
+  hand off individual records when useful."
 
 Risk:
 
@@ -128,47 +168,55 @@ Locked decision:
   committed to the repo.
 - Private seed candidates must not enter public search documents, public API
   responses, or anonymous lookup results.
-- Server-side authorization, not a client-side feature flag, is the source of
-  truth for private seed access.
+- NWinn seed candidates must remain private operator or beta lookup data. Do not
+  publish NWinn records directly as public unclaimed profiles.
+- Server-side authorization, not a client-side feature flag or PostHog cohort,
+  is the source of truth for private seed access.
+- Operator review, source confidence, link reachability, and owner verification
+  are distinct states and must not be collapsed into a single verified label.
 - Owner confirmation is required before prefilled fields become
   `owner_confirmed`.
-- Publication of an imported candidate into a public profile must be deliberate,
-  reviewed, and limited to safe public fields.
+- Publication of an imported candidate from any other approved source into a
+  public profile must be deliberate, reviewed, and limited to safe public
+  fields.
 
 Current recommendation:
 
-- Treat the NWIN list as a permissioned partner seed source if NWIN is comfortable
-  with that use.
+- Treat the NWinn list as a permissioned partner seed source for private lookup,
+  assuming NWinn is comfortable with that use.
 - Start with one operator-only import path and one operator-only private lookup
-  path before broad beta access.
-- Use PostHog flags to stage UI access, measure adoption, and provide kill
-  switches, but mirror private-data access in Convex authorization.
-- Use `published_unclaimed` only for records with safe public links that have
-  been reviewed and are acceptable to show as partner-provided or unclaimed.
+  path, then add a small explicitly granted beta cohort.
+- Store the private-data grant in Convex, then mirror that grant into a PostHog
+  person property and cohort for UI rollout, measurement, and kill switches.
+  The synchronization direction is backend to PostHog, not PostHog to backend.
+- Reserve `Community submitted` for public profiles actually created through
+  the community-submission path. Authorized NWinn lookup rows should show source,
+  review, and freshness metadata instead of a public trust badge.
 - Use handoff invitations for close-friend onboarding and for curated profiles
   that should stay private until the recipient signs in and reviews them.
 
 Candidate direction:
 
-- Let a small beta cohort view private seed lookup after the super-admin path is
-  proven.
 - Later, let trusted community owners generate handoff links for DJs attached to
   their events, but only after abuse, opt-out, and provenance paths are clearer.
 - Add a self-serve "search for yourself and claim" flow over public unclaimed
-  profiles after the direct handoff path works.
+  profiles from sources that have an explicit public-publication posture after
+  the direct handoff path works.
+- Keep generic reviewed publication available as a separate future capability
+  for other permissioned sources; it is not part of the NWinn path.
 
 Interview later:
 
-- What public label feels least awkward for a reviewed imported profile:
-  `partner-provided`, `community-submitted`, `unclaimed`, or something else?
-- Does NWIN explicitly approve using the list for private import only, public
-  lookup, or both?
-- Which fields from the NWIN list are acceptable for public display on day one?
-- Should beta seed access be granted by a small allowlist, a role, a PostHog
-  cohort mirrored into Convex, or a manual operator grant table?
+- Should beta grants expire automatically, and who besides the super-admin may
+  grant or revoke them later?
+- Which field types need active rechecks, and what age should produce a stale
+  warning instead of only an unknown-freshness label?
 - What expiration and reuse rules should handoff links use?
-- Should close friends receive a full profile handoff, or just a public unclaimed
-  link plus a claim CTA?
+- Should close friends receive a full private profile handoff or a narrower
+  candidate preview plus a claim CTA?
+- What public label should other, explicitly publishable imported sources use?
+  `Community submitted` remains acceptable for ordinary community-created
+  records but should not erase more specific provenance.
 
 ## Minimum Viable Path
 
@@ -176,8 +224,8 @@ Interview later:
 
 Goal:
 
-- Convert NWIN's permissioned DJ master list into seed import candidates without
-  publishing anything by default.
+- Convert NWinn's permissioned DJ master list into private seed import candidates
+  without creating public unclaimed profiles.
 
 Scope:
 
@@ -187,7 +235,10 @@ Scope:
 - classify supported public links such as VRCDN, Twitch, VRChat, SoundCloud,
   Mixcloud, YouTube, Bandcamp, Linktree, website, and booking links
 - preserve source name, import batch, source contact, importer, received time,
-  and field-level confidence
+  review state, and field-level confidence
+- preserve a real source-observed date when supplied and leave it unknown for
+  the current NWinn list; add field-level last-checked time only after an actual
+  recheck
 - reject private notes, private contact details, raw account identifiers, and
   unsupported scraped data
 
@@ -200,7 +251,7 @@ Acceptance signal:
 
 Goal:
 
-- Make `/lookup` useful against imported data before public publication.
+- Make `/lookup` useful against imported data without public publication.
 
 Scope:
 
@@ -210,6 +261,8 @@ Scope:
   viewer
 - visibly distinguish private seed candidates from public profiles in the
   operator UI
+- show compact source, review, and freshness metadata without implying owner
+  verification
 - keep anonymous public lookup backed only by public profile/search data
 
 Acceptance signal:
@@ -217,26 +270,30 @@ Acceptance signal:
 - the operator can search real imported candidates privately, while a signed-out
   user sees no unpublished seed data.
 
-### 3. Add Reviewed Public Publication For Safe Link Records
+### 3. Add Backend Beta Grants And A PostHog Cohort
 
 Goal:
 
-- Make selected NWIN records useful to real public users through normal lookup
-  without exposing unreviewed data.
+- Let a small trusted beta group use private seed lookup while keeping Convex as
+  the authorization boundary.
 
 Scope:
 
-- extend the existing seed publication marker into actual public profile create
-  or merge behavior
-- allow only safe public fields and HTTPS outbound links
-- block opted-out, suppressed, duplicate, or matched claimed profiles
-- create or refresh search documents after publication
-- render the public entry as unclaimed or partner-provided without overexplaining
+- add a small auditable account grant record for
+  `view_private_seed_lookup`, with grant, revoke, and optional expiry metadata
+- use the same backend authorization helper for super-admin and beta lookup
+  reads
+- expose only the viewer's boolean access result to the web client
+- identify the authorized user in PostHog with a stable beta-access property,
+  build a cohort from that property, and target the seed-lookup UI flag to it
+- update or clear the PostHog property after backend grant changes; never grant
+  data access because a PostHog cohort or flag says true
+- keep seed values, source rows, and raw account identifiers out of analytics
 
 Acceptance signal:
 
-- a reviewed candidate can become a public unclaimed profile and appear in
-  `/lookup`, `/search`, and `/p/<slug>` with only safe public fields.
+- a granted beta user can use private seed lookup, an ordinary signed-in user
+  cannot, and disabling PostHog does not change either authorization result.
 
 ### 4. Add Handoff Invitation Links
 
@@ -279,8 +336,10 @@ Current repo state:
 Scope:
 
 - add a small PostHog helper for client-side flags and event capture
-- add a server-side or Convex-side access gate for private seed data that does
-  not depend on client-side flags
+- mirror backend beta-grant state into a PostHog person property and cohort for
+  targeting and analysis
+- keep the server-side Convex access gate authoritative when flags, cohorts, or
+  PostHog itself are unavailable or stale
 - add onboarding and lookup events that avoid private fields and raw account
   identifiers
 - decide whether session replay is disabled, sampled, or route-limited for
@@ -307,8 +366,8 @@ References:
 
 Acceptance signal:
 
-- seed lookup and handoff work can be rolled out to super-admin, then a small
-  beta cohort, with analytics and kill-switch posture documented.
+- seed lookup and handoff work can be rolled out to super-admin, then a
+  backend-granted beta cohort, with analytics and kill-switch posture documented.
 
 ## Suggested Issue Slices
 
@@ -319,13 +378,18 @@ data or publishing candidates by default.
 
 ### Add private seed lookup access
 
-Let super-admins and later approved beta users search unpublished seed
-candidates through a server-authorized lookup path.
+Let super-admins search unpublished seed candidates through a server-authorized
+lookup path with source, review, and freshness context.
 
-### Add reviewed seed publication into public unclaimed profiles
+### Add backend beta grants and PostHog cohort rollout
 
-Convert selected, reviewed seed candidates into safe public unclaimed profiles
-with normal search, lookup, public profile, provenance, and opt-out boundaries.
+Grant selected accounts private seed lookup in Convex, then mirror the grant to
+PostHog for cohort targeting, measurement, and UI rollout.
+
+### Add reviewed seed publication into public unclaimed profiles later
+
+Keep generic publication as a separate future capability for explicitly
+publishable sources. NWinn records are out of scope for this issue.
 
 ### Add concierge handoff invitation links
 
@@ -337,15 +401,18 @@ publish or keep private a prepared profile.
 Add feature-flag, analytics, replay/privacy, and reverse-proxy posture for the
 onboarding and seed-access flows.
 
-## Open Product Question
+## Resolved Direction For NWinn
 
-The main decision before implementation is the public/private boundary for the
-NWIN list:
+The NWinn boundary is now:
 
-- private operator seed only
-- private operator seed plus small beta lookup
-- reviewed public unclaimed profiles for safe public links
+- import the list as private partner seed data
+- start with operator-only lookup
+- add access for a small backend-granted beta cohort after the operator path is
+  proven
+- do not turn NWinn candidates directly into public unclaimed profiles
+- allow an individual record to enter an owner-controlled handoff flow when
+  there is a real onboarding reason
 
-The recommended first implementation supports all three as states, but starts
-with private operator seed access until permission and public-label language are
-confirmed.
+This keeps the list useful for lookup and concierge onboarding without making
+public-profile labeling a prerequisite. Generic reviewed publication remains a
+separate capability for sources with an explicit public-use agreement.

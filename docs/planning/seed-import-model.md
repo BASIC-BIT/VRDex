@@ -42,6 +42,7 @@ Suggested fields:
 - `sourceType`: `partner`, `manual`, `import`, `community`, or `moderator`
 - `sourceContact` optional internal owner for the import relationship
 - `receivedAt`
+- `sourceObservedAt` optional source-provided snapshot or as-of time
 - `importedBy`
 - `reviewState`: `draft`, `ready_for_review`, `approved`, `rejected`, `superseded`
 - `reviewedBy` optional reviewer metadata
@@ -83,11 +84,36 @@ Suggested fields:
 - `sourceLabel`
 - `sourceUrl` optional public source URL
 - `sourceType`: `partner`, `manual`, `import`, `community`, `moderator`
+- `sourceObservedAt` optional source-provided or operator-known as-of time
+- `lastCheckedAt` optional time the value was last actively rechecked
 - `confidence`: `low`, `medium`, `high`, or `owner_confirmed`
 - `reviewState`: `unreviewed`, `accepted`, `rejected`, `needs_correction`
 - `visibility`: `public`, `unlisted`, or `private`
 - `reviewedBy` optional
 - `reviewedAt` optional
+
+## Review, Verification, And Freshness
+
+Keep these meanings separate:
+
+- `receivedAt` records when VRDex received the batch.
+- `reviewedAt` records when an operator reviewed a batch, candidate, or
+  field for its intended use.
+- `sourceObservedAt` records when the source value was known to be current,
+  but only when the source or operator can supply a real as-of time.
+- `lastCheckedAt` records a later active recheck. For a link, a successful
+  check means the URL responded; it does not imply owner endorsement.
+- `owner_confirmed` means the real owner explicitly confirmed the field
+  through an owner-controlled flow.
+
+Unknown source age must remain unset rather than being replaced with import or
+review time. Operator review can accept a trusted source value for private
+lookup while its freshness remains unknown.
+
+Current implementation note: the schema implements `receivedAt`, review
+timestamps, and confidence. It does not yet implement `sourceObservedAt` or
+`lastCheckedAt`. Real-list import work should add these optional fields before
+the lookup UI presents freshness.
 
 ## Publication Defaults
 
