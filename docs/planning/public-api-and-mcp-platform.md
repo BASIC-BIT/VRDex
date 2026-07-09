@@ -111,37 +111,38 @@ client compatibility is what unlocks external launch confidence.
 
 Next execution checkpoint:
 
-1. Re-establish the hosted data-backed evidence row after one target includes
-   the hosted `search` and `fetch` compatibility aliases and has data-backed
-   public search:
-
-   ```bash
-   pnpm smoke:mcp-compat -- --hosted-only --hosted-url <production-like-/mcp-url> --hosted-data --hosted-query <known-public-query> --dcr --cimd --continue-on-failure
-   ```
-
-   The hosted-data smoke now requires both non-empty `vrdex_search` and
-   OpenAI-compatible `search`/`fetch` results.
-2. Keep the recorded hosted evidence rows for data-backed anonymous reads,
+1. Keep the recorded hosted evidence rows for data-backed anonymous reads,
    Dynamic Client Registration, and public-client Client ID Metadata Documents
    in `docs/developers/mcp-client-smoke-results.json`. Current state:
    data-backed anonymous read, DCR, and CIMD all pass against
    `https://staging.vrdex.net/mcp` after the PR branch staging deploy run
    `29037734496`.
-3. Complete the major-client matrix rows against that same staging target,
-   continuing with the locally installed clients that still need smoke-tested
-   rows: VS Code, Cursor, and Windsurf. Gemini CLI local stdio now passes with
-   `pnpm smoke:mcp-gemini-cli -- --gemini-package @google/gemini-cli@latest`;
-   rerun the hosted Gemini rows after provider quota is available, or capture
-   equivalent interactive `/mcp` evidence. Complete hosted OAuth coverage for
-   Claude Code, Gemini CLI, and MCP Inspector.
-4. Before hosted-OAuth rows are recorded, rerun
+2. Complete the installed-app matrix batch against that same staging target:
+   VS Code, Cursor, and Windsurf still need real client sessions for local
+   stdio and hosted anonymous-read evidence. Current official client docs
+   support this batch: VS Code documents `mcp.json` plus `--add-mcp`, Cursor
+   documents `stdio` plus Streamable HTTP with OAuth, and Devin Desktop /
+   Windsurf Cascade documents `stdio`, Streamable HTTP, SSE, and OAuth support.
+   Use the generated session pack and isolated add-MCP preflight as setup
+   aids, but only record a row after the installed app lists tools and calls
+   `vrdex_search`.
+3. Rerun the Gemini hosted rows after provider quota is available, or capture
+   equivalent interactive `/mcp` evidence. Gemini CLI local stdio already
+   passes with
+   `pnpm smoke:mcp-gemini-cli -- --gemini-package @google/gemini-cli@latest`.
+4. Complete hosted OAuth coverage for Claude Code, Gemini CLI, MCP Inspector,
+   and OpenAI/ChatGPT product surfaces after a complete credential path exists.
+   Current official docs keep OAuth/DCR/CIMD support in scope, but the rows are
+   blocked on credentials or product-surface access rather than platform
+   design.
+5. Before hosted-OAuth rows are recorded, rerun
    `pnpm ops:mcp-hosted-oauth-prereqs`. The 2026-07-09 PR #159 audit is
    `partial`: hosted auth helpers and the browser token are present, but
    reviewed OAuth smoke secrets, the Inspector token fallback, and
    `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true` are not configured. Enabling
    the developer-credentials gate is an operator action after staging has the
    developer credential routes and token endpoint under test.
-5. Use `pnpm smoke:mcp-openai -- --hosted-url https://staging.vrdex.net/mcp
+6. Use `pnpm smoke:mcp-openai -- --hosted-url https://staging.vrdex.net/mcp
    --hosted-data` with `OPENAI_API_KEY` for OpenAI Responses API hosted
    anonymous-read evidence. The smoke now loads repo-root `.env.local` if
    present and directly preflights the hosted MCP target before calling OpenAI,

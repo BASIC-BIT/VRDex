@@ -137,6 +137,12 @@ one PR.
   declared. Record those manual rows with `pnpm record:mcp-client-smoke` so
   pass/fail entries include a run date, target environment, and sanitized
   evidence pointer.
+- The major-client matrix source check was refreshed on 2026-07-09 against the
+  current official docs for VS Code, Claude Code, Cursor, and Devin Desktop /
+  Windsurf Cascade. Those docs keep remote HTTP/Streamable HTTP, local stdio,
+  and hosted OAuth behavior in scope, so the next burn-down batch is real
+  installed-app evidence for VS Code, Cursor, and Windsurf rather than another
+  protocol redesign.
 - Required hosted matrix rows cannot be recorded or verified as `pass` unless
   the matrix target environment names a same-branch Convex preview, staging,
   production-like, or production target. Lightweight PR preview transport

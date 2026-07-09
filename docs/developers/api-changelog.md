@@ -28,6 +28,11 @@ docs update and a changelog entry so early consumers and agents can adapt.
   `hosted-data-backed-anonymous-read` cannot be marked `pass` unless the
   sanitized evidence mentions `vrdex_search`, `search`, and `fetch` coverage
   from the same hosted data-backed smoke
+- refreshed the major-client MCP source check against current official VS Code,
+  Claude Code, Cursor, and Devin Desktop / Windsurf Cascade docs and narrowed
+  the next burn-down batch to installed-app VS Code, Cursor, and Windsurf
+  evidence, with hosted OAuth rows still gated on credentials or product-surface
+  access
 - extended `pnpm ops:mcp-client-smokes` and
   `pnpm ops:mcp-client-session-pack` with `--hosted-query` /
   `VRDEX_MCP_SMOKE_QUERY` so generated real-client smoke commands can target a

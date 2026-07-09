@@ -11,6 +11,24 @@ This matrix separates repo-verified protocol behavior from manual client
 smokes. Do not declare the public MCP surface externally ready until the manual
 smoke rows are run against a deployed preview or production-like environment.
 
+Current official client-doc refresh, 2026-07-09:
+
+- [VS Code MCP docs](https://code.visualstudio.com/docs/agent-customization/mcp-servers)
+  document MCP server configuration through `mcp.json` and command-line
+  `--add-mcp`, with remote HTTP servers using `type: "http"` and `url`.
+- [Claude Code MCP docs](https://code.claude.com/docs/en/mcp) document remote
+  HTTP as the recommended cloud-service transport, support bearer headers, and
+  treat `streamable-http` as an alias for `http` in JSON MCP config.
+- [Cursor MCP docs](https://cursor.com/docs/mcp.md) document `stdio`, SSE, and
+  Streamable HTTP transports, with OAuth for hosted transports and static OAuth
+  client credentials when Dynamic Client Registration is not available.
+- [Devin Desktop / Windsurf Cascade MCP docs](https://docs.devin.ai/desktop/cascade/mcp)
+  document `stdio`, Streamable HTTP, and SSE transports, OAuth support for each
+  transport type, and `serverUrl`/`url` configuration for remote HTTP MCPs.
+
+Those source checks keep the next manual batch focused on installed-app
+evidence for VS Code, Cursor, and Windsurf, not on new protocol design.
+
 Source-backed client requirements from the current docs pass:
 
 - hosted MCP must keep Streamable HTTP working for remote clients
