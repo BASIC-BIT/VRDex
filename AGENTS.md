@@ -16,6 +16,7 @@ This file provides repo-level guidance for agents working on `VRDex` planning an
 - Preserve the larger vision while pushing toward realistic versions that can launch.
 - When a simpler design is sufficient for v1, recommend it clearly.
 - Do not silently convert speculation into policy; label assumptions honestly.
+- Treat `docs/planning/product-direction.md` as the durable product compass for what VRDex is trying to be, where the current niche lies, and how product-facing work should be shaped.
 
 ## Decision labeling
 

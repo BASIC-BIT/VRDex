@@ -8,6 +8,8 @@ Current recommendation: extend the local primitives in `apps/web/src/components/
 
 Locked decision: Storybook is an interrelated but separate visual lane from full-route Playwright screenshots. It is designed around individual components and primitives, not the site as a whole.
 
+Current maturity assessment: the web design system is a useful foundation, but it is not mature enough yet for broad homepage theme exploration. Color, font family, radius, and shadow tokens exist, and the primitive layer covers common page furniture. Spacing, type scale, layout density, entity cards, event timelines, homepage search composition, and theme presets still need a stronger token and component contract.
+
 ## Intent
 
 The design system keeps the public app visually consistent while preserving the warm VRDex identity. It should make common surfaces boring to implement: page shells, calm cards, clear actions, compact labels, readable forms, and status displays.
@@ -34,11 +36,28 @@ The design system keeps the public app visually consistent while preserving the 
 - Keep new styling easy to promote into a primitive when a pattern repeats.
 - Avoid adding Material UI or a broad shadcn dump unless the project explicitly reopens that decision.
 
+## Token Gaps
+
+Current recommendation: mature the token layer before a major homepage redesign or multi-theme pass.
+
+Needed tokens and primitives:
+
+- semantic color roles beyond the current warm palette, including neutral, accent, danger, success, warning, muted, inverse, focus, and data-highlight states
+- text-role tokens for display, title, section, body, caption, mono metadata, dense table text, and public-card labels
+- spacing and size steps for shell padding, compact cards, dense event rows, icon buttons, media thumbnails, and schedule gutters
+- layout width and density rules for public pages, operator views, lookup tables, and mobile-first schedule lists
+- entity-card primitives for people, communities, worlds, and events
+- event timeline/list primitives that can show local viewer time, set times, host/community, venue/world, watch state, and saved/followed context
+- theme presets expressed as token mappings rather than page-specific Tailwind or CSS overrides
+
+Avoid treating one route's CSS as the design system. If a style is useful for Home, event pages, profile pages, and lookup, promote the repeatable piece into tokens or a primitive before copying it.
+
 ## Copy And UX
 
 - Prefer crisp labels and direct data over paragraphs explaining every surface.
 - Keep trust states visible: unverified/community-submitted data should remain clearly labeled.
 - Use calm, minimal, trustworthy layouts instead of noisy decorative treatments.
+- For homepage copy, use the taste-review process in `docs/planning/homepage-discovery-direction.md` before treating AI-drafted language as production-ready.
 
 ## Storybook Lane
 
