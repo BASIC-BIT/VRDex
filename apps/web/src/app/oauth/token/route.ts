@@ -1,19 +1,19 @@
-import { api } from "@convex-generated-api";
+import { internal } from "@convex-generated-api";
 
-import { convexHttpClient } from "@/lib/server/convex-http";
+import { convexAdminHttpClient } from "@/lib/server/convex-http";
 import { oauthTokenResponse } from "@/lib/server/oauth-token";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
-  const convex = convexHttpClient();
+  const convex = convexAdminHttpClient();
 
   return await oauthTokenResponse(request, {
     mutations: {
-      consumeAuthorizationCode: (input) => convex.mutation(api.oauthApps.consumeAuthorizationCode, input),
-      issueClientCredentialsAccessToken: (input) => convex.mutation(api.oauthApps.issueClientCredentialsAccessToken, input),
-      rotateRefreshToken: (input) => convex.mutation(api.oauthApps.rotateRefreshToken, input),
+      consumeAuthorizationCode: (input) => convex.mutation(internal.oauthApps.consumeAuthorizationCode, input),
+      issueClientCredentialsAccessToken: (input) => convex.mutation(internal.oauthApps.issueClientCredentialsAccessToken, input),
+      rotateRefreshToken: (input) => convex.mutation(internal.oauthApps.rotateRefreshToken, input),
     },
   });
 }

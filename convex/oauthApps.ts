@@ -979,7 +979,7 @@ export const revokeDeveloperApplicationForApiOwner = internalMutation({
   },
 });
 
-export const createDynamicMcpClient = mutation({
+export const createDynamicMcpClient = internalMutation({
   args: {
     clientId: v.string(),
     clientName: v.string(),
@@ -1064,7 +1064,7 @@ export const createDynamicMcpClient = mutation({
   },
 });
 
-export const upsertClientMetadataDocumentMcpClient = mutation({
+export const upsertClientMetadataDocumentMcpClient = internalMutation({
   args: {
     clientId: v.string(),
     clientName: v.string(),
@@ -1188,7 +1188,7 @@ export const upsertClientMetadataDocumentMcpClient = mutation({
   },
 });
 
-export const resolveAuthorizationClient = query({
+export const resolveAuthorizationClient = internalQuery({
   args: {
     clientId: v.string(),
     redirectUri: v.string(),
@@ -1293,7 +1293,7 @@ export const revokePersonalApplication = mutation({
   },
 });
 
-export const issueClientCredentialsAccessToken = mutation({
+export const issueClientCredentialsAccessToken = internalMutation({
   args: {
     clientId: v.string(),
     secretPrefix: v.string(),
@@ -1412,7 +1412,7 @@ export const issueClientCredentialsAccessToken = mutation({
   },
 });
 
-export const consumeAuthorizationCode = mutation({
+export const consumeAuthorizationCode = internalMutation({
   args: {
     clientId: v.string(),
     codeHash: v.string(),
@@ -1621,7 +1621,7 @@ export const consumeAuthorizationCode = mutation({
   },
 });
 
-export const rotateRefreshToken = mutation({
+export const rotateRefreshToken = internalMutation({
   args: {
     clientId: v.string(),
     refreshTokenHash: v.string(),
@@ -1830,7 +1830,7 @@ export const rotateRefreshToken = mutation({
   },
 });
 
-export const revokeClientAccessToken = mutation({
+export const revokeClientAccessToken = internalMutation({
   args: {
     clientId: v.string(),
     tokenId: v.string(),
@@ -1871,7 +1871,7 @@ export const revokeClientAccessToken = mutation({
   },
 });
 
-export const revokeClientRefreshToken = mutation({
+export const revokeClientRefreshToken = internalMutation({
   args: {
     clientId: v.string(),
     refreshTokenHash: v.string(),
@@ -2019,7 +2019,7 @@ export const revokeClientRefreshToken = mutation({
   },
 });
 
-export const validateAccessToken = mutation({
+export const validateAccessToken = internalMutation({
   args: {
     clientId: v.string(),
     tokenId: v.string(),

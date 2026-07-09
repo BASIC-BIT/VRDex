@@ -130,7 +130,10 @@ Current personal API token backend primitives:
 - `apiTokens.listPersonalTokens`
 - `apiTokens.revokeDeveloperTokenForApiOwner`
 - `apiTokens.revokePersonalToken`
-- `apiTokens.validateBearerTokenHash`
+
+`apiTokens.validateBearerTokenHash` is an internal server-only function. The
+public API handler invokes it with Convex admin authentication after the HTTP
+security boundary has validated the request.
 
 Current owner inventory backend primitives:
 
@@ -156,13 +159,15 @@ Current OAuth app registry primitives:
 - `oauthApps.revokeDeveloperApplicationForApiOwner`
 - `oauthApps.revokePersonalApplication`
 - `oauthApps.updateDeveloperApplicationForApiOwner`
-- `oauthApps.createDynamicMcpClient`
-- `oauthApps.resolveAuthorizationClient`
+
 - `oauthApps.issueAuthorizationCode`
-- `oauthApps.consumeAuthorizationCode`
-- `oauthApps.issueClientCredentialsAccessToken`
-- `oauthApps.revokeClientAccessToken`
-- `oauthApps.revokeClientRefreshToken`
+
+`issueAuthorizationCode` remains public because it enforces the signed-in
+Convex user itself. Dynamic Client Registration, Client ID Metadata Document
+materialization, authorization-client resolution, token exchange and rotation,
+revocation, and durable access-token validation are internal server-only
+functions invoked with Convex admin authentication after the HTTP security
+boundary has validated the request.
 
 Current OAuth issuer routes:
 

@@ -10,7 +10,7 @@ import {
   type ApiRouteClass,
   type ApiScope,
 } from "@vrdex/api-contracts";
-import { api } from "@convex-generated-api";
+import { internal } from "@convex-generated-api";
 import { NextResponse } from "next/server";
 
 import {
@@ -22,7 +22,7 @@ import {
   type ApiRateLimitResult,
 } from "@/lib/server/api-rate-limit";
 import { recordApiRateLimitBlockedEvent } from "@/lib/server/api-rate-limit-events";
-import { convexHttpClient } from "@/lib/server/convex-http";
+import { convexAdminHttpClient } from "@/lib/server/convex-http";
 import {
   oauthAccessTokenSigningConfigured,
   oauthApiResourceUri,
@@ -178,7 +178,7 @@ async function authenticateOptionalOAuthBearerToken(
   let validation;
 
   try {
-    validation = await convexHttpClient().mutation(api.oauthApps.validateAccessToken, {
+    validation = await convexAdminHttpClient().mutation(internal.oauthApps.validateAccessToken, {
       clientId: claims.client_id,
       tokenId: claims.jti,
       resource,
@@ -260,7 +260,7 @@ async function authenticateOptionalApiBearerToken(
     };
   }
 
-  const validation = await convexHttpClient().mutation(api.apiTokens.validateBearerTokenHash, {
+  const validation = await convexAdminHttpClient().mutation(internal.apiTokens.validateBearerTokenHash, {
     tokenPrefix: parsed.tokenPrefix,
     verifierHash,
     requiredScopes,

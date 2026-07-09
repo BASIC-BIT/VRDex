@@ -95,12 +95,12 @@ function requestBodyValue(body: unknown) {
 }
 
 async function defaultRegisterDynamicMcpClient(input: DynamicMcpClientMutationInput) {
-  const [{ api }, { convexHttpClient }] = await Promise.all([
+  const [{ internal }, { convexAdminHttpClient }] = await Promise.all([
     import("@convex-generated-api"),
     import("./convex-http"),
   ]);
 
-  return await convexHttpClient().mutation(api.oauthApps.createDynamicMcpClient, input);
+  return await convexAdminHttpClient().mutation(internal.oauthApps.createDynamicMcpClient, input);
 }
 
 export async function dynamicMcpClientRegistrationResponse(

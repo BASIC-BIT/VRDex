@@ -9,6 +9,13 @@ docs update and a changelog entry so early consumers and agents can adapt.
 
 ## 2026-07-09
 
+- moved server-only API-token validation plus OAuth Dynamic Client Registration,
+  Client ID Metadata Document materialization, authorization-client resolution,
+  token exchange/rotation, revocation, and durable access-token validation to
+  internal Convex functions; Next.js invokes them with Convex admin
+  authentication, while user-authenticated consent issuance remains a public
+  Convex mutation
+
 - added hosted MCP `search` and `fetch` compatibility aliases for OpenAI
   Responses API, ChatGPT deep research, and company-knowledge-style connectors;
   the aliases reuse the same anonymous public search/profile/event/world read

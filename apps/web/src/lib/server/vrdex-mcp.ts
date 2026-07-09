@@ -561,7 +561,7 @@ async function authenticateMcpBearerToken(request: Request, tokenValue: string) 
   let validation;
 
   try {
-    validation = await convexHttpClient().mutation(api.oauthApps.validateAccessToken, {
+    validation = await convexAdminHttpClient().mutation(internal.oauthApps.validateAccessToken, {
       clientId: claims.client_id,
       tokenId: claims.jti,
       resource,

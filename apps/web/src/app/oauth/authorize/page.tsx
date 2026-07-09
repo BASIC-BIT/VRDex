@@ -1,5 +1,5 @@
 import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
-import { api } from "@convex-generated-api";
+import { internal } from "@convex-generated-api";
 import { isOAuthClientMetadataDocumentUrl } from "@vrdex/api-contracts";
 import { headers } from "next/headers";
 import Link from "next/link";
@@ -15,7 +15,7 @@ import {
   clientIpForRequest,
 } from "@/lib/server/api-rate-limit";
 import { recordApiRateLimitBlockedEvent } from "@/lib/server/api-rate-limit-events";
-import { convexHttpClient } from "@/lib/server/convex-http";
+import { convexAdminHttpClient } from "@/lib/server/convex-http";
 import { fetchOAuthClientMetadataDocument } from "@/lib/server/oauth-client-metadata-document";
 import {
   normalizeOAuthAuthorizationRequest,
@@ -144,7 +144,7 @@ async function ensureClientMetadataDocumentClient(authorization: OAuthAuthorizat
 
   const metadata = await fetchOAuthClientMetadataDocument(authorization.clientId);
 
-  await convexHttpClient().mutation(api.oauthApps.upsertClientMetadataDocumentMcpClient, {
+  await convexAdminHttpClient().mutation(internal.oauthApps.upsertClientMetadataDocumentMcpClient, {
     clientId: metadata.clientId,
     clientName: metadata.clientName,
     ...(metadata.clientUri === undefined ? {} : { clientUri: metadata.clientUri }),
@@ -180,11 +180,7 @@ export default async function AuthorizePage({ searchParams }: AuthorizePageProps
     redirect(`/sign-in?redirectTo=${encodeURIComponent(`/oauth/authorize?${normalizedParams.toString()}`)}`);
   }
 
-  const convex = convexHttpClient();
-
-  convex.setAuth(authToken);
-
-  const client = await convex.query(api.oauthApps.resolveAuthorizationClient, {
+  const client = await convexAdminHttpClient().query(internal.oauthApps.resolveAuthorizationClient, {
     clientId: authorization.clientId,
     redirectUri: authorization.redirectUri,
     requestedScopes: authorization.requestedScopes,

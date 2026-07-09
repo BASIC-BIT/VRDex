@@ -295,7 +295,7 @@ export const revokePersonalToken = mutation({
   },
 });
 
-export const validateBearerTokenHash = mutation({
+export const validateBearerTokenHash = internalMutation({
   args: {
     tokenPrefix: v.string(),
     verifierHash: v.string(),
