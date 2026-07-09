@@ -879,7 +879,10 @@ describe("@vrdex/api-contracts", () => {
     const probe = probePath?.get;
 
     assert.ok(probe?.responses?.["400"]);
+    assert.ok(probe?.responses?.["401"]);
+    assert.ok(probe?.responses?.["403"]);
     assert.ok(probe?.responses?.["429"]);
+    assert.ok(probe?.responses?.["500"]);
     assert.deepEqual(probe?.security, [
       { bearerAuth: [] },
       { oauth2: ["public:read"] },

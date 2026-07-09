@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -237,6 +237,49 @@ export function geminiSpawnForPlatform(args: {
   return base;
 }
 
+function terminateGeminiProcessTree(child: ChildProcess) {
+  if (process.platform !== "win32" || child.pid === undefined) {
+    child.kill();
+
+    return Promise.resolve();
+  }
+
+  return new Promise<void>((resolve) => {
+    const killer = spawn("taskkill.exe", ["/pid", String(child.pid), "/t", "/f"], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    let finished = false;
+    const finish = (error?: Error) => {
+      if (finished) {
+        return;
+      }
+
+      finished = true;
+      if (error === undefined) {
+        resolve();
+      } else {
+        reject(error);
+      }
+    };
+
+    killer.once("error", (error) => {
+      child.kill("SIGBREAK");
+      finish(error);
+    });
+    killer.once("close", (code) => {
+      if (code === 0) {
+        finish();
+
+        return;
+      }
+
+      child.kill("SIGBREAK");
+      finish(new Error(`taskkill.exe exited with code ${code ?? "unknown"}.`));
+    });
+  });
+}
+
 function geminiSpawn(options: GeminiOptions, args: string[]) {
   return geminiSpawnForPlatform({
     comSpec: process.env.ComSpec,
@@ -254,6 +297,7 @@ export function runGemini(options: GeminiOptions, args: string[], cwd: string) {
       cwd,
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
     });
     let timeoutError: Error | undefined;
     let timeoutGrace: NodeJS.Timeout | undefined;
@@ -275,10 +319,12 @@ export function runGemini(options: GeminiOptions, args: string[], cwd: string) {
     };
     const timeout = setTimeout(() => {
       timeoutError = new Error(`${[command.command, ...command.args].join(" ")} timed out after ${options.timeoutMs}ms.`);
-      child.kill();
       timeoutGrace = setTimeout(() => {
         settleReject(timeoutError!);
       }, 5_000);
+      void terminateGeminiProcessTree(child)
+        .then(() => settleReject(timeoutError!))
+        .catch(() => undefined);
     }, options.timeoutMs);
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
@@ -293,14 +339,13 @@ export function runGemini(options: GeminiOptions, args: string[], cwd: string) {
         return;
       }
 
-      settled = true;
-      clearTimers();
       if (timeoutError !== undefined) {
-        reject(timeoutError);
-
+        settleReject(timeoutError);
         return;
       }
 
+      settled = true;
+      clearTimers();
       resolve({
         code,
         stderr: Buffer.concat(stderr).toString("utf8"),

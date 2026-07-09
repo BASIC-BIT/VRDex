@@ -855,7 +855,19 @@ export const openApiSource = {
             content: jsonContent(ApiProfileAssetStorageProbeResponseSchema),
           },
           "400": publicReadProblemResponses["400"],
+          "401": {
+            description: "An optional bearer credential was supplied but is invalid.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "403": {
+            description: "The supplied bearer credential lacks public:read scope.",
+            content: jsonContent(ApiProblemSchema),
+          },
           "429": publicReadProblemResponses["429"],
+          "500": {
+            description: "Bearer verification or API rate limiting is unavailable.",
+            content: jsonContent(ApiProblemSchema),
+          },
         },
       },
     },

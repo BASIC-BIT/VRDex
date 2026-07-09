@@ -2181,6 +2181,26 @@
               }
             }
           },
+          "401": {
+            "description": "An optional bearer credential was supplied but is invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The supplied bearer credential lacks public:read scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
           "429": {
             "description": "The request exceeded a rate limit.",
             "headers": {
@@ -2192,6 +2212,16 @@
                 }
               }
             },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Bearer verification or API rate limiting is unavailable.",
             "content": {
               "application/json": {
                 "schema": {

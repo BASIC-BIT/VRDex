@@ -85,6 +85,8 @@ describe("Gemini CLI MCP smoke harness", () => {
   });
 
   it("reports timed out Gemini subprocesses", async () => {
+    const startedAt = Date.now();
+
     await assert.rejects(
       runGemini(
         {
@@ -102,6 +104,13 @@ describe("Gemini CLI MCP smoke harness", () => {
         process.cwd(),
       ),
       /timed out after 50ms/,
+    );
+
+    const elapsedMs = Date.now() - startedAt;
+
+    assert.ok(
+      elapsedMs < 2_000,
+      `Expected the timed-out process tree to terminate within 2 seconds, but it took ${elapsedMs}ms.`,
     );
   });
 

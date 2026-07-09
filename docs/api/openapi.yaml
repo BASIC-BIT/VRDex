@@ -1024,7 +1024,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiProfileAssetStorageProbeResponse"
         "400": *a2
+        "401":
+          description: An optional bearer credential was supplied but is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "403":
+          description: The supplied bearer credential lacks public:read scope.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
         "429": *a1
+        "500":
+          description: Bearer verification or API rate limiting is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
         "501":
           description: Profile asset storage is not configured for this deployment.
           content:
