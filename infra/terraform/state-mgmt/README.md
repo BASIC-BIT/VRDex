@@ -44,6 +44,12 @@ terraform import aws_iam_role_policy.github_actions_terraform vrdex-github-terra
 
 Apply this stack before enabling provider-backed CI plan/apply for `infra/terraform/profile-assets`. That stack needs the GitHub Actions role to manage the private profile asset S3 bucket, the Vercel OIDC identity provider, and the Vercel profile asset runtime role.
 
+The hosted profile-assets stack previously used the Vercel team slug `basic-bit`.
+`legacy_vercel_team_slugs` keeps Terraform CI authorized for that older OIDC
+provider while `infra/terraform/profile-assets` state is migrated or imported to
+the current `basicbit` provider. Remove the legacy slug after state no longer
+references `oidc.vercel.com/basic-bit`.
+
 ## State Boundary
 
 Do not commit local state, plans, or `terraform.tfvars`. The root `.gitignore` excludes them.
