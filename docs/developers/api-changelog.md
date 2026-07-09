@@ -36,11 +36,11 @@ docs update and a changelog entry so early consumers and agents can adapt.
   `pnpm ops:mcp-oauth-smoke-credentials` hosted smoke guidance with the same
   known-query flags for Claude Code, Gemini CLI, OpenAI Responses API, and MCP
   Inspector
-- refreshed hosted MCP evidence after current target retries: staging now
-  returns HTTP 404 for `/mcp` and public search, while the PR preview exposes
-  `search`/`fetch` but fails backend-dependent data-backed reads, DCR, and
-  public-client CIMD authorization; the hosted readiness rows and stale hosted
-  client rows remain failed until a current production-like target passes
+- recorded interim hosted MCP target diagnostics before the later staging
+  redeploy: the earlier staging target returned HTTP 404 for `/mcp` and public
+  search, while the PR preview exposed `search`/`fetch` but failed
+  backend-dependent data-backed reads, DCR, and public-client CIMD
+  authorization
 - extended the MCP client session pack so newly reopened Claude Code and MCP
   Inspector hosted-anonymous rows get generated evidence worksheets instead of
   failing the worksheet-coverage guard
@@ -200,6 +200,9 @@ docs update and a changelog entry so early consumers and agents can adapt.
   Cursor, and Windsurf CLIs accept the generated local stdio, hosted anonymous
   HTTP, and hosted token-header fallback `--add-mcp` definitions before a human
   starts manual tool-list and `vrdex_search` evidence capture
+- tightened `pnpm ops:mcp-add-mcp-preflight` selector parsing so repeated
+  `--client` and `--config` flags are additive, matching the existing
+  comma-separated selector form
 - added `pnpm ops:mcp-oauth-smoke-credentials` to mint temporary staging OAuth
   smoke credentials through the gated E2E auth helper path, verify
   client-credentials `mcp:read` token issuance, and write ignored env files for

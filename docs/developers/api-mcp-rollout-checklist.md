@@ -198,7 +198,9 @@ one PR.
   token-header fallback `--add-mcp` definitions. It skips missing clients by
   default and fails rejected definitions. It does not replace manual matrix
   evidence because it does not list tools or call `vrdex_search` inside a real
-  client session.
+  client session. Use comma-separated selectors or repeated flags to narrow
+  the run; for example, `--client vscode,cursor` and
+  `--client vscode --client cursor` are equivalent.
 - `pnpm ops:mcp-oauth-smoke-credentials` can mint temporary staging OAuth
   smoke credentials through the existing gated E2E auth helper path when
   `VRDEX_E2E_BROWSER_TOKEN` and the matching server-side helper configuration

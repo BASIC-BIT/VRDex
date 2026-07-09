@@ -225,7 +225,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
           "manualStatus": "pending",
-          "notes": "Current OpenAI guidance recommends CIMD when supported and keeps DCR available; VRDex implements both public-client CIMD and DCR. 2026-07-09 current hosted protocol evidence is failed because staging is no longer serving /mcp and the PR preview does not complete DCR or CIMD authorization. ChatGPT Apps/Connectors hosted OAuth behavior and any app review requirement remain unrecorded."
+          "notes": "Current OpenAI guidance recommends CIMD when supported and keeps DCR available; VRDex implements both public-client CIMD and DCR. 2026-07-09 top-level hosted protocol evidence is pass against staging after branch staging deploy run 29037734496, and the Responses API hosted anonymous-read smoke is recorded separately. ChatGPT Apps/Connectors hosted OAuth behavior and any app review requirement remain unrecorded."
         }
       ]
     },

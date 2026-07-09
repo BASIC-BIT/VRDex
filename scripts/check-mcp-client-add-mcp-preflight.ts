@@ -21,8 +21,8 @@ type CommandSpec = {
 };
 
 type Options = {
-  clients: Set<ClientId>;
-  configs: Set<ConfigId>;
+  clients?: Set<ClientId>;
+  configs?: Set<ConfigId>;
   hostedUrl?: string;
   mcpBearerToken?: string;
   outputDir: string;
@@ -88,10 +88,23 @@ function parseCsvSet<T extends string>(value: string, allowed: readonly T[], lab
   return parsed;
 }
 
+function addCsvSet<T extends string>(
+  existing: Set<T> | undefined,
+  value: string,
+  allowed: readonly T[],
+  label: string,
+) {
+  const next = existing ?? new Set<T>();
+
+  for (const entry of parseCsvSet(value, allowed, label)) {
+    next.add(entry);
+  }
+
+  return next;
+}
+
 function parseArgs(argv: string[]): Options {
   const options: Options = {
-    clients: new Set(clients.map((client) => client.id)),
-    configs: new Set(configIds),
     hostedUrl: nonEmpty(process.env.VRDEX_MCP_SMOKE_URL),
     mcpBearerToken: nonEmpty(process.env.VRDEX_MCP_ADD_MCP_BEARER_TOKEN),
     outputDir:
@@ -108,7 +121,8 @@ function parseArgs(argv: string[]): Options {
       case "--":
         break;
       case "--client":
-        options.clients = parseCsvSet(
+        options.clients = addCsvSet(
+          options.clients,
           takeValue(argv, index, arg),
           clients.map((client) => client.id),
           "client",
@@ -116,7 +130,7 @@ function parseArgs(argv: string[]): Options {
         index += 1;
         break;
       case "--config":
-        options.configs = parseCsvSet(takeValue(argv, index, arg), configIds, "config");
+        options.configs = addCsvSet(options.configs, takeValue(argv, index, arg), configIds, "config");
         index += 1;
         break;
       case "--hosted-url":
@@ -475,8 +489,10 @@ function printResults(results: PreflightResult[], options: Options) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  const selectedClients = clients.filter((client) => options.clients.has(client.id));
-  const selectedConfigs = configIds.filter((config) => options.configs.has(config));
+  const selectedClientIds = options.clients ?? new Set(clients.map((client) => client.id));
+  const selectedConfigIds = options.configs ?? new Set(configIds);
+  const selectedClients = clients.filter((client) => selectedClientIds.has(client.id));
+  const selectedConfigs = configIds.filter((config) => selectedConfigIds.has(config));
   const results: PreflightResult[] = [];
 
   for (const client of selectedClients) {

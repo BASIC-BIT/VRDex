@@ -429,6 +429,9 @@ token-header fallback definitions. Missing clients are skipped unless
 `--require-installed` is set. A passing preflight proves only that the current
 CLI accepts the setup definitions; it is still not matrix evidence because it
 does not list tools or call `vrdex_search` inside the app.
+Use comma-separated selectors or repeated flags to narrow the run; both
+`--client vscode,cursor` and `--client vscode --client cursor` are supported.
+The same applies to `--config`.
 
 Latest local preflight: on 2026-07-09,
 `pnpm ops:mcp-installed-clients` detected VS Code 1.128.0, Cursor 3.10.17,
@@ -492,15 +495,14 @@ The required hosted evidence rows are:
 - `hosted-dynamic-client-registration`
 - `hosted-client-id-metadata-document`
 
-Current PR #159 status: the hosted data-backed anonymous-read row is recorded
-as `fail` after the stricter `--hosted-data` smoke. The 2026-07-09 staging
-target now fails `/mcp` initialize with HTTP 404, while the PR preview exposes
-`search`/`fetch` aliases but still lacks data-backed public search. Prior
-staging evidence for constrained Dynamic Client Registration and public-client
-Client ID Metadata Document authorization remains recorded separately. Hosted
-OAuth client-specific rows remain pending until reviewed smoke credentials,
-token fallbacks, or hosted developer credential generation are configured and a
-matching client smoke is recorded.
+Current PR #159 status: the hosted data-backed anonymous-read, Dynamic Client
+Registration, and public-client Client ID Metadata Document rows are recorded
+as `pass` against `https://staging.vrdex.net/mcp` after branch staging deploy
+run `29037734496`. The stricter hosted evidence includes anonymous
+`vrdex_search`, OpenAI-compatible `search` plus `fetch`, DCR, and CIMD
+authorization coverage. Hosted OAuth client-specific rows remain pending until
+reviewed smoke credentials, token fallbacks, or hosted developer credential
+generation are configured and a matching client smoke is recorded.
 
 The `deployed-health.yml` `hosted-mcp-smoke` workflow can additionally run the
 Inspector hosted OAuth smoke when dispatched with `mcp_oauth=true`. It prefers
@@ -794,9 +796,10 @@ pnpm ops:mcp-client-smokes -- \
    current product supports custom remote MCP connectors. Responses API hosted
    anonymous-read evidence uses `pnpm smoke:mcp-openai` with `OPENAI_API_KEY`;
    the smoke requires both `search` and `fetch`, and now preflights the hosted
-   MCP target before making an OpenAI request. A 2026-07-09 attempt is recorded
-   as failed before the OpenAI request: staging still lacks the aliases, and
-   the preview exposes the aliases but lacks data-backed public search.
+   MCP target before making an OpenAI request. PR #159 records a 2026-07-09
+   pass against `https://staging.vrdex.net/mcp`: `gpt-4.1-mini` called hosted
+   MCP `search` and `fetch` through the Responses API harness after the staging
+   deploy.
    Record whether ChatGPT Apps/Connectors accepts DCR, requires Client ID
    Metadata Documents, or follows a reviewed app submission path. Also record
    whether public read tools appear as anonymous/no-auth tools instead of

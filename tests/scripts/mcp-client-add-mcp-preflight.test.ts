@@ -83,6 +83,56 @@ describe("VS Code-family MCP add preflight", () => {
     }
   });
 
+  it("treats repeated client and config selectors as additive", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vrdex-mcp-add-preflight-"));
+    const outputDir = join(directory, "out");
+    const commandOverride = await writeFakeCli(
+      directory,
+      [
+        "const args = process.argv.slice(2);",
+        "const userData = args[args.indexOf('--user-data-dir') + 1];",
+        "const payload = args[args.indexOf('--add-mcp') + 1];",
+        "const config = JSON.parse(payload);",
+        "if (!userData) process.exit(11);",
+        "if (config.name !== 'vrdex') process.exit(12);",
+        "console.log(`Added ${config.type ?? 'stdio'} MCP servers: vrdex`);",
+      ].join("\n"),
+    );
+
+    try {
+      const result = runPreflight(
+        [
+          "--client",
+          "vscode",
+          "--client",
+          "cursor",
+          "--config",
+          "local-stdio",
+          "--config",
+          "hosted-anonymous-read",
+          "--hosted-url",
+          "https://staging.vrdex.net/mcp",
+          "--output-dir",
+          outputDir,
+        ],
+        {
+          VRDEX_MCP_ADD_MCP_CURSOR_COMMAND: commandOverride,
+          VRDEX_MCP_ADD_MCP_VSCODE_COMMAND: commandOverride,
+        },
+      );
+
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, /VS Code \| local-stdio \| pass/);
+      assert.match(result.stdout, /VS Code \| hosted-anonymous-read \| pass/);
+      assert.match(result.stdout, /Cursor \| local-stdio \| pass/);
+      assert.match(result.stdout, /Cursor \| hosted-anonymous-read \| pass/);
+      assert.doesNotMatch(result.stdout, /Windsurf/);
+      assert.doesNotMatch(result.stdout, /hosted-token-fallback/);
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
   it("fails when an installed client rejects the generated add-mcp JSON", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vrdex-mcp-add-preflight-"));
     const commandOverride = await writeFakeCli(
