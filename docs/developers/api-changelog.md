@@ -9,6 +9,11 @@ docs update and a changelog entry so early consumers and agents can adapt.
 
 ## 2026-07-09
 
+- added hosted MCP `search` and `fetch` compatibility aliases for OpenAI
+  Responses API, ChatGPT deep research, and company-knowledge-style connectors;
+  the aliases reuse the same anonymous public search/profile/event/world read
+  surfaces, return URL-backed structured document results, and are counted in
+  MCP tool invocation telemetry
 - added generated `docs/api/openapi.yaml` alongside `docs/api/openapi.json`;
   both artifacts are emitted from the shared API contract package, served under
   `/api/v0/openapi.{json,yaml}`, and covered by `pnpm check:api-openapi` drift

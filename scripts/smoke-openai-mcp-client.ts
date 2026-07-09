@@ -73,10 +73,10 @@ function printHelp() {
     "",
     "Options:",
     "  --hosted-url <url>          Hosted VRDex MCP URL.",
-    "  --hosted-data               Require a data-backed vrdex_search call.",
+    "  --hosted-data               Required. Require data-backed search and fetch calls.",
     "  --hosted-query <query>      Search query. Defaults to club when --hosted-data is set.",
-    "  --hosted-type <type>        Search type. Defaults to all.",
-    "  --hosted-limit <n>          Search limit, 1-50. Defaults to 1.",
+    "  --hosted-type <type>        Kept for matrix row metadata; compatibility search always uses all.",
+    "  --hosted-limit <n>          Kept for matrix row metadata; compatibility search returns server-bounded results.",
     "  --model <model>             OpenAI model. Defaults to o4-mini-deep-research.",
     "  --endpoint <url>            Responses endpoint. Defaults to https://api.openai.com/v1/responses.",
     "  --api-key-env <name>        Environment variable containing the API key.",
@@ -158,6 +158,10 @@ function parseArgs(argv: string[]): OpenAiMcpOptions {
   assert.ok(nonEmpty(options.hostedUrl), "--hosted-url or VRDEX_OPENAI_MCP_HOSTED_URL is required.");
   assert.notEqual(options.model.trim(), "", "--model must not be empty.");
   assert.notEqual(options.endpoint.trim(), "", "--endpoint must not be empty.");
+  assert.ok(
+    options.hostedDataPublicReads,
+    "--hosted-data is required because the OpenAI compatibility smoke must search and then fetch a real result.",
+  );
   if (options.hostedDataPublicReads) {
     assert.notEqual(options.hostedSearch.query, "", "--hosted-data requires a non-empty hosted search query.");
   }
@@ -179,7 +183,10 @@ function buildResponsesPayload(options: OpenAiMcpOptions) {
       {
         content: [
           {
-            text: "You are validating a remote MCP server. You must call the allowed MCP tool exactly once before answering.",
+            text: [
+              "You are validating a remote MCP server.",
+              "You must call the search MCP tool exactly once, then call the fetch MCP tool exactly once using the first search result id before answering.",
+            ].join(" "),
             type: "input_text",
           },
         ],
@@ -189,8 +196,9 @@ function buildResponsesPayload(options: OpenAiMcpOptions) {
         content: [
           {
             text: [
-              "Call the VRDex MCP tool vrdex_search exactly once.",
-              `Use query ${JSON.stringify(search.query)}, type ${JSON.stringify(search.type)}, and limit ${search.limit}.`,
+              "Call the VRDex MCP search tool.",
+              `Use query ${JSON.stringify(search.query)}.`,
+              "Then fetch the first result returned by search.",
               "After the tool returns, respond exactly openai-mcp-ok and no other text.",
             ].join(" "),
             type: "input_text",
@@ -205,7 +213,7 @@ function buildResponsesPayload(options: OpenAiMcpOptions) {
     },
     tools: [
       {
-        allowed_tools: ["vrdex_search"],
+        allowed_tools: ["search", "fetch"],
         require_approval: "never",
         server_label: "vrdex",
         server_url: options.hostedUrl,
@@ -263,7 +271,8 @@ function assertOpenAiMcpResponse(payload: unknown, options: OpenAiMcpOptions) {
   const serialized = JSON.stringify(payload);
   const strings = collectStrings(payload);
 
-  assert.match(serialized, /vrdex_search/, "OpenAI response did not include a vrdex_search MCP tool call.");
+  assert.match(serialized, /"name":"search"/, "OpenAI response did not include a search MCP tool call.");
+  assert.match(serialized, /"name":"fetch"/, "OpenAI response did not include a fetch MCP tool call.");
   assert.match(serialized, /openai-mcp-ok/, "OpenAI response did not include the expected openai-mcp-ok final answer.");
 
   if (options.hostedDataPublicReads) {
@@ -275,6 +284,10 @@ function assertOpenAiMcpResponse(payload: unknown, options: OpenAiMcpOptions) {
     assert.ok(
       strings.some((entry) => entry.includes("results")),
       "OpenAI response did not include structured hosted MCP search results.",
+    );
+    assert.ok(
+      strings.some((entry) => entry.includes("text")),
+      "OpenAI response did not include structured hosted MCP fetch text.",
     );
   }
 }
@@ -293,7 +306,7 @@ async function main() {
   console.log("| Smoke target | Status | Details |");
   console.log("| --- | --- | --- |");
   console.log(
-    `| OpenAI Responses API hosted anonymous MCP | pass | ${options.model} called vrdex_search for ${options.hostedUrl} with query=${JSON.stringify(options.hostedSearch.query)}, type=${options.hostedSearch.type}, limit=${options.hostedSearch.limit} |`,
+    `| OpenAI Responses API hosted anonymous MCP | pass | ${options.model} called search and fetch for ${options.hostedUrl} with query=${JSON.stringify(options.hostedSearch.query)}, type=${options.hostedSearch.type}, limit=${options.hostedSearch.limit} |`,
   );
   console.log(
     "| ChatGPT app hosted MCP | skip | Responses API smoke is API integration evidence; record ChatGPT Apps/Connectors UI evidence separately when product access is available |",

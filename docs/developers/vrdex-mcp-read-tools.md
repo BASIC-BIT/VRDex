@@ -33,7 +33,10 @@ it validates any bearer token it receives, rejects wrong-resource tokens, and
 applies anonymous or authenticated MCP route-class limits after auth resolution.
 OpenAI/ChatGPT-style clients should receive per-tool `noauth` plus optional
 `oauth2` security metadata. The current hosted tool descriptors emit this
-through `_meta["securitySchemes"]` for every curated public read tool.
+through `_meta["securitySchemes"]` for every curated public read tool. Hosted
+MCP also exposes OpenAI/ChatGPT-compatible `search` and `fetch` aliases over
+the same public records, because those product surfaces require that read-only
+document search shape for deep research and Responses API integrations.
 
 The OAuth issuer exposes `POST /oauth/register` for constrained Dynamic Client
 Registration by hosted MCP clients and `GET /oauth/authorize` for public-client
@@ -60,6 +63,35 @@ address resolution, and stores accepted documents as dynamic MCP clients.
 - Keep event-operator presence/readiness signals out of the standalone public read tool contract.
 
 ## Current Hosted Tools
+
+### `search`
+
+Purpose: OpenAI/ChatGPT-compatible public document search over VRDex profiles,
+worlds, and events.
+
+Inputs:
+
+- `query`: human search text
+
+Output:
+
+- `results` containing stable `id`, human title, and canonical public URL
+- IDs are resolvable by the hosted `fetch` compatibility tool
+
+### `fetch`
+
+Purpose: OpenAI/ChatGPT-compatible fetch for one public result returned by
+`search`.
+
+Inputs:
+
+- `id`: result ID returned by `search`
+
+Output:
+
+- `id`, title, canonical public URL, public-safe text, and metadata
+- text is assembled from the existing public profile, event, or world read
+  schema; it does not expose private fields beyond public API behavior
 
 ### `vrdex_search`
 
@@ -254,6 +286,9 @@ Current recommendation:
   into OAuth setup
 - current hosted read tools advertise `_meta["securitySchemes"]` with
   `noauth` plus optional `oauth2`/`mcp:read`
+- hosted `search` and `fetch` are compatibility aliases for clients that
+  require generic document search/fetch names; the canonical VRDex-specific
+  public read tools remain available
 - OAuth-authenticated hosted MCP callers use the authenticated MCP rate-limit class when the token is valid for the MCP resource
 - dynamic MCP client registrations are stored separately from normal developer apps until an operator promotes or reviews them
 - public-client PKCE consent issues short-lived MCP-bound access tokens and rotating refresh tokens

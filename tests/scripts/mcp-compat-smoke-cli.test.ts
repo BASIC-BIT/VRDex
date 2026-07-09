@@ -5,6 +5,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { describe, it } from "node:test";
 
 const expectedTools = [
+  "search",
+  "fetch",
   "vrdex_search",
   "vrdex_get_profile",
   "vrdex_get_event",

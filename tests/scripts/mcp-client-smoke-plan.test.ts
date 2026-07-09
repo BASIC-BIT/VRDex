@@ -82,7 +82,7 @@ describe("MCP client smoke planner", () => {
 
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /OPENAI_API_KEY=<api-key> pnpm smoke:mcp-openai -- --hosted-url https:\/\/staging\.vrdex\.net\/mcp --hosted-data/);
-    assert.match(result.stdout, /Responses API remote MCP integration evidence/);
+    assert.match(result.stdout, /Responses API remote MCP search\/fetch integration evidence/);
     assert.match(result.stdout, /ChatGPT Apps\/Connectors UI evidence separately/);
   });
 

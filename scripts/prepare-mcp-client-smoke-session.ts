@@ -407,7 +407,7 @@ function blockerForOpenRow(row: OpenMatrixRow): { id: string } & Omit<PendingBlo
     return {
       id: "hosted-product-surface",
       label: "OpenAI API key or hosted product surface access",
-      nextAction: "Run pnpm smoke:mcp-openai with an OpenAI API key for Responses API remote MCP evidence, and separately verify ChatGPT Apps/Connectors UI plus OAuth behavior before launch snippets.",
+      nextAction: "Run pnpm smoke:mcp-openai with an OpenAI API key against a target that includes hosted search/fetch aliases, and separately verify ChatGPT Apps/Connectors UI plus OAuth behavior before launch snippets.",
     };
   }
 
@@ -606,7 +606,7 @@ function manualEvidenceTemplates(options: Options): EvidenceTemplate[] {
       prompt: [
         "Run the OpenAI Responses API smoke or configure the relevant ChatGPT MCP-capable surface for the VRDex hosted MCP endpoint.",
         "Verify the public read tools appear as anonymous/no-auth tools when the product surface exposes per-tool auth metadata.",
-        "Call vrdex_search exactly once with query \"club\", type \"all\", and limit 1.",
+        "Call search with query \"club\", then call fetch for the first returned result id.",
         "Record whether the connector forced login before a safe public read.",
       ].join(" "),
       recorder: recorderCommandForMatrixClient({
@@ -632,7 +632,7 @@ function manualEvidenceTemplates(options: Options): EvidenceTemplate[] {
       prompt: [
         "Configure the relevant OpenAI or ChatGPT MCP-capable surface for hosted VRDex OAuth.",
         "Record whether the surface accepts public-client Client ID Metadata Documents, uses Dynamic Client Registration, or requires an app review path.",
-        "Complete an mcp:read OAuth session if the surface allows it and call vrdex_search exactly once.",
+        "Complete an mcp:read OAuth session if the surface allows it and call search plus fetch.",
       ].join(" "),
       recorder: recorderCommandForMatrixClient({
         check: "hosted-oauth",
@@ -673,6 +673,31 @@ async function writeJson(pathname: string, value: unknown) {
   await writeFile(pathname, `${JSON.stringify(value)}\n`, "utf8");
 }
 
+function evidenceStatusLine(template: EvidenceTemplate) {
+  return template.matrixClient === "openai-chatgpt"
+    ? "Status: pending until a real client session lists tools and calls `search` plus `fetch`."
+    : "Status: pending until a real client session lists tools and calls `vrdex_search`.";
+}
+
+function evidenceToolChecklist(template: EvidenceTemplate) {
+  return template.matrixClient === "openai-chatgpt"
+    ? [
+        "- [ ] Client calls `search` with query `club`.",
+        "- [ ] Client calls `fetch` with the first returned result id.",
+        "- [ ] Client returns a non-error structured result and the first result id is recorded.",
+      ]
+    : [
+        "- [ ] Client calls `vrdex_search` exactly once with query `club`, type `all`, and limit `1`.",
+        "- [ ] Client returns a non-error structured result and the first result slug is recorded.",
+      ];
+}
+
+function evidencePassGuidance(template: EvidenceTemplate) {
+  return template.matrixClient === "openai-chatgpt"
+    ? "For `pass`, include the tool list, the `search` and `fetch` calls, and the first returned id. For `fail`, include the exact failed step, client-visible error, client version, auth mode, and any upstream issue link without including credentials."
+    : "For `pass`, include the tool list, the `vrdex_search` call, and the first returned slug. For `fail`, include the exact failed step, client-visible error, client version, auth mode, and any upstream issue link without including credentials.";
+}
+
 async function writeEvidenceTemplate(outputPath: string, template: EvidenceTemplate) {
   const targetLine = template.hosted
     ? `Target environment: ${template.targetEnvironment}`
@@ -695,7 +720,7 @@ async function writeEvidenceTemplate(outputPath: string, template: EvidenceTempl
   const content = [
     `# ${template.clientName} ${template.check} MCP Smoke Evidence`,
     "",
-    "Status: pending until a real client session lists tools and calls `vrdex_search`.",
+    evidenceStatusLine(template),
     "",
     `Matrix row: ${template.matrixClient}/${template.check}`,
     `Environment: ${template.environment}`,
@@ -718,8 +743,7 @@ async function writeEvidenceTemplate(outputPath: string, template: EvidenceTempl
     "",
     "- [ ] Client session shows the VRDex MCP server named `vrdex`.",
     "- [ ] Client lists the expected VRDex tools.",
-    "- [ ] Client calls `vrdex_search` exactly once with query `club`, type `all`, and limit `1`.",
-    "- [ ] Client returns a non-error structured result and the first result slug is recorded.",
+    ...evidenceToolChecklist(template),
     template.check === "hosted-oauth"
       ? "- [ ] Hosted OAuth prerequisites are ready, or the exact reviewed-secret / temporary-credential blocker is recorded."
       : undefined,
@@ -729,7 +753,7 @@ async function writeEvidenceTemplate(outputPath: string, template: EvidenceTempl
     "- [ ] Screenshot or transcript is sanitized before the row is recorded.",
     "- [ ] No bearer tokens, OAuth client secrets, full authorization headers, or private account details are captured.",
     "",
-    "For `pass`, include the tool list, the `vrdex_search` call, and the first returned slug. For `fail`, include the exact failed step, client-visible error, client version, auth mode, and any upstream issue link without including credentials.",
+    evidencePassGuidance(template),
     "",
     "## Sanitized Evidence Summary",
     "",
@@ -770,7 +794,7 @@ async function writeSessionPack(options: Options) {
     "# MCP Client Smoke Session Pack",
     "",
     "Generated disposable setup files for installed VS Code-family MCP clients and Gemini CLI, plus recordable worksheets for manual-only MCP client rows.",
-    "These files are operator aids, not matrix evidence. Record a pass only after the real client lists tools and calls `vrdex_search`; record a fail only with sanitized evidence of the exact client-side blocker.",
+    "These files are operator aids, not matrix evidence. Record a pass only after the real client lists tools and calls the expected public read tool (`vrdex_search`, or `search` plus `fetch` for OpenAI/ChatGPT surfaces); record a fail only with sanitized evidence of the exact client-side blocker.",
     "Evidence templates are pending worksheets until they are filled with sanitized real-client output or sanitized failure evidence.",
     "Each VS Code-family row uses its own isolated user-data directory so local, hosted anonymous, and hosted token-fallback configs cannot overwrite each other.",
     "",

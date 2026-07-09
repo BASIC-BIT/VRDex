@@ -56,6 +56,8 @@ describe("API platform observability helpers", () => {
         },
       ],
       mcpToolEvents: [
+        { routeClass: "anonymous_mcp_public_read", toolName: "search" },
+        { routeClass: "anonymous_mcp_public_read", toolName: "fetch" },
         { routeClass: "anonymous_mcp_public_read", toolName: "vrdex_search" },
         { routeClass: "anonymous_mcp_public_read", toolName: "vrdex_search" },
         { routeClass: "authenticated_mcp", toolName: "vrdex_get_profile" },
@@ -156,6 +158,16 @@ describe("API platform observability helpers", () => {
       },
     ]);
     assert.deepEqual(summary.mcpToolInvocations, [
+      {
+        count: 1,
+        routeClass: "anonymous_mcp_public_read",
+        toolName: "fetch",
+      },
+      {
+        count: 1,
+        routeClass: "anonymous_mcp_public_read",
+        toolName: "search",
+      },
       {
         count: 2,
         routeClass: "anonymous_mcp_public_read",

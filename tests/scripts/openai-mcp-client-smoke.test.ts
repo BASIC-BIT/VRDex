@@ -44,12 +44,22 @@ describe("OpenAI Responses API MCP smoke harness", () => {
         JSON.stringify({
           output: [
             {
-              arguments: JSON.stringify({ limit: 1, query: "club", type: "all" }),
-              name: "vrdex_search",
+              arguments: JSON.stringify({ query: "club" }),
+              name: "search",
               output: JSON.stringify({
-                query: "club",
-                results: [{ slug: "club-night" }],
-                type: "all",
+                results: [{ id: "event:club-night", title: "Club Night", url: "https://staging.vrdex.net/e/club-night" }],
+              }),
+              type: "mcp_call",
+            },
+            {
+              arguments: JSON.stringify({ id: "event:club-night" }),
+              name: "fetch",
+              output: JSON.stringify({
+                id: "event:club-night",
+                metadata: { entityType: "event", slug: "club-night" },
+                text: "Title: Club Night\\nEntity type: event",
+                title: "Club Night",
+                url: "https://staging.vrdex.net/e/club-night",
               }),
               type: "mcp_call",
             },

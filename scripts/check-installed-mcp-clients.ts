@@ -500,8 +500,8 @@ function evaluateProviderCredentials(): ProviderCredentialResult[] {
     {
       credentialSource: `${openAiKeyEnvName}=${hasOpenAiKey ? "present" : "missing"}`,
       nextAction: hasOpenAiKey
-        ? "Run pnpm smoke:mcp-openai -- --hosted-url <target-/mcp-url> --hosted-data."
-        : `Set ${openAiKeyEnvName}, then run pnpm smoke:mcp-openai -- --hosted-url <target-/mcp-url> --hosted-data.`,
+        ? "Run pnpm smoke:mcp-openai -- --hosted-url <target-/mcp-url> --hosted-data against a target that exposes search and fetch."
+        : `Set ${openAiKeyEnvName}, then run pnpm smoke:mcp-openai -- --hosted-url <target-/mcp-url> --hosted-data against a target that exposes search and fetch.`,
       path: "OpenAI Responses API remote MCP",
       status: hasOpenAiKey ? "pass" : "missing",
     },

@@ -88,6 +88,8 @@ one PR.
 ## MCP Compatibility
 
 - Hosted `/mcp` supports anonymous public read tools.
+- Hosted `/mcp` exposes OpenAI/ChatGPT-compatible anonymous `search` and
+  `fetch` aliases over the public profile, event, and world read surfaces.
 - Hosted `/mcp` accepts MCP-resource OAuth tokens with `mcp:read`.
 - Hosted `/mcp` returns protected-resource metadata and `mcp:read` scope hints
   in bearer challenges for invalid or insufficient OAuth tokens.
@@ -156,7 +158,8 @@ one PR.
   run `pnpm ops:mcp-hosted-oauth-prereqs` for the repository variable/secret
   audit. Its CLI automation notes are informational: VS Code `chat`, Cursor
   `--chat`/`agent`, and Windsurf setup CLI checks do not count as matrix
-  evidence unless the real client session lists tools and calls `vrdex_search`.
+  evidence unless the real client session lists tools and calls `vrdex_search`
+  or, for OpenAI/ChatGPT-compatible surfaces, `search` plus `fetch`.
 - Current 2026-07-09 repository audit for PR #159: hosted OAuth evidence is
   still `partial`. `VRDEX_HOSTED_E2E_AUTH_HELPERS=true` and the
   `VRDEX_HOSTED_E2E_BROWSER_TOKEN` secret are present, but reviewed OAuth smoke
@@ -238,11 +241,15 @@ one PR.
   without printing the token or client secret.
 - OpenAI Responses API remote MCP hosted anonymous-read evidence can be
   smoke-tested with `pnpm smoke:mcp-openai` after setting `OPENAI_API_KEY`.
-  Use `--hosted-data` against a same-branch or production-like backend before
-  recording API integration evidence. This does not replace ChatGPT
-  Apps/Connectors UI or hosted OAuth evidence; those product-surface rows stay
-  pending until the current UI proves no-auth public reads and `mcp:read`
-  OAuth behavior.
+  The smoke uses the OpenAI-required hosted `search` and `fetch` tool names.
+  Run it with required `--hosted-data` against a same-branch or
+  production-like backend before recording API integration evidence. A
+  2026-07-09 live OpenAI attempt reached the Responses API but failed because
+  the deployed staging target only exposed the older VRDex-specific tool names;
+  rerun after deploying this compatibility adapter. This does not replace
+  ChatGPT Apps/Connectors UI or hosted OAuth evidence; those product-surface
+  rows stay pending until the current UI proves no-auth public reads and
+  `mcp:read` OAuth behavior.
 - The `deployed-health.yml` `hosted-mcp-smoke` dispatch can also run the
   Inspector hosted OAuth smoke when `mcp_oauth=true`. It prefers repository
   secrets that provide either `VRDEX_MCP_OAUTH_CLIENT_ID` plus

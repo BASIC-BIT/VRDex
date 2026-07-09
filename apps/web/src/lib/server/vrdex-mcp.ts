@@ -8,6 +8,8 @@ import { api, internal } from "@convex-generated-api";
 import {
   getBearerTokenFromAuthorizationHeader,
   hasBearerTokenInUrl,
+  McpDocumentFetchResponseSchema,
+  McpDocumentSearchResponseSchema,
   mcpOutputJsonSchemaForZodSchema,
   PublicActiveWorldsResponseSchema,
   PublicEventSchema,
@@ -43,10 +45,22 @@ type VrdexMcpServerOptions = {
   convex?: VrdexMcpConvexClient;
   now?: () => number;
 };
+type PublicSearchResponse = z.infer<typeof PublicSearchResponseSchema>;
+type PublicSearchResult = PublicSearchResponse["results"][number];
+type PublicProfile = z.infer<typeof PublicProfileSchema>;
+type PublicEvent = z.infer<typeof PublicEventSchema>;
+type PublicWorld = z.infer<typeof PublicWorldSchema>;
+type McpDocumentFetchResponse = z.infer<typeof McpDocumentFetchResponseSchema>;
+type McpDocumentDescriptor =
+  | { entityType: "event"; slug: string }
+  | { entityType: "profile"; profileType?: "person" | "community"; slug: string }
+  | { entityType: "world"; slug: string };
 
 const mcpSearchTypes = ["all", "person", "community", "profile", "world", "event"] as const;
 const mcpRequiredScopes = ["mcp:read"] as const;
 const mcpToolNames = [
+  "search",
+  "fetch",
   "vrdex_search",
   "vrdex_get_profile",
   "vrdex_get_event",
@@ -62,6 +76,7 @@ const mcpPublicReadToolMeta = {
   securitySchemes: mcpPublicReadSecuritySchemes,
 } satisfies Record<string, unknown>;
 const mcpToolNameSet = new Set<string>(mcpToolNames);
+const mcpDocumentIdSchema = z.string().min(1).max(260);
 const mcpSlugSchema = z.string().min(1).max(160);
 const mcpLimitSchema = z.number().int().min(1);
 
@@ -79,6 +94,272 @@ function entityTypeForSearchType(type: (typeof mcpSearchTypes)[number]) {
   }
 
   return undefined;
+}
+
+function publicWebOrigin() {
+  const candidates = [
+    process.env.VRDEX_PUBLIC_WEB_ORIGIN,
+    process.env.VRDEX_OAUTH_ISSUER_URL,
+    process.env.VRDEX_PUBLIC_API_BASE_URL,
+    process.env.NEXT_PUBLIC_APP_URL,
+    process.env.VERCEL_URL,
+    process.env.VERCEL_PROJECT_PRODUCTION_URL,
+  ];
+
+  for (const candidate of candidates) {
+    const value = candidate?.trim();
+
+    if (!value) {
+      continue;
+    }
+
+    try {
+      const url = new URL(value.startsWith("http://") || value.startsWith("https://") ? value : `https://${value}`);
+
+      if (url.protocol === "http:" || url.protocol === "https:") {
+        return url.origin;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return "https://vrdex.net";
+}
+
+function publicUrlForRoutePath(routePath: string) {
+  return new URL(routePath, publicWebOrigin()).href;
+}
+
+function encodeMcpDocumentIdPart(value: string) {
+  return encodeURIComponent(value);
+}
+
+function decodeMcpDocumentIdPart(value: string | undefined) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return undefined;
+  }
+}
+
+function mcpDocumentIdForSearchResult(result: PublicSearchResult) {
+  const slug = encodeMcpDocumentIdPart(result.slug);
+
+  if (result.entityType === "profile") {
+    return result.profileType === undefined ? `profile:${slug}` : `profile:${result.profileType}:${slug}`;
+  }
+
+  return `${result.entityType}:${slug}`;
+}
+
+function parseMcpDocumentId(id: string): McpDocumentDescriptor | null {
+  const [entityType, second, third, ...rest] = id.split(":");
+
+  if (rest.length > 0) {
+    return null;
+  }
+
+  if (entityType === "profile") {
+    if (third === undefined) {
+      const slug = decodeMcpDocumentIdPart(second);
+
+      return slug === undefined ? null : { entityType, slug };
+    }
+
+    if (second !== "person" && second !== "community") {
+      return null;
+    }
+
+    const slug = decodeMcpDocumentIdPart(third);
+
+    return slug === undefined ? null : { entityType, profileType: second, slug };
+  }
+
+  if (third !== undefined || (entityType !== "event" && entityType !== "world")) {
+    return null;
+  }
+
+  const slug = decodeMcpDocumentIdPart(second);
+
+  return slug === undefined ? null : { entityType, slug };
+}
+
+function addMcpDocumentLine(lines: string[], label: string, value: boolean | number | string | undefined) {
+  const text = typeof value === "string" ? value.trim() : value === undefined ? "" : String(value);
+
+  if (text) {
+    lines.push(`${label}: ${text}`);
+  }
+}
+
+function joinTextList(values: readonly string[] | undefined) {
+  const items = values?.map((value) => value.trim()).filter(Boolean) ?? [];
+
+  return items.length === 0 ? undefined : items.join(", ");
+}
+
+function formatTimestampMs(value: number | undefined) {
+  return value === undefined ? undefined : new Date(value).toISOString();
+}
+
+function formatSource(source: { label?: string; sourceType?: string; url?: string } | undefined) {
+  if (source === undefined) {
+    return undefined;
+  }
+
+  return [source.label, source.sourceType, source.url].filter(Boolean).join(" | ");
+}
+
+function formatOutboundLinks(links: Array<{ label: string; url: string }> | undefined) {
+  if (links === undefined || links.length === 0) {
+    return undefined;
+  }
+
+  return links.map((link) => `${link.label}: ${link.url}`).join("; ");
+}
+
+function namedItemLabel(value: unknown) {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  for (const key of ["displayName", "title", "name", "slug"]) {
+    const candidate = value[key];
+
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+
+  return undefined;
+}
+
+function formatNamedItems(values: unknown[] | undefined) {
+  const labels = values?.map(namedItemLabel).filter((value): value is string => value !== undefined) ?? [];
+
+  return labels.length === 0 ? undefined : labels.join(", ");
+}
+
+function profileRoutePath(profile: Pick<PublicProfile, "profileType" | "slug">) {
+  return profile.profileType === "community"
+    ? `/c/${encodeURIComponent(profile.slug)}`
+    : `/p/${encodeURIComponent(profile.slug)}`;
+}
+
+function eventRoutePath(event: Pick<PublicEvent, "slug">) {
+  return `/e/${encodeURIComponent(event.slug)}`;
+}
+
+function worldRoutePath(world: Pick<PublicWorld, "slug">) {
+  return `/w/${encodeURIComponent(world.slug)}`;
+}
+
+function toMcpDocumentSearchResult(result: PublicSearchResult) {
+  return {
+    id: mcpDocumentIdForSearchResult(result),
+    title: result.title,
+    url: publicUrlForRoutePath(result.routePath),
+  };
+}
+
+function profileToMcpDocument(profile: PublicProfile): McpDocumentFetchResponse {
+  const lines: string[] = [];
+
+  addMcpDocumentLine(lines, "Title", profile.displayName);
+  addMcpDocumentLine(lines, "Entity type", "profile");
+  addMcpDocumentLine(lines, "Profile type", profile.profileType);
+  addMcpDocumentLine(lines, "Slug", profile.slug);
+  addMcpDocumentLine(lines, "Trust label", profile.trustLabel);
+  addMcpDocumentLine(lines, "Bio", profile.bio);
+  addMcpDocumentLine(lines, "Aliases", joinTextList(profile.aliases));
+  addMcpDocumentLine(lines, "Tags", joinTextList(profile.tags));
+  addMcpDocumentLine(
+    lines,
+    "Genres",
+    joinTextList(profile.genres?.map((genre) => genre.displayLabel ?? genre.displayName)),
+  );
+  addMcpDocumentLine(lines, "Source", formatSource(profile.source));
+  addMcpDocumentLine(lines, "Links", formatOutboundLinks(profile.outboundLinks));
+
+  return {
+    id: `profile:${profile.profileType}:${encodeMcpDocumentIdPart(profile.slug)}`,
+    metadata: {
+      entityType: "profile",
+      profileType: profile.profileType,
+      slug: profile.slug,
+      trustLabel: profile.trustLabel,
+    },
+    text: lines.join("\n"),
+    title: profile.displayName,
+    url: publicUrlForRoutePath(profileRoutePath(profile)),
+  };
+}
+
+function eventToMcpDocument(event: PublicEvent): McpDocumentFetchResponse {
+  const lines: string[] = [];
+
+  addMcpDocumentLine(lines, "Title", event.title);
+  addMcpDocumentLine(lines, "Entity type", "event");
+  addMcpDocumentLine(lines, "Slug", event.slug);
+  addMcpDocumentLine(lines, "Community", event.communityName);
+  addMcpDocumentLine(lines, "Community slug", event.communitySlug);
+  addMcpDocumentLine(lines, "Start", formatTimestampMs(event.startAt));
+  addMcpDocumentLine(lines, "Doors open", formatTimestampMs(event.doorsOpenAt));
+  addMcpDocumentLine(lines, "End", formatTimestampMs(event.endAt));
+  addMcpDocumentLine(lines, "Timezone", event.timezone);
+  addMcpDocumentLine(lines, "Summary", event.summary);
+  addMcpDocumentLine(lines, "Notes", event.notes);
+  addMcpDocumentLine(lines, "Worlds", formatNamedItems(event.worlds));
+  addMcpDocumentLine(lines, "Media links", formatOutboundLinks(event.mediaLinks));
+  addMcpDocumentLine(lines, "Source", formatSource(event.source));
+
+  return {
+    id: `event:${encodeMcpDocumentIdPart(event.slug)}`,
+    metadata: {
+      communitySlug: event.communitySlug,
+      entityType: "event",
+      slug: event.slug,
+      startAt: event.startAt,
+    },
+    text: lines.join("\n"),
+    title: event.title,
+    url: publicUrlForRoutePath(eventRoutePath(event)),
+  };
+}
+
+function worldToMcpDocument(world: PublicWorld): McpDocumentFetchResponse {
+  const lines: string[] = [];
+
+  addMcpDocumentLine(lines, "Title", world.displayName);
+  addMcpDocumentLine(lines, "Entity type", "world");
+  addMcpDocumentLine(lines, "Slug", world.slug);
+  addMcpDocumentLine(lines, "Summary", world.summary);
+  addMcpDocumentLine(lines, "Description", world.description);
+  addMcpDocumentLine(lines, "Tags", joinTextList(world.tags));
+  addMcpDocumentLine(lines, "Platform compatibility", joinTextList(world.platformCompatibility));
+  addMcpDocumentLine(lines, "Visibility status", world.visibilityStatus);
+  addMcpDocumentLine(lines, "VRChat world URL", world.canonicalVrchatWorldUrl);
+  addMcpDocumentLine(lines, "Outbound links", formatOutboundLinks(world.outboundLinks));
+  addMcpDocumentLine(lines, "Source", formatSource(world.source));
+  addMcpDocumentLine(lines, "Upcoming events", formatNamedItems(world.eventContext?.upcoming));
+  addMcpDocumentLine(lines, "Recent events", formatNamedItems(world.eventContext?.recent));
+
+  return {
+    id: `world:${encodeMcpDocumentIdPart(world.slug)}`,
+    metadata: {
+      entityType: "world",
+      slug: world.slug,
+      visibilityStatus: world.visibilityStatus,
+    },
+    text: lines.join("\n"),
+    title: world.displayName,
+    url: publicUrlForRoutePath(worldRoutePath(world)),
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -426,6 +707,118 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     version: "0.5.0",
   });
 
+  async function readPublicSearch(options: {
+    limit: number | undefined;
+    query: string;
+    type: (typeof mcpSearchTypes)[number] | undefined;
+  }) {
+    const normalizedType = options.type ?? "all";
+    const cappedLimit = boundedLimit(options.limit, 24, 50);
+    const searchText = options.query.trim();
+
+    if (!searchText) {
+      return {
+        query: searchText,
+        type: normalizedType,
+        results: [],
+      } satisfies PublicSearchResponse;
+    }
+
+    const entityType = entityTypeForSearchType(normalizedType);
+    const results = await convex().query(api.search.searchUniversal, {
+      query: searchText,
+      limit: cappedLimit,
+      ...(entityType === undefined ? {} : { entityType }),
+    });
+    const filteredResults =
+      normalizedType === "person" || normalizedType === "community"
+        ? results.filter((result) => result.profileType === normalizedType)
+        : results;
+
+    return {
+      query: searchText,
+      type: normalizedType,
+      results: filteredResults.slice(0, cappedLimit),
+    } satisfies PublicSearchResponse;
+  }
+
+  server.registerTool(
+    "search",
+    {
+      title: "Search VRDex Documents",
+      description: "OpenAI/ChatGPT-compatible search over public VRDex profiles, worlds, and events.",
+      inputSchema: z.object({
+        query: z.string().trim().max(160),
+      }),
+      outputSchema: mcpOutputSchema(McpDocumentSearchResponseSchema),
+      annotations: { readOnlyHint: true, idempotentHint: true },
+      _meta: mcpPublicReadToolMeta,
+    },
+    async ({ query }) => {
+      let search;
+
+      try {
+        search = await readPublicSearch({ query, type: "all", limit: 10 });
+      } catch {
+        return mcpPublicReadUnavailable("search");
+      }
+
+      return mcpJsonResult(McpDocumentSearchResponseSchema, {
+        results: search.results.map(toMcpDocumentSearchResult),
+      });
+    },
+  );
+
+  server.registerTool(
+    "fetch",
+    {
+      title: "Fetch VRDex Document",
+      description: "OpenAI/ChatGPT-compatible fetch for a public VRDex search result by id.",
+      inputSchema: z.object({
+        id: mcpDocumentIdSchema,
+      }),
+      outputSchema: mcpOutputSchema(McpDocumentFetchResponseSchema),
+      annotations: { readOnlyHint: true, idempotentHint: true },
+      _meta: mcpPublicReadToolMeta,
+    },
+    async ({ id }) => {
+      const descriptor = parseMcpDocumentId(id);
+      let document: McpDocumentFetchResponse | null;
+
+      if (descriptor === null) {
+        return mcpNotFound("Search result", id);
+      }
+
+      try {
+        if (descriptor.entityType === "profile") {
+          const profile = await convex().query(api.profiles.getPublicBySlug, {
+            slug: descriptor.slug,
+            ...(descriptor.profileType === undefined ? {} : { profileType: descriptor.profileType }),
+            now: now(),
+          });
+
+          document = profile === null ? null : profileToMcpDocument(profile);
+        } else if (descriptor.entityType === "event") {
+          const event = await convex().query(api.events.getPublicBySlug, { slug: descriptor.slug });
+
+          document = event === null ? null : eventToMcpDocument(event);
+        } else {
+          const world = await convex().query(api.worlds.getPublicBySlug, { slug: descriptor.slug, now: now() });
+
+          document = world === null ? null : worldToMcpDocument(world);
+        }
+      } catch {
+        return mcpPublicReadUnavailable("fetch");
+      }
+
+      if (document === null) {
+        return mcpNotFound("Search result", id);
+      }
+
+      return mcpJsonResult(McpDocumentFetchResponseSchema, document);
+    },
+  );
+
   server.registerTool(
     "vrdex_search",
     {
@@ -441,41 +834,15 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       _meta: mcpPublicReadToolMeta,
     },
     async ({ limit, query, type }) => {
-      const normalizedType = type ?? "all";
-      const cappedLimit = boundedLimit(limit, 24, 50);
-      const searchText = query.trim();
-
-      if (!searchText) {
-        return mcpJsonResult(PublicSearchResponseSchema, {
-          query: searchText,
-          type: normalizedType,
-          results: [],
-        });
-      }
-
-      const entityType = entityTypeForSearchType(normalizedType);
-      let results;
+      let search;
 
       try {
-        results = await convex().query(api.search.searchUniversal, {
-          query: searchText,
-          limit: cappedLimit,
-          ...(entityType === undefined ? {} : { entityType }),
-        });
+        search = await readPublicSearch({ limit, query, type });
       } catch {
         return mcpPublicReadUnavailable("search");
       }
 
-      const filteredResults =
-        normalizedType === "person" || normalizedType === "community"
-          ? results.filter((result) => result.profileType === normalizedType)
-          : results;
-
-      return mcpJsonResult(PublicSearchResponseSchema, {
-        query: searchText,
-        type: normalizedType,
-        results: filteredResults.slice(0, cappedLimit),
-      });
+      return mcpJsonResult(PublicSearchResponseSchema, search);
     },
   );
 

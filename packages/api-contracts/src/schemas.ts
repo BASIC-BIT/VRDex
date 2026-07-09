@@ -218,6 +218,39 @@ export const PublicSearchResponseSchema = z
     id: "PublicSearchResponse",
   });
 
+export const McpDocumentSearchResultSchema = z
+  .object({
+    id: z.string().min(1),
+    title: z.string().min(1),
+    url: absoluteUrl,
+  })
+  .meta({
+    description: "OpenAI/ChatGPT-compatible MCP document search result.",
+    id: "McpDocumentSearchResult",
+  });
+
+export const McpDocumentSearchResponseSchema = z
+  .object({
+    results: z.array(McpDocumentSearchResultSchema),
+  })
+  .meta({
+    description: "OpenAI/ChatGPT-compatible MCP document search response.",
+    id: "McpDocumentSearchResponse",
+  });
+
+export const McpDocumentFetchResponseSchema = z
+  .object({
+    id: z.string().min(1),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+    text: z.string().min(1),
+    title: z.string().min(1),
+    url: absoluteUrl,
+  })
+  .meta({
+    description: "OpenAI/ChatGPT-compatible MCP document fetch response.",
+    id: "McpDocumentFetchResponse",
+  });
+
 export const PublicEventSourceSchema = z
   .object({
     label: z.string().min(1),

@@ -271,7 +271,7 @@ function manualEvidencePrompt(client: ClientEntry, check: SmokeCheck) {
   }
 
   if (client.id === "openai-chatgpt" && check.id === "hosted-anonymous-read") {
-    return "Run pnpm smoke:mcp-openai with an OpenAI API key for Responses API remote MCP evidence, or record ChatGPT Apps/Connectors UI evidence. Confirm public reads do not require OAuth.";
+    return "Run pnpm smoke:mcp-openai with an OpenAI API key against a target that includes hosted search/fetch aliases, or record ChatGPT Apps/Connectors UI evidence. Confirm public reads do not require OAuth.";
   }
 
   if (client.id === "openai-chatgpt" && check.id === "hosted-oauth") {
@@ -376,7 +376,7 @@ function setupHint(client: ClientEntry, check: SmokeCheck, options: Options) {
   }
 
   if (client.id === "openai-chatgpt" && check.id === "hosted-anonymous-read") {
-    return `Set OPENAI_API_KEY and run pnpm smoke:mcp-openai -- --hosted-url ${target} --hosted-data for Responses API remote MCP integration evidence; record ChatGPT Apps/Connectors UI evidence separately when product-surface behavior matters.`;
+    return `Set OPENAI_API_KEY and run pnpm smoke:mcp-openai -- --hosted-url ${target} --hosted-data for Responses API remote MCP search/fetch integration evidence; record ChatGPT Apps/Connectors UI evidence separately when product-surface behavior matters.`;
   }
 
   if (client.id === "openai-chatgpt" && check.id === "hosted-oauth") {
@@ -497,7 +497,7 @@ function blockerForClientRow(client: ClientEntry, check: SmokeCheck): { id: stri
     return {
       id: "hosted-product-surface",
       label: "OpenAI API key or hosted product surface access",
-      nextAction: "Run pnpm smoke:mcp-openai with an OpenAI API key for Responses API remote MCP evidence, and separately verify ChatGPT Apps/Connectors UI plus OAuth behavior before launch snippets.",
+      nextAction: "Run pnpm smoke:mcp-openai with an OpenAI API key against a target that includes hosted search/fetch aliases, and separately verify ChatGPT Apps/Connectors UI plus OAuth behavior before launch snippets.",
     };
   }
 

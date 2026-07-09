@@ -80,7 +80,7 @@ describe("VRDex MCP server", () => {
           id: 1,
           method: "tools/call",
           params: {
-            name: "vrdex_search",
+            name: "search",
             arguments: { query: "club" },
           },
         },
@@ -101,7 +101,16 @@ describe("VRDex MCP server", () => {
         },
         {
           jsonrpc: "2.0",
-          id: 4,
+          id: 5,
+          method: "tools/call",
+          params: {
+            name: "fetch",
+            arguments: { id: "profile:community:afterglow" },
+          },
+        },
+        {
+          jsonrpc: "2.0",
+          id: 6,
           method: "tools/call",
           params: {
             name: "vrdex_get_world",
@@ -116,7 +125,7 @@ describe("VRDex MCP server", () => {
         },
         body: JSON.stringify({
           jsonrpc: "2.0",
-          id: 5,
+          id: 7,
           method: "tools/call",
           params: {
             name: "vrdex_list_active_worlds",
@@ -151,7 +160,7 @@ describe("VRDex MCP server", () => {
       requestNames: string[];
     };
 
-    assert.deepEqual(result.payloadNames, ["vrdex_search", "vrdex_get_world"]);
+    assert.deepEqual(result.payloadNames, ["search", "fetch", "vrdex_get_world"]);
     assert.deepEqual(result.requestNames, ["vrdex_list_active_worlds"]);
     assert.deepEqual(result.malformedNames, []);
     assert.equal(result.anonymousRouteClass, "anonymous_mcp_public_read");
@@ -216,6 +225,8 @@ describe("VRDex MCP server", () => {
     `);
 
     assert.match(output, /^200/m);
+    assert.match(output, /"name":"search"/);
+    assert.match(output, /"name":"fetch"/);
     assert.match(output, /"name":"vrdex_search"/);
     assert.match(output, /"name":"vrdex_get_profile"/);
     assert.match(output, /"name":"vrdex_get_event"/);
@@ -232,6 +243,91 @@ describe("VRDex MCP server", () => {
     for (const tool of tools) {
       assertPublicReadSecuritySchemes(tool._meta);
     }
+  });
+
+  it("serves OpenAI-compatible search and fetch over public records", () => {
+    const output = runMcpProbe(`
+      import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      process.env.VRDEX_OAUTH_ISSUER_URL = "https://app.example.test";
+
+      const handler = createVrdexMcpHandler({
+        convex: {
+          query: async (query, args) => {
+            if ("query" in args) {
+              return [
+                {
+                  entityType: "profile",
+                  profileType: "community",
+                  routePath: "/c/afterglow",
+                  score: 42,
+                  slug: "afterglow",
+                  summary: "A warm VRChat club night.",
+                  title: "Afterglow",
+                },
+              ];
+            }
+
+            if ("profileType" in args) {
+              return {
+                bio: "A warm VRChat club night.",
+                displayName: "Afterglow",
+                outboundLinks: [{ label: "Website", url: "https://afterglow.example" }],
+                profileType: args.profileType,
+                slug: args.slug,
+                tags: ["club", "vrchat"],
+                trustLabel: "claimed_verified",
+              };
+            }
+
+            throw new Error("unexpected query");
+          },
+        },
+      });
+      const searchResponse = await handler.fetch(new Request("http://localhost:3000/mcp", {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 4,
+          method: "tools/call",
+          params: {
+            arguments: { query: "club" },
+            name: "search",
+          },
+        }),
+      }));
+      const fetchResponse = await handler.fetch(new Request("http://localhost:3000/mcp", {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 5,
+          method: "tools/call",
+          params: {
+            arguments: { id: "profile:community:afterglow" },
+            name: "fetch",
+          },
+        }),
+      }));
+
+      console.log(searchResponse.status);
+      console.log(await searchResponse.text());
+      console.log(fetchResponse.status);
+      console.log(await fetchResponse.text());
+    `);
+
+    assert.match(output, /^200/m);
+    assert.match(output, /"id":"profile:community:afterglow"/);
+    assert.match(output, /"url":"https:\/\/app\.example\.test\/c\/afterglow"/);
+    assert.match(output, /"text":"Title: Afterglow\\nEntity type: profile/);
+    assert.match(output, /"metadata":\{"entityType":"profile","profileType":"community","slug":"afterglow"/);
   });
 
   it("returns a public-safe tool error when hosted public data is unavailable", () => {

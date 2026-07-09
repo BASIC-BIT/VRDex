@@ -41,7 +41,7 @@ type HostedToolDescriptor = {
   name?: unknown;
 };
 
-const expectedTools = [
+const localExpectedTools = [
   "vrdex_search",
   "vrdex_get_profile",
   "vrdex_get_event",
@@ -49,6 +49,7 @@ const expectedTools = [
   "vrdex_get_world",
   "vrdex_list_active_worlds",
 ];
+const hostedExpectedTools = ["search", "fetch", ...localExpectedTools];
 
 function assertHostedPublicReadSecuritySchemes(tool: HostedToolDescriptor) {
   assert.equal(typeof tool._meta, "object", `Hosted tool ${String(tool.name)} is missing _meta.`);
@@ -280,7 +281,7 @@ async function smokeLocalStdioProfile(profile: (typeof localClientProfiles)[numb
     const tools = await waitForMessage(messages, onMessage, 2, stderr, profile.name);
     const toolNames = ((tools.result as { tools: Array<{ name: string }> }).tools).map((tool) => tool.name);
 
-    assert.deepEqual(toolNames, expectedTools);
+    assert.deepEqual(toolNames, localExpectedTools);
 
     await callTool({
       id: 3,
@@ -765,7 +766,7 @@ async function smokeHostedHttp(results: SmokeResult[], options: SmokeOptions) {
 
   const toolsBody = JSON.stringify(toolsResponse);
 
-  for (const toolName of expectedTools) {
+  for (const toolName of hostedExpectedTools) {
     assert.match(toolsBody, new RegExp(`"name":"${toolName}"`));
   }
 

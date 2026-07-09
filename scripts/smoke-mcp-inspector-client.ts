@@ -35,6 +35,8 @@ type ToolDescriptor = {
 };
 
 const expectedTools = [
+  "search",
+  "fetch",
   "vrdex_search",
   "vrdex_get_profile",
   "vrdex_get_event",
@@ -386,7 +388,7 @@ async function main() {
   console.log("| Smoke target | Status | Details |");
   console.log("| --- | --- | --- |");
   console.log(
-    `| MCP Inspector hosted tools/list | pass | listed six VRDex tools and public-read auth metadata for ${options.hostedUrl} |`,
+    `| MCP Inspector hosted tools/list | pass | listed eight hosted VRDex tools and public-read auth metadata for ${options.hostedUrl} |`,
   );
   console.log(
     dataStatus === "pass"
@@ -395,7 +397,7 @@ async function main() {
   );
   console.log(
     oauthStatus === "pass"
-      ? "| MCP Inspector hosted OAuth tools/list | pass | acquired or supplied MCP-resource OAuth token listed six VRDex tools without exposing the token or client secret |"
+      ? "| MCP Inspector hosted OAuth tools/list | pass | acquired or supplied MCP-resource OAuth token listed eight hosted VRDex tools without exposing the token or client secret |"
       : "| MCP Inspector hosted OAuth tools/list | skip | set VRDEX_MCP_OAUTH_CLIENT_ID / VRDEX_MCP_OAUTH_CLIENT_SECRET or VRDEX_MCP_INSPECTOR_OAUTH_TOKEN for hosted OAuth evidence |",
   );
 }

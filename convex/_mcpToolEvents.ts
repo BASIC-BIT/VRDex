@@ -1,6 +1,8 @@
 import { v } from "convex/values";
 
 export const mcpToolNameValidator = v.union(
+  v.literal("search"),
+  v.literal("fetch"),
   v.literal("vrdex_search"),
   v.literal("vrdex_get_profile"),
   v.literal("vrdex_get_event"),
@@ -18,6 +20,8 @@ export const mcpToolEventTypeValidator = v.literal("tool_invocation");
 export const mcpToolEventResultValidator = v.literal("accepted");
 
 export type McpToolName =
+  | "search"
+  | "fetch"
   | "vrdex_search"
   | "vrdex_get_profile"
   | "vrdex_get_event"

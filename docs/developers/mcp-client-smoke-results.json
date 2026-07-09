@@ -212,9 +212,9 @@
           "id": "hosted-anonymous-read",
           "surface": "hosted_http_anonymous",
           "requiredForExternalReadiness": true,
-          "repoEvidence": "pnpm smoke:mcp-openai -- --hosted-url <production-like-/mcp-url> --hosted-data when OPENAI_API_KEY is available; ChatGPT Apps/Connectors UI evidence remains separate",
+          "repoEvidence": "pnpm smoke:mcp-openai -- --hosted-url <production-like-/mcp-url> --hosted-data when OPENAI_API_KEY is available and the target exposes search/fetch; ChatGPT Apps/Connectors UI evidence remains separate",
           "manualStatus": "pending",
-          "notes": "2026-07-09: Responses API remote MCP smoke harness is available for hosted anonymous public reads, but OPENAI_API_KEY is absent in the local process and the local openai 1.10.0 CLI is not readiness evidence. Verify ChatGPT Apps/Connectors UI behavior separately before publishing product-surface snippets."
+          "notes": "2026-07-09: Responses API remote MCP smoke harness is available for hosted anonymous public reads. A live Responses API attempt reached OpenAI with local credentials but failed because the deployed staging target only exposed the older VRDex-specific tool names; OpenAI requires hosted read-only search and fetch tools. Rerun pnpm smoke:mcp-openai after a target deploy includes the compatibility aliases. Verify ChatGPT Apps/Connectors UI behavior separately before publishing product-surface snippets."
         },
         {
           "id": "hosted-oauth",

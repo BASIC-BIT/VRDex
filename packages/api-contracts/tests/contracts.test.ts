@@ -28,6 +28,8 @@ import {
   getBearerTokenFromAuthorizationHeader,
   getOpenApiDocument,
   hasBearerTokenInUrl,
+  McpDocumentFetchResponseSchema,
+  McpDocumentSearchResponseSchema,
   mcpOutputJsonSchemaForZodSchema,
   PublicActiveWorldSchema,
   PublicEventSchema,
@@ -158,6 +160,28 @@ describe("@vrdex/api-contracts", () => {
         title: "Afterglow Night",
         startAt: 1770000000000,
         source: { sourceType: "manual", label: "Owner-authored" },
+      },
+    });
+
+    McpDocumentSearchResponseSchema.parse({
+      results: [
+        {
+          id: "profile:community:afterglow",
+          title: "Afterglow",
+          url: "https://vrdex.example/c/afterglow",
+        },
+      ],
+    });
+
+    McpDocumentFetchResponseSchema.parse({
+      id: "profile:community:afterglow",
+      title: "Afterglow",
+      text: "Afterglow public VRDex profile.",
+      url: "https://vrdex.example/c/afterglow",
+      metadata: {
+        entityType: "profile",
+        profileType: "community",
+        slug: "afterglow",
       },
     });
   });

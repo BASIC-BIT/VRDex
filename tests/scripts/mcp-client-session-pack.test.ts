@@ -37,7 +37,8 @@ describe("MCP client smoke session pack", () => {
       const readme = await readFile(join(outputDir, "README.md"), "utf8");
 
       assert.match(readme, /## VS Code/);
-      assert.match(readme, /Record a pass only after the real client lists tools and calls `vrdex_search`/);
+      assert.match(readme, /Record a pass only after the real client lists tools and calls the expected public read tool/);
+      assert.match(readme, /`search` plus `fetch` for OpenAI\/ChatGPT surfaces/);
       assert.match(readme, /record a fail only with sanitized evidence of the exact client-side blocker/);
       assert.match(readme, /## Cursor/);
       assert.match(readme, /## Windsurf/);
@@ -201,6 +202,8 @@ describe("MCP client smoke session pack", () => {
       assert.match(openAiAnonymousEvidence, /pnpm smoke:mcp-openai -- --hosted-url https:\/\/staging\.vrdex\.net\/mcp --hosted-data/);
       assert.match(openAiAnonymousEvidence, /OpenAI Responses API or ChatGPT hosted MCP surface/);
       assert.match(openAiAnonymousEvidence, /anonymous\/no-auth tools/);
+      assert.match(openAiAnonymousEvidence, /Client calls `search` with query `club`/);
+      assert.match(openAiAnonymousEvidence, /Client calls `fetch` with the first returned result id/);
       assert.match(openAiAnonymousEvidence, /does not force login before the anonymous public-read call/);
       assert.match(openAiAnonymousEvidence, /No bearer tokens, OAuth client secrets/);
     } finally {
