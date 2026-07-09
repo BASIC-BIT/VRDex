@@ -226,10 +226,14 @@ Pair that Inspector run with `pnpm smoke:mcp-compat -- --hosted-only
 `mcp-inspector/hosted-oauth` matrix row, so the evidence covers both
 DCR/CIMD protocol behavior and an authenticated `mcp:read` client call.
 
-OpenAI Responses API remote MCP has a hosted anonymous-read harness. It sends a
-remote MCP tool definition with `server_url`, constrains `allowed_tools` to
-`search` and `fetch`, sets `require_approval` to `never`, and fails unless the
-Responses payload includes both MCP tool calls and the expected final answer:
+OpenAI Responses API remote MCP has a hosted anonymous-read harness. It first
+preflights the hosted `/mcp` target directly, requiring `tools/list` to expose
+`search` and `fetch`, `search` to return at least one data-backed result, and
+`fetch` to return non-empty document text. Only after that target preflight
+passes does it send a remote MCP tool definition with `server_url`, constrain
+`allowed_tools` to `search` and `fetch`, set `require_approval` to `never`, and
+fail unless the Responses payload includes both MCP tool calls and the expected
+final answer:
 
 ```sh
 pnpm smoke:mcp-openai -- \
@@ -255,11 +259,9 @@ Current 2026-07-09 target evidence is intentionally not recorded as a pass:
 staging has data-backed public search but has not deployed the hosted
 `search`/`fetch` aliases, while the PR preview exposes the aliases but returns
 `VRDex public data is temporarily unavailable for search` for data-backed
-public reads. A local preview MCP compat smoke confirmed the same data-backed
-preview tool error. A live OpenAI smoke against the PR preview timed out with a
-10s request bound, then reached the `search`/`fetch` tool-call path with
-`gpt-4.1-mini` and a 60s bound, failing because the response did not include
-structured hosted MCP search results from the non-data-backed preview target.
+public reads. Current `pnpm smoke:mcp-openai` runs fail before any OpenAI
+request on both targets: staging fails target preflight at `tools/list`, and
+the PR preview fails target preflight at `search`.
 
 PR Baseline Checks run the same local stdio protocol smoke through
 `pnpm verify:vrdex-mcp`.
@@ -767,11 +769,10 @@ pnpm ops:mcp-client-smokes -- \
 7. OpenAI or ChatGPT MCP-capable surfaces connect to hosted `/mcp` if the
    current product supports custom remote MCP connectors. Responses API hosted
    anonymous-read evidence uses `pnpm smoke:mcp-openai` with `OPENAI_API_KEY`;
-   the smoke requires both `search` and `fetch`. A 2026-07-09 live Responses
-   API attempt against the PR preview is recorded as failed: staging still lacks
-   the aliases, and the preview exposes the aliases but lacks data-backed
-   public search, so the model response did not include structured hosted MCP
-   search results.
+   the smoke requires both `search` and `fetch`, and now preflights the hosted
+   MCP target before making an OpenAI request. A 2026-07-09 attempt is recorded
+   as failed before the OpenAI request: staging still lacks the aliases, and
+   the preview exposes the aliases but lacks data-backed public search.
    Record whether ChatGPT Apps/Connectors accepts DCR, requires Client ID
    Metadata Documents, or follows a reviewed app submission path. Also record
    whether public read tools appear as anonymous/no-auth tools instead of

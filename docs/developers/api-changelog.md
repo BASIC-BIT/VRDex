@@ -16,8 +16,9 @@ docs update and a changelog entry so early consumers and agents can adapt.
   MCP tool invocation telemetry
 - tightened `pnpm smoke:mcp-openai` so it loads repo-root `.env.local` without
   printing secret values, avoids inline key guidance in generated smoke plans,
-  and fails bounded live Responses API requests with a clear timeout instead of
-  hanging on incomplete hosted MCP targets
+  fails bounded live Responses API requests with a clear timeout, and
+  preflights hosted `/mcp` for `search`/`fetch` plus data-backed results before
+  calling OpenAI
 - added generated `docs/api/openapi.yaml` alongside `docs/api/openapi.json`;
   both artifacts are emitted from the shared API contract package, served under
   `/api/v0/openapi.{json,yaml}`, and covered by `pnpm check:api-openapi` drift
@@ -87,10 +88,9 @@ docs update and a changelog entry so early consumers and agents can adapt.
 - added `pnpm smoke:mcp-openai` as a repeatable OpenAI Responses API remote
   MCP hosted anonymous-read harness, keeping ChatGPT Apps/Connectors UI and
   hosted OAuth evidence as separate product-surface rows
-- recorded the OpenAI Responses API hosted anonymous PR-preview smoke as failed
-  because the target has `search`/`fetch` aliases but lacks data-backed public
-  search, and the `gpt-4.1-mini` response did not include structured hosted MCP
-  search results
+- recorded the OpenAI Responses API hosted anonymous row as failed before any
+  OpenAI request: staging still lacks hosted `search`/`fetch`, and the PR
+  preview has the aliases but lacks data-backed public search
 - fixed the Gemini CLI smoke harness on Windows so disposable package execution
   routes through `cmd.exe` instead of spawning `npx.cmd` directly; local
   preflight can reach Gemini CLI and fails closed on provider auth/quota before

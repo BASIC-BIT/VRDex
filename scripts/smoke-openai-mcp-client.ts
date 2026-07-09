@@ -2,8 +2,18 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 import { loadRepoEnvLocal } from "./env-local";
+import { summarizeMcpToolFailure } from "./lib/mcp-smoke-diagnostics";
 
 type HostedSearchType = "all" | "community" | "event" | "person" | "profile" | "world";
+
+type JsonRpcMessage = {
+  error?: unknown;
+  id?: number | string | null;
+  jsonrpc: "2.0";
+  method?: string;
+  params?: unknown;
+  result?: unknown;
+};
 
 type OpenAiMcpOptions = {
   apiKey?: string;
@@ -22,6 +32,7 @@ type OpenAiMcpOptions = {
 };
 
 const hostedSearchTypes = new Set<HostedSearchType>(["all", "community", "event", "person", "profile", "world"]);
+const openAiRequiredHostedTools = ["search", "fetch"] as const;
 
 function nonEmpty(value: string | undefined) {
   const trimmed = value?.trim();
@@ -80,6 +91,7 @@ function printHelp() {
     "",
     "Runs an OpenAI Responses API remote MCP smoke against hosted VRDex MCP.",
     "This is API integration evidence, not ChatGPT app UI evidence.",
+    "Before calling OpenAI, the smoke directly preflights hosted /mcp for search/fetch tools plus data-backed search/fetch results.",
     "",
     "Required environment:",
     "  OPENAI_API_KEY              OpenAI API key. Use --api-key-env to choose another variable.",
@@ -300,6 +312,188 @@ function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function trimTrailingSlashes(value: string) {
+  let end = value.length;
+
+  while (end > 0 && value.charCodeAt(end - 1) === 47) {
+    end -= 1;
+  }
+
+  return value.slice(0, end);
+}
+
+function hostedMcpUrl(rawUrl: string) {
+  const url = new URL(rawUrl);
+  const pathname = trimTrailingSlashes(url.pathname);
+
+  if (!pathname.endsWith("/mcp")) {
+    url.pathname = `${pathname}/mcp`;
+  } else {
+    url.pathname = pathname;
+  }
+
+  return url;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+async function parseMcpHttpResponse(response: Response) {
+  const text = await response.text();
+  const trimmed = text.trim();
+
+  if (!trimmed) {
+    return undefined;
+  }
+
+  if (trimmed.startsWith("{")) {
+    return JSON.parse(trimmed) as unknown;
+  }
+
+  const dataLine = trimmed
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.startsWith("data:"));
+
+  return dataLine === undefined ? undefined : (JSON.parse(dataLine.slice("data:".length).trim()) as unknown);
+}
+
+async function assertMcpHttpStatus(response: Response, expectedStatus: number, label: string) {
+  if (response.status === expectedStatus) {
+    return;
+  }
+
+  const text = await response.text();
+  const body = text.trim() ? text.slice(0, 500) : "<empty body>";
+
+  throw new Error(`${label} expected HTTP ${expectedStatus}, got HTTP ${response.status}: ${body}`);
+}
+
+async function postMcpJsonRpc(url: URL, body: JsonRpcMessage) {
+  return fetch(url, {
+    body: JSON.stringify(body),
+    headers: {
+      accept: "application/json, text/event-stream",
+      "content-type": "application/json",
+      "mcp-protocol-version": "2025-06-18",
+    },
+    method: "POST",
+  });
+}
+
+function toolNamesFromListResponse(payload: unknown) {
+  if (!isRecord(payload) || !isRecord(payload.result) || !Array.isArray(payload.result.tools)) {
+    throw new Error(`Hosted MCP tools/list did not return a tools array: ${summarizeMcpToolFailure(payload)}`);
+  }
+
+  return payload.result.tools
+    .map((tool) => (isRecord(tool) && typeof tool.name === "string" ? tool.name : undefined))
+    .filter((toolName): toolName is string => toolName !== undefined);
+}
+
+function assertNoMcpToolError(payload: unknown, label: string) {
+  if (!isRecord(payload)) {
+    throw new Error(`${label} returned an invalid MCP response: ${summarizeMcpToolFailure(payload)}`);
+  }
+
+  if (payload.error !== undefined || (isRecord(payload.result) && payload.result.isError === true)) {
+    throw new Error(`${label} failed: ${summarizeMcpToolFailure(payload)}`);
+  }
+}
+
+async function assertOpenAiMcpTargetReady(options: OpenAiMcpOptions) {
+  const url = hostedMcpUrl(options.hostedUrl!);
+
+  const initialized = await postMcpJsonRpc(url, {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "initialize",
+    params: {
+      capabilities: {},
+      clientInfo: { name: "vrdex-openai-mcp-smoke", version: "0.0.0" },
+      protocolVersion: "2025-06-18",
+    },
+  });
+
+  await assertMcpHttpStatus(initialized, 200, "OpenAI hosted MCP preflight initialize");
+  assertNoMcpToolError(await parseMcpHttpResponse(initialized), "OpenAI hosted MCP preflight initialize");
+
+  const listed = await postMcpJsonRpc(url, {
+    jsonrpc: "2.0",
+    id: 2,
+    method: "tools/list",
+    params: {},
+  });
+
+  await assertMcpHttpStatus(listed, 200, "OpenAI hosted MCP preflight tools/list");
+
+  const toolNames = toolNamesFromListResponse(await parseMcpHttpResponse(listed));
+  const missingTools = openAiRequiredHostedTools.filter((toolName) => !toolNames.includes(toolName));
+
+  if (missingTools.length > 0) {
+    throw new Error(
+      `Hosted MCP target ${url.href} does not expose OpenAI-compatible ${missingTools.join(", ")} tool(s). Found tools: ${toolNames.join(", ") || "<none>"}.`,
+    );
+  }
+
+  const searchResponse = await postMcpJsonRpc(url, {
+    jsonrpc: "2.0",
+    id: 3,
+    method: "tools/call",
+    params: {
+      arguments: { query: options.hostedSearch.query },
+      name: "search",
+    },
+  });
+
+  await assertMcpHttpStatus(searchResponse, 200, "OpenAI hosted MCP preflight search");
+
+  const searchPayload = await parseMcpHttpResponse(searchResponse);
+
+  assertNoMcpToolError(searchPayload, "OpenAI hosted MCP preflight search");
+
+  const results =
+    isRecord(searchPayload) && isRecord(searchPayload.result) && isRecord(searchPayload.result.structuredContent)
+      ? searchPayload.result.structuredContent.results
+      : undefined;
+
+  assert.equal(Array.isArray(results), true, "OpenAI hosted MCP preflight search did not return results.");
+  assert.ok(
+    results.length > 0,
+    `OpenAI hosted MCP preflight search returned no results for query ${JSON.stringify(options.hostedSearch.query)}.`,
+  );
+
+  const firstResult = results[0];
+  const firstResultId = isRecord(firstResult) && typeof firstResult.id === "string" ? firstResult.id : undefined;
+
+  assert.ok(firstResultId, "OpenAI hosted MCP preflight search first result did not include an id.");
+
+  const fetchResponse = await postMcpJsonRpc(url, {
+    jsonrpc: "2.0",
+    id: 4,
+    method: "tools/call",
+    params: {
+      arguments: { id: firstResultId },
+      name: "fetch",
+    },
+  });
+
+  await assertMcpHttpStatus(fetchResponse, 200, "OpenAI hosted MCP preflight fetch");
+
+  const fetchPayload = await parseMcpHttpResponse(fetchResponse);
+
+  assertNoMcpToolError(fetchPayload, "OpenAI hosted MCP preflight fetch");
+
+  const text =
+    isRecord(fetchPayload) && isRecord(fetchPayload.result) && isRecord(fetchPayload.result.structuredContent)
+      ? fetchPayload.result.structuredContent.text
+      : undefined;
+
+  assert.equal(typeof text, "string", "OpenAI hosted MCP preflight fetch did not return document text.");
+  assert.notEqual(text.trim(), "", "OpenAI hosted MCP preflight fetch returned empty document text.");
+}
+
 function assertOpenAiMcpResponse(payload: unknown, options: OpenAiMcpOptions) {
   const serialized = JSON.stringify(payload);
   const strings = collectStrings(payload);
@@ -335,6 +529,11 @@ async function main() {
   loadRepoEnvLocal();
 
   const options = parseArgs(process.argv.slice(2));
+
+  if (options.fixturePath === undefined) {
+    await assertOpenAiMcpTargetReady(options);
+  }
+
   const payload = await fetchResponsesPayload(options);
 
   assertOpenAiMcpResponse(payload, options);

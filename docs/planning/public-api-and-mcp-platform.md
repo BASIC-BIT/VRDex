@@ -136,17 +136,17 @@ Next execution checkpoint:
 5. Use `pnpm smoke:mcp-openai -- --hosted-url https://staging.vrdex.net/mcp
    --hosted-data` with `OPENAI_API_KEY` for OpenAI Responses API hosted
    anonymous-read evidence. The smoke now loads repo-root `.env.local` if
-   present, so a local operator key can be durable without being committed or
-   printed. Keep ChatGPT Apps/Connectors UI and hosted OAuth as product-surface
-   evidence; do not mark those rows ready from local CLI or API-only checks.
+   present and directly preflights the hosted MCP target before calling OpenAI,
+   so a local operator key can be durable without being committed or printed and
+   wrong-target runs fail before spending a model call. Keep ChatGPT
+   Apps/Connectors UI and hosted OAuth as product-surface evidence; do not mark
+   those rows ready from local CLI or API-only checks.
    Current 2026-07-09 evidence is split: staging has data-backed public search
    but still lacks the hosted `search` and `fetch` compatibility aliases, while
-   the PR preview has the aliases but lacks data-backed public search. A local
-   preview MCP compat smoke confirmed the data-backed preview tool error. A
-   live OpenAI probe against the PR preview timed out with a 10s request bound,
-   then reached `search`/`fetch` with `gpt-4.1-mini` and a 60s bound, failing
-   because the response did not include structured hosted MCP search results
-   from the non-data-backed preview target. The OpenAI hosted-anonymous row is
+   the PR preview has the aliases but lacks data-backed public search. Current
+   OpenAI smoke runs fail during target preflight before any OpenAI request:
+   staging lacks `search`/`fetch` in `tools/list`, and the PR preview returns
+   the data-backed search tool error. The OpenAI hosted-anonymous row is
    recorded as failed until one production-like target has both aliases and
    data.
 
