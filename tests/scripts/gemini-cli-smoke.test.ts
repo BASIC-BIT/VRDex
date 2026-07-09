@@ -5,6 +5,7 @@ import {
   geminiProviderQuotaMessage,
   geminiSpawnForPlatform,
   removeGeminiProjectDir,
+  runGemini,
 } from "../../scripts/smoke-gemini-cli-mcp-client";
 
 describe("Gemini CLI MCP smoke harness", () => {
@@ -80,6 +81,27 @@ describe("Gemini CLI MCP smoke harness", () => {
         },
       }),
       /permission denied/,
+    );
+  });
+
+  it("reports timed out Gemini subprocesses", async () => {
+    await assert.rejects(
+      runGemini(
+        {
+          geminiCommand: process.execPath,
+          hostedDataPublicReads: false,
+          hostedSearch: {
+            limit: 1,
+            query: "",
+            type: "all",
+          },
+          mode: "local-stdio",
+          timeoutMs: 50,
+        },
+        ["-e", "setTimeout(()=>{},1000)"],
+        process.cwd(),
+      ),
+      /timed out after 50ms/,
     );
   });
 

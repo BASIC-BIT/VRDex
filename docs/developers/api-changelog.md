@@ -79,6 +79,10 @@ docs update and a changelog entry so early consumers and agents can adapt.
   routes through `cmd.exe` instead of spawning `npx.cmd` directly; local
   preflight can reach Gemini CLI and fails closed on provider auth/quota before
   any matrix row is recorded
+- tightened the Gemini CLI smoke harness timeout path so a timed-out child
+  process is given a short close grace before the disposable project directory
+  is removed, reducing transient Windows cleanup locks during failed client
+  smokes
 - added `pnpm ops:mcp-hosted-oauth-prereqs` as a read-only GitHub Actions
   variable/secret audit for the hosted MCP OAuth evidence path, covering both
   reviewed OAuth smoke secrets and temporary credential generation without

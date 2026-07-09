@@ -247,7 +247,7 @@ function geminiSpawn(options: GeminiOptions, args: string[]) {
   });
 }
 
-function runGemini(options: GeminiOptions, args: string[], cwd: string) {
+export function runGemini(options: GeminiOptions, args: string[], cwd: string) {
   return new Promise<RunResult>((resolve, reject) => {
     const command = geminiSpawn(options, args);
     const child = spawn(command.command, command.args, {
@@ -255,9 +255,30 @@ function runGemini(options: GeminiOptions, args: string[], cwd: string) {
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],
     });
+    let timeoutError: Error | undefined;
+    let timeoutGrace: NodeJS.Timeout | undefined;
+    let settled = false;
+    const clearTimers = () => {
+      clearTimeout(timeout);
+      if (timeoutGrace !== undefined) {
+        clearTimeout(timeoutGrace);
+      }
+    };
+    const settleReject = (error: Error) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimers();
+      reject(error);
+    };
     const timeout = setTimeout(() => {
+      timeoutError = new Error(`${[command.command, ...command.args].join(" ")} timed out after ${options.timeoutMs}ms.`);
       child.kill();
-      reject(new Error(`${[command.command, ...command.args].join(" ")} timed out after ${options.timeoutMs}ms.`));
+      timeoutGrace = setTimeout(() => {
+        settleReject(timeoutError!);
+      }, 5_000);
     }, options.timeoutMs);
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
@@ -265,11 +286,21 @@ function runGemini(options: GeminiOptions, args: string[], cwd: string) {
     child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
     child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
     child.on("error", (error) => {
-      clearTimeout(timeout);
-      reject(error);
+      settleReject(error);
     });
     child.on("close", (code) => {
-      clearTimeout(timeout);
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimers();
+      if (timeoutError !== undefined) {
+        reject(timeoutError);
+
+        return;
+      }
+
       resolve({
         code,
         stderr: Buffer.concat(stderr).toString("utf8"),
