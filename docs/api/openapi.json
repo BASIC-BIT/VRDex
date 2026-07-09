@@ -2122,6 +2122,48 @@
         }
       }
     },
+    "/api/v0/profile-assets/upload-intents/probe": {
+      "get": {
+        "operationId": "probeProfileAssetUploadStorage",
+        "tags": [
+          "Assets"
+        ],
+        "summary": "Probe profile asset upload storage",
+        "description": "Returns deployment health for the profile asset upload storage backend.",
+        "responses": {
+          "200": {
+            "description": "Profile asset storage is configured and reachable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProfileAssetStorageProbeResponse"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Profile asset storage is not configured for this deployment.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProfileAssetStorageProbeResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Profile asset storage is configured but temporarily unreachable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProfileAssetStorageProbeResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v0/people/{slug}": {
       "get": {
         "operationId": "getPublicPersonProfileBySlug",
@@ -6185,6 +6227,28 @@
         ],
         "additionalProperties": false,
         "description": "Profile asset upload transport error response."
+      },
+      "ApiProfileAssetStorageProbeResponse": {
+        "type": "object",
+        "properties": {
+          "checkedAt": {
+            "type": "string",
+            "minLength": 1
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "storageReachable": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "checkedAt",
+          "configured",
+          "storageReachable"
+        ],
+        "additionalProperties": false,
+        "description": "Profile asset storage probe result."
       },
       "PublicEventsResponse": {
         "type": "object",

@@ -48,6 +48,8 @@ docs update and a changelog entry so early consumers and agents can adapt.
   both artifacts are emitted from the shared API contract package, served under
   `/api/v0/openapi.{json,yaml}`, and covered by `pnpm check:api-openapi` drift
   detection
+- documented `GET /api/v0/profile-assets/upload-intents/probe` in the shared
+  OpenAPI contract as the profile asset upload storage health probe
 
 ## 2026-07-08
 

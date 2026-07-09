@@ -32,6 +32,7 @@ import {
   ApiProfileAssetUploadIntentCompleteResponseSchema,
   ApiProfileAssetUploadIntentCreateRequestSchema,
   ApiProfileAssetUploadIntentCreateResponseSchema,
+  ApiProfileAssetStorageProbeResponseSchema,
   ApiProfileUpdateRequestSchema,
   ApiProfileWriteResponseSchema,
   ApiRateLimitUsageResponseSchema,
@@ -815,6 +816,28 @@ export const openApiSource = {
           "501": {
             description: "Profile asset storage is not configured for this deployment.",
             content: jsonContent(ApiProfileAssetUploadErrorResponseSchema),
+          },
+        },
+      },
+    },
+    "/api/v0/profile-assets/upload-intents/probe": {
+      get: {
+        operationId: "probeProfileAssetUploadStorage",
+        tags: ["Assets"],
+        summary: "Probe profile asset upload storage",
+        description: "Returns deployment health for the profile asset upload storage backend.",
+        responses: {
+          "200": {
+            description: "Profile asset storage is configured and reachable.",
+            content: jsonContent(ApiProfileAssetStorageProbeResponseSchema),
+          },
+          "501": {
+            description: "Profile asset storage is not configured for this deployment.",
+            content: jsonContent(ApiProfileAssetStorageProbeResponseSchema),
+          },
+          "503": {
+            description: "Profile asset storage is configured but temporarily unreachable.",
+            content: jsonContent(ApiProfileAssetStorageProbeResponseSchema),
           },
         },
       },

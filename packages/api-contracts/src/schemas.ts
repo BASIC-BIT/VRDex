@@ -542,6 +542,17 @@ export const ApiProfileAssetUploadErrorResponseSchema = z
     id: "ApiProfileAssetUploadErrorResponse",
   });
 
+export const ApiProfileAssetStorageProbeResponseSchema = z
+  .object({
+    checkedAt: z.string().min(1),
+    configured: z.boolean(),
+    storageReachable: z.boolean(),
+  })
+  .meta({
+    description: "Profile asset storage probe result.",
+    id: "ApiProfileAssetStorageProbeResponse",
+  });
+
 export const ApiSimpleErrorResponseSchema = z
   .object({
     error: z.string().min(1),
