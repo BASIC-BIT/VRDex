@@ -32,6 +32,10 @@ docs update and a changelog entry so early consumers and agents can adapt.
   `pnpm ops:mcp-client-session-pack` with `--hosted-query` /
   `VRDEX_MCP_SMOKE_QUERY` so generated real-client smoke commands can target a
   known non-empty public search fixture
+- aligned `pnpm ops:mcp-installed-clients` and
+  `pnpm ops:mcp-oauth-smoke-credentials` hosted smoke guidance with the same
+  known-query flags for Claude Code, Gemini CLI, OpenAI Responses API, and MCP
+  Inspector
 - added generated `docs/api/openapi.yaml` alongside `docs/api/openapi.json`;
   both artifacts are emitted from the shared API contract package, served under
   `/api/v0/openapi.{json,yaml}`, and covered by `pnpm check:api-openapi` drift

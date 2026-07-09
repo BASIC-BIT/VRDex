@@ -143,6 +143,8 @@ describe("API/MCP rollout readiness checker", () => {
     assert.match(installedClientsSource, /GEMINI_API_KEY/);
     assert.match(installedClientsSource, /Claude Desktop/);
     assert.match(installedClientsSource, /stdout transcript/);
+    assert.match(installedClientsSource, /--hosted-query <known-public-query>/);
+    assert.match(installedClientsSource, /--query <known-public-query>/);
   });
 
   it("keeps hosted MCP OAuth workflow wired to temporary smoke credential generation", async () => {

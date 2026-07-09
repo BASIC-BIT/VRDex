@@ -215,19 +215,19 @@ const oauthPrerequisites: OAuthPrerequisite[] = [
   {
     clientSpecificPrefix: "CLAUDE_CODE",
     matrixRow: "claude-code/hosted-oauth",
-    smokeCommand: "pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url <target-/mcp-url> --hosted-data",
+    smokeCommand: "pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url <target-/mcp-url> --hosted-data --hosted-query <known-public-query>",
     tokenEnvName: "VRDEX_CLAUDE_CODE_OAUTH_TOKEN",
   },
   {
     clientSpecificPrefix: "MCP_INSPECTOR",
     matrixRow: "mcp-inspector/hosted-oauth",
-    smokeCommand: "pnpm smoke:mcp-inspector -- --hosted-url <target-/mcp-url> --hosted-data",
+    smokeCommand: "pnpm smoke:mcp-inspector -- --hosted-url <target-/mcp-url> --hosted-data --query <known-public-query>",
     tokenEnvName: "VRDEX_MCP_INSPECTOR_OAUTH_TOKEN",
   },
   {
     clientSpecificPrefix: "GEMINI_CLI",
     matrixRow: "gemini-cli/hosted-oauth",
-    smokeCommand: "pnpm smoke:mcp-gemini-cli -- --mode hosted-http --hosted-url <target-/mcp-url> --hosted-data",
+    smokeCommand: "pnpm smoke:mcp-gemini-cli -- --mode hosted-http --hosted-url <target-/mcp-url> --hosted-data --hosted-query <known-public-query>",
     tokenEnvName: "VRDEX_GEMINI_CLI_OAUTH_TOKEN",
   },
 ];
@@ -501,8 +501,8 @@ function evaluateProviderCredentials(): ProviderCredentialResult[] {
     {
       credentialSource: `${openAiKeyEnvName}=${hasOpenAiKey ? "present" : "missing"}`,
       nextAction: hasOpenAiKey
-        ? "Run pnpm smoke:mcp-openai -- --hosted-url <target-/mcp-url> --hosted-data against a target that exposes search and fetch."
-        : `Set ${openAiKeyEnvName}, then run pnpm smoke:mcp-openai -- --hosted-url <target-/mcp-url> --hosted-data against a target that exposes search and fetch.`,
+        ? "Run pnpm smoke:mcp-openai -- --hosted-url <target-/mcp-url> --hosted-data --hosted-query <known-public-query> against a target that exposes search and fetch."
+        : `Set ${openAiKeyEnvName}, then run pnpm smoke:mcp-openai -- --hosted-url <target-/mcp-url> --hosted-data --hosted-query <known-public-query> against a target that exposes search and fetch.`,
       path: "OpenAI Responses API remote MCP",
       status: hasOpenAiKey ? "pass" : "missing",
     },
