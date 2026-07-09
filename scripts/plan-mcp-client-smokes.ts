@@ -247,7 +247,7 @@ function repoPreflightCommand(client: ClientEntry, check: SmokeCheck, options: O
   }
 
   if (client.id === "openai-chatgpt" && check.id === "hosted-anonymous-read") {
-    return `OPENAI_API_KEY=<api-key> pnpm smoke:mcp-openai -- --hosted-url ${target} --hosted-data`;
+    return `pnpm smoke:mcp-openai -- --hosted-url ${target} --hosted-data`;
   }
 
   if (check.id === "local-stdio") {
@@ -271,7 +271,7 @@ function manualEvidencePrompt(client: ClientEntry, check: SmokeCheck) {
   }
 
   if (client.id === "openai-chatgpt" && check.id === "hosted-anonymous-read") {
-    return "Run pnpm smoke:mcp-openai with an OpenAI API key against a target that includes hosted search/fetch aliases, or record ChatGPT Apps/Connectors UI evidence. Confirm public reads do not require OAuth.";
+    return "Run pnpm smoke:mcp-openai with OPENAI_API_KEY in process env or repo-root .env.local against a target that includes hosted search/fetch aliases, or record ChatGPT Apps/Connectors UI evidence. Confirm public reads do not require OAuth.";
   }
 
   if (client.id === "openai-chatgpt" && check.id === "hosted-oauth") {
@@ -376,7 +376,7 @@ function setupHint(client: ClientEntry, check: SmokeCheck, options: Options) {
   }
 
   if (client.id === "openai-chatgpt" && check.id === "hosted-anonymous-read") {
-    return `Set OPENAI_API_KEY and run pnpm smoke:mcp-openai -- --hosted-url ${target} --hosted-data for Responses API remote MCP search/fetch integration evidence; record ChatGPT Apps/Connectors UI evidence separately when product-surface behavior matters.`;
+    return `With OPENAI_API_KEY in process env or repo-root .env.local, run pnpm smoke:mcp-openai -- --hosted-url ${target} --hosted-data for Responses API remote MCP search/fetch integration evidence; record ChatGPT Apps/Connectors UI evidence separately when product-surface behavior matters.`;
   }
 
   if (client.id === "openai-chatgpt" && check.id === "hosted-oauth") {
@@ -496,8 +496,8 @@ function blockerForClientRow(client: ClientEntry, check: SmokeCheck): { id: stri
   if (client.id === "openai-chatgpt") {
     return {
       id: "hosted-product-surface",
-      label: "OpenAI API key or hosted product surface access",
-      nextAction: "Run pnpm smoke:mcp-openai with an OpenAI API key against a target that includes hosted search/fetch aliases, and separately verify ChatGPT Apps/Connectors UI plus OAuth behavior before launch snippets.",
+      label: "OpenAI-compatible hosted target or product surface access",
+      nextAction: "Run pnpm smoke:mcp-openai with OPENAI_API_KEY in process env or repo-root .env.local against a target that includes hosted search/fetch aliases, and separately verify ChatGPT Apps/Connectors UI plus OAuth behavior before launch snippets.",
     };
   }
 

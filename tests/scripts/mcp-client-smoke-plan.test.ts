@@ -32,7 +32,7 @@ describe("MCP client smoke planner", () => {
     assert.match(result.stdout, /`vscode\/hosted-oauth`, `cursor\/hosted-oauth`, `devin-windsurf\/hosted-oauth`/);
     assert.match(result.stdout, /Desktop or custom connector session/);
     assert.match(result.stdout, /`claude-desktop\/local-stdio`, `claude-desktop\/hosted-anonymous-read`, `claude-desktop\/hosted-oauth`/);
-    assert.match(result.stdout, /OpenAI API key or hosted product surface access/);
+    assert.match(result.stdout, /OpenAI-compatible hosted target or product surface access/);
     assert.match(result.stdout, /`openai-chatgpt\/hosted-anonymous-read`, `openai-chatgpt\/hosted-oauth`/);
   });
 
@@ -81,7 +81,9 @@ describe("MCP client smoke planner", () => {
     ]);
 
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /OPENAI_API_KEY=<api-key> pnpm smoke:mcp-openai -- --hosted-url https:\/\/staging\.vrdex\.net\/mcp --hosted-data/);
+    assert.match(result.stdout, /pnpm smoke:mcp-openai -- --hosted-url https:\/\/staging\.vrdex\.net\/mcp --hosted-data/);
+    assert.doesNotMatch(result.stdout, /OPENAI_API_KEY=<api-key>/);
+    assert.match(result.stdout, /OPENAI_API_KEY in process env or repo-root \.env\.local/);
     assert.match(result.stdout, /Responses API remote MCP search\/fetch integration evidence/);
     assert.match(result.stdout, /ChatGPT Apps\/Connectors UI evidence separately/);
   });

@@ -243,15 +243,21 @@ one PR.
 - OpenAI Responses API remote MCP hosted anonymous-read evidence can be
   smoke-tested with `pnpm smoke:mcp-openai` after setting `OPENAI_API_KEY`; the
   smoke also loads repo-root `.env.local` if present, without overriding
-  already-set variables or printing secret values. The smoke uses the
-  OpenAI-required hosted `search` and `fetch` tool names. Run it with required
-  `--hosted-data` against a same-branch or production-like backend before
-  recording API integration evidence. A 2026-07-09 live OpenAI attempt reached
-  the Responses API but failed because the deployed staging target only exposed
-  the older VRDex-specific tool names; rerun after deploying this compatibility
-  adapter. This does not replace ChatGPT Apps/Connectors UI or hosted OAuth
-  evidence; those product-surface rows stay pending until the current UI proves
-  no-auth public reads and `mcp:read` OAuth behavior.
+  already-set variables or printing secret values. Live Responses API requests
+  time out after 90 seconds by default, with `--request-timeout-ms` available
+  for slower provider runs. The smoke uses the OpenAI-required hosted `search`
+  and `fetch` tool names. Run it with required `--hosted-data` against a
+  same-branch or production-like backend before recording API integration
+  evidence. Current 2026-07-09 evidence is still not a pass: staging has
+  data-backed public search but not the deployed `search`/`fetch` aliases, and
+  the PR preview has the aliases but its data-backed search returns
+  `VRDex public data is temporarily unavailable for search`. A live OpenAI
+  smoke against the PR preview reached the `search`/`fetch` tool-call path with
+  `gpt-4.1-mini`, then failed because the response did not include structured
+  hosted MCP search results from the non-data-backed preview target. This does
+  not replace ChatGPT Apps/Connectors UI or hosted OAuth evidence; those
+  product-surface rows stay pending until the current UI proves no-auth public
+  reads and `mcp:read` OAuth behavior.
 - The `deployed-health.yml` `hosted-mcp-smoke` dispatch can also run the
   Inspector hosted OAuth smoke when `mcp_oauth=true`. It prefers repository
   secrets that provide either `VRDEX_MCP_OAUTH_CLIENT_ID` plus

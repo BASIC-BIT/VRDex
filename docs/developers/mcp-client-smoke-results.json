@@ -212,9 +212,9 @@
           "id": "hosted-anonymous-read",
           "surface": "hosted_http_anonymous",
           "requiredForExternalReadiness": true,
-          "repoEvidence": "pnpm smoke:mcp-openai -- --hosted-url <production-like-/mcp-url> --hosted-data when OPENAI_API_KEY is available and the target exposes search/fetch; ChatGPT Apps/Connectors UI evidence remains separate",
+          "repoEvidence": "pnpm smoke:mcp-openai -- --hosted-url <production-like-/mcp-url> --hosted-data when OPENAI_API_KEY is available through process env or repo-root .env.local and the target exposes data-backed search/fetch; ChatGPT Apps/Connectors UI evidence remains separate",
           "manualStatus": "pending",
-          "notes": "2026-07-09: Responses API remote MCP smoke harness is available for hosted anonymous public reads. A live Responses API attempt reached OpenAI with local credentials but failed because the deployed staging target only exposed the older VRDex-specific tool names; OpenAI requires hosted read-only search and fetch tools. Rerun pnpm smoke:mcp-openai after a target deploy includes the compatibility aliases. Verify ChatGPT Apps/Connectors UI behavior separately before publishing product-surface snippets."
+          "notes": "2026-07-09: Responses API remote MCP smoke harness is available for hosted anonymous public reads and loads OPENAI_API_KEY from process env or repo-root .env.local without printing secret values. Live OpenAI attempts are not pass evidence yet: staging https://staging.vrdex.net/mcp has data-backed public search but still exposes the older VRDex-specific hosted tool names, while the PR preview exposes search/fetch but data-backed search returns VRDex public data is temporarily unavailable for search. A live gpt-4.1-mini smoke against the PR preview reached the search/fetch tool-call path, then failed because the response did not include structured hosted MCP search results from the non-data-backed preview target. Rerun pnpm smoke:mcp-openai after one production-like target has both search/fetch aliases and data-backed public results. Verify ChatGPT Apps/Connectors UI behavior separately before publishing product-surface snippets."
         },
         {
           "id": "hosted-oauth",

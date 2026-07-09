@@ -18,6 +18,7 @@ type OpenAiMcpOptions = {
   };
   hostedUrl?: string;
   model: string;
+  requestTimeoutMs: number;
 };
 
 const hostedSearchTypes = new Set<HostedSearchType>(["all", "community", "event", "person", "profile", "world"]);
@@ -63,6 +64,16 @@ function parseHostedSearchLimit(value: string | undefined) {
   return parsed;
 }
 
+function parseRequestTimeoutMs(value: string | undefined) {
+  const normalized = nonEmpty(value) ?? "90000";
+  const parsed = Number.parseInt(normalized, 10);
+
+  assert(Number.isSafeInteger(parsed), "OpenAI request timeout must be an integer.");
+  assert(parsed >= 1000 && parsed <= 600000, "OpenAI request timeout must be between 1000 and 600000 milliseconds.");
+
+  return parsed;
+}
+
 function printHelp() {
   console.log([
     "Usage: pnpm smoke:mcp-openai -- --hosted-url <production-like-/mcp-url> --hosted-data",
@@ -82,6 +93,7 @@ function printHelp() {
     "  --model <model>             OpenAI model. Defaults to o4-mini-deep-research.",
     "  --endpoint <url>            Responses endpoint. Defaults to https://api.openai.com/v1/responses.",
     "  --api-key-env <name>        Environment variable containing the API key.",
+    "  --request-timeout-ms <n>    Live Responses API timeout. Defaults to 90000.",
     "  --fixture <path>            Read a saved Responses API JSON payload instead of calling OpenAI.",
     "  --help                      Show this help.",
   ].join("\n"));
@@ -102,6 +114,7 @@ function parseArgs(argv: string[]): OpenAiMcpOptions {
     },
     hostedUrl: nonEmpty(process.env.VRDEX_OPENAI_MCP_HOSTED_URL),
     model: nonEmpty(process.env.VRDEX_OPENAI_MCP_MODEL) ?? "o4-mini-deep-research",
+    requestTimeoutMs: parseRequestTimeoutMs(process.env.VRDEX_OPENAI_MCP_REQUEST_TIMEOUT_MS),
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -146,6 +159,10 @@ function parseArgs(argv: string[]): OpenAiMcpOptions {
         break;
       case "--model":
         options.model = takeValue(argv, index, arg);
+        index += 1;
+        break;
+      case "--request-timeout-ms":
+        options.requestTimeoutMs = parseRequestTimeoutMs(takeValue(argv, index, arg));
         index += 1;
         break;
       default:
@@ -230,14 +247,28 @@ async function fetchResponsesPayload(options: OpenAiMcpOptions) {
     return JSON.parse(await readFile(options.fixturePath, "utf8")) as unknown;
   }
 
-  const response = await fetch(options.endpoint, {
-    body: JSON.stringify(buildResponsesPayload(options)),
-    headers: {
-      authorization: `Bearer ${options.apiKey}`,
-      "content-type": "application/json",
-    },
-    method: "POST",
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(options.endpoint, {
+      body: JSON.stringify(buildResponsesPayload(options)),
+      headers: {
+        authorization: `Bearer ${options.apiKey}`,
+        "content-type": "application/json",
+      },
+      method: "POST",
+      signal: AbortSignal.timeout(options.requestTimeoutMs),
+    });
+  } catch (error) {
+    if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) {
+      throw new Error(
+        `OpenAI Responses API MCP smoke timed out after ${options.requestTimeoutMs}ms for ${options.hostedUrl}. The remote MCP target may be unavailable or returning tool errors that prevent the model from completing.`,
+      );
+    }
+
+    throw error;
+  }
+
   const text = await response.text();
 
   assert.equal(
@@ -275,7 +306,6 @@ function assertOpenAiMcpResponse(payload: unknown, options: OpenAiMcpOptions) {
 
   assert.match(serialized, /"name":"search"/, "OpenAI response did not include a search MCP tool call.");
   assert.match(serialized, /"name":"fetch"/, "OpenAI response did not include a fetch MCP tool call.");
-  assert.match(serialized, /openai-mcp-ok/, "OpenAI response did not include the expected openai-mcp-ok final answer.");
 
   if (options.hostedDataPublicReads) {
     assert.match(
@@ -292,6 +322,8 @@ function assertOpenAiMcpResponse(payload: unknown, options: OpenAiMcpOptions) {
       "OpenAI response did not include structured hosted MCP fetch text.",
     );
   }
+
+  assert.match(serialized, /openai-mcp-ok/, "OpenAI response did not include the expected openai-mcp-ok final answer.");
 }
 
 async function main() {

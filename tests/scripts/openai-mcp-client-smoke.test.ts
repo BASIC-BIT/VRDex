@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
@@ -123,6 +124,51 @@ describe("OpenAI Responses API MCP smoke harness", () => {
       assert.doesNotMatch(result.stderr, /Assertion failed/);
     } finally {
       rmSync(tempDir, { force: true, recursive: true });
+    }
+  });
+
+  it("fails bounded live requests with a clear timeout message", async () => {
+    const server = createServer((_request, _response) => {
+      // Hold the socket open so the child process must rely on its request timeout.
+    });
+
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+
+    try {
+      const address = server.address();
+
+      assert.ok(address !== null && typeof address === "object");
+
+      const result = runOpenAiSmoke(
+        [
+          "--hosted-url",
+          "https://staging.vrdex.net/mcp",
+          "--hosted-data",
+          "--endpoint",
+          `http://127.0.0.1:${address.port}/v1/responses`,
+          "--request-timeout-ms",
+          "1000",
+        ],
+        {
+          OPENAI_API_KEY: "test-key",
+        },
+      );
+
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /timed out after 1000ms/);
+      assert.doesNotMatch(result.stderr, /test-key/);
+      assert.doesNotMatch(result.stderr, /Bearer /);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+
+          resolve();
+        });
+      });
     }
   });
 });

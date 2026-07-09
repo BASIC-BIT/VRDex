@@ -406,8 +406,8 @@ function blockerForOpenRow(row: OpenMatrixRow): { id: string } & Omit<PendingBlo
   if (row.clientId === "openai-chatgpt") {
     return {
       id: "hosted-product-surface",
-      label: "OpenAI API key or hosted product surface access",
-      nextAction: "Run pnpm smoke:mcp-openai with an OpenAI API key against a target that includes hosted search/fetch aliases, and separately verify ChatGPT Apps/Connectors UI plus OAuth behavior before launch snippets.",
+      label: "OpenAI-compatible hosted target or product surface access",
+      nextAction: "Run pnpm smoke:mcp-openai with OPENAI_API_KEY in process env or repo-root .env.local against a target that includes hosted search/fetch aliases, and separately verify ChatGPT Apps/Connectors UI plus OAuth behavior before launch snippets.",
     };
   }
 

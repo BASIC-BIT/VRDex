@@ -138,9 +138,14 @@ Next execution checkpoint:
    present, so a local operator key can be durable without being committed or
    printed. Keep ChatGPT Apps/Connectors UI and hosted OAuth as product-surface
    evidence; do not mark those rows ready from local CLI or API-only checks.
-   A 2026-07-09 live OpenAI attempt reached the Responses API, but no live pass
-   is recorded until the deployed production-like target includes the hosted
-   `search` and `fetch` compatibility aliases.
+   Current 2026-07-09 evidence is split: staging has data-backed public search
+   but still lacks the hosted `search` and `fetch` compatibility aliases, while
+   the PR preview has the aliases but lacks data-backed public search. A live
+   OpenAI probe against the PR preview reached `search`/`fetch` with
+   `gpt-4.1-mini`, then failed because the response did not include structured
+   hosted MCP search results from the non-data-backed preview target. No live
+   OpenAI pass is recorded until one production-like target has both aliases
+   and data.
 
 ## Client Classes
 

@@ -232,23 +232,33 @@ remote MCP tool definition with `server_url`, constrains `allowed_tools` to
 Responses payload includes both MCP tool calls and the expected final answer:
 
 ```sh
-OPENAI_API_KEY="<api-key>" \
-  pnpm smoke:mcp-openai -- \
-    --hosted-url https://staging.vrdex.net/mcp \
-    --hosted-data
+pnpm smoke:mcp-openai -- \
+  --hosted-url https://staging.vrdex.net/mcp \
+  --hosted-data
 ```
 
 The smoke loads the repo-root `.env.local` file before reading
 `OPENAI_API_KEY`, without overriding variables that are already set in the
 process environment and without printing secret values. Set
 `VRDEX_LOAD_ENV_LOCAL=0` for deterministic tests or shell sessions that should
-ignore local secret files.
+ignore local secret files. Live Responses API requests time out after 90
+seconds by default; use `--request-timeout-ms` or
+`VRDEX_OPENAI_MCP_REQUEST_TIMEOUT_MS` for slower provider runs.
 
 This is OpenAI API integration evidence, not ChatGPT Apps/Connectors UI
 evidence. Keep the ChatGPT product-surface row pending until the current UI
 surface proves whether public read tools stay anonymous/no-auth and how hosted
 OAuth behaves. `--hosted-data` is required for this harness because `fetch`
 must resolve a real `search` result.
+
+Current 2026-07-09 target evidence is intentionally not recorded as a pass:
+staging has data-backed public search but has not deployed the hosted
+`search`/`fetch` aliases, while the PR preview exposes the aliases but returns
+`VRDex public data is temporarily unavailable for search` for data-backed
+public reads. A live OpenAI smoke against the PR preview reached the
+`search`/`fetch` tool-call path with `gpt-4.1-mini`, then failed because the
+response did not include structured hosted MCP search results from the
+non-data-backed preview target.
 
 PR Baseline Checks run the same local stdio protocol smoke through
 `pnpm verify:vrdex-mcp`.

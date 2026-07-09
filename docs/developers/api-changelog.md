@@ -14,6 +14,10 @@ docs update and a changelog entry so early consumers and agents can adapt.
   the aliases reuse the same anonymous public search/profile/event/world read
   surfaces, return URL-backed structured document results, and are counted in
   MCP tool invocation telemetry
+- tightened `pnpm smoke:mcp-openai` so it loads repo-root `.env.local` without
+  printing secret values, avoids inline key guidance in generated smoke plans,
+  and fails bounded live Responses API requests with a clear timeout instead of
+  hanging on incomplete hosted MCP targets
 - added generated `docs/api/openapi.yaml` alongside `docs/api/openapi.json`;
   both artifacts are emitted from the shared API contract package, served under
   `/api/v0/openapi.{json,yaml}`, and covered by `pnpm check:api-openapi` drift
