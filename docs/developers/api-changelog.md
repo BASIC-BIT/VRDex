@@ -56,10 +56,11 @@ docs update and a changelog entry so early consumers and agents can adapt.
   process/app-path detection plus OpenAI Responses API and Gemini CLI model
   credential preconditions so missing provider setup is visible before a smoke
   session starts
-- recorded that the installed VS Code 1.127.0, Cursor 3.10.17, and Windsurf
-  1.110.1 CLIs accept the generated local stdio, hosted anonymous HTTP, and
-  hosted token-header fallback `--add-mcp` definitions while keeping those
-  matrix rows pending until real app tool-call evidence is captured
+- refreshed the installed-client preflight notes for VS Code 1.128.0, Cursor
+  3.10.17, and Windsurf 1.110.1; their CLIs still accept the generated local
+  stdio, hosted anonymous HTTP, and hosted token-header fallback `--add-mcp`
+  definitions while the matrix rows stay pending until real app tool-call
+  evidence is captured
 - added `pnpm smoke:mcp-gemini-cli` as a repeatable real-client Gemini CLI
   harness for local stdio and hosted Streamable HTTP MCP smokes, with optional
   disposable `@google/gemini-cli` package execution and token-backed hosted

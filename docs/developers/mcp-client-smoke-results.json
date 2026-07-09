@@ -45,7 +45,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "pnpm smoke:mcp-compat local profile: Claude Desktop, including all curated read tools",
           "manualStatus": "pending",
-          "notes": "Run Claude Desktop with mcpServers command config and call vrdex_search. 2026-07-08 installed-client preflight detected a running Claude Desktop process, but no tools/list or vrdex_search evidence has been recorded."
+          "notes": "Run Claude Desktop with mcpServers command config and call vrdex_search. 2026-07-09 installed-client preflight did not find a Claude Desktop CLI on PATH but detected a running claude desktop process; no tools/list or vrdex_search evidence has been recorded."
         },
         {
           "id": "hosted-anonymous-read",
@@ -53,7 +53,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
           "manualStatus": "pending",
-          "notes": "Use the current Custom Connector path and confirm tools list without forcing login. 2026-07-08 installed-client preflight detected a running Claude Desktop process, but the hosted Custom Connector public-read session remains unrecorded."
+          "notes": "Use the current Custom Connector path and confirm tools list without forcing login. 2026-07-09 installed-client preflight detected a running claude desktop process, but the hosted Custom Connector public-read session remains unrecorded."
         },
         {
           "id": "hosted-oauth",
@@ -61,7 +61,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
           "manualStatus": "pending",
-          "notes": "Confirm protected-resource metadata discovery and an mcp:read OAuth session. 2026-07-08 installed-client preflight detected a running Claude Desktop process, but the hosted OAuth session remains unrecorded."
+          "notes": "Confirm protected-resource metadata discovery and an mcp:read OAuth session. 2026-07-09 installed-client preflight detected a running claude desktop process, but the hosted OAuth session remains unrecorded."
         }
       ]
     },
@@ -97,7 +97,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
           "manualStatus": "pending",
-          "notes": "Hosted OAuth harness is available with reviewed OAuth app client credentials via VRDEX_MCP_OAUTH_CLIENT_ID / VRDEX_MCP_OAUTH_CLIENT_SECRET or VRDEX_CLAUDE_CODE_OAUTH_CLIENT_* overrides, plus VRDEX_CLAUDE_CODE_OAUTH_TOKEN fallback; 2026-07-08 GitHub prerequisite audit found the hosted OAuth evidence path partial because reviewed OAuth smoke secrets are absent and VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS is not enabled. Row remains pending until a real authenticated mcp:read smoke or interactive claude mcp login session is recorded."
+          "notes": "Hosted OAuth harness is available with reviewed OAuth app client credentials via VRDEX_MCP_OAUTH_CLIENT_ID / VRDEX_MCP_OAUTH_CLIENT_SECRET or VRDEX_CLAUDE_CODE_OAUTH_CLIENT_* overrides, plus VRDEX_CLAUDE_CODE_OAUTH_TOKEN fallback. 2026-07-09 GitHub prerequisite audit is partial: reviewed OAuth smoke secrets are absent, VRDEX_HOSTED_E2E_AUTH_HELPERS=true and VRDEX_HOSTED_E2E_BROWSER_TOKEN are present, VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS is missing, and Inspector token fallback is absent. Row remains pending until a real authenticated mcp:read smoke or interactive claude mcp login session is recorded."
         }
       ]
     },
@@ -141,7 +141,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "pnpm smoke:mcp-compat local profile: VS Code, including all curated read tools",
           "manualStatus": "pending",
-          "notes": "2026-07-08: VS Code 1.127.0 --add-mcp preflight accepted the generated local stdio config. Run the installed app with the disposable session pack, list tools, and call vrdex_search before recording this row."
+          "notes": "2026-07-09: VS Code 1.128.0 is installed and the isolated --add-mcp preflight accepted the generated local stdio config. Run the installed app with the disposable session pack, list tools, and call vrdex_search before recording this row."
         },
         {
           "id": "hosted-anonymous-read",
@@ -149,7 +149,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
           "manualStatus": "pending",
-          "notes": "2026-07-08: VS Code 1.127.0 --add-mcp preflight accepted the generated hosted anonymous HTTP config. Confirm the installed app lists tools and can call anonymous public reads before recording this row."
+          "notes": "2026-07-09: VS Code 1.128.0 is installed and the isolated --add-mcp preflight accepted the generated hosted anonymous HTTP config. Confirm the installed app lists tools and can call anonymous public reads before recording this row."
         },
         {
           "id": "hosted-oauth",
@@ -157,7 +157,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
           "manualStatus": "pending",
-          "notes": "2026-07-08: VS Code 1.127.0 --add-mcp preflight accepted the generated hosted token-header fallback config for diagnostics. Confirm current OAuth behavior or record the supported token fallback before recording this row."
+          "notes": "2026-07-09: VS Code 1.128.0 is installed and the isolated --add-mcp preflight accepted the generated hosted token-header fallback config for diagnostics. Confirm current OAuth behavior or record the supported token fallback before recording this row."
         }
       ]
     },
@@ -171,7 +171,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "pnpm smoke:mcp-compat local profile: Cursor, including all curated read tools",
           "manualStatus": "pending",
-          "notes": "2026-07-08: Cursor 3.10.17 --add-mcp preflight accepted the generated local stdio config. Use the installed app or agent surface to list tools and call vrdex_search before recording this row."
+          "notes": "2026-07-09: Cursor 3.10.17 is installed and the isolated --add-mcp preflight accepted the generated local stdio config. Use the installed app or agent surface to list tools and call vrdex_search before recording this row."
         },
         {
           "id": "hosted-anonymous-read",
@@ -179,7 +179,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
           "manualStatus": "pending",
-          "notes": "2026-07-08: Cursor 3.10.17 --add-mcp preflight accepted the generated hosted anonymous HTTP config. Confirm the installed app or agent surface lists tools and can call anonymous public reads before recording this row."
+          "notes": "2026-07-09: Cursor 3.10.17 is installed and the isolated --add-mcp preflight accepted the generated hosted anonymous HTTP config. Confirm the installed app or agent surface lists tools and can call anonymous public reads before recording this row."
         },
         {
           "id": "hosted-oauth",
@@ -187,7 +187,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
           "manualStatus": "pending",
-          "notes": "2026-07-08: Cursor 3.10.17 --add-mcp preflight accepted the generated hosted token-header fallback config for diagnostics. Record whether Cursor follows OAuth, requires static bearer headers, or lacks hosted auth before recording this row."
+          "notes": "2026-07-09: Cursor 3.10.17 is installed and the isolated --add-mcp preflight accepted the generated hosted token-header fallback config for diagnostics. Record whether Cursor follows OAuth, requires static bearer headers, or lacks hosted auth before recording this row."
         }
       ]
     },
@@ -208,7 +208,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "pnpm smoke:mcp-openai -- --hosted-url <production-like-/mcp-url> --hosted-data when OPENAI_API_KEY is available; ChatGPT Apps/Connectors UI evidence remains separate",
           "manualStatus": "pending",
-          "notes": "2026-07-08: added a Responses API remote MCP smoke harness for hosted anonymous public reads, but OPENAI_API_KEY was absent in the local process so no live OpenAI pass is recorded. Verify ChatGPT Apps/Connectors UI behavior separately before publishing product-surface snippets."
+          "notes": "2026-07-09: Responses API remote MCP smoke harness is available for hosted anonymous public reads, but OPENAI_API_KEY is absent in the local process and the local openai 1.10.0 CLI is not readiness evidence. Verify ChatGPT Apps/Connectors UI behavior separately before publishing product-surface snippets."
         },
         {
           "id": "hosted-oauth",
@@ -216,7 +216,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
           "manualStatus": "pending",
-          "notes": "Current OpenAI guidance recommends CIMD when supported and keeps DCR available; VRDex implements both public-client CIMD and DCR. Record ChatGPT Apps/Connectors hosted OAuth behavior, including app review requirements, before marking this row pass."
+          "notes": "Current OpenAI guidance recommends CIMD when supported and keeps DCR available; VRDex implements both public-client CIMD and DCR. 2026-07-09 hosted protocol evidence is pass, but ChatGPT Apps/Connectors hosted OAuth behavior and any app review requirement remain unrecorded."
         }
       ]
     },
@@ -230,7 +230,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "pnpm smoke:mcp-compat local profile: Devin Desktop / Windsurf Cascade, including all curated read tools",
           "manualStatus": "pending",
-          "notes": "2026-07-08: Windsurf 1.110.1 --add-mcp preflight accepted the generated local stdio config. Run the installed app with the disposable session pack, list tools, and call vrdex_search before recording this row."
+          "notes": "2026-07-09: Windsurf 1.110.1 is installed and the isolated --add-mcp preflight accepted the generated local stdio config. Run the installed app with the disposable session pack, list tools, and call vrdex_search before recording this row."
         },
         {
           "id": "hosted-anonymous-read",
@@ -238,7 +238,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
           "manualStatus": "pending",
-          "notes": "2026-07-08: Windsurf 1.110.1 --add-mcp preflight accepted the generated hosted anonymous HTTP config. Confirm the installed app lists tools and calls anonymous public reads before recording this row."
+          "notes": "2026-07-09: Windsurf 1.110.1 is installed and the isolated --add-mcp preflight accepted the generated hosted anonymous HTTP config. Confirm the installed app lists tools and calls anonymous public reads before recording this row."
         },
         {
           "id": "hosted-oauth",
@@ -246,7 +246,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
           "manualStatus": "pending",
-          "notes": "2026-07-08: Windsurf 1.110.1 --add-mcp preflight accepted the generated hosted token-header fallback config for diagnostics. Confirm OAuth behavior for Streamable HTTP in the current client release before recording this row."
+          "notes": "2026-07-09: Windsurf 1.110.1 is installed and the isolated --add-mcp preflight accepted the generated hosted token-header fallback config for diagnostics. Confirm OAuth behavior for Streamable HTTP in the current client release before recording this row."
         }
       ]
     },
@@ -282,7 +282,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
           "manualStatus": "pending",
-          "notes": "Top-level staging hosted OAuth protocol evidence is recorded as pass. Inspector can fetch a short-lived token from reviewed OAuth app client credentials via VRDEX_MCP_OAUTH_CLIENT_ID / VRDEX_MCP_OAUTH_CLIENT_SECRET or VRDEX_MCP_INSPECTOR_OAUTH_CLIENT_* overrides, with VRDEX_MCP_INSPECTOR_OAUTH_TOKEN fallback; run 28949509629 confirmed the workflow path skips cleanly when mcp_oauth=true but repository smoke secrets are absent and VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS is not enabled. The 2026-07-08 GitHub prerequisite audit found VRDEX_HOSTED_E2E_AUTH_HELPERS=true and VRDEX_HOSTED_E2E_BROWSER_TOKEN present, but reviewed OAuth smoke secrets, the Inspector token fallback, and VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS are absent. This row remains pending until authenticated behavior is recorded against https://staging.vrdex.net/mcp."
+          "notes": "Top-level staging hosted OAuth protocol evidence is recorded as pass. Inspector can fetch a short-lived token from reviewed OAuth app client credentials via VRDEX_MCP_OAUTH_CLIENT_ID / VRDEX_MCP_OAUTH_CLIENT_SECRET or VRDEX_MCP_INSPECTOR_OAUTH_CLIENT_* overrides, with VRDEX_MCP_INSPECTOR_OAUTH_TOKEN fallback. The 2026-07-09 GitHub prerequisite audit is partial: reviewed OAuth smoke secrets are absent, VRDEX_HOSTED_E2E_AUTH_HELPERS=true and VRDEX_HOSTED_E2E_BROWSER_TOKEN are present, VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS is missing, and Inspector token fallback is absent. This row remains pending until authenticated behavior is recorded against https://staging.vrdex.net/mcp."
         }
       ]
     }
