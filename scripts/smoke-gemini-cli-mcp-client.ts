@@ -41,6 +41,11 @@ type RunResult = {
   stdout: string;
 };
 
+type RemoveProjectDir = (
+  projectDir: string,
+  options: { force: boolean; maxRetries: number; recursive: boolean; retryDelay: number },
+) => Promise<void>;
+
 const hostedSearchTypes = new Set<HostedSearchType>(["all", "community", "event", "person", "profile", "world"]);
 
 function nonEmpty(value: string | undefined) {
@@ -274,6 +279,34 @@ function runGemini(options: GeminiOptions, args: string[], cwd: string) {
   });
 }
 
+function isTransientCleanupError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error.code === "EBUSY" || error.code === "ENOTEMPTY" || error.code === "EPERM")
+  );
+}
+
+export async function removeGeminiProjectDir(
+  projectDir: string,
+  dependencies: { remove?: RemoveProjectDir; warn?: (message: string) => void } = {},
+) {
+  const remove = dependencies.remove ?? rm;
+  const warn = dependencies.warn ?? console.error;
+
+  try {
+    await remove(projectDir, { force: true, maxRetries: 5, recursive: true, retryDelay: 250 });
+  } catch (error) {
+    if (!isTransientCleanupError(error)) {
+      throw error;
+    }
+
+    const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "unknown";
+    warn(`Warning: Gemini CLI temporary project cleanup skipped after transient ${code} lock: ${projectDir}`);
+  }
+}
+
 function redactSensitiveOutput(text: string, options: GeminiOptions) {
   let redacted = text.replace(/Authorization:\s*Bearer\s+[^\s"'\\]+/gi, "Authorization: Bearer [REDACTED]");
 
@@ -380,11 +413,31 @@ function jsonText(events: unknown[]) {
   return events.map((event) => JSON.stringify(event)).join("\n");
 }
 
+export function geminiProviderQuotaMessage(stderr: string) {
+  if (!/\b(TerminalQuotaError|quota exceeded|exhausted your .*quota)\b/i.test(stderr)) {
+    return undefined;
+  }
+
+  const retryLine = stderr
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => /^Please retry in\b/i.test(line));
+  const retrySuffix = retryLine === undefined ? "" : ` ${retryLine}`;
+
+  return `Gemini CLI reached the Gemini API quota before any MCP smoke evidence could be recorded.${retrySuffix}`;
+}
+
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function assertGeminiOutput(result: RunResult, options: GeminiOptions, label: string) {
+  const quotaMessage = geminiProviderQuotaMessage(result.stderr);
+
+  if (result.code !== 0 && quotaMessage !== undefined) {
+    throw new Error(quotaMessage);
+  }
+
   assert.equal(
     result.code,
     0,
@@ -524,7 +577,7 @@ async function main() {
       await smokeLocalStdio(projectDir, options, repoRoot);
     }
   } finally {
-    await rm(projectDir, { force: true, recursive: true });
+    await removeGeminiProjectDir(projectDir);
   }
 }
 
