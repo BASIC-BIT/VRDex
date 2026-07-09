@@ -36,6 +36,11 @@ docs update and a changelog entry so early consumers and agents can adapt.
   `pnpm ops:mcp-oauth-smoke-credentials` hosted smoke guidance with the same
   known-query flags for Claude Code, Gemini CLI, OpenAI Responses API, and MCP
   Inspector
+- refreshed hosted MCP evidence after current target retries: staging now
+  returns HTTP 404 for `/mcp` and public search, while the PR preview exposes
+  `search`/`fetch` but fails backend-dependent data-backed reads, DCR, and
+  public-client CIMD authorization; the hosted readiness rows and stale hosted
+  client rows remain failed until a current production-like target passes
 - added generated `docs/api/openapi.yaml` alongside `docs/api/openapi.json`;
   both artifacts are emitted from the shared API contract package, served under
   `/api/v0/openapi.{json,yaml}`, and covered by `pnpm check:api-openapi` drift

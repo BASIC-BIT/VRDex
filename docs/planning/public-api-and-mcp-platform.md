@@ -124,8 +124,9 @@ Next execution checkpoint:
 2. Keep the recorded hosted evidence rows for data-backed anonymous reads,
    Dynamic Client Registration, and public-client Client ID Metadata Documents
    in `docs/developers/mcp-client-smoke-results.json`. Current state:
-   data-backed anonymous read is `fail`; DCR and CIMD have prior staging pass
-   evidence.
+   data-backed anonymous read, DCR, and CIMD are all `fail` because staging is
+   not currently serving `/mcp` and the PR preview has backend-dependent
+   failures.
 3. Complete the major-client matrix rows against that same staging target,
    continuing with the locally installed clients that still need smoke-tested
    rows: VS Code, Cursor, and Windsurf. Gemini CLI local stdio now passes with
@@ -148,14 +149,12 @@ Next execution checkpoint:
    wrong-target runs fail before spending a model call. Keep ChatGPT
    Apps/Connectors UI and hosted OAuth as product-surface evidence; do not mark
    those rows ready from local CLI or API-only checks.
-   Current 2026-07-09 evidence is split: staging has data-backed public search
-   for query `a` but still lacks the hosted `search` and `fetch` compatibility
-   aliases, while the PR preview has the aliases but its public search route
-   returns HTTP 500.
-   Current OpenAI smoke runs fail during target preflight before any OpenAI
-   request: staging lacks `search`/`fetch` in `tools/list`, and the PR preview
-   returns the data-backed search tool error. Staging currently has at least
-   one public search result for query `a`, so the remaining OpenAI target need
+   Current 2026-07-09 evidence is failed: staging is not currently serving the
+   API/MCP branch and returns HTTP 404 for `/mcp` and public search, while the
+   PR preview has the aliases but its public search route returns HTTP 500.
+   The latest OpenAI smoke found the local `OPENAI_API_KEY`, then failed during
+   PR-preview target preflight before any live OpenAI request because
+   data-backed `search` returns a tool error. The remaining OpenAI target need
    is one production-like target with both aliases and data.
 
 ## Client Classes
@@ -1391,7 +1390,7 @@ Security-specific tests:
 - Confidential-client CIMD with public-key client authentication remains deferred until a concrete major-client requirement appears.
 - OAuth signing-key rotation keeps the active private signing key in `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY`, advertises the active key id through `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID`, and retains previous public keys through `VRDEX_OAUTH_ACCESS_TOKEN_ADDITIONAL_PUBLIC_JWKS` until outstanding access tokens expire.
 - Hosted MCP auth metadata should make anonymous public read tools genuinely usable without login in clients that distinguish `noauth` from OAuth tools. The current hosted MCP tool descriptors expose `_meta["securitySchemes"]` with `noauth` plus optional `oauth2`/`mcp:read`; client-specific UI behavior remains part of the manual matrix.
-- Hosted MCP smoke coverage is split into lightweight transport/descriptor coverage and production-like data-backed coverage. The data-backed path is gated by `VRDEX_MCP_SMOKE_DATA` / `--hosted-data` and now requires `vrdex_search` plus OpenAI-compatible `search`/`fetch` evidence from the same target. Current PR #159 evidence keeps prior staging DCR/CIMD passes, but records data-backed anonymous read as failed because staging `/mcp` initializes with HTTP 404 and the PR preview lacks data-backed `search`/`fetch` results.
+- Hosted MCP smoke coverage is split into lightweight transport/descriptor coverage and production-like data-backed coverage. The data-backed path is gated by `VRDEX_MCP_SMOKE_DATA` / `--hosted-data` and now requires `vrdex_search` plus OpenAI-compatible `search`/`fetch` evidence from the same target. Current PR #159 evidence records data-backed anonymous read, DCR, and CIMD as failed because staging `/mcp` initializes with HTTP 404 and the PR preview has backend-dependent failures for data-backed `search`/`fetch`, DCR, and CIMD authorization.
 
 ## Remaining Open Research
 
