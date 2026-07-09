@@ -334,13 +334,11 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
     Boolean(value),
   );
   const detailRows = [
-    profile.trustLabel !== "unclaimed" || sourceDetails.length > 0
-      ? {
-          label: "Status",
-          value: trust,
-          detail: sourceDetails.length > 0 ? sourceDetails.join(" / ") : undefined,
-        }
-      : null,
+    {
+      label: "Status",
+      value: trust,
+      detail: sourceDetails.length > 0 ? sourceDetails.join(" / ") : undefined,
+    },
     profile.region ? { label: "Region", value: profile.region } : null,
     profile.timezone ? { label: "Time zone", value: profile.timezone } : null,
     isPerson

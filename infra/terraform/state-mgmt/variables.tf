@@ -45,6 +45,12 @@ variable "vercel_team_slug" {
   default     = "basicbit"
 }
 
+variable "legacy_vercel_team_slugs" {
+  description = "Previous Vercel team slugs whose OIDC providers Terraform CI may manage during profile-assets state migration."
+  type        = list(string)
+  default     = ["basic-bit"]
+}
+
 variable "tags" {
   description = "Additional resource tags."
   type        = map(string)
