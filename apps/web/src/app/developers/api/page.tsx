@@ -84,6 +84,9 @@ export default function ApiReferencePage() {
             <a className={buttonVariants({ variant: "secondary" })} href="/api/v0/openapi.json">
               OpenAPI JSON
             </a>
+            <a className={buttonVariants({ variant: "secondary" })} href="/api/v0/openapi.yaml">
+              OpenAPI YAML
+            </a>
             <Link className={buttonVariants({ variant: "secondary" })} href="/developers/tokens">
               Developer tokens
             </Link>

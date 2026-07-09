@@ -38,7 +38,7 @@ describe("API/MCP rollout readiness checker", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.match(
       result.stdout,
-      /Generated OpenAPI contract \| yes \| pass \| 30 required API paths and JSON\/YAML artifacts are present/,
+      /Generated OpenAPI contract \| yes \| pass \| 31 required API paths and JSON\/YAML artifacts are present/,
     );
     assert.match(result.stdout, /Rollout verification scripts \| yes \| pass \| 20 required scripts are defined/);
     assert.match(result.stdout, /Major MCP client matrix \| yes \| fail \| .*Gemini CLI\/local-stdio: fail/);

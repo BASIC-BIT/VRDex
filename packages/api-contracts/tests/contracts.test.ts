@@ -742,6 +742,7 @@ describe("@vrdex/api-contracts", () => {
 
     assert.equal(document.openapi, "3.1.0");
     assert.ok(document.paths?.["/api/v0/openapi.json"]);
+    assert.ok(document.paths?.["/api/v0/openapi.yaml"]);
     assert.ok(document.paths?.["/api/v0/me"]);
     assert.ok(document.paths?.["/api/v0/me/profiles"]);
     assert.ok(document.paths?.["/api/v0/me/communities"]);

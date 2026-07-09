@@ -183,6 +183,25 @@ export const openApiSource = {
         },
       },
     },
+    "/api/v0/openapi.yaml": {
+      get: {
+        operationId: "getOpenApiYamlDocument",
+        tags: ["API"],
+        summary: "Get the OpenAPI YAML document",
+        responses: {
+          "200": {
+            description: "The current OpenAPI document serialized as YAML.",
+            content: {
+              "application/yaml": {
+                schema: {
+                  type: "string",
+                },
+              },
+            },
+          },
+        },
+      },
+    },
     "/api/v0/me": {
       get: {
         operationId: "getCurrentApiCaller",

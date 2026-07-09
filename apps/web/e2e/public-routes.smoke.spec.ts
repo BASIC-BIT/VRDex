@@ -35,6 +35,18 @@ test("legacy discovery query redirects to search", async ({ page }) => {
   await expectSearchPage(page);
 });
 
+test("OpenAPI YAML document is served", async ({ page }) => {
+  const response = await page.request.get("/api/v0/openapi.yaml");
+
+  expect(response.ok()).toBe(true);
+  expect(response.headers()["content-type"]).toContain("application/yaml");
+
+  const body = await response.text();
+
+  expect(body).toContain("openapi: 3.1.0");
+  expect(body).toContain("/api/v0/openapi.yaml:");
+});
+
 test.describe("hosted lookup smoke", () => {
   test.skip(!isHostedRun, "Hosted-only smoke coverage.");
 

@@ -59,6 +59,7 @@ type Options = {
 
 const requiredOpenApiPaths = [
   "/api/v0/openapi.json",
+  "/api/v0/openapi.yaml",
   "/api/v0/me",
   "/api/v0/me/profiles",
   "/api/v0/me/communities",

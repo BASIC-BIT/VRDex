@@ -10,8 +10,9 @@ docs update and a changelog entry so early consumers and agents can adapt.
 ## 2026-07-09
 
 - added generated `docs/api/openapi.yaml` alongside `docs/api/openapi.json`;
-  both artifacts are emitted from the shared API contract package and covered by
-  `pnpm check:api-openapi` drift detection
+  both artifacts are emitted from the shared API contract package, served under
+  `/api/v0/openapi.{json,yaml}`, and covered by `pnpm check:api-openapi` drift
+  detection
 
 ## 2026-07-08
 

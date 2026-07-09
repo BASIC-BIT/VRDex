@@ -10,7 +10,8 @@ one PR.
 - OpenAPI is generated from shared schemas, not hand-written in parallel.
 - `docs/api/openapi.json` and `docs/api/openapi.yaml` match the generated
   contract.
-- `/api/v0/openapi.json` serves the same generated document.
+- `/api/v0/openapi.json` and `/api/v0/openapi.yaml` serve the same generated
+  document in JSON and YAML forms.
 - Baseline Checks runs `pnpm verify:api-contracts` so OpenAPI drift,
   route/OpenAPI parity, contract typechecking, and contract tests are enforced
   in PR CI.
