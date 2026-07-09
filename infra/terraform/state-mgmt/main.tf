@@ -3,7 +3,14 @@ locals {
   profile_asset_bucket     = var.profile_asset_bucket_name != null ? var.profile_asset_bucket_name : "vrdex-profile-assets-${data.aws_caller_identity.current.account_id}"
   profile_asset_bucket_arn = "arn:aws:s3:::${local.profile_asset_bucket}"
   vercel_oidc_provider_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/oidc.vercel.com/${var.vercel_team_slug}"
-  profile_asset_role_arn   = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.profile_asset_runtime_role_name}"
+  vercel_oidc_provider_arns = distinct(concat(
+    [local.vercel_oidc_provider_arn],
+    [
+      for slug in var.legacy_vercel_team_slugs :
+      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/oidc.vercel.com/${slug}"
+    ],
+  ))
+  profile_asset_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.profile_asset_runtime_role_name}"
 
   tags = merge(
     {
@@ -289,7 +296,7 @@ data "aws_iam_policy_document" "github_actions_terraform" {
       "iam:UpdateOpenIDConnectProviderThumbprint",
     ]
 
-    resources = [local.vercel_oidc_provider_arn]
+    resources = local.vercel_oidc_provider_arns
   }
 
   statement {
