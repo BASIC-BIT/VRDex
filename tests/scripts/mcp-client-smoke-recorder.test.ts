@@ -74,6 +74,46 @@ describe("MCP client smoke recorder", () => {
     }
   });
 
+  it("records a failed generated evidence worksheet", async () => {
+    const { directory, path } = await writeMatrixCopy("failed-evidence-file");
+    const evidencePath = join(directory, "gemini-cli-local-stdio.md");
+
+    await writeFile(
+      evidencePath,
+      [
+        "# Gemini CLI local-stdio MCP Smoke Evidence",
+        "",
+        "Status: fail",
+        "",
+        "Matrix row: gemini-cli/local-stdio",
+        "Environment: Windows / Gemini CLI 0.50.0 / disposable package / local stdio",
+        "Target environment: not applicable for local stdio",
+        "",
+        "## Sanitized Evidence Summary",
+        "",
+        "Gemini CLI reached provider quota before any MCP tool call, so no tools/list or vrdex_search evidence was produced.",
+        "",
+      ].join("\n"),
+    );
+
+    try {
+      const result = runRecorder([
+        "--matrix",
+        path,
+        "--evidence-file",
+        evidencePath,
+        "--dry-run",
+      ]);
+
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, /Recorded Gemini CLI \/ local-stdio: fail/);
+      assert.match(result.stdout, /"manualStatus": "fail"/);
+      assert.match(result.stdout, /provider quota before any MCP tool call/);
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
   it("rejects a generated evidence worksheet that is still pending", async () => {
     const { directory, path } = await writeMatrixCopy("pending-evidence-file");
     const evidencePath = join(directory, "vscode-local-stdio.md");

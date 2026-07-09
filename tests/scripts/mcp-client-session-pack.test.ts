@@ -37,6 +37,8 @@ describe("MCP client smoke session pack", () => {
       const readme = await readFile(join(outputDir, "README.md"), "utf8");
 
       assert.match(readme, /## VS Code/);
+      assert.match(readme, /Record a pass only after the real client lists tools and calls `vrdex_search`/);
+      assert.match(readme, /record a fail only with sanitized evidence of the exact client-side blocker/);
       assert.match(readme, /## Cursor/);
       assert.match(readme, /## Windsurf/);
       assert.match(readme, /## Gemini CLI/);
@@ -160,6 +162,8 @@ describe("MCP client smoke session pack", () => {
       assert.match(vscodeEvidence, /Status: pending until a real client session lists tools/);
       assert.match(vscodeEvidence, /Matrix row: vscode\/local-stdio/);
       assert.match(vscodeEvidence, /Client lists the expected VRDex tools/);
+      assert.match(vscodeEvidence, /For `pass`, include the tool list/);
+      assert.match(vscodeEvidence, /For `fail`, include the exact failed step/);
       assert.match(vscodeEvidence, /--evidence-file/);
       assert.match(vscodeEvidence, /pnpm record:mcp-client-smoke -- --client vscode --check local-stdio/);
       assert.doesNotMatch(vscodeEvidence, /--target-environment "staging https:\/\/staging\.vrdex\.net\/mcp"/);
@@ -197,6 +201,7 @@ describe("MCP client smoke session pack", () => {
       assert.match(openAiAnonymousEvidence, /pnpm smoke:mcp-openai -- --hosted-url https:\/\/staging\.vrdex\.net\/mcp --hosted-data/);
       assert.match(openAiAnonymousEvidence, /OpenAI Responses API or ChatGPT hosted MCP surface/);
       assert.match(openAiAnonymousEvidence, /anonymous\/no-auth tools/);
+      assert.match(openAiAnonymousEvidence, /does not force login before the anonymous public-read call/);
       assert.match(openAiAnonymousEvidence, /No bearer tokens, OAuth client secrets/);
     } finally {
       await rm(outputDir, { force: true, recursive: true });

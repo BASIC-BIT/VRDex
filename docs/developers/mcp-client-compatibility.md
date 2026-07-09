@@ -347,9 +347,13 @@ README includes the same Pending Blocker Summary as the smoke planner so the
 downloaded artifact can be used directly for smoke-session batching. The
 generated `evidence/` templates are pending worksheets for each row; fill them
 with sanitized real-client screenshot or transcript evidence before running the
-recorder command. The pack is not evidence by itself; use it to run the real
-client session and then record the matrix row only after the client lists tools
-and calls `vrdex_search` or completes the required `mcp:read` OAuth path.
+recorder command. A pass worksheet must show the tool list, the `vrdex_search`
+call, and the first returned slug. A fail worksheet must name the exact failed
+step, client-visible error, client version, auth mode, and any upstream issue
+link without including credentials. The pack is not evidence by itself; use it
+to run the real client session and then record the matrix row only after the
+client lists tools and calls `vrdex_search`, completes the required `mcp:read`
+OAuth path, or produces a sanitized failure that should remain in the matrix.
 Completed worksheets can be recorded directly:
 
 ```sh

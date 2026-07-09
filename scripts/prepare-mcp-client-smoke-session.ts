@@ -723,12 +723,17 @@ async function writeEvidenceTemplate(outputPath: string, template: EvidenceTempl
     template.check === "hosted-oauth"
       ? "- [ ] Hosted OAuth prerequisites are ready, or the exact reviewed-secret / temporary-credential blocker is recorded."
       : undefined,
+    template.check === "hosted-anonymous-read"
+      ? "- [ ] The client does not force login before the anonymous public-read call, or that login requirement is recorded as the failure."
+      : undefined,
     "- [ ] Screenshot or transcript is sanitized before the row is recorded.",
     "- [ ] No bearer tokens, OAuth client secrets, full authorization headers, or private account details are captured.",
     "",
+    "For `pass`, include the tool list, the `vrdex_search` call, and the first returned slug. For `fail`, include the exact failed step, client-visible error, client version, auth mode, and any upstream issue link without including credentials.",
+    "",
     "## Sanitized Evidence Summary",
     "",
-    "Replace this paragraph with the sanitized screenshot path, transcript path, or PR artifact URL before running the recorder command. Keep tokens, OAuth client secrets, full authorization headers, and private account details out of this section.",
+    "Replace this paragraph with the sanitized screenshot path, transcript path, PR artifact URL, or failure summary before running the recorder command. Keep tokens, OAuth client secrets, full authorization headers, and private account details out of this section.",
     "",
     "## Recorder Command",
     "",
@@ -765,8 +770,8 @@ async function writeSessionPack(options: Options) {
     "# MCP Client Smoke Session Pack",
     "",
     "Generated disposable setup files for installed VS Code-family MCP clients and Gemini CLI, plus recordable worksheets for manual-only MCP client rows.",
-    "These files are operator aids, not matrix evidence. Record a row only after the real client lists tools and calls `vrdex_search`.",
-    "Evidence templates are pending worksheets until they are filled with sanitized real-client output.",
+    "These files are operator aids, not matrix evidence. Record a pass only after the real client lists tools and calls `vrdex_search`; record a fail only with sanitized evidence of the exact client-side blocker.",
+    "Evidence templates are pending worksheets until they are filled with sanitized real-client output or sanitized failure evidence.",
     "Each VS Code-family row uses its own isolated user-data directory so local, hosted anonymous, and hosted token-fallback configs cannot overwrite each other.",
     "",
     `Hosted MCP URL: \`${hostedMcpUrl(options.hostedUrl!)}\``,
