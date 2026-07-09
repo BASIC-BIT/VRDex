@@ -43,6 +43,12 @@ Before enabling that gate, apply `infra/terraform/state-mgmt` so the GitHub Acti
 5. Redeploy the Vercel production and staging environments so functions receive the new environment variables.
 6. Probe `/api/v0/profile-assets/upload-intents/probe`; a configured environment should no longer return `501`.
 
+The Terraform workflow allows Terraform to create a missing Vercel OIDC
+provider, but blocks `profile-assets` applies when the GitHub Actions Terraform
+role cannot inspect a preexisting provider. Apply `infra/terraform/state-mgmt`
+locally first, and import any preexisting provider into this stack's remote
+state before rerunning apply.
+
 ## State Backend
 
 Terraform state for this stack is stored in the S3 backend declared in `versions.tf`:

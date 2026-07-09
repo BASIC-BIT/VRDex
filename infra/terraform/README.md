@@ -35,8 +35,16 @@ Required CI settings by provider:
 | `TERRAFORM_ROUTE53_ZONE_ID` | optional repository variable | `docs-site`, `ses` |
 | `TERRAFORM_PROFILE_ASSETS_ENABLED=true` | repository variable | `profile-assets` after `state-mgmt` has been applied with profile asset permissions |
 | `TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_IDS` | optional repository variable | `profile-assets`; HCL list of Vercel custom environment IDs, for example `["env_..."]` |
+| `TERRAFORM_PROFILE_ASSETS_VERCEL_TEAM_SLUG` | optional repository variable | `profile-assets`; defaults to `basicbit` for the hosted Vercel OIDC provider guard |
 
 `state-mgmt/` is validation-only in CI because it intentionally uses local bootstrap state and owns the GitHub Actions AWS role used by the provider-backed stacks. Apply it manually when changing the shared state bucket or Terraform CI role, then store `terraform output -raw github_actions_terraform_role_arn` in GitHub variable `AWS_TERRAFORM_ROLE_ARN`.
+
+The `profile-assets` apply path checks whether a preexisting Vercel OIDC
+provider is readable before planning an apply. A missing provider is allowed so
+Terraform can create it on first run. If the guard fails for any other reason,
+apply `state-mgmt/` locally from a trusted operator machine and import any
+preexisting OIDC provider into the `profile-assets` remote state before
+rerunning the stack.
 
 ## Stack Boundaries
 

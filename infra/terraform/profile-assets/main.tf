@@ -8,6 +8,7 @@ data "vercel_project" "web" {
 locals {
   asset_bucket_name = var.asset_bucket_name != null ? var.asset_bucket_name : "vrdex-profile-assets-${data.aws_caller_identity.current.account_id}"
   object_prefix     = "profile-assets/"
+  storage_probe_key = "${local.object_prefix}.vrdex-storage-probe"
 
   vercel_oidc_issuer_path = "oidc.vercel.com/${var.vercel_team_slug}"
   vercel_oidc_issuer_url  = "https://${local.vercel_oidc_issuer_path}"
@@ -141,6 +142,21 @@ resource "aws_iam_role" "vercel_profile_assets" {
 }
 
 data "aws_iam_policy_document" "vercel_profile_assets" {
+  statement {
+    sid = "CheckProfileAssetStorageProbe"
+    actions = [
+      "s3:ListBucket",
+    ]
+
+    resources = [aws_s3_bucket.profile_assets.arn]
+
+    condition {
+      test     = "StringEquals"
+      variable = "s3:prefix"
+      values   = [local.storage_probe_key]
+    }
+  }
+
   statement {
     sid = "ReadAndWriteProfileAssets"
     actions = [
