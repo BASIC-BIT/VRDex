@@ -121,10 +121,11 @@ Next execution checkpoint:
    in `docs/developers/mcp-client-smoke-results.json`.
 3. Complete the major-client matrix rows against that same staging target,
    continuing with the locally installed clients that still need smoke-tested
-   rows: VS Code, Cursor, and Windsurf; use `pnpm smoke:mcp-gemini-cli`
-   with Google auth or `--gemini-package @google/gemini-cli@latest` for the
-   Gemini CLI rows; and complete hosted OAuth coverage for Claude Code, Gemini
-   CLI, and MCP Inspector.
+   rows: VS Code, Cursor, and Windsurf. Gemini CLI local stdio now passes with
+   `pnpm smoke:mcp-gemini-cli -- --gemini-package @google/gemini-cli@latest`;
+   rerun the hosted Gemini rows after the hosted HTTP timeout is understood or
+   capture equivalent interactive `/mcp` evidence. Complete hosted OAuth
+   coverage for Claude Code, Gemini CLI, and MCP Inspector.
 4. Before hosted-OAuth rows are recorded, rerun
    `pnpm ops:mcp-hosted-oauth-prereqs`. The 2026-07-09 PR #159 audit is
    `partial`: hosted auth helpers and the browser token are present, but

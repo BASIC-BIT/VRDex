@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "lastReviewed": "2026-07-09",
   "readinessMode": "repo-protocol-smoked-hosted-staging-data-backed-client-smokes-open",
-  "targetEnvironment": "staging https://staging.vrdex.net/mcp, local hosted MCP compat smoke on 2026-07-09",
+  "targetEnvironment": "staging https://staging.vrdex.net/mcp",
   "hostedReadiness": {
     "checks": [
       {
@@ -110,10 +110,10 @@
           "surface": "local_stdio",
           "requiredForExternalReadiness": true,
           "repoEvidence": "pnpm smoke:mcp-compat local profile: Gemini CLI, including all curated read tools",
-          "manualStatus": "fail",
-          "notes": "Gemini CLI supports command-based stdio MCP servers through settings.json. pnpm smoke:mcp-gemini-cli is the repeatable real-client path; use --gemini-package @google/gemini-cli@latest when Gemini CLI is not installed globally. 2026-07-09 local smoke reached Gemini CLI 0.50.0 with GEMINI_API_KEY available, but Gemini API provider quota failed before any MCP tool call, so no vrdex_search evidence was recorded.",
+          "manualStatus": "pass",
+          "notes": "Gemini CLI supports command-based stdio MCP servers through settings.json. pnpm smoke:mcp-gemini-cli is the repeatable real-client path; use --gemini-package @google/gemini-cli@latest when Gemini CLI is not installed globally. 2026-07-09 local stdio smoke reached Gemini CLI 0.50.0 with GEMINI_API_KEY available, called vrdex_search, returned club-night, and the fixture captured the expected /api/v0/search request.",
           "environment": "Windows / Gemini CLI 0.50.0 via @google/gemini-cli@latest disposable package / local stdio",
-          "manualEvidence": "corepack pnpm smoke:mcp-gemini-cli -- --gemini-package @google/gemini-cli@latest reached Gemini CLI 0.50.0 but Gemini API quota failed before any MCP tool call on 2026-07-09; no tools/list or vrdex_search evidence was produced.",
+          "manualEvidence": "corepack pnpm smoke:mcp-gemini-cli -- --gemini-package @google/gemini-cli@latest returned club-night and fixture captured /api/v0/search?q=club&type=event&limit=1 on 2026-07-09",
           "lastRunAt": "2026-07-09"
         },
         {
@@ -122,9 +122,9 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
           "manualStatus": "fail",
-          "notes": "Gemini CLI supports Streamable HTTP through settings.json httpUrl. pnpm smoke:mcp-gemini-cli -- --mode hosted-http --hosted-data is the repeatable real-client path; use --gemini-package @google/gemini-cli@latest when needed. 2026-07-09 local process has GEMINI_API_KEY and can launch Gemini CLI 0.50.0, but the Gemini API provider quota failed before a hosted MCP tool call could run. Row remains failed until an authenticated Gemini CLI run or equivalent interactive /mcp session calls vrdex_search without OAuth.",
+          "notes": "Gemini CLI supports Streamable HTTP through settings.json httpUrl. pnpm smoke:mcp-gemini-cli -- --mode hosted-http --hosted-data is the repeatable real-client path; use --gemini-package @google/gemini-cli@latest when needed. 2026-07-09 hosted anonymous smoke reached Gemini CLI 0.50.0 against staging https://staging.vrdex.net/mcp, but timed out after 180000ms before a hosted MCP tool-call result. Row remains failed until a Gemini CLI run or equivalent interactive /mcp session calls vrdex_search without OAuth.",
           "environment": "Windows / Gemini CLI 0.50.0 via @google/gemini-cli@latest disposable package / hosted HTTP staging",
-          "manualEvidence": "corepack pnpm smoke:mcp-gemini-cli -- --mode hosted-http --hosted-url https://staging.vrdex.net/mcp --hosted-data --gemini-package @google/gemini-cli@latest reached Gemini CLI 0.50.0 but Gemini API quota failed before any hosted MCP tool call on 2026-07-09; no tools/list or vrdex_search evidence was produced.",
+          "manualEvidence": "corepack pnpm smoke:mcp-gemini-cli -- --mode hosted-http --hosted-url https://staging.vrdex.net/mcp --hosted-data --gemini-package @google/gemini-cli@latest reached Gemini CLI 0.50.0 but timed out after 180000ms before a hosted MCP tool-call result on 2026-07-09",
           "lastRunAt": "2026-07-09"
         },
         {

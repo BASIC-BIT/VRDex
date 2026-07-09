@@ -81,6 +81,9 @@ docs update and a changelog entry so early consumers and agents can adapt.
   harness for local stdio and hosted Streamable HTTP MCP smokes, with optional
   disposable `@google/gemini-cli` package execution and token-backed hosted
   OAuth fallback support
+- recorded Gemini CLI local stdio as passing against the repo API fixture with
+  Gemini CLI `0.50.0`; hosted anonymous staging still times out before a hosted
+  MCP tool-call result and remains failed in the manual matrix
 - added `pnpm smoke:mcp-openai` as a repeatable OpenAI Responses API remote
   MCP hosted anonymous-read harness, keeping ChatGPT Apps/Connectors UI and
   hosted OAuth evidence as separate product-surface rows

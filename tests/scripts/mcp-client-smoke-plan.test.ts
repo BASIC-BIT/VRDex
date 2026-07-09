@@ -25,7 +25,7 @@ describe("MCP client smoke planner", () => {
     assert.match(result.stdout, /OAuth smoke credentials/);
     assert.match(result.stdout, /`claude-code\/hosted-oauth`, `mcp-inspector\/hosted-oauth`/);
     assert.match(result.stdout, /Missing client install or account setup/);
-    assert.match(result.stdout, /`gemini-cli\/local-stdio`, `gemini-cli\/hosted-anonymous-read`, `gemini-cli\/hosted-oauth`/);
+    assert.match(result.stdout, /`gemini-cli\/hosted-anonymous-read`, `gemini-cli\/hosted-oauth`/);
     assert.match(result.stdout, /Installed app tool-call session/);
     assert.match(result.stdout, /`vscode\/local-stdio`, `vscode\/hosted-anonymous-read`/);
     assert.match(result.stdout, /Installed app OAuth session/);

@@ -41,7 +41,7 @@ describe("API/MCP rollout readiness checker", () => {
       /Generated OpenAPI contract \| yes \| pass \| 31 required API paths and JSON\/YAML artifacts are present/,
     );
     assert.match(result.stdout, /Rollout verification scripts \| yes \| pass \| 20 required scripts are defined/);
-    assert.match(result.stdout, /Major MCP client matrix \| yes \| fail \| .*Gemini CLI\/local-stdio: fail/);
+    assert.match(result.stdout, /Major MCP client matrix \| yes \| fail \| .*Gemini CLI\/hosted-anonymous-read: fail/);
   });
 
   it("keeps external readiness failing while required MCP client rows are not pass", () => {
@@ -50,7 +50,6 @@ describe("API/MCP rollout readiness checker", () => {
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /API\/MCP rollout is not externally ready/);
     assert.match(result.stderr, /Major MCP client matrix/);
-    assert.match(result.stderr, /Gemini CLI\/local-stdio: fail/);
     assert.match(result.stderr, /Gemini CLI\/hosted-anonymous-read: fail/);
   });
 
