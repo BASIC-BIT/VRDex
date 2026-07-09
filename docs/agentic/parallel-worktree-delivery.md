@@ -140,6 +140,13 @@ it.
    - run the relevant integrated checks
    - record accepted, deferred, or rejected leaf output
 
+   Keep accepted leaf and integration commits local until they form a coherent
+   review batch. When the public PR already exists, do not push every leaf or
+   small recycle separately: integrate locally, run the aggregate checks, then
+   push one deliberate checkpoint. Push earlier only when a remote preview,
+   security hotfix, or external reviewer is genuinely required to unblock the
+   next local step.
+
 6. Review and recycle.
 
    Use fresh-context reviewers for high-risk or wide diffs. Recycle only
@@ -159,6 +166,29 @@ it.
    The public PR should contain the integrated branch, not a pile of
    uncoordinated leaf branches. Keep PR prose concise and do not duplicate
    routine CI checklists.
+
+## CI Cost Discipline
+
+Local convergence is also the default cost-control mechanism. A large program
+should pay for the full remote matrix at meaningful integration checkpoints,
+not once per leaf commit or minor review recycle.
+
+Before adding workflow complexity:
+
+- keep `concurrency.cancel-in-progress` on ordinary PR validation so superseded
+  runs stop consuming runner time
+- use narrow top-level path filters only when an entire workflow has a stable,
+  obvious ownership boundary, such as Terraform-only validation
+- use an existing cheap changed-file gate before expensive setup when one job
+  has a well-understood scope
+- preserve a no-op success strategy for required checks before adding job-level
+  conditions; a skipped required workflow must not leave a PR permanently
+  pending or create an unreviewed validation blind spot
+- do not cancel serialized deploy, infrastructure, or deployed-health runs just
+  to save minutes unless their state and failure semantics have been reviewed
+
+If safe path ownership is not obvious, batch local work and keep the broad CI
+matrix. That is simpler and safer than a large change-detector redesign.
 
 ## Coordination State
 
