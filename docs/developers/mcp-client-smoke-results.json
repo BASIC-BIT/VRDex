@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "lastReviewed": "2026-07-09",
   "readinessMode": "repo-protocol-smoked-hosted-staging-data-backed-client-smokes-open",
-  "targetEnvironment": "staging https://staging.vrdex.net/mcp",
+  "targetEnvironment": "staging https://staging.vrdex.net/mcp plus PR preview https://vr-dex-web-git-codex-public-api-mcp-planning-basicbit.vercel.app/mcp",
   "hostedReadiness": {
     "checks": [
       {
@@ -213,8 +213,11 @@
           "surface": "hosted_http_anonymous",
           "requiredForExternalReadiness": true,
           "repoEvidence": "pnpm smoke:mcp-openai -- --hosted-url <production-like-/mcp-url> --hosted-data when OPENAI_API_KEY is available through process env or repo-root .env.local and the target exposes data-backed search/fetch; ChatGPT Apps/Connectors UI evidence remains separate",
-          "manualStatus": "pending",
-          "notes": "2026-07-09: Responses API remote MCP smoke harness is available for hosted anonymous public reads and loads OPENAI_API_KEY from process env or repo-root .env.local without printing secret values. Live OpenAI attempts are not pass evidence yet: staging https://staging.vrdex.net/mcp has data-backed public search but still exposes the older VRDex-specific hosted tool names, while the PR preview exposes search/fetch but data-backed search returns VRDex public data is temporarily unavailable for search. A live gpt-4.1-mini smoke against the PR preview reached the search/fetch tool-call path, then failed because the response did not include structured hosted MCP search results from the non-data-backed preview target. Rerun pnpm smoke:mcp-openai after one production-like target has both search/fetch aliases and data-backed public results. Verify ChatGPT Apps/Connectors UI behavior separately before publishing product-surface snippets."
+          "manualStatus": "fail",
+          "notes": "2026-07-09: Responses API remote MCP smoke harness is available for hosted anonymous public reads and loads OPENAI_API_KEY from process env or repo-root .env.local without printing secret values. Live OpenAI attempts are not pass evidence yet: staging https://staging.vrdex.net/mcp has data-backed public search but still exposes the older VRDex-specific hosted tool names, while the PR preview exposes search/fetch but data-backed search returns VRDex public data is temporarily unavailable for search. A local preview MCP compat smoke confirmed that data-backed preview search still returns that tool error. A live gpt-4.1-mini smoke against the PR preview timed out with a 10000ms bound, then reached the search/fetch tool-call path with a 60000ms bound and failed because the response did not include structured hosted MCP search results from the non-data-backed preview target. Rerun pnpm smoke:mcp-openai after one production-like target has both search/fetch aliases and data-backed public results. Verify ChatGPT Apps/Connectors UI behavior separately before publishing product-surface snippets.",
+          "environment": "Windows / OpenAI Responses API gpt-4.1-mini / hosted MCP PR preview",
+          "manualEvidence": "corepack pnpm smoke:mcp-openai -- --hosted-url https://vr-dex-web-git-codex-public-api-mcp-planning-basicbit.vercel.app/mcp --hosted-data --model gpt-4.1-mini --request-timeout-ms 60000 returned 'OpenAI response did not include structured hosted MCP search results' on 2026-07-09",
+          "lastRunAt": "2026-07-09"
         },
         {
           "id": "hosted-oauth",

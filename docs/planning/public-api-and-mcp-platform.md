@@ -141,12 +141,14 @@ Next execution checkpoint:
    evidence; do not mark those rows ready from local CLI or API-only checks.
    Current 2026-07-09 evidence is split: staging has data-backed public search
    but still lacks the hosted `search` and `fetch` compatibility aliases, while
-   the PR preview has the aliases but lacks data-backed public search. A live
-   OpenAI probe against the PR preview reached `search`/`fetch` with
-   `gpt-4.1-mini`, then failed because the response did not include structured
-   hosted MCP search results from the non-data-backed preview target. No live
-   OpenAI pass is recorded until one production-like target has both aliases
-   and data.
+   the PR preview has the aliases but lacks data-backed public search. A local
+   preview MCP compat smoke confirmed the data-backed preview tool error. A
+   live OpenAI probe against the PR preview timed out with a 10s request bound,
+   then reached `search`/`fetch` with `gpt-4.1-mini` and a 60s bound, failing
+   because the response did not include structured hosted MCP search results
+   from the non-data-backed preview target. The OpenAI hosted-anonymous row is
+   recorded as failed until one production-like target has both aliases and
+   data.
 
 ## Client Classes
 

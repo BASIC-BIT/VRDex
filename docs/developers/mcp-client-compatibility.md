@@ -255,10 +255,11 @@ Current 2026-07-09 target evidence is intentionally not recorded as a pass:
 staging has data-backed public search but has not deployed the hosted
 `search`/`fetch` aliases, while the PR preview exposes the aliases but returns
 `VRDex public data is temporarily unavailable for search` for data-backed
-public reads. A live OpenAI smoke against the PR preview reached the
-`search`/`fetch` tool-call path with `gpt-4.1-mini`, then failed because the
-response did not include structured hosted MCP search results from the
-non-data-backed preview target.
+public reads. A local preview MCP compat smoke confirmed the same data-backed
+preview tool error. A live OpenAI smoke against the PR preview timed out with a
+10s request bound, then reached the `search`/`fetch` tool-call path with
+`gpt-4.1-mini` and a 60s bound, failing because the response did not include
+structured hosted MCP search results from the non-data-backed preview target.
 
 PR Baseline Checks run the same local stdio protocol smoke through
 `pnpm verify:vrdex-mcp`.
@@ -612,7 +613,7 @@ log can distinguish backend data, DCR, and CIMD blockers in one attempt.
 | Gemini CLI | Uses `settings.json` `mcpServers` entries with `command` for stdio. | Supports Streamable HTTP through `httpUrl` and SSE through `url`. | Supports OAuth 2.0 for remote MCP, automatic discovery, Dynamic Client Registration, `/mcp auth`, and secure token storage; token-backed fallback evidence is available through the Gemini smoke harness. | Real Gemini CLI local stdio passed through `pnpm smoke:mcp-gemini-cli` on 2026-07-09. Hosted anonymous staging reached Gemini CLI `0.50.0` but timed out before a hosted MCP tool-call result; hosted OAuth remains pending. |
 | VS Code | Uses `.vscode/mcp.json` or user MCP config with `servers` entries. | Supports `type: "http"` and `url`. | Avoid hardcoded secrets; use inputs or environment files. OAuth manual smoke pending. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; VS Code 1.128.0 accepted all generated `--add-mcp` definitions on 2026-07-09; manual tool-call smoke pending. |
 | Cursor | Treat local stdio as a required smoke target if the current release still supports command-based MCP config. | Treat hosted HTTP as a required smoke target if the current release supports remote MCP URLs. | Confirm current OAuth behavior during manual smoke. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; Cursor 3.10.17 accepted all generated `--add-mcp` definitions on 2026-07-09; manual tool-call smoke pending. |
-| OpenAI and ChatGPT MCP-capable surfaces | Treat local stdio as unsupported until the current product surface says otherwise. | Use hosted remote MCP when ChatGPT Apps, deep research, or API integration setup supports custom MCP servers; hosted `search` and `fetch` compatibility aliases are available for OpenAI-required document search. | Current OpenAI docs recommend CIMD when the authorization server supports it and keep DCR as a supported path when configured; VRDex implements both DCR and public-client CIMD. Public read tools advertise `_meta["securitySchemes"]` with `noauth` plus optional `oauth2`. | `pnpm smoke:mcp-openai` can prove Responses API hosted anonymous-read integration when `OPENAI_API_KEY` is available and the target deploy includes `search`/`fetch`; ChatGPT Apps/Connectors UI and hosted OAuth behavior remain pending until product-surface evidence is recorded. |
+| OpenAI and ChatGPT MCP-capable surfaces | Treat local stdio as unsupported until the current product surface says otherwise. | Use hosted remote MCP when ChatGPT Apps, deep research, or API integration setup supports custom MCP servers; hosted `search` and `fetch` compatibility aliases are available for OpenAI-required document search. | Current OpenAI docs recommend CIMD when the authorization server supports it and keep DCR as a supported path when configured; VRDex implements both DCR and public-client CIMD. Public read tools advertise `_meta["securitySchemes"]` with `noauth` plus optional `oauth2`. | `pnpm smoke:mcp-openai` can prove Responses API hosted anonymous-read integration when `OPENAI_API_KEY` is available and the target deploy includes `search`/`fetch`; the 2026-07-09 PR preview run is recorded as failed because data-backed preview search is unavailable and the Responses API result lacked structured hosted MCP search output. ChatGPT Apps/Connectors UI and hosted OAuth behavior remain pending until product-surface evidence is recorded. |
 | Devin Desktop / Windsurf Cascade | Uses `mcp_config.json` with `mcpServers`. | Supports `serverUrl` or `url` for remote HTTP MCPs. | Docs state OAuth support for stdio, Streamable HTTP, and SSE. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; Windsurf 1.110.1 accepted all generated `--add-mcp` definitions on 2026-07-09; manual tool-call smoke pending. |
 | MCP Inspector | Use as a protocol-level stdio debugger; local stdio `vrdex_search` is manually verified in the smoke matrix. | Connect directly to hosted `/mcp` for remote debugging; `pnpm smoke:mcp-inspector` validates hosted tool listing and auth metadata. | Use reviewed-app client credentials or `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN` fallback to validate authenticated hosted `tools/list`; pair with the DCR/CIMD protocol smoke. | Local stdio and staging data-backed hosted anonymous read smokes pass through `pnpm smoke:mcp-inspector`; hosted OAuth remains pending until authenticated evidence is recorded. |
 
@@ -767,8 +768,10 @@ pnpm ops:mcp-client-smokes -- \
    current product supports custom remote MCP connectors. Responses API hosted
    anonymous-read evidence uses `pnpm smoke:mcp-openai` with `OPENAI_API_KEY`;
    the smoke requires both `search` and `fetch`. A 2026-07-09 live Responses
-   API attempt reached OpenAI but the deployed staging target only exposed the
-   older VRDex-specific tool names, so no live OpenAI pass is recorded yet.
+   API attempt against the PR preview is recorded as failed: staging still lacks
+   the aliases, and the preview exposes the aliases but lacks data-backed
+   public search, so the model response did not include structured hosted MCP
+   search results.
    Record whether ChatGPT Apps/Connectors accepts DCR, requires Client ID
    Metadata Documents, or follows a reviewed app submission path. Also record
    whether public read tools appear as anonymous/no-auth tools instead of

@@ -87,6 +87,10 @@ docs update and a changelog entry so early consumers and agents can adapt.
 - added `pnpm smoke:mcp-openai` as a repeatable OpenAI Responses API remote
   MCP hosted anonymous-read harness, keeping ChatGPT Apps/Connectors UI and
   hosted OAuth evidence as separate product-surface rows
+- recorded the OpenAI Responses API hosted anonymous PR-preview smoke as failed
+  because the target has `search`/`fetch` aliases but lacks data-backed public
+  search, and the `gpt-4.1-mini` response did not include structured hosted MCP
+  search results
 - fixed the Gemini CLI smoke harness on Windows so disposable package execution
   routes through `cmd.exe` instead of spawning `npx.cmd` directly; local
   preflight can reach Gemini CLI and fails closed on provider auth/quota before
