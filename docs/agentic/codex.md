@@ -46,6 +46,7 @@ source skill by path.
 Current wrappers:
 
 - `vrdex-feature-design`
+- `vrdex-manual-profile-ops`
 - `vrcdn`
 - `vrdex-parallel-worktree-delivery`
 - `vrdex-onboarding`
