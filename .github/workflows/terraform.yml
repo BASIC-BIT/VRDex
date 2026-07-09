@@ -60,6 +60,7 @@ env:
   TERRAFORM_UPSTASH_API_KEY: ${{ secrets.TERRAFORM_UPSTASH_API_KEY || secrets.UPSTASH_API_KEY }}
   TERRAFORM_RATE_LIMIT_STAGING_CUSTOM_ENVIRONMENT_IDS: ${{ vars.TERRAFORM_RATE_LIMIT_STAGING_CUSTOM_ENVIRONMENT_IDS }}
   TERRAFORM_RATE_LIMIT_MANAGE_PREVIEW_ENVIRONMENT: ${{ vars.TERRAFORM_RATE_LIMIT_MANAGE_PREVIEW_ENVIRONMENT }}
+  TERRAFORM_PROFILE_ASSETS_VERCEL_TEAM_SLUG: ${{ vars.TERRAFORM_PROFILE_ASSETS_VERCEL_TEAM_SLUG || 'basicbit' }}
 
 jobs:
   terraform-fmt:
@@ -314,6 +315,38 @@ jobs:
         if: steps.selection.outputs.run == 'true' && steps.gate.outputs.plan_enabled == 'true' && matrix.stack.backend == 'true'
         working-directory: ${{ matrix.stack.path }}
         run: terraform init -reconfigure
+
+      - name: Check profile-assets IAM prerequisites
+        if: steps.selection.outputs.run == 'true' && steps.gate.outputs.apply_enabled == 'true' && matrix.stack.name == 'profile-assets'
+        working-directory: ${{ matrix.stack.path }}
+        run: |
+          set -euo pipefail
+
+          account_id="$(aws sts get-caller-identity --query Account --output text)"
+          provider_arn="arn:aws:iam::${account_id}:oidc-provider/oidc.vercel.com/${TERRAFORM_PROFILE_ASSETS_VERCEL_TEAM_SLUG}"
+
+          provider_check="$(mktemp)"
+          if ! aws iam get-open-id-connect-provider --open-id-connect-provider-arn "$provider_arn" >"$provider_check" 2>&1; then
+            if grep -q "NoSuchEntity" "$provider_check"; then
+              {
+                echo "## Terraform profile-assets"
+                echo "No existing Vercel OIDC provider was found at \`$provider_arn\`."
+                echo "Terraform may create it during this apply if the CI role has the profile-assets IAM permissions from \`state-mgmt\`."
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+
+            {
+              echo "## Terraform profile-assets"
+              echo "Apply blocked before planning because the Terraform CI role cannot inspect the Vercel OIDC provider."
+              echo ""
+              echo "Expected provider: \`$provider_arn\`"
+              echo ""
+              echo "Apply \`infra/terraform/state-mgmt\` from a trusted operator machine before applying \`profile-assets\`."
+              echo "If the provider already exists outside this stack, import it into \`infra/terraform/profile-assets\` state before rerunning."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
       - name: Plan
         if: steps.selection.outputs.run == 'true' && steps.gate.outputs.plan_enabled == 'true'

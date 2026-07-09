@@ -42,7 +42,13 @@ variable "profile_asset_runtime_role_name" {
 variable "vercel_team_slug" {
   description = "Vercel team slug used by the profile asset OIDC provider Terraform CI may manage."
   type        = string
-  default     = "basic-bit"
+  default     = "basicbit"
+}
+
+variable "legacy_vercel_team_slugs" {
+  description = "Previous Vercel team slugs whose OIDC providers Terraform CI may manage during profile-assets state migration."
+  type        = list(string)
+  default     = ["basic-bit"]
 }
 
 variable "tags" {

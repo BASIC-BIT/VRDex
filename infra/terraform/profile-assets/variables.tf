@@ -25,7 +25,7 @@ variable "vercel_team_id" {
 variable "vercel_team_slug" {
   description = "Vercel team slug used in team-mode OIDC issuer and audience claims."
   type        = string
-  default     = "basic-bit"
+  default     = "basicbit"
 }
 
 variable "vercel_project_name" {

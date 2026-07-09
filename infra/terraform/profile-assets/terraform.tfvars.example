@@ -1,5 +1,5 @@
 aws_region        = "us-east-1"
-vercel_team_slug  = "basic-bit"
+vercel_team_slug  = "basicbit"
 vercel_project_name = "vr-dex-web"
 
 # Optional override. Defaults to vrdex-profile-assets-${account_id}.

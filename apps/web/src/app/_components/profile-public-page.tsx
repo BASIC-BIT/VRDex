@@ -274,10 +274,6 @@ function MediaAssetCard({ asset, label }: { asset: PublicProfileAsset; label: st
 }
 
 function PillList({ items }: { items: string[] }) {
-  if (items.length === 0) {
-    return <p className="text-sm leading-6 text-muted">No public entries yet.</p>;
-  }
-
   return (
     <p className="text-sm leading-6 text-muted">{items.join(" / ")}</p>
   );
@@ -334,114 +330,121 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
     sourceSubmittedAt,
   ].filter((value): value is string => Boolean(value));
   const eventPreviews = isPerson ? profile.upcomingEvents : profile.hostedEvents;
+  const profileCopy = [profile.bio, profile.about].filter((value): value is string =>
+    Boolean(value),
+  );
+  const detailRows = [
+    {
+      label: "Status",
+      value: trust,
+      detail: sourceDetails.length > 0 ? sourceDetails.join(" / ") : undefined,
+    },
+    profile.region ? { label: "Region", value: profile.region } : null,
+    profile.timezone ? { label: "Time zone", value: profile.timezone } : null,
+    isPerson
+      ? profile.person.pronouns
+        ? { label: "Pronouns", value: profile.person.pronouns }
+        : null
+      : profile.community.subtype
+        ? { label: "Subtype", value: profile.community.subtype }
+        : null,
+  ].filter((row): row is { label: string; value: string; detail?: string } => row !== null);
+  const validLinks = profile.outboundLinks
+    .map((link) => ({ link, href: safeHttpsUrl(link.url) }))
+    .filter(
+      (item): item is { link: (typeof profile.outboundLinks)[number]; href: string } =>
+        item.href !== null,
+    );
+  const hasMediaKit = Boolean(
+    mediaKit.primaryLogo || mediaKit.additionalLogos.length > 0 || mediaKit.logoZipUrl,
+  );
+  const detailCards = [
+    focusItems.length > 0
+      ? { eyebrow: isPerson ? "Focus" : "Community focus", items: focusItems }
+      : null,
+    !isPerson && profile.tags.length > 0 ? { eyebrow: "Tags", items: profile.tags } : null,
+    profile.aliases.length > 0 ? { eyebrow: "Aliases", items: profile.aliases } : null,
+  ].filter((card): card is { eyebrow: string; items: string[] } => card !== null);
   const sectionOrder = normalizeProfileSectionOrder(profile.appearance?.sectionOrder);
-  const sections: Record<ProfilePublicSectionKey, ReactNode> = {
-    about: (
+  const sections: Record<ProfilePublicSectionKey, ReactNode | null> = {
+    about: profileCopy.length > 0 || detailRows.length > 0 ? (
       <section className="grid gap-4 lg:grid-cols-[1.25fr_0.75fr]">
-        <Card>
-          <Eyebrow>About</Eyebrow>
-          <SectionTitle className="mt-4">
-            {isPerson ? "Public identity" : "Community home"}
-          </SectionTitle>
-          <div className="mt-4 space-y-4 text-sm leading-7 text-muted sm:text-base">
-            {profile.bio ? <p>{profile.bio}</p> : null}
-            {profile.about ? <p>{profile.about}</p> : null}
-            {!profile.bio && !profile.about ? (
-              <p>No public bio yet.</p>
-            ) : null}
-          </div>
-        </Card>
+        {profileCopy.length > 0 ? (
+          <Card>
+            <Eyebrow>About</Eyebrow>
+            <SectionTitle className="mt-4">
+              {isPerson ? "Public identity" : "Community home"}
+            </SectionTitle>
+            <div className="mt-4 space-y-4 text-sm leading-7 text-muted sm:text-base">
+              {profileCopy.map((copy, index) => (
+                <p key={`${index}-${copy.slice(0, 24)}`}>{copy}</p>
+              ))}
+            </div>
+          </Card>
+        ) : null}
 
-        <Card>
-          <dl className="space-y-4 text-sm">
-            <div className="border-b border-border pb-4">
-              <dt className="text-muted">Status</dt>
-              <dd className="mt-1 font-medium">
-                {trust}
-                {sourceDetails.length > 0 ? (
-                  <span className="mt-1 block text-xs font-normal text-muted">
-                    {sourceDetails.join(" / ")}
-                  </span>
-                ) : null}
-              </dd>
-            </div>
-            <div className="border-b border-border pb-4">
-              <dt className="text-muted">Region</dt>
-              <dd className="mt-1 font-medium">{profile.region ?? "Not listed"}</dd>
-            </div>
-            <div className="border-b border-border pb-4">
-              <dt className="text-muted">Time zone</dt>
-              <dd className="mt-1 font-medium">{profile.timezone ?? "Not listed"}</dd>
-            </div>
-            {isPerson ? (
-              <div>
-                <dt className="text-muted">Pronouns</dt>
-                <dd className="mt-1 font-medium">{profile.person.pronouns ?? "Not listed"}</dd>
-              </div>
-            ) : (
-              <div>
-                <dt className="text-muted">Subtype</dt>
-                <dd className="mt-1 font-medium">{profile.community.subtype ?? "Not listed"}</dd>
-              </div>
-            )}
-          </dl>
-        </Card>
+        {detailRows.length > 0 ? (
+          <Card className={profileCopy.length === 0 ? "lg:col-span-2" : undefined}>
+            <dl className="space-y-4 text-sm">
+              {detailRows.map((row, index) => (
+                <div
+                  className={index === detailRows.length - 1 ? undefined : "border-b border-border pb-4"}
+                  key={row.label}
+                >
+                  <dt className="text-muted">{row.label}</dt>
+                  <dd className="mt-1 font-medium">
+                    {row.value}
+                    {row.detail ? (
+                      <span className="mt-1 block text-xs font-normal text-muted">{row.detail}</span>
+                    ) : null}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </Card>
+        ) : null}
       </section>
-    ),
-    events: (
+    ) : null,
+    events: eventPreviews.length > 0 ? (
       <Card>
         <SectionHeading>
           {isPerson ? "Upcoming events" : "Hosted events"}
         </SectionHeading>
         <div className="mt-5 grid gap-3 lg:grid-cols-2">
-          {eventPreviews.length === 0 ? (
-            <p className="text-sm leading-6 text-muted">
-              {isPerson ? "No public upcoming events yet." : "No public hosted events yet."}
-            </p>
-          ) : (
-            eventPreviews.map((event) => (
-              <EventPreviewCard event={event} key={`${event.slug ?? event.title}-${event.startAt}`} />
-            ))
-          )}
+          {eventPreviews.map((event) => (
+            <EventPreviewCard event={event} key={`${event.slug ?? event.title}-${event.startAt}`} />
+          ))}
         </div>
       </Card>
-    ),
-    links: (
+    ) : null,
+    links: validLinks.length > 0 ? (
       <Card>
         <SectionHeading>
           Creator links
         </SectionHeading>
         <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {profile.outboundLinks.length === 0 ? (
-            <p className="text-sm leading-6 text-muted">No public creator/store links yet.</p>
-          ) : (
-            profile.outboundLinks.map((link) => {
-              const href = safeHttpsUrl(link.url);
+          {validLinks.map(({ link, href }) => {
+            const host = hostLabel(href);
 
-              if (!href) {
-                return null;
-              }
-
-              const host = hostLabel(href);
-
-              return (
-                <a
-                  className="rounded-card border border-border bg-surface-strong px-4 py-3 text-sm transition hover:-translate-y-0.5"
-                  href={href}
-                  key={`${link.type}-${link.url}`}
-                  rel="noreferrer"
-                  target="_blank"
-                >
-                  <span className="block font-medium">{link.label}</span>
-                  {link.handle ?? host ? <span className="mt-1 block text-xs text-muted">{link.handle ?? host}</span> : null}
-                </a>
-              );
-            })
-          )}
+            return (
+              <a
+                className="rounded-card border border-border bg-surface-strong px-4 py-3 text-sm transition hover:-translate-y-0.5"
+                href={href}
+                key={`${link.type}-${link.url}`}
+                rel="noreferrer"
+                target="_blank"
+              >
+                <span className="block font-medium">{link.label}</span>
+                {link.handle ?? host ? (
+                  <span className="mt-1 block text-xs text-muted">{link.handle ?? host}</span>
+                ) : null}
+              </a>
+            );
+          })}
         </div>
       </Card>
-    ),
-    media_kit: (
+    ) : null,
+    media_kit: hasMediaKit ? (
       <Card>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <SectionHeading>
@@ -454,92 +457,79 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
           ) : null}
         </div>
         <div className="mt-5 grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
-          <div className="rounded-card border border-border bg-surface-strong p-4">
-            <p className="text-sm font-medium text-muted">Primary logo</p>
-            {mediaKit.primaryLogo ? (
+          {mediaKit.primaryLogo ? (
+            <div className="rounded-card border border-border bg-surface-strong p-4">
+              <p className="text-sm font-medium text-muted">Primary logo</p>
               <div className="mt-3">
                 <MediaAssetCard asset={mediaKit.primaryLogo} label="Primary logo" />
               </div>
-            ) : (
-              <p className="mt-3 text-sm leading-6 text-muted">No public logo yet.</p>
-            )}
-          </div>
-          <div className="rounded-card border border-border bg-surface-strong p-4">
-            <p className="text-sm font-medium text-muted">Additional logos</p>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              {mediaKit.additionalLogos.length === 0 ? (
-                <p className="text-sm leading-6 text-muted">No additional public logos yet.</p>
-              ) : (
-                mediaKit.additionalLogos.map((asset, index) => (
-                  <MediaAssetCard asset={asset} key={asset.assetId} label={`Logo ${index + 2}`} />
-                ))
-              )}
             </div>
-          </div>
+          ) : null}
+          {mediaKit.additionalLogos.length > 0 ? (
+            <div className="rounded-card border border-border bg-surface-strong p-4">
+              <p className="text-sm font-medium text-muted">Additional logos</p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                {mediaKit.additionalLogos.map((asset, index) => (
+                  <MediaAssetCard asset={asset} key={asset.assetId} label={`Logo ${index + 2}`} />
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       </Card>
-    ),
-    worlds: (
+    ) : null,
+    worlds: profile.worldCredits.length > 0 ? (
       <Card>
         <SectionHeading>
           Worlds
         </SectionHeading>
         <div className="mt-5 grid gap-3 lg:grid-cols-2">
-          {profile.worldCredits.length === 0 ? (
-            <p className="text-sm leading-6 text-muted">No public world credits yet.</p>
-          ) : (
-            profile.worldCredits.map((world) => (
-              <Link
-                className="rounded-card border border-border bg-surface-strong px-4 py-4 text-sm transition hover:-translate-y-0.5"
-                href={`/w/${world.slug}`}
-                key={world.slug}
-              >
-                <span className="block text-lg font-semibold tracking-[-0.03em]">
-                  {world.displayName}
+          {profile.worldCredits.map((world) => (
+            <Link
+              className="rounded-card border border-border bg-surface-strong px-4 py-4 text-sm transition hover:-translate-y-0.5"
+              href={`/w/${world.slug}`}
+              key={world.slug}
+            >
+              <span className="block text-lg font-semibold tracking-[-0.03em]">
+                {world.displayName}
+              </span>
+              <span className="mt-2 block text-muted">
+                {world.roles.map(roleLabel).join(", ")}
+              </span>
+              {world.summary ? (
+                <span className="mt-3 line-clamp-2 block leading-6 text-muted">
+                  {world.summary}
                 </span>
-                <span className="mt-2 block text-muted">
-                  {world.roles.map(roleLabel).join(", ")}
-                </span>
-                {world.summary ? (
-                  <span className="mt-3 line-clamp-2 block leading-6 text-muted">
-                    {world.summary}
-                  </span>
-                ) : null}
-                {world.tags.length > 0 ? (
-                  <span className="mt-3 block text-xs text-muted">{world.tags.slice(0, 3).join(" / ")}</span>
-                ) : null}
-              </Link>
-            ))
-          )}
+              ) : null}
+              {world.tags.length > 0 ? (
+                <span className="mt-3 block text-xs text-muted">{world.tags.slice(0, 3).join(" / ")}</span>
+              ) : null}
+            </Link>
+          ))}
         </div>
       </Card>
-    ),
-    details: (
-      <section className={cn("grid gap-4", isPerson ? "lg:grid-cols-2" : "lg:grid-cols-3")}>
-        <Card>
-          <Eyebrow>{isPerson ? "Focus" : "Community focus"}</Eyebrow>
-          <div className="mt-4">
-            <PillList items={focusItems} />
-          </div>
-        </Card>
-
-        {isPerson ? null : (
-          <Card>
-            <Eyebrow>Tags</Eyebrow>
+    ) : null,
+    details: detailCards.length > 0 ? (
+      <section
+        className={cn(
+          "grid gap-4",
+          detailCards.length >= 3
+            ? "lg:grid-cols-3"
+            : detailCards.length === 2
+              ? "lg:grid-cols-2"
+              : undefined,
+        )}
+      >
+        {detailCards.map((card) => (
+          <Card key={card.eyebrow}>
+            <Eyebrow>{card.eyebrow}</Eyebrow>
             <div className="mt-4">
-              <PillList items={profile.tags} />
+              <PillList items={card.items} />
             </div>
           </Card>
-        )}
-
-        <Card>
-          <Eyebrow>Aliases</Eyebrow>
-          <div className="mt-4">
-            <PillList items={profile.aliases} />
-          </div>
-        </Card>
+        ))}
       </section>
-    ),
+    ) : null,
   };
 
   return (
@@ -588,9 +578,11 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
           </div>
         </section>
 
-        {sectionOrder.map((section) => (
-          <Fragment key={section}>{sections[section]}</Fragment>
-        ))}
+        {sectionOrder.map((section) => {
+          const content = sections[section];
+
+          return content ? <Fragment key={section}>{content}</Fragment> : null;
+        })}
       </PageContainer>
     </PageShell>
   );
