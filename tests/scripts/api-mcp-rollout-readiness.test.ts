@@ -38,6 +38,7 @@ describe("API/MCP rollout readiness checker", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /Generated OpenAPI contract \| yes \| pass \| 30 required API paths are present/);
     assert.match(result.stdout, /Rollout verification scripts \| yes \| pass \| 20 required scripts are defined/);
+    assert.match(result.stdout, /Major MCP client matrix \| yes \| fail \| .*Gemini CLI\/local-stdio: fail/);
   });
 
   it("keeps external readiness failing while required MCP client rows are not pass", () => {
@@ -100,6 +101,7 @@ describe("API/MCP rollout readiness checker", () => {
     assert.match(source, /ops:mcp-hosted-oauth-prereqs/);
     assert.match(source, /ops:api-platform-observability/);
     assert.match(source, /smoke:mcp-gemini-cli/);
+    assert.match(source, /hasFailedRequiredRow/);
 
     const installedClientsSource = await readFile("scripts/check-installed-mcp-clients.ts", "utf8");
 
@@ -130,5 +132,12 @@ describe("API/MCP rollout readiness checker", () => {
     assert.match(workflow, /mcp-client-session-pack/);
     assert.match(workflow, /actions\/upload-artifact@v7/);
     assert.match(workflow, /docs\/developers\/mcp-client-smoke-results\.json/);
+  });
+
+  it("keeps rollout checklist terminology aligned with open matrix rows", async () => {
+    const checklist = await readFile("docs/developers/api-mcp-rollout-checklist.md", "utf8");
+
+    assert.match(checklist, /Open Blocker Summary/);
+    assert.doesNotMatch(checklist, /Pending Blocker Summary/);
   });
 });

@@ -50,7 +50,7 @@ type ReadinessCheck = {
   details: string;
   name: string;
   required: boolean;
-  status: "pass" | "pending";
+  status: "fail" | "pass" | "pending";
 };
 
 type Options = {
@@ -257,6 +257,7 @@ async function checkMcpMatrix() {
   assert.equal(Array.isArray(matrix.clients), true, "MCP client smoke matrix clients must be an array.");
 
   const blockers: string[] = [];
+  let hasFailedRequiredRow = false;
 
   for (const client of matrix.clients) {
     for (const smoke of client.checks) {
@@ -266,13 +267,14 @@ async function checkMcpMatrix() {
 
       if (smoke.requiredForExternalReadiness && smoke.manualStatus !== "pass") {
         blockers.push(`${client.name}/${smoke.id}: ${smoke.manualStatus}`);
+        hasFailedRequiredRow ||= smoke.manualStatus === "fail";
       }
     }
   }
 
   return blockers.length === 0
     ? check("Major MCP client matrix", "pass", "all required manual rows are pass")
-    : check("Major MCP client matrix", "pending", blockers.join("; "));
+    : check("Major MCP client matrix", hasFailedRequiredRow ? "fail" : "pending", blockers.join("; "));
 }
 
 async function checkHostedReadinessMode() {
@@ -283,6 +285,7 @@ async function checkHostedReadinessMode() {
   const hasAcceptableTarget = hostedEvidenceTargetPattern.test(target) && !hasPendingTarget;
   const hostedReadinessChecks = matrix.hostedReadiness?.checks ?? [];
   const hostedReadinessBlockers: string[] = [];
+  let hasFailedRequiredHostedCheck = false;
   const seenHostedReadinessChecks = new Set<string>();
 
   for (const hostedCheck of hostedReadinessChecks) {
@@ -299,6 +302,7 @@ async function checkHostedReadinessMode() {
       hostedReadinessBlockers.push(
         `${requiredHostedReadinessChecks.get(hostedCheck.id) ?? hostedCheck.id}: ${hostedCheck.status}`,
       );
+      hasFailedRequiredHostedCheck ||= hostedCheck.status === "fail";
     }
   }
 
@@ -311,7 +315,7 @@ async function checkHostedReadinessMode() {
   return hasPendingMode || hasPendingTarget || !hasAcceptableTarget || hostedReadinessBlockers.length > 0
     ? check(
         "Production-like hosted MCP evidence",
-        "pending",
+        hasFailedRequiredHostedCheck ? "fail" : "pending",
         [
           `readinessMode=${matrix.readinessMode}`,
           `targetEnvironment=${target}`,

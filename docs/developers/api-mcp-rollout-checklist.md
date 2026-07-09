@@ -211,8 +211,9 @@ one PR.
   asserts every current checked-in `/api/v0` OpenAPI path, the
   `infra/terraform/rate-limit-redis` files, lockfile, README entry, and
   Terraform workflow wiring, plus both MCP evidence recorder commands. It
-  reports required items that are not pass in normal mode and becomes a failing
-  external-readiness gate with `--require-ready`.
+  reports required items that are not pass in normal mode, labels required
+  failed evidence rows as `fail`, and becomes a failing external-readiness gate
+  with `--require-ready`.
 - Claude Code local stdio and hosted anonymous HTTP can be real-client smoked
   with `pnpm smoke:mcp-claude-code`, which runs the installed Claude Code CLI
   through a strict temporary MCP config. Use hosted mode with `--hosted-data`
