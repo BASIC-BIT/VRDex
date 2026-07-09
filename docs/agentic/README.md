@@ -7,6 +7,7 @@
 - `docs/agentic/definition-of-done.md` - canonical closeout checklist for non-trivial feature work
 - `docs/agentic/definition-of-ready.md` - canonical readiness checklist for non-trivial feature work
 - `docs/agentic/feature-design-loop.md` - repeatable product/UX/infrastructure/cost/security planning loop for large features
+- `docs/agentic/manual-data-ops.md` - controlled manual Convex data operations until a first-class MCP/admin surface exists
 - `docs/agentic/parallel-worktree-delivery.md` - candidate local fanout/converge workflow for parallel agents and worktrees before one integrated PR
 - `docs/agentic/product-analytics-and-feature-flags.md` - canonical first-pass rollout, flagging, and product instrumentation policy
 - `docs/agentic/software-factory.md` - repo-specific software-factory posture, review/recycle loops, supervisor/resume policy, task-pool direction, mergeability recovery, and LLM/agent observability boundaries

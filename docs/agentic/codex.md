@@ -47,6 +47,7 @@ Current wrappers:
 
 - `vrdex-feature-design`
 - `vrcdn`
+- `vrdex-manual-data-ops`
 - `vrdex-parallel-worktree-delivery`
 - `vrdex-onboarding`
 

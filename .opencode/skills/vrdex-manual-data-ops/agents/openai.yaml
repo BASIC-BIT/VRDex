@@ -1,0 +1,4 @@
+interface:
+  display_name: "VRDex Manual Data Ops"
+  short_description: "Manual Convex data changes before MCP"
+  default_prompt: "Use $vrdex-manual-data-ops to plan a safe manual Convex data change for VRDex."
