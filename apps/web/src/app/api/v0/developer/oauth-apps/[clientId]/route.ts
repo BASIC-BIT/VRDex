@@ -3,10 +3,10 @@ import {
   DeveloperOAuthAppUpdateRequestSchema,
   normalizeOAuthApplicationDescription,
   normalizeOAuthApplicationName,
-  normalizeOAuthGrantTypes,
   normalizeOAuthOptionalUrl,
   normalizeOAuthRedirectUris,
   normalizeOAuthScopes,
+  type OAuthGrantType,
 } from "@vrdex/api-contracts";
 import { internal } from "@convex-generated-api";
 import type { Id } from "../../../../../../../../../convex/_generated/dataModel";
@@ -29,7 +29,7 @@ type RouteContext = {
 };
 
 type OAuthAppUpdate = {
-  allowedGrants?: ReturnType<typeof normalizeOAuthGrantTypes>;
+  allowedGrants?: OAuthGrantType[];
   allowedScopes?: ReturnType<typeof normalizeOAuthScopes>;
   description?: string | null;
   displayName?: string;
@@ -119,8 +119,8 @@ export async function PATCH(request: Request, context: RouteContext) {
       updates.allowedScopes = normalizeOAuthScopes(data.allowedScopes);
     }
 
-    if ("allowedGrants" in data) {
-      updates.allowedGrants = normalizeOAuthGrantTypes(data.allowedGrants, "confidential");
+    if ("allowedGrants" in data && data.allowedGrants !== undefined) {
+      updates.allowedGrants = data.allowedGrants;
     }
   } catch (error) {
     return problem(

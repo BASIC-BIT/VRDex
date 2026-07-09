@@ -608,6 +608,18 @@ describe("@vrdex/api-contracts", () => {
     });
   });
 
+  it("leaves OAuth app update grant semantics to stored client type validation", () => {
+    const update = DeveloperOAuthAppUpdateRequestSchema.parse({
+      allowedGrants: ["client_credentials"],
+    });
+
+    assert.deepEqual(update.allowedGrants, ["client_credentials"]);
+    assert.deepEqual(normalizeOAuthGrantTypes(update.allowedGrants, "confidential"), ["client_credentials"]);
+    assert.throws(
+      () => normalizeOAuthGrantTypes(update.allowedGrants, "public"),
+      /Public OAuth clients cannot use client credentials/,
+    );
+  });
 
   it("creates RFC 9457-compatible problem details", () => {
     assert.deepEqual(createPublicNotFoundProblem("Profile"), {
