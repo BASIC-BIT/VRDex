@@ -1,35 +1,35 @@
 {
   "schemaVersion": 1,
   "lastReviewed": "2026-07-09",
-  "readinessMode": "repo-protocol-smoked-hosted-data-backed-aliases-failing-client-smokes-open",
-  "targetEnvironment": "staging https://staging.vrdex.net/mcp plus PR preview https://vr-dex-web-git-codex-public-api-mcp-planning-basicbit.vercel.app/mcp",
+  "readinessMode": "staging-hosted-data-dcr-cimd-pass-client-smokes-open",
+  "targetEnvironment": "staging https://staging.vrdex.net/mcp after branch staging deploy run 29037734496",
   "hostedReadiness": {
     "checks": [
       {
         "id": "hosted-data-backed-anonymous-read",
         "requiredForExternalReadiness": true,
-        "status": "fail",
-        "notes": "2026-07-09: staging is not currently serving the API/MCP branch. PR preview reports Convex URL configured, but non-empty public search fails behind MCP and direct public search returns a typed HTTP 503 Problem Details response. Keep this row failed until one production-like target proves vrdex_search plus OpenAI-compatible search/fetch with data-backed public results.",
-        "environment": "Windows local smoke, staging https://staging.vrdex.net/mcp, PR preview https://vr-dex-web-git-codex-public-api-mcp-planning-basicbit.vercel.app/mcp",
-        "evidence": "2026-07-09 retry: staging /mcp initialize returned HTTP 404 and staging public search for query a returned HTTP 404; PR preview /mcp exposed vrdex_search, search, and fetch, but hosted data-backed vrdex_search and OpenAI-compatible search/fetch failed because search returned VRDex public data is temporarily unavailable for search. PR preview public search for query a returned typed HTTP 503 Problem Details after commit 368842f. pnpm smoke:mcp-openai found OPENAI_API_KEY in local env and failed target preflight before a live Responses API request.",
+        "status": "pass",
+        "notes": "2026-07-09: staging was redeployed from PR branch head 934c4cb by GitHub Actions Staging Deploy run 29037734496. The hosted data-backed public read smoke passed against https://staging.vrdex.net/mcp with vrdex_search plus OpenAI-compatible search and fetch evidence.",
+        "environment": "Windows local smoke against staging after GitHub Actions Staging Deploy run 29037734496",
+        "evidence": "corepack pnpm smoke:mcp-compat with --hosted-data --dcr --cimd passed against https://staging.vrdex.net/mcp: vrdex_search returned non-empty public results for query a, search returned a document id, and fetch returned non-empty document text.",
         "lastRunAt": "2026-07-09"
       },
       {
         "id": "hosted-dynamic-client-registration",
         "requiredForExternalReadiness": true,
-        "status": "fail",
-        "notes": "2026-07-09: prior staging DCR pass is stale because staging is not currently serving /mcp. PR preview DCR reaches the route but cannot register the dynamic OAuth client, likely because the preview backend dependency is not production-like. Keep this row failed until a current staging, same-branch Convex preview, or production-like target registers a public MCP client successfully.",
-        "environment": "Windows local smoke, staging https://staging.vrdex.net/mcp, PR preview https://vr-dex-web-git-codex-public-api-mcp-planning-basicbit.vercel.app/mcp",
-        "evidence": "2026-07-09 retry after commit 41fb165: staging /mcp initialize returned HTTP 404 before DCR could run. PR preview /mcp passed hosted OAuth metadata, but Dynamic Client Registration returned HTTP 500 with server_error when registering a constrained public MCP client.",
+        "status": "pass",
+        "notes": "2026-07-09: staging was redeployed from PR branch head 934c4cb by GitHub Actions Staging Deploy run 29037734496. Dynamic Client Registration passed against https://staging.vrdex.net/mcp and registered a constrained public MCP client.",
+        "environment": "Windows local smoke against staging after GitHub Actions Staging Deploy run 29037734496",
+        "evidence": "corepack pnpm smoke:mcp-compat with --hosted-data --dcr --cimd passed against https://staging.vrdex.net/mcp: Hosted Dynamic Client Registration returned HTTP 201 and registered a constrained public MCP client with mcp:read.",
         "lastRunAt": "2026-07-09"
       },
       {
         "id": "hosted-client-id-metadata-document",
         "requiredForExternalReadiness": true,
-        "status": "fail",
-        "notes": "2026-07-09: prior staging CIMD pass is stale because staging is not currently serving /mcp. PR preview exposes metadata but does not complete the public-client authorization redirect check. Keep this row failed until a current staging, same-branch Convex preview, or production-like target proves public-client CIMD authorization.",
-        "environment": "Windows local smoke, staging https://staging.vrdex.net/mcp, PR preview https://vr-dex-web-git-codex-public-api-mcp-planning-basicbit.vercel.app/mcp",
-        "evidence": "2026-07-09 retry after commit 41fb165: staging /mcp initialize returned HTTP 404 before CIMD authorization could run. PR preview /mcp passed hosted OAuth metadata, but public-client Client ID Metadata Document authorization expected a redirect and got HTTP 200 from the authorize page.",
+        "status": "pass",
+        "notes": "2026-07-09: staging was redeployed from PR branch head 934c4cb by GitHub Actions Staging Deploy run 29037734496. Client ID Metadata Document authorization passed against https://staging.vrdex.net/mcp using the checked-in public MCP client metadata document.",
+        "environment": "Windows local smoke against staging after GitHub Actions Staging Deploy run 29037734496",
+        "evidence": "corepack pnpm smoke:mcp-compat with --hosted-data --dcr --cimd passed against https://staging.vrdex.net/mcp: Hosted Client ID Metadata Document authorization accepted the checked-in public client metadata document and redirected to sign-in.",
         "lastRunAt": "2026-07-09"
       }
     ]
@@ -85,10 +85,10 @@
           "surface": "hosted_http_anonymous",
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
-          "manualStatus": "fail",
-          "notes": "2026-07-09: Claude Code local stdio remains passed, but the hosted anonymous pass from earlier staging evidence is stale. Current staging is not serving /mcp, and the PR preview lacks data-backed public reads. Rerun Claude Code hosted HTTP with --hosted-data after a current production-like target is available.",
-          "environment": "Windows local target retry, staging https://staging.vrdex.net/mcp, PR preview https://vr-dex-web-git-codex-public-api-mcp-planning-basicbit.vercel.app/mcp",
-          "manualEvidence": "2026-07-09 retry after commit 41fb165: earlier Claude Code hosted anonymous evidence against staging is stale because current staging /mcp returns HTTP 404. PR preview exposes hosted tools, but data-backed vrdex_search and OpenAI-compatible search/fetch fail because search returns VRDex public data is temporarily unavailable for search. Hosted client row remains failed until rerun against a current production-like target.",
+          "manualStatus": "pass",
+          "notes": "Hosted anonymous HTTP evidence refreshed after PR branch staging deploy run 29037734496. Claude Code called hosted vrdex_search against staging; hosted OAuth remains a separate row requiring reviewed OAuth credentials or token fallback.",
+          "environment": "Windows Claude Code hosted HTTP smoke against staging after GitHub Actions Staging Deploy run 29037734496",
+          "manualEvidence": "corepack pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url https://staging.vrdex.net/mcp --hosted-data --hosted-query a --model claude-haiku-4-5-20251001 passed: Claude Code called hosted vrdex_search and returned structured content.",
           "lastRunAt": "2026-07-09"
         },
         {
@@ -122,9 +122,9 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
           "manualStatus": "fail",
-          "notes": "Gemini CLI supports Streamable HTTP through settings.json httpUrl. pnpm smoke:mcp-gemini-cli -- --mode hosted-http --hosted-data is the repeatable real-client path; use --gemini-package @google/gemini-cli@latest when needed. 2026-07-09 hosted anonymous smoke reached Gemini CLI 0.50.0 against staging https://staging.vrdex.net/mcp, but timed out after 180000ms before a hosted MCP tool-call result. A later retry with --hosted-query a reached Gemini CLI 0.50.0 but hit Gemini API provider quota before any MCP smoke evidence could be recorded; a later target retry found staging no longer serving /mcp. Row remains failed until a Gemini CLI run or equivalent interactive /mcp session calls vrdex_search without OAuth against a current hosted target.",
-          "environment": "Windows / Gemini CLI 0.50.0 via @google/gemini-cli@latest disposable package / hosted HTTP staging",
-          "manualEvidence": "corepack pnpm smoke:mcp-gemini-cli -- --mode hosted-http --hosted-url https://staging.vrdex.net/mcp --hosted-data --gemini-package @google/gemini-cli@latest reached Gemini CLI 0.50.0 but timed out after 180000ms before a hosted MCP tool-call result on 2026-07-09; corepack pnpm smoke:mcp-gemini-cli -- --gemini-package @google/gemini-cli@latest --mode hosted-http --hosted-url https://staging.vrdex.net/mcp --hosted-data --hosted-query a --timeout-ms 300000 reached Gemini CLI 0.50.0 but hit Gemini API quota before MCP evidence on 2026-07-09",
+          "notes": "Staging is now a valid hosted MCP target, but Gemini CLI hosted anonymous evidence remains failed because the provider quota was reached before any MCP tool call. Retry the same command or capture an interactive /mcp session when quota is available.",
+          "environment": "Windows Gemini CLI 0.50.0 via @google/gemini-cli@latest against staging after GitHub Actions Staging Deploy run 29037734496",
+          "manualEvidence": "corepack pnpm smoke:mcp-gemini-cli -- --gemini-package @google/gemini-cli@latest --mode hosted-http --hosted-url https://staging.vrdex.net/mcp --hosted-data --hosted-query a --timeout-ms 180000 reached Gemini CLI 0.50.0, then hit Gemini API quota before any hosted MCP tool-call evidence could be recorded.",
           "lastRunAt": "2026-07-09"
         },
         {
@@ -213,10 +213,10 @@
           "surface": "hosted_http_anonymous",
           "requiredForExternalReadiness": true,
           "repoEvidence": "pnpm smoke:mcp-openai -- --hosted-url <production-like-/mcp-url> --hosted-data when OPENAI_API_KEY is available through process env or repo-root .env.local and the target exposes data-backed search/fetch; ChatGPT Apps/Connectors UI evidence remains separate",
-          "manualStatus": "fail",
-          "notes": "2026-07-09: Responses API remote MCP smoke harness is available for hosted anonymous public reads and loads OPENAI_API_KEY from process env or repo-root .env.local without printing secret values. The harness now preflights hosted /mcp before calling OpenAI, requiring search/fetch in tools/list plus data-backed search and fetch results. Live OpenAI pass evidence is still blocked: staging https://staging.vrdex.net/mcp is not currently serving the API/MCP branch, while the PR preview exposes search/fetch but data-backed search returns VRDex public data is temporarily unavailable for search. The PR preview /deployment page reports Convex URL configured, but /api/v0/search returns typed HTTP 503 Problem Details; current staging /mcp and public search return HTTP 404. The latest OpenAI smoke found OPENAI_API_KEY in local env, then failed before any live OpenAI request at PR-preview target preflight. Keep the row failed until one production-like target has both search/fetch aliases and data-backed public results. Verify ChatGPT Apps/Connectors UI behavior separately before publishing product-surface snippets.",
-          "environment": "Windows / OpenAI Responses API smoke target preflight / staging and PR preview",
-          "manualEvidence": "corepack pnpm smoke:mcp-openai -- --hosted-url https://vr-dex-web-git-codex-public-api-mcp-planning-basicbit.vercel.app/mcp --hosted-data --hosted-query a --model gpt-4.1-mini --request-timeout-ms 60000 found OPENAI_API_KEY in local env and failed before a live OpenAI request because PR-preview search returned VRDex public data is temporarily unavailable for search on 2026-07-09. Direct probes on 2026-07-09 showed PR preview public search for query a returned typed HTTP 503 Problem Details, while current staging /mcp and public search for query a returned HTTP 404.",
+          "manualStatus": "pass",
+          "notes": "Responses API remote MCP integration evidence is pass against staging after branch staging deploy run 29037734496. This does not replace ChatGPT Apps/Connectors UI or hosted OAuth product-surface evidence, which remain separate rows.",
+          "environment": "Windows local OpenAI Responses API smoke against staging after GitHub Actions Staging Deploy run 29037734496",
+          "manualEvidence": "corepack pnpm smoke:mcp-openai against https://staging.vrdex.net/mcp passed: gpt-4.1-mini called hosted MCP search and fetch for query a through the OpenAI Responses API smoke harness.",
           "lastRunAt": "2026-07-09"
         },
         {
@@ -279,10 +279,10 @@
           "surface": "hosted_http_anonymous",
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
-          "manualStatus": "fail",
-          "notes": "2026-07-09: MCP Inspector local stdio remains passed, but the hosted anonymous pass from earlier staging evidence is stale. Current staging is not serving /mcp, and the PR preview lacks data-backed public reads. Rerun Inspector with --hosted-data after a current production-like target is available.",
-          "environment": "Windows local target retry, staging https://staging.vrdex.net/mcp, PR preview https://vr-dex-web-git-codex-public-api-mcp-planning-basicbit.vercel.app/mcp",
-          "manualEvidence": "2026-07-09 retry after commit 41fb165: earlier MCP Inspector hosted anonymous evidence against staging is stale because current staging /mcp returns HTTP 404. PR preview exposes hosted tools, but data-backed vrdex_search and OpenAI-compatible search/fetch fail because search returns VRDex public data is temporarily unavailable for search. Hosted Inspector row remains failed until rerun against a current production-like target.",
+          "manualStatus": "pass",
+          "notes": "Hosted anonymous HTTP evidence refreshed after PR branch staging deploy run 29037734496; MCP Inspector listed hosted tools and completed data-backed vrdex_search against staging. Hosted OAuth remains a separate row requiring reviewed OAuth credentials or token fallback.",
+          "environment": "Windows local MCP Inspector CLI hosted smoke against staging after GitHub Actions Staging Deploy run 29037734496",
+          "manualEvidence": "corepack pnpm smoke:mcp-inspector -- --hosted-url https://staging.vrdex.net/mcp --hosted-data --query a listed eight hosted VRDex tools with public-read auth metadata and returned structured content from data-backed vrdex_search.",
           "lastRunAt": "2026-07-09"
         },
         {

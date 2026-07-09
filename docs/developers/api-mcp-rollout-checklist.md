@@ -251,16 +251,15 @@ one PR.
   for slower provider runs. The smoke uses the OpenAI-required hosted `search`
   and `fetch` tool names. Run it with required `--hosted-data` against a
   same-branch or production-like backend before recording API integration
-  evidence. Current 2026-07-09 evidence is still not a pass: staging has
-  data-backed public search but not the deployed `search`/`fetch` aliases, and
-  the PR preview has the aliases but its data-backed search returns
-  `VRDex public data is temporarily unavailable for search`; direct preview
-  `/api/v0/search` probes return typed HTTP 503 Problem Details. The latest OpenAI smoke against the
-  PR preview failed during target preflight before any OpenAI request, and
-  staging failed during target preflight because `tools/list` still lacks
-  `search`/`fetch`. This does not replace ChatGPT Apps/Connectors UI or hosted
-  OAuth evidence; those product-surface rows stay pending until the current UI
-  proves no-auth public reads and `mcp:read` OAuth behavior.
+  evidence. Current 2026-07-09 evidence is pass against
+  `https://staging.vrdex.net/mcp` after PR branch staging deploy run
+  `29037734496`: the full hosted compatibility smoke passed data-backed
+  `vrdex_search`, `search`, `fetch`, DCR, and CIMD, and
+  `pnpm smoke:mcp-openai` reached the Responses API where `gpt-4.1-mini`
+  called hosted MCP `search` and `fetch`. This does not replace ChatGPT
+  Apps/Connectors UI or hosted OAuth evidence; those product-surface rows stay
+  pending until the current UI proves no-auth public reads and `mcp:read` OAuth
+  behavior.
 - The general hosted MCP compatibility smoke now also checks the
   OpenAI-compatible `search` and `fetch` aliases whenever `--hosted-data` is
   set. Use `--hosted-query` or `VRDEX_MCP_SMOKE_QUERY` when the target's
