@@ -41,8 +41,8 @@ Source-backed client requirements from the current docs pass:
 | --- | --- |
 | Hosted Streamable HTTP MCP | `node --import tsx --test tests/web/**/*.test.ts` covers initialization and curated tool listing. |
 | Hosted anonymous public reads | Hosted `/mcp` allows no-bearer public read tools through the `anonymous_mcp_public_read` route class. Manual client smokes must also confirm the client UI does not force OAuth before public read calls. |
-| Hosted data-backed public reads | `pnpm smoke:mcp-compat -- --hosted-data` requires non-empty anonymous `vrdex_search` to reach a production-like Convex backend and return structured content without a tool error. |
-| Hosted OpenAI-compatible public reads | `node --import tsx --test tests/web/vrdex-mcp.test.ts` covers the hosted `search`/`fetch` compatibility aliases, including URL-backed search results and public-safe fetch text from the same public profile/event/world queries. |
+| Hosted data-backed public reads | `pnpm smoke:mcp-compat -- --hosted-data` requires non-empty anonymous `vrdex_search` to reach a production-like Convex backend and return structured content without a tool error. Use `--hosted-query` or `VRDEX_MCP_SMOKE_QUERY` when the target's seed data needs a specific query. |
+| Hosted OpenAI-compatible public reads | `node --import tsx --test tests/web/vrdex-mcp.test.ts` covers the hosted `search`/`fetch` compatibility aliases, including URL-backed search results and public-safe fetch text from the same public profile/event/world queries. `pnpm smoke:mcp-compat -- --hosted-data` also requires deployed targets to return at least one `search` result and a non-empty `fetch` document for that result. |
 | Hosted public-read auth metadata | Hosted `/mcp` `tools/list` exposes `_meta["securitySchemes"]` with `noauth` plus optional `oauth2`/`mcp:read` on every curated public read tool. |
 | Hosted OAuth bearer handling | Web MCP and OAuth JWT tests cover MCP-resource audience validation, `mcp:read` scope validation, and protected-resource bearer challenges. |
 | Hosted Client ID Metadata Documents | Web OAuth helper tests cover URL-form client IDs, exact `client_id` matching, redirect rejection, response-size limits, and special-use address rejection. |
@@ -56,6 +56,20 @@ Run this before manual client smokes:
 
 ```sh
 pnpm smoke:mcp-compat
+```
+
+For hosted data-backed evidence, add `--hosted-data`. The hosted compatibility
+smoke then requires both the VRDex-specific `vrdex_search` tool and the
+OpenAI-compatible `search` plus `fetch` aliases to return real public data. Use
+`--hosted-query` or `VRDEX_MCP_SMOKE_QUERY` when the default `club` query is
+not populated on the target:
+
+```sh
+pnpm smoke:mcp-compat -- \
+  --hosted-only \
+  --hosted-url https://staging.vrdex.net/mcp \
+  --hosted-data \
+  --hosted-query a
 ```
 
 Claude Code has an additional real-client harness. In local stdio mode, it

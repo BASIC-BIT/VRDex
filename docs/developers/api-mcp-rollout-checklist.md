@@ -258,6 +258,10 @@ one PR.
   `search`/`fetch`. This does not replace ChatGPT Apps/Connectors UI or hosted
   OAuth evidence; those product-surface rows stay pending until the current UI
   proves no-auth public reads and `mcp:read` OAuth behavior.
+- The general hosted MCP compatibility smoke now also checks the
+  OpenAI-compatible `search` and `fetch` aliases whenever `--hosted-data` is
+  set. Use `--hosted-query` or `VRDEX_MCP_SMOKE_QUERY` when the target's
+  public seed data needs a known non-empty query.
 - The `deployed-health.yml` `hosted-mcp-smoke` dispatch can also run the
   Inspector hosted OAuth smoke when `mcp_oauth=true`. It prefers repository
   secrets that provide either `VRDEX_MCP_OAUTH_CLIENT_ID` plus
@@ -317,7 +321,7 @@ pnpm ops:mcp-hosted-oauth-prereqs
 pnpm ops:api-platform-observability
 pnpm check:api-mcp-rollout
 pnpm smoke:mcp-compat -- --hosted-only --hosted-url <preview-or-production-like-/mcp-url>
-pnpm smoke:mcp-compat -- --hosted-only --hosted-url <production-like-/mcp-url> --hosted-data --dcr --cimd --continue-on-failure
+pnpm smoke:mcp-compat -- --hosted-only --hosted-url <production-like-/mcp-url> --hosted-data --hosted-query <known-public-query> --dcr --cimd --continue-on-failure
 VRDEX_MCP_OAUTH_CLIENT_ID=<reviewed-client-id> VRDEX_MCP_OAUTH_CLIENT_SECRET=<client-secret> pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url <production-like-/mcp-url> --hosted-data
 pnpm smoke:mcp-inspector -- --hosted-url <preview-or-production-like-/mcp-url>
 VRDEX_MCP_OAUTH_CLIENT_ID=<reviewed-client-id> VRDEX_MCP_OAUTH_CLIENT_SECRET=<client-secret> pnpm smoke:mcp-inspector -- --hosted-url <production-like-/mcp-url> --hosted-data

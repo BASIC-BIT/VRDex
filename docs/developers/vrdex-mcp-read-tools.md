@@ -261,7 +261,9 @@ major clients rather than only repo-level protocol tests.
 For hosted preview validation, treat empty-query transport checks and
 data-backed public reads separately: `pnpm smoke:mcp-compat -- --hosted-data`
 must pass against a same-branch or production-like Convex backend before
-external readiness.
+external readiness. That data-backed mode requires both `vrdex_search` and the
+OpenAI-compatible `search` plus `fetch` aliases to return real public data; use
+`--hosted-query` when the target needs a known non-empty public query.
 
 ## Safety Rules
 

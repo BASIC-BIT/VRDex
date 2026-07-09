@@ -113,9 +113,11 @@ Next execution checkpoint:
 
 1. Use the staging target refreshed on 2026-07-09 with
    `pnpm smoke:mcp-compat -- --hosted-only --hosted-url
-   https://staging.vrdex.net/mcp --hosted-data --dcr --cimd
+   https://staging.vrdex.net/mcp --hosted-data --hosted-query a --dcr --cimd
    --continue-on-failure` as the current production-like hosted MCP evidence
-   source.
+   source after the target includes the hosted `search` and `fetch`
+   compatibility aliases. The hosted-data smoke now requires both non-empty
+   `vrdex_search` and OpenAI-compatible `search`/`fetch` results.
 2. Keep the recorded hosted evidence rows for data-backed anonymous reads,
    Dynamic Client Registration, and public-client Client ID Metadata Documents
    in `docs/developers/mcp-client-smoke-results.json`.
@@ -142,8 +144,9 @@ Next execution checkpoint:
    Apps/Connectors UI and hosted OAuth as product-surface evidence; do not mark
    those rows ready from local CLI or API-only checks.
    Current 2026-07-09 evidence is split: staging has data-backed public search
-   but still lacks the hosted `search` and `fetch` compatibility aliases, while
-   the PR preview has the aliases but its public search route returns HTTP 500.
+   for query `a` but still lacks the hosted `search` and `fetch` compatibility
+   aliases, while the PR preview has the aliases but its public search route
+   returns HTTP 500.
    Current OpenAI smoke runs fail during target preflight before any OpenAI
    request: staging lacks `search`/`fetch` in `tools/list`, and the PR preview
    returns the data-backed search tool error. Staging currently has at least

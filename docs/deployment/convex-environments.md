@@ -45,9 +45,10 @@ target through `VRDEX_MCP_SMOKE_URL`; local runs can use
 `pnpm smoke:mcp-compat -- --hosted-url <preview-/mcp-url>`. That keeps anonymous
 hosted Streamable HTTP, OAuth metadata, and bearer-challenge behavior covered
 even before a branch-specific backend is configured. Dynamic Client Registration
-is enabled only when `CONVEX_DEPLOY_KEY_PREVIEW` provisions the same-branch
-Convex preview backend; otherwise, the job records that DCR was not smoked
-against same-branch backend functions.
+and data-backed `vrdex_search` plus `search`/`fetch` alias checks are enabled
+only when `CONVEX_DEPLOY_KEY_PREVIEW` provisions the same-branch Convex preview
+backend; otherwise, the job records that DCR and data-backed public reads were
+not smoked against same-branch backend functions.
 
 Use the manual `Deployed Health Checks` workflow target `hosted-mcp-smoke` when
 DCR/CIMD evidence needs to come from a staging, production-like, or otherwise

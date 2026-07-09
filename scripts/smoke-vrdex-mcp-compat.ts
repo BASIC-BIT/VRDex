@@ -33,6 +33,7 @@ type SmokeOptions = {
   dynamicRegistration: boolean;
   hostedOnly: boolean;
   hostedDataPublicReads: boolean;
+  hostedSearchQuery: string;
   hostedUrl?: string;
 };
 
@@ -110,6 +111,7 @@ function parseArgs(argv: string[]): SmokeOptions {
     dynamicRegistration: envFlag("VRDEX_MCP_SMOKE_DCR"),
     hostedOnly: envFlag("VRDEX_MCP_SMOKE_HOSTED_ONLY"),
     hostedDataPublicReads: envFlag("VRDEX_MCP_SMOKE_DATA"),
+    hostedSearchQuery: process.env.VRDEX_MCP_SMOKE_QUERY?.trim() || "club",
   };
 
   const hostedUrl = process.env.VRDEX_MCP_SMOKE_URL?.trim();
@@ -142,6 +144,10 @@ function parseArgs(argv: string[]): SmokeOptions {
       case "--hosted-data":
       case "--hosted-data-public-reads":
         options.hostedDataPublicReads = true;
+        break;
+      case "--hosted-query":
+        options.hostedSearchQuery = takeValue(argv, index, arg).trim();
+        index += 1;
         break;
       case "--hosted-only":
         options.hostedOnly = true;
@@ -474,6 +480,34 @@ function failureDetails(error: unknown) {
   return summarizeMcpToolFailure({ error: message });
 }
 
+function assertMcpToolSuccess(
+  payload: {
+    error?: unknown;
+    result?: {
+      isError?: unknown;
+    };
+  },
+  label: string,
+) {
+  assert.equal(
+    payload.error,
+    undefined,
+    `${label} returned a JSON-RPC error: ${summarizeMcpToolFailure(payload)}`,
+  );
+  assert.notEqual(
+    payload.result?.isError,
+    true,
+    `${label} returned a tool error: ${summarizeMcpToolFailure(payload)}`,
+  );
+}
+
+function assertNonEmptyResults(results: unknown, label: string) {
+  assert.equal(Array.isArray(results), true, `${label} did not return a results array.`);
+  assert.ok((results as unknown[]).length > 0, `${label} returned no public results.`);
+
+  return results as unknown[];
+}
+
 async function runHostedDiagnosticStep(
   results: SmokeResult[],
   options: SmokeOptions,
@@ -675,12 +709,14 @@ async function smokeHostedDataBackedPublicRead(url: URL, options: SmokeOptions, 
     return;
   }
 
+  assert.notEqual(options.hostedSearchQuery, "", "--hosted-data requires a non-empty hosted search query.");
+
   const dataBackedSearch = await postMcpJsonRpc(url, {
     jsonrpc: "2.0",
     id: 4,
     method: "tools/call",
     params: {
-      arguments: { limit: 1, query: "club", type: "all" },
+      arguments: { limit: 1, query: options.hostedSearchQuery, type: "all" },
       name: "vrdex_search",
     },
   });
@@ -699,23 +735,101 @@ async function smokeHostedDataBackedPublicRead(url: URL, options: SmokeOptions, 
     };
   };
 
-  assert.equal(
-    dataSearchBody.error,
-    undefined,
-    `Hosted data-backed vrdex_search returned a JSON-RPC error: ${summarizeMcpToolFailure(dataSearchBody)}`,
-  );
-  assert.notEqual(
-    dataSearchBody.result?.isError,
-    true,
-    `Hosted data-backed vrdex_search returned a tool error: ${summarizeMcpToolFailure(dataSearchBody)}`,
-  );
-  assert.equal(dataSearchBody.result?.structuredContent?.query, "club");
+  assertMcpToolSuccess(dataSearchBody, "Hosted data-backed vrdex_search");
+  assert.equal(dataSearchBody.result?.structuredContent?.query, options.hostedSearchQuery);
   assert.equal(dataSearchBody.result?.structuredContent?.type, "all");
-  assert.equal(Array.isArray(dataSearchBody.result?.structuredContent?.results), true);
+  assertNonEmptyResults(dataSearchBody.result?.structuredContent?.results, "Hosted data-backed vrdex_search");
 
   results.push({
-    details: "non-empty anonymous vrdex_search reached the hosted public data backend",
+    details: `anonymous vrdex_search returned at least one public result for query=${JSON.stringify(options.hostedSearchQuery)}`,
     name: "Hosted data-backed public read tool call",
+    status: "pass",
+  });
+}
+
+async function smokeHostedOpenAiCompatibleSearchFetch(url: URL, options: SmokeOptions, results: SmokeResult[]) {
+  if (!options.hostedDataPublicReads) {
+    results.push({
+      details: "pass --hosted-data or set VRDEX_MCP_SMOKE_DATA=1 to require data-backed search plus fetch aliases",
+      name: "Hosted OpenAI-compatible search/fetch",
+      status: "skip",
+    });
+
+    return;
+  }
+
+  assert.notEqual(options.hostedSearchQuery, "", "--hosted-data requires a non-empty hosted search query.");
+
+  const search = await postMcpJsonRpc(url, {
+    jsonrpc: "2.0",
+    id: 6,
+    method: "tools/call",
+    params: {
+      arguments: { query: options.hostedSearchQuery },
+      name: "search",
+    },
+  });
+
+  await assertHttpStatus(search, 200, "Hosted OpenAI-compatible search");
+
+  const searchBody = (await parseMcpHttpResponse(search)) as {
+    error?: unknown;
+    result?: {
+      isError?: unknown;
+      structuredContent?: {
+        results?: unknown;
+      };
+    };
+  };
+
+  assertMcpToolSuccess(searchBody, "Hosted OpenAI-compatible search");
+
+  const searchResults = assertNonEmptyResults(
+    searchBody.result?.structuredContent?.results,
+    "Hosted OpenAI-compatible search",
+  );
+  const firstResult = searchResults[0] as { id?: unknown };
+
+  if (typeof firstResult.id !== "string") {
+    assert.fail("Hosted OpenAI-compatible search first result did not include an id.");
+  }
+
+  const firstResultId = firstResult.id;
+
+  const fetchResult = await postMcpJsonRpc(url, {
+    jsonrpc: "2.0",
+    id: 7,
+    method: "tools/call",
+    params: {
+      arguments: { id: firstResultId },
+      name: "fetch",
+    },
+  });
+
+  await assertHttpStatus(fetchResult, 200, "Hosted OpenAI-compatible fetch");
+
+  const fetchBody = (await parseMcpHttpResponse(fetchResult)) as {
+    error?: unknown;
+    result?: {
+      isError?: unknown;
+      structuredContent?: {
+        text?: unknown;
+      };
+    };
+  };
+
+  assertMcpToolSuccess(fetchBody, "Hosted OpenAI-compatible fetch");
+  const fetchText = fetchBody.result?.structuredContent?.text;
+
+  if (typeof fetchText !== "string") {
+    assert.fail("Hosted OpenAI-compatible fetch did not return document text.");
+  }
+
+  assert.notEqual(fetchText.trim(), "");
+
+  results.push({
+    details: `search returned id=${firstResultId} and fetch returned non-empty document text for query=${JSON.stringify(options.hostedSearchQuery)}`,
+    name: "Hosted OpenAI-compatible search/fetch",
     status: "pass",
   });
 }
@@ -811,6 +925,9 @@ async function smokeHostedHttp(results: SmokeResult[], options: SmokeOptions) {
   await runHostedDiagnosticStep(results, options, "Hosted data-backed public read tool call", () =>
     smokeHostedDataBackedPublicRead(url, options, results),
   );
+  await runHostedDiagnosticStep(results, options, "Hosted OpenAI-compatible search/fetch", () =>
+    smokeHostedOpenAiCompatibleSearchFetch(url, options, results),
+  );
 
   const invalidBearer = await postMcpJsonRpc(
     url,
@@ -843,7 +960,7 @@ async function smokeHostedHttp(results: SmokeResult[], options: SmokeOptions) {
       url,
       {
         jsonrpc: "2.0",
-        id: 6,
+        id: 8,
         method: "tools/list",
         params: {},
       },

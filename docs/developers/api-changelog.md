@@ -19,6 +19,11 @@ docs update and a changelog entry so early consumers and agents can adapt.
   fails bounded live Responses API requests with a clear timeout, and
   preflights hosted `/mcp` for `search`/`fetch` plus data-backed results before
   calling OpenAI
+- tightened `pnpm smoke:mcp-compat -- --hosted-data` so hosted data-backed
+  evidence requires a non-empty `vrdex_search` result and an OpenAI-compatible
+  `search` result that can be passed to `fetch`; added `--hosted-query` /
+  `VRDEX_MCP_SMOKE_QUERY` for targets whose public seed data needs a known
+  non-empty query
 - added generated `docs/api/openapi.yaml` alongside `docs/api/openapi.json`;
   both artifacts are emitted from the shared API contract package, served under
   `/api/v0/openapi.{json,yaml}`, and covered by `pnpm check:api-openapi` drift
