@@ -139,7 +139,7 @@ one PR.
   recording pass/fail evidence.
 - `pnpm ops:mcp-client-smokes` generates the current day-one client smoke run
   plan from the matrix, including repo preflight commands, manual evidence
-  prompts, recorder command templates for pending rows, and a Pending Blocker
+  prompts, recorder command templates for pending rows, and an Open Blocker
   Summary that groups remaining work by the prerequisite needed to unlock it.
 - `pnpm ops:mcp-installed-clients` performs a read-only local preflight for
   installed Claude Code, Gemini CLI, VS Code, Cursor, and Windsurf CLI versions

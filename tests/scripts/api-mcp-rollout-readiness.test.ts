@@ -141,6 +141,6 @@ describe("API/MCP rollout readiness checker", () => {
     const checklist = await readFile("docs/developers/api-mcp-rollout-checklist.md", "utf8");
 
     assert.match(checklist, /Open Blocker Summary/);
-    assert.doesNotMatch(checklist, /Pending Blocker Summary/);
+    assert.doesNotMatch(checklist, /Pending Blocker\s+Summary/);
   });
 });
