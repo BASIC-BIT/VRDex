@@ -274,8 +274,9 @@ staging is not currently serving the API/MCP branch and returns HTTP 404 for
 both `/mcp` and public search, while the PR preview exposes the hosted
 `search`/`fetch` aliases but returns
 `VRDex public data is temporarily unavailable for search` for data-backed
-public reads. Direct target probes showed the PR preview also returns HTTP 500
-for `/api/v0/search`. The latest `pnpm smoke:mcp-openai` run found the local
+public reads. Direct target probes showed the PR preview now returns typed
+HTTP 503 Problem Details for `/api/v0/search`. The latest
+`pnpm smoke:mcp-openai` run found the local
 `OPENAI_API_KEY`, then failed target preflight at the PR preview `search` tool
 before making a live OpenAI request.
 

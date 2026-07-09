@@ -32,7 +32,7 @@ describe("MCP client smoke session pack", () => {
 
       assert.equal(result.status, 0, result.stderr);
       assert.match(result.stdout, /MCP client smoke session pack/);
-      assert.match(result.stdout, /Open required worksheet coverage \| 18 rows/);
+      assert.match(result.stdout, /Open required worksheet coverage \| 20 rows/);
 
       const readme = await readFile(join(outputDir, "README.md"), "utf8");
 
@@ -49,7 +49,9 @@ describe("MCP client smoke session pack", () => {
       assert.match(readme, /pnpm record:mcp-client-smoke -- --client devin-windsurf --check hosted-oauth/);
       assert.match(readme, /pnpm record:mcp-client-smoke -- --client gemini-cli --check hosted-oauth/);
       assert.match(readme, /evidence[\\/]claude-desktop-local-stdio\.md/);
+      assert.match(readme, /evidence[\\/]claude-code-hosted-anonymous-read\.md/);
       assert.match(readme, /evidence[\\/]openai-chatgpt-hosted-anonymous-read\.md/);
+      assert.match(readme, /evidence[\\/]mcp-inspector-hosted-anonymous-read\.md/);
       assert.match(readme, /evidence[\\/]mcp-inspector-hosted-oauth\.md/);
       assert.match(readme, /Get-Content -Raw/);
       assert.match(readme, /\.Trim\(\)\.Replace/);
@@ -71,7 +73,7 @@ describe("MCP client smoke session pack", () => {
       assert.match(readme, /OpenAI-compatible hosted target or product surface access/);
       assert.match(readme, /`openai-chatgpt\/hosted-anonymous-read`, `openai-chatgpt\/hosted-oauth`/);
       assert.match(readme, /Open Matrix Worksheet Coverage/);
-      assert.match(readme, /Open required rows covered by generated worksheets: 18/);
+      assert.match(readme, /Open required rows covered by generated worksheets: 20/);
       assert.match(readme, /evidence[\\/]vscode-local-stdio\.md/);
       assert.match(readme, /evidence[\\/]gemini-cli-hosted-oauth\.md/);
       assert.match(readme, /ops:mcp-hosted-oauth-prereqs/);

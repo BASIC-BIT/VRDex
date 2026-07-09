@@ -41,6 +41,9 @@ docs update and a changelog entry so early consumers and agents can adapt.
   `search`/`fetch` but fails backend-dependent data-backed reads, DCR, and
   public-client CIMD authorization; the hosted readiness rows and stale hosted
   client rows remain failed until a current production-like target passes
+- extended the MCP client session pack so newly reopened Claude Code and MCP
+  Inspector hosted-anonymous rows get generated evidence worksheets instead of
+  failing the worksheet-coverage guard
 - added generated `docs/api/openapi.yaml` alongside `docs/api/openapi.json`;
   both artifacts are emitted from the shared API contract package, served under
   `/api/v0/openapi.{json,yaml}`, and covered by `pnpm check:api-openapi` drift

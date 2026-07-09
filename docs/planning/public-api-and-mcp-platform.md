@@ -151,7 +151,8 @@ Next execution checkpoint:
    those rows ready from local CLI or API-only checks.
    Current 2026-07-09 evidence is failed: staging is not currently serving the
    API/MCP branch and returns HTTP 404 for `/mcp` and public search, while the
-   PR preview has the aliases but its public search route returns HTTP 500.
+   PR preview has the aliases but its public search route returns typed HTTP
+   503 Problem Details.
    The latest OpenAI smoke found the local `OPENAI_API_KEY`, then failed during
    PR-preview target preflight before any live OpenAI request because
    data-backed `search` returns a tool error. The remaining OpenAI target need
