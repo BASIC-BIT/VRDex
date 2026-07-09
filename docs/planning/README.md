@@ -14,6 +14,7 @@ Planning docs capture product, architecture, roadmap, and backlog decisions befo
 - `docs/planning/genre-graph.md` - genre ontology, alias normalization, and recommendation graph direction
 - `docs/planning/seed-import-model.md` - reviewed partner/list seed-import model and fake fixture shape
 - `docs/planning/mock-profile-fixtures.md` - mock profile fixture strategy, consented showcase allowlists, and group representation direction
+- `docs/planning/onboarding-seed-access.md` - minimum viable seed-import, private lookup, beta access, and handoff onboarding path
 - `docs/planning/world-discovery.md` - world pages, creator attribution, active-world discovery, and creator-commerce boundaries
 - `docs/planning/marketplace-api-research.md` - marketplace sync gate, provider posture, and disallowed storefront data
 - `docs/planning/engineering-strategy.md` - stack, testing, verification, and agentic factory plan

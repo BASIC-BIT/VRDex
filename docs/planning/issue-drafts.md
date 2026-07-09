@@ -1773,6 +1773,245 @@ Suggested labels:
 
 ## v1.5 event automation and agentic scheduling drafts
 
+## Onboarding seed access drafts
+
+These drafts come from the July 9, 2026 onboarding and seed-access pass. See
+`docs/planning/onboarding-seed-access.md` for the full product direction.
+
+### Add permissioned DJ seed import tooling
+
+Problem:
+
+VRDex has reviewed seed-import staging foundations, but it still needs a safe
+operator path for importing a real permissioned DJ link list such as NWIN's
+master list without committing source files or publishing candidates by
+default.
+
+Scope:
+
+- add an operator script or internal mutation that reads a local, uncommitted
+  import file
+- normalize names, aliases, and supported public outbound links
+- preserve source, batch, importer, review state, field confidence, and
+  provenance metadata
+- reject private notes, raw account identifiers, unsupported scraped fields, and
+  non-HTTPS public links
+- produce readback that proves imported records remain private seed candidates
+
+Non-goals:
+
+- committing real partner spreadsheets or raw list data
+- publishing imported records by default
+- owner confirmation or handoff links
+- public API writes for partner imports
+
+Acceptance criteria:
+
+- an operator can import a small real or local sample file into seed staging
+- imported candidates default to private review state
+- field-level provenance and confidence are stored
+- no imported candidate appears in public search, lookup, profile pages, or API
+  reads until reviewed publication exists
+- docs explain the source-file, permission, and rollback expectations
+
+Likely dependencies:
+
+- hard dependency on `#117`
+- soft dependency on `docs/planning/seed-import-model.md`
+
+Suggested labels:
+
+- `phase:v1`
+- `area:profiles`
+- `area:imports`
+- `area:ops`
+
+### Add private seed lookup access
+
+Problem:
+
+A populated DJ lookup surface is useful before every seed candidate is public,
+but unpublished seed data must only be visible to explicitly authorized users.
+
+Scope:
+
+- add a server-authorized private lookup read for seed candidates
+- support super-admin access first
+- leave room for beta seed access after the operator path is proven
+- show private seed candidates distinctly from public profiles in dense lookup
+  rows
+- keep anonymous lookup backed only by public profile/search data
+- capture safe analytics events without private fields or raw account metadata
+
+Non-goals:
+
+- using a client-side feature flag as the only data-access control
+- exposing private candidates through public API or MCP reads
+- broad community-generated candidate access
+- replacing reviewed publication into normal public profiles
+
+Acceptance criteria:
+
+- a super-admin can find unpublished seed candidates through lookup
+- signed-out and ordinary signed-in users cannot see unpublished seed data
+- backend authorization enforces the access boundary
+- private seed rows are visually and semantically distinct in the operator UI
+- tests cover allowed and denied lookup reads
+
+Likely dependencies:
+
+- hard dependency on `Add permissioned DJ seed import tooling`
+- soft dependency on PostHog rollout control work
+
+Suggested labels:
+
+- `phase:v1`
+- `area:profiles`
+- `area:search`
+- `area:privacy`
+
+### Add reviewed seed publication into public unclaimed profiles
+
+Problem:
+
+Some permissioned DJ list records contain safe public links that can make lookup
+useful for real users, but publication must preserve provenance, opt-out, field
+visibility, and unclaimed trust boundaries.
+
+Scope:
+
+- extend seed publication from queue marker to actual create or merge behavior
+- allow only reviewed safe public fields and HTTPS outbound links
+- block opted-out, suppressed, duplicate, and matched claimed profiles
+- create or refresh profile search documents after publication
+- render public records as unclaimed or partner-provided without implying owner
+  endorsement
+
+Non-goals:
+
+- publishing every imported candidate automatically
+- owner-confirming fields during publication
+- exposing private contacts, private notes, or raw provider identifiers
+- resolving all duplicate or contested identity cases
+
+Acceptance criteria:
+
+- a reviewed seed candidate can become a public unclaimed profile
+- public lookup, search, profile pages, and API reads show only safe public
+  fields
+- publication is blocked when suppression, opt-out, duplicate, or unsafe-field
+  checks fail
+- source and review provenance remain available for moderation and future claim
+  flows
+- docs describe the public label and review boundary
+
+Likely dependencies:
+
+- hard dependency on `Add permissioned DJ seed import tooling`
+- soft dependency on `Add private seed lookup access`
+- soft dependency on `#30`
+
+Suggested labels:
+
+- `phase:v1`
+- `area:profiles`
+- `area:imports`
+- `area:trust`
+
+### Add concierge handoff invitation links
+
+Problem:
+
+VRDex needs a pleasant onboarding path where a person can receive a direct link
+to a prepared profile, create or sign into an account, claim the existing
+record, and review prefilled fields without creating a duplicate identity.
+
+Scope:
+
+- generate tokenized handoff links for a seed candidate, private concierge
+  profile, or public unclaimed profile
+- support expiry, revocation, one-time or limited-use policy, and audit metadata
+- show a calm review page with prepared profile data and a CTA to sign in or
+  create an account
+- require verified email before claim-level actions for email/password users
+- let the recipient confirm, edit, remove, publish, or keep fields private
+
+Non-goals:
+
+- broad community-generated invites in the first slice
+- automatic owner confirmation of imported fields
+- mandatory account creation before the person can inspect safe preview data
+- replacing ordinary public search-and-claim flows
+
+Acceptance criteria:
+
+- an operator can generate a handoff invitation for a prepared profile or
+  candidate
+- a recipient can open the link, sign in, and claim the existing record
+- the flow preserves profile identity and does not create duplicates
+- prefilled fields become owner-confirmed only after explicit recipient action
+- expired or revoked links fail safely
+
+Likely dependencies:
+
+- hard dependency on `#17`
+- hard dependency on `#18`
+- soft dependency on `Add reviewed seed publication into public unclaimed profiles`
+
+Suggested labels:
+
+- `phase:v1`
+- `area:claims`
+- `area:onboarding`
+- `area:profiles`
+
+### Add PostHog rollout controls for onboarding and seed lookup
+
+Problem:
+
+VRDex has PostHog analytics wiring and a documented PostHog direction, but
+onboarding and seed-access flows need concrete feature-flag, replay/privacy,
+and reverse-proxy posture before beta rollout.
+
+Scope:
+
+- add a small client helper for PostHog feature flags and onboarding events
+- document server-side authorization as the source of truth for private data
+- add safe events for seed lookup, handoff link open, claim start, field review,
+  and publication
+- decide whether session replay is disabled, sampled, or route-limited for
+  import, admin, and handoff surfaces
+- add a Next.js reverse proxy only if replay or flag polling reliability
+  justifies the Vercel transfer and edge-request cost
+- document local, preview, production, and self-hosted behavior
+
+Non-goals:
+
+- using PostHog cohorts as the only source of private-data authorization
+- creating dashboards before the event taxonomy exists
+- adding a separate LaunchDarkly-style flag vendor
+- recording private imported fields or sensitive account data
+
+Acceptance criteria:
+
+- onboarding and seed-access features have a documented rollout posture
+- feature flags can stage UI exposure without weakening backend access control
+- analytics events avoid private fields and raw auth identifiers
+- session replay behavior is explicitly configured or explicitly deferred
+- reverse proxy posture is documented and implemented only if justified
+
+Likely dependencies:
+
+- soft dependency on `docs/agentic/product-analytics-and-feature-flags.md`
+- soft dependency on `Add private seed lookup access`
+
+Suggested labels:
+
+- `phase:v1`
+- `area:analytics`
+- `area:onboarding`
+- `area:privacy`
+
 ### Add DJ slot modeling and Discord timestamp helpers
 
 GitHub issue: `#119`.
