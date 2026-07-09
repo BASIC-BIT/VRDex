@@ -617,7 +617,8 @@ function manualEvidenceTemplates(options: Options): EvidenceTemplate[] {
         targetEnvironment,
       }),
       setup: [
-        "$env:OPENAI_API_KEY='<api-key>'",
+        "# If OPENAI_API_KEY is present in repo-root .env.local, no shell export is required.",
+        "# Optional one-off override: $env:OPENAI_API_KEY='<api-key>'",
         `pnpm smoke:mcp-openai -- --hosted-url ${hostedUrl} --hosted-data`,
         `# For ChatGPT Apps/Connectors UI evidence, configure the current product surface for ${hostedUrl}. Use ${origin} only when the product asks for an origin separate from the MCP endpoint.`,
       ].join("\n"),

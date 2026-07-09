@@ -4,6 +4,7 @@ import {
   hostedMcpOAuthCredentialGenerationSourcesFromEnv,
   mcpOAuthCredentialSourcesFromEnv,
 } from "./mcp-oauth-client-credentials";
+import { loadRepoEnvLocal } from "./env-local";
 
 type Probe = {
   args: string[];
@@ -656,7 +657,7 @@ function printResults(
   console.log("");
   console.log("## Model Provider Credential Preconditions");
   console.log("");
-  console.log("This section reports only whether required environment variables are present. It does not print secret values.");
+  console.log("This section reports only whether required environment variables are present after repo-root .env.local loading. It does not print secret values.");
   console.log("");
   console.log("| Path | Status | Credential source | Next action |");
   console.log("| --- | --- | --- | --- |");
@@ -692,7 +693,7 @@ function printResults(
   console.log("");
   console.log("## Hosted OAuth Credential Generation");
   console.log("");
-  console.log("This section reads only the current process environment. Run pnpm ops:mcp-hosted-oauth-prereqs for the GitHub repository variable/secret audit.");
+  console.log("This section reads only the current process environment after repo-root .env.local loading. Run pnpm ops:mcp-hosted-oauth-prereqs for the GitHub repository variable/secret audit.");
   console.log("");
   console.log("| Path | Status | Credential source | Next action |");
   console.log("| --- | --- | --- | --- |");
@@ -710,6 +711,8 @@ function printResults(
 }
 
 function main() {
+  loadRepoEnvLocal();
+
   const results = clients.map(evaluateClient);
   const automationResults = evaluateAutomationSurfaces();
   const surfaceResults = evaluateSurfacePreconditions();

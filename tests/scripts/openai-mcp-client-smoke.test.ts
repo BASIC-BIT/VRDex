@@ -90,4 +90,39 @@ describe("OpenAI Responses API MCP smoke harness", () => {
       rmSync(tempDir, { force: true, recursive: true });
     }
   });
+
+  it("reports assertion failures without a process abort", () => {
+    const tempDir = mkdtempSync(path.join(tmpdir(), "vrdex-openai-mcp-test-"));
+    const fixturePath = path.join(tempDir, "responses.json");
+
+    try {
+      writeFileSync(
+        fixturePath,
+        JSON.stringify({
+          output: [
+            {
+              content: [{ text: "not-ok", type: "output_text" }],
+              role: "assistant",
+              type: "message",
+            },
+          ],
+        }),
+        "utf8",
+      );
+
+      const result = runOpenAiSmoke([
+        "--hosted-url",
+        "https://staging.vrdex.net/mcp",
+        "--hosted-data",
+        "--fixture",
+        fixturePath,
+      ]);
+
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /OpenAI response did not include a search MCP tool call/);
+      assert.doesNotMatch(result.stderr, /Assertion failed/);
+    } finally {
+      rmSync(tempDir, { force: true, recursive: true });
+    }
+  });
 });

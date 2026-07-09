@@ -154,9 +154,10 @@ one PR.
   `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS`, and
   `VRDEX_HOSTED_E2E_BROWSER_TOKEN`). It catches client drift and OAuth evidence
   blockers before manual smoke sessions but does not replace manual matrix
-  evidence. Its credential tables read the current process environment only;
-  run `pnpm ops:mcp-hosted-oauth-prereqs` for the repository variable/secret
-  audit. Its CLI automation notes are informational: VS Code `chat`, Cursor
+  evidence. Its credential tables load repo-root `.env.local` if present, then
+  read the current process environment without printing secret values; run
+  `pnpm ops:mcp-hosted-oauth-prereqs` for the GitHub repository
+  variable/secret audit. Its CLI automation notes are informational: VS Code `chat`, Cursor
   `--chat`/`agent`, and Windsurf setup CLI checks do not count as matrix
   evidence unless the real client session lists tools and calls `vrdex_search`
   or, for OpenAI/ChatGPT-compatible surfaces, `search` plus `fetch`.
@@ -240,16 +241,17 @@ one PR.
   a short-lived MCP-resource token and validates an authenticated `tools/list`
   without printing the token or client secret.
 - OpenAI Responses API remote MCP hosted anonymous-read evidence can be
-  smoke-tested with `pnpm smoke:mcp-openai` after setting `OPENAI_API_KEY`.
-  The smoke uses the OpenAI-required hosted `search` and `fetch` tool names.
-  Run it with required `--hosted-data` against a same-branch or
-  production-like backend before recording API integration evidence. A
-  2026-07-09 live OpenAI attempt reached the Responses API but failed because
-  the deployed staging target only exposed the older VRDex-specific tool names;
-  rerun after deploying this compatibility adapter. This does not replace
-  ChatGPT Apps/Connectors UI or hosted OAuth evidence; those product-surface
-  rows stay pending until the current UI proves no-auth public reads and
-  `mcp:read` OAuth behavior.
+  smoke-tested with `pnpm smoke:mcp-openai` after setting `OPENAI_API_KEY`; the
+  smoke also loads repo-root `.env.local` if present, without overriding
+  already-set variables or printing secret values. The smoke uses the
+  OpenAI-required hosted `search` and `fetch` tool names. Run it with required
+  `--hosted-data` against a same-branch or production-like backend before
+  recording API integration evidence. A 2026-07-09 live OpenAI attempt reached
+  the Responses API but failed because the deployed staging target only exposed
+  the older VRDex-specific tool names; rerun after deploying this compatibility
+  adapter. This does not replace ChatGPT Apps/Connectors UI or hosted OAuth
+  evidence; those product-surface rows stay pending until the current UI proves
+  no-auth public reads and `mcp:read` OAuth behavior.
 - The `deployed-health.yml` `hosted-mcp-smoke` dispatch can also run the
   Inspector hosted OAuth smoke when `mcp_oauth=true`. It prefers repository
   secrets that provide either `VRDEX_MCP_OAUTH_CLIENT_ID` plus
@@ -313,7 +315,7 @@ pnpm smoke:mcp-compat -- --hosted-only --hosted-url <production-like-/mcp-url> -
 VRDEX_MCP_OAUTH_CLIENT_ID=<reviewed-client-id> VRDEX_MCP_OAUTH_CLIENT_SECRET=<client-secret> pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url <production-like-/mcp-url> --hosted-data
 pnpm smoke:mcp-inspector -- --hosted-url <preview-or-production-like-/mcp-url>
 VRDEX_MCP_OAUTH_CLIENT_ID=<reviewed-client-id> VRDEX_MCP_OAUTH_CLIENT_SECRET=<client-secret> pnpm smoke:mcp-inspector -- --hosted-url <production-like-/mcp-url> --hosted-data
-OPENAI_API_KEY=<api-key> pnpm smoke:mcp-openai -- --hosted-url <production-like-/mcp-url> --hosted-data
+pnpm smoke:mcp-openai -- --hosted-url <production-like-/mcp-url> --hosted-data
 gh workflow run deployed-health.yml --ref <branch> -f target=hosted-mcp-smoke -f base_url=<production-like-/mcp-url> -f mcp_data=true -f mcp_dcr=true -f mcp_cimd=true -f mcp_oauth=true
 pnpm typecheck:backend
 pnpm test:backend

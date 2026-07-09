@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
+import { loadRepoEnvLocal } from "./env-local";
+
 type HostedSearchType = "all" | "community" | "event" | "person" | "profile" | "world";
 
 type OpenAiMcpOptions = {
@@ -298,6 +300,8 @@ async function main() {
     return;
   }
 
+  loadRepoEnvLocal();
+
   const options = parseArgs(process.argv.slice(2));
   const payload = await fetchResponsesPayload(options);
 
@@ -315,5 +319,5 @@ async function main() {
 
 main().catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : error);
-  process.exit(1);
+  process.exitCode = 1;
 });

@@ -238,6 +238,12 @@ OPENAI_API_KEY="<api-key>" \
     --hosted-data
 ```
 
+The smoke loads the repo-root `.env.local` file before reading
+`OPENAI_API_KEY`, without overriding variables that are already set in the
+process environment and without printing secret values. Set
+`VRDEX_LOAD_ENV_LOCAL=0` for deterministic tests or shell sessions that should
+ignore local secret files.
+
 This is OpenAI API integration evidence, not ChatGPT Apps/Connectors UI
 evidence. Keep the ChatGPT product-surface row pending until the current UI
 surface proves whether public read tools stay anonymous/no-auth and how hosted
@@ -310,12 +316,13 @@ hosted-mcp-smoke workflow has the temporary OAuth credential-generation gate
 configured through `VRDEX_HOSTED_E2E_AUTH_HELPERS`,
 `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS`, and
 `VRDEX_HOSTED_E2E_BROWSER_TOKEN`. It prints variable names only, never secret
-values. The credential tables read the current process environment only; use
-`pnpm ops:mcp-hosted-oauth-prereqs` below for the repository variable/secret
-audit. It does not write client configuration, launch GUI smoke sessions, call
-provider APIs, or turn any manual row green by itself. Use it to catch local
-client drift and OAuth/model-provider evidence blockers before the human smoke
-pass.
+values. The credential tables read the current process environment after
+loading repo-root `.env.local` if present; use
+`pnpm ops:mcp-hosted-oauth-prereqs` below for the GitHub repository
+variable/secret audit. It does not write client configuration, launch GUI smoke
+sessions, call provider APIs, or turn any manual row green by itself. Use it to
+catch local client drift and OAuth/model-provider evidence blockers before the
+human smoke pass.
 
 The preflight also prints informational CLI automation notes for installed
 VS Code-family clients. On the current Windows CLIs, VS Code `chat` and Cursor

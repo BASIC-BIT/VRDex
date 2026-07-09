@@ -134,10 +134,13 @@ Next execution checkpoint:
    developer credential routes and token endpoint under test.
 5. Use `pnpm smoke:mcp-openai -- --hosted-url https://staging.vrdex.net/mcp
    --hosted-data` with `OPENAI_API_KEY` for OpenAI Responses API hosted
-   anonymous-read evidence. Keep ChatGPT Apps/Connectors UI and hosted OAuth
-   as product-surface evidence; do not mark those rows ready from local CLI or
-   API-only checks. The 2026-07-09 local process did not have
-   `OPENAI_API_KEY`, so no live OpenAI pass is recorded yet.
+   anonymous-read evidence. The smoke now loads repo-root `.env.local` if
+   present, so a local operator key can be durable without being committed or
+   printed. Keep ChatGPT Apps/Connectors UI and hosted OAuth as product-surface
+   evidence; do not mark those rows ready from local CLI or API-only checks.
+   A 2026-07-09 live OpenAI attempt reached the Responses API, but no live pass
+   is recorded until the deployed production-like target includes the hosted
+   `search` and `fetch` compatibility aliases.
 
 ## Client Classes
 
