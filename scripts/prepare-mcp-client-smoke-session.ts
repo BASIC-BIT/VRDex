@@ -325,13 +325,18 @@ function recorderCommandForMatrixClient(args: {
   matrixClient: string;
   targetEnvironment: string;
 }) {
+  const evidencePlaceholder =
+    args.matrixClient === "openai-chatgpt"
+      ? '<sanitized screenshot or transcript showing tools/list, search, and fetch>'
+      : '<sanitized screenshot or transcript showing tools/list and vrdex_search>';
+
   return [
     "pnpm record:mcp-client-smoke --",
     `--client ${args.matrixClient}`,
     `--check ${args.check}`,
     "--status pass",
     `--environment ${JSON.stringify(args.environment)}`,
-    '--evidence "<sanitized screenshot or transcript showing tools/list and vrdex_search>"',
+    `--evidence ${JSON.stringify(evidencePlaceholder)}`,
     args.hosted ? `--target-environment ${JSON.stringify(args.targetEnvironment)}` : undefined,
   ].filter(Boolean).join(" ");
 }
@@ -672,7 +677,7 @@ function manualEvidenceTemplates(options: Options): EvidenceTemplate[] {
       prompt: [
         "Configure the relevant OpenAI or ChatGPT MCP-capable surface for hosted VRDex OAuth.",
         "Record whether the surface accepts public-client Client ID Metadata Documents, uses Dynamic Client Registration, or requires an app review path.",
-        "Complete an mcp:read OAuth session if the surface allows it and call search plus fetch.",
+        `Complete an mcp:read OAuth session if the surface allows it, call search with query ${JSON.stringify(options.hostedQuery)}, then call fetch for the first returned result id.`,
       ].join(" "),
       recorder: recorderCommandForMatrixClient({
         check: "hosted-oauth",
@@ -736,15 +741,31 @@ function evidenceStatusLine(template: EvidenceTemplate) {
     : "Status: pending until a real client session lists tools and calls `vrdex_search`.";
 }
 
+function evidenceQuery(template: EvidenceTemplate) {
+  const searchMatch = /call search with query "([^"]+)"/i.exec(template.prompt);
+  const vrdexSearchMatch = /call vrdex_search exactly once with query "([^"]+)"/i.exec(template.prompt);
+  const query = searchMatch?.[1] ?? vrdexSearchMatch?.[1];
+
+  assert.equal(
+    typeof query,
+    "string",
+    `${template.matrixClient}/${template.check} prompt must include a quoted query.`,
+  );
+
+  return query;
+}
+
 function evidenceToolChecklist(template: EvidenceTemplate) {
+  const query = evidenceQuery(template);
+
   return template.matrixClient === "openai-chatgpt"
     ? [
-        "- [ ] Client calls `search` with query `club`.",
+        `- [ ] Client calls \`search\` with query \`${query}\`.`,
         "- [ ] Client calls `fetch` with the first returned result id.",
         "- [ ] Client returns a non-error structured result and the first result id is recorded.",
       ]
     : [
-        "- [ ] Client calls `vrdex_search` exactly once with query `club`, type `all`, and limit `1`.",
+        `- [ ] Client calls \`vrdex_search\` exactly once with query \`${query}\`, type \`all\`, and limit \`1\`.`,
         "- [ ] Client returns a non-error structured result and the first result slug is recorded.",
       ];
 }

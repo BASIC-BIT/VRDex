@@ -37,6 +37,10 @@ docs update and a changelog entry so early consumers and agents can adapt.
   `pnpm ops:mcp-client-session-pack` with `--hosted-query` /
   `VRDEX_MCP_SMOKE_QUERY` so generated real-client smoke commands can target a
   known non-empty public search fixture
+- aligned generated MCP client evidence worksheets with the selected
+  `--hosted-query` value and clarified the OpenAI / ChatGPT hosted OAuth
+  recorder placeholder so those rows ask for both `search` and `fetch`
+  evidence
 - aligned `pnpm ops:mcp-installed-clients` and
   `pnpm ops:mcp-oauth-smoke-credentials` hosted smoke guidance with the same
   known-query flags for Claude Code, Gemini CLI, OpenAI Responses API, and MCP

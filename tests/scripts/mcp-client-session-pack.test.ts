@@ -24,6 +24,8 @@ describe("MCP client smoke session pack", () => {
       const result = runSessionPack([
         "--hosted-url",
         "https://staging.vrdex.net/mcp",
+        "--hosted-query",
+        "a",
         "--output-dir",
         outputDir,
         "--target-environment",
@@ -166,11 +168,20 @@ describe("MCP client smoke session pack", () => {
       assert.match(vscodeEvidence, /Status: pending until a real client session lists tools/);
       assert.match(vscodeEvidence, /Matrix row: vscode\/local-stdio/);
       assert.match(vscodeEvidence, /Client lists the expected VRDex tools/);
+      assert.match(vscodeEvidence, /Client calls `vrdex_search` exactly once with query `club`/);
       assert.match(vscodeEvidence, /For `pass`, include the tool list/);
       assert.match(vscodeEvidence, /For `fail`, include the exact failed step/);
       assert.match(vscodeEvidence, /--evidence-file/);
       assert.match(vscodeEvidence, /pnpm record:mcp-client-smoke -- --client vscode --check local-stdio/);
       assert.doesNotMatch(vscodeEvidence, /--target-environment "staging https:\/\/staging\.vrdex\.net\/mcp"/);
+
+      const vscodeHostedEvidence = await readFile(
+        join(outputDir, "evidence", "vscode-hosted-anonymous-read.md"),
+        "utf8",
+      );
+
+      assert.match(vscodeHostedEvidence, /Call vrdex_search exactly once with query "a"/);
+      assert.match(vscodeHostedEvidence, /Client calls `vrdex_search` exactly once with query `a`/);
 
       const geminiHostedEvidence = await readFile(
         join(outputDir, "evidence", "gemini-cli-hosted-oauth.md"),
@@ -202,11 +213,11 @@ describe("MCP client smoke session pack", () => {
       );
 
       assert.match(openAiAnonymousEvidence, /Matrix row: openai-chatgpt\/hosted-anonymous-read/);
-      assert.match(openAiAnonymousEvidence, /pnpm smoke:mcp-openai -- --hosted-url https:\/\/staging\.vrdex\.net\/mcp --hosted-data --hosted-query "club"/);
+      assert.match(openAiAnonymousEvidence, /pnpm smoke:mcp-openai -- --hosted-url https:\/\/staging\.vrdex\.net\/mcp --hosted-data --hosted-query "a"/);
       assert.match(openAiAnonymousEvidence, /repo-root \.env\.local/);
       assert.match(openAiAnonymousEvidence, /OpenAI Responses API or ChatGPT hosted MCP surface/);
       assert.match(openAiAnonymousEvidence, /anonymous\/no-auth tools/);
-      assert.match(openAiAnonymousEvidence, /Client calls `search` with query `club`/);
+      assert.match(openAiAnonymousEvidence, /Client calls `search` with query `a`/);
       assert.match(openAiAnonymousEvidence, /Client calls `fetch` with the first returned result id/);
       assert.match(openAiAnonymousEvidence, /does not force login before the anonymous public-read call/);
       assert.match(openAiAnonymousEvidence, /No bearer tokens, OAuth client secrets/);
