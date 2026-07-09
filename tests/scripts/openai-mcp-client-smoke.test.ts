@@ -293,6 +293,73 @@ describe("OpenAI Responses API MCP smoke harness", () => {
     }
   });
 
+  it("uses gpt-4.1-mini as the default live smoke model", async () => {
+    const mcpFixture = await startHostedMcpFixture();
+    let requestBody: Record<string, unknown> | undefined;
+    const server = createServer(async (request, response) => {
+      requestBody = JSON.parse(await readRequestBody(request)) as Record<string, unknown>;
+      writeJson(response, 200, {
+        output: [
+          {
+            arguments: JSON.stringify({ query: "club" }),
+            name: "search",
+            output: JSON.stringify({
+              results: [{ id: "event:club-night", title: "Club Night", url: "https://staging.vrdex.net/e/club-night" }],
+            }),
+            type: "mcp_call",
+          },
+          {
+            arguments: JSON.stringify({ id: "event:club-night" }),
+            name: "fetch",
+            output: JSON.stringify({
+              id: "event:club-night",
+              metadata: { entityType: "event", slug: "club-night" },
+              text: "Title: Club Night\\nEntity type: event",
+              title: "Club Night",
+              url: "https://staging.vrdex.net/e/club-night",
+            }),
+            type: "mcp_call",
+          },
+          {
+            content: [{ text: "openai-mcp-ok", type: "output_text" }],
+            role: "assistant",
+            type: "message",
+          },
+        ],
+        output_text: "openai-mcp-ok",
+      });
+    });
+
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+
+    try {
+      const address = server.address();
+
+      assert.ok(address !== null && typeof address === "object");
+
+      const result = await runOpenAiSmokeAsync(
+        [
+          "--hosted-url",
+          mcpFixture.url,
+          "--hosted-data",
+          "--endpoint",
+          `http://127.0.0.1:${address.port}/v1/responses`,
+        ],
+        { OPENAI_API_KEY: "test-key" },
+      );
+
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(requestBody?.model, "gpt-4.1-mini");
+      assert.match(result.stdout, /gpt-4\.1-mini called search and fetch/);
+    } finally {
+      await mcpFixture.close();
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
+  });
+
   it("fails bounded live requests with a clear timeout message", async () => {
     const mcpFixture = await startHostedMcpFixture();
     const server = createServer((_request, _response) => {
