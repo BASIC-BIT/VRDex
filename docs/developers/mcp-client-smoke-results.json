@@ -216,7 +216,7 @@
           "manualStatus": "pass",
           "notes": "Responses API remote MCP integration evidence is pass against staging after branch staging deploy run 29037734496. This does not replace ChatGPT Apps/Connectors UI or hosted OAuth product-surface evidence, which remain separate rows.",
           "environment": "Windows local OpenAI Responses API smoke against staging after GitHub Actions Staging Deploy run 29037734496",
-          "manualEvidence": "corepack pnpm smoke:mcp-openai against https://staging.vrdex.net/mcp passed: gpt-4.1-mini called hosted MCP search and fetch for query a through the OpenAI Responses API smoke harness.",
+          "manualEvidence": "corepack pnpm smoke:mcp-openai against https://staging.vrdex.net/mcp passed: gpt-5.6-luna called hosted MCP search and fetch for query a through the OpenAI Responses API smoke harness.",
           "lastRunAt": "2026-07-09"
         },
         {

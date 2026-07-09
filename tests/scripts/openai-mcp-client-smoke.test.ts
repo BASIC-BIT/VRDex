@@ -293,7 +293,7 @@ describe("OpenAI Responses API MCP smoke harness", () => {
     }
   });
 
-  it("uses gpt-4.1-mini as the default live smoke model", async () => {
+  it("uses gpt-5.6-luna as the default live smoke model", async () => {
     const mcpFixture = await startHostedMcpFixture();
     let requestBody: Record<string, unknown> | undefined;
     const server = createServer(async (request, response) => {
@@ -350,8 +350,8 @@ describe("OpenAI Responses API MCP smoke harness", () => {
       );
 
       assert.equal(result.status, 0, result.stderr);
-      assert.equal(requestBody?.model, "gpt-4.1-mini");
-      assert.match(result.stdout, /gpt-4\.1-mini called search and fetch/);
+      assert.equal(requestBody?.model, "gpt-5.6-luna");
+      assert.match(result.stdout, /gpt-5\.6-luna called search and fetch/);
     } finally {
       await mcpFixture.close();
       await new Promise<void>((resolve, reject) => {

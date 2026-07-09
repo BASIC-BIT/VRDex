@@ -19,9 +19,9 @@ docs update and a changelog entry so early consumers and agents can adapt.
   fails bounded live Responses API requests with a clear timeout, and
   preflights hosted `/mcp` for `search`/`fetch` plus data-backed results before
   calling OpenAI
-- changed the default `pnpm smoke:mcp-openai` live model to `gpt-4.1-mini`,
-  matching the recorded staging evidence and avoiding the slower deep-research
-  default path for routine Responses API remote-MCP smokes
+- changed the default `pnpm smoke:mcp-openai` live model to `gpt-5.6-luna`,
+  the current cost-sensitive GPT-5.6 tier, after verifying that it calls the
+  staged remote MCP `search` and `fetch` tools
 - tightened `pnpm smoke:mcp-compat -- --hosted-data` so hosted data-backed
   evidence requires a non-empty `vrdex_search` result and an OpenAI-compatible
   `search` result that can be passed to `fetch`; added `--hosted-query` /
@@ -129,7 +129,7 @@ docs update and a changelog entry so early consumers and agents can adapt.
   hosted OAuth evidence as separate product-surface rows
 - recorded the OpenAI Responses API hosted anonymous row as passing against
   `https://staging.vrdex.net/mcp`: after the PR branch staging deploy, the
-  smoke reached the Responses API and `gpt-4.1-mini` called hosted MCP `search`
+  smoke reached the Responses API and `gpt-5.6-luna` called hosted MCP `search`
   and `fetch`
 - changed `GET /api/v0/search` to return a typed RFC 9457 `503` problem when
   the public search backend is temporarily unavailable, and regenerated the

@@ -102,7 +102,7 @@ function printHelp() {
     "  --hosted-query <query>      Search query. Defaults to club when --hosted-data is set.",
     "  --hosted-type <type>        Kept for matrix row metadata; compatibility search always uses all.",
     "  --hosted-limit <n>          Kept for matrix row metadata; compatibility search returns server-bounded results.",
-    "  --model <model>             OpenAI model. Defaults to gpt-4.1-mini.",
+    "  --model <model>             OpenAI model. Defaults to gpt-5.6-luna.",
     "  --endpoint <url>            Responses endpoint. Defaults to https://api.openai.com/v1/responses.",
     "  --api-key-env <name>        Environment variable containing the API key.",
     "  --request-timeout-ms <n>    Live Responses API timeout. Defaults to 90000.",
@@ -125,7 +125,7 @@ function parseArgs(argv: string[]): OpenAiMcpOptions {
       type: parseHostedSearchType(process.env.VRDEX_OPENAI_MCP_HOSTED_TYPE),
     },
     hostedUrl: nonEmpty(process.env.VRDEX_OPENAI_MCP_HOSTED_URL),
-    model: nonEmpty(process.env.VRDEX_OPENAI_MCP_MODEL) ?? "gpt-4.1-mini",
+    model: nonEmpty(process.env.VRDEX_OPENAI_MCP_MODEL) ?? "gpt-5.6-luna",
     requestTimeoutMs: parseRequestTimeoutMs(process.env.VRDEX_OPENAI_MCP_REQUEST_TIMEOUT_MS),
   };
 

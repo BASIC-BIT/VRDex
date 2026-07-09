@@ -293,7 +293,7 @@ Current 2026-07-09 target evidence is recorded as pass against
 `vrdex_search`, OpenAI-compatible `search`/`fetch`, Dynamic Client
 Registration, and public-client Client ID Metadata Document authorization.
 The OpenAI Responses API smoke then passed against the same staging target:
-`gpt-4.1-mini` called hosted MCP `search` and `fetch` through the smoke
+`gpt-5.6-luna` called hosted MCP `search` and `fetch` through the smoke
 harness. This remains API integration evidence; ChatGPT Apps/Connectors UI
 evidence is tracked separately.
 
@@ -815,7 +815,7 @@ pnpm ops:mcp-client-smokes -- \
    anonymous-read evidence uses `pnpm smoke:mcp-openai` with `OPENAI_API_KEY`;
    the smoke requires both `search` and `fetch`, and now preflights the hosted
    MCP target before making an OpenAI request. PR #159 records a 2026-07-09
-   pass against `https://staging.vrdex.net/mcp`: `gpt-4.1-mini` called hosted
+   pass against `https://staging.vrdex.net/mcp`: `gpt-5.6-luna` called hosted
    MCP `search` and `fetch` through the Responses API harness after the staging
    deploy.
    Record whether ChatGPT Apps/Connectors accepts DCR, requires Client ID

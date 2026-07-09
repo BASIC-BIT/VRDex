@@ -263,7 +263,7 @@ one PR.
   `https://staging.vrdex.net/mcp` after PR branch staging deploy run
   `29037734496`: the full hosted compatibility smoke passed data-backed
   `vrdex_search`, `search`, `fetch`, DCR, and CIMD, and
-  `pnpm smoke:mcp-openai` reached the Responses API where `gpt-4.1-mini`
+  `pnpm smoke:mcp-openai` reached the Responses API where `gpt-5.6-luna`
   called hosted MCP `search` and `fetch`. This does not replace ChatGPT
   Apps/Connectors UI or hosted OAuth evidence; those product-surface rows stay
   pending until the current UI proves no-auth public reads and `mcp:read` OAuth
