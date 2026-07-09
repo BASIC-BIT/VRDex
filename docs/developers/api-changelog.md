@@ -42,12 +42,12 @@ docs update and a changelog entry so early consumers and agents can adapt.
 - extended the generated `mcp-client-session-pack` README with the same
   Pending Blocker Summary so uploaded PR artifacts are directly usable for
   operator smoke-session batching
-- refreshed the production-like hosted MCP evidence rows from PR #159 head
-  `ebf4e8d` with Hosted MCP health run `28949509629` job `85892143714`,
-  covering data-backed anonymous reads, Dynamic Client Registration, and
-  public-client Client ID Metadata Document behavior while confirming hosted
-  OAuth evidence remains gated by missing reviewed smoke credentials or
-  developer-credential helpers
+- refreshed the production-like hosted MCP evidence rows with a 2026-07-09
+  staging `pnpm smoke:mcp-compat -- --hosted-only --hosted-data --dcr --cimd`
+  run against `https://staging.vrdex.net/mcp`, covering data-backed anonymous
+  reads, Dynamic Client Registration, and public-client Client ID Metadata
+  Document behavior while hosted OAuth evidence remains gated by missing
+  reviewed smoke credentials or developer-credential helpers
 - extended `pnpm ops:mcp-installed-clients` with informational CLI automation
   notes so VS Code `chat`, Cursor `--chat`/`agent`, and Windsurf setup-only
   surfaces are clearly treated as manual-only evidence paths unless the real

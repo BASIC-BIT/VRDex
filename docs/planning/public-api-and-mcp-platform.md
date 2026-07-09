@@ -111,10 +111,11 @@ client compatibility is what unlocks external launch confidence.
 
 Next execution checkpoint:
 
-1. Use the staging target refreshed by Hosted MCP health run `28949509629` from
-   PR #159 head `ebf4e8d` as the current production-like hosted MCP evidence
-   source:
-   `https://staging.vrdex.net/mcp`.
+1. Use the staging target refreshed on 2026-07-09 with
+   `pnpm smoke:mcp-compat -- --hosted-only --hosted-url
+   https://staging.vrdex.net/mcp --hosted-data --dcr --cimd
+   --continue-on-failure` as the current production-like hosted MCP evidence
+   source.
 2. Keep the recorded hosted evidence rows for data-backed anonymous reads,
    Dynamic Client Registration, and public-client Client ID Metadata Documents
    in `docs/developers/mcp-client-smoke-results.json`.
@@ -1371,7 +1372,7 @@ Security-specific tests:
 - Confidential-client CIMD with public-key client authentication remains deferred until a concrete major-client requirement appears.
 - OAuth signing-key rotation keeps the active private signing key in `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY`, advertises the active key id through `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID`, and retains previous public keys through `VRDEX_OAUTH_ACCESS_TOKEN_ADDITIONAL_PUBLIC_JWKS` until outstanding access tokens expire.
 - Hosted MCP auth metadata should make anonymous public read tools genuinely usable without login in clients that distinguish `noauth` from OAuth tools. The current hosted MCP tool descriptors expose `_meta["securitySchemes"]` with `noauth` plus optional `oauth2`/`mcp:read`; client-specific UI behavior remains part of the manual matrix.
-- Hosted MCP smoke coverage is split into lightweight transport/descriptor coverage and production-like data-backed coverage. The data-backed path is gated by `VRDEX_MCP_SMOKE_DATA` / `--hosted-data`; staging evidence from PR #159 now covers data-backed anonymous reads, DCR, and CIMD, while per-client UI and OAuth rows remain tracked in the manual matrix.
+- Hosted MCP smoke coverage is split into lightweight transport/descriptor coverage and production-like data-backed coverage. The data-backed path is gated by `VRDEX_MCP_SMOKE_DATA` / `--hosted-data`; the 2026-07-09 staging smoke against `https://staging.vrdex.net/mcp` covers data-backed anonymous reads, DCR, and CIMD, while per-client UI and OAuth rows remain tracked in the manual matrix.
 
 ## Remaining Open Research
 
