@@ -594,6 +594,10 @@ export const openApiSource = {
             description: "Public search results.",
             content: jsonContent(PublicSearchResponseSchema),
           },
+          "503": {
+            description: "The public search backend is temporarily unavailable.",
+            content: jsonContent(ApiProblemSchema),
+          },
           ...publicReadProblemResponses,
         },
       },

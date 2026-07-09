@@ -647,6 +647,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
         "429": *a1
+        "503":
+          description: The public search backend is temporarily unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
   /api/v0/profiles/{slug}:
     get:
       operationId: getPublicProfileBySlug

@@ -26,6 +26,14 @@ export function createPublicNotFoundProblem(resourceName: string) {
   });
 }
 
+export function createPublicDataUnavailableProblem(resourceName: string) {
+  return createApiProblem({
+    status: 503,
+    title: `${resourceName} temporarily unavailable`,
+    detail: "The requested public data is temporarily unavailable. Try again later.",
+  });
+}
+
 export function createRateLimitProblem(retryAfterSeconds: number) {
   return createApiProblem({
     status: 429,

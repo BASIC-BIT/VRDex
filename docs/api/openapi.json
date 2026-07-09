@@ -1370,6 +1370,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "The public search backend is temporarily unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
           }
         }
       }

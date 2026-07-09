@@ -1,6 +1,11 @@
 import { parseSearchQueryParams, PublicSearchResponseSchema } from "@vrdex/api-contracts";
 import { api } from "@convex-generated-api";
-import { apiJson, rejectBearerTokenQuery, rejectInvalidOrRateLimitedPublicApiRequest } from "@/lib/server/api-v0";
+import {
+  apiJson,
+  publicDataUnavailableResponse,
+  rejectBearerTokenQuery,
+  rejectInvalidOrRateLimitedPublicApiRequest,
+} from "@/lib/server/api-v0";
 import { convexHttpClient } from "@/lib/server/convex-http";
 
 export const dynamic = "force-dynamic";
@@ -36,11 +41,22 @@ export async function GET(request: Request) {
   }
 
   const entityType = entityTypeForSearchType(type);
-  const results = await convexHttpClient().query(api.search.searchUniversal, {
-    query,
-    limit,
-    ...(entityType === undefined ? {} : { entityType }),
-  });
+  const results = await (async () => {
+    try {
+      return await convexHttpClient().query(api.search.searchUniversal, {
+        query,
+        limit,
+        ...(entityType === undefined ? {} : { entityType }),
+      });
+    } catch {
+      return null;
+    }
+  })();
+
+  if (results === null) {
+    return publicDataUnavailableResponse("Public search");
+  }
+
   const filteredResults =
     type === "person" || type === "community"
       ? results.filter((result) => result.profileType === type)

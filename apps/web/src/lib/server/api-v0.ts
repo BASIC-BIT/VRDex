@@ -2,6 +2,7 @@ import {
   getBearerTokenFromAuthorizationHeader,
   ApiProblemSchema,
   createBearerTokenQueryProblem,
+  createPublicDataUnavailableProblem,
   createPublicNotFoundProblem,
   hasBearerTokenInUrl,
   hashApiTokenValue,
@@ -401,4 +402,8 @@ export function apiProblemResponse(problem: unknown) {
 
 export function publicNotFoundResponse(resourceName: string) {
   return apiProblemResponse(createPublicNotFoundProblem(resourceName));
+}
+
+export function publicDataUnavailableResponse(resourceName: string) {
+  return apiProblemResponse(createPublicDataUnavailableProblem(resourceName));
 }

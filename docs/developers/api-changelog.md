@@ -82,11 +82,10 @@ docs update and a changelog entry so early consumers and agents can adapt.
   Open Blocker Summary so uploaded PR artifacts are directly usable for
   operator smoke-session batching
 - refreshed the production-like hosted MCP evidence rows with 2026-07-09
-  staging checks: prior evidence covers Dynamic Client Registration and
-  public-client Client ID Metadata Document behavior, while the data-backed
-  anonymous-read row is now recorded as failed because staging `/mcp` initialize
-  returns HTTP 404 and the PR preview lacks data-backed public `search`/`fetch`
-  results
+  target retries: the data-backed anonymous-read, Dynamic Client Registration,
+  and public-client Client ID Metadata Document rows are now all failed because
+  staging `/mcp` initializes with HTTP 404 and the PR preview has
+  backend-dependent failures
 - extended `pnpm ops:mcp-installed-clients` with informational CLI automation
   notes so VS Code `chat`, Cursor `--chat`/`agent`, and Windsurf setup-only
   surfaces are clearly treated as manual-only evidence paths unless the real
@@ -112,9 +111,12 @@ docs update and a changelog entry so early consumers and agents can adapt.
   MCP hosted anonymous-read harness, keeping ChatGPT Apps/Connectors UI and
   hosted OAuth evidence as separate product-surface rows
 - recorded the OpenAI Responses API hosted anonymous row as failed before any
-  OpenAI request: staging still lacks hosted `search`/`fetch`, and the PR
-  preview has the aliases but its public search route returns HTTP 500 for the
-  current data-backed target
+  OpenAI request: staging is not currently serving the API/MCP branch, and the
+  PR preview has the aliases but its data-backed public search fails target
+  preflight for the current hosted target
+- changed `GET /api/v0/search` to return a typed RFC 9457 `503` problem when
+  the public search backend is temporarily unavailable, and regenerated the
+  OpenAPI JSON/YAML artifacts from the shared contract source
 - fixed the Gemini CLI smoke harness on Windows so disposable package execution
   routes through `cmd.exe` instead of spawning `npx.cmd` directly; local
   preflight can reach Gemini CLI and fails closed on provider auth/quota before
