@@ -1,4 +1,4 @@
-import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { awsCredentialsProvider } from "@vercel/oidc-aws-credentials-provider";
 
 type StorageConfig = {
@@ -12,7 +12,22 @@ type StoredObject = {
   contentLength?: number;
 };
 
+type StorageProbeResult =
+  | {
+      configured: false;
+      reachable: false;
+    }
+  | {
+      configured: true;
+      reachable: true;
+    }
+  | {
+      configured: true;
+      reachable: false;
+    };
+
 const cachedClients = new Map<string, S3Client>();
+const PROFILE_ASSET_STORAGE_PROBE_KEY = "profile-assets/.vrdex-storage-probe";
 
 function vercelOidcRoleArn(): string | undefined {
   const roleArn = process.env.VRDEX_PROFILE_ASSET_ROLE_ARN;
@@ -53,6 +68,45 @@ function s3Client(config: StorageConfig): S3Client {
 
 export function isProfileAssetStorageConfigured(): boolean {
   return storageConfig() !== null;
+}
+
+function isMissingObjectError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+
+  const name = "name" in error ? String(error.name) : "";
+  const metadata =
+    "$metadata" in error && typeof error.$metadata === "object" && error.$metadata !== null
+      ? (error.$metadata as { httpStatusCode?: number })
+      : null;
+
+  return name === "NoSuchKey" || name === "NotFound" || metadata?.httpStatusCode === 404;
+}
+
+export async function probeProfileAssetStorage(): Promise<StorageProbeResult> {
+  const config = storageConfig();
+
+  if (config === null) {
+    return { configured: false, reachable: false };
+  }
+
+  try {
+    await s3Client(config).send(
+      new HeadObjectCommand({
+        Bucket: config.bucket,
+        Key: PROFILE_ASSET_STORAGE_PROBE_KEY,
+      }),
+    );
+
+    return { configured: true, reachable: true };
+  } catch (error) {
+    if (isMissingObjectError(error)) {
+      return { configured: true, reachable: true };
+    }
+
+    return { configured: true, reachable: false };
+  }
 }
 
 export async function putProfileAssetObject(input: {
