@@ -2068,6 +2068,25 @@
             "description": "One-time upload token returned by the profile asset upload-intent creation endpoint."
           }
         ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Completed profile media upload result.",
@@ -2130,6 +2149,17 @@
         ],
         "summary": "Probe profile asset upload storage",
         "description": "Returns deployment health for the profile asset upload storage backend.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "oauth2": [
+              "public:read"
+            ]
+          },
+          {}
+        ],
         "responses": {
           "200": {
             "description": "Profile asset storage is configured and reachable.",
@@ -2137,6 +2167,35 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiProfileAssetStorageProbeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or used an unsupported bearer-token location.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
                 }
               }
             }

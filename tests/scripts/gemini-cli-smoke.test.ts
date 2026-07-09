@@ -98,7 +98,7 @@ describe("Gemini CLI MCP smoke harness", () => {
           mode: "local-stdio",
           timeoutMs: 50,
         },
-        ["-e", "setTimeout(()=>{},1000)"],
+        ["tests/scripts/fixtures/gemini-timeout-child.mjs"],
         process.cwd(),
       ),
       /timed out after 50ms/,

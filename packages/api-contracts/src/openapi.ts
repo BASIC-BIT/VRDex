@@ -796,6 +796,20 @@ export const openApiSource = {
           path: ProfileAssetUploadIntentPathParamsSchema,
           header: ProfileAssetUploadTokenHeaderSchema,
         },
+        requestBody: {
+          required: false,
+          content: {
+            "multipart/form-data": {
+              schema: {
+                type: "object",
+                required: ["file"],
+                properties: {
+                  file: binaryBodySchema,
+                },
+              },
+            },
+          },
+        },
         responses: {
           "200": {
             description: "Completed profile media upload result.",
@@ -826,6 +840,7 @@ export const openApiSource = {
         tags: ["Assets"],
         summary: "Probe profile asset upload storage",
         description: "Returns deployment health for the profile asset upload storage backend.",
+        security: optionalPublicReadSecurity,
         responses: {
           "200": {
             description: "Profile asset storage is configured and reachable.",
@@ -839,6 +854,8 @@ export const openApiSource = {
             description: "Profile asset storage is configured but temporarily unreachable.",
             content: jsonContent(ApiProfileAssetStorageProbeResponseSchema),
           },
+          "400": publicReadProblemResponses["400"],
+          "429": publicReadProblemResponses["429"],
         },
       },
     },

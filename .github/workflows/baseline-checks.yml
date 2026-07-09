@@ -160,6 +160,9 @@ jobs:
       - name: Run typecheck
         run: pnpm typecheck:web
 
+      - name: Run web tests
+        run: pnpm test:web
+
   typecheck-backend:
     name: Typecheck Backend
     runs-on: ubuntu-latest

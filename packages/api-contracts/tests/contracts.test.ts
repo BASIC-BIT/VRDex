@@ -68,7 +68,26 @@ import {
 
 const namedSchemaMapKeys = new Set(["$defs", "definitions", "dependentSchemas", "patternProperties", "properties"]);
 
-type OpenApiPathItem = Record<string, { parameters?: Array<{ in?: string; name?: string; schema?: { maximum?: number } }> }>;
+type OpenApiOperation = {
+  parameters?: Array<{ in?: string; name?: string; schema?: { maximum?: number } }>;
+  requestBody?: {
+    content?: Record<
+      string,
+      {
+        schema?: {
+          properties?: Record<string, { format?: string; type?: string }>;
+          required?: string[];
+          type?: string;
+        };
+      }
+    >;
+    required?: boolean;
+  };
+  responses?: Record<string, unknown>;
+  security?: Array<Record<string, string[]>>;
+};
+
+type OpenApiPathItem = Record<string, OpenApiOperation>;
 
 function hasLegacySchemaId(value: unknown, insideNamedSchemaMap = false): boolean {
   if (Array.isArray(value)) {
@@ -832,6 +851,40 @@ describe("@vrdex/api-contracts", () => {
     assert.equal(queryMaximum("/api/v0/worlds/active", "get", "limit"), 6);
     assert.equal(queryMaximum("/api/v0/me/profiles", "get", "limit"), 100);
     assert.equal(queryMaximum("/api/v0/developer/tokens", "get", "limit"), 100);
+  });
+
+  it("documents the profile asset upload transport and protected storage probe", () => {
+    const document = getOpenApiDocument();
+    const completionPath = document.paths?.[
+      "/api/v0/profile-assets/upload-intents/{intentId}"
+    ] as OpenApiPathItem | undefined;
+    const completion = completionPath?.post;
+    const multipartSchema = completion?.requestBody?.content?.["multipart/form-data"]?.schema;
+
+    assert.equal(completion?.requestBody?.required, false);
+    assert.equal(multipartSchema?.type, "object");
+    assert.deepEqual(multipartSchema?.required, ["file"]);
+    assert.equal(multipartSchema?.properties?.file?.type, "string");
+    assert.equal(multipartSchema?.properties?.file?.format, "binary");
+    assert.equal(
+      completion?.parameters?.some(
+        (parameter) => parameter.in === "header" && parameter.name === "x-vrdex-upload-token",
+      ),
+      true,
+    );
+
+    const probePath = document.paths?.[
+      "/api/v0/profile-assets/upload-intents/probe"
+    ] as OpenApiPathItem | undefined;
+    const probe = probePath?.get;
+
+    assert.ok(probe?.responses?.["400"]);
+    assert.ok(probe?.responses?.["429"]);
+    assert.deepEqual(probe?.security, [
+      { bearerAuth: [] },
+      { oauth2: ["public:read"] },
+      {},
+    ]);
   });
 
   it("advertises the real OAuth route surface in security metadata", () => {

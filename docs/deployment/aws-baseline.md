@@ -78,6 +78,9 @@ Operational probe:
 
 - `GET /api/v0/profile-assets/upload-intents/probe` returns `501` when runtime
   storage environment variables are missing.
+- The probe is an anonymous public-read endpoint, but it still rejects bearer
+  tokens in query parameters and applies the standard public API rate limit.
+  Use it for bounded deployment checks, not a tight polling loop.
 - A configured environment performs a lightweight private S3 `HeadObject` check
   against a sentinel key and returns `200` when storage auth is reachable.
 - The runtime role includes narrow `s3:ListBucket` permission for only that

@@ -963,6 +963,16 @@ paths:
             description: One-time upload token returned by the profile asset upload-intent creation endpoint.
           required: true
           description: One-time upload token returned by the profile asset upload-intent creation endpoint.
+      requestBody:
+        required: false
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file: *a6
       responses:
         "200":
           description: Completed profile media upload result.
@@ -1001,6 +1011,11 @@ paths:
         - Assets
       summary: Probe profile asset upload storage
       description: Returns deployment health for the profile asset upload storage backend.
+      security: &a8
+        - bearerAuth: []
+        - oauth2:
+            - public:read
+        - {}
       responses:
         "200":
           description: Profile asset storage is configured and reachable.
@@ -1008,6 +1023,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiProfileAssetStorageProbeResponse"
+        "400": *a2
+        "429": *a1
         "501":
           description: Profile asset storage is not configured for this deployment.
           content:
@@ -1393,11 +1410,7 @@ paths:
         - Usage
       summary: Get API and MCP rate-limit policy information
       description: Returns the default route-class policy table and the current request's effective API rate-limit window.
-      security:
-        - bearerAuth: []
-        - oauth2:
-            - public:read
-        - {}
+      security: *a8
       responses:
         "200":
           description: Rate-limit policy and current caller window.

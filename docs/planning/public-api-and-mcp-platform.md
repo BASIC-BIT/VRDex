@@ -323,6 +323,11 @@ Candidate endpoints:
 - `GET /api/v0/communities/:slug/events`
 - `GET /api/v0/claims/:slug/status`
 
+`GET /api/v0/cards/:slug` remains explicitly deferred. The compact card
+schema, visibility behavior, and relationship to the existing profile response
+need a shared contract before this route is implemented; consumers should use
+the shipped profile endpoints in the meantime.
+
 Acceptance criteria:
 
 - every response has a documented schema
