@@ -76,12 +76,7 @@ function isMissingObjectError(error: unknown): boolean {
   }
 
   const name = "name" in error ? String(error.name) : "";
-  const metadata =
-    "$metadata" in error && typeof error.$metadata === "object" && error.$metadata !== null
-      ? (error.$metadata as { httpStatusCode?: number })
-      : null;
-
-  return name === "NoSuchKey" || name === "NotFound" || metadata?.httpStatusCode === 404;
+  return name === "NoSuchKey" || name === "NotFound";
 }
 
 export async function probeProfileAssetStorage(): Promise<StorageProbeResult> {

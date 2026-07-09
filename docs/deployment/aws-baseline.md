@@ -80,6 +80,9 @@ Operational probe:
   storage environment variables are missing.
 - A configured environment performs a lightweight private S3 `HeadObject` check
   against a sentinel key and returns `200` when storage auth is reachable.
+- The runtime role includes narrow `s3:ListBucket` permission for only that
+  sentinel key prefix so a missing sentinel is reported as an object-level miss,
+  not as an authorization failure.
 - The probe returns only coarse health state and does not expose bucket names,
   role ARNs, or object keys.
 
