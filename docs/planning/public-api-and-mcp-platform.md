@@ -123,9 +123,9 @@ Next execution checkpoint:
    continuing with the locally installed clients that still need smoke-tested
    rows: VS Code, Cursor, and Windsurf. Gemini CLI local stdio now passes with
    `pnpm smoke:mcp-gemini-cli -- --gemini-package @google/gemini-cli@latest`;
-   rerun the hosted Gemini rows after the hosted HTTP timeout is understood or
-   capture equivalent interactive `/mcp` evidence. Complete hosted OAuth
-   coverage for Claude Code, Gemini CLI, and MCP Inspector.
+   rerun the hosted Gemini rows after provider quota is available, or capture
+   equivalent interactive `/mcp` evidence. Complete hosted OAuth coverage for
+   Claude Code, Gemini CLI, and MCP Inspector.
 4. Before hosted-OAuth rows are recorded, rerun
    `pnpm ops:mcp-hosted-oauth-prereqs`. The 2026-07-09 PR #159 audit is
    `partial`: hosted auth helpers and the browser token are present, but
@@ -143,12 +143,12 @@ Next execution checkpoint:
    those rows ready from local CLI or API-only checks.
    Current 2026-07-09 evidence is split: staging has data-backed public search
    but still lacks the hosted `search` and `fetch` compatibility aliases, while
-   the PR preview has the aliases but lacks data-backed public search. Current
-   OpenAI smoke runs fail during target preflight before any OpenAI request:
-   staging lacks `search`/`fetch` in `tools/list`, and the PR preview returns
-   the data-backed search tool error. The OpenAI hosted-anonymous row is
-   recorded as failed until one production-like target has both aliases and
-   data.
+   the PR preview has the aliases but its public search route returns HTTP 500.
+   Current OpenAI smoke runs fail during target preflight before any OpenAI
+   request: staging lacks `search`/`fetch` in `tools/list`, and the PR preview
+   returns the data-backed search tool error. Staging currently has at least
+   one public search result for query `a`, so the remaining OpenAI target need
+   is one production-like target with both aliases and data.
 
 ## Client Classes
 

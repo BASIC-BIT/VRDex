@@ -259,9 +259,11 @@ Current 2026-07-09 target evidence is intentionally not recorded as a pass:
 staging has data-backed public search but has not deployed the hosted
 `search`/`fetch` aliases, while the PR preview exposes the aliases but returns
 `VRDex public data is temporarily unavailable for search` for data-backed
-public reads. Current `pnpm smoke:mcp-openai` runs fail before any OpenAI
-request on both targets: staging fails target preflight at `tools/list`, and
-the PR preview fails target preflight at `search`.
+public reads. Direct target probes showed the PR preview also returns HTTP 500
+for `/api/v0/search`, while staging search is reachable and currently has at
+least one public result for query `a`. Current `pnpm smoke:mcp-openai` runs
+fail before any OpenAI request on both targets: staging fails target preflight
+at `tools/list`, and the PR preview fails target preflight at `search`.
 
 PR Baseline Checks run the same local stdio protocol smoke through
 `pnpm verify:vrdex-mcp`.

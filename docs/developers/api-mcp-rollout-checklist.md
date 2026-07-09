@@ -251,13 +251,13 @@ one PR.
   evidence. Current 2026-07-09 evidence is still not a pass: staging has
   data-backed public search but not the deployed `search`/`fetch` aliases, and
   the PR preview has the aliases but its data-backed search returns
-  `VRDex public data is temporarily unavailable for search`. A live OpenAI
-  smoke against the PR preview reached the `search`/`fetch` tool-call path with
-  `gpt-4.1-mini`, then failed because the response did not include structured
-  hosted MCP search results from the non-data-backed preview target. This does
-  not replace ChatGPT Apps/Connectors UI or hosted OAuth evidence; those
-  product-surface rows stay pending until the current UI proves no-auth public
-  reads and `mcp:read` OAuth behavior.
+  `VRDex public data is temporarily unavailable for search`; direct preview
+  `/api/v0/search` probes return HTTP 500. The latest OpenAI smoke against the
+  PR preview failed during target preflight before any OpenAI request, and
+  staging failed during target preflight because `tools/list` still lacks
+  `search`/`fetch`. This does not replace ChatGPT Apps/Connectors UI or hosted
+  OAuth evidence; those product-surface rows stay pending until the current UI
+  proves no-auth public reads and `mcp:read` OAuth behavior.
 - The `deployed-health.yml` `hosted-mcp-smoke` dispatch can also run the
   Inspector hosted OAuth smoke when `mcp_oauth=true`. It prefers repository
   secrets that provide either `VRDEX_MCP_OAUTH_CLIENT_ID` plus

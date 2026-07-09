@@ -84,13 +84,15 @@ docs update and a changelog entry so early consumers and agents can adapt.
   OAuth fallback support
 - recorded Gemini CLI local stdio as passing against the repo API fixture with
   Gemini CLI `0.50.0`; hosted anonymous staging still times out before a hosted
-  MCP tool-call result and remains failed in the manual matrix
+  MCP tool-call result, and a retry with a live staging query hit Gemini API
+  quota before MCP evidence, so the row remains failed in the manual matrix
 - added `pnpm smoke:mcp-openai` as a repeatable OpenAI Responses API remote
   MCP hosted anonymous-read harness, keeping ChatGPT Apps/Connectors UI and
   hosted OAuth evidence as separate product-surface rows
 - recorded the OpenAI Responses API hosted anonymous row as failed before any
   OpenAI request: staging still lacks hosted `search`/`fetch`, and the PR
-  preview has the aliases but lacks data-backed public search
+  preview has the aliases but its public search route returns HTTP 500 for the
+  current data-backed target
 - fixed the Gemini CLI smoke harness on Windows so disposable package execution
   routes through `cmd.exe` instead of spawning `npx.cmd` directly; local
   preflight can reach Gemini CLI and fails closed on provider auth/quota before
