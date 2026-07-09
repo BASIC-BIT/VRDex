@@ -111,13 +111,16 @@ client compatibility is what unlocks external launch confidence.
 
 Next execution checkpoint:
 
-1. Re-establish the hosted data-backed evidence row with
-   `pnpm smoke:mcp-compat -- --hosted-only --hosted-url
-   <production-like-/mcp-url> --hosted-data --hosted-query
-   <known-public-query> --dcr --cimd --continue-on-failure` after one target
-   includes the hosted `search` and `fetch` compatibility aliases and has
-   data-backed public search. The hosted-data smoke now requires both non-empty
-   `vrdex_search` and OpenAI-compatible `search`/`fetch` results.
+1. Re-establish the hosted data-backed evidence row after one target includes
+   the hosted `search` and `fetch` compatibility aliases and has data-backed
+   public search:
+
+   ```bash
+   pnpm smoke:mcp-compat -- --hosted-only --hosted-url <production-like-/mcp-url> --hosted-data --hosted-query <known-public-query> --dcr --cimd --continue-on-failure
+   ```
+
+   The hosted-data smoke now requires both non-empty `vrdex_search` and
+   OpenAI-compatible `search`/`fetch` results.
 2. Keep the recorded hosted evidence rows for data-backed anonymous reads,
    Dynamic Client Registration, and public-client Client ID Metadata Documents
    in `docs/developers/mcp-client-smoke-results.json`. Current state:
