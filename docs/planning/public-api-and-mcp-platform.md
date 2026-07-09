@@ -111,16 +111,18 @@ client compatibility is what unlocks external launch confidence.
 
 Next execution checkpoint:
 
-1. Use the staging target refreshed on 2026-07-09 with
+1. Re-establish the hosted data-backed evidence row with
    `pnpm smoke:mcp-compat -- --hosted-only --hosted-url
-   https://staging.vrdex.net/mcp --hosted-data --hosted-query a --dcr --cimd
-   --continue-on-failure` as the current production-like hosted MCP evidence
-   source after the target includes the hosted `search` and `fetch`
-   compatibility aliases. The hosted-data smoke now requires both non-empty
+   <production-like-/mcp-url> --hosted-data --hosted-query
+   <known-public-query> --dcr --cimd --continue-on-failure` after one target
+   includes the hosted `search` and `fetch` compatibility aliases and has
+   data-backed public search. The hosted-data smoke now requires both non-empty
    `vrdex_search` and OpenAI-compatible `search`/`fetch` results.
 2. Keep the recorded hosted evidence rows for data-backed anonymous reads,
    Dynamic Client Registration, and public-client Client ID Metadata Documents
-   in `docs/developers/mcp-client-smoke-results.json`.
+   in `docs/developers/mcp-client-smoke-results.json`. Current state:
+   data-backed anonymous read is `fail`; DCR and CIMD have prior staging pass
+   evidence.
 3. Complete the major-client matrix rows against that same staging target,
    continuing with the locally installed clients that still need smoke-tested
    rows: VS Code, Cursor, and Windsurf. Gemini CLI local stdio now passes with
@@ -1386,7 +1388,7 @@ Security-specific tests:
 - Confidential-client CIMD with public-key client authentication remains deferred until a concrete major-client requirement appears.
 - OAuth signing-key rotation keeps the active private signing key in `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY`, advertises the active key id through `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID`, and retains previous public keys through `VRDEX_OAUTH_ACCESS_TOKEN_ADDITIONAL_PUBLIC_JWKS` until outstanding access tokens expire.
 - Hosted MCP auth metadata should make anonymous public read tools genuinely usable without login in clients that distinguish `noauth` from OAuth tools. The current hosted MCP tool descriptors expose `_meta["securitySchemes"]` with `noauth` plus optional `oauth2`/`mcp:read`; client-specific UI behavior remains part of the manual matrix.
-- Hosted MCP smoke coverage is split into lightweight transport/descriptor coverage and production-like data-backed coverage. The data-backed path is gated by `VRDEX_MCP_SMOKE_DATA` / `--hosted-data`; the 2026-07-09 staging smoke against `https://staging.vrdex.net/mcp` covers data-backed anonymous reads, DCR, and CIMD, while per-client UI and OAuth rows remain tracked in the manual matrix.
+- Hosted MCP smoke coverage is split into lightweight transport/descriptor coverage and production-like data-backed coverage. The data-backed path is gated by `VRDEX_MCP_SMOKE_DATA` / `--hosted-data` and now requires `vrdex_search` plus OpenAI-compatible `search`/`fetch` evidence from the same target. Current PR #159 evidence keeps prior staging DCR/CIMD passes, but records data-backed anonymous read as failed because staging `/mcp` initializes with HTTP 404 and the PR preview lacks data-backed `search`/`fetch` results.
 
 ## Remaining Open Research
 

@@ -61,7 +61,7 @@ describe("hosted MCP evidence recorder", () => {
         "--environment",
         "GitHub Actions / hosted MCP smoke",
         "--evidence",
-        "https://github.com/BASIC-BIT/VRDex/actions/runs/example",
+        "https://github.com/BASIC-BIT/VRDex/actions/runs/example passed vrdex_search plus search and fetch",
         "--last-run-at",
         "2026-07-06",
       ]);
@@ -75,7 +75,10 @@ describe("hosted MCP evidence recorder", () => {
       assert.equal(matrix.targetEnvironment, "production-like staging https://staging.vrdex.net/mcp");
       assert.equal(check?.status, "pass");
       assert.equal(check?.environment, "GitHub Actions / hosted MCP smoke");
-      assert.equal(check?.evidence, "https://github.com/BASIC-BIT/VRDex/actions/runs/example");
+      assert.equal(
+        check?.evidence,
+        "https://github.com/BASIC-BIT/VRDex/actions/runs/example passed vrdex_search plus search and fetch",
+      );
       assert.equal(check?.lastRunAt, "2026-07-06");
     } finally {
       await rm(directory, { force: true, recursive: true });
@@ -119,6 +122,35 @@ describe("hosted MCP evidence recorder", () => {
       const check = matrix.hostedReadiness.checks.find((entry) => entry.id === "hosted-dynamic-client-registration");
 
       assert.equal(check?.status, "pending");
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  it("rejects hosted data-backed passes without search and fetch evidence", async () => {
+    const { directory, path } = await writeMatrixCopy("reject-stale-data-backed-evidence");
+
+    try {
+      const result = runRecorder([
+        "--matrix",
+        path,
+        "--check",
+        "hosted-data-backed-anonymous-read",
+        "--status",
+        "pass",
+        "--target-environment",
+        "production-like staging https://staging.vrdex.net/mcp",
+        "--environment",
+        "GitHub Actions / hosted MCP smoke",
+        "--evidence",
+        "corepack pnpm smoke:mcp-compat passed hosted data-backed anonymous vrdex_search and search only",
+      ]);
+
+      assert.notEqual(result.status, 0);
+      assert.match(
+        result.stderr,
+        /--evidence for hosted-data-backed-anonymous-read pass must mention fetch evidence/,
+      );
     } finally {
       await rm(directory, { force: true, recursive: true });
     }

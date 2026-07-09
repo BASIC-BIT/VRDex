@@ -199,7 +199,7 @@ describe("MCP client smoke session pack", () => {
       );
 
       assert.match(openAiAnonymousEvidence, /Matrix row: openai-chatgpt\/hosted-anonymous-read/);
-      assert.match(openAiAnonymousEvidence, /pnpm smoke:mcp-openai -- --hosted-url https:\/\/staging\.vrdex\.net\/mcp --hosted-data/);
+      assert.match(openAiAnonymousEvidence, /pnpm smoke:mcp-openai -- --hosted-url https:\/\/staging\.vrdex\.net\/mcp --hosted-data --hosted-query "club"/);
       assert.match(openAiAnonymousEvidence, /repo-root \.env\.local/);
       assert.match(openAiAnonymousEvidence, /OpenAI Responses API or ChatGPT hosted MCP surface/);
       assert.match(openAiAnonymousEvidence, /anonymous\/no-auth tools/);

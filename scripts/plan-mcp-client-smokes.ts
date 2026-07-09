@@ -47,6 +47,7 @@ type SmokeMatrix = {
 type Options = {
   checkId?: string;
   clientId?: string;
+  hostedQuery: string;
   hostedUrl?: string;
   includePassed: boolean;
   matrixPath: string;
@@ -92,6 +93,7 @@ function takeValue(args: string[], index: number, name: string) {
 
 function parseArgs(argv: string[]): Options {
   const options: Options = {
+    hostedQuery: nonEmpty(process.env.VRDEX_MCP_SMOKE_QUERY) ?? "club",
     hostedUrl: nonEmpty(process.env.VRDEX_MCP_SMOKE_URL),
     includePassed: false,
     matrixPath: process.env.VRDEX_MCP_CLIENT_MATRIX_PATH?.trim() || defaultMatrixPath,
@@ -116,6 +118,10 @@ function parseArgs(argv: string[]): Options {
         options.hostedUrl = takeValue(argv, index, arg);
         index += 1;
         break;
+      case "--hosted-query":
+        options.hostedQuery = takeValue(argv, index, arg);
+        index += 1;
+        break;
       case "--include-passed":
         options.includePassed = true;
         break;
@@ -130,6 +136,8 @@ function parseArgs(argv: string[]): Options {
         throw new Error(`Unknown option: ${arg}`);
     }
   }
+
+  assert.ok(nonEmpty(options.hostedQuery), "--hosted-query or VRDEX_MCP_SMOKE_QUERY must not be empty.");
 
   return options;
 }
@@ -148,6 +156,18 @@ function inlineCode(value: string) {
 
 function jsonInline(value: unknown) {
   return JSON.stringify(value).replaceAll("`", "\\`");
+}
+
+function commandArg(value: string) {
+  return JSON.stringify(value);
+}
+
+function hostedDataArgs(options: Options) {
+  return `--hosted-data --hosted-query ${commandArg(options.hostedQuery)}`;
+}
+
+function inspectorHostedDataArgs(options: Options) {
+  return `--hosted-data --query ${commandArg(options.hostedQuery)}`;
 }
 
 function psEscapedJsonAssignment(value: unknown) {
@@ -223,15 +243,15 @@ function repoPreflightCommand(client: ClientEntry, check: SmokeCheck, options: O
   }
 
   if (client.id === "claude-code" && check.id === "hosted-anonymous-read") {
-    return `pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url ${target} --hosted-data`;
+    return `pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url ${target} ${hostedDataArgs(options)}`;
   }
 
   if (client.id === "claude-code" && check.id === "hosted-oauth") {
-    return `VRDEX_CLAUDE_CODE_OAUTH_CLIENT_ID=<reviewed-client-id> VRDEX_CLAUDE_CODE_OAUTH_CLIENT_SECRET=<secret> pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url ${target} --hosted-data`;
+    return `VRDEX_CLAUDE_CODE_OAUTH_CLIENT_ID=<reviewed-client-id> VRDEX_CLAUDE_CODE_OAUTH_CLIENT_SECRET=<secret> pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url ${target} ${hostedDataArgs(options)}`;
   }
 
   if (client.id === "mcp-inspector" && check.id === "hosted-anonymous-read") {
-    return `pnpm smoke:mcp-inspector -- --hosted-url ${target} --hosted-data`;
+    return `pnpm smoke:mcp-inspector -- --hosted-url ${target} ${inspectorHostedDataArgs(options)}`;
   }
 
   if (client.id === "gemini-cli" && check.id === "local-stdio") {
@@ -239,15 +259,15 @@ function repoPreflightCommand(client: ClientEntry, check: SmokeCheck, options: O
   }
 
   if (client.id === "gemini-cli" && check.id === "hosted-anonymous-read") {
-    return `pnpm smoke:mcp-gemini-cli -- --mode hosted-http --hosted-url ${target} --hosted-data`;
+    return `pnpm smoke:mcp-gemini-cli -- --mode hosted-http --hosted-url ${target} ${hostedDataArgs(options)}`;
   }
 
   if (client.id === "gemini-cli" && check.id === "hosted-oauth") {
-    return `VRDEX_GEMINI_CLI_OAUTH_TOKEN=<mcp-resource-token> pnpm smoke:mcp-gemini-cli -- --mode hosted-http --hosted-url ${target} --hosted-data`;
+    return `VRDEX_GEMINI_CLI_OAUTH_TOKEN=<mcp-resource-token> pnpm smoke:mcp-gemini-cli -- --mode hosted-http --hosted-url ${target} ${hostedDataArgs(options)}`;
   }
 
   if (client.id === "openai-chatgpt" && check.id === "hosted-anonymous-read") {
-    return `pnpm smoke:mcp-openai -- --hosted-url ${target} --hosted-data`;
+    return `pnpm smoke:mcp-openai -- --hosted-url ${target} ${hostedDataArgs(options)}`;
   }
 
   if (check.id === "local-stdio") {
@@ -255,11 +275,11 @@ function repoPreflightCommand(client: ClientEntry, check: SmokeCheck, options: O
   }
 
   if (check.id === "hosted-anonymous-read") {
-    return `pnpm smoke:mcp-compat -- --hosted-url ${target} --hosted-data`;
+    return `pnpm smoke:mcp-compat -- --hosted-url ${target} ${hostedDataArgs(options)}`;
   }
 
   if (check.id === "hosted-oauth") {
-    return `pnpm smoke:mcp-compat -- --hosted-url ${target} --hosted-data --dcr --cimd`;
+    return `pnpm smoke:mcp-compat -- --hosted-url ${target} ${hostedDataArgs(options)} --dcr --cimd`;
   }
 
   return "pnpm check:mcp-client-matrix";
@@ -313,7 +333,7 @@ function setupHint(client: ClientEntry, check: SmokeCheck, options: Options) {
   const target = hostedTarget(options);
 
   if (client.id === "claude-code" && check.id === "hosted-oauth") {
-    return `Set VRDEX_CLAUDE_CODE_OAUTH_CLIENT_ID and VRDEX_CLAUDE_CODE_OAUTH_CLIENT_SECRET for a reviewed client-credentials app, then run pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url ${target} --hosted-data. As a fallback, set VRDEX_CLAUDE_CODE_OAUTH_TOKEN to a pre-minted MCP-resource token. For an interactive client-session check, use claude mcp add --transport http --callback-port 8765 vrdex ${target} followed by claude mcp login vrdex.`;
+    return `Set VRDEX_CLAUDE_CODE_OAUTH_CLIENT_ID and VRDEX_CLAUDE_CODE_OAUTH_CLIENT_SECRET for a reviewed client-credentials app, then run pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url ${target} ${hostedDataArgs(options)}. As a fallback, set VRDEX_CLAUDE_CODE_OAUTH_TOKEN to a pre-minted MCP-resource token. For an interactive client-session check, use claude mcp add --transport http --callback-port 8765 vrdex ${target} followed by claude mcp login vrdex.`;
   }
 
   if (client.id === "vscode" && check.id === "local-stdio") {
@@ -376,7 +396,7 @@ function setupHint(client: ClientEntry, check: SmokeCheck, options: Options) {
   }
 
   if (client.id === "openai-chatgpt" && check.id === "hosted-anonymous-read") {
-    return `With OPENAI_API_KEY in process env or repo-root .env.local, run pnpm smoke:mcp-openai -- --hosted-url ${target} --hosted-data for Responses API remote MCP search/fetch integration evidence; record ChatGPT Apps/Connectors UI evidence separately when product-surface behavior matters.`;
+    return `With OPENAI_API_KEY in process env or repo-root .env.local, run pnpm smoke:mcp-openai -- --hosted-url ${target} ${hostedDataArgs(options)} for Responses API remote MCP search/fetch integration evidence; record ChatGPT Apps/Connectors UI evidence separately when product-surface behavior matters.`;
   }
 
   if (client.id === "openai-chatgpt" && check.id === "hosted-oauth") {
@@ -384,7 +404,7 @@ function setupHint(client: ClientEntry, check: SmokeCheck, options: Options) {
   }
 
   if (client.id === "mcp-inspector" && check.id === "hosted-oauth") {
-    return `Set VRDEX_MCP_INSPECTOR_OAUTH_CLIENT_ID and VRDEX_MCP_INSPECTOR_OAUTH_CLIENT_SECRET for a reviewed client-credentials app, then run pnpm smoke:mcp-inspector -- --hosted-url ${target} --hosted-data. As a fallback, set VRDEX_MCP_INSPECTOR_OAUTH_TOKEN to a pre-minted MCP-resource token. Pair with pnpm smoke:mcp-compat -- --hosted-only --hosted-url ${target} --hosted-data --dcr --cimd for DCR/CIMD evidence.`;
+    return `Set VRDEX_MCP_INSPECTOR_OAUTH_CLIENT_ID and VRDEX_MCP_INSPECTOR_OAUTH_CLIENT_SECRET for a reviewed client-credentials app, then run pnpm smoke:mcp-inspector -- --hosted-url ${target} ${inspectorHostedDataArgs(options)}. As a fallback, set VRDEX_MCP_INSPECTOR_OAUTH_TOKEN to a pre-minted MCP-resource token. Pair with pnpm smoke:mcp-compat -- --hosted-only --hosted-url ${target} ${hostedDataArgs(options)} --dcr --cimd for DCR/CIMD evidence.`;
   }
 
   if (client.id === "gemini-cli" && check.id === "local-stdio") {
@@ -392,11 +412,11 @@ function setupHint(client: ClientEntry, check: SmokeCheck, options: Options) {
   }
 
   if (client.id === "gemini-cli" && check.id === "hosted-anonymous-read") {
-    return `Run pnpm smoke:mcp-gemini-cli -- --mode hosted-http --hosted-url ${target} --hosted-data with an installed Gemini CLI and Google auth. If Gemini CLI is not installed, add --gemini-package @google/gemini-cli@latest. Interactive fallback: add ${jsonInline({ mcpServers: { vrdex: { httpUrl: target } } })} to Gemini CLI settings.json, then run /mcp and call vrdex_search without /mcp auth.`;
+    return `Run pnpm smoke:mcp-gemini-cli -- --mode hosted-http --hosted-url ${target} ${hostedDataArgs(options)} with an installed Gemini CLI and Google auth. If Gemini CLI is not installed, add --gemini-package @google/gemini-cli@latest. Interactive fallback: add ${jsonInline({ mcpServers: { vrdex: { httpUrl: target } } })} to Gemini CLI settings.json, then run /mcp and call vrdex_search without /mcp auth.`;
   }
 
   if (client.id === "gemini-cli" && check.id === "hosted-oauth") {
-    return `Prefer Gemini CLI native OAuth discovery first with ${jsonInline({ mcpServers: { vrdex: { httpUrl: target } } })} and /mcp auth vrdex. For repeatable fallback evidence, set VRDEX_GEMINI_CLI_OAUTH_TOKEN or reviewed OAuth client credentials, then run pnpm smoke:mcp-gemini-cli -- --mode hosted-http --hosted-url ${target} --hosted-data. Add --gemini-package @google/gemini-cli@latest if Gemini CLI is not installed.`;
+    return `Prefer Gemini CLI native OAuth discovery first with ${jsonInline({ mcpServers: { vrdex: { httpUrl: target } } })} and /mcp auth vrdex. For repeatable fallback evidence, set VRDEX_GEMINI_CLI_OAUTH_TOKEN or reviewed OAuth client credentials, then run pnpm smoke:mcp-gemini-cli -- --mode hosted-http --hosted-url ${target} ${hostedDataArgs(options)}. Add --gemini-package @google/gemini-cli@latest if Gemini CLI is not installed.`;
   }
 
   return "Use the docs matrix row to configure the current client release, then record exact evidence.";
@@ -628,7 +648,7 @@ function hostedReadinessCommand(check: HostedReadinessCheck, options: Options) {
 
   switch (check.id) {
     case "hosted-data-backed-anonymous-read":
-      return `${base} --hosted-data`;
+      return `${base} ${hostedDataArgs(options)}`;
     case "hosted-dynamic-client-registration":
       return `${base} --dcr`;
     case "hosted-client-id-metadata-document":

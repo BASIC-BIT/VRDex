@@ -42,6 +42,7 @@ const pendingHostedEvidencePattern = /\b(pending|need|needs|lack|lacks|skipped|u
 const placeholderPattern = /<[^>]+>/;
 const sensitiveEvidencePattern =
   /\b(authorization\s*:\s*bearer|bearer\s+[a-z0-9._~+/-]{12,}|client_secret\s*[=:]|vrdex_(?:api|mcp)?_?token\s*[=:]|secret\s*[=:]\s*[a-z0-9._~+/-]{12,}|eyJ[a-z0-9_-]{10,}\.[a-z0-9_-]{10,}\.[a-z0-9_-]{10,})\b/i;
+const hostedDataBackedEvidenceTerms = ["vrdex_search", "search", "fetch"];
 const knownHostedChecks = new Set([
   "hosted-data-backed-anonymous-read",
   "hosted-dynamic-client-registration",
@@ -65,6 +66,16 @@ function assertConcreteValue(value: string, label: string) {
 function assertSanitizedEvidence(value: string, label: string) {
   assertConcreteValue(value, label);
   assert.doesNotMatch(value, sensitiveEvidencePattern, `${label} appears to contain a token, secret, or authorization header.`);
+}
+
+function assertHostedDataBackedEvidence(value: string, label: string) {
+  for (const term of hostedDataBackedEvidenceTerms) {
+    assert.match(
+      value,
+      new RegExp(`\\b${term}\\b`, "i"),
+      `${label} must mention ${term} evidence from the hosted data-backed smoke.`,
+    );
+  }
 }
 
 function takeValue(args: string[], index: number, name: string) {
@@ -182,6 +193,13 @@ function validateStatusUpdate(options: RecordOptions) {
       pendingHostedEvidencePattern,
       "--target-environment for a hosted pass must not describe pending, skipped, unavailable, or non-data-backed evidence.",
     );
+
+    if (options.checkId === "hosted-data-backed-anonymous-read") {
+      assertHostedDataBackedEvidence(
+        options.evidence ?? "",
+        "--evidence for hosted-data-backed-anonymous-read pass",
+      );
+    }
   }
 }
 

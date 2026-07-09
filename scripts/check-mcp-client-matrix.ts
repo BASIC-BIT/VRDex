@@ -82,6 +82,7 @@ const pendingHostedEvidencePattern = /\b(pending|need|needs|lack|lacks|skipped|u
 const placeholderPattern = /<[^>]+>/;
 const sensitiveEvidencePattern =
   /\b(authorization\s*:\s*bearer|bearer\s+[a-z0-9._~+/-]{12,}|client_secret\s*[=:]|vrdex_(?:api|mcp)?_?token\s*[=:]|secret\s*[=:]\s*[a-z0-9._~+/-]{12,}|eyJ[a-z0-9_-]{10,}\.[a-z0-9_-]{10,}\.[a-z0-9_-]{10,})\b/i;
+const hostedDataBackedEvidenceTerms = ["vrdex_search", "search", "fetch"];
 const requiredHostedReadinessChecks = new Map<string, string>([
   ["hosted-data-backed-anonymous-read", "data-backed anonymous hosted MCP public read"],
   ["hosted-dynamic-client-registration", "hosted OAuth Dynamic Client Registration"],
@@ -132,6 +133,16 @@ function assertConcreteValue(value: string, label: string) {
 function assertSanitizedEvidence(value: string, label: string) {
   assertConcreteValue(value, label);
   assert.doesNotMatch(value, sensitiveEvidencePattern, `${label} appears to contain a token, secret, or authorization header`);
+}
+
+function assertHostedDataBackedEvidence(value: string, label: string) {
+  for (const term of hostedDataBackedEvidenceTerms) {
+    assert.match(
+      value,
+      new RegExp(`\\b${term}\\b`, "i"),
+      `${label} must mention ${term} evidence from the hosted data-backed smoke`,
+    );
+  }
 }
 
 function parseSmokeMatrix(raw: string): SmokeMatrix {
@@ -275,6 +286,10 @@ function validateHostedReadinessCheck(check: HostedReadinessCheck, matrix: Smoke
     assertString(check.evidence, `hostedReadiness/${check.id} evidence`);
     assertConcreteValue(check.environment, `hostedReadiness/${check.id} environment`);
     assertSanitizedEvidence(check.evidence, `hostedReadiness/${check.id} evidence`);
+  }
+
+  if (check.id === "hosted-data-backed-anonymous-read" && check.status === "pass") {
+    assertHostedDataBackedEvidence(check.evidence ?? "", `hostedReadiness/${check.id} evidence`);
   }
 
   if (check.status === "pass" && check.requiredForExternalReadiness) {

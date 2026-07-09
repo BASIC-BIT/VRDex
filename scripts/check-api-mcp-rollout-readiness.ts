@@ -142,6 +142,7 @@ const hostedEvidenceTargetPattern = /\b(same-branch|production-like|staging|prod
 const pendingHostedEvidencePattern = /\b(pending|need|needs|lack|lacks|skipped|unavailable|not deployed|without data-backed)\b/i;
 const sensitiveEvidencePattern =
   /\b(authorization\s*:\s*bearer|bearer\s+[a-z0-9._~+/-]{12,}|client_secret\s*[=:]|vrdex_(?:api|mcp)?_?token\s*[=:]|secret\s*[=:]\s*[a-z0-9._~+/-]{12,}|eyJ[a-z0-9_-]{10,}\.[a-z0-9_-]{10,}\.[a-z0-9_-]{10,})\b/i;
+const hostedDataBackedEvidenceTerms = ["vrdex_search", "search", "fetch"];
 const requiredHostedReadinessChecks = new Map<string, string>([
   ["hosted-data-backed-anonymous-read", "data-backed anonymous hosted MCP public read"],
   ["hosted-dynamic-client-registration", "hosted OAuth Dynamic Client Registration"],
@@ -186,6 +187,18 @@ function check(name: string, status: ReadinessCheck["status"], details: string, 
 function assertSanitizedEvidence(value: string | undefined, label: string) {
   assert.equal(typeof value, "string", `${label} must be present before recording pass or fail evidence.`);
   assert.doesNotMatch(value, sensitiveEvidencePattern, `${label} appears to contain a token, secret, or authorization header.`);
+}
+
+function assertHostedDataBackedEvidence(value: string | undefined, label: string) {
+  assert.equal(typeof value, "string", `${label} must be present before recording pass evidence.`);
+
+  for (const term of hostedDataBackedEvidenceTerms) {
+    assert.match(
+      value,
+      new RegExp(`\\b${term}\\b`, "i"),
+      `${label} must mention ${term} evidence from the hosted data-backed smoke`,
+    );
+  }
 }
 
 async function pathExists(path: string) {
@@ -304,6 +317,13 @@ async function checkHostedReadinessMode() {
 
     if (hostedCheck.status === "pass" || hostedCheck.status === "fail") {
       assertSanitizedEvidence(
+        hostedCheck.evidence,
+        `hostedReadiness/${hostedCheck.id} evidence`,
+      );
+    }
+
+    if (hostedCheck.id === "hosted-data-backed-anonymous-read" && hostedCheck.status === "pass") {
+      assertHostedDataBackedEvidence(
         hostedCheck.evidence,
         `hostedReadiness/${hostedCheck.id} evidence`,
       );

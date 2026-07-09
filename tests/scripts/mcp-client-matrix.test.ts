@@ -102,7 +102,7 @@ function markHostedReadinessPass(matrix: SmokeMatrix, checkId: string) {
 
   check.status = "pass";
   check.environment = "GitHub Actions / deployed hosted MCP smoke";
-  check.evidence = "sanitized hosted smoke workflow evidence";
+  check.evidence = "sanitized hosted smoke evidence: vrdex_search returned data, search returned an id, and fetch returned document text";
   check.lastRunAt = "2026-07-06";
 }
 
@@ -212,6 +212,30 @@ describe("MCP client matrix verifier", () => {
 
       assert.notEqual(result.status, 0);
       assert.match(result.stderr, /hostedReadiness\/hosted-data-backed-anonymous-read evidence must be concrete/);
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  it("rejects stale hosted data-backed readiness passes without search and fetch evidence", async () => {
+    const { directory, path } = await writeMatrixCopy("stale-hosted-data-evidence", (matrix) => {
+      resetHostedClientPasses(matrix);
+      matrix.targetEnvironment = "production-like staging https://staging.vrdex.net/mcp";
+      markHostedReadinessPass(matrix, "hosted-data-backed-anonymous-read");
+      const check = matrix.hostedReadiness?.checks.find((entry) => entry.id === "hosted-data-backed-anonymous-read");
+
+      assert.ok(check);
+      check.evidence = "corepack pnpm smoke:mcp-compat passed hosted data-backed anonymous vrdex_search and search only";
+    });
+
+    try {
+      const result = runMatrixCheck(path);
+
+      assert.notEqual(result.status, 0);
+      assert.match(
+        result.stderr,
+        /hostedReadiness\/hosted-data-backed-anonymous-read evidence must mention fetch evidence/,
+      );
     } finally {
       await rm(directory, { force: true, recursive: true });
     }

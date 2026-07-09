@@ -128,7 +128,10 @@ one PR.
   Record the production-like hosted-readiness rows with
   `pnpm record:mcp-hosted-evidence` so the aggregate readiness gate can verify
   data-backed anonymous reads, Dynamic Client Registration, and Client ID
-  Metadata Document evidence separately from client UI smoke rows.
+  Metadata Document evidence separately from client UI smoke rows. A
+  `hosted-data-backed-anonymous-read` pass must include the stricter
+  `--hosted-data` evidence shape: `vrdex_search`, OpenAI-compatible `search`,
+  and `fetch` document text from the same target.
 - `docs/developers/mcp-client-compatibility.md` lists the current major-client
   matrix and must have manual smoke results before external readiness is
   declared. Record those manual rows with `pnpm record:mcp-client-smoke` so
@@ -296,7 +299,7 @@ pnpm record:mcp-hosted-evidence -- \
   --status pass \
   --target-environment "<same-branch Convex preview / staging / production-like target>" \
   --environment "<runner / target>" \
-  --evidence "<sanitized workflow link or command output>"
+  --evidence "<sanitized workflow link showing vrdex_search plus search and fetch>"
 ```
 
 ## Validation Commands
@@ -313,8 +316,8 @@ pnpm test:scripts
 pnpm smoke:mcp-compat
 pnpm check:mcp-client-matrix
 pnpm ops:mcp-installed-clients
-pnpm ops:mcp-client-smokes
-pnpm ops:mcp-client-session-pack -- --hosted-url <preview-or-production-like-/mcp-url>
+pnpm ops:mcp-client-smokes -- --hosted-url <preview-or-production-like-/mcp-url> --hosted-query <known-public-query>
+pnpm ops:mcp-client-session-pack -- --hosted-url <preview-or-production-like-/mcp-url> --hosted-query <known-public-query>
 pnpm ops:mcp-add-mcp-preflight -- --hosted-url <preview-or-production-like-/mcp-url>
 VRDEX_E2E_BROWSER_TOKEN=<browser-token> pnpm ops:mcp-oauth-smoke-credentials -- --base-url <production-like-origin>
 pnpm ops:mcp-hosted-oauth-prereqs
@@ -322,10 +325,10 @@ pnpm ops:api-platform-observability
 pnpm check:api-mcp-rollout
 pnpm smoke:mcp-compat -- --hosted-only --hosted-url <preview-or-production-like-/mcp-url>
 pnpm smoke:mcp-compat -- --hosted-only --hosted-url <production-like-/mcp-url> --hosted-data --hosted-query <known-public-query> --dcr --cimd --continue-on-failure
-VRDEX_MCP_OAUTH_CLIENT_ID=<reviewed-client-id> VRDEX_MCP_OAUTH_CLIENT_SECRET=<client-secret> pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url <production-like-/mcp-url> --hosted-data
+VRDEX_MCP_OAUTH_CLIENT_ID=<reviewed-client-id> VRDEX_MCP_OAUTH_CLIENT_SECRET=<client-secret> pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url <production-like-/mcp-url> --hosted-data --hosted-query <known-public-query>
 pnpm smoke:mcp-inspector -- --hosted-url <preview-or-production-like-/mcp-url>
-VRDEX_MCP_OAUTH_CLIENT_ID=<reviewed-client-id> VRDEX_MCP_OAUTH_CLIENT_SECRET=<client-secret> pnpm smoke:mcp-inspector -- --hosted-url <production-like-/mcp-url> --hosted-data
-pnpm smoke:mcp-openai -- --hosted-url <production-like-/mcp-url> --hosted-data
+VRDEX_MCP_OAUTH_CLIENT_ID=<reviewed-client-id> VRDEX_MCP_OAUTH_CLIENT_SECRET=<client-secret> pnpm smoke:mcp-inspector -- --hosted-url <production-like-/mcp-url> --hosted-data --query <known-public-query>
+pnpm smoke:mcp-openai -- --hosted-url <production-like-/mcp-url> --hosted-data --hosted-query <known-public-query>
 gh workflow run deployed-health.yml --ref <branch> -f target=hosted-mcp-smoke -f base_url=<production-like-/mcp-url> -f mcp_data=true -f mcp_dcr=true -f mcp_cimd=true -f mcp_oauth=true
 pnpm typecheck:backend
 pnpm test:backend

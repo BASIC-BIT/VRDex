@@ -312,7 +312,8 @@ manual client sessions:
 
 ```sh
 pnpm ops:mcp-client-smokes -- \
-  --hosted-url https://staging.vrdex.net/mcp
+  --hosted-url https://staging.vrdex.net/mcp \
+  --hosted-query a
 ```
 
 The planner prints every open required row, the repo preflight command to
@@ -369,7 +370,8 @@ credentials:
 
 ```sh
 pnpm ops:mcp-client-session-pack -- \
-  --hosted-url https://staging.vrdex.net/mcp
+  --hosted-url https://staging.vrdex.net/mcp \
+  --hosted-query a
 ```
 
 The pack is written to `.tmp-gh-artifacts/mcp-client-smoke-session/` by
@@ -467,7 +469,10 @@ a same-branch Convex preview, staging, production-like, or production target.
 The recorder and matrix verifier reject hosted pass rows that still describe
 pending, skipped, unavailable, or non-data-backed evidence. This keeps
 lightweight PR preview transport smokes separate from external-readiness
-evidence, even if the JSON artifact is hand-edited.
+evidence, even if the JSON artifact is hand-edited. The
+`hosted-data-backed-anonymous-read` pass row must also mention the stricter
+`--hosted-data` evidence shape: anonymous `vrdex_search`,
+OpenAI-compatible `search`, and `fetch` document text from the same target.
 
 Record the top-level hosted MCP production-like evidence rows with
 `pnpm record:mcp-hosted-evidence` after the corresponding hosted smoke passes:
@@ -478,7 +483,7 @@ pnpm record:mcp-hosted-evidence -- \
   --status pass \
   --target-environment "production-like staging https://vrdex.net/mcp" \
   --environment "GitHub Actions / hosted-mcp-smoke" \
-  --evidence "sanitized workflow link or command output"
+  --evidence "sanitized workflow link showing vrdex_search plus search and fetch"
 ```
 
 The required hosted evidence rows are:
@@ -487,13 +492,15 @@ The required hosted evidence rows are:
 - `hosted-dynamic-client-registration`
 - `hosted-client-id-metadata-document`
 
-Current PR #159 status: all three hosted evidence rows are recorded as `pass`
-against `https://staging.vrdex.net/mcp`. The 2026-07-09 local hosted-only
-smoke refreshed data-backed public reads, constrained Dynamic Client
-Registration, and public-client Client ID Metadata Document authorization
-against the staging target. Hosted OAuth client-specific rows remain pending
-until reviewed smoke credentials, token fallbacks, or hosted developer
-credential generation are configured and a matching client smoke is recorded.
+Current PR #159 status: the hosted data-backed anonymous-read row is recorded
+as `fail` after the stricter `--hosted-data` smoke. The 2026-07-09 staging
+target now fails `/mcp` initialize with HTTP 404, while the PR preview exposes
+`search`/`fetch` aliases but still lacks data-backed public search. Prior
+staging evidence for constrained Dynamic Client Registration and public-client
+Client ID Metadata Document authorization remains recorded separately. Hosted
+OAuth client-specific rows remain pending until reviewed smoke credentials,
+token fallbacks, or hosted developer credential generation are configured and a
+matching client smoke is recorded.
 
 The `deployed-health.yml` `hosted-mcp-smoke` workflow can additionally run the
 Inspector hosted OAuth smoke when dispatched with `mcp_oauth=true`. It prefers
@@ -609,10 +616,10 @@ unauthenticated sign-in redirect after metadata validation succeeds.
 
 The equivalent environment variables remain supported for CI:
 `VRDEX_MCP_SMOKE_URL`, `VRDEX_MCP_SMOKE_DATA`, `VRDEX_MCP_SMOKE_DCR`,
-`VRDEX_MCP_SMOKE_CIMD`, and `VRDEX_MCP_SMOKE_CONTINUE_ON_FAILURE`. Set
-`VRDEX_MCP_SMOKE_TOKEN` only for a local terminal run when you want to test an
-authenticated hosted tool list. Do not commit real tokens or smoke output
-containing credentials.
+`VRDEX_MCP_SMOKE_QUERY`, `VRDEX_MCP_SMOKE_CIMD`, and
+`VRDEX_MCP_SMOKE_CONTINUE_ON_FAILURE`. Set `VRDEX_MCP_SMOKE_TOKEN` only for a
+local terminal run when you want to test an authenticated hosted tool list. Do
+not commit real tokens or smoke output containing credentials.
 
 GitHub also has a manual `Deployed Health Checks` workflow target named
 `hosted-mcp-smoke` for production-like or same-branch Convex preview targets.
@@ -747,7 +754,8 @@ Start by generating the current plan:
 
 ```sh
 pnpm ops:mcp-client-smokes -- \
-  --hosted-url <preview-or-production-like-/mcp-url>
+  --hosted-url <preview-or-production-like-/mcp-url> \
+  --hosted-query <known-public-query>
 ```
 
 0. Run `pnpm smoke:mcp-compat`; for hosted protocol coverage, add

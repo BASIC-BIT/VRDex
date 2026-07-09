@@ -24,6 +24,14 @@ docs update and a changelog entry so early consumers and agents can adapt.
   `search` result that can be passed to `fetch`; added `--hosted-query` /
   `VRDEX_MCP_SMOKE_QUERY` for targets whose public seed data needs a known
   non-empty query
+- tightened hosted MCP evidence recording and rollout validation so
+  `hosted-data-backed-anonymous-read` cannot be marked `pass` unless the
+  sanitized evidence mentions `vrdex_search`, `search`, and `fetch` coverage
+  from the same hosted data-backed smoke
+- extended `pnpm ops:mcp-client-smokes` and
+  `pnpm ops:mcp-client-session-pack` with `--hosted-query` /
+  `VRDEX_MCP_SMOKE_QUERY` so generated real-client smoke commands can target a
+  known non-empty public search fixture
 - added generated `docs/api/openapi.yaml` alongside `docs/api/openapi.json`;
   both artifacts are emitted from the shared API contract package, served under
   `/api/v0/openapi.{json,yaml}`, and covered by `pnpm check:api-openapi` drift
@@ -64,12 +72,12 @@ docs update and a changelog entry so early consumers and agents can adapt.
 - extended the generated `mcp-client-session-pack` README with the same
   Open Blocker Summary so uploaded PR artifacts are directly usable for
   operator smoke-session batching
-- refreshed the production-like hosted MCP evidence rows with a 2026-07-09
-  staging `pnpm smoke:mcp-compat -- --hosted-only --hosted-data --dcr --cimd`
-  run against `https://staging.vrdex.net/mcp`, covering data-backed anonymous
-  reads, Dynamic Client Registration, and public-client Client ID Metadata
-  Document behavior while hosted OAuth evidence remains gated by missing
-  reviewed smoke credentials or developer-credential helpers
+- refreshed the production-like hosted MCP evidence rows with 2026-07-09
+  staging checks: prior evidence covers Dynamic Client Registration and
+  public-client Client ID Metadata Document behavior, while the data-backed
+  anonymous-read row is now recorded as failed because staging `/mcp` initialize
+  returns HTTP 404 and the PR preview lacks data-backed public `search`/`fetch`
+  results
 - extended `pnpm ops:mcp-installed-clients` with informational CLI automation
   notes so VS Code `chat`, Cursor `--chat`/`agent`, and Windsurf setup-only
   surfaces are clearly treated as manual-only evidence paths unless the real

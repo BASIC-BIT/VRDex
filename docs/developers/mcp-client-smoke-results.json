@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
   "lastReviewed": "2026-07-09",
-  "readinessMode": "repo-protocol-smoked-hosted-staging-data-backed-client-smokes-open",
+  "readinessMode": "repo-protocol-smoked-hosted-data-backed-aliases-failing-client-smokes-open",
   "targetEnvironment": "staging https://staging.vrdex.net/mcp plus PR preview https://vr-dex-web-git-codex-public-api-mcp-planning-basicbit.vercel.app/mcp",
   "hostedReadiness": {
     "checks": [
       {
         "id": "hosted-data-backed-anonymous-read",
         "requiredForExternalReadiness": true,
-        "status": "pass",
-        "notes": "2026-07-09: refreshed staging target evidence at https://staging.vrdex.net/mcp from a local hosted-only smoke. Hosted OAuth client-specific evidence remains gated until reviewed smoke credentials, token fallbacks, or hosted developer credential generation are configured.",
-        "environment": "Windows local smoke / staging https://staging.vrdex.net/mcp",
-        "evidence": "corepack pnpm smoke:mcp-compat -- --hosted-only --hosted-url https://staging.vrdex.net/mcp --hosted-data --dcr --cimd --continue-on-failure passed hosted data-backed anonymous vrdex_search on 2026-07-09",
+        "status": "fail",
+        "notes": "2026-07-09: stricter hosted data-backed readiness now requires both anonymous vrdex_search and OpenAI-compatible search/fetch aliases to return real public data. Staging no longer initializes /mcp, and the PR preview exposes search/fetch but still lacks data-backed public search, so this row remains failed until one production-like target proves all three calls.",
+        "environment": "Windows local smoke / staging https://staging.vrdex.net/mcp plus PR preview https://vr-dex-web-git-codex-public-api-mcp-planning-basicbit.vercel.app/mcp",
+        "evidence": "corepack pnpm smoke:mcp-compat -- --hosted-only --hosted-url https://staging.vrdex.net/mcp --hosted-data --hosted-query a --dcr --cimd --continue-on-failure failed Hosted initialize with HTTP 404 on 2026-07-09; PR preview target exposes search/fetch aliases but search returned VRDex public data is temporarily unavailable for search before fetch could run",
         "lastRunAt": "2026-07-09"
       },
       {

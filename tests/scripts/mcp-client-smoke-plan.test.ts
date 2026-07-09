@@ -74,6 +74,8 @@ describe("MCP client smoke planner", () => {
     const result = runPlan([
       "--hosted-url",
       "https://staging.vrdex.net/mcp",
+      "--hosted-query",
+      "a",
       "--client",
       "openai-chatgpt",
       "--check",
@@ -81,7 +83,7 @@ describe("MCP client smoke planner", () => {
     ]);
 
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /pnpm smoke:mcp-openai -- --hosted-url https:\/\/staging\.vrdex\.net\/mcp --hosted-data/);
+    assert.match(result.stdout, /pnpm smoke:mcp-openai -- --hosted-url https:\/\/staging\.vrdex\.net\/mcp --hosted-data --hosted-query "a"/);
     assert.doesNotMatch(result.stdout, /OPENAI_API_KEY=<api-key>/);
     assert.match(result.stdout, /OPENAI_API_KEY in process env or repo-root \.env\.local/);
     assert.match(result.stdout, /Responses API remote MCP search\/fetch integration evidence/);
@@ -140,7 +142,7 @@ describe("MCP client smoke planner", () => {
     assert.match(result.stdout, /VRDEX_MCP_INSPECTOR_OAUTH_CLIENT_SECRET/);
     assert.match(result.stdout, /VRDEX_MCP_INSPECTOR_OAUTH_TOKEN/);
     assert.match(result.stdout, /pnpm smoke:mcp-inspector -- --hosted-url https:\/\/staging\.vrdex\.net\/mcp --hosted-data/);
-    assert.match(result.stdout, /pnpm smoke:mcp-compat -- --hosted-only --hosted-url https:\/\/staging\.vrdex\.net\/mcp --hosted-data --dcr --cimd/);
+    assert.match(result.stdout, /pnpm smoke:mcp-compat -- --hosted-only --hosted-url https:\/\/staging\.vrdex\.net\/mcp --hosted-data --hosted-query "club" --dcr --cimd/);
     assert.match(result.stdout, /ops:mcp-hosted-oauth-prereqs/);
   });
 });

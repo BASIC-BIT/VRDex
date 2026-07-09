@@ -10,6 +10,7 @@ type Client = {
 };
 
 type Options = {
+  hostedQuery: string;
   hostedUrl?: string;
   matrixPath: string;
   outputDir: string;
@@ -110,6 +111,7 @@ function takeValue(args: string[], index: number, name: string) {
 
 function parseArgs(argv: string[]): Options {
   const options: Options = {
+    hostedQuery: nonEmpty(process.env.VRDEX_MCP_SMOKE_QUERY) ?? "club",
     hostedUrl: nonEmpty(process.env.VRDEX_MCP_SMOKE_URL),
     matrixPath: process.env.VRDEX_MCP_CLIENT_MATRIX_PATH?.trim()
       || "docs/developers/mcp-client-smoke-results.json",
@@ -126,6 +128,10 @@ function parseArgs(argv: string[]): Options {
         break;
       case "--hosted-url":
         options.hostedUrl = takeValue(argv, index, arg);
+        index += 1;
+        break;
+      case "--hosted-query":
+        options.hostedQuery = takeValue(argv, index, arg);
         index += 1;
         break;
       case "--matrix":
@@ -150,6 +156,7 @@ function parseArgs(argv: string[]): Options {
   }
 
   assert.ok(nonEmpty(options.hostedUrl), "--hosted-url or VRDEX_MCP_SMOKE_URL is required.");
+  assert.ok(nonEmpty(options.hostedQuery), "--hosted-query or VRDEX_MCP_SMOKE_QUERY must not be empty.");
   assert.notEqual(options.matrixPath.trim(), "", "--matrix or VRDEX_MCP_CLIENT_MATRIX_PATH must not be empty.");
   if (!nonEmpty(options.targetEnvironment)) {
     options.targetEnvironment = `staging ${hostedMcpUrl(options.hostedUrl!)}`;
@@ -178,6 +185,18 @@ function hostedOrigin(rawUrl: string) {
   url.pathname = trimTrailingSlashes(url.pathname).replace(/\/mcp$/, "") || "/";
 
   return url.toString().replace(/\/$/, "");
+}
+
+function commandArg(value: string) {
+  return JSON.stringify(value);
+}
+
+function hostedDataArgs(options: Options) {
+  return `--hosted-data --hosted-query ${commandArg(options.hostedQuery)}`;
+}
+
+function inspectorHostedDataArgs(options: Options) {
+  return `--hosted-data --query ${commandArg(options.hostedQuery)}`;
 }
 
 function trimTrailingSlashes(value: string) {
@@ -317,7 +336,7 @@ function recorderCommandForMatrixClient(args: {
   ].filter(Boolean).join(" ");
 }
 
-function smokePrompt(mode: CheckId) {
+function smokePrompt(mode: CheckId, query = "club") {
   const authPhrase =
     mode === "hosted-oauth"
       ? "If the client prompts for OAuth, complete the login before calling the tool."
@@ -326,7 +345,7 @@ function smokePrompt(mode: CheckId) {
   return [
     "Use the VRDex MCP server named vrdex.",
     "List the available VRDex tools.",
-    "Call vrdex_search exactly once with query \"club\", type \"all\", and limit 1.",
+    `Call vrdex_search exactly once with query ${JSON.stringify(query)}, type "all", and limit 1.`,
     authPhrase,
     "Record whether the client displayed the tool call, whether the call succeeded, and the first returned result slug.",
   ].join(" ");
@@ -545,7 +564,7 @@ function manualEvidenceTemplates(options: Options): EvidenceTemplate[] {
       environment: `Claude Desktop / Custom Connector / ${hostedUrl}`,
       hosted: true,
       matrixClient: "claude-desktop",
-      prompt: smokePrompt("hosted-anonymous-read"),
+      prompt: smokePrompt("hosted-anonymous-read", options.hostedQuery),
       recorder: recorderCommandForMatrixClient({
         check: "hosted-anonymous-read",
         environment: `Claude Desktop / Custom Connector / ${hostedUrl}`,
@@ -563,7 +582,7 @@ function manualEvidenceTemplates(options: Options): EvidenceTemplate[] {
       environment: `Claude Desktop / Custom Connector / ${hostedUrl} / hosted OAuth`,
       hosted: true,
       matrixClient: "claude-desktop",
-      prompt: smokePrompt("hosted-oauth"),
+      prompt: smokePrompt("hosted-oauth", options.hostedQuery),
       recorder: recorderCommandForMatrixClient({
         check: "hosted-oauth",
         environment: `Claude Desktop / Custom Connector / ${hostedUrl} / hosted OAuth`,
@@ -581,7 +600,7 @@ function manualEvidenceTemplates(options: Options): EvidenceTemplate[] {
       environment: `Windows / Claude Code / ${hostedUrl} / hosted OAuth`,
       hosted: true,
       matrixClient: "claude-code",
-      prompt: smokePrompt("hosted-oauth"),
+      prompt: smokePrompt("hosted-oauth", options.hostedQuery),
       recorder: recorderCommandForMatrixClient({
         check: "hosted-oauth",
         environment: `Windows / Claude Code / ${hostedUrl} / hosted OAuth`,
@@ -592,7 +611,7 @@ function manualEvidenceTemplates(options: Options): EvidenceTemplate[] {
       setup: [
         "$env:VRDEX_CLAUDE_CODE_OAUTH_CLIENT_ID='<reviewed-client-id>'",
         "$env:VRDEX_CLAUDE_CODE_OAUTH_CLIENT_SECRET='<client-secret>'",
-        `pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url ${hostedUrl} --hosted-data`,
+        `pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url ${hostedUrl} ${hostedDataArgs(options)}`,
         "# Or use claude mcp login vrdex against the same hosted target and capture sanitized client output.",
       ].join("\n"),
       targetEnvironment,
@@ -606,7 +625,7 @@ function manualEvidenceTemplates(options: Options): EvidenceTemplate[] {
       prompt: [
         "Run the OpenAI Responses API smoke or configure the relevant ChatGPT MCP-capable surface for the VRDex hosted MCP endpoint.",
         "Verify the public read tools appear as anonymous/no-auth tools when the product surface exposes per-tool auth metadata.",
-        "Call search with query \"club\", then call fetch for the first returned result id.",
+        `Call search with query ${JSON.stringify(options.hostedQuery)}, then call fetch for the first returned result id.`,
         "Record whether the connector forced login before a safe public read.",
       ].join(" "),
       recorder: recorderCommandForMatrixClient({
@@ -619,7 +638,7 @@ function manualEvidenceTemplates(options: Options): EvidenceTemplate[] {
       setup: [
         "# If OPENAI_API_KEY is present in repo-root .env.local, no shell export is required.",
         "# Optional one-off override: $env:OPENAI_API_KEY='<api-key>'",
-        `pnpm smoke:mcp-openai -- --hosted-url ${hostedUrl} --hosted-data`,
+        `pnpm smoke:mcp-openai -- --hosted-url ${hostedUrl} ${hostedDataArgs(options)}`,
         `# For ChatGPT Apps/Connectors UI evidence, configure the current product surface for ${hostedUrl}. Use ${origin} only when the product asks for an origin separate from the MCP endpoint.`,
       ].join("\n"),
       targetEnvironment,
@@ -652,7 +671,7 @@ function manualEvidenceTemplates(options: Options): EvidenceTemplate[] {
       environment: `Windows / MCP Inspector CLI / ${hostedUrl} / hosted OAuth`,
       hosted: true,
       matrixClient: "mcp-inspector",
-      prompt: smokePrompt("hosted-oauth"),
+      prompt: smokePrompt("hosted-oauth", options.hostedQuery),
       recorder: recorderCommandForMatrixClient({
         check: "hosted-oauth",
         environment: `Windows / MCP Inspector CLI / ${hostedUrl} / hosted OAuth`,
@@ -663,7 +682,7 @@ function manualEvidenceTemplates(options: Options): EvidenceTemplate[] {
       setup: [
         "$env:VRDEX_MCP_INSPECTOR_OAUTH_CLIENT_ID='<reviewed-client-id>'",
         "$env:VRDEX_MCP_INSPECTOR_OAUTH_CLIENT_SECRET='<client-secret>'",
-        `pnpm smoke:mcp-inspector -- --hosted-url ${hostedUrl} --hosted-data`,
+        `pnpm smoke:mcp-inspector -- --hosted-url ${hostedUrl} ${inspectorHostedDataArgs(options)}`,
       ].join("\n"),
       targetEnvironment,
     },
@@ -807,7 +826,7 @@ async function writeSessionPack(options: Options) {
     "Use this prompt after installing each config:",
     "",
     "```txt",
-    smokePrompt("hosted-anonymous-read"),
+    smokePrompt("hosted-anonymous-read", options.hostedQuery),
     "```",
     "",
     "For hosted OAuth rows, allow the client to complete OAuth when prompted, or use the token-header fallback config only as documented fallback evidence.",
@@ -877,7 +896,7 @@ async function writeSessionPack(options: Options) {
         check: "hosted-anonymous-read" as const,
         environment: hostedEnvironment,
         hosted: true,
-        prompt: smokePrompt("hosted-anonymous-read"),
+        prompt: smokePrompt("hosted-anonymous-read", options.hostedQuery),
         recorder: hostedAnonymousRecorder,
         setup: commands.hostedAnonymous,
       },
@@ -885,7 +904,7 @@ async function writeSessionPack(options: Options) {
         check: "hosted-oauth" as const,
         environment: `${hostedEnvironment} / hosted OAuth`,
         hosted: true,
-        prompt: smokePrompt("hosted-oauth"),
+        prompt: smokePrompt("hosted-oauth", options.hostedQuery),
         recorder: hostedOauthRecorder,
         setup: commands.hostedOauthFallback,
       },
@@ -940,7 +959,7 @@ async function writeSessionPack(options: Options) {
       "Prompt:",
       "",
       "```txt",
-      smokePrompt("hosted-anonymous-read"),
+      smokePrompt("hosted-anonymous-read", options.hostedQuery),
       "```",
       "",
       "Recorder:",
@@ -964,7 +983,7 @@ async function writeSessionPack(options: Options) {
       "Prompt:",
       "",
       "```txt",
-      smokePrompt("hosted-oauth"),
+      smokePrompt("hosted-oauth", options.hostedQuery),
       "```",
       "",
       "Recorder:",
@@ -1022,17 +1041,17 @@ async function writeSessionPack(options: Options) {
       check: "hosted-anonymous-read" as const,
       environment: geminiHostedEnvironment,
       hosted: true,
-      prompt: smokePrompt("hosted-anonymous-read"),
+      prompt: smokePrompt("hosted-anonymous-read", options.hostedQuery),
       recorder: geminiHostedAnonymousRecorder,
-      setup: `Prefer pnpm smoke:mcp-gemini-cli -- --mode hosted-http --hosted-url ${hostedMcpUrl(options.hostedUrl!)} --hosted-data for repeatable evidence. Interactive fallback: merge settings snippet ${psSingleQuote(geminiHostedConfig)} into Gemini CLI settings.json.`,
+      setup: `Prefer pnpm smoke:mcp-gemini-cli -- --mode hosted-http --hosted-url ${hostedMcpUrl(options.hostedUrl!)} ${hostedDataArgs(options)} for repeatable evidence. Interactive fallback: merge settings snippet ${psSingleQuote(geminiHostedConfig)} into Gemini CLI settings.json.`,
     },
     {
       check: "hosted-oauth" as const,
       environment: `${geminiHostedEnvironment} / hosted OAuth`,
       hosted: true,
-      prompt: smokePrompt("hosted-oauth"),
+      prompt: smokePrompt("hosted-oauth", options.hostedQuery),
       recorder: geminiHostedOauthRecorder,
-      setup: `Prefer Gemini CLI native OAuth discovery first. For repeatable fallback evidence, set VRDEX_GEMINI_CLI_OAUTH_TOKEN or reviewed OAuth client credentials, then run pnpm smoke:mcp-gemini-cli -- --mode hosted-http --hosted-url ${hostedMcpUrl(options.hostedUrl!)} --hosted-data. Interactive fallback: merge OAuth-discovery settings snippet ${psSingleQuote(geminiHostedConfig)} into Gemini CLI settings.json; use ${psSingleQuote(geminiHostedTokenConfig)} only as the token-header fallback.`,
+      setup: `Prefer Gemini CLI native OAuth discovery first. For repeatable fallback evidence, set VRDEX_GEMINI_CLI_OAUTH_TOKEN or reviewed OAuth client credentials, then run pnpm smoke:mcp-gemini-cli -- --mode hosted-http --hosted-url ${hostedMcpUrl(options.hostedUrl!)} ${hostedDataArgs(options)}. Interactive fallback: merge OAuth-discovery settings snippet ${psSingleQuote(geminiHostedConfig)} into Gemini CLI settings.json; use ${psSingleQuote(geminiHostedTokenConfig)} only as the token-header fallback.`,
     },
   ];
 
@@ -1083,7 +1102,7 @@ async function writeSessionPack(options: Options) {
     "Prompt:",
     "",
     "```txt",
-    smokePrompt("hosted-anonymous-read"),
+    smokePrompt("hosted-anonymous-read", options.hostedQuery),
     "```",
     "",
     "Recorder:",
@@ -1104,7 +1123,7 @@ async function writeSessionPack(options: Options) {
     "Prompt:",
     "",
     "```txt",
-    smokePrompt("hosted-oauth"),
+    smokePrompt("hosted-oauth", options.hostedQuery),
     "```",
     "",
     "Recorder:",

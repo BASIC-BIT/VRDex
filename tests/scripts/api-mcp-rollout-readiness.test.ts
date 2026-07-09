@@ -42,6 +42,7 @@ describe("API/MCP rollout readiness checker", () => {
     );
     assert.match(result.stdout, /Rollout verification scripts \| yes \| pass \| 20 required scripts are defined/);
     assert.match(result.stdout, /Major MCP client matrix \| yes \| fail \| .*Gemini CLI\/hosted-anonymous-read: fail/);
+    assert.match(result.stdout, /Production-like hosted MCP evidence \| yes \| fail \| .*data-backed anonymous hosted MCP public read: fail/);
   });
 
   it("keeps external readiness failing while required MCP client rows are not pass", () => {
@@ -87,6 +88,32 @@ describe("API/MCP rollout readiness checker", () => {
 
       assert.notEqual(result.status, 0);
       assert.match(result.stderr, /hostedReadiness\/hosted-data-backed-anonymous-read evidence appears to contain a token/i);
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  it("rejects stale hosted data-backed readiness pass evidence", async () => {
+    const { directory, path } = await writeMatrixCopy("stale-hosted-data-evidence", (matrix) => {
+      matrix.readinessMode = "repo-protocol-smoked-hosted-staging-data-backed-client-smokes-open";
+      matrix.targetEnvironment = "production-like staging https://staging.vrdex.net/mcp";
+      const check = matrix.hostedReadiness?.checks.find(
+        (entry: { id: string }) => entry.id === "hosted-data-backed-anonymous-read",
+      );
+
+      assert.ok(check);
+      check.status = "pass";
+      check.evidence = "corepack pnpm smoke:mcp-compat passed hosted data-backed anonymous vrdex_search and search only";
+    });
+
+    try {
+      const result = runRolloutCheck([], { VRDEX_MCP_CLIENT_MATRIX_PATH: path });
+
+      assert.notEqual(result.status, 0);
+      assert.match(
+        result.stderr,
+        /hostedReadiness\/hosted-data-backed-anonymous-read evidence must mention fetch evidence/,
+      );
     } finally {
       await rm(directory, { force: true, recursive: true });
     }
