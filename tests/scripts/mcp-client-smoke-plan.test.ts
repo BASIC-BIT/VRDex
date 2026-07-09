@@ -33,7 +33,8 @@ describe("MCP client smoke planner", () => {
     assert.match(result.stdout, /Desktop or custom connector session/);
     assert.match(result.stdout, /`claude-desktop\/local-stdio`, `claude-desktop\/hosted-anonymous-read`, `claude-desktop\/hosted-oauth`/);
     assert.match(result.stdout, /OpenAI-compatible hosted target or product surface access/);
-    assert.match(result.stdout, /`openai-chatgpt\/hosted-anonymous-read`, `openai-chatgpt\/hosted-oauth`/);
+    assert.match(result.stdout, /`openai-chatgpt\/hosted-oauth`/);
+    assert.doesNotMatch(result.stdout, /`openai-chatgpt\/hosted-anonymous-read`, `openai-chatgpt\/hosted-oauth`/);
   });
 
   it("prints client-specific VS Code setup hints with the hosted origin for local stdio", () => {
@@ -80,6 +81,7 @@ describe("MCP client smoke planner", () => {
       "openai-chatgpt",
       "--check",
       "hosted-anonymous-read",
+      "--include-passed",
     ]);
 
     assert.equal(result.status, 0, result.stderr);

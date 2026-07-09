@@ -42,7 +42,10 @@ describe("API/MCP rollout readiness checker", () => {
     );
     assert.match(result.stdout, /Rollout verification scripts \| yes \| pass \| 20 required scripts are defined/);
     assert.match(result.stdout, /Major MCP client matrix \| yes \| fail \| .*Gemini CLI\/hosted-anonymous-read: fail/);
-    assert.match(result.stdout, /Production-like hosted MCP evidence \| yes \| fail \| .*data-backed anonymous hosted MCP public read: fail/);
+    assert.match(
+      result.stdout,
+      /Production-like hosted MCP evidence \| yes \| pass \| readinessMode=staging-hosted-data-dcr-cimd-pass-client-smokes-open/,
+    );
   });
 
   it("keeps external readiness failing while required MCP client rows are not pass", () => {
