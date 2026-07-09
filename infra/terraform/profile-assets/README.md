@@ -27,6 +27,11 @@ Provider-backed CI plan/apply for this stack is gated by repository variable `TE
 
 Hosted staging custom environments are opt-in. Set repository variable `TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_IDS` to an HCL list such as `["env_..."]` when CI should manage staging profile asset env vars.
 
+The hosted BASIC BIT Vercel OIDC claims use the team slug `basicbit`. Do not
+substitute the display name or an older hyphenated slug when configuring
+`vercel_team_slug`; the issuer path, audience, and `sub` conditions must match
+the claims Vercel presents at runtime.
+
 Before enabling that gate, apply `infra/terraform/state-mgmt` so the GitHub Actions Terraform role can manage this stack's S3, IAM, and Vercel OIDC resources.
 
 ## Usage
@@ -50,6 +55,11 @@ Terraform state for this stack is stored in the S3 backend declared in `versions
 ## Import Notes
 
 If the Vercel OIDC provider or runtime role already exists in AWS, import it before planning rather than creating duplicates.
+
+If Terraform state still tracks an older Vercel OIDC provider slug, migrate or
+import the existing `basicbit` provider before applying this stack. The runtime
+role trust policy must reference the same provider ARN used by the production
+Vercel project.
 
 If any managed Vercel variable already exists, import it before applying. The Vercel provider import ID is:
 
