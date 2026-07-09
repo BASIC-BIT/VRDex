@@ -7,9 +7,9 @@ import { cn } from "@/lib/cn";
 const pageShellVariants = cva("min-h-screen px-6 py-8 text-foreground sm:px-10 lg:px-16", {
   variants: {
     tone: {
-      default: "",
-      event: "bg-[radial-gradient(circle_at_top_left,rgba(125,74,202,0.12),transparent_32%),linear-gradient(180deg,#f3f6fb,#e5ecf5)]",
-      world: "bg-[radial-gradient(circle_at_top_left,rgba(8,145,178,0.14),transparent_32%),linear-gradient(180deg,#f2f8fb,#e4edf5)]",
+      default: "bg-background",
+      event: "bg-[linear-gradient(180deg,var(--background),var(--canvas-muted))]",
+      world: "bg-[linear-gradient(180deg,var(--background),var(--canvas-muted))]",
     },
   },
   defaultVariants: {

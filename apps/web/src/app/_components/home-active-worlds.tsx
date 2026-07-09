@@ -56,7 +56,7 @@ function ActiveWorldCard({ world }: { world: PublicActiveWorld }) {
       <div>
         <h3 className="text-3xl font-semibold tracking-[-0.04em] text-white">{world.displayName}</h3>
         <p className="mt-3 line-clamp-2 text-sm leading-6 text-white/76">
-          {world.summary ?? "A VRDex world with confirmed upcoming event context."}
+          {world.summary ?? "Upcoming public events are linked here."}
         </p>
         <div className="mt-5 rounded-card border border-white/16 bg-white/12 p-4 backdrop-blur">
           <Eyebrow className="text-white/62" tone="inverse">Next event</Eyebrow>
@@ -90,7 +90,7 @@ export function HomeActiveWorldsSection({
   return (
     <Card className="lg:px-8" surface="white">
       <SectionHeading
-        description="Confirmed event-world links surface venues with upcoming context."
+        description="Worlds with upcoming public events."
       >
         Worlds hosting events soon
       </SectionHeading>

@@ -5,6 +5,7 @@ import { ActionCard, actionLabelClassName, actionMetaClassName } from "./action-
 import { Badge } from "./badge";
 import { Button, buttonVariants } from "./button";
 import { Card, Eyebrow, SectionDescription, SectionHeading, SectionTitle } from "./card";
+import { EventSchedule, type EventScheduleItem } from "./event-schedule";
 import { Field, FieldText, Input, Select, Textarea } from "./field";
 import { Notice } from "./notice";
 import { BrandLink, PageContainer, PageNav, PageShell } from "./page-shell";
@@ -28,7 +29,7 @@ function StoryFrame({ children, tone = "light" }: { children: ReactNode; tone?: 
       className={cn(
         "min-h-screen px-6 py-8 sm:px-10",
         tone === "dark"
-          ? "bg-[linear-gradient(135deg,#221512,#7c321f)] text-white"
+          ? "bg-[linear-gradient(135deg,#08090d,#1b232e)] text-white"
           : "bg-background text-foreground",
       )}
     >
@@ -36,6 +37,77 @@ function StoryFrame({ children, tone = "light" }: { children: ReactNode; tone?: 
     </div>
   );
 }
+
+const tokenSwatches = [
+  { className: "bg-background", label: "Background" },
+  { className: "bg-canvas", label: "Canvas" },
+  { className: "bg-surface", label: "Surface" },
+  { className: "bg-surface-strong", label: "Surface strong" },
+  { className: "bg-surface-elevated", label: "Surface elevated" },
+  { className: "bg-accent", label: "Accent" },
+  { className: "bg-success", label: "Success" },
+  { className: "bg-warning", label: "Warning" },
+  { className: "bg-danger", label: "Danger" },
+];
+
+const sampleSchedule: EventScheduleItem[] = [
+  {
+    host: "Afterglow",
+    href: "#",
+    id: "doors",
+    meta: ["Doors", "Friends+"],
+    status: "now",
+    summary: "Open room and host handoff before the first set.",
+    time: "8:00 PM",
+    title: "Doors open",
+    world: "Neon Harbor",
+  },
+  {
+    host: "Afterglow",
+    href: "#",
+    id: "aurora",
+    meta: ["House", "Live"],
+    roleSummary: "DJ Aurora",
+    status: "soon",
+    time: "9:00 PM",
+    title: "Harbor Sessions",
+    world: "Neon Harbor",
+  },
+  {
+    host: "Afterglow",
+    id: "lumen",
+    meta: ["Trance", "VJ Lumen"],
+    roleSummary: "DJ Lumen",
+    time: "10:00 PM",
+    title: "Late Signal",
+    world: "Neon Harbor",
+  },
+];
+
+export const TokenSystem: Story = {
+  render: () => (
+    <StoryFrame>
+      <SectionHeading description="Semantic roles are the contract. Palette values can change under them.">
+        Token System
+      </SectionHeading>
+      <Card className="grid gap-4" surface="white">
+        <div className="grid gap-3 sm:grid-cols-3">
+          {tokenSwatches.map((swatch) => (
+            <div className="overflow-hidden rounded-card border border-border bg-surface" key={swatch.label}>
+              <div className={cn("h-20", swatch.className)} />
+              <div className="px-3 py-2 font-mono text-xs text-muted">{swatch.label}</div>
+            </div>
+          ))}
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Notice variant="info">Neutral information</Notice>
+          <Notice variant="success">Successful state</Notice>
+          <Notice variant="warning">Needs attention</Notice>
+        </div>
+      </Card>
+    </StoryFrame>
+  ),
+};
 
 export const Buttons: Story = {
   render: () => (
@@ -51,7 +123,7 @@ export const Buttons: Story = {
           <Button variant="ghost">Ghost</Button>
           <Button disabled variant="primary">Disabled</Button>
         </div>
-        <div className="rounded-panel bg-[#221512] p-5">
+        <div className="rounded-panel bg-canvas p-5">
           <div className="flex flex-wrap gap-3">
             <Button variant="inversePrimary">Inverse primary</Button>
             <Button variant="inverse">Inverse</Button>
@@ -84,7 +156,7 @@ export const Badges: Story = {
         <Badge mono>Mono label</Badge>
         <Badge shape="pill">Pill only when intentional</Badge>
       </Card>
-      <div className="rounded-panel bg-[#221512] p-5">
+      <div className="rounded-panel bg-canvas p-5">
         <div className="flex flex-wrap gap-3">
           <Badge variant="inverse">Inverse</Badge>
           <Badge mono variant="inverseMuted">Inverse muted</Badge>
@@ -120,7 +192,7 @@ export const CardsAndNotices: Story = {
           <SectionDescription className="mt-2">Useful for setup, missing data, and placeholders.</SectionDescription>
         </Card>
       </div>
-      <div className="rounded-panel bg-[#221512] p-5">
+      <div className="rounded-panel bg-canvas p-5">
         <Card surface="dark">
           <Eyebrow tone="inverse">Dark card</Eyebrow>
           <SectionTitle className="mt-3 text-2xl text-white">Tonight and soon</SectionTitle>
@@ -184,6 +256,27 @@ export const FormsAndTables: Story = {
             </tbody>
           </Table>
         </TableFrame>
+      </Card>
+    </StoryFrame>
+  ),
+};
+
+export const EventSchedulePrimitive: Story = {
+  render: () => (
+    <StoryFrame>
+      <SectionHeading description="Rows prioritize when something happens, then what it is, who hosts it, and where it is.">
+        Event Schedule
+      </SectionHeading>
+      <Card className="grid gap-5" surface="white">
+        <EventSchedule items={sampleSchedule}>
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <SectionTitle className="text-2xl">Tonight</SectionTitle>
+              <SectionDescription className="mt-2">A compact schedule primitive for Home and event surfaces.</SectionDescription>
+            </div>
+            <Button size="sm" variant="surface">Open full schedule</Button>
+          </div>
+        </EventSchedule>
       </Card>
     </StoryFrame>
   ),

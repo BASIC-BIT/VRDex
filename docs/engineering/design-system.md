@@ -8,11 +8,18 @@ Current recommendation: extend the local primitives in `apps/web/src/components/
 
 Locked decision: Storybook is an interrelated but separate visual lane from full-route Playwright screenshots. It is designed around individual components and primitives, not the site as a whole.
 
-Current maturity assessment: the web design system is a useful foundation, but it is not mature enough yet for broad homepage theme exploration. Color, font family, radius, and shadow tokens exist, and the primitive layer covers common page furniture. Spacing, type scale, layout density, entity cards, event timelines, homepage search composition, and theme presets still need a stronger token and component contract.
+Current maturity assessment: the web design system now has a stronger
+charcoal-neutral semantic token baseline and a Storybook lane for token and
+schedule review. It is still not mature enough for broad theme exploration
+until the remaining page-specific color treatments are pulled into shared
+tokens and primitives.
 
 ## Intent
 
-The design system keeps the public app visually consistent while preserving the warm VRDex identity. It should make common surfaces boring to implement: page shells, calm cards, clear actions, compact labels, readable forms, and status displays.
+The design system keeps the public app visually consistent while preserving a
+calm, data-forward VRDex identity. It should make common surfaces boring to
+implement: page shells, calm cards, clear actions, compact labels, readable
+forms, status displays, and schedule rows.
 
 ## Source Files
 
@@ -25,11 +32,15 @@ The design system keeps the public app visually consistent while preserving the 
 - `apps/web/src/components/ui/table.tsx`: table containers and cells.
 - `apps/web/src/components/ui/page-shell.tsx`: page background, width containers, nav, and brand link.
 - `apps/web/src/components/ui/action-card.tsx`: repeated call-to-action cards.
+- `apps/web/src/components/ui/event-schedule.tsx`: compact time-oriented event schedule rows.
 - `apps/web/src/lib/cn.ts`: class merging for primitive variants and local overrides.
 
 ## Rules
 
 - Prefer shared primitives for pages, panels, buttons, badges, fields, notices, tables, and action cards.
+- Prefer semantic color roles such as `background`, `surface`, `surface-strong`,
+  `accent`, `danger`, `success`, `warning`, `muted`, `subtle`, and `border`
+  over raw color literals.
 - Use named radius tokens: `rounded-control`, `rounded-card`, `rounded-panel`, and `rounded-hero`.
 - Use `shadow-panel` and `shadow-hero` instead of ad hoc arbitrary shadow values.
 - Keep `rounded-full` for intentionally pill-shaped badges only.
@@ -38,16 +49,16 @@ The design system keeps the public app visually consistent while preserving the 
 
 ## Token Gaps
 
-Current recommendation: mature the token layer before a major homepage redesign or multi-theme pass.
+Current recommendation: continue maturing the token layer before a major
+homepage redesign or multi-theme pass.
 
 Needed tokens and primitives:
 
-- semantic color roles beyond the current warm palette, including neutral, accent, danger, success, warning, muted, inverse, focus, and data-highlight states
 - text-role tokens for display, title, section, body, caption, mono metadata, dense table text, and public-card labels
 - spacing and size steps for shell padding, compact cards, dense event rows, icon buttons, media thumbnails, and schedule gutters
 - layout width and density rules for public pages, operator views, lookup tables, and mobile-first schedule lists
 - entity-card primitives for people, communities, worlds, and events
-- event timeline/list primitives that can show local viewer time, set times, host/community, venue/world, watch state, and saved/followed context
+- event schedule primitives that can show local viewer time, set times, host/community, venue/world, watch state, and saved/followed context
 - theme presets expressed as token mappings rather than page-specific Tailwind or CSS overrides
 
 Avoid treating one route's CSS as the design system. If a style is useful for Home, event pages, profile pages, and lookup, promote the repeatable piece into tokens or a primitive before copying it.
@@ -61,7 +72,9 @@ Avoid treating one route's CSS as the design system. If a style is useful for Ho
 
 ## Storybook Lane
 
-Storybook documents and reviews primitives such as buttons, cards, badges, fields, notices, tables, page shells, and action cards.
+Storybook documents and reviews primitives such as buttons, cards, badges,
+fields, notices, tables, page shells, action cards, tokens, and event schedule
+rows.
 
 Current scope:
 
@@ -78,6 +91,32 @@ Current scripts:
 - `pnpm test:storybook:snapshots`: compare component screenshot baselines.
 - `pnpm test:storybook:snapshots:update`: update intentional component screenshot baseline changes.
 - `pnpm test:storybook:visual`: capture current component screenshots as Playwright artifacts for review.
+
+## Visual Iteration Workflow
+
+Current recommendation: keep the production source of truth in code-owned
+tokens and Storybook until VRDex has a designer-owned Figma file. Once the
+component set stabilizes, mirror the semantic token names into Figma variables
+and connect Figma components back to React primitives with Figma Code Connect.
+
+- Figma should be used for taste review, component composition, homepage
+  mockups, and future shared design review.
+- Code should remain the first source of truth for token names, primitive APIs,
+  accessibility states, and shipped behavior.
+- Figma Code Connect is the right bridge once we have stable components because
+  it maps Figma components to actual repository components instead of relying
+  on autogenerated snippets.
+- Mobbin is useful for pattern research around search, schedule, event, profile,
+  and dense dashboard layouts. Treat it as reference material, not as a source
+  to copy.
+- Storybook stays the implementation review surface: every new primitive should
+  have a story before it is depended on by multiple pages.
+
+Reference links:
+
+- [Figma Code Connect](https://developers.figma.com/docs/code-connect/)
+- [Mobbin](https://mobbin.com/)
+- [Storybook for Next.js with Vite](https://storybook.js.org/docs/get-started/frameworks/nextjs-vite)
 
 ## Review Checklist
 

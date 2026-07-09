@@ -7,11 +7,11 @@ export const badgeVariants = cva("inline-flex items-center rounded-control px-3 
   variants: {
     variant: {
       default: "border border-border bg-surface-strong text-foreground",
-      muted: "border border-border bg-white text-muted",
-      accent: "bg-accent/10 font-medium text-accent-strong",
+      muted: "border border-border bg-surface-muted text-muted",
+      accent: "bg-accent-muted font-medium text-accent-strong",
       inverse: "bg-white/15 text-white/82",
       inverseMuted: "bg-white/12 text-white/76",
-      cyan: "bg-cyan-50 text-cyan-950",
+      cyan: "bg-info/14 text-info-strong",
     },
     shape: {
       square: "rounded-control",

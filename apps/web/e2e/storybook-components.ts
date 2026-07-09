@@ -6,10 +6,12 @@ import path from "node:path";
 const screenshotDir = path.join(process.cwd(), "playwright-artifacts", "storybook");
 
 export const componentStories = [
+  { id: "design-system-primitives--token-system", name: "token-system" },
   { id: "design-system-primitives--buttons", name: "buttons" },
   { id: "design-system-primitives--badges", name: "badges" },
   { id: "design-system-primitives--cards-and-notices", name: "cards-and-notices" },
   { id: "design-system-primitives--forms-and-tables", name: "forms-and-tables" },
+  { id: "design-system-primitives--event-schedule-primitive", name: "event-schedule-primitive" },
   { id: "design-system-primitives--shell-and-actions", name: "shell-and-actions" },
 ] as const;
 
