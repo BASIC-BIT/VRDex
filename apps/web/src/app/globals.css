@@ -1,33 +1,126 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f5efe4;
-  --foreground: #16110f;
-  --surface: rgba(255, 251, 245, 0.82);
-  --surface-strong: #fffdf8;
-  --muted: #6f625b;
-  --accent: #d66a4d;
-  --accent-strong: #9f3f27;
-  --border: rgba(22, 17, 15, 0.12);
+  --background: #08090d;
+  --foreground: #f5f7fb;
+  --canvas: #0b0d12;
+  --canvas-muted: #0f131a;
+  --surface: rgba(17, 22, 30, 0.82);
+  --surface-muted: rgba(25, 31, 40, 0.72);
+  --surface-strong: #151b24;
+  --surface-elevated: #1b232e;
+  --surface-raised: var(--surface-elevated);
+  --muted: #98a3b3;
+  --subtle: #647080;
+  --inverse: #08090d;
+  --accent: #8ed8ff;
+  --accent-strong: #c7ecff;
+  --accent-muted: rgba(142, 216, 255, 0.14);
+  --danger: #ff8a8a;
+  --danger-strong: #ffd6d6;
+  --success: #8ee6ae;
+  --success-strong: #d6ffe4;
+  --warning: #ffd47a;
+  --warning-strong: #fff0bd;
+  --info: #8ed8ff;
+  --info-strong: #d6f2ff;
+  --border: rgba(229, 235, 244, 0.14);
+  --border-strong: rgba(229, 235, 244, 0.24);
+  --focus: rgba(142, 216, 255, 0.38);
+  --media: #020307;
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-canvas: var(--canvas);
+  --color-canvas-muted: var(--canvas-muted);
   --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
   --color-surface-strong: var(--surface-strong);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-surface-raised: var(--surface-raised);
   --color-muted: var(--muted);
+  --color-subtle: var(--subtle);
+  --color-text-muted: var(--muted);
+  --color-text-subtle: var(--subtle);
+  --color-inverse: var(--inverse);
+  --color-on-accent: var(--inverse);
   --color-accent: var(--accent);
   --color-accent-strong: var(--accent-strong);
+  --color-accent-muted: var(--accent-muted);
+  --color-danger: var(--danger);
+  --color-danger-strong: var(--danger-strong);
+  --color-success: var(--success);
+  --color-success-strong: var(--success-strong);
+  --color-warning: var(--warning);
+  --color-warning-strong: var(--warning-strong);
+  --color-info: var(--info);
+  --color-info-strong: var(--info-strong);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-focus: var(--focus);
+  --color-focus-ring: var(--focus);
+  --color-media: var(--media);
   --font-sans: var(--font-space-grotesk);
   --font-mono: var(--font-ibm-plex-mono);
+  --text-display: 2.25rem;
+  --text-display--line-height: 1.05;
+  --text-display--font-weight: 600;
+  --text-display--letter-spacing: 0;
+  --text-title: 1.5rem;
+  --text-title--line-height: 2rem;
+  --text-title--font-weight: 600;
+  --text-title--letter-spacing: 0;
+  --text-section: 1.125rem;
+  --text-section--line-height: 1.5rem;
+  --text-section--font-weight: 600;
+  --text-section--letter-spacing: 0;
+  --text-body: 1rem;
+  --text-body--line-height: 1.5rem;
+  --text-body--font-weight: 400;
+  --text-body--letter-spacing: 0;
+  --text-body-sm: 0.875rem;
+  --text-body-sm--line-height: 1.25rem;
+  --text-body-sm--font-weight: 400;
+  --text-body-sm--letter-spacing: 0;
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1rem;
+  --text-caption--font-weight: 400;
+  --text-caption--letter-spacing: 0;
+  --text-metadata: 0.75rem;
+  --text-metadata--line-height: 1rem;
+  --text-metadata--font-weight: 500;
+  --text-metadata--letter-spacing: 0;
+  --text-entity: 0.875rem;
+  --text-entity--line-height: 1.25rem;
+  --text-entity--font-weight: 600;
+  --text-entity--letter-spacing: 0;
+  --spacing-shell-mobile: 1.5rem;
+  --spacing-shell-tablet: 2.5rem;
+  --spacing-shell-desktop: 4rem;
+  --spacing-section: 1.5rem;
+  --spacing-card: 1rem;
+  --spacing-row: 0.75rem;
+  --spacing-schedule-gutter: 5.5rem;
+  --spacing-control-sm: 2rem;
+  --spacing-control: 2.5rem;
+  --spacing-control-lg: 3rem;
+  --spacing-row-dense: 2.75rem;
+  --spacing-row-default: 3.5rem;
+  --container-copy: 42rem;
+  --container-narrow: 48rem;
+  --container-public: 72rem;
+  --container-wide: 80rem;
+  --container-operator: 90rem;
   --radius-control: 0.375rem;
   --radius-card: 0.5rem;
   --radius-panel: 0.625rem;
   --radius-hero: 0.75rem;
-  --shadow-panel: 0 18px 60px rgba(64, 40, 24, 0.1);
-  --shadow-hero: 0 24px 90px rgba(64, 40, 24, 0.18);
+  --shadow-panel: 0 18px 60px rgba(0, 0, 0, 0.22);
+  --shadow-hero: 0 24px 90px rgba(0, 0, 0, 0.34);
 }
 
 * {
@@ -35,14 +128,12 @@
 }
 
 html {
-  background:
-    radial-gradient(circle at top left, rgba(214, 106, 77, 0.18), transparent 34%),
-    radial-gradient(circle at top right, rgba(117, 78, 54, 0.14), transparent 30%),
-    linear-gradient(180deg, #f9f2e7 0%, #efe4d1 100%);
+  background: var(--background);
   color: var(--foreground);
 }
 
 body {
+  background: linear-gradient(180deg, var(--background) 0%, var(--canvas) 100%);
   color: var(--foreground);
   font-family: var(--font-space-grotesk), sans-serif;
   margin: 0;
@@ -97,12 +188,22 @@ body {
 .lookup-theme[data-theme="light"] {
   --background: #e8edf5;
   --foreground: #0c1220;
+  --canvas: #e8edf5;
+  --canvas-muted: #dde6f2;
   --surface: rgba(248, 250, 252, 0.86);
+  --surface-muted: rgba(241, 245, 249, 0.78);
   --surface-strong: #f8fafc;
+  --surface-elevated: #e2e8f0;
+  --surface-raised: var(--surface-elevated);
   --muted: #475569;
+  --subtle: #64748b;
+  --inverse: #f8fafc;
   --accent: #2563eb;
   --accent-strong: #1d4ed8;
+  --accent-muted: rgba(37, 99, 235, 0.12);
   --border: rgba(15, 23, 42, 0.16);
+  --border-strong: rgba(15, 23, 42, 0.28);
+  --focus: rgba(37, 99, 235, 0.32);
   background:
     radial-gradient(circle at 18% -8%, rgba(8, 145, 178, 0.16), transparent 32%),
     radial-gradient(circle at 86% 0%, rgba(37, 99, 235, 0.13), transparent 34%),
@@ -112,12 +213,22 @@ body {
 .lookup-theme[data-theme="dark"] {
   --background: #080d16;
   --foreground: #edf5ff;
+  --canvas: #0a101b;
+  --canvas-muted: #0d1420;
   --surface: rgba(13, 20, 32, 0.9);
+  --surface-muted: rgba(20, 30, 46, 0.82);
   --surface-strong: #0f1724;
+  --surface-elevated: #172235;
+  --surface-raised: var(--surface-elevated);
   --muted: #94a3b8;
+  --subtle: #64748b;
+  --inverse: #080d16;
   --accent: #67e8f9;
   --accent-strong: #bae6fd;
+  --accent-muted: rgba(103, 232, 249, 0.14);
   --border: rgba(226, 232, 240, 0.14);
+  --border-strong: rgba(226, 232, 240, 0.24);
+  --focus: rgba(103, 232, 249, 0.34);
   background:
     radial-gradient(circle at 18% -8%, rgba(34, 211, 238, 0.16), transparent 34%),
     radial-gradient(circle at 82% 0%, rgba(59, 130, 246, 0.18), transparent 36%),

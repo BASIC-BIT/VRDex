@@ -48,8 +48,8 @@ export type PublicDiscoveryData = {
 
 type DiscoveryStatus = "live" | "missing-url" | "error";
 
-const discoveryThumbOverlay = "linear-gradient(135deg, rgba(47, 33, 27, 0.74), rgba(214, 106, 77, 0.7))";
-const featuredPosterOverlay = "radial-gradient(circle at top left, rgba(214, 106, 77, 0.45), transparent 34%), linear-gradient(145deg, #221512, #74311f)";
+const discoveryThumbOverlay = "linear-gradient(135deg, color-mix(in srgb, var(--media) 78%, transparent), color-mix(in srgb, var(--surface-raised) 58%, transparent))";
+const featuredPosterOverlay = "linear-gradient(180deg, transparent 20%, color-mix(in srgb, var(--media) 88%, transparent))";
 
 function entityLabel(result: PublicSearchResult): string {
   if (result.entityType === "profile") {
@@ -106,7 +106,7 @@ function ResultImage({ result }: { result: PublicSearchResult }) {
   ) {
     return (
       <span
-        className="flex size-14 shrink-0 items-center justify-center rounded-card bg-[linear-gradient(135deg,#2f211b,#d66a4d)] bg-cover bg-center text-lg font-semibold text-white"
+        className="flex size-14 shrink-0 items-center justify-center rounded-card bg-[linear-gradient(135deg,var(--canvas-muted),var(--surface-raised))] bg-cover bg-center text-lg font-semibold text-white"
         style={imageStyle}
       >
         {!imageStyle ? initialsFor(result.title) : null}
@@ -120,7 +120,7 @@ function ResultImage({ result }: { result: PublicSearchResult }) {
   return (
     <span className="grid shrink-0 grid-cols-2 gap-1">
       <span
-        className="flex size-14 items-center justify-center rounded-card bg-[linear-gradient(135deg,#2f211b,#d66a4d)] bg-cover bg-center text-lg font-semibold text-white"
+        className="flex size-14 items-center justify-center rounded-card bg-[linear-gradient(135deg,var(--canvas-muted),var(--surface-raised))] bg-cover bg-center text-lg font-semibold text-white"
         style={profileImageStyle}
         title="Profile image"
       >
@@ -161,7 +161,7 @@ function DiscoveryCard({ result, surface }: { result: PublicSearchResult; surfac
 
   return (
     <TrackedDiscoveryLink
-      className="group flex gap-4 rounded-panel border border-border bg-surface px-4 py-4 transition hover:-translate-y-1 hover:shadow-panel"
+      className="group flex gap-4 rounded-panel border border-border bg-surface px-4 py-4 transition hover:-translate-y-1 hover:border-border-strong hover:bg-surface-strong hover:shadow-panel"
       eventName={result.entityType === "event" ? "event_card_clicked" : "search_result_clicked"}
       href={result.routePath}
       properties={{
@@ -189,7 +189,7 @@ function SearchResultCard({ result }: { result: PublicSearchResult }) {
 
   return (
     <TrackedDiscoveryLink
-      className="group flex gap-4 rounded-panel border border-border bg-surface px-4 py-4 transition hover:-translate-y-0.5 hover:shadow-panel"
+      className="group flex gap-4 rounded-panel border border-border bg-surface px-4 py-4 transition hover:-translate-y-0.5 hover:border-border-strong hover:bg-surface-strong hover:shadow-panel"
       eventName={result.entityType === "event" ? "event_card_clicked" : "search_result_clicked"}
       href={result.routePath}
       properties={{
@@ -223,13 +223,13 @@ function PosterCard({ result }: { result: PublicSearchResult }) {
 
   return (
     <TrackedDiscoveryLink
-      className="group h-full min-h-72 overflow-hidden rounded-hero border border-white/15 bg-[#241814] text-white shadow-hero"
+      className="group h-full min-h-72 overflow-hidden rounded-hero border border-border bg-canvas text-white shadow-hero"
       eventName="featured_card_clicked"
       href={result.routePath}
       properties={{ entity_type: result.entityType, result_slug: result.slug, surface: "featured" }}
     >
       <span
-        className="flex h-full min-h-72 flex-col justify-end bg-[radial-gradient(circle_at_top_left,rgba(214,106,77,0.45),transparent_34%),linear-gradient(145deg,#221512,#74311f)] bg-cover bg-center p-5"
+        className="flex h-full min-h-72 flex-col justify-end bg-[linear-gradient(145deg,var(--background),var(--surface-raised))] bg-cover bg-center p-5"
         style={imageStyle}
       >
         <span className="block text-3xl font-semibold tracking-[-0.04em]">{result.title}</span>
@@ -288,14 +288,14 @@ export function DiscoveryLandingPage({
       <PageContainer className="gap-8" max="7xl">
         <TopNav />
 
-        <section className="overflow-hidden rounded-hero bg-[#221512] text-white shadow-hero">
-          <div className="bg-[radial-gradient(circle_at_top_left,rgba(214,106,77,0.34),transparent_34%),linear-gradient(135deg,#221512,#7c321f)] px-6 py-10 text-center sm:px-8 lg:px-14 lg:py-16">
+        <section className="overflow-hidden rounded-hero border border-border bg-canvas text-white shadow-hero">
+          <div className="bg-[linear-gradient(135deg,var(--background),var(--surface-strong)_58%,var(--canvas-muted))] px-6 py-10 text-center sm:px-8 lg:px-14 lg:py-16">
             <div className="mx-auto max-w-4xl">
               <h1 className="text-5xl leading-none font-semibold tracking-[-0.055em] sm:text-7xl">
-                Find the night, the people, and the worlds behind it.
+                Find what&apos;s happening in VRChat.
               </h1>
               <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-white/76 sm:text-lg">
-                Search VRChat communities, DJs, worlds, and events from one public scene map.
+                Search events, people, communities, and worlds.
               </p>
               <DiscoverySearchForm className="mx-auto mt-8 w-full max-w-3xl" surface="home" />
               <div className="mt-5 flex flex-wrap justify-center gap-2">
@@ -320,14 +320,14 @@ export function DiscoveryLandingPage({
         <DiscoverySection
           empty="No upcoming events are public yet."
           results={data.upcomingEvents}
-          title="Events worth checking first"
+          title="Upcoming events"
         />
 
         <HomeActiveWorldsSection status={activeWorldStatus} worlds={activeWorlds} />
 
         {data.featured.length > 0 ? (
           <Card className="backdrop-blur" surface="glass">
-            <SectionTitle>Featured picks</SectionTitle>
+            <SectionTitle>Featured</SectionTitle>
             <div className="mt-5 grid gap-4 md:grid-cols-2">
               {data.featured.slice(0, 2).map((result) => <PosterCard key={`${result.entityType}-${result.slug}`} result={result} />)}
             </div>

@@ -11,7 +11,7 @@ export function Table({ className, ...props }: ComponentPropsWithoutRef<"table">
 }
 
 export function TableHead({ className, ...props }: ComponentPropsWithoutRef<"thead">) {
-  return <thead className={cn("border-b border-border bg-white/70 text-xs uppercase tracking-[0.18em] text-muted", className)} {...props} />;
+  return <thead className={cn("border-b border-border bg-surface-muted text-xs uppercase tracking-[0.18em] text-muted", className)} {...props} />;
 }
 
 export function TableCell({ className, ...props }: ComponentPropsWithoutRef<"td">) {

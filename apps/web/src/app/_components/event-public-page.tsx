@@ -136,8 +136,8 @@ export type PublicEvent = Omit<PublicEventPreview, "worlds"> & {
   }>;
 };
 
-const eventPosterOverlay = "linear-gradient(135deg, rgba(25, 17, 31, 0.72), rgba(105, 56, 169, 0.2))";
-const eventEntityImageOverlay = "linear-gradient(135deg, rgba(27, 18, 37, 0.28), rgba(105, 56, 169, 0.14))";
+const eventPosterOverlay = "linear-gradient(135deg, color-mix(in srgb, var(--media) 72%, transparent), color-mix(in srgb, var(--accent) 12%, transparent))";
+const eventEntityImageOverlay = "linear-gradient(135deg, color-mix(in srgb, var(--media) 28%, transparent), color-mix(in srgb, var(--accent) 8%, transparent))";
 
 function safeHttpsUrl(url: string | undefined): string | null {
   if (!url) {
@@ -171,7 +171,7 @@ function EntityImage({ imageUrl, label }: { imageUrl?: string; label: string }) 
       aria-hidden="true"
       className={cn(
         "flex size-14 flex-none items-center justify-center overflow-hidden rounded-control border border-accent/20 bg-cover bg-center text-xs font-semibold text-accent-strong",
-        imageStyle ? "bg-slate-950" : "bg-accent/10",
+        imageStyle ? "bg-media" : "bg-accent/10",
       )}
       style={imageStyle}
     >
@@ -199,7 +199,7 @@ export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
   return (
     <article className="group overflow-hidden rounded-card border border-border bg-surface-strong text-sm transition hover:-translate-y-0.5">
       <div
-        className="min-h-28 bg-[radial-gradient(circle_at_top_left,rgba(214,106,77,0.22),transparent_34%),linear-gradient(135deg,#2c1d29,#60429a)] bg-cover bg-center px-4 py-4 text-white"
+        className="min-h-28 bg-[linear-gradient(135deg,var(--canvas-muted),var(--surface-raised))] bg-cover bg-center px-4 py-4 text-white"
         style={thumbnailStyle}
       >
         <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-white/84">
@@ -282,9 +282,9 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
           </div>
         </PageNav>
 
-        <section className="overflow-hidden rounded-hero border border-purple-950/10 bg-slate-950 shadow-hero">
+        <section className="overflow-hidden rounded-hero border border-border bg-media shadow-hero">
           <div
-            className="relative min-h-56 bg-[radial-gradient(circle_at_top_right,rgba(198,153,255,0.32),transparent_30%),linear-gradient(135deg,#17111f,#5d3b8e_52%,#20142f)] bg-cover bg-center p-5 text-white sm:p-6 lg:p-8"
+            className="relative min-h-56 bg-[linear-gradient(135deg,var(--media),var(--surface-raised))] bg-cover bg-center p-5 text-white sm:p-6 lg:p-8"
             style={bannerStyle}
           >
             <div className="flex min-h-44 flex-col justify-end">

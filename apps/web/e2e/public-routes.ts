@@ -165,9 +165,9 @@ export async function captureRouteScreenshot(page: Page, testInfo: TestInfo, nam
 }
 
 export async function expectHomePage(page: Page) {
-  await expect(page.getByRole("heading", { name: /Find the night/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Find what's happening in VRChat/i })).toBeVisible();
   await expect(page.getByRole("button", { name: /Search VRDex/i })).toBeVisible();
-  await expect(page.getByRole("heading", { name: /Events worth checking first/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Upcoming events/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Worlds hosting events soon" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Neon Harbor", exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: /Afterglow Harbor Sessions/i }).first()).toBeVisible();
@@ -178,7 +178,7 @@ export async function expectSearchPage(page: Page) {
   await expect(page.getByRole("button", { name: /Search VRDex/i })).toBeVisible();
   await expect(page.getByRole("link", { name: /DJ Aurora/i }).first()).toBeVisible();
   await expect(page.locator('[title="Logo"]').first()).toBeVisible();
-  await expect(page.getByRole("heading", { name: /Events worth checking first/i })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: /Upcoming events/i })).toHaveCount(0);
 }
 
 export async function expectLookupPage(page: Page) {

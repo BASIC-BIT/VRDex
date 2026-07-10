@@ -61,7 +61,7 @@ function VrcdnLinkRow({
   value: string;
 }) {
   return (
-    <div className="grid gap-2 rounded-control border border-border bg-white p-3 sm:grid-cols-[7.5rem_1fr_auto] sm:items-center">
+    <div className="grid gap-2 rounded-control border border-border bg-surface-strong p-3 sm:grid-cols-[7.5rem_1fr_auto] sm:items-center">
       <div className="text-sm font-semibold">{label}</div>
       <code className="break-all rounded-control bg-surface-strong px-3 py-2 text-xs leading-5 text-muted">{value}</code>
       <Button className="w-full sm:w-fit" onClick={onCopy} size="sm" type="button" variant="surface">

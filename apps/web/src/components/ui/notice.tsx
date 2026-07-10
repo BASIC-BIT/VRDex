@@ -8,9 +8,9 @@ export const noticeVariants = cva("rounded-panel border px-4 py-3 text-sm leadin
     variant: {
       info: "border-border bg-surface-strong text-muted",
       dashed: "border-dashed border-border bg-surface text-muted",
-      success: "border-emerald-700/25 bg-emerald-50 text-emerald-950",
-      warning: "border-amber-700/25 bg-amber-50 text-amber-950",
-      error: "border-accent/35 bg-accent/10 text-accent-strong",
+      success: "border-success/35 bg-success/10 text-success-strong",
+      warning: "border-warning/35 bg-warning/10 text-warning-strong",
+      error: "border-danger/35 bg-danger/10 text-danger-strong",
       inverse: "border-white/25 bg-white/14 text-white/78",
     },
   },
