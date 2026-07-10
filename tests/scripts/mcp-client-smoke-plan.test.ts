@@ -28,7 +28,7 @@ describe("MCP client smoke planner", () => {
     assert.match(result.stdout, /`gemini-cli\/hosted-oauth`/);
     assert.doesNotMatch(result.stdout, /`gemini-cli\/hosted-anonymous-read`/);
     assert.match(result.stdout, /Installed app tool-call session/);
-    assert.match(result.stdout, /`vscode\/local-stdio`, `vscode\/hosted-anonymous-read`/);
+    assert.match(result.stdout, /`cursor\/local-stdio`, `cursor\/hosted-anonymous-read`/);
     assert.match(result.stdout, /Installed app OAuth session/);
     assert.match(result.stdout, /`vscode\/hosted-oauth`, `cursor\/hosted-oauth`, `devin-windsurf\/hosted-oauth`/);
     assert.match(result.stdout, /Desktop or custom connector session/);
@@ -46,6 +46,7 @@ describe("MCP client smoke planner", () => {
       "vscode",
       "--check",
       "local-stdio",
+      "--include-passed",
     ]);
 
     assert.equal(result.status, 0, result.stderr);

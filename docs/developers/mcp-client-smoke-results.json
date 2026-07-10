@@ -1,36 +1,36 @@
 {
   "schemaVersion": 1,
   "lastReviewed": "2026-07-10",
-  "readinessMode": "staging-hosted-data-dcr-cimd-pass-client-smokes-open",
+  "readinessMode": "staging-current-evidence-failed-client-smokes-open",
   "targetEnvironment": "staging https://staging.vrdex.net/mcp @ baaf49e",
   "hostedReadiness": {
     "checks": [
       {
         "id": "hosted-data-backed-anonymous-read",
         "requiredForExternalReadiness": true,
-        "status": "pass",
-        "notes": "2026-07-09: staging was redeployed from PR branch head 934c4cb by GitHub Actions Staging Deploy run 29037734496. The hosted data-backed public read smoke passed against https://staging.vrdex.net/mcp with vrdex_search plus OpenAI-compatible search and fetch evidence.",
-        "environment": "Windows local smoke against staging after GitHub Actions Staging Deploy run 29037734496",
-        "evidence": "corepack pnpm smoke:mcp-compat with --hosted-data --dcr --cimd passed against https://staging.vrdex.net/mcp: vrdex_search returned non-empty public results for query a, search returned a document id, and fetch returned non-empty document text.",
-        "lastRunAt": "2026-07-09"
+        "status": "fail",
+        "notes": "Supersedes the 2026-07-09 pass: the current branch staging deployment has no public result for the smoke query and cannot satisfy data-backed readiness.",
+        "environment": "Windows local smoke against staging after GitHub Actions Staging Deploy run 29128075438",
+        "evidence": "2026-07-10 pnpm smoke:mcp-compat --hosted-data --dcr --cimd --continue-on-failure reached staging successfully, but vrdex_search and OpenAI-compatible search/fetch returned no public results from the current staging backend.",
+        "lastRunAt": "2026-07-10"
       },
       {
         "id": "hosted-dynamic-client-registration",
         "requiredForExternalReadiness": true,
-        "status": "pass",
-        "notes": "2026-07-09: staging was redeployed from PR branch head 934c4cb by GitHub Actions Staging Deploy run 29037734496. Dynamic Client Registration passed against https://staging.vrdex.net/mcp and registered a constrained public MCP client.",
-        "environment": "Windows local smoke against staging after GitHub Actions Staging Deploy run 29037734496",
-        "evidence": "corepack pnpm smoke:mcp-compat with --hosted-data --dcr --cimd passed against https://staging.vrdex.net/mcp: Hosted Dynamic Client Registration returned HTTP 201 and registered a constrained public MCP client with mcp:read.",
-        "lastRunAt": "2026-07-09"
+        "status": "fail",
+        "notes": "Supersedes the 2026-07-09 pass: the current branch staging deployment cannot persist dynamic clients because its web runtime lacks an environment-matched Convex admin credential.",
+        "environment": "Windows local smoke against staging after GitHub Actions Staging Deploy run 29128075438",
+        "evidence": "2026-07-10 pnpm smoke:mcp-compat --dcr --continue-on-failure received HTTP 500 server_error from POST /oauth/register. Live Vercel configuration audit found no CONVEX_ADMIN_TOKEN for the staging project or shared environment.",
+        "lastRunAt": "2026-07-10"
       },
       {
         "id": "hosted-client-id-metadata-document",
         "requiredForExternalReadiness": true,
-        "status": "pass",
-        "notes": "2026-07-09: staging was redeployed from PR branch head 934c4cb by GitHub Actions Staging Deploy run 29037734496. Client ID Metadata Document authorization passed against https://staging.vrdex.net/mcp using the checked-in public MCP client metadata document.",
-        "environment": "Windows local smoke against staging after GitHub Actions Staging Deploy run 29037734496",
-        "evidence": "corepack pnpm smoke:mcp-compat with --hosted-data --dcr --cimd passed against https://staging.vrdex.net/mcp: Hosted Client ID Metadata Document authorization accepted the checked-in public client metadata document and redirected to sign-in.",
-        "lastRunAt": "2026-07-09"
+        "status": "fail",
+        "notes": "Supersedes the 2026-07-09 pass: metadata fetch succeeds, but the current branch staging deployment cannot persist the constrained client without an environment-matched Convex admin credential.",
+        "environment": "Windows local smoke against staging after GitHub Actions Staging Deploy run 29128075438",
+        "evidence": "2026-07-10 pnpm smoke:mcp-compat --cimd --continue-on-failure fetched valid public client metadata but /oauth/authorize redirected with problem=invalid_client_metadata. The same staging environment lacks the server-side Convex admin credential required to persist the constrained dynamic client.",
+        "lastRunAt": "2026-07-10"
       }
     ]
   },
@@ -97,7 +97,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
           "manualStatus": "pending",
-          "notes": "Hosted OAuth harness is available with reviewed OAuth app client credentials via VRDEX_MCP_OAUTH_CLIENT_ID / VRDEX_MCP_OAUTH_CLIENT_SECRET or VRDEX_CLAUDE_CODE_OAUTH_CLIENT_* overrides, plus VRDEX_CLAUDE_CODE_OAUTH_TOKEN fallback. 2026-07-09 GitHub prerequisite audit is partial: reviewed OAuth smoke secrets are absent, VRDEX_HOSTED_E2E_AUTH_HELPERS=true and VRDEX_HOSTED_E2E_BROWSER_TOKEN are present, VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS is missing, and Inspector token fallback is absent. Row remains pending until a real authenticated mcp:read smoke or interactive claude mcp login session is recorded."
+          "notes": "Hosted OAuth harness is available with reviewed OAuth app client credentials via VRDEX_MCP_OAUTH_CLIENT_ID / VRDEX_MCP_OAUTH_CLIENT_SECRET or VRDEX_CLAUDE_CODE_OAUTH_CLIENT_* overrides, plus VRDEX_CLAUDE_CODE_OAUTH_TOKEN fallback. The 2026-07-10 GitHub audit confirms the temporary credential-generation gate is enabled, but reviewed OAuth secrets and the Inspector token fallback are absent and staging lacks the web-runtime secrets needed to mint credentials. Row remains pending until a real authenticated mcp:read smoke or interactive claude mcp login session is recorded."
         }
       ]
     },
@@ -297,7 +297,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
           "manualStatus": "pending",
-          "notes": "Top-level staging hosted OAuth protocol evidence is recorded as pass. Inspector can fetch a short-lived token from reviewed OAuth app client credentials via VRDEX_MCP_OAUTH_CLIENT_ID / VRDEX_MCP_OAUTH_CLIENT_SECRET or VRDEX_MCP_INSPECTOR_OAUTH_CLIENT_* overrides, with VRDEX_MCP_INSPECTOR_OAUTH_TOKEN fallback. The 2026-07-09 GitHub prerequisite audit is partial: reviewed OAuth smoke secrets are absent, VRDEX_HOSTED_E2E_AUTH_HELPERS=true and VRDEX_HOSTED_E2E_BROWSER_TOKEN are present, VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS is missing, and Inspector token fallback is absent. This row remains pending until authenticated behavior is recorded against https://staging.vrdex.net/mcp."
+          "notes": "Top-level staging hosted OAuth protocol evidence currently fails on DCR and CIMD persistence. Inspector can fetch a short-lived token from reviewed OAuth app client credentials via VRDEX_MCP_OAUTH_CLIENT_ID / VRDEX_MCP_OAUTH_CLIENT_SECRET or VRDEX_MCP_INSPECTOR_OAUTH_CLIENT_* overrides, with VRDEX_MCP_INSPECTOR_OAUTH_TOKEN fallback. The 2026-07-10 GitHub audit confirms the temporary credential-generation gate is enabled, but reviewed OAuth secrets and the Inspector token fallback are absent and staging lacks the web-runtime secrets needed to mint credentials. This row remains pending until authenticated behavior is recorded against https://staging.vrdex.net/mcp."
         }
       ]
     }

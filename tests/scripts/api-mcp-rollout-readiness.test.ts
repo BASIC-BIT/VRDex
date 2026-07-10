@@ -46,7 +46,7 @@ describe("API/MCP rollout readiness checker", () => {
     assert.doesNotMatch(result.stdout, /Gemini CLI\/hosted-anonymous-read/);
     assert.match(
       result.stdout,
-      /Production-like hosted MCP evidence \| yes \| pass \| readinessMode=staging-hosted-data-dcr-cimd-pass-client-smokes-open/,
+      /Production-like hosted MCP evidence \| yes \| fail \| readinessMode=staging-current-evidence-failed-client-smokes-open/,
     );
   });
 
@@ -179,17 +179,40 @@ describe("API/MCP rollout readiness checker", () => {
     assert.match(workflow, /if: always\(\)/);
   });
 
-  it("requires external evidence to match the selected hosted target and revision", () => {
-    const result = runRolloutCheck([], {
-      VRDEX_API_MCP_EXPECT_TARGET: "https://staging.vrdex.net/mcp",
-      VRDEX_API_MCP_EXPECT_REVISION: "0123456789abcdef",
+  it("requires external evidence to match the selected hosted target and revision", async () => {
+    const { directory, path } = await writeMatrixCopy("target-revision", (matrix) => {
+      matrix.readinessMode = "staging-hosted-data-dcr-cimd-pass-client-smokes-open";
+
+      for (const check of matrix.hostedReadiness.checks) {
+        check.status = "pass";
+      }
+
+      matrix.hostedReadiness.checks.find(
+        (entry: { id: string }) => entry.id === "hosted-data-backed-anonymous-read",
+      ).evidence = "Hosted data smoke passed vrdex_search, search, and fetch with non-empty document text.";
+      matrix.hostedReadiness.checks.find(
+        (entry: { id: string }) => entry.id === "hosted-dynamic-client-registration",
+      ).evidence = "Dynamic Client Registration returned HTTP 201 for a constrained public MCP client with mcp:read.";
+      matrix.hostedReadiness.checks.find(
+        (entry: { id: string }) => entry.id === "hosted-client-id-metadata-document",
+      ).evidence = "Client ID Metadata Document authorization accepted public metadata and redirected to sign-in.";
     });
 
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(
-      result.stdout,
-      /Production-like hosted MCP evidence \| yes \| pending \| .*targetEnvironment does not name selected revision 0123456789abcdef/,
-    );
+    try {
+      const result = runRolloutCheck([], {
+        VRDEX_API_MCP_EXPECT_TARGET: "https://staging.vrdex.net/mcp",
+        VRDEX_API_MCP_EXPECT_REVISION: "0123456789abcdef",
+        VRDEX_MCP_CLIENT_MATRIX_PATH: path,
+      });
+
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(
+        result.stdout,
+        /Production-like hosted MCP evidence \| yes \| pending \| .*targetEnvironment does not name selected revision 0123456789abcdef/,
+      );
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
   });
 
   it("keeps rollout checklist terminology aligned with open matrix rows", async () => {

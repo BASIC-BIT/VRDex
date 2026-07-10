@@ -193,13 +193,15 @@ from this foundation and are not implied by a green PR.
   `--chat`/`agent`, and Windsurf setup CLI checks do not count as matrix
   evidence unless the real client session lists tools and calls `vrdex_search`
   or, for OpenAI/ChatGPT-compatible surfaces, `search` plus `fetch`.
-- Current 2026-07-09 repository audit for PR #159: hosted OAuth evidence is
-  still `partial`. `VRDEX_HOSTED_E2E_AUTH_HELPERS=true` and the
-  `VRDEX_HOSTED_E2E_BROWSER_TOKEN` secret are present, but reviewed OAuth smoke
-  secrets, `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN`, and
-  `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true` are absent. Do not mark hosted
-  OAuth rows pass until one complete credential path is configured and a
-  matching smoke run is recorded.
+- Current 2026-07-10 repository audit for PR #159: the temporary credential
+  generation gate is enabled through `VRDEX_HOSTED_E2E_AUTH_HELPERS=true`,
+  `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true`, and the
+  `VRDEX_HOSTED_E2E_BROWSER_TOKEN` secret. Reviewed OAuth smoke secrets and
+  `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN` remain absent. The gate is not operational
+  yet because the staging web runtime lacks the API-token pepper, OAuth runtime
+  secrets, and environment-matched Convex admin credential. Do not mark hosted
+  OAuth rows pass until the runtime prerequisites and a matching smoke run both
+  succeed.
 - `pnpm ops:mcp-client-session-pack` writes disposable VS Code, Cursor,
   Windsurf, and Gemini CLI MCP setup files under `.tmp-gh-artifacts/`,
   including local stdio, hosted anonymous HTTP, hosted token-header fallback
@@ -291,12 +293,14 @@ from this foundation and are not implied by a green PR.
   for slower provider runs. The smoke uses the OpenAI-required hosted `search`
   and `fetch` tool names. Run it with required `--hosted-data` against a
   same-branch or production-like backend before recording API integration
-  evidence. Current 2026-07-09 evidence is pass against
+  evidence. Historical 2026-07-09 evidence passed against
   `https://staging.vrdex.net/mcp` after PR branch staging deploy run
   `29037734496`: the full hosted compatibility smoke passed data-backed
   `vrdex_search`, `search`, `fetch`, DCR, and CIMD, and
   `pnpm smoke:mcp-openai` reached the Responses API where `gpt-5.6-luna`
-  called hosted MCP `search` and `fetch`. This does not replace ChatGPT
+  called hosted MCP `search` and `fetch`. That evidence was superseded by the
+  2026-07-10 deployment of `baaf49e`, whose current data-backed, DCR, and CIMD
+  checks fail and are recorded as such. This does not replace ChatGPT
   Apps/Connectors UI or hosted OAuth evidence; those product-surface rows stay
   pending until the current UI proves no-auth public reads and `mcp:read` OAuth
   behavior.

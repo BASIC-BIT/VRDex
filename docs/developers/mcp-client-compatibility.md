@@ -308,7 +308,7 @@ surface proves whether public read tools stay anonymous/no-auth and how hosted
 OAuth behaves. `--hosted-data` is required for this harness because `fetch`
 must resolve a real `search` result.
 
-Current 2026-07-09 target evidence is recorded as pass against
+Historical 2026-07-09 target evidence passed against
 `https://staging.vrdex.net/mcp` after PR branch staging deploy run
 `29037734496`. The full hosted compatibility smoke passed data-backed
 `vrdex_search`, OpenAI-compatible `search`/`fetch`, Dynamic Client
@@ -316,7 +316,10 @@ Registration, and public-client Client ID Metadata Document authorization.
 The OpenAI Responses API smoke then passed against the same staging target:
 `gpt-5.6-luna` called hosted MCP `search` and `fetch` through the smoke
 harness. This remains API integration evidence; ChatGPT Apps/Connectors UI
-evidence is tracked separately.
+evidence is tracked separately. The 2026-07-10 deployment of `baaf49e`
+supersedes that readiness evidence: anonymous transport still works, but the
+current staging target has no public smoke result and DCR/CIMD persistence
+fails without an environment-matched Convex admin credential.
 
 PR Baseline Checks run the same local stdio protocol smoke through
 `pnpm verify:vrdex-mcp`.
@@ -536,12 +539,12 @@ The required hosted evidence rows are:
 
 Current PR #159 status: the hosted data-backed anonymous-read, Dynamic Client
 Registration, and public-client Client ID Metadata Document rows are recorded
-as `pass` against `https://staging.vrdex.net/mcp` after branch staging deploy
-run `29037734496`. The stricter hosted evidence includes anonymous
-`vrdex_search`, OpenAI-compatible `search` plus `fetch`, DCR, and CIMD
-authorization coverage. Hosted OAuth client-specific rows remain pending until
-reviewed smoke credentials, token fallbacks, or hosted developer credential
-generation are configured and a matching client smoke is recorded.
+as `fail` against `https://staging.vrdex.net/mcp` after branch staging deploy
+run `29128075438`. Anonymous transport and tool execution still pass, but the
+current staging backend returns no public smoke result and the web runtime lacks
+the environment-matched Convex admin credential needed for DCR/CIMD
+persistence. Hosted OAuth client-specific rows remain pending until those
+runtime prerequisites and matching client smokes succeed.
 
 The `deployed-health.yml` `hosted-mcp-smoke` workflow can additionally run the
 Inspector hosted OAuth smoke when dispatched with `mcp_oauth=true`. It prefers
@@ -594,16 +597,15 @@ secrets or the temporary credential-generation gate
 boolean readiness, never secret values. Add `--require-ready` when the audit
 should fail until one of those complete paths is configured.
 
-Current PR #159 audit result from 2026-07-09: hosted OAuth evidence is
-`partial`. Reviewed OAuth client secrets are missing, the Inspector token
-fallback is missing, and temporary credential generation is one gate short:
-`VRDEX_HOSTED_E2E_AUTH_HELPERS=true` and
-`VRDEX_HOSTED_E2E_BROWSER_TOKEN` is present, but
-`VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS` is not enabled. Keep that variable
-unset until staging has the developer token routes, OAuth app registration
-routes, and OAuth token endpoint under test; after enabling it, rerun the audit
-and dispatch `deployed-health.yml` with `target=hosted-mcp-smoke` and
-`mcp_oauth=true` before recording hosted-OAuth client rows.
+Current PR #159 audit result from 2026-07-10: reviewed OAuth client secrets and
+the Inspector token fallback are missing. Temporary credential generation is
+enabled through `VRDEX_HOSTED_E2E_AUTH_HELPERS=true`,
+`VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true`, and the
+`VRDEX_HOSTED_E2E_BROWSER_TOKEN` secret, but staging still lacks the web-runtime
+API-token pepper, OAuth secrets, and environment-matched Convex admin
+credential. Repair those runtime prerequisites, rerun the audit, and dispatch
+`deployed-health.yml` with `target=hosted-mcp-smoke` and `mcp_oauth=true`
+before recording hosted-OAuth client rows.
 
 These rows are checked separately from manual client UI rows so a lightweight
 PR preview transport smoke cannot accidentally satisfy the production-like

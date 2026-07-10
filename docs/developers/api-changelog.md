@@ -7,6 +7,17 @@ Changelog for the unstable `/api/v0` and MCP platform foundation.
 `v0` is allowed to change before public launch. Breaking changes still need a
 docs update and a changelog entry so early consumers and agents can adapt.
 
+## 2026-07-10
+
+- replaced superseded staging hosted-readiness passes with current evidence
+  from branch deployment `baaf49e`: anonymous MCP transport still works, while
+  data-backed reads, Dynamic Client Registration, and Client ID Metadata
+  Document persistence remain failed until staging data and server credentials
+  are repaired
+- recorded real installed VS Code client passes for local stdio and hosted
+  anonymous HTTP after the client listed VRDex tools and completed the exact
+  `vrdex_search` smoke call
+
 ## 2026-07-09
 
 - moved OAuth consent completion and authorization-code issuance behind one
