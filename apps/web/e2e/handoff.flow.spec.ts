@@ -6,6 +6,14 @@ test.beforeEach(async ({ page }) => {
   await prepareVisualPage(page);
 });
 
+test("handoff invitations are excluded from indexing", async ({ page }) => {
+  await page.goto("/handoff/playwright-ready");
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute(
+    "content",
+    /noindex/,
+  );
+});
+
 test("handoff shows a loading state", async ({ page }) => {
   await page.goto("/handoff/playwright-loading");
   await expect(page.getByRole("status")).toContainText("Opening your invitation");
@@ -29,7 +37,7 @@ test("handoff shows the accepted state and owner destination", async ({ page }) 
   await expect(page.getByRole("heading", { name: "Invitation already accepted" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Open account" })).toHaveAttribute(
     "href",
-    "/p/playwright-dj-aurora",
+    "/account/privacy?profileId=playwright-profile",
   );
 });
 
@@ -64,7 +72,7 @@ test("handoff accepts individually selected fields and routes to the owner profi
   await expect(page.getByText("3 of 4 selected")).toBeVisible();
   await page.getByRole("button", { name: "Accept handoff" }).click();
 
-  await expect(page).toHaveURL(/\/p\/playwright-dj-aurora$/);
+  await expect(page).toHaveURL(/\/account\/privacy\?profileId=playwright-profile$/);
   await expect
     .poll(async () =>
       page.evaluate(() => window.sessionStorage.getItem("vrdex.e2e.handoff.selectedFieldIds")),

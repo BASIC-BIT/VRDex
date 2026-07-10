@@ -51,6 +51,7 @@ import {
   seedImportFieldReviewStateValidator,
   seedImportFieldVisibilityValidator,
   seedImportProfileTypeValidator,
+  seedImportPublicationPolicyValidator,
   seedImportSourceTypeValidator,
 } from "./_seedImportValidators";
 
@@ -1227,6 +1228,7 @@ export default defineSchema({
     sourceContact: v.optional(v.string()),
     receivedAt: v.number(),
     sourceObservedAt: v.optional(v.number()),
+    publicationPolicy: v.optional(seedImportPublicationPolicyValidator),
     importedBy: v.optional(authSubject),
     reviewState: seedImportBatchReviewStateValidator,
     reviewedBy: v.optional(authSubject),
@@ -1241,6 +1243,7 @@ export default defineSchema({
   seedImportCandidateProfiles: defineTable({
     batchId: v.id("seedImportBatches"),
     externalCandidateId: v.string(),
+    importFingerprint: v.optional(v.string()),
     profileType: seedImportProfileTypeValidator,
     proposedDisplayName: v.string(),
     proposedSlug: v.optional(v.string()),
@@ -1259,6 +1262,7 @@ export default defineSchema({
     .index("by_batchId", ["batchId"])
     .index("by_batchId_reviewState", ["batchId", "reviewState"])
     .index("by_batchId_publicationState", ["batchId", "publicationState"])
+    .index("by_batchId_externalCandidateId", ["batchId", "externalCandidateId"])
     .index("by_externalCandidateId", ["externalCandidateId"])
     .index("by_matchedProfileId", ["matchedProfileId"])
     .searchIndex("search_proposedDisplayName", {

@@ -7,6 +7,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 import { cn } from "@/lib/cn";
+import type { DiscoveryAnalyticsSurface } from "@/lib/posthog";
 import { safeImageBackground } from "@/lib/safe-image";
 
 type EntityType = "profile" | "world" | "event";
@@ -156,7 +157,13 @@ function TopNav() {
   );
 }
 
-function DiscoveryCard({ result, surface }: { result: PublicSearchResult; surface: string }) {
+function DiscoveryCard({
+  result,
+  surface,
+}: {
+  result: PublicSearchResult;
+  surface: DiscoveryAnalyticsSurface;
+}) {
   const subtitle = resultSubtitle(result);
 
   return (
@@ -242,11 +249,13 @@ function DiscoverySection({
   empty,
   columns = "responsive",
   results,
+  surface,
 }: {
   title: string;
   empty: string;
   columns?: "responsive" | "single";
   results: PublicSearchResult[];
+  surface: DiscoveryAnalyticsSurface;
 }) {
   return (
     <Card className="backdrop-blur" surface="glass">
@@ -255,7 +264,13 @@ function DiscoverySection({
         {results.length === 0 ? (
           <p className="text-sm leading-6 text-muted">{empty}</p>
         ) : (
-          results.map((result) => <DiscoveryCard key={`${result.entityType}-${result.slug}`} result={result} surface={title} />)
+          results.map((result) => (
+            <DiscoveryCard
+              key={`${result.entityType}-${result.slug}`}
+              result={result}
+              surface={surface}
+            />
+          ))
         )}
       </div>
     </Card>
@@ -318,6 +333,7 @@ export function DiscoveryLandingPage({
         <DiscoverySection
           empty="No upcoming events are public yet."
           results={data.upcomingEvents}
+          surface="upcoming_events"
           title="Events worth checking first"
         />
 
@@ -333,9 +349,9 @@ export function DiscoveryLandingPage({
         ) : null}
 
         <section className="grid gap-5 xl:grid-cols-3">
-          <DiscoverySection columns="single" empty="No people are discoverable yet." results={data.people} title="People" />
-          <DiscoverySection columns="single" empty="No communities are discoverable yet." results={data.communities} title="Communities" />
-          <DiscoverySection columns="single" empty="No worlds are discoverable yet." results={data.worlds} title="Worlds" />
+          <DiscoverySection columns="single" empty="No people are discoverable yet." results={data.people} surface="home" title="People" />
+          <DiscoverySection columns="single" empty="No communities are discoverable yet." results={data.communities} surface="home" title="Communities" />
+          <DiscoverySection columns="single" empty="No worlds are discoverable yet." results={data.worlds} surface="home" title="Worlds" />
         </section>
       </PageContainer>
     </PageShell>

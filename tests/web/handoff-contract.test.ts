@@ -12,6 +12,7 @@ describe("handoff preview contract", () => {
     const preview = normalizeHandoffPreview(
       {
         state: "ready",
+        sourceName: "NWinn",
         invitation: { expiresAt: 2_000 },
         preparedIdentity: {
           profileType: "person",
@@ -37,6 +38,7 @@ describe("handoff preview contract", () => {
       state: "ready",
       displayName: "DJ Aurora",
       profileType: "person",
+      sourceName: "NWinn",
       expiresAt: 2_000,
       fields: [
         {
@@ -95,5 +97,28 @@ describe("handoff preview contract", () => {
     });
     assert.deepEqual(normalizeOwnerDestination({ ownerDestination: "https://attacker.invalid" }), {});
     assert.deepEqual(normalizeOwnerDestination({ destination: "//attacker.invalid" }), {});
+  });
+
+  it("normalizes grouped outbound links without accepting unsafe URLs", () => {
+    const preview = normalizeHandoffPreview({
+      state: "ready",
+      displayName: "DJ Aurora",
+      fields: [
+        {
+          id: "links",
+          label: "Links",
+          kind: "link_list",
+          links: [
+            { label: "Twitch", url: "https://twitch.tv/dj-aurora" },
+            { label: "Unsafe", url: "javascript:alert(1)" },
+          ],
+        },
+      ],
+    });
+
+    assert.equal(preview.state, "ready");
+    assert.deepEqual(preview.state === "ready" ? preview.fields[0]?.links : undefined, [
+      { label: "Twitch", url: "https://twitch.tv/dj-aurora" },
+    ]);
   });
 });

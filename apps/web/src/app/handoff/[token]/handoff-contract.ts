@@ -4,8 +4,9 @@ export type HandoffField = {
   id: string;
   label: string;
   value: string;
-  kind: "link" | "text";
+  kind: "link" | "link_list" | "text";
   url?: string;
+  links?: Array<{ label: string; url: string }>;
   selectedByDefault: boolean;
 };
 
@@ -16,6 +17,7 @@ export type HandoffPreview =
       state: "ready";
       displayName: string;
       profileType?: "community" | "person";
+      sourceName?: string;
       expiresAt?: number;
       fields: HandoffField[];
     };
@@ -58,7 +60,17 @@ function normalizeField(value: unknown): HandoffField | null {
 
   const id = stringValue(field.id, field.fieldId, field._id);
   const label = stringValue(field.label, field.displayLabel, field.fieldType, field.key);
-  const rawValue = stringValue(field.value, field.displayValue, field.handle);
+  const rawLinks = Array.isArray(field.links) ? field.links : [];
+  const links = rawLinks.flatMap((value) => {
+    const link = record(value);
+    const label = link ? stringValue(link.label, link.type) : undefined;
+    const url = link ? safeExternalHttpUrl(link.url) : undefined;
+
+    return label && url ? [{ label, url }] : [];
+  });
+  const rawValue = stringValue(field.value, field.displayValue, field.handle) ?? (
+    links.length > 0 ? `${links.length} prepared links` : undefined
+  );
 
   if (!id || !label || !rawValue) {
     return null;
@@ -71,8 +83,13 @@ function normalizeField(value: unknown): HandoffField | null {
     id,
     label,
     value: rawValue,
-    kind: explicitKind === "link" || url ? "link" : "text",
+    kind: explicitKind === "link_list" && links.length > 0
+      ? "link_list"
+      : explicitKind === "link" || url
+        ? "link"
+        : "text",
     ...(url ? { url } : {}),
+    ...(links.length > 0 ? { links } : {}),
     selectedByDefault: field.selectedByDefault !== false,
   };
 }
@@ -134,11 +151,13 @@ export function normalizeHandoffPreview(value: unknown, now = Date.now()): Hando
   const profileType = profileTypeValue === "person" || profileTypeValue === "community"
     ? profileTypeValue
     : undefined;
+  const sourceName = stringValue(identity.sourceName, source.sourceName, invitation.sourceName);
 
   return {
     state: "ready",
     displayName,
     ...(profileType ? { profileType } : {}),
+    ...(sourceName ? { sourceName } : {}),
     ...(expiresAt !== undefined ? { expiresAt } : {}),
     fields: collectFields(source, identity),
   };

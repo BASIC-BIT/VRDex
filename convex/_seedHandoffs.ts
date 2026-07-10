@@ -3,6 +3,40 @@ import { normalizeSafePrivateSeedFieldValue } from "./_seedImports";
 
 type PersonProfile = Extract<Doc<"profiles">, { profileType: "person" }>;
 
+export function isClaimablePrivatePersonSeedCandidate(
+  candidate: Pick<
+    Doc<"seedImportCandidateProfiles">,
+    "claimState" | "profileType" | "publicationState"
+  >,
+): boolean {
+  return candidate.profileType === "person" &&
+    candidate.claimState === "unclaimed" &&
+    (candidate.publicationState === "draft_private" ||
+      candidate.publicationState === "review_pending");
+}
+
+export function isReusablePrivateConciergeProfile(
+  profile: Pick<PersonProfile, "claimState" | "profileType" | "publicationState">,
+): boolean {
+  return profile.profileType === "person" &&
+    profile.claimState === "unclaimed" &&
+    profile.publicationState === "draft_private";
+}
+
+export function canRevealAcceptedHandoffDestination(
+  acceptedByUserId: Id<"users"> | undefined,
+  viewerUserId: Id<"users"> | undefined,
+): boolean {
+  return acceptedByUserId !== undefined && acceptedByUserId === viewerUserId;
+}
+
+export function isLiveHandoffInvitation(
+  invitation: Pick<Doc<"seedHandoffInvitations">, "expiresAt" | "state">,
+  now: number,
+): boolean {
+  return invitation.state === "active" && invitation.expiresAt > now;
+}
+
 const HANDOFF_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43,128}$/;
 
 export function requireSecureHandoffToken(token: string): string {
@@ -46,14 +80,16 @@ export function projectHandoffPreviewField(
 
     if (field.fieldKey === "outboundLinks") {
       const links = normalized as Array<{ label: string; url: string }>;
-      const singleLink = links.length === 1 ? links[0] : undefined;
+      const previewLinks = links.map(({ label, url }) => ({ label, url }));
+      const singleLink = previewLinks.length === 1 ? previewLinks[0] : undefined;
 
       return {
         id: field._id,
         label: singleLink?.label ?? HANDOFF_FIELD_LABELS[field.fieldKey] ?? "Link",
-        value: singleLink?.label ?? links.map((link) => link.label).join(", "),
-        kind: singleLink === undefined ? ("list" as const) : ("link" as const),
+        value: singleLink?.label ?? `${previewLinks.length} prepared links`,
+        kind: singleLink === undefined ? ("link_list" as const) : ("link" as const),
         ...(singleLink !== undefined ? { url: singleLink.url } : {}),
+        ...(singleLink === undefined ? { links: previewLinks } : {}),
         selectedByDefault: true,
       };
     }
@@ -127,6 +163,7 @@ function visibilityKeyForSeedField(fieldKey: string) {
 export function buildConciergeProfileFieldPatch(
   fields: Doc<"seedImportCandidateFields">[],
   profile?: PersonProfile,
+  offeredFields: Doc<"seedImportCandidateFields">[] = fields,
 ): Partial<PersonProfile> {
   const patch: Partial<PersonProfile> = {};
   const fieldVisibility: NonNullable<PersonProfile["fieldVisibility"]> = {
@@ -134,6 +171,56 @@ export function buildConciergeProfileFieldPatch(
   };
   let person = profile?.person ?? { roleTags: [] };
   let personChanged = false;
+  const selectedFieldKeys = new Set(fields.map((field) => field.fieldKey));
+
+  for (const field of offeredFields) {
+    if (selectedFieldKeys.has(field.fieldKey)) {
+      continue;
+    }
+
+    delete fieldVisibility[visibilityKeyForSeedField(field.fieldKey)];
+
+    switch (field.fieldKey) {
+      case "aliases":
+        patch.aliases = [];
+        break;
+      case "tags":
+        patch.tags = [];
+        break;
+      case "genres":
+        patch.genres = [];
+        break;
+      case "headline":
+        patch.headline = undefined;
+        break;
+      case "bio":
+        patch.bio = undefined;
+        break;
+      case "about":
+        patch.about = undefined;
+        break;
+      case "outboundLinks":
+        patch.outboundLinks = [];
+        break;
+      case "region":
+        patch.region = undefined;
+        break;
+      case "timezone":
+        patch.timezone = undefined;
+        break;
+      case "person.pronouns": {
+        const nextPerson = { ...person };
+        delete nextPerson.pronouns;
+        person = nextPerson;
+        personChanged = true;
+        break;
+      }
+      case "person.roleTags":
+        person = { ...person, roleTags: [] };
+        personChanged = true;
+        break;
+    }
+  }
 
   for (const field of fields) {
     const value = normalizeSafePrivateSeedFieldValue(field.fieldKey, field.value);

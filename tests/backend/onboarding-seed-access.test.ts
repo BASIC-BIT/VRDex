@@ -6,21 +6,32 @@ import type { Doc, Id } from "../../convex/_generated/dataModel";
 import {
   accountFeatureAccessFromGrants,
   isAccountFeatureGrantActive,
-} from "../../convex/_accountFeatures";
+} from "../../convex/_accountFeatureModel";
 import {
   canIncludePrivateSeedCandidate,
   projectSafePrivateSeedField,
 } from "../../convex/_seedAccess";
 import {
   buildConciergeProfileFieldPatch,
+  canRevealAcceptedHandoffDestination,
   hashHandoffToken,
+  isClaimablePrivatePersonSeedCandidate,
+  isLiveHandoffInvitation,
+  isReusablePrivateConciergeProfile,
+  projectHandoffPreviewField,
   requireSecureHandoffToken,
   selectHandoffFields,
 } from "../../convex/_seedHandoffs";
 import {
   createSeedImportDocuments,
+  getSeedImportPublicationBlockers,
   normalizePermissionedSeedImport,
+  seedImportCandidateFingerprint,
 } from "../../convex/_seedImports";
+import {
+  chunkPermissionedSeedImport,
+  MAX_CONVEX_IMPORT_ARGS_BYTES,
+} from "../../scripts/import-seed-json.mjs";
 
 function seedField(
   overrides: Partial<Doc<"seedImportCandidateFields">> = {},
@@ -129,8 +140,19 @@ describe("permissioned seed import", () => {
       Date.parse("2026-07-01T00:00:00.000Z"),
     );
     assert.equal(
+      inserts.find((insert) => insert.table === "seedImportBatches")?.document.publicationPolicy,
+      "private_only",
+    );
+    assert.equal(
       inserts.find((insert) => insert.table === "seedImportCandidateFields")?.document.lastCheckedAt,
       Date.parse("2026-07-08T00:00:00.000Z"),
+    );
+    assert.match(
+      String(
+        inserts.find((insert) => insert.table === "seedImportCandidateProfiles")
+          ?.document.importFingerprint,
+      ),
+      /^[a-f0-9]{64}$/,
     );
   });
 
@@ -151,17 +173,103 @@ describe("permissioned seed import", () => {
       /Unsupported permissioned seed field/,
     );
   });
+
+  it("chunks a 400-DJ list below the Windows command-line limit", () => {
+    const candidates = Array.from({ length: 400 }, (_, index) => ({
+      ...structuredClone(payload.candidates[0]),
+      candidateId: `example-dj-${index + 1}`,
+      proposedDisplayName: `DJ Example ${index + 1}`,
+    }));
+    const chunks = chunkPermissionedSeedImport(
+      { ...payload, candidates },
+      {
+        tokenIdentifier: "operator",
+        issuer: "vrdex",
+        subject: "seed-import",
+      },
+    );
+
+    assert.ok(chunks.length > 1);
+    assert.equal(
+      chunks.reduce((count, chunk) => count + chunk.payload.candidates.length, 0),
+      400,
+    );
+    for (const chunk of chunks) {
+      assert.ok(Buffer.byteLength(JSON.stringify(chunk), "utf8") <= MAX_CONVEX_IMPORT_ARGS_BYTES);
+    }
+  });
+
+  it("blocks public publication for permissioned imports", () => {
+    const blockers = getSeedImportPublicationBlockers({
+      batch: { publicationPolicy: "private_only", reviewState: "approved" },
+      candidate: {
+        reviewState: "accepted",
+        publicationState: "review_pending",
+        claimState: "unclaimed",
+        proposedSlug: "example-dj",
+      },
+      fields: [
+        {
+          fieldKey: "aliases",
+          value: ["DJ Example"],
+          confidence: "medium",
+          reviewState: "accepted",
+          visibility: "private",
+        },
+      ],
+    });
+
+    assert.deepEqual(blockers, ["source_private_only"]);
+  });
+
+  it("rejects future freshness timestamps", () => {
+    const futurePayload = structuredClone(payload);
+    futurePayload.candidates[0]!.fields[0]!.lastCheckedAt = "2026-07-11T00:00:00.000Z";
+
+    assert.throws(
+      () => normalizePermissionedSeedImport(
+        futurePayload,
+        Date.parse("2026-07-10T00:00:00.000Z"),
+      ),
+      /cannot be in the future/,
+    );
+  });
+
+  it("fingerprints candidate payloads and detects changed reruns", async () => {
+    const normalized = normalizePermissionedSeedImport(payload);
+    const original = normalized.candidates[0]!;
+    const changedPayload = structuredClone(payload);
+    changedPayload.candidates[0]!.proposedDisplayName = "DJ Example Updated";
+    const changed = normalizePermissionedSeedImport(changedPayload).candidates[0]!;
+
+    assert.equal(
+      await seedImportCandidateFingerprint(original),
+      await seedImportCandidateFingerprint(original),
+    );
+    assert.notEqual(
+      await seedImportCandidateFingerprint(original),
+      await seedImportCandidateFingerprint(changed),
+    );
+  });
 });
 
 describe("private seed projection", () => {
   it("shows unreviewed candidates only to super-admins and allowlists fields", () => {
     const candidate = {
+      claimState: "unclaimed" as const,
       profileType: "person" as const,
       publicationState: "draft_private" as const,
       reviewState: "unreviewed" as const,
     };
     assert.equal(canIncludePrivateSeedCandidate(candidate as never, true), true);
     assert.equal(canIncludePrivateSeedCandidate(candidate as never, false), false);
+    assert.equal(
+      canIncludePrivateSeedCandidate(
+        { ...candidate, claimState: "claimed_unverified", reviewState: "accepted" } as never,
+        false,
+      ),
+      false,
+    );
     assert.equal(projectSafePrivateSeedField(seedField())?.fieldKey, "aliases");
     assert.equal(
       projectSafePrivateSeedField(
@@ -173,6 +281,62 @@ describe("private seed projection", () => {
 });
 
 describe("seed handoff helpers", () => {
+  it("allows handoff only for unclaimed candidates and profiles", () => {
+    assert.equal(
+      isClaimablePrivatePersonSeedCandidate({
+        claimState: "unclaimed",
+        profileType: "person",
+        publicationState: "draft_private",
+      }),
+      true,
+    );
+    assert.equal(
+      isClaimablePrivatePersonSeedCandidate({
+        claimState: "claimed_unverified",
+        profileType: "person",
+        publicationState: "draft_private",
+      }),
+      false,
+    );
+    assert.equal(
+      isReusablePrivateConciergeProfile({
+        claimState: "claimed_verified",
+        profileType: "person",
+        publicationState: "draft_private",
+      }),
+      false,
+    );
+    assert.equal(
+      canRevealAcceptedHandoffDestination(
+        "user-1" as Id<"users">,
+        undefined,
+      ),
+      false,
+    );
+    assert.equal(
+      canRevealAcceptedHandoffDestination(
+        "user-1" as Id<"users">,
+        "user-2" as Id<"users">,
+      ),
+      false,
+    );
+    assert.equal(
+      canRevealAcceptedHandoffDestination(
+        "user-1" as Id<"users">,
+        "user-1" as Id<"users">,
+      ),
+      true,
+    );
+    assert.equal(
+      isLiveHandoffInvitation({ state: "active", expiresAt: 101 }, 100),
+      true,
+    );
+    assert.equal(
+      isLiveHandoffInvitation({ state: "active", expiresAt: 100 }, 100),
+      false,
+    );
+  });
+
   it("hashes strong invitation tokens with SHA-256 and rejects weak tokens", async () => {
     const token = "A".repeat(43);
     assert.equal(
@@ -200,5 +364,51 @@ describe("seed handoff helpers", () => {
       aliases: ["DJ Example"],
       fieldVisibility: { aliases: "private" },
     });
+  });
+
+  it("removes deselected prepared fields from a reused concierge profile", () => {
+    const aliasField = seedField();
+    const bioField = seedField({
+      _id: "field-2" as Id<"seedImportCandidateFields">,
+      fieldKey: "bio",
+      value: "Prepared biography",
+    });
+    const patch = buildConciergeProfileFieldPatch(
+      [],
+      {
+        aliases: ["DJ Example"],
+        bio: "Prepared biography",
+        fieldVisibility: {
+          aliases: "private",
+          bio: "private",
+          tags: "public",
+        },
+        person: { roleTags: [] },
+      } as never,
+      [aliasField, bioField],
+    );
+
+    assert.deepEqual(patch, {
+      aliases: [],
+      bio: undefined,
+      fieldVisibility: { tags: "public" },
+    });
+  });
+
+  it("projects every grouped outbound link for recipient review", () => {
+    const field = seedField({
+      fieldKey: "outboundLinks",
+      value: [
+        { type: "twitch", label: "Twitch", url: "https://twitch.tv/example" },
+        { type: "vrchat_profile", label: "VRChat", url: "https://vrchat.com/home/user/usr_example" },
+      ],
+    });
+    const preview = projectHandoffPreviewField(field);
+
+    assert.equal(preview?.kind, "link_list");
+    assert.deepEqual(preview && "links" in preview ? preview.links : undefined, [
+      { label: "Twitch", url: "https://twitch.tv/example" },
+      { label: "VRChat", url: "https://vrchat.com/home/user/usr_example" },
+    ]);
   });
 });

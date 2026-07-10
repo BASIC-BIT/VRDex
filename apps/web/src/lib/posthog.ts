@@ -1,6 +1,50 @@
 import type { PostHog } from "posthog-js";
 
 export const PRIVATE_SEED_LOOKUP_UI_FLAG = "seed-lookup-beta";
+const URL_PROPERTY_NAMES = new Set([
+  "$current_url",
+  "$pathname",
+  "$referrer",
+  "$initial_referrer",
+]);
+
+export function sanitizeAnalyticsUrl(value: string): string {
+  const fallback = value.split(/[?#]/, 1)[0];
+
+  try {
+    const absolute = /^[a-z][a-z\d+.-]*:\/\//i.test(value);
+    const url = new URL(value, "https://vrdex.invalid");
+    const pathname = url.pathname.replace(/^\/handoff\/[^/]+/, "/handoff/redacted");
+
+    return absolute ? `${url.protocol}//${url.host}${pathname}` : pathname;
+  } catch {
+    return fallback.replace(/^\/handoff\/[^/]+/, "/handoff/redacted");
+  }
+}
+
+export function sanitizePostHogProperties(properties: Record<string, unknown>) {
+  const sanitized = { ...properties };
+
+  for (const propertyName of URL_PROPERTY_NAMES) {
+    const value = sanitized[propertyName];
+    if (typeof value === "string") {
+      sanitized[propertyName] = sanitizeAnalyticsUrl(value);
+    }
+  }
+
+  return sanitized;
+}
+
+export function isSessionReplayAllowedPathname(pathname: string): boolean {
+  return pathname === "/" ||
+    pathname === "/search" ||
+    pathname === "/discover" ||
+    pathname === "/upcoming" ||
+    pathname.startsWith("/p/") ||
+    pathname.startsWith("/c/") ||
+    pathname.startsWith("/e/") ||
+    pathname.startsWith("/worlds/");
+}
 
 export type DiscoveryAnalyticsSurface =
   | "featured"
@@ -28,7 +72,7 @@ type ProductAnalyticsEvents = {
   };
   private_seed_results_shown: {
     result_count: "multiple" | "one";
-    ui_flag: "enabled" | "unavailable";
+    ui_flag: "enabled" | "super_admin_bypass";
   };
 };
 

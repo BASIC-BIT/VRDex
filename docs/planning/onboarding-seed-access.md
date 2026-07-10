@@ -8,6 +8,9 @@ This document captures the minimum viable path for turning permissioned DJ link
 lists into useful VRDex onboarding, lookup, and claim/handoff workflows without
 making private seed data public by accident.
 
+The implemented operator workflow is documented in
+`docs/backend/private-seed-operations.md`.
+
 ## Why This Exists
 
 VRDex already has planning and backend foundations for:

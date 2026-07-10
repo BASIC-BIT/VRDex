@@ -287,13 +287,19 @@ export async function fetchDiscoverySearch(query: string) {
 
 export async function fetchProfileLookup(query: string) {
   const fixtureLookup = getPlaywrightProfileLookupFixture(query);
+  const fixturePrivateResults = fixtureLookup.kind === "handled"
+    ? fixtureLookup.privateResults
+    : undefined;
+  const fixtureViewerAccess = fixtureLookup.kind === "handled"
+    ? fixtureLookup.viewerAccess
+    : undefined;
 
   if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
     return {
       kind: fixtureLookup.kind === "handled" ? ("live" as const) : ("missing-url" as const),
-      privateResults: [] as PrivateSeedLookupResult[],
+      privateResults: fixturePrivateResults ?? [] as PrivateSeedLookupResult[],
       results: fixtureLookup.kind === "handled" ? fixtureLookup.results : [],
-      viewerAccess: signedOutSeedAccess,
+      viewerAccess: fixtureViewerAccess ?? signedOutSeedAccess,
     };
   }
 
@@ -304,13 +310,15 @@ export async function fetchProfileLookup(query: string) {
       : query
         ? fetchQuery(api.profiles.lookupPeople, { query, limit: 12 })
         : Promise.resolve([]);
-    const viewerAccessPromise = token
+    const viewerAccessPromise = fixtureViewerAccess
+      ? Promise.resolve(fixtureViewerAccess)
+      : token
       ? fetchQuery(seedAccessApi.viewerAccess, {}, { token })
       : Promise.resolve(signedOutSeedAccess);
     const [results, viewerAccess] = await Promise.all([publicResultsPromise, viewerAccessPromise]);
-    let privateResults: PrivateSeedLookupResult[] = [];
+    let privateResults: PrivateSeedLookupResult[] = fixturePrivateResults ?? [];
 
-    if (viewerAccess.allowed && query.length >= 2) {
+    if (fixturePrivateResults === undefined && viewerAccess.allowed && query.length >= 2) {
       try {
         privateResults = await fetchQuery(seedAccessApi.lookupPeople, { query, limit: 12 }, { token });
       } catch (error) {

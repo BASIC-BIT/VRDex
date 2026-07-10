@@ -197,6 +197,21 @@ export async function expectLookupPage(page: Page) {
   await expect(page.getByRole("link", { name: "Open profile", exact: true })).toHaveCount(0);
 }
 
+export async function expectPrivateSeedLookupPage(page: Page) {
+  const privateResult = page.locator(".lookup-private-result:visible");
+
+  await expect(page.getByRole("heading", { name: /DJ link lookup/i })).toBeVisible();
+  await expect(privateResult).toHaveCount(1);
+  await expect(privateResult.getByText("Private seed", { exact: true })).toBeVisible();
+  await expect(privateResult.getByText("DJ Northstar", { exact: true })).toBeVisible();
+  await expect(privateResult.getByText("NWinn", { exact: true })).toBeVisible();
+  await expect(privateResult.getByText("Jul 9, 2026", { exact: true })).toBeVisible();
+  await expect(privateResult.getByText("Checked Jul 8, 2026", { exact: true })).toBeVisible();
+  await expect(privateResult.getByRole("link", { name: "Twitch: dj-northstar" })).toBeVisible();
+  await expect(privateResult.getByRole("link", { name: "VRChat profile: vrchat.com" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open profile", exact: true })).toHaveCount(0);
+}
+
 export async function expectSubmitPage(page: Page) {
   await expect(page.getByRole("heading", { name: /Add a missing VRChat scene profile/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Sign-in required" })).toBeVisible();
@@ -404,6 +419,11 @@ export const capturedRoutes: CapturedRoute[] = [
     name: "lookup",
     path: visualProfilePaths.lookupPath,
     expectPage: expectLookupPage,
+  },
+  {
+    name: "lookup-private-seed",
+    path: "/lookup?q=nwinn",
+    expectPage: expectPrivateSeedLookupPage,
   },
   {
     name: "privacy-suppression",

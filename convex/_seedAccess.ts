@@ -25,7 +25,7 @@ export function projectSafePrivateSeedField(
 export function canIncludePrivateSeedCandidate(
   candidate: Pick<
     Doc<"seedImportCandidateProfiles">,
-    "profileType" | "publicationState" | "reviewState"
+    "claimState" | "profileType" | "publicationState" | "reviewState"
   >,
   superAdmin: boolean,
 ): boolean {
@@ -37,5 +37,8 @@ export function canIncludePrivateSeedCandidate(
     return false;
   }
 
-  return superAdmin || candidate.reviewState === "accepted";
+  return superAdmin || (
+    candidate.claimState === "unclaimed" &&
+    candidate.reviewState === "accepted"
+  );
 }

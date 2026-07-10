@@ -15,14 +15,22 @@ import { createProfileSortName } from "./_profileSubmissions";
 import { projectSafePrivateSeedField } from "./_seedAccess";
 import {
   buildConciergeProfileFieldPatch,
+  canRevealAcceptedHandoffDestination,
   hashHandoffToken,
+  isClaimablePrivatePersonSeedCandidate,
+  isLiveHandoffInvitation,
+  isReusablePrivateConciergeProfile,
   projectHandoffPreviewField,
   selectHandoffFields,
 } from "./_seedHandoffs";
 import { seedImportAuthSubjectValidator } from "./_seedImportValidators";
-import { requireVerifiedEmailUser } from "./accounts";
+import { getCurrentUser, requireVerifiedEmailUser } from "./accounts";
 
 type PersonProfile = Extract<Doc<"profiles">, { profileType: "person" }>;
+
+function ownerDestination(profileId: Id<"profiles">) {
+  return `/account/privacy?profileId=${encodeURIComponent(profileId)}`;
+}
 
 function optionalAuditText(value: string | undefined): string | undefined {
   const normalized = value?.trim().replace(/\s+/g, " ");
@@ -30,18 +38,14 @@ function optionalAuditText(value: string | undefined): string | undefined {
 }
 
 function assertPrivatePersonCandidate(candidate: Doc<"seedImportCandidateProfiles">) {
-  if (
-    candidate.profileType !== "person" ||
-    (candidate.publicationState !== "draft_private" &&
-      candidate.publicationState !== "review_pending")
-  ) {
-    throw new Error("Handoff invitations require a private person seed candidate.");
+  if (!isClaimablePrivatePersonSeedCandidate(candidate)) {
+    throw new Error("Handoff invitations require an unclaimed private person seed candidate.");
   }
 }
 
 function assertReusableConciergeProfile(profile: Doc<"profiles">): asserts profile is PersonProfile {
-  if (profile.profileType !== "person" || profile.publicationState !== "draft_private") {
-    throw new Error("Handoff invitations can reuse only private person profiles.");
+  if (profile.profileType !== "person" || !isReusablePrivateConciergeProfile(profile)) {
+    throw new Error("Handoff invitations can reuse only unclaimed private person profiles.");
   }
 }
 
@@ -99,6 +103,27 @@ export const createInvitation = internalMutation({
     }
     assertPrivatePersonCandidate(candidate);
 
+    const activeInvitations = await ctx.db
+      .query("seedHandoffInvitations")
+      .withIndex("by_candidateId_state", (query) =>
+        query.eq("candidateId", candidate._id).eq("state", "active"),
+      )
+      .collect();
+    if (activeInvitations.some((invitation) => isLiveHandoffInvitation(invitation, now))) {
+      throw new Error("This seed candidate already has an active handoff invitation.");
+    }
+    await Promise.all(
+      activeInvitations.map((invitation) =>
+        ctx.db.patch(invitation._id, {
+          state: "revoked",
+          revokedBy: args.createdBy,
+          revokedAt: now,
+          revokeReason: "Expired invitation replaced by the operator.",
+          updatedAt: now,
+        }),
+      ),
+    );
+
     const fields = await Promise.all(
       args.offeredFieldIds.map((fieldId) => ctx.db.get(fieldId)),
     );
@@ -111,8 +136,14 @@ export const createInvitation = internalMutation({
       }
     }
 
+    const preparedProfileId = args.profileId ?? candidate.matchedProfileId;
     if (args.profileId !== undefined) {
-      const profile = await ctx.db.get(args.profileId);
+      if (candidate.matchedProfileId !== args.profileId) {
+        throw new Error("The concierge profile is not matched to this seed candidate.");
+      }
+    }
+    if (preparedProfileId !== undefined) {
+      const profile = await ctx.db.get(preparedProfileId);
       if (profile === null) {
         throw new Error("Concierge profile not found.");
       }
@@ -135,7 +166,7 @@ export const createInvitation = internalMutation({
     const invitationId = await ctx.db.insert("seedHandoffInvitations", {
       tokenHash,
       candidateId: candidate._id,
-      ...(args.profileId !== undefined ? { profileId: args.profileId } : {}),
+      ...(preparedProfileId !== undefined ? { profileId: preparedProfileId } : {}),
       offeredFieldIds: args.offeredFieldIds,
       state: "active",
       createdBy: args.createdBy,
@@ -195,14 +226,18 @@ export const previewInvitation = query({
     }
 
     if (invitation.state === "accepted") {
+      const viewer = await getCurrentUser(ctx);
+      if (!canRevealAcceptedHandoffDestination(invitation.acceptedByUserId, viewer?._id)) {
+        return { state: "accepted" as const };
+      }
       if (invitation.profileId === undefined) {
         return { state: "invalid" as const };
       }
       const profile = await ctx.db.get(invitation.profileId);
       return profile !== null && profile.profileType === "person"
-        ? {
+          ? {
             state: "accepted" as const,
-            profilePath: `/p/${profile.slug}`,
+            ownerDestination: ownerDestination(profile._id),
           }
         : { state: "invalid" as const };
     }
@@ -229,11 +264,13 @@ export const previewInvitation = query({
     } catch {
       return { state: "invalid" as const };
     }
+    const batch = await ctx.db.get(candidate.batchId);
 
     return {
       state: "ready" as const,
       displayName: candidate.proposedDisplayName,
       profileType: "person" as const,
+      sourceName: batch?.sourceName,
       expiresAt: invitation.expiresAt,
       fields: fields
         .map(projectHandoffPreviewField)
@@ -247,6 +284,7 @@ async function createOrReuseConciergeProfile(
   invitation: Doc<"seedHandoffInvitations">,
   candidate: Doc<"seedImportCandidateProfiles">,
   selectedFields: Doc<"seedImportCandidateFields">[],
+  offeredFields: Doc<"seedImportCandidateFields">[],
   now: number,
 ) {
   const reusableProfileId = invitation.profileId ?? candidate.matchedProfileId;
@@ -263,7 +301,7 @@ async function createOrReuseConciergeProfile(
     }
 
     await ctx.db.patch(profile._id, {
-      ...buildConciergeProfileFieldPatch(selectedFields, profile),
+      ...buildConciergeProfileFieldPatch(selectedFields, profile, offeredFields),
       publicSurfacingState: "opted_out",
       publicSurfacingUpdatedAt: now,
       publicSurfacingReason: "Private concierge handoff accepted.",
@@ -333,6 +371,7 @@ export const acceptInvitation = mutation({
           state: "already_accepted" as const,
           profileId: profile._id,
           claimState: profile.claimState,
+          ownerDestination: ownerDestination(profile._id),
           profilePath: `/p/${profile.slug}`,
         };
       }
@@ -349,6 +388,10 @@ export const acceptInvitation = mutation({
     }
     assertPrivatePersonCandidate(candidate);
 
+    if (invitation.profileId !== candidate.matchedProfileId) {
+      throw new Error("Handoff invitation is unavailable.");
+    }
+
     const offeredFields = await getOfferedFields(ctx, invitation);
     if (offeredFields.some((field) => field.candidateId !== candidate._id)) {
       throw new Error("Handoff invitation is unavailable.");
@@ -359,6 +402,7 @@ export const acceptInvitation = mutation({
       invitation,
       candidate,
       selectedFields,
+      offeredFields,
       now,
     );
     const claimRequestId = await ctx.db.insert("profileClaimRequests", {
@@ -376,6 +420,12 @@ export const acceptInvitation = mutation({
       reviewedAt: now,
     });
     const actor = identity === null ? undefined : toAuthSubject(identity);
+    const siblingInvitations = await ctx.db
+      .query("seedHandoffInvitations")
+      .withIndex("by_candidateId_state", (query) =>
+        query.eq("candidateId", candidate._id).eq("state", "active"),
+      )
+      .collect();
 
     await approveProfileClaimForUser(ctx.db, {
       profile,
@@ -411,6 +461,17 @@ export const acceptInvitation = mutation({
         acceptedAt: now,
         updatedAt: now,
       }),
+      ...siblingInvitations
+        .filter((sibling) => sibling._id !== invitation._id)
+        .map((sibling) =>
+          ctx.db.patch(sibling._id, {
+            state: "revoked",
+            ...(actor !== undefined ? { revokedBy: actor } : {}),
+            revokedAt: now,
+            revokeReason: "Superseded when another invitation for this candidate was accepted.",
+            updatedAt: now,
+          }),
+        ),
     ]);
 
     const claimedProfile = await ctx.db.get(profile._id);
@@ -419,6 +480,7 @@ export const acceptInvitation = mutation({
       claimRequestId,
       profileId: profile._id,
       claimState: claimedProfile?.claimState ?? "claimed_unverified",
+      ownerDestination: ownerDestination(profile._id),
       profilePath: `/p/${profile.slug}`,
     };
   },

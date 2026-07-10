@@ -9,6 +9,7 @@ export type SeedImportFixture = {
   sourceContact?: string;
   receivedAt: string;
   sourceObservedAt?: string;
+  publicationPolicy?: "private_only" | "reviewed_publication_allowed";
   reviewState?: SeedImportBatchReviewState;
   notes?: string;
   candidates: SeedImportFixtureCandidate[];
@@ -85,12 +86,13 @@ export type NormalizedSeedImport = {
   sourceContact?: string;
   receivedAt: number;
   sourceObservedAt?: number;
+  publicationPolicy: "private_only" | "reviewed_publication_allowed";
   reviewState: SeedImportBatchReviewState;
   notes?: string;
   candidates: NormalizedSeedImportCandidate[];
 };
 
-type NormalizedSeedImportCandidate = {
+export type NormalizedSeedImportCandidate = {
   externalCandidateId: string;
   profileType: "person" | "community";
   proposedDisplayName: string;
@@ -116,6 +118,7 @@ type NormalizedSeedImportField = {
 };
 
 export type SeedImportPublicationBlocker =
+  | "source_private_only"
   | "batch_not_approved"
   | "candidate_not_accepted"
   | "candidate_not_pending_publication"
@@ -278,6 +281,20 @@ function parseIsoTimestamp(value: string, fieldName: string): number {
 
   if (!Number.isFinite(timestamp)) {
     throw new Error(`${fieldName} must be an ISO timestamp.`);
+  }
+
+  return timestamp;
+}
+
+function parseNonFutureIsoTimestamp(
+  value: string,
+  fieldName: string,
+  now: number,
+): number {
+  const timestamp = parseIsoTimestamp(value, fieldName);
+
+  if (timestamp > now) {
+    throw new Error(`${fieldName} cannot be in the future.`);
   }
 
   return timestamp;
@@ -514,6 +531,7 @@ export function normalizeSafePrivateSeedFieldValue(
 function normalizePermissionedField(
   value: unknown,
   batchSourceType: "partner" | "manual" | "import",
+  now: number,
 ): NormalizedSeedImportField {
   const field = requireRecord(value, "Seed candidate field");
   assertOnlyKeys(
@@ -578,13 +596,13 @@ function normalizePermissionedField(
       "sourceObservedAt",
       sourceObservedAt === undefined
         ? undefined
-        : parseIsoTimestamp(sourceObservedAt, "Field sourceObservedAt"),
+        : parseNonFutureIsoTimestamp(sourceObservedAt, "Field sourceObservedAt", now),
     ),
     ...optionalRecord(
       "lastCheckedAt",
       lastCheckedAt === undefined
         ? undefined
-        : parseIsoTimestamp(lastCheckedAt, "Field lastCheckedAt"),
+        : parseNonFutureIsoTimestamp(lastCheckedAt, "Field lastCheckedAt", now),
     ),
     confidence,
     reviewState: "unreviewed",
@@ -592,7 +610,10 @@ function normalizePermissionedField(
   };
 }
 
-export function normalizePermissionedSeedImport(input: unknown): NormalizedSeedImport {
+export function normalizePermissionedSeedImport(
+  input: unknown,
+  now = Date.now(),
+): NormalizedSeedImport {
   const value = requireRecord(input, "Permissioned seed import");
   assertOnlyKeys(
     value,
@@ -648,7 +669,7 @@ export function normalizePermissionedSeedImport(input: unknown): NormalizedSeedI
     }
     const fieldKeys = new Set<string>();
     const normalizedFields = fields.map((field) => {
-      const normalized = normalizePermissionedField(field, sourceType);
+      const normalized = normalizePermissionedField(field, sourceType, now);
       if (fieldKeys.has(normalized.fieldKey)) {
         throw new Error(`Duplicate field key "${normalized.fieldKey}".`);
       }
@@ -697,13 +718,14 @@ export function normalizePermissionedSeedImport(input: unknown): NormalizedSeedI
     ),
     sourceType,
     ...optionalRecord("sourceContact", sourceContact),
-    receivedAt: parseIsoTimestamp(receivedAt, "Received at"),
+    receivedAt: parseNonFutureIsoTimestamp(receivedAt, "Received at", now),
     ...optionalRecord(
       "sourceObservedAt",
       sourceObservedAt === undefined
         ? undefined
-        : parseIsoTimestamp(sourceObservedAt, "Source observed at"),
+        : parseNonFutureIsoTimestamp(sourceObservedAt, "Source observed at", now),
     ),
+    publicationPolicy: "private_only",
     reviewState: "draft",
     candidates: normalizedCandidates,
   };
@@ -794,6 +816,7 @@ export function normalizeSeedImportFixture(fixture: SeedImportFixture): Normaliz
         ? undefined
         : parseIsoTimestamp(fixture.sourceObservedAt, "Seed import fixture sourceObservedAt"),
     ),
+    publicationPolicy: fixture.publicationPolicy ?? "reviewed_publication_allowed",
     reviewState: fixture.reviewState ?? "draft",
     ...optionalRecord("notes", notes),
     candidates: fixture.candidates.map((candidate) => normalizeFixtureCandidate(candidate)),
@@ -812,19 +835,70 @@ export async function createSeedImportDocuments(
     ...optionalRecord("sourceContact", normalized.sourceContact),
     receivedAt: normalized.receivedAt,
     ...optionalRecord("sourceObservedAt", normalized.sourceObservedAt),
+    publicationPolicy: normalized.publicationPolicy,
     ...optionalRecord("importedBy", options.importedBy),
     reviewState: normalized.reviewState,
     ...optionalRecord("notes", normalized.notes),
     createdAt: options.now,
     updatedAt: options.now,
   });
+  const candidates = await createSeedImportCandidateDocuments(
+    db,
+    batchId,
+    normalized.candidates,
+    options.now,
+  );
+
+  return {
+    batchId,
+    ...candidates,
+  };
+}
+
+export async function seedImportCandidateFingerprint(
+  candidate: NormalizedSeedImportCandidate,
+): Promise<string> {
+  const payload = JSON.stringify({
+    externalCandidateId: candidate.externalCandidateId,
+    profileType: candidate.profileType,
+    proposedDisplayName: candidate.proposedDisplayName,
+    proposedSlug: candidate.proposedSlug ?? null,
+    fields: candidate.fields.map((field) => ({
+      fieldKey: field.fieldKey,
+      value: field.value,
+      sourceLabel: field.sourceLabel,
+      sourceUrl: field.sourceUrl ?? null,
+      sourceType: field.sourceType,
+      sourceObservedAt: field.sourceObservedAt ?? null,
+      lastCheckedAt: field.lastCheckedAt ?? null,
+      confidence: field.confidence,
+      visibility: field.visibility,
+    })),
+  });
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(payload),
+  );
+
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+export async function createSeedImportCandidateDocuments(
+  db: SeedImportFixtureWriter,
+  batchId: Id<"seedImportBatches">,
+  candidates: NormalizedSeedImportCandidate[],
+  now: number,
+) {
   const candidateIds: Id<"seedImportCandidateProfiles">[] = [];
   const fieldIds: Id<"seedImportCandidateFields">[] = [];
 
-  for (const candidate of normalized.candidates) {
+  for (const candidate of candidates) {
     const candidateId = await db.insert("seedImportCandidateProfiles", {
       batchId,
       externalCandidateId: candidate.externalCandidateId,
+      importFingerprint: await seedImportCandidateFingerprint(candidate),
       profileType: candidate.profileType,
       proposedDisplayName: candidate.proposedDisplayName,
       ...optionalRecord("proposedSlug", candidate.proposedSlug),
@@ -832,8 +906,8 @@ export async function createSeedImportDocuments(
       publicationState: candidate.publicationState,
       claimState: candidate.claimState,
       ...optionalRecord("matchedProfileId", candidate.matchedProfileId),
-      createdAt: options.now,
-      updatedAt: options.now,
+      createdAt: now,
+      updatedAt: now,
     });
 
     candidateIds.push(candidateId);
@@ -852,15 +926,14 @@ export async function createSeedImportDocuments(
           confidence: field.confidence,
           reviewState: field.reviewState,
           visibility: field.visibility,
-          createdAt: options.now,
-          updatedAt: options.now,
+          createdAt: now,
+          updatedAt: now,
         }),
       );
     }
   }
 
   return {
-    batchId,
     candidateIds,
     fieldIds,
   };
@@ -911,7 +984,7 @@ export function isSafePublicSeedImportField(field: SeedImportPublicationField): 
 }
 
 export function getSeedImportPublicationBlockers(args: {
-  batch: Pick<Doc<"seedImportBatches">, "reviewState">;
+  batch: Pick<Doc<"seedImportBatches">, "publicationPolicy" | "reviewState">;
   candidate: SeedImportPublicationCandidate;
   fields: SeedImportPublicationField[];
   matchedProfile?: SeedImportPublicationProfile | null;
@@ -920,6 +993,10 @@ export function getSeedImportPublicationBlockers(args: {
   slugCollisionProfile?: SeedImportPublicationProfile | null;
 }): SeedImportPublicationBlocker[] {
   const blockers = new Set<SeedImportPublicationBlocker>();
+
+  if (args.batch.publicationPolicy === "private_only") {
+    blockers.add("source_private_only");
+  }
 
   if (args.batch.reviewState !== "approved") {
     blockers.add("batch_not_approved");

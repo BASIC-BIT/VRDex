@@ -133,6 +133,9 @@ function PreparedIdentity({ preview }: { preview: Extract<HandoffPreview, { stat
           {preview.profileType === "community" ? "Community" : "Person"} handoff
           {preview.expiresAt ? ` | Expires ${new Date(preview.expiresAt).toLocaleDateString()}` : ""}
         </p>
+        {preview.sourceName ? (
+          <p className="mt-2 text-xs text-muted">Source: {preview.sourceName}</p>
+        ) : null}
       </div>
     </section>
   );
@@ -163,7 +166,22 @@ function FieldChoice({
       />
       <div className="min-w-0">
         <p className="text-sm font-semibold">{field.label}</p>
-        {field.url ? (
+        {field.links && field.links.length > 0 ? (
+          <ul className="mt-2 grid gap-1.5">
+            {field.links.map((link) => (
+              <li key={`${link.label}:${link.url}`}>
+                <a
+                  className="block break-all text-sm leading-6 text-[#105c58] underline decoration-[#16746f]/35 underline-offset-4 hover:decoration-[#16746f]"
+                  href={link.url}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  {link.label}: {fieldDisplayValue({ ...field, url: link.url })}
+                </a>
+              </li>
+            ))}
+          </ul>
+        ) : field.url ? (
           <a
             className="mt-2 block break-all text-sm leading-6 text-[#105c58] underline decoration-[#16746f]/35 underline-offset-4 hover:decoration-[#16746f]"
             href={field.url}
@@ -303,7 +321,7 @@ function ReviewInvitation({
           <>
             <h2 className="text-xl font-semibold">Accept this handoff</h2>
             <p className="mt-3 text-sm leading-6 text-muted">
-              Accepting gives your account control of this prepared profile. It does not publish it.
+              Accepting confirms the selected details and gives your account control of this prepared profile. It does not publish it.
             </p>
             <Button
               className="mt-5 w-full"
@@ -387,7 +405,7 @@ class HandoffErrorBoundary extends Component<{ children: ReactNode }, { hasError
 
 export function HandoffInvitation({ fixture, token }: { fixture: HandoffFixture | null; token: string }) {
   return (
-    <PageShell className="handoff-shell py-6 sm:py-8">
+    <PageShell className="handoff-shell py-6 sm:py-8" data-ph-no-capture>
       <PageContainer max="5xl">
         <PageNav className="border-b border-[#182f36]/15 pb-5">
           <BrandLink />

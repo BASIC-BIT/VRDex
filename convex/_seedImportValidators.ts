@@ -16,6 +16,11 @@ export const seedImportBatchReviewStateValidator = v.union(
   v.literal("superseded"),
 );
 
+export const seedImportPublicationPolicyValidator = v.union(
+  v.literal("private_only"),
+  v.literal("reviewed_publication_allowed"),
+);
+
 export const seedImportCandidateReviewStateValidator = v.union(
   v.literal("unreviewed"),
   v.literal("accepted"),

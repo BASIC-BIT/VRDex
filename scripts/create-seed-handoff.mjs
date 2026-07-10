@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
+const convexCliPath = path.join(repoRoot, "node_modules", "convex", "bin", "main.js");
 const args = process.argv.slice(2);
 
 function option(name) {
@@ -21,7 +22,7 @@ const candidateId = option("--candidate-id");
 const fieldIds = option("--field-ids")
   ?.split(",")
   .map((value) => value.trim())
-  .filter(Boolean);
+  .filter(Boolean) ?? [];
 const profileId = option("--profile-id");
 const actorToken = option("--actor-token");
 const actorIssuer = option("--actor-issuer");
@@ -30,9 +31,9 @@ const actorName = option("--actor-name");
 const baseUrl = option("--base-url");
 const expiresInHours = Number(option("--expires-in-hours") ?? "72");
 
-if (!candidateId || !fieldIds?.length || !actorToken || !actorIssuer || !actorSubject) {
+if (!candidateId || !actorToken || !actorIssuer || !actorSubject) {
   fail(
-    "Usage: pnpm ops:seed-handoff:create -- --candidate-id <id> --field-ids <id,id> --actor-token <id> --actor-issuer <issuer> --actor-subject <subject> [--profile-id <id>] [--expires-in-hours <hours>] [--base-url <url>] [--prod|--preview-name <name>]",
+    "Usage: pnpm ops:seed-handoff:create -- --candidate-id <id> --actor-token <id> --actor-issuer <issuer> --actor-subject <subject> [--field-ids <id,id>] [--profile-id <id>] [--expires-in-hours <hours>] [--base-url <url>] [--prod|--preview-name <name>]",
   );
 }
 
@@ -40,13 +41,8 @@ if (!Number.isFinite(expiresInHours) || expiresInHours <= 0 || expiresInHours > 
   fail("Handoff expiry must be between 0 and 2160 hours.");
 }
 
-const npmExecPath = process.env.npm_execpath;
-if (!npmExecPath) {
-  fail("Run this operator command through pnpm so the pinned package manager is used.");
-}
-
 const token = randomBytes(32).toString("base64url");
-const convexArgs = ["exec", "convex", "run"];
+const convexArgs = ["run"];
 if (args.includes("--prod")) {
   convexArgs.push("--prod");
 }
@@ -71,7 +67,7 @@ convexArgs.push(
   }),
 );
 
-const result = spawnSync(process.execPath, [npmExecPath, ...convexArgs], {
+const result = spawnSync(process.execPath, [convexCliPath, ...convexArgs], {
   cwd: repoRoot,
   encoding: "utf8",
   maxBuffer: 1024 * 1024,

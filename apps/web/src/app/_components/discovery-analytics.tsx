@@ -92,7 +92,7 @@ export function TrackedDiscoveryLink<Event extends TrackedDiscoveryEvent>({
     <Link
       {...props}
       onClick={() => {
-        captureProductEvent(posthog, eventName, properties);
+        posthog?.capture(eventName, properties);
       }}
     >
       {children}

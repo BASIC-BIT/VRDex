@@ -7,6 +7,7 @@ export type HandoffFixture = {
 
 const readyPreview = {
   state: "ready",
+  sourceName: "NWinn",
   invitation: {
     expiresAt: Date.UTC(2027, 0, 15, 12, 0, 0),
   },
@@ -58,7 +59,10 @@ export function getHandoffPlaywrightFixture(token: string): HandoffFixture | nul
       return { preview: { state: "revoked" }, viewerState: "signed_out" };
     case "playwright-accepted":
       return {
-        preview: { state: "accepted", ownerDestination: "/p/playwright-dj-aurora" },
+        preview: {
+          state: "accepted",
+          ownerDestination: "/account/privacy?profileId=playwright-profile",
+        },
         viewerState: "ready",
       };
     case "playwright-signed-out":
@@ -69,7 +73,9 @@ export function getHandoffPlaywrightFixture(token: string): HandoffFixture | nul
       return {
         preview: readyPreview,
         viewerState: "ready",
-        acceptResult: { ownerDestination: "/p/playwright-dj-aurora" },
+        acceptResult: {
+          ownerDestination: "/account/privacy?profileId=playwright-profile",
+        },
       };
     default:
       return null;
