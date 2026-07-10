@@ -1,33 +1,43 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
-import { fetchOAuthClientMetadataDocument } from "../../apps/web/src/lib/server/oauth-client-metadata-document";
+import {
+  fetchOAuthClientMetadataDocument,
+  pinnedLookupForAddress,
+} from "../../apps/web/src/lib/server/oauth-client-metadata-document";
 
 const clientId = "https://client.example.test/oauth/client.json?app=vrdex";
+const publicAddress = "93.184.216.34";
+
+function metadataResponse(status = 200) {
+  return Response.json(
+    {
+      client_id: clientId,
+      client_name: "VRDex Test Client",
+      client_uri: "https://client.example.test",
+      redirect_uris: ["http://localhost:8765/callback"],
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "none",
+      scope: "mcp:read public:read",
+    },
+    { status },
+  );
+}
 
 describe("OAuth client metadata documents", () => {
-  it("fetches and normalizes constrained public MCP client metadata", async () => {
-    const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+  it("fetches through the address selected by the validation lookup", async () => {
+    const requests: Array<{ address: string; url: string }> = [];
     const metadata = await fetchOAuthClientMetadataDocument(clientId, {
-      fetcher: async (input, init) => {
-        requests.push({ input, init });
-
-        return Response.json({
-          client_id: clientId,
-          client_name: "VRDex Test Client",
-          client_uri: "https://client.example.test",
-          redirect_uris: ["http://localhost:8765/callback"],
-          grant_types: ["authorization_code", "refresh_token"],
-          response_types: ["code"],
-          token_endpoint_auth_method: "none",
-          scope: "mcp:read public:read",
-        });
+      requestDocument: async (url, address) => {
+        requests.push({ address: address.address, url: url.toString() });
+        return metadataResponse();
       },
-      resolveHostname: async () => [{ address: "93.184.216.34" }],
+      resolveHostname: async () => [{ address: publicAddress }],
     });
 
-    assert.equal(requests[0]?.input, clientId);
-    assert.equal(requests[0]?.init?.redirect, "manual");
+    assert.deepEqual(requests, [{ address: publicAddress, url: clientId }]);
     assert.deepEqual(metadata, {
       allowedScopes: ["mcp:read", "public:read"],
       clientId,
@@ -42,34 +52,108 @@ describe("OAuth client metadata documents", () => {
     });
   });
 
-  it("rejects metadata documents that do not exactly match the client id URL", async () => {
+  it("pins the first validated address without a second hostname resolution", async () => {
+    let resolutions = 0;
+    let connectedAddress = "";
+
+    await fetchOAuthClientMetadataDocument(clientId, {
+      resolveHostname: async () => {
+        resolutions += 1;
+        return [{ address: resolutions === 1 ? publicAddress : "127.0.0.1" }];
+      },
+      requestDocument: async (_url, address) => {
+        connectedAddress = address.address;
+        return metadataResponse();
+      },
+    });
+
+    assert.equal(resolutions, 1);
+    assert.equal(connectedAddress, publicAddress);
+
+    const source = readFileSync("apps/web/src/lib/server/oauth-client-metadata-document.ts", "utf8");
+    assert.match(source, /lookup: pinnedLookupForAddress\(address\)/);
+    assert.match(source, /servername: url\.hostname/);
+    assert.match(source, /rejectUnauthorized: true/);
+  });
+
+  it("returns only the pinned address for Node single-address and all-address lookups", async () => {
+    const pinnedLookup = pinnedLookupForAddress({ address: publicAddress });
+    const single = await new Promise<{ address: string; family: number }>((resolve, reject) => {
+      pinnedLookup("client.example.test", {}, (error, address, family) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve({ address, family });
+      });
+    });
+    const all = await new Promise<Array<{ address: string; family: number }>>((resolve, reject) => {
+      pinnedLookup("client.example.test", { all: true }, (error, addresses) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve(addresses);
+      });
+    });
+
+    assert.deepEqual(single, { address: publicAddress, family: 4 });
+    assert.deepEqual(all, [{ address: publicAddress, family: 4 }]);
+  });
+
+  it("rejects special-use IPv4, IPv6, mapped, translation, and documentation ranges", async () => {
+    for (const address of [
+      "0.0.0.1",
+      "10.0.0.1",
+      "127.0.0.1",
+      "169.254.169.254",
+      "192.168.1.1",
+      "198.51.100.8",
+      "::1",
+      "::ffff:127.0.0.1",
+      "64:ff9b::1",
+      "100::1",
+      "2001:db8::1",
+      "3fff::1",
+      "5f00::1",
+      "fc00::1",
+      "fe80::1",
+      "ff02::1",
+    ]) {
+      await assert.rejects(
+        fetchOAuthClientMetadataDocument(clientId, {
+          requestDocument: async () => metadataResponse(),
+          resolveHostname: async () => [{ address }],
+        }),
+        /public address/,
+        address,
+      );
+    }
+  });
+
+  it("rejects redirects, mismatched client ids, and oversized metadata", async () => {
     await assert.rejects(
       fetchOAuthClientMetadataDocument(clientId, {
-        fetcher: async () =>
-          Response.json({
-            client_id: "https://client.example.test/oauth/other-client.json",
-            client_name: "Wrong Client",
-            redirect_uris: ["http://localhost:8765/callback"],
-          }),
-        resolveHostname: async () => [{ address: "93.184.216.34" }],
+        requestDocument: async () => new Response(null, { status: 302, headers: { location: "https://other.example.test" } }),
+        resolveHostname: async () => [{ address: publicAddress }],
+      }),
+      /HTTP 200/,
+    );
+
+    await assert.rejects(
+      fetchOAuthClientMetadataDocument(clientId, {
+        requestDocument: async () => Response.json({ client_id: "https://client.example.test/oauth/other-client.json" }),
+        resolveHostname: async () => [{ address: publicAddress }],
       }),
       /client_id must match/,
     );
-  });
-
-  it("rejects special-use address resolution and oversized metadata", async () => {
-    await assert.rejects(
-      fetchOAuthClientMetadataDocument(clientId, {
-        fetcher: async () => Response.json({}),
-        resolveHostname: async () => [{ address: "127.0.0.1" }],
-      }),
-      /public address/,
-    );
 
     await assert.rejects(
       fetchOAuthClientMetadataDocument(clientId, {
-        fetcher: async () => new Response(JSON.stringify({ padding: "x".repeat(6 * 1024) })),
-        resolveHostname: async () => [{ address: "93.184.216.34" }],
+        requestDocument: async () => new Response(JSON.stringify({ padding: "x".repeat(6 * 1024) })),
+        resolveHostname: async () => [{ address: publicAddress }],
       }),
       /too large/,
     );

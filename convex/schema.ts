@@ -1262,6 +1262,22 @@ export default defineSchema({
     .index("by_ownerUserId_createdAt", ["ownerUserId", "createdAt"])
     .index("by_routeClass_createdAt", ["routeClass", "createdAt"])
     .index("by_eventType_createdAt", ["eventType", "createdAt"]),
+  oauthConsentTransactions: defineTable({
+    transactionHash: v.string(),
+    userId: v.id("users"),
+    clientId: v.string(),
+    redirectUri: v.string(),
+    resource: v.string(),
+    scopes: v.array(apiScopeValidator),
+    codeChallenge: v.string(),
+    codeChallengeMethod: oauthCodeChallengeMethodValidator,
+    state: v.optional(v.string()),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+  })
+    .index("by_transactionHash", ["transactionHash"])
+    .index("by_userId_expiresAt", ["userId", "expiresAt"])
+    .index("by_expiresAt", ["expiresAt"]),
   mcpToolEvents: defineTable({
     toolName: mcpToolNameValidator,
     routeClass: mcpToolEventRouteClassValidator,

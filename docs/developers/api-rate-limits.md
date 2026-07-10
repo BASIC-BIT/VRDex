@@ -132,6 +132,36 @@ Identity keys include the route class and one of:
 - personal API token id for API-token-authenticated traffic
 - OAuth client id for OAuth-authenticated API and MCP traffic
 
+OAuth authorization GETs and consent POSTs use `oauth_authorize`. Token and
+revocation POSTs use `oauth_token`. These checks run before authorization
+request parsing, token hashing, or Convex token mutations. A blocked OAuth
+request returns an OAuth `temporarily_unavailable` error with HTTP `429` and
+the standard rate-limit headers below.
+
+## Trusted Client IP
+
+Anonymous and OAuth handshake buckets do not trust caller-supplied
+`X-Forwarded-For` or `X-Real-IP` by default.
+
+On Vercel, VRDex detects the platform through `VERCEL` and uses
+`X-Vercel-Forwarded-For`. Vercel documents that this header mirrors its
+edge-derived client address and remains distinct when an upstream proxy can
+overwrite `X-Forwarded-For`.
+
+Self-hosted deployments behind a reverse proxy must set
+`VRDEX_TRUSTED_PROXY_CLIENT_IP_HEADER` to a single-value header owned by that
+proxy, for example `X-VRDEX-Connecting-IP`. The proxy must remove any incoming
+copy, set the verified client address itself, and prevent direct traffic from
+reaching the application origin. VRDex rejects comma-separated lists and
+non-IP values. Without this explicit configuration, self-hosted anonymous
+traffic uses the shared `unknown` bucket so spoofed forwarding headers cannot
+mint fresh buckets.
+
+Official behavior references:
+
+- [Vercel request headers](https://vercel.com/docs/headers/request-headers)
+- [Vercel verified proxy guidance](https://vercel.com/kb/guide/how-to-setup-verified-proxy)
+
 ## Response Headers
 
 Rate-limited API and MCP responses include:

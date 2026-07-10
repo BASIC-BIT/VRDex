@@ -9,6 +9,7 @@ import {
   clientIpForRequest,
   createMemoryApiRateLimitStore,
   listDefaultApiRateLimitPolicies,
+  trustedClientIpHeaderName,
   trustedPartnerApiRateLimitMultiplier,
 } from "../../apps/web/src/lib/server/api-rate-limit";
 import { apiRateLimitBlockedEventInput } from "../../apps/web/src/lib/server/api-rate-limit-events";
@@ -21,9 +22,18 @@ function runRateLimitRouteProbe(script: string) {
     env: {
       ...process.env,
       TSX_TSCONFIG_PATH: "apps/web/tsconfig.json",
+      VERCEL: "1",
       VRDEX_RATE_LIMIT_STORE: "memory",
     },
   });
+}
+
+function restoreEnv(name: string, value: string | undefined) {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
 }
 
 describe("public API rate limiting", () => {
@@ -165,26 +175,60 @@ describe("public API rate limiting", () => {
     assert.equal(dynamicRegistration.routeClassWindowCount, 1);
   });
 
-  it("extracts the first forwarded IP before falling back to x-real-ip", () => {
-    assert.equal(
-      clientIpForRequest(
-        new Request("https://example.test", {
-          headers: { "x-forwarded-for": "203.0.113.10, 198.51.100.4" },
-        }),
-      ),
-      "203.0.113.10",
-    );
+  it("uses only the Vercel edge header on Vercel and ignores spoofable forwarding headers", () => {
+    const previousVercel = process.env.VERCEL;
+    const previousTrustedHeader = process.env.VRDEX_TRUSTED_PROXY_CLIENT_IP_HEADER;
+    process.env.VERCEL = "1";
+    process.env.VRDEX_TRUSTED_PROXY_CLIENT_IP_HEADER = "x-self-host-client-ip";
 
-    assert.equal(
-      clientIpForRequest(
-        new Request("https://example.test", {
-          headers: { "x-real-ip": "198.51.100.7" },
-        }),
-      ),
-      "198.51.100.7",
-    );
+    try {
+      const request = new Request("https://example.test", {
+        headers: {
+          "x-forwarded-for": "203.0.113.10",
+          "x-real-ip": "198.51.100.7",
+          "x-self-host-client-ip": "192.0.2.8",
+          "x-vercel-forwarded-for": "8.8.8.8",
+        },
+      });
 
-    assert.equal(clientIpForRequest(new Request("https://example.test")), "unknown");
+      assert.equal(trustedClientIpHeaderName(), "x-vercel-forwarded-for");
+      assert.equal(clientIpForRequest(request), "8.8.8.8");
+    } finally {
+      restoreEnv("VERCEL", previousVercel);
+      restoreEnv("VRDEX_TRUSTED_PROXY_CLIENT_IP_HEADER", previousTrustedHeader);
+    }
+  });
+
+  it("requires explicit self-host proxy trust and rejects lists or malformed addresses", () => {
+    const previousVercel = process.env.VERCEL;
+    const previousTrustedHeader = process.env.VRDEX_TRUSTED_PROXY_CLIENT_IP_HEADER;
+    delete process.env.VERCEL;
+    delete process.env.VRDEX_TRUSTED_PROXY_CLIENT_IP_HEADER;
+
+    try {
+      const spoofed = new Request("https://example.test", {
+        headers: { "x-forwarded-for": "8.8.8.8", "x-real-ip": "1.1.1.1" },
+      });
+
+      assert.equal(clientIpForRequest(spoofed), "unknown");
+
+      process.env.VRDEX_TRUSTED_PROXY_CLIENT_IP_HEADER = "x-vrdex-client-ip";
+      assert.equal(
+        clientIpForRequest(new Request("https://example.test", { headers: { "x-vrdex-client-ip": "2001:4860:4860::8888" } })),
+        "2001:4860:4860::8888",
+      );
+      assert.equal(
+        clientIpForRequest(new Request("https://example.test", { headers: { "x-vrdex-client-ip": "8.8.8.8, 1.1.1.1" } })),
+        "unknown",
+      );
+      assert.equal(
+        clientIpForRequest(new Request("https://example.test", { headers: { "x-vrdex-client-ip": "not-an-ip" } })),
+        "unknown",
+      );
+    } finally {
+      restoreEnv("VERCEL", previousVercel);
+      restoreEnv("VRDEX_TRUSTED_PROXY_CLIENT_IP_HEADER", previousTrustedHeader);
+    }
   });
 
   it("uses Redis REST pipeline TTLs for hosted high-volume counters", async () => {
@@ -299,7 +343,7 @@ describe("public API rate limiting", () => {
       import { GET } from "./apps/web/src/app/api/v0/usage/rate-limit/route.ts";
 
       const response = await GET(new Request("https://app.example.test/api/v0/usage/rate-limit", {
-        headers: { "x-forwarded-for": "198.51.100.77" },
+        headers: { "x-vercel-forwarded-for": "8.8.8.8" },
       }));
       console.log(response.status);
       console.log(JSON.stringify(await response.json()));

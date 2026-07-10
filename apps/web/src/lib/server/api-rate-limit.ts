@@ -1,4 +1,5 @@
 import { apiRouteClasses, type ApiRouteClass } from "@vrdex/api-contracts";
+import { isIP } from "node:net";
 
 export type ApiRateLimitPolicy = {
   limit: number;
@@ -134,11 +135,53 @@ function resultForCount(args: {
   };
 }
 
-export function clientIpForRequest(request: Request) {
-  const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  const realIp = request.headers.get("x-real-ip")?.trim();
+function isVercelRuntime() {
+  const value = process.env.VERCEL?.trim().toLowerCase();
 
-  return forwardedFor || realIp || "unknown";
+  return value === "1" || value === "true";
+}
+
+export function trustedClientIpHeaderName() {
+  if (isVercelRuntime()) {
+    return "x-vercel-forwarded-for";
+  }
+
+  const configuredHeader = process.env.VRDEX_TRUSTED_PROXY_CLIENT_IP_HEADER?.trim().toLowerCase();
+
+  if (!configuredHeader) {
+    return undefined;
+  }
+
+  if (!/^[a-z0-9-]+$/.test(configuredHeader)) {
+    throw new Error("VRDEX_TRUSTED_PROXY_CLIENT_IP_HEADER must be a valid HTTP header name.");
+  }
+
+  return configuredHeader;
+}
+
+export function clientIpForRequest(request: Request) {
+  const headerName = trustedClientIpHeaderName();
+
+  if (headerName === undefined) {
+    return "unknown";
+  }
+
+  const value = request.headers.get(headerName)?.trim();
+
+  if (!value || value.includes(",") || isIP(value) === 0) {
+    return "unknown";
+  }
+
+  return value.toLowerCase();
+}
+
+export function apiRateLimitResponseHeaders(rateLimit: ApiRateLimitResult) {
+  return {
+    "Retry-After": String(rateLimit.retryAfterSeconds),
+    "RateLimit-Limit": String(rateLimit.limit),
+    "RateLimit-Remaining": String(rateLimit.remaining),
+    "RateLimit-Reset": String(Math.ceil(rateLimit.resetAt / 1_000)),
+  };
 }
 
 export function createMemoryApiRateLimitStore(): MemoryApiRateLimitStore {

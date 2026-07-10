@@ -25,6 +25,18 @@ docs update and a changelog entry so early consumers and agents can adapt.
   internal Convex functions; Next.js invokes them with Convex admin
   authentication, while user-authenticated consent issuance remains a public
   Convex mutation
+- hardened OAuth consent with short-lived, hashed, user-bound, single-use
+  server transactions; approval no longer trusts hidden authorization fields,
+  and production consent POSTs require a same-origin `Origin`
+- enforced the declared `oauth_authorize` and `oauth_token` quotas across
+  authorize, consent, token, and revocation routes with OAuth-compatible `429`
+  bodies and standard rate-limit headers
+- replaced unconditional forwarding-header trust with Vercel's
+  `X-Vercel-Forwarded-For` contract and an explicit self-host trusted-proxy
+  header configuration that fails into a shared `unknown` bucket
+- pinned Client ID Metadata Document HTTPS connections to the validated DNS
+  address while preserving original-host SNI, certificate verification,
+  response-size limits, and redirects-disabled behavior
 - added hosted MCP `search` and `fetch` compatibility aliases for OpenAI
   Responses API, ChatGPT deep research, and company-knowledge-style connectors;
   the aliases reuse the same anonymous public search/profile/event/world read

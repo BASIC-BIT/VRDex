@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { after, describe, it } from "node:test";
 
 import {
   dynamicMcpClientRegistrationResponse,
@@ -15,12 +15,23 @@ const allowedRateLimit = {
   retryAfterSeconds: 60,
 };
 
+const previousTrustedProxyHeader = process.env.VRDEX_TRUSTED_PROXY_CLIENT_IP_HEADER;
+process.env.VRDEX_TRUSTED_PROXY_CLIENT_IP_HEADER = "x-test-client-ip";
+
+after(() => {
+  if (previousTrustedProxyHeader === undefined) {
+    delete process.env.VRDEX_TRUSTED_PROXY_CLIENT_IP_HEADER;
+  } else {
+    process.env.VRDEX_TRUSTED_PROXY_CLIENT_IP_HEADER = previousTrustedProxyHeader;
+  }
+});
+
 function registrationRequest(body: unknown) {
   return new Request("https://app.example.test/oauth/register", {
     body: JSON.stringify(body),
     headers: {
       "content-type": "application/json",
-      "x-forwarded-for": "203.0.113.8",
+      "x-test-client-ip": "203.0.113.8",
     },
     method: "POST",
   });

@@ -5,9 +5,9 @@ import {
 
 import {
   apiRateLimitPolicyForRouteClass,
+  apiRateLimitResponseHeaders,
   checkApiRateLimit,
   clientIpForRequest,
-  type ApiRateLimitResult,
 } from "./api-rate-limit";
 import { recordApiRateLimitBlockedEvent } from "./api-rate-limit-events";
 import {
@@ -79,15 +79,6 @@ function registrationProblem(
   );
 }
 
-function rateLimitHeaders(rateLimit: ApiRateLimitResult) {
-  return {
-    "Retry-After": String(rateLimit.retryAfterSeconds),
-    "RateLimit-Limit": String(rateLimit.limit),
-    "RateLimit-Remaining": String(rateLimit.remaining),
-    "RateLimit-Reset": String(Math.ceil(rateLimit.resetAt / 1_000)),
-  };
-}
-
 function requestBodyValue(body: unknown) {
   return body !== null && typeof body === "object" && !Array.isArray(body)
     ? (body as Record<string, unknown>)
@@ -142,7 +133,7 @@ export async function dynamicMcpClientRegistrationResponse(
       429,
       "temporarily_unavailable",
       "Too many dynamic client registration requests were sent from this network.",
-      rateLimitHeaders(rateLimit),
+      apiRateLimitResponseHeaders(rateLimit),
     );
   }
 

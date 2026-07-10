@@ -1,5 +1,7 @@
 import { lookup } from "node:dns/promises";
-import { isIP } from "node:net";
+import { request as httpsRequest } from "node:https";
+import { BlockList, isIP } from "node:net";
+import { Readable } from "node:stream";
 
 import {
   normalizeDynamicMcpClientRegistration,
@@ -9,12 +11,17 @@ import {
 
 const maxClientMetadataDocumentBytes = 5 * 1024;
 
-type HostAddress = {
+export type HostAddress = {
   address: string;
 };
 
+interface PinnedLookupCallback {
+  (error: Error | null, address: string, family: number): void;
+  (error: Error | null, addresses: Array<{ address: string; family: number }>): void;
+}
+
 type FetchOAuthClientMetadataDocumentOptions = {
-  fetcher?: typeof fetch;
+  requestDocument?: (url: URL, address: HostAddress) => Promise<Response>;
   resolveHostname?: (hostname: string) => Promise<HostAddress[]>;
 };
 
@@ -22,79 +29,60 @@ export type OAuthClientMetadataDocument = DynamicMcpClientRegistration & {
   clientId: string;
 };
 
-function ipv4ToInt(address: string) {
-  const parts = address.split(".").map((part) => Number(part));
+const specialUseIpv4Addresses = new BlockList();
+const specialUseIpv6Addresses = new BlockList();
 
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
-    return null;
-  }
-
-  return parts.reduce((value, part) => ((value << 8) | part) >>> 0, 0);
+for (const [network, prefix] of [
+  ["0.0.0.0", 8],
+  ["10.0.0.0", 8],
+  ["100.64.0.0", 10],
+  ["127.0.0.0", 8],
+  ["169.254.0.0", 16],
+  ["172.16.0.0", 12],
+  ["192.0.0.0", 24],
+  ["192.0.2.0", 24],
+  ["192.31.196.0", 24],
+  ["192.52.193.0", 24],
+  ["192.88.99.0", 24],
+  ["192.168.0.0", 16],
+  ["192.175.48.0", 24],
+  ["198.18.0.0", 15],
+  ["198.51.100.0", 24],
+  ["203.0.113.0", 24],
+  ["224.0.0.0", 4],
+  ["240.0.0.0", 4],
+] as const) {
+  specialUseIpv4Addresses.addSubnet(network, prefix, "ipv4");
 }
 
-function ipv4InCidr(address: string, cidr: string) {
-  const [rangeAddress, prefixText] = cidr.split("/");
-  const range = ipv4ToInt(rangeAddress);
-  const value = ipv4ToInt(address);
-  const prefix = Number(prefixText);
-
-  if (range === null || value === null || !Number.isInteger(prefix) || prefix < 0 || prefix > 32) {
-    return false;
-  }
-
-  const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
-
-  return (value & mask) === (range & mask);
-}
-
-function isSpecialUseIpv4(address: string) {
-  return [
-    "0.0.0.0/8",
-    "10.0.0.0/8",
-    "100.64.0.0/10",
-    "127.0.0.0/8",
-    "169.254.0.0/16",
-    "172.16.0.0/12",
-    "192.0.0.0/24",
-    "192.0.2.0/24",
-    "192.168.0.0/16",
-    "198.18.0.0/15",
-    "198.51.100.0/24",
-    "203.0.113.0/24",
-    "224.0.0.0/4",
-    "240.0.0.0/4",
-  ].some((cidr) => ipv4InCidr(address, cidr));
-}
-
-function isSpecialUseIpv6(address: string) {
-  const normalized = address.toLowerCase();
-
-  return (
-    normalized === "::" ||
-    normalized === "::1" ||
-    normalized.startsWith("fc") ||
-    normalized.startsWith("fd") ||
-    normalized.startsWith("fe8") ||
-    normalized.startsWith("fe9") ||
-    normalized.startsWith("fea") ||
-    normalized.startsWith("feb") ||
-    normalized.startsWith("ff")
-  );
+for (const [network, prefix] of [
+  ["::", 128],
+  ["::1", 128],
+  ["::ffff:0:0", 96],
+  ["64:ff9b::", 96],
+  ["64:ff9b:1::", 48],
+  ["100::", 64],
+  ["2001::", 23],
+  ["2001:db8::", 32],
+  ["2002::", 16],
+  ["3fff::", 20],
+  ["5f00::", 16],
+  ["fc00::", 7],
+  ["fe80::", 10],
+  ["ff00::", 8],
+] as const) {
+  specialUseIpv6Addresses.addSubnet(network, prefix, "ipv6");
 }
 
 function isSpecialUseAddress(address: string) {
   const version = isIP(address);
 
   if (version === 4) {
-    return isSpecialUseIpv4(address);
+    return specialUseIpv4Addresses.check(address, "ipv4");
   }
 
   if (version === 6) {
-    if (address.toLowerCase().startsWith("::ffff:")) {
-      return isSpecialUseIpv4(address.slice("::ffff:".length));
-    }
-
-    return isSpecialUseIpv6(address);
+    return specialUseIpv6Addresses.check(address, "ipv6");
   }
 
   return true;
@@ -104,7 +92,7 @@ async function defaultResolveHostname(hostname: string) {
   return await lookup(hostname, { all: true, verbatim: true });
 }
 
-async function assertPublicHostname(hostname: string, resolveHostname: (hostname: string) => Promise<HostAddress[]>) {
+async function resolvePublicHostname(hostname: string, resolveHostname: (hostname: string) => Promise<HostAddress[]>) {
   const addresses = await resolveHostname(hostname);
 
   if (addresses.length === 0) {
@@ -116,6 +104,68 @@ async function assertPublicHostname(hostname: string, resolveHostname: (hostname
       throw new Error("OAuth client metadata document URL must resolve to a public address.");
     }
   }
+
+  return addresses;
+}
+
+export function pinnedLookupForAddress(address: HostAddress) {
+  const family = isIP(address.address);
+
+  if (family !== 4 && family !== 6) {
+    throw new Error("OAuth client metadata document hostname returned an invalid address.");
+  }
+
+  return (_hostname: string, options: number | { all?: boolean }, callback: PinnedLookupCallback) => {
+    if (typeof options === "object" && options.all === true) {
+      callback(null, [{ address: address.address, family }]);
+      return;
+    }
+
+    callback(null, address.address, family);
+  };
+}
+
+async function requestDocumentAtAddress(url: URL, address: HostAddress) {
+  return await new Promise<Response>((resolve, reject) => {
+    const request = httpsRequest(
+      url,
+      {
+        agent: false,
+        headers: { accept: "application/json" },
+        lookup: pinnedLookupForAddress(address),
+        method: "GET",
+        rejectUnauthorized: true,
+        servername: url.hostname,
+      },
+      (incoming) => {
+        const headers = new Headers();
+
+        for (const [name, value] of Object.entries(incoming.headers)) {
+          if (Array.isArray(value)) {
+            for (const item of value) {
+              headers.append(name, item);
+            }
+          } else if (value !== undefined) {
+            headers.set(name, value);
+          }
+        }
+
+        resolve(
+          new Response(Readable.toWeb(incoming) as unknown as ReadableStream<Uint8Array>, {
+            headers,
+            status: incoming.statusCode ?? 500,
+            statusText: incoming.statusMessage,
+          }),
+        );
+      },
+    );
+
+    request.setTimeout(5_000, () => {
+      request.destroy(new Error("OAuth client metadata document request timed out."));
+    });
+    request.once("error", reject);
+    request.end();
+  });
 }
 
 async function responseTextWithLimit(response: Response) {
@@ -137,6 +187,7 @@ async function responseTextWithLimit(response: Response) {
     totalBytes += value.byteLength;
 
     if (totalBytes > maxClientMetadataDocumentBytes) {
+      await reader.cancel("OAuth client metadata document is too large.");
       throw new Error("OAuth client metadata document is too large.");
     }
 
@@ -168,18 +219,11 @@ export async function fetchOAuthClientMetadataDocument(
 ): Promise<OAuthClientMetadataDocument> {
   const normalizedClientId = normalizeOAuthClientMetadataDocumentUrl(clientId);
   const clientIdUrl = new URL(normalizedClientId);
-  const fetcher = options.fetcher ?? fetch;
+  const requestDocument = options.requestDocument ?? requestDocumentAtAddress;
   const resolveHostname = options.resolveHostname ?? defaultResolveHostname;
+  const addresses = await resolvePublicHostname(clientIdUrl.hostname, resolveHostname);
 
-  await assertPublicHostname(clientIdUrl.hostname, resolveHostname);
-
-  const response = await fetcher(normalizedClientId, {
-    cache: "no-store",
-    headers: {
-      accept: "application/json",
-    },
-    redirect: "manual",
-  });
+  const response = await requestDocument(clientIdUrl, addresses[0]);
 
   if (response.status !== 200) {
     throw new Error("OAuth client metadata document must return HTTP 200.");

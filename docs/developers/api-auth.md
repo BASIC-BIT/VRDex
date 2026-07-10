@@ -93,6 +93,10 @@ prefer URL-form client IDs over Dynamic Client Registration. VRDex fetches the
 metadata document during authorization, rejects redirects, requires exact
 `client_id` document matching, caps responses at 5 KB, rejects special-use
 address resolution, and materializes accepted documents as dynamic MCP clients.
+The HTTPS connection uses only the address selected by that validation lookup,
+while TLS SNI and certificate hostname checks continue to use the original
+document hostname. This removes a second DNS decision between validation and
+connect without weakening HTTPS verification.
 DCR remains available for clients that register automatically.
 The checked-in public client metadata document is intentionally constrained to
 local loopback redirects, `token_endpoint_auth_method=none`, and `mcp:read`
@@ -113,6 +117,11 @@ Current constraints:
 - Client ID Metadata Document clients stay public/no-secret in this checkpoint
 - `code_challenge_method=S256`
 - exact redirect URI matching
+- short-lived consent transactions bound to the signed-in user and stored as
+  one-way hashes
+- consent approval accepts only the opaque single-use transaction and decision,
+  not hidden authorization request fields
+- production consent POSTs require a same-origin `Origin` header
 - single-use short-lived authorization codes
 - rotating refresh tokens on every refresh
 - scopes limited by registered client metadata

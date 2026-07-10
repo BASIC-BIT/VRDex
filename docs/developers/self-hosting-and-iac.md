@@ -81,6 +81,13 @@ Current API/MCP variables read by the web app:
 | `VRDEX_RATE_LIMIT_REDIS_REST_URL` | Web server config | Redis REST or Upstash mode. | Redis-compatible REST endpoint. BASIC BIT hosted production/staging values are Terraform-owned by `infra/terraform/rate-limit-redis`. |
 | `VRDEX_RATE_LIMIT_REDIS_REST_TOKEN` | Web server secret | Redis REST or Upstash mode. | Bearer token for the Redis-compatible REST endpoint. BASIC BIT hosted production/staging values are written from the Upstash resource into Vercel by `infra/terraform/rate-limit-redis`; rotate by rotating the Upstash database credential and reapplying the stack. |
 | `VRDEX_RATE_LIMIT_REDIS_PREFIX` | Web server config | Optional. | Prefix for isolating keys in shared Redis stores. BASIC BIT hosted production/staging default is `vrdex:rate-limit`. |
+| `VRDEX_TRUSTED_PROXY_CLIENT_IP_HEADER` | Web server config | Self-hosted web traffic reaches VRDex through a trusted reverse proxy. | Name of the proxy-owned, single-IP header. The proxy must strip caller input, set the verified address, and block direct origin access. Do not set on Vercel; VRDex uses `X-Vercel-Forwarded-For` there. |
+
+For self-hosted rate limiting, a configured client-IP header is a trust
+contract with the reverse proxy, not a parser preference. Prefer a private
+custom header such as `X-VRDEX-Connecting-IP`; never expose the application
+origin directly or forward a client-provided copy unchanged. If the variable is
+unset, VRDex deliberately groups anonymous requests into the `unknown` bucket.
 
 Current local stdio MCP variables:
 

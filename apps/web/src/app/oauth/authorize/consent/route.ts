@@ -1,49 +1,42 @@
 import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
-import { api } from "@convex-generated-api";
+import { api, internal } from "@convex-generated-api";
 
-import { convexHttpClient } from "@/lib/server/convex-http";
+import { convexAdminHttpClient, convexHttpClient } from "@/lib/server/convex-http";
+import { redirectUriWithOAuthResult } from "@/lib/server/oauth-authorization-request";
 import {
-  normalizeOAuthAuthorizationRequest,
-  redirectUriWithOAuthResult,
-} from "@/lib/server/oauth-authorization-request";
+  hashOAuthConsentTransactionValue,
+  normalizeOAuthConsentTransactionValue,
+  oauthConsentOriginAllowed,
+} from "@/lib/server/oauth-consent-transaction";
 import {
   createOAuthAuthorizationCodeValue,
   hashOAuthAuthorizationCodeValue,
 } from "@/lib/server/oauth-pkce";
+import { oauthRateLimitResponse } from "@/lib/server/oauth-route-rate-limit";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const authorizationCodeTtlMs = 10 * 60 * 1000;
 
-function formToAuthorizeSearchParams(form: FormData) {
-  const params = new URLSearchParams();
-
-  for (const key of [
-    "response_type",
-    "client_id",
-    "redirect_uri",
-    "resource",
-    "scope",
-    "code_challenge",
-    "code_challenge_method",
-    "state",
-  ]) {
-    const value = form.get(key);
-
-    if (typeof value === "string" && value.trim()) {
-      params.set(key, value);
-    }
-  }
-
-  return params;
-}
-
 function redirectResponse(location: string) {
   return Response.redirect(location, 303);
 }
 
 export async function POST(request: Request) {
+  const rateLimited = await oauthRateLimitResponse(request, "oauth_authorize");
+
+  if (rateLimited !== null) {
+    return rateLimited;
+  }
+
+  if (!oauthConsentOriginAllowed(request)) {
+    return Response.json(
+      { error: "invalid_request", error_description: "OAuth consent origin validation failed." },
+      { headers: { "cache-control": "no-store", pragma: "no-cache" }, status: 403 },
+    );
+  }
+
   let form: FormData;
 
   try {
@@ -52,17 +45,58 @@ export async function POST(request: Request) {
     return Response.json({ error: "invalid_request", error_description: "OAuth consent requires form data." }, { status: 400 });
   }
 
-  let authorization: ReturnType<typeof normalizeOAuthAuthorizationRequest>;
+  let transaction: string;
 
   try {
-    authorization = normalizeOAuthAuthorizationRequest(form, request);
-  } catch (error) {
+    transaction = normalizeOAuthConsentTransactionValue(String(form.get("transaction") ?? ""));
+  } catch {
     return Response.json(
       {
         error: "invalid_request",
-        error_description: error instanceof Error ? error.message : "The authorization request is invalid.",
+        error_description: "The OAuth consent transaction is invalid or expired.",
       },
-      { status: 400 },
+      { headers: { "cache-control": "no-store", pragma: "no-cache" }, status: 400 },
+    );
+  }
+
+  const authToken = await convexAuthNextjsToken();
+
+  if (authToken === undefined) {
+    const redirectTo = `/oauth/authorize/review?transaction=${encodeURIComponent(transaction)}`;
+
+    return redirectResponse(new URL(`/sign-in?redirectTo=${encodeURIComponent(redirectTo)}`, request.url).toString());
+  }
+
+  const convex = convexHttpClient();
+  convex.setAuth(authToken);
+
+  const consumed = await convex.mutation(api.oauthConsentTransactions.consume, {
+    transactionHash: hashOAuthConsentTransactionValue(transaction),
+  });
+
+  if (!consumed.ok) {
+    return Response.json(
+      { error: "invalid_request", error_description: "The OAuth consent transaction is invalid or expired." },
+      { headers: { "cache-control": "no-store", pragma: "no-cache" }, status: 400 },
+    );
+  }
+
+  const authorization = consumed.authorization;
+
+  const client = await convexAdminHttpClient().query(internal.oauthApps.resolveAuthorizationClient, {
+    clientId: authorization.clientId,
+    redirectUri: authorization.redirectUri,
+    requestedScopes: authorization.requestedScopes,
+    resource: authorization.resource,
+  });
+
+  if (!client.ok) {
+    return Response.json(
+      {
+        error: "invalid_request",
+        error_description: "The OAuth client cannot use the requested redirect URI, resource, or scopes.",
+      },
+      { headers: { "cache-control": "no-store", pragma: "no-cache" }, status: 400 },
     );
   }
 
@@ -77,19 +111,8 @@ export async function POST(request: Request) {
     );
   }
 
-  const authToken = await convexAuthNextjsToken();
-
-  if (authToken === undefined) {
-    const redirectTo = `/oauth/authorize?${formToAuthorizeSearchParams(form).toString()}`;
-
-    return redirectResponse(new URL(`/sign-in?redirectTo=${encodeURIComponent(redirectTo)}`, request.url).toString());
-  }
-
   const now = Date.now();
   const code = createOAuthAuthorizationCodeValue();
-  const convex = convexHttpClient();
-
-  convex.setAuth(authToken);
 
   const result = await convex.mutation(api.oauthApps.issueAuthorizationCode, {
     clientId: authorization.clientId,

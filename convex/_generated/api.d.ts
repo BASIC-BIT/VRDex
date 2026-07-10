@@ -64,6 +64,7 @@ import type * as http from "../http.js";
 import type * as mcpToolEvents from "../mcpToolEvents.js";
 import type * as migrations from "../migrations.js";
 import type * as oauthApps from "../oauthApps.js";
+import type * as oauthConsentTransactions from "../oauthConsentTransactions.js";
 import type * as profileAssets from "../profileAssets.js";
 import type * as profileClaims from "../profileClaims.js";
 import type * as profilePrivacy from "../profilePrivacy.js";
@@ -137,6 +138,7 @@ declare const fullApi: ApiFromModules<{
   mcpToolEvents: typeof mcpToolEvents;
   migrations: typeof migrations;
   oauthApps: typeof oauthApps;
+  oauthConsentTransactions: typeof oauthConsentTransactions;
   profileAssets: typeof profileAssets;
   profileClaims: typeof profileClaims;
   profilePrivacy: typeof profilePrivacy;
