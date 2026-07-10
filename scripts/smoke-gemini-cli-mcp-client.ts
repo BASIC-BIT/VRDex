@@ -404,6 +404,10 @@ export function runGemini(options: GeminiOptions, args: string[], cwd: string) {
     const child = spawn(command.command, command.args, {
       cwd,
       detached: process.platform !== "win32",
+      env: {
+        ...process.env,
+        GEMINI_CLI_TRUST_WORKSPACE: "true",
+      },
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
@@ -426,8 +430,23 @@ export function runGemini(options: GeminiOptions, args: string[], cwd: string) {
       clearTimers();
       reject(error);
     };
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
     const timeout = setTimeout(() => {
-      timeoutError = new Error(`${[command.command, ...command.args].join(" ")} timed out after ${options.timeoutMs}ms.`);
+      const diagnostic = redactSensitiveOutput(
+        [
+          Buffer.concat(stderr).toString("utf8").trim(),
+          Buffer.concat(stdout).toString("utf8").trim(),
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        options,
+      ).slice(-2_000);
+      const diagnosticSuffix = diagnostic === "" ? "" : `\nBuffered Gemini output:\n${diagnostic}`;
+
+      timeoutError = new Error(
+        `${[command.command, ...command.args].join(" ")} timed out after ${options.timeoutMs}ms.${diagnosticSuffix}`,
+      );
       timeoutGrace = setTimeout(() => {
         settleReject(timeoutError!);
       }, 5_000);
@@ -439,9 +458,6 @@ export function runGemini(options: GeminiOptions, args: string[], cwd: string) {
           }));
         });
     }, options.timeoutMs);
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
-
     child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
     child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
     child.on("error", (error) => {
@@ -572,7 +588,6 @@ function hostedHttpSettings(hostedUrl: string, hostedOAuthToken: string | undefi
 
 function buildGeminiPromptArgs(options: GeminiOptions, prompt: string) {
   const args = [
-    "--skip-trust",
     "--approval-mode",
     "yolo",
     "--allowed-mcp-server-names",
@@ -680,15 +695,33 @@ async function geminiVersion(options: GeminiOptions, cwd: string) {
   return result.stdout.trim().split(/\r?\n/)[0] ?? "installed";
 }
 
+export function assertGeminiMcpListOutput(result: RunResult) {
+  assert.equal(result.code, 0, result.stderr || "Gemini CLI MCP list failed.");
+  assert.match(
+    `${result.stdout}\n${result.stderr}`,
+    /vrdex:.*- Connected/i,
+    "Gemini CLI did not connect to the configured VRDex MCP server.",
+  );
+}
+
+async function assertGeminiMcpConnected(options: GeminiOptions, cwd: string) {
+  const result = await runGemini(options, ["mcp", "list"], cwd);
+
+  assertGeminiMcpListOutput(result);
+  console.log("Gemini CLI MCP status: vrdex Connected");
+}
+
 async function smokeLocalStdio(projectDir: string, options: GeminiOptions, repoRoot: string) {
   const fixture = await startVrdexMcpApiFixture();
 
   try {
     await writeGeminiSettings(projectDir, localStdioSettings(repoRoot, fixture.origin));
+    await assertGeminiMcpConnected(options, projectDir);
 
     const prompt = [
       "Use the VRDex MCP server named vrdex.",
-      "Call vrdex_search exactly once with query \"club\", type \"event\", and limit 1.",
+      "Call the MCP tool mcp_vrdex_vrdex_search exactly once with query \"club\", type \"event\", and limit 1.",
+      "Do not use shell commands or inspect installed package files.",
       "After the tool returns, respond exactly club-night and no other text.",
     ].join(" ");
     const result = await runGemini(options, buildGeminiPromptArgs(options, prompt), projectDir);
@@ -721,12 +754,14 @@ async function smokeHostedHttp(projectDir: string, options: GeminiOptions) {
 
   assert.ok(hostedUrl, "Hosted URL is required.");
   await writeGeminiSettings(projectDir, hostedHttpSettings(hostedUrl, await hostedOAuthToken(options)));
+  await assertGeminiMcpConnected(options, projectDir);
 
   const hostedSearch = options.hostedSearch;
   const prompt = [
     "Use the VRDex MCP server named vrdex.",
-    "Call vrdex_search exactly once before answering.",
+    "Call the MCP tool mcp_vrdex_vrdex_search exactly once before answering.",
     `Use these exact input fields: query is ${JSON.stringify(hostedSearch.query)}, type is ${JSON.stringify(hostedSearch.type)}, and limit is ${hostedSearch.limit}.`,
+    "Do not use shell commands or inspect installed package files.",
     "After the tool returns, respond exactly hosted-ok and no other text.",
   ].join(" ");
   const result = await runGemini(options, buildGeminiPromptArgs(options, prompt), projectDir);

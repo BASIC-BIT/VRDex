@@ -42,7 +42,8 @@ describe("API/MCP rollout readiness checker", () => {
     );
     assert.match(result.stdout, /Rollout verification scripts \| yes \| pass \| 22 required scripts are defined/);
     assert.match(result.stdout, /External readiness workflow \| yes \| pass/);
-    assert.match(result.stdout, /Major MCP client matrix \| yes \| fail \| .*Gemini CLI\/hosted-anonymous-read: fail/);
+    assert.match(result.stdout, /Major MCP client matrix \| yes \| pending \| .*Gemini CLI\/hosted-oauth: pending/);
+    assert.doesNotMatch(result.stdout, /Gemini CLI\/hosted-anonymous-read/);
     assert.match(
       result.stdout,
       /Production-like hosted MCP evidence \| yes \| pass \| readinessMode=staging-hosted-data-dcr-cimd-pass-client-smokes-open/,
@@ -55,7 +56,8 @@ describe("API/MCP rollout readiness checker", () => {
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /API\/MCP rollout is not externally ready/);
     assert.match(result.stderr, /Major MCP client matrix/);
-    assert.match(result.stderr, /Gemini CLI\/hosted-anonymous-read: fail/);
+    assert.match(result.stderr, /Gemini CLI\/hosted-oauth: pending/);
+    assert.doesNotMatch(result.stderr, /Gemini CLI\/hosted-anonymous-read/);
   });
 
   it("rejects token-shaped manual matrix evidence", async () => {

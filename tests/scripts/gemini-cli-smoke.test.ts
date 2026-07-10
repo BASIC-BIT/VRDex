@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 
 import {
+  assertGeminiMcpListOutput,
   geminiProviderQuotaMessage,
   geminiSpawnForPlatform,
   removeGeminiProjectDir,
@@ -93,6 +94,25 @@ describe("Gemini CLI MCP smoke harness", () => {
 
     assert.equal(spawn.command, "cmd.exe");
     assert.deepEqual(spawn.args, ["/d", "/s", "/c", "gemini.cmd", "--version"]);
+  });
+
+  it("requires the real Gemini MCP preflight to report VRDex connected", () => {
+    assert.doesNotThrow(() =>
+      assertGeminiMcpListOutput({
+        code: 0,
+        stderr: "",
+        stdout: "Configured MCP servers:\n\n✓ vrdex: https://staging.vrdex.net/mcp (http) - Connected\n",
+      }),
+    );
+    assert.throws(
+      () =>
+        assertGeminiMcpListOutput({
+          code: 0,
+          stderr: "",
+          stdout: "○ vrdex: https://staging.vrdex.net/mcp (http) - Disabled\n",
+        }),
+      /did not connect/,
+    );
   });
 
   it("retries and downgrades transient Windows cleanup locks", async () => {
@@ -197,12 +217,19 @@ describe("Gemini CLI MCP smoke harness", () => {
             type: "all",
           },
           mode: "local-stdio",
-          timeoutMs: 50,
+          timeoutMs: 300,
         },
         ["tests/scripts/fixtures/gemini-timeout-child.mjs"],
         process.cwd(),
       ),
-      /timed out after 50ms/,
+      (error: unknown) => {
+        assert.match(String(error), /timed out after 300ms/);
+        assert.match(String(error), /Buffered Gemini output:/);
+        assert.match(String(error), /gemini timeout fixture stderr/);
+        assert.match(String(error), /gemini timeout fixture stdout/);
+
+        return true;
+      },
     );
 
     const elapsedMs = Date.now() - startedAt;

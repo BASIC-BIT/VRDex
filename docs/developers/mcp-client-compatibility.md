@@ -5,13 +5,13 @@
 Implementation-time compatibility matrix for the public API and MCP platform
 foundation.
 
-Last reviewed: 2026-07-09.
+Last reviewed: 2026-07-10.
 
 This matrix separates repo-verified protocol behavior from manual client
 smokes. Do not declare the public MCP surface externally ready until the manual
 smoke rows are run against a deployed preview or production-like environment.
 
-Current official client-doc refresh, 2026-07-09:
+Current official client-doc refresh, 2026-07-10:
 
 - [VS Code MCP docs](https://code.visualstudio.com/docs/agent-customization/mcp-servers)
   document MCP server configuration through `mcp.json` and command-line
@@ -178,14 +178,35 @@ returned `club-night`, and the fixture captured
 `/api/v0/search?q=club&type=event&limit=1`.
 
 In hosted HTTP mode, the harness points Gemini CLI at a deployed Streamable
-HTTP MCP endpoint and parses stream-json output for the `vrdex_search` call and
-structured result:
+HTTP MCP endpoint, requires Gemini's own `mcp list` preflight to report the
+server connected, and parses stream-json output for the fully qualified
+`mcp_vrdex_vrdex_search` call and structured result:
 
 ```sh
 pnpm smoke:mcp-gemini-cli -- \
   --mode hosted-http \
   --hosted-url https://staging.vrdex.net/mcp \
   --hosted-data
+```
+
+The disposable project is trusted only for the child process through
+`GEMINI_CLI_TRUST_WORKSPACE=true`; the harness does not modify the user's
+trusted-folder configuration. Timeout failures retain a bounded, redacted
+stdout/stderr diagnostic so provider, MCP connection, and model tool-selection
+failures remain distinguishable.
+
+A 2026-07-10 hosted anonymous smoke passed with Gemini CLI `0.50.0` and the
+current stable `gemini-3.1-flash-lite` model after the default
+`gemini-3.5-flash` free-tier quota was exhausted:
+
+```sh
+pnpm smoke:mcp-gemini-cli -- \
+  --gemini-package @google/gemini-cli@latest \
+  --model gemini-3.1-flash-lite \
+  --mode hosted-http \
+  --hosted-url https://staging.vrdex.net/mcp \
+  --hosted-data \
+  --hosted-query a
 ```
 
 Use `--hosted-query`, `--hosted-type`, and `--hosted-limit` when the staging
@@ -670,7 +691,7 @@ backend data, DCR, and CIMD blockers.
 | --- | --- | --- | --- | --- |
 | Claude Desktop | Uses `mcpServers` JSON with `command`, `args`, and optional `env`. | Remote setup should use Claude's current Custom Connector path. | Hosted `/mcp` should complete OAuth through protected-resource metadata. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; hosted manual smoke pending. |
 | Claude Code | Supports stdio with `claude mcp add --transport stdio`. | Supports HTTP with `claude mcp add --transport http`. | Supports OAuth from `/mcp` or `claude mcp login`; reviewed-app client-credentials token acquisition and token-backed header auth are available as evidence paths. DCR and public-client CIMD are implemented. | Local stdio and hosted anonymous HTTP smokes pass through `pnpm smoke:mcp-claude-code`; hosted OAuth remains pending until reviewed credentials or token fallback evidence is recorded. |
-| Gemini CLI | Uses `settings.json` `mcpServers` entries with `command` for stdio. | Supports Streamable HTTP through `httpUrl` and SSE through `url`. | Supports OAuth 2.0 for remote MCP, automatic discovery, Dynamic Client Registration, `/mcp auth`, and secure token storage; token-backed fallback evidence is available through the Gemini smoke harness. | Real Gemini CLI local stdio passed through `pnpm smoke:mcp-gemini-cli` on 2026-07-09. Hosted anonymous staging reached Gemini CLI `0.50.0`, but Gemini API quota stopped the run before MCP tool-call evidence; hosted OAuth remains pending. |
+| Gemini CLI | Uses `settings.json` `mcpServers` entries with `command` for stdio. | Supports Streamable HTTP through `httpUrl` and SSE through `url`. | Supports OAuth 2.0 for remote MCP, automatic discovery, Dynamic Client Registration, `/mcp auth`, and secure token storage; token-backed fallback evidence is available through the Gemini smoke harness. | Real Gemini CLI local stdio passed on 2026-07-09. Hosted anonymous staging passed on 2026-07-10 with Gemini CLI `0.50.0`, a connected MCP preflight, and `gemini-3.1-flash-lite`; hosted OAuth remains pending. |
 | VS Code | Uses `.vscode/mcp.json` or user MCP config with `servers` entries. | Supports `type: "http"` and `url`. | Avoid hardcoded secrets; use inputs or environment files. OAuth manual smoke pending. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; VS Code 1.128.0 accepted all generated `--add-mcp` definitions on 2026-07-09; manual tool-call smoke pending. |
 | Cursor | Treat local stdio as a required smoke target if the current release still supports command-based MCP config. | Treat hosted HTTP as a required smoke target if the current release supports remote MCP URLs. | Confirm current OAuth behavior during manual smoke. | Local stdio protocol smoke covered by `pnpm smoke:mcp-compat`; Cursor 3.10.17 accepted all generated `--add-mcp` definitions on 2026-07-09; manual tool-call smoke pending. |
 | OpenAI and ChatGPT MCP-capable surfaces | Treat local stdio as unsupported until the current product surface says otherwise. | Use hosted remote MCP when ChatGPT Apps, deep research, or API integration setup supports custom MCP servers; hosted `search` and `fetch` compatibility aliases are available for OpenAI-required document search. | Current OpenAI docs recommend CIMD when the authorization server supports it and keep DCR as a supported path when configured; VRDex implements both DCR and public-client CIMD. Public read tools advertise `_meta["securitySchemes"]` with `noauth` plus optional `oauth2`. | `pnpm smoke:mcp-openai` passes against staging for Responses API hosted anonymous-read integration with `search` and `fetch`; ChatGPT Apps/Connectors UI and hosted OAuth behavior remain pending until product-surface evidence is recorded. |

@@ -11,4 +11,6 @@ if (pidFile !== undefined) {
   writeFileSync(pidFile, JSON.stringify({ parent: process.pid, grandchild: grandchild.pid }));
 }
 
+console.log("gemini timeout fixture stdout");
+console.error("gemini timeout fixture stderr");
 setInterval(() => {}, 1_000);

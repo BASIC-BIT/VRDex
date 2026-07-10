@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "lastReviewed": "2026-07-09",
+  "lastReviewed": "2026-07-10",
   "readinessMode": "staging-hosted-data-dcr-cimd-pass-client-smokes-open",
-  "targetEnvironment": "staging https://staging.vrdex.net/mcp after branch staging deploy run 29037734496",
+  "targetEnvironment": "staging https://staging.vrdex.net/mcp",
   "hostedReadiness": {
     "checks": [
       {
@@ -121,11 +121,11 @@
           "surface": "hosted_http_anonymous",
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
-          "manualStatus": "fail",
+          "manualStatus": "pass",
           "notes": "Staging is now a valid hosted MCP target, but Gemini CLI hosted anonymous evidence remains failed because the provider quota was reached before any MCP tool call. Retry the same command or capture an interactive /mcp session when quota is available.",
-          "environment": "Windows Gemini CLI 0.50.0 via @google/gemini-cli@latest against staging after GitHub Actions Staging Deploy run 29037734496",
-          "manualEvidence": "corepack pnpm smoke:mcp-gemini-cli -- --gemini-package @google/gemini-cli@latest --mode hosted-http --hosted-url https://staging.vrdex.net/mcp --hosted-data --hosted-query a --timeout-ms 180000 reached Gemini CLI 0.50.0, then hit Gemini API quota before any hosted MCP tool-call evidence could be recorded.",
-          "lastRunAt": "2026-07-09"
+          "environment": "Windows / Gemini CLI 0.50.0 via @google/gemini-cli@latest / gemini-3.1-flash-lite / https://staging.vrdex.net/mcp",
+          "manualEvidence": "2026-07-10: pnpm smoke:mcp-gemini-cli with the disposable @google/gemini-cli@latest package reported vrdex Connected, called mcp_vrdex_vrdex_search with query=a type=all limit=1, returned structured content, and completed hosted-ok.",
+          "lastRunAt": "2026-07-10"
         },
         {
           "id": "hosted-oauth",
