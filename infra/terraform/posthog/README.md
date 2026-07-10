@@ -23,6 +23,14 @@ Do not commit PostHog personal API keys. Use PostHog OAuth/MCP for interactive a
 
 The sensitive output `posthog_project_api_token` is the client-exposed project key used by the Vercel stack as `posthog_public_key`. It is not a personal API key, but keep it out of committed defaults so forks and self-hosted installs do not accidentally send analytics into the BASIC BIT project.
 
+## Seed lookup beta
+
+Terraform manages the `seed-lookup-beta` feature flag. It targets authenticated people whose PostHog person property `seed_lookup_beta` is the string `true`.
+
+Convex grants remain the authorization source of truth. The web app mirrors an active backend grant into the PostHog property for product rollout and measurement only; PostHog flag evaluation must never grant backend access.
+
+The PostHog Terraform provider does not currently expose cohort management. An analytic cohort can be created later from the same person property if useful, but it must not sync access back into Convex.
+
 ## State Backend
 
 Terraform state for this stack is stored in the S3 backend declared in `versions.tf`:

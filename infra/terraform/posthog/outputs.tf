@@ -12,3 +12,11 @@ output "posthog_project_api_token" {
   value       = posthog_project.vrdex.api_token
   sensitive   = true
 }
+
+output "seed_lookup_beta_feature_flag" {
+  description = "PostHog flag that mirrors the backend-authorized seed lookup beta audience."
+  value = {
+    id  = posthog_feature_flag.seed_lookup_beta.id
+    key = posthog_feature_flag.seed_lookup_beta.key
+  }
+}
