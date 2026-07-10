@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 
 import { oauthIssuerUrl } from "./oauth-jwt";
 
@@ -18,10 +18,13 @@ export function normalizeOAuthConsentTransactionValue(value: string) {
   return transaction;
 }
 
-export function hashOAuthConsentTransactionValue(value: string) {
-  return createHash("sha256")
-    .update(normalizeOAuthConsentTransactionValue(value), "utf8")
-    .digest("hex");
+function bytesToHex(bytes: ArrayBuffer) {
+  return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export async function hashOAuthConsentTransactionValue(value: string) {
+  const bytes = new TextEncoder().encode(normalizeOAuthConsentTransactionValue(value));
+  return bytesToHex(await crypto.subtle.digest("SHA-256", bytes));
 }
 
 export function oauthConsentOriginAllowed(

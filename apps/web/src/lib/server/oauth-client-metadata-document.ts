@@ -138,6 +138,9 @@ function abortReason(signal: AbortSignal) {
 async function requestDocumentAtAddress(url: URL, address: HostAddress, signal: AbortSignal) {
   return await new Promise<Response>((resolve, reject) => {
     let incomingResponse: Readable | undefined;
+    // This remote URL is the CIMD client id. Its complete DNS set was rejected
+    // unless public, and this request's lookup is pinned to the first validated
+    // address while TLS still verifies the original hostname.
     const request = httpsRequest(
       url,
       {

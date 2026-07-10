@@ -129,7 +129,7 @@ describe("OAuth edge security", () => {
     }
   });
 
-  it("hashes opaque consent transactions and rejects missing, expired, or cross-user records", () => {
+  it("hashes opaque consent transactions and rejects missing, expired, or cross-user records", async () => {
     const first = createOAuthConsentTransactionValue();
     const second = createOAuthConsentTransactionValue();
     const userA = "user-a" as Id<"users">;
@@ -142,8 +142,8 @@ describe("OAuth edge security", () => {
 
     assert.notEqual(first, second);
     assert.match(first, /^vrdx_consent_[A-Za-z0-9_-]{43}$/);
-    assert.match(hashOAuthConsentTransactionValue(first), /^[0-9a-f]{64}$/);
-    assert.notEqual(hashOAuthConsentTransactionValue(first), first);
+    assert.match(await hashOAuthConsentTransactionValue(first), /^[0-9a-f]{64}$/);
+    assert.notEqual(await hashOAuthConsentTransactionValue(first), first);
     assert.equal(oauthConsentTransactionDisposition(transaction, userA, 1_000), "accepted");
     assert.equal(oauthConsentTransactionDisposition(transaction, userB, 1_000), "cross_user");
     assert.equal(oauthConsentTransactionDisposition(transaction, userA, 2_000), "expired");

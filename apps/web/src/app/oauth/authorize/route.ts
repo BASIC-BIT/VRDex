@@ -169,7 +169,7 @@ export async function GET(request: Request) {
 
   try {
     await userConvex.mutation(api.oauthConsentTransactions.create, {
-      transactionHash: hashOAuthConsentTransactionValue(transaction),
+      transactionHash: await hashOAuthConsentTransactionValue(transaction),
       clientId: authorization.clientId,
       redirectUri: authorization.redirectUri,
       requestedScopes: authorization.requestedScopes,

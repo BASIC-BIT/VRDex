@@ -74,7 +74,7 @@ export default async function AuthorizeReviewPage({ searchParams }: AuthorizeRev
   userConvex.setAuth(authToken);
 
   const authorization = await userConvex.query(api.oauthConsentTransactions.get, {
-    transactionHash: hashOAuthConsentTransactionValue(transaction),
+    transactionHash: await hashOAuthConsentTransactionValue(transaction),
   });
 
   if (authorization === null) {

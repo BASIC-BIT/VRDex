@@ -90,7 +90,7 @@ export async function POST(request: Request) {
 
   const code = decision === "approve" ? createOAuthAuthorizationCodeValue() : undefined;
   const result = await convexAdminHttpClient().mutation(internal.oauthApps.completeAuthorizationConsent, {
-    transactionHash: hashOAuthConsentTransactionValue(transaction),
+    transactionHash: await hashOAuthConsentTransactionValue(transaction),
     userId: viewer.user.id,
     decision,
     ...(code === undefined

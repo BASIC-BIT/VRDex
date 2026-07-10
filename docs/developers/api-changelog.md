@@ -11,7 +11,8 @@ docs update and a changelog entry so early consumers and agents can adapt.
 
 - moved OAuth consent completion and authorization-code issuance behind one
   internal Convex mutation that atomically binds the authenticated user to the
-  hashed transaction, revalidates the stored client, consumes the transaction,
+  Web Crypto SHA-256 transaction digest, revalidates the stored client,
+  consumes the transaction,
   and issues a code only for explicit approval
 - isolated OAuth API and MCP quotas by access-token id while retaining a
   secondary client-wide abuse cap, and made production rate limiting fail closed
