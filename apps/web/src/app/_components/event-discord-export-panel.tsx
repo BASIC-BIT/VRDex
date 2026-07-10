@@ -48,7 +48,7 @@ export function EventDiscordExportPanel({ text }: { text: string }) {
       </div>
       <Textarea
         aria-label="Discord-ready event post"
-        className="resize-y bg-white font-mono text-xs leading-5"
+        className="resize-y bg-surface-strong font-mono text-xs leading-5"
         readOnly
         rows={rows}
         value={text}

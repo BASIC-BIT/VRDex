@@ -49,7 +49,7 @@ export type PublicDiscoveryData = {
 type DiscoveryStatus = "live" | "missing-url" | "error";
 
 const discoveryThumbOverlay = "linear-gradient(135deg, color-mix(in srgb, var(--media) 78%, transparent), color-mix(in srgb, var(--surface-raised) 58%, transparent))";
-const featuredPosterOverlay = "linear-gradient(145deg, var(--background), var(--surface-raised))";
+const featuredPosterOverlay = "linear-gradient(180deg, transparent 20%, color-mix(in srgb, var(--media) 88%, transparent))";
 
 function entityLabel(result: PublicSearchResult): string {
   if (result.entityType === "profile") {

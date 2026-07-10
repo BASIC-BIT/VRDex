@@ -794,7 +794,7 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
             </Field>
           </div>
 
-          <label className="flex gap-3 rounded-control border border-border bg-white p-4 text-sm leading-6">
+          <label className="flex gap-3 rounded-control border border-border bg-surface-strong p-4 text-sm leading-6">
             <input
               checked={vrcdnOutput.authorized}
               className="mt-1 h-4 w-4 flex-none accent-accent"
@@ -834,19 +834,19 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
           ) : (
             <>
               <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <div className="rounded-control border border-border bg-white p-3">
+                <div className="rounded-control border border-border bg-surface-strong p-3">
                   <dt className="text-xs text-muted">Program</dt>
                   <dd className="mt-1 text-sm font-medium capitalize text-foreground">{formatMachineValue(eventMediaControlStatus.program.state)}</dd>
                 </div>
-                <div className="rounded-control border border-border bg-white p-3">
+                <div className="rounded-control border border-border bg-surface-strong p-3">
                   <dt className="text-xs text-muted">Output</dt>
                   <dd className="mt-1 text-sm font-medium text-foreground">{visibleWorkerOutput?.label ?? "Not selected"}</dd>
                 </div>
-                <div className="rounded-control border border-border bg-white p-3">
+                <div className="rounded-control border border-border bg-surface-strong p-3">
                   <dt className="text-xs text-muted">Session</dt>
                   <dd className="mt-1 text-sm font-medium capitalize text-foreground">{formatMachineValue(visibleWorkerSession?.status)}</dd>
                 </div>
-                <div className="rounded-control border border-border bg-white p-3">
+                <div className="rounded-control border border-border bg-surface-strong p-3">
                   <dt className="text-xs text-muted">Task</dt>
                   <dd className="mt-1 text-sm font-medium capitalize text-foreground">{formatMachineValue(visibleWorkerSession?.workerTaskStatus)}</dd>
                 </div>
@@ -856,27 +856,27 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
                 <p className="text-sm text-muted">No worker session has reported status yet.</p>
               ) : (
                 <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  <div className="rounded-control border border-border bg-white p-3">
+                  <div className="rounded-control border border-border bg-surface-strong p-3">
                     <dt className="text-xs text-muted">Scheduled start</dt>
                     <dd className="mt-1 text-sm text-foreground">{formatPrivateTimestamp(visibleWorkerSession.scheduledStartAt)}</dd>
                   </div>
-                  <div className="rounded-control border border-border bg-white p-3">
+                  <div className="rounded-control border border-border bg-surface-strong p-3">
                     <dt className="text-xs text-muted">Ready deadline</dt>
                     <dd className="mt-1 text-sm text-foreground">{formatPrivateTimestamp(visibleWorkerSession.readyDeadlineAt)}</dd>
                   </div>
-                  <div className="rounded-control border border-border bg-white p-3">
+                  <div className="rounded-control border border-border bg-surface-strong p-3">
                     <dt className="text-xs text-muted">Last update</dt>
                     <dd className="mt-1 text-sm text-foreground">{formatPrivateTimestamp(visibleWorkerSession.updatedAt)}</dd>
                   </div>
-                  <div className="rounded-control border border-border bg-white p-3">
+                  <div className="rounded-control border border-border bg-surface-strong p-3">
                     <dt className="text-xs text-muted">Worker runtime</dt>
                     <dd className="mt-1 text-sm text-foreground">{formatMachineValue(visibleWorkerSession.workerRuntime)}</dd>
                   </div>
-                  <div className="rounded-control border border-border bg-white p-3">
+                  <div className="rounded-control border border-border bg-surface-strong p-3">
                     <dt className="text-xs text-muted">Task ID</dt>
                     <dd className="mt-1 break-all font-mono text-xs text-foreground">{shortTaskId(visibleWorkerSession.workerTaskId)}</dd>
                   </div>
-                  <div className="rounded-control border border-border bg-white p-3">
+                  <div className="rounded-control border border-border bg-surface-strong p-3">
                     <dt className="text-xs text-muted">Queued commands</dt>
                     <dd className="mt-1 text-sm text-foreground">{eventMediaControlStatus.queuedCommandCount}</dd>
                   </div>
@@ -894,7 +894,7 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
                     {visibleWorkerSession.artifactLinks.map((artifact) => (
                       artifact.url.startsWith("https://") ? (
                         <a
-                          className="rounded-control border border-border bg-white px-3 py-2 text-sm font-medium text-foreground underline-offset-4 hover:underline"
+                          className="rounded-control border border-border bg-surface-strong px-3 py-2 text-sm font-medium text-foreground underline-offset-4 hover:underline"
                           href={artifact.url}
                           key={`${artifact.type}:${artifact.url}`}
                           rel="noreferrer"
@@ -903,7 +903,7 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
                           {artifact.label}
                         </a>
                       ) : (
-                        <code className="break-all rounded-control border border-border bg-white px-3 py-2 text-xs text-foreground" key={`${artifact.type}:${artifact.url}`}>
+                        <code className="break-all rounded-control border border-border bg-surface-strong px-3 py-2 text-xs text-foreground" key={`${artifact.type}:${artifact.url}`}>
                           {artifact.label}: {artifact.url}
                         </code>
                       )
@@ -936,7 +936,7 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
           <Field className="text-xs text-muted">
             Slot count
             <Input
-              className="bg-white text-foreground"
+              className="bg-surface-strong text-foreground"
               inputMode="numeric"
               onChange={(changeEvent) => {
                 const value = eventTargetValue(changeEvent);
@@ -948,7 +948,7 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
           <Field className="text-xs text-muted">
             Duration minutes
             <Input
-              className="bg-white text-foreground"
+              className="bg-surface-strong text-foreground"
               inputMode="numeric"
               onChange={(changeEvent) => {
                 const value = eventTargetValue(changeEvent);
@@ -960,7 +960,7 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
           <Field className="text-xs text-muted">
             Break minutes
             <Input
-              className="bg-white text-foreground"
+              className="bg-surface-strong text-foreground"
               inputMode="numeric"
               onChange={(changeEvent) => {
                 const value = eventTargetValue(changeEvent);
@@ -969,13 +969,13 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
               value={slotTemplate.break}
             />
           </Field>
-          <Button className="bg-white" onClick={onGenerateSlots} type="button">
+          <Button onClick={onGenerateSlots} type="button">
             Generate
           </Button>
         </div>
         <Field>
           Slot rows
-          <Textarea className="min-h-36 bg-white" name="slotLinks" onChange={(changeEvent) => setSlotText(changeEvent.currentTarget.value)} placeholder="0 | 45 | dj-aurora | DJ Aurora | House&#10;45 | 45 | dj-lumen | DJ Lumen | Trance" value={slotText} />
+          <Textarea className="min-h-36 bg-surface-strong" name="slotLinks" onChange={(changeEvent) => setSlotText(changeEvent.currentTarget.value)} placeholder="0 | 45 | dj-aurora | DJ Aurora | House&#10;45 | 45 | dj-lumen | DJ Lumen | Trance" value={slotText} />
           <FieldText>One per line: start offset minutes | duration minutes | optional person slug | billing name | style or role. Linked slot performers are also deduped into event participants.</FieldText>
         </Field>
       </Card>
