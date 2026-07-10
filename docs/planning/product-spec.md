@@ -12,6 +12,10 @@ VRChat scene participants need one canonical, public, claimable profile system f
 
 World discovery extends that identity graph by showing where events happen, who built those spaces, and how creators can link to their work.
 
+Current product compass:
+
+- see `docs/planning/product-direction.md` for the durable product direction, current niche, homepage posture, privacy stance, and development pattern
+
 ## Primary users
 
 ### DJs and performers
@@ -291,6 +295,16 @@ Implementation status for the first discovery engine slice:
 - featured placements can front event posters, festivals, worlds, communities, and profiles without unsupported global popularity claims
 - PostHog discovery events are optional and no-op when analytics config is absent
 
+Current recommendation for the Home product surface:
+
+- Home should feel like a live scene utility, not a marketing page.
+- Direct search stays prominent for intentional lookup, while Home should also show what is happening today or soon.
+- Event data should be front and center enough to answer "what is happening when?" without reducing VRDex to only an event calendar.
+- The target is a time-oriented event schedule surface; a simple event list or cards can be an acceptable first pass only if they point toward that schedule.
+- Personalization should start from explicit signals such as follows, favorites, event interest, calendar saves, and chosen interests; individual signals are private by default; avoid opaque "recommended for you" copy and unconsented presence or attendance inference.
+- Homepage copy should be sparse and human-reviewed before merge.
+- See `docs/planning/homepage-discovery-direction.md` for the homepage, persona, privacy, ranking, and issue-slice direction.
+
 Current recommendation for genre graph metadata:
 
 - treat genres as canonical graph metadata, not only freeform profile tags
@@ -489,6 +503,9 @@ Candidate set/performance artifact direction:
 - a later hosted-media option could store the performance itself, but only after rights, consent, moderation, cost, and takedown policy are designed
 - the important product concept is that an event slot can later resolve to a specific performance artifact, preserving who played, when, where, and what recording represents that slot
 - this should remain a later media/event graph feature, not a requirement for the initial DJ lookup or slot editor slices
+- independent high-quality uploads should be supported if hosted media lands, because restream-derived capture may be lower quality than local performer recordings
+- restream-derived automatic set capture is a candidate direction only with trimming, waveform review, silence snapping, explicit owner approval, and quality checks before publication
+- download permission should be owner-controlled if VRDex hosts sets
 
 Notification and consent direction:
 

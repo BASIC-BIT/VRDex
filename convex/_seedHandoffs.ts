@@ -72,6 +72,22 @@ const HANDOFF_FIELD_LABELS: Record<string, string> = {
   "person.roleTags": "Roles",
 };
 
+const CONCIERGE_PROFILE_FIELD_KEYS = [
+  "aliases",
+  "tags",
+  "genres",
+  "headline",
+  "bio",
+  "about",
+  "avatarImageUrl",
+  "bannerImageUrl",
+  "outboundLinks",
+  "region",
+  "timezone",
+  "person.pronouns",
+  "person.roleTags",
+] as const;
+
 export function projectHandoffPreviewField(
   field: Doc<"seedImportCandidateFields">,
 ) {
@@ -163,7 +179,6 @@ function visibilityKeyForSeedField(fieldKey: string) {
 export function buildConciergeProfileFieldPatch(
   fields: Doc<"seedImportCandidateFields">[],
   profile?: PersonProfile,
-  offeredFields: Doc<"seedImportCandidateFields">[] = fields,
 ): Partial<PersonProfile> {
   const patch: Partial<PersonProfile> = {};
   const fieldVisibility: NonNullable<PersonProfile["fieldVisibility"]> = {
@@ -173,16 +188,17 @@ export function buildConciergeProfileFieldPatch(
   let personChanged = false;
   const selectedFieldKeys = new Set(fields.map((field) => field.fieldKey));
 
-  for (const field of offeredFields) {
-    if (selectedFieldKeys.has(field.fieldKey)) {
+  for (const fieldKey of profile === undefined ? [] : CONCIERGE_PROFILE_FIELD_KEYS) {
+    if (selectedFieldKeys.has(fieldKey)) {
       continue;
     }
 
-    delete fieldVisibility[visibilityKeyForSeedField(field.fieldKey)];
+    delete fieldVisibility[visibilityKeyForSeedField(fieldKey)];
 
-    switch (field.fieldKey) {
+    switch (fieldKey) {
       case "aliases":
         patch.aliases = [];
+        patch.searchAliases = [];
         break;
       case "tags":
         patch.tags = [];
@@ -198,6 +214,12 @@ export function buildConciergeProfileFieldPatch(
         break;
       case "about":
         patch.about = undefined;
+        break;
+      case "avatarImageUrl":
+        patch.avatarImageUrl = undefined;
+        break;
+      case "bannerImageUrl":
+        patch.bannerImageUrl = undefined;
         break;
       case "outboundLinks":
         patch.outboundLinks = [];

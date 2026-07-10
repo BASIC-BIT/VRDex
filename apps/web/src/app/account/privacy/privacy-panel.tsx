@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
-import { Component, FormEvent, ReactNode, useEffect, useMemo, useState, useTransition } from "react";
+import { Component, FormEvent, ReactNode, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { api } from "@convex-generated-api";
 import { buttonVariants, Button } from "@/components/ui/button";
@@ -177,6 +177,7 @@ function PrivacyEditor({
     selectedProfile?.fieldVisibility ?? defaultFieldVisibility,
   );
   const [status, setStatus] = useState<SaveStatus>({ kind: "idle" });
+  const appliedInitialProfileId = useRef<string | undefined>(undefined);
   const [, startTransition] = useTransition();
   const counts = useMemo(
     () => (selectedProfile ? visibilityCounts(draft, selectedProfile) : null),
@@ -185,7 +186,8 @@ function PrivacyEditor({
 
   useEffect(() => {
     const requested = profiles.find((profile) => profile.profileId === initialProfileId);
-    if (requested) {
+    if (requested && appliedInitialProfileId.current !== initialProfileId) {
+      appliedInitialProfileId.current = initialProfileId;
       setSelectedProfileId(requested.profileId);
     } else if (!selectedProfileId && profiles[0]) {
       setSelectedProfileId(profiles[0].profileId);

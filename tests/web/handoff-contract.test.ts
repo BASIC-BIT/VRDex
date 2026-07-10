@@ -6,6 +6,7 @@ import {
   normalizeOwnerDestination,
   safeExternalHttpUrl,
 } from "../../apps/web/src/app/handoff/[token]/handoff-contract";
+import { getHandoffPlaywrightFixture } from "../../apps/web/src/app/handoff/[token]/handoff-fixtures";
 
 describe("handoff preview contract", () => {
   it("normalizes a prepared identity and only usable fields", () => {
@@ -120,5 +121,39 @@ describe("handoff preview contract", () => {
     assert.deepEqual(preview.state === "ready" ? preview.fields[0]?.links : undefined, [
       { label: "Twitch", url: "https://twitch.tv/dj-aurora" },
     ]);
+  });
+
+  it("never exposes Playwright handoff fixtures in production", () => {
+    const previous = {
+      nodeEnv: process.env.NODE_ENV,
+      vercelEnv: process.env.VERCEL_ENV,
+      fixtures: process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES,
+    };
+
+    try {
+      process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES = "true";
+      process.env.NODE_ENV = "production";
+      delete process.env.VERCEL_ENV;
+      assert.equal(getHandoffPlaywrightFixture("playwright-ready"), null);
+
+      process.env.NODE_ENV = "test";
+      process.env.VERCEL_ENV = "production";
+      assert.equal(getHandoffPlaywrightFixture("playwright-ready"), null);
+
+      delete process.env.VERCEL_ENV;
+      assert.equal(getHandoffPlaywrightFixture("playwright-ready")?.viewerState, "ready");
+    } finally {
+      for (const [key, value] of [
+        ["NODE_ENV", previous.nodeEnv],
+        ["VERCEL_ENV", previous.vercelEnv],
+        ["VRDEX_ENABLE_PLAYWRIGHT_FIXTURES", previous.fixtures],
+      ] as const) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    }
   });
 });

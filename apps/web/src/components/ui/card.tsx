@@ -8,8 +8,8 @@ export const cardVariants = cva("rounded-panel border", {
     surface: {
       default: "border-border bg-surface",
       strong: "border-border bg-surface-strong",
-      white: "border-border bg-white/80 shadow-sm",
-      glass: "border-border bg-white/45",
+      white: "border-border bg-surface-strong shadow-sm",
+      glass: "border-border bg-surface",
       dashed: "border-dashed border-border bg-surface",
       dark: "border-white/15 bg-white/14 text-white backdrop-blur",
     },

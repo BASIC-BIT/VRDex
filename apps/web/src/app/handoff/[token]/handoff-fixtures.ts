@@ -44,7 +44,11 @@ const readyPreview = {
 };
 
 export function getHandoffPlaywrightFixture(token: string): HandoffFixture | null {
-  if (process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES !== "true") {
+  if (
+    process.env.NODE_ENV === "production" ||
+    process.env.VERCEL_ENV === "production" ||
+    process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES !== "true"
+  ) {
     return null;
   }
 

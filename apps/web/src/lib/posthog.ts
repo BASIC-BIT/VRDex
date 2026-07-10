@@ -90,8 +90,10 @@ export function mirrorPrivateSeedLookupAccess(
   posthog: PostHog | undefined,
   canViewPrivateSeedLookup: boolean,
 ) {
-  posthog?.setPersonProperties({
+  const properties = {
     seed_lookup_beta: canViewPrivateSeedLookup ? "true" : "false",
-  });
-  posthog?.reloadFeatureFlags();
+  };
+
+  posthog?.setPersonProperties(properties);
+  posthog?.setPersonPropertiesForFlags(properties, true);
 }

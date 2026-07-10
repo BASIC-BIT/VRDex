@@ -284,7 +284,6 @@ async function createOrReuseConciergeProfile(
   invitation: Doc<"seedHandoffInvitations">,
   candidate: Doc<"seedImportCandidateProfiles">,
   selectedFields: Doc<"seedImportCandidateFields">[],
-  offeredFields: Doc<"seedImportCandidateFields">[],
   now: number,
 ) {
   const reusableProfileId = invitation.profileId ?? candidate.matchedProfileId;
@@ -301,7 +300,7 @@ async function createOrReuseConciergeProfile(
     }
 
     await ctx.db.patch(profile._id, {
-      ...buildConciergeProfileFieldPatch(selectedFields, profile, offeredFields),
+      ...buildConciergeProfileFieldPatch(selectedFields, profile),
       publicSurfacingState: "opted_out",
       publicSurfacingUpdatedAt: now,
       publicSurfacingReason: "Private concierge handoff accepted.",
@@ -402,7 +401,6 @@ export const acceptInvitation = mutation({
       invitation,
       candidate,
       selectedFields,
-      offeredFields,
       now,
     );
     const claimRequestId = await ctx.db.insert("profileClaimRequests", {

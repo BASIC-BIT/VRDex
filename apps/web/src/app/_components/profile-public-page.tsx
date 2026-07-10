@@ -168,7 +168,7 @@ function initialsFor(name: string): string {
   return initials || "VR";
 }
 
-const profileBannerOverlay = "linear-gradient(135deg, rgba(22, 17, 15, 0.58), rgba(214, 106, 77, 0.2))";
+const profileBannerOverlay = "linear-gradient(135deg, color-mix(in srgb, var(--media) 58%, transparent), color-mix(in srgb, var(--accent) 12%, transparent))";
 const profileSectionKeys: ProfilePublicSectionKey[] = [
   "about",
   "events",
@@ -257,7 +257,7 @@ function MediaAssetCard({ asset, label }: { asset: PublicProfileAsset; label: st
       href={asset.downloadUrl}
     >
       <span
-        className="flex aspect-[4/3] items-center justify-center rounded-control border border-border bg-[linear-gradient(135deg,#2f211b,#d66a4d)] bg-contain bg-center bg-no-repeat text-lg font-semibold text-white"
+        className="flex aspect-[4/3] items-center justify-center rounded-control border border-border bg-[linear-gradient(135deg,var(--canvas-muted),var(--surface-raised))] bg-contain bg-center bg-no-repeat text-lg font-semibold text-white"
         style={imageStyle}
       >
         {!imageStyle ? label.slice(0, 2).toUpperCase() : null}
@@ -547,7 +547,7 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
 
         <section className="overflow-hidden rounded-hero border border-border bg-surface shadow-hero backdrop-blur">
           <div
-            className="min-h-64 bg-[radial-gradient(circle_at_top_left,rgba(214,106,77,0.26),transparent_34%),linear-gradient(135deg,#2f211b,#9f3f27)] bg-cover bg-center p-6 text-white sm:p-8 lg:p-10"
+            className="min-h-64 bg-[linear-gradient(135deg,var(--media),var(--surface-raised))] bg-cover bg-center p-6 text-white sm:p-8 lg:p-10"
             style={bannerStyle}
           >
             <div className="flex min-h-52 flex-col justify-end gap-10">

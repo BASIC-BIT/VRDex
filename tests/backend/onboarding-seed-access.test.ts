@@ -378,20 +378,32 @@ describe("seed handoff helpers", () => {
       {
         aliases: ["DJ Example"],
         bio: "Prepared biography",
+        avatarImageUrl: "https://cdn.example.invalid/avatar.png",
         fieldVisibility: {
           aliases: "private",
           bio: "private",
+          avatarImageUrl: "private",
           tags: "public",
         },
-        person: { roleTags: [] },
+        person: { pronouns: "they/them", roleTags: ["DJ"] },
       } as never,
-      [aliasField, bioField],
     );
 
     assert.deepEqual(patch, {
       aliases: [],
+      searchAliases: [],
+      tags: [],
+      genres: [],
+      headline: undefined,
       bio: undefined,
-      fieldVisibility: { tags: "public" },
+      about: undefined,
+      avatarImageUrl: undefined,
+      bannerImageUrl: undefined,
+      outboundLinks: [],
+      region: undefined,
+      timezone: undefined,
+      person: { roleTags: [] },
+      fieldVisibility: {},
     });
   });
 
