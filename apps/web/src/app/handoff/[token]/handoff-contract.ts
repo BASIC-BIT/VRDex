@@ -22,6 +22,12 @@ export type HandoffPreview =
       fields: HandoffField[];
     };
 
+export function defaultHandoffSelectionKey(fields: HandoffField[]): string {
+  return JSON.stringify(
+    fields.filter((field) => field.selectedByDefault).map((field) => field.id),
+  );
+}
+
 type UnknownRecord = Record<string, unknown>;
 
 function record(value: unknown): UnknownRecord | null {

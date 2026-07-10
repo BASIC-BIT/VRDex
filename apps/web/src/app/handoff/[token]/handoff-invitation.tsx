@@ -4,7 +4,7 @@ import type { FunctionReference } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Component, type ReactNode, useEffect, useMemo, useState } from "react";
+import { Component, type ReactNode, useEffect, useState } from "react";
 
 import { api } from "@convex-generated-api";
 import { buttonVariants, Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { Notice } from "@/components/ui/notice";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 import { cn } from "@/lib/cn";
 import {
+  defaultHandoffSelectionKey,
   type HandoffField,
   type HandoffPreview,
   normalizeHandoffPreview,
@@ -214,11 +215,11 @@ function ReviewInvitation({
   const [selectedFieldIds, setSelectedFieldIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isAccepting, setIsAccepting] = useState(false);
-  const fieldKey = useMemo(() => preview.fields.map((field) => `${field.id}:${field.selectedByDefault}`).join("|"), [preview.fields]);
+  const defaultSelectionKey = defaultHandoffSelectionKey(preview.fields);
 
   useEffect(() => {
-    setSelectedFieldIds(preview.fields.filter((field) => field.selectedByDefault).map((field) => field.id));
-  }, [fieldKey, preview.fields]);
+    setSelectedFieldIds(JSON.parse(defaultSelectionKey) as string[]);
+  }, [defaultSelectionKey, token]);
 
   function toggleField(fieldId: string, selected: boolean) {
     setSelectedFieldIds((current) =>

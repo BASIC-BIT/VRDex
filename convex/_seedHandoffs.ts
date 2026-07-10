@@ -251,6 +251,9 @@ export function buildConciergeProfileFieldPatch(
     switch (field.fieldKey) {
       case "aliases":
         patch.aliases = value as string[];
+        if (profile !== undefined) {
+          patch.searchAliases = [];
+        }
         break;
       case "tags":
         patch.tags = value as string[];

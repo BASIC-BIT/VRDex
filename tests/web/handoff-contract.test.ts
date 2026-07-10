@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  defaultHandoffSelectionKey,
   normalizeHandoffPreview,
   normalizeOwnerDestination,
   safeExternalHttpUrl,
@@ -59,6 +60,24 @@ describe("handoff preview contract", () => {
         },
       ],
     });
+  });
+
+  it("keeps the default selection key stable across equivalent query responses", () => {
+    const fields = [
+      {
+        id: "alias",
+        label: "Alias",
+        value: "DJ Aurora",
+        kind: "text" as const,
+        selectedByDefault: true,
+      },
+    ];
+
+    assert.equal(defaultHandoffSelectionKey(fields), defaultHandoffSelectionKey([...fields]));
+    assert.notEqual(
+      defaultHandoffSelectionKey(fields),
+      defaultHandoffSelectionKey([{ ...fields[0], selectedByDefault: false }]),
+    );
   });
 
   it("covers invalid, expired, revoked, and accepted invitation states", () => {

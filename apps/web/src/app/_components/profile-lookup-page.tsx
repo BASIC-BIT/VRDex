@@ -841,6 +841,8 @@ export function ProfileLookupPage({
   const isSearching = pendingLabel !== null || isPending;
   const privateUiEnabled = seedViewerAccess.source === "super_admin" || privateUiFlag === true;
   const visiblePrivateResults = seedViewerAccess.allowed && privateUiEnabled ? displayPrivateResults : [];
+  const seedViewerAccessAllowed = seedViewerAccess.allowed;
+  const seedViewerAccessSource = seedViewerAccess.source;
   const hasQuery = Boolean(displayQuery.trim()) || bulkEntries.length > 0 || isSearching;
 
   useEffect(() => {
@@ -922,7 +924,7 @@ export function ProfileLookupPage({
     requestVersionRef.current = requestVersion;
     setPendingLabel(`Searching ${lines.length} lineup entries`);
     captureProductEvent(posthog, "lookup_submitted", {
-      access_scope: seedViewerAccess.allowed && privateUiEnabled
+      access_scope: seedViewerAccessAllowed && privateUiEnabled
         ? "private_and_public"
         : "public_only",
       mode: "bulk",
@@ -950,7 +952,10 @@ export function ProfileLookupPage({
       const nextPrivateResults = dedupePrivateSeeds(
         entries.flatMap((entry) => entry.lookup.privateResults),
       );
-      const nextViewerAccess = entries[0]?.lookup.viewerAccess ?? seedViewerAccess;
+      const nextViewerAccess = entries[0]?.lookup.viewerAccess ?? {
+        allowed: seedViewerAccessAllowed,
+        source: seedViewerAccessSource,
+      };
 
       if (requestVersionRef.current !== requestVersion) {
         return;
@@ -979,7 +984,13 @@ export function ProfileLookupPage({
         setPendingLabel(null);
       }
     }
-  }, [posthog, privateUiEnabled, privateUiFlag, seedViewerAccess]);
+  }, [
+    posthog,
+    privateUiEnabled,
+    privateUiFlag,
+    seedViewerAccessAllowed,
+    seedViewerAccessSource,
+  ]);
 
   const clearLookup = useCallback(() => {
     requestVersionRef.current += 1;

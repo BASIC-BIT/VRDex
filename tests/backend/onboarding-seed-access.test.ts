@@ -366,6 +366,19 @@ describe("seed handoff helpers", () => {
     });
   });
 
+  it("clears stale search aliases when replacing aliases on a reused profile", () => {
+    const patch = buildConciergeProfileFieldPatch(
+      [seedField({ value: ["DJ Current"] })],
+      {
+        aliases: ["DJ Previous"],
+        searchAliases: ["dj previous", "stale lineup name"],
+      } as never,
+    );
+
+    assert.deepEqual(patch.aliases, ["DJ Current"]);
+    assert.deepEqual(patch.searchAliases, []);
+  });
+
   it("removes deselected prepared fields from a reused concierge profile", () => {
     const aliasField = seedField();
     const bioField = seedField({
