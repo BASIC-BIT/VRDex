@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "lastReviewed": "2026-07-10",
   "readinessMode": "staging-hosted-data-dcr-cimd-pass-client-smokes-open",
-  "targetEnvironment": "staging https://staging.vrdex.net/mcp",
+  "targetEnvironment": "staging https://staging.vrdex.net/mcp @ baaf49e",
   "hostedReadiness": {
     "checks": [
       {
@@ -146,16 +146,22 @@
           "surface": "local_stdio",
           "requiredForExternalReadiness": true,
           "repoEvidence": "pnpm smoke:mcp-compat local profile: VS Code, including all curated read tools",
-          "manualStatus": "pending",
-          "notes": "2026-07-09: VS Code 1.128.0 is installed and the isolated --add-mcp preflight accepted the generated local stdio config. Run the installed app with the disposable session pack, list tools, and call vrdex_search before recording this row."
+          "manualStatus": "pass",
+          "notes": "The 2026-07-10 installed-client session followed the generated local stdio setup after the 2026-07-09 --add-mcp preflight.",
+          "environment": "Windows / VS Code 1.128.0 / authenticated isolated user-data / local stdio -> https://staging.vrdex.net/api/v0",
+          "manualEvidence": "2026-07-10 installed VS Code Copilot session listed all six local stdio VRDex tools, displayed exactly one vrdex_search call with query=club type=all limit=1 and no Authorization header, and reported call succeeded; staging returned no results, so no result slug was available.",
+          "lastRunAt": "2026-07-10"
         },
         {
           "id": "hosted-anonymous-read",
           "surface": "hosted_http_anonymous",
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
-          "manualStatus": "pending",
-          "notes": "2026-07-09: VS Code 1.128.0 is installed and the isolated --add-mcp preflight accepted the generated hosted anonymous HTTP config. Confirm the installed app lists tools and can call anonymous public reads before recording this row."
+          "manualStatus": "pass",
+          "notes": "The 2026-07-10 installed-client session followed the generated hosted anonymous HTTP setup after the 2026-07-09 --add-mcp preflight.",
+          "environment": "Windows / VS Code 1.128.0 / isolated user-data / https://staging.vrdex.net/mcp",
+          "manualEvidence": "2026-07-10 installed VS Code Copilot session listed all eight VRDex tools, displayed exactly one vrdex_search call with query=club type=all limit=1 and no Authorization header, and reported call succeeded; staging returned an empty results array, so no result slug was available.",
+          "lastRunAt": "2026-07-10"
         },
         {
           "id": "hosted-oauth",
