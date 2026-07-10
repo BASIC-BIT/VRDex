@@ -4,8 +4,15 @@ import { SignInForm } from "./sign-in-form";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, Eyebrow } from "@/components/ui/card";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
+import { validateSignInReturnTo } from "@/lib/safe-return-to";
 
-export default function SignInPage() {
+export default async function SignInPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ returnTo?: string | string[] }>;
+}) {
+  const returnTo = validateSignInReturnTo((await searchParams).returnTo);
+
   return (
     <PageShell className="py-10">
       <PageContainer max="4xl">
@@ -29,7 +36,7 @@ export default function SignInPage() {
             </div>
 
             <Card surface="glass">
-              <SignInForm />
+              <SignInForm returnTo={returnTo} />
             </Card>
           </div>
         </section>

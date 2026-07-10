@@ -210,6 +210,14 @@ export async function expectSignInPage(page: Page) {
   await expect(page.getByLabel("Password")).toBeVisible();
 }
 
+export async function expectHandoffPage(page: Page) {
+  await expect(page.getByRole("heading", { name: "DJ Aurora" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Choose the details to keep" })).toBeVisible();
+  await expect(page.getByLabel("Include Display name")).toBeChecked();
+  await expect(page.getByRole("button", { name: "Accept handoff" })).toBeVisible();
+  await expect(page.getByText("It does not publish it.", { exact: false })).toBeVisible();
+}
+
 export async function expectAccountPage(page: Page) {
   await expect(page.getByRole("heading", { name: /Your VRDex account and claim readiness/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Not signed in" })).toBeVisible();
@@ -366,6 +374,11 @@ export const capturedRoutes: CapturedRoute[] = [
     name: "sign-in",
     path: "/sign-in",
     expectPage: expectSignInPage,
+  },
+  {
+    name: "handoff-ready",
+    path: "/handoff/playwright-ready",
+    expectPage: expectHandoffPage,
   },
   {
     name: "account-signed-out",

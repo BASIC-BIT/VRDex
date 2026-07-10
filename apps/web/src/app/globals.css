@@ -49,6 +49,16 @@ body {
   min-height: 100vh;
 }
 
+.handoff-shell {
+  background: #edf2f1;
+  color: #182f36;
+  --foreground: #182f36;
+  --muted: #5a6b70;
+  --accent: #d66a4d;
+  --accent-strong: #9f3f27;
+  --border: rgba(24, 47, 54, 0.15);
+}
+
 @layer base {
   a {
     color: inherit;
