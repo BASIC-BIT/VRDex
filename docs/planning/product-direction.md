@@ -188,16 +188,18 @@ Open research:
 
 Current recommendation:
 
-- VRDex has a useful primitive layer, not a mature design system.
-- Homepage and theme exploration should wait for stronger semantic tokens and
-  primitives for colors, type scale, spacing, density, entity cards, event
-  rows, timeline/schedule views, and operator surfaces.
+- VRDex has a code-owned semantic contract for color, typography, spacing,
+  layout, density, focus, radii, elevation, entity cards, metadata, and event
+  schedule rows.
+- Homepage and theme exploration can proceed against that contract without
+  inventing route-local styling.
+- Additional themes remain candidate mappings until their contrast, public
+  routes, and component states have been visually reviewed.
 - Shared primitives and tokens should be preferred over one-off Tailwind
   treatments.
 - Public UI should feel calm, minimal, trustworthy, and data-forward.
 
-See `docs/engineering/design-system.md` for the current token and primitive
-gaps.
+See `docs/engineering/design-system.md` for the contract and adoption gaps.
 
 ## Development Pattern
 

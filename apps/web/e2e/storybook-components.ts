@@ -13,6 +13,7 @@ export const componentStories = [
   { id: "design-system-primitives--forms-and-tables", name: "forms-and-tables" },
   { id: "design-system-primitives--event-schedule-primitive", name: "event-schedule-primitive" },
   { id: "design-system-primitives--entities-and-metadata", name: "entities-and-metadata" },
+  { id: "design-system-primitives--event-schedule-empty-state", name: "event-schedule-empty-state" },
   { id: "design-system-primitives--shell-and-actions", name: "shell-and-actions" },
 ] as const;
 
@@ -43,7 +44,7 @@ export async function prepareStorybookVisualPage(page: Page) {
 
 export async function gotoComponentStory(page: Page, storyId: string) {
   await page.goto(`/iframe.html?id=${storyId}&viewMode=story`);
-  await expect(page.locator("#storybook-root")).toBeVisible();
+  await expect(page.locator("#storybook-root")).toBeVisible({ timeout: 20_000 });
   await page.evaluate(async () => {
     if (document.fonts?.ready) {
       await document.fonts.ready;

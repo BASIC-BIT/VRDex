@@ -9,7 +9,6 @@ export const actionCardVariants = cva("group rounded-control border px-4 py-3 te
     variant: {
       accent: "border-accent/35 bg-accent/10 hover:border-accent hover:bg-accent/15",
       surface: "border-border bg-surface-strong hover:border-accent",
-      white: "border-border bg-white hover:border-accent",
     },
     padding: {
       sm: "px-3 py-2",
@@ -27,7 +26,7 @@ export const actionLabelClassName =
   "block font-medium text-accent-strong underline decoration-accent/45 underline-offset-4 group-hover:decoration-accent";
 export const actionMetaClassName = "mt-1 block text-xs text-muted";
 export const inlineActionClassName =
-  "font-semibold tracking-[-0.02em] text-accent-strong underline decoration-accent/45 underline-offset-4 hover:decoration-accent";
+  "font-semibold text-accent-strong underline decoration-accent/45 underline-offset-4 hover:decoration-accent";
 
 export type ActionCardProps = ComponentPropsWithoutRef<"div"> & VariantProps<typeof actionCardVariants>;
 export type ActionCardLinkProps = ComponentPropsWithoutRef<typeof Link> & VariantProps<typeof actionCardVariants>;

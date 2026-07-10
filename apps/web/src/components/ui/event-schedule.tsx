@@ -91,12 +91,13 @@ export function EventSchedule({
   className?: string;
   empty?: ReactNode;
 }) {
-  const hasRows = Children.count(children) > 0;
+  const rows = Children.toArray(children).filter((child) => typeof child !== "boolean");
+  const hasRows = rows.length > 0;
 
   return (
     <section className={cn("grid gap-3", className)}>
       {hasRows ? (
-        <div className="grid gap-2">{children}</div>
+        <div className="grid gap-2">{rows}</div>
       ) : empty ? (
         <div className="rounded-panel border border-dashed border-border bg-surface px-4 py-5 text-sm text-muted">
           {empty}

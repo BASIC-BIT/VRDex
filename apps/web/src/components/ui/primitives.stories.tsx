@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import type { ReactNode } from "react";
 
-import { ActionCard, ActionCardLabel, ActionCardMeta } from "./action-card";
+import { ActionCard, ActionCardLabel, ActionCardLink, ActionCardMeta } from "./action-card";
 import { Badge } from "./badge";
 import { Button, buttonVariants } from "./button";
 import { Card, Eyebrow, SectionDescription, SectionHeading, SectionTitle } from "./card";
@@ -297,6 +297,19 @@ export const EventSchedulePrimitive: Story = {
   ),
 };
 
+export const EventScheduleEmptyState: Story = {
+  render: () => (
+    <StoryFrame>
+      <SectionHeading description="The schedule stays quiet when no rows are available.">
+        Empty Schedule
+      </SectionHeading>
+      <Card surface="white">
+        <EventSchedule empty="No events scheduled.">{false}</EventSchedule>
+      </Card>
+    </StoryFrame>
+  ),
+};
+
 export const EntitiesAndMetadata: Story = {
   render: () => (
     <StoryFrame>
@@ -362,10 +375,10 @@ export const ShellAndActions: Story = {
               <ActionCardLabel>Afterglow watch link</ActionCardLabel>
               <ActionCardMeta>Watch / Open</ActionCardMeta>
             </ActionCard>
-            <ActionCard variant="white">
+            <ActionCardLink href="#" variant="surface">
               <ActionCardLabel>Profile proof</ActionCardLabel>
               <ActionCardMeta>Claim / Verify</ActionCardMeta>
-            </ActionCard>
+            </ActionCardLink>
           </div>
         </Card>
       </PageContainer>

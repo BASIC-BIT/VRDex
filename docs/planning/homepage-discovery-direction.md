@@ -487,23 +487,23 @@ Candidate copy posture:
 
 Current design-system maturity:
 
-- VRDex has a useful Tailwind primitive foundation.
-- It is not mature enough yet for serious homepage theme exploration.
-- Color, font family, radius, and shadow tokens exist.
+- VRDex has a code-owned semantic contract for color, type roles, spacing,
+  layout width, density, controls, focus, radii, and elevation.
 - Reusable primitives exist for shell, cards, buttons, badges, fields, notices,
-  tables, and action cards.
-- Many size, spacing, type-scale, density, and feature-specific visual choices
-  still live as Tailwind literals or route-specific CSS.
+  tables, action cards, entity cards, metadata, and event schedule rows.
+- Core public route chrome uses semantic roles rather than entity-specific
+  purple, cyan, or warm fallback treatments.
+- Controlled homepage and theme exploration can proceed, while new theme
+  presets still require component and route visual review.
 
 Current recommendation before a major homepage redesign:
 
-- expand semantic color tokens beyond the current warm palette
-- define type scale, text roles, spacing steps, icon sizes, and layout widths
-- add density rules for event schedules, compact cards, and operator views
-- define entity-card primitives for person, community, world, and event cards
-- define a homepage event timeline/list primitive with set-time support
-- define theme presets as token mappings, not one-off page CSS
-- add Storybook stories for homepage primitives before broad route redesign
+- use the existing semantic roles and composable schedule/entity primitives
+- validate the first homepage schedule with real event and set-time density
+- keep icon, thumbnail, and dense operator rules local until repeated use proves
+  that they belong in the global contract
+- define additional theme presets as token mappings, not one-off page CSS
+- add Storybook stories for new homepage compositions before broad route rollout
 - visually verify desktop and mobile homepage states with real screenshot
   evidence
 

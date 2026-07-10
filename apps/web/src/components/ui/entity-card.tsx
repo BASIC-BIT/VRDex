@@ -7,8 +7,8 @@ import { cn } from "@/lib/cn";
 const entityCardVariants = cva("grid rounded-card border border-border bg-surface", {
   variants: {
     density: {
-      compact: "gap-3 p-3 sm:grid-cols-[auto_minmax(0,1fr)]",
-      default: "gap-4 p-card sm:grid-cols-[auto_minmax(0,1fr)]",
+      compact: "gap-3 p-3",
+      default: "gap-4 p-card",
     },
   },
   defaultVariants: {
@@ -38,7 +38,14 @@ export function EntityCard({
   ...props
 }: EntityCardProps) {
   return (
-    <article className={cn(entityCardVariants({ density }), className)} {...props}>
+    <article
+      className={cn(
+        entityCardVariants({ density }),
+        media ? "sm:grid-cols-[auto_minmax(0,1fr)]" : "grid-cols-1",
+        className,
+      )}
+      {...props}
+    >
       {media ? <div className="shrink-0">{media}</div> : null}
       <div className="min-w-0">
         <h3>

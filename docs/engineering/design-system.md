@@ -8,11 +8,12 @@ Current recommendation: extend the local primitives in `apps/web/src/components/
 
 Locked decision: Storybook is an interrelated but separate visual lane from full-route Playwright screenshots. It is designed around individual components and primitives, not the site as a whole.
 
-Current maturity assessment: the web design system now has a stronger
-charcoal-neutral semantic token baseline and a Storybook lane for token and
-schedule review. It is still not mature enough for broad theme exploration
-until the remaining page-specific color treatments are pulled into shared
-tokens and primitives.
+Current maturity assessment: the web design system now has a theme-ready
+semantic contract for color, typography, spacing, layout width, density,
+control sizing, focus, radii, and elevation. Storybook covers tokens, schedules,
+entities, and metadata composition. This is mature enough for controlled theme
+and homepage exploration, but the charcoal preset remains the only reviewed
+production theme and route adoption is intentionally incremental.
 
 ## Intent
 
@@ -23,7 +24,7 @@ forms, status displays, and schedule rows.
 
 ## Source Files
 
-- `apps/web/src/app/globals.css`: theme colors, type tokens, radius tokens, and shared shadow tokens.
+- `apps/web/src/app/globals.css`: semantic color, type, spacing, layout, density, radius, focus, and elevation tokens.
 - `apps/web/src/components/ui/button.tsx`: action variants and shared sizing.
 - `apps/web/src/components/ui/card.tsx`: panels, section headings, and eyebrow labels.
 - `apps/web/src/components/ui/badge.tsx`: status and taxonomy labels.
@@ -33,6 +34,8 @@ forms, status displays, and schedule rows.
 - `apps/web/src/components/ui/page-shell.tsx`: page background, width containers, nav, and brand link.
 - `apps/web/src/components/ui/action-card.tsx`: repeated call-to-action cards.
 - `apps/web/src/components/ui/event-schedule.tsx`: compact time-oriented event schedule rows.
+- `apps/web/src/components/ui/entity-card.tsx`: structural cards for people, communities, worlds, and events.
+- `apps/web/src/components/ui/metadata-list.tsx`: plain compact metadata composition without badge inflation.
 - `apps/web/src/lib/cn.ts`: class merging for primitive variants and local overrides.
 
 ## Rules
@@ -41,25 +44,32 @@ forms, status displays, and schedule rows.
 - Prefer semantic color roles such as `background`, `surface`, `surface-strong`,
   `accent`, `danger`, `success`, `warning`, `muted`, `subtle`, and `border`
   over raw color literals.
+- Treat reference values, semantic tokens, Tailwind aliases, and component
+  recipes as separate layers. Feature code consumes semantic roles only.
+- Keep provider brand colors and owner-authored entity media narrowly scoped;
+  do not promote them into generic accent or status roles.
 - Use named radius tokens: `rounded-control`, `rounded-card`, `rounded-panel`, and `rounded-hero`.
 - Use `shadow-panel` and `shadow-hero` instead of ad hoc arbitrary shadow values.
 - Keep `rounded-full` for intentionally pill-shaped badges only.
 - Keep new styling easy to promote into a primitive when a pattern repeats.
 - Avoid adding Material UI or a broad shadcn dump unless the project explicitly reopens that decision.
 
-## Token Gaps
+## Adoption Gaps
 
-Current recommendation: continue maturing the token layer before a major
-homepage redesign or multi-theme pass.
+Current recommendation: use the stable token and primitive contract during
+homepage design, then add values or variants only when a real composition
+proves the need.
 
-Needed tokens and primitives:
+Remaining adoption work:
 
-- text-role tokens for display, title, section, body, caption, mono metadata, dense table text, and public-card labels
-- spacing and size steps for shell padding, compact cards, dense event rows, icon buttons, media thumbnails, and schedule gutters
-- layout width and density rules for public pages, operator views, lookup tables, and mobile-first schedule lists
-- entity-card primitives for people, communities, worlds, and events
-- event schedule primitives that can show local viewer time, set times, host/community, venue/world, watch state, and saved/followed context
-- theme presets expressed as token mappings rather than page-specific Tailwind or CSS overrides
+- adopt text, spacing, layout, and density roles across legacy routes as those
+  routes are touched
+- validate EntityCard against real person, community, world, and event data
+- compose the homepage schedule with viewer-local time, set times, host,
+  venue/world, watch state, and later saved/followed context
+- define additional theme presets as token mappings, not route CSS overrides
+- review icon sizes, media thumbnails, dense operator tables, and lookup-specific
+  density from real workflows before adding more global tokens
 
 Avoid treating one route's CSS as the design system. If a style is useful for Home, event pages, profile pages, and lookup, promote the repeatable piece into tokens or a primitive before copying it.
 
@@ -73,8 +83,8 @@ Avoid treating one route's CSS as the design system. If a style is useful for Ho
 ## Storybook Lane
 
 Storybook documents and reviews primitives such as buttons, cards, badges,
-fields, notices, tables, page shells, action cards, tokens, and event schedule
-rows.
+fields, notices, tables, page shells, action cards, tokens, event schedule rows,
+entity cards, and metadata composition.
 
 Current scope:
 

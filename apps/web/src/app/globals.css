@@ -26,6 +26,7 @@
   --border: rgba(229, 235, 244, 0.14);
   --border-strong: rgba(229, 235, 244, 0.24);
   --focus: rgba(142, 216, 255, 0.38);
+  --media: #020307;
   --focus-ring-width: 2px;
   --focus-ring-offset: 2px;
 }
@@ -61,7 +62,7 @@
   --color-border-strong: var(--border-strong);
   --color-focus: var(--focus);
   --color-focus-ring: var(--focus);
-  --color-media: #020307;
+  --color-media: var(--media);
   --font-sans: var(--font-space-grotesk);
   --font-mono: var(--font-ibm-plex-mono);
   --text-display: 2.25rem;
@@ -186,12 +187,21 @@ body {
 .lookup-theme[data-theme="light"] {
   --background: #e8edf5;
   --foreground: #0c1220;
+  --canvas: #e8edf5;
+  --canvas-muted: #dde6f2;
   --surface: rgba(248, 250, 252, 0.86);
+  --surface-muted: rgba(241, 245, 249, 0.78);
   --surface-strong: #f8fafc;
+  --surface-elevated: #e2e8f0;
   --muted: #475569;
+  --subtle: #64748b;
+  --inverse: #f8fafc;
   --accent: #2563eb;
   --accent-strong: #1d4ed8;
+  --accent-muted: rgba(37, 99, 235, 0.12);
   --border: rgba(15, 23, 42, 0.16);
+  --border-strong: rgba(15, 23, 42, 0.28);
+  --focus: rgba(37, 99, 235, 0.32);
   background:
     radial-gradient(circle at 18% -8%, rgba(8, 145, 178, 0.16), transparent 32%),
     radial-gradient(circle at 86% 0%, rgba(37, 99, 235, 0.13), transparent 34%),
@@ -201,12 +211,21 @@ body {
 .lookup-theme[data-theme="dark"] {
   --background: #080d16;
   --foreground: #edf5ff;
+  --canvas: #0a101b;
+  --canvas-muted: #0d1420;
   --surface: rgba(13, 20, 32, 0.9);
+  --surface-muted: rgba(20, 30, 46, 0.82);
   --surface-strong: #0f1724;
+  --surface-elevated: #172235;
   --muted: #94a3b8;
+  --subtle: #64748b;
+  --inverse: #080d16;
   --accent: #67e8f9;
   --accent-strong: #bae6fd;
+  --accent-muted: rgba(103, 232, 249, 0.14);
   --border: rgba(226, 232, 240, 0.14);
+  --border-strong: rgba(226, 232, 240, 0.24);
+  --focus: rgba(103, 232, 249, 0.34);
   background:
     radial-gradient(circle at 18% -8%, rgba(34, 211, 238, 0.16), transparent 34%),
     radial-gradient(circle at 82% 0%, rgba(59, 130, 246, 0.18), transparent 36%),
