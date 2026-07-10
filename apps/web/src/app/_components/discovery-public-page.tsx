@@ -167,7 +167,6 @@ function DiscoveryCard({ result, surface }: { result: PublicSearchResult; surfac
       properties={{
         entity_type: result.entityType,
         profile_type: result.profileType,
-        result_slug: result.slug,
         surface,
       }}
     >
@@ -195,7 +194,6 @@ function SearchResultCard({ result }: { result: PublicSearchResult }) {
       properties={{
         entity_type: result.entityType,
         profile_type: result.profileType,
-        result_slug: result.slug,
         surface: "search_results",
       }}
     >
@@ -226,7 +224,7 @@ function PosterCard({ result }: { result: PublicSearchResult }) {
       className="group h-full min-h-72 overflow-hidden rounded-hero border border-white/15 bg-[#241814] text-white shadow-hero"
       eventName="featured_card_clicked"
       href={result.routePath}
-      properties={{ entity_type: result.entityType, result_slug: result.slug, surface: "featured" }}
+      properties={{ entity_type: result.entityType, surface: "featured" }}
     >
       <span
         className="flex h-full min-h-72 flex-col justify-end bg-[radial-gradient(circle_at_top_left,rgba(214,106,77,0.45),transparent_34%),linear-gradient(145deg,#221512,#74311f)] bg-cover bg-center p-5"
@@ -305,7 +303,7 @@ export function DiscoveryLandingPage({
                     eventName="discovery_filter_selected"
                     href={`/search?q=${encodeURIComponent(term.label)}`}
                     key={`${term.scope}-${term.key}`}
-                    properties={{ scope: term.scope, term: term.label, surface: "home_terms" }}
+                    properties={{ scope: term.scope, surface: "home_terms" }}
                   >
                     {term.label}
                   </TrackedDiscoveryLink>

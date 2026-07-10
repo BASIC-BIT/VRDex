@@ -6,8 +6,23 @@ import { type FormEvent, type ReactNode } from "react";
 
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
+import {
+  captureProductEvent,
+  type DiscoveryAnalyticsSurface,
+  type ProductAnalyticsEvent,
+} from "@/lib/posthog";
 
-type DiscoveryEventProperties = Record<string, string | number | boolean | undefined>;
+type TrackedDiscoveryEvent = Extract<
+  ProductAnalyticsEvent,
+  "discovery_filter_selected" | "event_card_clicked" | "featured_card_clicked" | "search_result_clicked"
+>;
+
+type TrackedDiscoveryProperties = {
+  discovery_filter_selected: { scope: string; surface: "home_terms" };
+  event_card_clicked: { entity_type: "event"; surface: DiscoveryAnalyticsSurface };
+  featured_card_clicked: { entity_type: string; surface: "featured" };
+  search_result_clicked: { entity_type: string; profile_type?: string; surface: DiscoveryAnalyticsSurface };
+};
 
 export function DiscoverySearchForm({
   action = "/search",
@@ -19,7 +34,7 @@ export function DiscoverySearchForm({
   action?: string;
   className?: string;
   defaultQuery?: string;
-  surface?: string;
+  surface?: "home" | "search";
   tone?: "default" | "inverse";
 }) {
   const posthog = usePostHog();
@@ -30,10 +45,7 @@ export function DiscoverySearchForm({
     const query = String(formData.get("q") ?? "").trim();
 
     if (query) {
-      posthog?.capture("search_submitted", {
-        query,
-        surface,
-      });
+      captureProductEvent(posthog, "search_submitted", { surface });
     }
   }
 
@@ -63,7 +75,7 @@ export function DiscoverySearchForm({
   );
 }
 
-export function TrackedDiscoveryLink({
+export function TrackedDiscoveryLink<Event extends TrackedDiscoveryEvent>({
   children,
   eventName,
   properties,
@@ -71,8 +83,8 @@ export function TrackedDiscoveryLink({
 }: LinkProps & {
   children: ReactNode;
   className?: string;
-  eventName: string;
-  properties: DiscoveryEventProperties;
+  eventName: Event;
+  properties: TrackedDiscoveryProperties[Event];
 }) {
   const posthog = usePostHog();
 
@@ -80,7 +92,7 @@ export function TrackedDiscoveryLink({
     <Link
       {...props}
       onClick={() => {
-        posthog?.capture(eventName, properties);
+        captureProductEvent(posthog, eventName, properties);
       }}
     >
       {children}
