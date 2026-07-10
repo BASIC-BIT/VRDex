@@ -48,8 +48,8 @@ export type PublicDiscoveryData = {
 
 type DiscoveryStatus = "live" | "missing-url" | "error";
 
-const discoveryThumbOverlay = "linear-gradient(135deg, rgba(7, 10, 15, 0.78), rgba(52, 70, 88, 0.58))";
-const featuredPosterOverlay = "linear-gradient(145deg, #08090d, #1b232e)";
+const discoveryThumbOverlay = "linear-gradient(135deg, color-mix(in srgb, var(--media) 78%, transparent), color-mix(in srgb, var(--surface-raised) 58%, transparent))";
+const featuredPosterOverlay = "linear-gradient(145deg, var(--background), var(--surface-raised))";
 
 function entityLabel(result: PublicSearchResult): string {
   if (result.entityType === "profile") {
@@ -106,7 +106,7 @@ function ResultImage({ result }: { result: PublicSearchResult }) {
   ) {
     return (
       <span
-        className="flex size-14 shrink-0 items-center justify-center rounded-card bg-[linear-gradient(135deg,#0f131a,#344658)] bg-cover bg-center text-lg font-semibold text-white"
+        className="flex size-14 shrink-0 items-center justify-center rounded-card bg-[linear-gradient(135deg,var(--canvas-muted),var(--surface-raised))] bg-cover bg-center text-lg font-semibold text-white"
         style={imageStyle}
       >
         {!imageStyle ? initialsFor(result.title) : null}
@@ -120,7 +120,7 @@ function ResultImage({ result }: { result: PublicSearchResult }) {
   return (
     <span className="grid shrink-0 grid-cols-2 gap-1">
       <span
-        className="flex size-14 items-center justify-center rounded-card bg-[linear-gradient(135deg,#0f131a,#344658)] bg-cover bg-center text-lg font-semibold text-white"
+        className="flex size-14 items-center justify-center rounded-card bg-[linear-gradient(135deg,var(--canvas-muted),var(--surface-raised))] bg-cover bg-center text-lg font-semibold text-white"
         style={profileImageStyle}
         title="Profile image"
       >
@@ -229,7 +229,7 @@ function PosterCard({ result }: { result: PublicSearchResult }) {
       properties={{ entity_type: result.entityType, result_slug: result.slug, surface: "featured" }}
     >
       <span
-        className="flex h-full min-h-72 flex-col justify-end bg-[linear-gradient(145deg,#08090d,#1b232e)] bg-cover bg-center p-5"
+        className="flex h-full min-h-72 flex-col justify-end bg-[linear-gradient(145deg,var(--background),var(--surface-raised))] bg-cover bg-center p-5"
         style={imageStyle}
       >
         <span className="block text-3xl font-semibold tracking-[-0.04em]">{result.title}</span>
@@ -289,7 +289,7 @@ export function DiscoveryLandingPage({
         <TopNav />
 
         <section className="overflow-hidden rounded-hero border border-border bg-canvas text-white shadow-hero">
-          <div className="bg-[linear-gradient(135deg,#08090d,#151b24_58%,#0f141c)] px-6 py-10 text-center sm:px-8 lg:px-14 lg:py-16">
+          <div className="bg-[linear-gradient(135deg,var(--background),var(--surface-strong)_58%,var(--canvas-muted))] px-6 py-10 text-center sm:px-8 lg:px-14 lg:py-16">
             <div className="mx-auto max-w-4xl">
               <h1 className="text-5xl leading-none font-semibold tracking-[-0.055em] sm:text-7xl">
                 Find what&apos;s happening in VRChat.

@@ -32,7 +32,7 @@ export type PublicActiveWorld = {
   };
 };
 
-const activeWorldOverlay = "linear-gradient(135deg, rgba(8, 18, 32, 0.72), rgba(8, 145, 178, 0.2))";
+const activeWorldOverlay = "linear-gradient(135deg, color-mix(in srgb, var(--media) 72%, transparent), color-mix(in srgb, var(--accent) 12%, transparent))";
 
 function ActiveWorldCard({ world }: { world: PublicActiveWorld }) {
   const heroStyle = safeImageBackground(world.heroImageUrl, activeWorldOverlay);
@@ -40,7 +40,7 @@ function ActiveWorldCard({ world }: { world: PublicActiveWorld }) {
 
   return (
     <Link
-      className="group flex min-h-72 flex-col justify-between overflow-hidden rounded-panel border border-cyan-950/10 bg-slate-950 p-5 !text-white shadow-panel transition hover:-translate-y-1"
+      className="group flex min-h-72 flex-col justify-between overflow-hidden rounded-panel border border-border bg-media p-5 !text-white shadow-panel transition hover:-translate-y-1"
       href={`/w/${world.slug}`}
       style={heroStyle}
     >
@@ -48,7 +48,7 @@ function ActiveWorldCard({ world }: { world: PublicActiveWorld }) {
         <Badge mono variant="inverse">
           {world.activityLabel}
         </Badge>
-        <Badge className="bg-cyan-300/18 text-cyan-50" variant="inverseMuted">
+        <Badge className="border-border bg-surface-muted text-foreground" variant="inverseMuted">
           {world.upcomingEventCount} upcoming
         </Badge>
       </div>
