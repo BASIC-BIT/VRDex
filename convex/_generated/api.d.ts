@@ -26,6 +26,7 @@ import type * as _eventSlots from "../_eventSlots.js";
 import type * as _eventSlugs from "../_eventSlugs.js";
 import type * as _mcpToolEvents from "../_mcpToolEvents.js";
 import type * as _oauth from "../_oauth.js";
+import type * as _oauthConsentTransactions from "../_oauthConsentTransactions.js";
 import type * as _profileAppearance from "../_profileAppearance.js";
 import type * as _profileAssets from "../_profileAssets.js";
 import type * as _profileClaimCreation from "../_profileClaimCreation.js";
@@ -100,6 +101,7 @@ declare const fullApi: ApiFromModules<{
   _eventSlugs: typeof _eventSlugs;
   _mcpToolEvents: typeof _mcpToolEvents;
   _oauth: typeof _oauth;
+  _oauthConsentTransactions: typeof _oauthConsentTransactions;
   _profileAppearance: typeof _profileAppearance;
   _profileAssets: typeof _profileAssets;
   _profileClaimCreation: typeof _profileClaimCreation;
