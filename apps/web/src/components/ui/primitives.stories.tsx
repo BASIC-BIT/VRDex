@@ -1,12 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import type { ReactNode } from "react";
 
-import { ActionCard, actionLabelClassName, actionMetaClassName } from "./action-card";
+import { ActionCard, ActionCardLabel, ActionCardMeta } from "./action-card";
 import { Badge } from "./badge";
 import { Button, buttonVariants } from "./button";
 import { Card, Eyebrow, SectionDescription, SectionHeading, SectionTitle } from "./card";
-import { EventSchedule, type EventScheduleItem } from "./event-schedule";
+import { EntityCard } from "./entity-card";
+import { EventSchedule, EventScheduleRow } from "./event-schedule";
 import { Field, FieldText, Input, Select, Textarea } from "./field";
+import { MetadataItem, MetadataList } from "./metadata-list";
 import { Notice } from "./notice";
 import { BrandLink, PageContainer, PageNav, PageShell } from "./page-shell";
 import { Table, TableCell, TableFrame, TableHead, TableHeaderCell } from "./table";
@@ -29,7 +31,7 @@ function StoryFrame({ children, tone = "light" }: { children: ReactNode; tone?: 
       className={cn(
         "min-h-screen px-6 py-8 sm:px-10",
         tone === "dark"
-          ? "bg-[linear-gradient(135deg,#08090d,#1b232e)] text-white"
+          ? "bg-[linear-gradient(135deg,var(--background),var(--surface-raised))] text-white"
           : "bg-background text-foreground",
       )}
     >
@@ -50,40 +52,6 @@ const tokenSwatches = [
   { className: "bg-danger", label: "Danger" },
 ];
 
-const sampleSchedule: EventScheduleItem[] = [
-  {
-    host: "Afterglow",
-    href: "#",
-    id: "doors",
-    meta: ["Doors", "Friends+"],
-    status: "now",
-    summary: "Open room and host handoff before the first set.",
-    time: "8:00 PM",
-    title: "Doors open",
-    world: "Neon Harbor",
-  },
-  {
-    host: "Afterglow",
-    href: "#",
-    id: "aurora",
-    meta: ["House", "Live"],
-    roleSummary: "DJ Aurora",
-    status: "soon",
-    time: "9:00 PM",
-    title: "Harbor Sessions",
-    world: "Neon Harbor",
-  },
-  {
-    host: "Afterglow",
-    id: "lumen",
-    meta: ["Trance", "VJ Lumen"],
-    roleSummary: "DJ Lumen",
-    time: "10:00 PM",
-    title: "Late Signal",
-    world: "Neon Harbor",
-  },
-];
-
 export const TokenSystem: Story = {
   render: () => (
     <StoryFrame>
@@ -91,6 +59,13 @@ export const TokenSystem: Story = {
         Token System
       </SectionHeading>
       <Card className="grid gap-4" surface="white">
+        <div className="grid gap-3 border-b border-border pb-4">
+          <p className="text-display">Display</p>
+          <p className="text-title">Title</p>
+          <p className="text-section">Section</p>
+          <p className="text-body text-muted">Body and supporting text use named roles.</p>
+          <p className="font-mono text-metadata text-subtle">Metadata / 9:00 PM</p>
+        </div>
         <div className="grid gap-3 sm:grid-cols-3">
           {tokenSwatches.map((swatch) => (
             <div className="overflow-hidden rounded-card border border-border bg-surface" key={swatch.label}>
@@ -268,16 +243,96 @@ export const EventSchedulePrimitive: Story = {
         Event Schedule
       </SectionHeading>
       <Card className="grid gap-5" surface="white">
-        <EventSchedule items={sampleSchedule}>
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <SectionTitle className="text-2xl">Tonight</SectionTitle>
-              <SectionDescription className="mt-2">A compact schedule primitive for Home and event surfaces.</SectionDescription>
-            </div>
-            <Button size="sm" variant="surface">Open full schedule</Button>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <SectionTitle className="text-title">Tonight</SectionTitle>
+            <SectionDescription className="mt-2">A compact schedule primitive for Home and event surfaces.</SectionDescription>
           </div>
+          <Button size="sm" variant="surface">Open full schedule</Button>
+        </div>
+        <EventSchedule>
+          <EventScheduleRow
+            details="Afterglow / Neon Harbor"
+            href="#"
+            metadata={
+              <MetadataList density="compact">
+                <MetadataItem>Doors</MetadataItem>
+                <MetadataItem>Friends+</MetadataItem>
+              </MetadataList>
+            }
+            status="now"
+            statusLabel="Now"
+            summary="Open room and host handoff before the first set."
+            time="8:00 PM"
+            title="Doors open"
+          />
+          <EventScheduleRow
+            details="Afterglow / Neon Harbor / DJ Aurora"
+            href="#"
+            metadata={
+              <MetadataList density="compact">
+                <MetadataItem>House</MetadataItem>
+                <MetadataItem>Live</MetadataItem>
+              </MetadataList>
+            }
+            status="soon"
+            statusLabel="Soon"
+            time="9:00 PM"
+            title="Harbor Sessions"
+          />
+          <EventScheduleRow
+            details="Afterglow / Neon Harbor / DJ Lumen"
+            metadata={
+              <MetadataList density="compact">
+                <MetadataItem>Trance</MetadataItem>
+                <MetadataItem>VJ Lumen</MetadataItem>
+              </MetadataList>
+            }
+            time="10:00 PM"
+            title="Late Signal"
+          />
         </EventSchedule>
       </Card>
+    </StoryFrame>
+  ),
+};
+
+export const EntitiesAndMetadata: Story = {
+  render: () => (
+    <StoryFrame>
+      <SectionHeading description="Entity identity stays route-owned while structure remains consistent.">
+        Entities And Metadata
+      </SectionHeading>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <EntityCard
+          description="House and garage sets across VRChat events."
+          href="#"
+          media={
+            <div className="flex size-16 items-center justify-center rounded-card bg-surface-raised font-mono text-entity">
+              DA
+            </div>
+          }
+          metadata={
+            <MetadataList>
+              <MetadataItem>Person</MetadataItem>
+              <MetadataItem>Indianapolis</MetadataItem>
+            </MetadataList>
+          }
+          title="DJ Aurora"
+        />
+        <EntityCard
+          actions={<Button size="sm" variant="surface">View events</Button>}
+          description="Late-night events hosted in Neon Harbor."
+          href="#"
+          metadata={
+            <MetadataList tone="subtle">
+              <MetadataItem>Community</MetadataItem>
+              <MetadataItem>3 upcoming events</MetadataItem>
+            </MetadataList>
+          }
+          title="Afterglow"
+        />
+      </div>
     </StoryFrame>
   ),
 };
@@ -300,16 +355,16 @@ export const ShellAndActions: Story = {
           </p>
           <div className="mt-6 grid gap-3 sm:grid-cols-3">
             <ActionCard variant="accent">
-              <span className={actionLabelClassName}>Afterglow event listing</span>
-              <span className={actionMetaClassName}>Source</span>
+              <ActionCardLabel>Afterglow event listing</ActionCardLabel>
+              <ActionCardMeta>Source</ActionCardMeta>
             </ActionCard>
             <ActionCard variant="surface">
-              <span className={actionLabelClassName}>Afterglow watch link</span>
-              <span className={actionMetaClassName}>Watch / Open</span>
+              <ActionCardLabel>Afterglow watch link</ActionCardLabel>
+              <ActionCardMeta>Watch / Open</ActionCardMeta>
             </ActionCard>
             <ActionCard variant="white">
-              <span className={actionLabelClassName}>Profile proof</span>
-              <span className={actionMetaClassName}>Claim / Verify</span>
+              <ActionCardLabel>Profile proof</ActionCardLabel>
+              <ActionCardMeta>Claim / Verify</ActionCardMeta>
             </ActionCard>
           </div>
         </Card>

@@ -1,24 +1,25 @@
 import Link from "next/link";
 import { cva, type VariantProps } from "class-variance-authority";
-import type { ReactNode } from "react";
+import { Children, type ComponentPropsWithoutRef, type ReactNode } from "react";
 
 import { cn } from "@/lib/cn";
 
-export type EventScheduleItem = {
-  id: string;
-  title: string;
+export type EventScheduleStatus = "now" | "soon" | "later" | "past";
+
+export type EventScheduleRowProps = Omit<ComponentPropsWithoutRef<"article">, "title"> &
+  VariantProps<typeof scheduleItemVariants> & {
   time: string;
+  title: ReactNode;
   href?: string;
-  host?: string;
-  world?: string;
-  roleSummary?: string;
-  summary?: string;
-  meta?: string[];
-  status?: "now" | "soon" | "later" | "past";
+  statusLabel?: ReactNode;
+  details?: ReactNode;
+  summary?: ReactNode;
+  metadata?: ReactNode;
+  action?: ReactNode;
 };
 
 const scheduleItemVariants = cva(
-  "grid gap-3 rounded-panel border bg-surface px-4 py-4 transition sm:grid-cols-[5.5rem_1fr] sm:gap-5",
+  "grid min-h-row-default gap-3 rounded-panel border bg-surface px-card py-card sm:grid-cols-[var(--spacing-schedule-gutter)_minmax(0,1fr)] sm:gap-5",
   {
     variants: {
       status: {
@@ -27,114 +28,80 @@ const scheduleItemVariants = cva(
         later: "border-border",
         past: "border-border opacity-60",
       },
-      interactive: {
-        true: "hover:-translate-y-0.5 hover:border-border-strong hover:bg-surface-strong",
-        false: "",
-      },
     },
     defaultVariants: {
       status: "later",
-      interactive: false,
     },
   },
 );
 
-function statusLabel(status: EventScheduleItem["status"]) {
-  switch (status) {
-    case "now":
-      return "Now";
-    case "soon":
-      return "Soon";
-    case "past":
-      return "Past";
-    default:
-      return undefined;
-  }
-}
-
-function EventScheduleRowContent({ item }: { item: EventScheduleItem }) {
-  const label = statusLabel(item.status);
-  const details = [item.host, item.world, item.roleSummary].filter(Boolean);
-
-  return (
-    <>
-      <span className="font-mono text-sm leading-6 text-muted sm:pt-0.5">{item.time}</span>
-      <span className="min-w-0">
-        <span className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <span className="text-lg font-semibold leading-6 text-foreground">{item.title}</span>
-          {label ? (
-            <span className="rounded-control border border-border bg-surface-strong px-2 py-0.5 text-xs text-muted">
-              {label}
-            </span>
-          ) : null}
-        </span>
-        {details.length > 0 ? <span className="mt-2 block text-sm leading-5 text-muted">{details.join(" / ")}</span> : null}
-        {item.summary ? <span className="mt-3 line-clamp-2 block text-sm leading-6 text-muted">{item.summary}</span> : null}
-        {item.meta && item.meta.length > 0 ? (
-          <span className="mt-3 flex flex-wrap gap-2">
-            {item.meta.map((value) => (
-              <span className="rounded-control bg-surface-muted px-2 py-1 text-xs text-subtle" key={value}>
-                {value}
-              </span>
-            ))}
-          </span>
-        ) : null}
-      </span>
-    </>
-  );
-}
-
 export function EventScheduleRow({
+  action,
   className,
-  item,
-}: {
-  className?: string;
-  item: EventScheduleItem;
-}) {
-  const rowClassName = cn(scheduleItemVariants({ interactive: Boolean(item.href), status: item.status }), className);
-
-  if (item.href) {
-    return (
-      <Link className={rowClassName} href={item.href}>
-        <EventScheduleRowContent item={item} />
-      </Link>
-    );
-  }
+  details,
+  href,
+  metadata,
+  status,
+  statusLabel,
+  summary,
+  time,
+  title,
+  ...props
+}: EventScheduleRowProps) {
+  const titleContent = href ? (
+    <Link
+      className="rounded-control text-section text-foreground underline decoration-transparent underline-offset-4 transition hover:text-accent-strong hover:decoration-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+      href={href}
+    >
+      {title}
+    </Link>
+  ) : (
+    <span className="text-section text-foreground">{title}</span>
+  );
 
   return (
-    <div className={rowClassName}>
-      <EventScheduleRowContent item={item} />
-    </div>
+    <article className={cn(scheduleItemVariants({ status }), className)} {...props}>
+      <span className="font-mono text-metadata text-muted sm:pt-0.5">{time}</span>
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+            {titleContent}
+            {statusLabel ? (
+              <span className="rounded-control border border-border bg-surface-strong px-2 py-0.5 text-caption text-muted">
+                {statusLabel}
+              </span>
+            ) : null}
+          </div>
+          {action ? <div className="shrink-0">{action}</div> : null}
+        </div>
+        {details ? <div className="mt-2 text-body-sm text-muted">{details}</div> : null}
+        {summary ? <div className="mt-3 line-clamp-2 text-body-sm text-muted">{summary}</div> : null}
+        {metadata ? <div className="mt-3">{metadata}</div> : null}
+      </div>
+    </article>
   );
 }
 
 export function EventSchedule({
   children,
   className,
-  emptyLabel = "No events are scheduled.",
-  items,
+  empty,
 }: {
-  children?: ReactNode;
+  children: ReactNode;
   className?: string;
-  emptyLabel?: string;
-  items: EventScheduleItem[];
+  empty?: ReactNode;
 }) {
+  const hasRows = Children.count(children) > 0;
+
   return (
     <section className={cn("grid gap-3", className)}>
-      {children}
-      {items.length === 0 ? (
+      {hasRows ? (
+        <div className="grid gap-2">{children}</div>
+      ) : empty ? (
         <div className="rounded-panel border border-dashed border-border bg-surface px-4 py-5 text-sm text-muted">
-          {emptyLabel}
+          {empty}
         </div>
-      ) : (
-        <div className="grid gap-2">
-          {items.map((item) => (
-            <EventScheduleRow item={item} key={item.id} />
-          ))}
-        </div>
-      )}
+      ) : null}
     </section>
   );
 }
-
-export type EventScheduleRowProps = VariantProps<typeof scheduleItemVariants>;

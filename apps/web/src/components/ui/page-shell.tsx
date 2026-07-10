@@ -8,6 +8,7 @@ const pageShellVariants = cva("min-h-screen px-6 py-8 text-foreground sm:px-10 l
   variants: {
     tone: {
       default: "bg-background",
+      public: "bg-[linear-gradient(180deg,var(--background),var(--canvas-muted))]",
       event: "bg-[linear-gradient(180deg,var(--background),var(--canvas-muted))]",
       world: "bg-[linear-gradient(180deg,var(--background),var(--canvas-muted))]",
     },
@@ -50,7 +51,7 @@ export function PageNav({ className, ...props }: ComponentPropsWithoutRef<"nav">
 
 export function BrandLink() {
   return (
-    <Link className="font-mono uppercase tracking-[0.28em] text-muted" href="/">
+    <Link className="font-mono uppercase text-muted" href="/">
       VRDex
     </Link>
   );

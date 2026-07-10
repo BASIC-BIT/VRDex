@@ -12,6 +12,7 @@ export const componentStories = [
   { id: "design-system-primitives--cards-and-notices", name: "cards-and-notices" },
   { id: "design-system-primitives--forms-and-tables", name: "forms-and-tables" },
   { id: "design-system-primitives--event-schedule-primitive", name: "event-schedule-primitive" },
+  { id: "design-system-primitives--entities-and-metadata", name: "entities-and-metadata" },
   { id: "design-system-primitives--shell-and-actions", name: "shell-and-actions" },
 ] as const;
 

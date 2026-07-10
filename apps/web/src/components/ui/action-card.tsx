@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { cva, type VariantProps } from "class-variance-authority";
 import type { ComponentPropsWithoutRef } from "react";
 
@@ -29,7 +30,20 @@ export const inlineActionClassName =
   "font-semibold tracking-[-0.02em] text-accent-strong underline decoration-accent/45 underline-offset-4 hover:decoration-accent";
 
 export type ActionCardProps = ComponentPropsWithoutRef<"div"> & VariantProps<typeof actionCardVariants>;
+export type ActionCardLinkProps = ComponentPropsWithoutRef<typeof Link> & VariantProps<typeof actionCardVariants>;
 
 export function ActionCard({ className, padding, variant, ...props }: ActionCardProps) {
   return <div className={cn(actionCardVariants({ padding, variant }), className)} {...props} />;
+}
+
+export function ActionCardLink({ className, padding, variant, ...props }: ActionCardLinkProps) {
+  return <Link className={cn(actionCardVariants({ padding, variant }), className)} {...props} />;
+}
+
+export function ActionCardLabel({ className, ...props }: ComponentPropsWithoutRef<"span">) {
+  return <span className={cn(actionLabelClassName, className)} {...props} />;
+}
+
+export function ActionCardMeta({ className, ...props }: ComponentPropsWithoutRef<"span">) {
+  return <span className={cn(actionMetaClassName, className)} {...props} />;
 }
