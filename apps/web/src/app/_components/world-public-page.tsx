@@ -438,7 +438,6 @@ export function WorldPublicPage({ world }: { world: PublicWorld }) {
                   className={buttonVariants({ variant: "primary" })}
                   href={canonicalWorldUrl}
                   rel="noreferrer"
-                  style={{ color: "var(--foreground)" }}
                   target="_blank"
                 >
                   Open VRChat world
