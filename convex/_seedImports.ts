@@ -8,6 +8,7 @@ export type SeedImportFixture = {
   sourceType: SeedImportSourceType;
   sourceContact?: string;
   receivedAt: string;
+  sourceObservedAt?: string;
   reviewState?: SeedImportBatchReviewState;
   notes?: string;
   candidates: SeedImportFixtureCandidate[];
@@ -30,9 +31,37 @@ export type SeedImportFixtureField = {
   sourceLabel: string;
   sourceUrl?: string;
   sourceType: SeedImportSourceType;
+  sourceObservedAt?: string;
+  lastCheckedAt?: string;
   confidence: SeedImportFieldConfidence;
   reviewState?: SeedImportFieldReviewState;
   visibility: SeedImportFieldVisibility;
+};
+
+export type PermissionedSeedImport = {
+  permissioned: true;
+  batchId: string;
+  sourceName: string;
+  sourceType: "partner" | "manual" | "import";
+  sourceContact?: string;
+  receivedAt: string;
+  sourceObservedAt?: string;
+  candidates: Array<{
+    candidateId: string;
+    proposedDisplayName: string;
+    proposedSlug?: string;
+    fields: Array<{
+      fieldKey: string;
+      value: unknown;
+      sourceLabel: string;
+      sourceUrl?: string;
+      sourceType: "partner" | "manual" | "import";
+      sourceObservedAt?: string;
+      lastCheckedAt?: string;
+      confidence: "low" | "medium" | "high";
+      visibility: SeedImportFieldVisibility;
+    }>;
+  }>;
 };
 
 type SeedImportSourceType = "partner" | "manual" | "import" | "community" | "moderator";
@@ -49,12 +78,13 @@ type SeedImportFieldConfidence = "low" | "medium" | "high" | "owner_confirmed";
 type SeedImportFieldReviewState = "unreviewed" | "accepted" | "rejected" | "needs_correction";
 type SeedImportFieldVisibility = "public" | "unlisted" | "private";
 
-type NormalizedSeedImportFixture = {
+export type NormalizedSeedImport = {
   externalBatchId: string;
   sourceName: string;
   sourceType: SeedImportSourceType;
   sourceContact?: string;
   receivedAt: number;
+  sourceObservedAt?: number;
   reviewState: SeedImportBatchReviewState;
   notes?: string;
   candidates: NormalizedSeedImportCandidate[];
@@ -78,6 +108,8 @@ type NormalizedSeedImportField = {
   sourceLabel: string;
   sourceUrl?: string;
   sourceType: SeedImportSourceType;
+  sourceObservedAt?: number;
+  lastCheckedAt?: number;
   confidence: SeedImportFieldConfidence;
   reviewState: SeedImportFieldReviewState;
   visibility: SeedImportFieldVisibility;
@@ -241,11 +273,11 @@ function optionalInlineText(value: string | undefined, fieldName: string, maxLen
   return normalizeInlineText(normalized, fieldName, maxLength);
 }
 
-function parseFixtureReceivedAt(receivedAt: string): number {
-  const timestamp = Date.parse(receivedAt);
+function parseIsoTimestamp(value: string, fieldName: string): number {
+  const timestamp = Date.parse(value);
 
   if (!Number.isFinite(timestamp)) {
-    throw new Error("Seed import fixture receivedAt must be an ISO timestamp.");
+    throw new Error(`${fieldName} must be an ISO timestamp.`);
   }
 
   return timestamp;
@@ -301,6 +333,382 @@ function collectUrlStrings(value: unknown): string[] {
   return [];
 }
 
+const SAFE_PERMISSIONED_FIELD_KEYS = new Set([
+  "aliases",
+  "tags",
+  "genres",
+  "headline",
+  "bio",
+  "about",
+  "outboundLinks",
+  "region",
+  "timezone",
+  "person.pronouns",
+  "person.roleTags",
+]);
+
+const PROFILE_LINK_TYPES = new Set([
+  "vrchat_profile",
+  "vrcdn",
+  "discord",
+  "soundcloud",
+  "mixcloud",
+  "twitch",
+  "youtube",
+  "spotify",
+  "bandcamp",
+  "instagram",
+  "linktree",
+  "website",
+  "gumroad",
+  "jinxxy",
+  "payhip",
+  "woocommerce",
+  "kofi",
+  "patreon",
+  "commissions",
+  "generic_store",
+  "other",
+]);
+
+function requireRecord(value: unknown, fieldName: string): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${fieldName} must be an object.`);
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function assertOnlyKeys(
+  value: Record<string, unknown>,
+  allowedKeys: string[],
+  fieldName: string,
+): void {
+  const allowed = new Set(allowedKeys);
+  const unexpected = Object.keys(value).find((key) => !allowed.has(key));
+
+  if (unexpected !== undefined) {
+    throw new Error(`${fieldName} contains unsupported key "${unexpected}".`);
+  }
+}
+
+function requireStringValue(value: unknown, fieldName: string): string {
+  if (typeof value !== "string") {
+    throw new Error(`${fieldName} must be a string.`);
+  }
+
+  return value;
+}
+
+function optionalStringValue(value: unknown, fieldName: string): string | undefined {
+  return value === undefined ? undefined : requireStringValue(value, fieldName);
+}
+
+function requireArrayValue(value: unknown, fieldName: string): unknown[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${fieldName} must be an array.`);
+  }
+
+  return value;
+}
+
+function normalizeSeedTextList(
+  value: unknown,
+  fieldName: string,
+  maxItems: number,
+  maxLength: number,
+): string[] {
+  const values = requireArrayValue(value, fieldName);
+
+  if (values.length > maxItems) {
+    throw new Error(`${fieldName} can include at most ${maxItems} values.`);
+  }
+
+  const normalized = values.map((item) =>
+    normalizeInlineText(requireStringValue(item, `${fieldName} value`), fieldName, maxLength),
+  );
+
+  return [...new Map(normalized.map((item) => [item.toLowerCase(), item])).values()];
+}
+
+function normalizeSeedOutboundLinks(value: unknown): Array<Record<string, unknown>> {
+  const links = requireArrayValue(value, "Outbound links");
+
+  if (links.length > 20) {
+    throw new Error("Outbound links can include at most 20 values.");
+  }
+
+  return links.map((entry, index) => {
+    const link = requireRecord(entry, `Outbound link ${index + 1}`);
+    assertOnlyKeys(
+      link,
+      ["type", "label", "url", "handle", "presentation"],
+      `Outbound link ${index + 1}`,
+    );
+    const type = requireStringValue(link.type, "Outbound link type");
+    const url = requireHttpsUrl(
+      requireStringValue(link.url, "Outbound link URL"),
+      "Outbound link URL",
+    );
+
+    if (!PROFILE_LINK_TYPES.has(type)) {
+      throw new Error(`Unsupported outbound link type "${type}".`);
+    }
+
+    const parsedUrl = new URL(url!);
+    if (parsedUrl.username || parsedUrl.password) {
+      throw new Error("Outbound links must not contain embedded credentials.");
+    }
+
+    const handle = optionalInlineText(
+      optionalStringValue(link.handle, "Outbound link handle"),
+      "Outbound link handle",
+      160,
+    );
+    const presentation = optionalStringValue(
+      link.presentation,
+      "Outbound link presentation",
+    );
+
+    if (presentation !== undefined && presentation !== "icon" && presentation !== "copy") {
+      throw new Error("Outbound link presentation must be icon or copy.");
+    }
+
+    return {
+      type,
+      label: normalizeInlineText(
+        requireStringValue(link.label, "Outbound link label"),
+        "Outbound link label",
+        120,
+      ),
+      url,
+      ...optionalRecord("handle", handle),
+      ...optionalRecord("presentation", presentation),
+    };
+  });
+}
+
+export function normalizeSafePrivateSeedFieldValue(
+  fieldKey: string,
+  value: unknown,
+): unknown {
+  if (!SAFE_PERMISSIONED_FIELD_KEYS.has(fieldKey)) {
+    throw new Error(`Unsupported permissioned seed field "${fieldKey}".`);
+  }
+
+  if (["aliases", "tags", "genres", "person.roleTags"].includes(fieldKey)) {
+    return normalizeSeedTextList(value, fieldKey, 20, 80);
+  }
+
+  if (fieldKey === "outboundLinks") {
+    return normalizeSeedOutboundLinks(value);
+  }
+
+  return normalizeInlineText(
+    requireStringValue(value, `${fieldKey} value`),
+    fieldKey,
+    fieldKey === "bio" || fieldKey === "about" ? 4_000 : 240,
+  );
+}
+
+function normalizePermissionedField(
+  value: unknown,
+  batchSourceType: "partner" | "manual" | "import",
+): NormalizedSeedImportField {
+  const field = requireRecord(value, "Seed candidate field");
+  assertOnlyKeys(
+    field,
+    [
+      "fieldKey",
+      "value",
+      "sourceLabel",
+      "sourceUrl",
+      "sourceType",
+      "sourceObservedAt",
+      "lastCheckedAt",
+      "confidence",
+      "visibility",
+    ],
+    "Seed candidate field",
+  );
+  const fieldKey = normalizeInlineText(
+    requireStringValue(field.fieldKey, "Field key"),
+    "Field key",
+    120,
+  );
+  const sourceType = requireStringValue(field.sourceType, "Field source type");
+
+  if (sourceType !== batchSourceType) {
+    throw new Error("Field sourceType must match the batch sourceType.");
+  }
+
+  const confidence = requireStringValue(field.confidence, "Field confidence");
+  if (confidence !== "low" && confidence !== "medium" && confidence !== "high") {
+    throw new Error("Real imports cannot create owner-confirmed fields.");
+  }
+
+  const visibility = requireStringValue(field.visibility, "Field visibility");
+  if (visibility !== "public" && visibility !== "unlisted" && visibility !== "private") {
+    throw new Error("Unsupported field visibility.");
+  }
+
+  const sourceObservedAt = optionalStringValue(
+    field.sourceObservedAt,
+    "Field sourceObservedAt",
+  );
+  const lastCheckedAt = optionalStringValue(field.lastCheckedAt, "Field lastCheckedAt");
+
+  return {
+    fieldKey,
+    value: normalizeSafePrivateSeedFieldValue(fieldKey, field.value),
+    sourceLabel: normalizeInlineText(
+      requireStringValue(field.sourceLabel, "Field source label"),
+      "Field source label",
+      160,
+    ),
+    ...optionalRecord(
+      "sourceUrl",
+      requireHttpsUrl(
+        optionalStringValue(field.sourceUrl, "Field source URL"),
+        "Field source URL",
+      ),
+    ),
+    sourceType: batchSourceType,
+    ...optionalRecord(
+      "sourceObservedAt",
+      sourceObservedAt === undefined
+        ? undefined
+        : parseIsoTimestamp(sourceObservedAt, "Field sourceObservedAt"),
+    ),
+    ...optionalRecord(
+      "lastCheckedAt",
+      lastCheckedAt === undefined
+        ? undefined
+        : parseIsoTimestamp(lastCheckedAt, "Field lastCheckedAt"),
+    ),
+    confidence,
+    reviewState: "unreviewed",
+    visibility,
+  };
+}
+
+export function normalizePermissionedSeedImport(input: unknown): NormalizedSeedImport {
+  const value = requireRecord(input, "Permissioned seed import");
+  assertOnlyKeys(
+    value,
+    [
+      "permissioned",
+      "batchId",
+      "sourceName",
+      "sourceType",
+      "sourceContact",
+      "receivedAt",
+      "sourceObservedAt",
+      "candidates",
+    ],
+    "Permissioned seed import",
+  );
+
+  if (value.permissioned !== true) {
+    throw new Error("Permissioned seed imports require permissioned: true.");
+  }
+
+  const sourceType = requireStringValue(value.sourceType, "Source type");
+  if (sourceType !== "partner" && sourceType !== "manual" && sourceType !== "import") {
+    throw new Error("Permissioned JSON imports support partner, manual, or import sources.");
+  }
+
+  const candidates = requireArrayValue(value.candidates, "Seed candidates");
+  if (candidates.length === 0 || candidates.length > 5_000) {
+    throw new Error("Permissioned seed imports require 1 to 5000 candidates.");
+  }
+
+  const candidateIds = new Set<string>();
+  const normalizedCandidates = candidates.map((entry) => {
+    const candidate = requireRecord(entry, "Seed candidate");
+    assertOnlyKeys(
+      candidate,
+      ["candidateId", "proposedDisplayName", "proposedSlug", "fields"],
+      "Seed candidate",
+    );
+    const externalCandidateId = normalizeInlineText(
+      requireStringValue(candidate.candidateId, "Candidate id"),
+      "Candidate id",
+      160,
+    );
+
+    if (candidateIds.has(externalCandidateId)) {
+      throw new Error(`Duplicate candidate id "${externalCandidateId}".`);
+    }
+    candidateIds.add(externalCandidateId);
+
+    const fields = requireArrayValue(candidate.fields, "Candidate fields");
+    if (fields.length === 0 || fields.length > 50) {
+      throw new Error("Each seed candidate requires 1 to 50 fields.");
+    }
+    const fieldKeys = new Set<string>();
+    const normalizedFields = fields.map((field) => {
+      const normalized = normalizePermissionedField(field, sourceType);
+      if (fieldKeys.has(normalized.fieldKey)) {
+        throw new Error(`Duplicate field key "${normalized.fieldKey}".`);
+      }
+      fieldKeys.add(normalized.fieldKey);
+      return normalized;
+    });
+    const proposedSlug = optionalInlineText(
+      optionalStringValue(candidate.proposedSlug, "Proposed slug"),
+      "Proposed slug",
+      120,
+    );
+
+    return {
+      externalCandidateId,
+      profileType: "person" as const,
+      proposedDisplayName: normalizeInlineText(
+        requireStringValue(candidate.proposedDisplayName, "Proposed display name"),
+        "Proposed display name",
+        80,
+      ),
+      ...optionalRecord("proposedSlug", proposedSlug),
+      reviewState: "unreviewed" as const,
+      publicationState: "draft_private" as const,
+      claimState: "unclaimed" as const,
+      fields: normalizedFields,
+    };
+  });
+  const receivedAt = requireStringValue(value.receivedAt, "Received at");
+  const sourceObservedAt = optionalStringValue(value.sourceObservedAt, "Source observed at");
+  const sourceContact = optionalInlineText(
+    optionalStringValue(value.sourceContact, "Source contact"),
+    "Source contact",
+    160,
+  );
+
+  return {
+    externalBatchId: normalizeInlineText(
+      requireStringValue(value.batchId, "Batch id"),
+      "Batch id",
+      160,
+    ),
+    sourceName: normalizeInlineText(
+      requireStringValue(value.sourceName, "Source name"),
+      "Source name",
+      160,
+    ),
+    sourceType,
+    ...optionalRecord("sourceContact", sourceContact),
+    receivedAt: parseIsoTimestamp(receivedAt, "Received at"),
+    ...optionalRecord(
+      "sourceObservedAt",
+      sourceObservedAt === undefined
+        ? undefined
+        : parseIsoTimestamp(sourceObservedAt, "Source observed at"),
+    ),
+    reviewState: "draft",
+    candidates: normalizedCandidates,
+  };
+}
+
 export function assertFakeSeedImportFixture(fixture: SeedImportFixture): void {
   if (!fixture.batchId.startsWith("seed_fake_")) {
     throw new Error("Seed import fixture batch ids must start with seed_fake_.");
@@ -335,6 +743,18 @@ function normalizeFixtureField(field: SeedImportFixtureField): NormalizedSeedImp
     sourceLabel: normalizeInlineText(field.sourceLabel, "Field source label", 160),
     ...optionalRecord("sourceUrl", requireHttpsUrl(field.sourceUrl, "Field source URL")),
     sourceType: field.sourceType,
+    ...optionalRecord(
+      "sourceObservedAt",
+      field.sourceObservedAt === undefined
+        ? undefined
+        : parseIsoTimestamp(field.sourceObservedAt, "Field sourceObservedAt"),
+    ),
+    ...optionalRecord(
+      "lastCheckedAt",
+      field.lastCheckedAt === undefined
+        ? undefined
+        : parseIsoTimestamp(field.lastCheckedAt, "Field lastCheckedAt"),
+    ),
     confidence: field.confidence,
     reviewState: field.reviewState ?? "unreviewed",
     visibility: field.visibility,
@@ -357,7 +777,7 @@ function normalizeFixtureCandidate(candidate: SeedImportFixtureCandidate): Norma
   };
 }
 
-export function normalizeSeedImportFixture(fixture: SeedImportFixture): NormalizedSeedImportFixture {
+export function normalizeSeedImportFixture(fixture: SeedImportFixture): NormalizedSeedImport {
   assertFakeSeedImportFixture(fixture);
   const sourceContact = optionalInlineText(fixture.sourceContact, "Source contact", 160);
   const notes = optionalInlineText(fixture.notes, "Import notes", 1_000);
@@ -367,25 +787,31 @@ export function normalizeSeedImportFixture(fixture: SeedImportFixture): Normaliz
     sourceName: normalizeInlineText(fixture.sourceName, "Source name", 160),
     sourceType: fixture.sourceType,
     ...optionalRecord("sourceContact", sourceContact),
-    receivedAt: parseFixtureReceivedAt(fixture.receivedAt),
+    receivedAt: parseIsoTimestamp(fixture.receivedAt, "Seed import fixture receivedAt"),
+    ...optionalRecord(
+      "sourceObservedAt",
+      fixture.sourceObservedAt === undefined
+        ? undefined
+        : parseIsoTimestamp(fixture.sourceObservedAt, "Seed import fixture sourceObservedAt"),
+    ),
     reviewState: fixture.reviewState ?? "draft",
     ...optionalRecord("notes", notes),
     candidates: fixture.candidates.map((candidate) => normalizeFixtureCandidate(candidate)),
   };
 }
 
-export async function createSeedImportDocumentsFromFixture(
+export async function createSeedImportDocuments(
   db: SeedImportFixtureWriter,
-  fixture: SeedImportFixture,
+  normalized: NormalizedSeedImport,
   options: { importedBy?: AuthSubject; now: number },
 ) {
-  const normalized = normalizeSeedImportFixture(fixture);
   const batchId = await db.insert("seedImportBatches", {
     externalBatchId: normalized.externalBatchId,
     sourceName: normalized.sourceName,
     sourceType: normalized.sourceType,
     ...optionalRecord("sourceContact", normalized.sourceContact),
     receivedAt: normalized.receivedAt,
+    ...optionalRecord("sourceObservedAt", normalized.sourceObservedAt),
     ...optionalRecord("importedBy", options.importedBy),
     reviewState: normalized.reviewState,
     ...optionalRecord("notes", normalized.notes),
@@ -421,6 +847,8 @@ export async function createSeedImportDocumentsFromFixture(
           sourceLabel: field.sourceLabel,
           ...optionalRecord("sourceUrl", field.sourceUrl),
           sourceType: field.sourceType,
+          ...optionalRecord("sourceObservedAt", field.sourceObservedAt),
+          ...optionalRecord("lastCheckedAt", field.lastCheckedAt),
           confidence: field.confidence,
           reviewState: field.reviewState,
           visibility: field.visibility,
@@ -436,6 +864,18 @@ export async function createSeedImportDocumentsFromFixture(
     candidateIds,
     fieldIds,
   };
+}
+
+export async function createSeedImportDocumentsFromFixture(
+  db: SeedImportFixtureWriter,
+  fixture: SeedImportFixture,
+  options: { importedBy?: AuthSubject; now: number },
+) {
+  return await createSeedImportDocuments(
+    db,
+    normalizeSeedImportFixture(fixture),
+    options,
+  );
 }
 
 function hasSafeOutboundLinkValues(value: unknown): boolean {

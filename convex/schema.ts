@@ -313,6 +313,22 @@ const communityAuthorityState = v.union(v.literal("active"), v.literal("revoked"
 
 const profileOwnerState = v.union(v.literal("active"), v.literal("revoked"));
 
+const accountFeature = v.union(
+  v.literal("super_admin"),
+  v.literal("view_private_seed_lookup"),
+);
+
+const accountFeatureGrantState = v.union(
+  v.literal("active"),
+  v.literal("revoked"),
+);
+
+const seedHandoffInvitationState = v.union(
+  v.literal("active"),
+  v.literal("accepted"),
+  v.literal("revoked"),
+);
+
 const profileClaimMethod = v.union(
   v.literal("discord_person"),
   v.literal("discord_community"),
@@ -320,6 +336,7 @@ const profileClaimMethod = v.union(
   v.literal("vrchat_user_proof"),
   v.literal("vrchat_group_proof"),
   v.literal("vrclinking_attestation"),
+  v.literal("handoff_invitation"),
   v.literal("manual"),
 );
 
@@ -1027,6 +1044,21 @@ export default defineSchema({
     .index("by_profileId_state", ["profileId", "state"])
     .index("by_userId_state", ["userId", "state"])
     .index("by_profileId_roleKey_state", ["profileId", "roleKey", "state"]),
+  accountFeatureGrants: defineTable({
+    userId: v.id("users"),
+    feature: accountFeature,
+    state: accountFeatureGrantState,
+    grantedBy: authSubject,
+    grantedAt: v.number(),
+    expiresAt: v.optional(v.number()),
+    reason: v.optional(v.string()),
+    revokedBy: v.optional(authSubject),
+    revokedAt: v.optional(v.number()),
+    revokeReason: v.optional(v.string()),
+    updatedAt: v.number(),
+  })
+    .index("by_userId_feature_state", ["userId", "feature", "state"])
+    .index("by_feature_state_expiresAt", ["feature", "state", "expiresAt"]),
   billingCustomerMappings: defineTable({
     ownerKind: billingOwnerKindValidator,
     userId: v.optional(v.id("users")),
@@ -1194,6 +1226,7 @@ export default defineSchema({
     sourceType: seedImportSourceTypeValidator,
     sourceContact: v.optional(v.string()),
     receivedAt: v.number(),
+    sourceObservedAt: v.optional(v.number()),
     importedBy: v.optional(authSubject),
     reviewState: seedImportBatchReviewStateValidator,
     reviewedBy: v.optional(authSubject),
@@ -1227,7 +1260,11 @@ export default defineSchema({
     .index("by_batchId_reviewState", ["batchId", "reviewState"])
     .index("by_batchId_publicationState", ["batchId", "publicationState"])
     .index("by_externalCandidateId", ["externalCandidateId"])
-    .index("by_matchedProfileId", ["matchedProfileId"]),
+    .index("by_matchedProfileId", ["matchedProfileId"])
+    .searchIndex("search_proposedDisplayName", {
+      searchField: "proposedDisplayName",
+      filterFields: ["profileType", "publicationState"],
+    }),
   seedImportCandidateFields: defineTable({
     candidateId: v.id("seedImportCandidateProfiles"),
     fieldKey: v.string(),
@@ -1235,6 +1272,8 @@ export default defineSchema({
     sourceLabel: v.string(),
     sourceUrl: v.optional(v.string()),
     sourceType: seedImportSourceTypeValidator,
+    sourceObservedAt: v.optional(v.number()),
+    lastCheckedAt: v.optional(v.number()),
     confidence: seedImportFieldConfidenceValidator,
     reviewState: seedImportFieldReviewStateValidator,
     visibility: seedImportFieldVisibilityValidator,
@@ -1248,6 +1287,25 @@ export default defineSchema({
     .index("by_candidateId_reviewState", ["candidateId", "reviewState"])
     .index("by_candidateId_visibility", ["candidateId", "visibility"])
     .index("by_fieldKey_reviewState", ["fieldKey", "reviewState"]),
+  seedHandoffInvitations: defineTable({
+    tokenHash: v.string(),
+    candidateId: v.id("seedImportCandidateProfiles"),
+    profileId: v.optional(v.id("profiles")),
+    offeredFieldIds: v.array(v.id("seedImportCandidateFields")),
+    state: seedHandoffInvitationState,
+    createdBy: authSubject,
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    revokedBy: v.optional(authSubject),
+    revokedAt: v.optional(v.number()),
+    revokeReason: v.optional(v.string()),
+    acceptedByUserId: v.optional(v.id("users")),
+    acceptedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_tokenHash", ["tokenHash"])
+    .index("by_candidateId_state", ["candidateId", "state"])
+    .index("by_profileId_state", ["profileId", "state"]),
   e2eAuthCodes: defineTable({
     email: v.string(),
     code: v.string(),

@@ -7,8 +7,10 @@ import {
   FAKE_SEED_IMPORT_FIXTURE_KEY,
   FAKE_SEED_IMPORT_FIXTURES,
   candidatePublicationStateForReviewState,
+  createSeedImportDocuments,
   createSeedImportDocumentsFromFixture,
   getSeedImportPublicationBlockers,
+  normalizePermissionedSeedImport,
   normalizeSeedImportFixture,
 } from "./_seedImports";
 import {
@@ -87,6 +89,48 @@ export const importFakeFixtureBatch = internalMutation({
     return {
       inserted: true as const,
       ...result,
+    };
+  },
+});
+
+export const importPermissionedJsonBatch = internalMutation({
+  args: {
+    payload: v.any(),
+    importedBy: seedImportAuthSubjectValidator,
+    now: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const normalized = normalizePermissionedSeedImport(args.payload);
+    const existing = await ctx.db
+      .query("seedImportBatches")
+      .withIndex("by_externalBatchId", (query) =>
+        query.eq("externalBatchId", normalized.externalBatchId),
+      )
+      .take(2);
+
+    if (existing.length > 1) {
+      throw new Error("Seed import batch id is not unique.");
+    }
+
+    if (existing[0] !== undefined) {
+      return {
+        inserted: false as const,
+        batchId: existing[0]._id,
+        candidateCount: 0,
+        fieldCount: 0,
+      };
+    }
+
+    const result = await createSeedImportDocuments(ctx.db, normalized, {
+      importedBy: args.importedBy,
+      now: args.now ?? Date.now(),
+    });
+
+    return {
+      inserted: true as const,
+      batchId: result.batchId,
+      candidateCount: result.candidateIds.length,
+      fieldCount: result.fieldIds.length,
     };
   },
 });
@@ -228,6 +272,7 @@ export const setCandidateFieldReviewState = internalMutation({
     reviewState: seedImportFieldReviewStateValidator,
     reviewer: v.optional(seedImportAuthSubjectValidator),
     reviewNote: reviewNoteValidator,
+    lastCheckedAt: v.optional(v.number()),
     now: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -241,10 +286,15 @@ export const setCandidateFieldReviewState = internalMutation({
     const reviewer = await actorFromArgs(ctx, args.reviewer);
     const reviewed = args.reviewState !== "unreviewed";
 
+    if (args.lastCheckedAt !== undefined && args.lastCheckedAt > now) {
+      throw new Error("Field lastCheckedAt cannot be in the future.");
+    }
+
     await ctx.db.patch(field._id, {
       reviewState: args.reviewState,
       ...(reviewed ? optionalValue("reviewedBy", reviewer) : {}),
       ...(reviewed ? { reviewedAt: now } : {}),
+      ...optionalValue("lastCheckedAt", args.lastCheckedAt),
       ...optionalValue("reviewNote", optionalReviewNote(args.reviewNote)),
       updatedAt: now,
     });
