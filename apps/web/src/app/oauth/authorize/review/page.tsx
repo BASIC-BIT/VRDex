@@ -8,13 +8,14 @@ import { Card } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 import { convexAdminHttpClient, convexHttpClient } from "@/lib/server/convex-http";
+import { oauthAuthorizeProblemDetail } from "@/lib/server/oauth-authorize-problem";
 import {
   hashOAuthConsentTransactionValue,
   normalizeOAuthConsentTransactionValue,
 } from "@/lib/server/oauth-consent-transaction";
 
 type AuthorizeReviewPageProps = {
-  searchParams: Promise<{ transaction?: string | string[] }>;
+  searchParams: Promise<{ problem?: string | string[]; transaction?: string | string[] }>;
 };
 
 function firstParam(value: string | string[] | undefined) {
@@ -54,7 +55,14 @@ function AuthorizationProblem({ detail }: { detail: string }) {
 }
 
 export default async function AuthorizeReviewPage({ searchParams }: AuthorizeReviewPageProps) {
-  const transactionParam = firstParam((await searchParams).transaction);
+  const params = await searchParams;
+  const problemDetail = oauthAuthorizeProblemDetail(firstParam(params.problem));
+
+  if (problemDetail !== undefined) {
+    return <AuthorizationProblem detail={problemDetail} />;
+  }
+
+  const transactionParam = firstParam(params.transaction);
   let transaction: string;
 
   try {

@@ -5,6 +5,10 @@ import { describe, it } from "node:test";
 import type { Id } from "../../convex/_generated/dataModel";
 import { oauthConsentTransactionDisposition } from "../../convex/_oauthConsentTransactions";
 import {
+  oauthAuthorizeProblemDetail,
+  oauthAuthorizeProblemRedirect,
+} from "../../apps/web/src/lib/server/oauth-authorize-problem";
+import {
   createOAuthConsentTransactionValue,
   hashOAuthConsentTransactionValue,
   oauthConsentOriginAllowed,
@@ -124,6 +128,29 @@ describe("OAuth edge security", () => {
         ),
         true,
       );
+    } finally {
+      restoreEnv("VRDEX_OAUTH_ISSUER_URL", previousIssuer);
+    }
+  });
+
+  it("keeps OAuth authorization failures on a constrained browser problem surface", async () => {
+    assert.match(oauthAuthorizeProblemDetail("invalid_request") ?? "", /response_type/);
+    assert.match(oauthAuthorizeProblemDetail("invalid_client") ?? "", /redirect URI/);
+    assert.match(oauthAuthorizeProblemDetail("invalid_client_metadata") ?? "", /metadata document/);
+    assert.match(oauthAuthorizeProblemDetail("server_error") ?? "", /consent transaction/);
+    assert.equal(oauthAuthorizeProblemDetail("attacker-controlled"), undefined);
+    assert.equal(oauthAuthorizeProblemDetail(undefined), undefined);
+
+    const previousIssuer = process.env.VRDEX_OAUTH_ISSUER_URL;
+    process.env.VRDEX_OAUTH_ISSUER_URL = "https://issuer.example.test";
+
+    try {
+      const response = oauthAuthorizeProblemRedirect(
+        new Request("https://internal-host.example/oauth/authorize"),
+        "invalid_request",
+      );
+      assert.equal(response.status, 303);
+      assert.equal(response.headers.get("location"), "https://issuer.example.test/oauth/authorize/review?problem=invalid_request");
     } finally {
       restoreEnv("VRDEX_OAUTH_ISSUER_URL", previousIssuer);
     }

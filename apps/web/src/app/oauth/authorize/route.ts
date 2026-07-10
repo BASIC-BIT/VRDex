@@ -9,13 +9,14 @@ import {
 } from "@/lib/server/api-rate-limit";
 import { recordApiRateLimitBlockedEvent } from "@/lib/server/api-rate-limit-events";
 import { convexAdminHttpClient, convexHttpClient } from "@/lib/server/convex-http";
+import { oauthAuthorizeProblemRedirect } from "@/lib/server/oauth-authorize-problem";
 import { fetchOAuthClientMetadataDocument } from "@/lib/server/oauth-client-metadata-document";
 import {
   createOAuthConsentTransactionValue,
   hashOAuthConsentTransactionValue,
 } from "@/lib/server/oauth-consent-transaction";
 import { normalizeOAuthAuthorizationRequest } from "@/lib/server/oauth-authorization-request";
-import { oauthMcpResourceUri } from "@/lib/server/oauth-jwt";
+import { oauthIssuerUrl, oauthMcpResourceUri } from "@/lib/server/oauth-jwt";
 import { oauthRateLimitResponse } from "@/lib/server/oauth-route-rate-limit";
 
 export const dynamic = "force-dynamic";
@@ -50,11 +51,7 @@ async function ensureClientMetadataDocumentClient(
   }
 
   if (authorization.resource !== oauthMcpResourceUri(request)) {
-    return oauthProblem(
-      400,
-      "invalid_target",
-      "Client metadata document clients can only request the hosted MCP resource.",
-    );
+    throw new Error("Client metadata document clients can only request the hosted MCP resource.");
   }
 
   const identity = { kind: "ip" as const, value: clientIpForRequest(request) };
@@ -116,12 +113,8 @@ export async function GET(request: Request) {
 
   try {
     authorization = normalizeOAuthAuthorizationRequest(new URL(request.url).searchParams, request);
-  } catch (error) {
-    return oauthProblem(
-      400,
-      "invalid_request",
-      error instanceof Error ? error.message : "The authorization request is invalid.",
-    );
+  } catch {
+    return oauthAuthorizeProblemRedirect(request, "invalid_request");
   }
 
   try {
@@ -130,12 +123,8 @@ export async function GET(request: Request) {
     if (metadataProblem !== null) {
       return metadataProblem;
     }
-  } catch (error) {
-    return oauthProblem(
-      400,
-      "invalid_request",
-      error instanceof Error ? error.message : "The OAuth client metadata is invalid.",
-    );
+  } catch {
+    return oauthAuthorizeProblemRedirect(request, "invalid_client_metadata");
   }
 
   const authToken = await convexAuthNextjsToken();
@@ -143,7 +132,7 @@ export async function GET(request: Request) {
   if (authToken === undefined) {
     const redirectTo = `${new URL(request.url).pathname}${new URL(request.url).search}`;
 
-    return redirectResponse(new URL(`/sign-in?redirectTo=${encodeURIComponent(redirectTo)}`, request.url).toString());
+    return redirectResponse(new URL(`/sign-in?redirectTo=${encodeURIComponent(redirectTo)}`, oauthIssuerUrl(request)).toString());
   }
 
   const userConvex = convexHttpClient();
@@ -158,11 +147,7 @@ export async function GET(request: Request) {
   });
 
   if (!client.ok) {
-    return oauthProblem(
-      400,
-      "invalid_request",
-      "This OAuth client cannot use the requested redirect URI, resource, or scopes.",
-    );
+    return oauthAuthorizeProblemRedirect(request, "invalid_client");
   }
 
   const transaction = createOAuthConsentTransactionValue();
@@ -180,10 +165,10 @@ export async function GET(request: Request) {
       expiresAt: Date.now() + consentTransactionTtlMs,
     });
   } catch {
-    return oauthProblem(500, "server_error", "The server could not create the OAuth consent transaction.");
+    return oauthAuthorizeProblemRedirect(request, "server_error");
   }
 
-  const reviewUrl = new URL("/oauth/authorize/review", request.url);
+  const reviewUrl = new URL("/oauth/authorize/review", oauthIssuerUrl(request));
   reviewUrl.searchParams.set("transaction", transaction);
 
   return redirectResponse(reviewUrl.toString());

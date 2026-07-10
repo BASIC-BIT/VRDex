@@ -31,6 +31,10 @@ docs update and a changelog entry so early consumers and agents can adapt.
 - added `pnpm test:web` to the existing Typecheck Web baseline job and the
   aggregate local verifier so the API, OAuth, MCP, and rate-limit route tests
   under `tests/web` are enforced without creating another GitHub Actions job
+- preserved a constrained browser error surface for invalid authorization
+  requests after moving consent state into short-lived server-side transactions
+- wired local Playwright Next.js servers to the generated anonymous Convex admin
+  key so internal-function E2E coverage matches deployed server behavior
 - applied standard bearer-query rejection and anonymous public-read rate
   limiting to the profile asset storage probe, with route-level regression
   coverage and matching OpenAPI security/error responses

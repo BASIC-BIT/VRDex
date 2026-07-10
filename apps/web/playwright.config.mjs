@@ -128,7 +128,7 @@ export default defineConfig({
       ? []
       : [
           {
-            command: `node ../../scripts/sync-convex-local-env.mjs && node node_modules/next/dist/bin/next dev --webpack --hostname 127.0.0.1 --port ${port}`,
+            command: `node ../../scripts/sync-convex-local-env.mjs && node ../../scripts/run-next-with-convex-local-admin.mjs dev --webpack --hostname 127.0.0.1 --port ${port}`,
             cwd: configDir,
             url: baseURL,
             reuseExistingServer: reuseNextServer,

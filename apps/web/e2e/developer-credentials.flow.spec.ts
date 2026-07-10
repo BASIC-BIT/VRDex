@@ -214,11 +214,14 @@ test("developer credentials work with v0 bearer APIs and OAuth PKCE @flow", asyn
 
     await gotoFlowPage(page, `/oauth/authorize?${authorizeParams.toString()}`);
     await expect(page.getByRole("heading", { name: `Authorize ${displayName}` })).toBeVisible();
+    const transaction = await page.locator('input[name="transaction"]').inputValue();
+
+    expect(transaction).toMatch(/^vrdx_consent_[A-Za-z0-9_-]{43}$/);
 
     const consentResponse = await page.request.post("/oauth/authorize/consent", {
       form: {
-        ...Object.fromEntries(authorizeParams),
         decision: "approve",
+        transaction,
       },
       maxRedirects: 0,
       timeout: 15_000,
