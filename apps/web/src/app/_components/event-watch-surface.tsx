@@ -325,7 +325,7 @@ function createWatchEmbed(link: EventWatchMediaLink, browserHostname: string | u
 
 function WatchFallback() {
   return (
-    <div className="flex aspect-video min-h-64 items-center justify-center bg-[radial-gradient(circle_at_top_left,rgba(124,58,237,0.35),transparent_32%),linear-gradient(135deg,#111827,#312e81_58%,#0f172a)] p-5 text-white">
+    <div className="flex aspect-video min-h-64 items-center justify-center bg-[linear-gradient(135deg,var(--media),var(--surface-raised))] p-5 text-white">
       <div className="flex size-16 items-center justify-center rounded-control border border-white/30 bg-white/16 shadow-panel">
         <span
           aria-hidden="true"
@@ -344,7 +344,7 @@ function WatchEmbedFrame({ embed }: { embed: WatchEmbed }) {
   if (embed.kind === "video") {
     return (
       <video
-        className="aspect-video w-full bg-slate-950"
+        className="aspect-video w-full bg-media"
         controls
         preload="metadata"
         src={embed.src}
@@ -357,7 +357,7 @@ function WatchEmbedFrame({ embed }: { embed: WatchEmbed }) {
     <iframe
       allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
       allowFullScreen
-      className="aspect-video w-full bg-slate-950"
+      className="aspect-video w-full bg-media"
       loading="lazy"
       referrerPolicy="strict-origin-when-cross-origin"
       sandbox="allow-same-origin allow-scripts allow-popups allow-presentation"
@@ -433,7 +433,7 @@ function WatchHlsVideo({ embed }: { embed: Extract<WatchEmbed, { kind: "hls" }> 
   return (
     <video
       ref={videoRef}
-      className="aspect-video w-full bg-slate-950"
+      className="aspect-video w-full bg-media"
       controls
       preload="metadata"
       title={embed.title}
@@ -472,7 +472,7 @@ export function EventWatchSurface({
 
   return (
     <Card className="overflow-hidden" padding="none" surface="white">
-      <div className="bg-slate-950">
+      <div className="bg-media">
         {embed ? <WatchEmbedFrame embed={embed} /> : <WatchFallback />}
       </div>
       <div className="flex flex-col gap-3 border-t border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">

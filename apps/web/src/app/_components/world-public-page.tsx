@@ -105,7 +105,7 @@ export type PublicWorld = {
   };
 };
 
-const worldHeroOverlay = "linear-gradient(135deg, rgba(11, 18, 32, 0.72), rgba(18, 95, 118, 0.22))";
+const worldHeroOverlay = "linear-gradient(135deg, color-mix(in srgb, var(--media) 72%, transparent), color-mix(in srgb, var(--accent) 12%, transparent))";
 
 function safeHttpsUrl(url: string): string | null {
   try {
@@ -182,7 +182,7 @@ function PillList({ items }: { items: string[] }) {
   return (
     <div className="flex flex-wrap gap-2">
       {items.map((item) => (
-        <Badge className="border-cyan-900/15 text-sm" variant="cyan" key={item}>
+        <Badge className="border-border text-sm" variant="accent" key={item}>
           {item}
         </Badge>
       ))}
@@ -210,11 +210,11 @@ function EventList({
 
         return (
           <article
-            className="overflow-hidden rounded-card border border-cyan-950/10 bg-surface text-sm"
+            className="overflow-hidden rounded-card border border-border bg-surface text-sm"
             key={`${event.title}-${event.startAt}`}
           >
             <div
-              className="bg-[radial-gradient(circle_at_top_left,rgba(9,189,214,0.18),transparent_36%),linear-gradient(135deg,#ecfeff,#ffffff)] bg-cover bg-center px-4 py-4"
+              className="bg-[linear-gradient(135deg,var(--surface),var(--surface-raised))] bg-cover bg-center px-4 py-4"
               style={posterStyle}
             >
               <div className={`flex flex-wrap items-center gap-2 text-xs ${posterTextClass}`}>
@@ -299,9 +299,9 @@ export function WorldPublicPage({ world }: { world: PublicWorld }) {
           </Link>
         </PageNav>
 
-        <section className="overflow-hidden rounded-hero border border-cyan-950/10 bg-slate-950 shadow-hero">
+        <section className="overflow-hidden rounded-hero border border-border bg-media shadow-hero">
           <div
-            className="min-h-72 bg-[radial-gradient(circle_at_top_right,rgba(53,216,230,0.32),transparent_30%),linear-gradient(135deg,#09111f,#155e75_52%,#0f172a)] bg-cover bg-center p-6 text-white sm:p-8 lg:p-10"
+            className="min-h-72 bg-[linear-gradient(135deg,var(--media),var(--surface-raised))] bg-cover bg-center p-6 text-white sm:p-8 lg:p-10"
             style={heroStyle}
           >
             <div className="flex min-h-60 flex-col justify-end">
@@ -438,7 +438,6 @@ export function WorldPublicPage({ world }: { world: PublicWorld }) {
                   className={buttonVariants({ variant: "primary" })}
                   href={canonicalWorldUrl}
                   rel="noreferrer"
-                  style={{ color: "#fff" }}
                   target="_blank"
                 >
                   Open VRChat world
