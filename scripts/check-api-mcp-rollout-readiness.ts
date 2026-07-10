@@ -124,6 +124,7 @@ const requiredScripts = [
   "test:web",
   "verify:api-contracts",
   "verify:vrdex-mcp",
+  "verify:api-mcp-rollout:external",
   "verify:docs",
   "record:mcp-client-smoke",
   "record:mcp-hosted-evidence",
@@ -262,6 +263,37 @@ async function checkScripts() {
     : check("Rollout verification scripts", "pending", `missing scripts: ${missingScripts.join(", ")}`);
 }
 
+async function checkExternalReadinessWorkflow() {
+  const path = ".github/workflows/external-api-mcp-readiness.yml";
+
+  if (!(await pathExists(path))) {
+    return check("External readiness workflow", "pending", `missing workflow: ${path}`);
+  }
+
+  const source = await readFile(path, "utf8");
+  const requiredMarkers = [
+    ["manual dispatch", /workflow_dispatch:/],
+    ["strict composed verifier", /pnpm verify:api-mcp-rollout:external/],
+    ["live hosted smoke", /pnpm smoke:mcp-compat/],
+    ["target binding", /VRDEX_API_MCP_EXPECT_TARGET/],
+    ["revision binding", /VRDEX_API_MCP_EXPECT_REVISION/],
+    ["client session pack", /pnpm ops:mcp-client-session-pack/],
+    ["artifact upload", /actions\/upload-artifact@v7/],
+    ["failure-path evidence", /if: always\(\)/],
+  ] as const;
+  const missingMarkers = requiredMarkers
+    .filter(([, pattern]) => !pattern.test(source))
+    .map(([label]) => label);
+
+  return missingMarkers.length === 0
+    ? check("External readiness workflow", "pass", "manual strict verifier and failure-path session artifact are wired")
+    : check(
+        "External readiness workflow",
+        "pending",
+        `missing workflow behavior: ${missingMarkers.join(", ")}`,
+      );
+}
+
 async function checkInfrastructure() {
   const missingFiles: string[] = [];
 
@@ -306,6 +338,10 @@ async function checkMcpMatrix() {
 async function checkHostedReadinessMode() {
   const matrix = JSON.parse(await readFile(matrixPath(), "utf8")) as SmokeMatrix;
   const target = matrix.targetEnvironment ?? "not recorded";
+  const expectedTarget = process.env.VRDEX_API_MCP_EXPECT_TARGET?.trim();
+  const expectedRevision = process.env.VRDEX_API_MCP_EXPECT_REVISION?.trim();
+  const matchesExpectedTarget = !expectedTarget || target.includes(expectedTarget);
+  const matchesExpectedRevision = !expectedRevision || target.includes(expectedRevision);
   const hasPendingMode = /\bpending\b/i.test(matrix.readinessMode);
   const hasPendingTarget = pendingHostedEvidencePattern.test(target);
   const hasAcceptableTarget = hostedEvidenceTargetPattern.test(target) && !hasPendingTarget;
@@ -345,7 +381,15 @@ async function checkHostedReadinessMode() {
     }
   }
 
-  return hasPendingMode || hasPendingTarget || !hasAcceptableTarget || hostedReadinessBlockers.length > 0
+  if (!matchesExpectedTarget) {
+    hostedReadinessBlockers.push(`targetEnvironment does not name selected target ${expectedTarget}`);
+  }
+
+  if (!matchesExpectedRevision) {
+    hostedReadinessBlockers.push(`targetEnvironment does not name selected revision ${expectedRevision}`);
+  }
+
+  return hasPendingMode || hasPendingTarget || !hasAcceptableTarget || !matchesExpectedTarget || !matchesExpectedRevision || hostedReadinessBlockers.length > 0
     ? check(
         "Production-like hosted MCP evidence",
         hasFailedRequiredHostedCheck ? "fail" : "pending",
@@ -379,6 +423,7 @@ async function main() {
     await checkDocs(),
     await checkScripts(),
     await checkInfrastructure(),
+    await checkExternalReadinessWorkflow(),
     await checkMcpMatrix(),
     await checkHostedReadinessMode(),
   ];

@@ -23,6 +23,7 @@ import {
 import {
   apiRateLimitPolicyForRouteClass,
   checkApiRateLimit,
+  checkOAuthAccessTokenRateLimit,
   clientIpForRequest,
 } from "@/lib/server/api-rate-limit";
 import { recordApiRateLimitBlockedEvent } from "@/lib/server/api-rate-limit-events";
@@ -600,8 +601,10 @@ async function authenticateMcpBearerToken(request: Request, tokenValue: string) 
 
   return {
     ok: true as const,
+    clientId: validation.clientId,
     identity: { kind: "oauth_client" as const, value: validation.clientId },
     quotaTier: validation.trustTier === "trusted_partner" ? "trusted_partner" as const : "standard" as const,
+    tokenId: claims.jti,
   };
 }
 
@@ -666,13 +669,26 @@ export async function rejectInvalidOrRateLimitedMcpRequest(request: Request) {
   const policy = apiRateLimitPolicyForRouteClass(routeClass, quotaTier);
 
   let rateLimit;
+  let rateLimitIdentity = authentication.identity;
 
   try {
-    rateLimit = await checkApiRateLimit({
-      identity: authentication.identity,
-      quotaTier,
-      routeClass,
-    });
+    if (authentication.identity.kind === "oauth_client" && "tokenId" in authentication) {
+      const evaluation = await checkOAuthAccessTokenRateLimit({
+        clientId: authentication.clientId,
+        quotaTier,
+        routeClass,
+        tokenId: authentication.tokenId,
+      });
+
+      rateLimit = evaluation.rateLimit;
+      rateLimitIdentity = evaluation.identity;
+    } else {
+      rateLimit = await checkApiRateLimit({
+        identity: authentication.identity,
+        quotaTier,
+        routeClass,
+      });
+    }
   } catch {
     return mcpJsonRpcError(500, -32603, "MCP rate limiting is unavailable.");
   }
@@ -684,7 +700,7 @@ export async function rejectInvalidOrRateLimitedMcpRequest(request: Request) {
   const response = mcpJsonRpcError(429, -32000, "MCP rate limit exceeded.");
 
   await recordApiRateLimitBlockedEvent({
-    identity: authentication.identity,
+    identity: rateLimitIdentity,
     quotaTier,
     rateLimit,
     routeClass,

@@ -588,6 +588,16 @@ These rows are checked separately from manual client UI rows so a lightweight
 PR preview transport smoke cannot accidentally satisfy the production-like
 data-backed, DCR, and CIMD readiness gate.
 
+A green PR is implementation-ready, not externally ready. Baseline Checks
+enforces the API/MCP contract and local protocol suites, and its hosted preview
+smoke fails unless a Vercel preview is connected to a same-branch Convex
+preview for data-backed reads, DCR, and CIMD. It does not convert pending major
+client UI evidence into passes.
+
+`pnpm check:api-mcp-rollout` is the advisory summary for current rollout state.
+It reports pending and failed external evidence without requiring every manual
+row to pass.
+
 By default, the check accepts manual rows that are not yet `pass` because
 repository protocol checks can run before the desktop/web client smokes are
 available. For external readiness, require every required manual row to pass:
@@ -599,14 +609,18 @@ pnpm check:mcp-client-matrix -- --require-ready
 For the broader public API/MCP launch audit, run:
 
 ```sh
-pnpm check:api-mcp-rollout
+pnpm verify:api-mcp-rollout:external
 ```
 
-That command summarizes the generated OpenAPI artifact, required docs,
-verification scripts, manual MCP matrix, and hosted production-like evidence
-state. Use `--require-ready` only when the PR is being declared externally
-ready; it fails while required client rows or hosted data/DCR/CIMD/OAuth
-evidence are not pass.
+That command verifies API contracts, MCP behavior, and docs before enforcing
+the strict rollout audit. It fails while required client rows or hosted
+data/DCR/CIMD/OAuth evidence are not pass. The manual `External API and MCP
+Readiness` workflow is the authoritative CI launch gate and always uploads a
+fresh client session pack. Baseline Checks deliberately does not create that
+artifact on every PR. The workflow live-smokes the selected host with
+data-backed reads, DCR, and CIMD, then requires the checked-in matrix target to
+name both that host and the workflow commit so evidence from another deployment
+cannot satisfy launch readiness.
 
 To include a deployed hosted MCP endpoint, pass:
 
@@ -643,11 +657,12 @@ not commit real tokens or smoke output containing credentials.
 
 GitHub also has a manual `Deployed Health Checks` workflow target named
 `hosted-mcp-smoke` for production-like or same-branch Convex preview targets.
-Use it when `Hosted MCP Preview Smoke` cannot enable data-backed reads, DCR, or
-CIMD because the PR preview lacks `CONVEX_DEPLOY_KEY_PREVIEW`, or when
-validating a staging target before external readiness. That manual workflow
-keeps selected hosted diagnostics running after a subcheck failure so the run
-log can distinguish backend data, DCR, and CIMD blockers in one attempt.
+Use it for targeted production-like diagnostics or to collect hosted evidence
+before the external launch gate. The required PR `Hosted MCP Preview Smoke`
+fails when `CONVEX_DEPLOY_KEY_PREVIEW` is unavailable; it no longer downgrades
+coverage and reports green. The deployed-health workflow keeps selected hosted
+diagnostics running after a subcheck failure so one run can distinguish
+backend data, DCR, and CIMD blockers.
 
 ## Day-One Client Matrix
 

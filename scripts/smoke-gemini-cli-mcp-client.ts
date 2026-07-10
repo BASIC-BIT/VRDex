@@ -46,6 +46,14 @@ type RemoveProjectDir = (
   options: { force: boolean; maxRetries: number; recursive: boolean; retryDelay: number },
 ) => Promise<void>;
 
+type TerminationDependencies = {
+  forceWaitMs?: number;
+  graceMs?: number;
+  platform?: NodeJS.Platform;
+  sendSignal?: (pid: number, signal: NodeJS.Signals | 0) => void;
+  spawnProcess?: typeof spawn;
+};
+
 const hostedSearchTypes = new Set<HostedSearchType>(["all", "community", "event", "person", "profile", "world"]);
 
 function nonEmpty(value: string | undefined) {
@@ -237,18 +245,71 @@ export function geminiSpawnForPlatform(args: {
   return base;
 }
 
-function terminateGeminiProcessTree(child: ChildProcess) {
-  if (process.platform !== "win32" || child.pid === undefined) {
-    child.kill();
+function isMissingProcess(error: unknown) {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "ESRCH";
+}
 
+function waitForChildExit(child: ChildProcess, timeoutMs: number) {
+  if (child.exitCode !== null || child.signalCode !== null) {
     return Promise.resolve();
   }
 
   return new Promise<void>((resolve) => {
-    const killer = spawn("taskkill.exe", ["/pid", String(child.pid), "/t", "/f"], {
-      stdio: "ignore",
-      windowsHide: true,
-    });
+    const finish = () => {
+      clearTimeout(timeout);
+      child.off("exit", finish);
+      resolve();
+    };
+    const timeout = setTimeout(finish, timeoutMs);
+
+    child.once("exit", finish);
+  });
+}
+
+async function waitForProcessGroupExit(
+  pid: number,
+  timeoutMs: number,
+  sendSignal: (pid: number, signal: NodeJS.Signals | 0) => void,
+) {
+  const deadline = Date.now() + timeoutMs;
+
+  while (true) {
+    try {
+      sendSignal(-pid, 0);
+    } catch (error) {
+      if (isMissingProcess(error)) {
+        return;
+      }
+
+      throw error;
+    }
+
+    if (Date.now() >= deadline) {
+      throw new Error(`Gemini process group ${pid} did not terminate after SIGKILL.`);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
+function terminateWindowsProcessTree(child: ChildProcess, spawnProcess: typeof spawn) {
+  return new Promise<void>((resolve, reject) => {
+    const pid = child.pid;
+
+    assert.ok(pid !== undefined, "Cannot terminate a Gemini process tree without a pid.");
+    let killer: ChildProcess;
+
+    try {
+      killer = spawnProcess("taskkill.exe", ["/pid", String(pid), "/t", "/f"], {
+        stdio: "ignore",
+        windowsHide: true,
+      });
+    } catch (error) {
+      child.kill("SIGBREAK");
+      reject(new Error("Failed to start taskkill.exe for the Gemini process tree.", { cause: error }));
+      return;
+    }
+
     let finished = false;
     const finish = (error?: Error) => {
       if (finished) {
@@ -265,7 +326,7 @@ function terminateGeminiProcessTree(child: ChildProcess) {
 
     killer.once("error", (error) => {
       child.kill("SIGBREAK");
-      finish(error);
+      finish(new Error("Failed to start taskkill.exe for the Gemini process tree.", { cause: error }));
     });
     killer.once("close", (code) => {
       if (code === 0) {
@@ -278,6 +339,53 @@ function terminateGeminiProcessTree(child: ChildProcess) {
       finish(new Error(`taskkill.exe exited with code ${code ?? "unknown"}.`));
     });
   });
+}
+
+export async function terminateGeminiProcessTree(
+  child: ChildProcess,
+  dependencies: TerminationDependencies = {},
+) {
+  const platform = dependencies.platform ?? process.platform;
+  const pid = child.pid;
+
+  if (pid === undefined) {
+    child.kill();
+    return;
+  }
+
+  if (platform === "win32") {
+    await terminateWindowsProcessTree(child, dependencies.spawnProcess ?? spawn);
+    return;
+  }
+
+  const sendSignal = dependencies.sendSignal ?? process.kill;
+  const graceMs = dependencies.graceMs ?? 250;
+  const forceWaitMs = dependencies.forceWaitMs ?? 1_000;
+
+  try {
+    sendSignal(-pid, "SIGTERM");
+  } catch (error) {
+    if (isMissingProcess(error)) {
+      return;
+    }
+
+    throw error;
+  }
+
+  await waitForChildExit(child, graceMs);
+
+  try {
+    sendSignal(-pid, 0);
+  } catch (error) {
+    if (isMissingProcess(error)) {
+      return;
+    }
+
+    throw error;
+  }
+
+  sendSignal(-pid, "SIGKILL");
+  await waitForProcessGroupExit(pid, forceWaitMs, sendSignal);
 }
 
 function geminiSpawn(options: GeminiOptions, args: string[]) {
@@ -295,6 +403,7 @@ export function runGemini(options: GeminiOptions, args: string[], cwd: string) {
     const command = geminiSpawn(options, args);
     const child = spawn(command.command, command.args, {
       cwd,
+      detached: process.platform !== "win32",
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
@@ -324,7 +433,11 @@ export function runGemini(options: GeminiOptions, args: string[], cwd: string) {
       }, 5_000);
       void terminateGeminiProcessTree(child)
         .then(() => settleReject(timeoutError!))
-        .catch(() => undefined);
+        .catch((error: unknown) => {
+          settleReject(new Error(`${timeoutError!.message} Process-tree termination failed.`, {
+            cause: error,
+          }));
+        });
     }, options.timeoutMs);
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];

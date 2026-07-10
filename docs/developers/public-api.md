@@ -160,14 +160,14 @@ Current OAuth app registry primitives:
 - `oauthApps.revokePersonalApplication`
 - `oauthApps.updateDeveloperApplicationForApiOwner`
 
-- `oauthApps.issueAuthorizationCode`
-
-`issueAuthorizationCode` remains public because it enforces the signed-in
-Convex user itself. Dynamic Client Registration, Client ID Metadata Document
-materialization, authorization-client resolution, token exchange and rotation,
-revocation, and durable access-token validation are internal server-only
-functions invoked with Convex admin authentication after the HTTP security
-boundary has validated the request.
+OAuth consent completion and authorization-code issuance run atomically through
+the internal `oauthApps.completeAuthorizationConsent` mutation. It verifies the
+authenticated user against the hashed, single-use transaction and revalidates
+the stored client before either approval or denial. Dynamic Client Registration,
+Client ID Metadata Document materialization, authorization-client resolution,
+token exchange and rotation, revocation, and durable access-token validation
+are also internal server-only functions invoked with Convex admin authentication
+after the HTTP security boundary has validated the request.
 
 Current OAuth issuer routes:
 
@@ -280,8 +280,8 @@ Current recommendation: use Redis-compatible TTL counters for hosted
 high-volume anonymous public API and hosted MCP traffic. Keep Convex as the
 durable source for token/app ownership, quota policy, trusted-partner
 overrides, coarse usage summaries, and audit events. Local development can use
-an in-memory adapter; self-hosted production should document a
-Redis-compatible option.
+an in-memory adapter; production fails closed unless `VRDEX_RATE_LIMIT_STORE`
+selects the Redis REST adapter.
 
 Current implementation:
 
@@ -295,6 +295,8 @@ Current implementation:
 - `trusted_partner` personal tokens and OAuth apps get higher effective quotas
   on authenticated API/MCP traffic after operator review.
 
+- OAuth traffic is isolated by access-token id and also checked against a
+  secondary client-wide abuse cap without double-counting route observability.
 The dedicated rate-limit guide lives in
 `docs/developers/api-rate-limits.md`.
 

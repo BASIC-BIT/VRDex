@@ -77,7 +77,8 @@ Current API/MCP variables read by the web app:
 | `VRDEX_OAUTH_ISSUER_URL` | Public URL config | Optional in single-origin deployments. | Overrides issuer origin for metadata and tokens. |
 | `VRDEX_PUBLIC_API_BASE_URL` | Public URL config | Optional in single-origin deployments. | Defines the API resource/audience origin. |
 | `VRDEX_MCP_RESOURCE_URI` | Public URL config | Optional in single-origin deployments. | Defaults to `<issuer>/mcp`. |
-| `VRDEX_RATE_LIMIT_STORE` | Web server config | Rate limiting is enabled. | `memory`, `redis-rest`, `upstash`, or `disabled`. |
+| `VRDEX_RATE_LIMIT_STORE` | Web server config | Required in production. | Production accepts only `redis-rest` or `upstash`; previews and local development may use `memory`; `disabled` is local diagnostics only. |
+| `VRDEX_DEPLOYMENT_ENV` | Web server config | Optional outside Vercel. | `development`, `preview`, or `production`; defaults from `NODE_ENV`. Production rate limiting fails closed unless a shared store is configured. |
 | `VRDEX_RATE_LIMIT_REDIS_REST_URL` | Web server config | Redis REST or Upstash mode. | Redis-compatible REST endpoint. BASIC BIT hosted production/staging values are Terraform-owned by `infra/terraform/rate-limit-redis`. |
 | `VRDEX_RATE_LIMIT_REDIS_REST_TOKEN` | Web server secret | Redis REST or Upstash mode. | Bearer token for the Redis-compatible REST endpoint. BASIC BIT hosted production/staging values are written from the Upstash resource into Vercel by `infra/terraform/rate-limit-redis`; rotate by rotating the Upstash database credential and reapplying the stack. |
 | `VRDEX_RATE_LIMIT_REDIS_PREFIX` | Web server config | Optional. | Prefix for isolating keys in shared Redis stores. BASIC BIT hosted production/staging default is `vrdex:rate-limit`. |

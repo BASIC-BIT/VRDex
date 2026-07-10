@@ -40,7 +40,8 @@ describe("API/MCP rollout readiness checker", () => {
       result.stdout,
       /Generated OpenAPI contract \| yes \| pass \| 32 required API paths and JSON\/YAML artifacts are present/,
     );
-    assert.match(result.stdout, /Rollout verification scripts \| yes \| pass \| 21 required scripts are defined/);
+    assert.match(result.stdout, /Rollout verification scripts \| yes \| pass \| 22 required scripts are defined/);
+    assert.match(result.stdout, /External readiness workflow \| yes \| pass/);
     assert.match(result.stdout, /Major MCP client matrix \| yes \| fail \| .*Gemini CLI\/hosted-anonymous-read: fail/);
     assert.match(
       result.stdout,
@@ -161,13 +162,32 @@ describe("API/MCP rollout readiness checker", () => {
     assert.match(workflow, /mcp-oauth-smoke-env\.sh/);
   });
 
-  it("uploads the MCP client session pack from PR baseline checks", async () => {
-    const workflow = await readFile(".github/workflows/baseline-checks.yml", "utf8");
+  it("moves strict readiness and session artifacts out of per-PR baseline checks", async () => {
+    const baseline = await readFile(".github/workflows/baseline-checks.yml", "utf8");
+    const workflow = await readFile(".github/workflows/external-api-mcp-readiness.yml", "utf8");
 
+    assert.doesNotMatch(baseline, /ops:mcp-client-session-pack/);
+    assert.match(workflow, /workflow_dispatch:/);
+    assert.match(workflow, /verify:api-mcp-rollout:external/);
+    assert.match(workflow, /smoke:mcp-compat/);
+    assert.match(workflow, /VRDEX_API_MCP_EXPECT_TARGET/);
+    assert.match(workflow, /VRDEX_API_MCP_EXPECT_REVISION/);
     assert.match(workflow, /ops:mcp-client-session-pack/);
-    assert.match(workflow, /mcp-client-session-pack/);
     assert.match(workflow, /actions\/upload-artifact@v7/);
-    assert.match(workflow, /docs\/developers\/mcp-client-smoke-results\.json/);
+    assert.match(workflow, /if: always\(\)/);
+  });
+
+  it("requires external evidence to match the selected hosted target and revision", () => {
+    const result = runRolloutCheck([], {
+      VRDEX_API_MCP_EXPECT_TARGET: "https://staging.vrdex.net/mcp",
+      VRDEX_API_MCP_EXPECT_REVISION: "0123456789abcdef",
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(
+      result.stdout,
+      /Production-like hosted MCP evidence \| yes \| pending \| .*targetEnvironment does not name selected revision 0123456789abcdef/,
+    );
   });
 
   it("keeps rollout checklist terminology aligned with open matrix rows", async () => {

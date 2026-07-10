@@ -16,6 +16,7 @@ import { NextResponse } from "next/server";
 import {
   apiRateLimitPolicyForRouteClass,
   checkApiRateLimit,
+  checkOAuthAccessTokenRateLimit,
   clientIpForRequest,
   type ApiRateLimitIdentity,
   type ApiRateLimitQuotaTier,
@@ -67,6 +68,7 @@ export type ApiBearerCredentialContext =
       ownerUserId?: string;
       scopes: ApiScope[];
       subjectType: "client" | "user";
+      tokenId: string;
       trustTier: "standard" | "trusted_partner";
       userId?: string;
     };
@@ -198,6 +200,7 @@ async function authenticateOptionalOAuthBearerToken(
         ...(validation.dynamicClientId === undefined ? {} : { dynamicClientId: String(validation.dynamicClientId) }),
         clientId: validation.clientId,
         subjectType: validation.subjectType,
+        tokenId: claims.jti,
         ...(validation.userId === undefined ? {} : { userId: String(validation.userId) }),
         ...("ownerKind" in validation ? { ownerKind: validation.ownerKind } : {}),
         ...("ownerUserId" in validation ? { ownerUserId: String(validation.ownerUserId) } : {}),
@@ -336,13 +339,26 @@ export async function evaluateOptionalApiBearerRequest(
   const quotaTier = quotaTierForCredential(authentication.credential);
   const policy = apiRateLimitPolicyForRouteClass(routeClass, quotaTier);
   let rateLimit;
+  let rateLimitIdentity = authentication.identity;
 
   try {
-    rateLimit = await checkApiRateLimit({
-      identity: authentication.identity,
-      quotaTier,
-      routeClass,
-    });
+    if (authentication.credential.kind === "oauth") {
+      const evaluation = await checkOAuthAccessTokenRateLimit({
+        clientId: authentication.credential.clientId,
+        quotaTier,
+        routeClass,
+        tokenId: authentication.credential.tokenId,
+      });
+
+      rateLimit = evaluation.rateLimit;
+      rateLimitIdentity = evaluation.identity;
+    } else {
+      rateLimit = await checkApiRateLimit({
+        identity: authentication.identity,
+        quotaTier,
+        routeClass,
+      });
+    }
   } catch {
     return {
       ok: false as const,
@@ -375,7 +391,7 @@ export async function evaluateOptionalApiBearerRequest(
   );
 
   await recordApiRateLimitBlockedEvent({
-    identity: authentication.identity,
+    identity: rateLimitIdentity,
     quotaTier,
     rateLimit,
     routeClass,

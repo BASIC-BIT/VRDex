@@ -4,11 +4,14 @@ import { describe, it } from "node:test";
 
 import {
   apiRateLimitPolicyForRouteClass,
+  checkApiRateLimit,
   checkMemoryApiRateLimit,
+  checkOAuthAccessTokenRateLimit,
   checkRedisRestApiRateLimit,
   clientIpForRequest,
   createMemoryApiRateLimitStore,
   listDefaultApiRateLimitPolicies,
+  oauthClientAggregateRateLimitMultiplier,
   trustedClientIpHeaderName,
   trustedPartnerApiRateLimitMultiplier,
 } from "../../apps/web/src/lib/server/api-rate-limit";
@@ -173,6 +176,104 @@ describe("public API rate limiting", () => {
     assert.equal(authenticated.routeClassWindowCount, 1);
     assert.equal(oauthClient.routeClassWindowCount, 2);
     assert.equal(dynamicRegistration.routeClassWindowCount, 1);
+  });
+
+  it("isolates OAuth access-token buckets and retains a separate client-wide cap", async () => {
+    const calls: Array<Parameters<typeof checkApiRateLimit>[0]> = [];
+    const result = await checkOAuthAccessTokenRateLimit({
+      clientId: "client-123",
+      tokenId: "token-456",
+      quotaTier: "standard",
+      routeClass: "authenticated_public_read",
+      checkRateLimit: async (args) => {
+        calls.push(args);
+        return {
+          allowed: true,
+          key: `test:${args.identity.value}`,
+          limit: 600,
+          remaining: 599,
+          resetAt: 60_000,
+          retryAfterSeconds: 60,
+        };
+      },
+    });
+
+    assert.equal(result.identity.value, "token-456");
+    assert.deepEqual(calls, [
+      {
+        identity: { kind: "oauth_client", value: "token-456" },
+        quotaTier: "standard",
+        routeClass: "authenticated_public_read",
+      },
+      {
+        identity: { kind: "oauth_client", value: "client-123" },
+        limitMultiplier: oauthClientAggregateRateLimitMultiplier,
+        quotaTier: "standard",
+        routeClass: "authenticated_public_read",
+        trackRouteClassRequest: false,
+      },
+    ]);
+  });
+
+  it("short-circuits the client-wide cap when the access-token bucket is blocked", async () => {
+    let calls = 0;
+    const result = await checkOAuthAccessTokenRateLimit({
+      clientId: "client-123",
+      tokenId: "token-456",
+      quotaTier: "standard",
+      routeClass: "authenticated_mcp",
+      checkRateLimit: async (args) => {
+        calls += 1;
+        return {
+          allowed: false,
+          key: `test:${args.identity.value}`,
+          limit: 300,
+          remaining: 0,
+          resetAt: 60_000,
+          retryAfterSeconds: 60,
+        };
+      },
+    });
+
+    assert.equal(calls, 1);
+    assert.equal(result.identity.value, "token-456");
+    assert.equal(result.rateLimit.allowed, false);
+  });
+
+  it("fails closed when production does not use a shared rate-limit store", async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    const previousDeploymentEnv = process.env.VRDEX_DEPLOYMENT_ENV;
+    const previousVercelEnv = process.env.VERCEL_ENV;
+    const previousStore = process.env.VRDEX_RATE_LIMIT_STORE;
+
+    process.env.NODE_ENV = "production";
+    delete process.env.VERCEL_ENV;
+    delete process.env.VRDEX_DEPLOYMENT_ENV;
+    delete process.env.VRDEX_RATE_LIMIT_STORE;
+
+    try {
+      await assert.rejects(
+        checkApiRateLimit({ identity: { kind: "ip", value: "203.0.113.10" }, routeClass: "anonymous_public_read" }),
+        /must configure VRDEX_RATE_LIMIT_STORE/,
+      );
+
+      process.env.VRDEX_RATE_LIMIT_STORE = "memory";
+      await assert.rejects(
+        checkApiRateLimit({ identity: { kind: "ip", value: "203.0.113.10" }, routeClass: "anonymous_public_read" }),
+        /cannot use the memory/,
+      );
+
+      process.env.VERCEL_ENV = "preview";
+      assert.equal(
+        (await checkApiRateLimit({ identity: { kind: "ip", value: "203.0.113.10" }, routeClass: "anonymous_public_read" })).allowed,
+        true,
+      );
+    } finally {
+      restoreEnv("NODE_ENV", previousNodeEnv);
+      restoreEnv("VRDEX_DEPLOYMENT_ENV", previousDeploymentEnv);
+      restoreEnv("VERCEL_ENV", previousVercelEnv);
+      restoreEnv("VRDEX_RATE_LIMIT_STORE", previousStore);
+    }
   });
 
   it("uses only the Vercel edge header on Vercel and ignores spoofable forwarding headers", () => {

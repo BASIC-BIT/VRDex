@@ -156,6 +156,7 @@ describe("OAuth edge security", () => {
     const review = readFileSync("apps/web/src/app/oauth/authorize/review/page.tsx", "utf8");
     const token = readFileSync("apps/web/src/app/oauth/token/route.ts", "utf8");
     const revoke = readFileSync("apps/web/src/app/oauth/revoke/route.ts", "utf8");
+    const oauthApps = readFileSync("convex/oauthApps.ts", "utf8");
 
     assert.match(authorize, /oauthRateLimitResponse\(request, "oauth_authorize"\)/);
     assert.ok(
@@ -169,10 +170,10 @@ describe("OAuth edge security", () => {
     );
     assert.match(token, /oauthRateLimitResponse\(request, "oauth_token"\)/);
     assert.match(revoke, /oauthRateLimitResponse\(request, "oauth_token"\)/);
-    assert.ok(
-      consent.indexOf("internal.oauthApps.resolveAuthorizationClient") <
-        consent.indexOf('form.get("decision")'),
-    );
+    assert.match(consent, /internal\.oauthApps\.completeAuthorizationConsent/);
+    const completion = oauthApps.slice(oauthApps.indexOf("export const completeAuthorizationConsent"));
+    assert.ok(completion.indexOf("resolvePublicAuthorizationClient") < completion.indexOf('args.decision === "deny"'));
+    assert.ok(completion.indexOf("ctx.db.delete(transaction._id)") < completion.indexOf('args.decision === "deny"'));
 
     const consentFormFields = [...consent.matchAll(/form\.get\("([^"]+)"\)/g)].map((match) => match[1]);
     assert.deepEqual(consentFormFields.sort(), ["decision", "transaction"]);

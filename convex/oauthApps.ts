@@ -43,6 +43,10 @@ import {
   type OAuthAccessTokenValidationResult,
   type OAuthAccessTokenValidationResultLabel,
 } from "./_oauth";
+import {
+  normalizeOAuthConsentTransactionHash,
+  oauthConsentTransactionDisposition,
+} from "./_oauthConsentTransactions";
 
 function boundedLimit(value: number | undefined, fallback: number, max: number) {
   if (value === undefined || !Number.isFinite(value)) {
@@ -1200,29 +1204,60 @@ export const resolveAuthorizationClient = internalQuery({
   },
 });
 
-export const issueAuthorizationCode = mutation({
+export const completeAuthorizationConsent = internalMutation({
   args: {
-    clientId: v.string(),
-    redirectUri: v.string(),
-    requestedScopes: v.optional(v.array(apiScopeValidator)),
-    resource: v.string(),
-    codeHash: v.string(),
-    codeChallenge: v.string(),
-    codeChallengeMethod: oauthCodeChallengeMethodValidator,
-    expiresAt: v.number(),
+    transactionHash: v.string(),
+    userId: v.id("users"),
+    decision: v.union(v.literal("approve"), v.literal("deny")),
+    codeHash: v.optional(v.string()),
+    expiresAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const user = await requireCurrentUser(ctx);
     const now = Date.now();
-    const client = await resolvePublicAuthorizationClient(ctx, args);
+    const transactionHash = normalizeOAuthConsentTransactionHash(args.transactionHash);
+    const transaction = await ctx.db
+      .query("oauthConsentTransactions")
+      .withIndex("by_transactionHash", (index) => index.eq("transactionHash", transactionHash))
+      .unique();
+    const disposition = oauthConsentTransactionDisposition(transaction, args.userId, now);
+
+    if (transaction !== null && disposition === "expired") {
+      await ctx.db.delete(transaction._id);
+    }
+
+    if (disposition !== "accepted" || transaction === null) {
+      return { ok: false as const, reason: "invalid_transaction" as const };
+    }
+
+    const client = await resolvePublicAuthorizationClient(ctx, {
+      clientId: transaction.clientId,
+      redirectUri: transaction.redirectUri,
+      requestedScopes: transaction.scopes,
+      resource: transaction.resource,
+    });
 
     if (!client.ok) {
       return client;
     }
 
+    await ctx.db.delete(transaction._id);
+
+    if (args.decision === "deny") {
+      return {
+        ok: true as const,
+        approved: false as const,
+        redirectUri: client.redirectUri,
+        ...(transaction.state === undefined ? {} : { state: transaction.state }),
+      };
+    }
+
+    if (args.codeHash === undefined || args.expiresAt === undefined) {
+      throw new Error("Approved OAuth consent requires an authorization code and expiry.");
+    }
+
     const codeHash = normalizeOAuthAuthorizationCodeHash(args.codeHash);
-    const codeChallenge = normalizeOAuthCodeChallenge(args.codeChallenge);
-    const codeChallengeMethod = normalizeOAuthCodeChallengeMethod(args.codeChallengeMethod);
+    const codeChallenge = normalizeOAuthCodeChallenge(transaction.codeChallenge);
+    const codeChallengeMethod = normalizeOAuthCodeChallengeMethod(transaction.codeChallengeMethod);
     const expiresAt = normalizeOAuthTokenExpiry(args.expiresAt, now);
     const existingCode = await ctx.db
       .query("oauthAuthorizationCodes")
@@ -1238,7 +1273,7 @@ export const issueAuthorizationCode = mutation({
       ...(client.clientKind === "application" ? { applicationId: client.applicationId } : {}),
       ...(client.clientKind === "dynamic_client" ? { dynamicClientId: client.dynamicClientId } : {}),
       clientId: client.clientId,
-      userId: user._id,
+      userId: args.userId,
       redirectUri: client.redirectUri,
       resource: client.resource,
       scopes: client.requestedScopes,
@@ -1262,11 +1297,13 @@ export const issueAuthorizationCode = mutation({
 
     return {
       ok: true as const,
+      approved: true as const,
       clientId: client.clientId,
       redirectUri: client.redirectUri,
       resource: client.resource,
       scopes: client.requestedScopes,
       expiresAt,
+      ...(transaction.state === undefined ? {} : { state: transaction.state }),
     };
   },
 });

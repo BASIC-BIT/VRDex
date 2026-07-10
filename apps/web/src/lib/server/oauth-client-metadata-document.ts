@@ -10,6 +10,7 @@ import {
 } from "@vrdex/api-contracts";
 
 const maxClientMetadataDocumentBytes = 5 * 1024;
+const clientMetadataDocumentDeadlineMs = 5_000;
 
 export type HostAddress = {
   address: string;
@@ -21,7 +22,8 @@ interface PinnedLookupCallback {
 }
 
 type FetchOAuthClientMetadataDocumentOptions = {
-  requestDocument?: (url: URL, address: HostAddress) => Promise<Response>;
+  deadlineMs?: number;
+  requestDocument?: (url: URL, address: HostAddress, signal: AbortSignal) => Promise<Response>;
   resolveHostname?: (hostname: string) => Promise<HostAddress[]>;
 };
 
@@ -125,8 +127,17 @@ export function pinnedLookupForAddress(address: HostAddress) {
   };
 }
 
-async function requestDocumentAtAddress(url: URL, address: HostAddress) {
+function deadlineError() {
+  return new Error("OAuth client metadata document request timed out.");
+}
+
+function abortReason(signal: AbortSignal) {
+  return signal.reason instanceof Error ? signal.reason : deadlineError();
+}
+
+async function requestDocumentAtAddress(url: URL, address: HostAddress, signal: AbortSignal) {
   return await new Promise<Response>((resolve, reject) => {
+    let incomingResponse: Readable | undefined;
     const request = httpsRequest(
       url,
       {
@@ -138,6 +149,7 @@ async function requestDocumentAtAddress(url: URL, address: HostAddress) {
         servername: url.hostname,
       },
       (incoming) => {
+        incomingResponse = incoming;
         const headers = new Headers();
 
         for (const [name, value] of Object.entries(incoming.headers)) {
@@ -160,15 +172,46 @@ async function requestDocumentAtAddress(url: URL, address: HostAddress) {
       },
     );
 
-    request.setTimeout(5_000, () => {
-      request.destroy(new Error("OAuth client metadata document request timed out."));
-    });
+    const abortRequest = () => {
+      const error = abortReason(signal);
+      incomingResponse?.destroy(error);
+      request.destroy(error);
+      reject(error);
+    };
+
+    if (signal.aborted) {
+      abortRequest();
+      return;
+    }
+
+    signal.addEventListener("abort", abortRequest, { once: true });
+    request.once("close", () => signal.removeEventListener("abort", abortRequest));
     request.once("error", reject);
     request.end();
   });
 }
 
-async function responseTextWithLimit(response: Response) {
+function waitWithSignal<T>(promise: Promise<T>, signal: AbortSignal) {
+  if (signal.aborted) {
+    return Promise.reject<T>(abortReason(signal));
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    const abortWait = () => reject(abortReason(signal));
+    signal.addEventListener("abort", abortWait, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", abortWait));
+  });
+}
+
+function cancelResponseBody(response: Response, reason: string) {
+  if (response.body === null || response.body.locked) {
+    return;
+  }
+
+  void response.body.cancel(reason).catch(() => undefined);
+}
+
+async function responseTextWithLimit(response: Response, signal: AbortSignal) {
   if (response.body === null) {
     return "";
   }
@@ -176,22 +219,31 @@ async function responseTextWithLimit(response: Response) {
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let totalBytes = 0;
+  let completed = false;
 
-  for (;;) {
-    const { done, value } = await reader.read();
+  try {
+    for (;;) {
+      const { done, value } = await waitWithSignal(reader.read(), signal);
 
-    if (done) {
-      break;
+      if (done) {
+        completed = true;
+        break;
+      }
+
+      totalBytes += value.byteLength;
+
+      if (totalBytes > maxClientMetadataDocumentBytes) {
+        throw new Error("OAuth client metadata document is too large.");
+      }
+
+      chunks.push(value);
+    }
+  } finally {
+    if (!completed) {
+      void reader.cancel("OAuth client metadata document response was rejected.").catch(() => undefined);
     }
 
-    totalBytes += value.byteLength;
-
-    if (totalBytes > maxClientMetadataDocumentBytes) {
-      await reader.cancel("OAuth client metadata document is too large.");
-      throw new Error("OAuth client metadata document is too large.");
-    }
-
-    chunks.push(value);
+    reader.releaseLock();
   }
 
   const buffer = new Uint8Array(totalBytes);
@@ -217,26 +269,42 @@ export async function fetchOAuthClientMetadataDocument(
   clientId: string,
   options: FetchOAuthClientMetadataDocumentOptions = {},
 ): Promise<OAuthClientMetadataDocument> {
-  const normalizedClientId = normalizeOAuthClientMetadataDocumentUrl(clientId);
-  const clientIdUrl = new URL(normalizedClientId);
-  const requestDocument = options.requestDocument ?? requestDocumentAtAddress;
-  const resolveHostname = options.resolveHostname ?? defaultResolveHostname;
-  const addresses = await resolvePublicHostname(clientIdUrl.hostname, resolveHostname);
+  const deadlineController = new AbortController();
+  const deadline = setTimeout(
+    () => deadlineController.abort(deadlineError()),
+    options.deadlineMs ?? clientMetadataDocumentDeadlineMs,
+  );
 
-  const response = await requestDocument(clientIdUrl, addresses[0]);
+  try {
+    const normalizedClientId = normalizeOAuthClientMetadataDocumentUrl(clientId);
+    const clientIdUrl = new URL(normalizedClientId);
+    const requestDocument = options.requestDocument ?? requestDocumentAtAddress;
+    const resolveHostname = options.resolveHostname ?? defaultResolveHostname;
+    const addresses = await waitWithSignal(
+      resolvePublicHostname(clientIdUrl.hostname, resolveHostname),
+      deadlineController.signal,
+    );
+    const response = await waitWithSignal(
+      requestDocument(clientIdUrl, addresses[0], deadlineController.signal),
+      deadlineController.signal,
+    );
 
-  if (response.status !== 200) {
-    throw new Error("OAuth client metadata document must return HTTP 200.");
+    if (response.status !== 200) {
+      cancelResponseBody(response, "OAuth client metadata document returned a rejected status.");
+      throw new Error("OAuth client metadata document must return HTTP 200.");
+    }
+
+    const payload = objectPayload(JSON.parse(await responseTextWithLimit(response, deadlineController.signal)));
+
+    if (payload.client_id !== normalizedClientId) {
+      throw new Error("OAuth client metadata document client_id must match the document URL.");
+    }
+
+    return {
+      clientId: normalizedClientId,
+      ...normalizeDynamicMcpClientRegistration(payload),
+    };
+  } finally {
+    clearTimeout(deadline);
   }
-
-  const payload = objectPayload(JSON.parse(await responseTextWithLimit(response)));
-
-  if (payload.client_id !== normalizedClientId) {
-    throw new Error("OAuth client metadata document client_id must match the document URL.");
-  }
-
-  return {
-    clientId: normalizedClientId,
-    ...normalizeDynamicMcpClientRegistration(payload),
-  };
 }

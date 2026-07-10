@@ -59,6 +59,15 @@ export async function POST(request: Request) {
     );
   }
 
+  const decision = String(form.get("decision") ?? "");
+
+  if (decision !== "approve" && decision !== "deny") {
+    return Response.json(
+      { error: "invalid_request", error_description: "OAuth consent requires an approve or deny decision." },
+      { headers: { "cache-control": "no-store", pragma: "no-cache" }, status: 400 },
+    );
+  }
+
   const authToken = await convexAuthNextjsToken();
 
   if (authToken === undefined) {
@@ -70,59 +79,26 @@ export async function POST(request: Request) {
   const convex = convexHttpClient();
   convex.setAuth(authToken);
 
-  const consumed = await convex.mutation(api.oauthConsentTransactions.consume, {
-    transactionHash: hashOAuthConsentTransactionValue(transaction),
-  });
+  const viewer = await convex.query(api.accounts.viewer, {});
 
-  if (!consumed.ok) {
+  if (viewer === null) {
     return Response.json(
       { error: "invalid_request", error_description: "The OAuth consent transaction is invalid or expired." },
       { headers: { "cache-control": "no-store", pragma: "no-cache" }, status: 400 },
     );
   }
 
-  const authorization = consumed.authorization;
-
-  const client = await convexAdminHttpClient().query(internal.oauthApps.resolveAuthorizationClient, {
-    clientId: authorization.clientId,
-    redirectUri: authorization.redirectUri,
-    requestedScopes: authorization.requestedScopes,
-    resource: authorization.resource,
-  });
-
-  if (!client.ok) {
-    return Response.json(
-      {
-        error: "invalid_request",
-        error_description: "The OAuth client cannot use the requested redirect URI, resource, or scopes.",
-      },
-      { headers: { "cache-control": "no-store", pragma: "no-cache" }, status: 400 },
-    );
-  }
-
-  if (String(form.get("decision") ?? "") !== "approve") {
-    return redirectResponse(
-      redirectUriWithOAuthResult({
-        error: "access_denied",
-        errorDescription: "The resource owner denied the request.",
-        redirectUri: authorization.redirectUri,
-        state: authorization.state,
-      }),
-    );
-  }
-
-  const now = Date.now();
-  const code = createOAuthAuthorizationCodeValue();
-
-  const result = await convex.mutation(api.oauthApps.issueAuthorizationCode, {
-    clientId: authorization.clientId,
-    redirectUri: authorization.redirectUri,
-    requestedScopes: authorization.requestedScopes,
-    resource: authorization.resource,
-    codeHash: await hashOAuthAuthorizationCodeValue(code),
-    codeChallenge: authorization.codeChallenge,
-    codeChallengeMethod: authorization.codeChallengeMethod,
-    expiresAt: now + authorizationCodeTtlMs,
+  const code = decision === "approve" ? createOAuthAuthorizationCodeValue() : undefined;
+  const result = await convexAdminHttpClient().mutation(internal.oauthApps.completeAuthorizationConsent, {
+    transactionHash: hashOAuthConsentTransactionValue(transaction),
+    userId: viewer.user.id,
+    decision,
+    ...(code === undefined
+      ? {}
+      : {
+          codeHash: await hashOAuthAuthorizationCodeValue(code),
+          expiresAt: Date.now() + authorizationCodeTtlMs,
+        }),
   });
 
   if (!result.ok) {
@@ -135,11 +111,26 @@ export async function POST(request: Request) {
     );
   }
 
+  if (!result.approved) {
+    return redirectResponse(
+      redirectUriWithOAuthResult({
+        error: "access_denied",
+        errorDescription: "The resource owner denied the request.",
+        redirectUri: result.redirectUri,
+        state: result.state,
+      }),
+    );
+  }
+
+  if (code === undefined) {
+    return Response.json({ error: "server_error" }, { status: 500 });
+  }
+
   return redirectResponse(
     redirectUriWithOAuthResult({
       code,
       redirectUri: result.redirectUri,
-      state: authorization.state,
+      state: result.state,
     }),
   );
 }

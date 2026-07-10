@@ -138,31 +138,3 @@ export const get = query({
     return transactionAuthorization(transaction);
   },
 });
-
-export const consume = mutation({
-  args: transactionArgs,
-  handler: async (ctx, args) => {
-    const user = await requireCurrentUser(ctx);
-    const transactionHash = normalizeOAuthConsentTransactionHash(args.transactionHash);
-    const transaction = await ctx.db
-      .query("oauthConsentTransactions")
-      .withIndex("by_transactionHash", (index) => index.eq("transactionHash", transactionHash))
-      .unique();
-    const disposition = oauthConsentTransactionDisposition(transaction, user._id);
-
-    if (transaction !== null && disposition === "expired") {
-      await ctx.db.delete(transaction._id);
-    }
-
-    if (disposition !== "accepted" || transaction === null) {
-      return { ok: false as const, reason: "invalid_transaction" as const };
-    }
-
-    await ctx.db.delete(transaction._id);
-
-    return {
-      ok: true as const,
-      authorization: transactionAuthorization(transaction),
-    };
-  },
-});

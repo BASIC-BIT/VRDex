@@ -5,6 +5,29 @@
 Current checklist for reviewing the public API and MCP platform foundation as
 one PR.
 
+Readiness has three distinct levels:
+
+1. `pnpm check:api-mcp-rollout` is an advisory rollout summary. It validates
+   checked-in rollout structure and reports unresolved external evidence, but
+   does not require every manual client row to pass.
+2. A green Baseline Checks run is PR implementation readiness. The combined
+   `Verify API and MCP` job enforces contracts and local MCP behavior with one
+   dependency install, and `Hosted MCP Preview Smoke` fails unless it exercises
+   data-backed reads, DCR, and CIMD against a same-branch Convex preview. This
+   does not declare the platform externally ready.
+3. `pnpm verify:api-mcp-rollout:external` is the strict external launch gate.
+   It composes API contract, MCP, and docs verification with
+   `check:api-mcp-rollout -- --require-ready`. Dispatch the manual
+   `External API and MCP Readiness` workflow for the authoritative CI result
+   and an uploaded client session pack.
+
+The current foundation implements owner token and OAuth-app revocation,
+route-class rate limiting, durable rate-limit and credential events, OAuth
+grant outcome summaries, MCP tool-call events, and API write-audit events.
+Active user-grant UI, suspicious-client detail views, account-level token
+creation suspension, and OAuth app metadata history are explicitly deferred
+from this foundation and are not implied by a green PR.
+
 ## Contract And Docs
 
 - OpenAPI is generated from shared schemas, not hand-written in parallel.
@@ -12,9 +35,9 @@ one PR.
   contract.
 - `/api/v0/openapi.json` and `/api/v0/openapi.yaml` serve the same generated
   document in JSON and YAML forms.
-- Baseline Checks runs `pnpm verify:api-contracts` so OpenAPI drift,
-  route/OpenAPI parity, contract typechecking, and contract tests are enforced
-  in PR CI.
+- Baseline Checks runs API contract verification in the combined
+  `Verify API and MCP` job, so OpenAPI drift, route/OpenAPI parity, contract
+  typechecking, and contract tests are enforced in PR CI.
 - Developer docs cover public API, auth, OAuth apps, rate limits, MCP tools,
   self-hosting variables, and changelog notes.
 - The Docusaurus docs build succeeds.
@@ -96,8 +119,10 @@ one PR.
 - Local stdio MCP supports hosted and self-hosted API base URLs.
 - Local stdio MCP can run with anonymous reads, personal API tokens, or
   API-resource OAuth access tokens.
-- Baseline Checks runs `pnpm verify:vrdex-mcp`, including
-  `pnpm smoke:mcp-compat`, for package typechecking, package tests, and shared
+- Baseline Checks runs `pnpm verify:api-contracts` and
+  `pnpm verify:vrdex-mcp` in one `Verify API and MCP` job. The MCP verifier
+  includes `pnpm smoke:mcp-compat` for package typechecking, package tests, and
+  shared
   local stdio protocol coverage across every curated read tool. The verifier
   also validates
   `docs/developers/mcp-client-smoke-results.json` so the manual matrix keeps
@@ -105,16 +130,14 @@ one PR.
   evidence row. The smoke can optionally probe a deployed hosted `/mcp`
   endpoint with `--hosted-url`, and can include constrained Dynamic Client
   Registration and Client ID Metadata Document probes with `--dcr` and `--cimd`.
-  On pull requests, the same job uploads an `mcp-client-session-pack` artifact
-  with generated setup files and evidence worksheets for the remaining manual
-  client matrix rows.
 - Baseline Checks runs `Hosted MCP Preview Smoke` after the Vercel preview. It
-  runs anonymous hosted Streamable HTTP, an anonymous `vrdex_search` tool call,
-  OAuth metadata, and bearer-challenge checks whenever a preview URL exists. It
-  adds Dynamic Client Registration and Client ID Metadata Document authorization
-  when a same-branch Convex preview backend is available, and records that
-  preview-backend prerequisite when `CONVEX_DEPLOY_KEY_PREVIEW` is not
-  configured.
+  is fail-closed: both a Vercel preview URL and same-branch Convex preview are
+  required. A pass covers data-backed anonymous `vrdex_search`, `search`, and
+  `fetch`, OAuth metadata, bearer challenges, Dynamic Client Registration, and
+  Client ID Metadata Document authorization.
+- Baseline Checks does not generate a client session pack on every PR. The
+  manual `External API and MCP Readiness` workflow always generates and uploads
+  that pack as part of the strict external launch gate.
 - The manual `Deployed Health Checks` workflow target `hosted-mcp-smoke` can run
   the same hosted smoke against a staging, production-like, or same-branch
   Convex preview target. Use its `mcp_dcr` and `mcp_cimd` inputs for
@@ -222,15 +245,24 @@ one PR.
   credential-generation path. It prints only variable/secret names plus boolean
   readiness, never secret values. Use `--require-ready` when the hosted OAuth
   path must be treated as a hard external-readiness gate.
-- `pnpm check:api-mcp-rollout` summarizes the generated OpenAPI contract,
+- `pnpm check:api-mcp-rollout` is the advisory rollout summary. It summarizes
+  the generated OpenAPI contract,
   required docs, verification scripts, hosted rate-limit Terraform owner, MCP
   client matrix, and hosted MCP production-like evidence state. The gate
   asserts every current checked-in `/api/v0` OpenAPI path, the
   `infra/terraform/rate-limit-redis` files, lockfile, README entry, and
   Terraform workflow wiring, plus both MCP evidence recorder commands. It
-  reports required items that are not pass in normal mode, labels required
-  failed evidence rows as `fail`, and becomes a failing external-readiness gate
-  with `--require-ready`.
+  reports required items that are not pass in normal mode and labels required
+  failed evidence rows as `fail`, but unresolved manual evidence remains
+  advisory in normal mode.
+- `pnpm verify:api-mcp-rollout:external` composes the authoritative API
+  contract, MCP, and docs verifiers before running the rollout checker with
+  `--require-ready`. The manual `External API and MCP Readiness` workflow is
+  the authoritative CI launch gate and always uploads the client session pack,
+  including when the strict gate fails. It also runs live data-backed read,
+  Dynamic Client Registration, and Client ID Metadata Document smokes against
+  the selected host. The checked-in matrix target must name that exact host and
+  workflow commit before the strict gate can pass.
 - Claude Code local stdio and hosted anonymous HTTP can be real-client smoked
   with `pnpm smoke:mcp-claude-code`, which runs the installed Claude Code CLI
   through a strict temporary MCP config. Use hosted mode with `--hosted-data`

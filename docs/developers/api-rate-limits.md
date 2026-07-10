@@ -41,6 +41,12 @@ Set `VRDEX_RATE_LIMIT_STORE` on the web deployment:
 | `upstash` | Alias for the Redis-compatible REST pipeline mode. |
 | `disabled` | Local diagnostics only. Do not use for hosted production. |
 
+Production is fail-closed: `VRDEX_RATE_LIMIT_STORE` must be explicitly set to
+`redis-rest` or `upstash`. VRDex rejects `memory`, `disabled`, and an omitted
+store when `VERCEL_ENV=production`, `VRDEX_DEPLOYMENT_ENV=production`, or a
+self-hosted process runs with `NODE_ENV=production`. Vercel previews and local
+development may continue using the process-local memory store.
+
 Redis REST mode requires:
 
 - `VRDEX_RATE_LIMIT_REDIS_REST_URL`
@@ -52,9 +58,13 @@ The Redis adapter uses a fixed-window counter with `INCR`, `PEXPIRE NX`, and
 request:
 
 - an identity bucket keyed by route class plus IP, API-token id, or OAuth
-  client id, used for enforcement
+  access-token id, used for enforcement
 - a route-class request bucket keyed only by route class, used for aggregate
   request-count observability without storing caller identities
+
+OAuth access tokens also increment a secondary client-wide bucket with a limit
+ten times the per-token quota. This preserves per-installation isolation while
+retaining an aggregate abuse ceiling for a compromised or noisy OAuth client.
 
 Use a Redis-compatible store for hosted production anonymous API and hosted MCP
 traffic. Convex-only counters are acceptable only for low-volume self-hosted
@@ -130,7 +140,8 @@ Identity keys include the route class and one of:
 
 - IP address for anonymous public API and MCP reads
 - personal API token id for API-token-authenticated traffic
-- OAuth client id for OAuth-authenticated API and MCP traffic
+- OAuth access-token id for OAuth-authenticated API and MCP traffic, plus a
+  secondary client-wide abuse bucket
 
 OAuth authorization GETs and consent POSTs use `oauth_authorize`. Token and
 revocation POSTs use `oauth_token`. These checks run before authorization

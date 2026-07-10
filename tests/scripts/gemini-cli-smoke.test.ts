@@ -1,4 +1,9 @@
 import assert from "node:assert/strict";
+import type { ChildProcess } from "node:child_process";
+import { EventEmitter } from "node:events";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it } from "node:test";
 
 import {
@@ -6,7 +11,44 @@ import {
   geminiSpawnForPlatform,
   removeGeminiProjectDir,
   runGemini,
+  terminateGeminiProcessTree,
 } from "../../scripts/smoke-gemini-cli-mcp-client";
+
+function fakeChild(pid: number) {
+  const child = new EventEmitter() as ChildProcess;
+  const signals: Array<NodeJS.Signals | number | undefined> = [];
+
+  Object.assign(child, {
+    exitCode: null,
+    signalCode: null,
+    pid,
+    kill: (signal?: NodeJS.Signals | number) => {
+      signals.push(signal);
+      return true;
+    },
+  });
+
+  return { child, signals };
+}
+
+function processIsAlive(pid: number) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return !(typeof error === "object" && error !== null && "code" in error && error.code === "ESRCH");
+  }
+}
+
+async function waitForProcessExit(pid: number) {
+  const deadline = Date.now() + 2_000;
+
+  while (processIsAlive(pid) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+
+  assert.equal(processIsAlive(pid), false, `Expected process ${pid} to terminate.`);
+}
 
 describe("Gemini CLI MCP smoke harness", () => {
   it("runs disposable package launches through cmd.exe on Windows", () => {
@@ -84,6 +126,63 @@ describe("Gemini CLI MCP smoke harness", () => {
     );
   });
 
+  it("surfaces synchronous Windows taskkill launch failures", async () => {
+    const { child, signals } = fakeChild(42);
+
+    await assert.rejects(
+      terminateGeminiProcessTree(child, {
+        platform: "win32",
+        spawnProcess: (() => {
+          throw new Error("spawn failed");
+        }) as never,
+      }),
+      /Failed to start taskkill/,
+    );
+    assert.deepEqual(signals, ["SIGBREAK"]);
+  });
+
+  it("surfaces nonzero Windows taskkill exits", async () => {
+    const { child, signals } = fakeChild(42);
+    const killer = new EventEmitter() as ChildProcess;
+    const termination = terminateGeminiProcessTree(child, {
+      platform: "win32",
+      spawnProcess: (() => killer) as never,
+    });
+
+    setImmediate(() => killer.emit("close", 1));
+    await assert.rejects(termination, /taskkill\.exe exited with code 1/);
+    assert.deepEqual(signals, ["SIGBREAK"]);
+  });
+
+  it("terminates a POSIX process group gracefully and then forcefully", async () => {
+    const { child } = fakeChild(42);
+    const calls: Array<[number, NodeJS.Signals | 0]> = [];
+    let forceKilled = false;
+
+    await terminateGeminiProcessTree(child, {
+      forceWaitMs: 100,
+      graceMs: 10,
+      platform: "linux",
+      sendSignal: (pid, signal) => {
+        calls.push([pid, signal]);
+        if (signal === "SIGTERM") {
+          setImmediate(() => child.emit("exit", null, "SIGTERM"));
+        } else if (signal === "SIGKILL") {
+          forceKilled = true;
+        } else if (signal === 0 && forceKilled) {
+          throw Object.assign(new Error("missing"), { code: "ESRCH" });
+        }
+      },
+    });
+
+    assert.deepEqual(calls, [
+      [-42, "SIGTERM"],
+      [-42, 0],
+      [-42, "SIGKILL"],
+      [-42, 0],
+    ]);
+  });
+
   it("reports timed out Gemini subprocesses", async () => {
     const startedAt = Date.now();
 
@@ -112,6 +211,37 @@ describe("Gemini CLI MCP smoke harness", () => {
       elapsedMs < 2_000,
       `Expected the timed-out process tree to terminate within 2 seconds, but it took ${elapsedMs}ms.`,
     );
+  });
+
+  it("terminates both the timed-out Gemini parent and its grandchild", async () => {
+    const projectDir = await mkdtemp(join(tmpdir(), "vrdex-gemini-tree-"));
+    const pidFile = join(projectDir, "pids.json");
+
+    try {
+      await assert.rejects(
+        runGemini(
+          {
+            geminiCommand: process.execPath,
+            hostedDataPublicReads: false,
+            hostedSearch: { limit: 1, query: "", type: "all" },
+            mode: "local-stdio",
+            timeoutMs: 750,
+          },
+          ["tests/scripts/fixtures/gemini-timeout-child.mjs", pidFile],
+          process.cwd(),
+        ),
+        /timed out after 750ms/,
+      );
+
+      const pids = JSON.parse(await readFile(pidFile, "utf8")) as {
+        grandchild: number;
+        parent: number;
+      };
+
+      await Promise.all([waitForProcessExit(pids.parent), waitForProcessExit(pids.grandchild)]);
+    } finally {
+      await rm(projectDir, { force: true, recursive: true });
+    }
   });
 
   it("summarizes Gemini provider quota failures", () => {

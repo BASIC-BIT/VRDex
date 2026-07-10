@@ -9,6 +9,24 @@ docs update and a changelog entry so early consumers and agents can adapt.
 
 ## 2026-07-09
 
+- moved OAuth consent completion and authorization-code issuance behind one
+  internal Convex mutation that atomically binds the authenticated user to the
+  hashed transaction, revalidates the stored client, consumes the transaction,
+  and issues a code only for explicit approval
+- isolated OAuth API and MCP quotas by access-token id while retaining a
+  secondary client-wide abuse cap, and made production rate limiting fail closed
+  unless a shared Redis REST store is explicitly configured
+- enforced an absolute Client ID Metadata Document deadline across DNS,
+  connection, and response streaming, and cancel rejected or oversized response
+  bodies so slow-drip and non-200 peers cannot retain sockets
+- made Gemini CLI smoke timeouts terminate the complete process tree on Windows
+  and POSIX, with deterministic failure handling and parent/grandchild regression
+  coverage
+- combined API-contract and MCP verification into one PR job with one dependency
+  install, made hosted preview coverage fail closed without same-branch Convex,
+  and moved strict external readiness plus client-session artifacts to a manual
+  launch workflow that live-smokes its selected host and rejects checked-in
+  evidence that does not name the same target and commit
 - added `pnpm test:web` to the existing Typecheck Web baseline job and the
   aggregate local verifier so the API, OAuth, MCP, and rate-limit route tests
   under `tests/web` are enforced without creating another GitHub Actions job
@@ -23,8 +41,7 @@ docs update and a changelog entry so early consumers and agents can adapt.
   Client ID Metadata Document materialization, authorization-client resolution,
   token exchange/rotation, revocation, and durable access-token validation to
   internal Convex functions; Next.js invokes them with Convex admin
-  authentication, while user-authenticated consent issuance remains a public
-  Convex mutation
+  authentication, including atomic consent completion and code issuance
 - hardened OAuth consent with short-lived, hashed, user-bound, single-use
   server transactions; approval no longer trusts hidden authorization fields,
   and production consent POSTs require a same-origin `Origin`

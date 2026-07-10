@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 
 import {
   fetchOAuthClientMetadataDocument,
@@ -157,5 +158,67 @@ describe("OAuth client metadata documents", () => {
       }),
       /too large/,
     );
+  });
+
+  it("enforces an absolute deadline against a slow-drip HTTP 200 response", async () => {
+    let interval: ReturnType<typeof setInterval> | undefined;
+    let cancelled = false;
+    const startedAt = Date.now();
+
+    await assert.rejects(
+      fetchOAuthClientMetadataDocument(clientId, {
+        deadlineMs: 80,
+        requestDocument: async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                interval = setInterval(() => controller.enqueue(new TextEncoder().encode(" ")), 10);
+              },
+              cancel() {
+                cancelled = true;
+                if (interval !== undefined) {
+                  clearInterval(interval);
+                }
+              },
+            }),
+            { status: 200 },
+          ),
+        resolveHostname: async () => [{ address: publicAddress }],
+      }),
+      /timed out/,
+    );
+
+    await delay(0);
+    assert.equal(cancelled, true);
+    assert.ok(Date.now() - startedAt < 500, "slow-drip response exceeded the absolute deadline");
+  });
+
+  it("cancels a never-ending non-200 response body immediately", async () => {
+    let cancelled = false;
+    const startedAt = Date.now();
+
+    await assert.rejects(
+      fetchOAuthClientMetadataDocument(clientId, {
+        deadlineMs: 1_000,
+        requestDocument: async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode("still streaming"));
+              },
+              cancel() {
+                cancelled = true;
+              },
+            }),
+            { status: 503 },
+          ),
+        resolveHostname: async () => [{ address: publicAddress }],
+      }),
+      /HTTP 200/,
+    );
+
+    await delay(0);
+    assert.equal(cancelled, true);
+    assert.ok(Date.now() - startedAt < 500, "non-200 response waited for its body");
   });
 });

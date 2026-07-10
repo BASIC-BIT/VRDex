@@ -957,6 +957,11 @@ Required capabilities:
 - revoke OAuth app
 - view active user grants for owned apps
 
+Implemented in the platform foundation: owners can list and revoke API tokens
+and OAuth apps. Active user-grant visibility and management UI is deferred from
+this foundation; the OAuth grant and revocation primitives remain available for
+a later account surface.
+
 First ownership pass:
 
 - user-owned developer apps
@@ -1000,6 +1005,18 @@ Required capabilities:
 - view rate-limit events
 - view OAuth app metadata history
 - audit write actions performed through API or MCP
+
+Implemented in the platform foundation: owner revocation for API tokens and
+OAuth apps; route-class rate limiting; durable rate-limit, credential, and
+OAuth grant events; MCP tool-call events; and API write-audit events with
+sanitized operator summaries.
+
+Explicitly deferred from this foundation:
+
+- active user-grant UI
+- suspicious API-client detail views
+- account-level API token-creation suspension
+- OAuth app metadata history
 
 ## Infrastructure And Self-Hosting
 
@@ -1294,7 +1311,7 @@ For a single PR, these become commit-level checkpoints instead of separate merge
 
 ## Verification Matrix
 
-Required before PR readiness:
+Required before green PR implementation readiness:
 
 - lint
 - typecheck
@@ -1310,12 +1327,18 @@ Required before PR readiness:
 - hosted MCP data-backed public read smoke against a same-branch or production-like backend
 - hosted MCP tool descriptor auth metadata tests
 - stdio MCP smoke test
-- major MCP client compatibility matrix results
-- aggregate `pnpm check:api-mcp-rollout -- --require-ready` audit before
-  declaring external readiness
 - MCP tool auth metadata verification for anonymous/no-auth public reads where a major client requires per-tool declarations
 - docs build
 - visual verification for developer dashboard, consent screen, and Swagger docs
+
+Required before external readiness:
+
+- every required major MCP client compatibility matrix row is `pass`
+- production-like hosted data-backed read, DCR, CIMD, and OAuth evidence is
+  `pass`
+- `pnpm verify:api-mcp-rollout:external` passes
+- the manual `External API and MCP Readiness` workflow is green and its client
+  session pack is retained with the launch evidence
 
 Security-specific tests:
 
@@ -1401,7 +1424,10 @@ Security-specific tests:
 - Track OpenAPI 3.2.0 generator and Swagger UI support. The current checked-in artifact stays on 3.1.x.
 - Automate OAuth signing-key rotation in deployment secret management after the hosted secret store workflow is wired. The current checkpoint documents and supports manual current-key plus retained-previous-public-key rotation.
 - Apply the first BASIC BIT hosted rate-limit store through `infra/terraform/rate-limit-redis` once operator Upstash credentials are available. The stack now owns the Upstash Redis database plus hosted Vercel rate-limit variables; Vercel KV is not a new-project option, and any Marketplace Redis integration should still wire VRDex through the Redis REST adapter variables.
-- Run the implementation-time major MCP client smoke matrix against a deployed preview or production-like environment, including data-backed anonymous hosted reads, OAuth through Dynamic Client Registration, OAuth through public-client Client ID Metadata Documents, and local stdio configuration. Track results in `docs/developers/mcp-client-smoke-results.json` and run `pnpm check:mcp-client-matrix -- --require-ready` before external readiness.
+- Run the implementation-time major MCP client smoke matrix against a deployed preview or production-like environment, including data-backed anonymous hosted reads, OAuth through Dynamic Client Registration, OAuth through public-client Client ID Metadata Documents, and local stdio configuration. Track results in `docs/developers/mcp-client-smoke-results.json` and run `pnpm verify:api-mcp-rollout:external` before external readiness.
+- Build active user-grant management UI, suspicious-client detail views,
+  account-level API token-creation suspension, and OAuth app metadata history
+  after the platform foundation.
 - Verify OpenAI/ChatGPT-style client behavior against the hosted MCP tool descriptors. The current SDK supports `_meta["securitySchemes"]`; if a verified client surface requires a different standard field later, add that through an SDK-supported path or a narrow compatibility shim.
 - Decide whether confidential-client CIMD is needed after the deployed major-client smoke matrix. If yes, add public-key client authentication rather than shared-secret behavior.
 - Choose final default quota numbers and partner escalation thresholds after initial traffic and operator cost signals exist.
