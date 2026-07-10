@@ -9,6 +9,7 @@
   --surface-muted: rgba(25, 31, 40, 0.72);
   --surface-strong: #151b24;
   --surface-elevated: #1b232e;
+  --surface-raised: var(--surface-elevated);
   --muted: #98a3b3;
   --subtle: #647080;
   --inverse: #08090d;
@@ -40,7 +41,7 @@
   --color-surface-muted: var(--surface-muted);
   --color-surface-strong: var(--surface-strong);
   --color-surface-elevated: var(--surface-elevated);
-  --color-surface-raised: var(--surface-elevated);
+  --color-surface-raised: var(--surface-raised);
   --color-muted: var(--muted);
   --color-subtle: var(--subtle);
   --color-text-muted: var(--muted);
@@ -193,6 +194,7 @@ body {
   --surface-muted: rgba(241, 245, 249, 0.78);
   --surface-strong: #f8fafc;
   --surface-elevated: #e2e8f0;
+  --surface-raised: var(--surface-elevated);
   --muted: #475569;
   --subtle: #64748b;
   --inverse: #f8fafc;
@@ -217,6 +219,7 @@ body {
   --surface-muted: rgba(20, 30, 46, 0.82);
   --surface-strong: #0f1724;
   --surface-elevated: #172235;
+  --surface-raised: var(--surface-elevated);
   --muted: #94a3b8;
   --subtle: #64748b;
   --inverse: #080d16;
