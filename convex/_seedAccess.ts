@@ -28,6 +28,7 @@ export function canIncludePrivateSeedCandidate(
     "claimState" | "profileType" | "publicationState" | "reviewState"
   >,
   publicationPolicy: Doc<"seedImportBatches">["publicationPolicy"] | undefined,
+  batchReviewState: Doc<"seedImportBatches">["reviewState"] | undefined,
   superAdmin: boolean,
 ): boolean {
   if (
@@ -40,6 +41,8 @@ export function canIncludePrivateSeedCandidate(
 
   return superAdmin || (
     publicationPolicy === "private_only" &&
+    batchReviewState !== "rejected" &&
+    batchReviewState !== "superseded" &&
     candidate.claimState === "unclaimed" &&
     candidate.reviewState === "accepted"
   );

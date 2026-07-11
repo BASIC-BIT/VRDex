@@ -79,8 +79,6 @@ const CONCIERGE_PROFILE_FIELD_KEYS = [
   "headline",
   "bio",
   "about",
-  "avatarImageUrl",
-  "bannerImageUrl",
   "outboundLinks",
   "region",
   "timezone",
@@ -214,12 +212,6 @@ export function buildConciergeProfileFieldPatch(
         break;
       case "about":
         patch.about = undefined;
-        break;
-      case "avatarImageUrl":
-        patch.avatarImageUrl = undefined;
-        break;
-      case "bannerImageUrl":
-        patch.bannerImageUrl = undefined;
         break;
       case "outboundLinks":
         patch.outboundLinks = [];

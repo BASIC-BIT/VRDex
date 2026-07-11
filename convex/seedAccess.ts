@@ -80,6 +80,7 @@ export const lookupPeople = query({
         canIncludePrivateSeedCandidate(
           candidate,
           batch?.publicationPolicy,
+          batch?.reviewState,
           access.superAdmin,
         ),
       )

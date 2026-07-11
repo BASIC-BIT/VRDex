@@ -782,7 +782,11 @@ function BulkLookupSummary({ entries }: { entries: BulkLookupEntry[] }) {
   }
 
   return (
-    <Card className="lookup-panel lookup-bulk-summary grid gap-2" padding="sm">
+    <Card
+      className="lookup-panel lookup-bulk-summary ph-no-capture grid gap-2"
+      data-ph-no-capture
+      padding="sm"
+    >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-sm font-semibold tracking-[-0.03em]">Lineup matches</h2>
         <span className="text-xs text-muted">{entries.length} pasted entries</span>
@@ -827,20 +831,53 @@ function updateLookupUrl(query: string) {
   window.history.replaceState(null, "", nextUrl);
 }
 
+type ProfileLookupPageProps = {
+  privateResults: PrivateSeedLookupResult[];
+  query: string;
+  results: PublicProfileLookupResult[];
+  status: LookupStatus;
+  viewerAccess: SeedLookupViewerAccess;
+};
+
+type QueryPrivateResults = (
+  query: string,
+) => Promise<PrivateSeedLookupResult[]>;
+
 export function ProfileLookupPage({
   privateResults,
   query,
   results,
   status,
   viewerAccess,
-}: {
-  privateResults: PrivateSeedLookupResult[];
-  query: string;
-  results: PublicProfileLookupResult[];
-  status: LookupStatus;
-  viewerAccess: SeedLookupViewerAccess;
-}) {
+}: ProfileLookupPageProps) {
+  const props = { privateResults, query, results, status, viewerAccess };
+
+  return process.env.NEXT_PUBLIC_CONVEX_URL
+    ? <ConnectedProfileLookupPage {...props} />
+    : <ProfileLookupPageContent {...props} queryPrivateResults={null} />;
+}
+
+function ConnectedProfileLookupPage(props: ProfileLookupPageProps) {
   const convex = useConvex();
+  const queryPrivateResults = useCallback(
+    async (query: string) => await convex.query(seedAccessApi.lookupPeople, {
+      query,
+      limit: 12,
+    }),
+    [convex],
+  );
+
+  return <ProfileLookupPageContent {...props} queryPrivateResults={queryPrivateResults} />;
+}
+
+function ProfileLookupPageContent({
+  privateResults,
+  query,
+  queryPrivateResults,
+  results,
+  status,
+  viewerAccess,
+}: ProfileLookupPageProps & { queryPrivateResults: QueryPrivateResults | null }) {
   const posthog = usePostHog();
   const privateUiFlag = useFeatureFlagEnabled(PRIVATE_SEED_LOOKUP_UI_FLAG);
   const [theme, setTheme] = useState<LookupTheme>("dark");
@@ -852,6 +889,9 @@ export function ProfileLookupPage({
   const [bulkEntries, setBulkEntries] = useState<BulkLookupEntry[]>([]);
   const [pendingLabel, setPendingLabel] = useState<string | null>(null);
   const requestVersionRef = useRef(0);
+  const privateLookupQueryRef = useRef<string | null>(
+    privateResults.length > 0 ? query : null,
+  );
   const [isPending, startTransition] = useTransition();
   const isSearching = pendingLabel !== null || isPending;
   const privateUiEnabled = seedViewerAccess.source === "super_admin" || privateUiFlag === true;
@@ -889,36 +929,43 @@ export function ProfileLookupPage({
       return nextLookup.privateResults;
     }
 
+    if (!queryPrivateResults) {
+      return [];
+    }
+
+    privateLookupQueryRef.current = nextQuery;
     try {
-      return await convex.query(seedAccessApi.lookupPeople, {
-        query: nextQuery,
-        limit: 12,
-      });
+      return await queryPrivateResults(nextQuery);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`Client-side private seed lookup failed: ${message}`);
       return [];
     }
-  }, [convex, privateUiFlag]);
+  }, [privateUiFlag, queryPrivateResults]);
 
   useEffect(() => {
-    const enabled = viewerAccess.source === "super_admin" || privateUiFlag === true;
+    const currentQuery = displayQuery.trim();
+    const enabled = seedViewerAccess.source === "super_admin" || privateUiFlag === true;
 
     if (
-      requestVersionRef.current !== 0 ||
-      query.length < 2 ||
-      privateResults.length > 0 ||
-      !viewerAccess.allowed ||
-      !enabled
+      bulkEntries.length > 0 ||
+      currentQuery.length < 2 ||
+      displayPrivateResults.length > 0 ||
+      !seedViewerAccess.allowed ||
+      !enabled ||
+      !queryPrivateResults ||
+      privateLookupQueryRef.current === currentQuery
     ) {
       return;
     }
 
     let cancelled = false;
+    const requestVersion = requestVersionRef.current;
+    privateLookupQueryRef.current = currentQuery;
 
-    void convex.query(seedAccessApi.lookupPeople, { query, limit: 12 })
+    void queryPrivateResults(currentQuery)
       .then((initialPrivateResults) => {
-        if (!cancelled && requestVersionRef.current === 0) {
+        if (!cancelled && requestVersionRef.current === requestVersion) {
           startTransition(() => setDisplayPrivateResults(initialPrivateResults));
         }
       })
@@ -930,7 +977,15 @@ export function ProfileLookupPage({
     return () => {
       cancelled = true;
     };
-  }, [convex, privateResults.length, privateUiFlag, query, viewerAccess]);
+  }, [
+    bulkEntries.length,
+    displayPrivateResults.length,
+    displayQuery,
+    privateUiFlag,
+    queryPrivateResults,
+    seedViewerAccess.allowed,
+    seedViewerAccess.source,
+  ]);
 
   const runLookup = useCallback(async (nextQuery: string) => {
     const normalizedQuery = nextQuery.trim();

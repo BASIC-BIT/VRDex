@@ -4,7 +4,7 @@ import type { FunctionReference } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Component, type ReactNode, useEffect, useState } from "react";
+import { Component, type ReactNode, useState } from "react";
 
 import { api } from "@convex-generated-api";
 import { buttonVariants, Button } from "@/components/ui/button";
@@ -212,14 +212,11 @@ function ReviewInvitation({
 }) {
   const router = useRouter();
   const acceptInvitation = useMutation(seedHandoffsApi.acceptInvitation);
-  const [selectedFieldIds, setSelectedFieldIds] = useState<string[]>([]);
+  const [selectedFieldIds, setSelectedFieldIds] = useState<string[]>(
+    () => JSON.parse(defaultHandoffSelectionKey(preview.fields)) as string[],
+  );
   const [error, setError] = useState<string | null>(null);
   const [isAccepting, setIsAccepting] = useState(false);
-  const defaultSelectionKey = defaultHandoffSelectionKey(preview.fields);
-
-  useEffect(() => {
-    setSelectedFieldIds(JSON.parse(defaultSelectionKey) as string[]);
-  }, [defaultSelectionKey, token]);
 
   function toggleField(fieldId: string, selected: boolean) {
     setSelectedFieldIds((current) =>
@@ -371,6 +368,7 @@ function ConnectedHandoffInvitation({ fixture, token }: { fixture: HandoffFixtur
     <>
       <PreparedIdentity preview={preview} />
       <ReviewInvitation
+        key={`${token}:${defaultHandoffSelectionKey(preview.fields)}`}
         fixture={fixture}
         preview={preview}
         token={token}

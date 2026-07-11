@@ -261,12 +261,13 @@ describe("private seed projection", () => {
       publicationState: "draft_private" as const,
       reviewState: "unreviewed" as const,
     };
-    assert.equal(canIncludePrivateSeedCandidate(candidate as never, undefined, true), true);
-    assert.equal(canIncludePrivateSeedCandidate(candidate as never, "private_only", false), false);
+    assert.equal(canIncludePrivateSeedCandidate(candidate as never, undefined, undefined, true), true);
+    assert.equal(canIncludePrivateSeedCandidate(candidate as never, "private_only", "approved", false), false);
     assert.equal(
       canIncludePrivateSeedCandidate(
         { ...candidate, claimState: "claimed_unverified", reviewState: "accepted" } as never,
         "private_only",
+        "approved",
         false,
       ),
       false,
@@ -275,6 +276,7 @@ describe("private seed projection", () => {
       canIncludePrivateSeedCandidate(
         { ...candidate, reviewState: "accepted" } as never,
         "reviewed_publication_allowed",
+        "approved",
         false,
       ),
       false,
@@ -283,10 +285,22 @@ describe("private seed projection", () => {
       canIncludePrivateSeedCandidate(
         { ...candidate, reviewState: "accepted" } as never,
         "private_only",
+        "approved",
         false,
       ),
       true,
     );
+    for (const batchReviewState of ["rejected", "superseded"] as const) {
+      assert.equal(
+        canIncludePrivateSeedCandidate(
+          { ...candidate, reviewState: "accepted" } as never,
+          "private_only",
+          batchReviewState,
+          false,
+        ),
+        false,
+      );
+    }
     assert.equal(projectSafePrivateSeedField(seedField())?.fieldKey, "aliases");
     assert.equal(
       projectSafePrivateSeedField(
@@ -427,13 +441,11 @@ describe("seed handoff helpers", () => {
       headline: undefined,
       bio: undefined,
       about: undefined,
-      avatarImageUrl: undefined,
-      bannerImageUrl: undefined,
       outboundLinks: [],
       region: undefined,
       timezone: undefined,
       person: { roleTags: [] },
-      fieldVisibility: {},
+      fieldVisibility: { avatarImageUrl: "private" },
     });
   });
 

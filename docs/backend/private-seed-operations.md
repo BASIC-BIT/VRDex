@@ -105,8 +105,9 @@ only when an actual recheck occurred and rejects future timestamps.
 
 The first grant for the operator is `super_admin`. Beta users receive only
 `view_private_seed_lookup`; beta lookup returns reviewed candidates and accepted
-fields only from `private_only` import batches, while a super-admin can inspect
-unreviewed private staging records across import policies.
+fields only from `private_only` import batches that are not rejected or
+superseded, while a super-admin can inspect unreviewed private staging records
+across import policies.
 
 ```powershell
 pnpm exec convex run --prod accountFeatureGrants:grant `
