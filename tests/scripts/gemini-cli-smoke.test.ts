@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 
 import {
+  assertGeminiHostedDataBackedOutput,
   assertGeminiMcpListOutput,
   geminiProviderQuotaMessage,
   geminiSpawnForPlatform,
@@ -52,6 +53,21 @@ async function waitForProcessExit(pid: number) {
 }
 
 describe("Gemini CLI MCP smoke harness", () => {
+  it("requires non-empty hosted data-backed search output", () => {
+    const search = { limit: 1, query: "club", type: "all" as const };
+    const event = (results: unknown[]) => [
+      { tool: "vrdex_search", input: search },
+      { content: JSON.stringify({ query: "club", results, type: "all" }) },
+      { result: "hosted-ok" },
+    ];
+
+    assert.doesNotThrow(() => assertGeminiHostedDataBackedOutput(event([{ slug: "club-night" }]), search));
+    assert.throws(
+      () => assertGeminiHostedDataBackedOutput(event([]), search),
+      /returned no public results/,
+    );
+  });
+
   it("runs disposable package launches through cmd.exe on Windows", () => {
     const spawn = geminiSpawnForPlatform({
       comSpec: "C:\\Windows\\System32\\cmd.exe",

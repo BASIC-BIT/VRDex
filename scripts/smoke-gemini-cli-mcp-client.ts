@@ -649,18 +649,57 @@ function assertGeminiOutput(result: RunResult, options: GeminiOptions, label: st
   );
 
   try {
-    return jsonText(parseJsonLines(result.stdout));
+    return parseJsonLines(result.stdout);
   } catch {
     throw new Error(`${label} did not return stream-json output: ${result.stdout.slice(0, 500)}`);
   }
 }
 
-function assertHostedToolUse(output: string, search: HostedSearchArgs) {
+function hasNonEmptyResults(value: unknown, depth = 0): boolean {
+  if (depth > 12) {
+    return false;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+
+    if (!(trimmed.startsWith("{") || trimmed.startsWith("["))) {
+      return false;
+    }
+
+    try {
+      return hasNonEmptyResults(JSON.parse(trimmed), depth + 1);
+    } catch {
+      return false;
+    }
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((entry) => hasNonEmptyResults(entry, depth + 1));
+  }
+
+  if (value !== null && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+
+    if (Array.isArray(record.results) && record.results.length > 0) {
+      return true;
+    }
+
+    return Object.values(record).some((entry) => hasNonEmptyResults(entry, depth + 1));
+  }
+
+  return false;
+}
+
+export function assertGeminiHostedDataBackedOutput(events: unknown[], search: HostedSearchArgs) {
+  const output = jsonText(events);
+
   assert.match(output, /vrdex_search/, "Gemini CLI did not emit a vrdex_search tool call in stream-json output.");
   assert.match(output, new RegExp(escapeRegExp(search.query)), "Gemini CLI output did not include the expected query.");
   assert.match(output, new RegExp(escapeRegExp(search.type)), "Gemini CLI output did not include the expected search type.");
   assert.match(output, new RegExp(escapeRegExp(String(search.limit))), "Gemini CLI output did not include the expected limit.");
   assert.match(output, /results/, "Gemini CLI output did not include structured search results.");
+  assert.ok(hasNonEmptyResults(events), "Gemini CLI hosted data-backed vrdex_search returned no public results.");
   assert.match(output, /hosted-ok/, "Gemini CLI did not finish with the expected hosted-ok marker.");
 }
 
@@ -725,7 +764,7 @@ async function smokeLocalStdio(projectDir: string, options: GeminiOptions, repoR
       "After the tool returns, respond exactly club-night and no other text.",
     ].join(" ");
     const result = await runGemini(options, buildGeminiPromptArgs(options, prompt), projectDir);
-    const output = assertGeminiOutput(result, options, "Gemini CLI local stdio MCP");
+    const output = jsonText(assertGeminiOutput(result, options, "Gemini CLI local stdio MCP"));
 
     assert.match(output, /vrdex_search/, "Gemini CLI did not emit a vrdex_search tool call in stream-json output.");
     assert.match(output, /club-night/, "Gemini CLI did not finish with the expected club-night marker.");
@@ -765,13 +804,13 @@ async function smokeHostedHttp(projectDir: string, options: GeminiOptions) {
     "After the tool returns, respond exactly hosted-ok and no other text.",
   ].join(" ");
   const result = await runGemini(options, buildGeminiPromptArgs(options, prompt), projectDir);
-  const output = assertGeminiOutput(result, options, "Gemini CLI hosted HTTP MCP");
+  const events = assertGeminiOutput(result, options, "Gemini CLI hosted HTTP MCP");
 
-  assertHostedToolUse(output, hostedSearch);
+  assertGeminiHostedDataBackedOutput(events, hostedSearch);
 
   const row =
     options.hostedOAuthToken === undefined
-      ? `| Gemini CLI hosted anonymous HTTP MCP | pass | vrdex_search returned structured content for ${hostedUrl} with query=${JSON.stringify(hostedSearch.query)}, type=${hostedSearch.type}, limit=${hostedSearch.limit} |`
+      ? `| Gemini CLI hosted anonymous HTTP MCP | pass | vrdex_search returned non-empty structured content for ${hostedUrl} with query=${JSON.stringify(hostedSearch.query)}, type=${hostedSearch.type}, limit=${hostedSearch.limit} |`
       : `| Gemini CLI hosted OAuth HTTP MCP | pass | acquired or supplied MCP-resource OAuth token completed vrdex_search for ${hostedUrl} with query=${JSON.stringify(hostedSearch.query)}, type=${hostedSearch.type}, limit=${hostedSearch.limit} without exposing the token or client secret |`;
 
   console.log(

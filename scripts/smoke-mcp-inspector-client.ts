@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
 import {
   fetchMcpOAuthClientCredentialsToken,
@@ -32,6 +33,12 @@ type ToolDescriptor = {
     securitySchemes?: unknown;
   };
   name?: unknown;
+};
+
+type InspectorSearchResult = {
+  query?: unknown;
+  results?: unknown;
+  type?: unknown;
 };
 
 const expectedTools = [
@@ -297,6 +304,19 @@ function assertHostedTools(body: { tools?: ToolDescriptor[] }, label: string) {
   }
 }
 
+export function assertInspectorDataBackedSearch(
+  structuredContent: InspectorSearchResult,
+  search: InspectorOptions["search"],
+) {
+  assert.equal(structuredContent.query, search.query);
+  assert.equal(structuredContent.type, search.type);
+  assert.equal(Array.isArray(structuredContent.results), true);
+  assert.ok(
+    (structuredContent.results as unknown[]).length > 0,
+    "MCP Inspector hosted data-backed vrdex_search returned no public results.",
+  );
+}
+
 async function smokeHostedOAuthToolList(options: InspectorOptions) {
   const token = await hostedOAuthToken(options);
 
@@ -342,15 +362,9 @@ async function smokeHostedDataSearch(options: InspectorOptions) {
 
   assert.equal(typeof text, "string", "MCP Inspector hosted vrdex_search did not return text JSON.");
 
-  const structuredContent = JSON.parse(text as string) as {
-    query?: unknown;
-    results?: unknown;
-    type?: unknown;
-  };
+  const structuredContent = JSON.parse(text as string) as InspectorSearchResult;
 
-  assert.equal(structuredContent.query, options.search.query);
-  assert.equal(structuredContent.type, options.search.type);
-  assert.equal(Array.isArray(structuredContent.results), true);
+  assertInspectorDataBackedSearch(structuredContent, options.search);
 
   return "pass";
 }
@@ -402,7 +416,9 @@ async function main() {
   );
 }
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exit(1);
-});
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exit(1);
+  });
+}

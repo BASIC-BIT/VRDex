@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { startVrdexMcpApiFixture } from "../packages/vrdex-mcp/tests/api-fixture";
 import {
@@ -463,6 +464,19 @@ function parseToolResultText(text: string | undefined) {
   }
 }
 
+export function assertClaudeDataBackedSearch(
+  parsed: { query?: unknown; results?: unknown; type?: unknown },
+  expectedSearch: HostedSearchArgs,
+) {
+  assert.equal(parsed.query, expectedSearch.query);
+  assert.equal(parsed.type, expectedSearch.type);
+  assert.equal(Array.isArray(parsed.results), true);
+  assert.ok(
+    (parsed.results as unknown[]).length > 0,
+    "Claude Code hosted data-backed vrdex_search returned no public results.",
+  );
+}
+
 function assertHostedToolUse(events: ClaudeStreamEvent[], expectedSearch: HostedSearchArgs) {
   let toolUseId: string | undefined;
   let toolResultText: string | undefined;
@@ -492,9 +506,7 @@ function assertHostedToolUse(events: ClaudeStreamEvent[], expectedSearch: Hosted
   assert.notEqual(toolResultError, true, `Hosted vrdex_search failed: ${toolResultText}`);
   const parsed = parseToolResultText(toolResultText);
 
-  assert.equal(parsed.query, expectedSearch.query);
-  assert.equal(parsed.type, expectedSearch.type);
-  assert.equal(Array.isArray(parsed.results), true);
+  assertClaudeDataBackedSearch(parsed, expectedSearch);
 
   const finalResult = events.findLast((event) => event.type === "result")?.result?.trim();
 
@@ -528,7 +540,7 @@ async function smokeHostedHttp(configPath: string, options: SmokeOptions, repoRo
 
   const row =
     options.hostedOAuthToken === undefined
-      ? `| Claude Code hosted anonymous HTTP MCP | pass | vrdex_search returned structured content for ${hostedUrl} with query=${JSON.stringify(hostedSearch.query)}, type=${hostedSearch.type}, limit=${hostedSearch.limit} |`
+      ? `| Claude Code hosted anonymous HTTP MCP | pass | vrdex_search returned non-empty structured content for ${hostedUrl} with query=${JSON.stringify(hostedSearch.query)}, type=${hostedSearch.type}, limit=${hostedSearch.limit} |`
       : `| Claude Code hosted OAuth HTTP MCP | pass | acquired or supplied MCP-resource OAuth token completed vrdex_search for ${hostedUrl} with query=${JSON.stringify(hostedSearch.query)}, type=${hostedSearch.type}, limit=${hostedSearch.limit} without exposing the token or client secret |`;
 
   console.log(
@@ -560,7 +572,9 @@ async function main() {
   }
 }
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exit(1);
-});
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exit(1);
+  });
+}

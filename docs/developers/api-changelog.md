@@ -17,6 +17,9 @@ docs update and a changelog entry so early consumers and agents can adapt.
 - recorded real installed VS Code client passes for local stdio and hosted
   anonymous HTTP after the client listed VRDex tools and completed the exact
   `vrdex_search` smoke call
+- tightened Claude Code, Gemini CLI, and MCP Inspector `--hosted-data` smokes
+  to reject empty result arrays, with regression coverage; current-target
+  client evidence now supersedes passes captured from older staging revisions
 
 ## 2026-07-09
 

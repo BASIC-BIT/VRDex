@@ -85,11 +85,11 @@
           "surface": "hosted_http_anonymous",
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
-          "manualStatus": "pass",
-          "notes": "Hosted anonymous HTTP evidence refreshed after PR branch staging deploy run 29037734496. Claude Code called hosted vrdex_search against staging; hosted OAuth remains a separate row requiring reviewed OAuth credentials or token fallback.",
-          "environment": "Windows Claude Code hosted HTTP smoke against staging after GitHub Actions Staging Deploy run 29037734496",
-          "manualEvidence": "corepack pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url https://staging.vrdex.net/mcp --hosted-data --hosted-query a --model claude-haiku-4-5-20251001 passed: Claude Code called hosted vrdex_search and returned structured content.",
-          "lastRunAt": "2026-07-09"
+          "manualStatus": "fail",
+          "notes": "The 2026-07-09 data-backed pass on the earlier staging revision is superseded. The tightened 2026-07-10 real-client rerun reached vrdex_search but the current target returned no public results; hosted OAuth remains a separate row.",
+          "environment": "Windows / Claude Code 2.1.176 / current staging baaf49e",
+          "manualEvidence": "2026-07-10 tightened pnpm smoke:mcp-claude-code --mode hosted-http --hosted-data reached vrdex_search through the real client but failed because the current staging target returned no public results for query club.",
+          "lastRunAt": "2026-07-10"
         },
         {
           "id": "hosted-oauth",
@@ -121,10 +121,10 @@
           "surface": "hosted_http_anonymous",
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
-          "manualStatus": "pass",
-          "notes": "Staging is now a valid hosted MCP target, but Gemini CLI hosted anonymous evidence remains failed because the provider quota was reached before any MCP tool call. Retry the same command or capture an interactive /mcp session when quota is available.",
-          "environment": "Windows / Gemini CLI 0.50.0 via @google/gemini-cli@latest / gemini-3.1-flash-lite / https://staging.vrdex.net/mcp",
-          "manualEvidence": "2026-07-10: pnpm smoke:mcp-gemini-cli with the disposable @google/gemini-cli@latest package reported vrdex Connected, called mcp_vrdex_vrdex_search with query=a type=all limit=1, returned structured content, and completed hosted-ok.",
+          "manualStatus": "fail",
+          "notes": "Gemini CLI connected to the current hosted MCP target and called vrdex_search, but the tightened data-backed assertion rejected the empty public result set. This supersedes the earlier staging pass.",
+          "environment": "Windows / Gemini CLI 0.50.0 / gemini-3.1-flash-lite / current staging baaf49e",
+          "manualEvidence": "2026-07-10 tightened pnpm smoke:mcp-gemini-cli connected the real client to vrdex and called vrdex_search, then failed because the current staging target returned no public results for query club.",
           "lastRunAt": "2026-07-10"
         },
         {
@@ -133,7 +133,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
           "manualStatus": "pending",
-          "notes": "Gemini CLI documents automatic OAuth discovery, Dynamic Client Registration, /mcp auth, and secure token storage for remote MCP servers. Prefer native OAuth evidence; pnpm smoke:mcp-gemini-cli also supports reviewed OAuth client credentials or VRDEX_GEMINI_CLI_OAUTH_TOKEN for repeatable token-backed fallback evidence. 2026-07-09 local process has GEMINI_API_KEY and can launch Gemini CLI 0.50.0, but the Gemini API provider quota failed before any hosted OAuth MCP call could run; VRDEX_GEMINI_CLI_OAUTH_TOKEN is still not configured. Record hosted mcp:read behavior against the deployed target before marking this row pass."
+          "notes": "Gemini CLI documents automatic OAuth discovery, Dynamic Client Registration, /mcp auth, and secure token storage for remote MCP servers. Prefer native OAuth evidence; pnpm smoke:mcp-gemini-cli also supports reviewed OAuth client credentials or VRDEX_GEMINI_CLI_OAUTH_TOKEN for repeatable token-backed fallback evidence. The 2026-07-10 real client reaches hosted tools, but staging DCR/CIMD persistence and data-backed reads currently fail and no token fallback is configured. Record hosted mcp:read behavior after those prerequisites pass."
         }
       ]
     },
@@ -219,11 +219,11 @@
           "surface": "hosted_http_anonymous",
           "requiredForExternalReadiness": true,
           "repoEvidence": "pnpm smoke:mcp-openai -- --hosted-url <production-like-/mcp-url> --hosted-data when OPENAI_API_KEY is available through process env or repo-root .env.local and the target exposes data-backed search/fetch; ChatGPT Apps/Connectors UI evidence remains separate",
-          "manualStatus": "pass",
-          "notes": "Responses API remote MCP integration evidence is pass against staging after branch staging deploy run 29037734496. This does not replace ChatGPT Apps/Connectors UI or hosted OAuth product-surface evidence, which remain separate rows.",
-          "environment": "Windows local OpenAI Responses API smoke against staging after GitHub Actions Staging Deploy run 29037734496",
-          "manualEvidence": "corepack pnpm smoke:mcp-openai against https://staging.vrdex.net/mcp passed: gpt-5.6-luna called hosted MCP search and fetch for query a through the OpenAI Responses API smoke harness.",
-          "lastRunAt": "2026-07-09"
+          "manualStatus": "fail",
+          "notes": "The 2026-07-09 Responses API pass on the earlier staging revision is superseded. The 2026-07-10 current-target preflight failed data-backed search before provider invocation; ChatGPT Apps/Connectors UI and hosted OAuth product-surface evidence remain separate rows.",
+          "environment": "Windows / OpenAI Responses API preflight / current staging baaf49e",
+          "manualEvidence": "2026-07-10 pnpm smoke:mcp-openai --hosted-data failed before provider invocation because hosted MCP search returned no results for query club on the current staging target.",
+          "lastRunAt": "2026-07-10"
         },
         {
           "id": "hosted-oauth",
@@ -231,7 +231,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
           "manualStatus": "pending",
-          "notes": "Current OpenAI guidance recommends CIMD when supported and keeps DCR available; VRDex implements both public-client CIMD and DCR. 2026-07-09 top-level hosted protocol evidence is pass against staging after branch staging deploy run 29037734496, and the Responses API hosted anonymous-read smoke is recorded separately. ChatGPT Apps/Connectors hosted OAuth behavior and any app review requirement remain unrecorded."
+          "notes": "Current OpenAI guidance recommends CIMD when supported and keeps DCR available; VRDex implements both paths, but current staging DCR/CIMD persistence fails without an environment-matched Convex admin credential. ChatGPT Apps/Connectors hosted OAuth behavior and any app review requirement remain unrecorded."
         }
       ]
     },
@@ -285,11 +285,11 @@
           "surface": "hosted_http_anonymous",
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
-          "manualStatus": "pass",
-          "notes": "Hosted anonymous HTTP evidence refreshed after PR branch staging deploy run 29037734496; MCP Inspector listed hosted tools and completed data-backed vrdex_search against staging. Hosted OAuth remains a separate row requiring reviewed OAuth credentials or token fallback.",
-          "environment": "Windows local MCP Inspector CLI hosted smoke against staging after GitHub Actions Staging Deploy run 29037734496",
-          "manualEvidence": "corepack pnpm smoke:mcp-inspector -- --hosted-url https://staging.vrdex.net/mcp --hosted-data --query a listed eight hosted VRDex tools with public-read auth metadata and returned structured content from data-backed vrdex_search.",
-          "lastRunAt": "2026-07-09"
+          "manualStatus": "fail",
+          "notes": "The 2026-07-09 Inspector data-backed pass on the earlier staging revision is superseded. The tightened 2026-07-10 rerun still listed all tools and called vrdex_search, but the current target returned no public results; hosted OAuth remains separate.",
+          "environment": "Windows / MCP Inspector CLI / current staging baaf49e",
+          "manualEvidence": "2026-07-10 tightened pnpm smoke:mcp-inspector listed all eight hosted tools, called vrdex_search, and failed data-backed validation because the current staging target returned no public results for query club.",
+          "lastRunAt": "2026-07-10"
         },
         {
           "id": "hosted-oauth",

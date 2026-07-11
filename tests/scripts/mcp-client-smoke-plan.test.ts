@@ -25,8 +25,7 @@ describe("MCP client smoke planner", () => {
     assert.match(result.stdout, /OAuth smoke credentials/);
     assert.match(result.stdout, /`claude-code\/hosted-oauth`, `mcp-inspector\/hosted-oauth`/);
     assert.match(result.stdout, /Missing client install or account setup/);
-    assert.match(result.stdout, /`gemini-cli\/hosted-oauth`/);
-    assert.doesNotMatch(result.stdout, /`gemini-cli\/hosted-anonymous-read`/);
+    assert.match(result.stdout, /`gemini-cli\/hosted-anonymous-read`, `gemini-cli\/hosted-oauth`/);
     assert.match(result.stdout, /Installed app tool-call session/);
     assert.match(result.stdout, /`cursor\/local-stdio`, `cursor\/hosted-anonymous-read`/);
     assert.match(result.stdout, /Installed app OAuth session/);
@@ -34,8 +33,7 @@ describe("MCP client smoke planner", () => {
     assert.match(result.stdout, /Desktop or custom connector session/);
     assert.match(result.stdout, /`claude-desktop\/local-stdio`, `claude-desktop\/hosted-anonymous-read`, `claude-desktop\/hosted-oauth`/);
     assert.match(result.stdout, /OpenAI-compatible hosted target or product surface access/);
-    assert.match(result.stdout, /`openai-chatgpt\/hosted-oauth`/);
-    assert.doesNotMatch(result.stdout, /`openai-chatgpt\/hosted-anonymous-read`, `openai-chatgpt\/hosted-oauth`/);
+    assert.match(result.stdout, /`openai-chatgpt\/hosted-anonymous-read`, `openai-chatgpt\/hosted-oauth`/);
   });
 
   it("prints client-specific VS Code setup hints with the hosted origin for local stdio", () => {
