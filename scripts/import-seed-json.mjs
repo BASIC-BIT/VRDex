@@ -98,13 +98,13 @@ export function chunkPermissionedSeedImport(
   return chunks;
 }
 
-function runConvexMutation(mutationArgs, previewName) {
+function runConvexMutation(mutationArgs, deployment) {
   const convexArgs = ["run"];
   if (args.includes("--prod")) {
     convexArgs.push("--prod");
   }
-  if (previewName) {
-    convexArgs.push("--preview-name", previewName);
+  if (deployment) {
+    convexArgs.push("--deployment", deployment);
   }
   convexArgs.push(
     "seedImports:importPermissionedJsonBatch",
@@ -128,7 +128,7 @@ function main() {
 
   if (!file || !actorToken || !actorIssuer || !actorSubject) {
     fail(
-      "Usage: pnpm ops:seed-import:json -- --file <outside-repo.json> --actor-token <id> --actor-issuer <issuer> --actor-subject <subject> [--actor-name <name>] [--prod|--preview-name <name>]",
+      "Usage: pnpm ops:seed-import:json -- --file <outside-repo.json> --actor-token <id> --actor-issuer <issuer> --actor-subject <subject> [--actor-name <name>] [--prod|--deployment <name>]",
     );
   }
 
@@ -167,13 +167,13 @@ function main() {
     fail(error instanceof Error ? error.message : "Seed import JSON is invalid.");
   }
 
-  const previewName = option("--preview-name");
+  const deployment = option("--deployment");
   let insertedCandidates = 0;
   let skippedCandidates = 0;
   let insertedFields = 0;
 
   for (const [index, mutationArgs] of chunks.entries()) {
-    const result = runConvexMutation(mutationArgs, previewName);
+    const result = runConvexMutation(mutationArgs, deployment);
     if (result.status !== 0) {
       fail(
         `Seed import failed in chunk ${index + 1} of ${chunks.length}. Inspect Convex deployment logs; source contents were not printed.`,

@@ -17,12 +17,6 @@ import {
 const seedAccessApi = (api as unknown as {
   seedAccess: {
     viewerAccess: FunctionReference<"query", "public", Record<string, never>, SeedLookupViewerAccess>;
-    lookupPeople: FunctionReference<
-      "query",
-      "public",
-      { query: string; limit?: number },
-      PrivateSeedLookupResult[]
-    >;
   };
 }).seedAccess;
 
@@ -316,21 +310,9 @@ export async function fetchProfileLookup(query: string) {
       ? fetchQuery(seedAccessApi.viewerAccess, {}, { token })
       : Promise.resolve(signedOutSeedAccess);
     const [results, viewerAccess] = await Promise.all([publicResultsPromise, viewerAccessPromise]);
-    let privateResults: PrivateSeedLookupResult[] = fixturePrivateResults ?? [];
-
-    if (fixturePrivateResults === undefined && viewerAccess.allowed && query.length >= 2) {
-      try {
-        privateResults = await fetchQuery(seedAccessApi.lookupPeople, { query, limit: 12 }, { token });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-
-        console.error(`Server-side private seed lookup failed: ${message}`);
-      }
-    }
-
     return {
       kind: "live" as const,
-      privateResults,
+      privateResults: fixturePrivateResults ?? [] as PrivateSeedLookupResult[],
       results,
       viewerAccess,
     };

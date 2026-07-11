@@ -33,7 +33,7 @@ const expiresInHours = Number(option("--expires-in-hours") ?? "72");
 
 if (!candidateId || !actorToken || !actorIssuer || !actorSubject) {
   fail(
-    "Usage: pnpm ops:seed-handoff:create -- --candidate-id <id> --actor-token <id> --actor-issuer <issuer> --actor-subject <subject> [--field-ids <id,id>] [--profile-id <id>] [--expires-in-hours <hours>] [--base-url <url>] [--prod|--preview-name <name>]",
+    "Usage: pnpm ops:seed-handoff:create -- --candidate-id <id> --actor-token <id> --actor-issuer <issuer> --actor-subject <subject> [--field-ids <id,id>] [--profile-id <id>] [--expires-in-hours <hours>] [--base-url <url>] [--prod|--deployment <name>]",
   );
 }
 
@@ -46,9 +46,9 @@ const convexArgs = ["run"];
 if (args.includes("--prod")) {
   convexArgs.push("--prod");
 }
-const previewName = option("--preview-name");
-if (previewName) {
-  convexArgs.push("--preview-name", previewName);
+const deployment = option("--deployment");
+if (deployment) {
+  convexArgs.push("--deployment", deployment);
 }
 convexArgs.push(
   "seedHandoffs:createInvitation",

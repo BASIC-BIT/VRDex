@@ -69,23 +69,30 @@ export const lookupPeople = query({
         )
         .take(limit * 2),
     ]);
-    const candidates = [...draftCandidates, ...reviewCandidates]
-      .filter((candidate) =>
-        canIncludePrivateSeedCandidate(candidate, access.superAdmin),
+    const candidatesWithBatches = await Promise.all(
+      [...draftCandidates, ...reviewCandidates].map(async (candidate) => ({
+        batch: await ctx.db.get(candidate.batchId),
+        candidate,
+      })),
+    );
+    const candidates = candidatesWithBatches
+      .filter(({ batch, candidate }) =>
+        canIncludePrivateSeedCandidate(
+          candidate,
+          batch?.publicationPolicy,
+          access.superAdmin,
+        ),
       )
       .slice(0, limit);
 
     return await Promise.all(
-      candidates.map(async (candidate) => {
-        const [batch, fields] = await Promise.all([
-          ctx.db.get(candidate.batchId),
-          ctx.db
-            .query("seedImportCandidateFields")
-            .withIndex("by_candidateId", (query) =>
-              query.eq("candidateId", candidate._id),
-            )
-            .collect(),
-        ]);
+      candidates.map(async ({ batch, candidate }) => {
+        const fields = await ctx.db
+          .query("seedImportCandidateFields")
+          .withIndex("by_candidateId", (query) =>
+            query.eq("candidateId", candidate._id),
+          )
+          .collect();
         const projectedFields = fields
           .filter((field) =>
             access.superAdmin

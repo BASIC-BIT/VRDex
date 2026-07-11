@@ -1,10 +1,13 @@
 "use client";
 
+import { useConvex } from "convex/react";
+import type { FunctionReference } from "convex/server";
 import Image from "next/image";
 import Link from "next/link";
 import { useFeatureFlagEnabled, usePostHog } from "posthog-js/react";
 import { type CSSProperties, useCallback, useEffect, useRef, useState, useTransition } from "react";
 
+import { api } from "@convex-generated-api";
 import { LookupCopyButton } from "./lookup-copy-button";
 import { LookupSearchBox } from "./lookup-search-box";
 import { buttonVariants } from "@/components/ui/button";
@@ -122,6 +125,17 @@ export type BulkLookupEntry = {
   query: string;
   results: ProfileLookupDisplayResult[];
 };
+
+const seedAccessApi = (api as unknown as {
+  seedAccess: {
+    lookupPeople: FunctionReference<
+      "query",
+      "public",
+      { query: string; limit?: number },
+      PrivateSeedLookupResult[]
+    >;
+  };
+}).seedAccess;
 
 type LookupLink = PublicProfileLookupResult["outboundLinks"][number];
 
@@ -714,7 +728,7 @@ function PrivateSeedIdentity({ candidate }: { candidate: PrivateSeedLookupResult
   const metadata = privateSeedMetadata(candidate);
 
   return (
-    <div className="lookup-private-identity" data-ph-no-capture>
+    <div className="lookup-private-identity ph-no-capture" data-ph-no-capture>
       <span className="lookup-private-label">Private seed</span>
       <span className="lookup-private-name">{candidate.displayName}</span>
       {aliases.length > 0 ? (
@@ -734,7 +748,7 @@ function PrivateSeedIdentity({ candidate }: { candidate: PrivateSeedLookupResult
 
 function PrivateSeedResultRow({ candidate }: { candidate: PrivateSeedLookupResult }) {
   return (
-    <tr className="lookup-result-row lookup-private-result align-middle" data-ph-no-capture>
+    <tr className="lookup-result-row lookup-private-result ph-no-capture align-middle" data-ph-no-capture>
       <TableCell className="lookup-name-cell px-2 py-2">
         <PrivateSeedIdentity candidate={candidate} />
       </TableCell>
@@ -751,7 +765,7 @@ function PrivateSeedResultRow({ candidate }: { candidate: PrivateSeedLookupResul
 function PrivateSeedResultCard({ candidate }: { candidate: PrivateSeedLookupResult }) {
   return (
     <Card
-      className="lookup-result-card lookup-private-result grid gap-2"
+      className="lookup-result-card lookup-private-result ph-no-capture grid gap-2"
       data-ph-no-capture
       padding="sm"
     >
@@ -826,6 +840,7 @@ export function ProfileLookupPage({
   status: LookupStatus;
   viewerAccess: SeedLookupViewerAccess;
 }) {
+  const convex = useConvex();
   const posthog = usePostHog();
   const privateUiFlag = useFeatureFlagEnabled(PRIVATE_SEED_LOOKUP_UI_FLAG);
   const [theme, setTheme] = useState<LookupTheme>("dark");
@@ -860,6 +875,63 @@ export function ProfileLookupPage({
     });
   }, [displayQuery, posthog, seedViewerAccess.source, visiblePrivateResults.length]);
 
+  const fetchAllowedPrivateResults = useCallback(async (
+    nextLookup: LookupResponse,
+    nextQuery: string,
+  ) => {
+    const enabled = nextLookup.viewerAccess.source === "super_admin" || privateUiFlag === true;
+
+    if (!nextLookup.viewerAccess.allowed || !enabled) {
+      return [];
+    }
+
+    if (nextLookup.privateResults.length > 0) {
+      return nextLookup.privateResults;
+    }
+
+    try {
+      return await convex.query(seedAccessApi.lookupPeople, {
+        query: nextQuery,
+        limit: 12,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Client-side private seed lookup failed: ${message}`);
+      return [];
+    }
+  }, [convex, privateUiFlag]);
+
+  useEffect(() => {
+    const enabled = viewerAccess.source === "super_admin" || privateUiFlag === true;
+
+    if (
+      requestVersionRef.current !== 0 ||
+      query.length < 2 ||
+      privateResults.length > 0 ||
+      !viewerAccess.allowed ||
+      !enabled
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void convex.query(seedAccessApi.lookupPeople, { query, limit: 12 })
+      .then((initialPrivateResults) => {
+        if (!cancelled && requestVersionRef.current === 0) {
+          startTransition(() => setDisplayPrivateResults(initialPrivateResults));
+        }
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`Client-side private seed lookup failed: ${message}`);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [convex, privateResults.length, privateUiFlag, query, viewerAccess]);
+
   const runLookup = useCallback(async (nextQuery: string) => {
     const normalizedQuery = nextQuery.trim();
 
@@ -880,6 +952,10 @@ export function ProfileLookupPage({
 
     try {
       const nextLookup = await fetchLookupResults(normalizedQuery);
+      const nextPrivateResults = await fetchAllowedPrivateResults(
+        nextLookup,
+        normalizedQuery,
+      );
 
       if (requestVersionRef.current !== requestVersion) {
         return;
@@ -888,7 +964,7 @@ export function ProfileLookupPage({
       startTransition(() => {
         setDisplayQuery(normalizedQuery);
         setDisplayResults(nextLookup.results);
-        setDisplayPrivateResults(nextLookup.viewerAccess.allowed ? nextLookup.privateResults : []);
+        setDisplayPrivateResults(nextPrivateResults);
         setSeedViewerAccess(nextLookup.viewerAccess);
         setLookupStatus("live");
         setBulkEntries([]);
@@ -903,7 +979,7 @@ export function ProfileLookupPage({
         setPendingLabel(null);
       }
     }
-  }, [posthog, privateUiEnabled, seedViewerAccess.allowed]);
+  }, [fetchAllowedPrivateResults, posthog, privateUiEnabled, seedViewerAccess.allowed]);
 
   const runBulkLookup = useCallback(async (lines: string[]) => {
     if (lines.length === 0) {
@@ -934,16 +1010,17 @@ export function ProfileLookupPage({
       const entries = await Promise.all(
         lines.map(async (line) => {
           const lookup = await fetchLookupResults(line);
+          const privateResults = await fetchAllowedPrivateResults(lookup, line);
           const showPrivate = lookup.viewerAccess.allowed && (
             lookup.viewerAccess.source === "super_admin" || privateUiFlag === true
           );
 
           return {
-            lookup,
+            lookup: { ...lookup, privateResults },
             query: line,
             results: [
               ...lookup.results,
-              ...(showPrivate ? lookup.privateResults : []),
+              ...(showPrivate ? privateResults : []),
             ],
           };
         }),
@@ -985,6 +1062,7 @@ export function ProfileLookupPage({
       }
     }
   }, [
+    fetchAllowedPrivateResults,
     posthog,
     privateUiEnabled,
     privateUiFlag,

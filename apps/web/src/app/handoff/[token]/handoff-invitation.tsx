@@ -406,7 +406,7 @@ class HandoffErrorBoundary extends Component<{ children: ReactNode }, { hasError
 
 export function HandoffInvitation({ fixture, token }: { fixture: HandoffFixture | null; token: string }) {
   return (
-    <PageShell className="handoff-shell py-6 sm:py-8" data-ph-no-capture>
+    <PageShell className="handoff-shell ph-no-capture py-6 sm:py-8" data-ph-no-capture>
       <PageContainer max="5xl">
         <PageNav className="border-b border-[#182f36]/15 pb-5">
           <BrandLink />

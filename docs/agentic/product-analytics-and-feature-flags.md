@@ -153,6 +153,8 @@ Locked implementation behavior:
   ingestion and SDK asset requests to the configured PostHog host.
 - Session replay starts only on explicitly public, non-form routes. It remains
   disabled on lookup, handoff, sign-in, account, submission, and editor routes.
+- PostHog's `ph-no-capture` class excludes marked private surfaces from
+  autocapture, while `[data-ph-no-capture]` blocks and masks session replay.
 - Inputs are masked, `[data-ph-no-capture]` blocks sensitive surfaces, URL
   queries and fragments are removed, and `/handoff/<token>` is normalized to
   `/handoff/redacted` before capture.

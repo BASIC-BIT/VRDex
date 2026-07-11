@@ -261,14 +261,31 @@ describe("private seed projection", () => {
       publicationState: "draft_private" as const,
       reviewState: "unreviewed" as const,
     };
-    assert.equal(canIncludePrivateSeedCandidate(candidate as never, true), true);
-    assert.equal(canIncludePrivateSeedCandidate(candidate as never, false), false);
+    assert.equal(canIncludePrivateSeedCandidate(candidate as never, undefined, true), true);
+    assert.equal(canIncludePrivateSeedCandidate(candidate as never, "private_only", false), false);
     assert.equal(
       canIncludePrivateSeedCandidate(
         { ...candidate, claimState: "claimed_unverified", reviewState: "accepted" } as never,
+        "private_only",
         false,
       ),
       false,
+    );
+    assert.equal(
+      canIncludePrivateSeedCandidate(
+        { ...candidate, reviewState: "accepted" } as never,
+        "reviewed_publication_allowed",
+        false,
+      ),
+      false,
+    );
+    assert.equal(
+      canIncludePrivateSeedCandidate(
+        { ...candidate, reviewState: "accepted" } as never,
+        "private_only",
+        false,
+      ),
+      true,
     );
     assert.equal(projectSafePrivateSeedField(seedField())?.fieldKey, "aliases");
     assert.equal(

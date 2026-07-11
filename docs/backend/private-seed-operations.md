@@ -84,6 +84,8 @@ pnpm ops:seed-import:json -- `
 ```
 
 The command prints counts only. It does not print source rows or field values.
+For a named development or preview deployment, replace `--prod` with
+`--deployment <deployment-name>`.
 
 ## Review And Freshness
 
@@ -103,7 +105,8 @@ only when an actual recheck occurred and rejects future timestamps.
 
 The first grant for the operator is `super_admin`. Beta users receive only
 `view_private_seed_lookup`; beta lookup returns reviewed candidates and accepted
-fields, while a super-admin can inspect unreviewed private staging records.
+fields only from `private_only` import batches, while a super-admin can inspect
+unreviewed private staging records across import policies.
 
 ```powershell
 pnpm exec convex run --prod accountFeatureGrants:grant `
@@ -131,6 +134,9 @@ pnpm ops:seed-handoff:create -- `
   --base-url https://vrdex.gg `
   --prod
 ```
+
+For a named development or preview deployment, replace `--prod` with
+`--deployment <deployment-name>`.
 
 The script generates a 256-bit token and prints the link once. Convex stores
 only its SHA-256 hash. Invitations expire within 90 days, are revocable through
