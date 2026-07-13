@@ -117,8 +117,21 @@ The `staging` Vercel environment points at the shared Convex development deploym
 - `DISCORD_BOT_TOKEN`: staging-only adapter token matching Convex dev env `DISCORD_BOT_TOKEN`
 - `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`: staging-only adapter token matching Convex dev env `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`
 
-Staging must set the API/OAuth/MCP runtime variables listed above before the
-developer-credential or hosted MCP E2E lanes are enabled.
+The staging workflow checks configured Vercel variable names before deployment
+without printing their values. It reads the custom-environment listing and
+ignores any branch-specific record whose `gitBranch` metadata is not `main`.
+Every staging deployment requires the Convex
+URLs, E2E helper contract, deployment environment, and Redis REST rate-limit
+variables listed in `STAGING_BASE_ENVIRONMENT_NAMES` in
+`scripts/check-staging-runtime-env.mjs`. When repository variable
+`VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true`, the preflight also requires
+`CONVEX_ADMIN_TOKEN`, the API and OAuth peppers, the access-token signing key,
+and the explicit issuer, API, and MCP resource URLs. Missing names fail the
+deployment before either Convex or Vercel is mutated; value correctness remains
+a provider bootstrap and hosted-smoke responsibility.
+Optional defaults such as `VRDEX_RATE_LIMIT_REDIS_PREFIX` and enforcement
+switches such as `VRDEX_REQUIRE_CONVEX_URL` remain documented but are not
+treated as required names by this preflight.
 
 The Convex client URL is separate from the Convex Auth callback host. Staging Auth callbacks use `https://db.staging.vrdex.net`; the Convex HTTP Actions custom domain is verified, both OAuth providers include the callback URL, and deployment `scrupulous-corgi-247` selects it as `CONVEX_SITE_URL`.
 
@@ -140,7 +153,7 @@ The `Staging Deploy` workflow runs after `Baseline Checks` succeeds on `main` an
 - variable `VRDEX_HOSTED_E2E_BASE_URL`: hosted health target, currently `https://staging.vrdex.net`
 - secret `VRDEX_HOSTED_E2E_BROWSER_TOKEN`: browser token for hosted E2E helper calls
 
-If any required setting is missing, the workflow writes a skip summary and exits successfully instead of partially deploying staging. When enabled, the workflow deploys Convex development functions first, then deploys Vercel `staging`, then runs `pnpm test:e2e:hosted` against `VRDEX_HOSTED_E2E_BASE_URL`.
+If any required GitHub deployment setting is missing, the workflow writes a skip summary and exits successfully instead of partially deploying staging. When enabled, the workflow first audits the Vercel staging variable-name contract, then deploys Convex development functions, deploys Vercel `staging`, and runs `pnpm test:e2e:hosted` against `VRDEX_HOSTED_E2E_BASE_URL`. Because GitHub Actions snapshots secrets and variables when a run starts, rerun the workflow after completing provider bootstrap.
 
 ## Hosted production environment
 

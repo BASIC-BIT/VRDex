@@ -597,15 +597,16 @@ secrets or the temporary credential-generation gate
 boolean readiness, never secret values. Add `--require-ready` when the audit
 should fail until one of those complete paths is configured.
 
-Current PR #159 audit result from 2026-07-10: reviewed OAuth client secrets and
-the Inspector token fallback are missing. Temporary credential generation is
-enabled through `VRDEX_HOSTED_E2E_AUTH_HELPERS=true`,
+Current PR #159 audit result from 2026-07-12: reviewed OAuth client secrets and
+the Inspector token fallback are missing. Temporary credential generation passes
+through `VRDEX_HOSTED_E2E_AUTH_HELPERS=true`,
 `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true`, and the
-`VRDEX_HOSTED_E2E_BROWSER_TOKEN` secret, but staging still lacks the web-runtime
-API-token pepper, OAuth secrets, and environment-matched Convex admin
-credential. Repair those runtime prerequisites, rerun the audit, and dispatch
-`deployed-health.yml` with `target=hosted-mcp-smoke` and `mcp_oauth=true`
-before recording hosted-OAuth client rows.
+`VRDEX_HOSTED_E2E_BROWSER_TOKEN` secret. The live names-only Vercel
+staging/main audit found 16 configured names and 12 required names missing,
+including the shared Redis backend, Convex admin credential, API/OAuth secrets,
+and issuer/resource URLs. Repair those prerequisites, rerun the audit, and
+dispatch `deployed-health.yml` with `target=hosted-mcp-smoke` and
+`mcp_oauth=true` before recording hosted-OAuth client rows.
 
 These rows are checked separately from manual client UI rows so a lightweight
 PR preview transport smoke cannot accidentally satisfy the production-like

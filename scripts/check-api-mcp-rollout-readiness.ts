@@ -107,6 +107,7 @@ const requiredDeveloperDocs = [
 
 const requiredScripts = [
   "check:api-openapi",
+  "check:staging-runtime-env",
   "check:mcp-client-matrix",
   "ops:api-platform-observability",
   "ops:api-rate-limit-counts",

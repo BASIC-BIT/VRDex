@@ -78,6 +78,27 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         run: pnpm install --frozen-lockfile
 
+      - name: Audit Vercel staging runtime variable names
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          HOSTED_DEVELOPER_CREDENTIALS: ${{ vars.VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          runtime_env_json="$RUNNER_TEMP/vrdex-vercel-staging-env.json"
+          trap 'rm -f "$runtime_env_json"' EXIT
+
+          pnpm dlx vercel@54.4.1 env ls staging --format=json --no-color --token "$VERCEL_TOKEN" > "$runtime_env_json"
+
+          args=(--input "$runtime_env_json" --git-branch main)
+          if [ "$HOSTED_DEVELOPER_CREDENTIALS" = "true" ]; then
+            args+=(--require-developer-credentials)
+          fi
+
+          node scripts/check-staging-runtime-env.mjs "${args[@]}"
+
       - name: Deploy Convex development functions
         if: steps.gate.outputs.enabled == 'true'
         env:

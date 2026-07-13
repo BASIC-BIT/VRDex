@@ -193,14 +193,16 @@ from this foundation and are not implied by a green PR.
   `--chat`/`agent`, and Windsurf setup CLI checks do not count as matrix
   evidence unless the real client session lists tools and calls `vrdex_search`
   or, for OpenAI/ChatGPT-compatible surfaces, `search` plus `fetch`.
-- Current 2026-07-10 repository audit for PR #159: the temporary credential
-  generation gate is enabled through `VRDEX_HOSTED_E2E_AUTH_HELPERS=true`,
+- Current 2026-07-12 repository audit for PR #159: the temporary credential
+  generation gate passes through `VRDEX_HOSTED_E2E_AUTH_HELPERS=true`,
   `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true`, and the
   `VRDEX_HOSTED_E2E_BROWSER_TOKEN` secret. Reviewed OAuth smoke secrets and
-  `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN` remain absent. The gate is not operational
-  yet because the staging web runtime lacks the API-token pepper, OAuth runtime
-  secrets, and environment-matched Convex admin credential. Do not mark hosted
-  OAuth rows pass until the runtime prerequisites and a matching smoke run both
+  `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN` remain absent. The live names-only Vercel
+  staging/main audit found 16 configured names and 12 required names missing,
+  covering the deployment environment, shared Redis rate-limit backend,
+  environment-matched Convex admin credential, API-token pepper, OAuth peppers
+  and signing key, and explicit issuer/resource URLs. Do not mark hosted OAuth
+  rows pass until the runtime prerequisites and a matching smoke run both
   succeed.
 - `pnpm ops:mcp-client-session-pack` writes disposable VS Code, Cursor,
   Windsurf, and Gemini CLI MCP setup files under `.tmp-gh-artifacts/`,

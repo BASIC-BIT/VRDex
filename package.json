@@ -27,6 +27,8 @@
     "build:web:vercel": "pnpm --filter web build:vercel",
     "precheck:web:vercel-env": "node scripts/guard-main-worktree.mjs",
     "check:web:vercel-env": "pnpm --filter web check:vercel-env",
+    "precheck:staging-runtime-env": "node scripts/guard-main-worktree.mjs",
+    "check:staging-runtime-env": "node scripts/check-staging-runtime-env.mjs",
     "pregenerate:api-openapi": "node scripts/guard-main-worktree.mjs",
     "generate:api-openapi": "pnpm --filter @vrdex/api-contracts generate:openapi",
     "precheck:api-openapi": "node scripts/guard-main-worktree.mjs",
@@ -169,7 +171,8 @@
     "lint-staged": "^16.3.3",
     "markdownlint-cli2": "^0.22.1",
     "tsx": "^4.22.1",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "yaml": "^2.8.2"
   },
   "dependencies": {
     "@auth/core": "^0.37.4",
