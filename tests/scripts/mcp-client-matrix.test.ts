@@ -305,7 +305,7 @@ describe("MCP client matrix verifier", () => {
       assert.notEqual(result.status, 0);
       assert.match(
         result.stderr,
-        /MCP client compatibility doc Last reviewed date must match matrix lastReviewed \(2026-07-10\)/,
+        /MCP client compatibility doc Last reviewed date must match matrix lastReviewed \(2026-07-12\)/,
       );
     } finally {
       await rm(directory, { force: true, recursive: true });

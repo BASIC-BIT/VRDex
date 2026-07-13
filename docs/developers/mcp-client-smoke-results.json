@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "lastReviewed": "2026-07-10",
+  "lastReviewed": "2026-07-12",
   "readinessMode": "staging-current-evidence-failed-client-smokes-open",
   "targetEnvironment": "staging https://staging.vrdex.net/mcp @ baaf49e",
   "hostedReadiness": {
