@@ -7,6 +7,18 @@ Changelog for the unstable `/api/v0` and MCP platform foundation.
 `v0` is allowed to change before public launch. Breaking changes still need a
 docs update and a changelog entry so early consumers and agents can adapt.
 
+## 2026-07-13
+
+- added preview-only, secret-gated Convex persistence for OAuth Dynamic Client
+  Registration and Client ID Metadata Documents, plus a deterministic public
+  hosted-search fixture on same-branch previews
+- made PR Hosted MCP Preview Smoke prove data-backed anonymous reads, DCR, and
+  CIMD against the same-branch Vercel and Convex preview; recorded passing
+  Gemini CLI, MCP Inspector, and OpenAI Responses API evidence at `7fe11e8`
+- added a reproducible staging runtime bootstrap for non-Redis API/OAuth
+  secrets; staging promotion now waits only on the Terraform-owned Upstash
+  rate-limit variables
+
 ## 2026-07-10
 
 - replaced superseded staging hosted-readiness passes with current evidence

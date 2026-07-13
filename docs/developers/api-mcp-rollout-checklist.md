@@ -193,16 +193,16 @@ from this foundation and are not implied by a green PR.
   `--chat`/`agent`, and Windsurf setup CLI checks do not count as matrix
   evidence unless the real client session lists tools and calls `vrdex_search`
   or, for OpenAI/ChatGPT-compatible surfaces, `search` plus `fetch`.
-- Current 2026-07-12 repository audit for PR #159: the temporary credential
+- Current 2026-07-13 repository audit for PR #159: the temporary credential
   generation gate passes through `VRDEX_HOSTED_E2E_AUTH_HELPERS=true`,
   `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true`, and the
   `VRDEX_HOSTED_E2E_BROWSER_TOKEN` secret. Reviewed OAuth smoke secrets and
-  `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN` remain absent. The live names-only Vercel
-  staging/main audit found 16 configured names and 12 required names missing,
-  covering the deployment environment, shared Redis rate-limit backend,
-  environment-matched Convex admin credential, API-token pepper, OAuth peppers
-  and signing key, and explicit issuer/resource URLs. Do not mark hosted OAuth
-  rows pass until the runtime prerequisites and a matching smoke run both
+  `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN` remain absent. The staging bootstrap has
+  configured every required non-Redis runtime value. The staging deploy
+  preflight now reports only the Terraform-owned `VRDEX_RATE_LIMIT_STORE`,
+  `VRDEX_RATE_LIMIT_REDIS_REST_URL`, and
+  `VRDEX_RATE_LIMIT_REDIS_REST_TOKEN` as missing. Do not mark hosted OAuth rows
+  pass until the Redis stack, staging deploy, and a matching client smoke all
   succeed.
 - `pnpm ops:mcp-client-session-pack` writes disposable VS Code, Cursor,
   Windsurf, and Gemini CLI MCP setup files under `.tmp-gh-artifacts/`,
@@ -265,8 +265,10 @@ from this foundation and are not implied by a green PR.
   the authoritative CI launch gate and always uploads the client session pack,
   including when the strict gate fails. It also runs live data-backed read,
   Dynamic Client Registration, and Client ID Metadata Document smokes against
-  the selected host. The checked-in matrix target must name that exact host and
-  workflow commit before the strict gate can pass.
+  the selected host. Dispatch the workflow with the exact deployed
+  `evidence_revision`; the checked-in matrix target must name that host and
+  deployed revision before the strict gate can pass. The workflow checkout SHA
+  remains separate provenance and is not self-referential launch evidence.
 - Claude Code local stdio and hosted anonymous HTTP can be real-client smoked
   with `pnpm smoke:mcp-claude-code`, which runs the installed Claude Code CLI
   through a strict temporary MCP config. Use hosted mode with `--hosted-data`
@@ -295,17 +297,13 @@ from this foundation and are not implied by a green PR.
   for slower provider runs. The smoke uses the OpenAI-required hosted `search`
   and `fetch` tool names. Run it with required `--hosted-data` against a
   same-branch or production-like backend before recording API integration
-  evidence. Historical 2026-07-09 evidence passed against
-  `https://staging.vrdex.net/mcp` after PR branch staging deploy run
-  `29037734496`: the full hosted compatibility smoke passed data-backed
-  `vrdex_search`, `search`, `fetch`, DCR, and CIMD, and
-  `pnpm smoke:mcp-openai` reached the Responses API where `gpt-5.6-luna`
-  called hosted MCP `search` and `fetch`. That evidence was superseded by the
-  2026-07-10 deployment of `baaf49e`, whose current data-backed, DCR, and CIMD
-  checks fail and are recorded as such. This does not replace ChatGPT
-  Apps/Connectors UI or hosted OAuth evidence; those product-surface rows stay
-  pending until the current UI proves no-auth public reads and `mcp:read` OAuth
-  behavior.
+  evidence. Current 2026-07-13 same-branch preview evidence at `7fe11e8` passed
+  data-backed `vrdex_search`, `search`, `fetch`, DCR, and CIMD in Hosted MCP
+  Preview Smoke job `86742021720`. A dedicated OpenAI Responses API run then
+  passed with `gpt-5.6-luna` calling hosted MCP `search` and `fetch`. This does
+  not replace ChatGPT Apps/Connectors UI or hosted OAuth evidence; those
+  product-surface rows stay pending until the current UI proves no-auth public
+  reads and `mcp:read` OAuth behavior.
 - The general hosted MCP compatibility smoke now also checks the
   OpenAI-compatible `search` and `fetch` aliases whenever `--hosted-data` is
   set. Use `--hosted-query` or `VRDEX_MCP_SMOKE_QUERY` when the target's

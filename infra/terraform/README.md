@@ -67,4 +67,15 @@ The stack count is intentional, but should stay small:
 changing the hosted Upstash database affects cost and production rate-limit
 posture, so apply it through `workflow_dispatch` after reviewing the plan.
 
+Before the first `rate-limit-redis` apply, a BASIC BIT operator must accept the
+Upstash Marketplace terms from their own interactive terminal:
+
+```sh
+pnpm dlx vercel@54.4.1 integration accept-terms upstash --scope basicbit
+```
+
+Vercel rejects Marketplace term acceptance when it detects an AI agent. Do not
+bypass that gate. The command installs the integration only; Terraform remains
+the owner of the database resource and Vercel runtime bindings.
+
 Current hosted-vs-self-hosted ownership guidance lives in `docs/developers/self-hosting-and-iac.md`. The first AWS service baseline, including SES and the planned private S3 asset-storage follow-up, lives in `docs/deployment/aws-baseline.md`.

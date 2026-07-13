@@ -13,6 +13,10 @@ on:
         required: true
         default: staging https://staging.vrdex.net/mcp
         type: string
+      evidence_revision:
+        description: Exact deployed commit SHA named by the checked-in evidence
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -43,15 +47,25 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Validate deployed evidence revision
+        env:
+          EVIDENCE_REVISION: ${{ inputs.evidence_revision }}
+        run: |
+          if [[ ! "$EVIDENCE_REVISION" =~ ^[0-9a-f]{7,40}$ ]]; then
+            echo "::error::evidence_revision must be a 7-40 character lowercase commit SHA."
+            exit 1
+          fi
+
       - name: Generate MCP client session pack
         id: session-pack
         env:
+          EVIDENCE_REVISION: ${{ inputs.evidence_revision }}
           HOSTED_URL: ${{ inputs.hosted_url }}
           TARGET_ENVIRONMENT: ${{ inputs.target_environment }}
         run: |
           pnpm ops:mcp-client-session-pack -- \
             --hosted-url "$HOSTED_URL" \
-            --target-environment "$TARGET_ENVIRONMENT, ref ${{ github.ref_name }} at ${{ github.sha }}"
+            --target-environment "$TARGET_ENVIRONMENT, deployed revision $EVIDENCE_REVISION, workflow ref ${{ github.ref_name }} at ${{ github.sha }}"
 
       - name: Run live hosted readiness smoke
         id: hosted-smoke
@@ -70,13 +84,14 @@ jobs:
         id: launch-gate
         if: always()
         env:
-          VRDEX_API_MCP_EXPECT_REVISION: ${{ github.sha }}
+          VRDEX_API_MCP_EXPECT_REVISION: ${{ inputs.evidence_revision }}
           VRDEX_API_MCP_EXPECT_TARGET: ${{ inputs.hosted_url }}
         run: pnpm verify:api-mcp-rollout:external
 
       - name: Write readiness summary
         if: always()
         env:
+          EVIDENCE_REVISION: ${{ inputs.evidence_revision }}
           GATE_OUTCOME: ${{ steps.launch-gate.outcome }}
           HOSTED_URL: ${{ inputs.hosted_url }}
           HOSTED_SMOKE_OUTCOME: ${{ steps.hosted-smoke.outcome }}
@@ -91,7 +106,8 @@ jobs:
             echo "- Session pack: $SESSION_PACK_OUTCOME"
             echo "- Hosted URL: \`$HOSTED_URL\`"
             echo "- Target: $TARGET_ENVIRONMENT"
-            echo "- Ref: \`${{ github.ref_name }}\` at \`${{ github.sha }}\`"
+            echo "- Deployed evidence revision: \`$EVIDENCE_REVISION\`"
+            echo "- Workflow ref: \`${{ github.ref_name }}\` at \`${{ github.sha }}\`"
             echo ""
             echo "This workflow is authoritative for external launch readiness. A green PR reports implementation readiness only."
           } >> "$GITHUB_STEP_SUMMARY"

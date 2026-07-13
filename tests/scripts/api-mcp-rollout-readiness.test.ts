@@ -42,11 +42,11 @@ describe("API/MCP rollout readiness checker", () => {
     );
     assert.match(result.stdout, /Rollout verification scripts \| yes \| pass \| 23 required scripts are defined/);
     assert.match(result.stdout, /External readiness workflow \| yes \| pass/);
-    assert.match(result.stdout, /Major MCP client matrix \| yes \| fail \| .*Gemini CLI\/hosted-anonymous-read: fail/);
+    assert.match(result.stdout, /Major MCP client matrix \| yes \| fail \| .*Claude Code\/hosted-anonymous-read: fail/);
     assert.match(result.stdout, /Gemini CLI\/hosted-oauth: pending/);
     assert.match(
       result.stdout,
-      /Production-like hosted MCP evidence \| yes \| fail \| readinessMode=staging-current-evidence-failed-client-smokes-open/,
+      /Production-like hosted MCP evidence \| yes \| pass \| readinessMode=same-branch-preview-hosted-passed-client-smokes-open/,
     );
   });
 
@@ -57,7 +57,7 @@ describe("API/MCP rollout readiness checker", () => {
     assert.match(result.stderr, /API\/MCP rollout is not externally ready/);
     assert.match(result.stderr, /Major MCP client matrix/);
     assert.match(result.stderr, /Gemini CLI\/hosted-oauth: pending/);
-    assert.match(result.stderr, /Gemini CLI\/hosted-anonymous-read: fail/);
+    assert.match(result.stderr, /Claude Code\/hosted-anonymous-read: fail/);
   });
 
   it("rejects token-shaped manual matrix evidence", async () => {
@@ -173,7 +173,16 @@ describe("API/MCP rollout readiness checker", () => {
     assert.match(workflow, /verify:api-mcp-rollout:external/);
     assert.match(workflow, /smoke:mcp-compat/);
     assert.match(workflow, /VRDEX_API_MCP_EXPECT_TARGET/);
-    assert.match(workflow, /VRDEX_API_MCP_EXPECT_REVISION/);
+    assert.match(workflow, /evidence_revision:/);
+    assert.match(
+      workflow,
+      /VRDEX_API_MCP_EXPECT_REVISION: \$\{\{ inputs\.evidence_revision \}\}/,
+    );
+    assert.doesNotMatch(
+      workflow,
+      /VRDEX_API_MCP_EXPECT_REVISION: \$\{\{ github\.sha \}\}/,
+    );
+    assert.match(workflow, /evidence_revision must be a 7-40 character lowercase commit SHA/);
     assert.match(workflow, /ops:mcp-client-session-pack/);
     assert.match(workflow, /actions\/upload-artifact@v7/);
     assert.match(workflow, /if: always\(\)/);

@@ -1,36 +1,36 @@
 {
   "schemaVersion": 1,
-  "lastReviewed": "2026-07-12",
-  "readinessMode": "staging-current-evidence-failed-client-smokes-open",
-  "targetEnvironment": "staging https://staging.vrdex.net/mcp @ baaf49e",
+  "lastReviewed": "2026-07-13",
+  "readinessMode": "same-branch-preview-hosted-passed-client-smokes-open",
+  "targetEnvironment": "same-branch preview https://vr-dex-f8coyev1w-basicbit.vercel.app/mcp @ 7fe11e8",
   "hostedReadiness": {
     "checks": [
       {
         "id": "hosted-data-backed-anonymous-read",
         "requiredForExternalReadiness": true,
-        "status": "fail",
-        "notes": "Supersedes the 2026-07-09 pass: the current branch staging deployment has no public result for the smoke query and cannot satisfy data-backed readiness.",
-        "environment": "Windows local smoke against staging after GitHub Actions Staging Deploy run 29128075438",
-        "evidence": "2026-07-10 pnpm smoke:mcp-compat --hosted-data --dcr --cimd --continue-on-failure reached staging successfully, but vrdex_search and OpenAI-compatible search/fetch returned no public results from the current staging backend.",
-        "lastRunAt": "2026-07-10"
+        "status": "pass",
+        "notes": "Same-branch Convex preview fixture proves data-backed anonymous public reads; staging promotion remains separately blocked on the Terraform-owned Redis variables.",
+        "environment": "GitHub Actions Hosted MCP Preview Smoke run 29226368333 at 7fe11e8",
+        "evidence": "Hosted MCP Preview Smoke job 86742021720 called anonymous vrdex_search for club, OpenAI-compatible search returned profile:community:vrdex-hosted-smoke-club, and fetch returned non-empty public profile text.",
+        "lastRunAt": "2026-07-13"
       },
       {
         "id": "hosted-dynamic-client-registration",
         "requiredForExternalReadiness": true,
-        "status": "fail",
-        "notes": "Supersedes the 2026-07-09 pass: the current branch staging deployment cannot persist dynamic clients because its web runtime lacks an environment-matched Convex admin credential.",
-        "environment": "Windows local smoke against staging after GitHub Actions Staging Deploy run 29128075438",
-        "evidence": "2026-07-10 pnpm smoke:mcp-compat --dcr --continue-on-failure received HTTP 500 server_error from POST /oauth/register. Live Vercel configuration audit found no CONVEX_ADMIN_TOKEN for the staging project or shared environment.",
-        "lastRunAt": "2026-07-10"
+        "status": "pass",
+        "notes": "Preview-only secret-gated persistence accepted the dynamic client on the same-branch Convex backend.",
+        "environment": "GitHub Actions Hosted MCP Preview Smoke run 29226368333 at 7fe11e8",
+        "evidence": "Hosted MCP Preview Smoke job 86742021720 completed OAuth metadata discovery and Dynamic Client Registration against the preview persistence bridge.",
+        "lastRunAt": "2026-07-13"
       },
       {
         "id": "hosted-client-id-metadata-document",
         "requiredForExternalReadiness": true,
-        "status": "fail",
-        "notes": "Supersedes the 2026-07-09 pass: metadata fetch succeeds, but the current branch staging deployment cannot persist the constrained client without an environment-matched Convex admin credential.",
-        "environment": "Windows local smoke against staging after GitHub Actions Staging Deploy run 29128075438",
-        "evidence": "2026-07-10 pnpm smoke:mcp-compat --cimd --continue-on-failure fetched valid public client metadata but /oauth/authorize redirected with problem=invalid_client_metadata. The same staging environment lacks the server-side Convex admin credential required to persist the constrained dynamic client.",
-        "lastRunAt": "2026-07-10"
+        "status": "pass",
+        "notes": "Preview-only secret-gated persistence accepted the URL-form client on the same-branch Convex backend.",
+        "environment": "GitHub Actions Hosted MCP Preview Smoke run 29226368333 at 7fe11e8",
+        "evidence": "Hosted MCP Preview Smoke job 86742021720 fetched a Client ID Metadata Document and accepted the constrained client through the preview authorization path.",
+        "lastRunAt": "2026-07-13"
       }
     ]
   },
@@ -86,10 +86,10 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
           "manualStatus": "fail",
-          "notes": "The 2026-07-09 data-backed pass on the earlier staging revision is superseded. The tightened 2026-07-10 real-client rerun reached vrdex_search but the current target returned no public results; hosted OAuth remains a separate row.",
-          "environment": "Windows / Claude Code 2.1.176 / current staging baaf49e",
-          "manualEvidence": "2026-07-10 tightened pnpm smoke:mcp-claude-code --mode hosted-http --hosted-data reached vrdex_search through the real client but failed because the current staging target returned no public results for query club.",
-          "lastRunAt": "2026-07-10"
+          "notes": "The current rerun is blocked by stale local Claude authentication and provides no negative evidence about VRDex transport or data. Reauthenticate Claude Code, then rerun the hosted data-backed smoke; hosted OAuth remains separate.",
+          "environment": "Windows / Claude Code 2.1.176 / same-branch preview 7fe11e8",
+          "manualEvidence": "pnpm smoke:mcp-claude-code exited before a hosted tool call because Claude Code returned HTTP 401 Invalid authentication credentials; a minimal non-MCP print call returned the same account-authentication failure.",
+          "lastRunAt": "2026-07-13"
         },
         {
           "id": "hosted-oauth",
@@ -97,7 +97,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
           "manualStatus": "pending",
-          "notes": "Hosted OAuth harness is available with reviewed OAuth app client credentials via VRDEX_MCP_OAUTH_CLIENT_ID / VRDEX_MCP_OAUTH_CLIENT_SECRET or VRDEX_CLAUDE_CODE_OAUTH_CLIENT_* overrides, plus VRDEX_CLAUDE_CODE_OAUTH_TOKEN fallback. The 2026-07-10 GitHub audit confirms the temporary credential-generation gate is enabled, but reviewed OAuth secrets and the Inspector token fallback are absent and staging lacks the web-runtime secrets needed to mint credentials. Row remains pending until a real authenticated mcp:read smoke or interactive claude mcp login session is recorded."
+          "notes": "Hosted OAuth protocol DCR and CIMD pass on the same-branch preview. Reviewed OAuth client credentials remain absent, staging promotion still needs the Terraform-owned Redis variables, and the local Claude Code account must be reauthenticated. Record this row only after a real authenticated mcp:read client smoke or interactive claude mcp login session."
         }
       ]
     },
@@ -121,11 +121,11 @@
           "surface": "hosted_http_anonymous",
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
-          "manualStatus": "fail",
-          "notes": "Gemini CLI connected to the current hosted MCP target and called vrdex_search, but the tightened data-backed assertion rejected the empty public result set. This supersedes the earlier staging pass.",
-          "environment": "Windows / Gemini CLI 0.50.0 / gemini-3.1-flash-lite / current staging baaf49e",
-          "manualEvidence": "2026-07-10 tightened pnpm smoke:mcp-gemini-cli connected the real client to vrdex and called vrdex_search, then failed because the current staging target returned no public results for query club.",
-          "lastRunAt": "2026-07-10"
+          "manualStatus": "pass",
+          "notes": "Real Gemini CLI hosted anonymous-read smoke passed with data-backed public results; hosted OAuth remains a separate row.",
+          "environment": "Windows / Gemini CLI 0.50.0 via @google/gemini-cli@latest / same-branch preview 7fe11e8",
+          "manualEvidence": "pnpm smoke:mcp-gemini-cli connected the real Gemini CLI client to vrdex, called vrdex_search for club, and returned the vrdex-hosted-smoke-club community from the same-branch preview.",
+          "lastRunAt": "2026-07-13"
         },
         {
           "id": "hosted-oauth",
@@ -133,7 +133,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
           "manualStatus": "pending",
-          "notes": "Gemini CLI documents automatic OAuth discovery, Dynamic Client Registration, /mcp auth, and secure token storage for remote MCP servers. Prefer native OAuth evidence; pnpm smoke:mcp-gemini-cli also supports reviewed OAuth client credentials or VRDEX_GEMINI_CLI_OAUTH_TOKEN for repeatable token-backed fallback evidence. The 2026-07-10 real client reaches hosted tools, but staging DCR/CIMD persistence and data-backed reads currently fail and no token fallback is configured. Record hosted mcp:read behavior after those prerequisites pass."
+          "notes": "Gemini CLI documents automatic OAuth discovery, Dynamic Client Registration, /mcp auth, and secure token storage for remote MCP servers. DCR and CIMD pass on the same-branch preview; reviewed OAuth credentials remain absent and staging promotion still needs the Terraform-owned Redis variables. Record this row after native OAuth or the repeatable token-backed mcp:read smoke succeeds."
         }
       ]
     },
@@ -219,11 +219,11 @@
           "surface": "hosted_http_anonymous",
           "requiredForExternalReadiness": true,
           "repoEvidence": "pnpm smoke:mcp-openai -- --hosted-url <production-like-/mcp-url> --hosted-data when OPENAI_API_KEY is available through process env or repo-root .env.local and the target exposes data-backed search/fetch; ChatGPT Apps/Connectors UI evidence remains separate",
-          "manualStatus": "fail",
-          "notes": "The 2026-07-09 Responses API pass on the earlier staging revision is superseded. The 2026-07-10 current-target preflight failed data-backed search before provider invocation; ChatGPT Apps/Connectors UI and hosted OAuth product-surface evidence remain separate rows.",
-          "environment": "Windows / OpenAI Responses API preflight / current staging baaf49e",
-          "manualEvidence": "2026-07-10 pnpm smoke:mcp-openai --hosted-data failed before provider invocation because hosted MCP search returned no results for query club on the current staging target.",
-          "lastRunAt": "2026-07-10"
+          "manualStatus": "pass",
+          "notes": "OpenAI Responses API remote MCP evidence passed; ChatGPT Apps or Connectors UI and hosted OAuth product-surface evidence remain separate.",
+          "environment": "Windows / OpenAI Responses API / gpt-5.6-luna / same-branch preview 7fe11e8",
+          "manualEvidence": "pnpm smoke:mcp-openai completed a Responses API call in which gpt-5.6-luna called hosted search for club and fetch for the returned vrdex-hosted-smoke-club profile.",
+          "lastRunAt": "2026-07-13"
         },
         {
           "id": "hosted-oauth",
@@ -231,7 +231,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
           "manualStatus": "pending",
-          "notes": "Current OpenAI guidance recommends CIMD when supported and keeps DCR available; VRDex implements both paths, but current staging DCR/CIMD persistence fails without an environment-matched Convex admin credential. ChatGPT Apps/Connectors hosted OAuth behavior and any app review requirement remain unrecorded."
+          "notes": "Current OpenAI guidance recommends CIMD when supported and keeps DCR available. VRDex passes both protocol paths on the same-branch preview, but ChatGPT Apps or Connectors hosted OAuth behavior and any app review requirement remain unrecorded."
         }
       ]
     },
@@ -285,11 +285,11 @@
           "surface": "hosted_http_anonymous",
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
-          "manualStatus": "fail",
-          "notes": "The 2026-07-09 Inspector data-backed pass on the earlier staging revision is superseded. The tightened 2026-07-10 rerun still listed all tools and called vrdex_search, but the current target returned no public results; hosted OAuth remains separate.",
-          "environment": "Windows / MCP Inspector CLI / current staging baaf49e",
-          "manualEvidence": "2026-07-10 tightened pnpm smoke:mcp-inspector listed all eight hosted tools, called vrdex_search, and failed data-backed validation because the current staging target returned no public results for query club.",
-          "lastRunAt": "2026-07-10"
+          "manualStatus": "pass",
+          "notes": "MCP Inspector hosted anonymous-read smoke passed with data-backed public results; hosted OAuth remains a separate row.",
+          "environment": "Windows / MCP Inspector CLI via @modelcontextprotocol/inspector / same-branch preview 7fe11e8",
+          "manualEvidence": "pnpm smoke:mcp-inspector listed all eight hosted tools, confirmed public-read auth metadata, and called vrdex_search for club, returning vrdex-hosted-smoke-club from the same-branch preview.",
+          "lastRunAt": "2026-07-13"
         },
         {
           "id": "hosted-oauth",
@@ -297,7 +297,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
           "manualStatus": "pending",
-          "notes": "Top-level staging hosted OAuth protocol evidence currently fails on DCR and CIMD persistence. Inspector can fetch a short-lived token from reviewed OAuth app client credentials via VRDEX_MCP_OAUTH_CLIENT_ID / VRDEX_MCP_OAUTH_CLIENT_SECRET or VRDEX_MCP_INSPECTOR_OAUTH_CLIENT_* overrides, with VRDEX_MCP_INSPECTOR_OAUTH_TOKEN fallback. The 2026-07-10 GitHub audit confirms the temporary credential-generation gate is enabled, but reviewed OAuth secrets and the Inspector token fallback are absent and staging lacks the web-runtime secrets needed to mint credentials. This row remains pending until authenticated behavior is recorded against https://staging.vrdex.net/mcp."
+          "notes": "Top-level DCR and CIMD protocol evidence passes on the same-branch preview. Inspector supports reviewed OAuth app credentials or a short-lived token fallback, but neither is configured; staging promotion also still needs the Terraform-owned Redis variables. Record this row only after authenticated tools/list succeeds."
         }
       ]
     }

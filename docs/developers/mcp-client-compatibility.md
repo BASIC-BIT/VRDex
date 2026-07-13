@@ -5,7 +5,7 @@
 Implementation-time compatibility matrix for the public API and MCP platform
 foundation.
 
-Last reviewed: 2026-07-12.
+Last reviewed: 2026-07-13.
 
 This matrix separates repo-verified protocol behavior from manual client
 smokes. Do not declare the public MCP surface externally ready until the manual
@@ -308,18 +308,16 @@ surface proves whether public read tools stay anonymous/no-auth and how hosted
 OAuth behaves. `--hosted-data` is required for this harness because `fetch`
 must resolve a real `search` result.
 
-Historical 2026-07-09 target evidence passed against
-`https://staging.vrdex.net/mcp` after PR branch staging deploy run
-`29037734496`. The full hosted compatibility smoke passed data-backed
-`vrdex_search`, OpenAI-compatible `search`/`fetch`, Dynamic Client
+Current 2026-07-13 evidence targets the same-branch Vercel and Convex preview
+at `7fe11e8`. Hosted MCP Preview Smoke job `86742021720` passed data-backed
+anonymous `vrdex_search`, OpenAI-compatible `search`/`fetch`, Dynamic Client
 Registration, and public-client Client ID Metadata Document authorization.
-The OpenAI Responses API smoke then passed against the same staging target:
-`gpt-5.6-luna` called hosted MCP `search` and `fetch` through the smoke
-harness. This remains API integration evidence; ChatGPT Apps/Connectors UI
-evidence is tracked separately. The 2026-07-10 deployment of `baaf49e`
-supersedes that readiness evidence: anonymous transport still works, but the
-current staging target has no public smoke result and DCR/CIMD persistence
-fails without an environment-matched Convex admin credential.
+Dedicated real-client runs also passed Gemini CLI `0.50.0`, MCP Inspector, and
+the OpenAI Responses API with `gpt-5.6-luna`. This is OpenAI API integration
+evidence; ChatGPT Apps/Connectors UI evidence remains separate. Claude Code's
+preview rerun stopped at the client's own stale account authentication with
+the same HTTP 401 on a non-MCP prompt, so it does not establish a VRDex
+transport failure and remains open for rerun after client reauthentication.
 
 PR Baseline Checks run the same local stdio protocol smoke through
 `pnpm verify:vrdex-mcp`.
@@ -597,14 +595,16 @@ secrets or the temporary credential-generation gate
 boolean readiness, never secret values. Add `--require-ready` when the audit
 should fail until one of those complete paths is configured.
 
-Current PR #159 audit result from 2026-07-12: reviewed OAuth client secrets and
+Current PR #159 audit result from 2026-07-13: reviewed OAuth client secrets and
 the Inspector token fallback are missing. Temporary credential generation passes
 through `VRDEX_HOSTED_E2E_AUTH_HELPERS=true`,
 `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true`, and the
-`VRDEX_HOSTED_E2E_BROWSER_TOKEN` secret. The live names-only Vercel
-staging/main audit found 16 configured names and 12 required names missing,
-including the shared Redis backend, Convex admin credential, API/OAuth secrets,
-and issuer/resource URLs. Repair those prerequisites, rerun the audit, and
+`VRDEX_HOSTED_E2E_BROWSER_TOKEN` secret. The staging bootstrap configured every
+required non-Redis runtime value. The staging deploy preflight now reports only
+the Terraform-owned `VRDEX_RATE_LIMIT_STORE`,
+`VRDEX_RATE_LIMIT_REDIS_REST_URL`, and
+`VRDEX_RATE_LIMIT_REDIS_REST_TOKEN` as missing. Provision the Upstash stack,
+rerun the deploy, and
 dispatch `deployed-health.yml` with `target=hosted-mcp-smoke` and
 `mcp_oauth=true` before recording hosted-OAuth client rows.
 
@@ -643,8 +643,10 @@ Readiness` workflow is the authoritative CI launch gate and always uploads a
 fresh client session pack. Baseline Checks deliberately does not create that
 artifact on every PR. The workflow live-smokes the selected host with
 data-backed reads, DCR, and CIMD, then requires the checked-in matrix target to
-name both that host and the workflow commit so evidence from another deployment
-cannot satisfy launch readiness.
+name both that host and an explicit deployed `evidence_revision` input. The
+workflow checkout SHA is reported separately, avoiding an impossible
+self-reference while preventing evidence from another deployment from
+satisfying launch readiness.
 
 To include a deployed hosted MCP endpoint, pass:
 
