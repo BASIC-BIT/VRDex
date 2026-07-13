@@ -1,3 +1,7 @@
+import type { ApiRouteClass, ApiScope } from "@vrdex/api-contracts";
+
+import type { ClientCredentialsMutationInput } from "./oauth-token";
+
 export type DynamicMcpClientMutationInput = {
   allowedScopes: Array<
     | "public:read"
@@ -81,4 +85,52 @@ export async function upsertClientMetadataDocumentMcpClient(input: DynamicMcpCli
     internal.oauthApps.upsertClientMetadataDocumentMcpClient,
     input,
   );
+}
+
+export async function issueClientCredentialsAccessToken(
+  input: ClientCredentialsMutationInput,
+) {
+  const bridgeSecret = previewPersistenceBridgeSecret();
+  const [{ api, internal }, { convexAdminHttpClient, convexHttpClient }] = await Promise.all([
+    import("@convex-generated-api"),
+    import("./convex-http"),
+  ]);
+
+  if (bridgeSecret !== undefined) {
+    return await convexHttpClient().mutation(
+      api.oauthApps.issuePreviewClientCredentialsAccessToken,
+      {
+        ...input,
+        bridgeSecret,
+      },
+    );
+  }
+
+  return await convexAdminHttpClient().mutation(
+    internal.oauthApps.issueClientCredentialsAccessToken,
+    input,
+  );
+}
+
+export async function validateOAuthAccessTokenRecord(input: {
+  clientId: string;
+  tokenId: string;
+  resource: string;
+  requiredScopes?: ApiScope[];
+  routeClass?: ApiRouteClass;
+}) {
+  const bridgeSecret = previewPersistenceBridgeSecret();
+  const [{ api, internal }, { convexAdminHttpClient, convexHttpClient }] = await Promise.all([
+    import("@convex-generated-api"),
+    import("./convex-http"),
+  ]);
+
+  if (bridgeSecret !== undefined) {
+    return await convexHttpClient().mutation(api.oauthApps.validatePreviewAccessToken, {
+      ...input,
+      bridgeSecret,
+    });
+  }
+
+  return await convexAdminHttpClient().mutation(internal.oauthApps.validateAccessToken, input);
 }

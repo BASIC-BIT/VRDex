@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "lastReviewed": "2026-07-13",
   "readinessMode": "same-branch-preview-hosted-passed-client-smokes-open",
-  "targetEnvironment": "same-branch preview https://vr-dex-f8coyev1w-basicbit.vercel.app/mcp @ 7fe11e8",
+  "targetEnvironment": "same-branch preview https://vr-dex-5e6noagn2-basicbit.vercel.app/mcp at 0af8dbb",
   "hostedReadiness": {
     "checks": [
       {
@@ -183,7 +183,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "pnpm smoke:mcp-compat local profile: Cursor, including all curated read tools",
           "manualStatus": "pending",
-          "notes": "2026-07-09: Cursor 3.10.17 is installed and the isolated --add-mcp preflight accepted the generated local stdio config. Use the installed app or agent surface to list tools and call vrdex_search before recording this row."
+          "notes": "2026-07-13: Cursor IDE 3.11.13 is installed and the isolated --add-mcp preflight accepts the generated local stdio config. The standalone agent / cursor-agent CLI is not installed on PATH. Run pnpm smoke:mcp-cursor-agent after installing it, or use the IDE manual session, before recording this row."
         },
         {
           "id": "hosted-anonymous-read",
@@ -191,7 +191,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
           "manualStatus": "pending",
-          "notes": "2026-07-09: Cursor 3.10.17 is installed and the isolated --add-mcp preflight accepted the generated hosted anonymous HTTP config. Confirm the installed app or agent surface lists tools and can call anonymous public reads before recording this row."
+          "notes": "2026-07-13: Cursor IDE 3.11.13 is installed and the isolated --add-mcp preflight accepts the generated hosted anonymous HTTP config. The standalone agent / cursor-agent CLI is not installed on PATH. Run the hosted pnpm smoke:mcp-cursor-agent path or the IDE manual session before recording this row."
         },
         {
           "id": "hosted-oauth",
@@ -199,7 +199,7 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
           "manualStatus": "pending",
-          "notes": "2026-07-09: Cursor 3.10.17 is installed and the isolated --add-mcp preflight accepted the generated hosted token-header fallback config for diagnostics. Record whether Cursor follows OAuth, requires static bearer headers, or lacks hosted auth before recording this row."
+          "notes": "2026-07-13: Cursor IDE 3.11.13 is installed and the isolated --add-mcp preflight accepts the generated hosted token-header fallback config for diagnostics. Record native OAuth behavior in a real client session; the headless harness does not claim OAuth evidence."
         }
       ]
     },
@@ -220,9 +220,9 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "pnpm smoke:mcp-openai -- --hosted-url <production-like-/mcp-url> --hosted-data when OPENAI_API_KEY is available through process env or repo-root .env.local and the target exposes data-backed search/fetch; ChatGPT Apps/Connectors UI evidence remains separate",
           "manualStatus": "pass",
-          "notes": "OpenAI Responses API remote MCP evidence passed; ChatGPT Apps or Connectors UI and hosted OAuth product-surface evidence remain separate.",
-          "environment": "Windows / OpenAI Responses API / gpt-5.6-luna / same-branch preview 7fe11e8",
-          "manualEvidence": "pnpm smoke:mcp-openai completed a Responses API call in which gpt-5.6-luna called hosted search for club and fetch for the returned vrdex-hosted-smoke-club profile.",
+          "notes": "OpenAI Responses API remote MCP evidence passes on the current same-branch preview. ChatGPT Apps or Connectors UI and hosted OAuth product-surface evidence remain separate.",
+          "environment": "Windows / OpenAI Responses API / gpt-5.6-luna / same-branch preview 0af8dbb",
+          "manualEvidence": "pnpm smoke:mcp-openai preflighted data-backed search and fetch, then gpt-5.6-luna called hosted search for club and fetch against https://vr-dex-5e6noagn2-basicbit.vercel.app/mcp successfully.",
           "lastRunAt": "2026-07-13"
         },
         {
@@ -296,8 +296,11 @@
           "surface": "hosted_http_oauth",
           "requiredForExternalReadiness": true,
           "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
-          "manualStatus": "pending",
-          "notes": "Top-level DCR and CIMD protocol evidence passes on the same-branch preview. Inspector supports reviewed OAuth app credentials or a short-lived token fallback, but neither is configured; staging promotion also still needs the Terraform-owned Redis variables. Record this row only after authenticated tools/list succeeds."
+          "manualStatus": "pass",
+          "notes": "Generated E2E credentials remained masked and ephemeral. The bootstrap now requires authenticated MCP tools/list before client-specific smoke execution; DCR, CIMD, and data-backed public reads also passed in the same run.",
+          "environment": "GitHub Actions / MCP Inspector CLI 0.22.0 / same-branch Vercel and Convex preview 8144d47",
+          "manualEvidence": "Deployed Health Checks run 29288588007 generated a temporary confidential OAuth app, issued an MCP-resource mcp:read token, authenticated hosted tools/list with eight VRDex tools, and MCP Inspector repeated authenticated tools/list successfully against https://vr-dex-7keqjr0nq-basicbit.vercel.app/mcp.",
+          "lastRunAt": "2026-07-13"
         }
       ]
     }

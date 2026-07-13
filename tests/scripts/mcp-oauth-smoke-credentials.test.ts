@@ -2,6 +2,12 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { describe, it } from "node:test";
 
+import {
+  parseMcpOAuthVerificationResponse,
+  parseOAuthTokenResponse,
+  resolvePlaywrightChromium,
+} from "../../scripts/prepare-mcp-oauth-smoke-credentials";
+
 function runCredentialHelper(args: string[], env: NodeJS.ProcessEnv = {}) {
   const mergedEnv = { ...process.env, ...env };
 
@@ -21,6 +27,63 @@ function runCredentialHelper(args: string[], env: NodeJS.ProcessEnv = {}) {
 }
 
 describe("MCP OAuth smoke credential helper", () => {
+  it("loads Chromium from direct ESM and CommonJS-default Playwright exports", () => {
+    const directChromium = { source: "direct" };
+    const defaultChromium = { source: "default" };
+
+    assert.equal(resolvePlaywrightChromium({ chromium: directChromium }).chromium, directChromium);
+    assert.equal(resolvePlaywrightChromium({ default: { chromium: defaultChromium } }).chromium, defaultChromium);
+    assert.throws(
+      () => resolvePlaywrightChromium({}),
+      /does not expose chromium directly or through its default export/,
+    );
+  });
+
+  it("reports token endpoint HTTP and response-shape failures clearly", () => {
+    assert.throws(
+      () => parseOAuthTokenResponse({ ok: false, status: 500, text: "" }),
+      /failed with HTTP 500: <empty response body>/,
+    );
+    assert.throws(
+      () => parseOAuthTokenResponse({ ok: true, status: 200, text: "not-json" }),
+      /returned non-JSON with HTTP 200: not-json/,
+    );
+    assert.deepEqual(parseOAuthTokenResponse({ ok: true, status: 200, text: '{"token_type":"Bearer"}' }), {
+      token_type: "Bearer",
+    });
+  });
+
+  it("requires the issued bearer token to authenticate against hosted MCP", () => {
+    assert.throws(
+      () => parseMcpOAuthVerificationResponse({ ok: false, status: 401, text: "" }),
+      /failed with HTTP 401: <empty response body>/,
+    );
+    assert.throws(
+      () => parseMcpOAuthVerificationResponse({ ok: true, status: 200, text: "not-json" }),
+      /returned no JSON or SSE data: not-json/,
+    );
+    assert.throws(
+      () => parseMcpOAuthVerificationResponse({ ok: true, status: 200, text: '{"result":{}}' }),
+      /did not return a tools array/,
+    );
+    assert.deepEqual(
+      parseMcpOAuthVerificationResponse({
+        ok: true,
+        status: 200,
+        text: '{"jsonrpc":"2.0","id":"smoke","result":{"tools":[]}}',
+      }),
+      { jsonrpc: "2.0", id: "smoke", result: { tools: [] } },
+    );
+    assert.deepEqual(
+      parseMcpOAuthVerificationResponse({
+        ok: true,
+        status: 200,
+        text: 'event: message\ndata: {"jsonrpc":"2.0","id":"smoke","result":{"tools":[]}}\n\n',
+      }),
+      { jsonrpc: "2.0", id: "smoke", result: { tools: [] } },
+    );
+  });
+
   it("prints help without requiring hosted secrets", () => {
     const result = runCredentialHelper(["--help"]);
 

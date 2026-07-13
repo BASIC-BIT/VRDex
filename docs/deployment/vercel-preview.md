@@ -35,14 +35,39 @@ If any are missing, the `Vercel Preview` job passes and writes a step summary ex
 
 `VERCEL_TOKEN` must be a Vercel account access token created from Vercel account settings. The local Vercel CLI session token from `auth.json` is not accepted by `vercel --token` in GitHub Actions and should not be stored as this secret.
 
-When `CONVEX_DEPLOY_KEY_PREVIEW` exists, the workflow runs `convex deploy --preview-create pr-<number>` before the Vercel build and writes the resulting `NEXT_PUBLIC_CONVEX_URL` into the Vercel build environment. This keeps PR previews from accidentally pointing at stale shared dev/prod Convex functions.
+When `CONVEX_DEPLOY_KEY_PREVIEW` exists, the workflow creates or updates the
+`pr-<number>` Convex deployment with `convex deploy --preview-create` before the
+Vercel build. It writes only the resulting `NEXT_PUBLIC_CONVEX_URL` as a step
+output. The project preview deploy key remains confined to GitHub Actions and is
+never injected into Vercel, written to an artifact, or posted in a PR comment.
 
 The same workflow creates a random, masked persistence-bridge secret for that
 single run. It writes the secret to the named Convex preview and injects it only
-into the matching Vercel deployment. The bridge exposes only the two guarded
-dynamic-client persistence mutations needed by DCR and CIMD smoke checks. PR
-previews do not receive `CONVEX_ADMIN_TOKEN`; all broader internal operations
-remain unavailable from the preview web runtime.
+into the matching Vercel deployment. The bridge exposes only the guarded
+dynamic-client persistence mutations needed by DCR and CIMD smoke checks. When
+the hosted developer-credential gates are also enabled, a second Convex-side
+capability flag permits the same bridge secret to issue client-credentials
+access-token records. PR previews do not receive `CONVEX_ADMIN_TOKEN`; all
+broader internal operations remain unavailable from the preview web runtime.
+
+When `VRDEX_HOSTED_E2E_AUTH_HELPERS=true`,
+`VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true`, and the
+`VRDEX_HOSTED_E2E_BROWSER_TOKEN` repository secret are all present, that same
+non-fork PR workflow also creates a separate random Convex E2E secret. It enables
+the auth helper only on the named Convex preview and injects the matching helper
+flags, generated Convex secret, and repository browser token only into the
+matching Vercel preview. This supports temporary verified accounts and reviewed
+OAuth clients for hosted MCP compatibility evidence without enabling the helper
+on shared staging or production. The workflow also generates a preview-only
+Convex Auth RS256 key pair, stores the private key and public JWKS only on that
+Convex preview, and binds `SITE_URL` to the concrete Vercel deployment URL after
+deployment. Separate per-preview runtime material supplies the API token pepper,
+OAuth client-secret and refresh-token peppers, and OAuth access-token signing
+key needed by developer credential and client-credentials flows. The token route
+uses the dedicated preview capability described above instead of an admin key.
+When any gate is absent, the workflow writes the Convex E2E and preview OAuth
+token capability switches as `false` and omits the developer runtime secrets for
+that preview.
 
 ## Web environment
 

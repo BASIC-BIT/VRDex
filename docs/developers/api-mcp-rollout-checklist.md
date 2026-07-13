@@ -189,21 +189,29 @@ from this foundation and are not implied by a green PR.
   evidence. Its credential tables load repo-root `.env.local` if present, then
   read the current process environment without printing secret values; run
   `pnpm ops:mcp-hosted-oauth-prereqs` for the GitHub repository
-  variable/secret audit. Its CLI automation notes are informational: VS Code `chat`, Cursor
-  `--chat`/`agent`, and Windsurf setup CLI checks do not count as matrix
-  evidence unless the real client session lists tools and calls `vrdex_search`
-  or, for OpenAI/ChatGPT-compatible surfaces, `search` plus `fetch`.
+  variable/secret audit. Its CLI automation notes distinguish Cursor's
+  standalone transcript-capable `agent` / `cursor-agent` CLI from manual-only
+  IDE launchers. `pnpm smoke:mcp-cursor-agent` counts only after structured
+  output contains a completed `vrdex_search` event and terminal success. VS
+  Code `chat`, Cursor `--chat`, and Windsurf setup-only CLI checks remain manual
+  until the real client session lists tools and calls `vrdex_search`; OpenAI /
+  ChatGPT-compatible surfaces still require `search` plus `fetch`.
 - Current 2026-07-13 repository audit for PR #159: the temporary credential
   generation gate passes through `VRDEX_HOSTED_E2E_AUTH_HELPERS=true`,
   `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true`, and the
-  `VRDEX_HOSTED_E2E_BROWSER_TOKEN` secret. Reviewed OAuth smoke secrets and
-  `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN` remain absent. The staging bootstrap has
-  configured every required non-Redis runtime value. The staging deploy
-  preflight now reports only the Terraform-owned `VRDEX_RATE_LIMIT_STORE`,
+  `VRDEX_HOSTED_E2E_BROWSER_TOKEN` secret. Deployed Health Checks run
+  `29275502404` used that path against same-branch preview `09a48b6` and passed
+  hosted data, DCR, and CIMD. A later harness audit found the Inspector OAuth
+  subcheck could silently skip generated client credentials because it checked
+  the wrong option shape. Deployed Health Checks run `29288588007` revalidated
+  the corrected path against same-branch preview `8144d47`: generated
+  credentials authenticated bootstrap and Inspector `tools/list` requests. The
+  Inspector OAuth row now passes and 14 required client rows remain open.
+  Reviewed OAuth smoke secrets and
+  `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN` remain absent, and shared staging promotion
+  still waits on the Terraform-owned `VRDEX_RATE_LIMIT_STORE`,
   `VRDEX_RATE_LIMIT_REDIS_REST_URL`, and
-  `VRDEX_RATE_LIMIT_REDIS_REST_TOKEN` as missing. Do not mark hosted OAuth rows
-  pass until the Redis stack, staging deploy, and a matching client smoke all
-  succeed.
+  `VRDEX_RATE_LIMIT_REDIS_REST_TOKEN`.
 - `pnpm ops:mcp-client-session-pack` writes disposable VS Code, Cursor,
   Windsurf, and Gemini CLI MCP setup files under `.tmp-gh-artifacts/`,
   including local stdio, hosted anonymous HTTP, hosted token-header fallback
@@ -238,8 +246,9 @@ from this foundation and are not implied by a green PR.
   smoke credentials through the existing gated E2E auth helper path when
   `VRDEX_E2E_BROWSER_TOKEN` and the matching server-side helper configuration
   are present. It creates a verified E2E account, creates a confidential
-  developer OAuth app with `client_credentials` and `mcp:read`, verifies the
-  token endpoint, and writes ignored env files under `.tmp-gh-artifacts/` for
+  developer OAuth app with `client_credentials` and `mcp:read`, verifies token
+  issuance plus authenticated hosted MCP `tools/list`, and writes ignored env
+  files under `.tmp-gh-artifacts/` for
   the Claude Code and MCP Inspector hosted OAuth smokes. It prints no client
   secret and refuses production origins unless `--allow-production` is passed
   for an explicit emergency operator run.
@@ -309,7 +318,10 @@ from this foundation and are not implied by a green PR.
   set. Use `--hosted-query` or `VRDEX_MCP_SMOKE_QUERY` when the target's
   public seed data needs a known non-empty query.
 - The `deployed-health.yml` `hosted-mcp-smoke` dispatch can also run the
-  Inspector hosted OAuth smoke when `mcp_oauth=true`. It prefers repository
+  Inspector hosted OAuth smoke when `mcp_oauth=true`. With `OPENAI_API_KEY` and
+  generic client credentials, the same dispatch runs the OpenAI Responses API
+  hosted OAuth smoke using `gpt-5.6-luna`; record it as API evidence while
+  keeping ChatGPT Apps/Connectors UI evidence separate. It prefers repository
   secrets that provide either `VRDEX_MCP_OAUTH_CLIENT_ID` plus
   `VRDEX_MCP_OAUTH_CLIENT_SECRET` or `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN`. If
   those are absent and `VRDEX_HOSTED_E2E_AUTH_HELPERS=true`,

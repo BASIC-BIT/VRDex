@@ -3,6 +3,12 @@ import { readFile } from "node:fs/promises";
 
 import { loadRepoEnvLocal } from "./env-local";
 import { summarizeMcpToolFailure } from "./lib/mcp-smoke-diagnostics";
+import {
+  fetchMcpOAuthClientCredentialsToken,
+  hasAnyMcpOAuthClientCredentials,
+  mcpOAuthClientCredentialsFromEnv,
+  mcpOAuthClientCredentialsFromOptions,
+} from "./mcp-oauth-client-credentials";
 
 type HostedSearchType = "all" | "community" | "event" | "person" | "profile" | "world";
 
@@ -21,6 +27,9 @@ type OpenAiMcpOptions = {
   endpoint: string;
   fixturePath?: string;
   hostedDataPublicReads: boolean;
+  hostedOAuthClientId?: string;
+  hostedOAuthClientSecret?: string;
+  hostedOAuthToken?: string;
   hostedSearch: {
     limit: number;
     query: string;
@@ -103,6 +112,9 @@ function printHelp() {
     "  --hosted-type <type>        Kept for matrix row metadata; compatibility search always uses all.",
     "  --hosted-limit <n>          Kept for matrix row metadata; compatibility search returns server-bounded results.",
     "  --model <model>             OpenAI model. Defaults to gpt-5.6-luna.",
+    "  --oauth-token <token>       Existing hosted MCP OAuth access token.",
+    "  --oauth-client-id <id>      Hosted MCP OAuth client id.",
+    "  --oauth-client-secret-env   Environment variable containing the hosted MCP OAuth client secret.",
     "  --endpoint <url>            Responses endpoint. Defaults to https://api.openai.com/v1/responses.",
     "  --api-key-env <name>        Environment variable containing the API key.",
     "  --request-timeout-ms <n>    Live Responses API timeout. Defaults to 90000.",
@@ -113,12 +125,16 @@ function printHelp() {
 
 function parseArgs(argv: string[]): OpenAiMcpOptions {
   const apiKeyEnvName = nonEmpty(process.env.VRDEX_OPENAI_MCP_API_KEY_ENV) ?? "OPENAI_API_KEY";
+  const oauthClientCredentials = mcpOAuthClientCredentialsFromEnv(process.env, "OPENAI_MCP");
   const options: OpenAiMcpOptions = {
     apiKey: nonEmpty(process.env[apiKeyEnvName]),
     apiKeyEnvName,
     endpoint: nonEmpty(process.env.VRDEX_OPENAI_MCP_ENDPOINT) ?? "https://api.openai.com/v1/responses",
     fixturePath: nonEmpty(process.env.VRDEX_OPENAI_MCP_RESPONSES_FIXTURE),
     hostedDataPublicReads: envFlag("VRDEX_OPENAI_MCP_HOSTED_DATA"),
+    hostedOAuthClientId: oauthClientCredentials.clientId,
+    hostedOAuthClientSecret: oauthClientCredentials.clientSecret,
+    hostedOAuthToken: nonEmpty(process.env.VRDEX_OPENAI_MCP_OAUTH_TOKEN),
     hostedSearch: {
       limit: parseHostedSearchLimit(process.env.VRDEX_OPENAI_MCP_HOSTED_LIMIT),
       query: process.env.VRDEX_OPENAI_MCP_HOSTED_QUERY?.trim() ?? "",
@@ -173,6 +189,23 @@ function parseArgs(argv: string[]): OpenAiMcpOptions {
         options.model = takeValue(argv, index, arg);
         index += 1;
         break;
+      case "--oauth-token":
+        options.hostedOAuthToken = nonEmpty(takeValue(argv, index, arg));
+        index += 1;
+        break;
+      case "--oauth-client-id":
+        options.hostedOAuthClientId = takeValue(argv, index, arg).trim();
+        index += 1;
+        break;
+      case "--oauth-client-secret-env": {
+        const envName = takeValue(argv, index, arg);
+        const secret = nonEmpty(process.env[envName]);
+
+        assert.ok(secret, `${arg} ${envName} did not resolve to a non-empty environment variable.`);
+        options.hostedOAuthClientSecret = secret;
+        index += 1;
+        break;
+      }
       case "--request-timeout-ms":
         options.requestTimeoutMs = parseRequestTimeoutMs(takeValue(argv, index, arg));
         index += 1;
@@ -208,6 +241,14 @@ function parseArgs(argv: string[]): OpenAiMcpOptions {
 
 function buildResponsesPayload(options: OpenAiMcpOptions) {
   const search = options.hostedSearch;
+  const remoteMcpTool = {
+    allowed_tools: ["search", "fetch"],
+    require_approval: "never",
+    server_label: "vrdex",
+    server_url: options.hostedUrl,
+    type: "mcp",
+    ...(options.hostedOAuthToken === undefined ? {} : { authorization: options.hostedOAuthToken }),
+  };
 
   return {
     input: [
@@ -242,16 +283,24 @@ function buildResponsesPayload(options: OpenAiMcpOptions) {
     reasoning: {
       summary: "auto",
     },
-    tools: [
-      {
-        allowed_tools: ["search", "fetch"],
-        require_approval: "never",
-        server_label: "vrdex",
-        server_url: options.hostedUrl,
-        type: "mcp",
-      },
-    ],
+    tools: [remoteMcpTool],
   };
+}
+
+function redactSensitiveText(text: string, options: OpenAiMcpOptions) {
+  let redacted = text.replace(/Authorization:\s*Bearer\s+[^\s"'\\]+/gi, "Authorization: Bearer [REDACTED]");
+
+  for (const [secret, replacement] of [
+    [options.apiKey, "[REDACTED_API_KEY]"],
+    [options.hostedOAuthClientSecret, "[REDACTED_CLIENT_SECRET]"],
+    [options.hostedOAuthToken, "[REDACTED_OAUTH_TOKEN]"],
+  ] as const) {
+    if (secret !== undefined) {
+      redacted = redacted.replaceAll(secret, replacement);
+    }
+  }
+
+  return redacted;
 }
 
 async function fetchResponsesPayload(options: OpenAiMcpOptions) {
@@ -286,7 +335,7 @@ async function fetchResponsesPayload(options: OpenAiMcpOptions) {
   assert.equal(
     response.ok,
     true,
-    `OpenAI Responses API MCP smoke failed with HTTP ${response.status}: ${text.slice(0, 500)}`,
+    `OpenAI Responses API MCP smoke failed with HTTP ${response.status}: ${redactSensitiveText(text, options).slice(0, 500)}`,
   );
 
   return JSON.parse(text) as unknown;
@@ -494,6 +543,32 @@ async function assertOpenAiMcpTargetReady(options: OpenAiMcpOptions) {
   assert.notEqual(text.trim(), "", "OpenAI hosted MCP preflight fetch returned empty document text.");
 }
 
+async function hostedOAuthToken(options: OpenAiMcpOptions) {
+  if (options.hostedOAuthToken !== undefined) {
+    return options.hostedOAuthToken;
+  }
+
+  const credentials = mcpOAuthClientCredentialsFromOptions(options);
+
+  if (!hasAnyMcpOAuthClientCredentials(credentials)) {
+    return undefined;
+  }
+
+  try {
+    const result = await fetchMcpOAuthClientCredentialsToken({
+      ...credentials,
+      hostedUrl: options.hostedUrl!,
+    });
+
+    options.hostedOAuthToken = result.accessToken;
+    return result.accessToken;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    throw new Error(redactSensitiveText(message, options));
+  }
+}
+
 function assertOpenAiMcpResponse(payload: unknown, options: OpenAiMcpOptions) {
   const serialized = JSON.stringify(payload);
   const strings = collectStrings(payload);
@@ -534,6 +609,7 @@ async function main() {
     await assertOpenAiMcpTargetReady(options);
   }
 
+  const oauthToken = await hostedOAuthToken(options);
   const payload = await fetchResponsesPayload(options);
 
   assertOpenAiMcpResponse(payload, options);
@@ -541,7 +617,7 @@ async function main() {
   console.log("| Smoke target | Status | Details |");
   console.log("| --- | --- | --- |");
   console.log(
-    `| OpenAI Responses API hosted anonymous MCP | pass | ${options.model} called search and fetch for ${options.hostedUrl} with query=${JSON.stringify(options.hostedSearch.query)}, type=${options.hostedSearch.type}, limit=${options.hostedSearch.limit} |`,
+    `| OpenAI Responses API hosted ${oauthToken === undefined ? "anonymous" : "OAuth"} MCP | pass | ${options.model} called search and fetch for ${options.hostedUrl} with query=${JSON.stringify(options.hostedSearch.query)}, type=${options.hostedSearch.type}, limit=${options.hostedSearch.limit} |`,
   );
   console.log(
     "| ChatGPT app hosted MCP | skip | Responses API smoke is API integration evidence; record ChatGPT Apps/Connectors UI evidence separately when product access is available |",

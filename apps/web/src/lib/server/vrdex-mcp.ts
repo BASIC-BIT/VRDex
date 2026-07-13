@@ -28,6 +28,7 @@ import {
 } from "@/lib/server/api-rate-limit";
 import { recordApiRateLimitBlockedEvent } from "@/lib/server/api-rate-limit-events";
 import { convexAdminHttpClient, convexHttpClient } from "@/lib/server/convex-http";
+import { validateOAuthAccessTokenRecord } from "@/lib/server/oauth-dynamic-client-persistence";
 import {
   oauthAccessTokenSigningConfigured,
   oauthIssuerUrl,
@@ -562,7 +563,7 @@ async function authenticateMcpBearerToken(request: Request, tokenValue: string) 
   let validation;
 
   try {
-    validation = await convexAdminHttpClient().mutation(internal.oauthApps.validateAccessToken, {
+    validation = await validateOAuthAccessTokenRecord({
       clientId: claims.client_id,
       tokenId: claims.jti,
       resource,

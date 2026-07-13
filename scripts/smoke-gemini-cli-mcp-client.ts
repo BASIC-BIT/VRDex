@@ -10,6 +10,7 @@ import {
   fetchMcpOAuthClientCredentialsToken,
   hasAnyMcpOAuthClientCredentials,
   mcpOAuthClientCredentialsFromEnv,
+  mcpOAuthClientCredentialsFromOptions,
 } from "./mcp-oauth-client-credentials";
 
 type SmokeMode = "hosted-http" | "local-stdio";
@@ -708,7 +709,9 @@ async function hostedOAuthToken(options: GeminiOptions) {
     return options.hostedOAuthToken;
   }
 
-  if (!hasAnyMcpOAuthClientCredentials(options)) {
+  const credentials = mcpOAuthClientCredentialsFromOptions(options);
+
+  if (!hasAnyMcpOAuthClientCredentials(credentials)) {
     return undefined;
   }
 
@@ -716,8 +719,7 @@ async function hostedOAuthToken(options: GeminiOptions) {
 
   assert.ok(hostedUrl, "Hosted URL is required for OAuth client-credentials token acquisition.");
   const result = await fetchMcpOAuthClientCredentialsToken({
-    clientId: options.hostedOAuthClientId,
-    clientSecret: options.hostedOAuthClientSecret,
+    ...credentials,
     hostedUrl,
   });
 

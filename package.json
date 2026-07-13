@@ -87,6 +87,8 @@
     "smoke:mcp-compat": "node --import tsx scripts/smoke-vrdex-mcp-compat.ts",
     "presmoke:mcp-claude-code": "node scripts/guard-main-worktree.mjs",
     "smoke:mcp-claude-code": "node --import tsx scripts/smoke-claude-code-mcp-client.ts",
+    "presmoke:mcp-cursor-agent": "node scripts/guard-main-worktree.mjs",
+    "smoke:mcp-cursor-agent": "node --import tsx scripts/smoke-cursor-agent-mcp-client.ts",
     "presmoke:mcp-gemini-cli": "node scripts/guard-main-worktree.mjs",
     "smoke:mcp-gemini-cli": "node --import tsx scripts/smoke-gemini-cli-mcp-client.ts",
     "presmoke:mcp-inspector": "node scripts/guard-main-worktree.mjs",

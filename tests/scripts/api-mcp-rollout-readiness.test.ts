@@ -40,7 +40,7 @@ describe("API/MCP rollout readiness checker", () => {
       result.stdout,
       /Generated OpenAPI contract \| yes \| pass \| 32 required API paths and JSON\/YAML artifacts are present/,
     );
-    assert.match(result.stdout, /Rollout verification scripts \| yes \| pass \| 23 required scripts are defined/);
+    assert.match(result.stdout, /Rollout verification scripts \| yes \| pass \| 24 required scripts are defined/);
     assert.match(result.stdout, /External readiness workflow \| yes \| pass/);
     assert.match(result.stdout, /Major MCP client matrix \| yes \| fail \| .*Claude Code\/hosted-anonymous-read: fail/);
     assert.match(result.stdout, /Gemini CLI\/hosted-oauth: pending/);
@@ -138,6 +138,7 @@ describe("API/MCP rollout readiness checker", () => {
     assert.match(source, /ops:mcp-hosted-oauth-prereqs/);
     assert.match(source, /ops:api-platform-observability/);
     assert.match(source, /smoke:mcp-gemini-cli/);
+    assert.match(source, /smoke:mcp-cursor-agent/);
     assert.match(source, /hasFailedRequiredRow/);
 
     const installedClientsSource = await readFile("scripts/check-installed-mcp-clients.ts", "utf8");
@@ -151,6 +152,8 @@ describe("API/MCP rollout readiness checker", () => {
     assert.match(installedClientsSource, /GEMINI_API_KEY/);
     assert.match(installedClientsSource, /Claude Desktop/);
     assert.match(installedClientsSource, /stdout transcript/);
+    assert.match(installedClientsSource, /cursor-agent/);
+    assert.match(installedClientsSource, /transcript_capable/);
     assert.match(installedClientsSource, /--hosted-query <known-public-query>/);
     assert.match(installedClientsSource, /--query <known-public-query>/);
   });
@@ -162,6 +165,11 @@ describe("API/MCP rollout readiness checker", () => {
     assert.match(workflow, /ops:mcp-oauth-smoke-credentials/);
     assert.match(workflow, /VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS/);
     assert.match(workflow, /mcp-oauth-smoke-env\.sh/);
+    assert.match(workflow, /OPENAI_API_KEY: \$\{\{ secrets\.OPENAI_API_KEY \}\}/);
+    assert.match(workflow, /openai_oauth_enabled/);
+    assert.match(workflow, /Run OpenAI Responses hosted MCP OAuth smoke/);
+    assert.match(workflow, /pnpm smoke:mcp-openai -- --hosted-url "\$SMOKE_URL" --hosted-data/);
+    assert.match(workflow, /ChatGPT Apps\/Connectors UI evidence: \\`not exercised\\`/);
   });
 
   it("moves strict readiness and session artifacts out of per-PR baseline checks", async () => {
@@ -188,13 +196,30 @@ describe("API/MCP rollout readiness checker", () => {
     assert.match(workflow, /if: always\(\)/);
   });
 
-  it("provisions a narrow per-preview persistence bridge and deterministic public fixture", async () => {
+  it("provisions narrow per-preview persistence, E2E auth, and deterministic public fixture runtime", async () => {
     const baseline = await readFile(".github/workflows/baseline-checks.yml", "utf8");
 
-    assert.match(baseline, /Configure Convex preview persistence and smoke fixture/);
+    assert.match(baseline, /Configure Convex preview runtime and smoke fixture/);
     assert.match(baseline, /openssl rand -hex 32/);
     assert.match(baseline, /::add-mask::\$bridge_secret/);
     assert.match(baseline, /convex env set --preview-name "\$PREVIEW_NAME" VRDEX_PREVIEW_PERSISTENCE_SECRET/);
+    assert.match(baseline, /HOSTED_E2E_AUTH_HELPERS: \$\{\{ vars\.VRDEX_HOSTED_E2E_AUTH_HELPERS \}\}/);
+    assert.match(baseline, /HOSTED_E2E_DEVELOPER_CREDENTIALS: \$\{\{ vars\.VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS \}\}/);
+    assert.match(baseline, /HOSTED_E2E_BROWSER_TOKEN: \$\{\{ secrets\.VRDEX_HOSTED_E2E_BROWSER_TOKEN \}\}/);
+    assert.match(baseline, /::add-mask::\$e2e_convex_secret/);
+    assert.match(baseline, /generate-convex-auth-preview-keys\.mjs/);
+    assert.match(baseline, /generate-preview-developer-runtime-secrets\.mjs/);
+    assert.match(baseline, /::add-mask::\$jwt_private_key/);
+    assert.match(baseline, /::add-mask::\$jwks/);
+    assert.match(baseline, /convex env set --preview-name "\$PREVIEW_NAME" VRDEX_ENABLE_E2E_AUTH_HELPERS/);
+    assert.match(baseline, /convex env set --preview-name "\$PREVIEW_NAME" VRDEX_E2E_CONVEX_SECRET/);
+    assert.match(baseline, /convex env set --preview-name "\$PREVIEW_NAME" JWT_PRIVATE_KEY/);
+    assert.match(baseline, /convex env set --preview-name "\$PREVIEW_NAME" JWKS/);
+    assert.match(
+      baseline,
+      /convex env set --preview-name "\$PREVIEW_NAME" VRDEX_ENABLE_PREVIEW_OAUTH_TOKEN_BRIDGE/,
+    );
+    assert.match(baseline, /convex env set --preview-name "\$PREVIEW_NAME" SITE_URL/);
     assert.match(baseline, /convex run --preview-name "\$PREVIEW_NAME" hostedSmokeFixtures:ensurePublicSearchFixture/);
     assert.match(baseline, /if \[ -n "\$CONVEX_PREVIEW_URL" \]; then/);
     assert.match(baseline, /Preview persistence secret was not configured/);
@@ -202,6 +227,16 @@ describe("API/MCP rollout readiness checker", () => {
     assert.match(baseline, /--env "VRDEX_DEPLOYMENT_ENV=preview"/);
     assert.match(baseline, /--env "VRDEX_ENABLE_PREVIEW_PERSISTENCE_BRIDGE=true"/);
     assert.match(baseline, /--env "VRDEX_PREVIEW_PERSISTENCE_SECRET=\$VRDEX_PREVIEW_PERSISTENCE_SECRET"/);
+    assert.match(baseline, /if \[ "\$\{VRDEX_PREVIEW_E2E_AUTH_ENABLED:-false\}" = "true" \]; then/);
+    assert.match(baseline, /Preview E2E Convex secret was not configured/);
+    assert.match(baseline, /Preview E2E browser token was not configured/);
+    assert.match(baseline, /--env "VRDEX_ENABLE_E2E_AUTH_HELPERS=true"/);
+    assert.match(baseline, /--env "VRDEX_E2E_BROWSER_TOKEN=\$VRDEX_E2E_BROWSER_TOKEN"/);
+    assert.match(baseline, /--env "VRDEX_E2E_CONVEX_SECRET=\$VRDEX_PREVIEW_E2E_CONVEX_SECRET"/);
+    assert.match(baseline, /--env "VRDEX_API_TOKEN_PEPPER=\$api_token_pepper"/);
+    assert.match(baseline, /--env "VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY=\$oauth_access_token_signing_key"/);
+    assert.match(baseline, /--env "VRDEX_OAUTH_CLIENT_SECRET_PEPPER=\$oauth_client_secret_pepper"/);
+    assert.match(baseline, /--env "VRDEX_OAUTH_REFRESH_TOKEN_PEPPER=\$oauth_refresh_token_pepper"/);
     assert.doesNotMatch(baseline, /--env "CONVEX_ADMIN_TOKEN=/);
   });
 

@@ -1467,10 +1467,13 @@ jobs:
           PREVIEW_NAME: pr-${{ github.event.pull_request.number }}
         run: pnpm exec convex deploy --yes --typecheck=enable --preview-create "$PREVIEW_NAME" --cmd "node scripts/write-convex-preview-output.mjs" --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL
 
-      - name: Configure Convex preview persistence and smoke fixture
+      - name: Configure Convex preview runtime and smoke fixture
         if: steps.gate.outputs.enabled == 'true' && steps.convex-preview.outputs.convex_url != ''
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_PREVIEW }}
+          HOSTED_E2E_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
+          HOSTED_E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
+          HOSTED_E2E_DEVELOPER_CREDENTIALS: ${{ vars.VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS }}
           PREVIEW_NAME: pr-${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
@@ -1481,6 +1484,32 @@ jobs:
           printf '%s' true | pnpm exec convex env set --preview-name "$PREVIEW_NAME" VRDEX_ENABLE_PREVIEW_PERSISTENCE_BRIDGE
           printf '%s' true | pnpm exec convex env set --preview-name "$PREVIEW_NAME" VRDEX_ENABLE_HOSTED_SMOKE_FIXTURE
           printf '%s' "$bridge_secret" | pnpm exec convex env set --preview-name "$PREVIEW_NAME" VRDEX_PREVIEW_PERSISTENCE_SECRET
+
+          preview_e2e_auth_enabled=false
+          if [ "$HOSTED_E2E_AUTH_HELPERS" = "true" ] && [ "$HOSTED_E2E_DEVELOPER_CREDENTIALS" = "true" ] && [ -n "$HOSTED_E2E_BROWSER_TOKEN" ]; then
+            e2e_convex_secret=$(openssl rand -hex 32)
+            node scripts/generate-convex-auth-preview-keys.mjs
+            node scripts/generate-preview-developer-runtime-secrets.mjs
+            jwt_private_key=$(<.tmp-gh-artifacts/convex-auth-preview/jwt-private-key)
+            jwks=$(<.tmp-gh-artifacts/convex-auth-preview/jwks.json)
+            echo "::add-mask::$e2e_convex_secret"
+            echo "::add-mask::$jwt_private_key"
+            echo "::add-mask::$jwks"
+            echo "VRDEX_PREVIEW_E2E_CONVEX_SECRET=$e2e_convex_secret" >> "$GITHUB_ENV"
+            printf '%s' true | pnpm exec convex env set --preview-name "$PREVIEW_NAME" VRDEX_ENABLE_E2E_HELPERS
+            printf '%s' true | pnpm exec convex env set --preview-name "$PREVIEW_NAME" VRDEX_ENABLE_E2E_AUTH_HELPERS
+            printf '%s' true | pnpm exec convex env set --preview-name "$PREVIEW_NAME" VRDEX_ENABLE_PREVIEW_OAUTH_TOKEN_BRIDGE
+            printf '%s' "$e2e_convex_secret" | pnpm exec convex env set --preview-name "$PREVIEW_NAME" VRDEX_E2E_CONVEX_SECRET
+            printf '%s' "$jwt_private_key" | pnpm exec convex env set --preview-name "$PREVIEW_NAME" JWT_PRIVATE_KEY
+            printf '%s' "$jwks" | pnpm exec convex env set --preview-name "$PREVIEW_NAME" JWKS
+            preview_e2e_auth_enabled=true
+          else
+            printf '%s' false | pnpm exec convex env set --preview-name "$PREVIEW_NAME" VRDEX_ENABLE_E2E_HELPERS
+            printf '%s' false | pnpm exec convex env set --preview-name "$PREVIEW_NAME" VRDEX_ENABLE_E2E_AUTH_HELPERS
+            printf '%s' false | pnpm exec convex env set --preview-name "$PREVIEW_NAME" VRDEX_ENABLE_PREVIEW_OAUTH_TOKEN_BRIDGE
+          fi
+          echo "VRDEX_PREVIEW_E2E_AUTH_ENABLED=$preview_e2e_auth_enabled" >> "$GITHUB_ENV"
+
           pnpm exec convex run --preview-name "$PREVIEW_NAME" hostedSmokeFixtures:ensurePublicSearchFixture
 
       - name: Use Convex preview URL for Vercel build
@@ -1503,7 +1532,10 @@ jobs:
         id: deploy
         if: steps.gate.outputs.enabled == 'true'
         env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_PREVIEW }}
           CONVEX_PREVIEW_URL: ${{ steps.convex-preview.outputs.convex_url }}
+          PREVIEW_NAME: pr-${{ github.event.pull_request.number }}
+          VRDEX_E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
@@ -1519,10 +1551,36 @@ jobs:
               --env "VRDEX_PREVIEW_PERSISTENCE_SECRET=$VRDEX_PREVIEW_PERSISTENCE_SECRET"
             )
           fi
+          if [ "${VRDEX_PREVIEW_E2E_AUTH_ENABLED:-false}" = "true" ]; then
+            : "${VRDEX_PREVIEW_E2E_CONVEX_SECRET:?Preview E2E Convex secret was not configured.}"
+            : "${VRDEX_E2E_BROWSER_TOKEN:?Preview E2E browser token was not configured.}"
+            api_token_pepper=$(<.tmp-gh-artifacts/preview-developer-runtime/api-token-pepper)
+            oauth_access_token_signing_key=$(<.tmp-gh-artifacts/preview-developer-runtime/oauth-access-token-signing-key)
+            oauth_client_secret_pepper=$(<.tmp-gh-artifacts/preview-developer-runtime/oauth-client-secret-pepper)
+            oauth_refresh_token_pepper=$(<.tmp-gh-artifacts/preview-developer-runtime/oauth-refresh-token-pepper)
+            echo "::add-mask::$api_token_pepper"
+            echo "::add-mask::$oauth_access_token_signing_key"
+            echo "::add-mask::$oauth_client_secret_pepper"
+            echo "::add-mask::$oauth_refresh_token_pepper"
+            deploy_args+=(
+              --env "VRDEX_ENABLE_E2E_HELPERS=true"
+              --env "VRDEX_ENABLE_E2E_AUTH_HELPERS=true"
+              --env "VRDEX_E2E_BROWSER_TOKEN=$VRDEX_E2E_BROWSER_TOKEN"
+              --env "VRDEX_E2E_CONVEX_SECRET=$VRDEX_PREVIEW_E2E_CONVEX_SECRET"
+              --env "VRDEX_API_TOKEN_PEPPER=$api_token_pepper"
+              --env "VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY=$oauth_access_token_signing_key"
+              --env "VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID=vrdex-pr-${{ github.event.pull_request.number }}"
+              --env "VRDEX_OAUTH_CLIENT_SECRET_PEPPER=$oauth_client_secret_pepper"
+              --env "VRDEX_OAUTH_REFRESH_TOKEN_PEPPER=$oauth_refresh_token_pepper"
+            )
+          fi
           deployment_url=$(pnpm dlx vercel@54.4.1 "${deploy_args[@]}" | tail -n 1)
           if [ -z "$deployment_url" ]; then
             echo "Vercel deployment did not return a URL." >&2
             exit 1
+          fi
+          if [ "${VRDEX_PREVIEW_E2E_AUTH_ENABLED:-false}" = "true" ]; then
+            printf '%s' "$deployment_url" | pnpm exec convex env set --preview-name "$PREVIEW_NAME" SITE_URL
           fi
 
           echo "url=$deployment_url" >> "$GITHUB_OUTPUT"

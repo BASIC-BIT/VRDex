@@ -61,7 +61,7 @@ type RefreshTokenMutationInput = {
   verifierHash?: string;
 };
 
-type ClientCredentialsMutationInput = {
+export type ClientCredentialsMutationInput = {
   clientId: string;
   expiresAt: number;
   requestedScopes: OAuthScope[];

@@ -41,7 +41,7 @@ type AutomationSurfaceResult = {
   client: string;
   evidence: string;
   nextAction: string;
-  status: "manual_only" | "not_available";
+  status: "manual_only" | "not_available" | "transcript_capable";
   surface: string;
 };
 
@@ -148,7 +148,7 @@ const clients: ClientProbe[] = [
   {
     id: "cursor",
     name: "Cursor",
-    manualGap: "Use the installed app or Cursor agent surface to list tools and call vrdex_search before recording manual rows.",
+    manualGap: "Prefer pnpm smoke:mcp-cursor-agent when the headless Agent CLI is installed; otherwise use the installed IDE to list tools and call vrdex_search before recording manual rows.",
     version: {
       command: "cursor",
       args: ["--version"],
@@ -528,13 +528,27 @@ function runAutomationProbe(command: string, args: string[]) {
   return result.output;
 }
 
+function cursorAgentCapability(command: string) {
+  const help = runAutomationProbe(command, ["--help"]);
+  const mcpHelp = runAutomationProbe(command, ["mcp", "--help"]);
+  const capable = /(?:^|\s)(?:-p,\s*)?--print\b/m.test(help)
+    && /--output-format\b/.test(help)
+    && /stream-json/i.test(help)
+    && /\bmcp\b/i.test(help)
+    && /list-tools/i.test(mcpHelp);
+
+  return { capable, command, help, mcpHelp };
+}
+
 function evaluateAutomationSurfaces(): AutomationSurfaceResult[] {
   const vscodeChatHelp = runAutomationProbe("code", ["chat", "--help"]);
   const vscodeIsolatedChatHelp = runAutomationProbe(
     "code",
     ["--user-data-dir", ".tmp-gh-artifacts/mcp-client-cli-probe/vscode-chat", "chat", "--help"],
   );
-  const cursorAgentHelp = runAutomationProbe("cursor", ["agent", "--help"]);
+  const cursorAgent = ["agent", "cursor-agent"]
+    .map(cursorAgentCapability)
+    .find((candidate) => candidate.capable);
   const cursorChatHelp = runAutomationProbe("cursor", ["--chat", "--help"]);
   const windsurfHelp = runAutomationProbe("windsurf", ["--help"]);
 
@@ -559,12 +573,14 @@ function evaluateAutomationSurfaces(): AutomationSurfaceResult[] {
     },
     {
       client: "Cursor",
-      evidence: /Usage:\s+cursor(?:\.exe)?\s+\[options\]/i.test(cursorAgentHelp)
-        ? "cursor agent is advertised, but current help falls back to generic Cursor CLI help rather than a transcript-producing MCP smoke command"
-        : "cursor agent help shape changed; inspect manually before treating it as an automation path",
-      nextAction: "Use installed app or agent-surface screenshot/transcript evidence after the real session lists tools and calls vrdex_search.",
-      status: "manual_only",
-      surface: "agent subcommand",
+      evidence: cursorAgent === undefined
+        ? "neither agent nor cursor-agent exposed the required --print, stream-json, and mcp list-tools capability signature"
+        : `${cursorAgent.command} exposes structured print output and MCP tool listing for transcript-producing smoke evidence`,
+      nextAction: cursorAgent === undefined
+        ? "Install the current Cursor Agent CLI, then run pnpm smoke:mcp-cursor-agent; keep the IDE launcher path manual-only."
+        : "Run pnpm smoke:mcp-cursor-agent for local stdio, then rerun with --mode hosted-http and --hosted-data for hosted anonymous evidence.",
+      status: cursorAgent === undefined ? "not_available" : "transcript_capable",
+      surface: "headless Agent CLI",
     },
     {
       client: "Cursor",

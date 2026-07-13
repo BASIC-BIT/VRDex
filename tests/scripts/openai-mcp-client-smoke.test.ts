@@ -17,6 +17,11 @@ function runOpenAiSmoke(args: string[], env: NodeJS.ProcessEnv = {}) {
       env: {
         ...process.env,
         OPENAI_API_KEY: "",
+        VRDEX_MCP_OAUTH_CLIENT_ID: "",
+        VRDEX_MCP_OAUTH_CLIENT_SECRET: "",
+        VRDEX_OPENAI_MCP_OAUTH_CLIENT_ID: "",
+        VRDEX_OPENAI_MCP_OAUTH_CLIENT_SECRET: "",
+        VRDEX_OPENAI_MCP_OAUTH_TOKEN: "",
         ...env,
       },
       timeout: 20_000,
@@ -34,6 +39,11 @@ function runOpenAiSmokeAsync(args: string[], env: NodeJS.ProcessEnv = {}) {
         env: {
           ...process.env,
           OPENAI_API_KEY: "",
+          VRDEX_MCP_OAUTH_CLIENT_ID: "",
+          VRDEX_MCP_OAUTH_CLIENT_SECRET: "",
+          VRDEX_OPENAI_MCP_OAUTH_CLIENT_ID: "",
+          VRDEX_OPENAI_MCP_OAUTH_CLIENT_SECRET: "",
+          VRDEX_OPENAI_MCP_OAUTH_TOKEN: "",
           ...env,
         },
         stdio: ["ignore", "pipe", "pipe"],
@@ -83,11 +93,24 @@ function writeJson(response: ServerResponse, status: number, body: unknown) {
 }
 
 async function startHostedMcpFixture(options: {
+  oauthToken?: string;
   searchToolError?: boolean;
   tools?: string[];
 } = {}) {
   const tools = options.tools ?? ["search", "fetch", "vrdex_search"];
+  let tokenAuthorization: string | undefined;
   const server = createServer(async (request, response) => {
+    if (request.url === "/oauth/token" && request.method === "POST" && options.oauthToken !== undefined) {
+      tokenAuthorization = request.headers.authorization;
+      writeJson(response, 200, {
+        access_token: options.oauthToken,
+        expires_in: 300,
+        scope: "public:read mcp:read",
+        token_type: "Bearer",
+      });
+      return;
+    }
+
     if (request.url !== "/mcp" || request.method !== "POST") {
       response.writeHead(404, { connection: "close" });
       response.end("Not found");
@@ -184,6 +207,7 @@ async function startHostedMcpFixture(options: {
       new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
       }),
+    tokenAuthorization: () => tokenAuthorization,
     url: `http://127.0.0.1:${address.port}/mcp`,
   };
 }
@@ -351,7 +375,126 @@ describe("OpenAI Responses API MCP smoke harness", () => {
 
       assert.equal(result.status, 0, result.stderr);
       assert.equal(requestBody?.model, "gpt-5.6-luna");
+      const tools = requestBody?.tools as Array<Record<string, unknown>>;
+
+      assert.equal(tools[0]?.authorization, undefined);
       assert.match(result.stdout, /gpt-5\.6-luna called search and fetch/);
+    } finally {
+      await mcpFixture.close();
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
+  });
+
+  it("mints and forwards a hosted MCP OAuth token without printing credentials", async () => {
+    const mcpFixture = await startHostedMcpFixture({ oauthToken: "oauth-access-token" });
+    let requestBody: Record<string, unknown> | undefined;
+    const server = createServer(async (request, response) => {
+      requestBody = JSON.parse(await readRequestBody(request)) as Record<string, unknown>;
+      writeJson(response, 200, {
+        output: [
+          { arguments: JSON.stringify({ query: "club" }), name: "search", output: JSON.stringify({ results: [{ id: "event:club-night" }] }), type: "mcp_call" },
+          { arguments: JSON.stringify({ id: "event:club-night" }), name: "fetch", output: JSON.stringify({ text: "Title: Club Night" }), type: "mcp_call" },
+          { content: [{ text: "openai-mcp-ok", type: "output_text" }], role: "assistant", type: "message" },
+        ],
+        output_text: "openai-mcp-ok",
+      });
+    });
+
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+
+    try {
+      const address = server.address();
+
+      assert.ok(address !== null && typeof address === "object");
+
+      const result = await runOpenAiSmokeAsync([
+        "--hosted-url", mcpFixture.url, "--hosted-data", "--endpoint", `http://127.0.0.1:${address.port}/v1/responses`,
+      ], {
+        OPENAI_API_KEY: "test-api-key",
+        VRDEX_MCP_OAUTH_CLIENT_ID: "oauth-client-id",
+        VRDEX_MCP_OAUTH_CLIENT_SECRET: "oauth-client-secret",
+      });
+
+      assert.equal(result.status, 0, result.stderr);
+      const tools = requestBody?.tools as Array<Record<string, unknown>>;
+
+      assert.equal(tools[0]?.authorization, "oauth-access-token");
+      assert.equal(mcpFixture.tokenAuthorization(), `Basic ${Buffer.from("oauth-client-id:oauth-client-secret").toString("base64")}`);
+      assert.match(result.stdout, /OpenAI Responses API hosted OAuth MCP \| pass/);
+      assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /test-api-key|oauth-client-secret|oauth-access-token/);
+    } finally {
+      await mcpFixture.close();
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
+  });
+
+  it("fails closed on partial hosted MCP OAuth client credentials", async () => {
+    const mcpFixture = await startHostedMcpFixture();
+    let openAiRequests = 0;
+    const server = createServer((_request, response) => {
+      openAiRequests += 1;
+      writeJson(response, 200, { output_text: "should-not-run" });
+    });
+
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+
+    try {
+      const address = server.address();
+
+      assert.ok(address !== null && typeof address === "object");
+
+      const result = await runOpenAiSmokeAsync([
+        "--hosted-url", mcpFixture.url, "--hosted-data", "--endpoint", `http://127.0.0.1:${address.port}/v1/responses`,
+      ], {
+        OPENAI_API_KEY: "test-api-key",
+        VRDEX_MCP_OAUTH_CLIENT_ID: "oauth-client-id",
+      });
+
+      assert.equal(result.status, 1);
+      assert.equal(openAiRequests, 0);
+      assert.match(result.stderr, /OAuth client secret is required/);
+      assert.doesNotMatch(result.stderr, /test-api-key|oauth-client-id/);
+    } finally {
+      await mcpFixture.close();
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
+  });
+
+  it("redacts provider and OAuth credentials from Responses API errors", async () => {
+    const mcpFixture = await startHostedMcpFixture();
+    const server = createServer((_request, response) => {
+      writeJson(response, 500, { error: "test-api-key oauth-client-secret oauth-access-token Authorization: Bearer oauth-access-token" });
+    });
+
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+
+    try {
+      const address = server.address();
+
+      assert.ok(address !== null && typeof address === "object");
+
+      const result = await runOpenAiSmokeAsync([
+        "--hosted-url", mcpFixture.url, "--hosted-data", "--endpoint", `http://127.0.0.1:${address.port}/v1/responses`,
+      ], {
+        OPENAI_API_KEY: "test-api-key",
+        VRDEX_MCP_OAUTH_CLIENT_SECRET: "oauth-client-secret",
+        VRDEX_OPENAI_MCP_OAUTH_TOKEN: "oauth-access-token",
+      });
+
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /REDACTED_API_KEY/);
+      assert.match(result.stderr, /REDACTED_CLIENT_SECRET/);
+      assert.match(result.stderr, /REDACTED_OAUTH_TOKEN|Authorization: Bearer \[REDACTED\]/);
+      assert.doesNotMatch(result.stderr, /test-api-key|oauth-client-secret|oauth-access-token/);
     } finally {
       await mcpFixture.close();
       await new Promise<void>((resolve, reject) => {

@@ -11,6 +11,13 @@ type JsonResponse = {
   status: number;
 };
 
+type PlaywrightChromiumModule<T> = {
+  chromium?: T;
+  default?: {
+    chromium?: T;
+  };
+};
+
 type Options = {
   allowProduction: boolean;
   baseUrl: string;
@@ -191,10 +198,20 @@ function basicAuthorization(clientId: string, clientSecret: string) {
   return `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`;
 }
 
-function loadPlaywright() {
-  const webRequire = createRequire(path.join(repoRoot, "apps", "web", "package.json"));
+export function resolvePlaywrightChromium<T>(module: PlaywrightChromiumModule<T>) {
+  const chromium = module.chromium ?? module.default?.chromium;
 
-  return import(webRequire.resolve("@playwright/test")) as Promise<typeof import("@playwright/test")>;
+  assert.ok(chromium, "The Playwright module does not expose chromium directly or through its default export.");
+
+  return { chromium };
+}
+
+async function loadPlaywright() {
+  const webRequire = createRequire(path.join(repoRoot, "apps", "web", "package.json"));
+  const playwrightModule = await import(webRequire.resolve("@playwright/test")) as unknown as
+    PlaywrightChromiumModule<typeof import("@playwright/test").chromium>;
+
+  return resolvePlaywrightChromium(playwrightModule);
 }
 
 async function gotoFlowPage(page: import("@playwright/test").Page, pathName: string) {
@@ -224,7 +241,16 @@ async function createVerifiedE2eAccount(args: {
   await args.page.getByLabel("Email").fill(args.email);
   await args.page.getByLabel("Password").fill(args.password);
   await args.page.getByRole("button", { name: "Create account" }).click();
-  await args.page.getByText(new RegExp(`Check ${args.email} for a verification code`, "i")).waitFor();
+  const verificationCodeInput = args.page.getByLabel("Verification code");
+
+  try {
+    await verificationCodeInput.waitFor({ timeout: 15_000 });
+  } catch (error) {
+    const pageText = await args.page.locator("body").innerText().catch(() => "unavailable");
+    const cause = error instanceof Error ? error.message.split("\n", 1)[0] : String(error);
+
+    throw new Error(`Account signup did not enter email verification mode (${cause}). Page text: ${pageText}`);
+  }
 
   const codeResponse = await args.request.post("/api/e2e/auth", {
     data: { action: "consume-code", email: args.email },
@@ -241,7 +267,7 @@ async function createVerifiedE2eAccount(args: {
 
   assert.ok(authCode.code, "E2E auth helper returned no verification code.");
 
-  await args.page.getByLabel("Verification code").fill(authCode.code);
+  await verificationCodeInput.fill(authCode.code);
   await Promise.all([
     args.page.waitForURL(/\/account$/),
     args.page.getByRole("button", { name: "Verify email" }).click(),
@@ -306,6 +332,67 @@ async function createConfidentialMcpOAuthApp(args: {
   return { clientId, clientSecret };
 }
 
+export function parseOAuthTokenResponse(args: { ok: boolean; status: number; text: string }) {
+  const responseBody = args.text.trim().slice(0, 300) || "<empty response body>";
+
+  assert.equal(
+    args.ok,
+    true,
+    `OAuth client-credentials verification failed with HTTP ${args.status}: ${responseBody}`,
+  );
+
+  try {
+    return JSON.parse(args.text) as Record<string, unknown>;
+  } catch {
+    throw new Error(`OAuth token endpoint returned non-JSON with HTTP ${args.status}: ${responseBody}`);
+  }
+}
+
+export function parseMcpOAuthVerificationResponse(args: {
+  ok: boolean;
+  status: number;
+  text: string;
+}) {
+  const responseBody = args.text.trim().slice(0, 500) || "<empty response body>";
+
+  assert.equal(
+    args.ok,
+    true,
+    `OAuth bearer verification against hosted MCP failed with HTTP ${args.status}: ${responseBody}`,
+  );
+
+  const trimmed = args.text.trim();
+  const payloadText = trimmed.startsWith("{")
+    ? trimmed
+    : trimmed
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) => line.startsWith("data:"))
+      ?.slice("data:".length)
+      .trim();
+
+  if (!payloadText) {
+    throw new Error(`OAuth bearer verification against hosted MCP returned no JSON or SSE data: ${responseBody}`);
+  }
+
+  let payload: Record<string, unknown>;
+
+  try {
+    payload = JSON.parse(payloadText) as Record<string, unknown>;
+  } catch {
+    throw new Error(`OAuth bearer verification against hosted MCP returned invalid JSON or SSE data: ${responseBody}`);
+  }
+
+  const result = payload.result as { tools?: unknown } | undefined;
+  assert.equal(
+    Array.isArray(result?.tools),
+    true,
+    `OAuth bearer verification against hosted MCP did not return a tools array: ${responseBody}`,
+  );
+
+  return payload;
+}
+
 async function verifyClientCredentialsToken(args: {
   clientId: string;
   clientSecret: string;
@@ -324,19 +411,35 @@ async function verifyClientCredentialsToken(args: {
     method: "POST",
   });
   const text = await response.text();
-  const payload = JSON.parse(text) as Record<string, unknown>;
-
-  assert.equal(
-    response.ok,
-    true,
-    `OAuth client-credentials verification failed with HTTP ${response.status}: ${text.slice(0, 300)}`,
-  );
+  const payload = parseOAuthTokenResponse({ ok: response.ok, status: response.status, text });
   assert.equal(payload.token_type, "Bearer", "OAuth token endpoint did not return token_type Bearer.");
   assert.equal(typeof payload.access_token, "string", "OAuth token endpoint did not return an access token.");
   assert.ok(
     typeof payload.scope === "string" && payload.scope.split(/\s+/).includes("mcp:read"),
     "OAuth token endpoint did not grant mcp:read.",
   );
+
+  const mcpResponse = await fetch(hostedMcpUrl(args.origin), {
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: "vrdex-oauth-smoke-verification",
+      method: "tools/list",
+      params: {},
+    }),
+    headers: {
+      accept: "application/json, text/event-stream",
+      authorization: `Bearer ${payload.access_token}`,
+      "content-type": "application/json",
+      "mcp-protocol-version": "2025-06-18",
+    },
+    method: "POST",
+  });
+  const mcpText = await mcpResponse.text();
+  parseMcpOAuthVerificationResponse({
+    ok: mcpResponse.ok,
+    status: mcpResponse.status,
+    text: mcpText,
+  });
 }
 
 async function writeCredentialFiles(args: {
@@ -388,7 +491,7 @@ async function writeCredentialFiles(args: {
       `Run id: ${args.runId}`,
       `OAuth app: ${args.clientName}`,
       `OAuth client id: ${args.clientId}`,
-      `Client-credentials token verification: ${args.tokenVerified ? "pass" : "skipped"}`,
+      `Client-credentials MCP authentication: ${args.tokenVerified ? "pass" : "skipped"}`,
       "",
       "The client secret is written only to the ignored env files in this directory. Do not paste it into PR comments, logs, docs, or matrix evidence.",
       "",
@@ -473,7 +576,7 @@ async function main() {
     console.log(`| Hosted MCP URL | ${hostedMcpUrl(origin)} |`);
     console.log(`| OAuth client id | ${credentials.clientId} |`);
     console.log(`| Client secret | written to ignored env files only |`);
-    console.log(`| Token verification | ${tokenVerified ? "pass" : "skipped"} |`);
+    console.log(`| MCP bearer verification | ${tokenVerified ? "pass" : "skipped"} |`);
     console.log(`| Output directory | ${files.outputDir} |`);
     console.log(`| PowerShell env | ${files.envPs1} |`);
     console.log(`| Bash env | ${files.envSh} |`);
@@ -484,7 +587,12 @@ async function main() {
   }
 }
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exit(1);
-});
+const isDirectRun = process.argv[1] !== undefined
+  && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isDirectRun) {
+  main().catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exit(1);
+  });
+}

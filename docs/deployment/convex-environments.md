@@ -37,7 +37,10 @@ Local ignored env names:
 Baseline Checks deploys Vercel PR previews after local lint, type, docs,
 contract, backend, and visual checks pass. When `CONVEX_DEPLOY_KEY_PREVIEW` is
 configured, the Vercel preview job first creates or updates a Convex preview
-deployment named for the PR and builds the web app with that preview Convex URL.
+deployment named for the PR with `convex deploy --preview-create` and builds the
+web app with that preview Convex URL. The project-level
+`CONVEX_DEPLOY_KEY_PREVIEW` remains in GitHub Actions and is never injected into
+Vercel.
 
 The `Hosted MCP Preview Smoke` job always runs `pnpm smoke:mcp-compat` against
 the Vercel preview `/mcp` endpoint when the preview URL exists. CI passes that
@@ -64,7 +67,13 @@ bridge with `VRDEX_DEPLOYMENT_ENV=preview`,
 `VRDEX_PREVIEW_PERSISTENCE_SECRET` shared only with the matching Vercel
 deployment. The public bridge mutations reject every other environment and an
 incorrect or missing secret. Do not replace this boundary with a preview
-`CONVEX_ADMIN_TOKEN`.
+`CONVEX_ADMIN_TOKEN`. When the separately gated hosted E2E developer-credential
+flow is enabled, the workflow also sets
+`VRDEX_ENABLE_PREVIEW_OAUTH_TOKEN_BRIDGE=true` on that Convex preview. That flag
+permits only client-credentials access-token record issuance and access-token
+validation through the same secret-bound bridge. Authorization-code,
+refresh-token, revocation, and all other internal operations remain unavailable
+to the preview web runtime.
 
 The workflow also sets `VRDEX_ENABLE_HOSTED_SMOKE_FIXTURE=true` and invokes the
 internal `hostedSmokeFixtures:ensurePublicSearchFixture` mutation through the

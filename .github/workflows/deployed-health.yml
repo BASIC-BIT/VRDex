@@ -320,6 +320,7 @@ jobs:
         id: gate
         env:
           MCP_BASE_URL_OVERRIDE: ${{ inputs.base_url }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           MCP_OAUTH_CLIENT_ID: ${{ secrets.VRDEX_MCP_OAUTH_CLIENT_ID }}
           MCP_OAUTH_CLIENT_SECRET: ${{ secrets.VRDEX_MCP_OAUTH_CLIENT_SECRET }}
           MCP_OAUTH_REQUESTED: ${{ inputs.mcp_oauth }}
@@ -333,6 +334,7 @@ jobs:
           if [ -z "$MCP_BASE_URL_OVERRIDE" ]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             echo "oauth_enabled=false" >> "$GITHUB_OUTPUT"
+            echo "openai_oauth_enabled=false" >> "$GITHUB_OUTPUT"
             {
               echo "## Hosted MCP smoke health"
               echo "Skipped because base_url was not provided."
@@ -360,11 +362,19 @@ jobs:
             fi
           fi
 
+          OPENAI_OAUTH_ENABLED=false
+          if [ "$OAUTH_ENABLED" = "true" ] && [ -n "$OPENAI_API_KEY" ]; then
+            if { [ -n "$MCP_OAUTH_CLIENT_ID" ] && [ -n "$MCP_OAUTH_CLIENT_SECRET" ]; } || [ "$GENERATE_OAUTH_CREDENTIALS" = "true" ]; then
+              OPENAI_OAUTH_ENABLED=true
+            fi
+          fi
+
           echo "enabled=true" >> "$GITHUB_OUTPUT"
           echo "mcp_url=$MCP_BASE_URL_OVERRIDE" >> "$GITHUB_OUTPUT"
           echo "oauth_enabled=$OAUTH_ENABLED" >> "$GITHUB_OUTPUT"
           echo "oauth_source=$OAUTH_SOURCE" >> "$GITHUB_OUTPUT"
           echo "generate_oauth_credentials=$GENERATE_OAUTH_CREDENTIALS" >> "$GITHUB_OUTPUT"
+          echo "openai_oauth_enabled=$OPENAI_OAUTH_ENABLED" >> "$GITHUB_OUTPUT"
 
       - name: Setup pnpm
         if: steps.gate.outputs.enabled == 'true'
@@ -481,3 +491,31 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
           pnpm smoke:mcp-inspector -- --hosted-url "$SMOKE_URL" --hosted-data
+
+      - name: Run OpenAI Responses hosted MCP OAuth smoke
+        if: steps.gate.outputs.enabled == 'true' && steps.gate.outputs.openai_oauth_enabled == 'true'
+        env:
+          CONFIGURED_MCP_OAUTH_CLIENT_ID: ${{ secrets.VRDEX_MCP_OAUTH_CLIENT_ID }}
+          CONFIGURED_MCP_OAUTH_CLIENT_SECRET: ${{ secrets.VRDEX_MCP_OAUTH_CLIENT_SECRET }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SMOKE_OAUTH_SOURCE: ${{ steps.gate.outputs.oauth_source }}
+          SMOKE_URL: ${{ steps.gate.outputs.mcp_url }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "${CONFIGURED_MCP_OAUTH_CLIENT_ID:-}" ] && [ -n "${CONFIGURED_MCP_OAUTH_CLIENT_SECRET:-}" ]; then
+            export VRDEX_MCP_OAUTH_CLIENT_ID="$CONFIGURED_MCP_OAUTH_CLIENT_ID"
+            export VRDEX_MCP_OAUTH_CLIENT_SECRET="$CONFIGURED_MCP_OAUTH_CLIENT_SECRET"
+          fi
+
+          {
+            echo ""
+            echo "## OpenAI Responses hosted MCP OAuth smoke"
+            echo ""
+            echo "- Target: \`$SMOKE_URL\`"
+            echo "- Model: \`gpt-5.6-luna\`"
+            echo "- OAuth credential source: \`$SMOKE_OAUTH_SOURCE\`"
+            echo "- ChatGPT Apps/Connectors UI evidence: \`not exercised\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          pnpm smoke:mcp-openai -- --hosted-url "$SMOKE_URL" --hosted-data

@@ -11,6 +11,7 @@ import {
   fetchMcpOAuthClientCredentialsToken,
   hasAnyMcpOAuthClientCredentials,
   mcpOAuthClientCredentialsFromEnv,
+  mcpOAuthClientCredentialsFromOptions,
 } from "./mcp-oauth-client-credentials";
 
 type ClaudeJsonResult = {
@@ -352,7 +353,9 @@ async function hostedOAuthToken(options: SmokeOptions) {
     return options.hostedOAuthToken;
   }
 
-  if (!hasAnyMcpOAuthClientCredentials(options)) {
+  const credentials = mcpOAuthClientCredentialsFromOptions(options);
+
+  if (!hasAnyMcpOAuthClientCredentials(credentials)) {
     return undefined;
   }
 
@@ -360,8 +363,7 @@ async function hostedOAuthToken(options: SmokeOptions) {
 
   assert.ok(hostedUrl, "Hosted URL is required for OAuth client-credentials token acquisition.");
   const result = await fetchMcpOAuthClientCredentialsToken({
-    clientId: options.hostedOAuthClientId,
-    clientSecret: options.hostedOAuthClientSecret,
+    ...credentials,
     hostedUrl,
   });
 

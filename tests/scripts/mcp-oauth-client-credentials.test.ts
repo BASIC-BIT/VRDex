@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { describe, it } from "node:test";
 
 import {
   fetchMcpOAuthClientCredentialsToken,
+  hasAnyMcpOAuthClientCredentials,
   hostedMcpOAuthCredentialGenerationSourcesFromEnv,
   hostedMcpResourceUrl,
   mcpOAuthCredentialSourcesFromEnv,
   mcpOAuthClientCredentialsFromEnv,
+  mcpOAuthClientCredentialsFromOptions,
   oauthTokenEndpointFromHostedUrl,
 } from "../../scripts/mcp-oauth-client-credentials";
 
@@ -47,6 +50,34 @@ describe("MCP OAuth client credentials helper", () => {
         clientSecret: "generic-secret",
       },
     );
+  });
+
+  it("maps hosted smoke option names before checking credential presence", () => {
+    const credentials = mcpOAuthClientCredentialsFromOptions({
+      hostedOAuthClientId: "client-id",
+      hostedOAuthClientSecret: "client-secret",
+    });
+
+    assert.deepEqual(credentials, {
+      clientId: "client-id",
+      clientSecret: "client-secret",
+    });
+    assert.equal(hasAnyMcpOAuthClientCredentials(credentials), true);
+    assert.equal(hasAnyMcpOAuthClientCredentials(mcpOAuthClientCredentialsFromOptions({})), false);
+  });
+
+  it("keeps every client harness on the mapped credential shape", async () => {
+    for (const path of [
+      "scripts/smoke-openai-mcp-client.ts",
+      "scripts/smoke-claude-code-mcp-client.ts",
+      "scripts/smoke-gemini-cli-mcp-client.ts",
+      "scripts/smoke-mcp-inspector-client.ts",
+    ]) {
+      const source = await readFile(path, "utf8");
+
+      assert.match(source, /mcpOAuthClientCredentialsFromOptions\(options\)/, path);
+      assert.doesNotMatch(source, /hasAnyMcpOAuthClientCredentials\(options\)/, path);
+    }
   });
 
   it("reports OAuth credential source names without exposing values", () => {

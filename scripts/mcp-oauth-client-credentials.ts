@@ -5,6 +5,11 @@ export type McpOAuthClientCredentials = {
   clientSecret?: string;
 };
 
+export type HostedMcpOAuthClientCredentialOptions = {
+  hostedOAuthClientId?: string;
+  hostedOAuthClientSecret?: string;
+};
+
 export type McpOAuthTokenResult = {
   accessToken: string;
   expiresIn?: number;
@@ -72,6 +77,13 @@ export function oauthTokenEndpointFromHostedUrl(rawUrl: string) {
   url.hash = "";
 
   return url.toString();
+}
+
+export function mcpOAuthClientCredentialsFromOptions(options: HostedMcpOAuthClientCredentialOptions) {
+  return {
+    clientId: options.hostedOAuthClientId,
+    clientSecret: options.hostedOAuthClientSecret,
+  } satisfies McpOAuthClientCredentials;
 }
 
 export function mcpOAuthClientCredentialsFromEnv(env: NodeJS.ProcessEnv, clientSpecificPrefix: string) {

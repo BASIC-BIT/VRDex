@@ -411,6 +411,14 @@ function blockerForOpenRow(row: OpenMatrixRow): { id: string } & Omit<PendingBlo
     };
   }
 
+  if (row.clientId === "cursor" && row.checkId !== "hosted-oauth") {
+    return {
+      id: "missing-client-install",
+      label: "Missing client install or account setup",
+      nextAction: "Install and authenticate the current Cursor Agent CLI, then run pnpm smoke:mcp-cursor-agent for local stdio or hosted anonymous evidence. Keep Cursor IDE evidence as the manual fallback.",
+    };
+  }
+
   if (row.checkId === "hosted-oauth" && (row.clientId === "claude-code" || row.clientId === "mcp-inspector")) {
     return {
       id: "oauth-smoke-credentials",
@@ -988,6 +996,12 @@ async function writeSessionPack(options: Options) {
     readmeSections.push(
       `## ${client.name}`,
       "",
+      ...(client.id === "cursor"
+        ? [
+            "Prefer `pnpm smoke:mcp-cursor-agent` for repeatable local stdio evidence. For hosted anonymous evidence, add `-- --mode hosted-http --hosted-url <target-/mcp-url> --hosted-data --hosted-query <known-public-query>`. The command requires the standalone `agent` or `cursor-agent` CLI; the Cursor IDE launcher remains a manual evidence path.",
+            "",
+          ]
+        : []),
       "### Local Stdio Row",
       "",
       "```powershell",

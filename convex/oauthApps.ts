@@ -9,6 +9,7 @@ import {
   apiScopeValidator,
   hasRequiredApiScopes,
   timingSafeEqualString,
+  type ApiRouteClass,
   type ApiScope,
 } from "./_apiTokens";
 import { userOwnsProfile } from "./_profileOwnership";
@@ -56,7 +57,10 @@ import {
   normalizeOAuthConsentTransactionHash,
   oauthConsentTransactionDisposition,
 } from "./_oauthConsentTransactions";
-import { requirePreviewPersistenceBridge } from "./_previewPersistence";
+import {
+  requirePreviewClientCredentialsBridge,
+  requirePreviewPersistenceBridge,
+} from "./_previewPersistence";
 
 function boundedLimit(value: number | undefined, fallback: number, max: number) {
   if (value === undefined || !Number.isFinite(value)) {
@@ -1380,17 +1384,30 @@ export const revokePersonalApplication = mutation({
   },
 });
 
-export const issueClientCredentialsAccessToken = internalMutation({
-  args: {
-    clientId: v.string(),
-    secretPrefix: v.string(),
-    verifierHash: v.string(),
-    requestedScopes: v.optional(v.array(apiScopeValidator)),
-    resource: v.string(),
-    tokenId: v.string(),
-    expiresAt: v.number(),
-  },
-  handler: async (ctx, args) => {
+const clientCredentialsAccessTokenArgs = {
+  clientId: v.string(),
+  secretPrefix: v.string(),
+  verifierHash: v.string(),
+  requestedScopes: v.optional(v.array(apiScopeValidator)),
+  resource: v.string(),
+  tokenId: v.string(),
+  expiresAt: v.number(),
+};
+
+type ClientCredentialsAccessTokenInput = {
+  clientId: string;
+  secretPrefix: string;
+  verifierHash: string;
+  requestedScopes?: ApiScope[];
+  resource: string;
+  tokenId: string;
+  expiresAt: number;
+};
+
+async function issueClientCredentialsAccessTokenRecord(
+  ctx: MutationCtx,
+  args: ClientCredentialsAccessTokenInput,
+) {
     const now = Date.now();
     const clientId = normalizeOAuthClientId(args.clientId);
     const secretPrefix = normalizeOAuthClientSecretPrefix(args.secretPrefix);
@@ -1496,6 +1513,23 @@ export const issueClientCredentialsAccessToken = internalMutation({
       tokenId,
       expiresAt,
     };
+}
+
+export const issueClientCredentialsAccessToken = internalMutation({
+  args: clientCredentialsAccessTokenArgs,
+  handler: issueClientCredentialsAccessTokenRecord,
+});
+
+export const issuePreviewClientCredentialsAccessToken = mutation({
+  args: {
+    bridgeSecret: v.string(),
+    ...clientCredentialsAccessTokenArgs,
+  },
+  handler: async (ctx, args) => {
+    requirePreviewClientCredentialsBridge(args.bridgeSecret);
+    const { bridgeSecret: _bridgeSecret, ...input } = args;
+
+    return await issueClientCredentialsAccessTokenRecord(ctx, input);
   },
 });
 
@@ -2106,15 +2140,26 @@ export const revokeClientRefreshToken = internalMutation({
   },
 });
 
-export const validateAccessToken = internalMutation({
-  args: {
-    clientId: v.string(),
-    tokenId: v.string(),
-    resource: v.string(),
-    requiredScopes: v.optional(v.array(apiScopeValidator)),
-    routeClass: v.optional(apiRouteClassValidator),
-  },
-  handler: async (ctx, args) => {
+const validateAccessTokenArgs = {
+  clientId: v.string(),
+  tokenId: v.string(),
+  resource: v.string(),
+  requiredScopes: v.optional(v.array(apiScopeValidator)),
+  routeClass: v.optional(apiRouteClassValidator),
+};
+
+type ValidateAccessTokenInput = {
+  clientId: string;
+  tokenId: string;
+  resource: string;
+  requiredScopes?: ApiScope[];
+  routeClass?: ApiRouteClass;
+};
+
+async function validateAccessTokenRecord(
+  ctx: MutationCtx,
+  args: ValidateAccessTokenInput,
+) {
     const now = Date.now();
     const clientId = normalizeOAuthClientId(args.clientId);
     const tokenId = normalizeOAuthAccessTokenId(args.tokenId);
@@ -2236,5 +2281,22 @@ export const validateAccessToken = internalMutation({
     await recordValidationEvent(validation);
 
     return validation;
+}
+
+export const validateAccessToken = internalMutation({
+  args: validateAccessTokenArgs,
+  handler: validateAccessTokenRecord,
+});
+
+export const validatePreviewAccessToken = mutation({
+  args: {
+    bridgeSecret: v.string(),
+    ...validateAccessTokenArgs,
+  },
+  handler: async (ctx, args) => {
+    requirePreviewClientCredentialsBridge(args.bridgeSecret);
+    const { bridgeSecret: _bridgeSecret, ...input } = args;
+
+    return await validateAccessTokenRecord(ctx, input);
   },
 });

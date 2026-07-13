@@ -9,6 +9,11 @@ docs update and a changelog entry so early consumers and agents can adapt.
 
 ## 2026-07-13
 
+- added `pnpm smoke:mcp-cursor-agent` for standalone Cursor Agent CLI local
+  stdio and hosted anonymous evidence; it validates the documented headless
+  capability signature, MCP tool listing, completed structured tool events,
+  non-empty search results, and terminal success without treating the Cursor
+  IDE launcher as automated evidence
 - added preview-only, secret-gated Convex persistence for OAuth Dynamic Client
   Registration and Client ID Metadata Documents, plus a deterministic public
   hosted-search fixture on same-branch previews
@@ -18,6 +23,23 @@ docs update and a changelog entry so early consumers and agents can adapt.
 - added a reproducible staging runtime bootstrap for non-Redis API/OAuth
   secrets; staging promotion now waits only on the Terraform-owned Upstash
   rate-limit variables
+- enabled preview-only client-credentials token persistence and bearer
+  validation without exposing a Convex admin key to Vercel; both operations
+  use the separately gated secret-bound preview bridge
+- strengthened `pnpm ops:mcp-oauth-smoke-credentials` so token verification
+  requires an authenticated hosted MCP `tools/list` response instead of only a
+  successful token-endpoint response
+- Deployed Health Checks run `29275502404` passed hosted data, DCR, and CIMD
+  against same-branch preview `09a48b6`
+- fixed shared client-credential option mapping so Claude Code, Gemini CLI,
+  Inspector, and OpenAI smokes cannot silently skip configured OAuth clients
+- recorded the corrected MCP Inspector hosted OAuth pass from Deployed Health
+  Checks run `29288588007`: generated client credentials issued an MCP-resource
+  token, the bootstrap authenticated `tools/list`, and Inspector repeated the
+  authenticated tool listing against same-branch preview `8144d47`
+- added OAuth token acquisition and forwarding to the OpenAI Responses API MCP
+  smoke, with credential redaction and a targeted deployed-health gate that
+  keeps ChatGPT Apps/Connectors UI evidence separate
 
 ## 2026-07-10
 
@@ -293,7 +315,8 @@ docs update and a changelog entry so early consumers and agents can adapt.
   comma-separated selector form
 - added `pnpm ops:mcp-oauth-smoke-credentials` to mint temporary staging OAuth
   smoke credentials through the gated E2E auth helper path, verify
-  client-credentials `mcp:read` token issuance, and write ignored env files for
+  client-credentials `mcp:read` token issuance and authenticated hosted MCP
+  `tools/list`, and write ignored env files for
   Claude Code and MCP Inspector hosted OAuth smokes without printing the client
   secret
 - wired the manual `deployed-health.yml` `hosted-mcp-smoke` OAuth path to mint

@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   requireHostedSmokeFixture,
+  requirePreviewClientCredentialsBridge,
   requirePreviewPersistenceBridge,
 } from "../../convex/_previewPersistence";
 
@@ -30,6 +31,39 @@ describe("preview persistence and hosted fixture guards", () => {
           VRDEX_ENABLE_PREVIEW_PERSISTENCE_BRIDGE: "false",
         }),
       /Preview OAuth persistence bridge is unavailable/,
+    );
+  });
+
+  it("adds a separate capability gate for preview client-credentials issuance", () => {
+    const environment = {
+      VRDEX_DEPLOYMENT_ENV: "preview",
+      VRDEX_ENABLE_PREVIEW_PERSISTENCE_BRIDGE: "true",
+      VRDEX_ENABLE_PREVIEW_OAUTH_TOKEN_BRIDGE: "true",
+      VRDEX_PREVIEW_PERSISTENCE_SECRET: "preview-secret",
+    };
+
+    assert.doesNotThrow(() =>
+      requirePreviewClientCredentialsBridge("preview-secret", environment),
+    );
+    assert.throws(
+      () =>
+        requirePreviewClientCredentialsBridge("preview-secret", {
+          ...environment,
+          VRDEX_ENABLE_PREVIEW_OAUTH_TOKEN_BRIDGE: "false",
+        }),
+      /Preview OAuth client-credentials bridge is unavailable/,
+    );
+    assert.throws(
+      () => requirePreviewClientCredentialsBridge("wrong-secret", environment),
+      /Preview OAuth client-credentials bridge is unavailable/,
+    );
+    assert.throws(
+      () =>
+        requirePreviewClientCredentialsBridge("preview-secret", {
+          ...environment,
+          VRDEX_DEPLOYMENT_ENV: "production",
+        }),
+      /Preview OAuth client-credentials bridge is unavailable/,
     );
   });
 

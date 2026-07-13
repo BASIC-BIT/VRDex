@@ -18,6 +18,21 @@ export function requirePreviewPersistenceBridge(
   }
 }
 
+export function requirePreviewClientCredentialsBridge(
+  suppliedSecret: string,
+  environment: PreviewPersistenceEnvironment = process.env,
+) {
+  try {
+    requirePreviewPersistenceBridge(suppliedSecret, environment);
+  } catch {
+    throw new Error("Preview OAuth client-credentials bridge is unavailable.");
+  }
+
+  if (environment.VRDEX_ENABLE_PREVIEW_OAUTH_TOKEN_BRIDGE !== "true") {
+    throw new Error("Preview OAuth client-credentials bridge is unavailable.");
+  }
+}
+
 export function requireHostedSmokeFixture(
   environment: PreviewPersistenceEnvironment = process.env,
 ) {

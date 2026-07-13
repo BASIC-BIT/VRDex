@@ -117,19 +117,16 @@ Next execution checkpoint:
    data-backed anonymous read, DCR, and CIMD all pass against
    `https://staging.vrdex.net/mcp` after the PR branch staging deploy run
    `29037734496`.
-2. Complete the installed-app matrix batch against that same staging target:
-   VS Code, Cursor, and Windsurf still need real client sessions for local
-   stdio and hosted anonymous-read evidence. Current official client docs
-   support this batch: VS Code documents `mcp.json` plus `--add-mcp`, Cursor
-   documents `stdio` plus Streamable HTTP with OAuth, and Devin Desktop /
-   Windsurf Cascade documents `stdio`, Streamable HTTP, SSE, and OAuth support.
-   Use the generated session pack and isolated add-MCP preflight as setup
-   aids, but only record a row after the installed app lists tools and calls
-   `vrdex_search`.
-3. Rerun the Gemini hosted rows after provider quota is available, or capture
-   equivalent interactive `/mcp` evidence. Gemini CLI local stdio already
-   passes with
-   `pnpm smoke:mcp-gemini-cli -- --gemini-package @google/gemini-cli@latest`.
+2. Complete the remaining installed-client matrix batch against the same
+   selected target. VS Code local stdio and hosted anonymous reads pass. Cursor
+   and Windsurf still need real-client evidence. Prefer
+   `pnpm smoke:mcp-cursor-agent` for Cursor local and hosted-anonymous rows when
+   the standalone Agent CLI is installed; keep Cursor IDE and Windsurf on the
+   generated manual session-pack path. Record a row only after the client lists
+   tools and completes `vrdex_search`.
+3. Complete the Gemini hosted OAuth row with native OAuth or a reviewed-token
+   fallback. Gemini CLI local stdio and hosted anonymous reads already pass
+   through the repeatable CLI harness.
 4. Complete hosted OAuth coverage for Claude Code, Gemini CLI, MCP Inspector,
    and OpenAI/ChatGPT product surfaces after a complete credential path exists.
    Current official docs keep OAuth/DCR/CIMD support in scope, but the rows are
@@ -1417,7 +1414,7 @@ Security-specific tests:
 - Confidential-client CIMD with public-key client authentication remains deferred until a concrete major-client requirement appears.
 - OAuth signing-key rotation keeps the active private signing key in `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY`, advertises the active key id through `VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID`, and retains previous public keys through `VRDEX_OAUTH_ACCESS_TOKEN_ADDITIONAL_PUBLIC_JWKS` until outstanding access tokens expire.
 - Hosted MCP auth metadata should make anonymous public read tools genuinely usable without login in clients that distinguish `noauth` from OAuth tools. The current hosted MCP tool descriptors expose `_meta["securitySchemes"]` with `noauth` plus optional `oauth2`/`mcp:read`; client-specific UI behavior remains part of the manual matrix.
-- Hosted MCP smoke coverage is split into lightweight transport/descriptor coverage and production-like data-backed coverage. The data-backed path is gated by `VRDEX_MCP_SMOKE_DATA` / `--hosted-data` and requires nonempty `vrdex_search` results plus OpenAI-compatible `search`/`fetch` evidence from the same target. Current PR #159 evidence against `https://staging.vrdex.net/mcp` at `baaf49e` records data-backed anonymous read, DCR, and CIMD as failing: the target has no deterministic public smoke record, and its OAuth persistence runtime is not configured. Historical transport-level passes do not satisfy production-like readiness.
+- Hosted MCP smoke coverage is split into lightweight transport/descriptor coverage and production-like data-backed coverage. The data-backed path is gated by `VRDEX_MCP_SMOKE_DATA` / `--hosted-data` and requires nonempty `vrdex_search` results plus OpenAI-compatible `search`/`fetch` evidence from the same target. Current PR #159 same-branch evidence at `8144d47` passes data-backed anonymous read, DCR, CIMD, authenticated bootstrap `tools/list`, and MCP Inspector OAuth in Deployed Health Checks run `29288588007`. Shared staging promotion still waits on the Terraform-owned Redis rate-limit variables; historical transport-level passes do not satisfy production-like readiness.
 
 ## Remaining Open Research
 

@@ -1,6 +1,7 @@
 import { internal } from "@convex-generated-api";
 
 import { convexAdminHttpClient } from "@/lib/server/convex-http";
+import { issueClientCredentialsAccessToken } from "@/lib/server/oauth-dynamic-client-persistence";
 import { oauthRateLimitResponse } from "@/lib/server/oauth-route-rate-limit";
 import { oauthTokenResponse } from "@/lib/server/oauth-token";
 
@@ -14,13 +15,13 @@ export async function POST(request: Request) {
     return rateLimited;
   }
 
-  const convex = convexAdminHttpClient();
-
   return await oauthTokenResponse(request, {
     mutations: {
-      consumeAuthorizationCode: (input) => convex.mutation(internal.oauthApps.consumeAuthorizationCode, input),
-      issueClientCredentialsAccessToken: (input) => convex.mutation(internal.oauthApps.issueClientCredentialsAccessToken, input),
-      rotateRefreshToken: (input) => convex.mutation(internal.oauthApps.rotateRefreshToken, input),
+      consumeAuthorizationCode: (input) =>
+        convexAdminHttpClient().mutation(internal.oauthApps.consumeAuthorizationCode, input),
+      issueClientCredentialsAccessToken,
+      rotateRefreshToken: (input) =>
+        convexAdminHttpClient().mutation(internal.oauthApps.rotateRefreshToken, input),
     },
   });
 }
