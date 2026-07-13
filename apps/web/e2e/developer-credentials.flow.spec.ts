@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type APIResponse, type Page } from "@playwright/test";
 import { createHash, randomBytes } from "node:crypto";
 
 import { gotoFlowPage } from "./flow-navigation";
@@ -10,6 +10,37 @@ type JsonResponse = {
   ok: boolean;
   status: number;
 };
+
+function problemSummary(body: unknown) {
+  if (body === null || typeof body !== "object") {
+    return "no structured problem details";
+  }
+
+  const problem = body as Record<string, unknown>;
+  const details = [problem.title, problem.detail, problem.error, problem.error_description].filter(
+    (value): value is string => typeof value === "string" && value.trim().length > 0,
+  );
+
+  return details.length > 0 ? details.join(": ") : "no structured problem details";
+}
+
+function expectJsonResponseOk(response: JsonResponse, operation: string) {
+  if (!response.ok) {
+    throw new Error(`${operation} failed with HTTP ${response.status}: ${problemSummary(response.body)}`);
+  }
+
+  expect(response.status).toBe(200);
+}
+
+async function expectApiResponseOk(response: APIResponse, operation: string) {
+  if (response.ok()) {
+    return;
+  }
+
+  const body = await response.json().catch(() => null);
+
+  throw new Error(`${operation} failed with HTTP ${response.status()}: ${problemSummary(body)}`);
+}
 
 function e2eBrowserToken() {
   const token = process.env.VRDEX_E2E_BROWSER_TOKEN ?? (process.env.PLAYWRIGHT_BASE_URL ? undefined : "local-playwright-token");
@@ -54,7 +85,7 @@ async function createVerifiedE2eAccount({
     headers: { "x-vrdex-e2e-token": e2eToken },
     data: { action: "consume-code", email },
   });
-  await expect(codeResponse).toBeOK();
+  await expectApiResponseOk(codeResponse, "E2E verification-code lookup");
   const authCode = (await codeResponse.json()) as { code?: string };
 
   expect(authCode.code).toBeTruthy();
@@ -130,8 +161,7 @@ test("developer credentials work with v0 bearer APIs and OAuth PKCE @flow", asyn
       scopes: ["public:read", "developer:read", "developer:write"],
     });
 
-    expect(tokenResult.status).toBe(200);
-    expect(tokenResult.ok).toBe(true);
+    expectJsonResponseOk(tokenResult, "Personal API token creation");
     const tokenBody = tokenResult.body as {
       token?: { id?: string; ownerKind?: string; scopes?: string[]; status?: string };
       tokenValue?: string;
@@ -149,7 +179,7 @@ test("developer credentials work with v0 bearer APIs and OAuth PKCE @flow", asyn
       headers: bearerHeaders(apiTokenValue!),
     });
 
-    await expect(apiMeResponse).toBeOK();
+    await expectApiResponseOk(apiMeResponse, "Personal API token introspection");
     const apiMe = (await apiMeResponse.json()) as {
       credential?: { kind?: string; ownerKind?: string; scopes?: string[]; tokenId?: string };
       rateLimit?: { routeClass?: string };
@@ -165,7 +195,7 @@ test("developer credentials work with v0 bearer APIs and OAuth PKCE @flow", asyn
       headers: bearerHeaders(apiTokenValue!),
     });
 
-    await expect(apiRateLimitResponse).toBeOK();
+    await expectApiResponseOk(apiRateLimitResponse, "Personal API token rate-limit lookup");
     const apiRateLimit = (await apiRateLimitResponse.json()) as {
       caller?: { authenticated?: boolean; credentialKind?: string; quotaTier?: string; routeClass?: string };
     };
@@ -187,8 +217,7 @@ test("developer credentials work with v0 bearer APIs and OAuth PKCE @flow", asyn
       allowedScopes: ["public:read"],
     });
 
-    expect(oauthResult.status).toBe(200);
-    expect(oauthResult.ok).toBe(true);
+    expectJsonResponseOk(oauthResult, "OAuth application creation");
     const oauthBody = oauthResult.body as {
       application?: { clientId?: string; clientType?: string; status?: string };
       clientSecretValue?: string;
@@ -250,7 +279,7 @@ test("developer credentials work with v0 bearer APIs and OAuth PKCE @flow", asyn
       timeout: 15_000,
     });
 
-    await expect(oauthTokenResponse).toBeOK();
+    await expectApiResponseOk(oauthTokenResponse, "OAuth authorization-code exchange");
     const oauthToken = (await oauthTokenResponse.json()) as {
       access_token?: string;
       refresh_token?: string;
@@ -267,7 +296,7 @@ test("developer credentials work with v0 bearer APIs and OAuth PKCE @flow", asyn
       headers: bearerHeaders(oauthToken.access_token!),
     });
 
-    await expect(oauthMeResponse).toBeOK();
+    await expectApiResponseOk(oauthMeResponse, "OAuth access-token introspection");
     const oauthMe = (await oauthMeResponse.json()) as {
       credential?: { clientId?: string; kind?: string; scopes?: string[]; subjectType?: string };
       rateLimit?: { routeClass?: string };
@@ -283,7 +312,7 @@ test("developer credentials work with v0 bearer APIs and OAuth PKCE @flow", asyn
       headers: bearerHeaders(oauthToken.access_token!),
     });
 
-    await expect(oauthRateLimitResponse).toBeOK();
+    await expectApiResponseOk(oauthRateLimitResponse, "OAuth access-token rate-limit lookup");
     const oauthRateLimit = (await oauthRateLimitResponse.json()) as {
       caller?: { authenticated?: boolean; credentialKind?: string; quotaTier?: string; routeClass?: string };
     };
@@ -305,7 +334,7 @@ test("developer credentials work with v0 bearer APIs and OAuth PKCE @flow", asyn
       timeout: 15_000,
     });
 
-    await expect(refreshTokenResponse).toBeOK();
+    await expectApiResponseOk(refreshTokenResponse, "OAuth refresh-token exchange");
     const refreshedToken = (await refreshTokenResponse.json()) as { access_token?: string; scope?: string; token_type?: string };
 
     expect(refreshedToken.access_token).toBeTruthy();
