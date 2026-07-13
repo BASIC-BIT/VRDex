@@ -4,7 +4,13 @@ import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { getCurrentUser, requireCurrentUser } from "./accounts";
-import { apiRouteClassValidator, apiScopeValidator, hasRequiredApiScopes, timingSafeEqualString } from "./_apiTokens";
+import {
+  apiRouteClassValidator,
+  apiScopeValidator,
+  hasRequiredApiScopes,
+  timingSafeEqualString,
+  type ApiScope,
+} from "./_apiTokens";
 import { userOwnsProfile } from "./_profileOwnership";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import {
@@ -40,6 +46,9 @@ import {
   oauthResponseTypeValidator,
   oauthTokenEndpointAuthMethodValidator,
   validateOAuthAccessTokenRecord,
+  type OAuthGrantType,
+  type OAuthResponseType,
+  type OAuthTokenEndpointAuthMethod,
   type OAuthAccessTokenValidationResult,
   type OAuthAccessTokenValidationResultLabel,
 } from "./_oauth";
@@ -47,6 +56,7 @@ import {
   normalizeOAuthConsentTransactionHash,
   oauthConsentTransactionDisposition,
 } from "./_oauthConsentTransactions";
+import { requirePreviewPersistenceBridge } from "./_previewPersistence";
 
 function boundedLimit(value: number | undefined, fallback: number, max: number) {
   if (value === undefined || !Number.isFinite(value)) {
@@ -983,23 +993,42 @@ export const revokeDeveloperApplicationForApiOwner = internalMutation({
   },
 });
 
-export const createDynamicMcpClient = internalMutation({
-  args: {
-    clientId: v.string(),
-    clientName: v.string(),
-    clientUri: v.optional(v.string()),
-    logoUri: v.optional(v.string()),
-    redirectUris: v.array(v.string()),
-    grantTypes: v.optional(v.array(oauthGrantTypeValidator)),
-    responseTypes: v.optional(v.array(oauthResponseTypeValidator)),
-    tokenEndpointAuthMethod: v.optional(oauthTokenEndpointAuthMethodValidator),
-    contacts: v.optional(v.array(v.string())),
-    softwareId: v.optional(v.string()),
-    softwareVersion: v.optional(v.string()),
-    allowedScopes: v.optional(v.array(apiScopeValidator)),
-    resource: v.string(),
-  },
-  handler: async (ctx, args) => {
+const dynamicMcpClientPersistenceArgs = {
+  clientId: v.string(),
+  clientName: v.string(),
+  clientUri: v.optional(v.string()),
+  logoUri: v.optional(v.string()),
+  redirectUris: v.array(v.string()),
+  grantTypes: v.optional(v.array(oauthGrantTypeValidator)),
+  responseTypes: v.optional(v.array(oauthResponseTypeValidator)),
+  tokenEndpointAuthMethod: v.optional(oauthTokenEndpointAuthMethodValidator),
+  contacts: v.optional(v.array(v.string())),
+  softwareId: v.optional(v.string()),
+  softwareVersion: v.optional(v.string()),
+  allowedScopes: v.optional(v.array(apiScopeValidator)),
+  resource: v.string(),
+};
+
+type DynamicMcpClientPersistenceInput = {
+  clientId: string;
+  clientName: string;
+  clientUri?: string;
+  logoUri?: string;
+  redirectUris: string[];
+  grantTypes?: OAuthGrantType[];
+  responseTypes?: OAuthResponseType[];
+  tokenEndpointAuthMethod?: OAuthTokenEndpointAuthMethod;
+  contacts?: string[];
+  softwareId?: string;
+  softwareVersion?: string;
+  allowedScopes?: ApiScope[];
+  resource: string;
+};
+
+async function createDynamicMcpClientRecord(
+  ctx: MutationCtx,
+  args: DynamicMcpClientPersistenceInput,
+) {
     const now = Date.now();
     const clientId = normalizeOAuthClientId(args.clientId);
     const clientName = normalizeOAuthApplicationName(args.clientName);
@@ -1065,26 +1094,17 @@ export const createDynamicMcpClient = internalMutation({
     });
 
     return toDynamicMcpClientSummary(dynamicClient);
-  },
+}
+
+export const createDynamicMcpClient = internalMutation({
+  args: dynamicMcpClientPersistenceArgs,
+  handler: createDynamicMcpClientRecord,
 });
 
-export const upsertClientMetadataDocumentMcpClient = internalMutation({
-  args: {
-    clientId: v.string(),
-    clientName: v.string(),
-    clientUri: v.optional(v.string()),
-    logoUri: v.optional(v.string()),
-    redirectUris: v.array(v.string()),
-    grantTypes: v.optional(v.array(oauthGrantTypeValidator)),
-    responseTypes: v.optional(v.array(oauthResponseTypeValidator)),
-    tokenEndpointAuthMethod: v.optional(oauthTokenEndpointAuthMethodValidator),
-    contacts: v.optional(v.array(v.string())),
-    softwareId: v.optional(v.string()),
-    softwareVersion: v.optional(v.string()),
-    allowedScopes: v.optional(v.array(apiScopeValidator)),
-    resource: v.string(),
-  },
-  handler: async (ctx, args) => {
+async function upsertClientMetadataDocumentMcpClientRecord(
+  ctx: MutationCtx,
+  args: DynamicMcpClientPersistenceInput,
+) {
     const now = Date.now();
     const clientId = normalizeOAuthClientMetadataDocumentUrl(args.clientId);
     const clientName = normalizeOAuthApplicationName(args.clientName);
@@ -1189,6 +1209,36 @@ export const upsertClientMetadataDocumentMcpClient = internalMutation({
     });
 
     return toDynamicMcpClientSummary(dynamicClient);
+}
+
+export const upsertClientMetadataDocumentMcpClient = internalMutation({
+  args: dynamicMcpClientPersistenceArgs,
+  handler: upsertClientMetadataDocumentMcpClientRecord,
+});
+
+export const createPreviewDynamicMcpClient = mutation({
+  args: {
+    bridgeSecret: v.string(),
+    ...dynamicMcpClientPersistenceArgs,
+  },
+  handler: async (ctx, args) => {
+    requirePreviewPersistenceBridge(args.bridgeSecret);
+    const { bridgeSecret: _bridgeSecret, ...input } = args;
+
+    return await createDynamicMcpClientRecord(ctx, input);
+  },
+});
+
+export const upsertPreviewClientMetadataDocumentMcpClient = mutation({
+  args: {
+    bridgeSecret: v.string(),
+    ...dynamicMcpClientPersistenceArgs,
+  },
+  handler: async (ctx, args) => {
+    requirePreviewPersistenceBridge(args.bridgeSecret);
+    const { bridgeSecret: _bridgeSecret, ...input } = args;
+
+    return await upsertClientMetadataDocumentMcpClientRecord(ctx, input);
   },
 });
 

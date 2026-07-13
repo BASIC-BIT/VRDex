@@ -1467,6 +1467,22 @@ jobs:
           PREVIEW_NAME: pr-${{ github.event.pull_request.number }}
         run: pnpm exec convex deploy --yes --typecheck=enable --preview-create "$PREVIEW_NAME" --cmd "node scripts/write-convex-preview-output.mjs" --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL
 
+      - name: Configure Convex preview persistence and smoke fixture
+        if: steps.gate.outputs.enabled == 'true' && steps.convex-preview.outputs.convex_url != ''
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_PREVIEW }}
+          PREVIEW_NAME: pr-${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          bridge_secret=$(openssl rand -hex 32)
+          echo "::add-mask::$bridge_secret"
+          echo "VRDEX_PREVIEW_PERSISTENCE_SECRET=$bridge_secret" >> "$GITHUB_ENV"
+          printf '%s' preview | pnpm exec convex env set --preview-name "$PREVIEW_NAME" VRDEX_DEPLOYMENT_ENV
+          printf '%s' true | pnpm exec convex env set --preview-name "$PREVIEW_NAME" VRDEX_ENABLE_PREVIEW_PERSISTENCE_BRIDGE
+          printf '%s' true | pnpm exec convex env set --preview-name "$PREVIEW_NAME" VRDEX_ENABLE_HOSTED_SMOKE_FIXTURE
+          printf '%s' "$bridge_secret" | pnpm exec convex env set --preview-name "$PREVIEW_NAME" VRDEX_PREVIEW_PERSISTENCE_SECRET
+          pnpm exec convex run --preview-name "$PREVIEW_NAME" hostedSmokeFixtures:ensurePublicSearchFixture
+
       - name: Use Convex preview URL for Vercel build
         if: steps.gate.outputs.enabled == 'true' && steps.convex-preview.outputs.convex_url != ''
         env:
@@ -1487,12 +1503,23 @@ jobs:
         id: deploy
         if: steps.gate.outputs.enabled == 'true'
         env:
+          CONVEX_PREVIEW_URL: ${{ steps.convex-preview.outputs.convex_url }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
           set -euo pipefail
-          deployment_url=$(pnpm dlx vercel@54.4.1 deploy --prebuilt --target=preview --token "$VERCEL_TOKEN" | tail -n 1)
+          deploy_args=(deploy --prebuilt --target=preview --token "$VERCEL_TOKEN")
+          if [ -n "$CONVEX_PREVIEW_URL" ]; then
+            : "${VRDEX_PREVIEW_PERSISTENCE_SECRET:?Preview persistence secret was not configured.}"
+            deploy_args+=(
+              --env "CONVEX_URL=$CONVEX_PREVIEW_URL"
+              --env "VRDEX_DEPLOYMENT_ENV=preview"
+              --env "VRDEX_ENABLE_PREVIEW_PERSISTENCE_BRIDGE=true"
+              --env "VRDEX_PREVIEW_PERSISTENCE_SECRET=$VRDEX_PREVIEW_PERSISTENCE_SECRET"
+            )
+          fi
+          deployment_url=$(pnpm dlx vercel@54.4.1 "${deploy_args[@]}" | tail -n 1)
           if [ -z "$deployment_url" ]; then
             echo "Vercel deployment did not return a URL." >&2
             exit 1

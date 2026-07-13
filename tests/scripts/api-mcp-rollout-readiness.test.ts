@@ -179,6 +179,23 @@ describe("API/MCP rollout readiness checker", () => {
     assert.match(workflow, /if: always\(\)/);
   });
 
+  it("provisions a narrow per-preview persistence bridge and deterministic public fixture", async () => {
+    const baseline = await readFile(".github/workflows/baseline-checks.yml", "utf8");
+
+    assert.match(baseline, /Configure Convex preview persistence and smoke fixture/);
+    assert.match(baseline, /openssl rand -hex 32/);
+    assert.match(baseline, /::add-mask::\$bridge_secret/);
+    assert.match(baseline, /convex env set --preview-name "\$PREVIEW_NAME" VRDEX_PREVIEW_PERSISTENCE_SECRET/);
+    assert.match(baseline, /convex run --preview-name "\$PREVIEW_NAME" hostedSmokeFixtures:ensurePublicSearchFixture/);
+    assert.match(baseline, /if \[ -n "\$CONVEX_PREVIEW_URL" \]; then/);
+    assert.match(baseline, /Preview persistence secret was not configured/);
+    assert.match(baseline, /--env "CONVEX_URL=\$CONVEX_PREVIEW_URL"/);
+    assert.match(baseline, /--env "VRDEX_DEPLOYMENT_ENV=preview"/);
+    assert.match(baseline, /--env "VRDEX_ENABLE_PREVIEW_PERSISTENCE_BRIDGE=true"/);
+    assert.match(baseline, /--env "VRDEX_PREVIEW_PERSISTENCE_SECRET=\$VRDEX_PREVIEW_PERSISTENCE_SECRET"/);
+    assert.doesNotMatch(baseline, /--env "CONVEX_ADMIN_TOKEN=/);
+  });
+
   it("requires external evidence to match the selected hosted target and revision", async () => {
     const { directory, path } = await writeMatrixCopy("target-revision", (matrix) => {
       matrix.readinessMode = "staging-hosted-data-dcr-cimd-pass-client-smokes-open";

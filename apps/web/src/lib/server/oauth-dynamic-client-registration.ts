@@ -15,24 +15,14 @@ import {
   oauthMcpResourceUri,
   oauthScopeString,
 } from "./oauth-jwt";
+import {
+  createDynamicMcpClient,
+  type DynamicMcpClientMutationInput,
+} from "./oauth-dynamic-client-persistence";
 
 type NormalizedDynamicMcpClientRegistration = ReturnType<typeof normalizeDynamicMcpClientRegistration>;
 
-export type DynamicMcpClientMutationInput = {
-  allowedScopes: NormalizedDynamicMcpClientRegistration["allowedScopes"];
-  clientId: string;
-  clientName: string;
-  clientUri?: string;
-  contacts: NormalizedDynamicMcpClientRegistration["contacts"];
-  grantTypes: NormalizedDynamicMcpClientRegistration["grantTypes"];
-  logoUri?: string;
-  redirectUris: NormalizedDynamicMcpClientRegistration["redirectUris"];
-  resource: string;
-  responseTypes: NormalizedDynamicMcpClientRegistration["responseTypes"];
-  softwareId?: string;
-  softwareVersion?: string;
-  tokenEndpointAuthMethod: NormalizedDynamicMcpClientRegistration["tokenEndpointAuthMethod"];
-};
+export type { DynamicMcpClientMutationInput } from "./oauth-dynamic-client-persistence";
 
 type RegisteredDynamicMcpClient = {
   allowedScopes: readonly string[];
@@ -86,12 +76,7 @@ function requestBodyValue(body: unknown) {
 }
 
 async function defaultRegisterDynamicMcpClient(input: DynamicMcpClientMutationInput) {
-  const [{ internal }, { convexAdminHttpClient }] = await Promise.all([
-    import("@convex-generated-api"),
-    import("./convex-http"),
-  ]);
-
-  return await convexAdminHttpClient().mutation(internal.oauthApps.createDynamicMcpClient, input);
+  return await createDynamicMcpClient(input);
 }
 
 export async function dynamicMcpClientRegistrationResponse(

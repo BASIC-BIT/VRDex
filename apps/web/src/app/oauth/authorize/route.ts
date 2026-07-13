@@ -9,6 +9,7 @@ import {
 } from "@/lib/server/api-rate-limit";
 import { recordApiRateLimitBlockedEvent } from "@/lib/server/api-rate-limit-events";
 import { convexAdminHttpClient, convexHttpClient } from "@/lib/server/convex-http";
+import { upsertClientMetadataDocumentMcpClient } from "@/lib/server/oauth-dynamic-client-persistence";
 import { oauthAuthorizeProblemRedirect } from "@/lib/server/oauth-authorize-problem";
 import { fetchOAuthClientMetadataDocument } from "@/lib/server/oauth-client-metadata-document";
 import {
@@ -83,7 +84,7 @@ async function ensureClientMetadataDocumentClient(
 
   const metadata = await fetchOAuthClientMetadataDocument(authorization.clientId);
 
-  await convexAdminHttpClient().mutation(internal.oauthApps.upsertClientMetadataDocumentMcpClient, {
+  await upsertClientMetadataDocumentMcpClient({
     clientId: metadata.clientId,
     clientName: metadata.clientName,
     ...(metadata.clientUri === undefined ? {} : { clientUri: metadata.clientUri }),

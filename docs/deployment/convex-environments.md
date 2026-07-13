@@ -58,6 +58,22 @@ Convex-backed target. Pass the target `/mcp` URL as `base_url` and enable the
 Do not use production deploy keys for PR previews. Preview deployments are for
 schema/function compatibility and hosted smoke validation before merge.
 
+For DCR and CIMD preview smoke, Baseline Checks enables a narrow persistence
+bridge with `VRDEX_DEPLOYMENT_ENV=preview`,
+`VRDEX_ENABLE_PREVIEW_PERSISTENCE_BRIDGE=true`, and a random
+`VRDEX_PREVIEW_PERSISTENCE_SECRET` shared only with the matching Vercel
+deployment. The public bridge mutations reject every other environment and an
+incorrect or missing secret. Do not replace this boundary with a preview
+`CONVEX_ADMIN_TOKEN`.
+
+The workflow also sets `VRDEX_ENABLE_HOSTED_SMOKE_FIXTURE=true` and invokes the
+internal `hostedSmokeFixtures:ensurePublicSearchFixture` mutation through the
+Convex CLI admin path. The mutation creates or refreshes one deterministic fake
+public community profile for search smoke coverage. Its guard permits only
+`preview` or `staging`, so production cannot seed the fixture even if the flag
+is accidentally present. Staging runs the same internal mutation after its
+Convex deploy and before its Vercel deploy.
+
 ## Auth Email Environment
 
 Convex deployments that send password or email verification messages through SES must set:

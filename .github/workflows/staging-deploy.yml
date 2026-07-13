@@ -105,6 +105,16 @@ jobs:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_DEV }}
         run: pnpm exec convex deploy --yes --typecheck=enable
 
+      - name: Ensure staging public smoke fixture
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_DEV }}
+        run: |
+          set -euo pipefail
+          printf '%s' staging | pnpm exec convex env set VRDEX_DEPLOYMENT_ENV
+          printf '%s' true | pnpm exec convex env set VRDEX_ENABLE_HOSTED_SMOKE_FIXTURE
+          pnpm exec convex run hostedSmokeFixtures:ensurePublicSearchFixture
+
       - name: Deploy Vercel staging
         if: steps.gate.outputs.enabled == 'true'
         id: vercel

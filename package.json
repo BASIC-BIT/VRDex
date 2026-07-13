@@ -29,6 +29,8 @@
     "check:web:vercel-env": "pnpm --filter web check:vercel-env",
     "precheck:staging-runtime-env": "node scripts/guard-main-worktree.mjs",
     "check:staging-runtime-env": "node scripts/check-staging-runtime-env.mjs",
+    "preops:bootstrap-staging-developer-runtime": "node scripts/guard-main-worktree.mjs",
+    "ops:bootstrap-staging-developer-runtime": "node scripts/bootstrap-staging-developer-runtime.mjs",
     "pregenerate:api-openapi": "node scripts/guard-main-worktree.mjs",
     "generate:api-openapi": "pnpm --filter @vrdex/api-contracts generate:openapi",
     "precheck:api-openapi": "node scripts/guard-main-worktree.mjs",

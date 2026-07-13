@@ -37,6 +37,13 @@ If any are missing, the `Vercel Preview` job passes and writes a step summary ex
 
 When `CONVEX_DEPLOY_KEY_PREVIEW` exists, the workflow runs `convex deploy --preview-create pr-<number>` before the Vercel build and writes the resulting `NEXT_PUBLIC_CONVEX_URL` into the Vercel build environment. This keeps PR previews from accidentally pointing at stale shared dev/prod Convex functions.
 
+The same workflow creates a random, masked persistence-bridge secret for that
+single run. It writes the secret to the named Convex preview and injects it only
+into the matching Vercel deployment. The bridge exposes only the two guarded
+dynamic-client persistence mutations needed by DCR and CIMD smoke checks. PR
+previews do not receive `CONVEX_ADMIN_TOKEN`; all broader internal operations
+remain unavailable from the preview web runtime.
+
 ## Web environment
 
 Set these in the Vercel project as needed:
@@ -55,6 +62,10 @@ variables inventoried in `docs/developers/self-hosting-and-iac.md`, including
 resource URLs, and the selected rate-limit backend settings. Keep secret values
 in Vercel or the deployment secret store; commit only variable names, scope, and
 rotation guidance.
+
+`VRDEX_ENABLE_PREVIEW_PERSISTENCE_BRIDGE` and
+`VRDEX_PREVIEW_PERSISTENCE_SECRET` are CI-owned preview-only values. Do not set
+them in shared staging or production environments.
 
 Do not set `VRDEX_ENABLE_PLAYWRIGHT_FIXTURES` in Vercel. Fixture profiles are for Playwright-only local/CI preview screenshots and must not be exposed from hosted previews.
 
@@ -133,9 +144,33 @@ Optional defaults such as `VRDEX_RATE_LIMIT_REDIS_PREFIX` and enforcement
 switches such as `VRDEX_REQUIRE_CONVEX_URL` remain documented but are not
 treated as required names by this preflight.
 
+The non-Redis developer runtime bootstrap is reproducible through
+`pnpm ops:bootstrap-staging-developer-runtime`. It requires an ignored env file
+containing a deployment-scoped `CONVEX_DEPLOY_KEY`, a Vercel-linked directory,
+and the process-local `VERCEL_API_TOKEN`. The command generates independent
+peppers and an RSA signing key, streams every value to Vercel over stdin, and
+prints variable names only:
+
+```powershell
+pnpm ops:bootstrap-staging-developer-runtime -- --apply `
+  --convex-token-env-file <ignored-token-env-file> `
+  --linked-vercel-directory <vercel-linked-directory>
+```
+
+This command intentionally does not manage the Redis variables. Those remain
+owned by `infra/terraform/rate-limit-redis` so the Upstash database, endpoint,
+token, and Vercel bindings stay one Terraform state boundary.
+
 The Convex client URL is separate from the Convex Auth callback host. Staging Auth callbacks use `https://db.staging.vrdex.net`; the Convex HTTP Actions custom domain is verified, both OAuth providers include the callback URL, and deployment `scrupulous-corgi-247` selects it as `CONVEX_SITE_URL`.
 
-Current ownership: these staging E2E environment variables are bootstrap-managed manual Vercel settings, not Terraform-owned. `infra/terraform/web-domains` owns production web domains. The `infra/terraform/vercel` stack currently owns hosted PostHog client environment variables (`NEXT_PUBLIC_POSTHOG_KEY` and `NEXT_PUBLIC_POSTHOG_HOST`) for production, default preview, and configured staging custom environment IDs. Until E2E helper variables are explicitly added to or imported into Terraform, update this document and the Vercel secret store together, and never commit secret values.
+Current ownership: staging E2E helper variables and non-Redis developer runtime
+variables are bootstrap-managed Vercel settings; the checked-in bootstrap above
+recreates the developer runtime subset. `infra/terraform/rate-limit-redis` owns
+the shared Redis variables, `infra/terraform/web-domains` owns production web
+domains, and `infra/terraform/vercel` owns hosted PostHog client variables for
+production, default preview, and configured staging custom environment IDs.
+Update this document and the matching reproducible owner whenever scopes change,
+and never commit secret values.
 
 GitHub Actions uses these repository settings for hosted mutation health:
 
