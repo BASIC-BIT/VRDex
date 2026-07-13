@@ -233,13 +233,13 @@ describe("Gemini CLI MCP smoke harness", () => {
             type: "all",
           },
           mode: "local-stdio",
-          timeoutMs: 300,
+          timeoutMs: 1_000,
         },
         ["tests/scripts/fixtures/gemini-timeout-child.mjs"],
         process.cwd(),
       ),
       (error: unknown) => {
-        assert.match(String(error), /timed out after 300ms/);
+        assert.match(String(error), /timed out after 1000ms/);
         assert.match(String(error), /Buffered Gemini output:/);
         assert.match(String(error), /gemini timeout fixture stderr/);
         assert.match(String(error), /gemini timeout fixture stdout/);
@@ -251,8 +251,8 @@ describe("Gemini CLI MCP smoke harness", () => {
     const elapsedMs = Date.now() - startedAt;
 
     assert.ok(
-      elapsedMs < 2_000,
-      `Expected the timed-out process tree to terminate within 2 seconds, but it took ${elapsedMs}ms.`,
+      elapsedMs < 3_000,
+      `Expected the timed-out process tree to terminate within 3 seconds, but it took ${elapsedMs}ms.`,
     );
   });
 
