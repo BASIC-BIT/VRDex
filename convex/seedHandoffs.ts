@@ -17,6 +17,7 @@ import {
   buildConciergeProfileFieldPatch,
   canRevealAcceptedHandoffDestination,
   hashHandoffToken,
+  isHandoffBatchAvailable,
   isClaimablePrivatePersonSeedCandidate,
   isLiveHandoffInvitation,
   isReusablePrivateConciergeProfile,
@@ -102,6 +103,10 @@ export const createInvitation = internalMutation({
       throw new Error("Seed candidate not found.");
     }
     assertPrivatePersonCandidate(candidate);
+    const batch = await ctx.db.get(candidate.batchId);
+    if (!isHandoffBatchAvailable(batch)) {
+      throw new Error("Handoff invitations require an active seed import batch.");
+    }
 
     const activeInvitations = await ctx.db
       .query("seedHandoffInvitations")
@@ -265,6 +270,9 @@ export const previewInvitation = query({
       return { state: "invalid" as const };
     }
     const batch = await ctx.db.get(candidate.batchId);
+    if (!isHandoffBatchAvailable(batch)) {
+      return { state: "invalid" as const };
+    }
 
     return {
       state: "ready" as const,
@@ -386,6 +394,10 @@ export const acceptInvitation = mutation({
       throw new Error("Handoff invitation is unavailable.");
     }
     assertPrivatePersonCandidate(candidate);
+    const batch = await ctx.db.get(candidate.batchId);
+    if (!isHandoffBatchAvailable(batch)) {
+      throw new Error("Handoff invitation is unavailable.");
+    }
 
     if (invitation.profileId !== candidate.matchedProfileId) {
       throw new Error("Handoff invitation is unavailable.");

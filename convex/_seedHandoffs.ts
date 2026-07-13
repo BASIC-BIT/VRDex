@@ -89,6 +89,10 @@ const CONCIERGE_PROFILE_FIELD_KEYS = [
 export function projectHandoffPreviewField(
   field: Doc<"seedImportCandidateFields">,
 ) {
+  if (!isHandoffFieldAvailable(field)) {
+    return null;
+  }
+
   try {
     const normalized = normalizeSafePrivateSeedFieldValue(field.fieldKey, field.value);
 
@@ -130,6 +134,18 @@ export function projectHandoffPreviewField(
   }
 }
 
+export function isHandoffFieldAvailable(
+  field: Pick<Doc<"seedImportCandidateFields">, "reviewState">,
+): boolean {
+  return field.reviewState !== "rejected" && field.reviewState !== "needs_correction";
+}
+
+export function isHandoffBatchAvailable(
+  batch: Pick<Doc<"seedImportBatches">, "reviewState"> | null,
+): boolean {
+  return batch !== null && batch.reviewState !== "rejected" && batch.reviewState !== "superseded";
+}
+
 export function selectHandoffFields(
   offeredFields: Doc<"seedImportCandidateFields">[],
   selectedFieldIds: Id<"seedImportCandidateFields">[],
@@ -149,6 +165,9 @@ export function selectHandoffFields(
   });
 
   for (const field of selectedFields) {
+    if (!isHandoffFieldAvailable(field)) {
+      throw new Error("A selected handoff field is no longer available.");
+    }
     normalizeSafePrivateSeedFieldValue(field.fieldKey, field.value);
   }
 

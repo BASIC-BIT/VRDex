@@ -15,6 +15,7 @@ import {
   buildConciergeProfileFieldPatch,
   canRevealAcceptedHandoffDestination,
   hashHandoffToken,
+  isHandoffBatchAvailable,
   isClaimablePrivatePersonSeedCandidate,
   isLiveHandoffInvitation,
   isReusablePrivateConciergeProfile,
@@ -395,6 +396,21 @@ describe("seed handoff helpers", () => {
       aliases: ["DJ Example"],
       fieldVisibility: { aliases: "private" },
     });
+  });
+
+  it("rejects handoff fields withdrawn during review", () => {
+    for (const reviewState of ["rejected", "needs_correction"] as const) {
+      const field = seedField({ reviewState });
+      assert.equal(projectHandoffPreviewField(field), null);
+      assert.throws(() => selectHandoffFields([field], [field._id]), /no longer available/);
+    }
+  });
+
+  it("closes handoffs when their import batch is rejected or superseded", () => {
+    assert.equal(isHandoffBatchAvailable({ reviewState: "approved" }), true);
+    assert.equal(isHandoffBatchAvailable({ reviewState: "rejected" }), false);
+    assert.equal(isHandoffBatchAvailable({ reviewState: "superseded" }), false);
+    assert.equal(isHandoffBatchAvailable(null), false);
   });
 
   it("clears stale search aliases when replacing aliases on a reused profile", () => {

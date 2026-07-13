@@ -389,7 +389,7 @@ export const matchCandidateToProfile = internalMutation({
     const reviewer = await actorFromArgs(ctx, args.reviewer);
 
     await ctx.db.patch(candidate._id, {
-      ...optionalValue("matchedProfileId", args.matchedProfileId),
+      matchedProfileId: args.matchedProfileId,
       ...optionalValue("reviewer", reviewer),
       reviewedAt: now,
       ...optionalValue("reviewNote", optionalReviewNote(args.reviewNote)),

@@ -122,6 +122,128 @@ describe("private seed Convex handlers", () => {
     );
   });
 
+  it("clears a mistaken candidate profile match", async () => {
+    const t = convexTest({ schema, modules });
+    const candidate = await importCandidate(t);
+    const profileId = await t.run((ctx) => ctx.db.insert("profiles", privateProfile("unclaimed")));
+
+    await t.mutation(internal.seedImports.matchCandidateToProfile, {
+      candidateId: candidate._id,
+      matchedProfileId: profileId,
+      reviewer: actor,
+      reviewNote: "Initial match",
+      now: NOW,
+    });
+    await t.mutation(internal.seedImports.matchCandidateToProfile, {
+      candidateId: candidate._id,
+      reviewer: actor,
+      reviewNote: "Cleared mistaken match",
+      now: NOW + 1,
+    });
+
+    const updated = await t.run((ctx) => ctx.db.get(candidate._id));
+    assert.equal(updated?.matchedProfileId, undefined);
+  });
+
+  it("blocks invitation creation after the import batch is rejected", async () => {
+    const t = convexTest({ schema, modules });
+    const candidate = await importCandidate(t);
+    await t.run((ctx) => ctx.db.patch(candidate.batchId, {
+      reviewState: "rejected",
+      updatedAt: NOW + 1,
+    }));
+
+    await assert.rejects(
+      t.mutation(internal.seedHandoffs.createInvitation, {
+        token: "R".repeat(43),
+        candidateId: candidate._id,
+        offeredFieldIds: [],
+        expiresAt: NOW + 60_000,
+        createdBy: actor,
+        now: NOW + 2,
+      }),
+      /active seed import batch/,
+    );
+  });
+
+  it("blocks an active invitation after the import batch is rejected", async () => {
+    const t = convexTest({ schema, modules });
+    const candidate = await importCandidate(t);
+    const token = "S".repeat(43);
+    const liveNow = Date.now();
+    await t.mutation(internal.seedHandoffs.createInvitation, {
+      token,
+      candidateId: candidate._id,
+      offeredFieldIds: [],
+      expiresAt: liveNow + 60_000,
+      createdBy: actor,
+      now: liveNow,
+    });
+    const userId = await t.run(async (ctx) => {
+      await ctx.db.patch(candidate.batchId, {
+        reviewState: "rejected",
+        updatedAt: liveNow + 1,
+      });
+      return await ctx.db.insert("users", {
+        name: "Verified recipient",
+        email: "recipient@example.invalid",
+        emailVerificationTime: NOW,
+      });
+    });
+
+    await assert.rejects(
+      t.withIdentity({ subject: userId }).mutation(api.seedHandoffs.acceptInvitation, {
+        token,
+        selectedFieldIds: [],
+      }),
+      /unavailable/,
+    );
+  });
+
+  it("blocks a selected handoff field withdrawn during review", async () => {
+    const t = convexTest({ schema, modules });
+    const candidate = await importCandidate(t);
+    const token = "T".repeat(43);
+    const liveNow = Date.now();
+    const fieldId = await t.run(async (ctx) => {
+      const field = await ctx.db
+        .query("seedImportCandidateFields")
+        .withIndex("by_candidateId", (query) => query.eq("candidateId", candidate._id))
+        .unique();
+      if (field === null) {
+        throw new Error("Handler test field was not created.");
+      }
+      return field._id;
+    });
+    await t.mutation(internal.seedHandoffs.createInvitation, {
+      token,
+      candidateId: candidate._id,
+      offeredFieldIds: [fieldId],
+      expiresAt: liveNow + 60_000,
+      createdBy: actor,
+      now: liveNow,
+    });
+    const userId = await t.run(async (ctx) => {
+      await ctx.db.patch(fieldId, {
+        reviewState: "rejected",
+        updatedAt: liveNow + 1,
+      });
+      return await ctx.db.insert("users", {
+        name: "Verified recipient",
+        email: "recipient@example.invalid",
+        emailVerificationTime: NOW,
+      });
+    });
+
+    await assert.rejects(
+      t.withIdentity({ subject: userId }).mutation(api.seedHandoffs.acceptInvitation, {
+        token,
+        selectedFieldIds: [fieldId],
+      }),
+      /no longer available/,
+    );
+  });
+
   it("serializes competing invitations and allows only one live token", async () => {
     const t = convexTest({ schema, modules });
     const candidate = await importCandidate(t);

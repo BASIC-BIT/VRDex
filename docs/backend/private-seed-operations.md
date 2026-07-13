@@ -143,6 +143,10 @@ The script generates a 256-bit token and prints the link once. Convex stores
 only its SHA-256 hash. Invitations expire within 90 days, are revocable through
 `seedHandoffs:revokeInvitation`, and can be accepted once.
 
+Handoffs fail closed when their import batch is rejected or superseded.
+Likewise, an offered field that is later rejected or marked
+`needs_correction` is removed from preview and cannot be accepted.
+
 The recipient can inspect every prepared link, remove any optional field, sign
 in through a same-origin return path, and explicitly confirm the selected
 details only after verified email. The

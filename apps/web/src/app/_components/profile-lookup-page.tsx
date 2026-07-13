@@ -9,6 +9,7 @@ import { type CSSProperties, useCallback, useEffect, useRef, useState, useTransi
 
 import { api } from "@convex-generated-api";
 import { LookupCopyButton } from "./lookup-copy-button";
+import { shouldRefreshBulkPrivateLookup } from "./lookup-private-refresh";
 import { LookupSearchBox } from "./lookup-search-box";
 import { buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -892,6 +893,8 @@ function ProfileLookupPageContent({
   const privateLookupQueryRef = useRef<string | null>(
     privateResults.length > 0 ? query : null,
   );
+  const bulkLookupLinesRef = useRef<string[]>([]);
+  const bulkPrivateRefreshAttemptedRef = useRef(privateUiFlag === true);
   const [isPending, startTransition] = useTransition();
   const isSearching = pendingLabel !== null || isPending;
   const privateUiEnabled = seedViewerAccess.source === "super_admin" || privateUiFlag === true;
@@ -1036,7 +1039,14 @@ function ProfileLookupPageContent({
     }
   }, [fetchAllowedPrivateResults, posthog, privateUiEnabled, seedViewerAccess.allowed]);
 
-  const runBulkLookup = useCallback(async (lines: string[]) => {
+  const runBulkLookup = useCallback(async (
+    lines: string[],
+    options: { flagRefresh?: boolean } = {},
+  ) => {
+    bulkLookupLinesRef.current = lines;
+    if (!options.flagRefresh) {
+      bulkPrivateRefreshAttemptedRef.current = privateUiFlag === true;
+    }
     if (lines.length === 0) {
       requestVersionRef.current += 1;
       startTransition(() => {
@@ -1125,8 +1135,25 @@ function ProfileLookupPageContent({
     seedViewerAccessSource,
   ]);
 
+  useEffect(() => {
+    const lines = bulkLookupLinesRef.current;
+    if (!shouldRefreshBulkPrivateLookup({
+      bulkEntryCount: bulkEntries.length,
+      flagEnabled: privateUiFlag === true,
+      lineCount: lines.length,
+      refreshAttempted: bulkPrivateRefreshAttemptedRef.current,
+    })) {
+      return;
+    }
+
+    bulkPrivateRefreshAttemptedRef.current = true;
+    void runBulkLookup(lines, { flagRefresh: true });
+  }, [bulkEntries.length, privateUiFlag, runBulkLookup]);
+
   const clearLookup = useCallback(() => {
     requestVersionRef.current += 1;
+    bulkLookupLinesRef.current = [];
+    bulkPrivateRefreshAttemptedRef.current = privateUiFlag === true;
     startTransition(() => {
       setDisplayQuery("");
       setDisplayResults([]);
@@ -1136,7 +1163,7 @@ function ProfileLookupPageContent({
       setPendingLabel(null);
       updateLookupUrl("");
     });
-  }, []);
+  }, [privateUiFlag]);
 
   return (
     <PageShell className="lookup-theme" data-theme={theme}>
