@@ -11,6 +11,13 @@ type JsonResponse = {
   status: number;
 };
 
+type PlaywrightChromiumModule<T> = {
+  chromium?: T;
+  default?: {
+    chromium?: T;
+  };
+};
+
 type Options = {
   allowProduction: boolean;
   baseUrl: string;
@@ -191,10 +198,20 @@ function basicAuthorization(clientId: string, clientSecret: string) {
   return `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`;
 }
 
-function loadPlaywright() {
-  const webRequire = createRequire(path.join(repoRoot, "apps", "web", "package.json"));
+export function resolvePlaywrightChromium<T>(module: PlaywrightChromiumModule<T>) {
+  const chromium = module.chromium ?? module.default?.chromium;
 
-  return import(webRequire.resolve("@playwright/test")) as Promise<typeof import("@playwright/test")>;
+  assert.ok(chromium, "The Playwright module does not expose chromium directly or through its default export.");
+
+  return { chromium };
+}
+
+async function loadPlaywright() {
+  const webRequire = createRequire(path.join(repoRoot, "apps", "web", "package.json"));
+  const playwrightModule = await import(webRequire.resolve("@playwright/test")) as unknown as
+    PlaywrightChromiumModule<typeof import("@playwright/test").chromium>;
+
+  return resolvePlaywrightChromium(playwrightModule);
 }
 
 async function gotoFlowPage(page: import("@playwright/test").Page, pathName: string) {
@@ -484,7 +501,12 @@ async function main() {
   }
 }
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exit(1);
-});
+const isDirectRun = process.argv[1] !== undefined
+  && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isDirectRun) {
+  main().catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exit(1);
+  });
+}

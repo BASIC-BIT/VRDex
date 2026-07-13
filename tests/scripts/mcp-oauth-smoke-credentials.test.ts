@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { describe, it } from "node:test";
 
+import { resolvePlaywrightChromium } from "../../scripts/prepare-mcp-oauth-smoke-credentials";
+
 function runCredentialHelper(args: string[], env: NodeJS.ProcessEnv = {}) {
   const mergedEnv = { ...process.env, ...env };
 
@@ -21,6 +23,18 @@ function runCredentialHelper(args: string[], env: NodeJS.ProcessEnv = {}) {
 }
 
 describe("MCP OAuth smoke credential helper", () => {
+  it("loads Chromium from direct ESM and CommonJS-default Playwright exports", () => {
+    const directChromium = { source: "direct" };
+    const defaultChromium = { source: "default" };
+
+    assert.equal(resolvePlaywrightChromium({ chromium: directChromium }).chromium, directChromium);
+    assert.equal(resolvePlaywrightChromium({ default: { chromium: defaultChromium } }).chromium, defaultChromium);
+    assert.throws(
+      () => resolvePlaywrightChromium({}),
+      /does not expose chromium directly or through its default export/,
+    );
+  });
+
   it("prints help without requiring hosted secrets", () => {
     const result = runCredentialHelper(["--help"]);
 
