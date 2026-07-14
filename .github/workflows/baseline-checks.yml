@@ -113,7 +113,7 @@ jobs:
       - name: Run typecheck
         run: pnpm typecheck:web
 
-      - name: Run web tests
+      - name: Run web unit tests
         run: pnpm test:web
 
   typecheck-backend:

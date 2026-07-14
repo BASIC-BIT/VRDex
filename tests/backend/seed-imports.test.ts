@@ -48,6 +48,7 @@ describe("seed import fake fixture creation", () => {
       sourceType: "partner",
       sourceContact: "example-fixture-owner@vrdex.invalid",
       receivedAt: Date.parse("2026-06-01T00:00:00.000Z"),
+      publicationPolicy: "reviewed_publication_allowed",
       importedBy,
       reviewState: "draft",
       notes: "Fake fixture for reviewed seed-import workflow tests.",

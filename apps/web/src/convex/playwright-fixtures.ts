@@ -1,5 +1,9 @@
 import type { PublicProfile } from "@/app/_components/profile-public-page";
-import type { PublicProfileLookupResult } from "@/app/_components/profile-lookup-page";
+import type {
+  PrivateSeedLookupResult,
+  PublicProfileLookupResult,
+  SeedLookupViewerAccess,
+} from "@/app/_components/profile-lookup-page";
 import type { PublicActiveWorld } from "@/app/_components/home-active-worlds";
 import type {
   PublicDiscoveryData,
@@ -1043,7 +1047,12 @@ type PlaywrightDiscoverySearchFixture =
 type PlaywrightProfileLookupFixture =
   | { kind: "disabled" }
   | { kind: "fallthrough" }
-  | { kind: "handled"; results: PublicProfileLookupResult[] };
+  | {
+      kind: "handled";
+      privateResults?: PrivateSeedLookupResult[];
+      results: PublicProfileLookupResult[];
+      viewerAccess?: SeedLookupViewerAccess;
+    };
 type PlaywrightPublicShortLinkFixture = {
   code: string;
   targetType: "profile" | "world" | "event";
@@ -1173,6 +1182,72 @@ export function getPlaywrightProfileLookupFixture(query: string): PlaywrightProf
 
   if (!normalized) {
     return { kind: "handled", results: [] };
+  }
+
+  if (normalized === "nwinn") {
+    const sourceObservedAt = Date.UTC(2025, 10, 2);
+    const lastCheckedAt = Date.UTC(2026, 6, 8);
+    const reviewedAt = Date.UTC(2026, 6, 9);
+    const sharedFieldMetadata = {
+      confidence: "high",
+      lastCheckedAt,
+      reviewState: "accepted",
+      reviewedAt,
+      sourceLabel: "NWinn",
+      sourceObservedAt,
+      visibility: "private",
+    } as const;
+
+    return {
+      kind: "handled",
+      privateResults: [
+        {
+          id: "playwright-nwinn-dj-northstar",
+          displayName: "DJ Northstar",
+          proposedSlug: "dj-northstar",
+          publicationState: "draft_private",
+          reviewState: "accepted",
+          reviewedAt,
+          source: { name: "NWinn", observedAt: sourceObservedAt },
+          fields: [
+            {
+              ...sharedFieldMetadata,
+              fieldKey: "aliases",
+              id: "playwright-nwinn-aliases",
+              value: ["Northstar"],
+            },
+            {
+              ...sharedFieldMetadata,
+              fieldKey: "genres",
+              id: "playwright-nwinn-genres",
+              value: ["Drum and Bass", "UK Garage"],
+            },
+            {
+              ...sharedFieldMetadata,
+              fieldKey: "outboundLinks",
+              id: "playwright-nwinn-links",
+              value: [
+                {
+                  handle: "dj-northstar",
+                  label: "Twitch",
+                  presentation: "icon",
+                  type: "twitch",
+                  url: "https://www.twitch.tv/dj-northstar",
+                },
+                {
+                  label: "VRChat profile",
+                  presentation: "icon",
+                  type: "vrchat_profile",
+                  url: "https://vrchat.com/home/user/usr_11111111-1111-4111-8111-111111111111",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      results: [],
+      viewerAccess: { allowed: true, source: "super_admin" },
+    };
   }
 
   const results = personProfiles.flatMap((profile) => {

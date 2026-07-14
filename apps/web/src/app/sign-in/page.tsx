@@ -6,8 +6,19 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, Eyebrow } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
+import { validateSignInReturnTo } from "@/lib/safe-return-to";
 
-export default function SignInPage() {
+export default async function SignInPage({
+  searchParams,
+}: {
+  searchParams: Promise<{
+    redirectTo?: string | string[];
+    returnTo?: string | string[];
+  }>;
+}) {
+  const params = await searchParams;
+  const returnTo = validateSignInReturnTo(params.returnTo ?? params.redirectTo);
+
   return (
     <PageShell className="py-10">
       <PageContainer max="4xl">
@@ -32,7 +43,7 @@ export default function SignInPage() {
 
             <Card surface="glass">
               <Suspense fallback={<Notice>Loading sign-in options...</Notice>}>
-                <SignInForm />
+                <SignInForm returnTo={returnTo} />
               </Suspense>
             </Card>
           </div>

@@ -10,15 +10,18 @@ VRDex may import permissioned seed lists for DJs, communities, worlds, or events
 
 Locked decision:
 
-- [#117](https://github.com/BASIC-BIT/VRDex/issues/117) adds the first backend foundation for reviewed profile seed imports using fake fixtures only.
-- The implemented write surface is internal-only. There is no public import write API and no public profile publication mutation for unreviewed imports.
+- [#117](https://github.com/BASIC-BIT/VRDex/issues/117) added the first backend foundation for reviewed profile seed imports.
+- The internal operator path now accepts permissioned JSON from an uncommitted file, chunks large lists safely on Windows, and imports every candidate as private staging data.
+- The implemented write surface remains internal-only. There is no public import write API and no public profile publication mutation for unreviewed imports.
 - `seedImports:queueCandidatePublication` is a queue marker only. It can move a reviewed candidate to `published_unclaimed`, but it does not create or update a public `profiles` row.
 
 Current recommendation:
 
 - Treat `seedImportBatches`, `seedImportCandidateProfiles`, and `seedImportCandidateFields` as review/audit staging tables.
-- Keep real partner ingestion, reviewer UI, owner handoff, merge behavior, and actual profile creation as follow-up work.
-- Continue using fake `.invalid` fixtures until partner-specific permission, retention, deletion, and reviewer expectations are documented.
+- Use `docs/backend/private-seed-operations.md` for permissioned import, review,
+  private lookup grants, and owner handoff operations.
+- Keep real source files outside the repo and confirm source permission before an
+  operator runs the import.
 
 ## Locked Decisions
 
@@ -42,6 +45,8 @@ Suggested fields:
 - `sourceType`: `partner`, `manual`, `import`, `community`, or `moderator`
 - `sourceContact` optional internal owner for the import relationship
 - `receivedAt`
+- `sourceObservedAt` optional source-provided snapshot or as-of time
+- `publicationPolicy`: new permissioned JSON imports are always `private_only`
 - `importedBy`
 - `reviewState`: `draft`, `ready_for_review`, `approved`, `rejected`, `superseded`
 - `reviewedBy` optional reviewer metadata
@@ -83,11 +88,36 @@ Suggested fields:
 - `sourceLabel`
 - `sourceUrl` optional public source URL
 - `sourceType`: `partner`, `manual`, `import`, `community`, `moderator`
+- `sourceObservedAt` optional source-provided or operator-known as-of time
+- `lastCheckedAt` optional time the value was last actively rechecked
 - `confidence`: `low`, `medium`, `high`, or `owner_confirmed`
 - `reviewState`: `unreviewed`, `accepted`, `rejected`, `needs_correction`
 - `visibility`: `public`, `unlisted`, or `private`
 - `reviewedBy` optional
 - `reviewedAt` optional
+
+## Review, Verification, And Freshness
+
+Keep these meanings separate:
+
+- `receivedAt` records when VRDex received the batch.
+- `reviewedAt` records when an operator reviewed a batch, candidate, or
+  field for its intended use.
+- `sourceObservedAt` records when the source value was known to be current,
+  but only when the source or operator can supply a real as-of time.
+- `lastCheckedAt` records a later active recheck. For a link, a successful
+  check means the URL responded; it does not imply owner endorsement.
+- `owner_confirmed` means the real owner explicitly confirmed the field
+  through an owner-controlled flow.
+
+Unknown source age must remain unset rather than being replaced with import or
+review time. Operator review can accept a trusted source value for private
+lookup while its freshness remains unknown.
+
+Current implementation note: the schema implements `receivedAt`, review
+timestamps, confidence, optional `sourceObservedAt`, and optional
+`lastCheckedAt`. Unknown freshness remains unset and the authorized lookup UI
+labels it as unknown.
 
 ## Publication Defaults
 
@@ -101,6 +131,7 @@ An explicit review decision must exist at the batch, candidate, and field level 
 
 Implemented guard behavior for the first slice:
 
+- `private_only` source batches cannot enter the public publication queue
 - batch `reviewState` must be `approved`
 - candidate `reviewState` must be `accepted`
 - candidate `publicationState` must be `review_pending`
@@ -185,13 +216,17 @@ Use fake fixtures only:
 
 ## Implementation Boundary
 
-This document defines the model for [#76](https://github.com/BASIC-BIT/VRDex/issues/76). It does not authorize importing real partner data or committing real partner fixtures.
+This document defines the model for [#76](https://github.com/BASIC-BIT/VRDex/issues/76). The operator path does not itself grant permission to use a source. Confirm permission first, keep source files outside the repo, and never commit real partner fixtures.
 
 Implemented in [#117](https://github.com/BASIC-BIT/VRDex/issues/117):
 
 - Convex staging tables for import batches, candidate profiles, and candidate fields
 - internal fake fixture import helper keyed by `example_partner_directory_2026_001`
 - internal review mutations for batch, candidate, and field decisions
+- field-level source-observed and last-checked timestamps
+- a private-only, idempotent, chunked permissioned JSON import path
+- backend-enforced super-admin and beta lookup grants
+- hashed, expiring, revocable owner handoff invitations
 - internal review snapshot queries
 - internal candidate/profile matching helper
 - queue-only publication guard and marker

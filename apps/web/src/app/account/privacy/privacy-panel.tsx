@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
-import { Component, FormEvent, ReactNode, useEffect, useMemo, useState, useTransition } from "react";
+import { Component, FormEvent, ReactNode, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { api } from "@convex-generated-api";
 import { buttonVariants, Button } from "@/components/ui/button";
@@ -158,14 +158,26 @@ function visibilityCounts(draft: PrivacyDraft, profile: PrivacyProfile) {
   return counts;
 }
 
-function PrivacyEditor({ demo, profiles }: { demo?: boolean; profiles: PrivacyProfile[] }) {
+function PrivacyEditor({
+  demo,
+  initialProfileId,
+  profiles,
+}: {
+  demo?: boolean;
+  initialProfileId?: string;
+  profiles: PrivacyProfile[];
+}) {
   const updateFieldVisibility = useMutation(api.profilePrivacy.updateFieldVisibility);
-  const [selectedProfileId, setSelectedProfileId] = useState<string>(profiles[0]?.profileId ?? "");
+  const requestedProfile = profiles.find((profile) => profile.profileId === initialProfileId);
+  const [selectedProfileId, setSelectedProfileId] = useState<string>(
+    requestedProfile?.profileId ?? profiles[0]?.profileId ?? "",
+  );
   const selectedProfile = profiles.find((profile) => profile.profileId === selectedProfileId) ?? profiles[0];
   const [draft, setDraft] = useState<PrivacyDraft>(
     selectedProfile?.fieldVisibility ?? defaultFieldVisibility,
   );
   const [status, setStatus] = useState<SaveStatus>({ kind: "idle" });
+  const appliedInitialProfileId = useRef<string | undefined>(undefined);
   const [, startTransition] = useTransition();
   const counts = useMemo(
     () => (selectedProfile ? visibilityCounts(draft, selectedProfile) : null),
@@ -173,10 +185,14 @@ function PrivacyEditor({ demo, profiles }: { demo?: boolean; profiles: PrivacyPr
   );
 
   useEffect(() => {
-    if (!selectedProfileId && profiles[0]) {
+    const requested = profiles.find((profile) => profile.profileId === initialProfileId);
+    if (requested && appliedInitialProfileId.current !== initialProfileId) {
+      appliedInitialProfileId.current = initialProfileId;
+      setSelectedProfileId(requested.profileId);
+    } else if (!selectedProfileId && profiles[0]) {
       setSelectedProfileId(profiles[0].profileId);
     }
-  }, [profiles, selectedProfileId]);
+  }, [initialProfileId, profiles, selectedProfileId]);
 
   useEffect(() => {
     if (selectedProfile) {
@@ -299,7 +315,7 @@ function PrivacyEditor({ demo, profiles }: { demo?: boolean; profiles: PrivacyPr
   );
 }
 
-function OwnerPrivacyPanel() {
+function OwnerPrivacyPanel({ initialProfileId }: { initialProfileId?: string }) {
   const profiles = useQuery(api.profilePrivacy.listOwnedPrivacyProfilesForAccount);
 
   if (profiles === undefined) {
@@ -330,15 +346,21 @@ function OwnerPrivacyPanel() {
     );
   }
 
-  return <PrivacyEditor profiles={profiles} />;
+  return <PrivacyEditor initialProfileId={initialProfileId} profiles={profiles} />;
 }
 
-function ConnectedPrivacyPanel({ demoMode }: { demoMode: boolean }) {
+function ConnectedPrivacyPanel({
+  demoMode,
+  initialProfileId,
+}: {
+  demoMode: boolean;
+  initialProfileId?: string;
+}) {
   if (demoMode) {
     return <PrivacyEditor demo profiles={demoProfiles} />;
   }
 
-  return <OwnerPrivacyPanel />;
+  return <OwnerPrivacyPanel initialProfileId={initialProfileId} />;
 }
 
 class PrivacyPanelErrorBoundary extends Component<
@@ -364,7 +386,13 @@ class PrivacyPanelErrorBoundary extends Component<
   }
 }
 
-export function PrivacyPanel({ demoMode = false }: { demoMode?: boolean }) {
+export function PrivacyPanel({
+  demoMode = false,
+  initialProfileId,
+}: {
+  demoMode?: boolean;
+  initialProfileId?: string;
+}) {
   if (!convexUrl && !demoMode) {
     return (
       <Notice className="leading-7" variant="dashed">
@@ -375,7 +403,7 @@ export function PrivacyPanel({ demoMode = false }: { demoMode?: boolean }) {
 
   return (
     <PrivacyPanelErrorBoundary>
-      <ConnectedPrivacyPanel demoMode={demoMode} />
+      <ConnectedPrivacyPanel demoMode={demoMode} initialProfileId={initialProfileId} />
     </PrivacyPanelErrorBoundary>
   );
 }

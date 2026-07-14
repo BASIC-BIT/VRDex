@@ -12,7 +12,15 @@ type LookupPageProps = {
 export default async function LookupPage({ searchParams }: LookupPageProps) {
   const { q } = await searchParams;
   const query = q?.trim() ?? "";
-  const lookup = query ? await fetchProfileLookup(query) : { kind: "live" as const, results: [] };
+  const lookup = await fetchProfileLookup(query);
 
-  return <ProfileLookupPage query={query} results={lookup.results} status={lookup.kind} />;
+  return (
+    <ProfileLookupPage
+      privateResults={lookup.privateResults}
+      query={query}
+      results={lookup.results}
+      status={lookup.kind}
+      viewerAccess={lookup.viewerAccess}
+    />
+  );
 }

@@ -140,6 +140,16 @@ body {
   min-height: 100vh;
 }
 
+.handoff-shell {
+  background: #edf2f1;
+  color: #182f36;
+  --foreground: #182f36;
+  --muted: #5a6b70;
+  --accent: #d66a4d;
+  --accent-strong: #9f3f27;
+  --border: rgba(24, 47, 54, 0.15);
+}
+
 @layer base {
   a {
     color: inherit;
@@ -1078,6 +1088,55 @@ body {
 
 .lookup-result-card {
   border-color: color-mix(in srgb, var(--border) 88%, var(--foreground) 10%);
+}
+
+.lookup-private-result {
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface-strong));
+}
+
+.lookup-private-identity {
+  display: grid;
+  gap: 0.28rem;
+  min-width: 0;
+}
+
+.lookup-private-label {
+  color: var(--accent-strong);
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: 0.64rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.lookup-private-name {
+  color: var(--foreground);
+  font-size: 0.95rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.lookup-private-metadata {
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: 0.62rem;
+  gap: 0.3rem 0.7rem;
+  margin: 0.2rem 0 0;
+}
+
+.lookup-private-metadata > div {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.lookup-private-metadata dt {
+  color: color-mix(in srgb, var(--muted) 82%, var(--foreground));
+  font-weight: 700;
+}
+
+.lookup-private-metadata dd {
+  margin: 0;
 }
 
 .lookup-name-cell {
