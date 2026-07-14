@@ -1,5 +1,8 @@
 import { fetchQuery } from "convex/nextjs";
+import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
+import type { FunctionReference } from "convex/server";
 import { api } from "@convex-generated-api";
+import type { PrivateSeedLookupResult, SeedLookupViewerAccess } from "@/app/_components/profile-lookup-page";
 import {
   getPlaywrightActiveWorldFixtures,
   getPlaywrightDiscoveryFixture,
@@ -10,6 +13,14 @@ import {
   getPlaywrightPublicWorldFixture,
   searchPlaywrightDiscoveryFixture,
 } from "./playwright-fixtures";
+
+const seedAccessApi = (api as unknown as {
+  seedAccess: {
+    viewerAccess: FunctionReference<"query", "public", Record<string, never>, SeedLookupViewerAccess>;
+  };
+}).seedAccess;
+
+const signedOutSeedAccess: SeedLookupViewerAccess = { allowed: false, source: "signed_out" };
 
 type PublicProfileType = "person" | "community";
 
@@ -270,24 +281,40 @@ export async function fetchDiscoverySearch(query: string) {
 
 export async function fetchProfileLookup(query: string) {
   const fixtureLookup = getPlaywrightProfileLookupFixture(query);
+  const fixturePrivateResults = fixtureLookup.kind === "handled"
+    ? fixtureLookup.privateResults
+    : undefined;
+  const fixtureViewerAccess = fixtureLookup.kind === "handled"
+    ? fixtureLookup.viewerAccess
+    : undefined;
 
-  if (fixtureLookup.kind === "handled") {
+  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
     return {
-      kind: "live" as const,
-      results: fixtureLookup.results,
+      kind: fixtureLookup.kind === "handled" ? ("live" as const) : ("missing-url" as const),
+      privateResults: fixturePrivateResults ?? [] as PrivateSeedLookupResult[],
+      results: fixtureLookup.kind === "handled" ? fixtureLookup.results : [],
+      viewerAccess: fixtureViewerAccess ?? signedOutSeedAccess,
     };
   }
 
-  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
-    return { kind: "missing-url" as const, results: [] };
-  }
-
   try {
-    const results = await fetchQuery(api.profiles.lookupPeople, { query, limit: 12 });
-
+    const token = await convexAuthNextjsToken();
+    const publicResultsPromise = fixtureLookup.kind === "handled"
+      ? Promise.resolve(fixtureLookup.results)
+      : query
+        ? fetchQuery(api.profiles.lookupPeople, { query, limit: 12 })
+        : Promise.resolve([]);
+    const viewerAccessPromise = fixtureViewerAccess
+      ? Promise.resolve(fixtureViewerAccess)
+      : token
+      ? fetchQuery(seedAccessApi.viewerAccess, {}, { token })
+      : Promise.resolve(signedOutSeedAccess);
+    const [results, viewerAccess] = await Promise.all([publicResultsPromise, viewerAccessPromise]);
     return {
       kind: "live" as const,
+      privateResults: fixturePrivateResults ?? [] as PrivateSeedLookupResult[],
       results,
+      viewerAccess,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -296,7 +323,9 @@ export async function fetchProfileLookup(query: string) {
 
     return {
       kind: "error" as const,
+      privateResults: [] as PrivateSeedLookupResult[],
       results: [],
+      viewerAccess: signedOutSeedAccess,
     };
   }
 }

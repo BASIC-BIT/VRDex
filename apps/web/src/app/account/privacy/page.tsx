@@ -5,8 +5,16 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 
-export default function PrivacyPage() {
+export default async function PrivacyPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ profileId?: string | string[] }>;
+}) {
   const demoMode = process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES === "true";
+  const requestedProfileId = (await searchParams).profileId;
+  const initialProfileId = Array.isArray(requestedProfileId)
+    ? requestedProfileId[0]
+    : requestedProfileId;
 
   return (
     <PageShell className="py-10">
@@ -31,7 +39,7 @@ export default function PrivacyPage() {
             Set supported fields to public, unlisted, or private.
           </p>
           <div className="mt-8">
-            <PrivacyPanel demoMode={demoMode} />
+            <PrivacyPanel demoMode={demoMode} initialProfileId={initialProfileId} />
           </div>
         </Card>
       </PageContainer>

@@ -40,7 +40,7 @@ function stringField(value: FormDataEntryValue | null): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function ConnectedSignInForm() {
+function ConnectedSignInForm({ returnTo }: { returnTo: string }) {
   const { signIn } = useAuthActions();
   const router = useRouter();
   const [mode, setMode] = useState<PasswordMode>("signIn");
@@ -68,7 +68,7 @@ function ConnectedSignInForm() {
           return;
         }
 
-        router.replace("/account");
+        router.replace(returnTo);
         return;
       }
 
@@ -79,7 +79,7 @@ function ConnectedSignInForm() {
       });
 
       if (result.signingIn) {
-        router.replace("/account");
+        router.replace(returnTo);
         return;
       }
 
@@ -98,11 +98,11 @@ function ConnectedSignInForm() {
         <button
           className="rounded-control bg-[#5865f2] px-5 py-3 text-sm font-medium text-white transition hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5865f2]/35"
           type="button"
-          onClick={() => void signIn("discord", { redirectTo: "/account" })}
+          onClick={() => void signIn("discord", { redirectTo: returnTo })}
         >
           Continue with Discord
         </button>
-        <Button size="lg" type="button" onClick={() => void signIn("google", { redirectTo: "/account" })}>
+        <Button size="lg" type="button" onClick={() => void signIn("google", { redirectTo: returnTo })}>
           Continue with Google
         </Button>
       </div>
@@ -176,7 +176,7 @@ function ConnectedSignInForm() {
   );
 }
 
-export function SignInForm() {
+export function SignInForm({ returnTo }: { returnTo: string }) {
   if (!convexUrl) {
     return (
       <Notice className="py-5 leading-7" variant="dashed">
@@ -185,5 +185,5 @@ export function SignInForm() {
     );
   }
 
-  return <ConnectedSignInForm />;
+  return <ConnectedSignInForm returnTo={returnTo} />;
 }

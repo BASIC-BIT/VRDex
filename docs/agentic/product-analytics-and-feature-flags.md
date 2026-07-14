@@ -137,6 +137,32 @@ Locked hosted project:
 
 The hosted PostHog project is managed/imported through `infra/terraform/posthog`. Hosted Vercel env vars for this project are managed by `infra/terraform/vercel`. Keep the public project key out of committed defaults so forks and self-hosted installs do not accidentally send analytics into the BASIC BIT project.
 
+## Implemented rollout foundation
+
+Locked implementation behavior:
+
+- Convex authorization remains the source of truth for private data. A PostHog
+  person property, cohort, or feature flag must never grant backend access.
+- The `seed-lookup-beta` flag targets the string person property
+  `seed_lookup_beta=true`. The web app mirrors an already-authorized Convex
+  result into that property and does not send a raw account identifier.
+- The Terraform provider manages the feature flag directly. Its current schema
+  does not manage cohorts, so an optional analytic cohort may be derived from
+  the same property in PostHog without becoming an authorization dependency.
+- Browser events use the same-origin `/ingest` reverse proxy. Next.js routes
+  ingestion and SDK asset requests to the configured PostHog host.
+- Session replay starts only on explicitly public, non-form routes. It remains
+  disabled on lookup, handoff, sign-in, account, submission, and editor routes.
+- PostHog's `ph-no-capture` class excludes marked private surfaces from
+  autocapture, while `[data-ph-no-capture]` blocks and masks session replay.
+- Inputs are masked, `[data-ph-no-capture]` blocks sensitive surfaces, URL
+  queries and fragments are removed, and `/handoff/<token>` is normalized to
+  `/handoff/redacted` before capture.
+
+The proxy adds application-host transfer and request volume. Route-limited
+replay keeps that cost and privacy exposure bounded while preserving replay on
+public discovery and profile surfaces.
+
 Initial events:
 
 - `search_submitted`
@@ -144,8 +170,12 @@ Initial events:
 - `discovery_filter_selected`
 - `event_card_clicked`
 - `featured_card_clicked`
+- `lookup_submitted`
+- `private_seed_results_shown`
 
-Discovery events should avoid private profile fields, raw authentication identifiers, and unsupported popularity claims. Search terms are intentionally captured as product-learning data when PostHog is enabled; revisit retention and privacy copy before broad public launch.
+Discovery and lookup events avoid search terms, profile slugs, private profile
+fields, raw authentication identifiers, seed values, and unsupported popularity
+claims. Revisit retention and privacy copy before broad public launch.
 
 ## Interview later
 

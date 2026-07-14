@@ -7,6 +7,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 import { cn } from "@/lib/cn";
+import type { DiscoveryAnalyticsSurface } from "@/lib/posthog";
 import { safeImageBackground } from "@/lib/safe-image";
 
 type EntityType = "profile" | "world" | "event";
@@ -156,7 +157,13 @@ function TopNav() {
   );
 }
 
-function DiscoveryCard({ result, surface }: { result: PublicSearchResult; surface: string }) {
+function DiscoveryCard({
+  result,
+  surface,
+}: {
+  result: PublicSearchResult;
+  surface: DiscoveryAnalyticsSurface;
+}) {
   const subtitle = resultSubtitle(result);
 
   return (
@@ -167,7 +174,6 @@ function DiscoveryCard({ result, surface }: { result: PublicSearchResult; surfac
       properties={{
         entity_type: result.entityType,
         profile_type: result.profileType,
-        result_slug: result.slug,
         surface,
       }}
     >
@@ -195,7 +201,6 @@ function SearchResultCard({ result }: { result: PublicSearchResult }) {
       properties={{
         entity_type: result.entityType,
         profile_type: result.profileType,
-        result_slug: result.slug,
         surface: "search_results",
       }}
     >
@@ -226,7 +231,7 @@ function PosterCard({ result }: { result: PublicSearchResult }) {
       className="group h-full min-h-72 overflow-hidden rounded-hero border border-border bg-canvas text-white shadow-hero"
       eventName="featured_card_clicked"
       href={result.routePath}
-      properties={{ entity_type: result.entityType, result_slug: result.slug, surface: "featured" }}
+      properties={{ entity_type: result.entityType, surface: "featured" }}
     >
       <span
         className="flex h-full min-h-72 flex-col justify-end bg-[linear-gradient(145deg,var(--background),var(--surface-raised))] bg-cover bg-center p-5"
@@ -244,11 +249,13 @@ function DiscoverySection({
   empty,
   columns = "responsive",
   results,
+  surface,
 }: {
   title: string;
   empty: string;
   columns?: "responsive" | "single";
   results: PublicSearchResult[];
+  surface: DiscoveryAnalyticsSurface;
 }) {
   return (
     <Card className="backdrop-blur" surface="glass">
@@ -257,7 +264,13 @@ function DiscoverySection({
         {results.length === 0 ? (
           <p className="text-sm leading-6 text-muted">{empty}</p>
         ) : (
-          results.map((result) => <DiscoveryCard key={`${result.entityType}-${result.slug}`} result={result} surface={title} />)
+          results.map((result) => (
+            <DiscoveryCard
+              key={`${result.entityType}-${result.slug}`}
+              result={result}
+              surface={surface}
+            />
+          ))
         )}
       </div>
     </Card>
@@ -305,7 +318,7 @@ export function DiscoveryLandingPage({
                     eventName="discovery_filter_selected"
                     href={`/search?q=${encodeURIComponent(term.label)}`}
                     key={`${term.scope}-${term.key}`}
-                    properties={{ scope: term.scope, term: term.label, surface: "home_terms" }}
+                    properties={{ scope: term.scope, surface: "home_terms" }}
                   >
                     {term.label}
                   </TrackedDiscoveryLink>
@@ -320,6 +333,7 @@ export function DiscoveryLandingPage({
         <DiscoverySection
           empty="No upcoming events are public yet."
           results={data.upcomingEvents}
+          surface="upcoming_events"
           title="Upcoming events"
         />
 
@@ -335,9 +349,9 @@ export function DiscoveryLandingPage({
         ) : null}
 
         <section className="grid gap-5 xl:grid-cols-3">
-          <DiscoverySection columns="single" empty="No people are discoverable yet." results={data.people} title="People" />
-          <DiscoverySection columns="single" empty="No communities are discoverable yet." results={data.communities} title="Communities" />
-          <DiscoverySection columns="single" empty="No worlds are discoverable yet." results={data.worlds} title="Worlds" />
+          <DiscoverySection columns="single" empty="No people are discoverable yet." results={data.people} surface="home" title="People" />
+          <DiscoverySection columns="single" empty="No communities are discoverable yet." results={data.communities} surface="home" title="Communities" />
+          <DiscoverySection columns="single" empty="No worlds are discoverable yet." results={data.worlds} surface="home" title="Worlds" />
         </section>
       </PageContainer>
     </PageShell>

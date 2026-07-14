@@ -7,9 +7,13 @@ import {
   FAKE_SEED_IMPORT_FIXTURE_KEY,
   FAKE_SEED_IMPORT_FIXTURES,
   candidatePublicationStateForReviewState,
+  createSeedImportCandidateDocuments,
+  createSeedImportDocuments,
   createSeedImportDocumentsFromFixture,
   getSeedImportPublicationBlockers,
+  normalizePermissionedSeedImport,
   normalizeSeedImportFixture,
+  seedImportCandidateFingerprint,
 } from "./_seedImports";
 import {
   seedImportAuthSubjectValidator,
@@ -87,6 +91,104 @@ export const importFakeFixtureBatch = internalMutation({
     return {
       inserted: true as const,
       ...result,
+    };
+  },
+});
+
+export const importPermissionedJsonBatch = internalMutation({
+  args: {
+    payload: v.any(),
+    importedBy: seedImportAuthSubjectValidator,
+    now: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const normalized = normalizePermissionedSeedImport(args.payload);
+    const existing = await ctx.db
+      .query("seedImportBatches")
+      .withIndex("by_externalBatchId", (query) =>
+        query.eq("externalBatchId", normalized.externalBatchId),
+      )
+      .take(2);
+
+    if (existing.length > 1) {
+      throw new Error("Seed import batch id is not unique.");
+    }
+
+    const existingBatch = existing[0];
+    const now = args.now ?? Date.now();
+
+    if (existingBatch !== undefined) {
+      if (
+        existingBatch.sourceName !== normalized.sourceName ||
+        existingBatch.sourceType !== normalized.sourceType ||
+        existingBatch.sourceContact !== normalized.sourceContact ||
+        existingBatch.receivedAt !== normalized.receivedAt ||
+        existingBatch.sourceObservedAt !== normalized.sourceObservedAt ||
+        existingBatch.publicationPolicy !== "private_only"
+      ) {
+        throw new Error("Seed import batch metadata does not match the existing batch.");
+      }
+
+      const existingCandidates = await ctx.db
+        .query("seedImportCandidateProfiles")
+        .withIndex("by_batchId", (query) => query.eq("batchId", existingBatch._id))
+        .collect();
+      const existingCandidateIds = new Set(
+        existingCandidates.map((candidate) => candidate.externalCandidateId),
+      );
+      const existingCandidatesById = new Map(
+        existingCandidates.map((candidate) => [candidate.externalCandidateId, candidate]),
+      );
+
+      for (const candidate of normalized.candidates) {
+        const existingCandidate = existingCandidatesById.get(candidate.externalCandidateId);
+
+        if (existingCandidate === undefined) {
+          continue;
+        }
+
+        const fingerprint = await seedImportCandidateFingerprint(candidate);
+        if (
+          existingCandidate.importFingerprint === undefined ||
+          existingCandidate.importFingerprint !== fingerprint
+        ) {
+          throw new Error(
+            `Seed candidate "${candidate.externalCandidateId}" conflicts with the existing import.`,
+          );
+        }
+      }
+      const candidates = normalized.candidates.filter(
+        (candidate) => !existingCandidateIds.has(candidate.externalCandidateId),
+      );
+      const result = await createSeedImportCandidateDocuments(
+        ctx.db,
+        existingBatch._id,
+        candidates,
+        now,
+      );
+
+      return {
+        inserted: candidates.length > 0,
+        insertedBatch: false as const,
+        batchId: existingBatch._id,
+        candidateCount: result.candidateIds.length,
+        skippedCandidateCount: normalized.candidates.length - candidates.length,
+        fieldCount: result.fieldIds.length,
+      };
+    }
+
+    const result = await createSeedImportDocuments(ctx.db, normalized, {
+      importedBy: args.importedBy,
+      now,
+    });
+
+    return {
+      inserted: true as const,
+      insertedBatch: true as const,
+      batchId: result.batchId,
+      candidateCount: result.candidateIds.length,
+      skippedCandidateCount: 0,
+      fieldCount: result.fieldIds.length,
     };
   },
 });
@@ -177,8 +279,8 @@ export const setBatchReviewState = internalMutation({
 
     await ctx.db.patch(batch._id, {
       reviewState: args.reviewState,
-      ...(reviewed ? optionalValue("reviewedBy", reviewer) : {}),
-      ...(reviewed ? { reviewedAt: now } : {}),
+      reviewedBy: reviewed ? reviewer : undefined,
+      reviewedAt: reviewed ? now : undefined,
       ...optionalValue("notes", optionalReviewNote(args.reviewNote)),
       updatedAt: now,
     });
@@ -204,13 +306,14 @@ export const setCandidateReviewState = internalMutation({
 
     const now = args.now ?? Date.now();
     const reviewer = await actorFromArgs(ctx, args.reviewer);
+    const reviewed = args.reviewState !== "unreviewed";
 
     await ctx.db.patch(candidate._id, {
       reviewState: args.reviewState,
       publicationState: candidatePublicationStateForReviewState(args.reviewState),
-      ...optionalValue("reviewer", reviewer),
-      reviewedAt: now,
-      ...optionalValue("reviewNote", optionalReviewNote(args.reviewNote)),
+      reviewer: reviewed ? reviewer : undefined,
+      reviewedAt: reviewed ? now : undefined,
+      reviewNote: reviewed ? optionalReviewNote(args.reviewNote) : undefined,
       updatedAt: now,
     });
 
@@ -228,6 +331,7 @@ export const setCandidateFieldReviewState = internalMutation({
     reviewState: seedImportFieldReviewStateValidator,
     reviewer: v.optional(seedImportAuthSubjectValidator),
     reviewNote: reviewNoteValidator,
+    lastCheckedAt: v.optional(v.number()),
     now: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -241,11 +345,16 @@ export const setCandidateFieldReviewState = internalMutation({
     const reviewer = await actorFromArgs(ctx, args.reviewer);
     const reviewed = args.reviewState !== "unreviewed";
 
+    if (args.lastCheckedAt !== undefined && args.lastCheckedAt > now) {
+      throw new Error("Field lastCheckedAt cannot be in the future.");
+    }
+
     await ctx.db.patch(field._id, {
       reviewState: args.reviewState,
-      ...(reviewed ? optionalValue("reviewedBy", reviewer) : {}),
-      ...(reviewed ? { reviewedAt: now } : {}),
-      ...optionalValue("reviewNote", optionalReviewNote(args.reviewNote)),
+      reviewedBy: reviewed ? reviewer : undefined,
+      reviewedAt: reviewed ? now : undefined,
+      ...optionalValue("lastCheckedAt", args.lastCheckedAt),
+      reviewNote: reviewed ? optionalReviewNote(args.reviewNote) : undefined,
       updatedAt: now,
     });
 
@@ -280,7 +389,7 @@ export const matchCandidateToProfile = internalMutation({
     const reviewer = await actorFromArgs(ctx, args.reviewer);
 
     await ctx.db.patch(candidate._id, {
-      ...optionalValue("matchedProfileId", args.matchedProfileId),
+      matchedProfileId: args.matchedProfileId,
       ...optionalValue("reviewer", reviewer),
       reviewedAt: now,
       ...optionalValue("reviewNote", optionalReviewNote(args.reviewNote)),

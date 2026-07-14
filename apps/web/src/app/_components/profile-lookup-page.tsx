@@ -1,16 +1,26 @@
 "use client";
 
+import { useConvex } from "convex/react";
+import type { FunctionReference } from "convex/server";
 import Image from "next/image";
 import Link from "next/link";
-import { type CSSProperties, useCallback, useRef, useState, useTransition } from "react";
+import { useFeatureFlagEnabled, usePostHog } from "posthog-js/react";
+import { type CSSProperties, useCallback, useEffect, useRef, useState, useTransition } from "react";
 
+import { api } from "@convex-generated-api";
 import { LookupCopyButton } from "./lookup-copy-button";
+import { shouldRefreshBulkPrivateLookup } from "./lookup-private-refresh";
 import { LookupSearchBox } from "./lookup-search-box";
 import { buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 import { Table, TableCell, TableFrame, TableHead, TableHeaderCell } from "@/components/ui/table";
 import { cn } from "@/lib/cn";
+import {
+  captureProductEvent,
+  mirrorPrivateSeedLookupAccess,
+  PRIVATE_SEED_LOOKUP_UI_FLAG,
+} from "@/lib/posthog";
 
 type ProfileTrustLabel = "community_submitted" | "unclaimed" | "claimed_unverified" | "claimed_verified";
 export type ProfileLookupLinkType =
@@ -74,10 +84,59 @@ export type PublicProfileLookupResult = {
   }>;
 };
 
+export type SeedLookupViewerAccess = {
+  allowed: boolean;
+  source: "feature_grant" | "none" | "signed_out" | "super_admin";
+};
+
+export type PrivateSeedLookupResult = {
+  id: string;
+  displayName: string;
+  proposedSlug?: string;
+  reviewState: string;
+  publicationState: "draft_private" | "review_pending";
+  reviewedAt?: number;
+  source: {
+    name: string;
+    observedAt?: number;
+  } | null;
+  fields: Array<{
+    id: string;
+    fieldKey: string;
+    value: unknown;
+    sourceLabel: string;
+    confidence: string;
+    reviewState: string;
+    visibility: string;
+    sourceObservedAt?: number;
+    lastCheckedAt?: number;
+    reviewedAt?: number;
+  }>;
+};
+
+export type ProfileLookupDisplayResult = PublicProfileLookupResult | PrivateSeedLookupResult;
+
+export function isPrivateSeedLookupResult(
+  result: ProfileLookupDisplayResult,
+): result is PrivateSeedLookupResult {
+  return "publicationState" in result;
+}
+
 export type BulkLookupEntry = {
   query: string;
-  results: PublicProfileLookupResult[];
+  results: ProfileLookupDisplayResult[];
 };
+
+const seedAccessApi = (api as unknown as {
+  seedAccess: {
+    lookupPeople: FunctionReference<
+      "query",
+      "public",
+      { query: string; limit?: number },
+      PrivateSeedLookupResult[]
+    >;
+  };
+}).seedAccess;
 
 type LookupLink = PublicProfileLookupResult["outboundLinks"][number];
 
@@ -133,6 +192,16 @@ function dedupeProfiles(results: PublicProfileLookupResult[]): PublicProfileLook
   }
 
   return [...profiles.values()];
+}
+
+function dedupePrivateSeeds(results: PrivateSeedLookupResult[]): PrivateSeedLookupResult[] {
+  const candidates = new Map<string, PrivateSeedLookupResult>();
+
+  for (const result of results) {
+    candidates.set(result.id, result);
+  }
+
+  return [...candidates.values()];
 }
 
 function isVrcdnPreviewLink(link: LookupLink) {
@@ -582,13 +651,143 @@ function LookupResultCard({ profile }: { profile: PublicProfileLookupResult }) {
   );
 }
 
+function privateFieldValue<T>(candidate: PrivateSeedLookupResult, fieldKey: string): T | undefined {
+  return candidate.fields.find((field) => field.fieldKey === fieldKey)?.value as T | undefined;
+}
+
+function privateSeedLinks(candidate: PrivateSeedLookupResult): PublicProfileLookupResult["outboundLinks"] {
+  const links = privateFieldValue<Array<Omit<LookupLink, "source">>>(candidate, "outboundLinks");
+
+  return Array.isArray(links)
+    ? links.map((link) => ({ ...link, source: "partner_provided" as const }))
+    : [];
+}
+
+function privateSeedGenres(candidate: PrivateSeedLookupResult): PublicProfileGenre[] {
+  const genres = privateFieldValue<string[]>(candidate, "genres");
+
+  return Array.isArray(genres)
+    ? genres.map((displayName) => ({
+        displayName,
+        slug: displayName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
+      }))
+    : [];
+}
+
+function earliestTimestamp(values: Array<number | undefined>): number | undefined {
+  const timestamps = values.filter((value): value is number => typeof value === "number");
+
+  return timestamps.length > 0 ? Math.min(...timestamps) : undefined;
+}
+
+function compactDate(timestamp: number): string {
+  return new Intl.DateTimeFormat("en-US", {
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+    year: "numeric",
+  }).format(timestamp);
+}
+
+function privateSeedMetadata(candidate: PrivateSeedLookupResult) {
+  const checkedValues = candidate.fields.map((field) => field.lastCheckedAt);
+  const checkedCount = checkedValues.filter((value) => typeof value === "number").length;
+  const allFieldsChecked = candidate.fields.length > 0 && checkedCount === candidate.fields.length;
+  const observedValues = candidate.fields.length > 0
+    ? candidate.fields.map((field) => field.sourceObservedAt ?? candidate.source?.observedAt)
+    : [candidate.source?.observedAt];
+  const allFieldsObserved = observedValues.length > 0 && observedValues.every(
+    (value) => typeof value === "number",
+  );
+  const acceptedFields = candidate.fields.filter((field) => field.reviewState === "accepted");
+  const allFieldsAccepted = acceptedFields.length === candidate.fields.length;
+  const reviewedAt = candidate.reviewState === "accepted" && allFieldsAccepted
+    ? candidate.reviewedAt ?? earliestTimestamp(acceptedFields.map((field) => field.reviewedAt))
+    : undefined;
+
+  return {
+    freshness: allFieldsChecked
+      ? `Checked ${compactDate(earliestTimestamp(checkedValues)!)}`
+      : checkedCount > 0
+        ? "Partially checked"
+        : allFieldsObserved
+          ? `Observed ${compactDate(earliestTimestamp(observedValues)!)}`
+          : "Unknown",
+    reviewed: reviewedAt
+      ? compactDate(reviewedAt)
+      : candidate.reviewState === "accepted" && allFieldsAccepted
+        ? "Accepted"
+        : acceptedFields.length > 0
+          ? "Partial"
+        : "Not reviewed",
+    source: candidate.source?.name ?? candidate.fields[0]?.sourceLabel ?? "Unknown",
+  };
+}
+
+function PrivateSeedIdentity({ candidate }: { candidate: PrivateSeedLookupResult }) {
+  const aliases = privateFieldValue<string[]>(candidate, "aliases") ?? [];
+  const metadata = privateSeedMetadata(candidate);
+
+  return (
+    <div className="lookup-private-identity ph-no-capture" data-ph-no-capture>
+      <span className="lookup-private-label">Private seed</span>
+      <span className="lookup-private-name">{candidate.displayName}</span>
+      {aliases.length > 0 ? (
+        <div className="lookup-alias-line">
+          <span>aka</span>
+          <span className="lookup-alias-line__value">{aliases.join(" / ")}</span>
+        </div>
+      ) : null}
+      <dl className="lookup-private-metadata">
+        <div><dt>Source</dt><dd>{metadata.source}</dd></div>
+        <div><dt>Reviewed</dt><dd>{metadata.reviewed}</dd></div>
+        <div><dt>Freshness</dt><dd>{metadata.freshness}</dd></div>
+      </dl>
+    </div>
+  );
+}
+
+function PrivateSeedResultRow({ candidate }: { candidate: PrivateSeedLookupResult }) {
+  return (
+    <tr className="lookup-result-row lookup-private-result ph-no-capture align-middle" data-ph-no-capture>
+      <TableCell className="lookup-name-cell px-2 py-2">
+        <PrivateSeedIdentity candidate={candidate} />
+      </TableCell>
+      <TableCell className="lookup-genre-cell px-2 py-2">
+        <LookupGenres genres={privateSeedGenres(candidate)} />
+      </TableCell>
+      <TableCell className="lookup-links-cell px-2 py-2">
+        <LookupLinks links={privateSeedLinks(candidate)} />
+      </TableCell>
+    </tr>
+  );
+}
+
+function PrivateSeedResultCard({ candidate }: { candidate: PrivateSeedLookupResult }) {
+  return (
+    <Card
+      className="lookup-result-card lookup-private-result ph-no-capture grid gap-2"
+      data-ph-no-capture
+      padding="sm"
+    >
+      <PrivateSeedIdentity candidate={candidate} />
+      <div className="text-xs"><LookupGenres genres={privateSeedGenres(candidate)} /></div>
+      <LookupLinks links={privateSeedLinks(candidate)} />
+    </Card>
+  );
+}
+
 function BulkLookupSummary({ entries }: { entries: BulkLookupEntry[] }) {
   if (entries.length === 0) {
     return null;
   }
 
   return (
-    <Card className="lookup-panel lookup-bulk-summary grid gap-2" padding="sm">
+    <Card
+      className="lookup-panel lookup-bulk-summary ph-no-capture grid gap-2"
+      data-ph-no-capture
+      padding="sm"
+    >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-sm font-semibold tracking-[-0.03em]">Lineup matches</h2>
         <span className="text-xs text-muted">{entries.length} pasted entries</span>
@@ -609,16 +808,22 @@ function BulkLookupSummary({ entries }: { entries: BulkLookupEntry[] }) {
   );
 }
 
-async function fetchLookupResults(query: string): Promise<PublicProfileLookupResult[]> {
+type LookupResponse = {
+  privateResults: PrivateSeedLookupResult[];
+  results: PublicProfileLookupResult[];
+  viewerAccess: SeedLookupViewerAccess;
+};
+
+async function fetchLookupResults(query: string): Promise<LookupResponse> {
   const response = await fetch(`/lookup/suggest?q=${encodeURIComponent(query)}`, { cache: "no-store" });
 
   if (!response.ok) {
     throw new Error("Lookup request failed.");
   }
 
-  const data = await response.json() as { results: PublicProfileLookupResult[] };
+  const data = await response.json() as LookupResponse;
 
-  return data.results;
+  return data;
 }
 
 function updateLookupUrl(query: string) {
@@ -627,25 +832,164 @@ function updateLookupUrl(query: string) {
   window.history.replaceState(null, "", nextUrl);
 }
 
-export function ProfileLookupPage({
-  query,
-  results,
-  status,
-}: {
+type ProfileLookupPageProps = {
+  privateResults: PrivateSeedLookupResult[];
   query: string;
   results: PublicProfileLookupResult[];
   status: LookupStatus;
-}) {
+  viewerAccess: SeedLookupViewerAccess;
+};
+
+type QueryPrivateResults = (
+  query: string,
+) => Promise<PrivateSeedLookupResult[]>;
+
+export function ProfileLookupPage({
+  privateResults,
+  query,
+  results,
+  status,
+  viewerAccess,
+}: ProfileLookupPageProps) {
+  const props = { privateResults, query, results, status, viewerAccess };
+
+  return process.env.NEXT_PUBLIC_CONVEX_URL
+    ? <ConnectedProfileLookupPage {...props} />
+    : <ProfileLookupPageContent {...props} queryPrivateResults={null} />;
+}
+
+function ConnectedProfileLookupPage(props: ProfileLookupPageProps) {
+  const convex = useConvex();
+  const queryPrivateResults = useCallback(
+    async (query: string) => await convex.query(seedAccessApi.lookupPeople, {
+      query,
+      limit: 12,
+    }),
+    [convex],
+  );
+
+  return <ProfileLookupPageContent {...props} queryPrivateResults={queryPrivateResults} />;
+}
+
+function ProfileLookupPageContent({
+  privateResults,
+  query,
+  queryPrivateResults,
+  results,
+  status,
+  viewerAccess,
+}: ProfileLookupPageProps & { queryPrivateResults: QueryPrivateResults | null }) {
+  const posthog = usePostHog();
+  const privateUiFlag = useFeatureFlagEnabled(PRIVATE_SEED_LOOKUP_UI_FLAG);
   const [theme, setTheme] = useState<LookupTheme>("dark");
   const [displayQuery, setDisplayQuery] = useState(query);
   const [displayResults, setDisplayResults] = useState(results);
+  const [displayPrivateResults, setDisplayPrivateResults] = useState(privateResults);
+  const [seedViewerAccess, setSeedViewerAccess] = useState(viewerAccess);
   const [lookupStatus, setLookupStatus] = useState<LookupStatus>(status);
   const [bulkEntries, setBulkEntries] = useState<BulkLookupEntry[]>([]);
   const [pendingLabel, setPendingLabel] = useState<string | null>(null);
   const requestVersionRef = useRef(0);
+  const privateLookupQueryRef = useRef<string | null>(
+    privateResults.length > 0 ? query : null,
+  );
+  const bulkLookupLinesRef = useRef<string[]>([]);
+  const bulkPrivateRefreshAttemptedRef = useRef(privateUiFlag === true);
   const [isPending, startTransition] = useTransition();
   const isSearching = pendingLabel !== null || isPending;
+  const privateUiEnabled = seedViewerAccess.source === "super_admin" || privateUiFlag === true;
+  const visiblePrivateResults = seedViewerAccess.allowed && privateUiEnabled ? displayPrivateResults : [];
+  const seedViewerAccessAllowed = seedViewerAccess.allowed;
+  const seedViewerAccessSource = seedViewerAccess.source;
   const hasQuery = Boolean(displayQuery.trim()) || bulkEntries.length > 0 || isSearching;
+
+  useEffect(() => {
+    mirrorPrivateSeedLookupAccess(posthog, seedViewerAccess.allowed);
+  }, [posthog, seedViewerAccess.allowed]);
+
+  useEffect(() => {
+    if (visiblePrivateResults.length === 0) {
+      return;
+    }
+
+    captureProductEvent(posthog, "private_seed_results_shown", {
+      result_count: visiblePrivateResults.length === 1 ? "one" : "multiple",
+      ui_flag: seedViewerAccess.source === "super_admin" ? "super_admin_bypass" : "enabled",
+    });
+  }, [displayQuery, posthog, seedViewerAccess.source, visiblePrivateResults.length]);
+
+  const fetchAllowedPrivateResults = useCallback(async (
+    nextLookup: LookupResponse,
+    nextQuery: string,
+  ) => {
+    const enabled = nextLookup.viewerAccess.source === "super_admin" || privateUiFlag === true;
+
+    if (!nextLookup.viewerAccess.allowed || !enabled) {
+      return [];
+    }
+
+    if (nextLookup.privateResults.length > 0) {
+      return nextLookup.privateResults;
+    }
+
+    if (!queryPrivateResults) {
+      return [];
+    }
+
+    privateLookupQueryRef.current = nextQuery;
+    try {
+      return await queryPrivateResults(nextQuery);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Client-side private seed lookup failed: ${message}`);
+      return [];
+    }
+  }, [privateUiFlag, queryPrivateResults]);
+
+  useEffect(() => {
+    const currentQuery = displayQuery.trim();
+    const enabled = seedViewerAccess.source === "super_admin" || privateUiFlag === true;
+
+    if (
+      bulkEntries.length > 0 ||
+      currentQuery.length < 2 ||
+      displayPrivateResults.length > 0 ||
+      !seedViewerAccess.allowed ||
+      !enabled ||
+      !queryPrivateResults ||
+      privateLookupQueryRef.current === currentQuery
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    const requestVersion = requestVersionRef.current;
+    privateLookupQueryRef.current = currentQuery;
+
+    void queryPrivateResults(currentQuery)
+      .then((initialPrivateResults) => {
+        if (!cancelled && requestVersionRef.current === requestVersion) {
+          startTransition(() => setDisplayPrivateResults(initialPrivateResults));
+        }
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`Client-side private seed lookup failed: ${message}`);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    bulkEntries.length,
+    displayPrivateResults.length,
+    displayQuery,
+    privateUiFlag,
+    queryPrivateResults,
+    seedViewerAccess.allowed,
+    seedViewerAccess.source,
+  ]);
+
   const runLookup = useCallback(async (nextQuery: string) => {
     const normalizedQuery = nextQuery.trim();
 
@@ -657,9 +1001,19 @@ export function ProfileLookupPage({
 
     requestVersionRef.current = requestVersion;
     setPendingLabel(`Searching ${normalizedQuery}`);
+    captureProductEvent(posthog, "lookup_submitted", {
+      access_scope: seedViewerAccess.allowed && privateUiEnabled
+        ? "private_and_public"
+        : "public_only",
+      mode: "single",
+    });
 
     try {
-      const nextResults = await fetchLookupResults(normalizedQuery);
+      const nextLookup = await fetchLookupResults(normalizedQuery);
+      const nextPrivateResults = await fetchAllowedPrivateResults(
+        nextLookup,
+        normalizedQuery,
+      );
 
       if (requestVersionRef.current !== requestVersion) {
         return;
@@ -667,7 +1021,9 @@ export function ProfileLookupPage({
 
       startTransition(() => {
         setDisplayQuery(normalizedQuery);
-        setDisplayResults(nextResults);
+        setDisplayResults(nextLookup.results);
+        setDisplayPrivateResults(nextPrivateResults);
+        setSeedViewerAccess(nextLookup.viewerAccess);
         setLookupStatus("live");
         setBulkEntries([]);
         updateLookupUrl(normalizedQuery);
@@ -681,15 +1037,23 @@ export function ProfileLookupPage({
         setPendingLabel(null);
       }
     }
-  }, []);
+  }, [fetchAllowedPrivateResults, posthog, privateUiEnabled, seedViewerAccess.allowed]);
 
-  const runBulkLookup = useCallback(async (lines: string[]) => {
+  const runBulkLookup = useCallback(async (
+    lines: string[],
+    options: { flagRefresh?: boolean } = {},
+  ) => {
+    bulkLookupLinesRef.current = lines;
+    if (!options.flagRefresh) {
+      bulkPrivateRefreshAttemptedRef.current = privateUiFlag === true;
+    }
     if (lines.length === 0) {
       requestVersionRef.current += 1;
       startTransition(() => {
         setBulkEntries([]);
         setDisplayQuery("");
         setDisplayResults([]);
+        setDisplayPrivateResults([]);
         setLookupStatus("live");
         updateLookupUrl("");
       });
@@ -700,24 +1064,56 @@ export function ProfileLookupPage({
 
     requestVersionRef.current = requestVersion;
     setPendingLabel(`Searching ${lines.length} lineup entries`);
+    captureProductEvent(posthog, "lookup_submitted", {
+      access_scope: seedViewerAccessAllowed && privateUiEnabled
+        ? "private_and_public"
+        : "public_only",
+      mode: "bulk",
+    });
 
     try {
       const entries = await Promise.all(
-        lines.map(async (line) => ({
-          query: line,
-          results: await fetchLookupResults(line),
-        })),
+        lines.map(async (line) => {
+          const lookup = await fetchLookupResults(line);
+          const privateResults = await fetchAllowedPrivateResults(lookup, line);
+          const showPrivate = lookup.viewerAccess.allowed && (
+            lookup.viewerAccess.source === "super_admin" || privateUiFlag === true
+          );
+
+          return {
+            lookup: { ...lookup, privateResults },
+            query: line,
+            results: [
+              ...lookup.results,
+              ...(showPrivate ? privateResults : []),
+            ],
+          };
+        }),
       );
-      const nextResults = dedupeProfiles(entries.flatMap((entry) => entry.results));
+      const nextResults = dedupeProfiles(entries.flatMap((entry) => entry.lookup.results));
+      const nextPrivateResults = dedupePrivateSeeds(
+        entries.flatMap((entry) => entry.lookup.privateResults),
+      );
+      const nextViewerAccess = entries[0]?.lookup.viewerAccess ?? {
+        allowed: seedViewerAccessAllowed,
+        source: seedViewerAccessSource,
+      };
 
       if (requestVersionRef.current !== requestVersion) {
         return;
       }
 
       startTransition(() => {
-        setBulkEntries(entries);
+        setBulkEntries(
+          entries.map(({ query: entryQuery, results: entryResults }) => ({
+            query: entryQuery,
+            results: entryResults,
+          })),
+        );
         setDisplayQuery(`${lines.length} lineup entries`);
         setDisplayResults(nextResults);
+        setDisplayPrivateResults(nextViewerAccess.allowed ? nextPrivateResults : []);
+        setSeedViewerAccess(nextViewerAccess);
         setLookupStatus("live");
         updateLookupUrl("");
       });
@@ -730,19 +1126,44 @@ export function ProfileLookupPage({
         setPendingLabel(null);
       }
     }
-  }, []);
+  }, [
+    fetchAllowedPrivateResults,
+    posthog,
+    privateUiEnabled,
+    privateUiFlag,
+    seedViewerAccessAllowed,
+    seedViewerAccessSource,
+  ]);
+
+  useEffect(() => {
+    const lines = bulkLookupLinesRef.current;
+    if (!shouldRefreshBulkPrivateLookup({
+      bulkEntryCount: bulkEntries.length,
+      flagEnabled: privateUiFlag === true,
+      lineCount: lines.length,
+      refreshAttempted: bulkPrivateRefreshAttemptedRef.current,
+    })) {
+      return;
+    }
+
+    bulkPrivateRefreshAttemptedRef.current = true;
+    void runBulkLookup(lines, { flagRefresh: true });
+  }, [bulkEntries.length, privateUiFlag, runBulkLookup]);
 
   const clearLookup = useCallback(() => {
     requestVersionRef.current += 1;
+    bulkLookupLinesRef.current = [];
+    bulkPrivateRefreshAttemptedRef.current = privateUiFlag === true;
     startTransition(() => {
       setDisplayQuery("");
       setDisplayResults([]);
+      setDisplayPrivateResults([]);
       setBulkEntries([]);
       setLookupStatus("live");
       setPendingLabel(null);
       updateLookupUrl("");
     });
-  }, []);
+  }, [privateUiFlag]);
 
   return (
     <PageShell className="lookup-theme" data-theme={theme}>
@@ -781,14 +1202,17 @@ export function ProfileLookupPage({
             {isSearching ? <span className="sr-only">{pendingLabel ?? "Searching"}</span> : null}
             <BulkLookupSummary entries={bulkEntries} />
             <div className={cn("lookup-results-wrap", isSearching ? "lookup-results-wrap--pending" : undefined)}>
-              {displayResults.length === 0 && !isSearching ? (
+              {displayResults.length === 0 && visiblePrivateResults.length === 0 && !isSearching ? (
                 <Card className="lookup-panel" surface="dashed">
                   <p className="font-medium">No matches found.</p>
                 </Card>
-              ) : displayResults.length > 0 ? (
+              ) : displayResults.length > 0 || visiblePrivateResults.length > 0 ? (
                 <>
                   <div className="grid gap-3 min-[1320px]:hidden">
                     {displayResults.map((profile) => <LookupResultCard key={profile.slug} profile={profile} />)}
+                    {visiblePrivateResults.map((candidate) => (
+                      <PrivateSeedResultCard candidate={candidate} key={candidate.id} />
+                    ))}
                   </div>
                   <TableFrame className="lookup-table hidden min-[1320px]:block">
                     <Table>
@@ -801,6 +1225,9 @@ export function ProfileLookupPage({
                       </TableHead>
                       <tbody className="divide-y divide-border">
                         {displayResults.map((profile) => <LookupResultRow key={profile.slug} profile={profile} />)}
+                        {visiblePrivateResults.map((candidate) => (
+                          <PrivateSeedResultRow candidate={candidate} key={candidate.id} />
+                        ))}
                       </tbody>
                     </Table>
                   </TableFrame>

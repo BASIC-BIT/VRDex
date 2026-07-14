@@ -197,6 +197,21 @@ export async function expectLookupPage(page: Page) {
   await expect(page.getByRole("link", { name: "Open profile", exact: true })).toHaveCount(0);
 }
 
+export async function expectPrivateSeedLookupPage(page: Page) {
+  const privateResult = page.locator(".lookup-private-result:visible");
+
+  await expect(page.getByRole("heading", { name: /DJ link lookup/i })).toBeVisible();
+  await expect(privateResult).toHaveCount(1);
+  await expect(privateResult.getByText("Private seed", { exact: true })).toBeVisible();
+  await expect(privateResult.getByText("DJ Northstar", { exact: true })).toBeVisible();
+  await expect(privateResult.getByText("NWinn", { exact: true })).toBeVisible();
+  await expect(privateResult.getByText("Jul 9, 2026", { exact: true })).toBeVisible();
+  await expect(privateResult.getByText("Checked Jul 8, 2026", { exact: true })).toBeVisible();
+  await expect(privateResult.getByRole("link", { name: "Twitch: dj-northstar" })).toBeVisible();
+  await expect(privateResult.getByRole("link", { name: "VRChat profile: vrchat.com" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open profile", exact: true })).toHaveCount(0);
+}
+
 export async function expectSubmitPage(page: Page) {
   await expect(page.getByRole("heading", { name: /Add a missing VRChat scene profile/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Sign-in required" })).toBeVisible();
@@ -208,6 +223,14 @@ export async function expectSignInPage(page: Page) {
   await expect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible();
   await expect(page.getByLabel("Email")).toBeVisible();
   await expect(page.getByLabel("Password")).toBeVisible();
+}
+
+export async function expectHandoffPage(page: Page) {
+  await expect(page.getByRole("heading", { name: "DJ Aurora" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Choose the details to keep" })).toBeVisible();
+  await expect(page.getByLabel("Include Display name")).toBeChecked();
+  await expect(page.getByRole("button", { name: "Accept handoff" })).toBeVisible();
+  await expect(page.getByText("It does not publish it.", { exact: false })).toBeVisible();
 }
 
 export async function expectAccountPage(page: Page) {
@@ -368,6 +391,11 @@ export const capturedRoutes: CapturedRoute[] = [
     expectPage: expectSignInPage,
   },
   {
+    name: "handoff-ready",
+    path: "/handoff/playwright-ready",
+    expectPage: expectHandoffPage,
+  },
+  {
     name: "account-signed-out",
     path: "/account",
     expectPage: expectAccountPage,
@@ -391,6 +419,11 @@ export const capturedRoutes: CapturedRoute[] = [
     name: "lookup",
     path: visualProfilePaths.lookupPath,
     expectPage: expectLookupPage,
+  },
+  {
+    name: "lookup-private-seed",
+    path: "/lookup?q=nwinn",
+    expectPage: expectPrivateSeedLookupPage,
   },
   {
     name: "privacy-suppression",

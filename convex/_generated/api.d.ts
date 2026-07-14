@@ -8,6 +8,8 @@
  * @module
  */
 
+import type * as _accountFeatureModel from "../_accountFeatureModel.js";
+import type * as _accountFeatures from "../_accountFeatures.js";
 import type * as _authRedirects from "../_authRedirects.js";
 import type * as _billing from "../_billing.js";
 import type * as _communityAuthority from "../_communityAuthority.js";
@@ -35,6 +37,8 @@ import type * as _profileSubmissions from "../_profileSubmissions.js";
 import type * as _profileWorldCredits from "../_profileWorldCredits.js";
 import type * as _publicFields from "../_publicFields.js";
 import type * as _searchDocuments from "../_searchDocuments.js";
+import type * as _seedAccess from "../_seedAccess.js";
+import type * as _seedHandoffs from "../_seedHandoffs.js";
 import type * as _seedImportValidators from "../_seedImportValidators.js";
 import type * as _seedImports from "../_seedImports.js";
 import type * as _shortLinks from "../_shortLinks.js";
@@ -45,6 +49,7 @@ import type * as _worldEvents from "../_worldEvents.js";
 import type * as _worldIds from "../_worldIds.js";
 import type * as _worldPublic from "../_worldPublic.js";
 import type * as _worldSlugs from "../_worldSlugs.js";
+import type * as accountFeatureGrants from "../accountFeatureGrants.js";
 import type * as accounts from "../accounts.js";
 import type * as auth from "../auth.js";
 import type * as e2e from "../e2e.js";
@@ -57,6 +62,8 @@ import type * as profileClaims from "../profileClaims.js";
 import type * as profilePrivacy from "../profilePrivacy.js";
 import type * as profiles from "../profiles.js";
 import type * as search from "../search.js";
+import type * as seedAccess from "../seedAccess.js";
+import type * as seedHandoffs from "../seedHandoffs.js";
 import type * as seedImports from "../seedImports.js";
 import type * as shortLinks from "../shortLinks.js";
 import type * as suppressions from "../suppressions.js";
@@ -69,6 +76,8 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  _accountFeatureModel: typeof _accountFeatureModel;
+  _accountFeatures: typeof _accountFeatures;
   _authRedirects: typeof _authRedirects;
   _billing: typeof _billing;
   _communityAuthority: typeof _communityAuthority;
@@ -96,6 +105,8 @@ declare const fullApi: ApiFromModules<{
   _profileWorldCredits: typeof _profileWorldCredits;
   _publicFields: typeof _publicFields;
   _searchDocuments: typeof _searchDocuments;
+  _seedAccess: typeof _seedAccess;
+  _seedHandoffs: typeof _seedHandoffs;
   _seedImportValidators: typeof _seedImportValidators;
   _seedImports: typeof _seedImports;
   _shortLinks: typeof _shortLinks;
@@ -106,6 +117,7 @@ declare const fullApi: ApiFromModules<{
   _worldIds: typeof _worldIds;
   _worldPublic: typeof _worldPublic;
   _worldSlugs: typeof _worldSlugs;
+  accountFeatureGrants: typeof accountFeatureGrants;
   accounts: typeof accounts;
   auth: typeof auth;
   e2e: typeof e2e;
@@ -118,6 +130,8 @@ declare const fullApi: ApiFromModules<{
   profilePrivacy: typeof profilePrivacy;
   profiles: typeof profiles;
   search: typeof search;
+  seedAccess: typeof seedAccess;
+  seedHandoffs: typeof seedHandoffs;
   seedImports: typeof seedImports;
   shortLinks: typeof shortLinks;
   suppressions: typeof suppressions;
