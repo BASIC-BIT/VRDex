@@ -1,36 +1,36 @@
 {
   "schemaVersion": 1,
-  "lastReviewed": "2026-07-13",
+  "lastReviewed": "2026-07-14",
   "readinessMode": "same-branch-preview-hosted-passed-client-smokes-open",
-  "targetEnvironment": "same-branch preview https://vr-dex-5e6noagn2-basicbit.vercel.app/mcp at 0af8dbb",
+  "targetEnvironment": "same-branch Vercel and Convex preview https://vr-dex-eblguo5fy-basicbit.vercel.app/mcp, deployed revision 0dd64b2e78cc617a6aa6ec15f80ca81459ee72ac",
   "hostedReadiness": {
     "checks": [
       {
         "id": "hosted-data-backed-anonymous-read",
         "requiredForExternalReadiness": true,
         "status": "pass",
-        "notes": "Same-branch Convex preview fixture proves data-backed anonymous public reads; staging promotion remains separately blocked on the Terraform-owned Redis variables.",
-        "environment": "GitHub Actions Hosted MCP Preview Smoke run 29226368333 at 7fe11e8",
-        "evidence": "Hosted MCP Preview Smoke job 86742021720 called anonymous vrdex_search for club, OpenAI-compatible search returned profile:community:vrdex-hosted-smoke-club, and fetch returned non-empty public profile text.",
-        "lastRunAt": "2026-07-13"
+        "notes": "Same-branch Vercel and Convex preview proves current-head data-backed anonymous public reads across the curated and OpenAI-compatible tool names.",
+        "environment": "GitHub Actions Hosted MCP Preview Smoke run 29311948404 job 87018585252 at PR head 0dd64b2",
+        "evidence": "Hosted MCP Preview Smoke job 87018585252 called anonymous vrdex_search for club, OpenAI-compatible search returned id=profile:community:vrdex-hosted-smoke-club, and fetch returned non-empty document text.",
+        "lastRunAt": "2026-07-14"
       },
       {
         "id": "hosted-dynamic-client-registration",
         "requiredForExternalReadiness": true,
         "status": "pass",
-        "notes": "Preview-only secret-gated persistence accepted the dynamic client on the same-branch Convex backend.",
-        "environment": "GitHub Actions Hosted MCP Preview Smoke run 29226368333 at 7fe11e8",
-        "evidence": "Hosted MCP Preview Smoke job 86742021720 completed OAuth metadata discovery and Dynamic Client Registration against the preview persistence bridge.",
-        "lastRunAt": "2026-07-13"
+        "notes": "Preview-only persistence accepted constrained public Dynamic Client Registration on the current PR head.",
+        "environment": "GitHub Actions Hosted MCP Preview Smoke run 29311948404 job 87018585252 at PR head 0dd64b2",
+        "evidence": "Hosted MCP Preview Smoke job 87018585252 completed OAuth metadata discovery and public MCP Dynamic Client Registration against the same-branch preview persistence bridge.",
+        "lastRunAt": "2026-07-14"
       },
       {
         "id": "hosted-client-id-metadata-document",
         "requiredForExternalReadiness": true,
         "status": "pass",
-        "notes": "Preview-only secret-gated persistence accepted the URL-form client on the same-branch Convex backend.",
-        "environment": "GitHub Actions Hosted MCP Preview Smoke run 29226368333 at 7fe11e8",
-        "evidence": "Hosted MCP Preview Smoke job 86742021720 fetched a Client ID Metadata Document and accepted the constrained client through the preview authorization path.",
-        "lastRunAt": "2026-07-13"
+        "notes": "Preview-only persistence accepted the constrained URL-form public client on the current PR head.",
+        "environment": "GitHub Actions Hosted MCP Preview Smoke run 29311948404 job 87018585252 at PR head 0dd64b2",
+        "evidence": "Hosted MCP Preview Smoke job 87018585252 fetched the public Client ID Metadata Document and accepted its URL-form client id before the expected sign-in redirect.",
+        "lastRunAt": "2026-07-14"
       }
     ]
   },
@@ -122,10 +122,10 @@
           "requiredForExternalReadiness": true,
           "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
           "manualStatus": "pass",
-          "notes": "Real Gemini CLI hosted anonymous-read smoke passed with data-backed public results; hosted OAuth remains a separate row.",
-          "environment": "Windows / Gemini CLI 0.50.0 via @google/gemini-cli@latest / same-branch preview 7fe11e8",
-          "manualEvidence": "pnpm smoke:mcp-gemini-cli connected the real Gemini CLI client to vrdex, called vrdex_search for club, and returned the vrdex-hosted-smoke-club community from the same-branch preview.",
-          "lastRunAt": "2026-07-13"
+          "notes": "Real Gemini CLI 0.50.0 hosted anonymous-read smoke passed against the current PR preview with data-backed public results; hosted OAuth remains a separate row.",
+          "environment": "Windows / Gemini CLI 0.50.0 via @google/gemini-cli@latest / PR 159 same-branch preview",
+          "manualEvidence": "2026-07-14 real Gemini CLI reported vrdex Connected and vrdex_search returned non-empty structured content for query=club, type=all, limit=1.",
+          "lastRunAt": "2026-07-14"
         },
         {
           "id": "hosted-oauth",

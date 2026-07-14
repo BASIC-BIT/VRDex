@@ -114,9 +114,10 @@ Next execution checkpoint:
 1. Keep the recorded hosted evidence rows for data-backed anonymous reads,
    Dynamic Client Registration, and public-client Client ID Metadata Documents
    in `docs/developers/mcp-client-smoke-results.json`. Current state:
-   data-backed anonymous read, DCR, and CIMD all pass against
-   `https://staging.vrdex.net/mcp` after the PR branch staging deploy run
-   `29037734496`.
+   data-backed anonymous read, DCR, and CIMD all pass against the same-branch
+   Vercel and Convex preview at `0dd64b2` in Hosted MCP Preview Smoke run
+   `29311948404`, job `87018585252`. Shared staging remains the selected
+   production-like promotion target after the Redis variables are applied.
 2. Complete the remaining installed-client matrix batch against the same
    selected target. VS Code local stdio and hosted anonymous reads pass. Cursor
    and Windsurf still need real-client evidence. Prefer
@@ -133,12 +134,13 @@ Next execution checkpoint:
    blocked on credentials or product-surface access rather than platform
    design.
 5. Before hosted-OAuth rows are recorded, rerun
-   `pnpm ops:mcp-hosted-oauth-prereqs`. The 2026-07-09 PR #159 audit is
-   `partial`: hosted auth helpers and the browser token are present, but
-   reviewed OAuth smoke secrets, the Inspector token fallback, and
-   `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true` are not configured. Enabling
-   the developer-credentials gate is an operator action after staging has the
-   developer credential routes and token endpoint under test.
+   `pnpm ops:mcp-hosted-oauth-prereqs`. The 2026-07-14 PR #159 audit passes the
+   temporary credential-generation path: hosted auth helpers and developer
+   credentials are enabled and the browser-token secret is present. Reviewed
+   long-lived OAuth smoke secrets and the Inspector token fallback remain
+   optional. Existing hosted targets still need a deployment with the runtime
+   developer-credential gate enabled before temporary credentials can be
+   minted there.
 6. Use `pnpm smoke:mcp-openai -- --hosted-url https://staging.vrdex.net/mcp
    --hosted-data` with `OPENAI_API_KEY` for OpenAI Responses API hosted
    anonymous-read evidence. The smoke now loads repo-root `.env.local` if

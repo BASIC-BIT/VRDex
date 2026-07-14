@@ -5,7 +5,7 @@
 Implementation-time compatibility matrix for the public API and MCP platform
 foundation.
 
-Last reviewed: 2026-07-13.
+Last reviewed: 2026-07-14.
 
 This matrix separates repo-verified protocol behavior from manual client
 smokes. Do not declare the public MCP surface externally ready until the manual
@@ -319,16 +319,18 @@ surface proves whether public read tools stay anonymous/no-auth and how hosted
 OAuth behaves. `--hosted-data` is required for this harness because `fetch`
 must resolve a real `search` result.
 
-Current 2026-07-13 evidence targets the same-branch Vercel and Convex preview
-at `7fe11e8`. Hosted MCP Preview Smoke job `86742021720` passed data-backed
-anonymous `vrdex_search`, OpenAI-compatible `search`/`fetch`, Dynamic Client
-Registration, and public-client Client ID Metadata Document authorization.
-Dedicated real-client runs also passed Gemini CLI `0.50.0`, MCP Inspector, and
-the OpenAI Responses API with `gpt-5.6-luna`. This is OpenAI API integration
-evidence; ChatGPT Apps/Connectors UI evidence remains separate. Claude Code's
-preview rerun stopped at the client's own stale account authentication with
-the same HTTP 401 on a non-MCP prompt, so it does not establish a VRDex
-transport failure and remains open for rerun after client reauthentication.
+Current 2026-07-14 hosted protocol evidence targets the same-branch Vercel and
+Convex preview at `0dd64b2`. Hosted MCP Preview Smoke run `29311948404`, job
+`87018585252`, passed data-backed anonymous `vrdex_search`, OpenAI-compatible
+`search`/`fetch`, Dynamic Client Registration, and public-client Client ID
+Metadata Document authorization. A real Gemini CLI `0.50.0` rerun also passed
+hosted anonymous `vrdex_search` against that exact target. Previously recorded
+MCP Inspector and OpenAI Responses API `gpt-5.6-luna` evidence remains valid;
+the latter is API integration evidence, not ChatGPT Apps/Connectors UI
+evidence. Claude Code's preview rerun stopped at the client's own stale account
+authentication with the same HTTP 401 on a non-MCP prompt, so it does not
+establish a VRDex transport failure and remains open for rerun after client
+reauthentication.
 
 PR Baseline Checks run the same local stdio protocol smoke through
 `pnpm verify:vrdex-mcp`.

@@ -7,6 +7,15 @@ Changelog for the unstable `/api/v0` and MCP platform foundation.
 `v0` is allowed to change before public launch. Breaking changes still need a
 docs update and a changelog entry so early consumers and agents can adapt.
 
+## 2026-07-14
+
+- refreshed the checked hosted evidence to PR head `0dd64b2`: Hosted MCP
+  Preview Smoke run `29311948404`, job `87018585252`, passed data-backed
+  `vrdex_search`, OpenAI-compatible `search`/`fetch`, DCR, and CIMD against the
+  same-branch Vercel and Convex preview
+- refreshed real-client hosted anonymous evidence with Gemini CLI `0.50.0`
+  against the same current preview without adding another CI run
+
 ## 2026-07-13
 
 - added aggregate Dynamic Client Registration abuse limits for hashed software

@@ -315,9 +315,10 @@ from this foundation and are not implied by a green PR.
   for slower provider runs. The smoke uses the OpenAI-required hosted `search`
   and `fetch` tool names. Run it with required `--hosted-data` against a
   same-branch or production-like backend before recording API integration
-  evidence. Current 2026-07-13 same-branch preview evidence at `7fe11e8` passed
+  evidence. Current 2026-07-14 same-branch preview evidence at `0dd64b2` passed
   data-backed `vrdex_search`, `search`, `fetch`, DCR, and CIMD in Hosted MCP
-  Preview Smoke job `86742021720`. A dedicated OpenAI Responses API run then
+  Preview Smoke run `29311948404`, job `87018585252`. A dedicated OpenAI
+  Responses API run previously
   passed with `gpt-5.6-luna` calling hosted MCP `search` and `fetch`. This does
   not replace ChatGPT Apps/Connectors UI or hosted OAuth evidence; those
   product-surface rows stay pending until the current UI proves no-auth public
