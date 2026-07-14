@@ -247,7 +247,7 @@ describe("public API rate limiting", () => {
       checkRateLimit,
     });
 
-    const ownerHash = hashedApiRateLimitIdentityValue("oauth-owner", "user:user-789");
+    const ownerHash = await hashedApiRateLimitIdentityValue("oauth-owner", "user:user-789");
 
     assert.equal(firstResult.identity.value, "token-456");
     assert.equal(ownerHash.includes("user-789"), false);

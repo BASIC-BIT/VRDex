@@ -85,7 +85,7 @@ describe("OAuth dynamic client registration", () => {
       {
         identity: {
           kind: "oauth_registration_software",
-          value: hashedApiRateLimitIdentityValue("oauth-registration-software", "claude-desktop"),
+          value: await hashedApiRateLimitIdentityValue("oauth-registration-software", "claude-desktop"),
         },
         limitMultiplier: 10,
         routeClass: "oauth_dynamic_client_registration",
@@ -94,7 +94,7 @@ describe("OAuth dynamic client registration", () => {
       {
         identity: {
           kind: "oauth_redirect_host",
-          value: hashedApiRateLimitIdentityValue("oauth-redirect-host", "localhost"),
+          value: await hashedApiRateLimitIdentityValue("oauth-redirect-host", "localhost"),
         },
         limitMultiplier: 25,
         routeClass: "oauth_dynamic_client_registration",

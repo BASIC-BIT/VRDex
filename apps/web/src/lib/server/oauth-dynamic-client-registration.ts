@@ -84,7 +84,7 @@ async function defaultRegisterDynamicMcpClient(input: DynamicMcpClientMutationIn
   return await createDynamicMcpClient(input);
 }
 
-function normalizedRegistrationRateLimitDimensions(registration: NormalizedDynamicMcpClientRegistration) {
+async function normalizedRegistrationRateLimitDimensions(registration: NormalizedDynamicMcpClientRegistration) {
   const softwareIdentity = registration.softwareId ?? registration.clientName;
   const redirectHosts = [...new Set(registration.redirectUris.map((redirectUri) => new URL(redirectUri).hostname.toLowerCase()))];
 
@@ -92,17 +92,19 @@ function normalizedRegistrationRateLimitDimensions(registration: NormalizedDynam
     {
       identity: {
         kind: "oauth_registration_software" as const,
-        value: hashedApiRateLimitIdentityValue("oauth-registration-software", softwareIdentity),
+        value: await hashedApiRateLimitIdentityValue("oauth-registration-software", softwareIdentity),
       },
       limitMultiplier: registrationSoftwareRateLimitMultiplier,
     },
-    ...redirectHosts.map((redirectHost) => ({
-      identity: {
-        kind: "oauth_redirect_host" as const,
-        value: hashedApiRateLimitIdentityValue("oauth-redirect-host", redirectHost),
-      },
-      limitMultiplier: registrationRedirectHostRateLimitMultiplier,
-    })),
+    ...await Promise.all(
+      redirectHosts.map(async (redirectHost) => ({
+        identity: {
+          kind: "oauth_redirect_host" as const,
+          value: await hashedApiRateLimitIdentityValue("oauth-redirect-host", redirectHost),
+        },
+        limitMultiplier: registrationRedirectHostRateLimitMultiplier,
+      })),
+    ),
   ];
 }
 
@@ -169,7 +171,7 @@ export async function dynamicMcpClientRegistrationResponse(
     );
   }
 
-  for (const dimension of normalizedRegistrationRateLimitDimensions(registration)) {
+  for (const dimension of await normalizedRegistrationRateLimitDimensions(registration)) {
     try {
       rateLimit = await checkRateLimit({
         identity: dimension.identity satisfies ApiRateLimitIdentity,

@@ -1,5 +1,4 @@
 import { apiRouteClasses, type ApiRouteClass } from "@vrdex/api-contracts";
-import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 
 export type ApiRateLimitPolicy = {
@@ -145,10 +144,13 @@ function identitySegment(identity: ApiRateLimitIdentity) {
   return `${identity.kind}:${identity.value.trim() || "unknown"}`;
 }
 
-export function hashedApiRateLimitIdentityValue(namespace: string, value: string) {
-  return createHash("sha256")
-    .update(`${namespace.trim().toLowerCase()}\0${value.trim().toLowerCase()}`)
-    .digest("hex");
+export async function hashedApiRateLimitIdentityValue(namespace: string, value: string) {
+  const input = new TextEncoder().encode(
+    `${namespace.trim().toLowerCase()}\0${value.trim().toLowerCase()}`,
+  );
+  const digest = await crypto.subtle.digest("SHA-256", input);
+
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function rateLimitKey(routeClass: ApiRouteClass, identity: ApiRateLimitIdentity) {
@@ -442,7 +444,7 @@ export async function checkOAuthAccessTokenRateLimit(args: {
   if (args.owner !== undefined) {
     const ownerIdentity = {
       kind: "oauth_owner" as const,
-      value: hashedApiRateLimitIdentityValue("oauth-owner", `${args.owner.kind}:${args.owner.id}`),
+      value: await hashedApiRateLimitIdentityValue("oauth-owner", `${args.owner.kind}:${args.owner.id}`),
     };
     const ownerRateLimit = await checkRateLimit({
       identity: ownerIdentity,
