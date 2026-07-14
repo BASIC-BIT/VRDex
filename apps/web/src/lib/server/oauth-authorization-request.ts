@@ -5,6 +5,7 @@ import {
 } from "@vrdex/api-contracts";
 
 import {
+  oauthApiResourceUri,
   oauthMcpResourceUri,
   oauthSupportedResources,
   parseOAuthScopeString,
@@ -50,11 +51,17 @@ function optionalState(input: URLSearchParams | FormData) {
   return state.slice(0, 1024);
 }
 
-function requestedResource(request: Request, input: URLSearchParams | FormData) {
+function requestedResource(
+  request: Request,
+  input: URLSearchParams | FormData,
+  requestedScopes: readonly ApiScope[],
+) {
   const resource = inputValue(input, "resource");
 
   if (!resource) {
-    return oauthMcpResourceUri(request);
+    return requestedScopes.some((scope) => scope === "mcp:read" || scope === "mcp:write")
+      ? oauthMcpResourceUri(request)
+      : oauthApiResourceUri(request);
   }
 
   if (!oauthSupportedResources(request).includes(resource)) {
@@ -72,15 +79,17 @@ export function normalizeOAuthAuthorizationRequest(
     throw new Error("response_type must be code.");
   }
 
-  const resource = requestedResource(request, input);
+  const explicitlyRequestedScopes = parseOAuthScopeString(inputValue(input, "scope"), []);
+  const resource = requestedResource(request, input, explicitlyRequestedScopes);
   const fallbackScopes: ApiScope[] = resource === oauthMcpResourceUri(request) ? ["mcp:read"] : ["public:read"];
+  const requestedScopes = explicitlyRequestedScopes.length === 0 ? fallbackScopes : explicitlyRequestedScopes;
 
   return {
     clientId: normalizeOAuthClientId(requiredInputValue(input, "client_id")),
     codeChallenge: normalizeOAuthCodeChallenge(requiredInputValue(input, "code_challenge")),
     codeChallengeMethod: normalizeOAuthCodeChallengeMethod(inputValue(input, "code_challenge_method")) as "S256",
     redirectUri: normalizeOAuthRedirectUris([requiredInputValue(input, "redirect_uri")])[0],
-    requestedScopes: parseOAuthScopeString(inputValue(input, "scope"), fallbackScopes),
+    requestedScopes,
     resource,
     ...(optionalState(input) === undefined ? {} : { state: optionalState(input) }),
   };

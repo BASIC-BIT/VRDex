@@ -5,6 +5,7 @@ import { describe, it } from "node:test";
 import {
   apiRateLimitPolicyForRouteClass,
   checkApiRateLimit,
+  checkFailedApiAuthenticationRateLimit,
   checkMemoryApiRateLimit,
   checkOAuthAccessTokenRateLimit,
   checkRedisRestApiRateLimit,
@@ -367,6 +368,53 @@ describe("public API rate limiting", () => {
       restoreEnv("VRDEX_DEPLOYMENT_ENV", previousDeploymentEnv);
       restoreEnv("VERCEL_ENV", previousVercelEnv);
       restoreEnv("VRDEX_RATE_LIMIT_STORE", previousStore);
+    }
+  });
+
+  it("charges failed bearer authentication attempts to the anonymous IP bucket", async () => {
+    const previousDeploymentEnv = process.env.VRDEX_DEPLOYMENT_ENV;
+    const previousPrefix = process.env.VRDEX_RATE_LIMIT_REDIS_PREFIX;
+    const previousStore = process.env.VRDEX_RATE_LIMIT_STORE;
+    const previousVercel = process.env.VERCEL;
+    const previousVercelEnv = process.env.VERCEL_ENV;
+
+    process.env.VERCEL = "1";
+    process.env.VERCEL_ENV = "preview";
+    process.env.VRDEX_DEPLOYMENT_ENV = "preview";
+    process.env.VRDEX_RATE_LIMIT_STORE = "memory";
+    process.env.VRDEX_RATE_LIMIT_REDIS_PREFIX = `vrdex:test:failed-auth:${Date.now()}`;
+
+    try {
+      for (let attempt = 0; attempt < 120; attempt += 1) {
+        const evaluation = await checkFailedApiAuthenticationRateLimit(
+          new Request("https://app.example.test/api/v0/profiles", {
+            headers: {
+              "x-vercel-forwarded-for": "203.0.113.44",
+            },
+          }),
+        );
+
+        assert.equal(evaluation.rateLimit.allowed, true);
+      }
+
+      const blocked = await checkFailedApiAuthenticationRateLimit(
+        new Request("https://app.example.test/api/v0/profiles", {
+          headers: {
+            "x-vercel-forwarded-for": "203.0.113.44",
+          },
+        }),
+      );
+
+      assert.equal(blocked.identity.kind, "ip");
+      assert.equal(blocked.identity.value, "203.0.113.44");
+      assert.equal(blocked.rateLimit.allowed, false);
+      assert.equal(blocked.rateLimit.remaining, 0);
+    } finally {
+      restoreEnv("VRDEX_DEPLOYMENT_ENV", previousDeploymentEnv);
+      restoreEnv("VRDEX_RATE_LIMIT_REDIS_PREFIX", previousPrefix);
+      restoreEnv("VRDEX_RATE_LIMIT_STORE", previousStore);
+      restoreEnv("VERCEL", previousVercel);
+      restoreEnv("VERCEL_ENV", previousVercelEnv);
     }
   });
 

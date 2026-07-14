@@ -674,6 +674,11 @@ describe("@vrdex/api-contracts", () => {
     });
   });
 
+  it("rejects OAuth app updates that clear every allowed grant", () => {
+    assert.throws(() => DeveloperOAuthAppUpdateRequestSchema.parse({ allowedGrants: [] }));
+    assert.throws(() => DeveloperOAuthAppUpdateRequestSchema.parse({ allowedScopes: [] }));
+  });
+
   it("leaves OAuth app update grant semantics to stored client type validation", () => {
     const update = DeveloperOAuthAppUpdateRequestSchema.parse({
       allowedGrants: ["client_credentials"],

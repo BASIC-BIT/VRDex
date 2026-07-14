@@ -615,8 +615,12 @@ async function createOwnedApplication(
     .query("oauthApplications")
     .withIndex("by_clientId", (index) => index.eq("clientId", clientId))
     .unique();
+  const existingDynamicClient = await ctx.db
+    .query("oauthDynamicClients")
+    .withIndex("by_clientId", (index) => index.eq("clientId", clientId))
+    .unique();
 
-  if (existingApplication !== null) {
+  if (existingApplication !== null || existingDynamicClient !== null) {
     throw new Error("OAuth client id collision. Generate a new client id and retry.");
   }
 
@@ -935,11 +939,27 @@ export const updateDeveloperApplicationForApiOwner = internalMutation({
     }
 
     if (args.allowedScopes !== undefined) {
+      if (args.allowedScopes.length === 0) {
+        return {
+          ok: false as const,
+          reason: "invalid_update" as const,
+          detail: "OAuth application updates must include at least one scope.",
+        };
+      }
+
       patch.allowedScopes = normalizeOAuthScopes(args.allowedScopes);
       hasUpdate = true;
     }
 
     if (args.allowedGrants !== undefined) {
+      if (args.allowedGrants.length === 0) {
+        return {
+          ok: false as const,
+          reason: "invalid_update" as const,
+          detail: "OAuth application updates must include at least one grant.",
+        };
+      }
+
       try {
         patch.allowedGrants = normalizeOAuthGrantTypes(args.allowedGrants, application.clientType);
       } catch (error) {

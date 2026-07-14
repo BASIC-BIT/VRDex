@@ -124,6 +124,9 @@ Current constraints:
 - production consent POSTs require a same-origin `Origin` header
 - single-use short-lived authorization codes
 - rotating refresh tokens on every refresh
+- authorization requests that omit `resource` infer the MCP resource when an
+  MCP scope is requested and otherwise infer the API resource; requests with
+  no scopes default to API `public:read`
 - token requests may omit `resource` after authorization; VRDex preserves the
   resource already bound to the authorization code or refresh token
 - scopes limited by registered client metadata

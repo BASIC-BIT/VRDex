@@ -1,5 +1,6 @@
 import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { awsCredentialsProvider } from "@vercel/oidc-aws-credentials-provider";
+import { createHash } from "node:crypto";
 
 type StorageConfig = {
   bucket: string;
@@ -10,6 +11,18 @@ type StoredObject = {
   body: Uint8Array;
   contentType: string;
   contentLength?: number;
+};
+
+type StoredObjectHead = {
+  ContentLength?: number;
+  ContentType?: string;
+  Metadata?: Record<string, string>;
+};
+
+type ProfileAssetUpload = {
+  storageKey: string;
+  body: Uint8Array;
+  contentType: string;
 };
 
 type StorageProbeResult =
@@ -79,6 +92,39 @@ function isMissingObjectError(error: unknown): boolean {
   return name === "NoSuchKey" || name === "NotFound";
 }
 
+function isConditionalWriteConflict(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+
+  const name = "name" in error ? String(error.name) : "";
+  const metadata = "$metadata" in error && typeof error.$metadata === "object" ? error.$metadata : null;
+  const statusCode = metadata !== null && "httpStatusCode" in metadata ? metadata.httpStatusCode : undefined;
+
+  return (
+    name === "PreconditionFailed" ||
+    name === "ConditionalRequestConflict" ||
+    statusCode === 409 ||
+    statusCode === 412
+  );
+}
+
+export function profileAssetUploadChecksum(body: Uint8Array) {
+  return createHash("sha256").update(body).digest("hex");
+}
+
+export function storedProfileAssetMatchesUpload(
+  object: StoredObjectHead,
+  input: Pick<ProfileAssetUpload, "body" | "contentType">,
+  checksum = profileAssetUploadChecksum(input.body),
+) {
+  return (
+    object.ContentLength === input.body.byteLength &&
+    object.ContentType === input.contentType &&
+    object.Metadata?.["vrdex-sha256"] === checksum
+  );
+}
+
 export async function probeProfileAssetStorage(): Promise<StorageProbeResult> {
   const config = storageConfig();
 
@@ -104,26 +150,43 @@ export async function probeProfileAssetStorage(): Promise<StorageProbeResult> {
   }
 }
 
-export async function putProfileAssetObject(input: {
-  storageKey: string;
-  body: Uint8Array;
-  contentType: string;
-}) {
+export async function putProfileAssetObject(input: ProfileAssetUpload) {
   const config = storageConfig();
 
   if (config === null) {
     throw new Error("Profile asset storage is not configured.");
   }
 
-  await s3Client(config).send(
-    new PutObjectCommand({
-      Bucket: config.bucket,
-      Key: input.storageKey,
-      Body: input.body,
-      ContentType: input.contentType,
-      CacheControl: "public, max-age=31536000, immutable",
-    }),
-  );
+  const checksum = profileAssetUploadChecksum(input.body);
+
+  try {
+    await s3Client(config).send(
+      new PutObjectCommand({
+        Bucket: config.bucket,
+        Key: input.storageKey,
+        Body: input.body,
+        ContentType: input.contentType,
+        CacheControl: "public, max-age=31536000, immutable",
+        IfNoneMatch: "*",
+        Metadata: { "vrdex-sha256": checksum },
+      }),
+    );
+  } catch (error) {
+    if (!isConditionalWriteConflict(error)) {
+      throw error;
+    }
+
+    const object = await s3Client(config).send(
+      new HeadObjectCommand({
+        Bucket: config.bucket,
+        Key: input.storageKey,
+      }),
+    );
+
+    if (!storedProfileAssetMatchesUpload(object, input, checksum)) {
+      throw new Error("Profile asset upload intent already contains different content.");
+    }
+  }
 }
 
 export async function getProfileAssetObject(storageKey: string): Promise<StoredObject | null> {

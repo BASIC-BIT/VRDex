@@ -7,6 +7,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
+import { oauthConsentSummary, oauthScopeLabel } from "@/lib/oauth-consent-copy";
 import { convexAdminHttpClient, convexHttpClient } from "@/lib/server/convex-http";
 import { oauthAuthorizeProblemDetail } from "@/lib/server/oauth-authorize-problem";
 import {
@@ -20,18 +21,6 @@ type AuthorizeReviewPageProps = {
 
 function firstParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
-}
-
-function scopeLabel(scope: string) {
-  if (scope === "mcp:read") {
-    return "Read public VRDex data through MCP";
-  }
-
-  if (scope === "public:read") {
-    return "Read public API data";
-  }
-
-  return scope;
 }
 
 function AuthorizationProblem({ detail }: { detail: string }) {
@@ -114,7 +103,7 @@ export default async function AuthorizeReviewPage({ searchParams }: AuthorizeRev
           <div>
             <h1 className="text-4xl leading-none font-semibold sm:text-5xl">Authorize {client.displayName}</h1>
             <p className="mt-4 max-w-2xl text-sm leading-7 text-muted">
-              This app is requesting access to public VRDex data for your signed-in account.
+              {oauthConsentSummary}
             </p>
           </div>
 
@@ -124,7 +113,7 @@ export default async function AuthorizeReviewPage({ searchParams }: AuthorizeRev
               <ul className="grid gap-2">
                 {authorization.requestedScopes.map((scope) => (
                   <li className="rounded-control border border-border bg-surface-strong px-4 py-3 text-sm" key={scope}>
-                    {scopeLabel(scope)}
+                    {oauthScopeLabel(scope)}
                   </li>
                 ))}
               </ul>

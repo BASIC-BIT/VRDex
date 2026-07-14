@@ -1585,6 +1585,7 @@ components:
             type: string
             minLength: 1
         allowedGrants:
+          minItems: 1
           type: array
           items:
             type: string
@@ -1594,6 +1595,7 @@ components:
               - client_credentials
             description: OAuth grant type allowed for an application.
         allowedScopes:
+          minItems: 1
           type: array
           items:
             type: string

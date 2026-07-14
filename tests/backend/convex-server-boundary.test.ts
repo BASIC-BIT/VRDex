@@ -33,6 +33,10 @@ describe("server-only Convex boundary", () => {
     for (const name of ["createPreviewDynamicMcpClient", "upsertPreviewClientMetadataDocumentMcpClient"]) {
       expectGuardedMutation("convex/oauthApps.ts", name, "requirePreviewPersistenceBridge");
     }
+    assert.match(
+      source("convex/oauthApps.ts"),
+      /query\("oauthDynamicClients"\)[\s\S]*existingApplication !== null \|\| existingDynamicClient !== null/,
+    );
     expectGuardedMutation(
       "convex/oauthApps.ts",
       "issuePreviewClientCredentialsAccessToken",
@@ -58,7 +62,7 @@ describe("server-only Convex boundary", () => {
       ["apps/web/src/app/oauth/authorize/consent/route.ts", ["convexAdminHttpClient", "internal.oauthApps.completeAuthorizationConsent"]],
       ["apps/web/src/lib/server/oauth-dynamic-client-registration.ts", ["createDynamicMcpClient"]],
       ["apps/web/src/lib/server/oauth-dynamic-client-persistence.ts", ["convexAdminHttpClient", "internal.oauthApps.createDynamicMcpClient", "internal.oauthApps.upsertClientMetadataDocumentMcpClient", "internal.oauthApps.issueClientCredentialsAccessToken", "internal.oauthApps.validateAccessToken", "api.oauthApps.createPreviewDynamicMcpClient", "api.oauthApps.upsertPreviewClientMetadataDocumentMcpClient", "api.oauthApps.issuePreviewClientCredentialsAccessToken", "api.oauthApps.validatePreviewAccessToken"]],
-      ["apps/web/src/lib/server/api-v0.ts", ["convexAdminHttpClient", "internal.apiTokens.validateBearerTokenHash", "validateOAuthAccessTokenRecord"]],
+      ["apps/web/src/lib/server/api-v0.ts", ["convexAdminHttpClient", "internal.apiTokens.validateBearerTokenHash", "validateOAuthAccessTokenRecord", "checkFailedApiAuthenticationRateLimit"]],
       ["apps/web/src/lib/server/vrdex-mcp.ts", ["convexAdminHttpClient", "validateOAuthAccessTokenRecord"]],
     ]);
     for (const [path, references] of expectedReferences) {

@@ -91,6 +91,20 @@ describe("OAuth PKCE authorization helpers", () => {
       resource: "https://app.example.test/mcp",
       state: "opaque-state",
     });
+
+    const apiParams = new URLSearchParams(params);
+    apiParams.set("scope", "profile:write");
+    const normalizedApiRequest = normalizeOAuthAuthorizationRequest(apiParams, request);
+
+    assert.deepEqual(normalizedApiRequest, {
+      clientId,
+      codeChallenge,
+      codeChallengeMethod: "S256",
+      redirectUri: "http://localhost:3333/callback",
+      requestedScopes: ["profile:write"],
+      resource: "https://app.example.test",
+      state: "opaque-state",
+    });
     assert.equal(
       redirectUriWithOAuthResult({
         code: "vrdx_code_0123456789abcdef0123456789abcdef",

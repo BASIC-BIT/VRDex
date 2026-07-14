@@ -947,8 +947,8 @@ export const DeveloperOAuthAppUpdateRequestSchema = z
     privacyUrl: z.string().min(1).nullable().optional(),
     termsUrl: z.string().min(1).nullable().optional(),
     redirectUris: z.array(z.string().min(1)).min(1).max(10).optional(),
-    allowedGrants: z.array(OAuthGrantTypeSchema).optional(),
-    allowedScopes: z.array(ApiScopeSchema).optional(),
+    allowedGrants: z.array(OAuthGrantTypeSchema).min(1).optional(),
+    allowedScopes: z.array(ApiScopeSchema).min(1).optional(),
   })
   .meta({
     description:

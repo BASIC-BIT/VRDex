@@ -425,6 +425,20 @@ export async function checkApiRateLimit(args: {
   });
 }
 
+export async function checkFailedApiAuthenticationRateLimit(request: Request) {
+  const identity = { kind: "ip", value: clientIpForRequest(request) } satisfies ApiRateLimitIdentity;
+  const quotaTier = "standard" satisfies ApiRateLimitQuotaTier;
+  const routeClass = "anonymous_public_read" satisfies ApiRouteClass;
+  const rateLimit = await checkApiRateLimit({ identity, quotaTier, routeClass });
+
+  return {
+    identity,
+    quotaTier,
+    rateLimit,
+    routeClass,
+  } as const;
+}
+
 export async function checkOAuthAccessTokenRateLimit(args: {
   clientId: string;
   owner?: {

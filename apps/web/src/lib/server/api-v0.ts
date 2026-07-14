@@ -16,6 +16,7 @@ import { NextResponse } from "next/server";
 import {
   apiRateLimitPolicyForRouteClass,
   checkApiRateLimit,
+  checkFailedApiAuthenticationRateLimit,
   checkOAuthAccessTokenRateLimit,
   clientIpForRequest,
   oauthRateLimitOwnerForCredential,
@@ -321,6 +322,58 @@ export async function rejectInvalidOrRateLimitedPublicApiRequest(
   return evaluation.ok ? null : evaluation.response;
 }
 
+async function rateLimitExceededResponse(args: {
+  identity: ApiRateLimitIdentity;
+  quotaTier: ApiRateLimitQuotaTier;
+  rateLimit: ApiRateLimitResult;
+  routeClass: ApiRouteClass;
+}) {
+  const policy = apiRateLimitPolicyForRouteClass(args.routeClass, args.quotaTier);
+  const response = apiBearerProblem(
+    429,
+    "API rate limit exceeded",
+    "This client exceeded the current rate limit for the requested API route class.",
+  );
+
+  await recordApiRateLimitBlockedEvent({
+    identity: args.identity,
+    quotaTier: args.quotaTier,
+    rateLimit: args.rateLimit,
+    routeClass: args.routeClass,
+    windowMs: policy.windowMs,
+  });
+
+  response.headers.set("Retry-After", String(args.rateLimit.retryAfterSeconds));
+  response.headers.set("RateLimit-Limit", String(args.rateLimit.limit));
+  response.headers.set("RateLimit-Remaining", String(args.rateLimit.remaining));
+  response.headers.set("RateLimit-Reset", String(Math.ceil(args.rateLimit.resetAt / 1_000)));
+
+  return response;
+}
+
+async function failedAuthenticationRateLimitResponse(request: Request) {
+  let evaluation: Awaited<ReturnType<typeof checkFailedApiAuthenticationRateLimit>>;
+
+  try {
+    evaluation = await checkFailedApiAuthenticationRateLimit(request);
+  } catch {
+    return apiBearerProblem(
+      500,
+      "API rate limiting is unavailable",
+      "The server is not configured to evaluate API rate limits.",
+    );
+  }
+
+  return evaluation.rateLimit.allowed
+    ? null
+    : await rateLimitExceededResponse({
+        identity: evaluation.identity,
+        quotaTier: evaluation.quotaTier,
+        rateLimit: evaluation.rateLimit,
+        routeClass: evaluation.routeClass,
+      });
+}
+
 export async function evaluateOptionalApiBearerRequest(
   request: Request,
   options: {
@@ -331,7 +384,11 @@ export async function evaluateOptionalApiBearerRequest(
   const authentication = await authenticateOptionalApiBearerToken(request, options);
 
   if (!authentication.ok) {
-    return { ok: false as const, response: authentication.response };
+    const rateLimitResponse = await failedAuthenticationRateLimitResponse(request);
+    return {
+      ok: false as const,
+      response: rateLimitResponse ?? authentication.response,
+    };
   }
 
   const routeClass =
@@ -388,26 +445,15 @@ export async function evaluateOptionalApiBearerRequest(
     };
   }
 
-  const response = apiBearerProblem(
-    429,
-    "API rate limit exceeded",
-    "This client exceeded the current rate limit for the requested API route class.",
-  );
-
-  await recordApiRateLimitBlockedEvent({
-    identity: rateLimitIdentity,
-    quotaTier,
-    rateLimit,
-    routeClass,
-    windowMs: policy.windowMs,
-  });
-
-  response.headers.set("Retry-After", String(rateLimit.retryAfterSeconds));
-  response.headers.set("RateLimit-Limit", String(rateLimit.limit));
-  response.headers.set("RateLimit-Remaining", String(rateLimit.remaining));
-  response.headers.set("RateLimit-Reset", String(Math.ceil(rateLimit.resetAt / 1_000)));
-
-  return { ok: false as const, response };
+  return {
+    ok: false as const,
+    response: await rateLimitExceededResponse({
+      identity: rateLimitIdentity,
+      quotaTier,
+      rateLimit,
+      routeClass,
+    }),
+  };
 }
 
 export function apiJson(schema: ApiResponseSchema, value: unknown) {
