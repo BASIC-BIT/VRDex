@@ -355,6 +355,13 @@ describe("public API rate limiting", () => {
         (await checkApiRateLimit({ identity: { kind: "ip", value: "203.0.113.10" }, routeClass: "anonymous_public_read" })).allowed,
         true,
       );
+
+      delete process.env.VERCEL_ENV;
+      process.env.VRDEX_DEPLOYMENT_ENV = "staging";
+      assert.equal(
+        (await checkApiRateLimit({ identity: { kind: "ip", value: "203.0.113.10" }, routeClass: "anonymous_public_read" })).allowed,
+        true,
+      );
     } finally {
       restoreEnv("NODE_ENV", previousNodeEnv);
       restoreEnv("VRDEX_DEPLOYMENT_ENV", previousDeploymentEnv);

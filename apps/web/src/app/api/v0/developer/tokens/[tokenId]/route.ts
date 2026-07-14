@@ -32,7 +32,7 @@ export async function DELETE(request: Request, context: RouteContext) {
   const { tokenId } = await context.params;
   const result = await convexAdminHttpClient().mutation(internal.apiTokens.revokeDeveloperTokenForApiOwner, {
     ownerUserId: evaluation.ownerUserId as Id<"users">,
-    tokenId: tokenId as Id<"apiTokens">,
+    tokenId,
   });
 
   if (!result.ok) {

@@ -135,6 +135,35 @@ describe("@vrdex/api-contracts", () => {
     }));
   });
 
+  it("accepts safe root-relative media URLs in public search results", () => {
+    const response = PublicSearchResponseSchema.parse({
+      query: "vrdex",
+      results: [{
+        entityType: "profile",
+        imageUrl: "/api/v0/profiles/vrdex/assets/avatar/file",
+        logoImageUrl: "/api/v0/profiles/vrdex/assets/logo/file",
+        profileImageUrl: "/api/v0/profiles/vrdex/assets/profile/file",
+        routePath: "/vrdex",
+        score: 1,
+        slug: "vrdex",
+        title: "VRDex",
+      }],
+    });
+
+    assert.equal(response.results[0]?.imageUrl, "/api/v0/profiles/vrdex/assets/avatar/file");
+    assert.throws(() => PublicSearchResponseSchema.parse({
+      query: "vrdex",
+      results: [{
+        entityType: "profile",
+        imageUrl: "//cdn.example.test/avatar.png",
+        routePath: "/vrdex",
+        score: 1,
+        slug: "vrdex",
+        title: "VRDex",
+      }],
+    }));
+  });
+
   it("parses representative public read payloads", () => {
     PublicSearchResponseSchema.parse({
       query: "afterglow",

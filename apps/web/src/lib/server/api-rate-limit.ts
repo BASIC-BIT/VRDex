@@ -100,8 +100,8 @@ function deploymentEnvironment() {
   const configuredEnvironment = process.env.VRDEX_DEPLOYMENT_ENV?.trim().toLowerCase();
   const environment = vercelEnvironment || configuredEnvironment;
 
-  if (environment !== undefined && !["development", "preview", "production"].includes(environment)) {
-    throw new Error("VRDEX_DEPLOYMENT_ENV must be development, preview, or production.");
+  if (environment !== undefined && !["development", "preview", "staging", "production"].includes(environment)) {
+    throw new Error("VRDEX_DEPLOYMENT_ENV must be development, preview, staging, or production.");
   }
 
   if (environment !== undefined) {

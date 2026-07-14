@@ -266,11 +266,17 @@ export const createDeveloperTokenForApiOwner = internalMutation({
 export const revokeDeveloperTokenForApiOwner = internalMutation({
   args: {
     ownerUserId: v.id("users"),
-    tokenId: v.id("apiTokens"),
+    tokenId: v.string(),
     reason: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    return await revokeUserOwnedToken(ctx, args);
+    const tokenId = ctx.db.normalizeId("apiTokens", args.tokenId);
+
+    if (tokenId === null) {
+      return { ok: false as const, reason: "not_found" as const };
+    }
+
+    return await revokeUserOwnedToken(ctx, { ...args, tokenId });
   },
 });
 

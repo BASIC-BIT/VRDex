@@ -193,9 +193,9 @@ export const PublicSearchEntityTypeSchema = z
 export const PublicSearchResultSchema = z
   .object({
     entityType: PublicSearchEntityTypeSchema,
-    imageUrl: absoluteUrl.optional(),
-    logoImageUrl: absoluteUrl.optional(),
-    profileImageUrl: absoluteUrl.optional(),
+    imageUrl: absoluteOrRootRelativeUrl.optional(),
+    logoImageUrl: absoluteOrRootRelativeUrl.optional(),
+    profileImageUrl: absoluteOrRootRelativeUrl.optional(),
     profileType: ProfileTypeSchema.optional(),
     routePath: z.string().min(1),
     score: z.number(),

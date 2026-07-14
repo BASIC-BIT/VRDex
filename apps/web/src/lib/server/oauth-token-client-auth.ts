@@ -38,13 +38,14 @@ export function clientSecretPepper() {
 
 export function basicClientCredentials(request: Request) {
   const authorization = request.headers.get("authorization");
+  const match = authorization?.match(/^Basic[\t ]+(.+)$/i);
 
-  if (!authorization?.startsWith("Basic ")) {
+  if (match === undefined || match === null) {
     return {};
   }
 
   try {
-    const decoded = Buffer.from(authorization.slice("Basic ".length), "base64").toString("utf8");
+    const decoded = Buffer.from(match[1], "base64").toString("utf8");
     const separatorIndex = decoded.indexOf(":");
 
     if (separatorIndex < 0) {

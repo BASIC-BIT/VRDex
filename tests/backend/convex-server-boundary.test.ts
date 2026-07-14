@@ -25,6 +25,7 @@ function expectGuardedMutation(path: string, name: string, guard: string) {
 describe("server-only Convex boundary", () => {
   it("keeps broad trusted operations internal and gates the narrow preview wrappers", () => {
     expectInternalExport("convex/apiTokens.ts", "validateBearerTokenHash", "internalMutation");
+    assert.match(source("convex/apiTokens.ts"), /tokenId: v\.string\(\)[\s\S]*ctx\.db\.normalizeId\("apiTokens", args\.tokenId\)/);
     for (const name of ["createDynamicMcpClient", "upsertClientMetadataDocumentMcpClient", "completeAuthorizationConsent", "issueClientCredentialsAccessToken", "consumeAuthorizationCode", "rotateRefreshToken", "revokeClientAccessToken", "revokeClientRefreshToken", "validateAccessToken"]) {
       expectInternalExport("convex/oauthApps.ts", name, "internalMutation");
     }

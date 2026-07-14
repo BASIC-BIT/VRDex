@@ -136,7 +136,7 @@ describe("OAuth PKCE authorization helpers", () => {
       const confidentialForm = new FormData();
       const confidentialRequest = new Request("https://app.example.test/oauth/token", {
         headers: {
-          authorization: `Basic ${Buffer.from(`vrdx_app_0123456789abcdef01234567:${secret.secretValue}`).toString("base64")}`,
+          authorization: `basic ${Buffer.from(`vrdx_app_0123456789abcdef01234567:${secret.secretValue}`).toString("base64")}`,
         },
       });
       const confidential = await tokenClientAuthentication(confidentialRequest, confidentialForm);

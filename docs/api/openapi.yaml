@@ -2850,14 +2850,11 @@ components:
             - event
           description: Search result entity class.
         imageUrl:
-          type: string
-          format: uri
+          $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
         logoImageUrl:
-          type: string
-          format: uri
+          $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
         profileImageUrl:
-          type: string
-          format: uri
+          $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
         profileType:
           type: string
           enum:
@@ -2921,6 +2918,13 @@ components:
         - title
       additionalProperties: {}
       description: Compact public discovery/search result.
+    AbsoluteOrRootRelativeUrl:
+      anyOf:
+        - type: string
+          format: uri
+        - type: string
+          pattern: ^\/(?!\/)
+      description: An absolute URL or a same-origin root-relative URL.
     PublicProfile:
       type: object
       properties:
@@ -3218,13 +3222,6 @@ components:
         - trustLabel
       additionalProperties: {}
       description: Public profile response. Unknown fields are preserved while the API is still stabilizing.
-    AbsoluteOrRootRelativeUrl:
-      anyOf:
-        - type: string
-          format: uri
-        - type: string
-          pattern: ^\/(?!\/)
-      description: An absolute URL or a same-origin root-relative URL.
     ApiProfileWriteResponse:
       type: object
       properties:
