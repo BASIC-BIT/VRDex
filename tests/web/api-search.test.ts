@@ -17,6 +17,36 @@ function runSearchRouteProbe(script: string) {
 }
 
 describe("public API search route", () => {
+  it("configures browser CORS for every /api/v0 route", () => {
+    const output = runSearchRouteProbe(`
+      import assert from "node:assert/strict";
+      import nextConfig from "./apps/web/next.config.ts";
+
+      const config = nextConfig.default ?? nextConfig;
+      assert.equal(typeof config.headers, "function");
+      const rules = await config.headers();
+      const apiRule = rules.find((rule) => rule.source === "/api/v0/:path*");
+      assert.ok(apiRule);
+
+      const headers = new Map(apiRule.headers.map(({ key, value }) => [key.toLowerCase(), value]));
+      assert.equal(headers.get("access-control-allow-origin"), "*");
+      assert.match(headers.get("access-control-allow-methods") ?? "", /\\bPATCH\\b/);
+      assert.match(headers.get("access-control-allow-methods") ?? "", /\\bOPTIONS\\b/);
+      assert.match(headers.get("access-control-allow-headers") ?? "", /\\bAuthorization\\b/);
+      assert.match(headers.get("access-control-allow-headers") ?? "", /\\bX-VRDEX-Upload-Token\\b/);
+      assert.doesNotMatch(headers.get("access-control-allow-headers") ?? "", /\\bCookie\\b/);
+      assert.doesNotMatch(headers.get("access-control-allow-headers") ?? "", /\\bX-CSRF-Token\\b/);
+      assert.doesNotMatch(headers.get("access-control-allow-headers") ?? "", /\\bX-Arbitrary-Client-Header\\b/);
+      assert.match(headers.get("access-control-expose-headers") ?? "", /\\bRateLimit-Limit\\b/);
+      assert.match(headers.get("access-control-expose-headers") ?? "", /\\bWWW-Authenticate\\b/);
+      assert.equal(headers.get("access-control-max-age"), "600");
+      assert.equal(headers.has("access-control-allow-credentials"), false);
+      console.log("cors-ok");
+    `);
+
+    assert.match(output, /cors-ok/);
+  });
+
   it("returns an empty response without touching Convex for empty queries", () => {
     const output = runSearchRouteProbe(`
       import { GET } from "./apps/web/src/app/api/v0/search/route.ts";

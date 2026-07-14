@@ -65,6 +65,22 @@ function assertPublicReadSecuritySchemes(value: unknown) {
   ]);
 }
 
+function assertAuthenticatedReadSecuritySchemes(value: unknown) {
+  assert.equal(typeof value, "object");
+  assert.notEqual(value, null);
+
+  const metadata = value as {
+    securitySchemes?: Array<{
+      scopes?: unknown;
+      type?: unknown;
+    }>;
+  };
+
+  assert.deepEqual(metadata.securitySchemes, [
+    { scopes: ["mcp:read"], type: "oauth2" },
+  ]);
+}
+
 describe("VRDex MCP server", () => {
   it("extracts accepted curated tool calls for durable invocation counts", () => {
     const output = runMcpProbe(`
@@ -243,6 +259,70 @@ describe("VRDex MCP server", () => {
     for (const tool of tools) {
       assertPublicReadSecuritySchemes(tool._meta);
     }
+  });
+
+  it("advertises OAuth-only tools when anonymous hosted reads are disabled", () => {
+    const output = runMcpProbe(`
+      import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      const handler = createVrdexMcpHandler({ anonymousPublicReads: false });
+      const response = await handler.fetch(new Request("http://localhost:3000/mcp", {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 3,
+          method: "tools/list",
+          params: {},
+        }),
+      }));
+
+      console.log(response.status);
+      console.log(await response.text());
+    `);
+    const body = jsonBodyFromProbe(output);
+    const tools = body.result?.tools ?? [];
+
+    assert.match(output, /^200/m);
+    assert.equal(tools.length, 8);
+
+    for (const tool of tools) {
+      assertAuthenticatedReadSecuritySchemes(tool._meta);
+    }
+  });
+
+  it("requires OAuth when anonymous hosted reads are disabled", () => {
+    const output = runMcpProbe(`
+      import assert from "node:assert/strict";
+      import {
+        hostedMcpAnonymousPublicReadsEnabled,
+        rejectInvalidOrRateLimitedMcpRequest,
+      } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      assert.equal(hostedMcpAnonymousPublicReadsEnabled(undefined), true);
+      assert.equal(hostedMcpAnonymousPublicReadsEnabled("true"), true);
+      assert.equal(hostedMcpAnonymousPublicReadsEnabled("false"), false);
+      assert.throws(() => hostedMcpAnonymousPublicReadsEnabled("sometimes"), /must be true or false/);
+
+      process.env.VRDEX_HOSTED_MCP_ANONYMOUS_READS = "false";
+      const response = await rejectInvalidOrRateLimitedMcpRequest(
+        new Request("https://app.example.test/mcp"),
+      );
+
+      console.log(response?.status);
+      console.log(response?.headers.get("www-authenticate"));
+      console.log(await response?.text());
+    `);
+
+    assert.match(output, /^401/m);
+    assert.match(
+      output,
+      /Bearer resource_metadata="https:\/\/app\.example\.test\/\.well-known\/oauth-protected-resource", scope="mcp:read"/,
+    );
+    assert.match(output, /OAuth bearer token is required for this MCP deployment/);
   });
 
   it("serves OpenAI-compatible search and fetch over public records", () => {

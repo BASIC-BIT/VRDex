@@ -25,6 +25,7 @@ import {
   checkApiRateLimit,
   checkOAuthAccessTokenRateLimit,
   clientIpForRequest,
+  type ApiRateLimitIdentity,
 } from "@/lib/server/api-rate-limit";
 import { recordApiRateLimitBlockedEvent } from "@/lib/server/api-rate-limit-events";
 import { convexAdminHttpClient, convexHttpClient } from "@/lib/server/convex-http";
@@ -44,6 +45,7 @@ type VrdexMcpConvexClient = Pick<ReturnType<typeof convexHttpClient>, "query">;
 type AcceptedMcpRouteClass = "anonymous_mcp_public_read" | "authenticated_mcp";
 
 type VrdexMcpServerOptions = {
+  anonymousPublicReads?: boolean;
   convex?: VrdexMcpConvexClient;
   now?: () => number;
 };
@@ -74,13 +76,43 @@ const mcpPublicReadSecuritySchemes = [
   { type: "noauth" },
   { scopes: [...mcpRequiredScopes], type: "oauth2" },
 ] satisfies Array<Record<string, unknown>>;
-const mcpPublicReadToolMeta = {
-  securitySchemes: mcpPublicReadSecuritySchemes,
-} satisfies Record<string, unknown>;
+const mcpAuthenticatedReadSecuritySchemes = [
+  { scopes: [...mcpRequiredScopes], type: "oauth2" },
+] satisfies Array<Record<string, unknown>>;
 const mcpToolNameSet = new Set<string>(mcpToolNames);
 const mcpDocumentIdSchema = z.string().min(1).max(260);
 const mcpSlugSchema = z.string().min(1).max(160);
 const mcpLimitSchema = z.number().int().min(1);
+
+export function hostedMcpAnonymousPublicReadsEnabled(
+  value = process.env.VRDEX_HOSTED_MCP_ANONYMOUS_READS,
+) {
+  const normalized = value?.trim().toLowerCase();
+
+  if (
+    normalized === undefined
+    || normalized === ""
+    || normalized === "1"
+    || normalized === "true"
+    || normalized === "yes"
+  ) {
+    return true;
+  }
+
+  if (normalized === "0" || normalized === "false" || normalized === "no") {
+    return false;
+  }
+
+  throw new Error("VRDEX_HOSTED_MCP_ANONYMOUS_READS must be true or false when set.");
+}
+
+function mcpReadToolMeta(anonymousPublicReads: boolean) {
+  return {
+    securitySchemes: anonymousPublicReads
+      ? mcpPublicReadSecuritySchemes
+      : mcpAuthenticatedReadSecuritySchemes,
+  } satisfies Record<string, unknown>;
+}
 
 function boundedLimit(value: number | undefined, fallback: number, max: number) {
   return Math.max(1, Math.min(value ?? fallback, max));
@@ -604,6 +636,13 @@ async function authenticateMcpBearerToken(request: Request, tokenValue: string) 
     ok: true as const,
     clientId: validation.clientId,
     identity: { kind: "oauth_client" as const, value: validation.clientId },
+    ...(validation.subjectType === "client" && "ownerKind" in validation && "ownerUserId" in validation
+      ? {
+          owner: validation.ownerKind === "community" && validation.ownerCommunityProfileId !== undefined
+            ? { id: String(validation.ownerCommunityProfileId), kind: "community" as const }
+            : { id: String(validation.ownerUserId), kind: "user" as const },
+        }
+      : {}),
     quotaTier: validation.trustTier === "trusted_partner" ? "trusted_partner" as const : "standard" as const,
     tokenId: claims.jti,
   };
@@ -651,6 +690,17 @@ export async function rejectInvalidOrRateLimitedMcpRequest(request: Request) {
   }
 
   const bearerToken = getBearerTokenFromAuthorizationHeader(request.headers.get("authorization"));
+
+  if (bearerToken === null && !hostedMcpAnonymousPublicReadsEnabled()) {
+    return mcpAuthenticationErrorResponse(
+      request,
+      401,
+      -32600,
+      "OAuth bearer token is required for this MCP deployment.",
+      {},
+    );
+  }
+
   const authentication =
     bearerToken === null
       ? {
@@ -670,12 +720,13 @@ export async function rejectInvalidOrRateLimitedMcpRequest(request: Request) {
   const policy = apiRateLimitPolicyForRouteClass(routeClass, quotaTier);
 
   let rateLimit;
-  let rateLimitIdentity = authentication.identity;
+  let rateLimitIdentity: ApiRateLimitIdentity = authentication.identity;
 
   try {
     if (authentication.identity.kind === "oauth_client" && "tokenId" in authentication) {
       const evaluation = await checkOAuthAccessTokenRateLimit({
         clientId: authentication.clientId,
+        ...("owner" in authentication ? { owner: authentication.owner } : {}),
         quotaTier,
         routeClass,
         tokenId: authentication.tokenId,
@@ -717,8 +768,10 @@ export async function rejectInvalidOrRateLimitedMcpRequest(request: Request) {
 }
 
 export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
+  const anonymousPublicReads = options.anonymousPublicReads ?? hostedMcpAnonymousPublicReadsEnabled();
   const convex = () => options.convex ?? convexHttpClient();
   const now = options.now ?? Date.now;
+  const readToolMeta = mcpReadToolMeta(anonymousPublicReads);
   const server = new McpServer({
     name: "vrdex",
     version: "0.5.0",
@@ -769,7 +822,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       }),
       outputSchema: mcpOutputSchema(McpDocumentSearchResponseSchema),
       annotations: { readOnlyHint: true, idempotentHint: true },
-      _meta: mcpPublicReadToolMeta,
+      _meta: readToolMeta,
     },
     async ({ query }) => {
       let search;
@@ -796,7 +849,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       }),
       outputSchema: mcpOutputSchema(McpDocumentFetchResponseSchema),
       annotations: { readOnlyHint: true, idempotentHint: true },
-      _meta: mcpPublicReadToolMeta,
+      _meta: readToolMeta,
     },
     async ({ id }) => {
       const descriptor = parseMcpDocumentId(id);
@@ -848,7 +901,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       }),
       outputSchema: mcpOutputSchema(PublicSearchResponseSchema),
       annotations: { readOnlyHint: true, idempotentHint: true },
-      _meta: mcpPublicReadToolMeta,
+      _meta: readToolMeta,
     },
     async ({ limit, query, type }) => {
       let search;
@@ -874,7 +927,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       }),
       outputSchema: mcpOutputSchema(PublicProfileSchema),
       annotations: { readOnlyHint: true, idempotentHint: true },
-      _meta: mcpPublicReadToolMeta,
+      _meta: readToolMeta,
     },
     async ({ profileType, slug }) => {
       let profile;
@@ -907,7 +960,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       }),
       outputSchema: mcpOutputSchema(PublicEventSchema),
       annotations: { readOnlyHint: true, idempotentHint: true },
-      _meta: mcpPublicReadToolMeta,
+      _meta: readToolMeta,
     },
     async ({ slug }) => {
       let event;
@@ -936,7 +989,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       }),
       outputSchema: mcpOutputSchema(PublicEventsResponseSchema),
       annotations: { readOnlyHint: true, idempotentHint: true },
-      _meta: mcpPublicReadToolMeta,
+      _meta: readToolMeta,
     },
     async ({ limit }) => {
       const cappedLimit = boundedLimit(limit, 8, 24);
@@ -964,7 +1017,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       }),
       outputSchema: mcpOutputSchema(PublicWorldSchema),
       annotations: { readOnlyHint: true, idempotentHint: true },
-      _meta: mcpPublicReadToolMeta,
+      _meta: readToolMeta,
     },
     async ({ slug }) => {
       let world;
@@ -993,7 +1046,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       }),
       outputSchema: mcpOutputSchema(PublicActiveWorldsResponseSchema),
       annotations: { readOnlyHint: true, idempotentHint: true },
-      _meta: mcpPublicReadToolMeta,
+      _meta: readToolMeta,
     },
     async ({ limit }) => {
       const cappedLimit = boundedLimit(limit, 3, 6);

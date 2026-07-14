@@ -112,6 +112,20 @@ describe("Gemini CLI MCP smoke harness", () => {
     assert.deepEqual(spawn.args, ["/d", "/s", "/c", "gemini.cmd", "--version"]);
   });
 
+  it("launches native Windows executables directly for reliable tree termination", () => {
+    const spawn = geminiSpawnForPlatform({
+      comSpec: "C:\\Windows\\System32\\cmd.exe",
+      geminiCommand: "C:\\Program Files\\nodejs\\node.exe",
+      platform: "win32",
+      promptArgs: ["fixture.mjs"],
+    });
+
+    assert.deepEqual(spawn, {
+      args: ["fixture.mjs"],
+      command: "C:\\Program Files\\nodejs\\node.exe",
+    });
+  });
+
   it("requires the real Gemini MCP preflight to report VRDex connected", () => {
     assert.doesNotThrow(() =>
       assertGeminiMcpListOutput({

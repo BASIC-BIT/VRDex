@@ -4,7 +4,7 @@ info:
   version: 0.1.0
   description: Public API contract for VRDex profile, event, asset, developer, OAuth, and MCP integrations.
 servers:
-  - url: https://vrdex.app
+  - url: https://vrdex.net
     description: Production
   - url: http://localhost:3000
     description: Local web app

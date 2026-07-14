@@ -236,6 +236,10 @@ export function geminiSpawnForPlatform(args: {
         command: args.platform === "win32" ? "npx.cmd" : "npx",
       };
 
+  if (args.platform === "win32" && /\.(?:com|exe)$/i.test(base.command)) {
+    return base;
+  }
+
   if (args.platform === "win32") {
     return {
       args: ["/d", "/s", "/c", base.command, ...base.args],

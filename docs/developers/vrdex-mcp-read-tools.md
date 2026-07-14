@@ -25,6 +25,14 @@ must stay limited to public-safe read tools and use the anonymous MCP
 rate-limit class, but clients should be able to search and browse public VRDex
 records without completing OAuth first.
 
+BASIC BIT hosted deployments keep that default. A self-hosted operator can set
+`VRDEX_HOSTED_MCP_ANONYMOUS_READS=false` to make the same `/mcp` endpoint
+OAuth-only without creating a separate admin MCP surface. In that mode,
+anonymous requests receive a `401` protected-resource challenge and every tool
+descriptor advertises only `oauth2` with `mcp:read`. The reverse proxy must
+still preserve the deployment's issuer/resource URLs and trusted client-IP
+contract. The local stdio package is unaffected.
+
 Clients that understand per-tool auth metadata should treat the current public
 read tools as no-auth callable. OAuth is still available for authenticated MCP
 traffic and future privileged tools, but public search/browser-like use should

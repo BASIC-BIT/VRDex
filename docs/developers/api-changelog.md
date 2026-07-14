@@ -9,6 +9,20 @@ docs update and a changelog entry so early consumers and agents can adapt.
 
 ## 2026-07-13
 
+- added aggregate Dynamic Client Registration abuse limits for hashed software
+  identities and redirect hosts in addition to the requesting network
+- added a hashed application-owner aggregate cap for Client Credentials
+  traffic in addition to per-token and per-client limits
+- made Windows Gemini CLI smoke timeouts terminate native executable process
+  trees directly instead of leaving a child behind a `cmd.exe` wrapper
+- added API-wide CORS and automatic preflight support for `/api/v0`, including
+  bearer authorization, JSON writes, conditional/download requests, upload
+  tokens, and browser-readable rate-limit and authentication headers
+- corrected the generated OpenAPI production server from `vrdex.app` to the
+  canonical `https://vrdex.net` host and locked it with contract coverage
+- added `VRDEX_HOSTED_MCP_ANONYMOUS_READS=false` for self-hosted OAuth-only
+  hosted MCP deployments, including fail-closed parsing, anonymous challenges,
+  and mode-specific tool security metadata
 - added `pnpm smoke:mcp-cursor-agent` for standalone Cursor Agent CLI local
   stdio and hosted anonymous evidence; it validates the documented headless
   capability signature, MCP tool listing, completed structured tool events,

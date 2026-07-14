@@ -1,4 +1,5 @@
 import { apiRouteClasses, type ApiRouteClass } from "@vrdex/api-contracts";
+import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 
 export type ApiRateLimitPolicy = {
@@ -7,7 +8,13 @@ export type ApiRateLimitPolicy = {
 };
 
 export type ApiRateLimitIdentity = {
-  kind: "api_token" | "ip" | "oauth_client";
+  kind:
+    | "api_token"
+    | "ip"
+    | "oauth_client"
+    | "oauth_owner"
+    | "oauth_redirect_host"
+    | "oauth_registration_software";
   value: string;
 };
 
@@ -53,6 +60,7 @@ const trustedPartnerBoostedRouteClasses = new Set<ApiRouteClass>([
 ]);
 
 export const oauthClientAggregateRateLimitMultiplier = 10;
+export const oauthOwnerAggregateRateLimitMultiplier = 25;
 
 const globalRateLimitState = globalThis as typeof globalThis & {
   __vrdexApiRateLimitMemory?: MemoryApiRateLimitStore;
@@ -135,6 +143,12 @@ export function listApiRateLimitPolicies(quotaTier: ApiRateLimitQuotaTier = "sta
 
 function identitySegment(identity: ApiRateLimitIdentity) {
   return `${identity.kind}:${identity.value.trim() || "unknown"}`;
+}
+
+export function hashedApiRateLimitIdentityValue(namespace: string, value: string) {
+  return createHash("sha256")
+    .update(`${namespace.trim().toLowerCase()}\0${value.trim().toLowerCase()}`)
+    .digest("hex");
 }
 
 function rateLimitKey(routeClass: ApiRouteClass, identity: ApiRateLimitIdentity) {
@@ -391,6 +405,10 @@ export async function checkApiRateLimit(args: {
 
 export async function checkOAuthAccessTokenRateLimit(args: {
   clientId: string;
+  owner?: {
+    id: string;
+    kind: "community" | "user";
+  };
   quotaTier: ApiRateLimitQuotaTier;
   routeClass: ApiRouteClass;
   tokenId: string;
@@ -419,6 +437,24 @@ export async function checkOAuthAccessTokenRateLimit(args: {
 
   if (!clientRateLimit.allowed) {
     return { identity: clientIdentity, rateLimit: clientRateLimit };
+  }
+
+  if (args.owner !== undefined) {
+    const ownerIdentity = {
+      kind: "oauth_owner" as const,
+      value: hashedApiRateLimitIdentityValue("oauth-owner", `${args.owner.kind}:${args.owner.id}`),
+    };
+    const ownerRateLimit = await checkRateLimit({
+      identity: ownerIdentity,
+      limitMultiplier: oauthOwnerAggregateRateLimitMultiplier,
+      quotaTier: args.quotaTier,
+      routeClass: args.routeClass,
+      trackRouteClassRequest: false,
+    });
+
+    if (!ownerRateLimit.allowed) {
+      return { identity: ownerIdentity, rateLimit: ownerRateLimit };
+    }
   }
 
   return { identity: tokenIdentity, rateLimit: tokenRateLimit };

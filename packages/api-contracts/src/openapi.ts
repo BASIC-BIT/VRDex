@@ -151,7 +151,7 @@ export const openApiSource = {
   },
   servers: [
     {
-      url: "https://vrdex.app",
+      url: "https://vrdex.net",
       description: "Production",
     },
     {

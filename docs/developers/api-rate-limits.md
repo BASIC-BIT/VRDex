@@ -63,8 +63,19 @@ request:
   request-count observability without storing caller identities
 
 OAuth access tokens also increment a secondary client-wide bucket with a limit
-ten times the per-token quota. This preserves per-installation isolation while
-retaining an aggregate abuse ceiling for a compromised or noisy OAuth client.
+ten times the per-token quota. Client-subject tokens issued through Client
+Credentials additionally increment a hashed application-owner bucket with a
+limit twenty-five times the per-token quota. This preserves per-installation
+isolation while retaining aggregate abuse ceilings for noisy OAuth clients and
+owners with multiple applications. Trusted-partner multiplication applies to
+all three authenticated buckets.
+
+Dynamic Client Registration checks the requesting network before parsing the
+request, then checks normalized software identity and each unique redirect
+hostname after metadata validation. Software and redirect values are hashed
+before becoming counter keys. Their aggregate limits are respectively ten and
+twenty-five times the per-network registration quota so a popular client or
+redirect host cannot trivially exhaust the shared bucket.
 
 Use a Redis-compatible store for hosted production anonymous API and hosted MCP
 traffic. Convex-only counters are acceptable only for low-volume self-hosted
@@ -141,7 +152,10 @@ Identity keys include the route class and one of:
 - IP address for anonymous public API and MCP reads
 - personal API token id for API-token-authenticated traffic
 - OAuth access-token id for OAuth-authenticated API and MCP traffic, plus a
-  secondary client-wide abuse bucket
+  secondary client-wide abuse bucket and, for Client Credentials, a hashed
+  application-owner bucket
+- requesting IP, hashed software identity, and hashed redirect hostname for
+  Dynamic Client Registration
 
 OAuth authorization GETs and consent POSTs use `oauth_authorize`. Token and
 revocation POSTs use `oauth_token`. These checks run before authorization

@@ -77,6 +77,7 @@ Current API/MCP variables read by the web app:
 | `VRDEX_OAUTH_ISSUER_URL` | Public URL config | Optional in single-origin deployments. | Overrides issuer origin for metadata and tokens. |
 | `VRDEX_PUBLIC_API_BASE_URL` | Public URL config | Optional in single-origin deployments. | Defines the API resource/audience origin. |
 | `VRDEX_MCP_RESOURCE_URI` | Public URL config | Optional in single-origin deployments. | Defaults to `<issuer>/mcp`. |
+| `VRDEX_HOSTED_MCP_ANONYMOUS_READS` | Web server config | Optional. | Defaults to `true`. Set to `false` for an OAuth-only hosted MCP; anonymous requests receive a protected-resource challenge and tool descriptors advertise only `oauth2` with `mcp:read`. Invalid values fail configuration instead of silently enabling public access. |
 | `VRDEX_RATE_LIMIT_STORE` | Web server config | Required in production. | Production accepts only `redis-rest` or `upstash`; previews and local development may use `memory`; `disabled` is local diagnostics only. |
 | `VRDEX_DEPLOYMENT_ENV` | Web server config | Optional outside Vercel. | `development`, `preview`, or `production`; defaults from `NODE_ENV`. Production rate limiting fails closed unless a shared store is configured. |
 | `VRDEX_RATE_LIMIT_REDIS_REST_URL` | Web server config | Redis REST or Upstash mode. | Redis-compatible REST endpoint. BASIC BIT hosted production/staging values are Terraform-owned by `infra/terraform/rate-limit-redis`. |
@@ -100,7 +101,9 @@ Current local stdio MCP variables:
 | `VRDEX_OAUTH_TOKEN_FILE` | Local client secret path | Plain token file or JSON with `access_token`. |
 | `VRDEX_MCP_OUTPUT_MODE` | Local client config | `compact` by default; `detail` pretty-prints JSON text output. |
 
-Planned feature flags such as `VRDEX_PUBLIC_API_ENABLED`,
+The implemented `VRDEX_HOSTED_MCP_ANONYMOUS_READS` exposure control is
+independent from the local stdio client, which remains governed by its own
+credential configuration. Planned feature flags such as `VRDEX_PUBLIC_API_ENABLED`,
 `VRDEX_DEVELOPER_DASHBOARD_ENABLED`,
 `VRDEX_HOSTED_MCP_ENABLED`, and
 `VRDEX_OAUTH_DYNAMIC_CLIENT_REGISTRATION_ENABLED` are not current code gates.

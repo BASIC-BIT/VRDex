@@ -796,6 +796,7 @@ describe("@vrdex/api-contracts", () => {
     const document = getOpenApiDocument();
 
     assert.equal(document.openapi, "3.1.0");
+    assert.equal(document.servers?.[0]?.url, "https://vrdex.net");
     assert.ok(document.paths?.["/api/v0/openapi.json"]);
     assert.ok(document.paths?.["/api/v0/openapi.yaml"]);
     assert.ok(document.paths?.["/api/v0/me"]);

@@ -10,8 +10,10 @@ import {
   checkRedisRestApiRateLimit,
   clientIpForRequest,
   createMemoryApiRateLimitStore,
+  hashedApiRateLimitIdentityValue,
   listDefaultApiRateLimitPolicies,
   oauthClientAggregateRateLimitMultiplier,
+  oauthOwnerAggregateRateLimitMultiplier,
   trustedClientIpHeaderName,
   trustedPartnerApiRateLimitMultiplier,
 } from "../../apps/web/src/lib/server/api-rate-limit";
@@ -213,6 +215,73 @@ describe("public API rate limiting", () => {
         trackRouteClassRequest: false,
       },
     ]);
+  });
+
+  it("shares a hashed owner-wide cap across OAuth apps", async () => {
+    const calls: Array<Parameters<typeof checkApiRateLimit>[0]> = [];
+    const checkRateLimit = async (args: Parameters<typeof checkApiRateLimit>[0]) => {
+      calls.push(args);
+      return {
+        allowed: true,
+        key: `test:${args.identity.value}`,
+        limit: 600,
+        remaining: 599,
+        resetAt: 60_000,
+        retryAfterSeconds: 60,
+      };
+    };
+    const firstResult = await checkOAuthAccessTokenRateLimit({
+      clientId: "client-123",
+      owner: { id: "user-789", kind: "user" },
+      tokenId: "token-456",
+      quotaTier: "standard",
+      routeClass: "authenticated_public_read",
+      checkRateLimit,
+    });
+    await checkOAuthAccessTokenRateLimit({
+      clientId: "client-999",
+      owner: { id: "user-789", kind: "user" },
+      tokenId: "token-888",
+      quotaTier: "standard",
+      routeClass: "authenticated_public_read",
+      checkRateLimit,
+    });
+
+    const ownerHash = hashedApiRateLimitIdentityValue("oauth-owner", "user:user-789");
+
+    assert.equal(firstResult.identity.value, "token-456");
+    assert.equal(ownerHash.includes("user-789"), false);
+    assert.deepEqual(calls[2], {
+      identity: { kind: "oauth_owner", value: ownerHash },
+      limitMultiplier: oauthOwnerAggregateRateLimitMultiplier,
+      quotaTier: "standard",
+      routeClass: "authenticated_public_read",
+      trackRouteClassRequest: false,
+    });
+    assert.equal(calls[1]?.identity.value, "client-123");
+    assert.equal(calls[4]?.identity.value, "client-999");
+    assert.deepEqual(calls[5]?.identity, calls[2]?.identity);
+  });
+
+  it("returns the owner bucket when an OAuth app owner's aggregate cap is blocked", async () => {
+    const result = await checkOAuthAccessTokenRateLimit({
+      clientId: "client-123",
+      owner: { id: "community-789", kind: "community" },
+      tokenId: "token-456",
+      quotaTier: "standard",
+      routeClass: "authenticated_mcp",
+      checkRateLimit: async (args) => ({
+        allowed: args.identity.kind !== "oauth_owner",
+        key: `test:${args.identity.value}`,
+        limit: 300,
+        remaining: args.identity.kind === "oauth_owner" ? 0 : 299,
+        resetAt: 60_000,
+        retryAfterSeconds: 60,
+      }),
+    });
+
+    assert.equal(result.identity.kind, "oauth_owner");
+    assert.equal(result.rateLimit.allowed, false);
   });
 
   it("short-circuits the client-wide cap when the access-token bucket is blocked", async () => {

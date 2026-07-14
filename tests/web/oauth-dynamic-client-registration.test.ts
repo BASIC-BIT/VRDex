@@ -5,6 +5,7 @@ import {
   dynamicMcpClientRegistrationResponse,
   type DynamicMcpClientMutationInput,
 } from "../../apps/web/src/lib/server/oauth-dynamic-client-registration";
+import { hashedApiRateLimitIdentityValue } from "../../apps/web/src/lib/server/api-rate-limit";
 
 const allowedRateLimit = {
   allowed: true,
@@ -40,6 +41,7 @@ function registrationRequest(body: unknown) {
 describe("OAuth dynamic client registration", () => {
   it("normalizes MCP public client metadata and returns OAuth registration metadata", async () => {
     const mutationInputs: DynamicMcpClientMutationInput[] = [];
+    const rateLimitInputs: unknown[] = [];
     const response = await dynamicMcpClientRegistrationResponse(
       registrationRequest({
         client_name: "  Claude Desktop  ",
@@ -56,10 +58,7 @@ describe("OAuth dynamic client registration", () => {
       }),
       {
         checkRateLimit: async (input) => {
-          assert.deepEqual(input, {
-            identity: { kind: "ip", value: "203.0.113.8" },
-            routeClass: "oauth_dynamic_client_registration",
-          });
+          rateLimitInputs.push(input);
 
           return allowedRateLimit;
         },
@@ -78,6 +77,30 @@ describe("OAuth dynamic client registration", () => {
     assert.equal(response.status, 201);
     assert.equal(response.headers.get("cache-control"), "no-store");
     assert.equal(response.headers.get("pragma"), "no-cache");
+    assert.deepEqual(rateLimitInputs, [
+      {
+        identity: { kind: "ip", value: "203.0.113.8" },
+        routeClass: "oauth_dynamic_client_registration",
+      },
+      {
+        identity: {
+          kind: "oauth_registration_software",
+          value: hashedApiRateLimitIdentityValue("oauth-registration-software", "claude-desktop"),
+        },
+        limitMultiplier: 10,
+        routeClass: "oauth_dynamic_client_registration",
+        trackRouteClassRequest: false,
+      },
+      {
+        identity: {
+          kind: "oauth_redirect_host",
+          value: hashedApiRateLimitIdentityValue("oauth-redirect-host", "localhost"),
+        },
+        limitMultiplier: 25,
+        routeClass: "oauth_dynamic_client_registration",
+        trackRouteClassRequest: false,
+      },
+    ]);
     assert.deepEqual(mutationInputs, [
       {
         allowedScopes: ["mcp:read", "public:read"],
@@ -112,6 +135,39 @@ describe("OAuth dynamic client registration", () => {
       software_version: "1.2.3",
       token_endpoint_auth_method: "none",
     });
+  });
+
+  it("blocks normalized client metadata before persisting a dynamic registration", async () => {
+    let mutationCalled = false;
+    const blockedKinds: string[] = [];
+    const response = await dynamicMcpClientRegistrationResponse(
+      registrationRequest({
+        client_name: "Claude Desktop",
+        redirect_uris: ["http://localhost:8765/callback"],
+        scope: "mcp:read public:read",
+        software_id: "claude-desktop",
+      }),
+      {
+        checkRateLimit: async (input) => ({
+          ...allowedRateLimit,
+          allowed: input.identity.kind !== "oauth_registration_software",
+          remaining: input.identity.kind === "oauth_registration_software" ? 0 : 9,
+        }),
+        recordRateLimitBlockedEvent: async (input) => {
+          blockedKinds.push(input.identity.kind);
+          assert.equal(input.identity.value.includes("claude-desktop"), false);
+          return null;
+        },
+        registerDynamicMcpClient: async (input) => {
+          mutationCalled = true;
+          return { ...input, createdAt: 1 };
+        },
+      },
+    );
+
+    assert.equal(response.status, 429);
+    assert.equal(mutationCalled, false);
+    assert.deepEqual(blockedKinds, ["oauth_registration_software"]);
   });
 
   it("rejects invalid dynamic client metadata before registering a client", async () => {

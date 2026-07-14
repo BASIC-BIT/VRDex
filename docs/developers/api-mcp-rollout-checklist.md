@@ -35,6 +35,8 @@ from this foundation and are not implied by a green PR.
   contract.
 - `/api/v0/openapi.json` and `/api/v0/openapi.yaml` serve the same generated
   document in JSON and YAML forms.
+- `/api/v0` responses and automatic preflight responses expose the documented
+  CORS methods, request headers, and response metadata for browser clients.
 - Baseline Checks runs API contract verification in the combined
   `Verify API and MCP` job, so OpenAPI drift, route/OpenAPI parity, contract
   typechecking, and contract tests are enforced in PR CI.
@@ -59,12 +61,16 @@ from this foundation and are not implied by a green PR.
 - Redirect URI matching is exact.
 - API and MCP resources are validated separately.
 - Hosted MCP OAuth is tested through Dynamic Client Registration.
+- Dynamic Client Registration limits cover the requesting network, hashed
+  software identity, and hashed redirect hosts.
 - The `/oauth/register` route has deterministic route-handler coverage for
   schema normalization, registration mutation inputs, rate-limit errors, and
   backend failures.
 - The `/oauth/token` route has deterministic route-helper coverage for
   Authorization Code, refresh-token rotation, Client Credentials, and no-store
   OAuth errors before malformed exchanges reach Convex.
+- Client Credentials traffic is bounded per token, per OAuth client, and by a
+  hashed application-owner aggregate cap.
 - Client ID Metadata Document support is smoke-tested through the checked-in
   public MCP client metadata document when a same-branch Convex preview backend
   is available.
@@ -111,6 +117,9 @@ from this foundation and are not implied by a green PR.
 ## MCP Compatibility
 
 - Hosted `/mcp` supports anonymous public read tools.
+- Self-hosted operators can set `VRDEX_HOSTED_MCP_ANONYMOUS_READS=false` to
+  require OAuth for hosted tools; anonymous requests then receive a protected
+  resource challenge and tool metadata drops the `noauth` scheme.
 - Hosted `/mcp` exposes OpenAI/ChatGPT-compatible anonymous `search` and
   `fetch` aliases over the public profile, event, and world read surfaces.
 - Hosted `/mcp` accepts MCP-resource OAuth tokens with `mcp:read`.

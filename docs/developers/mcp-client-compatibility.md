@@ -492,9 +492,13 @@ hosted-anonymous-read, and hosted-token-fallback definitions for those
 installed clients. Those rows remain pending until the real app session lists
 tools and calls `vrdex_search`.
 
-The same installed-client preflight reports that those CLIs remain manual-only
-for evidence capture: setup and chat launch success are not enough unless the
+The VS Code, Cursor IDE, and Windsurf launcher paths remain manual-only for
+evidence capture: setup and chat launch success are not enough unless the
 client session itself shows the VRDex tool list and a `vrdex_search` result.
+A separately installed, capability-qualified Cursor `agent` or `cursor-agent`
+CLI can instead use `pnpm smoke:mcp-cursor-agent` to record structured tool
+listing and completed-call evidence; the Cursor IDE executable does not count
+as that headless client.
 
 Record manual pass or fail results with the recorder command instead of
 hand-editing the JSON:

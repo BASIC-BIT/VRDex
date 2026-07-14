@@ -51,6 +51,15 @@ API bearer tokens or OAuth access tokens for authenticated public-read traffic:
 All public read routes reject bearer tokens in URL query parameters. Send API
 tokens and future OAuth access tokens through the `Authorization` header only.
 
+All `/api/v0` routes support cross-origin browser clients. Responses and
+automatic `OPTIONS` preflight responses allow public origins, the documented
+HTTP methods, bearer authorization, JSON request bodies, conditional asset
+downloads, and the one-time `x-vrdex-upload-token` header. Rate-limit,
+authentication-challenge, redirect, entity-tag, and download-disposition
+headers are exposed to browser code. The API does not enable credentialed
+cookies; authenticated cross-origin clients send bearer credentials through
+`Authorization`.
+
 Implemented authenticated reads require a valid bearer credential:
 
 | Route | Purpose |
@@ -297,6 +306,12 @@ Current implementation:
 
 - OAuth traffic is isolated by access-token id and also checked against a
   secondary client-wide abuse cap without double-counting route observability.
+- Client Credentials traffic has an additional hashed application-owner cap,
+  bounding aggregate traffic across multiple apps without putting owner ids in
+  rate-limit keys or durable event rows.
+- Dynamic Client Registration is limited by requesting network, hashed
+  software identity, and hashed redirect hostname. Metadata and host buckets
+  use broader aggregate limits than the per-network registration limit.
 The dedicated rate-limit guide lives in
 `docs/developers/api-rate-limits.md`.
 
