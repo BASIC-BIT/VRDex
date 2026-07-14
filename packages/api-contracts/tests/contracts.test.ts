@@ -107,14 +107,32 @@ function hasLegacySchemaId(value: unknown, insideNamedSchemaMap = false): boolea
 describe("@vrdex/api-contracts", () => {
   it("parses public profiles while preserving future response fields", () => {
     const profile = PublicProfileSchema.parse({
+      avatarImageUrl: "/api/v0/profiles/vrdex/assets/avatar/file",
       displayName: "VRDex",
       futureField: "kept",
+      mediaKit: {
+        additionalLogos: [],
+        assets: [],
+        logoZipUrl: "/api/v0/profiles/vrdex/logos.zip",
+        logos: [],
+        profileImage: {
+          downloadUrl: "/api/v0/profiles/vrdex/assets/avatar/file?download=1",
+          imageUrl: "/api/v0/profiles/vrdex/assets/avatar/file",
+        },
+      },
       profileType: "community",
       slug: "vrdex",
       trustLabel: "claimed_verified",
     });
 
     assert.equal((profile as { futureField?: string }).futureField, "kept");
+    assert.throws(() => PublicProfileSchema.parse({
+      avatarImageUrl: "//cdn.example.test/avatar.png",
+      displayName: "VRDex",
+      profileType: "community",
+      slug: "vrdex",
+      trustLabel: "claimed_verified",
+    }));
   });
 
   it("parses representative public read payloads", () => {

@@ -152,8 +152,8 @@ Identity keys include the route class and one of:
 - IP address for anonymous public API and MCP reads
 - personal API token id for API-token-authenticated traffic
 - OAuth access-token id for OAuth-authenticated API and MCP traffic, plus a
-  secondary client-wide abuse bucket and, for Client Credentials, a hashed
-  application-owner bucket
+  secondary client-wide abuse bucket and a hashed aggregate bucket for the
+  delegated user or Client Credentials application owner
 - requesting IP, hashed software identity, and hashed redirect hostname for
   Dynamic Client Registration
 

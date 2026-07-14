@@ -61,6 +61,26 @@ const trustedPartnerBoostedRouteClasses = new Set<ApiRouteClass>([
 export const oauthClientAggregateRateLimitMultiplier = 10;
 export const oauthOwnerAggregateRateLimitMultiplier = 25;
 
+export function oauthRateLimitOwnerForCredential(credential: {
+  ownerCommunityProfileId?: string;
+  ownerKind?: "community" | "user";
+  ownerUserId?: string;
+  subjectType: "client" | "user";
+  userId?: string;
+}) {
+  if (credential.subjectType === "user" && credential.userId !== undefined) {
+    return { id: credential.userId, kind: "user" as const };
+  }
+
+  if (credential.subjectType !== "client" || credential.ownerKind === undefined || credential.ownerUserId === undefined) {
+    return undefined;
+  }
+
+  return credential.ownerKind === "community" && credential.ownerCommunityProfileId !== undefined
+    ? { id: credential.ownerCommunityProfileId, kind: "community" as const }
+    : { id: credential.ownerUserId, kind: "user" as const };
+}
+
 const globalRateLimitState = globalThis as typeof globalThis & {
   __vrdexApiRateLimitMemory?: MemoryApiRateLimitStore;
 };

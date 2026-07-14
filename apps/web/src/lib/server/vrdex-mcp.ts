@@ -25,6 +25,7 @@ import {
   checkApiRateLimit,
   checkOAuthAccessTokenRateLimit,
   clientIpForRequest,
+  oauthRateLimitOwnerForCredential,
   type ApiRateLimitIdentity,
 } from "@/lib/server/api-rate-limit";
 import { recordApiRateLimitBlockedEvent } from "@/lib/server/api-rate-limit-events";
@@ -632,17 +633,24 @@ async function authenticateMcpBearerToken(request: Request, tokenValue: string) 
     };
   }
 
+  const ownerCommunityProfileId = "ownerCommunityProfileId" in validation
+    ? validation.ownerCommunityProfileId
+    : undefined;
+  const owner = oauthRateLimitOwnerForCredential({
+    subjectType: validation.subjectType,
+    ...(validation.userId === undefined ? {} : { userId: String(validation.userId) }),
+    ...("ownerKind" in validation ? { ownerKind: validation.ownerKind } : {}),
+    ...("ownerUserId" in validation ? { ownerUserId: String(validation.ownerUserId) } : {}),
+    ...(ownerCommunityProfileId === undefined
+      ? {}
+      : { ownerCommunityProfileId: String(ownerCommunityProfileId) }),
+  });
+
   return {
     ok: true as const,
     clientId: validation.clientId,
     identity: { kind: "oauth_client" as const, value: validation.clientId },
-    ...(validation.subjectType === "client" && "ownerKind" in validation && "ownerUserId" in validation
-      ? {
-          owner: validation.ownerKind === "community" && validation.ownerCommunityProfileId !== undefined
-            ? { id: String(validation.ownerCommunityProfileId), kind: "community" as const }
-            : { id: String(validation.ownerUserId), kind: "user" as const },
-        }
-      : {}),
+    ...(owner === undefined ? {} : { owner }),
     quotaTier: validation.trustTier === "trusted_partner" ? "trusted_partner" as const : "standard" as const,
     tokenId: claims.jti,
   };

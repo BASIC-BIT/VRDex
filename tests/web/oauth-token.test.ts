@@ -163,7 +163,7 @@ describe("OAuth token route helper", () => {
     });
   });
 
-  it("exchanges authorization codes with PKCE and returns a rotating refresh token", async () => {
+  it("uses an authorization code's bound resource when the token request omits resource", async () => {
     await withOAuthEnv(async () => {
       const code = "vrdx_code_0123456789abcdef0123456789abcdef";
       const codeVerifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
@@ -178,7 +178,7 @@ describe("OAuth token route helper", () => {
           ok: true,
           clientId: input.clientId,
           expiresAt: input.expiresAt,
-          resource: input.resource,
+          resource: "https://app.example.test/api/v0",
           scopes: ["mcp:read", "public:read"],
           tokenId: input.tokenId,
           userId,
@@ -207,7 +207,7 @@ describe("OAuth token route helper", () => {
       assert.match(mutationInput.codeHash, /^[0-9a-f]{64}$/);
       assert.notEqual(mutationInput.codeHash, code);
       assert.equal(mutationInput.redirectUri, "http://localhost:8765/callback");
-      assert.equal(mutationInput.resource, "https://app.example.test/mcp");
+      assert.equal(mutationInput.resource, undefined);
       assert.equal(mutationInput.derivedCodeChallenge, expectedChallenge);
       assert.equal(mutationInput.tokenId, tokenId);
       assert.match(mutationInput.refreshTokenHash, /^[0-9a-f]{64}$/);
@@ -219,7 +219,7 @@ describe("OAuth token route helper", () => {
       assert.equal(body.scope, "mcp:read public:read");
 
       const claims = verifyOAuthAccessToken(String(body.access_token), {
-        audience: "https://app.example.test/mcp",
+        audience: "https://app.example.test/api/v0",
         issuer: "https://app.example.test",
         now: now + 1_000,
       });
@@ -230,7 +230,7 @@ describe("OAuth token route helper", () => {
     });
   });
 
-  it("rotates refresh tokens and can narrow scopes", async () => {
+  it("uses a refresh token's bound resource when the refresh request omits resource", async () => {
     await withOAuthEnv(async () => {
       let mutationInput: Parameters<OAuthTokenMutations["rotateRefreshToken"]>[0] | undefined;
       const mutations = defaultMutations();
@@ -242,7 +242,7 @@ describe("OAuth token route helper", () => {
           ok: true,
           clientId: input.clientId,
           expiresAt: input.expiresAt,
-          resource: input.resource,
+          resource: "https://app.example.test/api/v0",
           scopes: input.requestedScopes ?? ["mcp:read", "public:read"],
           tokenId: input.tokenId,
           userId,
@@ -272,13 +272,14 @@ describe("OAuth token route helper", () => {
       assert.match(mutationInput.replacementRefreshTokenHash, /^[0-9a-f]{64}$/);
       assert.notEqual(mutationInput.replacementRefreshTokenHash, replacementRefreshToken);
       assert.deepEqual(mutationInput.requestedScopes, ["public:read"]);
+      assert.equal(mutationInput.resource, undefined);
 
       const body = await jsonBody(response);
       assert.equal(body.refresh_token, replacementRefreshToken);
       assert.equal(body.scope, "public:read");
 
       const claims = verifyOAuthAccessToken(String(body.access_token), {
-        audience: "https://app.example.test/mcp",
+        audience: "https://app.example.test/api/v0",
         issuer: "https://app.example.test",
         now: now + 1_000,
       });

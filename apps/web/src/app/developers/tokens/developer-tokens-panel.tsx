@@ -17,9 +17,14 @@ const tokenScopes = [
   { value: "public:read", label: "Public reads" },
   { value: "mcp:read", label: "MCP reads" },
   { value: "profile:read", label: "Profile reads" },
+  { value: "profile:write", label: "Profile writes" },
   { value: "community:read", label: "Community reads" },
   { value: "events:read", label: "Event reads" },
+  { value: "events:write", label: "Event writes" },
   { value: "assets:read", label: "Asset reads" },
+  { value: "assets:write", label: "Asset writes" },
+  { value: "developer:read", label: "Developer reads" },
+  { value: "developer:write", label: "Developer writes" },
 ] as const;
 
 function expiresAtFromForm(value: FormDataEntryValue | null) {

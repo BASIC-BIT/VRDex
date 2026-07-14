@@ -15,7 +15,6 @@ import {
   oauthAccessTokenExpiresAt,
   oauthAccessTokenExpiresInSeconds,
   oauthIssuerUrl,
-  oauthMcpResourceUri,
   oauthScopeString,
   oauthSupportedResources,
   parseOAuthScopeString,
@@ -42,7 +41,7 @@ type AuthorizationCodeMutationInput = {
   redirectUri: string;
   refreshTokenExpiresAt: number;
   refreshTokenHash: string;
-  resource: string;
+  resource?: string;
   secretPrefix?: string;
   tokenId: string;
   verifierHash?: string;
@@ -55,7 +54,7 @@ type RefreshTokenMutationInput = {
   refreshTokenHash: string;
   replacementRefreshTokenHash: string;
   requestedScopes?: OAuthScope[];
-  resource: string;
+  resource?: string;
   secretPrefix?: string;
   tokenId: string;
   verifierHash?: string;
@@ -166,7 +165,7 @@ function requestedAuthorizationCodeResource(request: Request, form: FormData) {
   const resource = String(form.get("resource") ?? "").trim();
 
   if (!resource) {
-    return oauthMcpResourceUri(request);
+    return undefined;
   }
 
   if (!oauthSupportedResources(request).includes(resource)) {
@@ -210,7 +209,7 @@ async function authorizationCodeTokenResponse(
 
   let codeHash: string;
   let redirectUri: string;
-  let resource: string;
+  let resource: string | undefined;
   let derivedCodeChallenge: string;
 
   try {
@@ -246,7 +245,7 @@ async function authorizationCodeTokenResponse(
     clientId: clientAuthentication.clientId,
     codeHash,
     redirectUri,
-    resource,
+    ...(resource === undefined ? {} : { resource }),
     derivedCodeChallenge,
     tokenId,
     expiresAt,
@@ -309,7 +308,7 @@ async function refreshTokenResponse(
   }
 
   let refreshToken: string;
-  let resource: string;
+  let resource: string | undefined;
   let scopes: ReturnType<typeof parseOAuthScopeString> | undefined;
 
   try {
@@ -351,7 +350,7 @@ async function refreshTokenResponse(
     refreshTokenHash,
     replacementRefreshTokenHash,
     requestedScopes: scopes,
-    resource,
+    ...(resource === undefined ? {} : { resource }),
     tokenId,
     expiresAt,
     refreshTokenExpiresAt: now + refreshTokenTtlMs,

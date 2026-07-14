@@ -5,6 +5,12 @@ import { apiRouteClasses, apiScopes } from "./auth";
 export { z };
 
 const absoluteUrl = z.url();
+const absoluteOrRootRelativeUrl = z
+  .union([absoluteUrl, z.string().regex(/^\/(?!\/)/)])
+  .meta({
+    description: "An absolute URL or a same-origin root-relative URL.",
+    id: "AbsoluteOrRootRelativeUrl",
+  });
 const slug = z.string().min(1).max(160);
 const timestampMs = z.number().int().nonnegative();
 
@@ -76,8 +82,8 @@ export const PublicProfileAssetSchema = z
     assetId: z.string().optional(),
     byteSize: z.number().int().positive().optional(),
     caption: z.string().optional(),
-    downloadUrl: absoluteUrl.optional(),
-    imageUrl: absoluteUrl.optional(),
+    downloadUrl: absoluteOrRootRelativeUrl.optional(),
+    imageUrl: absoluteOrRootRelativeUrl.optional(),
     label: z.string().optional(),
     mimeType: z.string().optional(),
   })
@@ -102,7 +108,7 @@ export const PublicProfileMediaKitSchema = z
     avatarAppearance: PublicProfileAvatarAppearanceSchema.optional(),
     banner: PublicProfileAssetSchema.optional(),
     compactDisplay: z.enum(["profile_image", "logo"]).optional(),
-    logoZipUrl: absoluteUrl.optional(),
+    logoZipUrl: absoluteOrRootRelativeUrl.optional(),
     logos: z.array(PublicProfileAssetSchema),
     primaryLogo: PublicProfileAssetSchema.optional(),
     profileImage: PublicProfileAssetSchema.optional(),
@@ -114,8 +120,8 @@ export const PublicProfileSchema = z
   .object({
     aliases: z.array(z.string()).optional(),
     appearance: z.unknown().optional(),
-    avatarImageUrl: absoluteUrl.optional(),
-    bannerImageUrl: absoluteUrl.optional(),
+    avatarImageUrl: absoluteOrRootRelativeUrl.optional(),
+    bannerImageUrl: absoluteOrRootRelativeUrl.optional(),
     bio: z.string().optional(),
     displayName: z.string().min(1),
     genres: z.array(PublicGenreSchema).optional(),
@@ -154,7 +160,7 @@ export const PublicProfileLogosResponseSchema = z
   .object({
     additionalLogos: z.array(PublicProfileAssetSchema).optional(),
     displayName: z.string().min(1),
-    logoZipUrl: absoluteUrl.optional(),
+    logoZipUrl: absoluteOrRootRelativeUrl.optional(),
     logos: z.array(PublicProfileAssetSchema),
     primaryLogo: PublicProfileAssetSchema.optional(),
     profileType: ProfileTypeSchema,

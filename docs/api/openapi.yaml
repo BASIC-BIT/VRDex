@@ -2930,11 +2930,9 @@ components:
             type: string
         appearance: {}
         avatarImageUrl:
-          type: string
-          format: uri
+          $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
         bannerImageUrl:
-          type: string
-          format: uri
+          $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
         bio:
           type: string
         displayName:
@@ -2978,11 +2976,9 @@ components:
                   caption:
                     type: string
                   downloadUrl:
-                    type: string
-                    format: uri
+                    $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   imageUrl:
-                    type: string
-                    format: uri
+                    $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   label:
                     type: string
                   mimeType:
@@ -3003,11 +2999,9 @@ components:
                   caption:
                     type: string
                   downloadUrl:
-                    type: string
-                    format: uri
+                    $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   imageUrl:
-                    type: string
-                    format: uri
+                    $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   label:
                     type: string
                   mimeType:
@@ -3053,11 +3047,9 @@ components:
                 caption:
                   type: string
                 downloadUrl:
-                  type: string
-                  format: uri
+                  $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 imageUrl:
-                  type: string
-                  format: uri
+                  $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 label:
                   type: string
                 mimeType:
@@ -3070,8 +3062,7 @@ components:
                 - profile_image
                 - logo
             logoZipUrl:
-              type: string
-              format: uri
+              $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
             logos:
               type: array
               items:
@@ -3086,11 +3077,9 @@ components:
                   caption:
                     type: string
                   downloadUrl:
-                    type: string
-                    format: uri
+                    $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   imageUrl:
-                    type: string
-                    format: uri
+                    $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   label:
                     type: string
                   mimeType:
@@ -3109,11 +3098,9 @@ components:
                 caption:
                   type: string
                 downloadUrl:
-                  type: string
-                  format: uri
+                  $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 imageUrl:
-                  type: string
-                  format: uri
+                  $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 label:
                   type: string
                 mimeType:
@@ -3132,11 +3119,9 @@ components:
                 caption:
                   type: string
                 downloadUrl:
-                  type: string
-                  format: uri
+                  $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 imageUrl:
-                  type: string
-                  format: uri
+                  $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 label:
                   type: string
                 mimeType:
@@ -3233,6 +3218,13 @@ components:
         - trustLabel
       additionalProperties: {}
       description: Public profile response. Unknown fields are preserved while the API is still stabilizing.
+    AbsoluteOrRootRelativeUrl:
+      anyOf:
+        - type: string
+          format: uri
+        - type: string
+          pattern: ^\/(?!\/)
+      description: An absolute URL or a same-origin root-relative URL.
     ApiProfileWriteResponse:
       type: object
       properties:
@@ -3276,11 +3268,9 @@ components:
               caption:
                 type: string
               downloadUrl:
-                type: string
-                format: uri
+                $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
               imageUrl:
-                type: string
-                format: uri
+                $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
               label:
                 type: string
               mimeType:
@@ -3307,11 +3297,9 @@ components:
                   caption:
                     type: string
                   downloadUrl:
-                    type: string
-                    format: uri
+                    $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   imageUrl:
-                    type: string
-                    format: uri
+                    $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   label:
                     type: string
                   mimeType:
@@ -3332,11 +3320,9 @@ components:
                   caption:
                     type: string
                   downloadUrl:
-                    type: string
-                    format: uri
+                    $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   imageUrl:
-                    type: string
-                    format: uri
+                    $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   label:
                     type: string
                   mimeType:
@@ -3382,11 +3368,9 @@ components:
                 caption:
                   type: string
                 downloadUrl:
-                  type: string
-                  format: uri
+                  $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 imageUrl:
-                  type: string
-                  format: uri
+                  $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 label:
                   type: string
                 mimeType:
@@ -3399,8 +3383,7 @@ components:
                 - profile_image
                 - logo
             logoZipUrl:
-              type: string
-              format: uri
+              $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
             logos:
               type: array
               items:
@@ -3415,11 +3398,9 @@ components:
                   caption:
                     type: string
                   downloadUrl:
-                    type: string
-                    format: uri
+                    $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   imageUrl:
-                    type: string
-                    format: uri
+                    $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   label:
                     type: string
                   mimeType:
@@ -3438,11 +3419,9 @@ components:
                 caption:
                   type: string
                 downloadUrl:
-                  type: string
-                  format: uri
+                  $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 imageUrl:
-                  type: string
-                  format: uri
+                  $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 label:
                   type: string
                 mimeType:
@@ -3461,11 +3440,9 @@ components:
                 caption:
                   type: string
                 downloadUrl:
-                  type: string
-                  format: uri
+                  $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 imageUrl:
-                  type: string
-                  format: uri
+                  $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 label:
                   type: string
                 mimeType:
@@ -3569,11 +3546,9 @@ components:
               caption:
                 type: string
               downloadUrl:
-                type: string
-                format: uri
+                $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
               imageUrl:
-                type: string
-                format: uri
+                $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
               label:
                 type: string
               mimeType:
@@ -3584,8 +3559,7 @@ components:
           type: string
           minLength: 1
         logoZipUrl:
-          type: string
-          format: uri
+          $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
         logos:
           type: array
           items:
@@ -3600,11 +3574,9 @@ components:
               caption:
                 type: string
               downloadUrl:
-                type: string
-                format: uri
+                $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
               imageUrl:
-                type: string
-                format: uri
+                $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
               label:
                 type: string
               mimeType:
@@ -3623,11 +3595,9 @@ components:
             caption:
               type: string
             downloadUrl:
-              type: string
-              format: uri
+              $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
             imageUrl:
-              type: string
-              format: uri
+              $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
             label:
               type: string
             mimeType:

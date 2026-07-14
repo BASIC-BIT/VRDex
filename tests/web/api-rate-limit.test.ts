@@ -14,6 +14,7 @@ import {
   listDefaultApiRateLimitPolicies,
   oauthClientAggregateRateLimitMultiplier,
   oauthOwnerAggregateRateLimitMultiplier,
+  oauthRateLimitOwnerForCredential,
   trustedClientIpHeaderName,
   trustedPartnerApiRateLimitMultiplier,
 } from "../../apps/web/src/lib/server/api-rate-limit";
@@ -261,6 +262,23 @@ describe("public API rate limiting", () => {
     assert.equal(calls[1]?.identity.value, "client-123");
     assert.equal(calls[4]?.identity.value, "client-999");
     assert.deepEqual(calls[5]?.identity, calls[2]?.identity);
+  });
+
+  it("maps user-delegated and client OAuth credentials to owner aggregate buckets", () => {
+    assert.deepEqual(
+      oauthRateLimitOwnerForCredential({ subjectType: "user", userId: "user-123" }),
+      { id: "user-123", kind: "user" },
+    );
+    assert.deepEqual(
+      oauthRateLimitOwnerForCredential({
+        ownerCommunityProfileId: "community-123",
+        ownerKind: "community",
+        ownerUserId: "user-456",
+        subjectType: "client",
+      }),
+      { id: "community-123", kind: "community" },
+    );
+    assert.equal(oauthRateLimitOwnerForCredential({ subjectType: "user" }), undefined);
   });
 
   it("returns the owner bucket when an OAuth app owner's aggregate cap is blocked", async () => {

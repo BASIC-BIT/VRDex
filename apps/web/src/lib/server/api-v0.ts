@@ -18,6 +18,7 @@ import {
   checkApiRateLimit,
   checkOAuthAccessTokenRateLimit,
   clientIpForRequest,
+  oauthRateLimitOwnerForCredential,
   type ApiRateLimitIdentity,
   type ApiRateLimitQuotaTier,
   type ApiRateLimitResult,
@@ -344,18 +345,10 @@ export async function evaluateOptionalApiBearerRequest(
 
   try {
     if (authentication.credential.kind === "oauth") {
+      const owner = oauthRateLimitOwnerForCredential(authentication.credential);
       const evaluation = await checkOAuthAccessTokenRateLimit({
         clientId: authentication.credential.clientId,
-        ...(authentication.credential.subjectType === "client"
-          && authentication.credential.ownerKind !== undefined
-          && authentication.credential.ownerUserId !== undefined
-          ? {
-              owner: authentication.credential.ownerKind === "community"
-                && authentication.credential.ownerCommunityProfileId !== undefined
-                ? { id: authentication.credential.ownerCommunityProfileId, kind: "community" as const }
-                : { id: authentication.credential.ownerUserId, kind: "user" as const },
-            }
-          : {}),
+        ...(owner === undefined ? {} : { owner }),
         quotaTier,
         routeClass,
         tokenId: authentication.credential.tokenId,

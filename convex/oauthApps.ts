@@ -1538,7 +1538,7 @@ export const consumeAuthorizationCode = internalMutation({
     clientId: v.string(),
     codeHash: v.string(),
     redirectUri: v.string(),
-    resource: v.string(),
+    resource: v.optional(v.string()),
     derivedCodeChallenge: v.string(),
     tokenId: v.string(),
     expiresAt: v.number(),
@@ -1552,7 +1552,7 @@ export const consumeAuthorizationCode = internalMutation({
     const clientId = normalizeOAuthClientId(args.clientId);
     const codeHash = normalizeOAuthAuthorizationCodeHash(args.codeHash);
     const redirectUri = normalizeOAuthRedirectUris([args.redirectUri])[0];
-    const resource = normalizeOAuthResourceUri(args.resource);
+    const requestedResource = args.resource === undefined ? undefined : normalizeOAuthResourceUri(args.resource);
     const derivedCodeChallenge = normalizeOAuthCodeChallenge(args.derivedCodeChallenge);
     const tokenId = normalizeOAuthAccessTokenId(args.tokenId);
     const expiresAt = normalizeOAuthTokenExpiry(args.expiresAt, now);
@@ -1567,7 +1567,7 @@ export const consumeAuthorizationCode = internalMutation({
       code === null ||
       code.clientId !== clientId ||
       code.redirectUri !== redirectUri ||
-      code.resource !== resource ||
+      (requestedResource !== undefined && code.resource !== requestedResource) ||
       code.status !== "active" ||
       code.expiresAt <= now ||
       code.codeChallengeMethod !== "S256" ||
@@ -1576,6 +1576,9 @@ export const consumeAuthorizationCode = internalMutation({
       return { ok: false as const, reason: "invalid_grant" as const };
     }
 
+    // Convex mutations are serializable transactions. A concurrent redemption
+    // conflicts on this read/patch and retries against the consumed status.
+    const resource = code.resource;
     const application = code.applicationId === undefined ? null : await ctx.db.get(code.applicationId);
     const dynamicClient = code.dynamicClientId === undefined ? null : await ctx.db.get(code.dynamicClientId);
     let authenticatedSecret: Doc<"oauthApplicationSecrets"> | null = null;
@@ -1748,7 +1751,7 @@ export const rotateRefreshToken = internalMutation({
     refreshTokenHash: v.string(),
     replacementRefreshTokenHash: v.string(),
     requestedScopes: v.optional(v.array(apiScopeValidator)),
-    resource: v.string(),
+    resource: v.optional(v.string()),
     tokenId: v.string(),
     expiresAt: v.number(),
     refreshTokenExpiresAt: v.number(),
@@ -1760,7 +1763,7 @@ export const rotateRefreshToken = internalMutation({
     const clientId = normalizeOAuthClientId(args.clientId);
     const refreshTokenHash = normalizeOAuthRefreshTokenHash(args.refreshTokenHash);
     const replacementRefreshTokenHash = normalizeOAuthRefreshTokenHash(args.replacementRefreshTokenHash);
-    const resource = normalizeOAuthResourceUri(args.resource);
+    const requestedResource = args.resource === undefined ? undefined : normalizeOAuthResourceUri(args.resource);
     const tokenId = normalizeOAuthAccessTokenId(args.tokenId);
     const expiresAt = normalizeOAuthTokenExpiry(args.expiresAt, now);
     const refreshTokenExpiresAt = normalizeOAuthTokenExpiry(args.refreshTokenExpiresAt, now);
@@ -1772,13 +1775,16 @@ export const rotateRefreshToken = internalMutation({
     if (
       refreshToken === null ||
       refreshToken.clientId !== clientId ||
-      refreshToken.resource !== resource ||
+      (requestedResource !== undefined && refreshToken.resource !== requestedResource) ||
       refreshToken.status !== "active" ||
       refreshToken.expiresAt <= now
     ) {
       return { ok: false as const, reason: "invalid_grant" as const };
     }
 
+    // Convex mutations are serializable transactions. A concurrent rotation
+    // conflicts on this read/patch and retries against the rotated status.
+    const resource = refreshToken.resource;
     const scopes = args.requestedScopes === undefined
       ? refreshToken.scopes
       : normalizeOAuthScopes(args.requestedScopes);
