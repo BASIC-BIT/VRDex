@@ -283,6 +283,30 @@ describe("MCP client matrix verifier", () => {
     }
   });
 
+  it("rejects a matrix that removes minimum representative transport coverage", async () => {
+    const { directory, path } = await writeMatrixCopy("weak-client-coverage", (matrix) => {
+      for (const client of matrix.clients) {
+        for (const check of client.checks) {
+          if (check.surface === "local_stdio") {
+            check.requiredForExternalReadiness = false;
+          }
+        }
+      }
+    });
+
+    try {
+      const result = runMatrixCheck(path);
+
+      assert.notEqual(result.status, 0);
+      assert.match(
+        result.stderr,
+        /matrix must keep at least 2 launch-gating client rows for local_stdio; found 0/,
+      );
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
   it("rejects a stale compatibility doc review date", async () => {
     const { directory, path } = await writeMatrixCopy("stale-compatibility-doc", () => {});
     const docPath = join(directory, "mcp-client-compatibility.md");

@@ -360,7 +360,7 @@ function matrixRowKey(clientId: string, checkId: string) {
   return `${clientId}/${checkId}`;
 }
 
-async function openRequiredMatrixRows(matrixPath: string) {
+async function openMatrixRows(matrixPath: string) {
   const matrix = JSON.parse(await readFile(matrixPath, "utf8")) as SmokeMatrix;
 
   assert.equal(matrix.schemaVersion, 1, "MCP client smoke matrix schemaVersion must be 1.");
@@ -381,7 +381,7 @@ async function openRequiredMatrixRows(matrixPath: string) {
         `${client.id}/${check.id} requiredForExternalReadiness must be a boolean.`,
       );
 
-      if (check.requiredForExternalReadiness && check.manualStatus !== "pass") {
+      if (check.manualStatus !== "pass" && check.manualStatus !== "not_applicable") {
         rows.push({
           checkId: check.id,
           clientId: client.id,
@@ -504,19 +504,19 @@ function pendingBlockerSummarySection(openRows: OpenMatrixRow[]) {
 
   if (blockers.length === 0) {
     return [
-      "## Open Blocker Summary",
+      "## Open Evidence Summary",
       "",
-      "All required rows are pass in the source matrix.",
+      "No open evidence rows remain in the source matrix.",
       "",
     ];
   }
 
   return [
-    "## Open Blocker Summary",
+    "## Open Evidence Summary",
     "",
-    "Generated from required rows that are not pass in the source matrix. Use this section to choose the next manual smoke batch before filling individual evidence worksheets.",
+    "Generated from launch-gating and nonblocking rows that are not pass in the source matrix. Use this section to choose the next compatibility smoke batch before filling individual evidence worksheets.",
     "",
-    "| Blocker | Open rows | Next action |",
+    "| Prerequisite | Open rows | Next action |",
     "| --- | --- | --- |",
     ...blockers.map((blocker) =>
       `| ${blocker.label} | ${blocker.rows.map((row) => `\`${row}\``).join(", ")} | ${blocker.nextAction} |`,
@@ -526,13 +526,13 @@ function pendingBlockerSummarySection(openRows: OpenMatrixRow[]) {
 }
 
 async function verifyOpenWorksheetCoverage(matrixPath: string, generatedKeys: Set<string>) {
-  const openRows = await openRequiredMatrixRows(matrixPath);
+  const openRows = await openMatrixRows(matrixPath);
   const missingRows = openRows.filter((row) => !generatedKeys.has(matrixRowKey(row.clientId, row.checkId)));
 
   assert.deepEqual(
     missingRows.map((row) => matrixRowKey(row.clientId, row.checkId)),
     [],
-    "MCP client session pack is missing evidence worksheets for open required matrix rows.",
+    "MCP client session pack is missing evidence worksheets for open matrix rows.",
   );
 
   return openRows;
@@ -1238,7 +1238,7 @@ async function writeSessionPack(options: Options) {
     "## Open Matrix Worksheet Coverage",
     "",
     `Matrix: \`${options.matrixPath}\``,
-    `Open required rows covered by generated worksheets: ${openRows.length}`,
+    `Open evidence rows covered by generated worksheets: ${openRows.length}`,
     "",
     "## Generated Config Files",
     "",
@@ -1263,7 +1263,7 @@ async function writeSessionPack(options: Options) {
   console.log(`| MCP client smoke session pack | ${readmePath} |`);
   console.log(`| Config directory | ${configsDir} |`);
   console.log(`| Evidence template directory | ${evidenceDir} |`);
-  console.log(`| Open required worksheet coverage | ${openRows.length} rows |`);
+  console.log(`| Open worksheet coverage | ${openRows.length} rows |`);
   console.log(`| Hosted MCP URL | ${hostedMcpUrl(options.hostedUrl!)} |`);
 }
 

@@ -89,6 +89,12 @@ const requiredHostedReadinessChecks = new Map<string, string>([
   ["hosted-client-id-metadata-document", "hosted OAuth Client ID Metadata Document"],
 ]);
 
+const minimumLaunchClientsBySurface = new Map<SmokeSurface, number>([
+  ["local_stdio", 2],
+  ["hosted_http_anonymous", 2],
+  ["hosted_http_oauth", 1],
+]);
+
 function envFlag(name: string) {
   const value = process.env[name]?.trim().toLowerCase();
 
@@ -219,6 +225,7 @@ function validateSmokeCheck(clientId: string, check: SmokeCheck, matrix: SmokeMa
 function validateSmokeMatrix(matrix: SmokeMatrix) {
   const seenClients = new Set<string>();
   const blockers: string[] = [];
+  const launchClientsBySurface = new Map<SmokeSurface, Set<string>>();
 
   assert.equal(
     matrix.clients.length,
@@ -245,6 +252,12 @@ function validateSmokeMatrix(matrix: SmokeMatrix) {
       if (check.requiredForExternalReadiness && check.manualStatus !== "pass") {
         blockers.push(`${client.name}: ${check.id} is ${check.manualStatus}`);
       }
+
+      if (check.requiredForExternalReadiness) {
+        const clientIds = launchClientsBySurface.get(check.surface) ?? new Set<string>();
+        clientIds.add(client.id);
+        launchClientsBySurface.set(check.surface, clientIds);
+      }
     }
 
     for (const checkId of requiredChecks) {
@@ -254,6 +267,15 @@ function validateSmokeMatrix(matrix: SmokeMatrix) {
 
   for (const clientId of requiredClientChecks.keys()) {
     assert.equal(seenClients.has(clientId), true, `matrix is missing ${clientId}`);
+  }
+
+  for (const [surface, minimumClients] of minimumLaunchClientsBySurface) {
+    const selectedClients = launchClientsBySurface.get(surface)?.size ?? 0;
+
+    assert.ok(
+      selectedClients >= minimumClients,
+      `matrix must keep at least ${minimumClients} launch-gating client rows for ${surface}; found ${selectedClients}`,
+    );
   }
 
   const hostedBlockers = validateHostedReadiness(matrix);
@@ -336,16 +358,20 @@ function validateHostedReadiness(matrix: SmokeMatrix) {
 }
 
 function summarize(matrix: SmokeMatrix) {
-  console.log("| Client | Required checks | Manual status |");
-  console.log("| --- | ---: | --- |");
+  console.log("| Client | Launch-gating checks | Launch status | Nonblocking follow-up |");
+  console.log("| --- | ---: | --- | --- |");
 
   for (const client of matrix.clients) {
     const requiredChecks = client.checks.filter((check) => check.requiredForExternalReadiness);
     const statuses = requiredChecks
       .map((check) => `${check.id}: ${check.manualStatus}`)
       .join(", ");
+    const followUp = client.checks
+      .filter((check) => !check.requiredForExternalReadiness && check.manualStatus !== "pass" && check.manualStatus !== "not_applicable")
+      .map((check) => `${check.id}: ${check.manualStatus}`)
+      .join(", ");
 
-    console.log(`| ${client.name} | ${requiredChecks.length} | ${statuses} |`);
+    console.log(`| ${client.name} | ${requiredChecks.length} | ${statuses || "not selected"} | ${followUp || "none"} |`);
   }
 
   console.log("");
@@ -376,14 +402,14 @@ async function main() {
   summarize(matrix);
 
   if (options.requireReady && blockers.length > 0) {
-    throw new Error(`Manual MCP client smokes are not ready:\n${blockers.join("\n")}`);
+    throw new Error(`Representative MCP client evidence is not ready:\n${blockers.join("\n")}`);
   }
 
   if (blockers.length > 0) {
     console.log(
       [
         "",
-        "Manual MCP client smokes are not externally ready.",
+        "Representative MCP client evidence is not externally ready.",
         "Run pnpm check:mcp-client-matrix -- --require-ready to make pending or failed required rows fail this check.",
       ].join("\n"),
     );

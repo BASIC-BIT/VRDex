@@ -21,7 +21,7 @@ describe("MCP client smoke planner", () => {
     ]);
 
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /## Open Blocker Summary/);
+    assert.match(result.stdout, /## Open Evidence Summary/);
     assert.match(result.stdout, /OAuth smoke credentials/);
     assert.match(result.stdout, /\| OAuth smoke credentials \| `claude-code\/hosted-oauth` \|/);
     assert.doesNotMatch(result.stdout, /`mcp-inspector\/hosted-oauth`/);

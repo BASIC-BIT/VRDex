@@ -34,7 +34,7 @@ describe("MCP client smoke session pack", () => {
 
       assert.equal(result.status, 0, result.stderr);
       assert.match(result.stdout, /MCP client smoke session pack/);
-      assert.match(result.stdout, /Open required worksheet coverage \| 14 rows/);
+      assert.match(result.stdout, /Open worksheet coverage \| 14 rows/);
 
       const readme = await readFile(join(outputDir, "README.md"), "utf8");
 
@@ -67,7 +67,7 @@ describe("MCP client smoke session pack", () => {
       assert.doesNotMatch(readme, /--profile vrdex-mcp-smoke/);
       assert.match(readme, /\/mcp auth vrdex/);
       assert.match(readme, /Generated Evidence Templates/);
-      assert.match(readme, /## Open Blocker Summary/);
+      assert.match(readme, /## Open Evidence Summary/);
       assert.match(readme, /OAuth smoke credentials/);
       assert.match(readme, /\| OAuth smoke credentials \| `claude-code\/hosted-oauth` \|/);
       assert.doesNotMatch(readme, /`mcp-inspector\/hosted-oauth`/);
@@ -78,7 +78,7 @@ describe("MCP client smoke session pack", () => {
       assert.match(readme, /OpenAI-compatible hosted target or product surface access/);
       assert.match(readme, /`openai-chatgpt\/hosted-oauth`/);
       assert.match(readme, /Open Matrix Worksheet Coverage/);
-      assert.match(readme, /Open required rows covered by generated worksheets: 14/);
+      assert.match(readme, /Open evidence rows covered by generated worksheets: 14/);
       assert.match(readme, /evidence[\\/]vscode-hosted-oauth\.md/);
       assert.match(readme, /evidence[\\/]gemini-cli-hosted-oauth\.md/);
       assert.match(readme, /ops:mcp-hosted-oauth-prereqs/);

@@ -42,22 +42,46 @@ describe("API/MCP rollout readiness checker", () => {
     );
     assert.match(result.stdout, /Rollout verification scripts \| yes \| pass \| 24 required scripts are defined/);
     assert.match(result.stdout, /External readiness workflow \| yes \| pass/);
-    assert.match(result.stdout, /Major MCP client matrix \| yes \| fail \| .*Claude Code\/hosted-anonymous-read: fail/);
-    assert.match(result.stdout, /Gemini CLI\/hosted-oauth: pending/);
     assert.match(
       result.stdout,
-      /Production-like hosted MCP evidence \| yes \| pass \| readinessMode=same-branch-preview-hosted-passed-client-smokes-open/,
+      /Representative MCP client matrix \| yes \| pass \| all launch-gating representative rows are pass/,
+    );
+    assert.doesNotMatch(result.stdout, /Claude Code\/hosted-anonymous-read: fail/);
+    assert.match(
+      result.stdout,
+      /Production-like hosted MCP evidence \| yes \| pass \| readinessMode=same-branch-preview-representative-client-and-protocol-evidence-ready/,
     );
   });
 
-  it("keeps external readiness failing while required MCP client rows are not pass", () => {
+  it("accepts strict readiness from representative client and protocol evidence", () => {
     const result = runRolloutCheck(["--require-ready"]);
 
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /API\/MCP rollout is not externally ready/);
-    assert.match(result.stderr, /Major MCP client matrix/);
-    assert.match(result.stderr, /Gemini CLI\/hosted-oauth: pending/);
-    assert.match(result.stderr, /Claude Code\/hosted-anonymous-read: fail/);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(
+      result.stdout,
+      /Representative MCP client matrix \| yes \| pass \| all launch-gating representative rows are pass/,
+    );
+  });
+
+  it("keeps minimum representative transport coverage fail-closed", async () => {
+    const { directory, path } = await writeMatrixCopy("weak-client-coverage", (matrix) => {
+      for (const client of matrix.clients) {
+        for (const check of client.checks) {
+          if (check.surface === "local_stdio") {
+            check.requiredForExternalReadiness = false;
+          }
+        }
+      }
+    });
+
+    try {
+      const result = runRolloutCheck(["--require-ready"], { VRDEX_MCP_CLIENT_MATRIX_PATH: path });
+
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /representative local_stdio coverage requires 2 clients; found 0/);
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
   });
 
   it("rejects token-shaped manual matrix evidence", async () => {
@@ -279,7 +303,7 @@ describe("API/MCP rollout readiness checker", () => {
   it("keeps rollout checklist terminology aligned with open matrix rows", async () => {
     const checklist = await readFile("docs/developers/api-mcp-rollout-checklist.md", "utf8");
 
-    assert.match(checklist, /Open Blocker Summary/);
+    assert.match(checklist, /Open Evidence Summary/);
     assert.doesNotMatch(checklist, /Pending Blocker\s+Summary/);
   });
 });

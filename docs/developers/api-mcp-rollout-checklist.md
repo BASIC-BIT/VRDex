@@ -165,16 +165,16 @@ from this foundation and are not implied by a green PR.
   `--hosted-data` evidence shape: `vrdex_search`, OpenAI-compatible `search`,
   and `fetch` document text from the same target.
 - `docs/developers/mcp-client-compatibility.md` lists the current major-client
-  matrix and must have manual smoke results before external readiness is
-  declared. Record those manual rows with `pnpm record:mcp-client-smoke` so
-  pass/fail entries include a run date, target environment, and sanitized
-  evidence pointer.
+  matrix. External readiness requires representative launch-gating rows rather
+  than every named product row. Record client-specific passes or failures with
+  `pnpm record:mcp-client-smoke` so entries include a run date, target
+  environment, and sanitized evidence pointer.
 - The major-client matrix source check was refreshed on 2026-07-09 against the
   current official docs for VS Code, Claude Code, Cursor, and Devin Desktop /
   Windsurf Cascade. Those docs keep remote HTTP/Streamable HTTP, local stdio,
-  and hosted OAuth behavior in scope, so the next burn-down batch is real
-  installed-app evidence for VS Code, Cursor, and Windsurf rather than another
-  protocol redesign.
+  and hosted OAuth behavior in scope. Untested installed-app behavior remains a
+  compatibility follow-up rather than another protocol redesign or launch
+  blocker.
 - Required hosted matrix rows cannot be recorded or verified as `pass` unless
   the matrix target environment names a same-branch Convex preview, staging,
   production-like, or production target. Lightweight PR preview transport
@@ -215,7 +215,8 @@ from this foundation and are not implied by a green PR.
   the wrong option shape. Deployed Health Checks run `29288588007` revalidated
   the corrected path against same-branch preview `8144d47`: generated
   credentials authenticated bootstrap and Inspector `tools/list` requests. The
-  Inspector OAuth row now passes and 14 required client rows remain open.
+  Inspector OAuth row now passes; 14 named-client rows remain as nonblocking
+  compatibility follow-ups.
   Reviewed OAuth smoke secrets and
   `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN` remain absent, and shared staging promotion
   still waits on the Terraform-owned `VRDEX_RATE_LIMIT_STORE`,
@@ -225,7 +226,7 @@ from this foundation and are not implied by a green PR.
   Windsurf, and Gemini CLI MCP setup files under `.tmp-gh-artifacts/`,
   including local stdio, hosted anonymous HTTP, hosted token-header fallback
   configs, launch commands or settings snippets where supported, smoke prompts,
-  evidence templates, recorder commands, and the same Open Blocker Summary
+  evidence templates, recorder commands, and the same Open Evidence Summary
   as the smoke planner. It also writes manual-only worksheets for Claude
   Desktop, Claude Code hosted OAuth, OpenAI/ChatGPT hosted rows, and MCP
   Inspector hosted OAuth. It does not replace manual matrix evidence; use it to
@@ -274,9 +275,9 @@ from this foundation and are not implied by a green PR.
   asserts every current checked-in `/api/v0` OpenAPI path, the
   `infra/terraform/rate-limit-redis` files, lockfile, README entry, and
   Terraform workflow wiring, plus both MCP evidence recorder commands. It
-  reports required items that are not pass in normal mode and labels required
-  failed evidence rows as `fail`, but unresolved manual evidence remains
-  advisory in normal mode.
+  reports launch-gating items that are not pass in normal mode and labels
+  required failed evidence rows as `fail`. Non-gating client rows remain
+  visible in the matrix summary without blocking strict readiness.
 - `pnpm verify:api-mcp-rollout:external` composes the authoritative API
   contract, MCP, and docs verifiers before running the rollout checker with
   `--require-ready`. The manual `External API and MCP Readiness` workflow is

@@ -9,6 +9,9 @@ docs update and a changelog entry so early consumers and agents can adapt.
 
 ## 2026-07-14
 
+- changed external MCP readiness from exhaustive named-client confirmation to
+  representative client and protocol coverage; untested clients remain
+  explicit nonblocking compatibility follow-ups
 - refreshed the checked hosted evidence to PR head `0dd64b2`: Hosted MCP
   Preview Smoke run `29311948404`, job `87018585252`, passed data-backed
   `vrdex_search`, OpenAI-compatible `search`/`fetch`, DCR, and CIMD against the

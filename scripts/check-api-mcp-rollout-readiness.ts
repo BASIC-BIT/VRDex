@@ -9,6 +9,7 @@ type SmokeCheck = {
   manualEvidence?: string;
   manualStatus: ManualStatus;
   requiredForExternalReadiness: boolean;
+  surface: "hosted_http_anonymous" | "hosted_http_diagnostic" | "hosted_http_oauth" | "local_stdio";
 };
 
 type ClientEntry = {
@@ -152,6 +153,12 @@ const requiredHostedReadinessChecks = new Map<string, string>([
   ["hosted-data-backed-anonymous-read", "data-backed anonymous hosted MCP public read"],
   ["hosted-dynamic-client-registration", "hosted OAuth Dynamic Client Registration"],
   ["hosted-client-id-metadata-document", "hosted OAuth Client ID Metadata Document"],
+]);
+
+const minimumLaunchClientsBySurface = new Map<SmokeCheck["surface"], number>([
+  ["local_stdio", 2],
+  ["hosted_http_anonymous", 2],
+  ["hosted_http_oauth", 1],
 ]);
 
 function matrixPath() {
@@ -318,6 +325,7 @@ async function checkMcpMatrix() {
 
   const blockers: string[] = [];
   let hasFailedRequiredRow = false;
+  const launchClientsBySurface = new Map<SmokeCheck["surface"], Set<string>>();
 
   for (const client of matrix.clients) {
     for (const smoke of client.checks) {
@@ -329,12 +337,26 @@ async function checkMcpMatrix() {
         blockers.push(`${client.name}/${smoke.id}: ${smoke.manualStatus}`);
         hasFailedRequiredRow ||= smoke.manualStatus === "fail";
       }
+
+      if (smoke.requiredForExternalReadiness) {
+        const clientIds = launchClientsBySurface.get(smoke.surface) ?? new Set<string>();
+        clientIds.add(client.id);
+        launchClientsBySurface.set(smoke.surface, clientIds);
+      }
+    }
+  }
+
+  for (const [surface, minimumClients] of minimumLaunchClientsBySurface) {
+    const selectedClients = launchClientsBySurface.get(surface)?.size ?? 0;
+
+    if (selectedClients < minimumClients) {
+      blockers.push(`representative ${surface} coverage requires ${minimumClients} clients; found ${selectedClients}`);
     }
   }
 
   return blockers.length === 0
-    ? check("Major MCP client matrix", "pass", "all required manual rows are pass")
-    : check("Major MCP client matrix", hasFailedRequiredRow ? "fail" : "pending", blockers.join("; "));
+    ? check("Representative MCP client matrix", "pass", "all launch-gating representative rows are pass")
+    : check("Representative MCP client matrix", hasFailedRequiredRow ? "fail" : "pending", blockers.join("; "));
 }
 
 async function checkHostedReadinessMode() {

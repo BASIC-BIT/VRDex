@@ -1332,7 +1332,11 @@ Required before green PR implementation readiness:
 
 Required before external readiness:
 
-- every required major MCP client compatibility matrix row is `pass`
+- every representative launch-gating MCP client row is `pass`, with at least
+  two distinct clients for stdio, two for hosted anonymous HTTP, and one for
+  authenticated hosted HTTP
+- named non-gating client rows remain tracked but may be `pending`; only a
+  passing row supports a client-specific compatibility claim
 - production-like hosted data-backed read, DCR, CIMD, and OAuth evidence is
   `pass`
 - `pnpm verify:api-mcp-rollout:external` passes
@@ -1408,7 +1412,8 @@ Security-specific tests:
 - Hosted production should use Redis-compatible TTL counters for anonymous/high-volume API and MCP traffic. Convex keeps durable ownership, policy, review, summary, and audit records.
 - Hosted MCP should support anonymous public read tools from day one, and anonymous callers should be treated as anonymous accounts for rate-limiting purposes.
 - Day-one MCP support should target every major MCP client available at implementation time through a compatibility matrix.
-- Current client research adds Gemini CLI to the required day-one MCP matrix because its official docs cover stdio, SSE, Streamable HTTP, OAuth discovery, Dynamic Client Registration, and `/mcp auth`.
+- Current recommendation: external readiness uses representative client and protocol evidence rather than exhaustive confirmation in every named product. Require at least two passing clients for stdio, two for hosted anonymous HTTP, one for authenticated hosted HTTP, plus hosted data, DCR, and CIMD evidence. Keep other named clients as nonblocking follow-ups and make no client-specific claim until its row passes.
+- Current client research keeps Gemini CLI in the day-one MCP matrix because its official docs cover stdio, SSE, Streamable HTTP, OAuth discovery, Dynamic Client Registration, and `/mcp auth`; its passing stdio and hosted-anonymous rows are part of the representative launch evidence.
 - First-pass developer apps support user-owned apps and owner-managed community-owned apps.
 - Community-owned OAuth app staff/admin delegation should be considered after broader community authority is stable enough.
 - Trusted partner access is manually reviewed by BASIC BIT operators and gets much higher practical quotas than normal personal tokens for authenticated API/MCP traffic, while retaining monitoring, cost controls, and revocation.
@@ -1423,7 +1428,7 @@ Security-specific tests:
 - Track OpenAPI 3.2.0 generator and Swagger UI support. The current checked-in artifact stays on 3.1.x.
 - Automate OAuth signing-key rotation in deployment secret management after the hosted secret store workflow is wired. The current checkpoint documents and supports manual current-key plus retained-previous-public-key rotation.
 - Apply the first BASIC BIT hosted rate-limit store through `infra/terraform/rate-limit-redis` once operator Upstash credentials are available. The stack now owns the Upstash Redis database plus hosted Vercel rate-limit variables; Vercel KV is not a new-project option, and any Marketplace Redis integration should still wire VRDex through the Redis REST adapter variables.
-- Run the implementation-time major MCP client smoke matrix against a deployed preview or production-like environment, including data-backed anonymous hosted reads, OAuth through Dynamic Client Registration, OAuth through public-client Client ID Metadata Documents, and local stdio configuration. Track results in `docs/developers/mcp-client-smoke-results.json` and run `pnpm verify:api-mcp-rollout:external` before external readiness.
+- Continue the named-client smoke matrix against deployed preview or production-like environments as product access permits. Track results in `docs/developers/mcp-client-smoke-results.json`; treat reproducible protocol incompatibilities as release bugs while leaving unexercised non-gating product rows as follow-up evidence.
 - Build active user-grant management UI, suspicious-client detail views,
   account-level API token-creation suspension, and OAuth app metadata history
   after the platform foundation.

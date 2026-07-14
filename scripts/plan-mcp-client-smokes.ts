@@ -440,7 +440,7 @@ function recordCommand(client: ClientEntry, check: SmokeCheck) {
     '--evidence "<sanitized evidence link or command output>"',
   ];
 
-  if (check.requiredForExternalReadiness && check.surface.startsWith("hosted_http")) {
+  if (check.surface.startsWith("hosted_http")) {
     parts.push('--target-environment "<same-branch Convex preview / staging / production-like target>"');
   }
 
@@ -452,8 +452,8 @@ function shouldPrint(check: SmokeCheck, options: Options) {
     return false;
   }
 
-  if (!check.requiredForExternalReadiness) {
-    return options.includePassed && check.manualStatus !== "not_applicable";
+  if (check.manualStatus === "not_applicable") {
+    return false;
   }
 
   return options.includePassed || check.manualStatus !== "pass";
@@ -597,7 +597,7 @@ function pendingBlockerSummary(matrix: SmokeMatrix, options: Options) {
     }
 
     for (const check of client.checks) {
-      if (!shouldPrint(check, options) || !check.requiredForExternalReadiness || check.manualStatus === "pass") {
+      if (!shouldPrint(check, options) || check.manualStatus === "pass") {
         continue;
       }
 
@@ -629,7 +629,6 @@ function pendingTargetWarning(matrix: SmokeMatrix, options: Options) {
       client.checks.some(
         (check) =>
           shouldPrint(check, options) &&
-          check.requiredForExternalReadiness &&
           check.surface.startsWith("hosted_http") &&
           check.manualStatus !== "pass",
       ),
@@ -693,14 +692,14 @@ function printPlan(matrix: SmokeMatrix, options: Options) {
     console.log(`Target warning: ${warning}`);
   }
   console.log("");
-  console.log("## Open Blocker Summary");
+  console.log("## Open Evidence Summary");
   console.log("");
   const blockers = pendingBlockerSummary(matrix, options);
 
   if (blockers.length === 0) {
-    console.log("All required rows that match the current filters are pass.");
+    console.log("No open evidence rows match the current filters.");
   } else {
-    console.log("| Blocker | Open rows | Next action |");
+    console.log("| Prerequisite | Open rows | Next action |");
     console.log("| --- | --- | --- |");
 
     for (const blocker of blockers) {

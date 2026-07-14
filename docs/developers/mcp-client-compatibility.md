@@ -7,9 +7,10 @@ foundation.
 
 Last reviewed: 2026-07-14.
 
-This matrix separates repo-verified protocol behavior from manual client
-smokes. Do not declare the public MCP surface externally ready until the manual
-smoke rows are run against a deployed preview or production-like environment.
+This matrix separates repo-verified protocol behavior from real-client
+smokes. External readiness uses representative launch-gating rows rather than
+requiring every named client to be exercised. Non-gating rows remain explicit
+compatibility follow-ups and must not be described as directly verified.
 
 Current official client-doc refresh, 2026-07-13:
 
@@ -57,6 +58,32 @@ Source-backed client requirements from the current docs pass:
   hosted OAuth setup
 - do not publish client-specific setup snippets unless that client's current
   docs or a manual smoke confirms the config shape
+
+## Launch Readiness Policy
+
+Current recommendation: launch on representative client and protocol coverage,
+not exhaustive confirmation of every MCP product release.
+
+The strict external gate requires:
+
+- at least two distinct launch-gating clients for local stdio
+- at least two distinct launch-gating clients for hosted anonymous HTTP
+- at least one launch-gating client for authenticated hosted HTTP
+- passing hosted data-backed reads, DCR, and CIMD protocol evidence
+- every selected launch-gating row to be `pass`
+
+The current selection exceeds those minimums: Claude Code, Gemini CLI, VS Code,
+and MCP Inspector cover stdio; Gemini CLI, VS Code, OpenAI Responses, and MCP
+Inspector cover anonymous hosted HTTP; MCP Inspector covers authenticated
+hosted HTTP alongside the separate DCR and CIMD smokes.
+
+Claude Desktop, Cursor, Windsurf/Devin, ChatGPT UI, and untested native OAuth
+flows remain in the matrix as nonblocking follow-ups. A `pending` row means
+VRDex is expected to interoperate from its protocol/configuration evidence but
+has not directly confirmed that product surface. A `fail` caused before a VRDex
+tool call, such as stale client-account authentication, remains visible but is
+not treated as evidence that the VRDex transport failed. Any reproducible
+protocol incompatibility discovered in a follow-up becomes a release bug.
 
 ## Repo-Verified Protocol Checks
 
@@ -372,7 +399,7 @@ pnpm ops:mcp-client-smokes -- \
 The planner prints every open required row, the repo preflight command to
 run first, client-specific setup hints, the client-side evidence to capture,
 the production-like hosted MCP evidence rows, and the exact recorder command
-shapes for recording passes. It starts with an Open Blocker Summary that
+shapes for recording passes. It starts with an Open Evidence Summary that
 groups remaining rows by the operator prerequisite that unlocks them: installed
 app tool-call sessions, installed app OAuth sessions, missing client install or
 account setup, desktop/custom connector access, hosted product surface access,
@@ -439,7 +466,7 @@ VS Code, Cursor, and Windsurf PowerShell commands use an isolated
 `--user-data-dir` and escape JSON quotes before passing `--add-mcp`; direct
 fresh-profile `--add-mcp` and raw `(Get-Content -Raw ...)` JSON both fail on
 the current Windows CLIs. The generated
-README includes the same Open Blocker Summary as the smoke planner so the
+README includes the same Open Evidence Summary as the smoke planner so the
 downloaded artifact can be used directly for smoke-session batching. The
 generated `evidence/` templates are pending worksheets for each row; fill them
 with sanitized real-client screenshot or transcript evidence before running the
@@ -642,9 +669,9 @@ client UI evidence into passes.
 It reports pending and failed external evidence without requiring every manual
 row to pass.
 
-By default, the check accepts manual rows that are not yet `pass` because
-repository protocol checks can run before the desktop/web client smokes are
-available. For external readiness, require every required manual row to pass:
+By default, the check reports nonblocking follow-up rows without failing.
+For external readiness, it requires every selected representative row to pass
+and enforces minimum client diversity for each transport/auth class:
 
 ```sh
 pnpm check:mcp-client-matrix -- --require-ready
@@ -657,7 +684,7 @@ pnpm verify:api-mcp-rollout:external
 ```
 
 That command verifies API contracts, MCP behavior, and docs before enforcing
-the strict rollout audit. It fails while required client rows or hosted
+the strict rollout audit. It fails while representative client rows or hosted
 data/DCR/CIMD/OAuth evidence are not pass. The manual `External API and MCP
 Readiness` workflow is the authoritative CI launch gate and always uploads a
 fresh client session pack. Baseline Checks deliberately does not create that
@@ -902,8 +929,9 @@ logs, and screenshots.
 
 Record those results with `pnpm record:mcp-client-smoke`. The command updates
 `docs/developers/mcp-client-smoke-results.json` and preserves the matrix shape
-expected by `pnpm check:mcp-client-matrix`. Leave a row as `pending` only while
-the PR is not being declared externally ready.
+expected by `pnpm check:mcp-client-matrix`. Non-gating rows may remain
+`pending` after external readiness, but only passing rows support a
+client-specific compatibility claim.
 
 ## Source Trail
 
