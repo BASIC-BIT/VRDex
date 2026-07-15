@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 import type { Doc } from "../../convex/_generated/dataModel";
 import type { DatabaseReader } from "../../convex/_generated/server";
 import { createDiscordTimestampSet, toDiscordTimestamp } from "../../convex/_discordTimestamps";
-import { sanitizeEventDraftInput } from "../../convex/_eventInputs";
+import { preserveOmittedEventDraftFields, sanitizeEventDraftInput } from "../../convex/_eventInputs";
 import { findEventOperationSlots } from "../../convex/_eventOperations";
 import {
   getPublicEventPreviews,
@@ -59,6 +59,26 @@ describe("event slug helpers", () => {
 });
 
 describe("event draft input", () => {
+  it("preserves stored event fields for partial API updates", () => {
+    const startAt = Date.UTC(2026, 5, 14, 22, 0, 0);
+    const input = preserveOmittedEventDraftFields(
+      { summary: "Updated public event details." },
+      {
+        title: "Afterglow Harbor Sessions",
+        startAt,
+        communitySlug: "afterglow-social",
+        summary: "Original public event details.",
+      },
+    );
+
+    assert.equal(input.title, "Afterglow Harbor Sessions");
+    assert.equal(input.startAt, startAt);
+    assert.equal(input.communitySlug, "afterglow-social");
+    assert.equal(input.summary, "Updated public event details.");
+    assert.equal(Object.hasOwn(input, "participantLinks"), false);
+    assert.equal(Object.hasOwn(input, "slotLinks"), false);
+  });
+
   it("sanitizes media links, participants, and optional event fields", () => {
     const startAt = Date.UTC(2026, 5, 14, 22, 0, 0);
     const input = sanitizeEventDraftInput({

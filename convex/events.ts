@@ -36,6 +36,7 @@ import {
   sanitizeVrcdnOperatorOwnedOutputSetup,
 } from "./_eventMediaControl";
 import {
+  preserveOmittedEventDraftFields,
   sanitizeEventDraftInput,
   type EventDraftInput,
   type SanitizedEventDraftInput,
@@ -139,6 +140,12 @@ const eventDraftArgs = {
   ),
   worldSlug: v.optional(v.string()),
   preferredSlug: v.optional(v.string()),
+};
+
+const eventDraftUpdateArgs = {
+  ...eventDraftArgs,
+  title: v.optional(v.string()),
+  startAt: v.optional(v.number()),
 };
 
 const vrcdnOutputSetupArgs = {
@@ -602,7 +609,7 @@ async function linkedPublishedEventWorld(db: DatabaseReader, eventId: Id<"events
   return world?.publicationState === "published" ? world : undefined;
 }
 
-function suppliedEventDraftFields(input: EventDraftInput) {
+function suppliedEventDraftFields(input: Partial<EventDraftInput>) {
   const fields = new Set<keyof EventDraftInput>();
 
   for (const field of Object.keys(eventDraftArgs) as Array<keyof EventDraftInput>) {
@@ -612,29 +619,6 @@ function suppliedEventDraftFields(input: EventDraftInput) {
   }
 
   return fields;
-}
-
-function preserveOmittedEventDocumentFields(event: Doc<"events">, input: EventDraftInput): EventDraftInput {
-  const preserved = <Field extends keyof EventDraftInput>(
-    field: Field,
-    value: EventDraftInput[Field],
-  ): EventDraftInput[Field] => Object.prototype.hasOwnProperty.call(input, field) ? input[field] : value;
-
-  return {
-    ...input,
-    doorsOpenAt: preserved("doorsOpenAt", event.doorsOpenAt),
-    endAt: preserved("endAt", event.endAt),
-    timezone: preserved("timezone", event.timezone),
-    summary: preserved("summary", event.summary),
-    notes: preserved("notes", event.notes),
-    sourceLabel: preserved("sourceLabel", event.sourceLabel),
-    sourceUrl: preserved("sourceUrl", event.sourceUrl),
-    posterImageUrl: preserved("posterImageUrl", event.posterImageUrl),
-    bannerImageUrl: preserved("bannerImageUrl", event.bannerImageUrl),
-    thumbnailImageUrl: preserved("thumbnailImageUrl", event.thumbnailImageUrl),
-    watchSurfaceEnabled: preserved("watchSurfaceEnabled", event.watchSurfaceEnabled ?? false),
-    mediaLinks: preserved("mediaLinks", event.mediaLinks ?? []),
-  };
 }
 
 function optionalValue<T>(key: string, value: T | undefined): Record<string, T> {
@@ -1868,7 +1852,7 @@ export const updateCommunityEventForApiOwner = internalMutation({
     actorKind: apiWriteAuditActorKindValidator,
     ownerUserId: v.id("users"),
     currentSlug: v.string(),
-    ...eventDraftArgs,
+    ...eventDraftUpdateArgs,
   },
   handler: async (ctx, args) => {
     const validation = validateEventSlug(args.currentSlug);
@@ -1883,15 +1867,41 @@ export const updateCommunityEventForApiOwner = internalMutation({
       throw new Error("Event was not found.");
     }
 
+    const communityProfileId = event.communityProfileId;
+
     if (
-      event.communityProfileId === undefined ||
-      !(await userOwnsProfile(ctx.db, event.communityProfileId, args.ownerUserId))
+      communityProfileId === undefined ||
+      !(await userOwnsProfile(ctx.db, communityProfileId, args.ownerUserId))
     ) {
       throw new Error("You do not have permission to update this event.");
     }
 
+    const currentCommunity = await ctx.db.get(communityProfileId);
+
+    if (currentCommunity === null) {
+      throw new Error("Event community was not found.");
+    }
+
     const updateFields = suppliedEventDraftFields(args);
-    const input = sanitizeEventDraftInput(preserveOmittedEventDocumentFields(event, args));
+    const input = sanitizeEventDraftInput(
+      preserveOmittedEventDraftFields(args, {
+        title: event.title,
+        startAt: event.startAt,
+        communitySlug: currentCommunity.slug,
+        doorsOpenAt: event.doorsOpenAt,
+        endAt: event.endAt,
+        timezone: event.timezone,
+        summary: event.summary,
+        notes: event.notes,
+        sourceLabel: event.sourceLabel,
+        sourceUrl: event.sourceUrl,
+        posterImageUrl: event.posterImageUrl,
+        bannerImageUrl: event.bannerImageUrl,
+        thumbnailImageUrl: event.thumbnailImageUrl,
+        watchSurfaceEnabled: event.watchSurfaceEnabled ?? false,
+        mediaLinks: event.mediaLinks ?? [],
+      }),
+    );
     const community = await requireApiOwnedPublishedCommunity(ctx.db, input.communitySlug, args.ownerUserId);
     const world = updateFields.has("worldSlug")
       ? await getPublishedWorldBySlug(ctx.db, input.worldSlug)

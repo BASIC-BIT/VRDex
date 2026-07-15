@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   normalizeOAuthAuthorizationRequest,
+  redirectUriWithOAuthClientError,
   redirectUriWithOAuthResult,
 } from "../../apps/web/src/lib/server/oauth-authorization-request";
 import { tokenClientAuthentication } from "../../apps/web/src/lib/server/oauth-token-client-auth";
@@ -113,6 +114,16 @@ describe("OAuth PKCE authorization helpers", () => {
       }),
       "http://localhost:3333/callback?code=vrdx_code_0123456789abcdef0123456789abcdef&state=opaque-state",
     );
+    const clientErrorRedirect = new URL(
+      redirectUriWithOAuthClientError({
+        reason: "wrong_resource",
+        redirectUri: "http://localhost:3333/callback",
+        state: "opaque-state",
+      }),
+    );
+
+    assert.equal(clientErrorRedirect.searchParams.get("error"), "invalid_target");
+    assert.equal(clientErrorRedirect.searchParams.get("state"), "opaque-state");
     assert.throws(
       () => normalizeOAuthAuthorizationRequest(new URLSearchParams({ response_type: "token" }), request),
       /response_type/,

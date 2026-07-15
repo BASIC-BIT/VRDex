@@ -16,7 +16,10 @@ import {
   createOAuthConsentTransactionValue,
   hashOAuthConsentTransactionValue,
 } from "@/lib/server/oauth-consent-transaction";
-import { normalizeOAuthAuthorizationRequest } from "@/lib/server/oauth-authorization-request";
+import {
+  normalizeOAuthAuthorizationRequest,
+  redirectUriWithOAuthClientError,
+} from "@/lib/server/oauth-authorization-request";
 import { oauthIssuerUrl, oauthMcpResourceUri } from "@/lib/server/oauth-jwt";
 import { oauthRateLimitResponse } from "@/lib/server/oauth-route-rate-limit";
 
@@ -148,6 +151,19 @@ export async function GET(request: Request) {
   });
 
   if (!client.ok) {
+    if (
+      (client.reason === "invalid_scope" || client.reason === "wrong_resource") &&
+      client.redirectUri !== undefined
+    ) {
+      return redirectResponse(
+        redirectUriWithOAuthClientError({
+          reason: client.reason,
+          redirectUri: client.redirectUri,
+          state: authorization.state,
+        }),
+      );
+    }
+
     return oauthAuthorizeProblemRedirect(request, "invalid_client");
   }
 

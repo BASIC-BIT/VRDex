@@ -122,3 +122,21 @@ export function redirectUriWithOAuthResult(args: {
 
   return url.toString();
 }
+
+export function redirectUriWithOAuthClientError(args: {
+  reason: "invalid_scope" | "wrong_resource";
+  redirectUri: string;
+  state?: string;
+}) {
+  const error = args.reason === "invalid_scope" ? "invalid_scope" : "invalid_target";
+  const errorDescription = args.reason === "invalid_scope"
+    ? "The requested scope is not allowed for this client."
+    : "The requested resource is not allowed for this client.";
+
+  return redirectUriWithOAuthResult({
+    error,
+    errorDescription,
+    redirectUri: args.redirectUri,
+    state: args.state,
+  });
+}

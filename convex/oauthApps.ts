@@ -497,7 +497,7 @@ async function resolvePublicAuthorizationClient(
     }
 
     if (!hasRequiredApiScopes(application.allowedScopes, requestedScopes)) {
-      return { ok: false as const, reason: "invalid_scope" as const };
+      return { ok: false as const, reason: "invalid_scope" as const, redirectUri };
     }
 
     return toAuthorizationClientSummary(
@@ -524,11 +524,11 @@ async function resolvePublicAuthorizationClient(
   }
 
   if (dynamicClient.resource !== resource) {
-    return { ok: false as const, reason: "wrong_resource" as const };
+    return { ok: false as const, reason: "wrong_resource" as const, redirectUri };
   }
 
   if (!hasRequiredApiScopes(dynamicClient.allowedScopes, requestedScopes)) {
-    return { ok: false as const, reason: "invalid_scope" as const };
+    return { ok: false as const, reason: "invalid_scope" as const, redirectUri };
   }
 
   return toAuthorizationClientSummary(

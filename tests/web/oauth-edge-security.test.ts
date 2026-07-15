@@ -186,6 +186,8 @@ describe("OAuth edge security", () => {
     const oauthApps = readFileSync("convex/oauthApps.ts", "utf8");
 
     assert.match(authorize, /oauthRateLimitResponse\(request, "oauth_authorize"\)/);
+    assert.match(authorize, /client\.reason === "invalid_scope" \|\| client\.reason === "wrong_resource"/);
+    assert.match(authorize, /redirectUriWithOAuthClientError/);
     assert.ok(
       authorize.indexOf('const rateLimited = await oauthRateLimitResponse(request, "oauth_authorize")') <
         authorize.indexOf("authorization = normalizeOAuthAuthorizationRequest"),

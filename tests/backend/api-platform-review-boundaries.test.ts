@@ -35,8 +35,10 @@ describe("API platform review boundaries", () => {
   it("preserves omitted event PATCH fields and relation rows", () => {
     const events = source("convex/events.ts");
 
+    assert.match(events, /const eventDraftUpdateArgs = \{[\s\S]*title: v\.optional\(v\.string\(\)\)[\s\S]*startAt: v\.optional\(v\.number\(\)\)/);
     assert.match(events, /const updateFields = suppliedEventDraftFields\(args\)/);
-    assert.match(events, /preserveOmittedEventDocumentFields\(event, args\)/);
+    assert.match(events, /preserveOmittedEventDraftFields\(args, \{/);
+    assert.match(events, /communitySlug: currentCommunity\.slug/);
     assert.match(events, /shouldUpdate\("watchSurfaceEnabled"\)/);
     assert.match(events, /shouldUpdate\("mediaLinks"\)/);
     assert.match(events, /const replaceWorld = shouldUpdate\("worldSlug"\)/);
