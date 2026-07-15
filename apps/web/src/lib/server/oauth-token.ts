@@ -92,7 +92,7 @@ type ClientCredentialsResult =
   | { ok: false; reason: "invalid_client" | "invalid_scope" };
 
 type AuthorizationCodeResult =
-  | UserAccessTokenResult
+  | (UserAccessTokenResult & { refreshTokenIssued: boolean })
   | { ok: false; reason: "invalid_client" | "invalid_grant" };
 
 type RefreshTokenResult =
@@ -283,7 +283,7 @@ async function authorizationCodeTokenResponse(
   return Response.json(
     {
       access_token: accessToken,
-      refresh_token: refreshToken,
+      ...(result.refreshTokenIssued ? { refresh_token: refreshToken } : {}),
       token_type: "Bearer",
       expires_in: oauthAccessTokenExpiresInSeconds(),
       scope: oauthScopeString(result.scopes),

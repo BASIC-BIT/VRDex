@@ -228,6 +228,10 @@ Current constraints:
 - requires `communitySlug`
 - requires ownership of the target community profile
 - update also requires ownership of the event's current community profile
+- update preserves optional event fields, media, world, schedule, and lineup
+  data when those fields are omitted from the request
+- replacing schedule or lineup data requires both `slotLinks` and
+  `participantLinks` in the same update
 - creates a published public event using the same sanitizers as the web event
   editor
 - does not create or update standalone submitter-only events in this checkpoint

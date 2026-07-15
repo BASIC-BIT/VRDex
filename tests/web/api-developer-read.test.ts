@@ -18,7 +18,10 @@ describe("developer read API authority", () => {
   it("maps user-owned personal tokens and user-delegated OAuth tokens to a developer owner", () => {
     const output = runDeveloperReadProbe(`
       import assert from "node:assert/strict";
-      import { developerReadAuthorityForCredential } from "./apps/web/src/lib/server/api-developer-read.ts";
+      import {
+        developerReadAuthorityForCredential,
+        normalizeDeveloperTokenExpiry,
+      } from "./apps/web/src/lib/server/api-developer-read.ts";
 
       assert.deepEqual(
         developerReadAuthorityForCredential({
@@ -43,6 +46,11 @@ describe("developer read API authority", () => {
         }),
         { ok: true, ownerUserId: "user_456", source: "user_delegated_oauth" },
       );
+
+      assert.equal(normalizeDeveloperTokenExpiry(2_000, 1_000), 2_000);
+      assert.equal(normalizeDeveloperTokenExpiry(undefined, 1_000), undefined);
+      assert.throws(() => normalizeDeveloperTokenExpiry(1_000, 1_000), /future timestamp/);
+      assert.throws(() => normalizeDeveloperTokenExpiry(999, 1_000), /future timestamp/);
 
       console.log("ok");
     `);

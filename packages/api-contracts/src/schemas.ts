@@ -406,11 +406,24 @@ export const ApiEventCreateRequestSchema = z
     id: "ApiEventCreateRequest",
   });
 
-export const ApiEventUpdateRequestSchema = ApiEventCreateRequestSchema.extend({}).meta({
-  description:
-    "Update a public event attached to a community profile owned by the current authenticated API user.",
-  id: "ApiEventUpdateRequest",
-});
+export const ApiEventUpdateRequestSchema = ApiEventCreateRequestSchema.extend({})
+  .superRefine((value, context) => {
+    const replacesParticipants = value.participantLinks !== undefined;
+    const replacesSlots = value.slotLinks !== undefined;
+
+    if (replacesParticipants !== replacesSlots) {
+      context.addIssue({
+        code: "custom",
+        message: "Event participantLinks and slotLinks must be supplied together when replacing lineup data.",
+        path: replacesParticipants ? ["slotLinks"] : ["participantLinks"],
+      });
+    }
+  })
+  .meta({
+    description:
+      "Update a public event attached to a community profile owned by the current authenticated API user.",
+    id: "ApiEventUpdateRequest",
+  });
 
 export const ApiEventWriteResponseSchema = z
   .object({

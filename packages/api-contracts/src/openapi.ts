@@ -961,7 +961,7 @@ export const openApiSource = {
         tags: ["Events"],
         summary: "Update a current user's community event",
         description:
-          "Updates a public event attached to a community profile owned by a bearer credential with user authority and events:write scope.",
+          "Updates a public event attached to a community profile owned by a bearer credential with user authority and events:write scope. Optional fields and relations omitted from the PATCH body are preserved.",
         security: eventsWriteSecurity,
         requestParams: {
           path: SlugPathParamsSchema,

@@ -67,6 +67,18 @@ export function canCreatePersonalApiToken(credential: ApiBearerCredentialContext
   return credential.kind === "api_token" && credential.ownerKind === "user";
 }
 
+export function normalizeDeveloperTokenExpiry(expiresAt: number | undefined, now = Date.now()) {
+  if (expiresAt === undefined) {
+    return undefined;
+  }
+
+  if (!Number.isFinite(expiresAt) || expiresAt <= now) {
+    throw new Error("API token expiry must be a future timestamp.");
+  }
+
+  return Math.floor(expiresAt);
+}
+
 async function evaluateDeveloperCredentialRequest(
   request: Request,
   options: {

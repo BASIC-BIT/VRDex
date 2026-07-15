@@ -108,7 +108,9 @@ active public profile asset and any supplied media-kit placement metadata.
 user authority, and ownership of the target `communitySlug`. Event updates also
 require ownership of the event's current community. The first public write
 version only creates and updates events attached to owned community profiles; it
-does not create standalone submitter-only events.
+does not create standalone submitter-only events. Event updates preserve
+optional fields and relations that are omitted from the PATCH body. Schedule
+and lineup replacements supply `slotLinks` and `participantLinks` together.
 
 Developer list routes require `developer:read` plus user authority. Developer
 creation and revocation routes require `developer:write` plus user authority.

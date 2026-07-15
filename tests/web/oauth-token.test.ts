@@ -182,6 +182,7 @@ describe("OAuth token route helper", () => {
           scopes: ["mcp:read", "public:read"],
           tokenId: input.tokenId,
           userId,
+          refreshTokenIssued: true,
         };
       };
 
@@ -227,6 +228,44 @@ describe("OAuth token route helper", () => {
       assert.equal(claims.client_id, clientId);
       assert.equal(claims.sub, userId);
       assert.equal(claims.jti, tokenId);
+    });
+  });
+
+  it("omits refresh tokens when an authorization-code client does not allow refresh", async () => {
+    await withOAuthEnv(async () => {
+      const mutations = defaultMutations();
+
+      mutations.consumeAuthorizationCode = async (input) => ({
+        ok: true,
+        clientId: input.clientId,
+        expiresAt: input.expiresAt,
+        resource: "https://app.example.test/api/v0",
+        scopes: ["public:read"],
+        tokenId: input.tokenId,
+        userId,
+        refreshTokenIssued: false,
+      });
+
+      const response = await oauthTokenResponse(
+        tokenRequest({
+          client_id: clientId,
+          code: "vrdx_code_0123456789abcdef0123456789abcdef",
+          code_verifier: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+          grant_type: "authorization_code",
+          redirect_uri: "http://localhost:8765/callback",
+        }),
+        {
+          createAccessTokenId: () => tokenId,
+          createRefreshTokenValue: () => refreshToken,
+          mutations,
+          now: () => now,
+        },
+      );
+
+      assert.equal(response.status, 200);
+      const body = await jsonBody(response);
+      assert.equal(body.refresh_token, undefined);
+      assert.equal(body.scope, "public:read");
     });
   });
 

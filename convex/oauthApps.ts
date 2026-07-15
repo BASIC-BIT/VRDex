@@ -287,15 +287,22 @@ async function listDeveloperApplicationSummaries(
   const communityApplications: Doc<"oauthApplications">[] = [];
 
   for (const community of ownedCommunities) {
-    const applications = await ctx.db
-      .query("oauthApplications")
-      .withIndex("by_ownerCommunityProfileId_status_createdAt", (index) =>
-        args.includeRevoked === true
-          ? index.eq("ownerCommunityProfileId", community._id)
-          : index.eq("ownerCommunityProfileId", community._id).eq("status", "active"),
-      )
-      .order("desc")
-      .take(limit);
+    const applications =
+      args.includeRevoked === true
+        ? await ctx.db
+            .query("oauthApplications")
+            .withIndex("by_ownerCommunityProfileId_createdAt", (index) =>
+              index.eq("ownerCommunityProfileId", community._id),
+            )
+            .order("desc")
+            .take(limit)
+        : await ctx.db
+            .query("oauthApplications")
+            .withIndex("by_ownerCommunityProfileId_status_createdAt", (index) =>
+              index.eq("ownerCommunityProfileId", community._id).eq("status", "active"),
+            )
+            .order("desc")
+            .take(limit);
 
     communityApplications.push(...applications);
   }
@@ -1452,6 +1459,7 @@ async function issueClientCredentialsAccessTokenRecord(
         secretPrefix,
         eventType: "client_credentials_rejected",
         result: "rejected",
+        routeClass: "oauth_token",
         now,
       });
 
@@ -1464,6 +1472,7 @@ async function issueClientCredentialsAccessTokenRecord(
         secretPrefix,
         eventType: "client_credentials_rejected",
         result: "rejected",
+        routeClass: "oauth_token",
         now,
       });
 
@@ -1487,6 +1496,7 @@ async function issueClientCredentialsAccessTokenRecord(
         secretPrefix,
         eventType: "client_credentials_rejected",
         result: "rejected",
+        routeClass: "oauth_token",
         now,
       });
 
@@ -1520,6 +1530,7 @@ async function issueClientCredentialsAccessTokenRecord(
       secretPrefix,
       eventType: "token_issued",
       result: "accepted",
+      routeClass: "oauth_token",
       now,
     });
 
@@ -1680,6 +1691,10 @@ export const consumeAuthorizationCode = internalMutation({
       return { ok: false as const, reason: "invalid_client" as const };
     }
 
+    const refreshTokenIssued =
+      application?.allowedGrants.includes("refresh_token") === true ||
+      dynamicClient?.grantTypes.includes("refresh_token") === true;
+
     const existingAccessToken = await ctx.db
       .query("oauthAccessTokens")
       .withIndex("by_tokenId", (index) => index.eq("tokenId", tokenId))
@@ -1689,13 +1704,15 @@ export const consumeAuthorizationCode = internalMutation({
       throw new Error("OAuth access token id collision. Generate a new token id and retry.");
     }
 
-    const existingRefreshToken = await ctx.db
-      .query("oauthRefreshTokens")
-      .withIndex("by_tokenHash", (index) => index.eq("tokenHash", refreshTokenHash))
-      .unique();
+    if (refreshTokenIssued) {
+      const existingRefreshToken = await ctx.db
+        .query("oauthRefreshTokens")
+        .withIndex("by_tokenHash", (index) => index.eq("tokenHash", refreshTokenHash))
+        .unique();
 
-    if (existingRefreshToken !== null) {
-      throw new Error("OAuth refresh token collision. Generate a new refresh token and retry.");
+      if (existingRefreshToken !== null) {
+        throw new Error("OAuth refresh token collision. Generate a new refresh token and retry.");
+      }
     }
 
     await ctx.db.patch(code._id, {
@@ -1715,18 +1732,20 @@ export const consumeAuthorizationCode = internalMutation({
       issuedAt: now,
       expiresAt,
     });
-    await ctx.db.insert("oauthRefreshTokens", {
-      tokenHash: refreshTokenHash,
-      ...(application === null ? {} : { applicationId: application._id }),
-      ...(dynamicClient === null ? {} : { dynamicClientId: dynamicClient._id }),
-      clientId,
-      userId: code.userId,
-      resource,
-      scopes: code.scopes,
-      status: "active",
-      issuedAt: now,
-      expiresAt: refreshTokenExpiresAt,
-    });
+    if (refreshTokenIssued) {
+      await ctx.db.insert("oauthRefreshTokens", {
+        tokenHash: refreshTokenHash,
+        ...(application === null ? {} : { applicationId: application._id }),
+        ...(dynamicClient === null ? {} : { dynamicClientId: dynamicClient._id }),
+        clientId,
+        userId: code.userId,
+        resource,
+        scopes: code.scopes,
+        status: "active",
+        issuedAt: now,
+        expiresAt: refreshTokenExpiresAt,
+      });
+    }
 
     if (application !== null) {
       await ctx.db.patch(application._id, { lastUsedAt: now, updatedAt: now });
@@ -1760,6 +1779,7 @@ export const consumeAuthorizationCode = internalMutation({
       subjectType: "user" as const,
       userId: code.userId,
       expiresAt,
+      refreshTokenIssued,
       refreshTokenExpiresAt,
     };
   },

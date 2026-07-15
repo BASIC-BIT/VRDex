@@ -35,7 +35,11 @@ import {
   sanitizeEventMediaWorkerSchedule,
   sanitizeVrcdnOperatorOwnedOutputSetup,
 } from "./_eventMediaControl";
-import { sanitizeEventDraftInput, type SanitizedEventDraftInput } from "./_eventInputs";
+import {
+  sanitizeEventDraftInput,
+  type EventDraftInput,
+  type SanitizedEventDraftInput,
+} from "./_eventInputs";
 import { findEventOperationSlots } from "./_eventOperations";
 import {
   getPublicCommunityHostedEvents,
@@ -547,6 +551,92 @@ function participantLinksWithSlotPerformers(input: ReturnType<typeof sanitizeEve
   return links;
 }
 
+async function syncPreservedEventAssociationStartAt(
+  db: DatabaseWriter,
+  eventId: Id<"events">,
+  startAt: number,
+  now: number,
+  options: {
+    preserveParticipants: boolean;
+    preserveSlots: boolean;
+    preserveWorld: boolean;
+  },
+) {
+  const [worlds, participants, slots] = await Promise.all([
+    options.preserveWorld
+      ? db.query("eventWorlds").withIndex("by_eventId", (query) => query.eq("eventId", eventId)).collect()
+      : Promise.resolve([]),
+    options.preserveParticipants
+      ? db.query("eventParticipants").withIndex("by_eventId", (query) => query.eq("eventId", eventId)).collect()
+      : Promise.resolve([]),
+    options.preserveSlots
+      ? db.query("eventSlots").withIndex("by_eventId", (query) => query.eq("eventId", eventId)).collect()
+      : Promise.resolve([]),
+  ]);
+
+  await Promise.all([
+    ...worlds.map((association) => db.patch(association._id, { eventStartAt: startAt, updatedAt: now })),
+    ...participants.map((participant) => db.patch(participant._id, { eventStartAt: startAt, updatedAt: now })),
+    ...slots.map((slot) => db.patch(slot._id, { eventStartAt: startAt, updatedAt: now })),
+  ]);
+}
+
+async function eventParticipantRoleLabels(db: DatabaseReader, eventId: Id<"events">) {
+  const participants = await db
+    .query("eventParticipants")
+    .withIndex("by_eventId", (query) => query.eq("eventId", eventId))
+    .filter((query) => query.eq(query.field("confirmationState"), "confirmed"))
+    .collect();
+
+  return participants.map((participant) => participant.roleLabel);
+}
+
+async function linkedPublishedEventWorld(db: DatabaseReader, eventId: Id<"events">) {
+  const association = await db
+    .query("eventWorlds")
+    .withIndex("by_eventId", (query) => query.eq("eventId", eventId))
+    .filter((query) => query.eq(query.field("confirmationState"), "confirmed"))
+    .first();
+  const world = association === null ? null : await db.get(association.worldId);
+
+  return world?.publicationState === "published" ? world : undefined;
+}
+
+function suppliedEventDraftFields(input: EventDraftInput) {
+  const fields = new Set<keyof EventDraftInput>();
+
+  for (const field of Object.keys(eventDraftArgs) as Array<keyof EventDraftInput>) {
+    if (Object.prototype.hasOwnProperty.call(input, field)) {
+      fields.add(field);
+    }
+  }
+
+  return fields;
+}
+
+function preserveOmittedEventDocumentFields(event: Doc<"events">, input: EventDraftInput): EventDraftInput {
+  const preserved = <Field extends keyof EventDraftInput>(
+    field: Field,
+    value: EventDraftInput[Field],
+  ): EventDraftInput[Field] => Object.prototype.hasOwnProperty.call(input, field) ? input[field] : value;
+
+  return {
+    ...input,
+    doorsOpenAt: preserved("doorsOpenAt", event.doorsOpenAt),
+    endAt: preserved("endAt", event.endAt),
+    timezone: preserved("timezone", event.timezone),
+    summary: preserved("summary", event.summary),
+    notes: preserved("notes", event.notes),
+    sourceLabel: preserved("sourceLabel", event.sourceLabel),
+    sourceUrl: preserved("sourceUrl", event.sourceUrl),
+    posterImageUrl: preserved("posterImageUrl", event.posterImageUrl),
+    bannerImageUrl: preserved("bannerImageUrl", event.bannerImageUrl),
+    thumbnailImageUrl: preserved("thumbnailImageUrl", event.thumbnailImageUrl),
+    watchSurfaceEnabled: preserved("watchSurfaceEnabled", event.watchSurfaceEnabled ?? false),
+    mediaLinks: preserved("mediaLinks", event.mediaLinks ?? []),
+  };
+}
+
 function optionalValue<T>(key: string, value: T | undefined): Record<string, T> {
   return value === undefined ? {} : { [key]: value };
 }
@@ -724,10 +814,12 @@ async function updateCommunityEventRecord(
     input: SanitizedEventDraftInput;
     community?: Doc<"profiles">;
     world?: Doc<"worlds">;
+    updateFields?: ReadonlySet<keyof EventDraftInput>;
   },
 ) {
-  const { community, event, input, world } = options;
+  const { community, event, input, updateFields, world } = options;
   const now = Date.now();
+  const shouldUpdate = (field: keyof EventDraftInput) => updateFields === undefined || updateFields.has(field);
   const slug = await findAvailableEventSlug(
     db,
     {
@@ -743,31 +835,51 @@ async function updateCommunityEventRecord(
     title: input.title,
     sortTitle: input.sortTitle,
     startAt: input.startAt,
-    doorsOpenAt: input.doorsOpenAt,
-    endAt: input.endAt,
-    timezone: input.timezone,
+    ...(shouldUpdate("doorsOpenAt") ? { doorsOpenAt: input.doorsOpenAt } : {}),
+    ...(shouldUpdate("endAt") ? { endAt: input.endAt } : {}),
+    ...(shouldUpdate("timezone") ? { timezone: input.timezone } : {}),
     communityProfileId: community?._id,
     communityName: community?.displayName,
-    summary: input.summary,
-    notes: input.notes,
-    posterImageUrl: input.posterImageUrl,
-    bannerImageUrl: input.bannerImageUrl,
-    thumbnailImageUrl: input.thumbnailImageUrl,
-    watchSurfaceEnabled: input.watchSurfaceEnabled,
-    mediaLinks: input.mediaLinks,
-    sourceLabel: input.sourceLabel,
-    sourceUrl: input.sourceUrl,
+    ...(shouldUpdate("summary") ? { summary: input.summary } : {}),
+    ...(shouldUpdate("notes") ? { notes: input.notes } : {}),
+    ...(shouldUpdate("posterImageUrl") ? { posterImageUrl: input.posterImageUrl } : {}),
+    ...(shouldUpdate("bannerImageUrl") ? { bannerImageUrl: input.bannerImageUrl } : {}),
+    ...(shouldUpdate("thumbnailImageUrl") ? { thumbnailImageUrl: input.thumbnailImageUrl } : {}),
+    ...(shouldUpdate("watchSurfaceEnabled") ? { watchSurfaceEnabled: input.watchSurfaceEnabled } : {}),
+    ...(shouldUpdate("mediaLinks") ? { mediaLinks: input.mediaLinks } : {}),
+    ...(shouldUpdate("sourceLabel") ? { sourceLabel: input.sourceLabel } : {}),
+    ...(shouldUpdate("sourceUrl") ? { sourceUrl: input.sourceUrl } : {}),
     updatedAt: now,
   });
 
-  await replaceEventWorldLink(db, event._id, input.startAt, world, now);
-  await replaceEventSlots(db, event._id, input.startAt, input.slotLinks, now);
-  const participantLinks = participantLinksWithSlotPerformers(input);
-  await replaceEventParticipants(db, event._id, input.startAt, participantLinks, now);
+  const replaceWorld = shouldUpdate("worldSlug");
+  const replaceSlots = shouldUpdate("slotLinks");
+  const replaceParticipants = shouldUpdate("participantLinks");
+
+  if (replaceWorld) {
+    await replaceEventWorldLink(db, event._id, input.startAt, world, now);
+  }
+
+  if (replaceSlots) {
+    await replaceEventSlots(db, event._id, input.startAt, input.slotLinks, now);
+  }
+
+  if (replaceParticipants) {
+    const participantLinks = participantLinksWithSlotPerformers(input);
+    await replaceEventParticipants(db, event._id, input.startAt, participantLinks, now);
+  }
+
+  if (event.startAt !== input.startAt) {
+    await syncPreservedEventAssociationStartAt(db, event._id, input.startAt, now, {
+      preserveParticipants: !replaceParticipants,
+      preserveSlots: !replaceSlots,
+      preserveWorld: !replaceWorld,
+    });
+  }
 
   const updatedEvent = await db.get(event._id);
   if (updatedEvent !== null) {
-    const roleLabels = participantLinks.map((participant) => participant.roleLabel);
+    const roleLabels = await eventParticipantRoleLabels(db, event._id);
     await Promise.all([
       upsertSearchDocument(
         db,
@@ -1778,11 +1890,14 @@ export const updateCommunityEventForApiOwner = internalMutation({
       throw new Error("You do not have permission to update this event.");
     }
 
-    const input = sanitizeEventDraftInput(args);
+    const updateFields = suppliedEventDraftFields(args);
+    const input = sanitizeEventDraftInput(preserveOmittedEventDocumentFields(event, args));
     const community = await requireApiOwnedPublishedCommunity(ctx.db, input.communitySlug, args.ownerUserId);
-    const world = await getPublishedWorldBySlug(ctx.db, input.worldSlug);
+    const world = updateFields.has("worldSlug")
+      ? await getPublishedWorldBySlug(ctx.db, input.worldSlug)
+      : await linkedPublishedEventWorld(ctx.db, event._id);
 
-    const result = await updateCommunityEventRecord(ctx.db, { event, input, community, world });
+    const result = await updateCommunityEventRecord(ctx.db, { event, input, community, world, updateFields });
     await recordApiWriteAuditEvent(ctx.db, {
       action: "event_updated",
       actorKind: args.actorKind,

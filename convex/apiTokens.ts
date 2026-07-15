@@ -57,16 +57,24 @@ async function listUserOwnedTokenSummaries(
   },
 ) {
   const limit = boundedLimit(args.limit, 50, 100);
-  const tokens = await ctx.db
-    .query("apiTokens")
-    .withIndex("by_ownerUserId_createdAt", (index) => index.eq("ownerUserId", args.ownerUserId))
-    .order("desc")
-    .take(limit * 2);
+  const tokens =
+    args.includeRevoked === true
+      ? await ctx.db
+          .query("apiTokens")
+          .withIndex("by_ownerKind_ownerUserId_createdAt", (index) =>
+            index.eq("ownerKind", "user").eq("ownerUserId", args.ownerUserId),
+          )
+          .order("desc")
+          .take(limit)
+      : await ctx.db
+          .query("apiTokens")
+          .withIndex("by_ownerKind_ownerUserId_status_createdAt", (index) =>
+            index.eq("ownerKind", "user").eq("ownerUserId", args.ownerUserId).eq("status", "active"),
+          )
+          .order("desc")
+          .take(limit);
 
   return tokens
-    .filter((token) => token.ownerKind === "user")
-    .filter((token) => args.includeRevoked === true || token.status === "active")
-    .slice(0, limit)
     .map(toTokenSummary);
 }
 

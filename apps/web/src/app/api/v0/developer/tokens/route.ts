@@ -20,6 +20,7 @@ import {
   canCreatePersonalApiToken,
   evaluateDeveloperReadRequest,
   evaluateDeveloperWriteRequest,
+  normalizeDeveloperTokenExpiry,
 } from "@/lib/server/api-developer-read";
 import { convexAdminHttpClient } from "@/lib/server/convex-http";
 
@@ -109,7 +110,7 @@ export async function POST(request: Request) {
   try {
     label = normalizeApiTokenLabel(body.data.label);
     scopes = normalizeApiTokenScopes(body.data.scopes);
-    expiresAt = body.data.expiresAt;
+    expiresAt = normalizeDeveloperTokenExpiry(body.data.expiresAt);
   } catch (error) {
     return problem(
       400,
