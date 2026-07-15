@@ -1,0 +1,122 @@
+name: External API and MCP Readiness
+
+on:
+  workflow_dispatch:
+    inputs:
+      hosted_url:
+        description: Production-like hosted MCP URL used in the session pack
+        required: true
+        default: https://staging.vrdex.net/mcp
+        type: string
+      target_environment:
+        description: Evidence target label, including environment and revision
+        required: true
+        default: staging https://staging.vrdex.net/mcp
+        type: string
+      evidence_revision:
+        description: Exact deployed commit SHA named by the checked-in evidence
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: external-api-mcp-readiness-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  strict-external-readiness:
+    name: Strict External API and MCP Readiness
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate deployed evidence revision
+        env:
+          EVIDENCE_REVISION: ${{ inputs.evidence_revision }}
+        run: |
+          if [[ ! "$EVIDENCE_REVISION" =~ ^[0-9a-f]{7,40}$ ]]; then
+            echo "::error::evidence_revision must be a 7-40 character lowercase commit SHA."
+            exit 1
+          fi
+
+      - name: Generate MCP client session pack
+        id: session-pack
+        env:
+          EVIDENCE_REVISION: ${{ inputs.evidence_revision }}
+          HOSTED_URL: ${{ inputs.hosted_url }}
+          TARGET_ENVIRONMENT: ${{ inputs.target_environment }}
+        run: |
+          pnpm ops:mcp-client-session-pack -- \
+            --hosted-url "$HOSTED_URL" \
+            --target-environment "$TARGET_ENVIRONMENT, deployed revision $EVIDENCE_REVISION, workflow ref ${{ github.ref_name }} at ${{ github.sha }}"
+
+      - name: Run live hosted readiness smoke
+        id: hosted-smoke
+        env:
+          HOSTED_URL: ${{ inputs.hosted_url }}
+        run: |
+          pnpm smoke:mcp-compat -- \
+            --hosted-only \
+            --hosted-url "$HOSTED_URL" \
+            --hosted-data \
+            --dcr \
+            --cimd \
+            --continue-on-failure
+
+      - name: Run strict external launch gate
+        id: launch-gate
+        if: always()
+        env:
+          VRDEX_API_MCP_EXPECT_REVISION: ${{ inputs.evidence_revision }}
+          VRDEX_API_MCP_EXPECT_TARGET: ${{ inputs.hosted_url }}
+        run: pnpm verify:api-mcp-rollout:external
+
+      - name: Write readiness summary
+        if: always()
+        env:
+          EVIDENCE_REVISION: ${{ inputs.evidence_revision }}
+          GATE_OUTCOME: ${{ steps.launch-gate.outcome }}
+          HOSTED_URL: ${{ inputs.hosted_url }}
+          HOSTED_SMOKE_OUTCOME: ${{ steps.hosted-smoke.outcome }}
+          SESSION_PACK_OUTCOME: ${{ steps.session-pack.outcome }}
+          TARGET_ENVIRONMENT: ${{ inputs.target_environment }}
+        run: |
+          {
+            echo "## Strict external API and MCP readiness"
+            echo ""
+            echo "- Launch gate: $GATE_OUTCOME"
+            echo "- Live hosted smoke: $HOSTED_SMOKE_OUTCOME"
+            echo "- Session pack: $SESSION_PACK_OUTCOME"
+            echo "- Hosted URL: \`$HOSTED_URL\`"
+            echo "- Target: $TARGET_ENVIRONMENT"
+            echo "- Deployed evidence revision: \`$EVIDENCE_REVISION\`"
+            echo "- Workflow ref: \`${{ github.ref_name }}\` at \`${{ github.sha }}\`"
+            echo ""
+            echo "This workflow is authoritative for external launch readiness. A green PR reports implementation readiness only."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload MCP client session pack
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: external-api-mcp-session-pack-${{ github.run_id }}
+          if-no-files-found: error
+          retention-days: 14
+          path: .tmp-gh-artifacts/mcp-client-smoke-session

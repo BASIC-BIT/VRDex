@@ -78,11 +78,42 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         run: pnpm install --frozen-lockfile
 
+      - name: Audit Vercel staging runtime variable names
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          HOSTED_DEVELOPER_CREDENTIALS: ${{ vars.VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          runtime_env_json="$RUNNER_TEMP/vrdex-vercel-staging-env.json"
+          trap 'rm -f "$runtime_env_json"' EXIT
+
+          pnpm dlx vercel@54.4.1 env ls staging --format=json --no-color --token "$VERCEL_TOKEN" > "$runtime_env_json"
+
+          args=(--input "$runtime_env_json" --git-branch main)
+          if [ "$HOSTED_DEVELOPER_CREDENTIALS" = "true" ]; then
+            args+=(--require-developer-credentials)
+          fi
+
+          node scripts/check-staging-runtime-env.mjs "${args[@]}"
+
       - name: Deploy Convex development functions
         if: steps.gate.outputs.enabled == 'true'
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_DEV }}
         run: pnpm exec convex deploy --yes --typecheck=enable
+
+      - name: Ensure staging public smoke fixture
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_DEV }}
+        run: |
+          set -euo pipefail
+          printf '%s' staging | pnpm exec convex env set VRDEX_DEPLOYMENT_ENV
+          printf '%s' true | pnpm exec convex env set VRDEX_ENABLE_HOSTED_SMOKE_FIXTURE
+          pnpm exec convex run hostedSmokeFixtures:ensurePublicSearchFixture
 
       - name: Deploy Vercel staging
         if: steps.gate.outputs.enabled == 'true'
@@ -122,6 +153,7 @@ jobs:
           VRDEX_ENABLE_E2E_EXTENDED_PROFILE_FLOW: ${{ vars.VRDEX_HOSTED_E2E_EXTENDED_PROFILE_FLOW }}
           VRDEX_ENABLE_E2E_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
           VRDEX_ENABLE_E2E_ADAPTER_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_ADAPTER_HELPERS }}
+          VRDEX_ENABLE_E2E_DEVELOPER_CREDENTIALS: ${{ vars.VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS }}
           VRDEX_E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
           VRDEX_E2E_RUN_ID: staging-deploy-${{ github.run_id }}-${{ github.run_attempt }}
         run: pnpm test:e2e:hosted

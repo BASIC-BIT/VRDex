@@ -2,9 +2,10 @@
 
 ## Locked Decision
 
-VRDex keeps three Convex execution targets separate:
+VRDex keeps four Convex execution targets separate:
 
 - local development: anonymous local Convex from `pnpm dev:backend:local` or `pnpm verify:backend:local`
+- pull request preview testing: branch-specific Convex preview deployments when a Vercel preview must exercise same-branch backend functions
 - deployed smoke testing: the shared development Convex deployment
 - production release: the production Convex deployment
 
@@ -19,15 +20,68 @@ Current recommendation: define environment variable names and target scopes in d
 
 GitHub Actions secret names:
 
+- `CONVEX_DEPLOY_KEY_PREVIEW`: preview deployment key used by PR Vercel previews that need same-branch backend functions
 - `CONVEX_DEPLOY_KEY_DEV`: development deployment key
 - `CONVEX_DEPLOY_KEY_PROD`: production deployment key used by the main-branch deploy workflow
 
 Local ignored env names:
 
+- `CONVEX_DEPLOY_KEY_PREVIEW`
 - `CONVEX_DEPLOY_KEY_DEV`
 - `CONVEX_DEPLOY_KEY_PROD`
 - `CONVEX_URL_DEV`
 - `CONVEX_URL_PROD`
+
+## Pull Request Preview Backends
+
+Baseline Checks deploys Vercel PR previews after local lint, type, docs,
+contract, backend, and visual checks pass. When `CONVEX_DEPLOY_KEY_PREVIEW` is
+configured, the Vercel preview job first creates or updates a Convex preview
+deployment named for the PR with `convex deploy --preview-create` and builds the
+web app with that preview Convex URL. The project-level
+`CONVEX_DEPLOY_KEY_PREVIEW` remains in GitHub Actions and is never injected into
+Vercel.
+
+The `Hosted MCP Preview Smoke` job always runs `pnpm smoke:mcp-compat` against
+the Vercel preview `/mcp` endpoint when the preview URL exists. CI passes that
+target through `VRDEX_MCP_SMOKE_URL`; local runs can use
+`pnpm smoke:mcp-compat -- --hosted-url <preview-/mcp-url>`. That keeps anonymous
+hosted Streamable HTTP, OAuth metadata, and bearer-challenge behavior covered
+even before a branch-specific backend is configured. Dynamic Client Registration
+and data-backed `vrdex_search` plus `search`/`fetch` alias checks are enabled
+only when `CONVEX_DEPLOY_KEY_PREVIEW` provisions the same-branch Convex preview
+backend; otherwise, the job records that DCR and data-backed public reads were
+not smoked against same-branch backend functions.
+
+Use the manual `Deployed Health Checks` workflow target `hosted-mcp-smoke` when
+DCR/CIMD evidence needs to come from a staging, production-like, or otherwise
+Convex-backed target. Pass the target `/mcp` URL as `base_url` and enable the
+`mcp_dcr` and `mcp_cimd` inputs for the hosted OAuth compatibility gate.
+
+Do not use production deploy keys for PR previews. Preview deployments are for
+schema/function compatibility and hosted smoke validation before merge.
+
+For DCR and CIMD preview smoke, Baseline Checks enables a narrow persistence
+bridge with `VRDEX_DEPLOYMENT_ENV=preview`,
+`VRDEX_ENABLE_PREVIEW_PERSISTENCE_BRIDGE=true`, and a random
+`VRDEX_PREVIEW_PERSISTENCE_SECRET` shared only with the matching Vercel
+deployment. The public bridge mutations reject every other environment and an
+incorrect or missing secret. Do not replace this boundary with a preview
+`CONVEX_ADMIN_TOKEN`. When the separately gated hosted E2E developer-credential
+flow is enabled, the workflow also sets
+`VRDEX_ENABLE_PREVIEW_OAUTH_TOKEN_BRIDGE=true` on that Convex preview. That flag
+permits only client-credentials access-token record issuance and access-token
+validation through the same secret-bound bridge. Authorization-code,
+refresh-token, revocation, and all other internal operations remain unavailable
+to the preview web runtime.
+
+The workflow also sets `VRDEX_ENABLE_HOSTED_SMOKE_FIXTURE=true` and invokes the
+internal `hostedSmokeFixtures:ensurePublicSearchFixture` mutation through the
+Convex CLI admin path. The mutation creates or refreshes one deterministic fake
+public community profile for search smoke coverage. Its guard permits only
+`preview` or `staging`, so production cannot seed the fixture even if the flag
+is accidentally present. Staging runs the same internal mutation after its
+Convex deploy and before its Vercel deploy.
 
 ## Auth Email Environment
 

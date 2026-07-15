@@ -4,6 +4,8 @@ import { gotoFlowPage } from "./flow-navigation";
 
 test.describe.configure({ mode: "serial" });
 
+const hostedActionExpectOptions = { timeout: process.env.PLAYWRIGHT_BASE_URL ? 20_000 : 5_000 };
+
 function e2eBrowserToken() {
   const token = process.env.VRDEX_E2E_BROWSER_TOKEN ?? (process.env.PLAYWRIGHT_BASE_URL ? undefined : "local-playwright-token");
 
@@ -99,8 +101,8 @@ async function createVerifiedE2eAccount({
     page.waitForURL(/\/account$/),
     page.getByRole("button", { name: "Verify email" }).click(),
   ]);
-  await expect(page.getByRole("heading", { name: email })).toBeVisible();
-  await expect(page.getByText("Verified", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: email })).toBeVisible(hostedActionExpectOptions);
+  await expect(page.getByText("Verified", { exact: true })).toBeVisible(hostedActionExpectOptions);
 }
 
 async function linkDiscordAccount(request: APIRequestContext, e2eToken: string, email: string, providerAccountId: string) {
@@ -113,7 +115,7 @@ async function linkDiscordAccount(request: APIRequestContext, e2eToken: string, 
 }
 
 async function expectCurrentOrHostedLagTrustCopy(currentCopy: Locator, hostedLagCopy: Locator) {
-  await expect(currentCopy.or(hostedLagCopy).first()).toBeVisible();
+  await expect(currentCopy.or(hostedLagCopy).first()).toBeVisible(hostedActionExpectOptions);
 }
 
 function profileStatusCopy(page: Page, label: string) {
@@ -203,10 +205,10 @@ test("verified email account with linked Discord can claim an E2E person profile
     await expect(page.getByText("discord", { exact: true })).toBeVisible();
     await page.getByLabel("Person slug").fill(createdSlug!);
     await page.getByRole("button", { name: "Claim with Discord" }).click();
-    await expect(page.getByText(/Person profile claimed as claimed unverified/i)).toBeVisible();
+    await expect(page.getByText(/Person profile claimed as claimed unverified/i)).toBeVisible(hostedActionExpectOptions);
 
     await gotoFlowPage(page, `/p/${createdSlug}`);
-    await expect(page.getByRole("heading", { name: displayName })).toBeVisible();
+    await expect(page.getByRole("heading", { name: displayName })).toBeVisible(hostedActionExpectOptions);
     await expectCurrentOrHostedLagTrustCopy(
       profileStatusCopy(page, "Claimed"),
       page.getByRole("heading", { name: "Claimed", exact: true }).or(page.getByText("Person profile / Claimed", { exact: true })),
@@ -274,12 +276,12 @@ test("verified email account can complete community and VRChat adapter claims @f
     await page.getByLabel("Discord guild ID").fill(`e2e-guild-${runSuffix}`);
     await page.getByLabel("Guild name").fill(`E2E Guild ${runSuffix}`);
     await page.getByRole("button", { name: "Request admin claim" }).click();
-    await expect(page.getByText(/Community claim request created/i)).toBeVisible();
+    await expect(page.getByText(/Community claim request created/i)).toBeVisible(hostedActionExpectOptions);
     await page.getByRole("button", { name: "Check Discord admin" }).click();
-    await expect(page.getByText(/Community claim verified as claimed verified/i)).toBeVisible();
+    await expect(page.getByText(/Community claim verified as claimed verified/i)).toBeVisible(hostedActionExpectOptions);
 
     await gotoFlowPage(page, `/c/${communitySlug}`);
-    await expect(page.getByRole("heading", { name: `Playwright Community ${runSuffix}` })).toBeVisible();
+    await expect(page.getByRole("heading", { name: `Playwright Community ${runSuffix}` })).toBeVisible(hostedActionExpectOptions);
     await expectCurrentOrHostedLagTrustCopy(
       profileStatusCopy(page, "Verified"),
       page.getByRole("heading", { name: "Verified owner", exact: true }).or(page.getByText("Community profile / Verified", { exact: true })),
@@ -290,13 +292,13 @@ test("verified email account can complete community and VRChat adapter claims @f
     await page.getByLabel("Target type").selectOption("vrchat_user");
     await page.getByLabel("Target ID").fill(`e2e-vrchat-${runSuffix}`);
     await page.getByRole("button", { name: "Create proof code" }).click();
-    await expect(page.getByText(/Proof code created/i)).toBeVisible();
-    await expect(page.getByText(/VRDEX-/)).toBeVisible();
+    await expect(page.getByText(/Proof code created/i)).toBeVisible(hostedActionExpectOptions);
+    await expect(page.getByText(/VRDEX-/)).toBeVisible(hostedActionExpectOptions);
     await page.getByRole("button", { name: "Check proof now" }).click();
-    await expect(page.getByText(/Proof verified as claimed verified/i)).toBeVisible();
+    await expect(page.getByText(/Proof verified as claimed verified/i)).toBeVisible(hostedActionExpectOptions);
 
     await gotoFlowPage(page, `/p/${vrchatPersonSlug}`);
-    await expect(page.getByRole("heading", { name: `Playwright VRChat Proof ${runSuffix}` })).toBeVisible();
+    await expect(page.getByRole("heading", { name: `Playwright VRChat Proof ${runSuffix}` })).toBeVisible(hostedActionExpectOptions);
     await expectCurrentOrHostedLagTrustCopy(
       profileStatusCopy(page, "Verified"),
       page.getByRole("heading", { name: "Verified owner", exact: true }).or(page.getByText("Person profile / Verified", { exact: true })),
@@ -307,13 +309,13 @@ test("verified email account can complete community and VRChat adapter claims @f
     await page.getByLabel("Target type").selectOption("vrclinking");
     await page.getByLabel("Target ID").fill(`e2e-vrclinking-${runSuffix}`);
     await page.getByRole("button", { name: "Create proof code" }).click();
-    await expect(page.getByText(/Proof code created/i)).toBeVisible();
-    await expect(page.getByText(/VRDEX-/)).toBeVisible();
+    await expect(page.getByText(/Proof code created/i)).toBeVisible(hostedActionExpectOptions);
+    await expect(page.getByText(/VRDEX-/)).toBeVisible(hostedActionExpectOptions);
     await page.getByRole("button", { name: "Check proof now" }).click();
-    await expect(page.getByText(/Proof verified as claimed verified/i)).toBeVisible();
+    await expect(page.getByText(/Proof verified as claimed verified/i)).toBeVisible(hostedActionExpectOptions);
 
     await gotoFlowPage(page, `/p/${vrcLinkingPersonSlug}`);
-    await expect(page.getByRole("heading", { name: `Playwright VRCLinking Proof ${runSuffix}` })).toBeVisible();
+    await expect(page.getByRole("heading", { name: `Playwright VRCLinking Proof ${runSuffix}` })).toBeVisible(hostedActionExpectOptions);
     await expectCurrentOrHostedLagTrustCopy(
       profileStatusCopy(page, "Verified"),
       page.getByRole("heading", { name: "Verified owner", exact: true }).or(page.getByText("Person profile / Verified", { exact: true })),

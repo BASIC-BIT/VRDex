@@ -1,17 +1,23 @@
 import Link from "next/link";
+import { Suspense } from "react";
 
 import { SignInForm } from "./sign-in-form";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, Eyebrow } from "@/components/ui/card";
+import { Notice } from "@/components/ui/notice";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 import { validateSignInReturnTo } from "@/lib/safe-return-to";
 
 export default async function SignInPage({
   searchParams,
 }: {
-  searchParams: Promise<{ returnTo?: string | string[] }>;
+  searchParams: Promise<{
+    redirectTo?: string | string[];
+    returnTo?: string | string[];
+  }>;
 }) {
-  const returnTo = validateSignInReturnTo((await searchParams).returnTo);
+  const params = await searchParams;
+  const returnTo = validateSignInReturnTo(params.returnTo ?? params.redirectTo);
 
   return (
     <PageShell className="py-10">
@@ -36,7 +42,9 @@ export default async function SignInPage({
             </div>
 
             <Card surface="glass">
-              <SignInForm returnTo={returnTo} />
+              <Suspense fallback={<Notice>Loading sign-in options...</Notice>}>
+                <SignInForm returnTo={returnTo} />
+              </Suspense>
             </Card>
           </div>
         </section>

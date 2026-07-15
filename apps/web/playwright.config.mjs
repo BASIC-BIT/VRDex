@@ -29,6 +29,32 @@ const localJwtKeys = hostedBaseURL
         JWKS: process.env.JWKS ?? JSON.stringify({ keys: [{ use: "sig", ...jwk }] }),
       };
     })();
+const localApiCredentialEnv = hostedBaseURL
+  ? {}
+  : (() => {
+      const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+      const oauthSigningKey = privateKey
+        .export({ format: "pem", type: "pkcs8" })
+        .toString()
+        .trimEnd()
+        .replace(/\n/g, "\\n");
+
+      return {
+        VRDEX_API_TOKEN_PEPPER: process.env.VRDEX_API_TOKEN_PEPPER ?? "local-playwright-api-token-pepper",
+        VRDEX_OAUTH_CLIENT_SECRET_PEPPER:
+          process.env.VRDEX_OAUTH_CLIENT_SECRET_PEPPER ?? "local-playwright-oauth-client-secret-pepper",
+        VRDEX_OAUTH_REFRESH_TOKEN_PEPPER:
+          process.env.VRDEX_OAUTH_REFRESH_TOKEN_PEPPER ?? "local-playwright-oauth-refresh-token-pepper",
+        VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY:
+          process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY ?? oauthSigningKey,
+        VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID:
+          process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID ?? "local-playwright-oauth",
+        VRDEX_OAUTH_ISSUER_URL: process.env.VRDEX_OAUTH_ISSUER_URL ?? baseURL,
+        VRDEX_PUBLIC_API_BASE_URL: process.env.VRDEX_PUBLIC_API_BASE_URL ?? baseURL,
+        VRDEX_MCP_RESOURCE_URI: process.env.VRDEX_MCP_RESOURCE_URI ?? `${baseURL}/mcp`,
+        VRDEX_RATE_LIMIT_STORE: process.env.VRDEX_RATE_LIMIT_STORE ?? "memory",
+      };
+    })();
 const allowFixtureSearchFallthrough =
   process.env.VRDEX_ALLOW_PLAYWRIGHT_FIXTURE_SEARCH_FALLTHROUGH === "true" ||
   e2eHelpersEnabled === "true";
@@ -58,6 +84,7 @@ const sharedEnv = {
   NEXT_PUBLIC_CONVEX_URL: convexUrl,
   SITE_URL: process.env.SITE_URL ?? baseURL,
   ...localJwtKeys,
+  ...localApiCredentialEnv,
   VRDEX_ENABLE_PLAYWRIGHT_FIXTURES: "true",
   ...localE2eHelperEnv,
   ...(allowFixtureSearchFallthrough
@@ -101,7 +128,7 @@ export default defineConfig({
       ? []
       : [
           {
-            command: `node ../../scripts/sync-convex-local-env.mjs && node node_modules/next/dist/bin/next dev --webpack --hostname 127.0.0.1 --port ${port}`,
+            command: `node ../../scripts/sync-convex-local-env.mjs && node ../../scripts/run-next-with-convex-local-admin.mjs dev --webpack --hostname 127.0.0.1 --port ${port}`,
             cwd: configDir,
             url: baseURL,
             reuseExistingServer: reuseNextServer,

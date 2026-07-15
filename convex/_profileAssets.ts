@@ -2,6 +2,8 @@ import type { GenericId } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
+import { recordApiWriteAuditEvent } from "./_apiWriteAuditEvents";
+import { userOwnsProfile } from "./_profileOwnership";
 
 export const PROFILE_ASSET_UPLOAD_MAX_BYTES = 12 * 1024 * 1024;
 export const PROFILE_ASSET_UPLOAD_INTENT_TTL_MS = 30 * 60 * 1000;
@@ -68,10 +70,31 @@ export type ProfileAssetUploadInput = {
 
 export type ProfileAssetAuthSubject = Doc<"profileAssetUploadIntents">["requestedBy"];
 
+export type ProfileAssetUploadIntentCreateInput = {
+  requestedBy: ProfileAssetAuthSubject;
+  originalFileName?: string;
+  sourceUrl?: string;
+  mimeType: string;
+  byteSize?: number;
+  targetProfileId?: Id<"profiles">;
+  label?: string;
+  caption?: string;
+  placements?: ProfileAssetPlacement[];
+  position?: number;
+  source?: Doc<"profileAssets">["source"];
+  now: number;
+};
+
 function normalizeInlineText(value: string | undefined): string | undefined {
   const normalized = value?.trim().replace(/\s+/g, " ");
 
   return normalized ? normalized : undefined;
+}
+
+export function normalizeProfileAssetFileName(value: string | undefined): string | undefined {
+  const normalized = normalizeInlineText(value);
+
+  return normalized ? normalized.slice(0, 180) : undefined;
 }
 
 export function sanitizeProfileAssetLabel(value: string | undefined): string | undefined {
@@ -215,6 +238,57 @@ export function createProfileAssetStorageKey(input: {
   const name = safeStorageName(input.originalFileName).replace(/\.[a-z0-9]+$/i, "").replace(/-+$/g, "");
 
   return `profile-assets/${new Date(input.now).toISOString().slice(0, 10)}/${input.token.slice(0, 24)}/${name}.${extension}`;
+}
+
+export async function createProfileAssetUploadIntentRecord(
+  db: DatabaseWriter,
+  input: ProfileAssetUploadIntentCreateInput,
+) {
+  const originalFileName = normalizeProfileAssetFileName(input.originalFileName);
+  const sourceUrl = normalizeProfileAssetSourceUrl(input.sourceUrl);
+
+  if (originalFileName === undefined && sourceUrl === undefined) {
+    throw new Error("Profile media uploads require a file name or HTTPS source URL.");
+  }
+
+  const mimeType = normalizeProfileAssetMimeType(input.mimeType);
+  const byteSize = validateProfileAssetByteSize(input.byteSize ?? 1);
+  const uploadToken = createUploadToken();
+  const storageKey = createProfileAssetStorageKey({
+    token: uploadToken,
+    originalFileName,
+    mimeType,
+    now: input.now,
+  });
+  const label = sanitizeProfileAssetLabel(input.label);
+  const caption = sanitizeProfileAssetCaption(input.caption);
+  const expiresAt = input.now + PROFILE_ASSET_UPLOAD_INTENT_TTL_MS;
+  const intentId = await db.insert("profileAssetUploadIntents", {
+    uploadToken,
+    requestedBy: input.requestedBy,
+    ...(input.targetProfileId !== undefined ? { targetProfileId: input.targetProfileId } : {}),
+    ...(originalFileName !== undefined ? { originalFileName } : {}),
+    ...(sourceUrl !== undefined ? { sourceUrl } : {}),
+    mimeType,
+    byteSize,
+    storageKey,
+    ...(label !== undefined ? { label } : {}),
+    ...(caption !== undefined ? { caption } : {}),
+    ...(input.placements !== undefined ? { placements: input.placements } : {}),
+    ...(input.position !== undefined ? { position: input.position } : {}),
+    ...(input.source !== undefined ? { source: input.source } : {}),
+    state: "pending",
+    createdAt: input.now,
+    expiresAt,
+    updatedAt: input.now,
+  });
+
+  return {
+    intentId,
+    uploadToken,
+    storageKey,
+    expiresAt,
+  };
 }
 
 export function publicProfileAssetImageUrl(slug: string, assetId: GenericId<"profileAssets">): string {
@@ -404,4 +478,92 @@ export async function consumeProfileAssetUploads(
   }
 
   return assetIds;
+}
+
+export async function finalizeProfileAssetUploadIntentUpload(
+  db: DatabaseWriter,
+  input: {
+    intentId: Id<"profileAssetUploadIntents">;
+    uploadToken: string;
+    mimeType: string;
+    byteSize: number;
+    now: number;
+  },
+) {
+  const intent = await db.get(input.intentId);
+
+  if (intent === null || intent.uploadToken !== input.uploadToken) {
+    throw new Error("Profile media upload intent was not found.");
+  }
+
+  if (intent.state !== "pending" || intent.expiresAt < input.now) {
+    throw new Error("Profile media upload intent is no longer pending.");
+  }
+
+  if (
+    intent.targetProfileId !== undefined &&
+    (intent.requestedBy.issuer !== "vrdex:api" ||
+      !(await userOwnsProfile(
+        db,
+        intent.targetProfileId,
+        intent.requestedBy.subject as Id<"users">,
+      )))
+  ) {
+    throw new Error("You do not have permission to update this profile.");
+  }
+
+  await db.patch(intent._id, {
+    mimeType: normalizeProfileAssetMimeType(input.mimeType),
+    byteSize: validateProfileAssetByteSize(input.byteSize),
+    state: "uploaded",
+    uploadedAt: input.now,
+    updatedAt: input.now,
+  });
+
+  if (intent.targetProfileId === undefined) {
+    return { ok: true as const, assetIds: [] as Id<"profileAssets">[] };
+  }
+
+  const assetIds = await consumeProfileAssetUploads(db, {
+    profileId: intent.targetProfileId,
+    requestedBy: intent.requestedBy,
+    uploads: [
+      {
+        intentId: intent._id,
+        uploadToken: input.uploadToken,
+        ...(intent.label !== undefined ? { label: intent.label } : {}),
+        ...(intent.caption !== undefined ? { caption: intent.caption } : {}),
+        placements: intent.placements ?? [],
+        ...(intent.position !== undefined ? { position: intent.position } : {}),
+      },
+    ],
+    source: intent.source ?? "owner_authored",
+    now: input.now,
+  });
+
+  if (assetIds.length > 0) {
+    await db.insert("profileAuditEvents", {
+      profileId: intent.targetProfileId,
+      action: "api_profile_asset_uploaded",
+      actor: intent.requestedBy,
+      sourceType: "owner",
+      note: "Public API profile asset upload intent consumed.",
+      createdAt: input.now,
+    });
+
+    if (intent.requestedBy.issuer === "vrdex:api") {
+      await recordApiWriteAuditEvent(db, {
+        action: "profile_asset_upload_completed",
+        actorKind: "upload_token",
+        resourceType: "profile_asset",
+        routeClass: "asset_upload_intent",
+        targetProfileId: intent.targetProfileId,
+        targetIntentId: intent._id,
+        assetIds,
+        now: input.now,
+      });
+    }
+  }
+
+  return { ok: true as const, assetIds };
 }

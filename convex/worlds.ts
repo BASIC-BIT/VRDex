@@ -33,6 +33,28 @@ export const getPublicBySlug = query({
   },
 });
 
+export const getPublicEventsBySlug = query({
+  args: {
+    slug: v.string(),
+    now: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const validation = validateWorldSlug(args.slug);
+
+    if (!validation.ok) {
+      return null;
+    }
+
+    const world = await getWorldBySlug(ctx.db, validation.slug);
+
+    if (world === null || world.publicationState !== "published") {
+      return null;
+    }
+
+    return await getPublicWorldEventContext(ctx.db, world._id, args.now);
+  },
+});
+
 export const listHomeActiveWorlds = query({
   args: {
     now: v.number(),

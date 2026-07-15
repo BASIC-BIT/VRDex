@@ -1,7 +1,13 @@
 import { v } from "convex/values";
 
-import { mutation, query } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { getPublicCommunityHostedEvents, getPublicPersonUpcomingEvents } from "./_eventPublic";
+import type { AuthSubject } from "./_communityAuthority";
+import {
+  apiWriteAuditActorKindValidator,
+  recordApiWriteAuditEvent,
+} from "./_apiWriteAuditEvents";
 import { toPublicProfileAppearance } from "./_profileAppearance";
 import { toProfileLookupResult } from "./_profileLookup";
 import {
@@ -24,12 +30,71 @@ import {
 } from "./_searchDocuments";
 import { ensureShortLinkForTarget } from "./_shortLinks";
 import { recordVocabularyTerms } from "./_vocabulary";
+import { userOwnsProfile } from "./_profileOwnership";
+import { applyApiProfileUpdate } from "./_profileUpdates";
 
 const profileType = v.union(v.literal("person"), v.literal("community"));
 const PROFILE_LOOKUP_RESULT_LIMIT = 12;
+const nullableString = v.union(v.string(), v.null());
+const apiProfileUpdateArgs = {
+  displayName: v.optional(v.string()),
+  aliases: v.optional(v.array(v.string())),
+  tags: v.optional(v.array(v.string())),
+  headline: v.optional(nullableString),
+  bio: v.optional(nullableString),
+  region: v.optional(nullableString),
+  timezone: v.optional(nullableString),
+  person: v.optional(
+    v.object({
+      pronouns: v.optional(nullableString),
+      roleTags: v.optional(v.array(v.string())),
+    }),
+  ),
+  community: v.optional(
+    v.object({
+      subtype: v.optional(nullableString),
+      categoryTags: v.optional(v.array(v.string())),
+    }),
+  ),
+};
 
 function boundedLimit(value: number | undefined, fallback: number, max: number): number {
   return Math.max(1, Math.min(value ?? fallback, max));
+}
+
+function toApiOwnedProfileSummary(profile: Doc<"profiles">) {
+  return {
+    id: profile._id,
+    slug: profile.slug,
+    profileType: profile.profileType,
+    displayName: profile.displayName,
+    headline: profile.headline,
+    claimState: profile.claimState,
+    publicationState: profile.publicationState,
+    publicSurfacingState: profile.publicSurfacingState,
+    creationSource: profile.creationSource,
+    claimedAt: profile.claimedAt,
+    publishedAt: profile.publishedAt,
+    updatedAt: profile.updatedAt,
+  };
+}
+
+function toApiProfileWriteResponse(profile: Doc<"profiles">) {
+  return {
+    profileId: profile._id,
+    slug: profile.slug,
+    profileType: profile.profileType,
+    profilePath: profile.profileType === "person" ? `/p/${profile.slug}` : `/c/${profile.slug}`,
+  };
+}
+
+function apiOwnerAuthSubject(userId: Doc<"users">["_id"]): AuthSubject {
+  return {
+    tokenIdentifier: `api:${userId}`,
+    issuer: "vrdex:api",
+    subject: String(userId),
+    displayName: "API user",
+  };
 }
 
 const profileAssetPlacement = v.union(
@@ -45,6 +110,82 @@ const profileAssetUploadInput = v.object({
   caption: v.optional(v.string()),
   placements: v.array(profileAssetPlacement),
   position: v.optional(v.number()),
+});
+
+export const listProfilesForApiOwner = internalQuery({
+  args: {
+    ownerUserId: v.id("users"),
+    profileType: v.optional(profileType),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = boundedLimit(args.limit, 50, 100);
+    const owners = await ctx.db
+      .query("profileOwners")
+      .withIndex("by_userId_state", (index) => index.eq("userId", args.ownerUserId).eq("state", "active"))
+      .collect();
+    const profiles = await Promise.all(owners.map((owner) => ctx.db.get(owner.profileId)));
+
+    return profiles
+      .filter((profile): profile is Doc<"profiles"> => profile !== null)
+      .filter((profile) => args.profileType === undefined || profile.profileType === args.profileType)
+      .sort((first, second) => first.displayName.localeCompare(second.displayName))
+      .slice(0, limit)
+      .map(toApiOwnedProfileSummary);
+  },
+});
+
+export const updateProfileForApiOwner = internalMutation({
+  args: {
+    actorKind: apiWriteAuditActorKindValidator,
+    ownerUserId: v.id("users"),
+    currentSlug: v.string(),
+    ...apiProfileUpdateArgs,
+  },
+  handler: async (ctx, args) => {
+    const validation = validateProfileSlug(args.currentSlug);
+
+    if (!validation.ok) {
+      throw new Error("Current profile slug is invalid.");
+    }
+
+    const profile = await getProfileBySlug(ctx.db, validation.slug);
+
+    if (profile === null) {
+      throw new Error("Profile was not found.");
+    }
+
+    if (!(await userOwnsProfile(ctx.db, profile._id, args.ownerUserId))) {
+      throw new Error("You do not have permission to update this profile.");
+    }
+
+    const now = Date.now();
+    const { changedFields, profile: updatedProfile } = await applyApiProfileUpdate(ctx.db, {
+      profile,
+      input: args,
+      now,
+    });
+
+    await ctx.db.insert("profileAuditEvents", {
+      profileId: profile._id,
+      action: "api_profile_updated",
+      actor: apiOwnerAuthSubject(args.ownerUserId),
+      sourceType: "owner",
+      note: `Public API profile update: ${changedFields.join(", ")}.`,
+      createdAt: now,
+    });
+    await recordApiWriteAuditEvent(ctx.db, {
+      action: "profile_updated",
+      actorKind: args.actorKind,
+      ownerUserId: args.ownerUserId,
+      resourceType: "profile",
+      routeClass: "public_write",
+      targetProfileId: profile._id,
+      now,
+    });
+
+    return toApiProfileWriteResponse(updatedProfile);
+  },
 });
 
 function optionalIdentityDisplayName(name: string | undefined): string | undefined {

@@ -28,6 +28,7 @@ on:
           - ses
           - posthog
           - vercel
+          - rate-limit-redis
           - restream-worker
       apply:
         description: Apply the selected stack after a successful plan.
@@ -55,6 +56,10 @@ env:
   TERRAFORM_ROUTE53_ZONE_ID: ${{ vars.TERRAFORM_ROUTE53_ZONE_ID }}
   TERRAFORM_PROFILE_ASSETS_ENABLED: ${{ vars.TERRAFORM_PROFILE_ASSETS_ENABLED }}
   TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_IDS: ${{ vars.TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_IDS }}
+  TERRAFORM_UPSTASH_EMAIL: ${{ vars.TERRAFORM_UPSTASH_EMAIL || secrets.TERRAFORM_UPSTASH_EMAIL }}
+  TERRAFORM_UPSTASH_API_KEY: ${{ secrets.TERRAFORM_UPSTASH_API_KEY || secrets.UPSTASH_API_KEY }}
+  TERRAFORM_RATE_LIMIT_STAGING_CUSTOM_ENVIRONMENT_IDS: ${{ vars.TERRAFORM_RATE_LIMIT_STAGING_CUSTOM_ENVIRONMENT_IDS }}
+  TERRAFORM_RATE_LIMIT_MANAGE_PREVIEW_ENVIRONMENT: ${{ vars.TERRAFORM_RATE_LIMIT_MANAGE_PREVIEW_ENVIRONMENT }}
   TERRAFORM_PROFILE_ASSETS_VERCEL_TEAM_SLUG: ${{ vars.TERRAFORM_PROFILE_ASSETS_VERCEL_TEAM_SLUG || 'basicbit' }}
 
 jobs:
@@ -100,6 +105,7 @@ jobs:
             requires_posthog_public_key: "false"
             requires_ses_domain: "false"
             requires_profile_assets_enabled: "false"
+            requires_upstash: "false"
           - name: docs-site
             path: infra/terraform/docs-site
             backend: "true"
@@ -112,6 +118,7 @@ jobs:
             requires_posthog_public_key: "false"
             requires_ses_domain: "false"
             requires_profile_assets_enabled: "false"
+            requires_upstash: "false"
           - name: web-domains
             path: infra/terraform/web-domains
             backend: "true"
@@ -124,6 +131,7 @@ jobs:
             requires_posthog_public_key: "false"
             requires_ses_domain: "false"
             requires_profile_assets_enabled: "false"
+            requires_upstash: "false"
           - name: profile-assets
             path: infra/terraform/profile-assets
             backend: "true"
@@ -136,6 +144,7 @@ jobs:
             requires_posthog_public_key: "false"
             requires_ses_domain: "false"
             requires_profile_assets_enabled: "true"
+            requires_upstash: "false"
           - name: ses
             path: infra/terraform/ses
             backend: "true"
@@ -148,6 +157,7 @@ jobs:
             requires_posthog_public_key: "false"
             requires_ses_domain: "true"
             requires_profile_assets_enabled: "false"
+            requires_upstash: "false"
           - name: posthog
             path: infra/terraform/posthog
             backend: "true"
@@ -160,6 +170,7 @@ jobs:
             requires_posthog_public_key: "false"
             requires_ses_domain: "false"
             requires_profile_assets_enabled: "false"
+            requires_upstash: "false"
           - name: vercel
             path: infra/terraform/vercel
             backend: "true"
@@ -172,6 +183,20 @@ jobs:
             requires_posthog_public_key: "true"
             requires_ses_domain: "false"
             requires_profile_assets_enabled: "false"
+            requires_upstash: "false"
+          - name: rate-limit-redis
+            path: infra/terraform/rate-limit-redis
+            backend: "true"
+            plan: "true"
+            auto_apply: "false"
+            manual_apply: "true"
+            requires_aws: "true"
+            requires_vercel: "true"
+            requires_posthog: "false"
+            requires_posthog_public_key: "false"
+            requires_ses_domain: "false"
+            requires_profile_assets_enabled: "false"
+            requires_upstash: "true"
           - name: restream-worker
             path: infra/terraform/restream-worker
             backend: "true"
@@ -184,6 +209,7 @@ jobs:
             requires_posthog_public_key: "false"
             requires_ses_domain: "false"
             requires_profile_assets_enabled: "false"
+            requires_upstash: "false"
 
     steps:
       - name: Checkout
@@ -253,6 +279,8 @@ jobs:
           if [ "${{ matrix.stack.requires_posthog_public_key }}" = "true" ] && [ -z "$TERRAFORM_POSTHOG_PUBLIC_KEY" ]; then missing+=("TERRAFORM_POSTHOG_PUBLIC_KEY"); fi
           if [ "${{ matrix.stack.requires_ses_domain }}" = "true" ] && [ -z "$TERRAFORM_SES_DOMAIN_NAME" ]; then missing+=("TERRAFORM_SES_DOMAIN_NAME"); fi
           if [ "${{ matrix.stack.requires_profile_assets_enabled }}" = "true" ] && [ "$TERRAFORM_PROFILE_ASSETS_ENABLED" != "true" ]; then missing+=("TERRAFORM_PROFILE_ASSETS_ENABLED=true"); fi
+          if [ "${{ matrix.stack.requires_upstash }}" = "true" ] && [ -z "$TERRAFORM_UPSTASH_EMAIL" ]; then missing+=("TERRAFORM_UPSTASH_EMAIL"); fi
+          if [ "${{ matrix.stack.requires_upstash }}" = "true" ] && [ -z "$TERRAFORM_UPSTASH_API_KEY" ]; then missing+=("TERRAFORM_UPSTASH_API_KEY or UPSTASH_API_KEY"); fi
 
           if [ "${#missing[@]}" -gt 0 ]; then
             echo "plan_enabled=false" >> "$GITHUB_OUTPUT"
@@ -325,6 +353,8 @@ jobs:
         working-directory: ${{ matrix.stack.path }}
         env:
           TF_VAR_posthog_public_key: ${{ env.TERRAFORM_POSTHOG_PUBLIC_KEY }}
+          TF_VAR_upstash_email: ${{ env.TERRAFORM_UPSTASH_EMAIL }}
+          TF_VAR_upstash_api_key: ${{ env.TERRAFORM_UPSTASH_API_KEY }}
         run: |
           set -euo pipefail
 
@@ -343,6 +373,10 @@ jobs:
               ;;
             profile-assets)
               if [ -n "$TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_IDS" ]; then args+=("-var=staging_custom_environment_ids=$TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_IDS"); fi
+              ;;
+            rate-limit-redis)
+              if [ -n "$TERRAFORM_RATE_LIMIT_STAGING_CUSTOM_ENVIRONMENT_IDS" ]; then args+=("-var=staging_custom_environment_ids=$TERRAFORM_RATE_LIMIT_STAGING_CUSTOM_ENVIRONMENT_IDS"); fi
+              if [ -n "$TERRAFORM_RATE_LIMIT_MANAGE_PREVIEW_ENVIRONMENT" ]; then args+=("-var=manage_preview_environment=$TERRAFORM_RATE_LIMIT_MANAGE_PREVIEW_ENVIRONMENT"); fi
               ;;
           esac
 

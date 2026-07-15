@@ -35,6 +35,49 @@ test("legacy discovery query redirects to search", async ({ page }) => {
   await expectSearchPage(page);
 });
 
+test("OpenAPI YAML document is served", async ({ page }) => {
+  const response = await page.request.get("/api/v0/openapi.yaml");
+
+  expect(response.ok()).toBe(true);
+  expect(response.headers()["content-type"]).toContain("application/yaml");
+
+  const body = await response.text();
+
+  expect(body).toContain("openapi: 3.1.0");
+  expect(body).toContain("/api/v0/openapi.yaml:");
+});
+
+test("public API supports browser CORS and preflight", async ({ page }) => {
+  const origin = "https://developer.example.test";
+  const response = await page.request.get("/api/v0/openapi.json", {
+    headers: { Origin: origin },
+  });
+
+  expect(response.ok()).toBe(true);
+  expect(response.headers()["access-control-allow-origin"]).toBe("*");
+  expect(response.headers()["access-control-allow-credentials"]).toBeUndefined();
+  expect(response.headers()["access-control-expose-headers"]).toContain("RateLimit-Limit");
+
+  const preflight = await page.request.fetch("/api/v0/developer/oauth-apps/example", {
+    method: "OPTIONS",
+    headers: {
+      Origin: origin,
+      "Access-Control-Request-Headers": "authorization, content-type",
+      "Access-Control-Request-Method": "PATCH",
+    },
+  });
+
+  expect(preflight.ok()).toBe(true);
+  expect(preflight.headers()["access-control-allow-origin"]).toBe("*");
+  expect(preflight.headers()["access-control-allow-credentials"]).toBeUndefined();
+  expect(preflight.headers()["access-control-allow-methods"]).toContain("PATCH");
+  expect(preflight.headers()["access-control-allow-headers"]).toContain("Authorization");
+  expect(preflight.headers()["access-control-allow-headers"]).not.toContain("Cookie");
+  expect(preflight.headers()["access-control-allow-headers"]).not.toContain("X-CSRF-Token");
+  expect(preflight.headers()["access-control-allow-headers"]).not.toContain("X-Arbitrary-Client-Header");
+  expect(preflight.headers()["access-control-max-age"]).toBe("600");
+});
+
 test.describe("hosted lookup smoke", () => {
   test.skip(!isHostedRun, "Hosted-only smoke coverage.");
 

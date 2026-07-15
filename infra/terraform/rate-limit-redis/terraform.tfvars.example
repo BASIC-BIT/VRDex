@@ -1,0 +1,32 @@
+# BASIC BIT hosted example values. Self-hosted operators should replace these
+# with their own Vercel and Upstash accounts before applying this stack.
+
+vercel_team_id      = "team_GoHh5xUc96fAIAqJoG55A71S"
+vercel_project_name = "vr-dex-web"
+
+# Set these in local terraform.tfvars from the Upstash console.
+upstash_email   = "operator@example.com"
+upstash_api_key = "REPLACE_WITH_UPSTASH_API_KEY"
+
+upstash_database_name  = "vrdex-rate-limit"
+upstash_region         = "global"
+upstash_primary_region = "us-east-1"
+upstash_read_regions   = []
+
+upstash_budget       = 20
+upstash_auto_scale   = false
+upstash_prod_pack    = false
+upstash_eviction     = false
+upstash_ip_allowlist = []
+
+rate_limit_store_mode = "upstash"
+redis_key_prefix      = "vrdex:rate-limit"
+
+manage_production_environment = true
+
+# Default PR previews stay on memory unless operators intentionally opt them
+# into this shared hosted Redis store.
+manage_preview_environment = false
+
+# Vercel custom environment ID for the shared `staging` environment.
+staging_custom_environment_ids = ["env_1iR8Tk53UMEhsbEgONsgGhzl9hX9"]

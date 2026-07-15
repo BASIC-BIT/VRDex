@@ -1,0 +1,556 @@
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { describe, it } from "node:test";
+
+function runMcpProbe(script: string) {
+  return execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      TSX_TSCONFIG_PATH: "apps/web/tsconfig.json",
+    },
+  });
+}
+
+const namedSchemaMapKeys = new Set(["$defs", "definitions", "dependentSchemas", "patternProperties", "properties"]);
+
+function hasLegacySchemaId(value: unknown, insideNamedSchemaMap = false): boolean {
+  if (Array.isArray(value)) {
+    return value.some((item) => hasLegacySchemaId(item));
+  }
+
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  return Object.entries(value).some(
+    ([key, child]) =>
+      (key === "id" && !insideNamedSchemaMap) || hasLegacySchemaId(child, namedSchemaMapKeys.has(key)),
+  );
+}
+
+function jsonBodyFromProbe(output: string) {
+  const payload = output.trim().split(/\r?\n/).slice(1).join("\n");
+  const eventData = payload
+    .split(/\r?\n/)
+    .find((line) => line.startsWith("data: "))
+    ?.slice("data: ".length);
+
+  return JSON.parse(eventData ?? payload) as {
+    result?: {
+      tools?: Array<{
+        _meta?: unknown;
+        name?: string;
+        outputSchema?: unknown;
+      }>;
+    };
+  };
+}
+
+function assertPublicReadSecuritySchemes(value: unknown) {
+  assert.equal(typeof value, "object");
+  assert.notEqual(value, null);
+
+  const metadata = value as {
+    securitySchemes?: Array<{
+      scopes?: unknown;
+      type?: unknown;
+    }>;
+  };
+
+  assert.deepEqual(metadata.securitySchemes, [
+    { type: "noauth" },
+    { scopes: ["mcp:read"], type: "oauth2" },
+  ]);
+}
+
+function assertAuthenticatedReadSecuritySchemes(value: unknown) {
+  assert.equal(typeof value, "object");
+  assert.notEqual(value, null);
+
+  const metadata = value as {
+    securitySchemes?: Array<{
+      scopes?: unknown;
+      type?: unknown;
+    }>;
+  };
+
+  assert.deepEqual(metadata.securitySchemes, [
+    { scopes: ["mcp:read"], type: "oauth2" },
+  ]);
+}
+
+describe("VRDex MCP server", () => {
+  it("extracts accepted curated tool calls for durable invocation counts", () => {
+    const output = runMcpProbe(`
+      import {
+        acceptedMcpRouteClassForRequest,
+        mcpToolCallNamesFromPayload,
+        mcpToolCallNamesFromRequest,
+      } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      const payloadNames = mcpToolCallNamesFromPayload([
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: {
+            name: "search",
+            arguments: { query: "club" },
+          },
+        },
+        {
+          jsonrpc: "2.0",
+          id: 2,
+          method: "tools/list",
+          params: {},
+        },
+        {
+          jsonrpc: "2.0",
+          id: 3,
+          method: "tools/call",
+          params: {
+            name: "unknown_tool",
+            arguments: {},
+          },
+        },
+        {
+          jsonrpc: "2.0",
+          id: 5,
+          method: "tools/call",
+          params: {
+            name: "fetch",
+            arguments: { id: "profile:community:afterglow" },
+          },
+        },
+        {
+          jsonrpc: "2.0",
+          id: 6,
+          method: "tools/call",
+          params: {
+            name: "vrdex_get_world",
+            arguments: { slug: "world" },
+          },
+        },
+      ]);
+      const requestNames = await mcpToolCallNamesFromRequest(new Request("https://app.example.test/mcp", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 7,
+          method: "tools/call",
+          params: {
+            name: "vrdex_list_active_worlds",
+            arguments: {},
+          },
+        }),
+      }));
+      const malformedNames = await mcpToolCallNamesFromRequest(new Request("https://app.example.test/mcp", {
+        method: "POST",
+        body: "{",
+      }));
+      const anonymousRouteClass = acceptedMcpRouteClassForRequest(new Request("https://app.example.test/mcp"));
+      const authenticatedRouteClass = acceptedMcpRouteClassForRequest(new Request("https://app.example.test/mcp", {
+        headers: {
+          authorization: "Bearer test",
+        },
+      }));
+
+      console.log(JSON.stringify({
+        payloadNames,
+        requestNames,
+        malformedNames,
+        anonymousRouteClass,
+        authenticatedRouteClass,
+      }));
+    `);
+    const result = JSON.parse(output) as {
+      anonymousRouteClass: string;
+      authenticatedRouteClass: string;
+      malformedNames: string[];
+      payloadNames: string[];
+      requestNames: string[];
+    };
+
+    assert.deepEqual(result.payloadNames, ["search", "fetch", "vrdex_get_world"]);
+    assert.deepEqual(result.requestNames, ["vrdex_list_active_worlds"]);
+    assert.deepEqual(result.malformedNames, []);
+    assert.equal(result.anonymousRouteClass, "anonymous_mcp_public_read");
+    assert.equal(result.authenticatedRouteClass, "authenticated_mcp");
+  });
+
+  it("serves MCP initialization without requiring Convex for tool listing", () => {
+    const output = runMcpProbe(`
+      import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      const handler = createVrdexMcpHandler();
+      const request = new Request("http://localhost:3000/mcp", {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: "2025-06-18",
+            capabilities: {},
+            clientInfo: { name: "vrdex-test", version: "0.0.0" },
+          },
+        }),
+      });
+      const response = await handler.fetch(request);
+
+      console.log(response.status);
+      console.log(await response.text());
+    `);
+
+    assert.match(output, /^200/m);
+    assert.match(output, /"name":"vrdex"/);
+    assert.match(output, /"tools":/);
+  });
+
+  it("advertises the curated anonymous public read tools", () => {
+    const output = runMcpProbe(`
+      import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      const handler = createVrdexMcpHandler();
+      const request = new Request("http://localhost:3000/mcp", {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 2,
+          method: "tools/list",
+          params: {},
+        }),
+      });
+      const response = await handler.fetch(request);
+
+      console.log(response.status);
+      console.log(await response.text());
+    `);
+
+    assert.match(output, /^200/m);
+    assert.match(output, /"name":"search"/);
+    assert.match(output, /"name":"fetch"/);
+    assert.match(output, /"name":"vrdex_search"/);
+    assert.match(output, /"name":"vrdex_get_profile"/);
+    assert.match(output, /"name":"vrdex_get_event"/);
+    assert.match(output, /"name":"vrdex_get_world"/);
+    assert.match(output, /"name":"vrdex_list_upcoming_events"/);
+    assert.match(output, /"name":"vrdex_list_active_worlds"/);
+    assert.match(output, /"readOnlyHint":true/);
+
+    const body = jsonBodyFromProbe(output);
+    const tools = body.result?.tools ?? [];
+
+    assert.equal(tools.every((tool) => !hasLegacySchemaId(tool.outputSchema)), true);
+
+    for (const tool of tools) {
+      assertPublicReadSecuritySchemes(tool._meta);
+    }
+  });
+
+  it("advertises OAuth-only tools when anonymous hosted reads are disabled", () => {
+    const output = runMcpProbe(`
+      import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      const handler = createVrdexMcpHandler({ anonymousPublicReads: false });
+      const response = await handler.fetch(new Request("http://localhost:3000/mcp", {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 3,
+          method: "tools/list",
+          params: {},
+        }),
+      }));
+
+      console.log(response.status);
+      console.log(await response.text());
+    `);
+    const body = jsonBodyFromProbe(output);
+    const tools = body.result?.tools ?? [];
+
+    assert.match(output, /^200/m);
+    assert.equal(tools.length, 8);
+
+    for (const tool of tools) {
+      assertAuthenticatedReadSecuritySchemes(tool._meta);
+    }
+  });
+
+  it("requires OAuth when anonymous hosted reads are disabled", () => {
+    const output = runMcpProbe(`
+      import assert from "node:assert/strict";
+      import {
+        hostedMcpAnonymousPublicReadsEnabled,
+        rejectInvalidOrRateLimitedMcpRequest,
+      } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      assert.equal(hostedMcpAnonymousPublicReadsEnabled(undefined), true);
+      assert.equal(hostedMcpAnonymousPublicReadsEnabled("true"), true);
+      assert.equal(hostedMcpAnonymousPublicReadsEnabled("false"), false);
+      assert.throws(() => hostedMcpAnonymousPublicReadsEnabled("sometimes"), /must be true or false/);
+
+      process.env.VRDEX_HOSTED_MCP_ANONYMOUS_READS = "false";
+      const response = await rejectInvalidOrRateLimitedMcpRequest(
+        new Request("https://app.example.test/mcp"),
+      );
+
+      console.log(response?.status);
+      console.log(response?.headers.get("www-authenticate"));
+      console.log(await response?.text());
+    `);
+
+    assert.match(output, /^401/m);
+    assert.match(
+      output,
+      /Bearer resource_metadata="https:\/\/app\.example\.test\/\.well-known\/oauth-protected-resource\/mcp", scope="mcp:read"/,
+    );
+    assert.match(output, /OAuth bearer token is required for this MCP deployment/);
+  });
+
+  it("serves OpenAI-compatible search and fetch over public records", () => {
+    const output = runMcpProbe(`
+      import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      process.env.VRDEX_OAUTH_ISSUER_URL = "https://app.example.test";
+
+      const handler = createVrdexMcpHandler({
+        convex: {
+          query: async (query, args) => {
+            if ("query" in args) {
+              return [
+                {
+                  entityType: "profile",
+                  profileType: "community",
+                  routePath: "/c/afterglow",
+                  score: 42,
+                  slug: "afterglow",
+                  summary: "A warm VRChat club night.",
+                  title: "Afterglow",
+                },
+              ];
+            }
+
+            if ("profileType" in args) {
+              return {
+                bio: "A warm VRChat club night.",
+                displayName: "Afterglow",
+                outboundLinks: [{ label: "Website", url: "https://afterglow.example" }],
+                profileType: args.profileType,
+                slug: args.slug,
+                tags: ["club", "vrchat"],
+                trustLabel: "claimed_verified",
+              };
+            }
+
+            throw new Error("unexpected query");
+          },
+        },
+      });
+      const searchResponse = await handler.fetch(new Request("http://localhost:3000/mcp", {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 4,
+          method: "tools/call",
+          params: {
+            arguments: { query: "club" },
+            name: "search",
+          },
+        }),
+      }));
+      const fetchResponse = await handler.fetch(new Request("http://localhost:3000/mcp", {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 5,
+          method: "tools/call",
+          params: {
+            arguments: { id: "profile:community:afterglow" },
+            name: "fetch",
+          },
+        }),
+      }));
+
+      console.log(searchResponse.status);
+      console.log(await searchResponse.text());
+      console.log(fetchResponse.status);
+      console.log(await fetchResponse.text());
+    `);
+
+    assert.match(output, /^200/m);
+    assert.match(output, /"id":"profile:community:afterglow"/);
+    assert.match(output, /"url":"https:\/\/app\.example\.test\/c\/afterglow"/);
+    assert.match(output, /"text":"Title: Afterglow\\nEntity type: profile/);
+    assert.match(output, /"metadata":\{"entityType":"profile","profileType":"community","slug":"afterglow"/);
+  });
+
+  it("returns a public-safe tool error when hosted public data is unavailable", () => {
+    const output = runMcpProbe(`
+      import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      const handler = createVrdexMcpHandler({
+        convex: {
+          query: async () => {
+            throw new Error("secret backend failure");
+          },
+        },
+      });
+      const request = new Request("http://localhost:3000/mcp", {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 3,
+          method: "tools/call",
+          params: {
+            arguments: { query: "club", type: "all", limit: 1 },
+            name: "vrdex_search",
+          },
+        }),
+      });
+      const response = await handler.fetch(request);
+
+      console.log(response.status);
+      console.log(await response.text());
+    `);
+    const body = jsonBodyFromProbe(output) as {
+      result?: {
+        content?: Array<{ text?: string; type?: string }>;
+        isError?: boolean;
+      };
+    };
+    const errorText = body.result?.content?.find((entry) => entry.type === "text")?.text ?? "";
+
+    assert.match(output, /^200/m);
+    assert.equal(body.result?.isError, true);
+    assert.match(errorText, /VRDex public data is temporarily unavailable for search/);
+    assert.doesNotMatch(errorText, /secret backend failure/);
+  });
+
+  it("returns OAuth discovery details for malformed bearer tokens", () => {
+    const output = runMcpProbe(`
+      import { rejectInvalidOrRateLimitedMcpRequest } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      const response = await rejectInvalidOrRateLimitedMcpRequest(new Request("https://app.example.test/mcp", {
+        headers: {
+          authorization: "Bearer not-a-jwt",
+        },
+      }));
+
+      console.log(response?.status);
+      console.log(response?.headers.get("www-authenticate"));
+      console.log(await response?.text());
+    `);
+
+    assert.match(output, /^401/m);
+    assert.match(
+      output,
+      /Bearer resource_metadata="https:\/\/app\.example\.test\/\.well-known\/oauth-protected-resource\/mcp", scope="mcp:read", error="invalid_token"/,
+    );
+    assert.match(output, /OAuth bearer token is invalid/);
+  });
+
+  it("charges invalid bearer authentication to the anonymous MCP IP bucket", () => {
+    const output = runMcpProbe(`
+      import assert from "node:assert/strict";
+      import { rejectInvalidOrRateLimitedMcpRequest } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      process.env.VERCEL = "1";
+      process.env.VERCEL_ENV = "preview";
+      process.env.VRDEX_DEPLOYMENT_ENV = "preview";
+      process.env.VRDEX_RATE_LIMIT_STORE = "memory";
+      process.env.VRDEX_RATE_LIMIT_REDIS_PREFIX = "vrdex:test:mcp-failed-auth";
+
+      function request() {
+        return new Request("https://app.example.test/mcp", {
+          headers: {
+            authorization: "Bearer not-a-jwt",
+            "x-vercel-forwarded-for": "203.0.113.46",
+          },
+        });
+      }
+
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        const response = await rejectInvalidOrRateLimitedMcpRequest(request());
+        assert.equal(response?.status, 401);
+      }
+
+      const blocked = await rejectInvalidOrRateLimitedMcpRequest(request());
+      console.log(blocked?.status);
+      console.log(blocked?.headers.get("ratelimit-limit"));
+      console.log(await blocked?.text());
+    `);
+
+    assert.match(output, /^429/m);
+    assert.match(output, /^60$/m);
+    assert.match(output, /MCP rate limit exceeded/);
+  });
+
+  it("returns insufficient-scope challenges for valid MCP-resource tokens without mcp:read", () => {
+    const output = runMcpProbe(`
+      import { generateKeyPairSync } from "node:crypto";
+      import { createOAuthAccessTokenId, signOAuthAccessToken } from "./apps/web/src/lib/server/oauth-jwt.ts";
+      import { rejectInvalidOrRateLimitedMcpRequest } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+      process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY = privateKey.export({ format: "pem", type: "pkcs8" }).toString();
+      process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID = "test-key";
+
+      const accessToken = signOAuthAccessToken({
+        aud: "https://app.example.test/mcp",
+        client_id: "vrdx_app_0123456789abcdef01234567",
+        exp: Math.floor((Date.now() + 60_000) / 1000),
+        iat: Math.floor(Date.now() / 1000),
+        iss: "https://app.example.test",
+        jti: createOAuthAccessTokenId(),
+        scope: "public:read",
+        sub: "user_123",
+      });
+      const response = await rejectInvalidOrRateLimitedMcpRequest(new Request("https://app.example.test/mcp", {
+        headers: {
+          authorization: \`Bearer \${accessToken}\`,
+        },
+      }));
+
+      console.log(response?.status);
+      console.log(response?.headers.get("www-authenticate"));
+      console.log(await response?.text());
+    `);
+
+    assert.match(output, /^403/m);
+    assert.match(
+      output,
+      /Bearer resource_metadata="https:\/\/app\.example\.test\/\.well-known\/oauth-protected-resource\/mcp", scope="mcp:read", error="insufficient_scope"/,
+    );
+    assert.match(output, /OAuth bearer token scope is insufficient/);
+  });
+});

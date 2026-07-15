@@ -6,6 +6,233 @@ Current direction for [#39](https://github.com/BASIC-BIT/VRDex/issues/39).
 
 [#39](https://github.com/BASIC-BIT/VRDex/issues/39) owns the first documented public API direction. Current Convex functions, Next.js route handlers, and E2E helper routes are implementation surfaces, not the stable public product API.
 
+The full implementation-facing plan for API tokens, OAuth apps, rate limiting, Swagger/OpenAPI docs, and hosted/private MCP now lives in `docs/planning/public-api-and-mcp-platform.md`. This page remains the compact public API posture reference.
+
+## Current v0 Implementation Checkpoint
+
+`/api/v0` is now backed by shared TypeScript contract schemas in `packages/api-contracts`.
+The checked-in OpenAPI artifacts are `docs/api/openapi.json` and
+`docs/api/openapi.yaml`; the web app serves the generated documents at
+`GET /api/v0/openapi.json` and `GET /api/v0/openapi.yaml`. The web app renders
+the generated API reference at `/developers/api`. Signed-in developers can
+manage personal API tokens at `/developers/tokens` and user-owned or
+community-owned OAuth client apps at `/developers/apps`; bearer-authorized
+`/api/v0/developer/...` routes also support developer credential listing,
+creation, and revocation, including owner-managed community OAuth apps via
+`ownerCommunitySlug`. OAuth
+metadata, JWKS, client-credentials token issuance, token revocation, constrained
+dynamic client registration for hosted MCP clients, Authorization Code with
+PKCE for public and confidential apps, and refresh-token rotation are also in
+place.
+
+Implemented public reads are anonymous by default and accept optional scoped
+API bearer tokens or OAuth access tokens for authenticated public-read traffic:
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/v0/search?q=` | Search public profiles, worlds, and events. |
+| `GET /api/v0/profiles/:slug` | Read a public person or community profile. |
+| `GET /api/v0/profiles/:slug/assets` | Read public profile media-kit assets. |
+| `GET /api/v0/profiles/:slug/assets/:assetId/file` | Download a public profile media-kit asset. |
+| `GET /api/v0/profiles/:slug/logos` | Read public profile logo assets. |
+| `GET /api/v0/profiles/:slug/logos.zip` | Download public profile logos as a ZIP. |
+| `GET /api/v0/people/:slug` | Read a public person profile. |
+| `GET /api/v0/people/:slug/events` | Read public upcoming events for a person profile. |
+| `GET /api/v0/communities/:slug` | Read a public community profile. |
+| `GET /api/v0/communities/:slug/events` | Read public upcoming hosted events for a community profile. |
+| `GET /api/v0/events/:slug` | Read a public event. |
+| `GET /api/v0/events/upcoming` | List upcoming public events from discovery data. |
+| `GET /api/v0/worlds/:slug` | Read a public world. |
+| `GET /api/v0/worlds/:slug/events` | Read recent and upcoming public events linked to a world. |
+| `GET /api/v0/worlds/active` | List worlds with upcoming or live public events. |
+| `GET /api/v0/claims/:slug/status` | Read public claim and trust state. |
+| `GET /api/v0/usage/rate-limit` | Read route-class quota policies and the caller's current public API window. |
+
+All public read routes reject bearer tokens in URL query parameters. Send API
+tokens and future OAuth access tokens through the `Authorization` header only.
+
+All `/api/v0` routes support cross-origin browser clients. Responses and
+automatic `OPTIONS` preflight responses allow public origins, the documented
+HTTP methods, bearer authorization, JSON request bodies, conditional asset
+downloads, and the one-time `x-vrdex-upload-token` header. Rate-limit,
+authentication-challenge, redirect, entity-tag, and download-disposition
+headers are exposed to browser code. The API does not enable credentialed
+cookies; authenticated cross-origin clients send bearer credentials through
+`Authorization`.
+
+Implemented authenticated reads require a valid bearer credential:
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/v0/me` | Read metadata for the current API token or API-resource OAuth caller. |
+| `GET /api/v0/me/profiles` | List current user's owned profile summaries. |
+| `GET /api/v0/me/communities` | List current user's owned community profile summaries. |
+| `GET /api/v0/me/events` | List current user's community-managed event summaries. |
+| `PATCH /api/v0/profiles/:slug` | Update public metadata for a claimed profile the current user owns. |
+| `POST /api/v0/profiles/:slug/assets/upload-intent` | Create a one-time media-kit upload intent for a claimed profile the current user owns. |
+| `POST /api/v0/events` | Create a public event attached to a community profile the current user owns. |
+| `PATCH /api/v0/events/:slug` | Update a public event attached to a community profile the current user owns. |
+| `GET /api/v0/developer/tokens` | List current user's personal API token metadata. |
+| `POST /api/v0/developer/tokens` | Create a current user's personal API token and return its value once. |
+| `GET /api/v0/developer/oauth-apps` | List OAuth application metadata for the current user and owned communities. |
+| `POST /api/v0/developer/oauth-apps` | Create a user-owned or community-owned OAuth application and return any confidential client secret once. |
+| `PATCH /api/v0/developer/oauth-apps/:clientId` | Update metadata, redirects, grants, and scopes for a user-owned or community-owned OAuth application. |
+| `POST /api/v0/developer/oauth-apps/:clientId/secrets` | Create an additional confidential OAuth client secret and return it once. |
+| `DELETE /api/v0/developer/tokens/:tokenId` | Revoke a current user's personal API token. |
+| `DELETE /api/v0/developer/oauth-apps/:clientId` | Revoke a user-owned or community-owned OAuth application and active secrets. |
+
+`/api/v0/me/profiles` requires `profile:read`; `/api/v0/me/communities`
+requires `community:read`; `/api/v0/me/events` requires `events:read`. The
+current event inventory covers events attached to community profiles the user
+owns. Submitter-only event inventory can be added after there is an efficient
+user/event index and authorization shape.
+
+`PATCH /api/v0/profiles/:slug` requires `profile:write`, user authority, active
+ownership of the target profile, and claimed-owner edit permission. The first
+write version updates owner-editable public metadata only: display name,
+aliases, tags, headline, bio, region, timezone, person pronouns and role tags,
+or community subtype and category tags. It does not change profile slugs,
+claims, publication state, field visibility, outbound links, media-kit assets,
+or page-builder settings.
+
+`POST /api/v0/profiles/:slug/assets/upload-intent` requires `assets:write`,
+user authority, active ownership of the target profile, and a claimed profile.
+It returns an upload URL plus the `x-vrdex-upload-token` header value to use
+when posting the file or source import to
+`POST /api/v0/profile-assets/upload-intents/:intentId`. The upload transport
+does not accept bearer credentials; the one-time upload token is the credential
+for that operation. When that upload completes, the intent is consumed into an
+active public profile asset and any supplied media-kit placement metadata.
+
+`POST /api/v0/events` and `PATCH /api/v0/events/:slug` require `events:write`,
+user authority, and ownership of the target `communitySlug`. Event updates also
+require ownership of the event's current community. The first public write
+version only creates and updates events attached to owned community profiles; it
+does not create standalone submitter-only events. Event updates preserve
+optional fields and relations that are omitted from the PATCH body. Schedule
+and lineup replacements supply `slotLinks` and `participantLinks` together.
+
+Developer list routes require `developer:read` plus user authority. Developer
+creation and revocation routes require `developer:write` plus user authority.
+User-owned personal API tokens qualify. User-delegated API-resource OAuth access
+tokens qualify. App-only client-credentials tokens and anonymous callers do not act on
+a user's developer resources. The Next.js gateway validates the bearer
+credential first, then calls internal Convex developer credential functions with
+server-side admin auth so arbitrary owner ids are not exposed through public
+Convex functions.
+
+When a public read request has no bearer token, it is treated as anonymous
+traffic. When it has an opaque API bearer token, the Next.js route handler
+parses the `vrdx_...` token, hashes it with `VRDEX_API_TOKEN_PEPPER`, and asks
+Convex to validate the token prefix, hash, status, expiry, and required scopes.
+When it has an OAuth JWT access token, the route handler validates the issuer,
+audience/resource, signature, expiry, and scope claims with
+`VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY`, then asks Convex to confirm the stored
+access-token id, client id, resource, status, expiry, and scopes. Convex stores
+token prefixes, hashes, OAuth access-token ids, ownership, scopes, lifecycle
+metadata, and audit events, but never raw personal token or OAuth client-secret
+values.
+
+Current personal API token backend primitives:
+
+- `apiTokens.createPersonalToken`
+- `apiTokens.createDeveloperTokenForApiOwner`
+- `apiTokens.listDeveloperTokensForApiOwner`
+- `apiTokens.listPersonalTokens`
+- `apiTokens.revokeDeveloperTokenForApiOwner`
+- `apiTokens.revokePersonalToken`
+
+`apiTokens.validateBearerTokenHash` is an internal server-only function. The
+public API handler invokes it with Convex admin authentication after the HTTP
+security boundary has validated the request.
+
+Current owner inventory backend primitives:
+
+- `profiles.listProfilesForApiOwner`
+- `profiles.updateProfileForApiOwner`
+- `events.createCommunityEventForApiOwner`
+- `events.listCommunityManagedEventsForApiOwner`
+- `events.updateCommunityEventForApiOwner`
+
+Current profile media backend primitives:
+
+- `profileAssets.createUploadIntentForApiProfileOwner`
+- `profileAssets.validateUploadIntentForStorage`
+- `profileAssets.markUploadIntentUploaded`
+
+Current OAuth app registry primitives:
+
+- `oauthApps.createDeveloperApplicationForApiOwner`
+- `oauthApps.createDeveloperApplicationSecretForApiOwner`
+- `oauthApps.createPersonalApplication`
+- `oauthApps.listDeveloperApplicationsForApiOwner`
+- `oauthApps.listPersonalApplications`
+- `oauthApps.revokeDeveloperApplicationForApiOwner`
+- `oauthApps.revokePersonalApplication`
+- `oauthApps.updateDeveloperApplicationForApiOwner`
+
+OAuth consent completion and authorization-code issuance run atomically through
+the internal `oauthApps.completeAuthorizationConsent` mutation. It verifies the
+authenticated user against the hashed, single-use transaction and revalidates
+the stored client before either approval or denial. Dynamic Client Registration,
+Client ID Metadata Document materialization, authorization-client resolution,
+token exchange and rotation, revocation, and durable access-token validation
+are also internal server-only functions invoked with Convex admin authentication
+after the HTTP security boundary has validated the request.
+
+Current OAuth issuer routes:
+
+- `GET /.well-known/oauth-authorization-server`
+- `GET /.well-known/oauth-protected-resource`
+- `GET /.well-known/oauth-protected-resource/mcp`
+- `GET /oauth/authorize`, for Authorization Code with PKCE consent
+- `GET /oauth/jwks.json`
+- `POST /oauth/register`, for constrained hosted MCP Dynamic Client Registration
+- `POST /oauth/token`, for `authorization_code`, `refresh_token`, and confidential `client_credentials`
+- `POST /oauth/revoke`, for JWT access-token and opaque refresh-token revocation
+
+`POST /oauth/register` is not the normal developer-app creation path. It creates
+separate public dynamic MCP clients with exact redirect URIs, `authorization_code`
+grant metadata, `code` response type metadata, `token_endpoint_auth_method=none`,
+the MCP resource, and only `mcp:read` plus optional `public:read` scope. These
+clients are for hosted MCP OAuth compatibility.
+
+Hosted MCP OAuth also supports Client ID Metadata Documents for public clients
+that use an HTTPS URL as `client_id`. Accepted CIMD metadata is fetched during
+authorization, constrained to the same public/no-secret MCP client shape, and
+stored as a dynamic MCP client.
+
+`GET /oauth/authorize` currently requires `code_challenge_method=S256`.
+Approval creates a short-lived single-use authorization code, and
+`POST /oauth/token` exchanges that code for a resource-bound JWT access token
+plus an opaque refresh token. Public apps and dynamic MCP clients exchange and
+refresh without a client secret. Confidential apps must authenticate with an
+active client secret when exchanging authorization codes and rotating refresh
+tokens.
+
+Current hosted MCP route:
+
+- `GET|POST|DELETE /mcp`, Streamable HTTP MCP with anonymous public read tools
+
+Current local MCP package:
+
+- `@basicbit/vrdex-mcp` in `packages/vrdex-mcp`, stdio transport backed by
+  `/api/v0` routes
+- accepts `VRDEX_API_BASE_URL` for hosted or self-hosted deployments
+- accepts `VRDEX_API_TOKEN`, `VRDEX_OAUTH_ACCESS_TOKEN`, or
+  `VRDEX_OAUTH_TOKEN_FILE` for optional authenticated public-read requests
+- OAuth access tokens used by the local package must be issued for the API
+  resource because the package calls `/api/v0`
+
+Current token validation behavior:
+
+- malformed, unknown, revoked, or expired bearer tokens return `401`
+- scope-insufficient bearer tokens return `403`
+- public read routes currently require `public:read`
+- OAuth access tokens must be issued for the API resource to count as authenticated API traffic
+- OAuth access tokens issued for the MCP resource and carrying `mcp:read` count as authenticated MCP traffic
+- anonymous public reads still work without credentials
+
 ## Locked Direction
 
 - Public API behavior and limits should be documented before outside consumers depend on them.
@@ -29,10 +256,14 @@ Candidate first public API endpoints:
 - `GET /api/v0/search?q=`
 - `GET /api/v0/cards/:slug`
 - `GET /api/v0/worlds/:slug`
-- `GET /api/v0/worlds/:slug/events`
 - `GET /api/v0/worlds/active`
 - `GET /api/v0/people/:slug/events`
 - `GET /api/v0/communities/:slug/events`
+
+`GET /api/v0/cards/:slug` remains deferred until its compact schema,
+visibility behavior, and relationship to the existing profile response have a
+shared contract. Consumers should use the shipped profile endpoints in the
+meantime.
 
 The first public API should be read-only unless a specific write flow has an auth, rate-limit, audit, and abuse-handling design. `v0` can be replaced or deprecated before public launch if the implementation reveals a better shape.
 
@@ -57,7 +288,35 @@ The first implementation should document:
 - not-found behavior that does not leak private or suppressed records
 - escalation path for trusted partner access
 
-Candidate infrastructure can include Vercel/edge middleware, app-level checks, Convex-backed counters, Redis, or provider-native controls. Choose the smallest mechanism that fits the first API slice.
+Current recommendation: use Redis-compatible TTL counters for hosted
+high-volume anonymous public API and hosted MCP traffic. Keep Convex as the
+durable source for token/app ownership, quota policy, trusted-partner
+overrides, coarse usage summaries, and audit events. Local development can use
+an in-memory adapter; production fails closed unless `VRDEX_RATE_LIMIT_STORE`
+selects the Redis REST adapter.
+
+Current implementation:
+
+- `VRDEX_RATE_LIMIT_STORE=memory` uses a process-local fixed-window counter.
+- `VRDEX_RATE_LIMIT_STORE=redis-rest` or `upstash` uses a Redis-compatible REST
+  pipeline with `VRDEX_RATE_LIMIT_REDIS_REST_URL` and
+  `VRDEX_RATE_LIMIT_REDIS_REST_TOKEN`.
+- `VRDEX_RATE_LIMIT_REDIS_PREFIX` isolates keys when shared infrastructure is
+  used.
+- `VRDEX_RATE_LIMIT_STORE=disabled` is only for local diagnostics.
+- `trusted_partner` personal tokens and OAuth apps get higher effective quotas
+  on authenticated API/MCP traffic after operator review.
+
+- OAuth traffic is isolated by access-token id and also checked against a
+  secondary client-wide abuse cap without double-counting route observability.
+- Client Credentials traffic has an additional hashed application-owner cap,
+  bounding aggregate traffic across multiple apps without putting owner ids in
+  rate-limit keys or durable event rows.
+- Dynamic Client Registration is limited by requesting network, hashed
+  software identity, and hashed redirect hostname. Metadata and host buckets
+  use broader aggregate limits than the per-network registration limit.
+The dedicated rate-limit guide lives in
+`docs/developers/api-rate-limits.md`.
 
 ## Response Safety Rules
 
@@ -81,14 +340,13 @@ The first implementation issue for the public API should add:
 
 - endpoint reference
 - auth and rate-limit behavior
-- OpenAPI or equivalent schema artifacts
+- OpenAPI artifacts generated from shared API contract schemas
 - task-oriented examples for profile lookup, search, event lookup, profile cards, and partner-safe seed validation
 - clear guidance to use API or MCP for structured reads instead of scraping public pages
 
-## Non-goals for this pass
+## Non-goals for the original posture pass
 
 - implementing the public API now
 - finalizing every endpoint
-- authenticated public write APIs
-- partner contracts
-- full MCP implementation
+- replacing the full platform plan in `docs/planning/public-api-and-mcp-platform.md`
+- partner contracts beyond the auth/rate-limit hooks needed for future implementation

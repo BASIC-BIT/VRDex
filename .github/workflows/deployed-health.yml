@@ -16,10 +16,31 @@ on:
           - all
           - staging-mutation
           - production-smoke
+          - hosted-mcp-smoke
       base_url:
         description: Optional URL override for the selected target
         required: false
         type: string
+      mcp_dcr:
+        default: false
+        description: Probe hosted MCP Dynamic Client Registration
+        required: true
+        type: boolean
+      mcp_data:
+        default: false
+        description: Probe hosted MCP data-backed public reads
+        required: true
+        type: boolean
+      mcp_cimd:
+        default: false
+        description: Probe hosted MCP Client ID Metadata Document authorization
+        required: true
+        type: boolean
+      mcp_oauth:
+        default: false
+        description: Probe hosted MCP Inspector OAuth with configured smoke credentials
+        required: true
+        type: boolean
   schedule:
     - cron: "17 11 * * *"
 
@@ -94,6 +115,7 @@ jobs:
           VRDEX_ENABLE_E2E_EXTENDED_PROFILE_FLOW: ${{ vars.VRDEX_HOSTED_E2E_EXTENDED_PROFILE_FLOW }}
           VRDEX_ENABLE_E2E_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
           VRDEX_ENABLE_E2E_ADAPTER_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_ADAPTER_HELPERS }}
+          VRDEX_ENABLE_E2E_DEVELOPER_CREDENTIALS: ${{ vars.VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS }}
           VRDEX_E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
           VRDEX_E2E_RUN_ID: deployed-${{ github.run_id }}-${{ github.run_attempt }}
         run: pnpm test:e2e:hosted
@@ -106,6 +128,7 @@ jobs:
           HOSTED_EXTENDED_PROFILE_FLOW: ${{ vars.VRDEX_HOSTED_E2E_EXTENDED_PROFILE_FLOW }}
           HOSTED_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
           HOSTED_ADAPTER_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_ADAPTER_HELPERS }}
+          HOSTED_DEVELOPER_CREDENTIALS: ${{ vars.VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           mkdir -p apps/web/playwright-artifacts
@@ -121,6 +144,8 @@ jobs:
           Hosted auth helpers: ${HOSTED_AUTH_HELPERS:-skipped}
 
           Hosted adapter helpers: ${HOSTED_ADAPTER_HELPERS:-skipped}
+
+          Hosted developer credentials: ${HOSTED_DEVELOPER_CREDENTIALS:-skipped}
 
           Captured flow:
           - hosted test-gated profile submission form
@@ -280,3 +305,217 @@ jobs:
             apps/web/playwright-report
             apps/web/test-results
             apps/web/playwright-artifacts
+
+  hosted-mcp-smoke:
+    name: Hosted MCP Smoke Health
+    if: github.event_name == 'workflow_dispatch' && (inputs.target == 'all' || inputs.target == 'hosted-mcp-smoke')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check hosted MCP smoke configuration
+        id: gate
+        env:
+          MCP_BASE_URL_OVERRIDE: ${{ inputs.base_url }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          MCP_OAUTH_CLIENT_ID: ${{ secrets.VRDEX_MCP_OAUTH_CLIENT_ID }}
+          MCP_OAUTH_CLIENT_SECRET: ${{ secrets.VRDEX_MCP_OAUTH_CLIENT_SECRET }}
+          MCP_OAUTH_REQUESTED: ${{ inputs.mcp_oauth }}
+          MCP_INSPECTOR_OAUTH_TOKEN: ${{ secrets.VRDEX_MCP_INSPECTOR_OAUTH_TOKEN }}
+          MCP_HOSTED_E2E_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
+          MCP_HOSTED_E2E_DEVELOPER_CREDENTIALS: ${{ vars.VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS }}
+          MCP_HOSTED_E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$MCP_BASE_URL_OVERRIDE" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "oauth_enabled=false" >> "$GITHUB_OUTPUT"
+            echo "openai_oauth_enabled=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## Hosted MCP smoke health"
+              echo "Skipped because base_url was not provided."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          OAUTH_ENABLED=false
+          OAUTH_SOURCE=skipped
+          GENERATE_OAUTH_CREDENTIALS=false
+          if [ "$MCP_OAUTH_REQUESTED" = "true" ]; then
+            if { [ -n "$MCP_OAUTH_CLIENT_ID" ] && [ -n "$MCP_OAUTH_CLIENT_SECRET" ]; } || [ -n "$MCP_INSPECTOR_OAUTH_TOKEN" ]; then
+              OAUTH_ENABLED=true
+              OAUTH_SOURCE=configured-repository-secret
+            elif [ "$MCP_HOSTED_E2E_AUTH_HELPERS" = "true" ] && [ "$MCP_HOSTED_E2E_DEVELOPER_CREDENTIALS" = "true" ] && [ -n "$MCP_HOSTED_E2E_BROWSER_TOKEN" ]; then
+              OAUTH_ENABLED=true
+              OAUTH_SOURCE=generated-e2e-smoke-client
+              GENERATE_OAUTH_CREDENTIALS=true
+            else
+              {
+                echo "## Hosted MCP smoke health"
+                echo ""
+                echo "Hosted MCP Inspector OAuth was requested but skipped because neither VRDEX_MCP_OAUTH_CLIENT_ID plus VRDEX_MCP_OAUTH_CLIENT_SECRET nor VRDEX_MCP_INSPECTOR_OAUTH_TOKEN is configured, and hosted E2E auth/developer credential generation is not fully enabled."
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+
+          OPENAI_OAUTH_ENABLED=false
+          if [ "$OAUTH_ENABLED" = "true" ] && [ -n "$OPENAI_API_KEY" ]; then
+            if { [ -n "$MCP_OAUTH_CLIENT_ID" ] && [ -n "$MCP_OAUTH_CLIENT_SECRET" ]; } || [ "$GENERATE_OAUTH_CREDENTIALS" = "true" ]; then
+              OPENAI_OAUTH_ENABLED=true
+            fi
+          fi
+
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+          echo "mcp_url=$MCP_BASE_URL_OVERRIDE" >> "$GITHUB_OUTPUT"
+          echo "oauth_enabled=$OAUTH_ENABLED" >> "$GITHUB_OUTPUT"
+          echo "oauth_source=$OAUTH_SOURCE" >> "$GITHUB_OUTPUT"
+          echo "generate_oauth_credentials=$GENERATE_OAUTH_CREDENTIALS" >> "$GITHUB_OUTPUT"
+          echo "openai_oauth_enabled=$OPENAI_OAUTH_ENABLED" >> "$GITHUB_OUTPUT"
+
+      - name: Setup pnpm
+        if: steps.gate.outputs.enabled == 'true'
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        if: steps.gate.outputs.enabled == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.gate.outputs.enabled == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        if: steps.gate.outputs.enabled == 'true' && steps.gate.outputs.generate_oauth_credentials == 'true'
+        working-directory: apps/web
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Prepare hosted MCP OAuth smoke credentials
+        if: steps.gate.outputs.enabled == 'true' && steps.gate.outputs.generate_oauth_credentials == 'true'
+        env:
+          SMOKE_URL: ${{ steps.gate.outputs.mcp_url }}
+          VRDEX_E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
+          VRDEX_E2E_RUN_ID: deployed-mcp-oauth-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+
+          pnpm ops:mcp-oauth-smoke-credentials -- --base-url "$SMOKE_URL"
+
+          . .tmp-gh-artifacts/mcp-oauth-smoke-credentials/mcp-oauth-smoke-env.sh
+
+          echo "::add-mask::$VRDEX_MCP_OAUTH_CLIENT_SECRET"
+          {
+            echo "VRDEX_MCP_OAUTH_CLIENT_ID=$VRDEX_MCP_OAUTH_CLIENT_ID"
+            echo "VRDEX_MCP_OAUTH_CLIENT_SECRET=$VRDEX_MCP_OAUTH_CLIENT_SECRET"
+          } >> "$GITHUB_ENV"
+
+          {
+            echo ""
+            echo "## Hosted MCP OAuth smoke credentials"
+            echo ""
+            echo "- Credential source: temporary E2E-reviewed OAuth app"
+            echo "- Target: \`$VRDEX_MCP_INSPECTOR_HOSTED_URL\`"
+            echo "- Client secret printed: \`false\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run hosted MCP smoke
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          SMOKE_CIMD: ${{ inputs.mcp_cimd }}
+          SMOKE_DATA: ${{ inputs.mcp_data }}
+          SMOKE_DCR: ${{ inputs.mcp_dcr }}
+          SMOKE_OAUTH: ${{ inputs.mcp_oauth }}
+          SMOKE_OAUTH_ENABLED: ${{ steps.gate.outputs.oauth_enabled }}
+          SMOKE_OAUTH_SOURCE: ${{ steps.gate.outputs.oauth_source }}
+          SMOKE_URL: ${{ steps.gate.outputs.mcp_url }}
+        run: |
+          set -euo pipefail
+
+          args=(--hosted-only --hosted-url "$SMOKE_URL" --continue-on-failure)
+
+          if [ "$SMOKE_DATA" = "true" ]; then
+            args+=(--hosted-data)
+          fi
+
+          if [ "$SMOKE_DCR" = "true" ]; then
+            args+=(--dcr)
+          fi
+
+          if [ "$SMOKE_CIMD" = "true" ]; then
+            args+=(--cimd)
+          fi
+
+          {
+            echo "## Hosted MCP smoke health"
+            echo ""
+            echo "- Target: \`$SMOKE_URL\`"
+            echo "- Data-backed public reads: \`$SMOKE_DATA\`"
+            echo "- Dynamic Client Registration: \`$SMOKE_DCR\`"
+            echo "- Client ID Metadata Document: \`$SMOKE_CIMD\`"
+            echo "- Inspector OAuth requested: \`$SMOKE_OAUTH\`"
+            echo "- Inspector OAuth enabled: \`$SMOKE_OAUTH_ENABLED\`"
+            echo "- Inspector OAuth credential source: \`$SMOKE_OAUTH_SOURCE\`"
+            echo "- Continue selected hosted diagnostics after a subcheck failure: \`true\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          pnpm smoke:mcp-compat -- "${args[@]}"
+
+      - name: Run hosted MCP Inspector OAuth smoke
+        if: steps.gate.outputs.enabled == 'true' && steps.gate.outputs.oauth_enabled == 'true'
+        env:
+          CONFIGURED_MCP_OAUTH_CLIENT_ID: ${{ secrets.VRDEX_MCP_OAUTH_CLIENT_ID }}
+          CONFIGURED_MCP_OAUTH_CLIENT_SECRET: ${{ secrets.VRDEX_MCP_OAUTH_CLIENT_SECRET }}
+          VRDEX_MCP_INSPECTOR_OAUTH_TOKEN: ${{ secrets.VRDEX_MCP_INSPECTOR_OAUTH_TOKEN }}
+          SMOKE_OAUTH_SOURCE: ${{ steps.gate.outputs.oauth_source }}
+          SMOKE_URL: ${{ steps.gate.outputs.mcp_url }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "${CONFIGURED_MCP_OAUTH_CLIENT_ID:-}" ] && [ -n "${CONFIGURED_MCP_OAUTH_CLIENT_SECRET:-}" ]; then
+            export VRDEX_MCP_OAUTH_CLIENT_ID="$CONFIGURED_MCP_OAUTH_CLIENT_ID"
+            export VRDEX_MCP_OAUTH_CLIENT_SECRET="$CONFIGURED_MCP_OAUTH_CLIENT_SECRET"
+          fi
+
+          {
+            echo ""
+            echo "## Hosted MCP Inspector OAuth smoke"
+            echo ""
+            echo "- Target: \`$SMOKE_URL\`"
+            echo "- OAuth credential source: \`$SMOKE_OAUTH_SOURCE\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          pnpm smoke:mcp-inspector -- --hosted-url "$SMOKE_URL" --hosted-data
+
+      - name: Run OpenAI Responses hosted MCP OAuth smoke
+        if: steps.gate.outputs.enabled == 'true' && steps.gate.outputs.openai_oauth_enabled == 'true'
+        env:
+          CONFIGURED_MCP_OAUTH_CLIENT_ID: ${{ secrets.VRDEX_MCP_OAUTH_CLIENT_ID }}
+          CONFIGURED_MCP_OAUTH_CLIENT_SECRET: ${{ secrets.VRDEX_MCP_OAUTH_CLIENT_SECRET }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SMOKE_OAUTH_SOURCE: ${{ steps.gate.outputs.oauth_source }}
+          SMOKE_URL: ${{ steps.gate.outputs.mcp_url }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "${CONFIGURED_MCP_OAUTH_CLIENT_ID:-}" ] && [ -n "${CONFIGURED_MCP_OAUTH_CLIENT_SECRET:-}" ]; then
+            export VRDEX_MCP_OAUTH_CLIENT_ID="$CONFIGURED_MCP_OAUTH_CLIENT_ID"
+            export VRDEX_MCP_OAUTH_CLIENT_SECRET="$CONFIGURED_MCP_OAUTH_CLIENT_SECRET"
+          fi
+
+          {
+            echo ""
+            echo "## OpenAI Responses hosted MCP OAuth smoke"
+            echo ""
+            echo "- Target: \`$SMOKE_URL\`"
+            echo "- Model: \`gpt-5.6-luna\`"
+            echo "- OAuth credential source: \`$SMOKE_OAUTH_SOURCE\`"
+            echo "- ChatGPT Apps/Connectors UI evidence: \`not exercised\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          pnpm smoke:mcp-openai -- --hosted-url "$SMOKE_URL" --hosted-data

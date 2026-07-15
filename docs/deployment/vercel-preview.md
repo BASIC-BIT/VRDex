@@ -35,17 +35,62 @@ If any are missing, the `Vercel Preview` job passes and writes a step summary ex
 
 `VERCEL_TOKEN` must be a Vercel account access token created from Vercel account settings. The local Vercel CLI session token from `auth.json` is not accepted by `vercel --token` in GitHub Actions and should not be stored as this secret.
 
-When `CONVEX_DEPLOY_KEY_PREVIEW` exists, the workflow runs `convex deploy --preview-create pr-<number>` before the Vercel build and writes the resulting `NEXT_PUBLIC_CONVEX_URL` into the Vercel build environment. This keeps PR previews from accidentally pointing at stale shared dev/prod Convex functions.
+When `CONVEX_DEPLOY_KEY_PREVIEW` exists, the workflow creates or updates the
+`pr-<number>` Convex deployment with `convex deploy --preview-create` before the
+Vercel build. It writes only the resulting `NEXT_PUBLIC_CONVEX_URL` as a step
+output. The project preview deploy key remains confined to GitHub Actions and is
+never injected into Vercel, written to an artifact, or posted in a PR comment.
+
+The same workflow creates a random, masked persistence-bridge secret for that
+single run. It writes the secret to the named Convex preview and injects it only
+into the matching Vercel deployment. The bridge exposes only the guarded
+dynamic-client persistence mutations needed by DCR and CIMD smoke checks. When
+the hosted developer-credential gates are also enabled, a second Convex-side
+capability flag permits the same bridge secret to issue client-credentials
+access-token records. PR previews do not receive `CONVEX_ADMIN_TOKEN`; all
+broader internal operations remain unavailable from the preview web runtime.
+
+When `VRDEX_HOSTED_E2E_AUTH_HELPERS=true`,
+`VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true`, and the
+`VRDEX_HOSTED_E2E_BROWSER_TOKEN` repository secret are all present, that same
+non-fork PR workflow also creates a separate random Convex E2E secret. It enables
+the auth helper only on the named Convex preview and injects the matching helper
+flags, generated Convex secret, and repository browser token only into the
+matching Vercel preview. This supports temporary verified accounts and reviewed
+OAuth clients for hosted MCP compatibility evidence without enabling the helper
+on shared staging or production. The workflow also generates a preview-only
+Convex Auth RS256 key pair, stores the private key and public JWKS only on that
+Convex preview, and binds `SITE_URL` to the concrete Vercel deployment URL after
+deployment. Separate per-preview runtime material supplies the API token pepper,
+OAuth client-secret and refresh-token peppers, and OAuth access-token signing
+key needed by developer credential and client-credentials flows. The token route
+uses the dedicated preview capability described above instead of an admin key.
+When any gate is absent, the workflow writes the Convex E2E and preview OAuth
+token capability switches as `false` and omits the developer runtime secrets for
+that preview.
 
 ## Web environment
 
 Set these in the Vercel project as needed:
 
 - `NEXT_PUBLIC_CONVEX_URL`: optional for a shell-only preview; set to the hosted Convex deployment URL for live backend reads.
+- `CONVEX_ADMIN_TOKEN`: server-only Convex admin/deploy token for route handlers that call internal Convex functions, currently needed by developer credential inventory API routes.
 - `VRDEX_REQUIRE_CONVEX_URL=true`: optional; use when previews must fail instead of showing missing-backend states.
 - `NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY=false`: legacy flag; auth-backed submissions now rely on Convex Auth configuration.
 - `NEXT_PUBLIC_POSTHOG_KEY`: optional public PostHog project key; BASIC BIT hosted deployments should set this through `infra/terraform/vercel` for PostHog project `447783`.
 - `NEXT_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com`: optional PostHog ingestion host; also managed through `infra/terraform/vercel` for hosted deployments.
+
+Public API, OAuth, and hosted MCP runtime routes also need the server-side
+variables inventoried in `docs/developers/self-hosting-and-iac.md`, including
+`VRDEX_API_TOKEN_PEPPER`, `VRDEX_OAUTH_CLIENT_SECRET_PEPPER`,
+`VRDEX_OAUTH_REFRESH_TOKEN_PEPPER`, OAuth access-token signing keys, issuer and
+resource URLs, and the selected rate-limit backend settings. Keep secret values
+in Vercel or the deployment secret store; commit only variable names, scope, and
+rotation guidance.
+
+`VRDEX_ENABLE_PREVIEW_PERSISTENCE_BRIDGE` and
+`VRDEX_PREVIEW_PERSISTENCE_SECRET` are CI-owned preview-only values. Do not set
+them in shared staging or production environments.
 
 Do not set `VRDEX_ENABLE_PLAYWRIGHT_FIXTURES` in Vercel. Fixture profiles are for Playwright-only local/CI preview screenshots and must not be exposed from hosted previews.
 
@@ -108,9 +153,49 @@ The `staging` Vercel environment points at the shared Convex development deploym
 - `DISCORD_BOT_TOKEN`: staging-only adapter token matching Convex dev env `DISCORD_BOT_TOKEN`
 - `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`: staging-only adapter token matching Convex dev env `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`
 
+The staging workflow checks configured Vercel variable names before deployment
+without printing their values. It reads the custom-environment listing and
+ignores any branch-specific record whose `gitBranch` metadata is not `main`.
+Every staging deployment requires the Convex
+URLs, E2E helper contract, deployment environment, and Redis REST rate-limit
+variables listed in `STAGING_BASE_ENVIRONMENT_NAMES` in
+`scripts/check-staging-runtime-env.mjs`. When repository variable
+`VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true`, the preflight also requires
+`CONVEX_ADMIN_TOKEN`, the API and OAuth peppers, the access-token signing key,
+and the explicit issuer, API, and MCP resource URLs. Missing names fail the
+deployment before either Convex or Vercel is mutated; value correctness remains
+a provider bootstrap and hosted-smoke responsibility.
+Optional defaults such as `VRDEX_RATE_LIMIT_REDIS_PREFIX` and enforcement
+switches such as `VRDEX_REQUIRE_CONVEX_URL` remain documented but are not
+treated as required names by this preflight.
+
+The non-Redis developer runtime bootstrap is reproducible through
+`pnpm ops:bootstrap-staging-developer-runtime`. It requires an ignored env file
+containing a deployment-scoped `CONVEX_DEPLOY_KEY`, a Vercel-linked directory,
+and the process-local `VERCEL_API_TOKEN`. The command generates independent
+peppers and an RSA signing key, streams every value to Vercel over stdin, and
+prints variable names only:
+
+```powershell
+pnpm ops:bootstrap-staging-developer-runtime -- --apply `
+  --convex-token-env-file <ignored-token-env-file> `
+  --linked-vercel-directory <vercel-linked-directory>
+```
+
+This command intentionally does not manage the Redis variables. Those remain
+owned by `infra/terraform/rate-limit-redis` so the Upstash database, endpoint,
+token, and Vercel bindings stay one Terraform state boundary.
+
 The Convex client URL is separate from the Convex Auth callback host. Staging Auth callbacks use `https://db.staging.vrdex.net`; the Convex HTTP Actions custom domain is verified, both OAuth providers include the callback URL, and deployment `scrupulous-corgi-247` selects it as `CONVEX_SITE_URL`.
 
-Current ownership: these staging E2E environment variables are bootstrap-managed manual Vercel settings, not Terraform-owned. `infra/terraform/web-domains` owns production web domains. The `infra/terraform/vercel` stack currently owns hosted PostHog client environment variables (`NEXT_PUBLIC_POSTHOG_KEY` and `NEXT_PUBLIC_POSTHOG_HOST`) for production, default preview, and configured staging custom environment IDs. Until E2E helper variables are explicitly added to or imported into Terraform, update this document and the Vercel secret store together, and never commit secret values.
+Current ownership: staging E2E helper variables and non-Redis developer runtime
+variables are bootstrap-managed Vercel settings; the checked-in bootstrap above
+recreates the developer runtime subset. `infra/terraform/rate-limit-redis` owns
+the shared Redis variables, `infra/terraform/web-domains` owns production web
+domains, and `infra/terraform/vercel` owns hosted PostHog client variables for
+production, default preview, and configured staging custom environment IDs.
+Update this document and the matching reproducible owner whenever scopes change,
+and never commit secret values.
 
 GitHub Actions uses these repository settings for hosted mutation health:
 
@@ -118,6 +203,7 @@ GitHub Actions uses these repository settings for hosted mutation health:
 - variable `VRDEX_HOSTED_E2E_EXTENDED_PROFILE_FLOW=true`
 - variable `VRDEX_HOSTED_E2E_AUTH_HELPERS=true`
 - variable `VRDEX_HOSTED_E2E_ADAPTER_HELPERS=true`
+- variable `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true`: optional; keep unset until staging has the developer token, OAuth app, and OAuth token endpoints under test
 - secret `VRDEX_HOSTED_E2E_BROWSER_TOKEN`
 
 The `Staging Deploy` workflow runs after `Baseline Checks` succeeds on `main` and can also be run manually. It requires these settings:
@@ -127,7 +213,7 @@ The `Staging Deploy` workflow runs after `Baseline Checks` succeeds on `main` an
 - variable `VRDEX_HOSTED_E2E_BASE_URL`: hosted health target, currently `https://staging.vrdex.net`
 - secret `VRDEX_HOSTED_E2E_BROWSER_TOKEN`: browser token for hosted E2E helper calls
 
-If any required setting is missing, the workflow writes a skip summary and exits successfully instead of partially deploying staging. When enabled, the workflow deploys Convex development functions first, then deploys Vercel `staging`, then runs `pnpm test:e2e:hosted` against `VRDEX_HOSTED_E2E_BASE_URL`.
+If any required GitHub deployment setting is missing, the workflow writes a skip summary and exits successfully instead of partially deploying staging. When enabled, the workflow first audits the Vercel staging variable-name contract, then deploys Convex development functions, deploys Vercel `staging`, and runs `pnpm test:e2e:hosted` against `VRDEX_HOSTED_E2E_BASE_URL`. Because GitHub Actions snapshots secrets and variables when a run starts, rerun the workflow after completing provider bootstrap.
 
 ## Hosted production environment
 
@@ -139,6 +225,9 @@ Production Vercel hosting uses the same `vr-dex-web` project with the production
 - `VRDEX_ENABLE_E2E_HELPERS=false` or unset
 - `VRDEX_ENABLE_E2E_AUTH_HELPERS` unset
 - `VRDEX_ENABLE_E2E_ADAPTER_HELPERS` unset
+
+Production must set the same API/OAuth/MCP runtime variables for any enabled
+developer API, OAuth issuer, or hosted MCP surface.
 
 The Convex client URL remains separate from the Convex Auth callback host. Production Auth callbacks use `https://db.vrdex.net`, and deployment `superb-pig-954` selects that URL as its canonical `CONVEX_SITE_URL`.
 

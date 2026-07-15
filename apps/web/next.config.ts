@@ -1,6 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { NextConfig } from "next";
+import { apiV0CorsHeaders } from "./api-v0-cors";
 
 const appRoot = path.dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = path.resolve(appRoot, "../..");
@@ -12,7 +13,16 @@ const posthogAssetsHost = posthogHost
 
 const nextConfig: NextConfig = {
   devIndicators: process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES === "true" ? false : undefined,
+  async headers() {
+    return [
+      {
+        source: "/api/v0/:path*",
+        headers: [...apiV0CorsHeaders],
+      },
+    ];
+  },
   outputFileTracingRoot: workspaceRoot,
+  transpilePackages: ["@vrdex/api-contracts"],
   skipTrailingSlashRedirect: true,
   turbopack: {
     root: workspaceRoot,

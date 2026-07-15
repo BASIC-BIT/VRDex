@@ -265,10 +265,14 @@ Purpose:
 Includes:
 
 - documented public read API
-- machine-readable API/schema docs suitable for agent consumption
+- machine-readable API/schema docs generated from shared API contract schemas and suitable for agent consumption
+- Swagger/OpenAPI reference docs
+- developer-minted API tokens
+- OAuth app registration for user-delegated and application flows
 - portable VRDex skill direction for external partner repos
 - website navigation guidance for public docs/pages
-- initial standalone VRDex MCP posture
+- hosted VRDex MCP posture with OAuth-capable remote access
+- private/local VRDex MCP posture for personal tokens, OAuth, and self-hosted deployments
 - first-party vs public rate-limiting strategy
 - basic partner-aware limit posture
 - profile and event endpoints
@@ -276,8 +280,9 @@ Includes:
 Acceptance criteria:
 
 - external consumers can read profile and event data from a documented API
-- external agents have a clear, non-scraping integration path through docs, skill guidance, API, and later MCP
-- rate limiting is explicit
+- external agents have a clear, non-scraping integration path through docs, skill guidance, API, and MCP
+- API token and OAuth client behavior is scoped, revocable, and documented
+- rate limiting is explicit across anonymous, token, OAuth, hosted MCP, and private MCP traffic
 - the product is still operable as a self-hosted/open platform
 
 ### EPIC-13 Notifications and consent basics

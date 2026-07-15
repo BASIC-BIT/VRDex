@@ -7,7 +7,9 @@ import {
   toPublicProfileAppearance,
 } from "../../convex/_profileAppearance";
 import {
+  createProfileAssetUploadIntentRecord,
   createProfileAssetStorageKey,
+  finalizeProfileAssetUploadIntentUpload,
   getPublicProfileMediaKit,
   normalizeProfileAvatarAppearance,
   normalizeProfileAssetMimeType,
@@ -39,6 +41,7 @@ import {
   sanitizeCommunitySubmissionProfileInput,
   sanitizeProfileTextList,
 } from "../../convex/_profileSubmissions";
+import { sanitizeApiProfileUpdateInput } from "../../convex/_profileUpdates";
 import { createClaimedDiscordProfileForUser } from "../../convex/_profileClaimCreation";
 import { createPublicProfileWorldCredits } from "../../convex/_profileWorldCredits";
 import {
@@ -776,6 +779,76 @@ describe("profile submission helpers", () => {
   });
 });
 
+describe("API profile update helpers", () => {
+  const claimedPerson = {
+    _id: "profile-api-update" as Id<"profiles">,
+    _creationTime: 1,
+    profileType: "person",
+    slug: "dj-celine",
+    displayName: "DJ Celine",
+    sortName: "dj celine",
+    aliases: [],
+    tags: [],
+    outboundLinks: [],
+    claimState: "claimed_unverified",
+    publicationState: "published",
+    publicSurfacingState: "public",
+    publicSurfacingUpdatedAt: 1,
+    creationSource: "self",
+    claimedAt: 1,
+    publishedAt: 1,
+    updatedAt: 1,
+    person: {
+      pronouns: "she/her",
+      roleTags: ["DJ"],
+    },
+  } as Doc<"profiles">;
+
+  it("normalizes owner-editable profile update fields", () => {
+    const result = sanitizeApiProfileUpdateInput(claimedPerson, {
+      displayName: "  DJ   Celine  ",
+      aliases: ["Celine", "celine"],
+      bio: " ",
+      person: {
+        pronouns: null,
+        roleTags: [" DJ ", "dj", "VJ"],
+      },
+    });
+
+    assert.deepEqual(result.changedFields, ["displayName", "aliases", "bio", "person"]);
+    assert.deepEqual(result.patch, {
+      displayName: "DJ Celine",
+      sortName: "dj celine",
+      aliases: ["Celine"],
+      bio: undefined,
+      person: {
+        roleTags: ["DJ", "VJ"],
+      },
+    });
+  });
+
+  it("requires claimed-owner edit permission and compatible type fields", () => {
+    assert.throws(
+      () =>
+        sanitizeApiProfileUpdateInput(
+          { ...claimedPerson, claimState: "unclaimed" } as Doc<"profiles">,
+          { headline: "Updated" },
+        ),
+      /Only a claimed profile owner can update the headline field/,
+    );
+
+    assert.throws(
+      () =>
+        sanitizeApiProfileUpdateInput(claimedPerson, {
+          community: {
+            subtype: "Club",
+          },
+        }),
+      /Community fields cannot be updated for a person profile/,
+    );
+  });
+});
+
 describe("public profile projection", () => {
   it("omits source attribution identifiers from public profile results", () => {
     const profile = {
@@ -1163,6 +1236,241 @@ describe("profile media kit asset helpers", () => {
       }),
       "profile-assets/2026-06-15/abcdef0123456789abcdef01/asset.png",
     );
+  });
+
+  it("consumes API-targeted upload intents into active profile assets", async () => {
+    type AssetTable =
+      | "profileAssetUploadIntents"
+      | "profileAssets"
+      | "profileAssetPlacements"
+      | "profileAuditEvents"
+      | "apiWriteAuditEvents"
+      | "profileOwners";
+    type AssetRow = Record<string, unknown> & {
+      _id: string;
+      _creationTime: number;
+    };
+    const tables: Record<AssetTable, AssetRow[]> = {
+      profileAssetUploadIntents: [],
+      profileAssets: [],
+      profileAssetPlacements: [],
+      profileAuditEvents: [],
+      apiWriteAuditEvents: [],
+      profileOwners: [
+        {
+          _id: "profileOwners:1",
+          _creationTime: 1,
+          profileId: "profile123",
+          userId: "user123",
+          roleKey: "owner",
+          state: "active",
+        },
+      ],
+    };
+    const db = {
+      async get(id: string) {
+        return Object.values(tables).flat().find((row) => row._id === id) ?? null;
+      },
+      async insert(tableName: AssetTable, row: Record<string, unknown>) {
+        const id = `${tableName}:${tables[tableName].length + 1}`;
+        tables[tableName].push({
+          _id: id,
+          _creationTime: 1,
+          ...row,
+        });
+
+        return id;
+      },
+      async patch(id: string, patch: Record<string, unknown>) {
+        for (const rows of Object.values(tables)) {
+          const row = rows.find((candidate) => candidate._id === id);
+          if (row !== undefined) {
+            Object.assign(row, patch);
+            return;
+          }
+        }
+
+        throw new Error(`Missing test row ${id}.`);
+      },
+      query(tableName: AssetTable) {
+        assert.equal(tableName, "profileOwners");
+        let rows = tables.profileOwners;
+
+        return {
+          withIndex(_indexName: string, builder: (index: unknown) => unknown) {
+            const values: Record<string, unknown> = {};
+            const index = {
+              eq(field: string, value: unknown) {
+                values[field] = value;
+                return index;
+              },
+            };
+            builder(index);
+            rows = rows.filter((row) =>
+              Object.entries(values).every(([field, value]) => row[field] === value),
+            );
+
+            return {
+              filter(filterBuilder: (filter: unknown) => unknown) {
+                const filter = {
+                  field(field: string) {
+                    return field;
+                  },
+                  eq(field: string, value: unknown) {
+                    rows = rows.filter((row) => row[field] === value);
+                    return true;
+                  },
+                };
+                filterBuilder(filter);
+
+                return {
+                  async take(limit: number) {
+                    return rows.slice(0, limit);
+                  },
+                };
+              },
+            };
+          },
+        };
+      },
+    };
+    const requestedBy = {
+      tokenIdentifier: "api:user123",
+      issuer: "vrdex:api",
+      subject: "user123",
+      displayName: "API user",
+    };
+    const intent = await createProfileAssetUploadIntentRecord(db as never, {
+      requestedBy,
+      targetProfileId: "profile123" as Id<"profiles">,
+      originalFileName: " Logo.PNG ",
+      mimeType: "image/png",
+      byteSize: 2048,
+      label: "  Primary   logo ",
+      caption: " Brand mark ",
+      placements: ["primary_logo"],
+      source: "owner_authored",
+      now: 1000,
+    });
+
+    assert.equal(tables.profileAssetUploadIntents[0]?.targetProfileId, "profile123");
+    assert.equal(tables.profileAssetUploadIntents[0]?.label, "Primary logo");
+    assert.deepEqual(tables.profileAssetUploadIntents[0]?.placements, ["primary_logo"]);
+
+    const completed = await finalizeProfileAssetUploadIntentUpload(db as never, {
+      intentId: intent.intentId,
+      uploadToken: intent.uploadToken,
+      mimeType: "image/png",
+      byteSize: 4096,
+      now: 1500,
+    });
+
+    assert.deepEqual(completed.assetIds, ["profileAssets:1"]);
+    assert.equal(tables.profileAssetUploadIntents[0]?.state, "consumed");
+    assert.equal(tables.profileAssets[0]?.profileId, "profile123");
+    assert.equal(tables.profileAssets[0]?.byteSize, 4096);
+    assert.equal(tables.profileAssets[0]?.label, "Primary logo");
+    assert.equal(tables.profileAssets[0]?.source, "owner_authored");
+    assert.equal(tables.profileAssetPlacements[0]?.placement, "primary_logo");
+    assert.equal(tables.profileAuditEvents[0]?.action, "api_profile_asset_uploaded");
+    assert.equal(tables.apiWriteAuditEvents[0]?.action, "profile_asset_upload_completed");
+    assert.equal(tables.apiWriteAuditEvents[0]?.actorKind, "upload_token");
+    assert.equal(tables.apiWriteAuditEvents[0]?.routeClass, "asset_upload_intent");
+    assert.deepEqual(tables.apiWriteAuditEvents[0]?.assetIds, ["profileAssets:1"]);
+  });
+
+  it("rejects targeted upload completion after profile ownership transfers", async () => {
+    const intent = {
+      _id: "profileAssetUploadIntents:1" as Id<"profileAssetUploadIntents">,
+      _creationTime: 1,
+      uploadToken: "upload-token",
+      requestedBy: {
+        tokenIdentifier: "api:user123",
+        issuer: "vrdex:api",
+        subject: "user123",
+        displayName: "API user",
+      },
+      targetProfileId: "profile123" as Id<"profiles">,
+      originalFileName: "logo.png",
+      mimeType: "image/png",
+      byteSize: 2048,
+      storageKey: "profile-assets/logo.png",
+      placements: ["primary_logo" as const],
+      source: "owner_authored" as const,
+      state: "pending" as const,
+      createdAt: 1000,
+      expiresAt: 2000,
+      updatedAt: 1000,
+    };
+    const activeOwner = {
+      profileId: intent.targetProfileId,
+      userId: "new-owner",
+      state: "active",
+    };
+    let writeAttempted = false;
+    const db = {
+      async get(id: string) {
+        return id === intent._id ? intent : null;
+      },
+      query(tableName: string) {
+        assert.equal(tableName, "profileOwners");
+        let matchesOwner = true;
+
+        return {
+          withIndex(_indexName: string, builder: (index: unknown) => unknown) {
+            const index = {
+              eq(field: keyof typeof activeOwner, value: unknown) {
+                matchesOwner &&= activeOwner[field] === value;
+                return index;
+              },
+            };
+            builder(index);
+
+            return {
+              filter(filterBuilder: (filter: unknown) => unknown) {
+                const filter = {
+                  field(field: keyof typeof activeOwner) {
+                    return field;
+                  },
+                  eq(field: keyof typeof activeOwner, value: unknown) {
+                    matchesOwner &&= activeOwner[field] === value;
+                    return true;
+                  },
+                };
+                filterBuilder(filter);
+
+                return {
+                  async take() {
+                    return matchesOwner ? [activeOwner] : [];
+                  },
+                };
+              },
+            };
+          },
+        };
+      },
+      async patch() {
+        writeAttempted = true;
+      },
+      async insert() {
+        writeAttempted = true;
+        return "unexpected";
+      },
+    };
+
+    await assert.rejects(
+      () =>
+        finalizeProfileAssetUploadIntentUpload(db as never, {
+          intentId: intent._id,
+          uploadToken: intent.uploadToken,
+          mimeType: "image/png",
+          byteSize: 4096,
+          now: 1500,
+        }),
+      /do not have permission to update this profile/,
+    );
+    assert.equal(writeAttempted, false);
+    assert.equal(intent.state, "pending");
   });
 
   it("normalizes avatar appearance controls to a safe display range", () => {

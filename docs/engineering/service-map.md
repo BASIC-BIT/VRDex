@@ -23,6 +23,7 @@ Use this page as the high-level map between VRDex services, docs, and implementa
 | AWS S3 | Private profile asset storage baseline. | [AWS service baseline](../deployment/aws-baseline.md) |
 | Route 53 | DNS records for hosted domains, SES, and future provider-owned records. | [AWS service baseline](../deployment/aws-baseline.md), [Self-hosting and IaC](../developers/self-hosting-and-iac.md) |
 | PostHog | Hosted product analytics and feature-flag direction. | [Product analytics and feature flags](../agentic/product-analytics-and-feature-flags.md), [Self-hosting and IaC](../developers/self-hosting-and-iac.md) |
+| Upstash Redis | Hosted API/MCP rate-limit counters for high-volume anonymous and authenticated traffic. | [API and MCP rate limits](../developers/api-rate-limits.md), [Self-hosting and IaC](../developers/self-hosting-and-iac.md) |
 | GitHub Actions | Baseline checks, CodeQL, hosted health checks, and deployment automation. | [Contributor workflow](../agentic/contributor-workflow.md), [Definition of done](../agentic/definition-of-done.md) |
 | Terraform | Reproducible provider configuration and hosted bootstrap state. | [Self-hosting and IaC](../developers/self-hosting-and-iac.md), `infra/terraform/README.md` |
 

@@ -3,6 +3,27 @@ import { v } from "convex/values";
 import { authTables } from "@convex-dev/auth/server";
 
 import {
+  apiRouteClassValidator,
+  apiScopeValidator,
+  apiStatusCodeClassValidator,
+  apiTokenEventTypeValidator,
+  apiTokenOwnerKindValidator,
+  apiTokenStatusValidator,
+  apiTokenTrustTierValidator,
+  apiTokenValidationResultValidator,
+} from "./_apiTokens";
+import {
+  apiWriteAuditActionValidator,
+  apiWriteAuditActorKindValidator,
+  apiWriteAuditResourceTypeValidator,
+  apiWriteAuditResultValidator,
+} from "./_apiWriteAuditEvents";
+import {
+  apiRateLimitEventIdentityKindValidator,
+  apiRateLimitEventQuotaTierValidator,
+  apiRateLimitEventTypeValidator,
+} from "./_apiRateLimitEvents";
+import {
   billingCustomerCreatedFromValidator,
   billingCustomerStateValidator,
   billingEntitlementSourceValidator,
@@ -42,6 +63,32 @@ import {
   eventMediaWorkerProviderValidator,
   eventMediaWorkerTaskStatusValidator,
 } from "./_eventMediaControl";
+import {
+  mcpToolEventResultValidator,
+  mcpToolEventRouteClassValidator,
+  mcpToolEventTypeValidator,
+  mcpToolNameValidator,
+} from "./_mcpToolEvents";
+import {
+  oauthApplicationOwnerKindValidator,
+  oauthApplicationStatusValidator,
+  oauthApplicationTrustTierValidator,
+  oauthAccessTokenValidationResultValidator,
+  oauthAuthorizationCodeStatusValidator,
+  oauthAccessTokenStatusValidator,
+  oauthAccessTokenSubjectTypeValidator,
+  oauthCodeChallengeMethodValidator,
+  oauthClientEventResultValidator,
+  oauthClientEventTypeValidator,
+  oauthClientSecretHashVersion,
+  oauthClientSecretStatusValidator,
+  oauthClientTypeValidator,
+  oauthDynamicClientStatusValidator,
+  oauthGrantTypeValidator,
+  oauthRefreshTokenStatusValidator,
+  oauthResponseTypeValidator,
+  oauthTokenEndpointAuthMethodValidator,
+} from "./_oauth";
 import {
   seedImportBatchReviewStateValidator,
   seedImportCandidatePublicationStateValidator,
@@ -560,11 +607,17 @@ export default defineSchema({
   profileAssetUploadIntents: defineTable({
     uploadToken: v.string(),
     requestedBy: authSubject,
+    targetProfileId: v.optional(v.id("profiles")),
     originalFileName: v.optional(v.string()),
     sourceUrl: v.optional(v.string()),
     mimeType: v.string(),
     byteSize: v.number(),
     storageKey: v.string(),
+    label: v.optional(v.string()),
+    caption: v.optional(v.string()),
+    placements: v.optional(v.array(profileAssetPlacement)),
+    position: v.optional(v.number()),
+    source: v.optional(profileAssetSource),
     state: profileAssetUploadIntentState,
     createdAt: v.number(),
     expiresAt: v.number(),
@@ -1045,6 +1098,282 @@ export default defineSchema({
     .index("by_profileId_state", ["profileId", "state"])
     .index("by_userId_state", ["userId", "state"])
     .index("by_profileId_roleKey_state", ["profileId", "roleKey", "state"]),
+  apiTokens: defineTable({
+    tokenPrefix: v.string(),
+    verifierHash: v.string(),
+    hashVersion: v.literal("sha256-pepper-v1"),
+    ownerKind: apiTokenOwnerKindValidator,
+    ownerUserId: v.id("users"),
+    ownerCommunityProfileId: v.optional(v.id("profiles")),
+    label: v.string(),
+    scopes: v.array(apiScopeValidator),
+    status: apiTokenStatusValidator,
+    trustTier: apiTokenTrustTierValidator,
+    expiresAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    lastUsedAt: v.optional(v.number()),
+    lastUsedRouteClass: v.optional(apiRouteClassValidator),
+    revokedAt: v.optional(v.number()),
+    revokedByUserId: v.optional(v.id("users")),
+    revokeReason: v.optional(v.string()),
+  })
+    .index("by_tokenPrefix", ["tokenPrefix"])
+    .index("by_ownerUserId_createdAt", ["ownerUserId", "createdAt"])
+    .index("by_ownerUserId_status_createdAt", ["ownerUserId", "status", "createdAt"])
+    .index("by_ownerKind_ownerUserId_createdAt", ["ownerKind", "ownerUserId", "createdAt"])
+    .index("by_ownerKind_ownerUserId_status_createdAt", [
+      "ownerKind",
+      "ownerUserId",
+      "status",
+      "createdAt",
+    ])
+    .index("by_ownerCommunityProfileId_status_createdAt", [
+      "ownerCommunityProfileId",
+      "status",
+      "createdAt",
+    ])
+    .index("by_status_expiresAt", ["status", "expiresAt"]),
+  apiTokenEvents: defineTable({
+    tokenId: v.optional(v.id("apiTokens")),
+    tokenPrefix: v.optional(v.string()),
+    ownerKind: v.optional(apiTokenOwnerKindValidator),
+    ownerUserId: v.optional(v.id("users")),
+    ownerCommunityProfileId: v.optional(v.id("profiles")),
+    routeClass: apiRouteClassValidator,
+    eventType: apiTokenEventTypeValidator,
+    result: apiTokenValidationResultValidator,
+    requiredScopes: v.array(apiScopeValidator),
+    grantedScopes: v.optional(v.array(apiScopeValidator)),
+    statusCodeClass: v.optional(apiStatusCodeClassValidator),
+    createdAt: v.number(),
+  })
+    .index("by_tokenId_createdAt", ["tokenId", "createdAt"])
+    .index("by_ownerUserId_createdAt", ["ownerUserId", "createdAt"])
+    .index("by_ownerCommunityProfileId_createdAt", ["ownerCommunityProfileId", "createdAt"])
+    .index("by_routeClass_createdAt", ["routeClass", "createdAt"])
+    .index("by_eventType_createdAt", ["eventType", "createdAt"]),
+  apiRateLimitEvents: defineTable({
+    routeClass: apiRouteClassValidator,
+    identityKind: apiRateLimitEventIdentityKindValidator,
+    quotaTier: apiRateLimitEventQuotaTierValidator,
+    eventType: apiRateLimitEventTypeValidator,
+    limit: v.number(),
+    remaining: v.number(),
+    retryAfterSeconds: v.number(),
+    resetAt: v.number(),
+    windowMs: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_routeClass_createdAt", ["routeClass", "createdAt"])
+    .index("by_identityKind_createdAt", ["identityKind", "createdAt"])
+    .index("by_routeClass_identityKind_createdAt", ["routeClass", "identityKind", "createdAt"]),
+  apiWriteAuditEvents: defineTable({
+    action: apiWriteAuditActionValidator,
+    actorKind: apiWriteAuditActorKindValidator,
+    ownerUserId: v.optional(v.id("users")),
+    resourceType: apiWriteAuditResourceTypeValidator,
+    result: apiWriteAuditResultValidator,
+    routeClass: apiRouteClassValidator,
+    targetProfileId: v.optional(v.id("profiles")),
+    targetEventId: v.optional(v.id("events")),
+    targetIntentId: v.optional(v.id("profileAssetUploadIntents")),
+    assetIds: v.optional(v.array(v.id("profileAssets"))),
+    createdAt: v.number(),
+  })
+    .index("by_routeClass_createdAt", ["routeClass", "createdAt"])
+    .index("by_action_createdAt", ["action", "createdAt"])
+    .index("by_ownerUserId_createdAt", ["ownerUserId", "createdAt"]),
+  oauthApplications: defineTable({
+    clientId: v.string(),
+    ownerKind: oauthApplicationOwnerKindValidator,
+    ownerUserId: v.id("users"),
+    ownerCommunityProfileId: v.optional(v.id("profiles")),
+    clientType: oauthClientTypeValidator,
+    displayName: v.string(),
+    description: v.optional(v.string()),
+    logoUrl: v.optional(v.string()),
+    docsUrl: v.optional(v.string()),
+    privacyUrl: v.optional(v.string()),
+    termsUrl: v.optional(v.string()),
+    redirectUris: v.array(v.string()),
+    allowedGrants: v.array(oauthGrantTypeValidator),
+    allowedScopes: v.array(apiScopeValidator),
+    status: oauthApplicationStatusValidator,
+    trustTier: oauthApplicationTrustTierValidator,
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    lastUsedAt: v.optional(v.number()),
+    reviewedAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+    revokedByUserId: v.optional(v.id("users")),
+    revokeReason: v.optional(v.string()),
+  })
+    .index("by_clientId", ["clientId"])
+    .index("by_ownerUserId_createdAt", ["ownerUserId", "createdAt"])
+    .index("by_ownerUserId_status_createdAt", ["ownerUserId", "status", "createdAt"])
+    .index("by_ownerKind_ownerUserId_createdAt", ["ownerKind", "ownerUserId", "createdAt"])
+    .index("by_ownerKind_ownerUserId_status_createdAt", [
+      "ownerKind",
+      "ownerUserId",
+      "status",
+      "createdAt",
+    ])
+    .index("by_ownerCommunityProfileId_createdAt", ["ownerCommunityProfileId", "createdAt"])
+    .index("by_ownerCommunityProfileId_status_createdAt", [
+      "ownerCommunityProfileId",
+      "status",
+      "createdAt",
+    ])
+    .index("by_status_createdAt", ["status", "createdAt"]),
+  oauthApplicationSecrets: defineTable({
+    applicationId: v.id("oauthApplications"),
+    clientId: v.string(),
+    secretPrefix: v.string(),
+    verifierHash: v.string(),
+    hashVersion: v.literal(oauthClientSecretHashVersion),
+    status: oauthClientSecretStatusValidator,
+    label: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    lastUsedAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+    revokedByUserId: v.optional(v.id("users")),
+  })
+    .index("by_applicationId_status_createdAt", ["applicationId", "status", "createdAt"])
+    .index("by_clientId_status_createdAt", ["clientId", "status", "createdAt"])
+    .index("by_secretPrefix", ["secretPrefix"]),
+  oauthDynamicClients: defineTable({
+    clientId: v.string(),
+    clientName: v.string(),
+    clientUri: v.optional(v.string()),
+    logoUri: v.optional(v.string()),
+    redirectUris: v.array(v.string()),
+    primaryRedirectHost: v.string(),
+    grantTypes: v.array(oauthGrantTypeValidator),
+    responseTypes: v.array(oauthResponseTypeValidator),
+    tokenEndpointAuthMethod: oauthTokenEndpointAuthMethodValidator,
+    contacts: v.array(v.string()),
+    softwareId: v.optional(v.string()),
+    softwareVersion: v.optional(v.string()),
+    allowedScopes: v.array(apiScopeValidator),
+    resource: v.string(),
+    status: oauthDynamicClientStatusValidator,
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    lastUsedAt: v.optional(v.number()),
+    promotedApplicationId: v.optional(v.id("oauthApplications")),
+    revokedAt: v.optional(v.number()),
+  })
+    .index("by_clientId", ["clientId"])
+    .index("by_status_createdAt", ["status", "createdAt"])
+    .index("by_primaryRedirectHost_createdAt", ["primaryRedirectHost", "createdAt"]),
+  oauthClientEvents: defineTable({
+    applicationId: v.optional(v.id("oauthApplications")),
+    dynamicClientId: v.optional(v.id("oauthDynamicClients")),
+    clientId: v.optional(v.string()),
+    accessTokenId: v.optional(v.string()),
+    secretPrefix: v.optional(v.string()),
+    ownerKind: v.optional(oauthApplicationOwnerKindValidator),
+    ownerUserId: v.optional(v.id("users")),
+    ownerCommunityProfileId: v.optional(v.id("profiles")),
+    routeClass: apiRouteClassValidator,
+    eventType: oauthClientEventTypeValidator,
+    result: oauthClientEventResultValidator,
+    validationResult: v.optional(oauthAccessTokenValidationResultValidator),
+    createdAt: v.number(),
+  })
+    .index("by_applicationId_createdAt", ["applicationId", "createdAt"])
+    .index("by_clientId_createdAt", ["clientId", "createdAt"])
+    .index("by_ownerUserId_createdAt", ["ownerUserId", "createdAt"])
+    .index("by_routeClass_createdAt", ["routeClass", "createdAt"])
+    .index("by_eventType_createdAt", ["eventType", "createdAt"]),
+  oauthConsentTransactions: defineTable({
+    transactionHash: v.string(),
+    userId: v.id("users"),
+    clientId: v.string(),
+    redirectUri: v.string(),
+    resource: v.string(),
+    scopes: v.array(apiScopeValidator),
+    codeChallenge: v.string(),
+    codeChallengeMethod: oauthCodeChallengeMethodValidator,
+    state: v.optional(v.string()),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+  })
+    .index("by_transactionHash", ["transactionHash"])
+    .index("by_userId_expiresAt", ["userId", "expiresAt"])
+    .index("by_expiresAt", ["expiresAt"]),
+  mcpToolEvents: defineTable({
+    toolName: mcpToolNameValidator,
+    routeClass: mcpToolEventRouteClassValidator,
+    eventType: mcpToolEventTypeValidator,
+    result: mcpToolEventResultValidator,
+    createdAt: v.number(),
+  })
+    .index("by_toolName_createdAt", ["toolName", "createdAt"])
+    .index("by_routeClass_createdAt", ["routeClass", "createdAt"])
+    .index("by_routeClass_toolName_createdAt", ["routeClass", "toolName", "createdAt"]),
+  oauthAuthorizationCodes: defineTable({
+    codeHash: v.string(),
+    applicationId: v.optional(v.id("oauthApplications")),
+    dynamicClientId: v.optional(v.id("oauthDynamicClients")),
+    clientId: v.string(),
+    userId: v.id("users"),
+    redirectUri: v.string(),
+    resource: v.string(),
+    scopes: v.array(apiScopeValidator),
+    codeChallenge: v.string(),
+    codeChallengeMethod: oauthCodeChallengeMethodValidator,
+    status: oauthAuthorizationCodeStatusValidator,
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    consumedAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+  })
+    .index("by_codeHash", ["codeHash"])
+    .index("by_clientId_expiresAt", ["clientId", "expiresAt"])
+    .index("by_userId_createdAt", ["userId", "createdAt"])
+    .index("by_status_expiresAt", ["status", "expiresAt"]),
+  oauthRefreshTokens: defineTable({
+    tokenHash: v.string(),
+    applicationId: v.optional(v.id("oauthApplications")),
+    dynamicClientId: v.optional(v.id("oauthDynamicClients")),
+    clientId: v.string(),
+    userId: v.id("users"),
+    resource: v.string(),
+    scopes: v.array(apiScopeValidator),
+    status: oauthRefreshTokenStatusValidator,
+    issuedAt: v.number(),
+    expiresAt: v.number(),
+    rotatedAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+    replacedByTokenHash: v.optional(v.string()),
+  })
+    .index("by_tokenHash", ["tokenHash"])
+    .index("by_clientId_expiresAt", ["clientId", "expiresAt"])
+    .index("by_userId_expiresAt", ["userId", "expiresAt"])
+    .index("by_status_expiresAt", ["status", "expiresAt"]),
+  oauthAccessTokens: defineTable({
+    tokenId: v.string(),
+    applicationId: v.optional(v.id("oauthApplications")),
+    dynamicClientId: v.optional(v.id("oauthDynamicClients")),
+    clientId: v.string(),
+    subjectType: oauthAccessTokenSubjectTypeValidator,
+    userId: v.optional(v.id("users")),
+    resource: v.string(),
+    scopes: v.array(apiScopeValidator),
+    status: oauthAccessTokenStatusValidator,
+    issuedAt: v.number(),
+    expiresAt: v.number(),
+    revokedAt: v.optional(v.number()),
+    revokedByClientId: v.optional(v.string()),
+  })
+    .index("by_tokenId", ["tokenId"])
+    .index("by_clientId_expiresAt", ["clientId", "expiresAt"])
+    .index("by_applicationId_issuedAt", ["applicationId", "issuedAt"])
+    .index("by_dynamicClientId_issuedAt", ["dynamicClientId", "issuedAt"])
+    .index("by_status_expiresAt", ["status", "expiresAt"]),
   accountFeatureGrants: defineTable({
     userId: v.id("users"),
     feature: accountFeature,

@@ -24,6 +24,11 @@ const searchEntityType = v.union(
   v.literal("event"),
 );
 
+const searchProfileType = v.union(
+  v.literal("person"),
+  v.literal("community"),
+);
+
 function boundedLimit(value: number | undefined, fallback: number, max: number): number {
   return Math.max(1, Math.min(value ?? fallback, max));
 }
@@ -50,6 +55,7 @@ export const searchUniversal = query({
   args: {
     query: v.string(),
     entityType: v.optional(searchEntityType),
+    profileType: v.optional(searchProfileType),
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -65,7 +71,9 @@ export const searchUniversal = query({
       .withSearchIndex("search_text", (search) => {
         const filtered = search.search("searchText", searchText).eq("publicState", "public");
 
-        return args.entityType === undefined ? filtered : filtered.eq("entityType", args.entityType);
+        const byEntity = args.entityType === undefined ? filtered : filtered.eq("entityType", args.entityType);
+
+        return args.profileType === undefined ? byEntity : byEntity.eq("profileType", args.profileType);
       })
       .take(limit * 2);
 

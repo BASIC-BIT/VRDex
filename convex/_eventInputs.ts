@@ -80,6 +80,18 @@ export type EventDraftInput = {
   preferredSlug?: string;
 };
 
+export function preserveOmittedEventDraftFields(
+  input: Partial<EventDraftInput>,
+  preserved: EventDraftInput,
+): EventDraftInput {
+  return {
+    ...preserved,
+    ...input,
+    title: input.title ?? preserved.title,
+    startAt: input.startAt ?? preserved.startAt,
+  };
+}
+
 export type SanitizedEventDraftInput = {
   title: string;
   sortTitle: string;

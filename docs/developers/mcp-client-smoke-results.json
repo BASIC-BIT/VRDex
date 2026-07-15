@@ -1,0 +1,308 @@
+{
+  "schemaVersion": 1,
+  "lastReviewed": "2026-07-14",
+  "readinessMode": "same-branch-preview-representative-client-and-protocol-evidence-ready",
+  "targetEnvironment": "same-branch Vercel and Convex preview https://vr-dex-eblguo5fy-basicbit.vercel.app/mcp, deployed revision 0dd64b2e78cc617a6aa6ec15f80ca81459ee72ac",
+  "hostedReadiness": {
+    "checks": [
+      {
+        "id": "hosted-data-backed-anonymous-read",
+        "requiredForExternalReadiness": true,
+        "status": "pass",
+        "notes": "Same-branch Vercel and Convex preview proves current-head data-backed anonymous public reads across the curated and OpenAI-compatible tool names.",
+        "environment": "GitHub Actions Hosted MCP Preview Smoke run 29311948404 job 87018585252 at PR head 0dd64b2",
+        "evidence": "Hosted MCP Preview Smoke job 87018585252 called anonymous vrdex_search for club, OpenAI-compatible search returned id=profile:community:vrdex-hosted-smoke-club, and fetch returned non-empty document text.",
+        "lastRunAt": "2026-07-14"
+      },
+      {
+        "id": "hosted-dynamic-client-registration",
+        "requiredForExternalReadiness": true,
+        "status": "pass",
+        "notes": "Preview-only persistence accepted constrained public Dynamic Client Registration on the current PR head.",
+        "environment": "GitHub Actions Hosted MCP Preview Smoke run 29311948404 job 87018585252 at PR head 0dd64b2",
+        "evidence": "Hosted MCP Preview Smoke job 87018585252 completed OAuth metadata discovery and public MCP Dynamic Client Registration against the same-branch preview persistence bridge.",
+        "lastRunAt": "2026-07-14"
+      },
+      {
+        "id": "hosted-client-id-metadata-document",
+        "requiredForExternalReadiness": true,
+        "status": "pass",
+        "notes": "Preview-only persistence accepted the constrained URL-form public client on the current PR head.",
+        "environment": "GitHub Actions Hosted MCP Preview Smoke run 29311948404 job 87018585252 at PR head 0dd64b2",
+        "evidence": "Hosted MCP Preview Smoke job 87018585252 fetched the public Client ID Metadata Document and accepted its URL-form client id before the expected sign-in redirect.",
+        "lastRunAt": "2026-07-14"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "id": "claude-desktop",
+      "name": "Claude Desktop",
+      "checks": [
+        {
+          "id": "local-stdio",
+          "surface": "local_stdio",
+          "requiredForExternalReadiness": false,
+          "repoEvidence": "pnpm smoke:mcp-compat local profile: Claude Desktop, including all curated read tools",
+          "manualStatus": "pending",
+          "notes": "Run Claude Desktop with mcpServers command config and call vrdex_search. 2026-07-09 installed-client preflight did not find a Claude Desktop CLI on PATH but detected a running claude desktop process; no tools/list or vrdex_search evidence has been recorded."
+        },
+        {
+          "id": "hosted-anonymous-read",
+          "surface": "hosted_http_anonymous",
+          "requiredForExternalReadiness": false,
+          "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
+          "manualStatus": "pending",
+          "notes": "Use the current Custom Connector path and confirm tools list without forcing login. 2026-07-09 installed-client preflight detected a running claude desktop process, but the hosted Custom Connector public-read session remains unrecorded."
+        },
+        {
+          "id": "hosted-oauth",
+          "surface": "hosted_http_oauth",
+          "requiredForExternalReadiness": false,
+          "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
+          "manualStatus": "pending",
+          "notes": "Confirm protected-resource metadata discovery and an mcp:read OAuth session. 2026-07-09 installed-client preflight detected a running claude desktop process, but the hosted OAuth session remains unrecorded."
+        }
+      ]
+    },
+    {
+      "id": "claude-code",
+      "name": "Claude Code",
+      "checks": [
+        {
+          "id": "local-stdio",
+          "surface": "local_stdio",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "pnpm smoke:mcp-compat local profile: Claude Code, including all curated read tools",
+          "manualStatus": "pass",
+          "notes": "Real Claude Code client smoke using strict temporary --mcp-config and the local stdio package; repo and user Claude MCP config were not modified.",
+          "environment": "Windows / Claude Code 2.1.176 / pnpm smoke:mcp-claude-code / local API fixture",
+          "manualEvidence": "pnpm smoke:mcp-claude-code -- --model claude-haiku-4-5-20251001 returned club-night and fixture captured /api/v0/search?q=club&type=event&limit=1",
+          "lastRunAt": "2026-07-06"
+        },
+        {
+          "id": "hosted-anonymous-read",
+          "surface": "hosted_http_anonymous",
+          "requiredForExternalReadiness": false,
+          "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
+          "manualStatus": "fail",
+          "notes": "The current rerun is blocked by stale local Claude authentication and provides no negative evidence about VRDex transport or data. Reauthenticate Claude Code, then rerun the hosted data-backed smoke; hosted OAuth remains separate.",
+          "environment": "Windows / Claude Code 2.1.176 / same-branch preview 7fe11e8",
+          "manualEvidence": "pnpm smoke:mcp-claude-code exited before a hosted tool call because Claude Code returned HTTP 401 Invalid authentication credentials; a minimal non-MCP print call returned the same account-authentication failure.",
+          "lastRunAt": "2026-07-13"
+        },
+        {
+          "id": "hosted-oauth",
+          "surface": "hosted_http_oauth",
+          "requiredForExternalReadiness": false,
+          "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
+          "manualStatus": "pending",
+          "notes": "Hosted OAuth protocol DCR and CIMD pass on the same-branch preview. Reviewed OAuth client credentials remain absent, staging promotion still needs the Terraform-owned Redis variables, and the local Claude Code account must be reauthenticated. Record this row only after a real authenticated mcp:read client smoke or interactive claude mcp login session."
+        }
+      ]
+    },
+    {
+      "id": "gemini-cli",
+      "name": "Gemini CLI",
+      "checks": [
+        {
+          "id": "local-stdio",
+          "surface": "local_stdio",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "pnpm smoke:mcp-compat local profile: Gemini CLI, including all curated read tools",
+          "manualStatus": "pass",
+          "notes": "Gemini CLI supports command-based stdio MCP servers through settings.json. pnpm smoke:mcp-gemini-cli is the repeatable real-client path; use --gemini-package @google/gemini-cli@latest when Gemini CLI is not installed globally. 2026-07-09 local stdio smoke reached Gemini CLI 0.50.0 with GEMINI_API_KEY available, called vrdex_search, returned club-night, and the fixture captured the expected /api/v0/search request.",
+          "environment": "Windows / Gemini CLI 0.50.0 via @google/gemini-cli@latest disposable package / local stdio",
+          "manualEvidence": "corepack pnpm smoke:mcp-gemini-cli -- --gemini-package @google/gemini-cli@latest returned club-night and fixture captured /api/v0/search?q=club&type=event&limit=1 on 2026-07-09",
+          "lastRunAt": "2026-07-09"
+        },
+        {
+          "id": "hosted-anonymous-read",
+          "surface": "hosted_http_anonymous",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
+          "manualStatus": "pass",
+          "notes": "Real Gemini CLI 0.50.0 hosted anonymous-read smoke passed against the current PR preview with data-backed public results; hosted OAuth remains a separate row.",
+          "environment": "Windows / Gemini CLI 0.50.0 via @google/gemini-cli@latest / PR 159 same-branch preview",
+          "manualEvidence": "2026-07-14 real Gemini CLI reported vrdex Connected and vrdex_search returned non-empty structured content for query=club, type=all, limit=1.",
+          "lastRunAt": "2026-07-14"
+        },
+        {
+          "id": "hosted-oauth",
+          "surface": "hosted_http_oauth",
+          "requiredForExternalReadiness": false,
+          "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
+          "manualStatus": "pending",
+          "notes": "Gemini CLI documents automatic OAuth discovery, Dynamic Client Registration, /mcp auth, and secure token storage for remote MCP servers. DCR and CIMD pass on the same-branch preview; reviewed OAuth credentials remain absent and staging promotion still needs the Terraform-owned Redis variables. Record this row after native OAuth or the repeatable token-backed mcp:read smoke succeeds."
+        }
+      ]
+    },
+    {
+      "id": "vscode",
+      "name": "VS Code",
+      "checks": [
+        {
+          "id": "local-stdio",
+          "surface": "local_stdio",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "pnpm smoke:mcp-compat local profile: VS Code, including all curated read tools",
+          "manualStatus": "pass",
+          "notes": "The 2026-07-10 installed-client session followed the generated local stdio setup after the 2026-07-09 --add-mcp preflight.",
+          "environment": "Windows / VS Code 1.128.0 / authenticated isolated user-data / local stdio -> https://staging.vrdex.net/api/v0",
+          "manualEvidence": "2026-07-10 installed VS Code Copilot session listed all six local stdio VRDex tools, displayed exactly one vrdex_search call with query=club type=all limit=1 and no Authorization header, and reported call succeeded; staging returned no results, so no result slug was available.",
+          "lastRunAt": "2026-07-10"
+        },
+        {
+          "id": "hosted-anonymous-read",
+          "surface": "hosted_http_anonymous",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
+          "manualStatus": "pass",
+          "notes": "The 2026-07-10 installed-client session followed the generated hosted anonymous HTTP setup after the 2026-07-09 --add-mcp preflight.",
+          "environment": "Windows / VS Code 1.128.0 / isolated user-data / https://staging.vrdex.net/mcp",
+          "manualEvidence": "2026-07-10 installed VS Code Copilot session listed all eight VRDex tools, displayed exactly one vrdex_search call with query=club type=all limit=1 and no Authorization header, and reported call succeeded; staging returned an empty results array, so no result slug was available.",
+          "lastRunAt": "2026-07-10"
+        },
+        {
+          "id": "hosted-oauth",
+          "surface": "hosted_http_oauth",
+          "requiredForExternalReadiness": false,
+          "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
+          "manualStatus": "pending",
+          "notes": "2026-07-09: VS Code 1.128.0 is installed and the isolated --add-mcp preflight accepted the generated hosted token-header fallback config for diagnostics. Confirm current OAuth behavior or record the supported token fallback before recording this row."
+        }
+      ]
+    },
+    {
+      "id": "cursor",
+      "name": "Cursor",
+      "checks": [
+        {
+          "id": "local-stdio",
+          "surface": "local_stdio",
+          "requiredForExternalReadiness": false,
+          "repoEvidence": "pnpm smoke:mcp-compat local profile: Cursor, including all curated read tools",
+          "manualStatus": "pending",
+          "notes": "2026-07-13: Cursor IDE 3.11.13 is installed and the isolated --add-mcp preflight accepts the generated local stdio config. The standalone agent / cursor-agent CLI is not installed on PATH. Run pnpm smoke:mcp-cursor-agent after installing it, or use the IDE manual session, before recording this row."
+        },
+        {
+          "id": "hosted-anonymous-read",
+          "surface": "hosted_http_anonymous",
+          "requiredForExternalReadiness": false,
+          "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
+          "manualStatus": "pending",
+          "notes": "2026-07-13: Cursor IDE 3.11.13 is installed and the isolated --add-mcp preflight accepts the generated hosted anonymous HTTP config. The standalone agent / cursor-agent CLI is not installed on PATH. Run the hosted pnpm smoke:mcp-cursor-agent path or the IDE manual session before recording this row."
+        },
+        {
+          "id": "hosted-oauth",
+          "surface": "hosted_http_oauth",
+          "requiredForExternalReadiness": false,
+          "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
+          "manualStatus": "pending",
+          "notes": "2026-07-13: Cursor IDE 3.11.13 is installed and the isolated --add-mcp preflight accepts the generated hosted token-header fallback config for diagnostics. Record native OAuth behavior in a real client session; the headless harness does not claim OAuth evidence."
+        }
+      ]
+    },
+    {
+      "id": "openai-chatgpt",
+      "name": "OpenAI and ChatGPT MCP-capable surfaces",
+      "checks": [
+        {
+          "id": "local-stdio",
+          "surface": "local_stdio",
+          "requiredForExternalReadiness": false,
+          "manualStatus": "not_applicable",
+          "notes": "Treat local stdio as unsupported until the current OpenAI product surface documents it."
+        },
+        {
+          "id": "hosted-anonymous-read",
+          "surface": "hosted_http_anonymous",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "pnpm smoke:mcp-openai -- --hosted-url <production-like-/mcp-url> --hosted-data when OPENAI_API_KEY is available through process env or repo-root .env.local and the target exposes data-backed search/fetch; ChatGPT Apps/Connectors UI evidence remains separate",
+          "manualStatus": "pass",
+          "notes": "OpenAI Responses API remote MCP evidence passes on the current same-branch preview. ChatGPT Apps or Connectors UI and hosted OAuth product-surface evidence remain separate.",
+          "environment": "Windows / OpenAI Responses API / gpt-5.6-luna / same-branch preview 0af8dbb",
+          "manualEvidence": "pnpm smoke:mcp-openai preflighted data-backed search and fetch, then gpt-5.6-luna called hosted search for club and fetch against https://vr-dex-5e6noagn2-basicbit.vercel.app/mcp successfully.",
+          "lastRunAt": "2026-07-13"
+        },
+        {
+          "id": "hosted-oauth",
+          "surface": "hosted_http_oauth",
+          "requiredForExternalReadiness": false,
+          "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
+          "manualStatus": "pending",
+          "notes": "Current OpenAI guidance recommends CIMD when supported and keeps DCR available. VRDex passes both protocol paths on the same-branch preview, but ChatGPT Apps or Connectors hosted OAuth behavior and any app review requirement remain unrecorded."
+        }
+      ]
+    },
+    {
+      "id": "devin-windsurf",
+      "name": "Devin Desktop / Windsurf Cascade",
+      "checks": [
+        {
+          "id": "local-stdio",
+          "surface": "local_stdio",
+          "requiredForExternalReadiness": false,
+          "repoEvidence": "pnpm smoke:mcp-compat local profile: Devin Desktop / Windsurf Cascade, including all curated read tools",
+          "manualStatus": "pending",
+          "notes": "2026-07-09: Windsurf 1.110.1 is installed and the isolated --add-mcp preflight accepted the generated local stdio config. Run the installed app with the disposable session pack, list tools, and call vrdex_search before recording this row."
+        },
+        {
+          "id": "hosted-anonymous-read",
+          "surface": "hosted_http_anonymous",
+          "requiredForExternalReadiness": false,
+          "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
+          "manualStatus": "pending",
+          "notes": "2026-07-09: Windsurf 1.110.1 is installed and the isolated --add-mcp preflight accepted the generated hosted anonymous HTTP config. Confirm the installed app lists tools and calls anonymous public reads before recording this row."
+        },
+        {
+          "id": "hosted-oauth",
+          "surface": "hosted_http_oauth",
+          "requiredForExternalReadiness": false,
+          "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
+          "manualStatus": "pending",
+          "notes": "2026-07-09: Windsurf 1.110.1 is installed and the isolated --add-mcp preflight accepted the generated hosted token-header fallback config for diagnostics. Confirm OAuth behavior for Streamable HTTP in the current client release before recording this row."
+        }
+      ]
+    },
+    {
+      "id": "mcp-inspector",
+      "name": "MCP Inspector",
+      "checks": [
+        {
+          "id": "local-stdio",
+          "surface": "local_stdio",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "pnpm smoke:mcp-compat local profile: MCP Inspector, including all curated read tools",
+          "manualStatus": "pass",
+          "notes": "Local stdio compatibility verified through MCP Inspector CLI against the repo API fixture, including a real vrdex_search tool call and structured content result.",
+          "environment": "Windows / MCP Inspector CLI 0.22.0 direct CLI entrypoint / local stdio package command / repo API fixture",
+          "manualEvidence": "node @modelcontextprotocol/inspector/cli/build/index.js corepack pnpm --silent --dir D:/bench/VRDex-wt/public-api-mcp-planning exec tsx packages/vrdex-mcp/src/stdio.ts --method tools/call --tool-name vrdex_search --tool-arg query=club type=event limit=1 returned structuredContent.results[0].slug=club-night and fixture captured /api/v0/search?q=club&type=event&limit=1",
+          "lastRunAt": "2026-07-06"
+        },
+        {
+          "id": "hosted-anonymous-read",
+          "surface": "hosted_http_anonymous",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "Hosted MCP Preview Smoke when VRDEX_MCP_SMOKE_URL is set",
+          "manualStatus": "pass",
+          "notes": "MCP Inspector hosted anonymous-read smoke passed with data-backed public results; hosted OAuth remains a separate row.",
+          "environment": "Windows / MCP Inspector CLI via @modelcontextprotocol/inspector / same-branch preview 7fe11e8",
+          "manualEvidence": "pnpm smoke:mcp-inspector listed all eight hosted tools, confirmed public-read auth metadata, and called vrdex_search for club, returning vrdex-hosted-smoke-club from the same-branch preview.",
+          "lastRunAt": "2026-07-13"
+        },
+        {
+          "id": "hosted-oauth",
+          "surface": "hosted_http_oauth",
+          "requiredForExternalReadiness": true,
+          "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
+          "manualStatus": "pass",
+          "notes": "Generated E2E credentials remained masked and ephemeral. The bootstrap now requires authenticated MCP tools/list before client-specific smoke execution; DCR, CIMD, and data-backed public reads also passed in the same run.",
+          "environment": "GitHub Actions / MCP Inspector CLI 0.22.0 / same-branch Vercel and Convex preview 8144d47",
+          "manualEvidence": "Deployed Health Checks run 29288588007 generated a temporary confidential OAuth app, issued an MCP-resource mcp:read token, authenticated hosted tools/list with eight VRDex tools, and MCP Inspector repeated authenticated tools/list successfully against https://vr-dex-7keqjr0nq-basicbit.vercel.app/mcp.",
+          "lastRunAt": "2026-07-13"
+        }
+      ]
+    }
+  ]
+}

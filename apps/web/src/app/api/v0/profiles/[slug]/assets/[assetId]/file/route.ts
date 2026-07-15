@@ -1,4 +1,5 @@
 import { api } from "@convex-generated-api";
+import { rejectBearerTokenQuery, rejectInvalidOrRateLimitedPublicApiRequest } from "@/lib/server/api-v0";
 import { convexHttpClient } from "@/lib/server/convex-http";
 import { getProfileAssetObject, isProfileAssetStorageConfigured } from "@/lib/server/profile-asset-storage";
 
@@ -24,6 +25,16 @@ function safeFileName(value: string): string {
 }
 
 export async function GET(request: Request, context: RouteContext) {
+  const rejected = rejectBearerTokenQuery(request);
+  if (rejected !== null) {
+    return rejected;
+  }
+
+  const rejectedBearerToken = await rejectInvalidOrRateLimitedPublicApiRequest(request);
+  if (rejectedBearerToken !== null) {
+    return rejectedBearerToken;
+  }
+
   if (!isProfileAssetStorageConfigured()) {
     return Response.json({ error: "Profile asset storage is not configured." }, { status: 501 });
   }

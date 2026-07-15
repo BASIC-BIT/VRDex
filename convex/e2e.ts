@@ -104,6 +104,8 @@ async function cleanupE2eUserByEmail(ctx: MutationCtx, email: string) {
     return { deleted: false };
   }
 
+  await cleanupE2eDeveloperCredentials(ctx, user._id);
+
   const [accounts, sessions, claimRequests, verificationAttempts, profileOwners] = await Promise.all([
     ctx.db.query("authAccounts").withIndex("userIdAndProvider", (query) => query.eq("userId", user._id)).collect(),
     ctx.db.query("authSessions").withIndex("userId", (query) => query.eq("userId", user._id)).collect(),
@@ -130,6 +132,47 @@ async function cleanupE2eUserByEmail(ctx: MutationCtx, email: string) {
   ]);
 
   return { deleted: true };
+}
+
+async function cleanupE2eDeveloperCredentials(ctx: MutationCtx, userId: Doc<"users">["_id"]) {
+  const [apiTokens, apiTokenEvents, oauthApplications, oauthAuthorizationCodes, oauthRefreshTokens, oauthClientEvents] =
+    await Promise.all([
+      ctx.db.query("apiTokens").withIndex("by_ownerUserId_createdAt", (query) => query.eq("ownerUserId", userId)).collect(),
+      ctx.db.query("apiTokenEvents").withIndex("by_ownerUserId_createdAt", (query) => query.eq("ownerUserId", userId)).collect(),
+      ctx.db.query("oauthApplications").withIndex("by_ownerUserId_createdAt", (query) => query.eq("ownerUserId", userId)).collect(),
+      ctx.db.query("oauthAuthorizationCodes").withIndex("by_userId_createdAt", (query) => query.eq("userId", userId)).collect(),
+      ctx.db.query("oauthRefreshTokens").withIndex("by_userId_expiresAt", (query) => query.eq("userId", userId)).collect(),
+      ctx.db.query("oauthClientEvents").withIndex("by_ownerUserId_createdAt", (query) => query.eq("ownerUserId", userId)).collect(),
+    ]);
+  const [oauthApplicationSecrets, oauthAccessTokens] = await Promise.all([
+    Promise.all(
+      oauthApplications.map((application) =>
+        ctx.db
+          .query("oauthApplicationSecrets")
+          .withIndex("by_applicationId_status_createdAt", (query) => query.eq("applicationId", application._id))
+          .collect(),
+      ),
+    ),
+    Promise.all(
+      oauthApplications.map((application) =>
+        ctx.db
+          .query("oauthAccessTokens")
+          .withIndex("by_applicationId_issuedAt", (query) => query.eq("applicationId", application._id))
+          .collect(),
+      ),
+    ),
+  ]);
+
+  await Promise.all([
+    ...apiTokenEvents.map((event) => ctx.db.delete(event._id)),
+    ...apiTokens.map((token) => ctx.db.delete(token._id)),
+    ...oauthApplicationSecrets.flat().map((secret) => ctx.db.delete(secret._id)),
+    ...oauthAuthorizationCodes.map((code) => ctx.db.delete(code._id)),
+    ...oauthRefreshTokens.map((token) => ctx.db.delete(token._id)),
+    ...oauthAccessTokens.flat().map((token) => ctx.db.delete(token._id)),
+    ...oauthClientEvents.map((event) => ctx.db.delete(event._id)),
+  ]);
+  await Promise.all(oauthApplications.map((application) => ctx.db.delete(application._id)));
 }
 
 export const recordAuthCode = internalMutation({
