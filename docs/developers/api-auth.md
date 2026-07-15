@@ -80,7 +80,8 @@ first-party sign-in and is not the external developer-platform issuer.
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /.well-known/oauth-authorization-server` | OAuth issuer metadata. |
-| `GET /.well-known/oauth-protected-resource` | MCP protected-resource metadata. |
+| `GET /.well-known/oauth-protected-resource` | Public API protected-resource metadata. |
+| `GET /.well-known/oauth-protected-resource/mcp` | Hosted MCP protected-resource metadata. |
 | `GET /oauth/authorize` | Authorization Code with PKCE. |
 | `POST /oauth/token` | `authorization_code`, `refresh_token`, and `client_credentials`. |
 | `POST /oauth/revoke` | Access-token and refresh-token revocation. |

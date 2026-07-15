@@ -182,6 +182,7 @@ Current OAuth issuer routes:
 
 - `GET /.well-known/oauth-authorization-server`
 - `GET /.well-known/oauth-protected-resource`
+- `GET /.well-known/oauth-protected-resource/mcp`
 - `GET /oauth/authorize`, for Authorization Code with PKCE consent
 - `GET /oauth/jwks.json`
 - `POST /oauth/register`, for constrained hosted MCP Dynamic Client Registration

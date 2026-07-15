@@ -58,9 +58,27 @@ describe("OAuth metadata routes", () => {
     assert.match(output, /"protected_resources":\["https:\/\/api\.example\.test","https:\/\/mcp\.example\.test"\]/);
   });
 
-  it("advertises MCP protected-resource metadata for hosted OAuth", () => {
+  it("advertises API protected-resource metadata at the base discovery path", () => {
     const output = runRouteProbe(`
       import { GET } from "./apps/web/src/app/.well-known/oauth-protected-resource/route.ts";
+
+      const response = GET(new Request("https://app.example.test/.well-known/oauth-protected-resource"));
+      console.log(response.status);
+      console.log(JSON.stringify(await response.json()));
+    `);
+
+    assert.match(output, /^200/m);
+    assert.match(output, /"resource":"https:\/\/app\.example\.test"/);
+    assert.match(output, /"authorization_servers":\["https:\/\/app\.example\.test"\]/);
+    assert.match(output, /"scopes_supported":\["public:read"/);
+    assert.doesNotMatch(output, /mcp:read/);
+    assert.match(output, /"bearer_methods_supported":\["header"\]/);
+    assert.match(output, /"resource_name":"VRDex API"/);
+  });
+
+  it("advertises MCP protected-resource metadata at its resource-specific path", () => {
+    const output = runRouteProbe(`
+      import { GET } from "./apps/web/src/app/.well-known/oauth-protected-resource/mcp/route.ts";
 
       const response = GET(new Request("https://app.example.test/.well-known/oauth-protected-resource"));
       console.log(response.status);

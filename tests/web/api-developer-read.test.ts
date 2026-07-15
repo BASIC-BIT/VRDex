@@ -93,6 +93,36 @@ describe("developer read API authority", () => {
     assert.match(output, /ok/);
   });
 
+  it("allows only personal API tokens to mint another personal API token", () => {
+    const output = runDeveloperReadProbe(`
+      import assert from "node:assert/strict";
+      import { canCreatePersonalApiToken } from "./apps/web/src/lib/server/api-developer-read.ts";
+
+      assert.equal(canCreatePersonalApiToken({
+        kind: "api_token",
+        ownerKind: "user",
+        ownerUserId: "user_123",
+        scopes: ["developer:write"],
+        tokenId: "token_123",
+        trustTier: "personal",
+      }), true);
+
+      assert.equal(canCreatePersonalApiToken({
+        kind: "oauth",
+        clientId: "vrdx_app_000000000000000000000000",
+        scopes: ["developer:write"],
+        subjectType: "user",
+        trustTier: "standard",
+        userId: "user_123",
+      }), false);
+
+      assert.equal(canCreatePersonalApiToken({ kind: "anonymous" }), false);
+      console.log("ok");
+    `);
+
+    assert.match(output, /ok/);
+  });
+
   it("requires a bearer credential on developer token lists", () => {
     const output = runDeveloperReadProbe(`
       import { GET } from "./apps/web/src/app/api/v0/developer/tokens/route.ts";

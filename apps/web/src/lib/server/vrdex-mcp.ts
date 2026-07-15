@@ -39,6 +39,7 @@ import {
   parseOAuthScopeString,
   verifyOAuthAccessToken,
 } from "@/lib/server/oauth-jwt";
+import { publicSearchBackendFilters } from "@/lib/server/public-search-query";
 
 type ResponseSchema<T> = z.ZodType<T>;
 
@@ -117,18 +118,6 @@ function mcpReadToolMeta(anonymousPublicReads: boolean) {
 
 function boundedLimit(value: number | undefined, fallback: number, max: number) {
   return Math.max(1, Math.min(value ?? fallback, max));
-}
-
-function entityTypeForSearchType(type: (typeof mcpSearchTypes)[number]) {
-  if (type === "world" || type === "event") {
-    return type;
-  }
-
-  if (type === "person" || type === "community" || type === "profile") {
-    return "profile";
-  }
-
-  return undefined;
 }
 
 function publicWebOrigin() {
@@ -524,7 +513,7 @@ function mcpWwwAuthenticateHeader(
   } = {},
 ) {
   const params = [
-    ["resource_metadata", `${oauthIssuerUrl(request)}/.well-known/oauth-protected-resource`],
+    ["resource_metadata", `${oauthIssuerUrl(request)}/.well-known/oauth-protected-resource/mcp`],
     ["scope", oauthScopeString(mcpRequiredScopes)],
     ...(options.error === undefined ? [] : [["error", options.error] as const]),
     ...(options.errorDescription === undefined ? [] : [["error_description", options.errorDescription] as const]),
@@ -802,11 +791,10 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       } satisfies PublicSearchResponse;
     }
 
-    const entityType = entityTypeForSearchType(normalizedType);
     const results = await convex().query(api.search.searchUniversal, {
       query: searchText,
       limit: cappedLimit,
-      ...(entityType === undefined ? {} : { entityType }),
+      ...publicSearchBackendFilters(normalizedType),
     });
     const filteredResults =
       normalizedType === "person" || normalizedType === "community"
@@ -1001,16 +989,16 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     },
     async ({ limit }) => {
       const cappedLimit = boundedLimit(limit, 8, 24);
-      let discovery;
+      let events;
 
       try {
-        discovery = await convex().query(api.search.listDiscovery, { now: now() });
+        events = await convex().query(api.search.listUpcomingEvents, { now: now(), limit: cappedLimit });
       } catch {
         return mcpPublicReadUnavailable("upcoming events");
       }
 
       return mcpJsonResult(PublicEventsResponseSchema, {
-        events: discovery.upcomingEvents.slice(0, cappedLimit),
+        events,
       });
     },
   );

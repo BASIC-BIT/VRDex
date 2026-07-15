@@ -7,20 +7,9 @@ import {
   rejectInvalidOrRateLimitedPublicApiRequest,
 } from "@/lib/server/api-v0";
 import { convexHttpClient } from "@/lib/server/convex-http";
+import { publicSearchBackendFilters } from "@/lib/server/public-search-query";
 
 export const dynamic = "force-dynamic";
-
-function entityTypeForSearchType(type: string) {
-  if (type === "world" || type === "event") {
-    return type;
-  }
-
-  if (type === "person" || type === "community" || type === "profile") {
-    return "profile";
-  }
-
-  return undefined;
-}
 
 export async function GET(request: Request) {
   const rejected = rejectBearerTokenQuery(request);
@@ -40,13 +29,12 @@ export async function GET(request: Request) {
     return apiJson(PublicSearchResponseSchema, { query, type, results: [] });
   }
 
-  const entityType = entityTypeForSearchType(type);
   const results = await (async () => {
     try {
       return await convexHttpClient().query(api.search.searchUniversal, {
         query,
         limit,
-        ...(entityType === undefined ? {} : { entityType }),
+        ...publicSearchBackendFilters(type),
       });
     } catch {
       return null;

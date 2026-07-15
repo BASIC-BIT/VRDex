@@ -320,7 +320,7 @@ describe("VRDex MCP server", () => {
     assert.match(output, /^401/m);
     assert.match(
       output,
-      /Bearer resource_metadata="https:\/\/app\.example\.test\/\.well-known\/oauth-protected-resource", scope="mcp:read"/,
+      /Bearer resource_metadata="https:\/\/app\.example\.test\/\.well-known\/oauth-protected-resource\/mcp", scope="mcp:read"/,
     );
     assert.match(output, /OAuth bearer token is required for this MCP deployment/);
   });
@@ -474,7 +474,7 @@ describe("VRDex MCP server", () => {
     assert.match(output, /^401/m);
     assert.match(
       output,
-      /Bearer resource_metadata="https:\/\/app\.example\.test\/\.well-known\/oauth-protected-resource", scope="mcp:read", error="invalid_token"/,
+      /Bearer resource_metadata="https:\/\/app\.example\.test\/\.well-known\/oauth-protected-resource\/mcp", scope="mcp:read", error="invalid_token"/,
     );
     assert.match(output, /OAuth bearer token is invalid/);
   });
@@ -513,7 +513,7 @@ describe("VRDex MCP server", () => {
     assert.match(output, /^403/m);
     assert.match(
       output,
-      /Bearer resource_metadata="https:\/\/app\.example\.test\/\.well-known\/oauth-protected-resource", scope="mcp:read", error="insufficient_scope"/,
+      /Bearer resource_metadata="https:\/\/app\.example\.test\/\.well-known\/oauth-protected-resource\/mcp", scope="mcp:read", error="insufficient_scope"/,
     );
     assert.match(output, /OAuth bearer token scope is insufficient/);
   });

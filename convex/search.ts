@@ -24,6 +24,11 @@ const searchEntityType = v.union(
   v.literal("event"),
 );
 
+const searchProfileType = v.union(
+  v.literal("person"),
+  v.literal("community"),
+);
+
 function boundedLimit(value: number | undefined, fallback: number, max: number): number {
   return Math.max(1, Math.min(value ?? fallback, max));
 }
@@ -50,6 +55,7 @@ export const searchUniversal = query({
   args: {
     query: v.string(),
     entityType: v.optional(searchEntityType),
+    profileType: v.optional(searchProfileType),
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -65,7 +71,9 @@ export const searchUniversal = query({
       .withSearchIndex("search_text", (search) => {
         const filtered = search.search("searchText", searchText).eq("publicState", "public");
 
-        return args.entityType === undefined ? filtered : filtered.eq("entityType", args.entityType);
+        const byEntity = args.entityType === undefined ? filtered : filtered.eq("entityType", args.entityType);
+
+        return args.profileType === undefined ? byEntity : byEntity.eq("profileType", args.profileType);
       })
       .take(limit * 2);
 
@@ -90,14 +98,28 @@ async function listDocumentsByType(ctx: QueryCtx, entityType: SearchEntityType) 
     .take(40);
 }
 
-async function listUpcomingEventDocuments(ctx: QueryCtx, now: number) {
+async function listUpcomingEventDocuments(ctx: QueryCtx, now: number, limit = 40) {
   return await ctx.db
     .query("searchDocuments")
     .withIndex("by_publicState_startsAt", (index) => index.eq("publicState", "public").gte("startsAt", now))
     .filter((query) => query.eq(query.field("entityType"), "event"))
     .order("asc")
-    .take(40);
+    .take(limit);
 }
+
+export const listUpcomingEvents = query({
+  args: {
+    now: v.optional(v.number()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const now = args.now ?? Date.now();
+    const limit = boundedLimit(args.limit, DISCOVERY_SECTION_LIMIT, SEARCH_RESULT_LIMIT);
+    const documents = await listUpcomingEventDocuments(ctx, now, limit);
+
+    return documents.map((document) => toPublicSearchResult(document, undefined));
+  },
+});
 
 export const listDiscovery = query({
   args: {

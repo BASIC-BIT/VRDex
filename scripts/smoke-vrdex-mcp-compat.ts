@@ -531,7 +531,7 @@ async function runHostedDiagnosticStep(
 }
 
 async function smokeHostedOAuthMetadata(url: URL, results: SmokeResult[]): Promise<HostedOAuthMetadata> {
-  const protectedResourceUrl = urlForPath(url.origin, "/.well-known/oauth-protected-resource");
+  const protectedResourceUrl = urlForPath(url.origin, "/.well-known/oauth-protected-resource/mcp");
   const protectedResource = await fetch(protectedResourceUrl, { headers: { accept: "application/json" } });
 
   await assertHttpStatus(protectedResource, 200, "OAuth protected-resource metadata");

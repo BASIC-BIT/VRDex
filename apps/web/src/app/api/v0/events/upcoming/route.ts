@@ -22,9 +22,9 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const { limit } = parsePublicEventsListQueryParams(url.searchParams);
-  const discovery = await convexHttpClient().query(api.search.listDiscovery, { now: Date.now() });
+  const events = await convexHttpClient().query(api.search.listUpcomingEvents, { now: Date.now(), limit });
 
   return apiJson(PublicEventsResponseSchema, {
-    events: discovery.upcomingEvents.slice(0, limit),
+    events,
   });
 }

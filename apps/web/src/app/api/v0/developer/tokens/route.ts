@@ -17,6 +17,7 @@ import {
   rejectBearerTokenQuery,
 } from "@/lib/server/api-v0";
 import {
+  canCreatePersonalApiToken,
   evaluateDeveloperReadRequest,
   evaluateDeveloperWriteRequest,
 } from "@/lib/server/api-developer-read";
@@ -34,7 +35,7 @@ function apiTokenPepper() {
   return pepper;
 }
 
-function problem(status: 400 | 500, title: string, detail: string) {
+function problem(status: 400 | 403 | 500, title: string, detail: string) {
   return apiProblemResponse({
     type: "about:blank",
     title,
@@ -74,6 +75,14 @@ export async function POST(request: Request) {
   const evaluation = await evaluateDeveloperWriteRequest(request);
   if (!evaluation.ok) {
     return evaluation.response;
+  }
+
+  if (!canCreatePersonalApiToken(evaluation.context.credential)) {
+    return problem(
+      403,
+      "Personal API token creation requires a personal API token",
+      "User-delegated OAuth access tokens cannot create persistent personal API tokens.",
+    );
   }
 
   let rawBody: unknown;

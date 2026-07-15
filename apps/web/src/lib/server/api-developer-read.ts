@@ -63,6 +63,10 @@ export function developerReadAuthorityForCredential(
   return { ok: false, reason: "non_user_authority" };
 }
 
+export function canCreatePersonalApiToken(credential: ApiBearerCredentialContext) {
+  return credential.kind === "api_token" && credential.ownerKind === "user";
+}
+
 async function evaluateDeveloperCredentialRequest(
   request: Request,
   options: {

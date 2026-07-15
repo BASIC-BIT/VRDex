@@ -110,7 +110,7 @@ async function startHostedFailureFixture() {
     const origin = `http://${request.headers.host}`;
     const url = new URL(request.url ?? "/", origin);
 
-    if (request.method === "GET" && url.pathname === "/.well-known/oauth-protected-resource") {
+    if (request.method === "GET" && url.pathname === "/.well-known/oauth-protected-resource/mcp") {
       writeJson(response, 200, {
         authorization_servers: [origin],
         resource: `${origin}/mcp`,
@@ -149,7 +149,7 @@ async function startHostedFailureFixture() {
 
     if (request.headers.authorization !== undefined) {
       response.writeHead(401, {
-        "www-authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource", scope="mcp:read"`,
+        "www-authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp", scope="mcp:read"`,
       });
       response.end();
       return;
@@ -248,7 +248,7 @@ async function startHostedSuccessFixture() {
     const origin = `http://${request.headers.host}`;
     const url = new URL(request.url ?? "/", origin);
 
-    if (request.method === "GET" && url.pathname === "/.well-known/oauth-protected-resource") {
+    if (request.method === "GET" && url.pathname === "/.well-known/oauth-protected-resource/mcp") {
       writeJson(response, 200, {
         authorization_servers: [origin],
         resource: `${origin}/mcp`,
@@ -295,7 +295,7 @@ async function startHostedSuccessFixture() {
 
     if (request.headers.authorization !== undefined) {
       response.writeHead(401, {
-        "www-authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource", scope="mcp:read"`,
+        "www-authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp", scope="mcp:read"`,
       });
       response.end();
       return;
