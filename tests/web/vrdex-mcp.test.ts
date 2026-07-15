@@ -479,6 +479,42 @@ describe("VRDex MCP server", () => {
     assert.match(output, /OAuth bearer token is invalid/);
   });
 
+  it("charges invalid bearer authentication to the anonymous MCP IP bucket", () => {
+    const output = runMcpProbe(`
+      import assert from "node:assert/strict";
+      import { rejectInvalidOrRateLimitedMcpRequest } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      process.env.VERCEL = "1";
+      process.env.VERCEL_ENV = "preview";
+      process.env.VRDEX_DEPLOYMENT_ENV = "preview";
+      process.env.VRDEX_RATE_LIMIT_STORE = "memory";
+      process.env.VRDEX_RATE_LIMIT_REDIS_PREFIX = "vrdex:test:mcp-failed-auth";
+
+      function request() {
+        return new Request("https://app.example.test/mcp", {
+          headers: {
+            authorization: "Bearer not-a-jwt",
+            "x-vercel-forwarded-for": "203.0.113.46",
+          },
+        });
+      }
+
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        const response = await rejectInvalidOrRateLimitedMcpRequest(request());
+        assert.equal(response?.status, 401);
+      }
+
+      const blocked = await rejectInvalidOrRateLimitedMcpRequest(request());
+      console.log(blocked?.status);
+      console.log(blocked?.headers.get("ratelimit-limit"));
+      console.log(await blocked?.text());
+    `);
+
+    assert.match(output, /^429/m);
+    assert.match(output, /^60$/m);
+    assert.match(output, /MCP rate limit exceeded/);
+  });
+
   it("returns insufficient-scope challenges for valid MCP-resource tokens without mcp:read", () => {
     const output = runMcpProbe(`
       import { generateKeyPairSync } from "node:crypto";

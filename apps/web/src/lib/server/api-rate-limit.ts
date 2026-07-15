@@ -425,10 +425,12 @@ export async function checkApiRateLimit(args: {
   });
 }
 
-export async function checkFailedApiAuthenticationRateLimit(request: Request) {
+async function checkFailedAuthenticationRateLimit<RouteClass extends ApiRouteClass>(
+  request: Request,
+  routeClass: RouteClass,
+) {
   const identity = { kind: "ip", value: clientIpForRequest(request) } satisfies ApiRateLimitIdentity;
   const quotaTier = "standard" satisfies ApiRateLimitQuotaTier;
-  const routeClass = "anonymous_public_read" satisfies ApiRouteClass;
   const rateLimit = await checkApiRateLimit({ identity, quotaTier, routeClass });
 
   return {
@@ -437,6 +439,14 @@ export async function checkFailedApiAuthenticationRateLimit(request: Request) {
     rateLimit,
     routeClass,
   } as const;
+}
+
+export async function checkFailedApiAuthenticationRateLimit(request: Request) {
+  return await checkFailedAuthenticationRateLimit(request, "anonymous_public_read");
+}
+
+export async function checkFailedMcpAuthenticationRateLimit(request: Request) {
+  return await checkFailedAuthenticationRateLimit(request, "anonymous_mcp_public_read");
 }
 
 export async function checkOAuthAccessTokenRateLimit(args: {

@@ -29,11 +29,12 @@ describe("public search backend query boundaries", () => {
   it("uses the dedicated bounded upcoming-events query from REST and MCP", () => {
     const route = source("apps/web/src/app/api/v0/events/upcoming/route.ts");
     const mcp = source("apps/web/src/lib/server/vrdex-mcp.ts");
-    const search = source("convex/search.ts");
+    const events = source("convex/events.ts");
 
-    assert.match(route, /api\.search\.listUpcomingEvents, \{ now: Date\.now\(\), limit \}/);
-    assert.match(mcp, /api\.search\.listUpcomingEvents, \{ now: now\(\), limit: cappedLimit \}/);
-    assert.match(search, /export const listUpcomingEvents = query\(/);
-    assert.match(search, /listUpcomingEventDocuments\(ctx, now, limit\)/);
+    assert.match(route, /api\.events\.listPublicUpcoming, \{ now: Date\.now\(\), limit \}/);
+    assert.match(mcp, /api\.events\.listPublicUpcoming, \{ now: now\(\), limit: cappedLimit \}/);
+    assert.match(events, /export const listPublicUpcoming = query\(/);
+    assert.match(events, /getPublicEventPreviews\(ctx\.db, events, \{ now: args\.now, limit \}\)/);
+    assert.doesNotMatch(events, /toPublicSearchResult/);
   });
 });

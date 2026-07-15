@@ -23,6 +23,7 @@ import {
 import {
   apiRateLimitPolicyForRouteClass,
   checkApiRateLimit,
+  checkFailedMcpAuthenticationRateLimit,
   checkOAuthAccessTokenRateLimit,
   clientIpForRequest,
   oauthRateLimitOwnerForCredential,
@@ -672,6 +673,50 @@ export function withMcpHttpHeaders(response: Response) {
   });
 }
 
+async function mcpRateLimitExceededResponse(args: {
+  identity: ApiRateLimitIdentity;
+  quotaTier: "standard" | "trusted_partner";
+  rateLimit: Awaited<ReturnType<typeof checkApiRateLimit>>;
+  routeClass: AcceptedMcpRouteClass;
+}) {
+  const policy = apiRateLimitPolicyForRouteClass(args.routeClass, args.quotaTier);
+  const response = mcpJsonRpcError(429, -32000, "MCP rate limit exceeded.");
+
+  await recordApiRateLimitBlockedEvent({
+    identity: args.identity,
+    quotaTier: args.quotaTier,
+    rateLimit: args.rateLimit,
+    routeClass: args.routeClass,
+    windowMs: policy.windowMs,
+  });
+
+  response.headers.set("Retry-After", String(args.rateLimit.retryAfterSeconds));
+  response.headers.set("RateLimit-Limit", String(args.rateLimit.limit));
+  response.headers.set("RateLimit-Remaining", String(args.rateLimit.remaining));
+  response.headers.set("RateLimit-Reset", String(Math.ceil(args.rateLimit.resetAt / 1_000)));
+
+  return response;
+}
+
+async function rateLimitMcpAuthenticationFailure(request: Request, authenticationResponse: Response) {
+  let evaluation: Awaited<ReturnType<typeof checkFailedMcpAuthenticationRateLimit>>;
+
+  try {
+    evaluation = await checkFailedMcpAuthenticationRateLimit(request);
+  } catch {
+    return mcpJsonRpcError(500, -32603, "MCP rate limiting is unavailable.");
+  }
+
+  return evaluation.rateLimit.allowed
+    ? authenticationResponse
+    : await mcpRateLimitExceededResponse({
+        identity: evaluation.identity,
+        quotaTier: evaluation.quotaTier,
+        rateLimit: evaluation.rateLimit,
+        routeClass: evaluation.routeClass,
+      });
+}
+
 export async function rejectInvalidOrRateLimitedMcpRequest(request: Request) {
   if (hasBearerTokenInUrl(request.url)) {
     return mcpAuthenticationErrorResponse(
@@ -689,12 +734,15 @@ export async function rejectInvalidOrRateLimitedMcpRequest(request: Request) {
   const bearerToken = getBearerTokenFromAuthorizationHeader(request.headers.get("authorization"));
 
   if (bearerToken === null && !hostedMcpAnonymousPublicReadsEnabled()) {
-    return mcpAuthenticationErrorResponse(
+    return await rateLimitMcpAuthenticationFailure(
       request,
-      401,
-      -32600,
-      "OAuth bearer token is required for this MCP deployment.",
-      {},
+      mcpAuthenticationErrorResponse(
+        request,
+        401,
+        -32600,
+        "OAuth bearer token is required for this MCP deployment.",
+        {},
+      ),
     );
   }
 
@@ -708,13 +756,12 @@ export async function rejectInvalidOrRateLimitedMcpRequest(request: Request) {
       : await authenticateMcpBearerToken(request, bearerToken);
 
   if (!authentication.ok) {
-    return authentication.response;
+    return await rateLimitMcpAuthenticationFailure(request, authentication.response);
   }
 
   const routeClass =
     authentication.identity.kind === "oauth_client" ? "authenticated_mcp" : "anonymous_mcp_public_read";
   const quotaTier = authentication.quotaTier;
-  const policy = apiRateLimitPolicyForRouteClass(routeClass, quotaTier);
 
   let rateLimit;
   let rateLimitIdentity: ApiRateLimitIdentity = authentication.identity;
@@ -746,22 +793,12 @@ export async function rejectInvalidOrRateLimitedMcpRequest(request: Request) {
     return null;
   }
 
-  const response = mcpJsonRpcError(429, -32000, "MCP rate limit exceeded.");
-
-  await recordApiRateLimitBlockedEvent({
+  return await mcpRateLimitExceededResponse({
     identity: rateLimitIdentity,
     quotaTier,
     rateLimit,
     routeClass,
-    windowMs: policy.windowMs,
   });
-
-  response.headers.set("Retry-After", String(rateLimit.retryAfterSeconds));
-  response.headers.set("RateLimit-Limit", String(rateLimit.limit));
-  response.headers.set("RateLimit-Remaining", String(rateLimit.remaining));
-  response.headers.set("RateLimit-Reset", String(Math.ceil(rateLimit.resetAt / 1_000)));
-
-  return response;
 }
 
 export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
@@ -992,7 +1029,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       let events;
 
       try {
-        events = await convex().query(api.search.listUpcomingEvents, { now: now(), limit: cappedLimit });
+        events = await convex().query(api.events.listPublicUpcoming, { now: now(), limit: cappedLimit });
       } catch {
         return mcpPublicReadUnavailable("upcoming events");
       }

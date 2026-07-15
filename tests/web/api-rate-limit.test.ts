@@ -6,6 +6,7 @@ import {
   apiRateLimitPolicyForRouteClass,
   checkApiRateLimit,
   checkFailedApiAuthenticationRateLimit,
+  checkFailedMcpAuthenticationRateLimit,
   checkMemoryApiRateLimit,
   checkOAuthAccessTokenRateLimit,
   checkRedisRestApiRateLimit,
@@ -409,6 +410,30 @@ describe("public API rate limiting", () => {
       assert.equal(blocked.identity.value, "203.0.113.44");
       assert.equal(blocked.rateLimit.allowed, false);
       assert.equal(blocked.rateLimit.remaining, 0);
+
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        const evaluation = await checkFailedMcpAuthenticationRateLimit(
+          new Request("https://app.example.test/mcp", {
+            headers: {
+              "x-vercel-forwarded-for": "203.0.113.45",
+            },
+          }),
+        );
+
+        assert.equal(evaluation.rateLimit.allowed, true);
+      }
+
+      const blockedMcp = await checkFailedMcpAuthenticationRateLimit(
+        new Request("https://app.example.test/mcp", {
+          headers: {
+            "x-vercel-forwarded-for": "203.0.113.45",
+          },
+        }),
+      );
+
+      assert.equal(blockedMcp.routeClass, "anonymous_mcp_public_read");
+      assert.equal(blockedMcp.rateLimit.allowed, false);
+      assert.equal(blockedMcp.rateLimit.remaining, 0);
     } finally {
       restoreEnv("VRDEX_DEPLOYMENT_ENV", previousDeploymentEnv);
       restoreEnv("VRDEX_RATE_LIMIT_REDIS_PREFIX", previousPrefix);

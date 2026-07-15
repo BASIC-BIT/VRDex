@@ -37,7 +37,11 @@ import {
 } from "./_eventMediaControl";
 import { sanitizeEventDraftInput, type SanitizedEventDraftInput } from "./_eventInputs";
 import { findEventOperationSlots } from "./_eventOperations";
-import { getPublicCommunityHostedEvents, getPublicEventBySlug } from "./_eventPublic";
+import {
+  getPublicCommunityHostedEvents,
+  getPublicEventBySlug,
+  getPublicEventPreviews,
+} from "./_eventPublic";
 import { findAvailableEventSlug, getEventBySlug, validateEventSlug } from "./_eventSlugs";
 import { canReadProfile } from "./_profilePermissions";
 import { userOwnsProfile } from "./_profileOwnership";
@@ -1318,6 +1322,24 @@ export const getPublicBySlug = query({
     }
 
     return getPublicEventBySlug(ctx.db, await getEventBySlug(ctx.db, validation.slug));
+  },
+});
+
+export const listPublicUpcoming = query({
+  args: {
+    now: v.number(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = boundedLimit(args.limit, 8, 24);
+    const events = await ctx.db
+      .query("events")
+      .withIndex("by_publicationState_startAt", (index) =>
+        index.eq("publicationState", "published").gte("startAt", args.now),
+      )
+      .take(limit);
+
+    return await getPublicEventPreviews(ctx.db, events, { now: args.now, limit });
   },
 });
 

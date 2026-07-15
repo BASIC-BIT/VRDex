@@ -98,28 +98,14 @@ async function listDocumentsByType(ctx: QueryCtx, entityType: SearchEntityType) 
     .take(40);
 }
 
-async function listUpcomingEventDocuments(ctx: QueryCtx, now: number, limit = 40) {
+async function listUpcomingEventDocuments(ctx: QueryCtx, now: number) {
   return await ctx.db
     .query("searchDocuments")
     .withIndex("by_publicState_startsAt", (index) => index.eq("publicState", "public").gte("startsAt", now))
     .filter((query) => query.eq(query.field("entityType"), "event"))
     .order("asc")
-    .take(limit);
+    .take(40);
 }
-
-export const listUpcomingEvents = query({
-  args: {
-    now: v.optional(v.number()),
-    limit: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    const now = args.now ?? Date.now();
-    const limit = boundedLimit(args.limit, DISCOVERY_SECTION_LIMIT, SEARCH_RESULT_LIMIT);
-    const documents = await listUpcomingEventDocuments(ctx, now, limit);
-
-    return documents.map((document) => toPublicSearchResult(document, undefined));
-  },
-});
 
 export const listDiscovery = query({
   args: {

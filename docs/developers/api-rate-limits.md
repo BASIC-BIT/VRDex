@@ -157,6 +157,10 @@ Identity keys include the route class and one of:
 - requesting IP, hashed software identity, and hashed redirect hostname for
   Dynamic Client Registration
 
+Failed API or hosted MCP bearer authentication is charged to the corresponding
+anonymous IP route class before the authentication error is returned. This
+bounds repeated token verification and durable validation work.
+
 OAuth authorization GETs and consent POSTs use `oauth_authorize`. Token and
 revocation POSTs use `oauth_token`. These checks run before authorization
 request parsing, token hashing, or Convex token mutations. A blocked OAuth
