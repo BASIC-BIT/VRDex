@@ -698,11 +698,15 @@ async function mcpRateLimitExceededResponse(args: {
   return response;
 }
 
-async function rateLimitMcpAuthenticationFailure(request: Request, authenticationResponse: Response) {
+async function rateLimitMcpAuthenticationFailure(
+  request: Request,
+  authenticationResponse: Response | null,
+  options: { increment?: boolean } = {},
+) {
   let evaluation: Awaited<ReturnType<typeof checkFailedMcpAuthenticationRateLimit>>;
 
   try {
-    evaluation = await checkFailedMcpAuthenticationRateLimit(request);
+    evaluation = await checkFailedMcpAuthenticationRateLimit(request, options);
   } catch {
     return mcpJsonRpcError(500, -32603, "MCP rate limiting is unavailable.");
   }
@@ -732,6 +736,16 @@ export async function rejectInvalidOrRateLimitedMcpRequest(request: Request) {
   }
 
   const bearerToken = getBearerTokenFromAuthorizationHeader(request.headers.get("authorization"));
+
+  if (bearerToken !== null) {
+    const blockedBeforeAuthentication = await rateLimitMcpAuthenticationFailure(request, null, {
+      increment: false,
+    });
+
+    if (blockedBeforeAuthentication !== null) {
+      return blockedBeforeAuthentication;
+    }
+  }
 
   if (bearerToken === null && !hostedMcpAnonymousPublicReadsEnabled()) {
     return await rateLimitMcpAuthenticationFailure(

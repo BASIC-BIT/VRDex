@@ -11,6 +11,7 @@ import {
   normalizeOAuthCodeChallengeMethod,
   normalizeOAuthClientId,
   normalizeOAuthClientMetadataDocumentUrl,
+  normalizeOwnedOAuthClientId,
   normalizeOAuthClientSecretHash,
   normalizeOAuthClientSecretPrefix,
   normalizeOAuthClientType,
@@ -55,6 +56,7 @@ function oauthAccessTokenRecord(overrides: Partial<OAuthAccessTokenRecord> = {})
 describe("OAuth application helpers", () => {
   it("normalizes application identity and metadata", () => {
     assert.equal(normalizeOAuthClientId("vrdx_app_0123456789abcdef01234567"), "vrdx_app_0123456789abcdef01234567");
+    assert.equal(normalizeOwnedOAuthClientId("vrdx_app_0123456789abcdef01234567"), "vrdx_app_0123456789abcdef01234567");
     assert.equal(
       normalizeOAuthClientId("https://client.example.test/oauth/client.json?app=vrdex"),
       "https://client.example.test/oauth/client.json?app=vrdex",
@@ -69,6 +71,10 @@ describe("OAuth application helpers", () => {
     assert.equal(normalizeOAuthOptionalUrl("https://example.com/privacy", "Privacy URL"), "https://example.com/privacy");
     assert.equal(normalizeOAuthRevokeReason("  Retired   app  "), "Retired app");
     assert.throws(() => normalizeOAuthClientId("bad"), /client id/);
+    assert.throws(
+      () => normalizeOwnedOAuthClientId("https://client.example.test/oauth/client.json"),
+      /Owned OAuth client id/,
+    );
     assert.throws(() => normalizeOAuthClientMetadataDocumentUrl("http://client.example.test/oauth/client.json"), /HTTPS/);
     assert.throws(() => normalizeOAuthClientMetadataDocumentUrl("https://client.example.test/./client.json"), /dot path/);
     assert.throws(() => normalizeOAuthOptionalUrl("http://example.com", "Docs URL"), /HTTPS/);

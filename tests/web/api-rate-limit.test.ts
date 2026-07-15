@@ -138,6 +138,29 @@ describe("public API rate limiting", () => {
     assert.equal(reset.routeClassWindowCount, 1);
   });
 
+  it("inspects the next fixed-window attempt without consuming it", () => {
+    const store = createMemoryApiRateLimitStore();
+    const args = {
+      store,
+      policy: { limit: 2, windowMs: 1_000 },
+      routeClass: "anonymous_public_read" as const,
+      identity: { kind: "ip" as const, value: "203.0.113.20" },
+      now: 1_000,
+    };
+
+    assert.equal(checkMemoryApiRateLimit(args).allowed, true);
+
+    const inspected = checkMemoryApiRateLimit({ ...args, increment: false });
+    const second = checkMemoryApiRateLimit({ ...args, now: 1_100 });
+    const third = checkMemoryApiRateLimit({ ...args, now: 1_200 });
+
+    assert.equal(inspected.allowed, true);
+    assert.equal(inspected.remaining, 0);
+    assert.equal(inspected.routeClassWindowCount, undefined);
+    assert.equal(second.allowed, true);
+    assert.equal(third.allowed, false);
+  });
+
   it("separates anonymous IP and authenticated token identities", () => {
     const store = createMemoryApiRateLimitStore();
     const policy = { limit: 1, windowMs: 1_000 };
@@ -443,6 +466,33 @@ describe("public API rate limiting", () => {
     }
   });
 
+  it("rejects an exhausted failed-auth bucket before API token verification", () => {
+    const output = runRateLimitRouteProbe(`
+      import { evaluateOptionalApiBearerRequest } from "./apps/web/src/lib/server/api-v0.ts";
+      import { checkFailedApiAuthenticationRateLimit } from "./apps/web/src/lib/server/api-rate-limit.ts";
+
+      process.env.VERCEL_ENV = "preview";
+      process.env.VRDEX_RATE_LIMIT_REDIS_PREFIX = "vrdex:test:failed-auth-preflight";
+
+      const request = new Request("https://app.example.test/api/v0/profiles", {
+        headers: {
+          authorization: "Bearer vrdx_0123456789abcdef01234567.0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          "x-vercel-forwarded-for": "203.0.113.46",
+        },
+      });
+
+      for (let attempt = 0; attempt < 120; attempt += 1) {
+        await checkFailedApiAuthenticationRateLimit(request);
+      }
+
+      delete process.env.VRDEX_API_TOKEN_PEPPER;
+      const evaluation = await evaluateOptionalApiBearerRequest(request);
+      console.log(evaluation.ok ? "unexpected-ok" : evaluation.response.status);
+    `);
+
+    assert.equal(output.trim(), "429");
+  });
+
   it("uses only the Vercel edge header on Vercel and ignores spoofable forwarding headers", () => {
     const previousVercel = process.env.VERCEL;
     const previousTrustedHeader = process.env.VRDEX_TRUSTED_PROXY_CLIENT_IP_HEADER;
@@ -528,20 +578,33 @@ describe("public API rate limiting", () => {
           url: String(input),
         });
 
+        const body = requests.at(-1)?.body as string[][];
+        const payload = body[0]?.[0] === "GET"
+          ? [{ result: 2 }, { result: 43_000 }]
+          : [
+              { result: 3 },
+              { result: 1 },
+              { result: 43_000 },
+              { result: 1 },
+              { result: 1 },
+            ];
+
         return new Response(
-          JSON.stringify([
-            { result: 3 },
-            { result: 1 },
-            { result: 43_000 },
-            { result: 1 },
-            { result: 1 },
-          ]),
+          JSON.stringify(payload),
           { status: 200, headers: { "content-type": "application/json" } },
         );
       };
       const result = await checkRedisRestApiRateLimit({
         fetcher,
         identity: { kind: "ip", value: "203.0.113.10" },
+        now: 10_000,
+        policy: { limit: 2, windowMs: 60_000 },
+        routeClass: "anonymous_public_read",
+      });
+      const inspected = await checkRedisRestApiRateLimit({
+        fetcher,
+        identity: { kind: "ip", value: "203.0.113.10" },
+        increment: false,
         now: 10_000,
         policy: { limit: 2, windowMs: 60_000 },
         routeClass: "anonymous_public_read",
@@ -560,6 +623,15 @@ describe("public API rate limiting", () => {
           contentType: "application/json",
           url: "https://redis.example.test/pipeline",
         },
+        {
+          body: [
+            ["GET", "test-prefix:anonymous_public_read:ip:203.0.113.10"],
+            ["PTTL", "test-prefix:anonymous_public_read:ip:203.0.113.10"],
+          ],
+          authorization: "Bearer redis-rest-token",
+          contentType: "application/json",
+          url: "https://redis.example.test/pipeline",
+        },
       ]);
       assert.deepEqual(result, {
         allowed: false,
@@ -567,6 +639,14 @@ describe("public API rate limiting", () => {
         limit: 2,
         remaining: 0,
         routeClassWindowCount: 1,
+        resetAt: 53_000,
+        retryAfterSeconds: 43,
+      });
+      assert.deepEqual(inspected, {
+        allowed: false,
+        key: "test-prefix:anonymous_public_read:ip:203.0.113.10",
+        limit: 2,
+        remaining: 0,
         resetAt: 53_000,
         retryAfterSeconds: 43,
       });

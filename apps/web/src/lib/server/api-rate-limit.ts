@@ -276,6 +276,7 @@ function incrementMemoryApiRateLimitBucket(args: {
 
 export function checkMemoryApiRateLimit(args: {
   identity: ApiRateLimitIdentity;
+  increment?: boolean;
   now?: number;
   policy: ApiRateLimitPolicy;
   routeClass: ApiRouteClass;
@@ -284,14 +285,20 @@ export function checkMemoryApiRateLimit(args: {
 }) {
   const now = args.now ?? Date.now();
   const key = rateLimitKey(args.routeClass, args.identity);
-  const bucket = incrementMemoryApiRateLimitBucket({
-    key,
-    now,
-    policy: args.policy,
-    store: args.store,
-  });
+  const current = args.store.get(key);
+  const bucket =
+    args.increment === false
+      ? current === undefined || current.resetAt <= now
+        ? { count: 1, resetAt: now + args.policy.windowMs }
+        : { count: current.count + 1, resetAt: current.resetAt }
+      : incrementMemoryApiRateLimitBucket({
+          key,
+          now,
+          policy: args.policy,
+          store: args.store,
+        });
   const routeClassBucket =
-    args.trackRouteClassRequest === false
+    args.increment === false || args.trackRouteClassRequest === false
       ? undefined
       : incrementMemoryApiRateLimitBucket({
           key: apiRateLimitRouteClassRequestCounterKey(args.routeClass),
@@ -313,6 +320,7 @@ export function checkMemoryApiRateLimit(args: {
 export async function checkRedisRestApiRateLimit(args: {
   fetcher?: typeof fetch;
   identity: ApiRateLimitIdentity;
+  increment?: boolean;
   now: number;
   policy: ApiRateLimitPolicy;
   routeClass: ApiRouteClass;
@@ -329,13 +337,19 @@ export async function checkRedisRestApiRateLimit(args: {
   const routeClassCounterKey = apiRateLimitRouteClassRequestCounterKey(args.routeClass);
   const pipelineUrl = new URL("pipeline", restUrl.endsWith("/") ? restUrl : `${restUrl}/`);
   const fetcher = args.fetcher ?? fetch;
-  const commands: string[][] = [
-    ["INCR", key],
-    ["PEXPIRE", key, String(args.policy.windowMs), "NX"],
-    ["PTTL", key],
-  ];
+  const increment = args.increment !== false;
+  const commands: string[][] = increment
+    ? [
+        ["INCR", key],
+        ["PEXPIRE", key, String(args.policy.windowMs), "NX"],
+        ["PTTL", key],
+      ]
+    : [
+        ["GET", key],
+        ["PTTL", key],
+      ];
 
-  if (args.trackRouteClassRequest !== false) {
+  if (increment && args.trackRouteClassRequest !== false) {
     commands.push(["INCR", routeClassCounterKey], ["PEXPIRE", routeClassCounterKey, String(args.policy.windowMs), "NX"]);
   }
 
@@ -353,9 +367,11 @@ export async function checkRedisRestApiRateLimit(args: {
   }
 
   const payload = (await response.json()) as Array<{ result?: unknown }>;
-  const count = Number(payload[0]?.result);
-  const ttlMs = Number(payload[2]?.result);
-  const routeClassWindowCount = Number(payload[3]?.result);
+  const rawCount = payload[0]?.result;
+  const storedCount = rawCount === null || rawCount === undefined ? 0 : Number(rawCount);
+  const count = increment ? storedCount : storedCount + 1;
+  const ttlMs = Number(payload[increment ? 2 : 1]?.result);
+  const routeClassWindowCount = increment ? Number(payload[3]?.result) : undefined;
 
   if (!Number.isFinite(count)) {
     throw new Error("Redis REST rate limit check returned an invalid counter.");
@@ -373,6 +389,7 @@ export async function checkRedisRestApiRateLimit(args: {
 
 export async function checkApiRateLimit(args: {
   identity: ApiRateLimitIdentity;
+  increment?: boolean;
   now?: number;
   quotaTier?: ApiRateLimitQuotaTier;
   routeClass: ApiRouteClass;
@@ -408,6 +425,7 @@ export async function checkApiRateLimit(args: {
       policy,
       routeClass: args.routeClass,
       trackRouteClassRequest: args.trackRouteClassRequest,
+      increment: args.increment,
     });
   }
 
@@ -422,16 +440,18 @@ export async function checkApiRateLimit(args: {
     routeClass: args.routeClass,
     store: memoryStore(),
     trackRouteClassRequest: args.trackRouteClassRequest,
+    increment: args.increment,
   });
 }
 
 async function checkFailedAuthenticationRateLimit<RouteClass extends ApiRouteClass>(
   request: Request,
   routeClass: RouteClass,
+  options: { increment?: boolean } = {},
 ) {
   const identity = { kind: "ip", value: clientIpForRequest(request) } satisfies ApiRateLimitIdentity;
   const quotaTier = "standard" satisfies ApiRateLimitQuotaTier;
-  const rateLimit = await checkApiRateLimit({ identity, quotaTier, routeClass });
+  const rateLimit = await checkApiRateLimit({ identity, quotaTier, routeClass, increment: options.increment });
 
   return {
     identity,
@@ -441,12 +461,18 @@ async function checkFailedAuthenticationRateLimit<RouteClass extends ApiRouteCla
   } as const;
 }
 
-export async function checkFailedApiAuthenticationRateLimit(request: Request) {
-  return await checkFailedAuthenticationRateLimit(request, "anonymous_public_read");
+export async function checkFailedApiAuthenticationRateLimit(
+  request: Request,
+  options: { increment?: boolean } = {},
+) {
+  return await checkFailedAuthenticationRateLimit(request, "anonymous_public_read", options);
 }
 
-export async function checkFailedMcpAuthenticationRateLimit(request: Request) {
-  return await checkFailedAuthenticationRateLimit(request, "anonymous_mcp_public_read");
+export async function checkFailedMcpAuthenticationRateLimit(
+  request: Request,
+  options: { increment?: boolean } = {},
+) {
+  return await checkFailedAuthenticationRateLimit(request, "anonymous_mcp_public_read", options);
 }
 
 export async function checkOAuthAccessTokenRateLimit(args: {

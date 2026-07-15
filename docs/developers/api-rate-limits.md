@@ -157,9 +157,12 @@ Identity keys include the route class and one of:
 - requesting IP, hashed software identity, and hashed redirect hostname for
   Dynamic Client Registration
 
-Failed API or hosted MCP bearer authentication is charged to the corresponding
-anonymous IP route class before the authentication error is returned. This
-bounds repeated token verification and durable validation work.
+Before validating a supplied API or hosted MCP bearer token, VRDex inspects the
+corresponding anonymous IP bucket without consuming it and rejects an attempt
+that would exceed the limit. An actual authentication failure then consumes the
+bucket before the authentication error is returned. This bounds repeated token
+verification and durable validation work without charging valid credentials to
+the anonymous quota.
 
 OAuth authorization GETs and consent POSTs use `oauth_authorize`. Token and
 revocation POSTs use `oauth_token`. These checks run before authorization

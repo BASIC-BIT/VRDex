@@ -176,6 +176,16 @@ export function normalizeOAuthClientId(value: string) {
   }
 }
 
+export function normalizeOwnedOAuthClientId(value: string) {
+  const clientId = value.trim();
+
+  if (!clientIdPattern.test(clientId)) {
+    throw new Error("Owned OAuth client id must use the vrdx_app_<24 hex> format.");
+  }
+
+  return clientId;
+}
+
 export function normalizeOAuthClientMetadataDocumentUrl(value: string) {
   const raw = value.trim();
   let url: URL;

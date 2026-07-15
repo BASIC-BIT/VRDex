@@ -351,11 +351,14 @@ async function rateLimitExceededResponse(args: {
   return response;
 }
 
-async function failedAuthenticationRateLimitResponse(request: Request) {
+async function failedAuthenticationRateLimitResponse(
+  request: Request,
+  options: { increment?: boolean } = {},
+) {
   let evaluation: Awaited<ReturnType<typeof checkFailedApiAuthenticationRateLimit>>;
 
   try {
-    evaluation = await checkFailedApiAuthenticationRateLimit(request);
+    evaluation = await checkFailedApiAuthenticationRateLimit(request, options);
   } catch {
     return apiBearerProblem(
       500,
@@ -381,6 +384,18 @@ export async function evaluateOptionalApiBearerRequest(
     routeClass?: ApiRouteClass;
   } = {},
 ) {
+  const bearerToken = getBearerTokenFromAuthorizationHeader(request.headers.get("authorization"));
+
+  if (bearerToken !== null) {
+    const blockedBeforeAuthentication = await failedAuthenticationRateLimitResponse(request, {
+      increment: false,
+    });
+
+    if (blockedBeforeAuthentication !== null) {
+      return { ok: false as const, response: blockedBeforeAuthentication };
+    }
+  }
+
   const authentication = await authenticateOptionalApiBearerToken(request, options);
 
   if (!authentication.ok) {

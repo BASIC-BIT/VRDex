@@ -201,14 +201,18 @@ describe("VS Code-family MCP add preflight", () => {
     }
   });
 
-  it("redacts bearer tokens from client command output", async () => {
+  it("keeps real bearer tokens out of generated configs and client processes", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vrdex-mcp-add-preflight-"));
+    const outputDir = join(directory, "out");
     const token = "vrdex-test-token-abc123";
     const commandOverride = await writeFakeCli(
       directory,
       [
         "const args = process.argv.slice(2);",
         "const payload = args[args.indexOf('--add-mcp') + 1];",
+        "const config = JSON.parse(payload);",
+        "if (config.headers?.Authorization !== 'Bearer <mcp-resource-token>') process.exit(12);",
+        "if (process.env.VRDEX_MCP_ADD_MCP_BEARER_TOKEN !== undefined) process.exit(13);",
         "console.log(payload);",
       ].join("\n"),
     );
@@ -222,20 +226,26 @@ describe("VS Code-family MCP add preflight", () => {
           "hosted-token-fallback",
           "--hosted-url",
           "https://staging.vrdex.net/mcp",
-          "--mcp-bearer-token-env",
-          "VRDEX_TEST_MCP_ADD_TOKEN",
           "--output-dir",
-          join(directory, "out"),
+          outputDir,
         ],
         {
           VRDEX_MCP_ADD_MCP_VSCODE_COMMAND: commandOverride,
-          VRDEX_TEST_MCP_ADD_TOKEN: token,
+          VRDEX_MCP_ADD_MCP_BEARER_TOKEN: token,
         },
       );
 
       assert.equal(result.status, 0, result.stderr);
       assert.doesNotMatch(result.stdout, new RegExp(token));
       assert.match(result.stdout, /Bearer \[REDACTED\]/);
+
+      const persistedConfig = await readFile(
+        join(outputDir, "configs", "vscode-hosted-token-fallback.add-mcp.json"),
+        "utf8",
+      );
+
+      assert.doesNotMatch(persistedConfig, new RegExp(token));
+      assert.match(persistedConfig, /Bearer <mcp-resource-token>/);
     } finally {
       await rm(directory, { force: true, recursive: true });
     }

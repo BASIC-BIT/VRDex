@@ -24,7 +24,6 @@ type Options = {
   clients?: Set<ClientId>;
   configs?: Set<ConfigId>;
   hostedUrl?: string;
-  mcpBearerToken?: string;
   outputDir: string;
   repoRoot: string;
   requireInstalled: boolean;
@@ -106,7 +105,6 @@ function addCsvSet<T extends string>(
 function parseArgs(argv: string[]): Options {
   const options: Options = {
     hostedUrl: nonEmpty(process.env.VRDEX_MCP_SMOKE_URL),
-    mcpBearerToken: nonEmpty(process.env.VRDEX_MCP_ADD_MCP_BEARER_TOKEN),
     outputDir:
       process.env.VRDEX_MCP_ADD_MCP_PREFLIGHT_DIR?.trim()
       || path.join(".tmp-gh-artifacts", "mcp-client-add-mcp-preflight", `run-${Date.now()}`),
@@ -137,14 +135,6 @@ function parseArgs(argv: string[]): Options {
         options.hostedUrl = takeValue(argv, index, arg);
         index += 1;
         break;
-      case "--mcp-bearer-token-env": {
-        const envName = takeValue(argv, index, arg);
-
-        options.mcpBearerToken = nonEmpty(process.env[envName]);
-        assert.ok(options.mcpBearerToken, `${arg} ${envName} did not resolve to a non-empty environment variable.`);
-        index += 1;
-        break;
-      }
       case "--output-dir":
         options.outputDir = takeValue(argv, index, arg);
         index += 1;
@@ -228,7 +218,7 @@ function hostedDefinition(options: Options, tokenPlaceholder = false) {
     ...(tokenPlaceholder
       ? {
           headers: {
-            Authorization: `Bearer ${options.mcpBearerToken ?? "<mcp-resource-token>"}`,
+            Authorization: "Bearer <mcp-resource-token>",
           },
         }
       : {}),
@@ -327,24 +317,18 @@ function resolveWindowsCodeFamilyShim(command: string): CommandSpec | undefined 
   };
 }
 
-function redactSensitiveOutput(text: string, options: Options) {
-  let redacted = text
+function redactSensitiveOutput(text: string) {
+  return text
     .replace(/(Authorization\\?":\\?"Bearer\s+)[^"'\\\s}]+/gi, "$1[REDACTED]")
     .replace(/(Authorization:\s*Bearer\s+)[^\s"'\\]+/gi, "$1[REDACTED]");
-
-  if (options.mcpBearerToken !== undefined) {
-    redacted = redacted.replaceAll(options.mcpBearerToken, "[REDACTED]");
-  }
-
-  return redacted;
 }
 
-function summarizeOutput(stdout: string, stderr: string, options: Options) {
+function summarizeOutput(stdout: string, stderr: string) {
   return `${stdout}\n${stderr}`
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
-    .map((line) => redactSensitiveOutput(line, options))
+    .map((line) => redactSensitiveOutput(line))
     .slice(0, 6)
     .join("; ");
 }
@@ -400,16 +384,20 @@ async function runAddMcp(client: Client, configId: ConfigId, options: Options): 
 
   const spec = commandSpec(client);
   const invocation = addMcpInvocation(spec, config, userDataDir, path.resolve(options.repoRoot));
+  const childEnv = { ...process.env };
+
+  delete childEnv.VRDEX_MCP_ADD_MCP_BEARER_TOKEN;
+
   const result = spawnSync(invocation.command, invocation.args, {
     encoding: "utf8",
     env: {
-      ...process.env,
+      ...childEnv,
       ...spec.env,
     },
     shell: false,
     windowsHide: true,
   });
-  const combinedOutput = summarizeOutput(result.stdout ?? "", result.stderr ?? "", options);
+  const combinedOutput = summarizeOutput(result.stdout ?? "", result.stderr ?? "");
 
   if (result.error !== undefined && "code" in result.error && result.error.code === "ENOENT") {
     return {

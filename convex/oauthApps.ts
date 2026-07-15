@@ -24,6 +24,7 @@ import {
   normalizeOAuthCodeChallengeMethod,
   normalizeOAuthClientId,
   normalizeOAuthClientMetadataDocumentUrl,
+  normalizeOwnedOAuthClientId,
   normalizeOAuthClientSecretHash,
   normalizeOAuthClientSecretPrefix,
   normalizeOAuthClientType,
@@ -607,7 +608,7 @@ async function createOwnedApplication(
   },
 ) {
   const now = Date.now();
-  const clientId = normalizeOAuthClientId(args.clientId);
+  const clientId = normalizeOwnedOAuthClientId(args.clientId);
   const clientType = normalizeOAuthClientType(args.clientType);
   const displayName = normalizeOAuthApplicationName(args.displayName);
   const description = normalizeOAuthApplicationDescription(args.description);
