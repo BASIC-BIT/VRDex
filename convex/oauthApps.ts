@@ -1912,6 +1912,13 @@ export const rotateRefreshToken = internalMutation({
       return { ok: false as const, reason: "invalid_client" as const };
     }
 
+    if (
+      (application !== null && !hasRequiredApiScopes(application.allowedScopes, scopes)) ||
+      (dynamicClient !== null && !hasRequiredApiScopes(dynamicClient.allowedScopes, scopes))
+    ) {
+      return { ok: false as const, reason: "invalid_scope" as const };
+    }
+
     const existingAccessToken = await ctx.db
       .query("oauthAccessTokens")
       .withIndex("by_tokenId", (index) => index.eq("tokenId", tokenId))

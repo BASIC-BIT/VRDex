@@ -188,6 +188,60 @@ describe("OAuth revoke route helper", () => {
     });
   });
 
+  it("falls back to access-token revocation when the hint says refresh token", async () => {
+    await withOAuthEnv(async () => {
+      let mutationInput: Parameters<OAuthRevokeMutations["revokeClientAccessToken"]>[0] | undefined;
+      const mutations = defaultMutations();
+
+      mutations.revokeClientAccessToken = async (input) => {
+        mutationInput = input;
+
+        return { ok: true };
+      };
+
+      const response = await oauthRevokeResponse(
+        revokeRequest({
+          token: accessToken(),
+          token_type_hint: "refresh_token",
+        }),
+        { mutations },
+      );
+
+      assert.equal(response.status, 200);
+      assert.equal(await response.text(), "");
+      assert.deepEqual(mutationInput, { clientId, tokenId });
+    });
+  });
+
+  it("falls back to refresh-token revocation when the hint says access token", async () => {
+    await withOAuthEnv(async () => {
+      let mutationInput: Parameters<OAuthRevokeMutations["revokeClientRefreshToken"]>[0] | undefined;
+      const mutations = defaultMutations();
+
+      mutations.revokeClientRefreshToken = async (input) => {
+        mutationInput = input;
+
+        return { ok: true };
+      };
+
+      const response = await oauthRevokeResponse(
+        revokeRequest({
+          client_id: clientId,
+          token: refreshToken,
+          token_type_hint: "access_token",
+        }),
+        { mutations },
+      );
+
+      assert.equal(response.status, 200);
+      assert.equal(await response.text(), "");
+      assert.ok(mutationInput);
+      assert.equal(mutationInput.clientId, clientId);
+      assert.match(mutationInput.refreshTokenHash, /^[0-9a-f]{64}$/);
+      assert.notEqual(mutationInput.refreshTokenHash, refreshToken);
+    });
+  });
+
   it("keeps malformed or unknown revocation requests indistinguishable", async () => {
     await withOAuthEnv(async () => {
       const mutations = defaultMutations();

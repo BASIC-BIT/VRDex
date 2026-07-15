@@ -3,6 +3,7 @@ import type { GenericId } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
 import { recordApiWriteAuditEvent } from "./_apiWriteAuditEvents";
+import { userOwnsProfile } from "./_profileOwnership";
 
 export const PROFILE_ASSET_UPLOAD_MAX_BYTES = 12 * 1024 * 1024;
 export const PROFILE_ASSET_UPLOAD_INTENT_TTL_MS = 30 * 60 * 1000;
@@ -497,6 +498,18 @@ export async function finalizeProfileAssetUploadIntentUpload(
 
   if (intent.state !== "pending" || intent.expiresAt < input.now) {
     throw new Error("Profile media upload intent is no longer pending.");
+  }
+
+  if (
+    intent.targetProfileId !== undefined &&
+    (intent.requestedBy.issuer !== "vrdex:api" ||
+      !(await userOwnsProfile(
+        db,
+        intent.targetProfileId,
+        intent.requestedBy.subject as Id<"users">,
+      )))
+  ) {
+    throw new Error("You do not have permission to update this profile.");
   }
 
   await db.patch(intent._id, {

@@ -47,6 +47,33 @@ describe("public API search route", () => {
     assert.match(output, /cors-ok/);
   });
 
+  it("answers /api/v0 preflight requests before route dispatch", () => {
+    const output = runSearchRouteProbe(`
+      import { apiV0PreflightResponse } from "./apps/web/api-v0-cors.ts";
+
+      const request = new Request("https://app.example.test/api/v0/events", {
+        method: "OPTIONS",
+      });
+      const response = apiV0PreflightResponse(request);
+
+      assert.ok(response);
+      console.log(response.status);
+      console.log(response.headers.get("access-control-allow-origin"));
+      console.log(response.headers.get("access-control-allow-methods"));
+      console.log(response.headers.get("access-control-allow-headers"));
+      console.log(response.headers.get("access-control-max-age"));
+    `);
+
+    assert.match(output, /^204/m);
+    assert.match(output, /^\*$/m);
+    assert.match(output, /GET, HEAD, POST, PATCH, DELETE, OPTIONS/);
+    assert.match(
+      output,
+      /Authorization, Content-Type, If-None-Match, X-VRDEX-Upload-Token/,
+    );
+    assert.match(output, /^600$/m);
+  });
+
   it("returns an empty response without touching Convex for empty queries", () => {
     const output = runSearchRouteProbe(`
       import { GET } from "./apps/web/src/app/api/v0/search/route.ts";

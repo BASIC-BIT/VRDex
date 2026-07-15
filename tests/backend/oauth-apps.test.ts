@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import type { Id } from "../../convex/_generated/dataModel";
+import { rotateRefreshToken } from "../../convex/oauthApps";
 import {
   normalizeOAuthApplicationDescription,
   normalizeOAuthApplicationName,
@@ -37,6 +38,82 @@ const accessTokenRecordId = "accessToken123" as Id<"oauthAccessTokens">;
 const applicationId = "application123" as Id<"oauthApplications">;
 const dynamicClientId = "dynamicClient123" as Id<"oauthDynamicClients">;
 type OAuthAccessTokenRecord = NonNullable<Parameters<typeof validateOAuthAccessTokenRecord>[0]>;
+
+const oauthClientId = "vrdx_app_0123456789abcdef01234567";
+const refreshTokenHash = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+const replacementRefreshTokenHash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+function refreshRotationContext(args: {
+  application?: Record<string, unknown>;
+  dynamicClient?: Record<string, unknown>;
+}) {
+  const writes: string[] = [];
+  const refreshToken = {
+    _id: "refreshToken123",
+    ...(args.application === undefined ? {} : { applicationId }),
+    ...(args.dynamicClient === undefined ? {} : { dynamicClientId }),
+    clientId: oauthClientId,
+    userId: "user123",
+    resource: "https://api.example.test",
+    scopes: ["public:read", "mcp:read"],
+    status: "active",
+    issuedAt: Date.now() - 1_000,
+    expiresAt: Date.now() + 60_000,
+  };
+
+  return {
+    writes,
+    ctx: {
+      db: {
+        query(table: string) {
+          return {
+            withIndex() {
+              return {
+                async unique() {
+                  if (table === "oauthRefreshTokens") {
+                    return refreshToken;
+                  }
+
+                  throw new Error(`Unexpected query for ${table}`);
+                },
+              };
+            },
+          };
+        },
+        async get(id: string) {
+          if (id === applicationId) {
+            return args.application ?? null;
+          }
+
+          if (id === dynamicClientId) {
+            return args.dynamicClient ?? null;
+          }
+
+          return null;
+        },
+        async insert(table: string) {
+          writes.push(`insert:${table}`);
+        },
+        async patch(id: string) {
+          writes.push(`patch:${id}`);
+        },
+      },
+    },
+  };
+}
+
+function refreshRotationArgs() {
+  const now = Date.now();
+
+  return {
+    clientId: oauthClientId,
+    refreshTokenHash,
+    replacementRefreshTokenHash,
+    tokenId: "vrdx_at_0123456789abcdef0123456789abcdef",
+    expiresAt: now + 60_000,
+    refreshTokenExpiresAt: now + 120_000,
+  };
+}
 
 function oauthAccessTokenRecord(overrides: Partial<OAuthAccessTokenRecord> = {}): OAuthAccessTokenRecord {
   return {
@@ -146,6 +223,42 @@ describe("OAuth application helpers", () => {
     assert.throws(() => normalizeDynamicMcpScopes(["public:read"]), /mcp:read/);
     assert.throws(() => normalizeOAuthResponseTypes(["token"]), /response type/);
     assert.throws(() => normalizeOAuthTokenEndpointAuthMethod("client_secret_basic"), /token_endpoint_auth_method=none/);
+  });
+
+  it("rejects refresh rotation after a first-party application removes a granted scope", async () => {
+    const { ctx, writes } = refreshRotationContext({
+      application: {
+        _id: applicationId,
+        clientId: oauthClientId,
+        clientType: "public",
+        status: "active",
+        allowedGrants: ["authorization_code", "refresh_token"],
+        allowedScopes: ["public:read"],
+      },
+    });
+
+    const result = await rotateRefreshToken._handler(ctx as never, refreshRotationArgs());
+
+    assert.deepEqual(result, { ok: false, reason: "invalid_scope" });
+    assert.deepEqual(writes, []);
+  });
+
+  it("rejects refresh rotation after a dynamic client removes a granted scope", async () => {
+    const { ctx, writes } = refreshRotationContext({
+      dynamicClient: {
+        _id: dynamicClientId,
+        clientId: oauthClientId,
+        status: "active",
+        grantTypes: ["authorization_code", "refresh_token"],
+        allowedScopes: ["public:read"],
+        resource: "https://api.example.test",
+      },
+    });
+
+    const result = await rotateRefreshToken._handler(ctx as never, refreshRotationArgs());
+
+    assert.deepEqual(result, { ok: false, reason: "invalid_scope" });
+    assert.deepEqual(writes, []);
   });
 
   it("validates OAuth access token records against resource and scopes", () => {

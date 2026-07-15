@@ -132,11 +132,15 @@ export async function oauthRevokeResponse(
   const tokenTypeHint = String(form.get("token_type_hint") ?? "").trim();
 
   if (tokenTypeHint === "refresh_token") {
-    await tryRevokeRefreshToken(request, form, token, dependencies);
+    const refreshRevoked = await tryRevokeRefreshToken(request, form, token, dependencies);
+
+    if (!refreshRevoked) {
+      await tryRevokeAccessToken(request, token, dependencies);
+    }
   } else {
     const accessRevoked = await tryRevokeAccessToken(request, token, dependencies);
 
-    if (!accessRevoked && tokenTypeHint !== "access_token") {
+    if (!accessRevoked) {
       await tryRevokeRefreshToken(request, form, token, dependencies);
     }
   }

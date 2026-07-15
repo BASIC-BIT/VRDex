@@ -1244,7 +1244,8 @@ describe("profile media kit asset helpers", () => {
       | "profileAssets"
       | "profileAssetPlacements"
       | "profileAuditEvents"
-      | "apiWriteAuditEvents";
+      | "apiWriteAuditEvents"
+      | "profileOwners";
     type AssetRow = Record<string, unknown> & {
       _id: string;
       _creationTime: number;
@@ -1255,6 +1256,16 @@ describe("profile media kit asset helpers", () => {
       profileAssetPlacements: [],
       profileAuditEvents: [],
       apiWriteAuditEvents: [],
+      profileOwners: [
+        {
+          _id: "profileOwners:1",
+          _creationTime: 1,
+          profileId: "profile123",
+          userId: "user123",
+          roleKey: "owner",
+          state: "active",
+        },
+      ],
     };
     const db = {
       async get(id: string) {
@@ -1280,6 +1291,47 @@ describe("profile media kit asset helpers", () => {
         }
 
         throw new Error(`Missing test row ${id}.`);
+      },
+      query(tableName: AssetTable) {
+        assert.equal(tableName, "profileOwners");
+        let rows = tables.profileOwners;
+
+        return {
+          withIndex(_indexName: string, builder: (index: unknown) => unknown) {
+            const values: Record<string, unknown> = {};
+            const index = {
+              eq(field: string, value: unknown) {
+                values[field] = value;
+                return index;
+              },
+            };
+            builder(index);
+            rows = rows.filter((row) =>
+              Object.entries(values).every(([field, value]) => row[field] === value),
+            );
+
+            return {
+              filter(filterBuilder: (filter: unknown) => unknown) {
+                const filter = {
+                  field(field: string) {
+                    return field;
+                  },
+                  eq(field: string, value: unknown) {
+                    rows = rows.filter((row) => row[field] === value);
+                    return true;
+                  },
+                };
+                filterBuilder(filter);
+
+                return {
+                  async take(limit: number) {
+                    return rows.slice(0, limit);
+                  },
+                };
+              },
+            };
+          },
+        };
       },
     };
     const requestedBy = {
@@ -1325,6 +1377,100 @@ describe("profile media kit asset helpers", () => {
     assert.equal(tables.apiWriteAuditEvents[0]?.actorKind, "upload_token");
     assert.equal(tables.apiWriteAuditEvents[0]?.routeClass, "asset_upload_intent");
     assert.deepEqual(tables.apiWriteAuditEvents[0]?.assetIds, ["profileAssets:1"]);
+  });
+
+  it("rejects targeted upload completion after profile ownership transfers", async () => {
+    const intent = {
+      _id: "profileAssetUploadIntents:1" as Id<"profileAssetUploadIntents">,
+      _creationTime: 1,
+      uploadToken: "upload-token",
+      requestedBy: {
+        tokenIdentifier: "api:user123",
+        issuer: "vrdex:api",
+        subject: "user123",
+        displayName: "API user",
+      },
+      targetProfileId: "profile123" as Id<"profiles">,
+      originalFileName: "logo.png",
+      mimeType: "image/png",
+      byteSize: 2048,
+      storageKey: "profile-assets/logo.png",
+      placements: ["primary_logo" as const],
+      source: "owner_authored" as const,
+      state: "pending" as const,
+      createdAt: 1000,
+      expiresAt: 2000,
+      updatedAt: 1000,
+    };
+    const activeOwner = {
+      profileId: intent.targetProfileId,
+      userId: "new-owner",
+      state: "active",
+    };
+    let writeAttempted = false;
+    const db = {
+      async get(id: string) {
+        return id === intent._id ? intent : null;
+      },
+      query(tableName: string) {
+        assert.equal(tableName, "profileOwners");
+        let matchesOwner = true;
+
+        return {
+          withIndex(_indexName: string, builder: (index: unknown) => unknown) {
+            const index = {
+              eq(field: keyof typeof activeOwner, value: unknown) {
+                matchesOwner &&= activeOwner[field] === value;
+                return index;
+              },
+            };
+            builder(index);
+
+            return {
+              filter(filterBuilder: (filter: unknown) => unknown) {
+                const filter = {
+                  field(field: keyof typeof activeOwner) {
+                    return field;
+                  },
+                  eq(field: keyof typeof activeOwner, value: unknown) {
+                    matchesOwner &&= activeOwner[field] === value;
+                    return true;
+                  },
+                };
+                filterBuilder(filter);
+
+                return {
+                  async take() {
+                    return matchesOwner ? [activeOwner] : [];
+                  },
+                };
+              },
+            };
+          },
+        };
+      },
+      async patch() {
+        writeAttempted = true;
+      },
+      async insert() {
+        writeAttempted = true;
+        return "unexpected";
+      },
+    };
+
+    await assert.rejects(
+      () =>
+        finalizeProfileAssetUploadIntentUpload(db as never, {
+          intentId: intent._id,
+          uploadToken: intent.uploadToken,
+          mimeType: "image/png",
+          byteSize: 4096,
+          now: 1500,
+        }),
+      /do not have permission to update this profile/,
+    );
+    assert.equal(writeAttempted, false);
+    assert.equal(intent.state, "pending");
   });
 
   it("normalizes avatar appearance controls to a safe display range", () => {
