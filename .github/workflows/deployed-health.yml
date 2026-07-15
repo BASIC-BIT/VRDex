@@ -308,7 +308,7 @@ jobs:
 
   hosted-mcp-smoke:
     name: Hosted MCP Smoke Health
-    if: github.event_name == 'workflow_dispatch' && inputs.target == 'hosted-mcp-smoke'
+    if: github.event_name == 'workflow_dispatch' && (inputs.target == 'all' || inputs.target == 'hosted-mcp-smoke')
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -437,7 +437,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          args=(--hosted-url "$SMOKE_URL" --continue-on-failure)
+          args=(--hosted-only --hosted-url "$SMOKE_URL" --continue-on-failure)
 
           if [ "$SMOKE_DATA" = "true" ]; then
             args+=(--hosted-data)

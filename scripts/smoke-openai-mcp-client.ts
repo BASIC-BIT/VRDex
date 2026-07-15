@@ -245,7 +245,7 @@ function buildResponsesPayload(options: OpenAiMcpOptions) {
     allowed_tools: ["search", "fetch"],
     require_approval: "never",
     server_label: "vrdex",
-    server_url: options.hostedUrl,
+    server_url: hostedMcpUrl(options.hostedUrl!).toString(),
     type: "mcp",
     ...(options.hostedOAuthToken === undefined ? {} : { authorization: options.hostedOAuthToken }),
   };

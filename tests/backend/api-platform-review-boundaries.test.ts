@@ -53,4 +53,13 @@ describe("API platform review boundaries", () => {
     assert.match(oauthApps, /if \(refreshTokenIssued\) \{\s+await ctx\.db\.insert\("oauthRefreshTokens"/);
     assert.match(oauthToken, /result\.refreshTokenIssued \? \{ refresh_token: refreshToken \} : \{\}/);
   });
+
+  it("applies community event list limits in the backend query", () => {
+    const route = source("apps/web/src/app/api/v0/communities/[slug]/events/route.ts");
+
+    assert.match(route, /api\.events\.listHostedByCommunitySlug/);
+    assert.match(route, /communitySlug: slug/);
+    assert.match(route, /limit,/);
+    assert.doesNotMatch(route, /profile\.hostedEvents\.slice/);
+  });
 });

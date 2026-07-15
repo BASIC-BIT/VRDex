@@ -185,6 +185,10 @@ describe("API/MCP rollout readiness checker", () => {
   it("keeps hosted MCP OAuth workflow wired to temporary smoke credential generation", async () => {
     const workflow = await readFile(".github/workflows/deployed-health.yml", "utf8");
 
+    assert.match(
+      workflow,
+      /inputs\.target == 'all' \|\| inputs\.target == 'hosted-mcp-smoke'/,
+    );
     assert.match(workflow, /generate_oauth_credentials/);
     assert.match(workflow, /ops:mcp-oauth-smoke-credentials/);
     assert.match(workflow, /VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS/);
@@ -192,6 +196,7 @@ describe("API/MCP rollout readiness checker", () => {
     assert.match(workflow, /OPENAI_API_KEY: \$\{\{ secrets\.OPENAI_API_KEY \}\}/);
     assert.match(workflow, /openai_oauth_enabled/);
     assert.match(workflow, /Run OpenAI Responses hosted MCP OAuth smoke/);
+    assert.match(workflow, /args=\(--hosted-only --hosted-url "\$SMOKE_URL" --continue-on-failure\)/);
     assert.match(workflow, /pnpm smoke:mcp-openai -- --hosted-url "\$SMOKE_URL" --hosted-data/);
     assert.match(workflow, /ChatGPT Apps\/Connectors UI evidence: \\`not exercised\\`/);
   });

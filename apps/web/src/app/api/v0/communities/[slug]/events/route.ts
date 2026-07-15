@@ -30,15 +30,22 @@ export async function GET(request: Request, context: RouteContext) {
   const url = new URL(request.url);
   const { limit } = parsePublicEventsListQueryParams(url.searchParams, 6);
   const { slug } = await context.params;
+  const now = Date.now();
   const profile = await convexHttpClient().query(api.profiles.getPublicBySlug, {
     slug,
     profileType: "community",
-    now: Date.now(),
+    now,
   });
 
   if (profile === null) {
     return publicNotFoundResponse("Community profile");
   }
 
-  return apiJson(PublicEventsResponseSchema, { events: profile.hostedEvents.slice(0, limit) });
+  const events = await convexHttpClient().query(api.events.listHostedByCommunitySlug, {
+    communitySlug: slug,
+    now,
+    limit,
+  });
+
+  return apiJson(PublicEventsResponseSchema, { events });
 }

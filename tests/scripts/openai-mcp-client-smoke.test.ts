@@ -365,7 +365,7 @@ describe("OpenAI Responses API MCP smoke harness", () => {
       const result = await runOpenAiSmokeAsync(
         [
           "--hosted-url",
-          mcpFixture.url,
+          new URL(mcpFixture.url).origin,
           "--hosted-data",
           "--endpoint",
           `http://127.0.0.1:${address.port}/v1/responses`,
@@ -378,6 +378,7 @@ describe("OpenAI Responses API MCP smoke harness", () => {
       const tools = requestBody?.tools as Array<Record<string, unknown>>;
 
       assert.equal(tools[0]?.authorization, undefined);
+      assert.equal(tools[0]?.server_url, mcpFixture.url);
       assert.match(result.stdout, /gpt-5\.6-luna called search and fetch/);
     } finally {
       await mcpFixture.close();
