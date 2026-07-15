@@ -406,7 +406,7 @@ export const ApiEventCreateRequestSchema = z
     id: "ApiEventCreateRequest",
   });
 
-export const ApiEventUpdateRequestSchema = ApiEventCreateRequestSchema.extend({})
+export const ApiEventUpdateRequestSchema = ApiEventCreateRequestSchema.partial()
   .superRefine((value, context) => {
     const replacesParticipants = value.participantLinks !== undefined;
     const replacesSlots = value.slotLinks !== undefined;

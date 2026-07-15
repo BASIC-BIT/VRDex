@@ -318,15 +318,10 @@ describe("@vrdex/api-contracts", () => {
     });
 
     ApiEventUpdateRequestSchema.parse({
-      title: "Club Night Updated",
-      communitySlug: "club-name",
-      startAt: 1770000000000,
+      summary: "Updated public event details.",
     });
 
     assert.throws(() => ApiEventUpdateRequestSchema.parse({
-      title: "Club Night Updated",
-      communitySlug: "club-name",
-      startAt: 1770000000000,
       participantLinks: [],
     }), /participantLinks and slotLinks must be supplied together/);
   });

@@ -1890,10 +1890,6 @@ components:
               - displayLabel
               - startAt
             additionalProperties: {}
-      required:
-        - title
-        - communitySlug
-        - startAt
       description: Update a public event attached to a community profile owned by the current authenticated API user.
     ApiEventCreateRequest:
       type: object
