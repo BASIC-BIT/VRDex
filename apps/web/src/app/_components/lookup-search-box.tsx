@@ -1,9 +1,9 @@
 "use client";
 
-import Image from "next/image";
 import { useDeferredValue, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import type { PublicProfileLookupResult } from "./profile-lookup-page";
+import { EntityImage } from "@/components/ui/entity-image";
 import { Input, Textarea } from "@/components/ui/field";
 
 type LookupSuggestionResponse = {
@@ -25,12 +25,14 @@ function profileOptionLabel(profile: PublicProfileLookupResult): string {
 }
 
 function SuggestionAvatar({ profile }: { profile: PublicProfileLookupResult }) {
-  const initials = profile.displayName.trim().slice(0, 2).toUpperCase();
-
   return (
-    <span className="lookup-suggestion-avatar" aria-hidden="true">
-      {profile.avatarImageUrl ? <Image alt="" height={38} src={profile.avatarImageUrl} unoptimized width={38} /> : <span>{initials}</span>}
-    </span>
+    <EntityImage
+      alt=""
+      className="lookup-suggestion-avatar"
+      label={profile.displayName}
+      sizes="38px"
+      src={profile.avatarImageUrl}
+    />
   );
 }
 

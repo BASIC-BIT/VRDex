@@ -1,14 +1,10 @@
-export function safeImageBackground(imageUrl: string | undefined, overlay?: string) {
+export function safeImageUrl(imageUrl: string | undefined): string | undefined {
   if (!imageUrl) {
     return undefined;
   }
 
   if (imageUrl.startsWith("/") && !imageUrl.startsWith("//")) {
-    const image = `url(${JSON.stringify(imageUrl)})`;
-
-    return {
-      backgroundImage: overlay ? `${overlay}, ${image}` : image,
-    };
+    return imageUrl;
   }
 
   try {
@@ -18,12 +14,22 @@ export function safeImageBackground(imageUrl: string | undefined, overlay?: stri
       return undefined;
     }
 
-    const image = `url(${JSON.stringify(url.href)})`;
-
-    return {
-      backgroundImage: overlay ? `${overlay}, ${image}` : image,
-    };
+    return url.href;
   } catch {
     return undefined;
   }
+}
+
+export function safeImageBackground(imageUrl: string | undefined, overlay?: string) {
+  const safeUrl = safeImageUrl(imageUrl);
+
+  if (!safeUrl) {
+    return undefined;
+  }
+
+  const image = `url(${JSON.stringify(safeUrl)})`;
+
+  return {
+    backgroundImage: overlay ? `${overlay}, ${image}` : image,
+  };
 }

@@ -2,8 +2,8 @@
 
 ## Status
 
-Current recommendation from the July 15, 2026 product review and three parallel
-design explorations.
+Selected production direction from the July 15, 2026 product review and three
+parallel design explorations.
 
 This document turns the current visual and UX review into a shippable cross-app
 quality epic. It complements `docs/planning/homepage-discovery-direction.md`
@@ -74,9 +74,30 @@ Locked decision:
   accessible label. It is not a lookup-only text switch.
 - Unauthenticated protected routes preserve the intended destination through
   sign-in and redirect instead of rendering a large explanatory dead end.
+- Public person profiles expose `headline` plus one owner-authored prose field.
+  The product deprecates the public distinction between `bio` and `about`
+  rather than rendering or editing both as competing descriptions.
+- Quest MPEG-TS and PC RTSPT playback links are owner-controlled public fields.
+  An authenticated operator lookup may expose enabled playback links, but it
+  never exposes ingest URLs, stream keys, or other provider secrets.
+- Twitch live state ships with the public-profile streaming slice. Provider
+  polling uses an app access token, a shared cache, and a stale-on-error policy
+  so profile traffic does not translate directly into provider requests.
+- The first proposed-edit flow immediately applies only low-risk public-content
+  changes. Claim, trust, ownership, verification, privacy, suppression,
+  provider-identity, private-contact, and community-authority changes always
+  require a dedicated flow.
+- The signed-in shell uses the authentication provider image for v1, then a
+  deterministic initials fallback. An owned profile image must not win until
+  the account has an explicit primary-profile selection.
 
 Current recommendation:
 
+- Use the system-native exploration as the production baseline for this epic.
+  Preserve the repository's semantic tokens and typography while adopting its
+  quieter hierarchy, persistent navigation, aspect-aware media, rule-separated
+  sections, compact schedule, and reduced copy. The other explorations remain
+  taste references rather than implementation targets.
 - Treat VRDex visually as an editorial scene directory and live utility. Use
   stronger type, imagery, schedules, and direct controls rather than gradients,
   decorative pills, or nested panels.
@@ -93,8 +114,8 @@ Candidate direction:
   reference for profile and live-event hierarchy. Its exact brutalist styling
   is not yet a production theme decision.
 - A warm light theme can make VRDex feel less like a generic developer tool,
-  but only after the same information architecture works in the existing
-  charcoal token mapping.
+  but it is not part of this epic. The selected v1 light theme reuses the
+  existing lookup token mapping from the system-native exploration.
 
 ## Surface Direction
 
@@ -115,7 +136,8 @@ Candidate direction:
 - Keep structured roles only when they add information beyond the headline;
   render them near identity or as compact metadata, not as decorative tags.
 - Use one About heading and one owner-authored prose body. Resolve the long-term
-  distinction between `bio` and `about` before exposing both editors.
+  distinction by treating `about` as the canonical prose field and `bio` as a
+  compatibility fallback while existing records migrate.
 - Present Discord usernames as copyable text. A Discord user is not modeled as
   an outbound URL.
 - Use direct actions for valid outbound services rather than equal-weight link
@@ -135,8 +157,12 @@ Candidate direction:
 - Quest MPEG-TS and PC RTSPT values are copy rows with monospace text.
 - Never expose RTMP ingest URLs, stream keys, secret references, or provider
   health internals on a public profile.
-- Profile owners need an explicit visibility choice before technical playback
-  URLs are assumed public.
+- Profile owners explicitly control public visibility for Quest MPEG-TS and PC
+  RTSPT playback links. Enabled links may also appear in authenticated operator
+  lookup; disabled links remain hidden there.
+- Cache Twitch live lookups across viewers and serve the last fresh result
+  during short provider failures. A missing or stale result never claims that
+  a creator is live.
 
 ### Home And Discovery
 
@@ -186,10 +212,18 @@ Candidate direction:
   the person or community.
 - Remove media-kit management from initial submission.
 - Frame edits to unclaimed profiles as proposed changes. The first version may
-  apply low-risk changes directly behind the scenes, but the contract must
-  leave room for later review and attribution.
+  apply aliases, public descriptive metadata, and public outbound-link changes
+  directly behind the scenes. It must reject trust, ownership, verification,
+  privacy, provider identity, private contact, and authority changes.
 - Keep profile creation, ownership claim, profile editing, media-kit management,
   and event publishing as distinct contextual jobs.
+
+Candidate direction:
+
+- Add a durable proposal record after v1 with submitter attribution, field-level
+  diffs, evidence, accept/deny decisions, and owner or administrator review.
+  AI-assisted triage may prioritize or validate proposals later, but it must not
+  become the only audit record or silently grant authority.
 
 ### Event Authoring
 
@@ -301,18 +335,9 @@ successive commits.
 
 ## Open Questions
 
-1. Should `bio` and `about` remain separate authored fields, or should one be
-   deprecated in favor of a single profile prose field?
-2. Are Quest MPEG-TS and PC RTSPT links public by default, owner-controlled, or
-   limited to the operator-focused lookup surface?
-3. Should Twitch live state ship in the profile slice using app-token polling,
-   or should the UI reserve the state until provider caching is designed?
-4. When a person has several aliases, how many remain inline beneath the name
-   before the list collapses?
-5. Which source wins for the signed-in account image: owned VRDex profile,
-   auth-provider avatar, or a deterministic fallback?
-6. Which proposed edits are low-risk enough to apply immediately before a
-   durable review queue exists?
+No product questions currently block the first implementation slices. For v1,
+show at most three aliases inline and collapse the remainder behind a compact
+count disclosure.
 
 ## References
 
@@ -322,4 +347,3 @@ successive commits.
 - [OpenStatus](https://www.openstatus.dev/)
 - [Atlassian Statuspage](https://www.atlassian.com/software/statuspage/features)
 - [Better Stack](https://betterstack.com/docs/getting-started/welcome/)
-

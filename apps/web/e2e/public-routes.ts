@@ -165,8 +165,9 @@ export async function captureRouteScreenshot(page: Page, testInfo: TestInfo, nam
 }
 
 export async function expectHomePage(page: Page) {
-  await expect(page.getByRole("heading", { name: /Find what's happening in VRChat/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Tonight in VRChat/i })).toBeVisible();
   await expect(page.getByRole("button", { name: /Search VRDex/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Toggle color theme" })).toBeVisible();
   await expect(page.getByRole("heading", { name: /Upcoming events/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Worlds hosting events soon" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Neon Harbor", exact: true })).toBeVisible();
@@ -184,6 +185,7 @@ export async function expectSearchPage(page: Page) {
 export async function expectLookupPage(page: Page) {
   await expect(page.getByRole("heading", { name: /DJ link lookup/i })).toBeVisible();
   await expect(page.getByLabel("DJ name")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Toggle color theme" })).toBeVisible();
   await expect(page.getByRole("link", { name: "BASICBIT", exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Princess Starlight Interstellar Bassline Orchestra", exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Velvet Circuit", exact: true })).toBeVisible();
@@ -213,8 +215,7 @@ export async function expectPrivateSeedLookupPage(page: Page) {
 }
 
 export async function expectSubmitPage(page: Page) {
-  await expect(page.getByRole("heading", { name: /Add a missing VRChat scene profile/i })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Sign-in required" })).toBeVisible();
+  await expectProtectedRouteRedirect(page, "/submit");
 }
 
 export async function expectSignInPage(page: Page) {
@@ -223,6 +224,13 @@ export async function expectSignInPage(page: Page) {
   await expect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible();
   await expect(page.getByLabel("Email")).toBeVisible();
   await expect(page.getByLabel("Password")).toBeVisible();
+}
+
+async function expectProtectedRouteRedirect(page: Page, returnTo: string) {
+  await expect(page).toHaveURL((url) =>
+    url.pathname === "/sign-in" && url.searchParams.get("returnTo") === returnTo,
+  );
+  await expectSignInPage(page);
 }
 
 export async function expectHandoffPage(page: Page) {
@@ -234,9 +242,7 @@ export async function expectHandoffPage(page: Page) {
 }
 
 export async function expectAccountPage(page: Page) {
-  await expect(page.getByRole("heading", { name: /Your VRDex account and claim readiness/i })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Not signed in" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Sign in" }).last()).toBeVisible();
+  await expectProtectedRouteRedirect(page, "/account");
 }
 
 export async function expectAppearancePage(page: Page) {
@@ -263,15 +269,11 @@ export async function expectSuppressionPage(page: Page) {
 }
 
 export async function expectNewEventPage(page: Page) {
-  await expect(page.getByRole("heading", { name: /Add a VRDex event/i })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Sign-in required" })).toBeVisible();
-  await expect(page.getByText(/event mutations and form are wired/i)).toBeVisible();
+  await expectProtectedRouteRedirect(page, "/events/new");
 }
 
 export async function expectEditEventPage(page: Page) {
-  await expect(page.getByRole("heading", { name: /Update Afterglow Harbor Sessions/i })).toBeVisible();
-  await expect(page.getByRole("link", { name: "View event" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Sign-in required" })).toBeVisible();
+  await expectProtectedRouteRedirect(page, "/events/playwright-afterglow-harbor-sessions/edit");
 }
 
 export async function expectServerStatusPage(page: Page) {
@@ -298,19 +300,11 @@ export async function expectDeveloperApiPage(page: Page) {
 }
 
 export async function expectDeveloperTokensPage(page: Page) {
-  await expect(page.getByRole("heading", { name: "Developer tokens" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "API reference" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "OAuth apps" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Sign in required" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Sign in" })).toBeVisible();
+  await expectProtectedRouteRedirect(page, "/developers/tokens");
 }
 
 export async function expectOAuthAppsPage(page: Page) {
-  await expect(page.getByRole("heading", { name: "OAuth apps" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Developer tokens" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "API reference" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Sign in required" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Sign in" })).toBeVisible();
+  await expectProtectedRouteRedirect(page, "/developers/apps");
 }
 
 export async function expectOAuthAuthorizeProblemPage(page: Page) {

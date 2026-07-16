@@ -3,6 +3,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import type { ComponentPropsWithoutRef } from "react";
 
 import { cn } from "@/lib/cn";
+import { NavUtilities } from "@/components/ui/nav-utilities";
 
 const pageShellVariants = cva("min-h-screen px-6 py-8 text-foreground sm:px-10 lg:px-16", {
   variants: {
@@ -45,8 +46,19 @@ export function PageContainer({ className, max = "6xl", ...props }: ComponentPro
   );
 }
 
-export function PageNav({ className, ...props }: ComponentPropsWithoutRef<"nav">) {
-  return <nav className={cn("flex flex-wrap items-center justify-between gap-3 text-sm", className)} {...props} />;
+export function PageNav({ children, className, ...props }: ComponentPropsWithoutRef<"nav">) {
+  return (
+    <nav
+      className={cn(
+        "sticky top-0 z-40 -mx-3 flex flex-wrap items-center gap-3 border-b border-border bg-background/90 px-3 py-3 text-sm backdrop-blur",
+        className,
+      )}
+      {...props}
+    >
+      {children}
+      <NavUtilities />
+    </nav>
+  );
 }
 
 export function BrandLink() {

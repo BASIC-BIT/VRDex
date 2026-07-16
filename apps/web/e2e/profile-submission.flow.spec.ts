@@ -208,6 +208,8 @@ test("E2E profile helper stays gated without the browser token @flow", async ({ 
   expect(malformedDeleteResponse.status()).toBe(400);
 
   await gotoFlowPage(page, "/submit");
-  await expect(page.getByRole("heading", { name: "Sign-in required" })).toBeVisible();
+  await expect(page).toHaveURL((url) =>
+    url.pathname === "/sign-in" && url.searchParams.get("returnTo") === "/submit",
+  );
   await expect(page.getByText(/server-side test gate/i)).toHaveCount(0);
 });
