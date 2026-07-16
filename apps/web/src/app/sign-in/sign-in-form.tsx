@@ -43,6 +43,7 @@ function stringField(value: FormDataEntryValue | null): string {
 function ConnectedSignInForm({ returnTo }: { returnTo: string }) {
   const { signIn } = useAuthActions();
   const router = useRouter();
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [mode, setMode] = useState<PasswordMode>("signIn");
   const [status, setStatus] = useState<AuthStatus>({ kind: "idle" });
   const [, startTransition] = useTransition();
@@ -93,85 +94,89 @@ function ConnectedSignInForm({ returnTo }: { returnTo: string }) {
   const isSubmitting = status.kind === "submitting";
 
   return (
-    <div className="grid gap-5">
-      <div className="grid gap-3 sm:grid-cols-2">
+    <div className="grid gap-6">
+      <div aria-label="Sign in providers" className="grid gap-3" role="group">
         <button
-          className="rounded-control bg-[#5865f2] px-5 py-3 text-sm font-medium text-white transition hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5865f2]/35"
+          className="w-full rounded-control bg-[#5865f2] px-5 py-3 text-sm font-medium text-white transition hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5865f2]/35"
           type="button"
           onClick={() => void signIn("discord", { redirectTo: returnTo })}
         >
           Continue with Discord
         </button>
-        <Button size="lg" type="button" onClick={() => void signIn("google", { redirectTo: returnTo })}>
+        <Button className="w-full" size="lg" type="button" onClick={() => void signIn("google", { redirectTo: returnTo })}>
           Continue with Google
         </Button>
       </div>
 
-      <div className="flex items-center gap-3 text-xs font-mono uppercase tracking-[0.22em] text-muted">
-        <span className="h-px flex-1 bg-border" />
-        Email password
-        <span className="h-px flex-1 bg-border" />
-      </div>
-
-      <form className="grid gap-4" onSubmit={submitPassword}>
-        <input name="flow" type="hidden" value={mode} />
-        <Field>
-          Email
-          <Input
-            name="email"
-            placeholder="you@example.com"
-            required
-            type="email"
-            defaultValue={status.kind === "verify-email" ? status.email : undefined}
-          />
-        </Field>
-
-        {mode === "email-verification" ? (
+      {showPasswordForm ? (
+        <form className="grid gap-4 border-t border-border pt-6" id="email-password-form" onSubmit={submitPassword}>
+          <input name="flow" type="hidden" value={mode} />
           <Field>
-            Verification code
-            <Input name="code" placeholder="12345678" required />
+            Email
+            <Input
+              name="email"
+              placeholder="you@example.com"
+              required
+              type="email"
+              defaultValue={status.kind === "verify-email" ? status.email : undefined}
+            />
           </Field>
-        ) : (
-          <Field>
-            Password
-            <Input name="password" minLength={12} required type="password" />
-          </Field>
-        )}
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <Button disabled={isSubmitting} size="lg" type="submit" variant="primary">
-            {isSubmitting
-              ? "Working..."
-              : mode === "signUp"
-                ? "Create account"
-                : mode === "email-verification"
-                ? "Verify email"
-                : "Sign in"}
-          </Button>
-          <Button
-            size="lg"
-            type="button"
-            onClick={() => {
-              setStatus({ kind: "idle" });
-              setMode(mode === "signIn" ? "signUp" : "signIn");
-            }}
-          >
-            {mode === "signIn" ? "Create account" : "Use existing account"}
-          </Button>
-        </div>
+          {mode === "email-verification" ? (
+            <Field>
+              Verification code
+              <Input name="code" placeholder="12345678" required />
+            </Field>
+          ) : (
+            <Field>
+              Password
+              <Input name="password" minLength={12} required type="password" />
+            </Field>
+          )}
 
-        {status.kind === "verify-email" ? (
-          <Notice>
-            Check {status.email} for a verification code before claim-level actions.
-          </Notice>
-        ) : null}
+          <div className="grid gap-2">
+            <Button className="w-full" disabled={isSubmitting} size="lg" type="submit" variant="primary">
+              {isSubmitting
+                ? "Working..."
+                : mode === "signUp"
+                  ? "Create account"
+                  : mode === "email-verification"
+                    ? "Verify email"
+                    : "Sign in"}
+            </Button>
+            <Button
+              className="w-full"
+              size="lg"
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setStatus({ kind: "idle" });
+                setMode(mode === "signIn" ? "signUp" : "signIn");
+              }}
+            >
+              {mode === "signIn" ? "Create account" : "Use existing account"}
+            </Button>
+          </div>
 
-        {status.kind === "error" ? (
-          <Notice variant="error">
-            {status.message}
-          </Notice>
-        ) : null}
-      </form>
+          {status.kind === "verify-email" ? (
+            <Notice>Check {status.email} for a verification code.</Notice>
+          ) : null}
+
+          {status.kind === "error" ? <Notice variant="error">{status.message}</Notice> : null}
+        </form>
+      ) : (
+        <Button
+          aria-controls="email-password-form"
+          aria-expanded="false"
+          className="w-full"
+          size="lg"
+          type="button"
+          variant="ghost"
+          onClick={() => setShowPasswordForm(true)}
+        >
+          Use email and password
+        </Button>
+      )}
     </div>
   );
 }

@@ -61,3 +61,19 @@ variable "posthog_host" {
     error_message = "posthog_host must be an https URL."
   }
 }
+
+variable "twitch_client_id" {
+  description = "Optional server-only Twitch application client ID used for profile live status. Set with twitch_client_secret to manage both Vercel values."
+  type        = string
+  sensitive   = true
+  default     = null
+  nullable    = true
+}
+
+variable "twitch_client_secret" {
+  description = "Optional server-only Twitch application client secret used for profile live status."
+  type        = string
+  sensitive   = true
+  default     = null
+  nullable    = true
+}

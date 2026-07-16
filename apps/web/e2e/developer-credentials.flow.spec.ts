@@ -75,6 +75,7 @@ async function createVerifiedE2eAccount({
   password: string;
 }) {
   await gotoFlowPage(page, "/sign-in");
+  await page.getByRole("button", { name: "Use email and password" }).click();
   await page.getByRole("button", { name: "Create account" }).click();
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);

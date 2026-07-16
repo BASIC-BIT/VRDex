@@ -51,11 +51,11 @@ test("profile submission writes through to public profile and discovery @flow", 
 
   try {
     await gotoFlowPage(page, "/submit");
-    await expect(page.getByText(/server-side test gate/i)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Add a profile" })).toBeVisible();
 
     await page.getByLabel("Display name").fill(displayName);
     await page.getByLabel("Aliases").fill(`Flow ${runSuffix}`);
-    await page.getByLabel("Shared tags").fill("playwright, data-flow");
+    await page.getByLabel("Tags").fill("playwright, data-flow");
     await page.getByLabel("Person roles").fill("Test profile");
     await page.getByRole("button", { name: "Submit profile" }).click();
 
@@ -68,16 +68,7 @@ test("profile submission writes through to public profile and discovery @flow", 
 
     await profileLink.click();
     await expect(page.getByRole("heading", { name: displayName })).toBeVisible();
-    await expect(
-      page
-        .locator("dl")
-        .filter({ hasText: "Status" })
-        .locator("dd")
-        .filter({ hasText: "Community submitted" })
-        .first()
-        .or(page.getByText(/Source: Community submitted/i))
-        .first(),
-    ).toBeVisible();
+    await expect(page.getByText(/Community submitted/).first()).toBeVisible();
     await captureRouteScreenshot(page, testInfo, "profile-submission-flow-profile");
 
     await gotoFlowPage(page, `/search?q=${encodeURIComponent(displayName)}`);
@@ -211,5 +202,5 @@ test("E2E profile helper stays gated without the browser token @flow", async ({ 
   await expect(page).toHaveURL((url) =>
     url.pathname === "/sign-in" && url.searchParams.get("returnTo") === "/submit",
   );
-  await expect(page.getByText(/server-side test gate/i)).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Add a profile" })).toHaveCount(0);
 });

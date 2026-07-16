@@ -219,11 +219,12 @@ export async function expectSubmitPage(page: Page) {
 }
 
 export async function expectSignInPage(page: Page) {
-  await expect(page.getByRole("heading", { name: /Sign in to claim and manage profiles/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sign in", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Continue with Discord" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible();
-  await expect(page.getByLabel("Email")).toBeVisible();
-  await expect(page.getByLabel("Password")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Use email and password" })).toBeVisible();
+  await expect(page.getByLabel("Email")).toHaveCount(0);
+  await expect(page.getByLabel("Password")).toHaveCount(0);
 }
 
 async function expectProtectedRouteRedirect(page: Page, returnTo: string) {
@@ -276,11 +277,6 @@ export async function expectEditEventPage(page: Page) {
   await expectProtectedRouteRedirect(page, "/events/playwright-afterglow-harbor-sessions/edit");
 }
 
-export async function expectServerStatusPage(page: Page) {
-  await expect(page.getByRole("heading", { name: /First server-side App Router read path/i })).toBeVisible();
-  await expect(page.getByText(/Server read reached Convex/i)).toBeVisible();
-}
-
 export async function expectDeploymentPage(page: Page) {
   await expect(page.getByRole("heading", { name: /Initial Vercel deployment baseline/i })).toBeVisible();
   await expect(page.getByText(/Deployment facts/i)).toBeVisible();
@@ -319,12 +315,19 @@ export async function expectPersonProfilePage(page: Page) {
   await expect(page.getByText(/Source:/i)).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Upcoming events" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions" })).toBeVisible();
-  await expect(page.getByText(/Creator links/i)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Links" })).toBeVisible();
+  await expect(page.getByText(/Creator links/i)).toHaveCount(0);
   await expect(page.getByText("VRChat profile", { exact: true })).toBeVisible();
   await expect(page.getByText("DJ Aurora SoundCloud", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Watch" })).toBeVisible();
+  await expect(page.getByText("Live now", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Watch on Twitch/i })).toBeVisible();
+  await expect(page.getByText("Quest (MPEG-TS)", { exact: true })).toBeVisible();
+  await expect(page.getByText("PC (RTSPT)", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Copy Discord" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Media kit" })).toBeVisible();
   await expect(page.getByRole("link", { name: /Primary logo/i })).toBeVisible();
-  await expect(page.getByRole("link", { name: /Download logos zip/i })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Download logos/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Worlds" })).toBeVisible();
   await expect(page.getByRole("link", { name: /Neon Harbor/i })).toBeVisible();
 }
@@ -333,7 +336,7 @@ export async function expectCommunityProfilePage(page: Page) {
   await expect(page.getByRole("heading", { name: "Afterglow Social" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Hosted events" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions" })).toBeVisible();
-  await expect(page.getByText("Club night", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText(/Club night \/ Global \/ Music \/ Dancing/i)).toBeVisible();
   await expect(page.getByText("Afterglow event archive", { exact: true })).toBeVisible();
   await expect(page.getByText("World Author", { exact: true })).toBeVisible();
 }
@@ -470,11 +473,6 @@ export const capturedRoutes: CapturedRoute[] = [
     expectPage: expectEditEventPage,
   },
   {
-    name: "server-status",
-    path: "/server-status",
-    expectPage: expectServerStatusPage,
-  },
-  {
     name: "deployment",
     path: "/deployment",
     expectPage: expectDeploymentPage,
@@ -532,7 +530,7 @@ export const capturedRoutes: CapturedRoute[] = [
 ];
 
 export const productionSmokeRoutes: CapturedRoute[] = capturedRoutes.filter((route) =>
-  ["submit", "sign-in", "privacy-suppression", "event-new-signed-out", "server-status", "deployment"].includes(
+  ["submit", "sign-in", "privacy-suppression", "event-new-signed-out", "deployment"].includes(
     route.name,
   ),
 );

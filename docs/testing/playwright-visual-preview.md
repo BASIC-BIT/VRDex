@@ -56,7 +56,7 @@ Setting `PLAYWRIGHT_BASE_URL` switches Playwright to hosted mode and disables lo
 
 Local webserver runs set token-gated E2E helper defaults so `pnpm test:e2e` includes the mutation-backed `@flow` journey without additional env setup.
 
-Profile screenshots use deterministic Next-server fixtures when `VRDEX_ENABLE_PLAYWRIGHT_FIXTURES=true`. `/server-status` still exercises the real local Convex health query. Fixture profiles are disabled when `NODE_ENV=production`.
+Profile screenshots use deterministic Next-server fixtures when `VRDEX_ENABLE_PLAYWRIGHT_FIXTURES=true`. Fixture profiles are disabled when `NODE_ENV=production`.
 
 ## Captured routes
 
@@ -68,7 +68,6 @@ Profile screenshots use deterministic Next-server fixtures when `VRDEX_ENABLE_PL
 - `/privacy/suppression`
 - `/events/new`
 - `/events/playwright-afterglow-harbor-sessions/edit`
-- `/server-status`
 - `/deployment`
 - `/p/playwright-dj-aurora`
 - `/c/playwright-afterglow-social`

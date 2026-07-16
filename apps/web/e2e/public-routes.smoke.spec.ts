@@ -22,6 +22,18 @@ for (const route of routes) {
   });
 }
 
+test("sign-in reveals email and password on request", async ({ page }) => {
+  await page.goto("/sign-in");
+  await expect(page.getByLabel("Email")).toHaveCount(0);
+  await expect(page.getByLabel("Password")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Use email and password" }).click();
+
+  await expect(page.getByLabel("Email")).toBeVisible();
+  await expect(page.getByLabel("Password")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Use email and password" })).toHaveCount(0);
+});
+
 test("legacy discovery query redirects to search", async ({ page }) => {
   await page.goto("/discover?q=aurora");
   await expect(page).toHaveURL(/\/search\?q=aurora$/);
