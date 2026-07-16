@@ -12,6 +12,7 @@ Planning docs capture product, architecture, roadmap, and backlog decisions befo
 - `docs/planning/agent-integration-surface.md` - external agent-consumable VRDex skill, API, website navigation, and MCP direction
 - `docs/planning/public-api-and-mcp-platform.md` - executable plan for public API, API tokens, OAuth apps, rate limiting, Swagger/OpenAPI docs, and hosted/private MCP
 - `docs/planning/homepage-discovery-direction.md` - homepage, search/discovery, event-calendar, privacy, personalization, and persona direction
+- `docs/planning/ui-quality-direction.md` - cross-app UI quality, public profile, auth/account, submission, streaming, and status-surface direction
 - `docs/planning/calendar-integration.md` - Google Calendar import/export/sync direction for event workflows
 - `docs/planning/restreaming-media-control.md` - restreaming, VRCDN-first media control, worker architecture, CDN economics, and Discord operator-control direction
 - `docs/planning/genre-graph.md` - genre ontology, alias normalization, and recommendation graph direction
