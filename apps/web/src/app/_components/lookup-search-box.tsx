@@ -3,33 +3,51 @@
 import Image from "next/image";
 import { useDeferredValue, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
-import type { PublicProfileLookupResult } from "./profile-lookup-page";
+import type {
+  PrivateSeedLookupResult,
+  ProfileLookupDisplayResult,
+  PublicProfileLookupResult,
+  SeedLookupViewerAccess,
+} from "./profile-lookup-page";
 import { Input, Textarea } from "@/components/ui/field";
 
 type LookupSuggestionResponse = {
+  privateResults: PrivateSeedLookupResult[];
   results: PublicProfileLookupResult[];
+  viewerAccess: SeedLookupViewerAccess;
 };
 
 type FetchedSuggestions = {
   query: string;
-  results: PublicProfileLookupResult[];
+  results: ProfileLookupDisplayResult[];
 };
 
 const RECENT_SEARCH_LIMIT = 5;
 const RECENT_SEARCHES_STORAGE_KEY = "vrdex.lookup.recentSearches";
 
-function profileOptionLabel(profile: PublicProfileLookupResult): string {
+function isPrivateSuggestion(
+  profile: ProfileLookupDisplayResult,
+): profile is PrivateSeedLookupResult {
+  return "publicationState" in profile;
+}
+
+function profileOptionLabel(profile: ProfileLookupDisplayResult): string {
+  if (isPrivateSuggestion(profile)) {
+    return profile.source?.name ? `Private seed - ${profile.source.name}` : "Private seed";
+  }
+
   const context = [...new Set([...profile.roleTags, ...profile.tags])].slice(0, 3).join(" / ");
 
   return context || profile.profilePath;
 }
 
-function SuggestionAvatar({ profile }: { profile: PublicProfileLookupResult }) {
+function SuggestionAvatar({ profile }: { profile: ProfileLookupDisplayResult }) {
   const initials = profile.displayName.trim().slice(0, 2).toUpperCase();
+  const avatarImageUrl = isPrivateSuggestion(profile) ? undefined : profile.avatarImageUrl;
 
   return (
     <span className="lookup-suggestion-avatar" aria-hidden="true">
-      {profile.avatarImageUrl ? <Image alt="" height={38} src={profile.avatarImageUrl} unoptimized width={38} /> : <span>{initials}</span>}
+      {avatarImageUrl ? <Image alt="" height={38} src={avatarImageUrl} unoptimized width={38} /> : <span>{initials}</span>}
     </span>
   );
 }
@@ -105,13 +123,15 @@ export function LookupSearchBox({
   onBulkLookup,
   onClear,
   onLookup,
+  showPrivateSuggestions,
 }: {
   initialQuery: string;
-  initialResults: PublicProfileLookupResult[];
+  initialResults: ProfileLookupDisplayResult[];
   isSearching: boolean;
   onBulkLookup: (lines: string[]) => void;
   onClear: () => void;
   onLookup: (query: string) => void;
+  showPrivateSuggestions: boolean;
 }) {
   const [query, setQuery] = useState(initialQuery);
   const [bulkMode, setBulkMode] = useState(false);
@@ -158,13 +178,25 @@ export function LookupSearchBox({
     fetch(`/lookup/suggest?q=${encodeURIComponent(deferredQuery)}`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) {
-          return { results: [] } satisfies LookupSuggestionResponse;
+          return {
+            privateResults: [],
+            results: [],
+            viewerAccess: { allowed: false, source: "signed_out" },
+          } satisfies LookupSuggestionResponse;
         }
 
         return await response.json() as LookupSuggestionResponse;
       })
       .then((data) => {
-        startTransition(() => setFetchedSuggestions({ query: deferredQuery, results: data.results }));
+        const privateSuggestionsEnabled = showPrivateSuggestions || data.viewerAccess.source === "super_admin";
+        const privateResults = privateSuggestionsEnabled && data.viewerAccess.allowed
+          ? data.privateResults
+          : [];
+
+        startTransition(() => setFetchedSuggestions({
+          query: deferredQuery,
+          results: [...data.results, ...privateResults],
+        }));
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") {
@@ -175,7 +207,7 @@ export function LookupSearchBox({
       });
 
     return () => controller.abort();
-  }, [bulkMode, deferredQuery, normalizedInitialQuery]);
+  }, [bulkMode, deferredQuery, normalizedInitialQuery, showPrivateSuggestions]);
 
   useEffect(() => {
     if (!bulkMode) {
@@ -359,7 +391,7 @@ export function LookupSearchBox({
                 {suggestions.map((profile) => (
                   <button
                     className="lookup-suggestion-option"
-                    key={profile.slug}
+                    key={isPrivateSuggestion(profile) ? `private:${profile.id}` : `public:${profile.slug}`}
                     type="button"
                     role="option"
                     aria-selected={false}
