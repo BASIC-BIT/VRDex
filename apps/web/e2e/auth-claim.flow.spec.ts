@@ -166,7 +166,7 @@ async function prepareVrchatProof(
 }
 
 function profileStatusCopy(page: Page, label: string) {
-  return page.getByText(new RegExp(`^${label}(?: /|$)`)).first();
+  return page.getByText(new RegExp(`^${label}(?: Community submitted)?(?: /|$)`)).first();
 }
 
 type DeleteRequestOptions = NonNullable<Parameters<APIRequestContext["delete"]>[1]>;
