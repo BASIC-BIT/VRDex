@@ -33,7 +33,23 @@ type TwitchStreamsResponse = {
   }>;
 };
 
-const staleStates = new Map<string, TwitchLiveState>();
+const staleStateMaxAgeMs = 60_000;
+const staleStates = new Map<string, { fetchedAt: number; state: TwitchLiveState }>();
+
+function getFreshStaleState(login: string): TwitchLiveState | undefined {
+  const entry = staleStates.get(login);
+
+  if (!entry) {
+    return undefined;
+  }
+
+  if (Date.now() - entry.fetchedAt <= staleStateMaxAgeMs) {
+    return entry.state;
+  }
+
+  staleStates.delete(login);
+  return undefined;
+}
 
 const getTwitchAppToken = unstable_cache(
   async () => {
@@ -109,8 +125,10 @@ const getCachedTwitchLiveState = unstable_cache(
 );
 
 export async function getTwitchLiveState(links: readonly PublicLink[]): Promise<TwitchLiveState | undefined> {
-  const twitchLink = links.find((link) => link.type === "twitch");
-  const login = twitchLink ? twitchLoginFromUrl(twitchLink.url) : null;
+  const login = links
+    .filter((link) => link.type === "twitch")
+    .map((link) => twitchLoginFromUrl(link.url))
+    .find((candidate): candidate is string => candidate !== null);
 
   if (!login) {
     return undefined;
@@ -120,12 +138,12 @@ export async function getTwitchLiveState(links: readonly PublicLink[]): Promise<
     const state = await getCachedTwitchLiveState(login);
 
     if (state.status !== "unavailable") {
-      staleStates.set(login, state);
+      staleStates.set(login, { fetchedAt: Date.now(), state });
     }
 
-    return state.status === "unavailable" ? staleStates.get(login) ?? state : state;
+    return state.status === "unavailable" ? getFreshStaleState(login) ?? state : state;
   } catch (error) {
     console.error(`Twitch live-state lookup failed for ${login}:`, error);
-    return staleStates.get(login) ?? { status: "unavailable" };
+    return getFreshStaleState(login) ?? { status: "unavailable" };
   }
 }

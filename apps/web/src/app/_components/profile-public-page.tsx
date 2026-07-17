@@ -326,17 +326,30 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
       (item): item is { link: (typeof profile.outboundLinks)[number]; href: string } => item.href !== null,
     );
   const twitchLink = validLinks.find(({ link }) => link.type === "twitch" && twitchLoginFromUrl(link.url));
-  const discordLinks = validLinks.filter(({ link }) => link.type === "discord");
-  const creatorLinks = validLinks.filter(({ link }) => !["discord", "twitch", "vrcdn"].includes(link.type));
-  const vrcdnStreams = validLinks.flatMap(({ link }) => {
+  const discordHandles = validLinks.flatMap((item) => {
+    if (item.link.type !== "discord") {
+      return [];
+    }
+
+    const handle = item.link.handle ?? item.link.label.replace(/^Discord\s*:?\s*/i, "").trim();
+    return handle && handle.toLowerCase() !== "discord" ? [{ handle, item }] : [];
+  });
+  const vrcdnStreams = validLinks.flatMap((item) => {
+    const { link } = item;
     if (link.type !== "vrcdn") {
       return [];
     }
 
     const providerUrl = new URL(link.url);
     const stream = providerUrl.search || providerUrl.hash ? null : parseVrcdnStreamLinks(link.url);
-    return stream ? [{ label: link.label, stream }] : [];
+    return stream ? [{ item, label: link.label, stream }] : [];
   });
+  const creatorLinks = validLinks.filter(
+    (item) =>
+      item !== twitchLink &&
+      !discordHandles.some((discord) => discord.item === item) &&
+      !vrcdnStreams.some((vrcdn) => vrcdn.item === item),
+  );
   const hasWatchSurface = Boolean(twitchLink || vrcdnStreams.length > 0);
   const aliases = profile.aliases.slice(0, 3);
   const remainingAliases = profile.aliases.slice(3);
@@ -462,7 +475,7 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
               </section>
             ) : null}
 
-            {creatorLinks.length > 0 || discordLinks.length > 0 ? (
+            {creatorLinks.length > 0 || discordHandles.length > 0 ? (
               <section className="border-t border-border py-8">
                 <SectionHeading>Links</SectionHeading>
                 <div className="mt-4 flex flex-wrap gap-2">
@@ -479,12 +492,9 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
                     </a>
                   ))}
                 </div>
-                {discordLinks.map(({ link }) => {
-                  const handle = link.handle ?? link.label.replace(/^Discord\s*:?\s*/i, "").trim();
-                  return handle && handle.toLowerCase() !== "discord" ? (
-                    <CopyValueRow className="mt-4 max-w-md" key={link.url} label="Discord" value={handle} />
-                  ) : null;
-                })}
+                {discordHandles.map(({ handle, item }) => (
+                  <CopyValueRow className="mt-4 max-w-md" key={item.link.url} label="Discord" value={handle} />
+                ))}
               </section>
             ) : null}
           </div>

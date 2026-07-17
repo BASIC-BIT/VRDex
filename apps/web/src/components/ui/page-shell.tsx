@@ -46,7 +46,12 @@ export function PageContainer({ className, max = "6xl", ...props }: ComponentPro
   );
 }
 
-export function PageNav({ children, className, ...props }: ComponentPropsWithoutRef<"nav">) {
+export function PageNav({
+  accountMode = "auto",
+  children,
+  className,
+  ...props
+}: ComponentPropsWithoutRef<"nav"> & { accountMode?: "auto" | "signed-out" }) {
   return (
     <nav
       className={cn(
@@ -56,7 +61,7 @@ export function PageNav({ children, className, ...props }: ComponentPropsWithout
       {...props}
     >
       {children}
-      <NavUtilities />
+      <NavUtilities accountMode={accountMode} />
     </nav>
   );
 }

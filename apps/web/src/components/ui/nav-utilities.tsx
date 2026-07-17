@@ -42,11 +42,11 @@ function ConnectedAccountControl() {
   );
 }
 
-function AccountControl() {
-  return convexEnabled ? <ConnectedAccountControl /> : <SignedOutControl />;
+function AccountControl({ mode }: { mode: "auto" | "signed-out" }) {
+  return mode === "auto" && convexEnabled ? <ConnectedAccountControl /> : <SignedOutControl />;
 }
 
-export function NavUtilities() {
+export function NavUtilities({ accountMode = "auto" }: { accountMode?: "auto" | "signed-out" }) {
   return (
     <div className="ml-auto flex shrink-0 items-center justify-end gap-1">
       <Link
@@ -58,7 +58,7 @@ export function NavUtilities() {
         <Search aria-hidden="true" className="size-4" />
       </Link>
       <ThemeToggle className="size-10 p-0" />
-      <AccountControl />
+      <AccountControl mode={accountMode} />
     </div>
   );
 }

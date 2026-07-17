@@ -82,7 +82,15 @@ async function createVerifiedE2eAccount({
   password: string;
 }) {
   await gotoFlowPage(page, "/sign-in");
-  await page.getByRole("button", { name: "Use email and password" }).click();
+  const revealPasswordForm = page.getByRole("button", { name: "Use email and password" });
+  const emailInput = page.getByLabel("Email");
+
+  await expect(revealPasswordForm.or(emailInput).first()).toBeVisible(hostedActionExpectOptions);
+
+  if (await revealPasswordForm.isVisible()) {
+    await revealPasswordForm.click();
+  }
+
   await page.getByRole("button", { name: "Create account" }).click();
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
@@ -117,6 +125,44 @@ async function linkDiscordAccount(request: APIRequestContext, e2eToken: string, 
 
 async function expectCurrentOrHostedLagTrustCopy(currentCopy: Locator, hostedLagCopy: Locator) {
   await expect(currentCopy.or(hostedLagCopy).first()).toBeVisible(hostedActionExpectOptions);
+}
+
+async function prepareDiscordPersonClaim(page: Page, profileSlug: string) {
+  const legacySlugInput = page.getByLabel("Person slug");
+  const currentSlugInput = page.getByLabel("Profile slug");
+
+  await expect(legacySlugInput.or(currentSlugInput).first()).toBeVisible(hostedActionExpectOptions);
+
+  if (await legacySlugInput.isVisible()) {
+    await legacySlugInput.fill(profileSlug);
+    return;
+  }
+
+  await expect(currentSlugInput).toHaveValue(profileSlug);
+}
+
+async function prepareVrchatProof(
+  page: Page,
+  profileSlug: string,
+  targetType: "vrchat_user" | "vrclinking",
+  targetExternalId: string,
+) {
+  const methodButton = page.getByRole("button", { name: "VRChat proof" });
+  const legacyTargetType = page.getByLabel("Target type");
+
+  await expect(methodButton.or(legacyTargetType).first()).toBeVisible(hostedActionExpectOptions);
+
+  if (await methodButton.isVisible()) {
+    await methodButton.click();
+    await expect(page.getByLabel("Profile slug")).toHaveValue(profileSlug);
+    await page.getByLabel("Verification service").selectOption(targetType);
+    await page.getByLabel("VRChat user ID").fill(targetExternalId);
+    return;
+  }
+
+  await page.getByLabel("Profile slug").fill(profileSlug);
+  await legacyTargetType.selectOption(targetType);
+  await page.getByLabel("Target ID").fill(targetExternalId);
 }
 
 function profileStatusCopy(page: Page, label: string) {
@@ -204,9 +250,9 @@ test("verified email account with linked Discord can claim an E2E person profile
 
     await gotoFlowPage(page, `/account?claim=${encodeURIComponent(createdSlug!)}`);
     await expect(page.getByText("discord", { exact: true })).toBeVisible();
-    await expect(page.getByLabel("Profile slug")).toHaveValue(createdSlug!);
+    await prepareDiscordPersonClaim(page, createdSlug!);
     await page.getByRole("button", { name: "Claim with Discord" }).click();
-    await expect(page.getByText(/Profile claimed as claimed unverified/i)).toBeVisible(hostedActionExpectOptions);
+    await expect(page.getByText(/(?:Profile|Person profile) claimed as claimed unverified/i)).toBeVisible(hostedActionExpectOptions);
 
     await gotoFlowPage(page, `/p/${createdSlug}`);
     await expect(page.getByRole("heading", { name: displayName })).toBeVisible(hostedActionExpectOptions);
@@ -259,10 +305,7 @@ test("verified email account can complete VRChat adapter claims @flow", async ({
 
     await createVerifiedE2eAccount({ page, request, e2eToken, email, password });
     await gotoFlowPage(page, `/account?claim=${encodeURIComponent(vrchatPersonSlug!)}`);
-    await page.getByRole("button", { name: "VRChat proof" }).click();
-    await expect(page.getByLabel("Profile slug")).toHaveValue(vrchatPersonSlug!);
-    await page.getByLabel("Verification service").selectOption("vrchat_user");
-    await page.getByLabel("VRChat user ID").fill(`e2e-vrchat-${runSuffix}`);
+    await prepareVrchatProof(page, vrchatPersonSlug!, "vrchat_user", `e2e-vrchat-${runSuffix}`);
     await page.getByRole("button", { name: "Create proof code" }).click();
     await expect(page.getByText(/Proof code created/i)).toBeVisible(hostedActionExpectOptions);
     await expect(page.getByText(/VRDEX-/)).toBeVisible(hostedActionExpectOptions);
@@ -277,10 +320,7 @@ test("verified email account can complete VRChat adapter claims @flow", async ({
     );
 
     await gotoFlowPage(page, `/account?claim=${encodeURIComponent(vrcLinkingPersonSlug!)}`);
-    await page.getByRole("button", { name: "VRChat proof" }).click();
-    await expect(page.getByLabel("Profile slug")).toHaveValue(vrcLinkingPersonSlug!);
-    await page.getByLabel("Verification service").selectOption("vrclinking");
-    await page.getByLabel("VRChat user ID").fill(`e2e-vrclinking-${runSuffix}`);
+    await prepareVrchatProof(page, vrcLinkingPersonSlug!, "vrclinking", `e2e-vrclinking-${runSuffix}`);
     await page.getByRole("button", { name: "Create proof code" }).click();
     await expect(page.getByText(/Proof code created/i)).toBeVisible(hostedActionExpectOptions);
     await expect(page.getByText(/VRDEX-/)).toBeVisible(hostedActionExpectOptions);

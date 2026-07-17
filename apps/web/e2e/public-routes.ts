@@ -249,7 +249,7 @@ export async function expectAccountPage(page: Page) {
 export async function expectAppearancePage(page: Page) {
   await expect(page.getByRole("heading", { name: /Shape your public profile presentation/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Profile picture shape and border" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Public page order" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Supporting section order" })).toBeVisible();
   await expect(page.getByLabel("Avatar roundedness")).toBeVisible();
   await expect(page.getByText("Demo mode is live-only", { exact: false })).toBeVisible();
 }
