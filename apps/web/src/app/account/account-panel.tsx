@@ -471,6 +471,7 @@ function ConnectedAccountPanel({
         defaultClaimType={defaultClaimType}
         emailVerified={viewer.user.emailVerified}
         hasDiscord={viewer.linkedProviders.some((account) => account.provider === "discord")}
+        key={`${defaultClaimType}:${defaultClaimSlug}`}
       />
     </div>
   );
