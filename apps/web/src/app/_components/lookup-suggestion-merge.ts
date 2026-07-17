@@ -12,7 +12,8 @@ function normalizeLookupUrl(value: string): string | null {
   try {
     const url = new URL(value);
     url.hash = "";
-    url.hostname = url.hostname.toLowerCase();
+    const hostname = url.hostname.toLowerCase();
+    url.hostname = hostname.startsWith("www.") ? hostname.slice(4) : hostname;
     url.pathname = url.pathname.replace(/\/+$/, "") || "/";
     return url.toString();
   } catch {

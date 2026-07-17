@@ -1091,10 +1091,10 @@ function ProfileLookupPageContent({
           return {
             lookup: { ...lookup, privateResults },
             query: line,
-            results: [
-              ...lookup.results,
-              ...(showPrivate ? privateResults : []),
-            ],
+            results: mergeLookupSuggestions(
+              lookup.results,
+              showPrivate ? privateResults : [],
+            ),
           };
         }),
       );

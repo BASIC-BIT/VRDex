@@ -143,4 +143,16 @@ test.describe("fixture lookup smoke", () => {
     await expect(page).toHaveURL(/\/lookup\?q=DJ%20Northstar$/);
     await expect(page.locator(".lookup-result-card.lookup-private-result").filter({ hasText: "DJ Northstar" })).toBeVisible();
   });
+
+  test("bulk lookup summaries dedupe overlapping public and private rows", async ({ page }) => {
+    await page.goto("/lookup");
+    await page.getByRole("button", { name: "Bulk" }).click();
+    await page.getByLabel("Lineup text").fill("BASICBIT");
+    await page.getByRole("button", { name: "Lookup lineup" }).click();
+
+    const summaryRow = page.locator(".lookup-bulk-row").filter({ hasText: "BASICBIT" });
+
+    await expect(summaryRow).toBeVisible();
+    await expect(summaryRow.locator(".text-sm")).toHaveText("BASICBIT");
+  });
 });
