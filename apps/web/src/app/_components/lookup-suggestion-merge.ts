@@ -4,6 +4,8 @@ import type {
   PublicProfileLookupResult,
 } from "./profile-lookup-page";
 
+const CASE_INSENSITIVE_PATH_HOSTS = new Set(["twitch.tv"]);
+
 function normalizeIdentityText(value: string): string {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
 }
@@ -15,6 +17,9 @@ function normalizeLookupUrl(value: string): string | null {
     const hostname = url.hostname.toLowerCase();
     url.hostname = hostname.startsWith("www.") ? hostname.slice(4) : hostname;
     url.pathname = url.pathname.replace(/\/+$/, "") || "/";
+    if (CASE_INSENSITIVE_PATH_HOSTS.has(url.hostname)) {
+      url.pathname = url.pathname.toLowerCase();
+    }
     return url.toString();
   } catch {
     return null;
