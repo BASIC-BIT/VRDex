@@ -312,7 +312,9 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
   const avatarAppearance = mediaKit.avatarAppearance ?? defaultAvatarAppearance;
   const avatarStyle: CSSProperties = avatarFrameStyle(avatarImageStyle, avatarAppearance);
   const eventPreviews = isPerson ? profile.upcomingEvents : profile.hostedEvents;
-  const aboutCopy = profile.about ?? profile.bio;
+  const aboutCopy = [profile.bio, profile.about].filter(
+    (copy, index, copies): copy is string => Boolean(copy) && copies.indexOf(copy) === index,
+  );
   const focusItems = Array.from(new Set(
     isPerson
       ? [...profile.person.roleTags, ...profile.tags]
@@ -458,7 +460,10 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
                 </div>
               </div>
               {canClaim ? (
-                <Link className={cn(buttonVariants({ variant: "inversePrimary" }), "!text-[#08090d]")} href={`/account?claim=${encodeURIComponent(profile.slug)}`}>
+                <Link
+                  className={cn(buttonVariants({ variant: "inversePrimary" }), "!text-[#08090d]")}
+                  href={`/account?claim=${encodeURIComponent(profile.slug)}&claimType=${profile.profileType}`}
+                >
                   Claim this profile
                 </Link>
               ) : null}
@@ -468,10 +473,14 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
 
         <div className={cn("grid gap-x-10", hasWatchSurface ? "lg:grid-cols-[minmax(0,1fr)_22rem]" : undefined)}>
           <div>
-            {aboutCopy ? (
+            {aboutCopy.length > 0 ? (
               <section className="py-8">
                 <SectionHeading>About</SectionHeading>
-                <p className="mt-4 max-w-3xl text-base leading-7 text-muted">{aboutCopy}</p>
+                <div className="mt-4 max-w-3xl space-y-4 text-base leading-7 text-muted">
+                  {aboutCopy.map((copy) => (
+                    <p key={copy}>{copy}</p>
+                  ))}
+                </div>
               </section>
             ) : null}
 

@@ -15,6 +15,7 @@ import type { Id } from "../../../../../convex/_generated/dataModel";
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
 type ClaimMethod = "discord" | "vrchat";
+type ClaimProfileType = "person" | "community";
 
 type ClaimStatus =
   | { kind: "idle" }
@@ -25,6 +26,7 @@ type ClaimStatus =
       href?: string;
       proofCode?: string;
       expiresAt?: number;
+      claimRequestId?: Id<"profileClaimRequests">;
       attemptId?: Id<"profileVerificationAttempts">;
     }
   | { kind: "error"; message: string };
@@ -34,9 +36,11 @@ const claimErrorPatterns = [
   /A linked Discord account is required for this claim method\./,
   /A valid profile slug is required\./,
   /Profile not found\./,
-  /This claim method requires a person profile\./,
+  /This claim method requires a (?:person|community) profile\./,
   /This profile already has an active owner\./,
+  /This community profile already has an active owner\./,
   /VRChat user proof requires a person profile\./,
+  /VRChat group proof requires a community profile\./,
   /A VRChat or VRCLinking target id is required\./,
   /DISCORD_BOT_TOKEN is not configured\./,
   /Discord API returned HTTP \d+\./,
@@ -64,16 +68,21 @@ function claimErrorMessage(error: unknown): string {
 
 function ClaimActions({
   defaultClaimSlug,
+  defaultClaimType,
   emailVerified,
   hasDiscord,
 }: {
   defaultClaimSlug: string;
+  defaultClaimType: ClaimProfileType;
   emailVerified: boolean;
   hasDiscord: boolean;
 }) {
+  const verifyDiscordAdmin = useAction(api.profileClaims.verifyDiscordCommunityAdminClaim);
   const verifyVrchatProof = useAction(api.profileClaims.verifyVrchatProofViaAdapter);
   const claimPerson = useMutation(api.profileClaims.claimExistingPersonWithDiscord);
+  const requestCommunityClaim = useMutation(api.profileClaims.requestCommunityDiscordAdminClaim);
   const startVrchatProof = useMutation(api.profileClaims.startVrchatProof);
+  const [profileType, setProfileType] = useState<ClaimProfileType>(defaultClaimType);
   const [method, setMethod] = useState<ClaimMethod>("discord");
   const [status, setStatus] = useState<ClaimStatus>({ kind: "idle" });
   const [, startTransition] = useTransition();
@@ -83,13 +92,45 @@ function ClaimActions({
     setStatus({ kind: "idle" });
   }
 
+  function selectProfileType(nextProfileType: ClaimProfileType) {
+    setProfileType(nextProfileType);
+    setStatus({ kind: "idle" });
+  }
+
   async function submitClaim(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     const profileSlug = stringField(formData.get("profileSlug"));
 
     if (method === "discord") {
-      setStatus({ kind: "submitting", label: "Claiming profile..." });
+      if (profileType === "community") {
+        setStatus({ kind: "submitting", label: "Requesting community claim..." });
+
+        try {
+          const result = await requestCommunityClaim({
+            profileSlug,
+            discordGuildId: stringField(formData.get("discordGuildId")),
+            discordGuildName: stringField(formData.get("discordGuildName")) || undefined,
+          });
+          startTransition(() =>
+            setStatus({
+              kind: "success",
+              message:
+                result.state === "already_owned"
+                  ? "You already own this community profile."
+                  : "Community claim request created. Check your Discord administrator access to finish.",
+              href: result.profilePath,
+              ...("claimRequestId" in result ? { claimRequestId: result.claimRequestId } : {}),
+            }),
+          );
+        } catch (error) {
+          startTransition(() => setStatus({ kind: "error", message: claimErrorMessage(error) }));
+        }
+
+        return;
+      }
+
+      setStatus({ kind: "submitting", label: "Claiming person profile..." });
 
       try {
         const result = await claimPerson({ profileSlug });
@@ -98,8 +139,8 @@ function ClaimActions({
             kind: "success",
             message:
               "state" in result && result.state === "already_owned"
-                ? "You already own this profile."
-                : `Profile claimed as ${result.claimState.replace(/_/g, " ")}.`,
+                ? "You already own this person profile."
+                : `Person profile claimed as ${result.claimState.replace(/_/g, " ")}.`,
             href: result.profilePath,
           }),
         );
@@ -115,7 +156,10 @@ function ClaimActions({
     try {
       const result = await startVrchatProof({
         profileSlug,
-        targetType: stringField(formData.get("targetType")) as "vrchat_user" | "vrclinking",
+        targetType:
+          profileType === "community"
+            ? "vrchat_group"
+            : (stringField(formData.get("targetType")) as "vrchat_user" | "vrclinking"),
         targetExternalId: stringField(formData.get("targetExternalId")),
       });
       startTransition(() =>
@@ -125,6 +169,25 @@ function ClaimActions({
           proofCode: result.proofCode,
           expiresAt: result.expiresAt,
           attemptId: result.attemptId,
+        }),
+      );
+    } catch (error) {
+      startTransition(() => setStatus({ kind: "error", message: claimErrorMessage(error) }));
+    }
+  }
+
+  async function verifyPendingDiscordAdminClaim(claimRequestId: Id<"profileClaimRequests">) {
+    setStatus({ kind: "submitting", label: "Checking Discord administrator access..." });
+
+    try {
+      const result = await verifyDiscordAdmin({ claimRequestId });
+      startTransition(() =>
+        setStatus({
+          kind: "success",
+          message:
+            "claimState" in result
+              ? `Community claim verified as ${result.claimState.replace(/_/g, " ")}.`
+              : "Discord administrator access was not verified.",
         }),
       );
     } catch (error) {
@@ -158,17 +221,42 @@ function ClaimActions({
       <div className="grid gap-8 lg:grid-cols-[minmax(0,0.75fr)_minmax(0,1.25fr)]">
         <div>
           <h2 className="text-2xl font-semibold" id="profile-claim-heading">
-            Claim a person profile
+            Claim a profile
           </h2>
           <p className="mt-2 max-w-sm text-sm leading-6 text-muted">
-            Choose how you want to verify that the profile is yours.
+            Choose the profile type and how you want to verify ownership.
           </p>
         </div>
 
         <div className="max-w-2xl">
           <div
-            aria-label="Claim method"
+            aria-label="Profile type"
             className="inline-flex rounded-control border border-border bg-surface p-1"
+            role="group"
+          >
+            <Button
+              aria-pressed={profileType === "person"}
+              size="sm"
+              type="button"
+              variant={profileType === "person" ? "primary" : "ghost"}
+              onClick={() => selectProfileType("person")}
+            >
+              Person
+            </Button>
+            <Button
+              aria-pressed={profileType === "community"}
+              size="sm"
+              type="button"
+              variant={profileType === "community" ? "primary" : "ghost"}
+              onClick={() => selectProfileType("community")}
+            >
+              Community
+            </Button>
+          </div>
+
+          <div
+            aria-label="Claim method"
+            className="mt-3 flex w-fit rounded-control border border-border bg-surface p-1"
             role="group"
           >
             <Button
@@ -194,21 +282,45 @@ function ClaimActions({
           <form className="mt-6 grid gap-4" onSubmit={submitClaim}>
             <Field>
               Profile slug
-              <Input defaultValue={defaultClaimSlug} name="profileSlug" placeholder="dj-celine" required />
+              <Input
+                defaultValue={defaultClaimSlug}
+                name="profileSlug"
+                placeholder={profileType === "community" ? "afterglow-social" : "dj-celine"}
+                required
+              />
             </Field>
+
+            {profileType === "community" && method === "discord" ? (
+              <>
+                <Field>
+                  Discord server ID
+                  <Input name="discordGuildId" required />
+                </Field>
+                <Field>
+                  Discord server name
+                  <Input name="discordGuildName" placeholder="Optional" />
+                </Field>
+              </>
+            ) : null}
 
             {method === "vrchat" ? (
               <>
+                {profileType === "person" ? (
+                  <Field>
+                    Verification service
+                    <Select name="targetType" required>
+                      <option value="vrchat_user">VRChat</option>
+                      <option value="vrclinking">VRC Linking</option>
+                    </Select>
+                  </Field>
+                ) : null}
                 <Field>
-                  Verification service
-                  <Select name="targetType" required>
-                    <option value="vrchat_user">VRChat</option>
-                    <option value="vrclinking">VRC Linking</option>
-                  </Select>
-                </Field>
-                <Field>
-                  VRChat user ID
-                  <Input name="targetExternalId" placeholder="usr_..." required />
+                  {profileType === "community" ? "VRChat group ID" : "VRChat user ID"}
+                  <Input
+                    name="targetExternalId"
+                    placeholder={profileType === "community" ? "grp_..." : "usr_..."}
+                    required
+                  />
                 </Field>
               </>
             ) : null}
@@ -220,7 +332,11 @@ function ClaimActions({
                 type="submit"
                 variant="primary"
               >
-                {method === "discord" ? "Claim with Discord" : "Create proof code"}
+                {method === "discord"
+                  ? profileType === "community"
+                    ? "Request Discord admin claim"
+                    : "Claim with Discord"
+                  : "Create proof code"}
               </Button>
               {!emailVerified ? (
                 <p className="mt-2 text-xs text-muted">Verify your email before claiming a profile.</p>
@@ -252,6 +368,18 @@ function ClaimActions({
                   Check proof now
                 </Button>
               ) : null}
+              {status.claimRequestId ? (
+                <Button
+                  className="mt-3 mr-3"
+                  size="sm"
+                  type="button"
+                  onClick={() =>
+                    status.claimRequestId && void verifyPendingDiscordAdminClaim(status.claimRequestId)
+                  }
+                >
+                  Check Discord access
+                </Button>
+              ) : null}
               {status.href ? (
                 <Link className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "mt-3")} href={status.href}>
                   View profile
@@ -265,7 +393,13 @@ function ClaimActions({
   );
 }
 
-function ConnectedAccountPanel({ defaultClaimSlug }: { defaultClaimSlug: string }) {
+function ConnectedAccountPanel({
+  defaultClaimSlug,
+  defaultClaimType,
+}: {
+  defaultClaimSlug: string;
+  defaultClaimType: ClaimProfileType;
+}) {
   const viewer = useQuery(api.accounts.viewer);
   const { signOut } = useAuthActions();
 
@@ -334,6 +468,7 @@ function ConnectedAccountPanel({ defaultClaimSlug }: { defaultClaimSlug: string 
 
       <ClaimActions
         defaultClaimSlug={defaultClaimSlug}
+        defaultClaimType={defaultClaimType}
         emailVerified={viewer.user.emailVerified}
         hasDiscord={viewer.linkedProviders.some((account) => account.provider === "discord")}
       />
@@ -364,7 +499,13 @@ class AccountPanelErrorBoundary extends Component<
   }
 }
 
-export function AccountPanel({ defaultClaimSlug = "" }: { defaultClaimSlug?: string }) {
+export function AccountPanel({
+  defaultClaimSlug = "",
+  defaultClaimType = "person",
+}: {
+  defaultClaimSlug?: string;
+  defaultClaimType?: ClaimProfileType;
+}) {
   if (!convexUrl) {
     return (
       <Notice className="leading-7" variant="dashed">
@@ -375,7 +516,7 @@ export function AccountPanel({ defaultClaimSlug = "" }: { defaultClaimSlug?: str
 
   return (
     <AccountPanelErrorBoundary>
-      <ConnectedAccountPanel defaultClaimSlug={defaultClaimSlug} />
+      <ConnectedAccountPanel defaultClaimSlug={defaultClaimSlug} defaultClaimType={defaultClaimType} />
     </AccountPanelErrorBoundary>
   );
 }

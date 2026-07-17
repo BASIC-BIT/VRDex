@@ -223,7 +223,8 @@ async function cleanupAuthAndProfiles(request: APIRequestContext, e2eToken: stri
   });
 }
 
-test("verified email account with linked Discord can claim an E2E person profile @flow", async ({ page, request }, testInfo) => {
+test("verified email account with linked Discord can claim person and community profiles @flow", async ({ page, request }, testInfo) => {
+  test.setTimeout(60_000);
   test.skip(
     Boolean(process.env.PLAYWRIGHT_BASE_URL) && process.env.VRDEX_ENABLE_E2E_AUTH_HELPERS !== "true",
     "Hosted auth E2E helpers are not enabled for this target.",
@@ -236,6 +237,7 @@ test("verified email account with linked Discord can claim an E2E person profile
   const email = `${runSuffix}@e2e.vrdex.local`;
   const password = `VRDex-${runSuffix}-password-12345`;
   let createdSlug: string | undefined;
+  let communitySlug: string | undefined;
 
   try {
     createdSlug = await createE2eProfile({
@@ -247,6 +249,16 @@ test("verified email account with linked Discord can claim an E2E person profile
       aliases: [`Claim ${runSuffix}`],
       tags: ["playwright", "claim-flow"],
       roleTags: ["Claim test profile"],
+    });
+    communitySlug = await createE2eProfile({
+      request,
+      e2eToken,
+      runId,
+      profileType: "community",
+      displayName: `Playwright Community Claim ${runSuffix}`,
+      tags: ["playwright", "community-claim-flow"],
+      subtype: "Club",
+      categoryTags: ["Claim test community"],
     });
     await createVerifiedE2eAccount({ page, request, e2eToken, email, password });
     await linkDiscordAccount(request, e2eToken, email, `discord-${runSuffix}`);
@@ -263,8 +275,19 @@ test("verified email account with linked Discord can claim an E2E person profile
       profileStatusCopy(page, "Claimed"),
       page.getByRole("heading", { name: "Claimed", exact: true }).or(page.getByText("Person profile / Claimed", { exact: true })),
     );
+
+    await gotoFlowPage(
+      page,
+      `/account?claim=${encodeURIComponent(communitySlug!)}&claimType=community`,
+    );
+    await expect(page.getByRole("button", { name: "Community" })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByLabel("Profile slug")).toHaveValue(communitySlug!);
+    await page.getByLabel("Discord server ID").fill(`guild-${runSuffix}`);
+    await page.getByLabel("Discord server name").fill(`Claim Guild ${runSuffix}`);
+    await page.getByRole("button", { name: "Request Discord admin claim" }).click();
+    await expect(page.getByText(/Community claim request created/i)).toBeVisible(hostedActionExpectOptions);
   } finally {
-    await cleanupAuthAndProfiles(request, e2eToken, email, [createdSlug], runId);
+    await cleanupAuthAndProfiles(request, e2eToken, email, [createdSlug, communitySlug], runId);
   }
 });
 
