@@ -54,6 +54,15 @@ function escapeTableCell(value) {
   return String(value).replaceAll("|", "\\|").replaceAll("\n", " ");
 }
 
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 function artifactUrl({ artifact, owner, repo, runId }) {
   return `https://github.com/${owner}/${repo}/actions/runs/${runId}/artifacts/${artifact.id}`;
 }
@@ -86,6 +95,24 @@ function visualBaselineLinks({ files, headSha, owner, repo }) {
       };
     })
     .filter(Boolean);
+}
+
+function visualBaselineGallery(baselines) {
+  const rows = [];
+  for (let index = 0; index < baselines.length; index += 2) {
+    const cells = baselines.slice(index, index + 2).map(({ label, url }) => {
+      const safeLabel = escapeHtml(label);
+      const safeUrl = escapeHtml(url);
+      return [
+        '<td width="50%" valign="top">',
+        `<strong>${safeLabel}</strong><br>`,
+        `<a href="${safeUrl}"><img src="${safeUrl}" alt="${safeLabel}" width="420"></a>`,
+        "</td>",
+      ].join("");
+    });
+    rows.push(`<tr>${cells.join("")}</tr>`);
+  }
+  return ["<table>", ...rows, "</table>"];
 }
 
 function buildReport({
@@ -141,7 +168,6 @@ function buildReport({
       : result !== "success";
   });
   const baselines = visualBaselineLinks({ files, headSha, owner, repo });
-  const shownBaselines = baselines.slice(0, 12);
   const baselineSection =
     baselines.length === 0
       ? ["", "Changed visual baselines: none."]
@@ -149,12 +175,7 @@ function buildReport({
           "",
           `<details><summary>Changed visual baselines (${baselines.length})</summary>`,
           "",
-          ...shownBaselines.map(({ label, url }) => `- [${label}](${url})`),
-          ...(baselines.length > shownBaselines.length
-            ? [
-                `- ${baselines.length - shownBaselines.length} more in the image-diff artifacts`,
-              ]
-            : []),
+          ...visualBaselineGallery(baselines),
           "",
           "</details>",
         ];
@@ -267,5 +288,6 @@ module.exports = {
   REPORT_MARKER,
   buildReport,
   updatePrVerificationReport,
+  visualBaselineGallery,
   visualBaselineLinks,
 };

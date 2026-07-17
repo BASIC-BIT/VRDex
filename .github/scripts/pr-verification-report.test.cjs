@@ -29,17 +29,16 @@ function successfulNeeds() {
 }
 
 test("buildReport collates checks, artifacts, previews, and changed baselines", () => {
+  const baselineFiles = Array.from({ length: 14 }, (_, index) => ({
+    filename: `apps/web/e2e/__screenshots__/desktop-chromium/route-${index}.png`,
+    status: "modified",
+  }));
   const report = buildReport({
     artifacts: [
       { expired: false, id: 101, name: "playwright-data-flow" },
       { expired: false, id: 102, name: "playwright-image-diff" },
     ],
-    files: [
-      {
-        filename: "apps/web/e2e/__screenshots__/desktop-chromium/home.png",
-        status: "modified",
-      },
-    ],
+    files: baselineFiles,
     headSha: "0123456789abcdef",
     needs: successfulNeeds(),
     owner: "BASIC-BIT",
@@ -52,8 +51,11 @@ test("buildReport collates checks, artifacts, previews, and changed baselines", 
   assert.match(report, /Mutation data flow \| PASSED \| \[Open artifact\]/);
   assert.match(report, /Hosted data flow \| SKIPPED \| Not configured/);
   assert.match(report, /\[Open preview\]\(https:\/\/preview\.example\.com\)/);
-  assert.match(report, /Changed visual baselines \(1\)/);
-  assert.match(report, /desktop-chromium \/ home/);
+  assert.match(report, /<details><summary>Changed visual baselines \(14\)<\/summary>/);
+  assert.equal(report.match(/<img /g)?.length, 14);
+  assert.match(report, /desktop-chromium \/ route-0/);
+  assert.match(report, /desktop-chromium \/ route-13/);
+  assert.doesNotMatch(report, /more in the image-diff artifacts/);
   assert.match(report, /attempt 2/);
 });
 

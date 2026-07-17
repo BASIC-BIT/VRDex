@@ -164,7 +164,7 @@ The optional `Playwright Hosted Data Flow` job runs on pull requests only when b
 
 When configured, the job runs `pnpm test:e2e:hosted` with `PLAYWRIGHT_BASE_URL`, `PLAYWRIGHT_SKIP_WEBSERVERS=true`, `PLAYWRIGHT_RECORD_VIDEO=true`, and a GitHub Actions run-scoped `VRDEX_E2E_RUN_ID`. Extended profile, auth, adapter, and developer-credential flows skip unless `VRDEX_HOSTED_E2E_EXTENDED_PROFILE_FLOW`, `VRDEX_HOSTED_E2E_AUTH_HELPERS`, `VRDEX_HOSTED_E2E_ADAPTER_HELPERS`, and `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS` are explicitly set to `true`.
 
-The final `PR Verification Report` job runs after the Playwright, Storybook, and Vercel preview jobs. It collates their results, artifact links, deployment URLs, and changed visual baselines into one marker-based PR comment that is updated in place. The producer jobs do not write PR comments. The report job also removes legacy per-job comments when it first runs on an existing pull request.
+The final `PR Verification Report` job runs after the Playwright, Storybook, and Vercel preview jobs. It collates their results, artifact links, deployment URLs, and changed visual baselines into one marker-based PR comment that is updated in place. Changed baselines appear as a complete inline image gallery inside a collapsed details section so reviewers can inspect every snapshot without filling the default PR view. The producer jobs do not write PR comments. The report job also removes legacy per-job comments when it first runs on an existing pull request.
 
 The `Deployed Health Checks` workflow runs after merges to `main`, after successful GitHub deployment status events for production deployments, on a daily schedule, and through manual dispatch. It has two independent checks:
 
