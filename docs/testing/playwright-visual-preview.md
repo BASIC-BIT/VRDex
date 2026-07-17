@@ -146,19 +146,16 @@ Each data-flow run uses a unique `VRDEX_E2E_RUN_ID` prefix and creates only `e2e
 
 ## CI behavior
 
-The required pull-request Playwright jobs are:
-
 The required `Playwright Public Preview` job:
 
 - runs `pnpm test:e2e:visual`
 - uploads `apps/web/playwright-report`, `apps/web/test-results`, and `apps/web/playwright-artifacts`, failing if no artifact files are found
-- posts or updates a PR comment with the run outcome and artifact link
 
 This blocks PRs when public route rendering or screenshot capture fails. Pixel review is still artifact-based until committed baseline snapshots and a separate diff gate are added.
 
-The required `Playwright Image Diff` job runs the `@snapshot` suite against committed PNG baselines under `apps/web/e2e/__screenshots__`, uploads expected/actual/diff artifacts on failure, and comments with only the added or modified committed baseline images.
+The required `Playwright Image Diff` job runs the `@snapshot` suite against committed PNG baselines under `apps/web/e2e/__screenshots__` and uploads expected/actual/diff artifacts on failure.
 
-The required `Playwright Data Flow` job runs the `@flow` test against local Convex and the local Next dev server with `PLAYWRIGHT_RECORD_VIDEO=true`, then uploads screenshots, traces, and videos as the `playwright-data-flow` artifact and posts a PR comment with the artifact link.
+The required `Playwright Data Flow` job runs the `@flow` test against local Convex and the local Next dev server with `PLAYWRIGHT_RECORD_VIDEO=true`, then uploads screenshots, traces, and videos as the `playwright-data-flow` artifact.
 
 The optional `Playwright Hosted Data Flow` job runs on pull requests only when both repository settings are present:
 
@@ -166,6 +163,8 @@ The optional `Playwright Hosted Data Flow` job runs on pull requests only when b
 - repository secret `VRDEX_HOSTED_E2E_BROWSER_TOKEN`
 
 When configured, the job runs `pnpm test:e2e:hosted` with `PLAYWRIGHT_BASE_URL`, `PLAYWRIGHT_SKIP_WEBSERVERS=true`, `PLAYWRIGHT_RECORD_VIDEO=true`, and a GitHub Actions run-scoped `VRDEX_E2E_RUN_ID`. Extended profile, auth, adapter, and developer-credential flows skip unless `VRDEX_HOSTED_E2E_EXTENDED_PROFILE_FLOW`, `VRDEX_HOSTED_E2E_AUTH_HELPERS`, `VRDEX_HOSTED_E2E_ADAPTER_HELPERS`, and `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS` are explicitly set to `true`.
+
+The final `PR Verification Report` job runs after the Playwright, Storybook, and Vercel preview jobs. It collates their results, artifact links, deployment URLs, and changed visual baselines into one marker-based PR comment that is updated in place. The producer jobs do not write PR comments. The report job also removes legacy per-job comments when it first runs on an existing pull request.
 
 The `Deployed Health Checks` workflow runs after merges to `main`, after successful GitHub deployment status events for production deployments, on a daily schedule, and through manual dispatch. It has two independent checks:
 
