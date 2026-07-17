@@ -31,6 +31,12 @@ Convex grants remain the authorization source of truth. The web app mirrors an a
 
 The PostHog Terraform provider does not currently expose cohort management. An analytic cohort can be created later from the same person property if useful, but it must not sync access back into Convex.
 
+## Featured discovery
+
+Terraform also manages the `featured-discovery` feature flag. It is inactive
+with a zero-percent rollout so the unfinished Featured module stays hidden by
+default while remaining available for deliberate product review.
+
 ## State Backend
 
 Terraform state for this stack is stored in the S3 backend declared in `versions.tf`:

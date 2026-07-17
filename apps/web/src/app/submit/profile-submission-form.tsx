@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState, useTransition } from "react";
+import { X } from "lucide-react";
+import { FormEvent, MouseEvent, useEffect, useRef, useState, useTransition } from "react";
 import { useConvexAuth, useMutation } from "convex/react";
 import { api } from "@convex-generated-api";
 import { buttonVariants, Button } from "@/components/ui/button";
@@ -136,7 +137,28 @@ function SubmissionFormFields({ submitProfile }: {
 }) {
   const [profileType, setProfileType] = useState<ProfileType>("person");
   const [status, setStatus] = useState<SubmissionStatus>({ kind: "idle" });
+  const successDialogRef = useRef<HTMLDialogElement>(null);
   const [, startTransition] = useTransition();
+  const successResult = status.kind === "success" ? status.result : null;
+
+  useEffect(() => {
+    const dialog = successDialogRef.current;
+
+    if (successResult && dialog && !dialog.open) {
+      dialog.showModal();
+    }
+  }, [successResult]);
+
+  function closeSuccessDialog() {
+    successDialogRef.current?.close();
+    setStatus({ kind: "idle" });
+  }
+
+  function closeOnBackdrop(event: MouseEvent<HTMLDialogElement>) {
+    if (event.target === event.currentTarget) {
+      closeSuccessDialog();
+    }
+  }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -215,15 +237,6 @@ function SubmissionFormFields({ submitProfile }: {
         <Button className="sm:min-w-40" disabled={isSubmitting} size="lg" type="submit" variant="primary">
           {isSubmitting ? "Submitting..." : "Submit profile"}
         </Button>
-
-        {status.kind === "success" ? (
-          <Link
-            className={buttonVariants({ size: "lg", variant: "secondary" })}
-            href={status.result.profilePath}
-          >
-            View {status.result.profilePath}
-          </Link>
-        ) : null}
       </div>
 
       {status.kind === "error" ? (
@@ -231,6 +244,46 @@ function SubmissionFormFields({ submitProfile }: {
           {status.message}
         </Notice>
       ) : null}
+
+      <dialog
+        aria-labelledby="profile-submission-success-title"
+        className="m-auto w-[min(32rem,calc(100%-2rem))] rounded-card border border-border bg-surface p-0 text-foreground shadow-hero backdrop:bg-black/70"
+        ref={successDialogRef}
+        onCancel={() => setStatus({ kind: "idle" })}
+        onClick={closeOnBackdrop}
+      >
+        <div className="relative p-6 sm:p-8">
+          <Button
+            aria-label="Close"
+            className="absolute top-4 right-4 size-9 p-0"
+            size="sm"
+            type="button"
+            variant="ghost"
+            onClick={closeSuccessDialog}
+          >
+            <X aria-hidden="true" className="size-4" />
+          </Button>
+          <h2 className="pr-10 text-2xl font-semibold" id="profile-submission-success-title">
+            Profile added
+          </h2>
+          <p className="mt-3 text-sm leading-6 text-muted">
+            The profile is ready to view.
+          </p>
+          {successResult ? (
+            <div className="mt-6 flex flex-wrap gap-3">
+              <Link
+                className={buttonVariants({ size: "lg", variant: "primary" })}
+                href={successResult.profilePath}
+              >
+                View profile
+              </Link>
+              <Button size="lg" type="button" variant="secondary" onClick={closeSuccessDialog}>
+                Add another
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      </dialog>
     </form>
   );
 }

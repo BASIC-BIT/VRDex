@@ -146,6 +146,9 @@ Locked implementation behavior:
 - The `seed-lookup-beta` flag targets the string person property
   `seed_lookup_beta=true`. The web app mirrors an already-authorized Convex
   result into that property and does not send a raw account identifier.
+- The `featured-discovery` flag is disabled by default. It controls the
+  unfinished Featured module on `/discovery` until editorial, recommendation,
+  and paid-placement behavior has a reviewed policy.
 - The Terraform provider manages the feature flag directly. Its current schema
   does not manage cohorts, so an optional analytic cohort may be derived from
   the same property in PostHog without becoming an authorization dependency.

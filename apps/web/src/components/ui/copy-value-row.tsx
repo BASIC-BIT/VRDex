@@ -8,10 +8,12 @@ import { cn } from "@/lib/cn";
 
 export function CopyValueRow({
   className,
+  compact = false,
   label,
   value,
 }: {
   className?: string;
+  compact?: boolean;
   label: string;
   value: string;
 }) {
@@ -28,10 +30,22 @@ export function CopyValueRow({
   }
 
   return (
-    <div className={cn("grid min-w-0 gap-1 border-t border-border py-3 first:border-t-0", className)}>
+    <div
+      className={cn(
+        "grid min-w-0 gap-1 border-t border-border py-3 first:border-t-0",
+        compact ? "w-fit max-w-full" : undefined,
+        className,
+      )}
+    >
       <span className="text-xs font-medium text-muted">{label}</span>
-      <div className="flex min-w-0 items-center gap-2">
-        <code className="min-w-0 flex-1 truncate font-mono text-xs text-foreground sm:text-sm" title={value}>
+      <div className="flex min-w-0 items-start gap-1">
+        <code
+          className={cn(
+            "min-w-0 break-all font-mono text-xs leading-5 text-foreground sm:text-sm",
+            compact ? "flex-initial" : "flex-1",
+          )}
+          title={value}
+        >
           {value}
         </code>
         <button

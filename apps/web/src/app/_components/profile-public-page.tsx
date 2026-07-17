@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ExternalLink, ShieldCheck } from "lucide-react";
+import { BadgeCheck, ExternalLink } from "lucide-react";
 import { Fragment, type CSSProperties, type ReactNode } from "react";
 
 import { EventPreviewCard, type PublicEventPreview } from "./event-public-page";
@@ -174,7 +174,6 @@ function initialsFor(name: string): string {
   return initials || "VR";
 }
 
-const profileBannerOverlay = "linear-gradient(135deg, color-mix(in srgb, var(--media) 58%, transparent), color-mix(in srgb, var(--accent) 12%, transparent))";
 const profileSectionKeys: ProfilePublicSectionKey[] = [
   "about",
   "events",
@@ -300,7 +299,7 @@ export function ProfileBackendNotice({ kind }: { kind: "missing-url" | "error" }
 export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
   const trust = trustLabelCopy(profile.trustLabel);
   const isPerson = profile.profileType === "person";
-  const bannerStyle = safeImageBackground(profile.bannerImageUrl, profileBannerOverlay);
+  const bannerStyle = safeImageBackground(profile.bannerImageUrl);
   const avatarImageStyle = safeImageBackground(profile.avatarImageUrl);
   const hasAvatarImage = avatarImageStyle !== undefined;
   const mediaKit = profile.mediaKit ?? {
@@ -312,9 +311,7 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
   const avatarAppearance = mediaKit.avatarAppearance ?? defaultAvatarAppearance;
   const avatarStyle: CSSProperties = avatarFrameStyle(avatarImageStyle, avatarAppearance);
   const eventPreviews = isPerson ? profile.upcomingEvents : profile.hostedEvents;
-  const aboutCopy = [profile.bio, profile.about].filter(
-    (copy, index, copies): copy is string => Boolean(copy) && copies.indexOf(copy) === index,
-  );
+  const aboutCopy = profile.bio?.trim();
   const focusItems = Array.from(new Set(
     isPerson
       ? [...profile.person.roleTags, ...profile.tags]
@@ -360,7 +357,7 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
   const metadata = Array.from(new Set([
     isPerson ? profile.person.pronouns : profile.community.subtype,
     profile.region,
-    ...focusItems.slice(0, 4),
+    ...(profile.headline ? [] : focusItems.slice(0, 4)),
   ].filter((item): item is string => Boolean(item))));
   const hasMediaKit = Boolean(mediaKit.primaryLogo || mediaKit.additionalLogos.length > 0 || mediaKit.logoZipUrl);
   const canClaim = profile.trustLabel === "community_submitted" || profile.trustLabel === "unclaimed";
@@ -423,27 +420,52 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
           <BrandLink />
         </PageNav>
 
-        <section className="overflow-hidden rounded-card border border-border bg-surface shadow-panel">
+        <section className="overflow-hidden rounded-card border border-border bg-media shadow-panel">
           <div
-            className="min-h-64 bg-[linear-gradient(135deg,var(--media),var(--media-raised))] bg-cover bg-center p-6 text-white sm:p-8"
+            className="relative bg-media bg-cover bg-center p-5 text-white sm:p-6"
             style={bannerStyle}
           >
-            <div className="flex min-h-52 flex-col justify-end gap-6 sm:flex-row sm:items-end sm:justify-between">
-              <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-end">
-                <div
-                  aria-label={`${profile.displayName} display image`}
-                  className="flex size-24 shrink-0 items-center justify-center bg-white/20 bg-cover bg-center text-3xl font-semibold shadow-panel"
-                  role="img"
-                  style={avatarStyle}
-                >
-                  {!hasAvatarImage ? initialsFor(profile.displayName) : null}
-                </div>
-                <div className="min-w-0 max-w-3xl">
-                  <div className="flex flex-wrap items-center gap-2 text-sm text-white/80">
-                    {profile.trustLabel === "claimed_verified" ? <ShieldCheck aria-hidden="true" className="size-4" /> : null}
-                    <span>{sourceLine}</span>
+            {bannerStyle ? <span aria-hidden="true" className="absolute inset-0 bg-black/60" /> : null}
+            <div
+              className={cn(
+                "relative grid gap-7",
+                aboutCopy ? "lg:grid-cols-[minmax(0,1.2fr)_minmax(18rem,0.8fr)] lg:items-center" : undefined,
+              )}
+            >
+              <div className="flex min-w-0 flex-col gap-6 sm:flex-row sm:items-center">
+                <div className="relative w-fit shrink-0">
+                  <div
+                    aria-label={`${profile.displayName} display image`}
+                    className="flex size-24 items-center justify-center bg-white/20 bg-cover bg-center text-3xl font-semibold shadow-panel"
+                    role="img"
+                    style={avatarStyle}
+                  >
+                    {!hasAvatarImage ? initialsFor(profile.displayName) : null}
                   </div>
-                  <h1 className="mt-2 break-words text-4xl leading-none font-semibold sm:text-5xl">{profile.displayName}</h1>
+                  {profile.trustLabel === "claimed_verified" ? (
+                    <span
+                      aria-describedby={`profile-verified-${profile.slug}`}
+                      aria-label="Owner verified"
+                      className="group absolute -right-2 -bottom-2 grid size-8 place-items-center rounded-full border-2 border-media bg-accent text-on-accent shadow-panel outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                      role="img"
+                      tabIndex={0}
+                    >
+                      <BadgeCheck aria-hidden="true" className="size-5" />
+                      <span
+                        className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-control bg-foreground px-2 py-1 text-xs font-medium text-background shadow-panel group-hover:block group-focus:block"
+                        id={`profile-verified-${profile.slug}`}
+                        role="tooltip"
+                      >
+                        Owner verified
+                      </span>
+                    </span>
+                  ) : null}
+                </div>
+                <div className="min-w-0">
+                  {profile.trustLabel === "claimed_verified" ? null : (
+                    <p className="text-sm text-white/75">{sourceLine}</p>
+                  )}
+                  <h1 className="break-words text-4xl leading-none font-semibold sm:text-5xl">{profile.displayName}</h1>
                   {aliases.length > 0 ? (
                     <div className="mt-2 flex flex-wrap items-center gap-x-2 text-sm text-white/75">
                       <span>AKA {aliases.join(", ")}</span>
@@ -457,35 +479,30 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
                   ) : null}
                   {profile.headline ? <p className="mt-3 max-w-2xl text-base leading-7 text-white/85">{profile.headline}</p> : null}
                   {metadata.length > 0 ? <p className="mt-2 text-sm text-white/70">{metadata.join(" / ")}</p> : null}
+                  {canClaim ? (
+                    <Link
+                      className={cn(buttonVariants({ variant: "inversePrimary" }), "mt-5 !text-[#08090d]")}
+                      href={`/account?claim=${encodeURIComponent(profile.slug)}&claimType=${profile.profileType}`}
+                    >
+                      Claim this profile
+                    </Link>
+                  ) : null}
                 </div>
               </div>
-              {canClaim ? (
-                <Link
-                  className={cn(buttonVariants({ variant: "inversePrimary" }), "!text-[#08090d]")}
-                  href={`/account?claim=${encodeURIComponent(profile.slug)}&claimType=${profile.profileType}`}
-                >
-                  Claim this profile
-                </Link>
+              {aboutCopy ? (
+                <div className="border-white/20 lg:border-l lg:pl-7">
+                  <h2 className="text-sm font-semibold text-white/70">About</h2>
+                  <p className="mt-2 max-w-xl text-base leading-7 text-white/88">{aboutCopy}</p>
+                </div>
               ) : null}
             </div>
           </div>
         </section>
 
-        <div className={cn("grid gap-x-10", hasWatchSurface ? "lg:grid-cols-[minmax(0,1fr)_22rem]" : undefined)}>
+        <div className={cn("grid gap-x-10", hasWatchSurface ? "lg:grid-cols-[minmax(0,1fr)_32rem]" : undefined)}>
           <div>
-            {aboutCopy.length > 0 ? (
-              <section className="py-8">
-                <SectionHeading>About</SectionHeading>
-                <div className="mt-4 max-w-3xl space-y-4 text-base leading-7 text-muted">
-                  {aboutCopy.map((copy) => (
-                    <p key={copy}>{copy}</p>
-                  ))}
-                </div>
-              </section>
-            ) : null}
-
             {creatorLinks.length > 0 || discordHandles.length > 0 ? (
-              <section className="border-t border-border py-8">
+              <section className="py-8">
                 <SectionHeading>Links</SectionHeading>
                 <div className="mt-4 flex flex-wrap gap-2">
                   {creatorLinks.map(({ link, href }) => (
@@ -502,7 +519,7 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
                   ))}
                 </div>
                 {discordHandles.map(({ handle, item }) => (
-                  <CopyValueRow className="mt-4 max-w-md" key={item.link.url} label="Discord" value={handle} />
+                  <CopyValueRow compact className="mt-4" key={item.link.url} label="Discord" value={handle} />
                 ))}
               </section>
             ) : null}
@@ -530,7 +547,18 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
               ) : null}
               {vrcdnStreams.map(({ label, stream }) => (
                 <div className="pt-5" key={stream.streamId}>
-                  <p className="font-medium">{label}</p>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="font-medium">{label}</p>
+                    <a
+                      className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "gap-2")}
+                      href={stream.previewUrl}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      Open preview
+                      <ExternalLink aria-hidden="true" className="size-3.5" />
+                    </a>
+                  </div>
                   <CopyValueRow label="Quest (MPEG-TS)" value={stream.questUrl} />
                   <CopyValueRow label="PC (RTSPT)" value={stream.pcUrl} />
                 </div>

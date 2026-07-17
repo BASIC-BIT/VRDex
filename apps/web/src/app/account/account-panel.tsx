@@ -7,14 +7,15 @@ import { Component, useState, useTransition, type FormEvent, type ReactNode } fr
 
 import { api } from "@convex-generated-api";
 import { buttonVariants, Button } from "@/components/ui/button";
-import { Field, Input, Select } from "@/components/ui/field";
+import { CopyValueRow } from "@/components/ui/copy-value-row";
+import { Field, Input } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { cn } from "@/lib/cn";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
-type ClaimMethod = "discord" | "vrchat";
+type ClaimMethod = "discord" | "vrchat" | "vrclinking";
 type ClaimProfileType = "person" | "community";
 
 type ClaimStatus =
@@ -52,6 +53,30 @@ function stringField(value: FormDataEntryValue | null): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function profileSlugFromInput(value: string): string {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return "";
+  }
+
+  let path = trimmed;
+
+  try {
+    path = new URL(trimmed).pathname;
+  } catch {
+    // A bare profile name or relative path is valid input.
+  }
+
+  const segments = path.split(/[/?#]/).filter(Boolean);
+
+  if ((segments[0] === "p" || segments[0] === "c") && segments[1]) {
+    return segments[1];
+  }
+
+  return segments.at(-1) ?? "";
+}
+
 function claimErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
 
@@ -63,7 +88,7 @@ function claimErrorMessage(error: unknown): string {
     }
   }
 
-  return "Claim request failed. Check the profile slug and try again.";
+  return "Profile not found. Check the profile link and try again.";
 }
 
 function ClaimActions({
@@ -84,8 +109,11 @@ function ClaimActions({
   const startVrchatProof = useMutation(api.profileClaims.startVrchatProof);
   const [profileType, setProfileType] = useState<ClaimProfileType>(defaultClaimType);
   const [method, setMethod] = useState<ClaimMethod>("discord");
+  const [profileInput, setProfileInput] = useState(defaultClaimSlug);
   const [status, setStatus] = useState<ClaimStatus>({ kind: "idle" });
   const [, startTransition] = useTransition();
+  const profileSlug = profileSlugFromInput(profileInput);
+  const profilePath = `/${profileType === "community" ? "c" : "p"}/${profileSlug}`;
 
   function selectMethod(nextMethod: ClaimMethod) {
     setMethod(nextMethod);
@@ -94,13 +122,16 @@ function ClaimActions({
 
   function selectProfileType(nextProfileType: ClaimProfileType) {
     setProfileType(nextProfileType);
+    if (nextProfileType === "community" && method === "vrclinking") {
+      setMethod("vrchat");
+    }
     setStatus({ kind: "idle" });
   }
 
   async function submitClaim(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
-    const profileSlug = stringField(formData.get("profileSlug"));
+    const profileSlug = profileSlugFromInput(stringField(formData.get("profileLink")));
 
     if (method === "discord") {
       if (profileType === "community") {
@@ -159,7 +190,9 @@ function ClaimActions({
         targetType:
           profileType === "community"
             ? "vrchat_group"
-            : (stringField(formData.get("targetType")) as "vrchat_user" | "vrclinking"),
+            : method === "vrclinking"
+              ? "vrclinking"
+              : "vrchat_user",
         targetExternalId: stringField(formData.get("targetExternalId")),
       });
       startTransition(() =>
@@ -275,20 +308,41 @@ function ClaimActions({
               variant={method === "vrchat" ? "primary" : "ghost"}
               onClick={() => selectMethod("vrchat")}
             >
-              VRChat proof
+              VRChat
             </Button>
+            {profileType === "person" ? (
+              <Button
+                aria-pressed={method === "vrclinking"}
+                size="sm"
+                type="button"
+                variant={method === "vrclinking" ? "primary" : "ghost"}
+                onClick={() => selectMethod("vrclinking")}
+              >
+                VRC Linking
+              </Button>
+            ) : null}
           </div>
 
           <form className="mt-6 grid gap-4" onSubmit={submitClaim}>
             <Field>
-              Profile slug
+              Profile link
               <Input
-                defaultValue={defaultClaimSlug}
-                name="profileSlug"
-                placeholder={profileType === "community" ? "afterglow-social" : "dj-celine"}
+                name="profileLink"
+                placeholder={profileType === "community" ? "vrdex.net/c/afterglow-social" : "vrdex.net/p/dj-celine"}
                 required
+                value={profileInput}
+                onChange={(event) => {
+                  setProfileInput(event.target.value);
+                  setStatus({ kind: "idle" });
+                }}
               />
             </Field>
+            {profileSlug ? (
+              <CopyValueRow
+                label="Profile URL"
+                value={`https://vrdex.net${profilePath}`}
+              />
+            ) : null}
 
             {profileType === "community" && method === "discord" ? (
               <>
@@ -303,19 +357,14 @@ function ClaimActions({
               </>
             ) : null}
 
-            {method === "vrchat" ? (
+            {method !== "discord" ? (
               <>
-                {profileType === "person" ? (
-                  <Field>
-                    Verification service
-                    <Select name="targetType" required>
-                      <option value="vrchat_user">VRChat</option>
-                      <option value="vrclinking">VRC Linking</option>
-                    </Select>
-                  </Field>
-                ) : null}
                 <Field>
-                  {profileType === "community" ? "VRChat group ID" : "VRChat user ID"}
+                  {profileType === "community"
+                    ? "VRChat group ID"
+                    : method === "vrclinking"
+                      ? "VRC Linking user ID"
+                      : "VRChat user ID"}
                   <Input
                     name="targetExternalId"
                     placeholder={profileType === "community" ? "grp_..." : "usr_..."}
@@ -435,10 +484,10 @@ function ConnectedAccountPanel({
           </dl>
           <div className="mt-5 flex flex-wrap gap-2">
             <Link className={buttonVariants({ variant: "secondary" })} href="/account/privacy">
-              Privacy
+              Privacy Controls
             </Link>
             <Link className={buttonVariants({ variant: "secondary" })} href="/account/appearance">
-              Appearance
+              Personalization
             </Link>
             <Button type="button" variant="ghost" onClick={() => void signOut()}>
               Sign out

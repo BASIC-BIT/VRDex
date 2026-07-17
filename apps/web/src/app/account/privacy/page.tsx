@@ -32,12 +32,9 @@ export default async function PrivacyPage({
         </PageNav>
 
         <Card className="shadow-hero" padding="lg">
-          <h1 className="max-w-4xl text-4xl leading-none font-semibold sm:text-6xl">
-            Control what your claimed profiles show.
+          <h1 className="text-3xl leading-none font-semibold sm:text-4xl">
+            Privacy Controls
           </h1>
-          <p className="mt-5 max-w-2xl text-base leading-7 text-muted">
-            Set supported fields to public, unlisted, or private.
-          </p>
           <div className="mt-8">
             <PrivacyPanel demoMode={demoMode} initialProfileId={initialProfileId} />
           </div>

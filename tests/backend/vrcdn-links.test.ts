@@ -16,6 +16,7 @@ describe("VRCDN stream links", () => {
 
       assert.equal(links?.streamId, "basicbit");
       assert.equal(links?.pageUrl, "https://vrcdn.live/basicbit");
+      assert.equal(links?.previewUrl, "https://panel.vrcdn.live/preview/basicbit");
       assert.equal(links?.hlsUrl, "https://stream.vrcdn.live/live/basicbit.m3u8");
       assert.equal(links?.questUrl, "https://stream.vrcdn.live/live/basicbit.live.ts");
       assert.equal(links?.pcUrl, "rtspt://stream.vrcdn.live/live/basicbit");

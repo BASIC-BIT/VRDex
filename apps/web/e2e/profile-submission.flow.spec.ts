@@ -64,7 +64,9 @@ test("profile submission writes through to public profile and discovery @flow", 
     await page.getByLabel("Person roles").fill("Test profile");
     await page.getByRole("button", { name: "Submit profile" }).click();
 
-    const profileLink = page.locator('a[href^="/p/"]').filter({ hasText: /View \/p\// }).first();
+    const successDialog = page.getByRole("dialog", { name: "Profile added" });
+    await expect(successDialog).toBeVisible();
+    const profileLink = successDialog.getByRole("link", { name: "View profile" });
     await expect(profileLink).toBeVisible();
     const href = await profileLink.getAttribute("href");
     createdSlug = href?.split("/").filter(Boolean).at(-1);

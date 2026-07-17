@@ -1,6 +1,10 @@
 import Link from "next/link";
 
-import { DiscoverySearchForm, TrackedDiscoveryLink } from "./discovery-analytics";
+import {
+  DiscoveryFeatureGate,
+  DiscoverySearchForm,
+  TrackedDiscoveryLink,
+} from "./discovery-analytics";
 import { HomeActiveWorldsSection, type PublicActiveWorld } from "./home-active-worlds";
 import { ViewerLocalEventDateTime } from "./viewer-local-event-times";
 import { buttonVariants } from "@/components/ui/button";
@@ -8,7 +12,10 @@ import { Card, SectionTitle } from "@/components/ui/card";
 import { EntityImage } from "@/components/ui/entity-image";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 import { cn } from "@/lib/cn";
-import type { DiscoveryAnalyticsSurface } from "@/lib/posthog";
+import {
+  FEATURED_DISCOVERY_UI_FLAG,
+  type DiscoveryAnalyticsSurface,
+} from "@/lib/posthog";
 
 type EntityType = "profile" | "world" | "event";
 type ProfileType = "person" | "community";
@@ -302,7 +309,7 @@ export function DiscoveryLandingPage({
         <section className="grid gap-6 border-b border-border py-8 lg:grid-cols-[0.7fr_1.3fr] lg:items-end lg:py-12">
           <div>
             <h1 className="max-w-md text-4xl leading-none font-semibold sm:text-5xl">
-              Tonight in VRChat
+              Discover VR
             </h1>
           </div>
           <DiscoverySearchForm className="w-full" surface="home" tone="default" />
@@ -320,12 +327,14 @@ export function DiscoveryLandingPage({
         <HomeActiveWorldsSection status={activeWorldStatus} worlds={activeWorlds} />
 
         {data.featured.length > 0 ? (
-          <section className="min-w-0 border-t border-border pt-6">
-            <SectionTitle>Featured</SectionTitle>
-            <div className="mt-5 grid gap-4 md:grid-cols-2">
-              {data.featured.slice(0, 2).map((result) => <PosterCard key={`${result.entityType}-${result.slug}`} result={result} />)}
-            </div>
-          </section>
+          <DiscoveryFeatureGate flag={FEATURED_DISCOVERY_UI_FLAG}>
+            <section className="min-w-0 border-t border-border pt-6">
+              <SectionTitle>Featured</SectionTitle>
+              <div className="mt-5 grid gap-4 md:grid-cols-2">
+                {data.featured.slice(0, 2).map((result) => <PosterCard key={`${result.entityType}-${result.slug}`} result={result} />)}
+              </div>
+            </section>
+          </DiscoveryFeatureGate>
         ) : null}
 
         <section className="grid gap-5 xl:grid-cols-3">
@@ -435,14 +444,7 @@ export function SearchResultsPage({
               </div>
             )}
           </section>
-        ) : (
-          <Card surface="glass">
-            <p className="font-medium">Start with a name, scene, world, genre, or event.</p>
-            <p className="mt-2 text-sm leading-6 text-muted">
-              Search is for direct intent; the homepage stays focused on discovery and what is coming up.
-            </p>
-          </Card>
-        )}
+        ) : null}
       </PageContainer>
     </PageShell>
   );

@@ -809,8 +809,8 @@ async function fetchLookupResults(query: string): Promise<LookupResponse> {
   return data;
 }
 
-function updateLookupUrl(query: string) {
-  const nextUrl = query ? `/lookup?q=${encodeURIComponent(query)}` : "/lookup";
+function updateLookupUrl(query: string, routePath: "/" | "/lookup") {
+  const nextUrl = query ? `${routePath}?q=${encodeURIComponent(query)}` : routePath;
 
   window.history.replaceState(null, "", nextUrl);
 }
@@ -819,6 +819,7 @@ type ProfileLookupPageProps = {
   privateResults: PrivateSeedLookupResult[];
   query: string;
   results: PublicProfileLookupResult[];
+  routePath?: "/" | "/lookup";
   status: LookupStatus;
   viewerAccess: SeedLookupViewerAccess;
 };
@@ -831,10 +832,11 @@ export function ProfileLookupPage({
   privateResults,
   query,
   results,
+  routePath = "/lookup",
   status,
   viewerAccess,
 }: ProfileLookupPageProps) {
-  const props = { privateResults, query, results, status, viewerAccess };
+  const props = { privateResults, query, results, routePath, status, viewerAccess };
 
   return process.env.NEXT_PUBLIC_CONVEX_URL
     ? <ConnectedProfileLookupPage {...props} />
@@ -859,6 +861,7 @@ function ProfileLookupPageContent({
   query,
   queryPrivateResults,
   results,
+  routePath = "/lookup",
   status,
   viewerAccess,
 }: ProfileLookupPageProps & { queryPrivateResults: QueryPrivateResults | null }) {
@@ -1015,7 +1018,7 @@ function ProfileLookupPageContent({
         setSeedViewerAccess(nextLookup.viewerAccess);
         setLookupStatus("live");
         setBulkEntries([]);
-        updateLookupUrl(normalizedQuery);
+        updateLookupUrl(normalizedQuery, routePath);
       });
     } catch {
       if (requestVersionRef.current === requestVersion) {
@@ -1026,7 +1029,7 @@ function ProfileLookupPageContent({
         setPendingLabel(null);
       }
     }
-  }, [fetchAllowedPrivateResults, posthog, privateUiEnabled, seedViewerAccess.allowed]);
+  }, [fetchAllowedPrivateResults, posthog, privateUiEnabled, routePath, seedViewerAccess.allowed]);
 
   const runBulkLookup = useCallback(async (
     lines: string[],
@@ -1044,7 +1047,7 @@ function ProfileLookupPageContent({
         setDisplayResults([]);
         setDisplayPrivateResults([]);
         setLookupStatus("live");
-        updateLookupUrl("");
+        updateLookupUrl("", routePath);
       });
       return;
     }
@@ -1104,7 +1107,7 @@ function ProfileLookupPageContent({
         setDisplayPrivateResults(nextViewerAccess.allowed ? nextPrivateResults : []);
         setSeedViewerAccess(nextViewerAccess);
         setLookupStatus("live");
-        updateLookupUrl("");
+        updateLookupUrl("", routePath);
       });
     } catch {
       if (requestVersionRef.current === requestVersion) {
@@ -1120,6 +1123,7 @@ function ProfileLookupPageContent({
     posthog,
     privateUiEnabled,
     privateUiFlag,
+    routePath,
     seedViewerAccessAllowed,
     seedViewerAccessSource,
   ]);
@@ -1150,9 +1154,9 @@ function ProfileLookupPageContent({
       setBulkEntries([]);
       setLookupStatus("live");
       setPendingLabel(null);
-      updateLookupUrl("");
+      updateLookupUrl("", routePath);
     });
-  }, [privateUiFlag]);
+  }, [privateUiFlag, routePath]);
 
   return (
     <PageShell className="lookup-theme">
@@ -1171,6 +1175,7 @@ function ProfileLookupPageContent({
             <h1 className="text-2xl leading-none font-semibold tracking-[-0.045em] sm:text-3xl">DJ link lookup</h1>
           </div>
           <LookupSearchBox
+            actionPath={routePath}
             initialQuery={displayQuery}
             initialResults={visibleResults}
             isSearching={isSearching}
@@ -1221,11 +1226,7 @@ function ProfileLookupPageContent({
               ) : null}
             </div>
           </section>
-        ) : (
-          <Card className="lookup-panel" surface="glass">
-            <p className="font-medium">Start with a name or genre.</p>
-          </Card>
-        )}
+        ) : null}
       </PageContainer>
     </PageShell>
   );

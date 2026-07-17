@@ -1,6 +1,7 @@
 import type { PostHog } from "posthog-js";
 
 export const PRIVATE_SEED_LOOKUP_UI_FLAG = "seed-lookup-beta";
+export const FEATURED_DISCOVERY_UI_FLAG = "featured-discovery";
 const URL_PROPERTY_NAMES = new Set([
   "$current_url",
   "$pathname",
@@ -39,6 +40,7 @@ export function isSessionReplayAllowedPathname(pathname: string): boolean {
   return pathname === "/" ||
     pathname === "/search" ||
     pathname === "/discover" ||
+    pathname === "/discovery" ||
     pathname === "/upcoming" ||
     pathname.startsWith("/p/") ||
     pathname.startsWith("/c/") ||
