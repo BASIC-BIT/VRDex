@@ -11,6 +11,11 @@ posthog_host         = "https://us.i.posthog.com"
 # Set this in local terraform.tfvars from the PostHog project settings.
 posthog_public_key = "phc_REPLACE_WITH_VRDEX_ANALYTICS_PROJECT_KEY"
 
+# Optional. Create an app in the Twitch developer console and set both values
+# to enable cached live status on public profile pages.
+twitch_client_id     = null
+twitch_client_secret = null
+
 manage_production_environment = true
 manage_preview_environment    = true
 

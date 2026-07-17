@@ -43,8 +43,8 @@ test.describe("production authenticated account smoke @production-auth", () => {
     await page.goto("/account");
     await expect(page.getByRole("heading", { name: "Not signed in" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
-    await expect(page.getByText("Linked providers", { exact: true })).toBeVisible();
-    await expect(page.getByText("No providers linked yet.", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Sign-in methods", { exact: true })).toBeVisible();
+    await expect(page.getByText("No sign-in methods linked.", { exact: true })).toHaveCount(0);
 
     if (expectedProvider) {
       await expect(page.getByText(new RegExp(`^${escapeRegExp(expectedProvider)}$`, "i"))).toBeVisible();

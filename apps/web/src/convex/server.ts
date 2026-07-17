@@ -3,6 +3,7 @@ import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
 import type { FunctionReference } from "convex/server";
 import { api } from "@convex-generated-api";
 import type { PrivateSeedLookupResult, SeedLookupViewerAccess } from "@/app/_components/profile-lookup-page";
+import { getTwitchLiveState } from "@/lib/server/twitch-live";
 import {
   getPlaywrightActiveWorldFixtures,
   getPlaywrightDiscoveryFixture,
@@ -30,29 +31,6 @@ const signedOutSeedAccess: SeedLookupViewerAccess = { allowed: false, source: "s
 
 type PublicProfileType = "person" | "community";
 
-export async function fetchBackendStatus() {
-  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
-    return { kind: "missing-url" as const };
-  }
-
-  try {
-    const data = await fetchQuery(api.health.status, {});
-
-    return {
-      kind: "live" as const,
-      data,
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-
-    console.error(`Server-side Convex fetchQuery failed: ${message}`);
-
-    return {
-      kind: "error" as const,
-    };
-  }
-}
-
 export async function fetchPublicProfileBySlug(slug: string, profileType: PublicProfileType) {
   const fixtureProfile = getPlaywrightPublicProfileFixture(slug, profileType);
 
@@ -74,9 +52,11 @@ export async function fetchPublicProfileBySlug(slug: string, profileType: Public
       now: Date.now(),
     });
 
+    const twitchLive = profile ? await getTwitchLiveState(profile.outboundLinks) : undefined;
+
     return {
       kind: "live" as const,
-      profile,
+      profile: profile ? { ...profile, ...(twitchLive ? { twitchLive } : {}) } : null,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

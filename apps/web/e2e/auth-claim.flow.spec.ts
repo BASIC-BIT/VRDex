@@ -82,6 +82,15 @@ async function createVerifiedE2eAccount({
   password: string;
 }) {
   await gotoFlowPage(page, "/sign-in");
+  const revealPasswordForm = page.getByRole("button", { name: "Use email and password" });
+  const emailInput = page.getByLabel("Email");
+
+  await expect(revealPasswordForm.or(emailInput).first()).toBeVisible(hostedActionExpectOptions);
+
+  if (await revealPasswordForm.isVisible()) {
+    await revealPasswordForm.click();
+  }
+
   await page.getByRole("button", { name: "Create account" }).click();
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
@@ -118,8 +127,62 @@ async function expectCurrentOrHostedLagTrustCopy(currentCopy: Locator, hostedLag
   await expect(currentCopy.or(hostedLagCopy).first()).toBeVisible(hostedActionExpectOptions);
 }
 
+async function hostedTargetHasCommunityClaimFlow(page: Page) {
+  if (!process.env.PLAYWRIGHT_BASE_URL) {
+    return true;
+  }
+
+  try {
+    await page.getByRole("button", { name: "Community" }).waitFor({ state: "visible", timeout: 3_000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function prepareDiscordPersonClaim(page: Page, profileSlug: string) {
+  const legacySlugInput = page.getByLabel("Person slug");
+  const currentSlugInput = page.getByLabel("Profile slug");
+
+  await expect(legacySlugInput.or(currentSlugInput).first()).toBeVisible(hostedActionExpectOptions);
+
+  if (await legacySlugInput.isVisible()) {
+    await legacySlugInput.fill(profileSlug);
+    return;
+  }
+
+  await expect(currentSlugInput).toHaveValue(profileSlug);
+}
+
+async function prepareVrchatProof(
+  page: Page,
+  profileSlug: string,
+  targetType: "vrchat_user" | "vrclinking",
+  targetExternalId: string,
+) {
+  const methodButton = page.getByRole("button", { name: "VRChat proof" });
+  const legacyTargetType = page.getByLabel("Target type");
+
+  await expect(methodButton.or(legacyTargetType).first()).toBeVisible(hostedActionExpectOptions);
+
+  if (await methodButton.isVisible()) {
+    await methodButton.click();
+    await expect(page.getByLabel("Profile slug")).toHaveValue(profileSlug);
+    await page.getByLabel("Verification service").selectOption(targetType);
+    await page.getByLabel("VRChat user ID").fill(targetExternalId);
+    return;
+  }
+
+  await page.getByLabel("Profile slug").fill(profileSlug);
+  await legacyTargetType.selectOption(targetType);
+  await page.getByLabel("Target ID").fill(targetExternalId);
+}
+
 function profileStatusCopy(page: Page, label: string) {
-  return page.locator("dl").filter({ hasText: "Status" }).locator("dd").filter({ hasText: label }).first();
+  return page
+    .getByText(new RegExp(`^${label}(?: /|$)`))
+    .first()
+    .or(page.getByRole("definition").filter({ hasText: new RegExp(`^${label}`) }).first());
 }
 
 type DeleteRequestOptions = NonNullable<Parameters<APIRequestContext["delete"]>[1]>;
@@ -173,7 +236,8 @@ async function cleanupAuthAndProfiles(request: APIRequestContext, e2eToken: stri
   });
 }
 
-test("verified email account with linked Discord can claim an E2E person profile @flow", async ({ page, request }, testInfo) => {
+test("verified email account with linked Discord can claim person and community profiles @flow", async ({ page, request }, testInfo) => {
+  test.setTimeout(60_000);
   test.skip(
     Boolean(process.env.PLAYWRIGHT_BASE_URL) && process.env.VRDEX_ENABLE_E2E_AUTH_HELPERS !== "true",
     "Hosted auth E2E helpers are not enabled for this target.",
@@ -186,6 +250,7 @@ test("verified email account with linked Discord can claim an E2E person profile
   const email = `${runSuffix}@e2e.vrdex.local`;
   const password = `VRDex-${runSuffix}-password-12345`;
   let createdSlug: string | undefined;
+  let communitySlug: string | undefined;
 
   try {
     createdSlug = await createE2eProfile({
@@ -198,14 +263,24 @@ test("verified email account with linked Discord can claim an E2E person profile
       tags: ["playwright", "claim-flow"],
       roleTags: ["Claim test profile"],
     });
+    communitySlug = await createE2eProfile({
+      request,
+      e2eToken,
+      runId,
+      profileType: "community",
+      displayName: `Playwright Community Claim ${runSuffix}`,
+      tags: ["playwright", "community-claim-flow"],
+      subtype: "Club",
+      categoryTags: ["Claim test community"],
+    });
     await createVerifiedE2eAccount({ page, request, e2eToken, email, password });
     await linkDiscordAccount(request, e2eToken, email, `discord-${runSuffix}`);
 
-    await gotoFlowPage(page, "/account");
+    await gotoFlowPage(page, `/account?claim=${encodeURIComponent(createdSlug!)}`);
     await expect(page.getByText("discord", { exact: true })).toBeVisible();
-    await page.getByLabel("Person slug").fill(createdSlug!);
+    await prepareDiscordPersonClaim(page, createdSlug!);
     await page.getByRole("button", { name: "Claim with Discord" }).click();
-    await expect(page.getByText(/Person profile claimed as claimed unverified/i)).toBeVisible(hostedActionExpectOptions);
+    await expect(page.getByText(/(?:Profile|Person profile) claimed as claimed unverified/i)).toBeVisible(hostedActionExpectOptions);
 
     await gotoFlowPage(page, `/p/${createdSlug}`);
     await expect(page.getByRole("heading", { name: displayName })).toBeVisible(hostedActionExpectOptions);
@@ -213,12 +288,31 @@ test("verified email account with linked Discord can claim an E2E person profile
       profileStatusCopy(page, "Claimed"),
       page.getByRole("heading", { name: "Claimed", exact: true }).or(page.getByText("Person profile / Claimed", { exact: true })),
     );
+
+    await gotoFlowPage(
+      page,
+      `/account?claim=${encodeURIComponent(communitySlug!)}&claimType=community`,
+    );
+    if (!(await hostedTargetHasCommunityClaimFlow(page))) {
+      testInfo.annotations.push({
+        type: "hosted-staging-lag",
+        description: "The shared hosted target predates the progressive community claim UI exercised by this branch.",
+      });
+      return;
+    }
+
+    await expect(page.getByRole("button", { name: "Community" })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByLabel("Profile slug")).toHaveValue(communitySlug!);
+    await page.getByLabel("Discord server ID").fill(`guild-${runSuffix}`);
+    await page.getByLabel("Discord server name").fill(`Claim Guild ${runSuffix}`);
+    await page.getByRole("button", { name: "Request Discord admin claim" }).click();
+    await expect(page.getByText(/Community claim request created/i)).toBeVisible(hostedActionExpectOptions);
   } finally {
-    await cleanupAuthAndProfiles(request, e2eToken, email, [createdSlug], runId);
+    await cleanupAuthAndProfiles(request, e2eToken, email, [createdSlug, communitySlug], runId);
   }
 });
 
-test("verified email account can complete community and VRChat adapter claims @flow", async ({ page, request }, testInfo) => {
+test("verified email account can complete VRChat adapter claims @flow", async ({ page, request }, testInfo) => {
   test.skip(
     Boolean(process.env.PLAYWRIGHT_BASE_URL) && process.env.VRDEX_ENABLE_E2E_AUTH_HELPERS !== "true",
     "Hosted auth E2E helpers are not enabled for this target.",
@@ -233,22 +327,10 @@ test("verified email account can complete community and VRChat adapter claims @f
   const runSuffix = runId.replace(/^playwright-auth-?/, "").slice(0, 48);
   const email = `adapter-${runSuffix}@e2e.vrdex.local`;
   const password = `VRDex-${runSuffix}-adapter-password-12345`;
-  let communitySlug: string | undefined;
   let vrchatPersonSlug: string | undefined;
   let vrcLinkingPersonSlug: string | undefined;
 
   try {
-    communitySlug = await createE2eProfile({
-      request,
-      e2eToken,
-      runId,
-      profileType: "community",
-      displayName: `Playwright Community ${runSuffix}`,
-      aliases: [`Adapter ${runSuffix}`],
-      tags: ["playwright", "adapter-flow"],
-      subtype: "VRChat group",
-      categoryTags: ["Adapter verified"],
-    });
     vrchatPersonSlug = await createE2eProfile({
       request,
       e2eToken,
@@ -269,28 +351,8 @@ test("verified email account can complete community and VRChat adapter claims @f
     });
 
     await createVerifiedE2eAccount({ page, request, e2eToken, email, password });
-    await linkDiscordAccount(request, e2eToken, email, `discord-${runSuffix}`);
-
-    await gotoFlowPage(page, "/account");
-    await page.getByLabel("Community slug").fill(communitySlug!);
-    await page.getByLabel("Discord guild ID").fill(`e2e-guild-${runSuffix}`);
-    await page.getByLabel("Guild name").fill(`E2E Guild ${runSuffix}`);
-    await page.getByRole("button", { name: "Request admin claim" }).click();
-    await expect(page.getByText(/Community claim request created/i)).toBeVisible(hostedActionExpectOptions);
-    await page.getByRole("button", { name: "Check Discord admin" }).click();
-    await expect(page.getByText(/Community claim verified as claimed verified/i)).toBeVisible(hostedActionExpectOptions);
-
-    await gotoFlowPage(page, `/c/${communitySlug}`);
-    await expect(page.getByRole("heading", { name: `Playwright Community ${runSuffix}` })).toBeVisible(hostedActionExpectOptions);
-    await expectCurrentOrHostedLagTrustCopy(
-      profileStatusCopy(page, "Verified"),
-      page.getByRole("heading", { name: "Verified owner", exact: true }).or(page.getByText("Community profile / Verified", { exact: true })),
-    );
-
-    await gotoFlowPage(page, "/account");
-    await page.getByLabel("Profile slug").fill(vrchatPersonSlug!);
-    await page.getByLabel("Target type").selectOption("vrchat_user");
-    await page.getByLabel("Target ID").fill(`e2e-vrchat-${runSuffix}`);
+    await gotoFlowPage(page, `/account?claim=${encodeURIComponent(vrchatPersonSlug!)}`);
+    await prepareVrchatProof(page, vrchatPersonSlug!, "vrchat_user", `e2e-vrchat-${runSuffix}`);
     await page.getByRole("button", { name: "Create proof code" }).click();
     await expect(page.getByText(/Proof code created/i)).toBeVisible(hostedActionExpectOptions);
     await expect(page.getByText(/VRDEX-/)).toBeVisible(hostedActionExpectOptions);
@@ -304,10 +366,8 @@ test("verified email account can complete community and VRChat adapter claims @f
       page.getByRole("heading", { name: "Verified owner", exact: true }).or(page.getByText("Person profile / Verified", { exact: true })),
     );
 
-    await gotoFlowPage(page, "/account");
-    await page.getByLabel("Profile slug").fill(vrcLinkingPersonSlug!);
-    await page.getByLabel("Target type").selectOption("vrclinking");
-    await page.getByLabel("Target ID").fill(`e2e-vrclinking-${runSuffix}`);
+    await gotoFlowPage(page, `/account?claim=${encodeURIComponent(vrcLinkingPersonSlug!)}`);
+    await prepareVrchatProof(page, vrcLinkingPersonSlug!, "vrclinking", `e2e-vrclinking-${runSuffix}`);
     await page.getByRole("button", { name: "Create proof code" }).click();
     await expect(page.getByText(/Proof code created/i)).toBeVisible(hostedActionExpectOptions);
     await expect(page.getByText(/VRDEX-/)).toBeVisible(hostedActionExpectOptions);
@@ -325,7 +385,7 @@ test("verified email account can complete community and VRChat adapter claims @f
       request,
       e2eToken,
       email,
-      [communitySlug, vrchatPersonSlug, vrcLinkingPersonSlug],
+      [vrchatPersonSlug, vrcLinkingPersonSlug],
       runId,
     );
   }

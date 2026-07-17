@@ -16,9 +16,6 @@ import { parseVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
 type EventMediaLinkType = PublicEvent["mediaLinks"][number]["type"];
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-const eventEditorAuthReady =
-  process.env.NEXT_PUBLIC_VRDEX_EVENT_EDITOR_AUTH_READY === "true" ||
-  process.env.NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY === "true";
 
 type EventEditorStatus =
   | { kind: "idle" }
@@ -1007,10 +1004,6 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
 export function EventEditorForm({ event }: { event?: PublicEvent }) {
   if (!convexUrl) {
     return <DisabledEventEditorPanel />;
-  }
-
-  if (!eventEditorAuthReady) {
-    return <SignInRequiredEventEditorPanel />;
   }
 
   return <AuthenticatedEventEditorForm event={event} />;

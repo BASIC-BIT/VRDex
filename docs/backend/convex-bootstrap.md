@@ -19,7 +19,6 @@ It is intentionally narrow: enough structure to run Convex locally, generate typ
 - `convex.json` pins Convex to Node `22` so local backend runtime expectations stay aligned with the repo's current Node baseline
 - `convex/tsconfig.json` provides the TypeScript settings Convex uses to typecheck backend source files
 - the web app consumes `health:status` as the first real `Next.js -> Convex` runtime path, mounting a client-side provider baseline and surfacing the result in the homepage without inventing early product schema
-- the web app also exposes `/server-status`, where a server component uses `fetchQuery` against the same `health:status` function as the initial server-side baseline
 
 ## Local workflow
 
@@ -37,7 +36,6 @@ Notes:
 
 - Convex writes deployment configuration to the repo-root `.env.local` file.
 - The local Convex wrapper mirrors the repo-root `CONVEX_URL` into `apps/web/.env.local` as `NEXT_PUBLIC_CONVEX_URL` so the web app can follow the normal client-side Convex + Next.js convention without leaking a non-public variable through server props.
-- That same `NEXT_PUBLIC_CONVEX_URL` value is also what `fetchQuery` uses for the current server-side baseline route, so local client and server reads share one deployment setting.
 - Anonymous local backend state for this repo is kept under `.convex-home/` and `.convex-tmp/` so the bootstrap does not collide with other Convex projects on the same machine.
 - Production Convex deploys run from the baseline GitHub Actions workflow when `CONVEX_DEPLOY_KEY` is configured; otherwise the deploy job records a skip summary and exits cleanly.
 - Deploy-time data backfills are declared with `@convex-dev/migrations` and run through `migrations:runAll` after production function deploys.
@@ -54,7 +52,6 @@ Keep the initial backend slice simple:
 ## Follow-on issues
 
 - `#55` wires the web app to the first Convex client/runtime path using `health:status`
-- `#64` adds the first server-side `Next.js -> Convex` data path with `fetchQuery` on `/server-status`
 - profile schema, auth, billing, and production deployment posture should land in their own issues instead of bloating the bootstrap
 - `#9` adds the first product table, `profiles`
 - `#10` through `#13` add profile slugs, type-aware fields, permission contracts, and claim-state helpers while keeping auth/account links deferred

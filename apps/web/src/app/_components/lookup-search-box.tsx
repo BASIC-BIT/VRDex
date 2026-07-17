@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useDeferredValue, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import type {
@@ -9,6 +8,7 @@ import type {
   PublicProfileLookupResult,
   SeedLookupViewerAccess,
 } from "./profile-lookup-page";
+import { EntityImage } from "@/components/ui/entity-image";
 import { mergeLookupSuggestions } from "./lookup-suggestion-merge";
 import { Input, Textarea } from "@/components/ui/field";
 
@@ -43,13 +43,16 @@ function profileOptionLabel(profile: ProfileLookupDisplayResult): string {
 }
 
 function SuggestionAvatar({ profile }: { profile: ProfileLookupDisplayResult }) {
-  const initials = profile.displayName.trim().slice(0, 2).toUpperCase();
   const avatarImageUrl = isPrivateSuggestion(profile) ? undefined : profile.avatarImageUrl;
 
   return (
-    <span className="lookup-suggestion-avatar" aria-hidden="true">
-      {avatarImageUrl ? <Image alt="" height={38} src={avatarImageUrl} unoptimized width={38} /> : <span>{initials}</span>}
-    </span>
+    <EntityImage
+      alt=""
+      className="lookup-suggestion-avatar"
+      label={profile.displayName}
+      sizes="38px"
+      src={avatarImageUrl}
+    />
   );
 }
 

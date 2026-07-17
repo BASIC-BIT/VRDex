@@ -272,7 +272,6 @@ After a preview deployment, visit:
 
 - `/` for the public shell
 - `/deployment` for Vercel environment and commit metadata
-- `/server-status` for the server-side Convex read baseline
 - `/submit` to confirm signed-out users are routed to sign in before writing
 
 The PR workflow posts a `Vercel Preview Deployment` comment with both the preview URL and `/deployment` URL once Vercel secrets are configured.

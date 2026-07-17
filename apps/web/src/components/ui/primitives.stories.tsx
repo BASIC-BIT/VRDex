@@ -354,7 +354,7 @@ export const ShellAndActions: Story = {
   render: () => (
     <PageShell>
       <PageContainer max="5xl">
-        <PageNav>
+        <PageNav accountMode="signed-out">
           <BrandLink />
           <a className={buttonVariants({ variant: "secondary" })} href="#">
             Secondary action

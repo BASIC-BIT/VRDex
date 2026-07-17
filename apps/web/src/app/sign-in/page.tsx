@@ -1,11 +1,10 @@
-import Link from "next/link";
 import { Suspense } from "react";
 
 import { SignInForm } from "./sign-in-form";
-import { buttonVariants } from "@/components/ui/button";
-import { Card, Eyebrow } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
-import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
+import { BrandLink, PageContainer, PageShell } from "@/components/ui/page-shell";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { validateSignInReturnTo } from "@/lib/safe-return-to";
 
 export default async function SignInPage({
@@ -20,34 +19,29 @@ export default async function SignInPage({
   const returnTo = validateSignInReturnTo(params.returnTo ?? params.redirectTo);
 
   return (
-    <PageShell className="py-10">
-      <PageContainer max="4xl">
-        <PageNav>
+    <PageShell className="flex py-6 sm:py-8">
+      <PageContainer className="min-h-[calc(100vh-3rem)] gap-0 sm:min-h-[calc(100vh-4rem)]" max="4xl">
+        <nav className="flex items-center justify-between border-b border-border pb-4" aria-label="Primary navigation">
           <BrandLink />
-          <Link className={buttonVariants({ variant: "secondary" })} href="/account">
-            Account
-          </Link>
-        </PageNav>
+          <ThemeToggle className="size-10 p-0" />
+        </nav>
 
-        <section className="overflow-hidden rounded-hero border border-border bg-surface shadow-hero backdrop-blur">
-          <div className="grid gap-8 px-6 py-8 sm:px-8 lg:grid-cols-[0.9fr_1.1fr] lg:px-10 lg:py-10">
-            <div>
-              <Eyebrow>Account access</Eyebrow>
-              <h1 className="mt-5 text-4xl leading-none font-semibold tracking-[-0.04em] sm:text-6xl">
-                Sign in to claim and manage profiles.
+        <div className="flex flex-1 items-center justify-center py-10 sm:py-14">
+          <section aria-labelledby="sign-in-heading" className="w-full max-w-md">
+            <header className="text-center">
+              <h1 id="sign-in-heading" className="text-3xl font-semibold sm:text-4xl">
+                Sign in
               </h1>
-              <p className="mt-5 max-w-xl text-base leading-7 text-muted sm:text-lg">
-                Use Discord, Google, or verified email/password. Claims and owner controls stay separate from the login provider so VRDex can accept multiple proof sources over time.
-              </p>
-            </div>
+              <p className="mt-2 text-sm leading-6 text-muted">Manage your VRDex profile and events.</p>
+            </header>
 
-            <Card surface="glass">
+            <Card className="mt-6" padding="lg" surface="strong">
               <Suspense fallback={<Notice>Loading sign-in options...</Notice>}>
                 <SignInForm returnTo={returnTo} />
               </Suspense>
             </Card>
-          </div>
-        </section>
+          </section>
+        </div>
       </PageContainer>
     </PageShell>
   );

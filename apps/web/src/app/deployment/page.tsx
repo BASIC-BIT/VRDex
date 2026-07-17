@@ -1,5 +1,3 @@
-import Link from "next/link";
-import { buttonVariants } from "@/components/ui/button";
 import { Card, Eyebrow } from "@/components/ui/card";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 
@@ -80,12 +78,6 @@ export default function DeploymentPage() {
       <PageContainer className="gap-8" max="5xl">
         <PageNav>
           <BrandLink />
-          <Link
-            className={buttonVariants({ variant: "secondary" })}
-            href="/server-status"
-          >
-            Server status
-          </Link>
         </PageNav>
 
         <Card className="shadow-hero" padding="lg">

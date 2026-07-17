@@ -29,6 +29,7 @@ type AppearanceProfile = {
 };
 
 type ProfilePublicSectionKey = "about" | "events" | "links" | "media_kit" | "worlds" | "details";
+type SupportingSectionKey = Extract<ProfilePublicSectionKey, "events" | "media_kit" | "worlds">;
 type SaveStatus =
   | { kind: "idle" }
   | { kind: "saving" }
@@ -44,23 +45,41 @@ const defaultSectionOrder: ProfilePublicSectionKey[] = [
   "details",
 ];
 
-const sectionLabels: Record<ProfilePublicSectionKey, string> = {
-  about: "About and status",
+const supportingSectionOrder: SupportingSectionKey[] = ["events", "media_kit", "worlds"];
+
+const sectionLabels: Record<SupportingSectionKey, string> = {
   events: "Events",
-  links: "Creator links",
   media_kit: "Media kit",
   worlds: "Worlds",
-  details: "Focus and aliases",
 };
 
-const sectionDescriptions: Record<ProfilePublicSectionKey, string> = {
-  about: "Public bio, status, region, and profile facts.",
+const sectionDescriptions: Record<SupportingSectionKey, string> = {
   events: "Upcoming or hosted event cards.",
-  links: "Public creator, store, and contact links.",
   media_kit: "Downloadable profile logos and reusable assets.",
   worlds: "World credits attached to this profile.",
-  details: "Focus tags, community tags, and aliases.",
 };
+
+function normalizeSupportingSectionOrder(input: readonly ProfilePublicSectionKey[]): SupportingSectionKey[] {
+  const seen = new Set<SupportingSectionKey>();
+  const normalized: SupportingSectionKey[] = [];
+
+  for (const section of input) {
+    if (!supportingSectionOrder.includes(section as SupportingSectionKey) || seen.has(section as SupportingSectionKey)) {
+      continue;
+    }
+
+    seen.add(section as SupportingSectionKey);
+    normalized.push(section as SupportingSectionKey);
+  }
+
+  for (const section of supportingSectionOrder) {
+    if (!seen.has(section)) {
+      normalized.push(section);
+    }
+  }
+
+  return normalized;
+}
 
 const demoProfiles: AppearanceProfile[] = [
   {
@@ -184,8 +203,8 @@ function AppearanceEditor({ demo, profiles }: { demo?: boolean; profiles: Appear
   const [selectedProfileId, setSelectedProfileId] = useState<string>(profiles[0]?.profileId ?? "");
   const selectedProfile = profiles.find((profile) => profile.profileId === selectedProfileId) ?? profiles[0];
   const [draft, setDraft] = useState<AvatarAppearance>(selectedProfile?.avatarAppearance ?? defaultAvatarAppearance);
-  const [sectionOrder, setSectionOrder] = useState<ProfilePublicSectionKey[]>(
-    selectedProfile?.sectionOrder ?? defaultSectionOrder,
+  const [sectionOrder, setSectionOrder] = useState<SupportingSectionKey[]>(
+    normalizeSupportingSectionOrder(selectedProfile?.sectionOrder ?? defaultSectionOrder),
   );
   const deferredDraft = useDeferredValue(draft);
   const colorPickerValue = /^#[0-9a-fA-F]{6}$/.test(draft.borderColor) ? draft.borderColor : "#000000";
@@ -201,7 +220,7 @@ function AppearanceEditor({ demo, profiles }: { demo?: boolean; profiles: Appear
   useEffect(() => {
     if (selectedProfile) {
       setDraft(selectedProfile.avatarAppearance);
-      setSectionOrder(selectedProfile.sectionOrder);
+      setSectionOrder(normalizeSupportingSectionOrder(selectedProfile.sectionOrder));
       setStatus({ kind: "idle" });
     }
   }, [selectedProfile]);
@@ -227,7 +246,7 @@ function AppearanceEditor({ demo, profiles }: { demo?: boolean; profiles: Appear
         borderWidthPx: draft.borderWidthPx,
         borderSoftnessPx: draft.borderSoftnessPx,
         radiusPercent: draft.radiusPercent,
-        sectionOrder,
+        sectionOrder: ["about", "links", ...sectionOrder, "details"],
       });
       startTransition(() => setStatus({ kind: "success" }));
     } catch (error) {
@@ -235,7 +254,7 @@ function AppearanceEditor({ demo, profiles }: { demo?: boolean; profiles: Appear
     }
   }
 
-  function moveSection(section: ProfilePublicSectionKey, direction: -1 | 1) {
+  function moveSection(section: SupportingSectionKey, direction: -1 | 1) {
     setSectionOrder((current) => {
       const index = current.indexOf(section);
       const nextIndex = index + direction;
@@ -380,7 +399,7 @@ function AppearanceEditor({ demo, profiles }: { demo?: boolean; profiles: Appear
         <div className="grid gap-3">
           <div>
             <Eyebrow>Profile sections</Eyebrow>
-            <h3 className="mt-2 text-xl font-semibold">Public page order</h3>
+            <h3 className="mt-2 text-xl font-semibold">Supporting section order</h3>
           </div>
           <div className="grid gap-2">
             {sectionOrder.map((section, index) => (
@@ -415,7 +434,7 @@ function AppearanceEditor({ demo, profiles }: { demo?: boolean; profiles: Appear
               </div>
             ))}
           </div>
-          <FieldText>Only known public profile sections can be reordered.</FieldText>
+          <FieldText>Profile identity, about, and links stay together above these supporting sections.</FieldText>
         </div>
 
         {demo ? (

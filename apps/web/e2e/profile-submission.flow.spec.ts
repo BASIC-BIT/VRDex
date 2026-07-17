@@ -51,11 +51,16 @@ test("profile submission writes through to public profile and discovery @flow", 
 
   try {
     await gotoFlowPage(page, "/submit");
-    await expect(page.getByText(/server-side test gate/i)).toBeVisible();
+    await expect(
+      page
+        .getByRole("heading", { name: "Add a profile" })
+        .or(page.getByRole("heading", { name: "Add a missing VRChat scene profile." }))
+        .first(),
+    ).toBeVisible();
 
     await page.getByLabel("Display name").fill(displayName);
     await page.getByLabel("Aliases").fill(`Flow ${runSuffix}`);
-    await page.getByLabel("Shared tags").fill("playwright, data-flow");
+    await page.getByLabel("Tags", { exact: true }).or(page.getByLabel("Shared tags", { exact: true })).first().fill("playwright, data-flow");
     await page.getByLabel("Person roles").fill("Test profile");
     await page.getByRole("button", { name: "Submit profile" }).click();
 
@@ -68,16 +73,7 @@ test("profile submission writes through to public profile and discovery @flow", 
 
     await profileLink.click();
     await expect(page.getByRole("heading", { name: displayName })).toBeVisible();
-    await expect(
-      page
-        .locator("dl")
-        .filter({ hasText: "Status" })
-        .locator("dd")
-        .filter({ hasText: "Community submitted" })
-        .first()
-        .or(page.getByText(/Source: Community submitted/i))
-        .first(),
-    ).toBeVisible();
+    await expect(page.getByText(/Community submitted/).first()).toBeVisible();
     await captureRouteScreenshot(page, testInfo, "profile-submission-flow-profile");
 
     await gotoFlowPage(page, `/search?q=${encodeURIComponent(displayName)}`);
@@ -208,6 +204,14 @@ test("E2E profile helper stays gated without the browser token @flow", async ({ 
   expect(malformedDeleteResponse.status()).toBe(400);
 
   await gotoFlowPage(page, "/submit");
-  await expect(page.getByRole("heading", { name: "Sign-in required" })).toBeVisible();
-  await expect(page.getByText(/server-side test gate/i)).toHaveCount(0);
+  const currentUrl = new URL(page.url());
+
+  if (currentUrl.pathname === "/sign-in") {
+    expect(currentUrl.searchParams.get("returnTo")).toBe("/submit");
+    await expect(page.getByRole("heading", { name: "Add a profile" })).toHaveCount(0);
+  } else {
+    await expect(page).toHaveURL(/\/submit$/);
+    await expect(page.getByRole("heading", { name: "Sign-in required" })).toBeVisible();
+    await expect(page.getByText(/server-side test gate/i)).toHaveCount(0);
+  }
 });

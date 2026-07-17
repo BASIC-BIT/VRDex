@@ -3,18 +3,19 @@
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
-import { Component, FormEvent, ReactNode, useState, useTransition } from "react";
+import { Component, useState, useTransition, type FormEvent, type ReactNode } from "react";
 
 import { api } from "@convex-generated-api";
-import { Badge } from "@/components/ui/badge";
 import { buttonVariants, Button } from "@/components/ui/button";
-import { Card, cardVariants, Eyebrow } from "@/components/ui/card";
 import { Field, Input, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { cn } from "@/lib/cn";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+
+type ClaimMethod = "discord" | "vrchat";
+type ClaimProfileType = "person" | "community";
 
 type ClaimStatus =
   | { kind: "idle" }
@@ -37,6 +38,7 @@ const claimErrorPatterns = [
   /Profile not found\./,
   /This claim method requires a (?:person|community) profile\./,
   /This profile already has an active owner\./,
+  /This community profile already has an active owner\./,
   /VRChat user proof requires a person profile\./,
   /VRChat group proof requires a community profile\./,
   /A VRChat or VRCLinking target id is required\./,
@@ -64,100 +66,118 @@ function claimErrorMessage(error: unknown): string {
   return "Claim request failed. Check the profile slug and try again.";
 }
 
-function ClaimActions({ emailVerified, hasDiscord }: { emailVerified: boolean; hasDiscord: boolean }) {
+function ClaimActions({
+  defaultClaimSlug,
+  defaultClaimType,
+  emailVerified,
+  hasDiscord,
+}: {
+  defaultClaimSlug: string;
+  defaultClaimType: ClaimProfileType;
+  emailVerified: boolean;
+  hasDiscord: boolean;
+}) {
   const verifyDiscordAdmin = useAction(api.profileClaims.verifyDiscordCommunityAdminClaim);
   const verifyVrchatProof = useAction(api.profileClaims.verifyVrchatProofViaAdapter);
   const claimPerson = useMutation(api.profileClaims.claimExistingPersonWithDiscord);
   const requestCommunityClaim = useMutation(api.profileClaims.requestCommunityDiscordAdminClaim);
   const startVrchatProof = useMutation(api.profileClaims.startVrchatProof);
+  const [profileType, setProfileType] = useState<ClaimProfileType>(defaultClaimType);
+  const [method, setMethod] = useState<ClaimMethod>("discord");
   const [status, setStatus] = useState<ClaimStatus>({ kind: "idle" });
   const [, startTransition] = useTransition();
 
-  async function submitDiscordPersonClaim(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const formData = new FormData(form);
-
-    setStatus({ kind: "submitting", label: "Claiming person profile..." });
-
-    try {
-      const result = await claimPerson({ profileSlug: stringField(formData.get("profileSlug")) });
-      startTransition(() =>
-        setStatus({
-          kind: "success",
-          message:
-            "state" in result && result.state === "already_owned"
-              ? "You already own this person profile."
-              : `Person profile claimed as ${result.claimState.replace(/_/g, " ")}.`,
-          href: result.profilePath,
-        }),
-      );
-      form.reset();
-    } catch (error) {
-      startTransition(() => setStatus({ kind: "error", message: claimErrorMessage(error) }));
-    }
+  function selectMethod(nextMethod: ClaimMethod) {
+    setMethod(nextMethod);
+    setStatus({ kind: "idle" });
   }
 
-  async function submitCommunityDiscordClaim(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const formData = new FormData(form);
-
-    setStatus({ kind: "submitting", label: "Requesting community claim..." });
-
-    try {
-      const result = await requestCommunityClaim({
-        profileSlug: stringField(formData.get("profileSlug")),
-        discordGuildId: stringField(formData.get("discordGuildId")),
-        discordGuildName: stringField(formData.get("discordGuildName")) || undefined,
-      });
-      startTransition(() =>
-        setStatus({
-          kind: "success",
-          message:
-            result.state === "already_owned"
-              ? "You already own this community profile."
-              : "Community claim request created. Administrator verification still needs the Discord adapter.",
-          href: result.profilePath,
-          ...("claimRequestId" in result ? { claimRequestId: result.claimRequestId } : {}),
-        }),
-      );
-      form.reset();
-    } catch (error) {
-      startTransition(() => setStatus({ kind: "error", message: claimErrorMessage(error) }));
-    }
+  function selectProfileType(nextProfileType: ClaimProfileType) {
+    setProfileType(nextProfileType);
+    setStatus({ kind: "idle" });
   }
 
-  async function submitVrchatProof(event: FormEvent<HTMLFormElement>) {
+  async function submitClaim(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = event.currentTarget;
-    const formData = new FormData(form);
+    const formData = new FormData(event.currentTarget);
+    const profileSlug = stringField(formData.get("profileSlug"));
+
+    if (method === "discord") {
+      if (profileType === "community") {
+        setStatus({ kind: "submitting", label: "Requesting community claim..." });
+
+        try {
+          const result = await requestCommunityClaim({
+            profileSlug,
+            discordGuildId: stringField(formData.get("discordGuildId")),
+            discordGuildName: stringField(formData.get("discordGuildName")) || undefined,
+          });
+          startTransition(() =>
+            setStatus({
+              kind: "success",
+              message:
+                result.state === "already_owned"
+                  ? "You already own this community profile."
+                  : "Community claim request created. Check your Discord administrator access to finish.",
+              href: result.profilePath,
+              ...("claimRequestId" in result ? { claimRequestId: result.claimRequestId } : {}),
+            }),
+          );
+        } catch (error) {
+          startTransition(() => setStatus({ kind: "error", message: claimErrorMessage(error) }));
+        }
+
+        return;
+      }
+
+      setStatus({ kind: "submitting", label: "Claiming person profile..." });
+
+      try {
+        const result = await claimPerson({ profileSlug });
+        startTransition(() =>
+          setStatus({
+            kind: "success",
+            message:
+              "state" in result && result.state === "already_owned"
+                ? "You already own this person profile."
+                : `Person profile claimed as ${result.claimState.replace(/_/g, " ")}.`,
+            href: result.profilePath,
+          }),
+        );
+      } catch (error) {
+        startTransition(() => setStatus({ kind: "error", message: claimErrorMessage(error) }));
+      }
+
+      return;
+    }
 
     setStatus({ kind: "submitting", label: "Creating proof code..." });
 
     try {
       const result = await startVrchatProof({
-        profileSlug: stringField(formData.get("profileSlug")),
-        targetType: stringField(formData.get("targetType")) as "vrchat_user" | "vrchat_group" | "vrclinking",
+        profileSlug,
+        targetType:
+          profileType === "community"
+            ? "vrchat_group"
+            : (stringField(formData.get("targetType")) as "vrchat_user" | "vrclinking"),
         targetExternalId: stringField(formData.get("targetExternalId")),
       });
       startTransition(() =>
         setStatus({
           kind: "success",
-          message: "Proof code created. Put this code where the configured adapter can read it.",
+          message: "Proof code created. Add it where the selected verification service can read it.",
           proofCode: result.proofCode,
           expiresAt: result.expiresAt,
           attemptId: result.attemptId,
         }),
       );
-      form.reset();
     } catch (error) {
       startTransition(() => setStatus({ kind: "error", message: claimErrorMessage(error) }));
     }
   }
 
   async function verifyPendingDiscordAdminClaim(claimRequestId: Id<"profileClaimRequests">) {
-    setStatus({ kind: "submitting", label: "Checking Discord Administrator permission..." });
+    setStatus({ kind: "submitting", label: "Checking Discord administrator access..." });
 
     try {
       const result = await verifyDiscordAdmin({ claimRequestId });
@@ -167,7 +187,7 @@ function ClaimActions({ emailVerified, hasDiscord }: { emailVerified: boolean; h
           message:
             "claimState" in result
               ? `Community claim verified as ${result.claimState.replace(/_/g, " ")}.`
-              : "Discord Administrator permission was not verified.",
+              : "Discord administrator access was not verified.",
         }),
       );
     } catch (error) {
@@ -194,110 +214,192 @@ function ClaimActions({ emailVerified, hasDiscord }: { emailVerified: boolean; h
     }
   }
 
-  const disabled = !emailVerified;
+  const disabled = !emailVerified || (method === "discord" && !hasDiscord);
 
   return (
-    <Card className="lg:col-span-2" surface="glass">
-      <Eyebrow>Profile claims</Eyebrow>
-      <Notice className="mt-3">
-        Claim actions require a verified email. Discord community ownership is recorded as a pending request until the Discord Administrator adapter verifies full Administrator permission.
-      </Notice>
+    <section aria-labelledby="profile-claim-heading" className="border-t border-border py-8">
+      <div className="grid gap-8 lg:grid-cols-[minmax(0,0.75fr)_minmax(0,1.25fr)]">
+        <div>
+          <h2 className="text-2xl font-semibold" id="profile-claim-heading">
+            Claim a profile
+          </h2>
+          <p className="mt-2 max-w-sm text-sm leading-6 text-muted">
+            Choose the profile type and how you want to verify ownership.
+          </p>
+        </div>
 
-      <div className="mt-5 grid gap-5 lg:grid-cols-3">
-        <form className={cn(cardVariants({ padding: "sm", surface: "strong" }), "grid gap-3")} onSubmit={submitDiscordPersonClaim}>
-          <h3 className="font-semibold tracking-[-0.02em]">Discord person claim</h3>
-          <Field>
-            Person slug
-            <Input className="bg-surface" name="profileSlug" placeholder="dj-celine" required />
-          </Field>
-          <Button disabled={disabled || !hasDiscord} size="lg" type="submit" variant="primary">
-            Claim with Discord
-          </Button>
-          {!hasDiscord ? <p className="text-xs leading-5 text-muted">Link Discord before using this method.</p> : null}
-        </form>
+        <div className="max-w-2xl">
+          <div
+            aria-label="Profile type"
+            className="inline-flex rounded-control border border-border bg-surface p-1"
+            role="group"
+          >
+            <Button
+              aria-pressed={profileType === "person"}
+              size="sm"
+              type="button"
+              variant={profileType === "person" ? "primary" : "ghost"}
+              onClick={() => selectProfileType("person")}
+            >
+              Person
+            </Button>
+            <Button
+              aria-pressed={profileType === "community"}
+              size="sm"
+              type="button"
+              variant={profileType === "community" ? "primary" : "ghost"}
+              onClick={() => selectProfileType("community")}
+            >
+              Community
+            </Button>
+          </div>
 
-        <form className={cn(cardVariants({ padding: "sm", surface: "strong" }), "grid gap-3")} onSubmit={submitCommunityDiscordClaim}>
-          <h3 className="font-semibold tracking-[-0.02em]">Discord community claim</h3>
-          <Field>
-            Community slug
-            <Input className="bg-surface" name="profileSlug" placeholder="afterglow-social" required />
-          </Field>
-          <Field>
-            Discord guild ID
-            <Input className="bg-surface" name="discordGuildId" required />
-          </Field>
-          <Field>
-            Guild name
-            <Input className="bg-surface" name="discordGuildName" placeholder="Optional" />
-          </Field>
-          <Button disabled={disabled || !hasDiscord} size="lg" type="submit" variant="primary">
-            Request admin claim
-          </Button>
-        </form>
+          <div
+            aria-label="Claim method"
+            className="mt-3 flex w-fit rounded-control border border-border bg-surface p-1"
+            role="group"
+          >
+            <Button
+              aria-pressed={method === "discord"}
+              size="sm"
+              type="button"
+              variant={method === "discord" ? "primary" : "ghost"}
+              onClick={() => selectMethod("discord")}
+            >
+              Discord
+            </Button>
+            <Button
+              aria-pressed={method === "vrchat"}
+              size="sm"
+              type="button"
+              variant={method === "vrchat" ? "primary" : "ghost"}
+              onClick={() => selectMethod("vrchat")}
+            >
+              VRChat proof
+            </Button>
+          </div>
 
-        <form className={cn(cardVariants({ padding: "sm", surface: "strong" }), "grid gap-3")} onSubmit={submitVrchatProof}>
-          <h3 className="font-semibold tracking-[-0.02em]">VRChat proof code</h3>
-          <Field>
-            Profile slug
-            <Input className="bg-surface" name="profileSlug" placeholder="dj-celine" required />
-          </Field>
-          <Field>
-            Target type
-            <Select className="bg-surface" name="targetType" required>
-              <option value="vrchat_user">VRChat user</option>
-              <option value="vrchat_group">VRChat group</option>
-              <option value="vrclinking">VRCLinking</option>
-            </Select>
-          </Field>
-          <Field>
-            Target ID
-            <Input className="bg-surface" name="targetExternalId" required />
-          </Field>
-          <Button disabled={disabled} size="lg" type="submit" variant="primary">
-            Create proof code
-          </Button>
-        </form>
+          <form className="mt-6 grid gap-4" onSubmit={submitClaim}>
+            <Field>
+              Profile slug
+              <Input
+                defaultValue={defaultClaimSlug}
+                name="profileSlug"
+                placeholder={profileType === "community" ? "afterglow-social" : "dj-celine"}
+                required
+              />
+            </Field>
+
+            {profileType === "community" && method === "discord" ? (
+              <>
+                <Field>
+                  Discord server ID
+                  <Input name="discordGuildId" required />
+                </Field>
+                <Field>
+                  Discord server name
+                  <Input name="discordGuildName" placeholder="Optional" />
+                </Field>
+              </>
+            ) : null}
+
+            {method === "vrchat" ? (
+              <>
+                {profileType === "person" ? (
+                  <Field>
+                    Verification service
+                    <Select name="targetType" required>
+                      <option value="vrchat_user">VRChat</option>
+                      <option value="vrclinking">VRC Linking</option>
+                    </Select>
+                  </Field>
+                ) : null}
+                <Field>
+                  {profileType === "community" ? "VRChat group ID" : "VRChat user ID"}
+                  <Input
+                    name="targetExternalId"
+                    placeholder={profileType === "community" ? "grp_..." : "usr_..."}
+                    required
+                  />
+                </Field>
+              </>
+            ) : null}
+
+            <div>
+              <Button
+                disabled={disabled || status.kind === "submitting"}
+                size="lg"
+                type="submit"
+                variant="primary"
+              >
+                {method === "discord"
+                  ? profileType === "community"
+                    ? "Request Discord admin claim"
+                    : "Claim with Discord"
+                  : "Create proof code"}
+              </Button>
+              {!emailVerified ? (
+                <p className="mt-2 text-xs text-muted">Verify your email before claiming a profile.</p>
+              ) : null}
+              {method === "discord" && !hasDiscord ? (
+                <p className="mt-2 text-xs text-muted">Link Discord to use this method.</p>
+              ) : null}
+            </div>
+          </form>
+
+          {status.kind === "submitting" ? <p className="mt-4 text-sm text-muted">{status.label}</p> : null}
+          {status.kind === "error" ? (
+            <Notice className="mt-4" variant="error">
+              {status.message}
+            </Notice>
+          ) : null}
+          {status.kind === "success" ? (
+            <Notice className="mt-4" variant="success">
+              <p>{status.message}</p>
+              {status.proofCode ? <p className="mt-2 font-mono text-base text-foreground">{status.proofCode}</p> : null}
+              {status.expiresAt ? <p className="mt-1 text-xs">Expires {new Date(status.expiresAt).toLocaleString()}</p> : null}
+              {status.attemptId ? (
+                <Button
+                  className="mt-3 mr-3"
+                  size="sm"
+                  type="button"
+                  onClick={() => status.attemptId && void verifyPendingVrchatProof(status.attemptId)}
+                >
+                  Check proof now
+                </Button>
+              ) : null}
+              {status.claimRequestId ? (
+                <Button
+                  className="mt-3 mr-3"
+                  size="sm"
+                  type="button"
+                  onClick={() =>
+                    status.claimRequestId && void verifyPendingDiscordAdminClaim(status.claimRequestId)
+                  }
+                >
+                  Check Discord access
+                </Button>
+              ) : null}
+              {status.href ? (
+                <Link className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "mt-3")} href={status.href}>
+                  View profile
+                </Link>
+              ) : null}
+            </Notice>
+          ) : null}
+        </div>
       </div>
-
-      {status.kind === "submitting" ? <p className="mt-4 text-sm text-muted">{status.label}</p> : null}
-      {status.kind === "error" ? (
-        <Notice className="mt-4" variant="error">{status.message}</Notice>
-      ) : null}
-      {status.kind === "success" ? (
-        <Notice className="mt-4">
-          <p>{status.message}</p>
-          {status.proofCode ? <p className="mt-2 font-mono text-base text-foreground">{status.proofCode}</p> : null}
-          {status.expiresAt ? <p className="mt-1 text-xs">Expires {new Date(status.expiresAt).toLocaleString()}</p> : null}
-          {status.claimRequestId ? (
-            <button
-              className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "mt-3 mr-3")}
-              type="button"
-              onClick={() => void verifyPendingDiscordAdminClaim(status.claimRequestId!)}
-            >
-              Check Discord admin
-            </button>
-          ) : null}
-          {status.attemptId ? (
-            <button
-              className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "mt-3 mr-3")}
-              type="button"
-              onClick={() => void verifyPendingVrchatProof(status.attemptId!)}
-            >
-              Check proof now
-            </button>
-          ) : null}
-          {status.href ? (
-            <Link className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "mt-3")} href={status.href}>
-              View profile
-            </Link>
-          ) : null}
-        </Notice>
-      ) : null}
-    </Card>
+    </section>
   );
 }
 
-function ConnectedAccountPanel() {
+function ConnectedAccountPanel({
+  defaultClaimSlug,
+  defaultClaimType,
+}: {
+  defaultClaimSlug: string;
+  defaultClaimType: ClaimProfileType;
+}) {
   const viewer = useQuery(api.accounts.viewer);
   const { signOut } = useAuthActions();
 
@@ -307,74 +409,69 @@ function ConnectedAccountPanel() {
 
   if (viewer === null) {
     return (
-      <Card surface="strong">
-        <h2 className="text-2xl font-semibold tracking-[-0.03em]">Not signed in</h2>
-        <p className="mt-3 text-sm leading-7 text-muted">
-          Sign in before submitting profiles, claiming ownership, or changing field privacy.
-        </p>
-        <Link
-          className={cn(buttonVariants({ size: "lg", variant: "primary" }), "mt-5")}
-          href="/sign-in"
-        >
+      <section className="border-t border-border py-8">
+        <h2 className="text-2xl font-semibold">Not signed in</h2>
+        <Link className={cn(buttonVariants({ size: "lg", variant: "primary" }), "mt-5")} href="/sign-in">
           Sign in
         </Link>
-      </Card>
+      </section>
     );
   }
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[1fr_0.8fr]">
-      <Card surface="strong">
-        <h2 className="text-2xl font-semibold tracking-[-0.03em]">
-          {viewer.user.name ?? viewer.user.email ?? "Signed-in account"}
-        </h2>
-        <dl className="mt-5 grid gap-3 text-sm">
-          <div>
-            <dt className="font-mono text-xs uppercase tracking-[0.22em] text-muted">Email</dt>
-            <dd className="mt-1">{viewer.user.email ?? "Not provided"}</dd>
+    <div>
+      <section className="grid gap-8 border-t border-border py-8 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.7fr)]">
+        <div>
+          <h2 className="text-2xl font-semibold">{viewer.user.name ?? viewer.user.email ?? "Your details"}</h2>
+          <dl className="mt-4 grid gap-2 text-sm">
+            <div className="flex flex-wrap items-baseline gap-x-3">
+              <dt className="text-muted">Email</dt>
+              <dd>{viewer.user.email ?? "Not provided"}</dd>
+            </div>
+            <div className="flex flex-wrap items-baseline gap-x-3">
+              <dt className="text-muted">Status</dt>
+              <dd>{viewer.user.emailVerified ? "Verified" : "Verification required"}</dd>
+            </div>
+          </dl>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <Link className={buttonVariants({ variant: "secondary" })} href="/account/privacy">
+              Privacy
+            </Link>
+            <Link className={buttonVariants({ variant: "secondary" })} href="/account/appearance">
+              Appearance
+            </Link>
+            <Button type="button" variant="ghost" onClick={() => void signOut()}>
+              Sign out
+            </Button>
           </div>
-          <div>
-            <dt className="font-mono text-xs uppercase tracking-[0.22em] text-muted">Email status</dt>
-            <dd className="mt-1">{viewer.user.emailVerified ? "Verified" : "Not verified"}</dd>
-          </div>
-        </dl>
-        <div className="mt-5 flex flex-wrap gap-3">
-          <Link className={buttonVariants({ size: "lg", variant: "primary" })} href="/account/privacy">
-            Manage privacy
-          </Link>
-          <Link className={buttonVariants({ size: "lg", variant: "primary" })} href="/account/appearance">
-            Customize appearance
-          </Link>
-          <Button size="lg" type="button" onClick={() => void signOut()}>
-            Sign out
-          </Button>
         </div>
-      </Card>
 
-      <Card surface="glass">
-        <Eyebrow>Linked providers</Eyebrow>
-        <div className="mt-4 grid gap-3">
-          {viewer.linkedProviders.length === 0 ? (
-            <p className="text-sm text-muted">No providers linked yet.</p>
-          ) : (
-            viewer.linkedProviders.map((account) => (
-              <div
-                className="rounded-control border border-border bg-surface-strong px-4 py-3 text-sm"
-                key={`${account.provider}:${account.providerAccountId}`}
-              >
-                <span className="font-medium capitalize">{account.provider}</span>
-                <Badge className="ml-2" variant="muted">
-                  {account.emailVerified ? "email verified" : "linked"}
-                </Badge>
-              </div>
-            ))
-          )}
+        <div className="lg:border-l lg:border-border lg:pl-8">
+          <h2 className="text-lg font-semibold">Sign-in methods</h2>
+          <ul className="mt-4 divide-y divide-border border-y border-border text-sm">
+            {viewer.linkedProviders.length === 0 ? (
+              <li className="py-3 text-muted">No sign-in methods linked.</li>
+            ) : (
+              viewer.linkedProviders.map((account) => (
+                <li
+                  className="flex items-center justify-between gap-4 py-3"
+                  key={`${account.provider}:${account.providerAccountId}`}
+                >
+                  <span className="font-medium capitalize">{account.provider}</span>
+                  <span className="text-muted">{account.emailVerified ? "Verified email" : "Connected"}</span>
+                </li>
+              ))
+            )}
+          </ul>
         </div>
-      </Card>
+      </section>
 
       <ClaimActions
+        defaultClaimSlug={defaultClaimSlug}
+        defaultClaimType={defaultClaimType}
         emailVerified={viewer.user.emailVerified}
         hasDiscord={viewer.linkedProviders.some((account) => account.provider === "discord")}
+        key={`${defaultClaimType}:${defaultClaimSlug}`}
       />
     </div>
   );
@@ -394,7 +491,7 @@ class AccountPanelErrorBoundary extends Component<
     if (this.state.hasError) {
       return (
         <Notice className="leading-7" variant="dashed">
-          Account state is temporarily unavailable because the backend query failed. Try again after the Convex deployment finishes.
+          Account details are temporarily unavailable. Try again shortly.
         </Notice>
       );
     }
@@ -403,18 +500,24 @@ class AccountPanelErrorBoundary extends Component<
   }
 }
 
-export function AccountPanel() {
+export function AccountPanel({
+  defaultClaimSlug = "",
+  defaultClaimType = "person",
+}: {
+  defaultClaimSlug?: string;
+  defaultClaimType?: ClaimProfileType;
+}) {
   if (!convexUrl) {
     return (
       <Notice className="leading-7" variant="dashed">
-        Convex is not configured in this environment, so account state is unavailable.
+        Account details are unavailable in this environment.
       </Notice>
     );
   }
 
   return (
     <AccountPanelErrorBoundary>
-      <ConnectedAccountPanel />
+      <ConnectedAccountPanel defaultClaimSlug={defaultClaimSlug} defaultClaimType={defaultClaimType} />
     </AccountPanelErrorBoundary>
   );
 }

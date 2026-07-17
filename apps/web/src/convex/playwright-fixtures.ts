@@ -141,6 +141,18 @@ const personProfile: FixturePersonProfile = {
       source: "owner_authored",
     },
     {
+      type: "twitch",
+      label: "Twitch",
+      url: "https://www.twitch.tv/dj_aurora",
+      source: "owner_authored",
+    },
+    {
+      type: "vrcdn",
+      label: "VRCDN",
+      url: "https://vrcdn.live/dj-aurora",
+      source: "owner_authored",
+    },
+    {
       type: "commissions",
       label: "Booking inquiries",
       url: "https://example.invalid/dj-aurora-bookings",
@@ -178,6 +190,13 @@ const personProfile: FixturePersonProfile = {
   },
   upcomingEvents: [eventPreview],
   hostedEvents: [],
+  twitchLive: {
+    status: "live",
+    title: "Afterglow Harbor warm-up",
+    viewerCount: 184,
+    startedAt: "2026-06-15T01:15:00.000Z",
+    gameName: "VRChat",
+  },
   person: {
     pronouns: "she/they",
     roleTags: ["DJ", "Producer", "Host"],
@@ -245,7 +264,6 @@ const basicBitProfile: FixturePersonProfile = {
   ],
   headline: "Software Dev | 3D Designer | VRDJ",
   bio: "Multigenre DJ but I really love DnB <3",
-  about: "Public lookup seed for validating operator workflows around creator links, event streams, and identity references.",
   avatarImageUrl: "/seed/basicbit-avatar.png",
   trustLabel: "claimed_verified",
   outboundLinks: [

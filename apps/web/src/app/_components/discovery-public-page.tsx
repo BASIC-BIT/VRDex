@@ -5,10 +5,10 @@ import { HomeActiveWorldsSection, type PublicActiveWorld } from "./home-active-w
 import { ViewerLocalEventDateTime } from "./viewer-local-event-times";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
+import { EntityImage } from "@/components/ui/entity-image";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 import { cn } from "@/lib/cn";
 import type { DiscoveryAnalyticsSurface } from "@/lib/posthog";
-import { safeImageBackground } from "@/lib/safe-image";
 
 type EntityType = "profile" | "world" | "event";
 type ProfileType = "person" | "community";
@@ -49,9 +49,6 @@ export type PublicDiscoveryData = {
 
 type DiscoveryStatus = "live" | "missing-url" | "error";
 
-const discoveryThumbOverlay = "linear-gradient(135deg, color-mix(in srgb, var(--media) 78%, transparent), color-mix(in srgb, var(--surface-raised) 58%, transparent))";
-const featuredPosterOverlay = "linear-gradient(180deg, transparent 20%, color-mix(in srgb, var(--media) 88%, transparent))";
-
 function entityLabel(result: PublicSearchResult): string {
   if (result.entityType === "profile") {
     return result.profileType === "community" ? "Community" : "Person";
@@ -73,17 +70,6 @@ function resultSubtitle(result: PublicSearchResult): string | undefined {
   return redundantLabels.includes(subtitle.toLowerCase()) ? undefined : subtitle;
 }
 
-function initialsFor(name: string): string {
-  return (
-    name
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase())
-      .join("") || "VR"
-  );
-}
-
 function resultMatchesFilter(result: PublicSearchResult, filter: SearchResultFilter): boolean {
   if (filter === "all") {
     return true;
@@ -97,7 +83,9 @@ function resultMatchesFilter(result: PublicSearchResult, filter: SearchResultFil
 }
 
 function ResultImage({ result }: { result: PublicSearchResult }) {
-  const imageStyle = safeImageBackground(result.imageUrl, discoveryThumbOverlay);
+  const primaryImageUrl = result.entityType === "profile"
+    ? result.profileImageUrl ?? result.imageUrl
+    : result.imageUrl;
 
   if (
     result.entityType !== "profile" ||
@@ -106,34 +94,32 @@ function ResultImage({ result }: { result: PublicSearchResult }) {
     result.logoImageUrl === result.profileImageUrl
   ) {
     return (
-      <span
-        className="flex size-14 shrink-0 items-center justify-center rounded-card bg-[linear-gradient(135deg,var(--canvas-muted),var(--surface-raised))] bg-cover bg-center text-lg font-semibold text-white"
-        style={imageStyle}
-      >
-        {!imageStyle ? initialsFor(result.title) : null}
-      </span>
+      <EntityImage
+        className="size-14 rounded-card bg-[linear-gradient(135deg,var(--canvas-muted),var(--surface-raised))] text-lg text-white"
+        label={result.title}
+        sizes="56px"
+        src={primaryImageUrl}
+      />
     );
   }
 
-  const profileImageStyle = safeImageBackground(result.profileImageUrl, discoveryThumbOverlay);
-  const logoStyle = safeImageBackground(result.logoImageUrl);
-
   return (
     <span className="grid shrink-0 grid-cols-2 gap-1">
-      <span
-        className="flex size-14 items-center justify-center rounded-card bg-[linear-gradient(135deg,var(--canvas-muted),var(--surface-raised))] bg-cover bg-center text-lg font-semibold text-white"
-        style={profileImageStyle}
-        title="Profile image"
-      >
-        {!profileImageStyle ? initialsFor(result.title) : null}
-      </span>
-      <span
-        className="flex size-14 items-center justify-center rounded-card border border-border bg-surface-strong bg-contain bg-center bg-no-repeat text-xs font-semibold text-muted"
-        style={logoStyle}
+      <EntityImage
+        className="size-14 rounded-card bg-[linear-gradient(135deg,var(--canvas-muted),var(--surface-raised))] text-lg text-white"
+        label={result.title}
+        sizes="56px"
+        src={result.profileImageUrl}
+      />
+      <EntityImage
+        className="size-14 rounded-card border border-border bg-surface-strong text-xs"
+        fallback="Logo"
+        imageClassName="!object-contain p-1"
+        label={`${result.title} logo`}
+        sizes="56px"
+        src={result.logoImageUrl}
         title="Logo"
-      >
-        {!logoStyle ? "Logo" : null}
-      </span>
+      />
     </span>
   );
 }
@@ -142,17 +128,6 @@ function TopNav() {
   return (
     <PageNav>
       <BrandLink />
-      <div className="flex flex-wrap gap-2">
-        <Link className={buttonVariants({ variant: "secondary" })} href="/lookup">
-          Lookup links
-        </Link>
-        <Link className={buttonVariants({ variant: "secondary" })} href="/submit">
-          Add profile
-        </Link>
-        <Link className={buttonVariants({ variant: "secondary" })} href="/events/new">
-          Add event
-        </Link>
-      </div>
     </PageNav>
   );
 }
@@ -180,7 +155,7 @@ function DiscoveryCard({
       <ResultImage result={result} />
       <span className="flex min-w-0 flex-col gap-2">
         {result.startsAt === undefined ? null : <ViewerLocalEventDateTime className="text-sm font-medium text-accent-strong" timestamp={result.startsAt} />}
-        <span className="text-xl font-semibold tracking-[-0.03em] group-hover:text-accent-strong">
+        <span className="text-xl font-semibold group-hover:text-accent-strong">
           {result.title}
         </span>
         {subtitle ? <span className="text-sm text-muted">{subtitle}</span> : null}
@@ -207,7 +182,7 @@ function SearchResultCard({ result }: { result: PublicSearchResult }) {
       <ResultImage result={result} />
       <span className="flex min-w-0 flex-1 flex-col gap-2">
         <span className="flex items-start justify-between gap-4">
-          <span className="min-w-0 text-xl font-semibold tracking-[-0.03em] group-hover:text-accent-strong">
+          <span className="min-w-0 text-xl font-semibold group-hover:text-accent-strong">
             {result.title}
           </span>
           <span className="shrink-0 rounded-control border border-border bg-surface-strong px-3 py-1 text-xs font-medium text-muted">
@@ -223,21 +198,44 @@ function SearchResultCard({ result }: { result: PublicSearchResult }) {
   );
 }
 
-function PosterCard({ result }: { result: PublicSearchResult }) {
-  const imageStyle = safeImageBackground(result.imageUrl, featuredPosterOverlay);
-
+function FeaturedProfileCard({ result }: { result: PublicSearchResult }) {
   return (
     <TrackedDiscoveryLink
-      className="group h-full min-h-72 overflow-hidden rounded-hero border border-border bg-canvas text-white shadow-hero"
+      className="group grid h-full min-h-72 min-w-0 overflow-hidden rounded-hero border border-border bg-canvas text-white shadow-hero lg:grid-cols-[18rem_minmax(0,1fr)]"
       eventName="featured_card_clicked"
       href={result.routePath}
       properties={{ entity_type: result.entityType, surface: "featured" }}
     >
-      <span
-        className="flex h-full min-h-72 flex-col justify-end bg-[linear-gradient(145deg,var(--background),var(--surface-raised))] bg-cover bg-center p-5"
-        style={imageStyle}
-      >
-        <span className="block text-3xl font-semibold tracking-[-0.04em]">{result.title}</span>
+      <EntityImage
+        className="aspect-square h-auto w-full rounded-none bg-media text-4xl text-white lg:size-72"
+        label={result.title}
+        sizes="(min-width: 1024px) 288px, (min-width: 768px) 50vw, 100vw"
+        src={result.imageUrl}
+      />
+      <span className="flex min-w-0 flex-col justify-end bg-[linear-gradient(145deg,var(--background),var(--surface-raised))] p-5">
+        <span className="block text-3xl font-semibold">{result.title}</span>
+        {result.summary ? <span className="mt-3 line-clamp-3 block text-sm leading-6 text-white/76">{result.summary}</span> : null}
+      </span>
+    </TrackedDiscoveryLink>
+  );
+}
+
+function PosterCard({ result }: { result: PublicSearchResult }) {
+  if (result.entityType === "profile") {
+    return <FeaturedProfileCard result={result} />;
+  }
+
+  return (
+    <TrackedDiscoveryLink
+      className="group relative grid aspect-[4/3] min-h-72 min-w-0 overflow-hidden rounded-hero border border-border bg-media text-white shadow-hero"
+      eventName="featured_card_clicked"
+      href={result.routePath}
+      properties={{ entity_type: result.entityType, surface: "featured" }}
+    >
+      <EntityImage className="absolute inset-0 size-full rounded-none bg-media text-4xl text-white" label={result.title} sizes="(min-width: 768px) 50vw, 100vw" src={result.imageUrl} />
+      <span aria-hidden="true" className="absolute inset-0 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--media)_18%,transparent),color-mix(in_srgb,var(--media)_94%,transparent))]" />
+      <span className="relative flex flex-col justify-end self-stretch p-5">
+        <span className="block text-3xl font-semibold">{result.title}</span>
         {result.summary ? <span className="mt-3 line-clamp-3 block text-sm leading-6 text-white/76">{result.summary}</span> : null}
       </span>
     </TrackedDiscoveryLink>
@@ -258,7 +256,7 @@ function DiscoverySection({
   surface: DiscoveryAnalyticsSurface;
 }) {
   return (
-    <Card className="backdrop-blur" surface="glass">
+    <section className="min-w-0 border-t border-border pt-6">
       <SectionTitle>{title}</SectionTitle>
       <div className={cn("mt-5 grid gap-4", columns === "responsive" ? "lg:grid-cols-2" : undefined)}>
         {results.length === 0 ? (
@@ -273,7 +271,7 @@ function DiscoverySection({
           ))
         )}
       </div>
-    </Card>
+    </section>
   );
 }
 
@@ -301,31 +299,13 @@ export function DiscoveryLandingPage({
       <PageContainer className="gap-8" max="7xl">
         <TopNav />
 
-        <section className="overflow-hidden rounded-hero border border-border bg-canvas text-white shadow-hero">
-          <div className="bg-[linear-gradient(135deg,var(--background),var(--surface-strong)_58%,var(--canvas-muted))] px-6 py-10 text-center sm:px-8 lg:px-14 lg:py-16">
-            <div className="mx-auto max-w-4xl">
-              <h1 className="text-5xl leading-none font-semibold tracking-[-0.055em] sm:text-7xl">
-                Find what&apos;s happening in VRChat.
-              </h1>
-              <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-white/76 sm:text-lg">
-                Search events, people, communities, and worlds.
-              </p>
-              <DiscoverySearchForm className="mx-auto mt-8 w-full max-w-3xl" surface="home" />
-              <div className="mt-5 flex flex-wrap justify-center gap-2">
-                {data.terms.slice(0, 8).map((term) => (
-                  <TrackedDiscoveryLink
-                    className={cn(buttonVariants({ size: "sm", variant: "inverse" }), "bg-white/10")}
-                    eventName="discovery_filter_selected"
-                    href={`/search?q=${encodeURIComponent(term.label)}`}
-                    key={`${term.scope}-${term.key}`}
-                    properties={{ scope: term.scope, surface: "home_terms" }}
-                  >
-                    {term.label}
-                  </TrackedDiscoveryLink>
-                ))}
-              </div>
-            </div>
+        <section className="grid gap-6 border-b border-border py-8 lg:grid-cols-[0.7fr_1.3fr] lg:items-end lg:py-12">
+          <div>
+            <h1 className="max-w-md text-4xl leading-none font-semibold sm:text-5xl">
+              Tonight in VRChat
+            </h1>
           </div>
+          <DiscoverySearchForm className="w-full" surface="home" tone="default" />
         </section>
 
         {status === "live" ? null : <DiscoveryBackendNotice kind={status} />}
@@ -340,12 +320,12 @@ export function DiscoveryLandingPage({
         <HomeActiveWorldsSection status={activeWorldStatus} worlds={activeWorlds} />
 
         {data.featured.length > 0 ? (
-          <Card className="backdrop-blur" surface="glass">
+          <section className="min-w-0 border-t border-border pt-6">
             <SectionTitle>Featured</SectionTitle>
             <div className="mt-5 grid gap-4 md:grid-cols-2">
               {data.featured.slice(0, 2).map((result) => <PosterCard key={`${result.entityType}-${result.slug}`} result={result} />)}
             </div>
-          </Card>
+          </section>
         ) : null}
 
         <section className="grid gap-5 xl:grid-cols-3">
@@ -404,7 +384,7 @@ export function SearchResultsPage({
         <TopNav />
 
         <section className="pt-4">
-          <h1 className="text-4xl leading-none font-semibold tracking-[-0.045em] sm:text-6xl">
+          <h1 className="text-4xl leading-none font-semibold sm:text-6xl">
             {hasQuery ? `Results for ${query}` : "Search VRDex"}
           </h1>
           <p className="mt-4 max-w-2xl text-sm leading-6 text-muted sm:text-base">

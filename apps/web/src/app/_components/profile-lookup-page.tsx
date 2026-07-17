@@ -2,7 +2,6 @@
 
 import { useConvex } from "convex/react";
 import type { FunctionReference } from "convex/server";
-import Image from "next/image";
 import Link from "next/link";
 import { useFeatureFlagEnabled, usePostHog } from "posthog-js/react";
 import { type CSSProperties, useCallback, useEffect, useRef, useState, useTransition } from "react";
@@ -14,6 +13,7 @@ import { LookupSearchBox } from "./lookup-search-box";
 import { mergeLookupSuggestions } from "./lookup-suggestion-merge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { EntityImage } from "@/components/ui/entity-image";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 import { Table, TableCell, TableFrame, TableHead, TableHeaderCell } from "@/components/ui/table";
 import { cn } from "@/lib/cn";
@@ -50,7 +50,6 @@ type LinkSource = "owner_authored" | "reviewed" | "partner_provided";
 type LinkPresentation = "icon" | "copy";
 type LookupStatus = "live" | "missing-url" | "error";
 type OptionalPublicText = string | null | undefined;
-type LookupTheme = "dark" | "light";
 
 type PublicProfileGenre = {
   slug: string;
@@ -254,15 +253,15 @@ function ExternalIcon({ className }: { className?: string }) {
   );
 }
 
-function ProfileAvatar({ profile }: { profile: Pick<PublicProfileLookupResult, "avatarImageUrl"> }) {
-  if (!profile.avatarImageUrl?.trim()) {
-    return null;
-  }
-
+function ProfileAvatar({ profile }: { profile: Pick<PublicProfileLookupResult, "avatarImageUrl" | "displayName"> }) {
   return (
-    <div className="lookup-avatar" aria-hidden="true">
-      <Image alt="" height={96} src={profile.avatarImageUrl} unoptimized width={96} />
-    </div>
+    <EntityImage
+      alt=""
+      className="lookup-avatar"
+      label={profile.displayName}
+      sizes="83px"
+      src={profile.avatarImageUrl}
+    />
   );
 }
 
@@ -378,20 +377,6 @@ function LookupStatusNotice({ status }: { status: LookupStatus }) {
     <Card surface="dashed">
       {status === "missing-url" ? "Lookup data is not available in this environment yet." : "Lookup data is temporarily unavailable."}
     </Card>
-  );
-}
-
-function ThemeToggle({ theme, onToggle }: { theme: LookupTheme; onToggle: () => void }) {
-  return (
-    <button
-      aria-label="Toggle lookup theme"
-      className="lookup-theme-toggle"
-      type="button"
-      onClick={onToggle}
-    >
-      <span className={cn("lookup-theme-toggle__option", theme === "dark" ? "lookup-theme-toggle__option--active" : undefined)}>Dark</span>
-      <span className={cn("lookup-theme-toggle__option", theme === "light" ? "lookup-theme-toggle__option--active" : undefined)}>Light</span>
-    </button>
   );
 }
 
@@ -591,21 +576,18 @@ function lookupIdentityStyle(profile: PublicProfileLookupResult): CSSProperties 
 }
 
 function LookupIdentity({ profile }: { profile: PublicProfileLookupResult }) {
-  const hasAvatar = Boolean(profile.avatarImageUrl?.trim());
   const hasFlair = Boolean(profile.accentColor?.trim());
   const identityMeta = compactList([profile.region, profile.timezone]).join(" / ");
 
   return (
     <div
-      className={cn("lookup-identity", hasAvatar ? undefined : "lookup-identity--no-avatar", hasFlair ? "lookup-identity--flair" : undefined)}
+      className={cn("lookup-identity", hasFlair ? "lookup-identity--flair" : undefined)}
       style={lookupIdentityStyle(profile)}
     >
-      {hasAvatar ? (
-        <div className="lookup-avatar-wrap">
-          <ProfileAvatar profile={profile} />
-          {profile.trustLabel === "claimed_verified" ? <VerifiedTrustMark className="lookup-trust-mark--avatar" label="Verified profile" /> : null}
-        </div>
-      ) : null}
+      <div className="lookup-avatar-wrap">
+        <ProfileAvatar profile={profile} />
+        {profile.trustLabel === "claimed_verified" ? <VerifiedTrustMark className="lookup-trust-mark--avatar" label="Verified profile" /> : null}
+      </div>
       <div className="lookup-identity-copy">
         <div className="lookup-name-row">
           <Link className="lookup-name-link" href={profile.profilePath}>
@@ -882,7 +864,6 @@ function ProfileLookupPageContent({
 }: ProfileLookupPageProps & { queryPrivateResults: QueryPrivateResults | null }) {
   const posthog = usePostHog();
   const privateUiFlag = useFeatureFlagEnabled(PRIVATE_SEED_LOOKUP_UI_FLAG);
-  const [theme, setTheme] = useState<LookupTheme>("dark");
   const [displayQuery, setDisplayQuery] = useState(query);
   const [displayResults, setDisplayResults] = useState(results);
   const [displayPrivateResults, setDisplayPrivateResults] = useState(privateResults);
@@ -1174,15 +1155,11 @@ function ProfileLookupPageContent({
   }, [privateUiFlag]);
 
   return (
-    <PageShell className="lookup-theme" data-theme={theme}>
+    <PageShell className="lookup-theme">
       <PageContainer className="gap-3" max="7xl">
         <PageNav>
           <BrandLink />
           <div className="flex flex-wrap items-center gap-2">
-            <ThemeToggle theme={theme} onToggle={() => setTheme((current) => current === "dark" ? "light" : "dark")} />
-            <Link className={buttonVariants({ variant: "secondary" })} href="/search">
-              Search
-            </Link>
             <Link className={buttonVariants({ variant: "secondary" })} href="/submit">
               Add profile
             </Link>
