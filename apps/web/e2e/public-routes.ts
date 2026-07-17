@@ -336,6 +336,10 @@ export async function expectPersonProfilePage(page: Page) {
 
 export async function expectCommunityProfilePage(page: Page) {
   await expect(page.getByRole("heading", { name: "Afterglow Social" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Claim this profile" })).toHaveAttribute(
+    "href",
+    "/account?claim=playwright-afterglow-social&claimType=community",
+  );
   await expect(page.getByRole("heading", { name: "Hosted events" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions" })).toBeVisible();
   await expect(page.getByText(/Club night \/ Global \/ Music \/ Dancing/i)).toBeVisible();
@@ -372,6 +376,10 @@ export async function expectEventPage(page: Page) {
   await expect(page.getByRole("link", { name: /Add to calendar/i })).toHaveAttribute(
     "href",
     "/e/playwright-afterglow-harbor-sessions/calendar.ics",
+  );
+  await expect(page.getByRole("link", { name: "Edit event" })).toHaveAttribute(
+    "href",
+    "/events/playwright-afterglow-harbor-sessions/edit",
   );
   await expect(page.getByText("Afterglow watch link", { exact: true })).toBeVisible();
   await expect(page.getByText("Watch now", { exact: true })).toHaveCount(0);

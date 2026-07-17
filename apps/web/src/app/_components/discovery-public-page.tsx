@@ -210,7 +210,7 @@ function FeaturedProfileCard({ result }: { result: PublicSearchResult }) {
         className="aspect-square h-auto w-full rounded-none bg-media text-4xl text-white lg:size-72"
         label={result.title}
         sizes="(min-width: 1024px) 288px, (min-width: 768px) 50vw, 100vw"
-        src={result.profileImageUrl ?? result.imageUrl}
+        src={result.imageUrl}
       />
       <span className="flex min-w-0 flex-col justify-end bg-[linear-gradient(145deg,var(--background),var(--surface-raised))] p-5">
         <span className="block text-3xl font-semibold">{result.title}</span>

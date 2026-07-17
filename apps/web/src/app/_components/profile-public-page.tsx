@@ -363,7 +363,7 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
     ...focusItems.slice(0, 4),
   ].filter((item): item is string => Boolean(item))));
   const hasMediaKit = Boolean(mediaKit.primaryLogo || mediaKit.additionalLogos.length > 0 || mediaKit.logoZipUrl);
-  const canClaim = isPerson && (profile.trustLabel === "community_submitted" || profile.trustLabel === "unclaimed");
+  const canClaim = profile.trustLabel === "community_submitted" || profile.trustLabel === "unclaimed";
   const secondaryOrder = normalizeProfileSectionOrder(profile.appearance?.sectionOrder).filter((section) =>
     ["events", "media_kit", "worlds"].includes(section),
   );

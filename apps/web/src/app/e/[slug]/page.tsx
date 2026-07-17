@@ -23,5 +23,5 @@ export default async function EventPage({ params }: EventPageProps) {
     notFound();
   }
 
-  return <EventPublicPage event={result.event} />;
+  return <EventPublicPage event={result.event} showEditLink />;
 }
