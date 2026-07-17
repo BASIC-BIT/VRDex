@@ -117,9 +117,11 @@ test.describe("fixture lookup smoke", () => {
 
   test("lookup suggestions select a public person row", async ({ page }) => {
     await page.goto("/lookup");
-    await page.getByLabel("DJ name").fill("bas");
-    await expect(page.getByRole("option", { name: /BASICBIT/i })).toBeVisible();
-    await page.getByRole("option", { name: /BASICBIT/i }).click();
+    await page.getByLabel("DJ name").fill("b");
+    const basicBitOption = page.getByRole("option", { name: /BASICBIT/i });
+    await expect(basicBitOption).toHaveCount(1);
+    await expect(basicBitOption).not.toContainText("Private seed");
+    await basicBitOption.click();
     await expect(page).toHaveURL(/\/lookup\?q=BASICBIT$/);
     await expect(page.getByRole("link", { name: "BASICBIT", exact: true })).toBeVisible();
     await expect(page.getByRole("link", { name: "Website: basicbit.net", exact: true })).toBeVisible();
@@ -152,5 +154,17 @@ test.describe("fixture lookup smoke", () => {
     await privateOption.click();
     await expect(page).toHaveURL(/\/lookup\?q=DJ%20Northstar$/);
     await expect(page.locator(".lookup-result-card.lookup-private-result").filter({ hasText: "DJ Northstar" })).toBeVisible();
+  });
+
+  test("bulk lookup summaries dedupe overlapping public and private rows", async ({ page }) => {
+    await page.goto("/lookup");
+    await page.getByRole("button", { name: "Bulk" }).click();
+    await page.getByLabel("Lineup text").fill("BASICBIT");
+    await page.getByRole("button", { name: "Lookup lineup" }).click();
+
+    const summaryRow = page.locator(".lookup-bulk-row").filter({ hasText: "BASICBIT" });
+
+    await expect(summaryRow).toBeVisible();
+    await expect(summaryRow.locator(".text-sm")).toHaveText("BASICBIT");
   });
 });

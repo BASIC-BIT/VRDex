@@ -9,6 +9,7 @@ import type {
   SeedLookupViewerAccess,
 } from "./profile-lookup-page";
 import { EntityImage } from "@/components/ui/entity-image";
+import { mergeLookupSuggestions } from "./lookup-suggestion-merge";
 import { Input, Textarea } from "@/components/ui/field";
 
 type LookupSuggestionResponse = {
@@ -154,7 +155,7 @@ export function LookupSearchBox({
     deferredQuery.startsWith(fetchedSuggestions.query) || fetchedSuggestions.query.startsWith(deferredQuery)
   );
   const suggestions =
-    bulkMode || deferredQuery.length < 2
+    bulkMode || deferredQuery.length < 1
       ? []
       : deferredQuery === normalizedInitialQuery
         ? initialResults
@@ -172,7 +173,7 @@ export function LookupSearchBox({
   }, []);
 
   useEffect(() => {
-    if (bulkMode || deferredQuery.length < 2 || deferredQuery === normalizedInitialQuery) {
+    if (bulkMode || deferredQuery.length < 1 || deferredQuery === normalizedInitialQuery) {
       return;
     }
 
@@ -198,7 +199,7 @@ export function LookupSearchBox({
 
         startTransition(() => setFetchedSuggestions({
           query: deferredQuery,
-          results: [...data.results, ...privateResults],
+          results: mergeLookupSuggestions(data.results, privateResults),
         }));
       })
       .catch((error: unknown) => {
