@@ -141,4 +141,16 @@ test.describe("fixture lookup smoke", () => {
     await page.getByLabel("DJ name").focus();
     await expect(page.getByRole("option", { name: /BASICBIT/i })).toBeVisible();
   });
+
+  test("lookup suggestions include authorized private seed rows", async ({ page }) => {
+    await page.goto("/lookup");
+    await page.getByLabel("DJ name").fill("nwinn");
+
+    const privateOption = page.getByRole("option", { name: /DJ Northstar.*Private seed.*NWinn/i });
+
+    await expect(privateOption).toBeVisible();
+    await privateOption.click();
+    await expect(page).toHaveURL(/\/lookup\?q=DJ%20Northstar$/);
+    await expect(page.locator(".lookup-result-card.lookup-private-result").filter({ hasText: "DJ Northstar" })).toBeVisible();
+  });
 });

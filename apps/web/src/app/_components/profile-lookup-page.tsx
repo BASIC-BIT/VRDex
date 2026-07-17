@@ -1164,11 +1164,15 @@ function ProfileLookupPageContent({
           </div>
           <LookupSearchBox
             initialQuery={displayQuery}
-            initialResults={displayResults}
+            initialResults={[
+              ...displayResults,
+              ...(seedViewerAccess.allowed && privateUiEnabled ? displayPrivateResults : []),
+            ]}
             isSearching={isSearching}
             onBulkLookup={runBulkLookup}
             onClear={clearLookup}
             onLookup={runLookup}
+            showPrivateSuggestions={seedViewerAccess.allowed && privateUiEnabled}
           />
         </section>
 

@@ -17,6 +17,12 @@ import {
 
 const seedAccessApi = (api as unknown as {
   seedAccess: {
+    lookupPeople: FunctionReference<
+      "query",
+      "public",
+      { query: string; limit?: number },
+      PrivateSeedLookupResult[]
+    >;
     viewerAccess: FunctionReference<"query", "public", Record<string, never>, SeedLookupViewerAccess>;
   };
 }).seedAccess;
@@ -290,9 +296,15 @@ export async function fetchProfileLookup(query: string) {
       ? fetchQuery(seedAccessApi.viewerAccess, {}, { token })
       : Promise.resolve(signedOutSeedAccess);
     const [results, viewerAccess] = await Promise.all([publicResultsPromise, viewerAccessPromise]);
+    const privateResults = fixturePrivateResults ?? (
+      token && query && viewerAccess.allowed
+        ? await fetchQuery(seedAccessApi.lookupPeople, { query, limit: 12 }, { token })
+        : []
+    );
+
     return {
       kind: "live" as const,
-      privateResults: fixturePrivateResults ?? [] as PrivateSeedLookupResult[],
+      privateResults,
       results,
       viewerAccess,
     };

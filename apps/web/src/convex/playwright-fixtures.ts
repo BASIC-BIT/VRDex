@@ -1202,7 +1202,7 @@ export function getPlaywrightProfileLookupFixture(query: string): PlaywrightProf
     return { kind: "handled", results: [] };
   }
 
-  if (normalized === "nwinn") {
+  if (normalized === "nwinn" || normalized === "dj northstar") {
     const sourceObservedAt = Date.UTC(2025, 10, 2);
     const lastCheckedAt = Date.UTC(2026, 6, 8);
     const reviewedAt = Date.UTC(2026, 6, 9);
