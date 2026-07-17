@@ -44,8 +44,8 @@ export const lookupPeople = query({
     const { access } = await requirePrivateSeedLookupAccess(ctx);
     const searchTerm = args.query.trim().replace(/\s+/g, " ").slice(0, 120);
 
-    if (searchTerm.length < 2) {
-      throw new Error("Private seed lookup requires at least two characters.");
+    if (searchTerm.length < 1) {
+      throw new Error("Private seed lookup requires at least one character.");
     }
 
     const limit = Math.max(1, Math.min(Math.floor(args.limit ?? 20), 50));

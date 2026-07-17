@@ -105,9 +105,11 @@ test.describe("fixture lookup smoke", () => {
 
   test("lookup suggestions select a public person row", async ({ page }) => {
     await page.goto("/lookup");
-    await page.getByLabel("DJ name").fill("bas");
-    await expect(page.getByRole("option", { name: /BASICBIT/i })).toBeVisible();
-    await page.getByRole("option", { name: /BASICBIT/i }).click();
+    await page.getByLabel("DJ name").fill("b");
+    const basicBitOption = page.getByRole("option", { name: /BASICBIT/i });
+    await expect(basicBitOption).toHaveCount(1);
+    await expect(basicBitOption).not.toContainText("Private seed");
+    await basicBitOption.click();
     await expect(page).toHaveURL(/\/lookup\?q=BASICBIT$/);
     await expect(page.getByRole("link", { name: "BASICBIT", exact: true })).toBeVisible();
     await expect(page.getByRole("link", { name: "Website: basicbit.net", exact: true })).toBeVisible();

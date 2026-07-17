@@ -104,6 +104,28 @@ describe("private seed Convex handlers", () => {
     );
   });
 
+  it("supports single-character private lookup for an authorized account", async () => {
+    const t = convexTest({ schema, modules });
+    await importCandidate(t);
+    const userId = await t.run((ctx) => ctx.db.insert("users", { name: "Seed lookup operator" }));
+    await t.run((ctx) => ctx.db.insert("accountFeatureGrants", {
+      userId,
+      feature: "super_admin",
+      state: "active",
+      grantedBy: actor,
+      grantedAt: NOW,
+      updatedAt: NOW,
+    }));
+
+    const results = await t.withIdentity({ subject: userId }).query(
+      api.seedAccess.lookupPeople,
+      { query: "D", limit: 5 },
+    );
+
+    assert.equal(results.length, 1);
+    assert.equal(results[0]?.displayName, "DJ Example");
+  });
+
   it("rejects changed candidate payloads under an existing import id", async () => {
     const t = convexTest({ schema, modules });
     await t.mutation(internal.seedImports.importPermissionedJsonBatch, {

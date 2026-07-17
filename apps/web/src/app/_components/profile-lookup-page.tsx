@@ -11,6 +11,7 @@ import { api } from "@convex-generated-api";
 import { LookupCopyButton } from "./lookup-copy-button";
 import { shouldRefreshBulkPrivateLookup } from "./lookup-private-refresh";
 import { LookupSearchBox } from "./lookup-search-box";
+import { mergeLookupSuggestions } from "./lookup-suggestion-merge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
@@ -898,7 +899,14 @@ function ProfileLookupPageContent({
   const [isPending, startTransition] = useTransition();
   const isSearching = pendingLabel !== null || isPending;
   const privateUiEnabled = seedViewerAccess.source === "super_admin" || privateUiFlag === true;
-  const visiblePrivateResults = seedViewerAccess.allowed && privateUiEnabled ? displayPrivateResults : [];
+  const visibleResults = mergeLookupSuggestions(
+    displayResults,
+    seedViewerAccess.allowed && privateUiEnabled ? displayPrivateResults : [],
+  );
+  const visiblePublicResults = visibleResults.filter(
+    (result): result is PublicProfileLookupResult => !isPrivateSeedLookupResult(result),
+  );
+  const visiblePrivateResults = visibleResults.filter(isPrivateSeedLookupResult);
   const seedViewerAccessAllowed = seedViewerAccess.allowed;
   const seedViewerAccessSource = seedViewerAccess.source;
   const hasQuery = Boolean(displayQuery.trim()) || bulkEntries.length > 0 || isSearching;
@@ -952,7 +960,7 @@ function ProfileLookupPageContent({
 
     if (
       bulkEntries.length > 0 ||
-      currentQuery.length < 2 ||
+      currentQuery.length < 1 ||
       displayPrivateResults.length > 0 ||
       !seedViewerAccess.allowed ||
       !enabled ||
@@ -1187,10 +1195,7 @@ function ProfileLookupPageContent({
           </div>
           <LookupSearchBox
             initialQuery={displayQuery}
-            initialResults={[
-              ...displayResults,
-              ...(seedViewerAccess.allowed && privateUiEnabled ? displayPrivateResults : []),
-            ]}
+            initialResults={visibleResults}
             isSearching={isSearching}
             onBulkLookup={runBulkLookup}
             onClear={clearLookup}
@@ -1206,14 +1211,14 @@ function ProfileLookupPageContent({
             {isSearching ? <span className="sr-only">{pendingLabel ?? "Searching"}</span> : null}
             <BulkLookupSummary entries={bulkEntries} />
             <div className={cn("lookup-results-wrap", isSearching ? "lookup-results-wrap--pending" : undefined)}>
-              {displayResults.length === 0 && visiblePrivateResults.length === 0 && !isSearching ? (
+              {visiblePublicResults.length === 0 && visiblePrivateResults.length === 0 && !isSearching ? (
                 <Card className="lookup-panel" surface="dashed">
                   <p className="font-medium">No matches found.</p>
                 </Card>
-              ) : displayResults.length > 0 || visiblePrivateResults.length > 0 ? (
+              ) : visiblePublicResults.length > 0 || visiblePrivateResults.length > 0 ? (
                 <>
                   <div className="grid gap-3 min-[1320px]:hidden">
-                    {displayResults.map((profile) => <LookupResultCard key={profile.slug} profile={profile} />)}
+                    {visiblePublicResults.map((profile) => <LookupResultCard key={profile.slug} profile={profile} />)}
                     {visiblePrivateResults.map((candidate) => (
                       <PrivateSeedResultCard candidate={candidate} key={candidate.id} />
                     ))}
@@ -1228,7 +1233,7 @@ function ProfileLookupPageContent({
                         </tr>
                       </TableHead>
                       <tbody className="divide-y divide-border">
-                        {displayResults.map((profile) => <LookupResultRow key={profile.slug} profile={profile} />)}
+                        {visiblePublicResults.map((profile) => <LookupResultRow key={profile.slug} profile={profile} />)}
                         {visiblePrivateResults.map((candidate) => (
                           <PrivateSeedResultRow candidate={candidate} key={candidate.id} />
                         ))}

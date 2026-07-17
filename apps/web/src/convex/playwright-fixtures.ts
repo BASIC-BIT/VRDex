@@ -1271,6 +1271,40 @@ export function getPlaywrightProfileLookupFixture(query: string): PlaywrightProf
     return result !== null && searchableText.includes(normalized) ? [result] : [];
   });
 
+  if (results.some((profile) => profile.slug === basicBitSlug)) {
+    return {
+      kind: "handled",
+      privateResults: [
+        {
+          id: "playwright-nwinn-basicbit",
+          displayName: "BASICBIT",
+          publicationState: "draft_private",
+          reviewState: "unreviewed",
+          source: { name: "NWinn" },
+          fields: [
+            {
+              confidence: "medium",
+              fieldKey: "outboundLinks",
+              id: "playwright-nwinn-basicbit-links",
+              reviewState: "unreviewed",
+              sourceLabel: "NWinn",
+              value: [
+                {
+                  label: "Twitch",
+                  type: "twitch",
+                  url: "https://www.twitch.tv/basic_bit/",
+                },
+              ],
+              visibility: "private",
+            },
+          ],
+        },
+      ],
+      results,
+      viewerAccess: { allowed: true, source: "super_admin" },
+    };
+  }
+
   if (results.length > 0) {
     return { kind: "handled", results };
   }
