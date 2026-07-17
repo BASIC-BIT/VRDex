@@ -425,7 +425,7 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
 
         <section className="overflow-hidden rounded-card border border-border bg-surface shadow-panel">
           <div
-            className="min-h-64 bg-[linear-gradient(135deg,var(--media),var(--surface-raised))] bg-cover bg-center p-6 text-white sm:p-8"
+            className="min-h-64 bg-[linear-gradient(135deg,var(--media),var(--media-raised))] bg-cover bg-center p-6 text-white sm:p-8"
             style={bannerStyle}
           >
             <div className="flex min-h-52 flex-col justify-end gap-6 sm:flex-row sm:items-end sm:justify-between">

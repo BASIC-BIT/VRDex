@@ -21,6 +21,11 @@ export type CapturedRoute = {
 
 export async function prepareVisualPage(page: Page) {
   await page.addInitScript(() => {
+    const storedTheme = window.localStorage.getItem("vrdex-theme");
+    if (storedTheme !== "light" && storedTheme !== "dark") {
+      window.localStorage.setItem("vrdex-theme", "light");
+    }
+
     const fixedNow = Date.UTC(2025, 0, 1, 12, 0, 0);
     const NativeDate = Date;
 
@@ -140,7 +145,7 @@ export async function prepareVisualPage(page: Page) {
     window.setInterval(removeDevIndicators, 250);
   });
 
-  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
 }
 
 export async function waitForVisualReady(page: Page) {

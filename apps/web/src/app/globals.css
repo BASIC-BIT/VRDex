@@ -28,6 +28,7 @@
   --border-strong: rgba(229, 235, 244, 0.24);
   --focus: rgba(142, 216, 255, 0.38);
   --media: #020307;
+  --media-raised: #172033;
   --focus-ring-width: 2px;
   --focus-ring-offset: 2px;
 }
@@ -60,6 +61,7 @@
   --border-strong: rgba(15, 23, 42, 0.28);
   --focus: rgba(37, 99, 235, 0.32);
   --media: #172033;
+  --media-raised: #27344a;
   --shadow-panel: 0 16px 48px rgba(30, 38, 48, 0.11);
   --shadow-hero: 0 22px 64px rgba(30, 38, 48, 0.16);
 }
@@ -96,6 +98,7 @@
   --color-focus: var(--focus);
   --color-focus-ring: var(--focus);
   --color-media: var(--media);
+  --color-media-raised: var(--media-raised);
   --font-sans: var(--font-space-grotesk);
   --font-mono: var(--font-ibm-plex-mono);
   --text-display: 2.25rem;
