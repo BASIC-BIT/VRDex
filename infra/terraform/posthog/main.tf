@@ -24,3 +24,19 @@ resource "posthog_feature_flag" "seed_lookup_beta" {
 
   tags = ["managed-by:terraform", "surface:onboarding"]
 }
+
+resource "posthog_feature_flag" "featured_discovery" {
+  project_id = tostring(var.posthog_project_id)
+  key        = "featured-discovery"
+  name       = "Featured discovery placements"
+  active     = false
+
+  filters = jsonencode({
+    groups = [{
+      properties         = []
+      rollout_percentage = 0
+    }]
+  })
+
+  tags = ["managed-by:terraform", "surface:discovery"]
+}

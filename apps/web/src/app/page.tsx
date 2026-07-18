@@ -1,17 +1,27 @@
-import { DiscoveryLandingPage } from "./_components/discovery-public-page";
-import { fetchDiscovery, fetchHomeActiveWorlds } from "@/convex/server";
+import { ProfileLookupPage } from "./_components/profile-lookup-page";
+import { fetchProfileLookup } from "@/convex/server";
 
 export const dynamic = "force-dynamic";
 
-export default async function Home() {
-  const [activeWorlds, discovery] = await Promise.all([fetchHomeActiveWorlds(), fetchDiscovery()]);
+type HomePageProps = {
+  searchParams: Promise<{
+    q?: string;
+  }>;
+};
+
+export default async function Home({ searchParams }: HomePageProps) {
+  const { q } = await searchParams;
+  const query = q?.trim() ?? "";
+  const lookup = await fetchProfileLookup(query);
 
   return (
-    <DiscoveryLandingPage
-      activeWorldStatus={activeWorlds.kind}
-      activeWorlds={activeWorlds.worlds}
-      data={discovery.data}
-      status={discovery.kind}
+    <ProfileLookupPage
+      privateResults={lookup.privateResults}
+      query={query}
+      results={lookup.results}
+      routePath="/"
+      status={lookup.kind}
+      viewerAccess={lookup.viewerAccess}
     />
   );
 }

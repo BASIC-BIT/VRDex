@@ -142,7 +142,7 @@ async function hostedTargetHasCommunityClaimFlow(page: Page) {
 
 async function prepareDiscordPersonClaim(page: Page, profileSlug: string) {
   const legacySlugInput = page.getByLabel("Person slug");
-  const currentSlugInput = page.getByLabel("Profile slug");
+  const currentSlugInput = page.getByLabel("Profile link");
 
   await expect(legacySlugInput.or(currentSlugInput).first()).toBeVisible(hostedActionExpectOptions);
 
@@ -160,16 +160,20 @@ async function prepareVrchatProof(
   targetType: "vrchat_user" | "vrclinking",
   targetExternalId: string,
 ) {
-  const methodButton = page.getByRole("button", { name: "VRChat proof" });
+  const methodButton = page.getByRole("button", {
+    name: targetType === "vrclinking" ? "VRC Linking" : "VRChat",
+    exact: true,
+  });
   const legacyTargetType = page.getByLabel("Target type");
 
   await expect(methodButton.or(legacyTargetType).first()).toBeVisible(hostedActionExpectOptions);
 
   if (await methodButton.isVisible()) {
     await methodButton.click();
-    await expect(page.getByLabel("Profile slug")).toHaveValue(profileSlug);
-    await page.getByLabel("Verification service").selectOption(targetType);
-    await page.getByLabel("VRChat user ID").fill(targetExternalId);
+    await expect(page.getByLabel("Profile link")).toHaveValue(profileSlug);
+    await page
+      .getByLabel(targetType === "vrclinking" ? "VRC Linking user ID" : "VRChat user ID")
+      .fill(targetExternalId);
     return;
   }
 
@@ -302,7 +306,7 @@ test("verified email account with linked Discord can claim person and community 
     }
 
     await expect(page.getByRole("button", { name: "Community" })).toHaveAttribute("aria-pressed", "true");
-    await expect(page.getByLabel("Profile slug")).toHaveValue(communitySlug!);
+    await expect(page.getByLabel("Profile link")).toHaveValue(communitySlug!);
     await page.getByLabel("Discord server ID").fill(`guild-${runSuffix}`);
     await page.getByLabel("Discord server name").fill(`Claim Guild ${runSuffix}`);
     await page.getByRole("button", { name: "Request Discord admin claim" }).click();
@@ -362,7 +366,7 @@ test("verified email account can complete VRChat adapter claims @flow", async ({
     await gotoFlowPage(page, `/p/${vrchatPersonSlug}`);
     await expect(page.getByRole("heading", { name: `Playwright VRChat Proof ${runSuffix}` })).toBeVisible(hostedActionExpectOptions);
     await expectCurrentOrHostedLagTrustCopy(
-      profileStatusCopy(page, "Verified"),
+      page.getByLabel("Owner verified").or(profileStatusCopy(page, "Verified")),
       page.getByRole("heading", { name: "Verified owner", exact: true }).or(page.getByText("Person profile / Verified", { exact: true })),
     );
 
@@ -377,7 +381,7 @@ test("verified email account can complete VRChat adapter claims @flow", async ({
     await gotoFlowPage(page, `/p/${vrcLinkingPersonSlug}`);
     await expect(page.getByRole("heading", { name: `Playwright VRCLinking Proof ${runSuffix}` })).toBeVisible(hostedActionExpectOptions);
     await expectCurrentOrHostedLagTrustCopy(
-      profileStatusCopy(page, "Verified"),
+      page.getByLabel("Owner verified").or(profileStatusCopy(page, "Verified")),
       page.getByRole("heading", { name: "Verified owner", exact: true }).or(page.getByText("Person profile / Verified", { exact: true })),
     );
   } finally {

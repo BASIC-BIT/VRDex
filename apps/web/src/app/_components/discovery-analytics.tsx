@@ -1,7 +1,7 @@
 "use client";
 
 import Link, { type LinkProps } from "next/link";
-import { usePostHog } from "posthog-js/react";
+import { useFeatureFlagEnabled, usePostHog } from "posthog-js/react";
 import { type FormEvent, type ReactNode } from "react";
 
 import { buttonVariants } from "@/components/ui/button";
@@ -23,6 +23,18 @@ type TrackedDiscoveryProperties = {
   featured_card_clicked: { entity_type: string; surface: "featured" };
   search_result_clicked: { entity_type: string; profile_type?: string; surface: DiscoveryAnalyticsSurface };
 };
+
+export function DiscoveryFeatureGate({
+  children,
+  flag,
+}: {
+  children: ReactNode;
+  flag: string;
+}) {
+  const enabled = useFeatureFlagEnabled(flag);
+
+  return enabled === true ? children : null;
+}
 
 export function DiscoverySearchForm({
   action = "/search",

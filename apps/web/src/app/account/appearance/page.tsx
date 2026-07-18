@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { AppearancePanel } from "./appearance-panel";
 import { buttonVariants } from "@/components/ui/button";
-import { Card, Eyebrow } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 
 export default function AppearancePage() {
@@ -24,13 +24,9 @@ export default function AppearancePage() {
         </PageNav>
 
         <Card className="shadow-hero" padding="lg">
-          <Eyebrow>Appearance</Eyebrow>
-          <h1 className="mt-5 max-w-4xl text-4xl leading-none font-semibold tracking-[-0.04em] sm:text-6xl">
-            Shape your public profile presentation.
+          <h1 className="text-3xl leading-none font-semibold sm:text-4xl">
+            Personalization
           </h1>
-          <p className="mt-5 max-w-2xl text-base leading-7 text-muted">
-            Tune the avatar frame and arrange the main public sections.
-          </p>
           <div className="mt-8">
             <AppearancePanel demoMode={demoMode} />
           </div>

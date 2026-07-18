@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 export type ColorTheme = "dark" | "light";
 
 const storageKey = "vrdex-theme";
+let transitionTimeout: number | undefined;
 
 function currentTheme(): ColorTheme {
   if (typeof document === "undefined") {
@@ -22,6 +23,22 @@ function applyTheme(theme: ColorTheme) {
   window.localStorage.setItem(storageKey, theme);
 }
 
+function transitionToTheme(theme: ColorTheme) {
+  const root = document.documentElement;
+
+  root.dataset.themeTransition = "true";
+  applyTheme(theme);
+
+  if (transitionTimeout !== undefined) {
+    window.clearTimeout(transitionTimeout);
+  }
+
+  transitionTimeout = window.setTimeout(() => {
+    delete root.dataset.themeTransition;
+    transitionTimeout = undefined;
+  }, 700);
+}
+
 export function ThemeToggle({ className }: { className?: string }) {
   return (
     <Button
@@ -34,7 +51,7 @@ export function ThemeToggle({ className }: { className?: string }) {
       onClick={() => {
         const theme = currentTheme();
         const nextTheme = theme === "dark" ? "light" : "dark";
-        applyTheme(nextTheme);
+        transitionToTheme(nextTheme);
       }}
     >
       <Sun aria-hidden="true" className="theme-toggle__sun size-4" />

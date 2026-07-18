@@ -20,3 +20,11 @@ output "seed_lookup_beta_feature_flag" {
     key = posthog_feature_flag.seed_lookup_beta.key
   }
 }
+
+output "featured_discovery_feature_flag" {
+  description = "PostHog flag that controls Featured placements on the unlisted discovery surface."
+  value = {
+    id  = posthog_feature_flag.featured_discovery.id
+    key = posthog_feature_flag.featured_discovery.key
+  }
+}

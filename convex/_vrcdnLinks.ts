@@ -11,6 +11,7 @@ const vrcdnStreamIdPattern = /^[a-zA-Z0-9_-]{2,128}$/;
 export type VrcdnStreamLinks = {
   streamId: string;
   pageUrl: string;
+  previewUrl: string;
   hlsUrl: string;
   questUrl: string;
   pcUrl: string;
@@ -92,6 +93,7 @@ export function createVrcdnStreamLinks(streamId: string, directVideoUrl?: string
   return {
     streamId: cleanStreamId,
     pageUrl: `https://${vrcdnRootHost}/${cleanStreamId}`,
+    previewUrl: `https://panel.vrcdn.live/preview/${cleanStreamId}`,
     hlsUrl: `https://${vrcdnStreamHost}/live/${cleanStreamId}.m3u8`,
     questUrl: `https://${vrcdnStreamHost}/live/${cleanStreamId}.live.ts`,
     pcUrl: `rtspt://${vrcdnStreamHost}/live/${cleanStreamId}`,

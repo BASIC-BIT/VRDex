@@ -57,6 +57,66 @@ Verified implementation facts:
   time using an app or user access token. Live UI still needs a freshness and
   failure policy before it is trustworthy.
 
+## July 17 Follow-up Review
+
+Observed user feedback after the first production pass:
+
+- The public profile hero still has excessive empty space, a decorative
+  gradient, duplicated descriptive content, and a verification label that
+  competes with the identity.
+- Copy rows should keep values and actions visually close without introducing
+  another stack of cards. Long VRCDN playback values must remain inspectable,
+  and browser playback should be available only through an intentional watch
+  surface.
+- The current discovery home is premature. Direct lookup is the useful primary
+  task today; the richer discovery surface should remain available at an
+  unlisted route while it develops.
+- Featured placements should be hidden by default and controlled through
+  PostHog until there is useful editorial, recommendation, or paid-placement
+  behavior behind them.
+- Product copy should describe VR broadly rather than making VRChat the product
+  category. VRDex should present itself as a VR directory or database, not
+  advertise the homepage as a timeline.
+- Theme changes need a longer, legible transition that still respects reduced
+  motion.
+- Account pages need direct names such as `Privacy controls` and
+  `Personalization`, plus a clear route to the viewer's owned profile.
+- Claims should start from profile context, avoid internal terms such as
+  `slug`, distinguish already-owned state from failure, and project new
+  ownership into Account, Privacy, and Personalization immediately.
+- Initial profile submission needs an optional, live-previewed URL name and a
+  success dialog. Profile media-kit upload remains a later owned-profile task;
+  it was intentionally removed from initial submission rather than deleted
+  from the backend.
+- Background color and gradient customization, account-connection onboarding,
+  list-card appearance propagation, and a Rolodex-inspired mark are desired
+  follow-up product slices rather than reasons to block the direct cleanup.
+
+Locked decision:
+
+- Use lookup as the root experience for the current product stage. Preserve the
+  developing discovery home at `/discovery` without adding it to primary
+  navigation.
+- Keep Featured hidden unless a PostHog flag explicitly enables it.
+- Remove the remaining seeded operator-validation sentence from the BASICBIT
+  public profile.
+
+Current recommendation:
+
+- Ship the low-risk visual, copy, route, and submission-success changes in the
+  current UI follow-up.
+- Keep claim ownership projection and contextual claim routing in the claim
+  epics because they cross authentication and backend authority contracts.
+- Keep solid/gradient profile backgrounds, linked URL-name editing, account
+  connection onboarding, media-kit ownership UX, and cross-surface appearance
+  propagation in their existing customization, profile, and onboarding epics.
+
+Interview later:
+
+- Workshop the durable VRDex descriptor and wordmark together. `VR directory`
+  is the clearest temporary product description; a paper Rolodex mark can be
+  explored without making `Rolodex` mandatory public copy.
+
 ## Product Principles
 
 Locked decision:
@@ -135,9 +195,8 @@ Candidate direction:
 - Remove the separate Status and Focus cards.
 - Keep structured roles only when they add information beyond the headline;
   render them near identity or as compact metadata, not as decorative tags.
-- Use one About heading and one owner-authored prose body. Resolve the long-term
-  distinction by treating `about` as the canonical prose field and `bio` as a
-  compatibility fallback while existing records migrate.
+- Use one owner-authored prose body. For v1, render `bio` and stop rendering
+  `about`; migrate useful legacy `about` content before retiring that field.
 - Present Discord usernames as copyable text. A Discord user is not modeled as
   an outbound URL.
 - Use direct actions for valid outbound services rather than equal-weight link
@@ -166,10 +225,13 @@ Candidate direction:
 
 ### Home And Discovery
 
-- Remove the oversized marketing headline and descriptive paragraph.
-- Keep direct search available, then lead with useful current and upcoming
-  scene activity.
+- Use direct lookup as the current root experience without an explanatory hero.
+- Keep the developing current-and-upcoming activity surface at `/discovery`
+  until its event density and information architecture justify primary
+  navigation.
 - Featured placements use explicit media roles and stable crop behavior.
+- Keep Featured disabled behind `featured-discovery` until it has an editorial,
+  recommendation, or paid-placement policy.
 - A square person image remains square or portrait. A landscape feature uses a
   banner, event poster crop, or composed layout rather than an arbitrary zoom.
 - Discovery ranking and richer modules remain part of the separate Home and

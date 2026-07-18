@@ -175,6 +175,24 @@ body {
   min-height: 100vh;
 }
 
+:root[data-theme-transition="true"] body,
+:root[data-theme-transition="true"] body *,
+:root[data-theme-transition="true"] body *::before,
+:root[data-theme-transition="true"] body *::after {
+  transition-duration: 650ms !important;
+  transition-property: background-color, border-color, box-shadow, color, fill, stroke !important;
+  transition-timing-function: ease-in-out !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme-transition="true"] body,
+  :root[data-theme-transition="true"] body *,
+  :root[data-theme-transition="true"] body *::before,
+  :root[data-theme-transition="true"] body *::after {
+    transition: none !important;
+  }
+}
+
 .theme-toggle__moon {
   display: none;
 }
@@ -1129,7 +1147,7 @@ body {
 }
 
 .lookup-theme thead {
-  background: color-mix(in srgb, var(--surface-strong) 84%, transparent);
+  background: var(--surface-strong);
 }
 
 @media (min-width: 640px) and (max-width: 1319px) {

@@ -121,6 +121,7 @@ function writeRecentSearches(values: string[]) {
 }
 
 export function LookupSearchBox({
+  actionPath = "/lookup",
   initialQuery,
   initialResults,
   isSearching,
@@ -129,6 +130,7 @@ export function LookupSearchBox({
   onLookup,
   showPrivateSuggestions,
 }: {
+  actionPath?: "/" | "/lookup";
   initialQuery: string;
   initialResults: ProfileLookupDisplayResult[];
   isSearching: boolean;
@@ -301,7 +303,7 @@ export function LookupSearchBox({
   return (
     <div className="grid gap-2">
       <form
-        action="/lookup"
+        action={actionPath}
         className={bulkMode ? "lookup-bulk-form" : "lookup-single-form"}
         onSubmit={(event) => {
           event.preventDefault();

@@ -6,6 +6,7 @@ const screenshotDir = path.join(process.cwd(), "playwright-artifacts", "screensh
 
 export const visualProfilePaths = {
   personPath: "/p/playwright-dj-aurora",
+  verifiedPersonPath: "/p/basicbit",
   communityPath: "/c/playwright-afterglow-social",
   worldPath: "/w/playwright-neon-harbor",
   eventPath: "/e/playwright-afterglow-harbor-sessions",
@@ -170,13 +171,22 @@ export async function captureRouteScreenshot(page: Page, testInfo: TestInfo, nam
 }
 
 export async function expectHomePage(page: Page) {
-  await expect(page.getByRole("heading", { name: /Tonight in VRChat/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /DJ link lookup/i })).toBeVisible();
+  await expect(page.getByLabel("DJ name")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Toggle color theme" })).toBeVisible();
+  await expect(page.getByText(/Start with a name, scene, world, genre, or event/i)).toHaveCount(0);
+  await expect(page.getByText("Start with a name or genre.", { exact: true })).toHaveCount(0);
+}
+
+export async function expectDiscoveryPage(page: Page) {
+  await expect(page.getByRole("heading", { name: /Discover VR/i })).toBeVisible();
   await expect(page.getByRole("button", { name: /Search VRDex/i })).toBeVisible();
   await expect(page.getByRole("button", { name: "Toggle color theme" })).toBeVisible();
   await expect(page.getByRole("heading", { name: /Upcoming events/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Worlds hosting events soon" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Neon Harbor", exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: /Afterglow Harbor Sessions/i }).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Featured", exact: true })).toHaveCount(0);
 }
 
 export async function expectSearchPage(page: Page) {
@@ -252,7 +262,7 @@ export async function expectAccountPage(page: Page) {
 }
 
 export async function expectAppearancePage(page: Page) {
-  await expect(page.getByRole("heading", { name: /Shape your public profile presentation/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Personalization", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Profile picture shape and border" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Supporting section order" })).toBeVisible();
   await expect(page.getByLabel("Avatar roundedness")).toBeVisible();
@@ -260,7 +270,7 @@ export async function expectAppearancePage(page: Page) {
 }
 
 export async function expectPrivacyPage(page: Page) {
-  await expect(page.getByRole("heading", { name: /Control what your claimed profiles show/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Privacy Controls", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Field visibility" })).toBeVisible();
   await expect(page.getByLabel("Bio visibility")).toBeVisible();
   await expect(page.getByText("Current settings", { exact: true })).toBeVisible();
@@ -317,7 +327,7 @@ export async function expectOAuthAuthorizeProblemPage(page: Page) {
 export async function expectPersonProfilePage(page: Page) {
   await expect(page.getByRole("heading", { name: "DJ Aurora" })).toBeVisible();
   await expect(page.getByText("Melodic house DJ playing warm, vocal-led sets across VRChat club nights.")).toBeVisible();
-  await expect(page.getByText("Known for sunrise handoffs, soft-focus visuals, and long blends that keep the room moving.")).toBeVisible();
+  await expect(page.getByText("Known for sunrise handoffs, soft-focus visuals, and long blends that keep the room moving.")).toHaveCount(0);
   await expect(page.getByText(/Jan 1, 2025/i)).toBeVisible();
   await expect(page.getByText(/Source:/i)).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Upcoming events" })).toBeVisible();
@@ -331,12 +341,30 @@ export async function expectPersonProfilePage(page: Page) {
   await expect(page.getByRole("link", { name: /Watch on Twitch/i })).toBeVisible();
   await expect(page.getByText("Quest (MPEG-TS)", { exact: true })).toBeVisible();
   await expect(page.getByText("PC (RTSPT)", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open preview" })).toHaveAttribute(
+    "href",
+    "https://panel.vrcdn.live/preview/dj-aurora",
+  );
   await expect(page.getByRole("button", { name: "Copy Discord" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Media kit" })).toBeVisible();
   await expect(page.getByRole("link", { name: /Primary logo/i })).toBeVisible();
   await expect(page.getByRole("link", { name: /Download logos/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Worlds" })).toBeVisible();
   await expect(page.getByRole("link", { name: /Neon Harbor/i })).toBeVisible();
+}
+
+export async function expectVerifiedPersonProfilePage(page: Page) {
+  await expect(page.getByRole("heading", { name: "BASICBIT" })).toBeVisible();
+  await expect(page.getByLabel("Owner verified")).toBeVisible();
+  await expect(page.getByText("Multigenre DJ but I really love DnB <3", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Public lookup seed for validating operator workflows/i)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Copy Discord" })).toBeVisible();
+  await expect(page.getByText("https://stream.vrcdn.live/live/basicbit.live.ts", { exact: true })).toBeVisible();
+  await expect(page.getByText("rtspt://stream.vrcdn.live/live/basicbit", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open preview" })).toHaveAttribute(
+    "href",
+    "https://panel.vrcdn.live/preview/basicbit",
+  );
 }
 
 export async function expectCommunityProfilePage(page: Page) {
@@ -347,7 +375,8 @@ export async function expectCommunityProfilePage(page: Page) {
   );
   await expect(page.getByRole("heading", { name: "Hosted events" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions" })).toBeVisible();
-  await expect(page.getByText(/Club night \/ Global \/ Music \/ Dancing/i)).toBeVisible();
+  await expect(page.getByText("A warm VRChat club night for music-first communities.", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Club night \/ Global \/ Music \/ Dancing/i)).toHaveCount(0);
   await expect(page.getByText("Afterglow event archive", { exact: true })).toBeVisible();
   await expect(page.getByText("World Author", { exact: true })).toBeVisible();
 }
@@ -426,6 +455,11 @@ export const capturedRoutes: CapturedRoute[] = [
     name: "home",
     path: "/",
     expectPage: expectHomePage,
+  },
+  {
+    name: "discovery",
+    path: "/discovery",
+    expectPage: expectDiscoveryPage,
   },
   {
     name: "submit",
@@ -516,6 +550,11 @@ export const capturedRoutes: CapturedRoute[] = [
     name: "person-profile",
     path: visualProfilePaths.personPath,
     expectPage: expectPersonProfilePage,
+  },
+  {
+    name: "verified-person-profile",
+    path: visualProfilePaths.verifiedPersonPath,
+    expectPage: expectVerifiedPersonProfilePage,
   },
   {
     name: "community-profile",

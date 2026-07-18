@@ -10,8 +10,9 @@ VRDex is trying to become, what it is not, and how new work should be shaped.
 
 ## Product Identity
 
-VRDex is a VRChat-first identity, profile, events, and scene-operations
-platform.
+VRDex is a VR-first identity, profile, events, and scene-operations platform.
+VRChat is the first ecosystem and implementation focus, not the limit of the
+public product category.
 
 Current recommendation:
 
@@ -54,17 +55,21 @@ Current recommendation:
   can own one page and communities can reference it repeatedly.
 - Public event surfaces matter because they turn the identity graph into a
   useful scene map.
-- Search matters, but as direct-intent lookup. It should be fast, visible, and
-  powerful without becoming the whole homepage.
+- Search and lookup matter as direct-intent tools. They should be fast, visible,
+  and useful before the broader discovery graph has enough density.
 
 ## Homepage Direction
 
 Locked decision:
 
-- The homepage should include a timeline-style view of events happening today.
+- For the current product stage, direct lookup is the root experience.
+- Preserve the event-oriented discovery surface at `/discovery` while its
+  content density, naming, and ranking mature.
 
 Current recommendation:
 
+- The long-term discovery surface should include a timeline-style view of
+  events happening today.
 - The valuable unit is "what is happening when," not a loose list of event
   cards.
 - The first implementation may use event cards or a list if that is the
@@ -87,9 +92,10 @@ Current recommendation:
   everything.
 - A deeper navigation structure is acceptable and probably necessary as long as
   each route has a clear job.
-- Home should stay selective about attention.
+- The root experience should stay selective about attention.
 - Search should handle direct lookup.
-- `/lookup` and later operator tools should optimize for dense workflow utility.
+- `/`, `/lookup`, and later operator tools should optimize for dense workflow
+  utility during the current stage.
 - Event schedule/timeline views should optimize for "what is happening when."
 - Profile and community pages should optimize for canonical identity and
   owner-controlled presentation.

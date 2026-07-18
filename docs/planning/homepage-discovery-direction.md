@@ -91,12 +91,16 @@ Current gaps:
 
 Locked decision:
 
-- Home should include a timeline-style surface for events happening today.
+- Direct lookup is the root experience for the current product stage.
+- The richer event-oriented surface remains available at `/discovery` without
+  primary navigation until it has enough useful data and a reviewed name.
 
 Current recommendation:
 
+- The long-term discovery surface should include a timeline-style view of
+  events happening today.
 - The homepage should lead with utility, not explanatory product copy.
-- Search should be prominent but not the entire homepage.
+- Direct lookup may own the current root while the discovery surface matures.
 - A "today / tonight / soon" event schedule should be the strongest first data
   module when public event data exists.
 - The value is the time-oriented view of what is happening when, not simply a
@@ -129,17 +133,19 @@ Locked direction from current implementation:
 
 - `/search` is direct-intent lookup across public people, communities, worlds,
   and events.
-- `/discover` redirects to `/`, so Home is already the discovery landing
-  surface.
+- `/lookup` remains a stable direct lookup route, while `/` uses the same
+  lookup experience.
+- `/discovery` is the unlisted richer discovery surface.
+- `/discover` remains a legacy redirect and must not be repurposed.
 
 Current recommendation:
 
 - Keep search terse and powerful.
-- Use Home for the browseable "what is happening" layer.
+- Use `/discovery` for the browseable "what is happening" layer during this
+  stage.
 - Let search query results be dense and direct.
-- Let Home show timelines, cards, and follow/favorite context.
-- Do not force operator workflows such as `/lookup` through the polished public
-  discovery surface.
+- Let the later promoted discovery surface show timelines, cards, and
+  follow/favorite context.
 
 ## Navigation Shape
 
