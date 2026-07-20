@@ -1,3 +1,5 @@
+import { BlockList, isIP } from "node:net";
+
 const isVercel = process.env.VERCEL === "1" || process.env.VERCEL === "true";
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 const posthogHost = process.env.NEXT_PUBLIC_POSTHOG_HOST;
@@ -6,6 +8,24 @@ const isProductionVercel = isVercel && process.env.VERCEL_ENV === "production";
 
 const errors = [];
 const warnings = [];
+const loopbackAddresses = new BlockList();
+
+loopbackAddresses.addSubnet("127.0.0.0", 8, "ipv4");
+loopbackAddresses.addAddress("::1", "ipv6");
+loopbackAddresses.addSubnet("::ffff:127.0.0.0", 104, "ipv6");
+
+function isLocalHost(hostname) {
+  const host = hostname.toLowerCase().replace(/\.$/, "").replace(/^\[|\]$/g, "");
+  const addressFamily = isIP(host);
+
+  return (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".local") ||
+    (addressFamily === 4 && loopbackAddresses.check(host, "ipv4")) ||
+    (addressFamily === 6 && loopbackAddresses.check(host, "ipv6"))
+  );
+}
 
 function parseUrl(name, value) {
   try {
@@ -61,8 +81,7 @@ if (isProductionVercel) {
     }
 
     if (parsedRateLimitRestUrl) {
-      const host = parsedRateLimitRestUrl.hostname.toLowerCase();
-      if (host === "localhost" || host === "127.0.0.1" || host.endsWith(".local")) {
+      if (isLocalHost(parsedRateLimitRestUrl.hostname)) {
         errors.push(
           "VRDEX_RATE_LIMIT_REDIS_REST_URL must not point at a local backend in production.",
         );

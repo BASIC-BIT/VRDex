@@ -42,17 +42,27 @@ test("production Vercel builds accept the Terraform-managed rate-limit contract"
   assert.match(result.stdout, /Vercel production environment accepted/);
 });
 
-test("production Vercel builds reject a local rate-limit endpoint", () => {
-  const result = checkVercelEnvironment({
-    VERCEL: "1",
-    VERCEL_ENV: "production",
-    VRDEX_RATE_LIMIT_REDIS_REST_TOKEN: "test-token",
-    VRDEX_RATE_LIMIT_REDIS_REST_URL: "https://localhost",
-    VRDEX_RATE_LIMIT_STORE: "upstash",
-  });
+test("production Vercel builds reject local rate-limit endpoints", () => {
+  for (const endpoint of [
+    "https://localhost",
+    "https://localhost.",
+    "https://cache.localhost",
+    "https://cache.localhost.",
+    "https://127.0.0.2",
+    "https://[::1]",
+    "https://[::ffff:127.0.0.2]",
+  ]) {
+    const result = checkVercelEnvironment({
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      VRDEX_RATE_LIMIT_REDIS_REST_TOKEN: "test-token",
+      VRDEX_RATE_LIMIT_REDIS_REST_URL: endpoint,
+      VRDEX_RATE_LIMIT_STORE: "upstash",
+    });
 
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /must not point at a local backend in production/);
+    assert.equal(result.status, 1, endpoint);
+    assert.match(result.stderr, /must not point at a local backend in production/, endpoint);
+  }
 });
 
 test("preview Vercel builds do not require the production rate-limit store", () => {
