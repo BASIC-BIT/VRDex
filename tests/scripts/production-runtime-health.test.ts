@@ -86,12 +86,15 @@ test("production smoke probes a rate-limited anonymous API read", async () => {
   assert.match(smoke, /ratelimit-limit/);
 });
 
-test("fixture-backed handoff coverage remains in the flow lane", async () => {
+test("fixture-backed handoff coverage stays out of hosted runs", async () => {
   const handoff = await readFile("apps/web/e2e/handoff.flow.spec.ts", "utf8");
   const webPackage = JSON.parse(await readFile("apps/web/package.json", "utf8")) as {
     scripts?: Record<string, string>;
   };
 
-  assert.match(handoff, /test\.describe\("handoff invitations @flow"/);
-  assert.match(webPackage.scripts?.["test:e2e:hosted:smoke"] ?? "", /--grep-invert.*@flow/);
+  const fixtureTags = handoff.match(/@fixture/g) ?? [];
+
+  assert.equal(fixtureTags.length, 7);
+  assert.match(webPackage.scripts?.["test:e2e:hosted:smoke"] ?? "", /--grep-invert.*@fixture/);
+  assert.match(webPackage.scripts?.["test:e2e:hosted"] ?? "", /--grep @flow/);
 });

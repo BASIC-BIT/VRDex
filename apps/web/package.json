@@ -29,7 +29,7 @@
     "pretest:e2e:hosted:auth-smoke": "node ../../scripts/guard-main-worktree.mjs",
     "test:e2e:hosted:auth-smoke": "playwright test --grep @production-auth --project=desktop-chromium",
     "pretest:e2e:hosted:smoke": "node ../../scripts/guard-main-worktree.mjs",
-    "test:e2e:hosted:smoke": "playwright test --grep-invert \"@visual|@flow|@snapshot|@storybook|@production-auth\"",
+    "test:e2e:hosted:smoke": "playwright test --grep-invert \"@visual|@flow|@fixture|@snapshot|@storybook|@production-auth\"",
     "pretest:e2e:snapshots": "node ../../scripts/guard-main-worktree.mjs",
     "test:e2e:snapshots": "playwright test --grep @snapshot --grep-invert @storybook",
     "pretest:e2e:snapshots:update": "node ../../scripts/guard-main-worktree.mjs",
