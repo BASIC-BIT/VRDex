@@ -59,6 +59,15 @@ if (isProductionVercel) {
     if (parsedRateLimitRestUrl?.protocol !== "https:") {
       errors.push("VRDEX_RATE_LIMIT_REDIS_REST_URL must use https in production.");
     }
+
+    if (parsedRateLimitRestUrl) {
+      const host = parsedRateLimitRestUrl.hostname.toLowerCase();
+      if (host === "localhost" || host === "127.0.0.1" || host.endsWith(".local")) {
+        errors.push(
+          "VRDEX_RATE_LIMIT_REDIS_REST_URL must not point at a local backend in production.",
+        );
+      }
+    }
   }
 
   if (!process.env.VRDEX_RATE_LIMIT_REDIS_REST_TOKEN?.trim()) {
