@@ -547,7 +547,7 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
               ) : null}
               {vrcdnStreams.map(({ label, stream }) => (
                 <div className="pt-5" key={stream.streamId}>
-                  <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3 pb-3">
                     <p className="font-medium">{label}</p>
                     <a
                       className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "gap-2")}

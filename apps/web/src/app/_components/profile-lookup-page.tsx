@@ -212,6 +212,22 @@ function isVrcdnStreamLink(link: LookupLink) {
   return link.type === "vrcdn" && !isVrcdnPreviewLink(link);
 }
 
+function discordCopyValue(link: LookupLink): string | null {
+  const handle = link.handle?.trim() || link.label.replace(/^Discord\s*:?\s*/i, "").trim();
+
+  if (handle && handle.toLowerCase() !== "discord") {
+    return handle;
+  }
+
+  try {
+    const userId = new URL(link.url).pathname.match(/^\/users\/([^/]+)\/?$/)?.[1];
+
+    return userId ? decodeURIComponent(userId) : null;
+  } catch {
+    return null;
+  }
+}
+
 function vrcdnStreamName(url: string): string | undefined {
   try {
     return new URL(url).pathname.split("/").filter(Boolean).at(-1)?.replace(/\.live\.ts$/, "");
@@ -474,6 +490,15 @@ function LookupLinks({ links }: { links: PublicProfileLookupResult["outboundLink
   const explicitVrcdnPreviewLinks = links.filter(isVrcdnPreviewLink);
   const vrcdnStreamLinks = links.filter(isVrcdnStreamLink);
   const twitchCopyLinks = links.filter((link) => link.type === "twitch" && link.presentation === "copy");
+  const discordCopyLinks = links.flatMap((link) => {
+    if (link.type !== "discord") {
+      return [];
+    }
+
+    const value = discordCopyValue(link);
+
+    return value ? [{ key: `${link.type}-${link.url}`, label: "Discord", value }] : [];
+  });
   const vrcdnPreviewLinks = [
     ...explicitVrcdnPreviewLinks.map((link) => ({ label: link.label, url: link.url })),
     ...vrcdnStreamLinks.flatMap((link) => {
@@ -482,10 +507,16 @@ function LookupLinks({ links }: { links: PublicProfileLookupResult["outboundLink
       return previewLink ? [previewLink] : [];
     }),
   ].filter((link, index, allLinks) => allLinks.findIndex((candidate) => candidate.url === link.url) === index);
-  const handled = new Set([...explicitVrcdnPreviewLinks, ...vrcdnStreamLinks, ...twitchCopyLinks]);
+  const handled = new Set([
+    ...explicitVrcdnPreviewLinks,
+    ...vrcdnStreamLinks,
+    ...twitchCopyLinks,
+    ...links.filter((link) => link.type === "discord" && discordCopyValue(link) !== null),
+  ]);
   const iconLinks = links.filter((link) => !handled.has(link));
   const vrcdnCopyLinks = vrcdnStreamLinks.flatMap((link) => deriveVrcdnCopyLinks(link.url).map((entry) => ({ ...entry, key: `${link.url}-${entry.label}` })));
   const copyRows = [
+    ...discordCopyLinks,
     ...vrcdnCopyLinks,
     ...twitchCopyLinks.map((link) => ({ key: `${link.type}-${link.url}`, label: "Twitch", value: link.url })),
   ];
@@ -511,6 +542,15 @@ function LookupLinks({ links }: { links: PublicProfileLookupResult["outboundLink
       ) : null}
       {hasCopyRows ? (
         <div className="lookup-copy-list">
+          {discordCopyLinks.map((entry) => (
+            <CodeCopyBar
+              key={entry.key}
+              label={entry.label}
+              labelCh={copyLabelCh}
+              value={entry.value}
+              valueCh={copyValueCh}
+            />
+          ))}
           {vrcdnCopyLinks.map((entry) => (
             <CodeCopyBar
               key={entry.key}
