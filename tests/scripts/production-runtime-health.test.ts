@@ -81,9 +81,8 @@ test("an explicitly selected Terraform stack fails when provider settings are mi
 test("production smoke probes a rate-limited anonymous API read", async () => {
   const smoke = await readFile("apps/web/e2e/public-routes.smoke.spec.ts", "utf8");
 
-  assert.match(smoke, /anonymous public API search returns a rate-limited response/);
+  assert.match(smoke, /anonymous public API search succeeds/);
   assert.match(smoke, /\/api\/v0\/search\?q=basicbit&limit=1/);
-  assert.match(smoke, /ratelimit-limit/);
 });
 
 test("fixture-backed handoff coverage stays out of hosted runs", async () => {

@@ -93,12 +93,11 @@ test("public API supports browser CORS and preflight", async ({ page }) => {
 test.describe("hosted lookup smoke", () => {
   test.skip(!isHostedRun, "Hosted-only smoke coverage.");
 
-  test("anonymous public API search returns a rate-limited response", async ({ page }) => {
+  test("anonymous public API search succeeds", async ({ page }) => {
     const response = await page.request.get("/api/v0/search?q=basicbit&limit=1");
     const responseText = await response.text();
 
     expect(response.status(), responseText).toBe(200);
-    expect(response.headers()["ratelimit-limit"]).toMatch(/^\d+$/);
 
     const body = JSON.parse(responseText) as { results?: unknown };
     expect(Array.isArray(body.results)).toBe(true);

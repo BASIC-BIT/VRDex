@@ -101,7 +101,7 @@ redeploying the Vercel production environment; Vercel environment changes only
 reach new deployments. The Vercel production build rejects a missing or
 non-shared rate-limit store before traffic can reach the deployment. The
 production smoke then verifies an anonymous `/api/v0/search` request and its
-rate-limit headers. A configured deployment must return `200`, while a missing
-shared store remains fail-closed.
+response body. A configured deployment must return `200`, while a missing shared
+store remains fail-closed.
 
 Current hosted-vs-self-hosted ownership guidance lives in `docs/developers/self-hosting-and-iac.md`. The first AWS service baseline, including SES and the planned private S3 asset-storage follow-up, lives in `docs/deployment/aws-baseline.md`.
