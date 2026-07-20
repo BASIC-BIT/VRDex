@@ -17,6 +17,7 @@ import { EntityImage } from "@/components/ui/entity-image";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 import { Table, TableCell, TableFrame, TableHead, TableHeaderCell } from "@/components/ui/table";
 import { cn } from "@/lib/cn";
+import { discordCopyValue } from "@/lib/discord-link";
 import {
   captureProductEvent,
   mirrorPrivateSeedLookupAccess,
@@ -210,28 +211,6 @@ function isVrcdnPreviewLink(link: LookupLink) {
 
 function isVrcdnStreamLink(link: LookupLink) {
   return link.type === "vrcdn" && !isVrcdnPreviewLink(link);
-}
-
-function discordCopyValue(link: LookupLink): string | null {
-  const handle = link.handle?.trim();
-
-  if (handle) {
-    return handle;
-  }
-
-  const labeledHandle = link.label.match(/^Discord\s*:\s*(.+)$/i)?.[1]?.trim();
-
-  if (labeledHandle) {
-    return labeledHandle;
-  }
-
-  try {
-    const userId = new URL(link.url).pathname.match(/^\/users\/([^/]+)\/?$/)?.[1];
-
-    return userId ? decodeURIComponent(userId) : null;
-  } catch {
-    return null;
-  }
 }
 
 function vrcdnStreamName(url: string): string | undefined {
