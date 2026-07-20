@@ -257,6 +257,7 @@ jobs:
         id: gate
         env:
           EVENT_NAME: ${{ github.event_name }}
+          SELECTED_STACK: ${{ github.event_name == 'workflow_dispatch' && inputs.stack || 'all' }}
           WORKFLOW_RUN_CONCLUSION: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion || '' }}
           APPLY_REQUESTED: ${{ github.event_name == 'workflow_dispatch' && inputs.apply || false }}
         run: |
@@ -290,6 +291,12 @@ jobs:
               echo "Plan skipped because required settings are missing:"
               printf -- '- %s\n' "${missing[@]}"
             } >> "$GITHUB_STEP_SUMMARY"
+
+            if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$SELECTED_STACK" = "${{ matrix.stack.name }}" ]; then
+              echo "::error::Terraform ${{ matrix.stack.name }} cannot plan because required repository settings are missing."
+              exit 1
+            fi
+
             exit 0
           fi
 

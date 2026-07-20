@@ -2,6 +2,7 @@ const isVercel = process.env.VERCEL === "1" || process.env.VERCEL === "true";
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 const posthogHost = process.env.NEXT_PUBLIC_POSTHOG_HOST;
 const requireConvexUrl = process.env.VRDEX_REQUIRE_CONVEX_URL === "true";
+const isProductionVercel = isVercel && process.env.VERCEL_ENV === "production";
 
 const errors = [];
 const warnings = [];
@@ -25,7 +26,7 @@ if (process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES === "true") {
   errors.push("VRDEX_ENABLE_PLAYWRIGHT_FIXTURES must not be enabled for Vercel builds.");
 }
 
-if (isVercel && process.env.VERCEL_ENV === "production") {
+if (isProductionVercel) {
   for (const name of [
     "VRDEX_ENABLE_E2E_HELPERS",
     "VRDEX_ENABLE_E2E_AUTH_HELPERS",
@@ -34,6 +35,34 @@ if (isVercel && process.env.VERCEL_ENV === "production") {
     if (process.env[name] === "true") {
       errors.push(`${name} must not be enabled for production Vercel builds.`);
     }
+  }
+}
+
+if (isProductionVercel) {
+  const rateLimitStore = process.env.VRDEX_RATE_LIMIT_STORE?.trim().toLowerCase();
+
+  if (!rateLimitStore) {
+    errors.push("VRDEX_RATE_LIMIT_STORE is required for production Vercel builds.");
+  } else if (!["redis-rest", "upstash"].includes(rateLimitStore)) {
+    errors.push("VRDEX_RATE_LIMIT_STORE must use redis-rest or upstash in production.");
+  }
+
+  const rateLimitRestUrl = process.env.VRDEX_RATE_LIMIT_REDIS_REST_URL;
+  if (!rateLimitRestUrl) {
+    errors.push("VRDEX_RATE_LIMIT_REDIS_REST_URL is required for production Vercel builds.");
+  } else {
+    const parsedRateLimitRestUrl = parseUrl(
+      "VRDEX_RATE_LIMIT_REDIS_REST_URL",
+      rateLimitRestUrl,
+    );
+
+    if (parsedRateLimitRestUrl?.protocol !== "https:") {
+      errors.push("VRDEX_RATE_LIMIT_REDIS_REST_URL must use https in production.");
+    }
+  }
+
+  if (!process.env.VRDEX_RATE_LIMIT_REDIS_REST_TOKEN?.trim()) {
+    errors.push("VRDEX_RATE_LIMIT_REDIS_REST_TOKEN is required for production Vercel builds.");
   }
 }
 
