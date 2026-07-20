@@ -213,10 +213,16 @@ function isVrcdnStreamLink(link: LookupLink) {
 }
 
 function discordCopyValue(link: LookupLink): string | null {
-  const handle = link.handle?.trim() || link.label.replace(/^Discord\s*:?\s*/i, "").trim();
+  const handle = link.handle?.trim();
 
-  if (handle && handle.toLowerCase() !== "discord") {
+  if (handle) {
     return handle;
+  }
+
+  const labeledHandle = link.label.match(/^Discord\s*:\s*(.+)$/i)?.[1]?.trim();
+
+  if (labeledHandle) {
+    return labeledHandle;
   }
 
   try {
