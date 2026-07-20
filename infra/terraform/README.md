@@ -78,4 +78,30 @@ Vercel rejects Marketplace term acceptance when it detects an AI agent. Do not
 bypass that gate. The command installs the integration only; Terraform remains
 the owner of the database resource and Vercel runtime bindings.
 
+### Rate-limit Redis first apply and recovery
+
+The stack also requires these repository settings before it can plan:
+
+- variable `TERRAFORM_UPSTASH_EMAIL`
+- secret `TERRAFORM_UPSTASH_API_KEY` or `UPSTASH_API_KEY`
+- variable or secret `AWS_TERRAFORM_ROLE_ARN`
+- secret `VERCEL_API_TOKEN` or `VERCEL_TOKEN`
+
+After accepting the Marketplace terms, configure the Upstash settings from an
+operator terminal without printing their values. Then dispatch the dedicated
+stack and request an apply:
+
+```sh
+gh workflow run terraform.yml -f stack=rate-limit-redis -f apply=true
+```
+
+An explicitly selected stack fails when required settings are missing instead
+of reporting a successful skipped plan. Review the plan and apply output before
+redeploying the Vercel production environment; Vercel environment changes only
+reach new deployments. The Vercel production build rejects a missing or
+non-shared rate-limit store before traffic can reach the deployment. The
+production smoke then verifies an anonymous `/api/v0/search` request and its
+response body. A configured deployment must return `200`, while a missing shared
+store remains fail-closed.
+
 Current hosted-vs-self-hosted ownership guidance lives in `docs/developers/self-hosting-and-iac.md`. The first AWS service baseline, including SES and the planned private S3 asset-storage follow-up, lives in `docs/deployment/aws-baseline.md`.

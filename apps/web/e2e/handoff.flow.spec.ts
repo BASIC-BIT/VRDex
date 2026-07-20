@@ -6,7 +6,7 @@ test.beforeEach(async ({ page }) => {
   await prepareVisualPage(page);
 });
 
-test("handoff invitations are excluded from indexing", async ({ page }) => {
+test("handoff invitations are excluded from indexing @fixture", async ({ page }) => {
   await page.goto("/handoff/playwright-ready");
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute(
     "content",
@@ -14,7 +14,7 @@ test("handoff invitations are excluded from indexing", async ({ page }) => {
   );
 });
 
-test("handoff shows a loading state", async ({ page }) => {
+test("handoff shows a loading state @fixture", async ({ page }) => {
   await page.goto("/handoff/playwright-loading");
   await expect(page.getByRole("status")).toContainText("Opening your invitation");
   await expect(page.getByRole("heading", { name: "Preparing your review." })).toBeVisible();
@@ -25,14 +25,14 @@ for (const state of [
   { token: "expired", heading: "Invitation expired" },
   { token: "revoked", heading: "Invitation revoked" },
 ] as const) {
-  test(`handoff shows the ${state.token} state`, async ({ page }) => {
+  test(`handoff shows the ${state.token} state @fixture`, async ({ page }) => {
     await page.goto(`/handoff/playwright-${state.token}`);
     await expect(page.getByRole("heading", { name: state.heading })).toBeVisible();
     await expect(page.getByRole("link", { name: "Return to VRDex" })).toBeVisible();
   });
 }
 
-test("handoff shows the accepted state and owner destination", async ({ page }) => {
+test("handoff shows the accepted state and owner destination @fixture", async ({ page }) => {
   await page.goto("/handoff/playwright-accepted");
   await expect(page.getByRole("heading", { name: "Invitation already accepted" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Open account" })).toHaveAttribute(
@@ -41,7 +41,7 @@ test("handoff shows the accepted state and owner destination", async ({ page }) 
   );
 });
 
-test("handoff preserves the invitation through sign-in", async ({ page }) => {
+test("handoff preserves the invitation through sign-in @fixture", async ({ page }) => {
   await page.goto("/handoff/playwright-signed-out");
   await expect(page.getByRole("heading", { name: "DJ Aurora" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Continue to your account" })).toBeVisible();
@@ -52,14 +52,14 @@ test("handoff preserves the invitation through sign-in", async ({ page }) => {
   await expect(page.getByLabel("Include Display name")).toBeDisabled();
 });
 
-test("handoff blocks acceptance until email is verified", async ({ page }) => {
+test("handoff blocks acceptance until email is verified @fixture", async ({ page }) => {
   await page.goto("/handoff/playwright-unverified");
   await expect(page.getByRole("heading", { name: "Verify your email first" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Open account" })).toHaveAttribute("href", "/account");
   await expect(page.getByLabel("Include Display name")).toBeDisabled();
 });
 
-test("handoff accepts individually selected fields and routes to the owner profile", async ({ page }) => {
+test("handoff accepts individually selected fields and routes to the owner profile @fixture", async ({ page }) => {
   await page.goto("/handoff/playwright-ready");
   await expect(page.getByRole("heading", { name: "DJ Aurora" })).toBeVisible();
   await expect(page.getByText("4 of 4 selected")).toBeVisible();
