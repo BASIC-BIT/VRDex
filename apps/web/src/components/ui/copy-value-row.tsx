@@ -38,7 +38,7 @@ export function CopyValueRow({
       )}
     >
       <span className="text-xs font-medium text-muted">{label}</span>
-      <div className="flex min-w-0 items-start gap-1">
+      <div className="flex min-w-0 items-center gap-1">
         <code
           className={cn(
             "min-w-0 break-all font-mono text-xs leading-5 text-foreground sm:text-sm",
