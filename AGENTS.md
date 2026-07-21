@@ -87,6 +87,7 @@ Prefer explicit labels in docs:
 - For each addressed PR review comment, leave a reaction or reply with the disposition, then resolve the thread before pushing.
 - Do not silently resolve review comments; if a comment is rejected or only partially applied, say why in the thread.
 - PR descriptions should not list routine branch-policy verification every time; include only non-obvious, manual, risk-specific, or otherwise useful verification notes beyond the checks required for merge.
+- Keep issue and PR updates focused on decisions, evidence, blockers, and next actions. Omit defensive boilerplate such as assurances that no secrets, credentials, or unrelated changes were included unless that fact is necessary to explain a security incident or remediation.
 - When a final message reports PR readiness, cleanliness, green checks, mergeability, or review readiness, include the PR URL.
 - Parallelize through multiple OpenCode sessions when it materially helps.
 - Do not overcomplicate workflows with subagents unless there is a clear payoff.
