@@ -195,7 +195,7 @@ test("serves VRDex tools over stdio and calls the configured API base URL", asyn
         },
       ],
     });
-    await callTool({
+    const profile = await callTool({
       id: 4,
       messages,
       name: "vrdex_get_profile",
@@ -204,6 +204,10 @@ test("serves VRDex tools over stdio and calls the configured API base URL", asyn
       stderr,
       toolArgs: { profileType: "community", slug: "basic-bit" },
     });
+    assert.equal(
+      (profile.result as { structuredContent?: { telemetry?: { currentPopulation?: { value?: number } } } }).structuredContent?.telemetry?.currentPopulation?.value,
+      42,
+    );
     await callTool({
       id: 5,
       messages,

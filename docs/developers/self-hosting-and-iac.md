@@ -45,6 +45,7 @@ The hosted BASIC BIT deployment uses:
 | Convex deployment keys and env vars | provider secret store plus docs | Documented in `docs/deployment/convex-environments.md` and `docs/deployment/ses-auth-email.md`. |
 | Convex custom domains | deferred manual provider setup | Runbook lives in `docs/deployment/convex-environments.md`; requires Convex Pro and dashboard-provided DNS records before Route 53 records. |
 | Profile asset storage | `infra/terraform/profile-assets` plus app runtime | Private S3 behavior, hosted Vercel OIDC auth, and runtime variable names are documented in `docs/deployment/aws-baseline.md`; lifecycle, deletion, CDN, and scanning remain follow-up work. |
+| VRChat group telemetry collector | `infra/terraform/group-telemetry-collector` plus Convex control plane | Validation-only ECS/Fargate stack with account-scoped operating-system vault reuse for local proof, a provider-approval gate for hosted account sessions, one external secret per approved account, startup gate, alarms, budget, and hard task cap. Bootstrap and recovery live in `docs/deployment/group-telemetry-collector.md`. |
 
 ## Self-Hosted Minimum Components
 
@@ -58,6 +59,7 @@ A self-hosted operator should expect to provide:
 - OAuth provider applications for enabled login providers
 - a product analytics choice, with BASIC BIT hosted PostHog keys intentionally omitted from committed defaults
 - secret storage for provider tokens, deploy keys, OAuth secrets, and email credentials
+- when aggregate group telemetry is provider-approved and enabled, a dedicated operator-owned VRChat account, external per-account session secret containing no password or TOTP seed, and continuously running collector compatible with `workers/group-telemetry`
 
 Self-hosting docs should distinguish required product configuration from BASIC BIT hosted deployment conveniences. Forks should not accidentally send analytics, email, or assets into BASIC BIT infrastructure.
 

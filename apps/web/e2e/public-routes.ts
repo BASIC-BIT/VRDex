@@ -440,6 +440,28 @@ export async function expectVrcdnMediaLinkPreviewPage(page: Page) {
   await expect(page.getByRole("button", { name: "Copy" })).toHaveCount(2);
 }
 
+export async function expectCommunityTelemetryPage(page: Page) {
+  await expect(page.getByRole("heading", { name: "The Faceless telemetry" })).toBeVisible();
+  await expect(page.getByText("54", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("img", { name: /Population over time/ })).toBeVisible();
+  await expect(page.getByRole("img", { name: /Active instances over time/ })).toBeVisible();
+  await expect(page.getByRole("img", { name: /Group members over time/ })).toBeVisible();
+  await expect(page.getByRole("img", { name: /wrld_faceless instance population/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Coverage" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Public stats" })).toBeVisible();
+  await expect(page.getByRole("checkbox")).toHaveCount(5);
+  await expect(page.getByRole("heading", { name: "Event associations" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Confirm" })).toHaveCount(2);
+  const chartRange = page.getByRole("combobox", { name: "Chart range" });
+  await chartRange.focus();
+  await page.keyboard.press("End");
+  await expect(chartRange).toHaveValue("720");
+  await page.keyboard.press("Home");
+  await expect(chartRange).toHaveValue("24");
+  const overflows = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+  expect(overflows).toBe(false);
+}
+
 export async function expectWorldProfilePage(page: Page) {
   await expect(page.getByRole("heading", { name: "Neon Harbor", exact: true })).toBeVisible();
   await expect(page.getByText(/World profile/i)).toHaveCount(0);
@@ -580,6 +602,11 @@ export const capturedRoutes: CapturedRoute[] = [
     name: "vrcdn-media-link-preview",
     path: "/playwright/vrcdn-media-links",
     expectPage: expectVrcdnMediaLinkPreviewPage,
+  },
+  {
+    name: "community-telemetry",
+    path: "/playwright/community-telemetry",
+    expectPage: expectCommunityTelemetryPage,
   },
 ];
 

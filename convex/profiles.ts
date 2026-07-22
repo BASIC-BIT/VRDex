@@ -4,6 +4,7 @@ import type { Doc } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { getPublicCommunityHostedEvents, getPublicPersonUpcomingEvents } from "./_eventPublic";
 import type { AuthSubject } from "./_communityAuthority";
+import { getPublicCommunityTelemetry } from "./_communityTelemetryPublic";
 import {
   apiWriteAuditActorKindValidator,
   recordApiWriteAuditEvent,
@@ -249,6 +250,9 @@ export const getPublicBySlug = query({
       "bannerImageUrl" in publicProfile && typeof publicProfile.bannerImageUrl === "string"
         ? publicProfile.bannerImageUrl
         : undefined;
+    const telemetry = profile.profileType === "community"
+      ? await getPublicCommunityTelemetry(ctx.db, profile._id, now)
+      : null;
 
     return {
       ...publicProfile,
@@ -261,6 +265,7 @@ export const getPublicBySlug = query({
         slug: profile.slug,
       }),
       ...eventContext,
+      ...(telemetry ? { telemetry } : {}),
     };
   },
 });

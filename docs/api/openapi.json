@@ -5655,6 +5655,348 @@
               "type": "string"
             }
           },
+          "telemetry": {
+            "type": "object",
+            "properties": {
+              "schemaVersion": {
+                "type": "number",
+                "const": 1
+              },
+              "rollupVersion": {
+                "type": "string",
+                "minLength": 1
+              },
+              "freshness": {
+                "type": "string",
+                "enum": [
+                  "current",
+                  "stale"
+                ]
+              },
+              "observedAt": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "definitions": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "unit": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "grain": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "gapPolicy": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "unit",
+                    "grain",
+                    "gapPolicy"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "currentPopulation": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "activeInstanceCount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "observedAt": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "coverage": {
+                    "type": "string",
+                    "enum": [
+                      "observed",
+                      "estimated",
+                      "stale",
+                      "unknown",
+                      "degraded"
+                    ]
+                  }
+                },
+                "required": [
+                  "value",
+                  "activeInstanceCount",
+                  "observedAt",
+                  "coverage"
+                ],
+                "additionalProperties": false
+              },
+              "populationHistory": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "startAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "endAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "durationMinutes": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "currentPopulation": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "activeInstanceCount": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "peakConcurrency": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "playerHours": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "coverageRatio": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "groupMemberCount": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "groupMemberGrowth": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "worldDistribution": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "vrchatWorldId": {
+                            "type": "string",
+                            "pattern": "^wrld_.*"
+                          },
+                          "samples": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "vrchatWorldId",
+                          "samples"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "startAt",
+                    "endAt",
+                    "durationMinutes",
+                    "activeInstanceCount",
+                    "peakConcurrency",
+                    "playerHours",
+                    "coverageRatio",
+                    "worldDistribution"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "groupMemberCount": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "observedAt": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "value",
+                  "observedAt"
+                ],
+                "additionalProperties": false
+              },
+              "groupMemberGrowth": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "startAt": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "endAt": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "value",
+                  "startAt",
+                  "endAt"
+                ],
+                "additionalProperties": false
+              },
+              "eventRecaps": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "startAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "endAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "durationMinutes": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "currentPopulation": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "activeInstanceCount": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "peakConcurrency": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "playerHours": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "coverageRatio": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "groupMemberCount": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "groupMemberGrowth": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "worldDistribution": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "vrchatWorldId": {
+                            "type": "string",
+                            "pattern": "^wrld_.*"
+                          },
+                          "samples": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "vrchatWorldId",
+                          "samples"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "event": {
+                      "type": "object",
+                      "properties": {
+                        "slug": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 160
+                        },
+                        "title": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "slug",
+                        "title"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "startAt",
+                    "endAt",
+                    "durationMinutes",
+                    "activeInstanceCount",
+                    "peakConcurrency",
+                    "playerHours",
+                    "coverageRatio",
+                    "worldDistribution"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "schemaVersion",
+              "rollupVersion",
+              "freshness",
+              "definitions"
+            ],
+            "additionalProperties": false,
+            "description": "Independently opted-in aggregate telemetry for a public community profile."
+          },
           "trustLabel": {
             "type": "string",
             "enum": [

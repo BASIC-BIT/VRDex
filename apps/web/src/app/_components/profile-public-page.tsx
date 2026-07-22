@@ -143,6 +143,22 @@ type PublicCommunityProfile = PublicProfileBase & {
     subtype?: string;
     categoryTags: string[];
   };
+  telemetry?: {
+    freshness: "current" | "stale";
+    observedAt?: number;
+    currentPopulation?: { value: number; activeInstanceCount: number; observedAt: number };
+    populationHistory?: Array<{ startAt: number; currentPopulation?: number; peakConcurrency: number; coverageRatio: number }>;
+    groupMemberCount?: { value: number; observedAt: number };
+    groupMemberGrowth?: { value: number; startAt: number; endAt: number };
+    eventRecaps?: Array<{
+      event?: { slug: string; title: string };
+      startAt: number;
+      peakConcurrency: number;
+      playerHours: number;
+      durationMinutes: number;
+      coverageRatio: number;
+    }>;
+  };
 };
 
 export type PublicProfile = PublicPersonProfile | PublicCommunityProfile;
@@ -238,6 +254,35 @@ function formatByteSize(value: number): string {
   }
 
   return `${Math.max(1, Math.round(value / 1024))} KB`;
+}
+
+function CommunityActivity({ telemetry }: { telemetry: NonNullable<PublicCommunityProfile["telemetry"]> }) {
+  const history = telemetry.populationHistory ?? [];
+  const historyMax = Math.max(1, ...history.map((point) => point.peakConcurrency));
+  const hasSummary = telemetry.currentPopulation || telemetry.groupMemberCount || telemetry.groupMemberGrowth;
+  return (
+    <section className="border-t border-border py-8">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <SectionHeading>Activity</SectionHeading>
+        <p className="text-xs text-muted">{telemetry.freshness === "current" ? "Current" : "Stale"}</p>
+      </div>
+      {hasSummary ? <div className="mt-5 grid gap-3 sm:grid-cols-3">
+        {telemetry.currentPopulation ? <Card padding="sm" surface="strong"><p className="text-sm text-muted">In group instances</p><p className="mt-2 text-3xl font-semibold">{telemetry.currentPopulation.value}</p><p className="mt-1 text-xs text-muted">{telemetry.currentPopulation.activeInstanceCount} active instances</p></Card> : null}
+        {telemetry.groupMemberCount ? <Card padding="sm" surface="strong"><p className="text-sm text-muted">Group members</p><p className="mt-2 text-3xl font-semibold">{telemetry.groupMemberCount.value.toLocaleString()}</p></Card> : null}
+        {telemetry.groupMemberGrowth ? <Card padding="sm" surface="strong"><p className="text-sm text-muted">Member growth</p><p className="mt-2 text-3xl font-semibold">{telemetry.groupMemberGrowth.value > 0 ? "+" : ""}{telemetry.groupMemberGrowth.value.toLocaleString()}</p></Card> : null}
+      </div> : null}
+      {history.length > 0 ? <div className="mt-6" aria-label="Hourly peak population history. Missing buckets are blank." role="img">
+        <div className="flex h-32 items-end gap-1 border-b border-border" aria-hidden="true">
+          {history.map((point) => {
+            const missing = point.currentPopulation === undefined || point.coverageRatio <= 0;
+            return <span className={cn("min-w-1 flex-1", missing ? "bg-transparent" : "bg-accent", !missing && (point.coverageRatio < 0.5 ? "opacity-30" : "opacity-85"))} key={point.startAt} style={{ height: missing ? 0 : `${Math.max(3, (point.peakConcurrency / historyMax) * 100)}%` }} />;
+          })}
+        </div>
+        <p className="mt-2 text-xs text-muted">Hourly peak population · gaps remain unfilled</p>
+      </div> : null}
+      {telemetry.eventRecaps && telemetry.eventRecaps.length > 0 ? <div className="mt-7 grid gap-3 sm:grid-cols-2">{telemetry.eventRecaps.map((recap) => <Card key={`${recap.event?.slug ?? "event"}-${recap.startAt}`} padding="sm" surface="strong"><p className="font-medium">{recap.event?.title ?? "Event recap"}</p><p className="mt-2 text-sm text-muted">Peak {recap.peakConcurrency.toLocaleString()} · {recap.playerHours.toFixed(1)} player hours · {Math.round(recap.durationMinutes)} min · {Math.round(recap.coverageRatio * 100)}% coverage</p></Card>)}</div> : null}
+    </section>
+  );
 }
 
 function mimeLabel(value: string): string {
@@ -566,6 +611,8 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
             </aside>
           ) : null}
         </div>
+
+        {!isPerson && profile.telemetry ? <CommunityActivity telemetry={profile.telemetry} /> : null}
 
         {secondaryOrder.map((section) => {
           const content = secondarySections[section];

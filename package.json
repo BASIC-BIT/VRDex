@@ -45,6 +45,8 @@
     "proof:restream:local": "node --import tsx scripts/restream-local-validation.ts run",
     "precheck:restream:local": "node scripts/guard-main-worktree.mjs",
     "check:restream:local": "node --import tsx scripts/restream-local-validation.ts check",
+    "preproof:group-telemetry": "node scripts/guard-main-worktree.mjs",
+    "proof:group-telemetry": "node --env-file-if-exists=.env.local scripts/prove-vrchat-group-telemetry.mjs",
     "preproof:restream:control": "node scripts/guard-main-worktree.mjs",
     "proof:restream:control": "node --import tsx scripts/restream-control-demo.ts",
     "preproof:restream:live-control": "node scripts/guard-main-worktree.mjs",
@@ -167,11 +169,7 @@
     "**/*.{md,mdx}": "markdownlint-cli2 --fix",
     "apps/web/**/*.{js,jsx,ts,tsx,mjs,cjs}": "pnpm --filter web exec eslint --fix --max-warnings=0"
   },
-  "pnpm": {
-    "overrides": {
-      "webpack": "5.99.9"
-    }
-  },
+
   "devDependencies": {
     "@types/node": "^24.10.5",
     "convex": "^1.32.0",
@@ -188,5 +186,8 @@
     "@aws-sdk/client-ses": "^3.1055.0",
     "@convex-dev/auth": "^0.0.92",
     "@convex-dev/migrations": "^0.3.4"
+  },
+  "optionalDependencies": {
+    "keytar": "7.9.0"
   }
 }

@@ -11,6 +11,7 @@ VRDex keeps small infrastructure stacks separate so credentials, blast radius, a
 - `docs-site/`: Vercel docs project/domain and Route 53 DNS for `docs.vrdex.net`.
 - `web-domains/`: Vercel web project-domain bindings and Route 53 DNS for `vrdex.net` and `www.vrdex.net`.
 - `restream-worker/`: validation-only hosted restream worker benchmark foundation for ECR, ECS/Fargate, logs, roles, secret references, and the disabled kill switch.
+- `group-telemetry-collector/`: validation-only account-scoped collector fleet foundation with one-secret isolation, bounded compute, startup gate, logs, task-health alarms, and an optional tagged cost budget.
 
 Each non-bootstrap stack uses the shared S3 state bucket `vrdex-terraform-state` with a stack-specific state key and S3 native locking. `state-mgmt/` intentionally uses local state because it manages that bucket. Do not commit `terraform.tfvars`, local state, plans, or provider directories.
 
@@ -61,6 +62,7 @@ The stack count is intentional, but should stay small:
 - keep `ses/` separate because it can create IAM access-key material and has a different blast radius from Vercel/PostHog metadata
 - keep `profile-assets/` separate because it owns an AWS S3 bucket, AWS IAM OIDC role, and the Vercel env vars that expose that role to the web runtime
 - keep `restream-worker/` validation-only until the local `1080p60` media proof and a human-approved AWS benchmark window exist
+- keep `group-telemetry-collector/` validation-only until the real single-account VRChat provider proof has a documented go or adjust disposition and VRChat explicitly approves durable service-account sessions
 - combine future stacks only when they share provider credentials, state ownership, and apply cadence without widening secret exposure
 
 `rate-limit-redis/` is intentionally plan/manual-apply in CI. Creating or

@@ -32,6 +32,10 @@ Current likely stack direction based on adjacent repos and your preference:
 - `AWS` for SES auth email, private S3 asset storage, DNS-adjacent infrastructure, and surrounding infrastructure that fits better there
 - `Stripe` for subscriptions, billing portal, and webhook-backed entitlement updates
 
+### Community telemetry
+
+Aggregate VRChat group telemetry uses Convex as the product/control plane and an account-scoped worker adapter as the provider plane. Community integrations, account allocation, fenced leases, immutable observations, coverage windows, rollups, public opt-ins, and event associations stay in Convex. The hosted worker runs in bounded ECS/Fargate infrastructure and receives exactly one VRDex-owned account secret. Customer VRChat credentials and person-level instance presence are outside this data family. See `docs/planning/community-group-telemetry.md` and `docs/backend/community-group-telemetry.md`.
+
 ### Auth
 
 - support multiple login providers instead of treating Discord as the only account path
