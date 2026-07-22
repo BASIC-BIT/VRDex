@@ -1355,7 +1355,11 @@ async function invokePlanIrEndpoint(endpoint: TemporalPlanIrEndpointConfig, prom
 }
 
 function planIrEndpointUrl(endpoint: TemporalPlanIrEndpointConfig): string {
-  const baseUrl = endpoint.baseUrl.replace(/\/+$/, '');
+  let end = endpoint.baseUrl.length;
+  while (end > 0 && endpoint.baseUrl.charCodeAt(end - 1) === 47) {
+    end -= 1;
+  }
+  const baseUrl = endpoint.baseUrl.slice(0, end);
   const versionedBaseUrl = baseUrl.endsWith('/v1') ? baseUrl : `${baseUrl}/v1`;
   return `${versionedBaseUrl}/${endpoint.api === 'chat' ? 'chat/completions' : 'completions'}`;
 }

@@ -5,6 +5,7 @@ import {
   createDeterministicTemporalToolImplementations,
   executeTemporalPlanPlannerOutput,
   parseCalendarContext,
+  parseTemporalExpression,
   parseTemporalPlanPlannerOutput,
 } from "../src/index";
 
@@ -44,6 +45,39 @@ const tomorrowAtEight = {
 };
 
 describe("migrated temporal Plan-IR executor", () => {
+  it("normalizes an adversarial run of trailing endpoint slashes in linear time", async () => {
+    const previousFetch = globalThis.fetch;
+    let requestedUrl: string | undefined;
+    globalThis.fetch = async (input) => {
+      requestedUrl = String(input);
+      return new Response(JSON.stringify({
+        choices: [{ text: JSON.stringify({ outcome: "no_plan", reason: "No supported expression.", plans: [] }) }],
+      }), { status: 200 });
+    };
+
+    try {
+      await parseTemporalExpression({
+        text: "whenever vibes are right",
+        timeZone: "America/Indianapolis",
+        referenceInstant: "2026-07-22T12:00:00.000Z",
+        features: { planIr: true },
+        planIrEndpoint: {
+          baseUrl: `https://model.test${"/".repeat(100_000)}`,
+          model: "executor-test@immutable",
+          instructionPreset: "minimal",
+          api: "completions",
+          promptFormat: "custom",
+          maxTokens: 256,
+          timeoutMs: 1_000,
+        },
+      });
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+
+    assert.equal(requestedUrl, "https://model.test/v1/completions");
+  });
+
   it("resolves a date and clock time to one canonical instant", async () => {
     const result = await execute(tomorrowAtEight, "tomorrow at 8pm");
 
