@@ -180,6 +180,34 @@ Discovery and lookup events avoid search terms, profile slugs, private profile
 fields, raw authentication identifiers, seed values, and unsupported popularity
 claims. Revisit retention and privacy copy before broad public launch.
 
+## Product-learning data
+
+Locked decision:
+
+- Product analytics events should remain sparse and avoid raw user content.
+- A product workflow may separately retain user-submitted source material when
+  that material is genuinely useful for improving the product, the purpose is
+  disclosed, and the user can opt out.
+- PostHog is not the raw-content store. Retained source material belongs in a
+  controlled product record with owner, purpose, retention state, deletion
+  support, and access boundaries.
+- VRDex does not sell retained user-submitted source material.
+
+The temporal parser is the first explicit application of this rule. It may
+retain temporal input text for parser improvement unless the account or request
+opts out. The UI and API must warn users not to submit sensitive material. Raw
+temporal text must not appear in PostHog properties, URLs, session replay,
+ordinary logs, or provider telemetry. This narrow decision does not authorize
+unannounced capture in unrelated editors, private forms, claims, or imports.
+
+Before enabling replay or raw-content learning beyond the closed beta, document
+the consent or other legal basis, content-retention period, staff-access
+boundary, deletion path, and account opt-out behavior for that exact surface.
+
+The `temporal-parsing-beta` PostHog flag mirrors the backend-authorized
+`use_temporal_parsing_beta` grant for UI rollout and measurement. Convex remains
+the authorization source of truth.
+
 ## Interview later
 
 - whether public marketing pages eventually justify a separate `Google Analytics` installation

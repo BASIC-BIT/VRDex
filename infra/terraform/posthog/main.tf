@@ -25,6 +25,27 @@ resource "posthog_feature_flag" "seed_lookup_beta" {
   tags = ["managed-by:terraform", "surface:onboarding"]
 }
 
+resource "posthog_feature_flag" "temporal_parsing_beta" {
+  project_id = tostring(var.posthog_project_id)
+  key        = "temporal-parsing-beta"
+  name       = "Temporal parsing beta"
+  active     = true
+
+  filters = jsonencode({
+    groups = [{
+      properties = [{
+        key      = "temporal_parsing_beta"
+        type     = "person"
+        value    = ["true"]
+        operator = "exact"
+      }]
+      rollout_percentage = 100
+    }]
+  })
+
+  tags = ["managed-by:terraform", "surface:temporal"]
+}
+
 resource "posthog_feature_flag" "featured_discovery" {
   project_id = tostring(var.posthog_project_id)
   key        = "featured-discovery"

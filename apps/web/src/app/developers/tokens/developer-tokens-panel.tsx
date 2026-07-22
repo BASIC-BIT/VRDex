@@ -16,6 +16,7 @@ const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 const tokenScopes = [
   { value: "public:read", label: "Public reads" },
   { value: "mcp:read", label: "MCP reads" },
+  { value: "time:parse", label: "Time parsing" },
   { value: "profile:read", label: "Profile reads" },
   { value: "profile:write", label: "Profile writes" },
   { value: "community:read", label: "Community reads" },

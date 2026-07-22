@@ -190,6 +190,33 @@ Open research:
 - whether hosted sets belong in VRDex core, a premium tier, a self-hosted
   module, or a later companion service
 
+## Structured-Language Utilities
+
+Locked decision:
+
+- VRDex may own public utility endpoints when they are useful on their own and
+  also form dependable building blocks for core product workflows.
+- Language models used in creator-facing flows should primarily understand and
+  structure user-provided intent. They must not replace a creator's voice or
+  silently publish generated creative content by default.
+- Probabilistic interpretation and durable mutation are separate operations.
+  Users review an editable draft before event, profile, or schedule data is
+  created.
+
+Current recommendation:
+
+- VRDex Time is the first utility: a specialized temporal model produces a
+  constrained plan and deterministic code produces the canonical answer.
+- Future event drafting may use a fast general model to extract event fields and
+  send the temporal fragment to VRDex Time.
+- Compare that orchestration against a general model using deterministic tools;
+  choose from measured accuracy, latency, and cost rather than architectural
+  preference.
+- Treat poster parsing as reviewable extraction with provenance, not
+  owner-confirmed fact.
+
+See `docs/planning/temporal-parsing-service.md` for the first implementation.
+
 ## Design System Direction
 
 Current recommendation:

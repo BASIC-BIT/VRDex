@@ -33,6 +33,7 @@ Audience:
 - [OpenCode skill adapter](./opencode-skill-adapter.md)
 - [Public API posture](./public-api.md)
 - [API authentication](./api-auth.md)
+- [VRDex Time API](./time-api.md)
 - [OAuth applications](./oauth-apps.md)
 - [API and MCP rate limits](./api-rate-limits.md)
 - [Self-hosting and IaC](./self-hosting-and-iac.md)

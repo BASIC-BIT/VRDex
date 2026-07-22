@@ -21,6 +21,14 @@ output "seed_lookup_beta_feature_flag" {
   }
 }
 
+output "temporal_parsing_beta_feature_flag" {
+  description = "PostHog flag that mirrors the backend-authorized temporal parsing beta audience."
+  value = {
+    id  = posthog_feature_flag.temporal_parsing_beta.id
+    key = posthog_feature_flag.temporal_parsing_beta.key
+  }
+}
+
 output "featured_discovery_feature_flag" {
   description = "PostHog flag that controls Featured placements on the unlisted discovery surface."
   value = {

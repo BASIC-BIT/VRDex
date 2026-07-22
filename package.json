@@ -187,6 +187,7 @@
     "@auth/core": "^0.37.4",
     "@aws-sdk/client-ses": "^3.1055.0",
     "@convex-dev/auth": "^0.0.92",
-    "@convex-dev/migrations": "^0.3.4"
+    "@convex-dev/migrations": "^0.3.4",
+    "@vrdex/temporal-runtime": "workspace:*"
   }
 }

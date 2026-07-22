@@ -15,6 +15,7 @@ export const componentStories = [
   { id: "design-system-primitives--entities-and-metadata", name: "entities-and-metadata" },
   { id: "design-system-primitives--event-schedule-empty-state", name: "event-schedule-empty-state" },
   { id: "design-system-primitives--shell-and-actions", name: "shell-and-actions" },
+  { id: "features-temporal-parser--resolved", name: "temporal-parser-resolved" },
 ] as const;
 
 export async function prepareStorybookVisualPage(page: Page) {

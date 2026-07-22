@@ -68,14 +68,21 @@ describe("account feature access", () => {
         [{ feature: "super_admin", state: "active", expiresAt: 101 }],
         100,
       ),
-      { superAdmin: true, canViewPrivateSeedLookup: true },
+      { superAdmin: true, canViewPrivateSeedLookup: true, canUseTemporalParsing: true },
     );
     assert.deepEqual(
       accountFeatureAccessFromGrants(
         [{ feature: "view_private_seed_lookup", state: "revoked" }],
         100,
       ),
-      { superAdmin: false, canViewPrivateSeedLookup: false },
+      { superAdmin: false, canViewPrivateSeedLookup: false, canUseTemporalParsing: false },
+    );
+    assert.deepEqual(
+      accountFeatureAccessFromGrants(
+        [{ feature: "use_temporal_parsing_beta", state: "active" }],
+        100,
+      ),
+      { superAdmin: false, canViewPrivateSeedLookup: false, canUseTemporalParsing: true },
     );
   });
 });

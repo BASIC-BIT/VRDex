@@ -1,0 +1,19 @@
+# VRDex
+
+> VRChat-first identity, profiles, communities, events, and developer utilities.
+
+Canonical documentation:
+
+- [Developer overview](https://docs.vrdex.net/docs/developers/)
+- [Public API](https://docs.vrdex.net/docs/developers/public-api)
+- [API authentication](https://docs.vrdex.net/docs/developers/api-auth)
+- [VRDex Time API](https://docs.vrdex.net/docs/developers/time-api)
+- [API rate limits](https://docs.vrdex.net/docs/developers/api-rate-limits)
+- [Partner agent skill](https://docs.vrdex.net/docs/developers/partner-agent-skill)
+- [MCP read tools](https://docs.vrdex.net/docs/developers/vrdex-mcp-read-tools)
+- [OpenAPI JSON](https://vrdex.net/api/v0/openapi.json)
+- [OpenAPI YAML](https://vrdex.net/api/v0/openapi.yaml)
+
+Use the API or MCP for structured data. Preserve provenance and do not treat
+unclaimed, community-submitted, imported, or AI-extracted data as
+owner-confirmed.

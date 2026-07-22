@@ -54,6 +54,13 @@ import {
   SlugPathParamsSchema,
   type z,
 } from "./schemas";
+import {
+  TemporalContinuationPathParamsSchema,
+  TemporalIdempotencyHeaderSchema,
+  TemporalParseCompletedResponseSchema,
+  TemporalParsePendingResponseSchema,
+  TemporalParseRequestSchema,
+} from "./temporal";
 
 type JsonSchema = z.ZodType;
 
@@ -128,6 +135,9 @@ const eventsWriteSecurity: Array<Record<string, string[]>> = [
   { bearerAuth: [] },
   { oauth2: ["events:write"] },
 ];
+const timeParseSecurity: Array<Record<string, string[]>> = [
+  { bearerAuth: ["time:parse"] },
+];
 const assetsWriteSecurity: Array<Record<string, string[]>> = [
   { bearerAuth: [] },
   { oauth2: ["assets:write"] },
@@ -168,6 +178,7 @@ export const openApiSource = {
     { name: "Worlds", description: "Public world read surfaces." },
     { name: "Claims", description: "Public claim-status read surfaces." },
     { name: "Usage", description: "API usage and rate-limit surfaces." },
+    { name: "Time", description: "Natural-language temporal parsing utility." },
     { name: "Me", description: "Authenticated caller introspection surfaces." },
     { name: "Developer", description: "Authenticated developer credential-management surfaces." },
   ],
@@ -1110,6 +1121,75 @@ export const openApiSource = {
             content: jsonContent(PublicClaimStatusResponseSchema),
           },
           ...publicReadProblemResponses,
+        },
+      },
+    },
+    "/api/v0/time/parse": {
+      post: {
+        operationId: "parseTemporalExpression",
+        tags: ["Time"],
+        summary: "Parse a natural-language time expression",
+        description:
+          "Returns a canonical instant, range, clarification, or a 202 continuation while the scale-to-zero model warms. Closed beta requires a verified user-owned personal token with time:parse.",
+        security: timeParseSecurity,
+        requestParams: {
+          header: TemporalIdempotencyHeaderSchema,
+        },
+        requestBody: {
+          required: true,
+          content: jsonContent(TemporalParseRequestSchema),
+        },
+        responses: {
+          "200": {
+            description: "Validated temporal result or clarification.",
+            content: jsonContent(TemporalParseCompletedResponseSchema),
+          },
+          "202": {
+            description: "The parse was accepted and can be retrieved with the continuation token.",
+            headers: {
+              "Location": { description: "Continuation URL.", schema: { type: "string", format: "uri" } },
+              "Retry-After": { description: "Polling delay in seconds.", schema: { type: "integer", minimum: 1 } },
+            },
+            content: jsonContent(TemporalParsePendingResponseSchema),
+          },
+          "400": publicReadProblemResponses["400"],
+          "401": { description: "A valid personal API token is required.", content: jsonContent(ApiProblemSchema) },
+          "403": { description: "Verified email, beta grant, or time:parse scope is missing.", content: jsonContent(ApiProblemSchema) },
+          "429": publicReadProblemResponses["429"],
+          "500": { description: "The temporal service is not fully configured.", content: jsonContent(ApiProblemSchema) },
+          "503": { description: "The service is disabled, busy, or temporarily unavailable.", content: jsonContent(ApiProblemSchema) },
+          "504": { description: "Inference exceeded its bounded deadline.", content: jsonContent(ApiProblemSchema) },
+        },
+      },
+    },
+    "/api/v0/time/parse/{continuationToken}": {
+      get: {
+        operationId: "getTemporalParseContinuation",
+        tags: ["Time"],
+        summary: "Get an accepted temporal parse",
+        security: timeParseSecurity,
+        requestParams: {
+          path: TemporalContinuationPathParamsSchema,
+        },
+        responses: {
+          "200": {
+            description: "Validated temporal result or clarification.",
+            content: jsonContent(TemporalParseCompletedResponseSchema),
+          },
+          "202": {
+            description: "The accepted parse is still warming or running.",
+            headers: {
+              "Retry-After": { description: "Polling delay in seconds.", schema: { type: "integer", minimum: 1 } },
+            },
+            content: jsonContent(TemporalParsePendingResponseSchema),
+          },
+          "401": { description: "A valid personal API token is required.", content: jsonContent(ApiProblemSchema) },
+          "403": { description: "The credential cannot access this temporal parse.", content: jsonContent(ApiProblemSchema) },
+          "404": { description: "The continuation token is unknown.", content: jsonContent(ApiProblemSchema) },
+          "410": { description: "The continuation token expired.", content: jsonContent(ApiProblemSchema) },
+          "429": publicReadProblemResponses["429"],
+          "503": { description: "The accepted parse failed because inference is unavailable.", content: jsonContent(ApiProblemSchema) },
+          "504": { description: "Inference exceeded its bounded deadline.", content: jsonContent(ApiProblemSchema) },
         },
       },
     },

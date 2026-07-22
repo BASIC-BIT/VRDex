@@ -16,6 +16,10 @@ type ConvexHttpClientWithAdminAuth = ConvexHttpClient & {
     mutation: Mutation,
     ...args: ArgsAndOptions<Mutation, HttpMutationOptions>
   ): Promise<FunctionReturnType<Mutation>>;
+  action<Action extends FunctionReference<"action", "public" | "internal">>(
+    action: Action,
+    ...args: OptionalRestArgs<Action>
+  ): Promise<FunctionReturnType<Action>>;
   setAdminAuth(token: string): void;
 };
 

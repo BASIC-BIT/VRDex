@@ -2,6 +2,7 @@ import type { PostHog } from "posthog-js";
 
 export const PRIVATE_SEED_LOOKUP_UI_FLAG = "seed-lookup-beta";
 export const FEATURED_DISCOVERY_UI_FLAG = "featured-discovery";
+export const TEMPORAL_PARSING_UI_FLAG = "temporal-parsing-beta";
 const URL_PROPERTY_NAMES = new Set([
   "$current_url",
   "$pathname",
@@ -76,6 +77,13 @@ type ProductAnalyticsEvents = {
     result_count: "multiple" | "one";
     ui_flag: "enabled" | "super_admin_bypass";
   };
+  temporal_page_opened: { retention_default: "retain" | "do_not_retain" };
+  temporal_parse_submitted: { retention: "retain" | "do_not_retain" };
+  temporal_parse_completed: {
+    latency: "under_2s" | "under_5s" | "under_30s" | "over_30s";
+    outcome: "resolved" | "needs_clarification" | "no_plan" | "failed";
+  };
+  temporal_retention_changed: { retention_default: "retain" | "do_not_retain" };
 };
 
 export type ProductAnalyticsEvent = keyof ProductAnalyticsEvents;
@@ -86,6 +94,18 @@ export function captureProductEvent<Event extends ProductAnalyticsEvent>(
   properties: ProductAnalyticsEvents[Event],
 ) {
   posthog?.capture(event, properties);
+}
+
+export function mirrorTemporalParsingAccess(
+  posthog: PostHog | undefined,
+  canUseTemporalParsing: boolean,
+) {
+  const properties = {
+    temporal_parsing_beta: canUseTemporalParsing ? "true" : "false",
+  };
+
+  posthog?.setPersonProperties(properties);
+  posthog?.setPersonPropertiesForFlags(properties, true);
 }
 
 export function mirrorPrivateSeedLookupAccess(

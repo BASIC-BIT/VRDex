@@ -1,6 +1,7 @@
 export const ACCOUNT_FEATURES = [
   "super_admin",
   "view_private_seed_lookup",
+  "use_temporal_parsing_beta",
 ] as const;
 
 export type AccountFeature = (typeof ACCOUNT_FEATURES)[number];
@@ -14,6 +15,7 @@ type AccountFeatureGrantLike = {
 export type AccountFeatureAccess = {
   superAdmin: boolean;
   canViewPrivateSeedLookup: boolean;
+  canUseTemporalParsing: boolean;
 };
 
 export function isAccountFeatureGrantActive(
@@ -39,5 +41,7 @@ export function accountFeatureAccessFromGrants(
     superAdmin,
     canViewPrivateSeedLookup:
       superAdmin || activeFeatures.has("view_private_seed_lookup"),
+    canUseTemporalParsing:
+      superAdmin || activeFeatures.has("use_temporal_parsing_beta"),
   };
 }

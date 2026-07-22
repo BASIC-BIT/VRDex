@@ -47,6 +47,7 @@ export const defaultApiRateLimitPolicies: Record<ApiRouteClass, ApiRateLimitPoli
   public_write: { limit: 30, windowMs: 60_000 },
   anonymous_mcp_public_read: { limit: 60, windowMs: 60_000 },
   authenticated_mcp: { limit: 300, windowMs: 60_000 },
+  time_parse: { limit: 6, windowMs: 60_000 },
 };
 
 export const trustedPartnerApiRateLimitMultiplier = 100;

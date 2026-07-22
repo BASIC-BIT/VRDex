@@ -1,0 +1,6 @@
+accelerate==1.13.0
+huggingface-hub==1.17.0
+peft==0.19.1
+safetensors==0.7.0
+torch==2.9.1+cu128
+transformers==5.5.0
