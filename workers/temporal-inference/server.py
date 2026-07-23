@@ -216,8 +216,11 @@ def create_handler(state: ModelState) -> type[BaseHTTPRequestHandler]:
         server_version = "VRDexTemporal/0.1"
 
         def do_GET(self) -> None:
-            if self.path != "/ping":
+            if self.path not in {"/ping", "/ready"}:
                 self.write_json({"error": "not_found"}, HTTPStatus.NOT_FOUND)
+                return
+            if self.path == "/ready" and not self.authorized(auth_token):
+                self.write_json({"error": "unauthorized"}, HTTPStatus.UNAUTHORIZED)
                 return
             if state.ready:
                 self.write_json({

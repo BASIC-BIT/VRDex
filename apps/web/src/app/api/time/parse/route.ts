@@ -53,11 +53,11 @@ export async function POST(request: Request) {
   if (!idempotency.ok) {
     return idempotency.response;
   }
-  const continuationToken = createContinuationToken(
-    String(viewer.user.id),
-    idempotency.value,
-  );
   try {
+    const continuationToken = createContinuationToken(
+      String(viewer.user.id),
+      idempotency.value,
+    );
     const job = await submitTemporalJob({
       auth,
       body: parsed.data,

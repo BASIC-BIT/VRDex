@@ -174,7 +174,7 @@ export const prewarm = internalAction({
       return { status: "disabled" as const };
     }
     try {
-      const response = await fetch(`${baseUrl}/ping`, {
+      const response = await fetch(`${baseUrl}/ready`, {
         headers: { authorization: `Bearer ${authToken}` },
         signal: AbortSignal.timeout(2_000),
       });

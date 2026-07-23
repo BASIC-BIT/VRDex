@@ -112,6 +112,57 @@ class TemporalInferenceWorkerTests(unittest.TestCase):
             [({"error": "model_startup_failed"}, HTTPStatus.INTERNAL_SERVER_ERROR, None)],
         )
 
+    def test_authenticated_readiness_verifies_the_application_token(self) -> None:
+        state = ModelState()
+        state.ready = True
+        responses: list[tuple[dict[str, object], HTTPStatus, dict[str, str] | None]] = []
+        with patch.dict(
+            os.environ,
+            {"TEMPORAL_INFERENCE_AUTH_TOKEN": "test-auth-token"},
+            clear=True,
+        ):
+            handler_type = create_handler(state)
+        handler = object.__new__(handler_type)
+        handler.path = "/ready"
+        handler.headers = {"authorization": "Bearer stale-token"}
+
+        def capture_response(
+            _self: object,
+            body: dict[str, object],
+            status: HTTPStatus = HTTPStatus.OK,
+            headers: dict[str, str] | None = None,
+        ) -> None:
+            responses.append((body, status, headers))
+
+        handler.write_json = MethodType(capture_response, handler)
+        handler.do_GET()
+        self.assertEqual(
+            responses,
+            [({"error": "unauthorized"}, HTTPStatus.UNAUTHORIZED, None)],
+        )
+
+        responses.clear()
+        handler.headers = {"authorization": "Bearer test-auth-token"}
+        handler.do_GET()
+        self.assertEqual(
+            responses,
+            [(
+                {
+                    "status": "ready",
+                    "modelRevision": state.model_revision,
+                },
+                HTTPStatus.OK,
+                None,
+            )],
+        )
+
+        responses.clear()
+        handler.path = "/ping"
+        handler.headers = {}
+        handler.do_GET()
+        self.assertEqual(responses[0][0]["status"], "ready")
+        self.assertEqual(responses[0][1], HTTPStatus.OK)
+
 
 if __name__ == "__main__":
     unittest.main()

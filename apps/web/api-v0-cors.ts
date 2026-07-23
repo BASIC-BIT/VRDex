@@ -3,7 +3,7 @@ export const apiV0CorsHeaders = [
   { key: "Access-Control-Allow-Methods", value: "GET, HEAD, POST, PATCH, DELETE, OPTIONS" },
   {
     key: "Access-Control-Allow-Headers",
-    value: "Authorization, Content-Type, If-None-Match, X-VRDEX-Upload-Token",
+    value: "Authorization, Content-Type, Idempotency-Key, If-None-Match, X-VRDEX-Upload-Token",
   },
   {
     key: "Access-Control-Expose-Headers",

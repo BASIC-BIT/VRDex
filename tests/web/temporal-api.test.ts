@@ -140,7 +140,7 @@ describe("temporal API response helpers", () => {
     }
   });
 
-  it("maps quota and capacity failures to retryable public problems", () => {
+  it("maps quota, capacity, and configuration failures to public problems", async () => {
     const quota = temporalSubmissionError(new Error("account_rate_limited"));
     assert.equal(quota.status, 429);
     assert.equal(quota.headers.get("retry-after"), "60");
@@ -151,5 +151,14 @@ describe("temporal API response helpers", () => {
 
     const conflict = temporalSubmissionError(new Error("idempotency_conflict"));
     assert.equal(conflict.status, 409);
+
+    const misconfigured = temporalSubmissionError(
+      new Error("TEMPORAL_INPUT_HASH_KEY is required."),
+    );
+    assert.equal(misconfigured.status, 500);
+    assert.equal(
+      (await misconfigured.json()).title,
+      "Temporal service misconfigured",
+    );
   });
 });

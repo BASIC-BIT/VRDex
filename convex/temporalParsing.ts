@@ -334,6 +334,8 @@ export async function scrubRetainedJobInputs(
     await ctx.db.patch(job._id, {
       inputText: active ? job.inputText : undefined,
       inputHash: active ? job.inputHash : undefined,
+      result: active ? job.result : undefined,
+      errorDetail: active ? job.errorDetail : undefined,
       retainInput: false,
       updatedAt,
     });

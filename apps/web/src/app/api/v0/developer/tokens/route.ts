@@ -22,6 +22,7 @@ import {
   evaluateDeveloperWriteRequest,
   normalizeDeveloperTokenExpiry,
 } from "@/lib/server/api-developer-read";
+import { temporalTokenScopeEligibilityProblem } from "@/lib/server/api-token-errors";
 import { convexAdminHttpClient } from "@/lib/server/convex-http";
 
 export const dynamic = "force-dynamic";
@@ -132,21 +133,35 @@ export async function POST(request: Request) {
     );
   }
 
-  const savedToken = await convexAdminHttpClient().mutation(internal.apiTokens.createDeveloperTokenForApiOwner, {
-    ownerUserId: evaluation.ownerUserId as Id<"users">,
-    tokenPrefix: token.tokenPrefix,
-    verifierHash,
-    label,
-    scopes,
-    ...(expiresAt === undefined ? {} : { expiresAt }),
-  });
+  try {
+    const savedToken = await convexAdminHttpClient().mutation(
+      internal.apiTokens.createDeveloperTokenForApiOwner,
+      {
+        ownerUserId: evaluation.ownerUserId as Id<"users">,
+        tokenPrefix: token.tokenPrefix,
+        verifierHash,
+        label,
+        scopes,
+        ...(expiresAt === undefined ? {} : { expiresAt }),
+      },
+    );
 
-  const response = apiJson(DeveloperTokenCreateResponseSchema, {
-    token: savedToken,
-    tokenValue: token.tokenValue,
-  });
+    const response = apiJson(DeveloperTokenCreateResponseSchema, {
+      token: savedToken,
+      tokenValue: token.tokenValue,
+    });
 
-  response.headers.set("cache-control", "private, no-store");
-
-  return response;
+    response.headers.set("cache-control", "private, no-store");
+    return response;
+  } catch (error) {
+    const eligibility = temporalTokenScopeEligibilityProblem(error);
+    if (eligibility !== null) {
+      return problem(403, eligibility.title, eligibility.detail);
+    }
+    return problem(
+      500,
+      "API token creation is unavailable",
+      "The server could not create this API token.",
+    );
+  }
 }

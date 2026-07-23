@@ -179,10 +179,10 @@ async function createUserOwnedToken(
       getAccountFeatureAccess(ctx.db, args.ownerUserId, now),
     ]);
     if (owner?.email === undefined || owner.emailVerificationTime === undefined) {
-      throw new Error("A verified email address is required for the time:parse scope.");
+      throw new Error("verified_email_required");
     }
     if (!access.canUseTemporalParsing) {
-      throw new Error("Temporal parsing beta access is required for the time:parse scope.");
+      throw new Error("temporal_beta_required");
     }
   }
   const expiresAt = normalizeApiTokenExpiry(args.expiresAt, now);

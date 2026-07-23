@@ -347,6 +347,7 @@ describe("temporal parsing control plane", () => {
           retainInput: true,
           outcome: "resolved",
           result: { status: "resolved" },
+          errorDetail: `content-derived-${index}`,
           createdAt: now - index,
           completedAt: now,
           expiresAt: now + 15 * 60_000,
@@ -373,6 +374,8 @@ describe("temporal parsing control plane", () => {
       .filter((q) => q.or(
         q.neq(q.field("inputText"), undefined),
         q.neq(q.field("inputHash"), undefined),
+        q.neq(q.field("result"), undefined),
+        q.neq(q.field("errorDetail"), undefined),
       ))
       .collect());
     assert.equal(retained.length, 0);

@@ -36,6 +36,8 @@ Expected health behavior:
 
 - `GET /ping` returns `204` while loading
 - `GET /ping` returns `200` after model load and prewarm, or `503` if startup failed
+- authenticated `GET /ready` returns the same readiness state and verifies the
+  application bearer credential
 - authenticated `POST /infer` accepts only `text`, `referenceInstant`, and
   `timeZone`
 
@@ -71,8 +73,11 @@ read-only documentation access and cannot create or update provider resources.
 3. Record the endpoint ID, then verify the resulting configuration with
    `runpodctl serverless get <endpoint-id> --include-template --include-workers`
    and the REST read API. Do not accept queue-style `/run` or `/runsync` URLs.
-4. Confirm the direct `https://ENDPOINT_ID.api.runpod.ai/ping` health behavior,
-   then use `https://ENDPOINT_ID.api.runpod.ai` as the Convex
+4. Confirm the provider's direct
+   `https://ENDPOINT_ID.api.runpod.ai/ping` health behavior, then call
+   `https://ENDPOINT_ID.api.runpod.ai/ready` with the configured bearer
+   credential to verify application readiness. Use
+   `https://ENDPOINT_ID.api.runpod.ai` as the Convex
    `TEMPORAL_INFERENCE_BASE_URL`.
 
 RunPod documents `200` as healthy and `204` as initializing for load-balanced
