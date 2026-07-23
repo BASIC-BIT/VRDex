@@ -11,9 +11,9 @@ posthog_host         = "https://us.i.posthog.com"
 # Set this in local terraform.tfvars from the PostHog project settings.
 posthog_public_key = "phc_REPLACE_WITH_VRDEX_ANALYTICS_PROJECT_KEY"
 
-# Generate an independent secret with at least 32 random characters. Do not
-# reuse an auth token, encryption key, or provider credential.
-temporal_input_hash_key = "REPLACE_WITH_AN_INDEPENDENT_RANDOM_SECRET"
+# Generate 32 independent cryptographically random bytes, encode them as
+# base64, and do not reuse an auth token, encryption key, or provider credential.
+temporal_input_hash_key = "REPLACE_WITH_A_BASE64_ENCODED_32_BYTE_SECRET"
 
 # Optional. Create an app in the Twitch developer console and set both values
 # to enable cached live status on public profile pages.

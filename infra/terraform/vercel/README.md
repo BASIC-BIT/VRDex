@@ -20,10 +20,18 @@ It manages shared application variables for the existing Vercel project:
 The PostHog project key is client-exposed once deployed, but keep the value out of git so forks and self-hosted installs do not accidentally send analytics into the BASIC BIT project.
 
 `TEMPORAL_INPUT_HASH_KEY` is a server-only HMAC key used for non-reversible
-temporal input hashes and request fingerprints. Generate an independent random
-secret of at least 32 characters, store it in the ignored `terraform.tfvars`,
-and rotate it by updating that value and applying this stack. Rotation
-invalidates outstanding idempotency comparisons but does not expose prior input.
+temporal input hashes and request fingerprints. Generate 32 independent
+cryptographically random bytes and encode them as base64:
+
+```powershell
+$bytes = New-Object byte[] 32
+[Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+[Convert]::ToBase64String($bytes)
+```
+
+Store the result in the ignored `terraform.tfvars`. Rotate it by updating that
+value and applying this stack. Rotation invalidates outstanding idempotency
+comparisons but does not expose prior input.
 
 The Twitch values are server-only credentials for an app owned by the VRDex operator. Rotate the secret in the Twitch developer console, update the ignored `terraform.tfvars`, and apply this stack. Omitting either Terraform input leaves both Twitch environment variables unmanaged and the UI simply omits provider-confirmed live state.
 
@@ -33,7 +41,7 @@ Profile asset storage variables are owned by `infra/terraform/profile-assets`, n
 
 1. Copy `terraform.tfvars.example` to `terraform.tfvars`.
 2. Set `posthog_public_key` from the PostHog project settings for project `447783` or from the sensitive `infra/terraform/posthog` output `posthog_project_api_token`.
-3. Generate and set an independent `temporal_input_hash_key` with at least 32 random characters.
+3. Generate and set an independent `temporal_input_hash_key` using the CSPRNG command above.
 4. Optionally set `twitch_client_id` and `twitch_client_secret` from the operator-owned Twitch application.
 5. If managing the Vercel `staging` custom environment, add its custom environment ID to `staging_custom_environment_ids`.
 6. Export a Vercel token for Terraform: `VERCEL_API_TOKEN=<token>`. If reusing the GitHub secret value locally, set `VERCEL_API_TOKEN` to the same value as `VERCEL_TOKEN`.
