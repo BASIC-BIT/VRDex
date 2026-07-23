@@ -8,7 +8,7 @@ It creates an immutable/scanned ECR repository, ECS cluster/task/service, bounde
 
 1. Create one VRDex-owned account. Keep the service disabled until VRChat approves hosted sessions and a reviewed vault-to-AWS command can generate `workerApiKey` and provision `authCookie` plus optional `twoFactorAuthCookie` without displaying them. This slice intentionally ships no manual cookie-export path; never store the password or TOTP seed.
 2. SHA-256 hash `workerApiKey` locally and register only the lowercase hash plus secret ARN through `communityTelemetry.registerCollectorAccount`.
-3. Push an immutable image built from `workers/group-telemetry/Dockerfile` and set `container_image`.
+3. Push an image built from `workers/group-telemetry/Dockerfile` and set `container_image` to its immutable `@sha256:` digest URI. Service enablement fails validation when the digest is absent.
 4. Supply HTTPS-egress subnets, ingress-free security groups, the Convex `*.convex.site` origin, registered account ID, and budget alert email.
 5. Apply disabled, inspect IAM/task state, then enable one desired task after both provider gates.
 

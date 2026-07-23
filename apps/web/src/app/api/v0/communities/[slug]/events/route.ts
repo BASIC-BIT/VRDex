@@ -35,6 +35,7 @@ export async function GET(request: Request, context: RouteContext) {
     slug,
     profileType: "community",
     now,
+    includeTelemetry: false,
   });
 
   if (profile === null) {

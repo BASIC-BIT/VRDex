@@ -38,7 +38,11 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   const { slug } = await context.params;
-  const profile = await convexHttpClient().query(api.profiles.getPublicBySlug, { slug, now: Date.now() });
+  const profile = await convexHttpClient().query(api.profiles.getPublicBySlug, {
+    slug,
+    now: Date.now(),
+    includeTelemetry: false,
+  });
 
   if (profile === null) {
     return publicNotFoundResponse("Profile");

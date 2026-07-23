@@ -204,6 +204,7 @@ export const getPublicBySlug = query({
     slug: v.string(),
     profileType: v.optional(profileType),
     now: v.optional(v.number()),
+    includeTelemetry: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const validation = validateProfileSlug(args.slug);
@@ -250,7 +251,7 @@ export const getPublicBySlug = query({
       "bannerImageUrl" in publicProfile && typeof publicProfile.bannerImageUrl === "string"
         ? publicProfile.bannerImageUrl
         : undefined;
-    const telemetry = profile.profileType === "community"
+    const telemetry = profile.profileType === "community" && args.includeTelemetry !== false
       ? await getPublicCommunityTelemetry(ctx.db, profile._id, now)
       : null;
 

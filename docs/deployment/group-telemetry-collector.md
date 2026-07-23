@@ -26,7 +26,7 @@ Run read-only membership inspection first with `pnpm proof:group-telemetry`. On 
 2. Keep hosted bootstrap blocked until explicit provider approval and a reviewed secret-transfer command exist. That future command must generate at least 32 random bytes for `workerApiKey`, register its lowercase 64-character SHA-256 hex digest, read the validated alias-scoped session from the operating-system vault, and update only `workerApiKey`, `authCookie`, and optional `twoFactorAuthCookie` in the account's AWS Secrets Manager secret without displaying them.
 3. No vault-to-AWS transfer command ships in this slice. Do not manually extract cookies, store the password or TOTP seed, or enable the service to work around that missing gate.
 4. SHA-256 hash the worker key locally. Register the account through the internal `communityTelemetry.registerCollectorAccount` mutation using only the hash, secret ARN, capacity, reserved headroom, and request budget.
-5. Build `workers/group-telemetry/Dockerfile`, push an immutable image tag, and configure `infra/terraform/group-telemetry-collector`.
+5. Build `workers/group-telemetry/Dockerfile`, push the image, and configure `container_image` with its immutable `@sha256:` digest URI. Terraform rejects service enablement when that digest is absent.
 6. Apply with `enable_service=false` and `desired_count=0`. Review the task role, execution role, one-secret scope, SSM deployment gate, logs, alarms, budget, and egress-only networking.
 7. After a `go` or acceptable `adjust` and explicit provider approval, set `enable_service=true`, `desired_count=1`, and a budget alert email. Keep the task cap at two.
 

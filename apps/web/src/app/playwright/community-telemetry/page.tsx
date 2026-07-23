@@ -43,7 +43,15 @@ const fixture: TelemetryDashboardData = {
   events: [{ _id: "event_1", slug: "faceless-friday", title: "Faceless Friday", startAt: now - 5 * 60 * 60_000 }],
 };
 
-export default function CommunityTelemetryPreviewPage() {
+export default async function CommunityTelemetryPreviewPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ state?: string }>;
+}) {
   if (process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES !== "true") notFound();
-  return <PageShell><PageContainer max="6xl"><CommunityTelemetryDashboard communitySlug="the-faceless" fixtureData={fixture} /></PageContainer></PageShell>;
+  const { state } = await searchParams;
+  const previewFixture = state === "disconnected"
+    ? { ...fixture, integration: { ...fixture.integration, state: "disconnected" } }
+    : fixture;
+  return <PageShell><PageContainer max="6xl"><CommunityTelemetryDashboard communitySlug="the-faceless" fixtureData={previewFixture} /></PageContainer></PageShell>;
 }

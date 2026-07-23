@@ -14,6 +14,14 @@ variable "container_image" {
   description = "Optional immutable collector image URI."
   type        = string
   default     = null
+
+  validation {
+    condition = !var.enable_service || (
+      var.container_image != null &&
+      can(regex("@sha256:[0-9a-fA-F]{64}$", trimspace(var.container_image)))
+    )
+    error_message = "container_image must be an immutable digest URI ending in @sha256:<64 hex characters> when enabled."
+  }
 }
 
 variable "enable_service" {

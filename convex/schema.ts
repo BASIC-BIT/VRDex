@@ -1148,6 +1148,7 @@ export default defineSchema({
     consecutiveFailures: v.number(),
     backoffUntil: v.optional(v.number()),
     disconnectedAt: v.optional(v.number()),
+    telemetryEpochStartedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -1267,7 +1268,8 @@ export default defineSchema({
   })
     .index("by_eventId_state", ["eventId", "state"])
     .index("by_sessionId_state", ["sessionId", "state"])
-    .index("by_communityProfileId_state", ["communityProfileId", "state"]),
+    .index("by_communityProfileId_state", ["communityProfileId", "state"])
+    .index("by_communityProfileId_createdAt", ["communityProfileId", "createdAt"]),
   communityTelemetryRollups: defineTable({
     communityProfileId: v.id("profiles"),
     eventId: v.optional(v.id("events")),

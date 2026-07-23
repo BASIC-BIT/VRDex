@@ -193,6 +193,11 @@ export function CommunityTelemetryDashboard({
   const [message, setMessage] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    if (data?.integration.state === "disconnected") {
+      setGroupId((current) => current || data.integration.vrchatGroupId);
+    }
+  }, [data]);
   const referenceNow = fixtureData?.integration.lastSuccessfulObservationAt ?? Date.now();
   const cutoff = referenceNow - rangeHours * 60 * 60_000;
   const population = useMemo(() => (data?.population ?? []).filter((point) => point.observedAt >= cutoff), [data, cutoff]);
@@ -228,15 +233,20 @@ export function CommunityTelemetryDashboard({
   }
 
   if (!mounted || data === undefined) return <Notice>Loading telemetry…</Notice>;
-  if (data === null) {
+  const reconnecting = data !== null && data.integration.state === "disconnected";
+  if (data === null || reconnecting) {
     return (
       <Card padding="lg" surface="strong">
-        <SectionHeading description="VRDex assigns one of its own service accounts. Your VRChat credentials are never requested.">Connect VRChat group</SectionHeading>
+        <SectionHeading description="VRDex assigns one of its own service accounts. Your VRChat credentials are never requested.">
+          {reconnecting ? "Reconnect VRChat group" : "Connect VRChat group"}
+        </SectionHeading>
         <form className="mt-7 grid gap-5 md:grid-cols-2" onSubmit={submitConnection}>
           <Field className="md:col-span-2">VRChat group ID<Input onChange={(event) => setGroupId(event.target.value)} placeholder="grp_…" required value={groupId} /></Field>
           <Field>Group visibility<Select onChange={(event) => setGroupVisibility(event.target.value as "public" | "private")} value={groupVisibility}><option value="private">Private</option><option value="public">Public</option></Select></Field>
           <Field>Join policy<Select onChange={(event) => setJoinPolicy(event.target.value as typeof joinPolicy)} value={joinPolicy}><option value="free">Free join</option><option value="request">Request to join</option><option value="invite">Invite only</option></Select></Field>
-          <Button disabled={busy} type="submit">Connect group</Button>
+          <Button disabled={busy || Boolean(fixtureData)} type="submit">
+            {reconnecting ? "Reconnect group" : "Connect group"}
+          </Button>
         </form>
         {message ? <Notice className="mt-5">{message}</Notice> : null}
       </Card>

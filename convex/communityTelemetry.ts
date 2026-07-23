@@ -501,7 +501,11 @@ export const connectGroup = mutation({
       leaseGeneration: existing?.leaseGeneration ?? 0,
       publicMetrics: { ...DEFAULT_PUBLIC_TELEMETRY_SETTINGS },
       consecutiveFailures: 0,
+      lastSuccessfulObservationAt: undefined,
+      lastAttemptAt: undefined,
+      backoffUntil: undefined,
       nextPollAt: now,
+      telemetryEpochStartedAt: now,
       updatedAt: now,
     } as const;
     let integrationId: Id<"communityVrchatIntegrations">;
@@ -1055,17 +1059,34 @@ export const recordPollFailure = internalMutation({
 async function telemetryDashboardData(ctx: QueryCtx, profile: Doc<"profiles">, now: number) {
   const integration = await integrationForCommunity(ctx, profile._id);
   if (!integration) return null;
-  const [account, sessions, population, instancePopulation, memberCounts, coverage, rollups, associations, events] = await Promise.all([
+  const epochStartedAt = integration.telemetryEpochStartedAt ?? integration.createdAt;
+  const [
+    account,
+    sessions,
+    population,
+    instancePopulation,
+    memberCounts,
+    coverage,
+    hourlyRollups,
+    dailyRollups,
+    eventRollups,
+    associations,
+    events,
+  ] = await Promise.all([
     integration.assignedCollectorAccountId ? ctx.db.get(integration.assignedCollectorAccountId) : null,
-    ctx.db.query("instanceSessions").withIndex("by_communityProfileId_openedAt", (q) => q.eq("communityProfileId", profile._id)).order("desc").take(100),
-    ctx.db.query("communityPopulationObservations").withIndex("by_integrationId_observedAt", (q) => q.eq("integrationId", integration._id)).order("desc").take(2500),
-    ctx.db.query("instancePopulationObservations").withIndex("by_integrationId_observedAt", (q) => q.eq("integrationId", integration._id)).order("desc").take(2500),
-    ctx.db.query("communityMemberCountObservations").withIndex("by_integrationId_observedAt", (q) => q.eq("integrationId", integration._id)).order("desc").take(500),
-    ctx.db.query("collectionCoverageWindows").withIndex("by_integrationId_startedAt", (q) => q.eq("integrationId", integration._id)).order("desc").take(200),
-    ctx.db.query("communityTelemetryRollups").withIndex("by_communityProfileId_grain_bucketStartAt", (q) => q.eq("communityProfileId", profile._id)).order("desc").take(400),
-    ctx.db.query("eventInstanceAssociations").withIndex("by_communityProfileId_state", (q) => q.eq("communityProfileId", profile._id)).take(200),
+    ctx.db.query("instanceSessions").withIndex("by_communityProfileId_openedAt", (q) => q.eq("communityProfileId", profile._id).gte("openedAt", epochStartedAt)).order("desc").take(100),
+    ctx.db.query("communityPopulationObservations").withIndex("by_integrationId_observedAt", (q) => q.eq("integrationId", integration._id).gte("observedAt", epochStartedAt)).order("desc").take(2500),
+    ctx.db.query("instancePopulationObservations").withIndex("by_integrationId_observedAt", (q) => q.eq("integrationId", integration._id).gte("observedAt", epochStartedAt)).order("desc").take(2500),
+    ctx.db.query("communityMemberCountObservations").withIndex("by_integrationId_observedAt", (q) => q.eq("integrationId", integration._id).gte("observedAt", epochStartedAt)).order("desc").take(500),
+    ctx.db.query("collectionCoverageWindows").withIndex("by_integrationId_startedAt", (q) => q.eq("integrationId", integration._id).gte("startedAt", epochStartedAt)).order("desc").take(200),
+    ctx.db.query("communityTelemetryRollups").withIndex("by_communityProfileId_grain_bucketStartAt", (q) => q.eq("communityProfileId", profile._id).eq("grain", "hour").gte("bucketStartAt", epochStartedAt)).order("desc").take(400),
+    ctx.db.query("communityTelemetryRollups").withIndex("by_communityProfileId_grain_bucketStartAt", (q) => q.eq("communityProfileId", profile._id).eq("grain", "day").gte("bucketStartAt", epochStartedAt)).order("desc").take(400),
+    ctx.db.query("communityTelemetryRollups").withIndex("by_communityProfileId_grain_bucketStartAt", (q) => q.eq("communityProfileId", profile._id).eq("grain", "event").gte("bucketStartAt", epochStartedAt)).order("desc").take(200),
+    ctx.db.query("eventInstanceAssociations").withIndex("by_communityProfileId_createdAt", (q) => q.eq("communityProfileId", profile._id).gte("createdAt", epochStartedAt)).order("desc").take(200),
     ctx.db.query("events").withIndex("by_communityProfileId_startAt", (q) => q.eq("communityProfileId", profile._id)).order("desc").take(100),
   ]);
+  const rollups = [...hourlyRollups, ...dailyRollups, ...eventRollups]
+    .sort((left, right) => left.bucketStartAt - right.bucketStartAt);
   const points = population.map((point) => ({
     observedAt: point.observedAt,
     population: point.totalPopulation,
@@ -1107,7 +1128,7 @@ async function telemetryDashboardData(ctx: QueryCtx, profile: Doc<"profiles">, n
     instancePopulation: instancePopulation.reverse(),
     memberCounts: memberCounts.reverse(),
     coverage: coverage.reverse(),
-    rollups: rollups.reverse(),
+    rollups,
     associations,
     events: events.map((event) => ({
       _id: event._id,

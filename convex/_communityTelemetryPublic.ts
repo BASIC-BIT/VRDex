@@ -61,25 +61,30 @@ export async function getPublicCommunityTelemetry(
   ) {
     return null;
   }
+  const epochStartedAt = integration.telemetryEpochStartedAt ?? integration.createdAt;
 
   const [latestPopulation, memberCounts, hourlyRollups, eventRollups] = await Promise.all([
     db.query("communityPopulationObservations")
-      .withIndex("by_integrationId_observedAt", (query) => query.eq("integrationId", integration._id))
+      .withIndex("by_integrationId_observedAt", (query) =>
+        query.eq("integrationId", integration._id).gte("observedAt", epochStartedAt),
+      )
       .order("desc")
       .first(),
     db.query("communityMemberCountObservations")
-      .withIndex("by_integrationId_observedAt", (query) => query.eq("integrationId", integration._id))
+      .withIndex("by_integrationId_observedAt", (query) =>
+        query.eq("integrationId", integration._id).gte("observedAt", epochStartedAt),
+      )
       .order("desc")
       .take(500),
     db.query("communityTelemetryRollups")
       .withIndex("by_communityProfileId_grain_bucketStartAt", (query) =>
-        query.eq("communityProfileId", communityProfileId).eq("grain", "hour"),
+        query.eq("communityProfileId", communityProfileId).eq("grain", "hour").gte("bucketStartAt", epochStartedAt),
       )
       .order("desc")
       .take(168),
     db.query("communityTelemetryRollups")
       .withIndex("by_communityProfileId_grain_bucketStartAt", (query) =>
-        query.eq("communityProfileId", communityProfileId).eq("grain", "event"),
+        query.eq("communityProfileId", communityProfileId).eq("grain", "event").gte("bucketStartAt", epochStartedAt),
       )
       .order("desc")
       .take(20),
