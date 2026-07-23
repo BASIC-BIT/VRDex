@@ -542,13 +542,18 @@ export const expireJob = internalMutation({
     const active = job.status === "queued" || job.status === "running";
     await ctx.db.patch(job._id, {
       idempotencyFingerprint: undefined,
+      ...(!job.retainInput ? {
+        inputText: undefined,
+        inputHash: undefined,
+        result: undefined,
+        ...(!active ? { errorDetail: undefined } : {}),
+      } : {}),
       ...(active ? {
         status: "failed" as const,
         outcome: "timeout" as const,
         errorCode: "continuation_expired",
         errorDetail: "The temporal parse continuation expired before completion.",
         totalLatencyMs: now - job.createdAt,
-        ...(!job.retainInput ? { inputText: undefined, inputHash: undefined } : {}),
         completedAt: now,
       } : {}),
       updatedAt: now,

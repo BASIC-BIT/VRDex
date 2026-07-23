@@ -1,16 +1,23 @@
 import * as z from "zod";
 
-const TimeZoneSchema = z.string().min(1).max(100).refine((value) => {
-  if (/^[+-]/.test(value)) {
-    return false;
-  }
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: value }).format();
-    return true;
-  } catch {
-    return false;
-  }
-}, "timeZone must be a valid IANA timezone.");
+const TimeZoneSchema = z
+  .string()
+  .min(1)
+  .max(100)
+  .refine((value) => {
+    if (/^[+-]/.test(value)) {
+      return false;
+    }
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: value }).format();
+      return true;
+    } catch {
+      return false;
+    }
+  }, "timeZone must be a valid IANA timezone.")
+  .transform((value) =>
+    new Intl.DateTimeFormat("en-US", { timeZone: value }).resolvedOptions().timeZone
+  );
 
 const LocaleSchema = z.string().min(2).max(35).refine((value) => {
   try {

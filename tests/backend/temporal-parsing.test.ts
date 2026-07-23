@@ -304,7 +304,7 @@ describe("temporal parsing control plane", () => {
     assert.equal(job?.modelRevision, "test-model@immutable");
   });
 
-  it("deletes the idempotency fingerprint when a completed continuation expires", async () => {
+  it("deletes opted-out response content and fingerprints when a continuation expires", async () => {
     const t = convexTest({ schema, modules });
     const userId = await createAuthorizedUser(t, "expired-fingerprint");
     const jobId = await insertQueuedJob(t, userId, "expired-fingerprint", false);
@@ -312,6 +312,7 @@ describe("temporal parsing control plane", () => {
       status: "succeeded",
       outcome: "no_plan",
       result: { status: "no_plan", reason: "test" },
+      errorDetail: "content-derived diagnostic",
       completedAt: Date.now() - 1_000,
       expiresAt: Date.now() - 1,
     }));
@@ -320,6 +321,10 @@ describe("temporal parsing control plane", () => {
     const job = await t.run((ctx) => ctx.db.get(jobId));
     assert.equal(job?.status, "succeeded");
     assert.equal(job?.idempotencyFingerprint, undefined);
+    assert.equal(job?.inputText, undefined);
+    assert.equal(job?.inputHash, undefined);
+    assert.equal(job?.result, undefined);
+    assert.equal(job?.errorDetail, undefined);
   });
 
   it("continues account opt-out scrubbing beyond the first bounded batch", async () => {

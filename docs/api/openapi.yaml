@@ -2664,8 +2664,7 @@ components:
               - developer:write
               - mcp:read
               - mcp:write
-              - time:parse
-            description: Public API or MCP credential scope.
+            description: Scope available to third-party OAuth applications.
         ownerCommunitySlug:
           type: string
           minLength: 1
@@ -2742,8 +2741,7 @@ components:
               - developer:write
               - mcp:read
               - mcp:write
-              - time:parse
-            description: Public API or MCP credential scope.
+            description: Scope available to third-party OAuth applications.
       description: Update editable metadata, redirects, scopes, and grants for a user-owned or community-owned OAuth application.
     DeveloperOAuthAppSecretCreateRequest:
       type: object
@@ -3858,8 +3856,7 @@ components:
               - developer:write
               - mcp:read
               - mcp:write
-              - time:parse
-            description: Public API or MCP credential scope.
+            description: Scope available to third-party OAuth applications.
         status:
           type: string
           enum:

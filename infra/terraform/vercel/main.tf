@@ -16,6 +16,10 @@ locals {
     NEXT_PUBLIC_POSTHOG_HOST = var.posthog_host
   }
 
+  temporal_values = {
+    TEMPORAL_INPUT_HASH_KEY = var.temporal_input_hash_key
+  }
+
   standard_twitch_targets = merge(
     var.manage_production_environment ? { production = ["production"] } : {},
     var.manage_preview_environment ? { preview = ["preview"] } : {},
@@ -64,6 +68,42 @@ resource "vercel_project_environment_variable" "posthog_staging_custom" {
   custom_environment_ids = [each.value.custom_environment_id]
   sensitive              = true
   comment                = local.posthog_comment
+}
+
+resource "vercel_project_environment_variable" "temporal_standard" {
+  for_each = {
+    for pair in setproduct(keys(local.temporal_values), keys(local.standard_posthog_targets)) : "${pair[0]}_${pair[1]}" => {
+      key    = pair[0]
+      target = local.standard_posthog_targets[pair[1]]
+      value  = local.temporal_values[pair[0]]
+    }
+  }
+
+  project_id = data.vercel_project.web.id
+  team_id    = var.vercel_team_id
+  key        = each.value.key
+  value      = each.value.value
+  target     = each.value.target
+  sensitive  = true
+  comment    = "Server-only HMAC key for temporal input hashes and idempotency fingerprints."
+}
+
+resource "vercel_project_environment_variable" "temporal_staging_custom" {
+  for_each = {
+    for pair in setproduct(keys(local.temporal_values), var.staging_custom_environment_ids) : "${pair[0]}_${pair[1]}" => {
+      key                   = pair[0]
+      custom_environment_id = pair[1]
+      value                 = local.temporal_values[pair[0]]
+    }
+  }
+
+  project_id             = data.vercel_project.web.id
+  team_id                = var.vercel_team_id
+  key                    = each.value.key
+  value                  = each.value.value
+  custom_environment_ids = [each.value.custom_environment_id]
+  sensitive              = true
+  comment                = "Server-only HMAC key for temporal input hashes and idempotency fingerprints."
 }
 
 resource "vercel_project_environment_variable" "twitch_standard" {

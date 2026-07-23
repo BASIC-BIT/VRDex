@@ -4977,10 +4977,9 @@
                 "developer:read",
                 "developer:write",
                 "mcp:read",
-                "mcp:write",
-                "time:parse"
+                "mcp:write"
               ],
-              "description": "Public API or MCP credential scope."
+              "description": "Scope available to third-party OAuth applications."
             }
           },
           "ownerCommunitySlug": {
@@ -5098,10 +5097,9 @@
                 "developer:read",
                 "developer:write",
                 "mcp:read",
-                "mcp:write",
-                "time:parse"
+                "mcp:write"
               ],
-              "description": "Public API or MCP credential scope."
+              "description": "Scope available to third-party OAuth applications."
             }
           }
         },
@@ -6586,10 +6584,9 @@
                 "developer:read",
                 "developer:write",
                 "mcp:read",
-                "mcp:write",
-                "time:parse"
+                "mcp:write"
               ],
-              "description": "Public API or MCP credential scope."
+              "description": "Scope available to third-party OAuth applications."
             }
           },
           "status": {

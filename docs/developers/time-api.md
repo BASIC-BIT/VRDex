@@ -131,8 +131,10 @@ retained.
 
 For an opted-out request, VRDex holds the expression and keyed input hash only
 until the job completes, fails, or expires, then removes both while keeping
-non-content outcome and latency metrics. A separate keyed fingerprint of the
-complete request may remain until the 15-minute continuation window expires so
+non-content outcome and latency metrics. The completed response remains
+available only through the 15-minute continuation window, after which VRDex
+removes it and any content-derived error detail. A separate keyed fingerprint
+of the complete request may remain through that same window so
 VRDex can reject an `Idempotency-Key` reused for different input; it cannot
 recover the expression and is deleted at expiry. Opted-in beta expressions have no
 automatic content expiry: they remain until the account turns retention off or

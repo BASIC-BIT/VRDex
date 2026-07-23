@@ -196,8 +196,10 @@ them when the user has not opted out, subject to these locked boundaries:
 
 For an opted-out request, the accepted job holds its text and keyed input hash
 only while needed for inference, then deletes both on completion, failure, or
-expiry. A separate keyed idempotency fingerprint may remain until the 15-minute
-continuation expires, then is deleted; it cannot recover the expression. An
+expiry. Its completed response remains available through the 15-minute
+continuation window, then the response, content-derived error detail, and a
+separate keyed idempotency fingerprint are deleted; the fingerprint cannot
+recover the expression. An
 opted-in beta expression remains stored until the account turns
 retention off or an operator deletes it; the beta has no automatic content
 expiry. Turning the account preference off takes effect immediately, prevents

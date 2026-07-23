@@ -641,6 +641,12 @@ describe("@vrdex/api-contracts", () => {
         activeSecretPrefixes: [],
       },
     });
+
+    assert.throws(() => DeveloperOAuthAppCreateRequestSchema.parse({
+      displayName: "Unsupported temporal client",
+      redirectUris: ["https://example.test/oauth/callback"],
+      allowedScopes: ["time:parse"],
+    }));
   });
 
   it("parses developer OAuth app secret creation contracts", () => {
@@ -683,6 +689,9 @@ describe("@vrdex/api-contracts", () => {
   it("rejects OAuth app updates that clear every allowed grant", () => {
     assert.throws(() => DeveloperOAuthAppUpdateRequestSchema.parse({ allowedGrants: [] }));
     assert.throws(() => DeveloperOAuthAppUpdateRequestSchema.parse({ allowedScopes: [] }));
+    assert.throws(() => DeveloperOAuthAppUpdateRequestSchema.parse({
+      allowedScopes: ["time:parse"],
+    }));
   });
 
   it("leaves OAuth app update grant semantics to stored client type validation", () => {
@@ -995,6 +1004,13 @@ describe("@vrdex/api-contracts", () => {
     assert.throws(
       () => TemporalParseRequestSchema.parse({ text: "tomorrow", timeZone: "+05:30" }),
       /timeZone/,
+    );
+    assert.equal(
+      TemporalParseRequestSchema.parse({
+        text: "tomorrow",
+        timeZone: "america/new_york",
+      }).timeZone,
+      "America/New_York",
     );
     assert.throws(
       () => TemporalParseRequestSchema.parse({ text: "tomorrow", promptOverride: "unsafe" }),

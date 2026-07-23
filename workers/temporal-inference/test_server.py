@@ -3,12 +3,16 @@ from __future__ import annotations
 import os
 import sys
 import unittest
+from http import HTTPStatus
 from pathlib import Path
+from types import MethodType
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from server import (
+    ModelState,
+    create_handler,
     model_revision_label,
     parse_json_object,
     required_env,
@@ -77,6 +81,36 @@ class TemporalInferenceWorkerTests(unittest.TestCase):
             )
         with patch.dict(os.environ, {"TEMPORAL_BASE_MODEL": "  model/repo  "}, clear=True):
             self.assertEqual(required_env("TEMPORAL_BASE_MODEL"), "model/repo")
+
+    def test_infer_reports_permanent_model_startup_failure(self) -> None:
+        state = ModelState()
+        state.error = "RuntimeError"
+        responses: list[tuple[dict[str, object], HTTPStatus, dict[str, str] | None]] = []
+        with patch.dict(
+            os.environ,
+            {"TEMPORAL_INFERENCE_AUTH_TOKEN": "test-auth-token"},
+            clear=True,
+        ):
+            handler_type = create_handler(state)
+        handler = object.__new__(handler_type)
+        handler.path = "/infer"
+        handler.headers = {"authorization": "Bearer test-auth-token"}
+
+        def capture_response(
+            _self: object,
+            body: dict[str, object],
+            status: HTTPStatus = HTTPStatus.OK,
+            headers: dict[str, str] | None = None,
+        ) -> None:
+            responses.append((body, status, headers))
+
+        handler.write_json = MethodType(capture_response, handler)
+        handler.do_POST()
+
+        self.assertEqual(
+            responses,
+            [({"error": "model_startup_failed"}, HTTPStatus.INTERNAL_SERVER_ERROR, None)],
+        )
 
 
 if __name__ == "__main__":

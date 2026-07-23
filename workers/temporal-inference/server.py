@@ -239,6 +239,12 @@ def create_handler(state: ModelState) -> type[BaseHTTPRequestHandler]:
             if not self.authorized(auth_token):
                 self.write_json({"error": "unauthorized"}, HTTPStatus.UNAUTHORIZED)
                 return
+            if state.error is not None:
+                self.write_json(
+                    {"error": "model_startup_failed"},
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
+                return
             if not state.ready or state.generator is None:
                 self.write_json(
                     {"error": "model_warming", "retryAfterSeconds": 2},
