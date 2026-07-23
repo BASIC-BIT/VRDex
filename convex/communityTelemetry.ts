@@ -886,7 +886,7 @@ export const ingestAggregatePoll = internalMutation({
         !Number.isSafeInteger(item.population) || item.population < 0 ||
         item.providerInstanceId.length < 1 || item.providerInstanceId.length > 500 || /[\u0000-\u001f\u007f]/.test(item.providerInstanceId) ||
         item.providerLocation.length < 1 || item.providerLocation.length > 500 ||
-        !item.vrchatWorldId.startsWith("wrld_") || item.vrchatWorldId.length > 100 ||
+        !item.vrchatWorldId.startsWith("wrld_") || item.vrchatWorldId.length > 100 || /[\u0000-\u001f\u007f]/.test(item.vrchatWorldId) ||
         item.providerLocation !== `${item.vrchatWorldId}:${item.providerInstanceId}` ||
         /usr_[A-Za-z0-9-]+/i.test(item.providerInstanceId) || /usr_[A-Za-z0-9-]+/i.test(item.providerLocation) ||
         /~(?:hidden|private)\((?!subject-redacted\))[^)]*\)/i.test(item.providerInstanceId) ||
@@ -1573,9 +1573,11 @@ export const fleetHealth = internalQuery({
 });
 
 export const collectorWorkerAuthorization = internalQuery({
-  args: { collectorAccountId: v.id("collectorAccounts") },
+  args: { collectorAccountId: v.string() },
   handler: async (ctx, args) => {
-    const account = await ctx.db.get(args.collectorAccountId);
+    const accountId = ctx.db.normalizeId("collectorAccounts", args.collectorAccountId);
+    if (!accountId) return null;
+    const account = await ctx.db.get(accountId);
     if (!account) return null;
     return {
       workerKeyHash: account.workerKeyHash,

@@ -791,6 +791,24 @@ describe("community telemetry control plane", () => {
       collectorAccountId: accountId,
       workerId: "worker",
       fencingToken: claims[0]!.fencingToken,
+      pollId: "control-character-world",
+      observedAt: claimAt + 6,
+      collectorVersion: "test-v1",
+      source: "first_party",
+      groupMemberCount: 10,
+      instances: [{
+        providerInstanceId: "123",
+        providerLocation: "wrld_example\nforged:123",
+        vrchatWorldId: "wrld_example\nforged",
+        population: 1,
+      }],
+      nextPollAt: claimAt + 60_000,
+    }), /malformed/);
+    await assert.rejects(t.mutation(internal.communityTelemetry.ingestAggregatePoll, {
+      integrationId,
+      collectorAccountId: accountId,
+      workerId: "worker",
+      fencingToken: claims[0]!.fencingToken,
       pollId: "legacy-person-bearing-location",
       observedAt: claimAt + 6,
       collectorVersion: "test-v1",
@@ -985,5 +1003,12 @@ describe("community telemetry control plane", () => {
       now: claimAt + 6_000,
     });
     assert.equal((await t.run((ctx) => ctx.db.get(firstAccountId)))?.state, "quarantined");
+  });
+
+  it("treats malformed collector account IDs as unauthorized", async () => {
+    const t = convexTest({ schema, modules });
+    assert.equal(await t.query(internal.communityTelemetry.collectorWorkerAuthorization, {
+      collectorAccountId: "not-a-convex-id",
+    }), null);
   });
 });

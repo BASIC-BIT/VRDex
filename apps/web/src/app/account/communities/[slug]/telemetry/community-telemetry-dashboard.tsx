@@ -1,8 +1,8 @@
 "use client";
 
-import { useMutation, useQuery } from "convex/react";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { Component, type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 
 import { api } from "@convex-generated-api";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -168,14 +168,18 @@ function SummaryCard({ label, value, detail }: { label: string; value: string; d
   );
 }
 
-export function CommunityTelemetryDashboard({
+function CommunityTelemetryDashboardContent({
   communitySlug,
   fixtureData,
 }: {
   communitySlug: string;
   fixtureData?: TelemetryDashboardData;
 }) {
-  const liveData = useQuery(api.communityTelemetry.getPrivateDashboard, fixtureData ? "skip" : { communitySlug }) as TelemetryDashboardData | null | undefined;
+  const { isAuthenticated, isLoading: isAuthLoading } = useConvexAuth();
+  const liveData = useQuery(
+    api.communityTelemetry.getPrivateDashboard,
+    fixtureData || isAuthLoading || !isAuthenticated ? "skip" : { communitySlug },
+  ) as TelemetryDashboardData | null | undefined;
   const data = fixtureData ?? liveData;
   const connectGroup = useMutation(api.communityTelemetry.connectGroup);
   const disconnectGroup = useMutation(api.communityTelemetry.disconnectGroup);
@@ -232,7 +236,10 @@ export function CommunityTelemetryDashboard({
     await perform(() => connectGroup({ communitySlug, vrchatGroupId: groupId, joinPolicy, groupVisibility }), "Connection requested.");
   }
 
-  if (!mounted || data === undefined) return <Notice>Loading telemetry…</Notice>;
+  if (!fixtureData && !isAuthLoading && !isAuthenticated) {
+    return <CommunityTelemetryAccessNotice kind="signed-out" />;
+  }
+  if (!mounted || isAuthLoading || data === undefined) return <Notice>Loading telemetry…</Notice>;
   const reconnecting = data !== null && data.integration.state === "disconnected";
   if (data === null || reconnecting) {
     return (
@@ -384,5 +391,71 @@ export function CommunityTelemetryDashboard({
         <Button className="mt-7" disabled={busy || Boolean(fixtureData) || data.integration.state === "disconnecting"} onClick={() => perform(() => disconnectGroup({ communitySlug }), "Disconnect requested.")} variant="secondary">{data.integration.state === "disconnecting" ? "Disconnecting" : "Disconnect"}</Button>
       </Card>
     </div>
+  );
+}
+
+export function CommunityTelemetryAccessNotice({ kind }: { kind: "forbidden" | "signed-out" | "unavailable" }) {
+  if (kind === "signed-out") {
+    return (
+      <Card padding="lg" surface="strong">
+        <SectionTitle>Sign in to view telemetry</SectionTitle>
+        <p className="mt-3 text-sm leading-7 text-muted">This private dashboard is available to authorized community staff.</p>
+        <Link className={cn(buttonVariants({ size: "lg", variant: "primary" }), "mt-5")} href="/sign-in">
+          Sign in
+        </Link>
+      </Card>
+    );
+  }
+  return (
+    <Card padding="lg" surface="strong">
+      <SectionTitle>{kind === "forbidden" ? "Telemetry access required" : "Telemetry is temporarily unavailable"}</SectionTitle>
+      <p className="mt-3 text-sm leading-7 text-muted">
+        {kind === "forbidden"
+          ? "Ask the community owner for permission to manage integrations."
+          : "Try loading this dashboard again shortly."}
+      </p>
+      <Link className={cn(buttonVariants({ size: "lg", variant: "secondary" }), "mt-5")} href="/account">
+        Back to account
+      </Link>
+    </Card>
+  );
+}
+
+class CommunityTelemetryDashboardErrorBoundary extends Component<
+  { children: ReactNode; communitySlug: string },
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: unknown) {
+    return { error: error instanceof Error ? error : new Error("Telemetry query failed.") };
+  }
+
+  componentDidUpdate(previousProps: { children: ReactNode; communitySlug: string }) {
+    if (previousProps.communitySlug !== this.props.communitySlug && this.state.error) {
+      this.setState({ error: null });
+    }
+  }
+
+  render() {
+    if (this.state.error) {
+      const forbidden = this.state.error.message.includes("permission to manage this community integration");
+      return <CommunityTelemetryAccessNotice kind={forbidden ? "forbidden" : "unavailable"} />;
+    }
+    return this.props.children;
+  }
+}
+
+export function CommunityTelemetryDashboard({
+  communitySlug,
+  fixtureData,
+}: {
+  communitySlug: string;
+  fixtureData?: TelemetryDashboardData;
+}) {
+  return (
+    <CommunityTelemetryDashboardErrorBoundary communitySlug={communitySlug}>
+      <CommunityTelemetryDashboardContent communitySlug={communitySlug} fixtureData={fixtureData} />
+    </CommunityTelemetryDashboardErrorBoundary>
   );
 }

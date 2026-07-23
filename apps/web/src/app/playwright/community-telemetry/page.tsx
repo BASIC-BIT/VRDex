@@ -1,6 +1,10 @@
 import { notFound } from "next/navigation";
 
-import { CommunityTelemetryDashboard, type TelemetryDashboardData } from "../../account/communities/[slug]/telemetry/community-telemetry-dashboard";
+import {
+  CommunityTelemetryAccessNotice,
+  CommunityTelemetryDashboard,
+  type TelemetryDashboardData,
+} from "../../account/communities/[slug]/telemetry/community-telemetry-dashboard";
 import { PageContainer, PageShell } from "@/components/ui/page-shell";
 
 export const dynamic = "force-dynamic";
@@ -50,6 +54,15 @@ export default async function CommunityTelemetryPreviewPage({
 }) {
   if (process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES !== "true") notFound();
   const { state } = await searchParams;
+  if (state === "forbidden" || state === "signed-out") {
+    return (
+      <PageShell>
+        <PageContainer max="6xl">
+          <CommunityTelemetryAccessNotice kind={state} />
+        </PageContainer>
+      </PageShell>
+    );
+  }
   const previewFixture = state === "disconnected"
     ? { ...fixture, integration: { ...fixture.integration, state: "disconnected" } }
     : fixture;
