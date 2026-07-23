@@ -11,7 +11,7 @@ export function randomPollDelayMs(active, random = Math.random) {
 
 export function retryDelayMs(attempt, retryAfterMs, random = Math.random) {
   const exponential = Math.min(15 * 60_000, 5_000 * 2 ** Math.max(0, Math.min(attempt, 8)));
-  return Math.floor(Math.max(exponential, retryAfterMs ?? 0) * (0.8 + random() * 0.4));
+  return Math.max(retryAfterMs ?? 0, Math.floor(exponential * (0.8 + random() * 0.4)));
 }
 
 export class RequestBudget {

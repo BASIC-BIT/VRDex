@@ -110,6 +110,88 @@ describe("community telemetry control plane", () => {
     );
   });
 
+  it("allows the singleton community owner to manage telemetry without a delegated authority row", async () => {
+    const t = convexTest({ schema, modules });
+    const communityProfileId = await seedCommunity(t);
+    const ownerIdentity = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        name: "Community Owner",
+        email: "owner@example.com",
+        emailVerificationTime: NOW,
+      });
+      await ctx.db.insert("profileOwners", {
+        profileId: communityProfileId,
+        userId,
+        roleKey: "owner",
+        state: "active",
+        grantedAt: NOW,
+        updatedAt: NOW,
+      });
+      return { subject: String(userId), issuer: "test", tokenIdentifier: `test|${userId}` };
+    });
+    await registerAccount(t);
+
+    await t.withIdentity(ownerIdentity).mutation(api.communityTelemetry.connectGroup, {
+      communitySlug: "faceless",
+      vrchatGroupId: "grp_00000000-0000-4000-8000-000000000001",
+      groupVisibility: "public",
+      joinPolicy: "free",
+    });
+    const dashboard = await t.withIdentity(ownerIdentity).query(api.communityTelemetry.getPrivateDashboard, {
+      communitySlug: "faceless",
+      now: NOW,
+    });
+    assert.equal(dashboard?.community.slug, "faceless");
+  });
+
+  it("defers pending membership states before releasing their leases", async () => {
+    for (const state of ["awaiting_approval", "awaiting_invite"] as const) {
+      const t = convexTest({ schema, modules });
+      await seedCommunity(t);
+      const accountId = await registerAccount(t);
+      const integrationId = await t.withIdentity(identity).mutation(api.communityTelemetry.connectGroup, {
+        communitySlug: "faceless",
+        vrchatGroupId: "grp_00000000-0000-4000-8000-000000000001",
+        groupVisibility: "private",
+        joinPolicy: state === "awaiting_approval" ? "request" : "invite",
+      });
+      const claimAt = Date.now() + 1_000;
+      const [claim] = await t.mutation(internal.communityTelemetry.claimDueAssignments, {
+        collectorAccountId: accountId,
+        workerId: "membership-worker",
+        now: claimAt,
+      });
+      assert.ok(claim);
+      await t.mutation(internal.communityTelemetry.recordMembershipResult, {
+        integrationId,
+        workerId: "membership-worker",
+        fencingToken: claim.fencingToken,
+        state,
+        groupVisibility: "private",
+        joinPolicy: state === "awaiting_approval" ? "request" : "invite",
+        now: claimAt + 1,
+      });
+      await t.mutation(internal.communityTelemetry.releaseLease, {
+        integrationId,
+        workerId: "membership-worker",
+        fencingToken: claim.fencingToken,
+        now: claimAt + 2,
+      });
+      const deferredUntil = (await t.run((ctx) => ctx.db.get(integrationId)))?.nextPollAt;
+      assert.equal(deferredUntil, claimAt + 1 + 3 * 60_000);
+      assert.deepEqual(await t.mutation(internal.communityTelemetry.claimDueAssignments, {
+        collectorAccountId: accountId,
+        workerId: "early-worker",
+        now: deferredUntil! - 1,
+      }), []);
+      assert.equal((await t.mutation(internal.communityTelemetry.claimDueAssignments, {
+        collectorAccountId: accountId,
+        workerId: "due-worker",
+        now: deferredUntil,
+      })).length, 1);
+    }
+  });
+
   it("fences stale workers, deduplicates polls, compacts heartbeats, and closes missing instances", async () => {
     const t = convexTest({ schema, modules });
     await seedCommunity(t);
@@ -463,9 +545,13 @@ describe("community telemetry control plane", () => {
     assert.equal(suggestions.length, 1);
     assert.equal((await t.run((ctx) => ctx.db.get(suggestions[0]!)))?.state, "suggested");
     await t.withIdentity(identity).mutation(api.communityTelemetry.reviewAssociationSuggestion, {
-      communitySlug: "faceless", associationId: suggestions[0]!, state: "confirmed",
+      communitySlug: "faceless", associationId: suggestions[0]!, state: "rejected",
     });
-    assert.equal((await t.run((ctx) => ctx.db.get(suggestions[0]!)))?.state, "confirmed");
+    assert.equal((await t.run((ctx) => ctx.db.get(suggestions[0]!)))?.state, "rejected");
+    assert.deepEqual(await t.mutation(internal.communityTelemetry.suggestEventAssociations, {
+      eventId: seeded.eventId,
+      now: dayStart + 6 * 60_000,
+    }), []);
     await assert.rejects(t.withIdentity(identity).mutation(api.communityTelemetry.associateEventInstance, {
       communitySlug: "faceless", eventId: seeded.conflictingEventId, sessionId: seeded.sessions[0]!,
     }), /already confirmed/);

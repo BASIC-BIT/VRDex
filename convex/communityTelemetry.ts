@@ -21,6 +21,7 @@ import {
 import { subjectHasCommunityCapability, toAuthSubject } from "./_communityAuthority";
 import { getPublicCommunityTelemetry } from "./_communityTelemetryPublic";
 import { canReadProfile } from "./_profilePermissions";
+import { userOwnsProfile } from "./_profileOwnership";
 
 const publicMetricValidator = v.union(
   v.literal("currentPopulation"),
@@ -50,16 +51,16 @@ async function requireCommunityCapability(
   communityProfileId: Id<"profiles">,
 ) {
   const subject = await requireSubject(ctx);
-  const allowed = await subjectHasCommunityCapability(
+  const delegatedAllowed = await subjectHasCommunityCapability(
     ctx.db,
     communityProfileId,
     subject,
     "manage_integrations",
   );
-  if (!allowed) {
-    throw new Error("You do not have permission to manage this community integration.");
-  }
-  return subject;
+  if (delegatedAllowed) return subject;
+  const userId = ctx.db.normalizeId("users", subject.subject);
+  if (userId && await userOwnsProfile(ctx.db, communityProfileId, userId)) return subject;
+  throw new Error("You do not have permission to manage this community integration.");
 }
 
 function validateExternalId(value: string, prefix: "grp_" | "usr_", label: string) {
@@ -641,6 +642,9 @@ export const recordMembershipResult = internalMutation({
       state: args.state,
       groupVisibility: args.groupVisibility,
       joinPolicy: args.joinPolicy,
+      ...(args.state === "awaiting_approval" || args.state === "awaiting_invite"
+        ? { nextPollAt: Math.max(integration.nextPollAt ?? 0, now + 3 * 60_000) }
+        : {}),
       updatedAt: now,
     });
     await audit(ctx, {
@@ -1485,11 +1489,12 @@ export const suggestEventAssociations = internalMutation({
       const timeOverlap = session.openedAt <= (event.endAt ?? event.startAt + 6 * 60 * 60_000) && (session.closedAt ?? now) >= event.startAt;
       const worldMatch = session.worldId ? worldIds.has(session.worldId as string) : false;
       if (!timeOverlap || !worldMatch) continue;
-      const [existingSuggestion, confirmed] = await Promise.all([
+      const [existingSuggestion, confirmed, rejected] = await Promise.all([
         ctx.db.query("eventInstanceAssociations").withIndex("by_sessionId_state", (q) => q.eq("sessionId", session._id).eq("state", "suggested")).first(),
         ctx.db.query("eventInstanceAssociations").withIndex("by_sessionId_state", (q) => q.eq("sessionId", session._id).eq("state", "confirmed")).first(),
+        ctx.db.query("eventInstanceAssociations").withIndex("by_sessionId_state", (q) => q.eq("sessionId", session._id).eq("state", "rejected")).collect(),
       ]);
-      if (existingSuggestion || confirmed) continue;
+      if (existingSuggestion || confirmed || rejected.some((association) => association.eventId === event._id)) continue;
       created.push(await ctx.db.insert("eventInstanceAssociations", {
         eventId: event._id,
         sessionId: session._id,

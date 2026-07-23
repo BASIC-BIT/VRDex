@@ -165,6 +165,7 @@ export class VrchatClient {
     let group = await this.getGroup(groupId);
     if (group.membershipStatus === "member") return { ...group, state: "active", transition: "already_member" };
     if (group.membershipStatus === "banned" || group.membershipStatus === "userblocked") return { ...group, state: "blocked", transition: group.membershipStatus };
+    if (group.membershipStatus === "requested") return { ...group, state: "awaiting_approval", transition: "request_pending" };
     if (group.membershipStatus === "invited") {
       await this.joinGroup(groupId);
       group = await this.getGroup(groupId);

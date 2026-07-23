@@ -233,6 +233,20 @@ describe("group telemetry provider adapter", () => {
     assert.equal(result.state, "awaiting_approval");
     assert.equal(result.transition, "requested");
     assert.equal(requests.length, 3);
+
+    const pendingRequests: RequestInfo[] = [];
+    const pending = new VrchatClient({
+      authCookie: "cookie-value",
+      userAgent: "VRDex/0.1 telemetry@example.com",
+      fetcher: async (request: RequestInfo | URL) => {
+        pendingRequests.push(request);
+        return jsonResponse({ id: "grp_example", memberCount: 51, membershipStatus: "requested", joinState: "request", privacy: "private" });
+      },
+    });
+    const pendingResult = await pending.connectGroup("grp_example");
+    assert.equal(pendingResult.state, "awaiting_approval");
+    assert.equal(pendingResult.transition, "request_pending");
+    assert.equal(pendingRequests.length, 1);
   });
 
   it("waits for invite-only groups and accepts a provider invitation once present", async () => {
@@ -330,6 +344,16 @@ describe("group telemetry provider adapter", () => {
     assert.equal(failure.statusClass, "429");
     assert.equal(failure.backoffUntil, 121_000);
     assert.equal(failure.nextPollAt, 121_000);
+
+    const minimumFailure = failureDisposition(
+      new VrchatProviderError("limited", { status: 429, category: "rate_limit", retryAfterMs: 120_000 }),
+      1,
+      1_000,
+      () => 0,
+    );
+    assert.equal(minimumFailure.backoffUntil, 121_000);
+    assert.equal(minimumFailure.nextPollAt, 121_000);
+    assert.equal(backendRetryDelay(1, 120_000, () => 0), 120_000);
   });
 
   it("classifies provider failures, schema drift, and timeouts without leaking payloads", async () => {

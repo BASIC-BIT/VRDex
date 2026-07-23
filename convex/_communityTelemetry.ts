@@ -126,8 +126,7 @@ export function randomPollDelayMs(active: boolean, random = Math.random): number
 
 export function retryDelayMs(attempt: number, retryAfterMs?: number, random = Math.random): number {
   const exponential = Math.min(15 * 60_000, 5_000 * 2 ** Math.max(0, Math.min(attempt, 8)));
-  const base = Math.max(exponential, retryAfterMs ?? 0);
-  return Math.floor(base * (0.8 + random() * 0.4));
+  return Math.max(retryAfterMs ?? 0, Math.floor(exponential * (0.8 + random() * 0.4)));
 }
 
 export function redactProviderText(value: unknown): string {
