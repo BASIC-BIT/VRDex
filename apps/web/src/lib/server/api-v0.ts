@@ -377,7 +377,7 @@ async function failedAuthenticationRateLimitResponse(
       });
 }
 
-export async function evaluateOptionalApiBearerRequest(
+export async function authenticateOptionalApiBearerRequest(
   request: Request,
   options: {
     requiredScopes?: ApiScope[];
@@ -405,6 +405,25 @@ export async function evaluateOptionalApiBearerRequest(
       response: rateLimitResponse ?? authentication.response,
     };
   }
+
+  return {
+    ok: true as const,
+    context: authentication,
+  };
+}
+
+export async function evaluateOptionalApiBearerRequest(
+  request: Request,
+  options: {
+    requiredScopes?: ApiScope[];
+    routeClass?: ApiRouteClass;
+  } = {},
+) {
+  const authenticated = await authenticateOptionalApiBearerRequest(request, options);
+  if (!authenticated.ok) {
+    return authenticated;
+  }
+  const authentication = authenticated.context;
 
   const routeClass =
     authentication.identity.kind === "api_token" || authentication.identity.kind === "oauth_client"

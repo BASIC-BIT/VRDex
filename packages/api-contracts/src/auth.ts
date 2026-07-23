@@ -17,6 +17,10 @@ export const apiScopes = [
 
 export type ApiScope = (typeof apiScopes)[number];
 
+export const oauthApiScopes = apiScopes.filter(
+  (scope): scope is Exclude<ApiScope, "time:parse"> => scope !== "time:parse",
+);
+
 export const apiRouteClasses = [
   "anonymous_public_read",
   "authenticated_public_read",

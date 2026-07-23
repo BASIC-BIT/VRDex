@@ -59,6 +59,10 @@ function ConnectedDeveloperTokensPanel() {
     api.apiTokens.listPersonalTokens,
     isAuthenticated ? { includeRevoked: true } : "skip",
   );
+  const temporalAccess = useQuery(
+    api.temporalParsing.getAccess,
+    isAuthenticated ? {} : "skip",
+  );
   const revokeToken = useMutation(api.apiTokens.revokePersonalToken);
   const [createdTokenValue, setCreatedTokenValue] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -172,7 +176,9 @@ function ConnectedDeveloperTokensPanel() {
           <fieldset className="grid gap-3">
             <legend className="text-sm font-medium">Scopes</legend>
             <div className="grid gap-2 sm:grid-cols-2">
-              {tokenScopes.map((scope) => (
+              {tokenScopes.filter((scope) => scope.value !== "time:parse" || (
+                temporalAccess?.allowed === true && temporalAccess.emailVerified
+              )).map((scope) => (
                 <label className="flex items-center gap-2 text-sm" key={scope.value}>
                   <input
                     className="size-4 rounded border-border accent-[var(--color-accent)]"

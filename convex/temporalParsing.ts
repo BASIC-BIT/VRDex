@@ -115,12 +115,28 @@ export async function insertTemporalJobRecord(
     if (existing.ownerUserId !== ownerUserId) {
       throw new Error("continuation_conflict");
     }
-    return {
-      jobId: existing._id,
-      expiresAt: existing.expiresAt,
-      retainInput: existing.retainInput,
-      created: false,
-    };
+    if (existing.expiresAt > now) {
+      return {
+        jobId: existing._id,
+        expiresAt: existing.expiresAt,
+        retainInput: existing.retainInput,
+        created: false,
+      };
+    }
+    const active = existing.status === "queued" || existing.status === "running";
+    await ctx.db.patch(existing._id, {
+      continuationTokenHash: `expired:${existing._id}:${existing.continuationTokenHash}`,
+      ...(active ? {
+        status: "failed" as const,
+        outcome: "timeout" as const,
+        errorCode: "continuation_expired",
+        errorDetail: "The temporal parse continuation expired before completion.",
+        totalLatencyMs: now - existing.createdAt,
+        ...(!existing.retainInput ? { inputText: undefined, inputHash: undefined } : {}),
+        completedAt: now,
+      } : {}),
+      updatedAt: now,
+    });
   }
 
   const dailyLimit = positiveIntegerEnvironment("TEMPORAL_DAILY_ACCOUNT_LIMIT", DEFAULT_DAILY_ACCOUNT_LIMIT);
@@ -475,6 +491,36 @@ export const markRunning = internalMutation({
       referenceInstant: job.referenceInstant,
       createdAt: job.createdAt,
     };
+  },
+});
+
+export const requeueWarmingJob = internalMutation({
+  args: { jobId: v.id("temporalParseJobs") },
+  handler: async (ctx, args) => {
+    const job = await ctx.db.get(args.jobId);
+    if (job === null || job.status !== "running") {
+      return { state: "stopped" as const };
+    }
+    const now = Date.now();
+    if (job.expiresAt <= now) {
+      await ctx.db.patch(job._id, {
+        status: "failed",
+        outcome: "timeout",
+        errorCode: "continuation_expired",
+        errorDetail: "The temporal parse continuation expired while the model was warming.",
+        totalLatencyMs: now - job.createdAt,
+        ...(!job.retainInput ? { inputText: undefined, inputHash: undefined } : {}),
+        completedAt: now,
+        updatedAt: now,
+      });
+      return { state: "stopped" as const };
+    }
+    await ctx.db.patch(job._id, {
+      status: "queued",
+      startedAt: undefined,
+      updatedAt: now,
+    });
+    return { state: "queued" as const, expiresAt: job.expiresAt };
   },
 });
 

@@ -1,6 +1,6 @@
 import { createPrivateKey, createPublicKey, randomBytes, sign, verify, type JsonWebKey } from "node:crypto";
 
-import { apiScopes, type ApiScope } from "@vrdex/api-contracts";
+import { oauthApiScopes, type ApiScope } from "@vrdex/api-contracts";
 
 const accessTokenTtlSeconds = 60 * 60;
 const signingAlgorithm = "RS256";
@@ -176,7 +176,7 @@ export function parseOAuthScopeString(value: string | null | undefined, fallback
   const uniqueScopes = [...new Set(requested)];
 
   for (const scope of uniqueScopes) {
-    if (!(apiScopes as readonly string[]).includes(scope)) {
+    if (!(oauthApiScopes as readonly string[]).includes(scope)) {
       throw new Error(`Unsupported OAuth scope: ${scope}`);
     }
   }

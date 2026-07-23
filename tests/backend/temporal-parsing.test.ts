@@ -10,6 +10,7 @@ import {
   insertTemporalJobRecord,
   scrubRetainedJobInputs,
 } from "../../convex/temporalParsing";
+import { temporalProviderRetryDelayMs } from "../../convex/temporalParsingActions";
 
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
@@ -176,6 +177,58 @@ describe("temporal parsing control plane", () => {
         process.env.TEMPORAL_PARSING_ENABLED = previous;
       }
     }
+  });
+
+  it("accepts a fresh job when an idempotent continuation has expired", async () => {
+    const t = convexTest({ schema, modules });
+    const userId = await createAuthorizedUser(t, "expired-idempotency");
+    const previous = process.env.TEMPORAL_PARSING_ENABLED;
+    process.env.TEMPORAL_PARSING_ENABLED = "true";
+    try {
+      const input = submission(userId, "expired-idempotency");
+      const first = await t.run((ctx) => insertTemporalJobRecord(ctx, input, userId));
+      await t.run((ctx) => ctx.db.patch(first.jobId, { expiresAt: Date.now() - 1 }));
+      const second = await t.run((ctx) => insertTemporalJobRecord(ctx, input, userId));
+      assert.notEqual(second.jobId, first.jobId);
+      assert.equal(second.created, true);
+      const oldJob = await t.run((ctx) => ctx.db.get(first.jobId));
+      assert.match(oldJob?.continuationTokenHash ?? "", /^expired:/);
+      assert.equal(oldJob?.status, "failed");
+      assert.equal(oldJob?.errorCode, "continuation_expired");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.TEMPORAL_PARSING_ENABLED;
+      } else {
+        process.env.TEMPORAL_PARSING_ENABLED = previous;
+      }
+    }
+  });
+
+  it("requeues a running job while the model warms", async () => {
+    const t = convexTest({ schema, modules });
+    const userId = await createAuthorizedUser(t, "warming");
+    const jobId = await insertQueuedJob(t, userId, "warming");
+    assert.equal((await t.mutation(internal.temporalParsing.markRunning, { jobId })).state, "started");
+    const requeued = await t.mutation(internal.temporalParsing.requeueWarmingJob, { jobId });
+    assert.equal(requeued.state, "queued");
+    const job = await t.run((ctx) => ctx.db.get(jobId));
+    assert.equal(job?.status, "queued");
+    assert.equal(job?.startedAt, undefined);
+  });
+
+  it("retries only explicit model-warming and provider-capacity responses", async () => {
+    assert.equal(await temporalProviderRetryDelayMs(new Response(
+      JSON.stringify({ error: "model_warming", retryAfterSeconds: 2 }),
+      { status: 503, headers: { "retry-after": "2" } },
+    )), 2_000);
+    assert.equal(await temporalProviderRetryDelayMs(new Response(
+      "capacity",
+      { status: 429, headers: { "retry-after": "5" } },
+    )), 5_000);
+    assert.equal(await temporalProviderRetryDelayMs(new Response(
+      "unauthorized",
+      { status: 401 },
+    )), null);
   });
 
   it("serializes different accounts onto one running worker", async () => {

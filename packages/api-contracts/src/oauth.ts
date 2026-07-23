@@ -1,4 +1,4 @@
-import { apiScopes, type ApiScope } from "./auth";
+import { oauthApiScopes, type ApiScope } from "./auth";
 
 const oauthClientIdHexLength = 24;
 const oauthClientMetadataDocumentMaxLength = 2048;
@@ -264,7 +264,7 @@ export function normalizeOAuthScopes(scopes: readonly string[] | undefined): Api
   const uniqueScopes = [...new Set(requested)];
 
   for (const scope of uniqueScopes) {
-    if (!(apiScopes as readonly string[]).includes(scope)) {
+    if (!(oauthApiScopes as readonly string[]).includes(scope)) {
       throw new Error(`Unsupported OAuth scope: ${scope}`);
     }
   }

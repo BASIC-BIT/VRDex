@@ -7,6 +7,7 @@ import { internal } from "@convex-generated-api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 
 import {
+  authenticateOptionalApiBearerRequest,
   evaluateOptionalApiBearerRequest,
 } from "@/lib/server/api-v0";
 import { convexAdminHttpClient } from "@/lib/server/convex-http";
@@ -55,8 +56,14 @@ export function parseTemporalIdempotencyKey(request: Request) {
   };
 }
 
-export async function authorizeTemporalApiRequest(request: Request) {
-  const evaluation = await evaluateOptionalApiBearerRequest(request, {
+export async function authorizeTemporalApiRequest(
+  request: Request,
+  options: { consumeSubmissionQuota?: boolean } = {},
+) {
+  const authenticate = options.consumeSubmissionQuota === false
+    ? authenticateOptionalApiBearerRequest
+    : evaluateOptionalApiBearerRequest;
+  const evaluation = await authenticate(request, {
     requiredScopes: ["time:parse"],
     routeClass: "time_parse",
   });

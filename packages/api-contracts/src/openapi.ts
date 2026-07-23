@@ -1,7 +1,7 @@
 import { createDocument, type ZodOpenApiObject, type ZodOpenApiResponsesObject } from "zod-openapi";
 import { stringify as stringifyYaml } from "yaml";
 
-import { apiScopes } from "./auth";
+import { oauthApiScopes } from "./auth";
 import {
   ApiSimpleErrorResponseSchema,
   ApiEventCreateRequestSchema,
@@ -102,8 +102,8 @@ const publicReadProblemResponses = {
   },
 } satisfies ZodOpenApiResponsesObject;
 
-const scopeDescriptions = Object.fromEntries(apiScopes.map((scope) => [scope, scope])) as Record<
-  (typeof apiScopes)[number],
+const scopeDescriptions = Object.fromEntries(oauthApiScopes.map((scope) => [scope, scope])) as Record<
+  (typeof oauthApiScopes)[number],
   string
 >;
 const optionalPublicReadSecurity: Array<Record<string, string[]>> = [

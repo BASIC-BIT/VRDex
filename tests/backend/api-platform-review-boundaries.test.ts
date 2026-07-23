@@ -78,13 +78,18 @@ describe("API platform review boundaries", () => {
 
   it("inspects failed-auth limits before durable bearer validation", () => {
     const apiV0 = source("apps/web/src/lib/server/api-v0.ts");
-    const evaluation = apiV0.slice(apiV0.indexOf("export async function evaluateOptionalApiBearerRequest"));
+    const evaluation = apiV0.slice(apiV0.indexOf("export async function authenticateOptionalApiBearerRequest"));
     const mcp = source("apps/web/src/lib/server/vrdex-mcp.ts");
     const mcpEvaluation = mcp.slice(mcp.indexOf("export async function rejectInvalidOrRateLimitedMcpRequest"));
 
     assert.ok(
       evaluation.indexOf("increment: false")
         < evaluation.indexOf("authenticateOptionalApiBearerToken(request, options)"),
+    );
+    const temporalContinuation = source("apps/web/src/app/api/v0/time/parse/[continuationToken]/route.ts");
+    assert.match(
+      temporalContinuation,
+      /authorizeTemporalApiRequest\(request, \{\s*consumeSubmissionQuota: false,/,
     );
     assert.ok(
       mcpEvaluation.indexOf("increment: false")

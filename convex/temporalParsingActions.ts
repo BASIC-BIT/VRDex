@@ -6,6 +6,30 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
 
+const MIN_RETRY_DELAY_MS = 1_000;
+const MAX_RETRY_DELAY_MS = 30_000;
+const DEFAULT_RETRY_DELAY_MS = 2_000;
+
+function boundedRetryDelayMs(value: unknown) {
+  const seconds = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return DEFAULT_RETRY_DELAY_MS;
+  }
+  return Math.min(MAX_RETRY_DELAY_MS, Math.max(MIN_RETRY_DELAY_MS, Math.ceil(seconds * 1_000)));
+}
+
+export async function temporalProviderRetryDelayMs(response: Response) {
+  const retryAfter = response.headers.get("retry-after");
+  const body = response.status === 503
+    ? await response.clone().json().catch(() => null) as { error?: unknown; retryAfterSeconds?: unknown } | null
+    : null;
+  const warming = body?.error === "model_warming";
+  const capacityLimited = [429, 502, 503].includes(response.status) && retryAfter !== null;
+  return warming || capacityLimited
+    ? boundedRetryDelayMs(body?.retryAfterSeconds ?? retryAfter)
+    : null;
+}
+
 function serviceEnabled(): boolean {
   return process.env.TEMPORAL_PARSING_ENABLED?.trim().toLowerCase() === "true";
 }
@@ -69,6 +93,20 @@ export const processJob = internalAction({
         signal: AbortSignal.timeout(120_000),
       });
       if (!response.ok) {
+        const retryDelayMs = await temporalProviderRetryDelayMs(response);
+        if (retryDelayMs !== null) {
+          const requeued = await ctx.runMutation(internal.temporalParsing.requeueWarmingJob, {
+            jobId: args.jobId,
+          });
+          if (requeued.state === "queued") {
+            await ctx.scheduler.runAfter(
+              Math.min(retryDelayMs, Math.max(0, requeued.expiresAt - Date.now())),
+              internal.temporalParsingActions.processJob,
+              { jobId: args.jobId },
+            );
+          }
+          return;
+        }
         throw new Error(`provider_http_${response.status}`);
       }
       const provider = await response.json() as {

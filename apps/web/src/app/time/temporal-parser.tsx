@@ -23,6 +23,7 @@ import {
 type Result = TemporalParseCompletedResponse | TemporalParsePendingResponse;
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+const posthogConfigured = Boolean(process.env.NEXT_PUBLIC_POSTHOG_KEY?.trim());
 
 function latencyBucket(milliseconds: number) {
   if (milliseconds < 2_000) return "under_2s" as const;
@@ -82,7 +83,9 @@ function ConnectedTemporalParser() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const pageOpened = useRef(false);
-  const enabled = access?.allowed === true && access.emailVerified && uiFlag === true;
+  const enabled = access?.allowed === true && access.emailVerified && (
+    !posthogConfigured || uiFlag !== false
+  );
 
   useEffect(() => {
     setTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York");
@@ -219,7 +222,7 @@ function ConnectedTemporalParser() {
   if (!isAuthenticated) {
     return (
       <Notice>
-        <Link className="font-medium text-accent underline underline-offset-4" href="/signin">
+        <Link className="font-medium text-accent underline underline-offset-4" href="/sign-in">
           Sign in
         </Link>{" "}
         to use VRDex Time.

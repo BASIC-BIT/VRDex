@@ -788,6 +788,7 @@ describe("@vrdex/api-contracts", () => {
       "public:read",
       "mcp:read",
     ]);
+    assert.throws(() => normalizeOAuthScopes(["time:parse"]), /Unsupported OAuth scope/);
     assert.deepEqual(normalizeOAuthGrantTypes(undefined, "public"), [
       "authorization_code",
       "refresh_token",
@@ -1050,5 +1051,11 @@ describe("@vrdex/api-contracts", () => {
     );
     assert.ok(continuation?.responses?.["410"]);
     assert.deepEqual(submit?.security, [{ bearerAuth: ["time:parse"] }]);
+    const oauthScheme = document.components?.securitySchemes?.oauth2 as {
+      flows?: { authorizationCode?: { scopes?: Record<string, string> } };
+    } | undefined;
+    const oauthScopes = oauthScheme?.flows?.authorizationCode?.scopes;
+    assert.equal(oauthScopes?.["time:parse"], undefined);
+    assert.equal(oauthScopes?.["public:read"], "public:read");
   });
 });

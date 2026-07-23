@@ -111,7 +111,6 @@ const apiScopes = new Set<ApiScope>([
   "developer:write",
   "mcp:read",
   "mcp:write",
-  "time:parse",
 ]);
 const oauthGrantTypes = new Set<OAuthGrantType>([
   "authorization_code",

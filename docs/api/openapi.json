@@ -9050,8 +9050,7 @@
               "developer:read": "developer:read",
               "developer:write": "developer:write",
               "mcp:read": "mcp:read",
-              "mcp:write": "mcp:write",
-              "time:parse": "time:parse"
+              "mcp:write": "mcp:write"
             }
           }
         }
