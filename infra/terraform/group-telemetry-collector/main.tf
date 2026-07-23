@@ -215,7 +215,7 @@ resource "aws_budgets_budget" "worker" {
 
   cost_filter {
     name   = "TagKeyValue"
-    values = ["user:Component$${local.component}"]
+    values = [format("user:Component$%s", local.component)]
   }
 
   notification {

@@ -21,6 +21,9 @@ function publicRollup(rollup: {
   groupMemberCount?: number;
   groupMemberGrowth?: number;
   worldDistribution: Array<{ vrchatWorldId: string; samples: number }>;
+}, visibility: {
+  groupMemberCount: boolean;
+  groupMemberGrowth: boolean;
 }) {
   return {
     startAt: rollup.bucketStartAt,
@@ -31,8 +34,12 @@ function publicRollup(rollup: {
     peakConcurrency: rollup.peakConcurrency,
     playerHours: rollup.playerMinutes / 60,
     coverageRatio: rollup.coverageRatio,
-    ...(rollup.groupMemberCount === undefined ? {} : { groupMemberCount: rollup.groupMemberCount }),
-    ...(rollup.groupMemberGrowth === undefined ? {} : { groupMemberGrowth: rollup.groupMemberGrowth }),
+    ...(!visibility.groupMemberCount || rollup.groupMemberCount === undefined
+      ? {}
+      : { groupMemberCount: rollup.groupMemberCount }),
+    ...(!visibility.groupMemberGrowth || rollup.groupMemberGrowth === undefined
+      ? {}
+      : { groupMemberGrowth: rollup.groupMemberGrowth }),
     worldDistribution: rollup.worldDistribution,
   };
 }
@@ -46,7 +53,12 @@ export async function getPublicCommunityTelemetry(
     .query("communityVrchatIntegrations")
     .withIndex("by_communityProfileId", (query) => query.eq("communityProfileId", communityProfileId))
     .first();
-  if (!integration || integration.state === "disconnected" || !Object.values(integration.publicMetrics).some(Boolean)) {
+  if (
+    !integration ||
+    integration.state === "disconnecting" ||
+    integration.state === "disconnected" ||
+    !Object.values(integration.publicMetrics).some(Boolean)
+  ) {
     return null;
   }
 
@@ -79,7 +91,7 @@ export async function getPublicCommunityTelemetry(
     if (!event || event.publicationState !== "published" || !event.slug || event.communityProfileId !== communityProfileId) return null;
     return {
       event: { slug: event.slug, title: event.title },
-      ...publicRollup(rollup),
+      ...publicRollup(rollup, integration.publicMetrics),
     };
   }))).filter((recap) => recap !== null);
   const freshness = integration.lastSuccessfulObservationAt !== undefined &&
@@ -100,7 +112,7 @@ export async function getPublicCommunityTelemetry(
         } }
       : {}),
     ...(integration.publicMetrics.populationHistory
-      ? { populationHistory: hourlyRollups.reverse().map(publicRollup) }
+      ? { populationHistory: hourlyRollups.reverse().map((rollup) => publicRollup(rollup, integration.publicMetrics)) }
       : {}),
     ...(integration.publicMetrics.groupMemberCount && latestMember
       ? { groupMemberCount: { value: latestMember.memberCount, observedAt: latestMember.observedAt } }

@@ -47,13 +47,14 @@ const telemetryWorker = httpAction(async (ctx, request) => {
   if (!body || typeof body.operation !== "string" || typeof body.workerId !== "string") {
     return json({ error: "invalid_request" }, 400);
   }
+  const now = Date.now();
   try {
     if (body.operation === "claim") {
       const assignments = await ctx.runMutation(functions.claimDueAssignments, {
         collectorAccountId: collectorAccountId as never,
         workerId: body.workerId,
         limit: typeof body.limit === "number" ? body.limit : undefined,
-        now: typeof body.now === "number" ? body.now : undefined,
+        now,
       });
       return json({ assignments });
     }
@@ -72,7 +73,7 @@ const telemetryWorker = httpAction(async (ctx, request) => {
         groupVisibility: body.groupVisibility,
         joinPolicy: body.joinPolicy,
         detail: typeof body.detail === "string" ? body.detail : undefined,
-        now: typeof body.now === "number" ? body.now : undefined,
+        now,
       } as never);
       return json({ ok: true });
     }
@@ -80,7 +81,7 @@ const telemetryWorker = httpAction(async (ctx, request) => {
       const result = await ctx.runMutation(functions.reserveRequestBudget, {
         ...common,
         requestCount: body.requestCount,
-        now: typeof body.now === "number" ? body.now : undefined,
+        now,
       } as never);
       return json(result);
     }
@@ -88,7 +89,7 @@ const telemetryWorker = httpAction(async (ctx, request) => {
       await ctx.runMutation(functions.deferAssignment, {
         ...common,
         nextPollAt: body.nextPollAt,
-        now: typeof body.now === "number" ? body.now : undefined,
+        now,
       } as never);
       return json({ ok: true });
     }
@@ -114,7 +115,7 @@ const telemetryWorker = httpAction(async (ctx, request) => {
         backoffUntil: body.backoffUntil,
         detail: typeof body.detail === "string" ? body.detail : undefined,
         collectorVersion: body.collectorVersion,
-        now: typeof body.now === "number" ? body.now : undefined,
+        now,
       } as never);
       return json({ ok: true });
     }

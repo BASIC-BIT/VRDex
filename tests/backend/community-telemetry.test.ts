@@ -62,6 +62,13 @@ async function registerAccount(t: ReturnType<typeof convexTest>, capacity = 3, s
   });
 }
 
+async function finishImmediateSchedules(t: ReturnType<typeof convexTest>, iterations = 20) {
+  for (let index = 0; index < iterations; index += 1) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await t.finishInProgressScheduledFunctions();
+  }
+}
+
 describe("community telemetry control plane", () => {
   it("enforces authority and keeps every public metric private by default", async () => {
     const t = convexTest({ schema, modules });
@@ -211,6 +218,15 @@ describe("community telemetry control plane", () => {
     });
     const initialRollup = await t.run((ctx) => ctx.db.get(rollupId));
     assert.equal(initialRollup?.peakConcurrency, 17);
+    await t.withIdentity(identity).mutation(api.communityTelemetry.setPublicMetric, {
+      communitySlug: "faceless", metric: "populationHistory", enabled: true,
+    });
+    const publicHistory = await t.query(api.communityTelemetry.getPublicForCommunity, {
+      communitySlug: "faceless", now: claimAt + 182_000,
+    });
+    assert.equal(publicHistory?.populationHistory?.length, 1);
+    assert.equal("groupMemberCount" in publicHistory!.populationHistory![0]!, false);
+    assert.equal("groupMemberGrowth" in publicHistory!.populationHistory![0]!, false);
     await t.run((ctx) => ctx.db.insert("communityPopulationObservations", {
       integrationId,
       idempotencyKey: "late-poll",
@@ -255,12 +271,27 @@ describe("community telemetry control plane", () => {
     const removed = await t.mutation(internal.communityTelemetry.compactRawTelemetry, {
       integrationId,
       rawBeforeAt: rollupStart + 60 * 60_000,
-      limit: 100,
+      limit: 1,
     });
-    assert.equal(removed.aggregateDeleted, 5);
-    assert.equal(removed.instanceDeleted, 3);
+    assert.equal(removed.aggregateDeleted, 1);
+    assert.equal(removed.instanceDeleted, 0);
+    assert.equal(removed.isDone, false);
+    await finishImmediateSchedules(t);
+    const retainedRaw = await t.run(async (ctx) => ({
+      aggregate: await ctx.db.query("communityPopulationObservations")
+        .withIndex("by_integrationId_observedAt", (query) => query.eq("integrationId", integrationId).lt("observedAt", rollupStart + 60 * 60_000))
+        .collect(),
+      instances: await ctx.db.query("instancePopulationObservations")
+        .withIndex("by_integrationId_observedAt", (query) => query.eq("integrationId", integrationId).lt("observedAt", rollupStart + 60 * 60_000))
+        .collect(),
+    }));
+    assert.equal(retainedRaw.aggregate.length, 0);
+    assert.equal(retainedRaw.instances.length, 0);
     await t.withIdentity(identity).mutation(api.communityTelemetry.disconnectGroup, { communitySlug: "faceless" });
     assert.equal(await t.query(api.communityTelemetry.getPublicForCommunity, { communitySlug: "faceless", now: claimAt + 125_000 }), null);
+    await assert.rejects(t.withIdentity(identity).mutation(api.communityTelemetry.setPublicMetric, {
+      communitySlug: "faceless", metric: "currentPopulation", enabled: true,
+    }), /disconnecting or disconnected/);
     const cleanupClaims = await t.mutation(internal.communityTelemetry.claimDueAssignments, {
       collectorAccountId: accountId, workerId: "worker-three", now: claimAt + 185_000,
     });
@@ -409,10 +440,11 @@ describe("community telemetry control plane", () => {
     await assert.rejects(t.mutation(api.communityTelemetry.associateEventInstance, {
       communitySlug: "faceless", eventId: seeded.eventId, sessionId: seeded.sessions[0]!,
     }), /signed-in user/);
+    const confirmedAssociations: Id<"eventInstanceAssociations">[] = [];
     for (const sessionId of seeded.sessions.slice(0, 2)) {
-      await t.withIdentity(identity).mutation(api.communityTelemetry.associateEventInstance, {
+      confirmedAssociations.push(await t.withIdentity(identity).mutation(api.communityTelemetry.associateEventInstance, {
         communitySlug: "faceless", eventId: seeded.eventId, sessionId,
-      });
+      }));
     }
     const eventRollupId = await t.mutation(internal.communityTelemetry.recomputeRollup, {
       communityProfileId, eventId: seeded.eventId, grain: "event",
@@ -437,6 +469,13 @@ describe("community telemetry control plane", () => {
     await assert.rejects(t.withIdentity(identity).mutation(api.communityTelemetry.associateEventInstance, {
       communitySlug: "faceless", eventId: seeded.conflictingEventId, sessionId: seeded.sessions[0]!,
     }), /already confirmed/);
+    await t.withIdentity(identity).mutation(api.communityTelemetry.reviewAssociationSuggestion, {
+      communitySlug: "faceless", associationId: confirmedAssociations[0]!, state: "rejected",
+    });
+    await finishImmediateSchedules(t);
+    const recomputedEventRollup = await t.run((ctx) => ctx.db.get(eventRollupId));
+    assert.equal(recomputedEventRollup?.peakConcurrency, 13);
+    assert.equal(recomputedEventRollup?.activeInstanceCount, 1);
 
     await t.withIdentity(identity).mutation(api.communityTelemetry.setPublicMetric, {
       communitySlug: "faceless", metric: "eventRecaps", enabled: true,
@@ -445,7 +484,68 @@ describe("community telemetry control plane", () => {
     assert.equal(publicTelemetry?.eventRecaps?.length, 1);
     assert.equal(publicTelemetry?.eventRecaps?.[0]?.event?.title, "Telemetry Event");
     assert.equal(publicTelemetry?.eventRecaps?.[0]?.durationMinutes, 3);
+    assert.equal("groupMemberCount" in publicTelemetry!.eventRecaps![0]!, false);
+    assert.equal("groupMemberGrowth" in publicTelemetry!.eventRecaps![0]!, false);
     assert.equal("currentPopulation" in publicTelemetry!, false);
+    await t.run((ctx) => ctx.db.patch(communityProfileId, { publicSurfacingState: "opted_out" }));
+    assert.equal(await t.query(api.communityTelemetry.getPublicForCommunity, {
+      communitySlug: "faceless", now: dayStart + 5 * 60_000,
+    }), null);
+  });
+
+  it("pages rollup scheduling across every connected integration", async () => {
+    const t = convexTest({ schema, modules });
+    const lastCommunityProfileId = await t.run(async (ctx) => {
+      let lastProfileId: Id<"profiles"> | undefined;
+      for (let index = 0; index < 201; index += 1) {
+        const suffix = String(index).padStart(3, "0");
+        const communityProfileId = await ctx.db.insert("profiles", {
+          slug: `telemetry-${suffix}`,
+          displayName: `Telemetry ${suffix}`,
+          sortName: `telemetry ${suffix}`,
+          aliases: [],
+          tags: [],
+          claimState: "claimed_verified",
+          publicationState: "published",
+          publicSurfacingState: "public",
+          creationSource: "self",
+          updatedAt: NOW,
+          profileType: "community",
+          community: { categoryTags: [] },
+        });
+        await ctx.db.insert("communityVrchatIntegrations", {
+          communityProfileId,
+          vrchatGroupId: `grp_schedule_${suffix}`,
+          groupVisibility: "public",
+          joinPolicy: "free",
+          state: "active",
+          killSwitchEnabled: false,
+          requestsPerMinute: 4,
+          leaseGeneration: 0,
+          publicMetrics: {
+            currentPopulation: false,
+            populationHistory: false,
+            groupMemberCount: false,
+            groupMemberGrowth: false,
+            eventRecaps: false,
+          },
+          consecutiveFailures: 0,
+          createdAt: NOW,
+          updatedAt: NOW,
+        });
+        lastProfileId = communityProfileId;
+      }
+      return lastProfileId!;
+    });
+
+    const firstPage = await t.mutation(internal.communityTelemetry.scheduleTelemetryRollups, { now: NOW });
+    assert.equal(firstPage.integrations, 200);
+    assert.equal(firstPage.isDone, false);
+    await finishImmediateSchedules(t);
+    const lastRollups = await t.run((ctx) => ctx.db.query("communityTelemetryRollups")
+      .withIndex("by_communityProfileId_grain_bucketStartAt", (query) => query.eq("communityProfileId", lastCommunityProfileId))
+      .collect());
+    assert.deepEqual(new Set(lastRollups.map((rollup) => rollup.grain)), new Set(["hour", "day"]));
   });
 
   it("reserves account headroom and turns fleet or account failures into honest gaps", async () => {

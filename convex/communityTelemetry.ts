@@ -20,6 +20,7 @@ import {
 } from "./_communityTelemetry";
 import { subjectHasCommunityCapability, toAuthSubject } from "./_communityAuthority";
 import { getPublicCommunityTelemetry } from "./_communityTelemetryPublic";
+import { canReadProfile } from "./_profilePermissions";
 
 const publicMetricValidator = v.union(
   v.literal("currentPopulation"),
@@ -571,6 +572,9 @@ export const setPublicMetric = mutation({
     const actor = await requireCommunityCapability(ctx, profile._id);
     const integration = await integrationForCommunity(ctx, profile._id);
     if (!integration) throw new Error("Community telemetry is not connected.");
+    if (integration.state === "disconnecting" || integration.state === "disconnected") {
+      throw new Error("Community telemetry is disconnecting or disconnected.");
+    }
     const now = Date.now();
     await ctx.db.patch(integration._id, {
       publicMetrics: { ...integration.publicMetrics, [args.metric]: args.enabled },
@@ -1131,7 +1135,7 @@ export const getPublicForCommunity = query({
       .query("profiles")
       .withIndex("by_slug", (q) => q.eq("slug", args.communitySlug.trim().toLowerCase()))
       .first();
-    if (!profile || profile.profileType !== "community" || profile.publicationState !== "published") return null;
+    if (!profile || profile.profileType !== "community" || !canReadProfile("public", profile)) return null;
     return getPublicCommunityTelemetry(ctx.db, profile._id, args.now ?? Date.now());
   },
 });
@@ -1301,8 +1305,9 @@ export const reviewAssociationSuggestion = mutation({
         .first();
       if (existing && existing.eventId !== association.eventId) throw new Error("Instance is already confirmed for another event.");
     }
+    const requiresRollupRecompute = args.state === "confirmed" || association.state === "confirmed";
     await ctx.db.patch(association._id, { state: args.state, actor, reviewedAt: now, updatedAt: now });
-    if (args.state === "confirmed") {
+    if (requiresRollupRecompute) {
       const event = await ctx.db.get(association.eventId);
       if (event) await ctx.scheduler.runAfter(0, internal.communityTelemetry.recomputeRollup, {
         communityProfileId: profile._id,
@@ -1317,16 +1322,19 @@ export const reviewAssociationSuggestion = mutation({
 });
 
 export const scheduleTelemetryRollups = internalMutation({
-  args: { now: v.optional(v.number()) },
+  args: { now: v.optional(v.number()), cursor: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const now = args.now ?? Date.now();
     const hourEnd = Math.floor(now / (60 * 60_000)) * 60 * 60_000;
     const hourStart = hourEnd - 60 * 60_000;
     const dayEnd = Math.floor(now / (24 * 60 * 60_000)) * 24 * 60 * 60_000;
     const dayStart = dayEnd - 24 * 60 * 60_000;
-    const integrations = await ctx.db.query("communityVrchatIntegrations").take(200);
+    const integrationsPage = await ctx.db.query("communityVrchatIntegrations").paginate({
+      cursor: args.cursor ?? null,
+      numItems: 200,
+    });
     let scheduled = 0;
-    for (const integration of integrations) {
+    for (const integration of integrationsPage.page) {
       if (integration.state === "disconnected") continue;
       for (const window of [
         { grain: "hour" as const, bucketStartAt: hourStart, bucketEndAt: hourEnd },
@@ -1356,7 +1364,13 @@ export const scheduleTelemetryRollups = internalMutation({
         scheduled += 1;
       }
     }
-    return { integrations: integrations.length, scheduled };
+    if (!integrationsPage.isDone) {
+      await ctx.scheduler.runAfter(0, internal.communityTelemetry.scheduleTelemetryRollups, {
+        now,
+        cursor: integrationsPage.continueCursor,
+      });
+    }
+    return { integrations: integrationsPage.page.length, scheduled, isDone: integrationsPage.isDone };
   },
 });
 
@@ -1365,27 +1379,42 @@ export const compactRawTelemetry = internalMutation({
     integrationId: v.id("communityVrchatIntegrations"),
     rawBeforeAt: v.number(),
     limit: v.optional(v.number()),
+    phase: v.optional(v.union(v.literal("aggregate"), v.literal("instance"))),
+    cursor: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const integration = await ctx.db.get(args.integrationId);
-    if (!integration) return { aggregateDeleted: 0, instanceDeleted: 0 };
+    if (!integration) return { aggregateDeleted: 0, instanceDeleted: 0, isDone: true };
     const limit = Math.max(1, Math.min(args.limit ?? 500, 1000));
+    const phase = args.phase ?? "aggregate";
     const hourlyRollups = await ctx.db.query("communityTelemetryRollups")
       .withIndex("by_communityProfileId_grain_bucketStartAt", (query) =>
         query.eq("communityProfileId", integration.communityProfileId).eq("grain", "hour").lt("bucketStartAt", args.rawBeforeAt),
       )
       .collect();
     const rolledHours = new Set(hourlyRollups.map((rollup) => rollup.bucketStartAt));
-    const aggregate = await ctx.db.query("communityPopulationObservations")
-      .withIndex("by_integrationId_observedAt", (query) => query.eq("integrationId", integration._id).lt("observedAt", args.rawBeforeAt))
-      .take(limit);
-    let aggregateDeleted = 0;
-    for (const point of aggregate) {
-      const hour = Math.floor(point.observedAt / (60 * 60_000)) * 60 * 60_000;
-      if (!rolledHours.has(hour)) continue;
-      await ctx.db.delete(point._id);
-      aggregateDeleted += 1;
+
+    if (phase === "aggregate") {
+      const page = await ctx.db.query("communityPopulationObservations")
+        .withIndex("by_integrationId_observedAt", (query) => query.eq("integrationId", integration._id).lt("observedAt", args.rawBeforeAt))
+        .paginate({ cursor: args.cursor ?? null, numItems: limit });
+      let aggregateDeleted = 0;
+      for (const point of page.page) {
+        const hour = Math.floor(point.observedAt / (60 * 60_000)) * 60 * 60_000;
+        if (!rolledHours.has(hour)) continue;
+        await ctx.db.delete(point._id);
+        aggregateDeleted += 1;
+      }
+      await ctx.scheduler.runAfter(0, internal.communityTelemetry.compactRawTelemetry, {
+        integrationId: integration._id,
+        rawBeforeAt: args.rawBeforeAt,
+        limit,
+        phase: page.isDone ? "instance" : "aggregate",
+        cursor: page.isDone ? undefined : page.continueCursor,
+      });
+      return { aggregateDeleted, instanceDeleted: 0, isDone: false };
     }
+
     const confirmed = await ctx.db.query("eventInstanceAssociations")
       .withIndex("by_communityProfileId_state", (query) => query.eq("communityProfileId", integration.communityProfileId).eq("state", "confirmed"))
       .collect();
@@ -1394,33 +1423,51 @@ export const compactRawTelemetry = internalMutation({
       .collect();
     const rolledEvents = new Set(eventRollups.flatMap((rollup) => rollup.eventId ? [rollup.eventId as string] : []));
     const protectedSessions = new Set(confirmed.filter((association) => !rolledEvents.has(association.eventId as string)).map((association) => association.sessionId as string));
-    const instancePoints = await ctx.db.query("instancePopulationObservations")
+    const page = await ctx.db.query("instancePopulationObservations")
       .withIndex("by_integrationId_observedAt", (query) => query.eq("integrationId", integration._id).lt("observedAt", args.rawBeforeAt))
-      .take(limit);
+      .paginate({ cursor: args.cursor ?? null, numItems: limit });
     let instanceDeleted = 0;
-    for (const point of instancePoints) {
+    for (const point of page.page) {
       const hour = Math.floor(point.observedAt / (60 * 60_000)) * 60 * 60_000;
       if (!rolledHours.has(hour) || protectedSessions.has(point.sessionId as string)) continue;
       await ctx.db.delete(point._id);
       instanceDeleted += 1;
     }
-    return { aggregateDeleted, instanceDeleted };
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.communityTelemetry.compactRawTelemetry, {
+        integrationId: integration._id,
+        rawBeforeAt: args.rawBeforeAt,
+        limit,
+        phase: "instance",
+        cursor: page.continueCursor,
+      });
+    }
+    return { aggregateDeleted: 0, instanceDeleted, isDone: page.isDone };
   },
 });
 
 export const scheduleTelemetryCompaction = internalMutation({
-  args: { now: v.optional(v.number()) },
+  args: { now: v.optional(v.number()), cursor: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const now = args.now ?? Date.now();
-    const integrations = await ctx.db.query("communityVrchatIntegrations").take(200);
-    for (const integration of integrations) {
+    const integrationsPage = await ctx.db.query("communityVrchatIntegrations").paginate({
+      cursor: args.cursor ?? null,
+      numItems: 200,
+    });
+    for (const integration of integrationsPage.page) {
       await ctx.scheduler.runAfter(0, internal.communityTelemetry.compactRawTelemetry, {
         integrationId: integration._id,
         rawBeforeAt: now - 90 * 24 * 60 * 60_000,
         limit: 500,
       });
     }
-    return { scheduled: integrations.length };
+    if (!integrationsPage.isDone) {
+      await ctx.scheduler.runAfter(0, internal.communityTelemetry.scheduleTelemetryCompaction, {
+        now,
+        cursor: integrationsPage.continueCursor,
+      });
+    }
+    return { scheduled: integrationsPage.page.length, isDone: integrationsPage.isDone };
   },
 });
 
