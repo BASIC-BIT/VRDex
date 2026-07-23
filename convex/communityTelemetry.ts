@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { getAuthUserId } from "@convex-dev/auth/server";
 
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -58,7 +59,7 @@ async function requireCommunityCapability(
     "manage_integrations",
   );
   if (delegatedAllowed) return subject;
-  const userId = ctx.db.normalizeId("users", subject.subject);
+  const userId = await getAuthUserId(ctx);
   if (userId && await userOwnsProfile(ctx.db, communityProfileId, userId)) return subject;
   throw new Error("You do not have permission to manage this community integration.");
 }
@@ -649,7 +650,7 @@ export const recordMembershipResult = internalMutation({
       state: args.state,
       groupVisibility: args.groupVisibility,
       joinPolicy: args.joinPolicy,
-      ...(args.state === "awaiting_approval" || args.state === "awaiting_invite"
+      ...(args.state === "connecting" || args.state === "awaiting_approval" || args.state === "awaiting_invite"
         ? { nextPollAt: Math.max(integration.nextPollAt ?? 0, now + 3 * 60_000) }
         : {}),
       updatedAt: now,
@@ -888,6 +889,8 @@ export const ingestAggregatePoll = internalMutation({
         !item.vrchatWorldId.startsWith("wrld_") || item.vrchatWorldId.length > 100 ||
         item.providerLocation !== `${item.vrchatWorldId}:${item.providerInstanceId}` ||
         /usr_[A-Za-z0-9-]+/i.test(item.providerInstanceId) || /usr_[A-Za-z0-9-]+/i.test(item.providerLocation) ||
+        /~(?:hidden|private)\((?!subject-redacted\))[^)]*\)/i.test(item.providerInstanceId) ||
+        /~(?:hidden|private)\((?!subject-redacted\))[^)]*\)/i.test(item.providerLocation) ||
         [...item.providerLocation.matchAll(/group\((grp_[A-Za-z0-9-]+)\)/g)].some((match) => match[1] !== integration.vrchatGroupId) ||
         providerInstanceIds.has(item.providerInstanceId)
       ) throw new Error("Aggregate instance data is malformed.");

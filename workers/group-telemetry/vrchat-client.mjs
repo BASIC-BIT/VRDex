@@ -30,7 +30,9 @@ function sanitizeGroupInstanceLocator(value, groupId, label) {
   if (groupMarkers.some((marker) => marker !== groupId)) {
     throw new VrchatProviderError(`${label} belongs to another group.`, { category: "schema_drift" });
   }
-  return normalized.replace(/usr_[A-Za-z0-9-]{1,100}/gi, "subject-redacted");
+  return normalized
+    .replace(/(~(?:hidden|private)\()[^)]{1,120}(\))/gi, "$1subject-redacted$2")
+    .replace(/usr_[A-Za-z0-9-]{1,100}/gi, "subject-redacted");
 }
 
 function nonNegativeInteger(value, label) {

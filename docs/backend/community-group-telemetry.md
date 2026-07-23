@@ -22,7 +22,7 @@ The account-specific `/telemetry/worker` HTTP action authenticates a SHA-256 wor
 - `communityMemberCountObservations`: a row on count change or after a six-hour heartbeat.
 - `collectionCoverageWindows`: observed, estimated, stale, unknown, or degraded intervals. Missing time never produces a zero observation.
 
-Every observation carries source, collector version, observed time, coverage, and fencing token. The v1 source is `first_party`; `vrcpop` and `vrcx` are reserved adapter values, not active integrations. The adapter replaces any user ID embedded in a provider instance locator before ingestion. Defense-in-depth validation rejects remaining `usr_` identifiers, foreign group markers, inconsistent world/location pairs, negative/non-integer counts, duplicate instance IDs, malformed world IDs, oversized values, and control characters.
+Every observation carries source, collector version, observed time, coverage, and fencing token. The v1 source is `first_party`; `vrcpop` and `vrcx` are reserved adapter values, not active integrations. The adapter replaces subjects embedded in `hidden(...)` or `private(...)` instance-locator markers, including legacy user IDs without a `usr_` prefix, before ingestion. Defense-in-depth validation rejects unredacted subject markers, remaining `usr_` identifiers, foreign group markers, inconsistent world/location pairs, negative/non-integer counts, duplicate instance IDs, malformed world IDs, oversized values, and control characters.
 
 ## Rollups and retention
 

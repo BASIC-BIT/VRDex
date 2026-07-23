@@ -290,8 +290,8 @@ describe("group telemetry provider adapter", () => {
     const responses = [
       jsonResponse({ id: "grp_example", memberCount: 50, membershipStatus: "member", joinState: "open", privacy: "default" }),
       jsonResponse([{
-        instanceId: "12345~hidden(usr_example)~region(eu)",
-        location: "wrld_example:12345~hidden(usr_example)~region(eu)",
+        instanceId: "12345~hidden(legacy-user-id)~region(eu)",
+        location: "wrld_example:12345~hidden(legacy-user-id)~region(eu)",
         memberCount: 7,
         world: { id: "wrld_example", name: "Example" },
         users: [{ id: "usr_must_not_escape" }],

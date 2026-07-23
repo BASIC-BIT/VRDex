@@ -127,7 +127,7 @@ describe("community telemetry control plane", () => {
         grantedAt: NOW,
         updatedAt: NOW,
       });
-      return { subject: String(userId), issuer: "test", tokenIdentifier: `test|${userId}` };
+      return { subject: `${userId}|owner-session`, issuer: "test", tokenIdentifier: `test|${userId}` };
     });
     await registerAccount(t);
 
@@ -144,8 +144,8 @@ describe("community telemetry control plane", () => {
     assert.equal(dashboard?.community.slug, "faceless");
   });
 
-  it("defers pending membership states before releasing their leases", async () => {
-    for (const state of ["awaiting_approval", "awaiting_invite"] as const) {
+  it("defers unresolved membership states before releasing their leases", async () => {
+    for (const state of ["connecting", "awaiting_approval", "awaiting_invite"] as const) {
       const t = convexTest({ schema, modules });
       await seedCommunity(t);
       const accountId = await registerAccount(t);
@@ -153,7 +153,7 @@ describe("community telemetry control plane", () => {
         communitySlug: "faceless",
         vrchatGroupId: "grp_00000000-0000-4000-8000-000000000001",
         groupVisibility: "private",
-        joinPolicy: state === "awaiting_approval" ? "request" : "invite",
+        joinPolicy: state === "awaiting_approval" ? "request" : state === "awaiting_invite" ? "invite" : "free",
       });
       const claimAt = Date.now() + 1_000;
       const [claim] = await t.mutation(internal.communityTelemetry.claimDueAssignments, {
@@ -169,7 +169,7 @@ describe("community telemetry control plane", () => {
         fencingToken: claim.fencingToken,
         state,
         groupVisibility: "private",
-        joinPolicy: state === "awaiting_approval" ? "request" : "invite",
+        joinPolicy: state === "awaiting_approval" ? "request" : state === "awaiting_invite" ? "invite" : "free",
         now: claimAt + 1,
       });
       await t.mutation(internal.communityTelemetry.releaseLease, {
@@ -784,6 +784,24 @@ describe("community telemetry control plane", () => {
       source: "first_party",
       groupMemberCount: 10,
       instances: [{ providerInstanceId: "123", providerLocation: "wrld_example:123", vrchatWorldId: "wrld_example", population: -1 }],
+      nextPollAt: claimAt + 60_000,
+    }), /malformed/);
+    await assert.rejects(t.mutation(internal.communityTelemetry.ingestAggregatePoll, {
+      integrationId,
+      collectorAccountId: accountId,
+      workerId: "worker",
+      fencingToken: claims[0]!.fencingToken,
+      pollId: "legacy-person-bearing-location",
+      observedAt: claimAt + 6,
+      collectorVersion: "test-v1",
+      source: "first_party",
+      groupMemberCount: 10,
+      instances: [{
+        providerInstanceId: "123~hidden(legacy-user-id)",
+        providerLocation: "wrld_example:123~hidden(legacy-user-id)",
+        vrchatWorldId: "wrld_example",
+        population: 1,
+      }],
       nextPollAt: claimAt + 60_000,
     }), /malformed/);
     await assert.rejects(t.mutation(internal.communityTelemetry.ingestAggregatePoll, {
