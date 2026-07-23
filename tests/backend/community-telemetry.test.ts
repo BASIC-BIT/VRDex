@@ -279,8 +279,8 @@ describe("community telemetry control plane", () => {
         vrchatWorldId: "wrld_00000000-0000-4000-8000-000000000001",
         population: 12,
       }, {
-        providerInstanceId: "67890~group(grp_00000000-0000-4000-8000-000000000001)",
-        providerLocation: "wrld_00000000-0000-4000-8000-000000000002:67890~group(grp_00000000-0000-4000-8000-000000000001)",
+        providerInstanceId: "12345~group(grp_00000000-0000-4000-8000-000000000001)",
+        providerLocation: "wrld_00000000-0000-4000-8000-000000000002:12345~group(grp_00000000-0000-4000-8000-000000000001)",
         vrchatWorldId: "wrld_00000000-0000-4000-8000-000000000002",
         population: 5,
       }],
@@ -336,7 +336,8 @@ describe("community telemetry control plane", () => {
     assert.deepEqual(compacted.population.map((point) => point.totalPopulation), [17, 0, 0, 3]);
     assert.equal(compacted.members.length, 1);
     assert.equal(compacted.sessions.length, 3);
-    assert.equal(compacted.sessions.filter((session) => session.providerInstanceId.startsWith("12345")).length, 2);
+    assert.equal(compacted.sessions.filter((session) => session.providerInstanceId.startsWith("12345")).length, 3);
+    assert.equal(new Set(compacted.sessions.map((session) => session.providerLocation)).size, 2);
     assert.equal(compacted.sessions.filter((session) => session.state === "closed").length, 2);
 
     const rollupId = await t.mutation(internal.communityTelemetry.recomputeRollup, {
@@ -589,13 +590,20 @@ describe("community telemetry control plane", () => {
       bucketStartAt: dayStart + 60_000, bucketEndAt: dayStart + 4 * 60_000, now: dayStart + 5 * 60_000,
     });
 
-    const suggestions = await t.mutation(internal.communityTelemetry.suggestEventAssociations, { eventId: seeded.eventId, now: dayStart + 5 * 60_000 });
-    assert.equal(suggestions.length, 1);
-    assert.equal((await t.run((ctx) => ctx.db.get(suggestions[0]!)))?.state, "suggested");
-    await t.withIdentity(identity).mutation(api.communityTelemetry.reviewAssociationSuggestion, {
-      communitySlug: "faceless", associationId: suggestions[0]!, state: "rejected",
+    await t.mutation(internal.communityTelemetry.suggestEventAssociations, {
+      eventId: seeded.eventId,
+      now: dayStart + 5 * 60_000,
+      limit: 1,
     });
-    assert.equal((await t.run((ctx) => ctx.db.get(suggestions[0]!)))?.state, "rejected");
+    await finishImmediateSchedules(t);
+    const [suggestion] = await t.run((ctx) => ctx.db.query("eventInstanceAssociations")
+      .withIndex("by_eventId_state", (query) => query.eq("eventId", seeded.eventId).eq("state", "suggested"))
+      .collect());
+    assert.ok(suggestion);
+    await t.withIdentity(identity).mutation(api.communityTelemetry.reviewAssociationSuggestion, {
+      communitySlug: "faceless", associationId: suggestion._id, state: "rejected",
+    });
+    assert.equal((await t.run((ctx) => ctx.db.get(suggestion._id)))?.state, "rejected");
     assert.deepEqual(await t.mutation(internal.communityTelemetry.suggestEventAssociations, {
       eventId: seeded.eventId,
       now: dayStart + 6 * 60_000,
@@ -621,6 +629,14 @@ describe("community telemetry control plane", () => {
     assert.equal("groupMemberCount" in publicTelemetry!.eventRecaps![0]!, false);
     assert.equal("groupMemberGrowth" in publicTelemetry!.eventRecaps![0]!, false);
     assert.equal("currentPopulation" in publicTelemetry!, false);
+    await t.withIdentity(identity).mutation(api.communityTelemetry.reviewAssociationSuggestion, {
+      communitySlug: "faceless", associationId: confirmedAssociations[1]!, state: "rejected",
+    });
+    await finishImmediateSchedules(t);
+    assert.equal(await t.run((ctx) => ctx.db.get(eventRollupId)), null);
+    assert.deepEqual((await t.query(api.communityTelemetry.getPublicForCommunity, {
+      communitySlug: "faceless", now: dayStart + 5 * 60_000,
+    }))?.eventRecaps, []);
     await t.run((ctx) => ctx.db.patch(communityProfileId, { publicSurfacingState: "opted_out" }));
     assert.equal(await t.query(api.communityTelemetry.getPublicForCommunity, {
       communitySlug: "faceless", now: dayStart + 5 * 60_000,

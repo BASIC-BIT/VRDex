@@ -334,6 +334,8 @@ describe("group telemetry provider adapter", () => {
     assert.equal(budget.retryAfterMs(1, 10_001), 59_999);
     assert.equal(budget.tryConsume(1, 70_001), true);
     assert.equal(budget.retryAfterMs(1, 70_001), 0);
+    assert.equal(budget.tryConsume(3, 70_002), false);
+    assert.equal(budget.retryAfterMs(3, 70_002), 60_000);
 
     const failure = failureDisposition(
       new VrchatProviderError("limited", { status: 429, category: "rate_limit", retryAfterMs: 120_000 }),

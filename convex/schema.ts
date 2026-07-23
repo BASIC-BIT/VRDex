@@ -1206,6 +1206,7 @@ export default defineSchema({
   })
     .index("by_integrationId_state", ["integrationId", "state"])
     .index("by_integrationId_providerInstanceId_state", ["integrationId", "providerInstanceId", "state"])
+    .index("by_integrationId_providerLocation_state", ["integrationId", "providerLocation", "state"])
     .index("by_communityProfileId_openedAt", ["communityProfileId", "openedAt"])
     .index("by_worldId_openedAt", ["worldId", "openedAt"]),
   collectionCoverageWindows: defineTable({

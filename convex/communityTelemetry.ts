@@ -880,7 +880,7 @@ export const ingestAggregatePoll = internalMutation({
     ) {
       throw new Error("Aggregate poll counts are malformed.");
     }
-    const providerInstanceIds = new Set<string>();
+    const providerLocations = new Set<string>();
     for (const item of args.instances) {
       if (
         !Number.isSafeInteger(item.population) || item.population < 0 ||
@@ -892,9 +892,9 @@ export const ingestAggregatePoll = internalMutation({
         /~(?:hidden|private)\((?!subject-redacted\))[^)]*\)/i.test(item.providerInstanceId) ||
         /~(?:hidden|private)\((?!subject-redacted\))[^)]*\)/i.test(item.providerLocation) ||
         [...item.providerLocation.matchAll(/group\((grp_[A-Za-z0-9-]+)\)/g)].some((match) => match[1] !== integration.vrchatGroupId) ||
-        providerInstanceIds.has(item.providerInstanceId)
+        providerLocations.has(item.providerLocation)
       ) throw new Error("Aggregate instance data is malformed.");
-      providerInstanceIds.add(item.providerInstanceId);
+      providerLocations.add(item.providerLocation);
     }
     const duplicatePoll = await ctx.db
       .query("communityPopulationObservations")
@@ -951,11 +951,11 @@ export const ingestAggregatePoll = internalMutation({
     }
     const seen = new Set<string>();
     for (const item of args.instances) {
-      seen.add(item.providerInstanceId);
+      seen.add(item.providerLocation);
       let session = await ctx.db
         .query("instanceSessions")
-        .withIndex("by_integrationId_providerInstanceId_state", (q) =>
-          q.eq("integrationId", integration._id).eq("providerInstanceId", item.providerInstanceId).eq("state", "open"),
+        .withIndex("by_integrationId_providerLocation_state", (q) =>
+          q.eq("integrationId", integration._id).eq("providerLocation", item.providerLocation).eq("state", "open"),
         )
         .first();
       if (!session) {
@@ -990,7 +990,7 @@ export const ingestAggregatePoll = internalMutation({
       await ctx.db.insert("instancePopulationObservations", {
         integrationId: integration._id,
         sessionId: session._id,
-        idempotencyKey: `${args.pollId}:${item.providerInstanceId}`,
+        idempotencyKey: `${args.pollId}:${item.providerLocation}`,
         providerInstanceId: item.providerInstanceId,
         vrchatWorldId: item.vrchatWorldId,
         population: item.population,
@@ -1007,7 +1007,7 @@ export const ingestAggregatePoll = internalMutation({
       .withIndex("by_integrationId_state", (q) => q.eq("integrationId", integration._id).eq("state", "open"))
       .collect();
     for (const session of openSessions) {
-      if (seen.has(session.providerInstanceId)) continue;
+      if (seen.has(session.providerLocation)) continue;
       const misses = session.consecutiveMisses + 1;
       await ctx.db.patch(session._id, {
         consecutiveMisses: misses,
@@ -1198,6 +1198,21 @@ export const recomputeRollup = internalMutation({
     if (args.bucketEndAt <= args.bucketStartAt) throw new Error("Rollup window is invalid.");
     const integration = await integrationForCommunity(ctx, args.communityProfileId);
     if (!integration) throw new Error("Community telemetry is not connected.");
+    const existing = args.eventId
+      ? await ctx.db.query("communityTelemetryRollups").withIndex("by_eventId_rollupVersion", (q) => q.eq("eventId", args.eventId!).eq("rollupVersion", TELEMETRY_ROLLUP_VERSION)).first()
+      : await ctx.db.query("communityTelemetryRollups").withIndex("by_communityProfileId_grain_bucketStartAt", (q) => q.eq("communityProfileId", args.communityProfileId).eq("grain", args.grain).eq("bucketStartAt", args.bucketStartAt)).first();
+    let eventSessionIds: Set<string> | undefined;
+    if (args.eventId) {
+      const confirmed = await ctx.db
+        .query("eventInstanceAssociations")
+        .withIndex("by_eventId_state", (q) => q.eq("eventId", args.eventId!).eq("state", "confirmed"))
+        .collect();
+      if (confirmed.length === 0) {
+        if (existing) await ctx.db.delete(existing._id);
+        return null;
+      }
+      eventSessionIds = new Set(confirmed.map((association) => association.sessionId as string));
+    }
     const population = await ctx.db
       .query("communityPopulationObservations")
       .withIndex("by_integrationId_observedAt", (q) =>
@@ -1210,14 +1225,6 @@ export const recomputeRollup = internalMutation({
         q.eq("integrationId", integration._id).gte("observedAt", args.bucketStartAt).lt("observedAt", args.bucketEndAt),
       )
       .collect();
-    let eventSessionIds: Set<string> | undefined;
-    if (args.eventId) {
-      const confirmed = await ctx.db
-        .query("eventInstanceAssociations")
-        .withIndex("by_eventId_state", (q) => q.eq("eventId", args.eventId!).eq("state", "confirmed"))
-        .collect();
-      eventSessionIds = new Set(confirmed.map((association) => association.sessionId as string));
-    }
     const sessionPopulation = args.eventId
       ? await ctx.db.query("instancePopulationObservations").withIndex("by_integrationId_observedAt", (q) =>
           q.eq("integrationId", integration._id).gte("observedAt", args.bucketStartAt).lt("observedAt", args.bucketEndAt),
@@ -1277,9 +1284,6 @@ export const recomputeRollup = internalMutation({
         .sort((left, right) => right.samples - left.samples || left.vrchatWorldId.localeCompare(right.vrchatWorldId)),
       computedAt: args.now ?? Date.now(),
     };
-    const existing = args.eventId
-      ? await ctx.db.query("communityTelemetryRollups").withIndex("by_eventId_rollupVersion", (q) => q.eq("eventId", args.eventId!).eq("rollupVersion", TELEMETRY_ROLLUP_VERSION)).first()
-      : await ctx.db.query("communityTelemetryRollups").withIndex("by_communityProfileId_grain_bucketStartAt", (q) => q.eq("communityProfileId", args.communityProfileId).eq("grain", args.grain).eq("bucketStartAt", args.bucketStartAt)).first();
     if (existing) {
       await ctx.db.patch(existing._id, values);
       return existing._id;
@@ -1517,17 +1521,32 @@ export const scheduleTelemetryCompaction = internalMutation({
 });
 
 export const suggestEventAssociations = internalMutation({
-  args: { eventId: v.id("events"), now: v.optional(v.number()) },
+  args: {
+    eventId: v.id("events"),
+    now: v.optional(v.number()),
+    cursor: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
   handler: async (ctx, args) => {
     const event = await ctx.db.get(args.eventId);
     if (!event?.communityProfileId) return [];
     const eventWorlds = await ctx.db.query("eventWorlds").withIndex("by_eventId", (q) => q.eq("eventId", event._id)).collect();
     const worldIds = new Set(eventWorlds.filter((link) => link.confirmationState === "confirmed").map((link) => link.worldId as string));
-    const sessions = await ctx.db.query("instanceSessions").withIndex("by_communityProfileId_openedAt", (q) => q.eq("communityProfileId", event.communityProfileId!)).collect();
     const now = args.now ?? Date.now();
+    const eventEndAt = event.endAt ?? event.startAt + 6 * 60 * 60_000;
+    const sessionsPage = await ctx.db.query("instanceSessions")
+      .withIndex("by_communityProfileId_openedAt", (q) =>
+        q.eq("communityProfileId", event.communityProfileId!)
+          .gte("openedAt", event.startAt - 6 * 60 * 60_000)
+          .lte("openedAt", eventEndAt),
+      )
+      .paginate({
+        cursor: args.cursor ?? null,
+        numItems: Math.max(1, Math.min(Math.floor(args.limit ?? 100), 100)),
+      });
     const created: Id<"eventInstanceAssociations">[] = [];
-    for (const session of sessions) {
-      const timeOverlap = session.openedAt <= (event.endAt ?? event.startAt + 6 * 60 * 60_000) && (session.closedAt ?? now) >= event.startAt;
+    for (const session of sessionsPage.page) {
+      const timeOverlap = session.openedAt <= eventEndAt && (session.closedAt ?? now) >= event.startAt;
       const worldMatch = session.worldId ? worldIds.has(session.worldId as string) : false;
       if (!timeOverlap || !worldMatch) continue;
       const [existingSuggestion, confirmed, rejected] = await Promise.all([
@@ -1546,6 +1565,14 @@ export const suggestEventAssociations = internalMutation({
         createdAt: now,
         updatedAt: now,
       }));
+    }
+    if (!sessionsPage.isDone) {
+      await ctx.scheduler.runAfter(0, internal.communityTelemetry.suggestEventAssociations, {
+        eventId: event._id,
+        now,
+        cursor: sessionsPage.continueCursor,
+        ...(args.limit === undefined ? {} : { limit: args.limit }),
+      });
     }
     return created;
   },
