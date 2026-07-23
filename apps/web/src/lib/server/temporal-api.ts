@@ -14,6 +14,7 @@ import { convexAdminHttpClient } from "@/lib/server/convex-http";
 import {
   hashContinuationToken,
   hashTemporalInput,
+  hashTemporalRequest,
   problem,
   type TemporalJob,
 } from "./temporal-response";
@@ -23,6 +24,7 @@ export {
   createContinuationToken,
   hashContinuationToken,
   hashTemporalInput,
+  hashTemporalRequest,
   pendingTemporalResponse,
   problem,
   temporalSubmissionError,
@@ -110,6 +112,7 @@ export async function submitTemporalJob(args: {
     continuationTokenHash: hashContinuationToken(args.continuationToken),
     text: args.body.text,
     inputHash: hashTemporalInput(args.body.text),
+    idempotencyFingerprint: hashTemporalRequest(args.body),
     timeZone,
     ...(args.body.locale === undefined ? {} : { locale: args.body.locale }),
     ...(args.body.country === undefined ? {} : { country: args.body.country }),

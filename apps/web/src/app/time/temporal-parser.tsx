@@ -19,6 +19,7 @@ import {
   mirrorTemporalParsingAccess,
   TEMPORAL_PARSING_UI_FLAG,
 } from "@/lib/posthog";
+import { defaultCountryForLocale } from "@/lib/temporal-locale";
 
 type Result = TemporalParseCompletedResponse | TemporalParsePendingResponse;
 
@@ -91,7 +92,7 @@ function ConnectedTemporalParser() {
     setTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York");
     const browserLocale = navigator.language || "en-US";
     setLocale(browserLocale);
-    setCountry(new Intl.Locale(browserLocale).maximize().region ?? "US");
+    setCountry(defaultCountryForLocale(browserLocale));
   }, []);
 
   useEffect(() => {
@@ -238,11 +239,7 @@ function ConnectedTemporalParser() {
     return <Notice>VRDex Time is currently available only in the closed beta.</Notice>;
   }
 
-  if (uiFlag === undefined) {
-    return <Card aria-busy="true">Checking beta access...</Card>;
-  }
-
-  if (!uiFlag) {
+  if (!enabled) {
     return <Notice>VRDex Time is currently available only in the closed beta.</Notice>;
   }
 

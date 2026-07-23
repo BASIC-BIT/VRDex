@@ -50,6 +50,7 @@ const submitArgs = {
   credentialId: v.optional(v.string()),
   text: v.string(),
   inputHash: v.string(),
+  idempotencyFingerprint: v.string(),
   timeZone: v.string(),
   locale: v.optional(v.string()),
   country: v.optional(v.string()),
@@ -63,6 +64,7 @@ type SubmitInput = {
   credentialId?: string;
   text: string;
   inputHash: string;
+  idempotencyFingerprint: string;
   timeZone: string;
   locale?: string;
   country?: string;
@@ -116,6 +118,9 @@ export async function insertTemporalJobRecord(
       throw new Error("continuation_conflict");
     }
     if (existing.expiresAt > now) {
+      if (existing.idempotencyFingerprint !== args.idempotencyFingerprint) {
+        throw new Error("idempotency_conflict");
+      }
       return {
         jobId: existing._id,
         expiresAt: existing.expiresAt,
@@ -126,6 +131,7 @@ export async function insertTemporalJobRecord(
     const active = existing.status === "queued" || existing.status === "running";
     await ctx.db.patch(existing._id, {
       continuationTokenHash: `expired:${existing._id}:${existing.continuationTokenHash}`,
+      idempotencyFingerprint: undefined,
       ...(active ? {
         status: "failed" as const,
         outcome: "timeout" as const,
@@ -196,6 +202,7 @@ export async function insertTemporalJobRecord(
     ownerUserId,
     ...(args.credentialId === undefined ? {} : { credentialId: args.credentialId }),
     continuationTokenHash: args.continuationTokenHash,
+    idempotencyFingerprint: args.idempotencyFingerprint,
     inputText: args.text,
     inputHash: args.inputHash,
     inputLength: args.text.length,
@@ -529,17 +536,21 @@ export const expireJob = internalMutation({
   handler: async (ctx, args) => {
     const job = await ctx.db.get(args.jobId);
     const now = Date.now();
-    if (job === null || job.expiresAt > now || (job.status !== "queued" && job.status !== "running")) {
+    if (job === null || job.expiresAt > now) {
       return;
     }
+    const active = job.status === "queued" || job.status === "running";
     await ctx.db.patch(job._id, {
-      status: "failed",
-      outcome: "timeout",
-      errorCode: "continuation_expired",
-      errorDetail: "The temporal parse continuation expired before completion.",
-      totalLatencyMs: now - job.createdAt,
-      ...(!job.retainInput ? { inputText: undefined, inputHash: undefined } : {}),
-      completedAt: now,
+      idempotencyFingerprint: undefined,
+      ...(active ? {
+        status: "failed" as const,
+        outcome: "timeout" as const,
+        errorCode: "continuation_expired",
+        errorDetail: "The temporal parse continuation expired before completion.",
+        totalLatencyMs: now - job.createdAt,
+        ...(!job.retainInput ? { inputText: undefined, inputHash: undefined } : {}),
+        completedAt: now,
+      } : {}),
       updatedAt: now,
     });
   },

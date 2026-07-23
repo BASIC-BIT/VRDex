@@ -136,7 +136,7 @@ const eventsWriteSecurity: Array<Record<string, string[]>> = [
   { oauth2: ["events:write"] },
 ];
 const timeParseSecurity: Array<Record<string, string[]>> = [
-  { bearerAuth: ["time:parse"] },
+  { bearerAuth: [] },
 ];
 const assetsWriteSecurity: Array<Record<string, string[]>> = [
   { bearerAuth: [] },
@@ -1155,6 +1155,7 @@ export const openApiSource = {
           "400": publicReadProblemResponses["400"],
           "401": { description: "A valid personal API token is required.", content: jsonContent(ApiProblemSchema) },
           "403": { description: "Verified email, beta grant, or time:parse scope is missing.", content: jsonContent(ApiProblemSchema) },
+          "409": { description: "The Idempotency-Key was already used for a different request.", content: jsonContent(ApiProblemSchema) },
           "429": publicReadProblemResponses["429"],
           "500": { description: "The temporal service is not fully configured.", content: jsonContent(ApiProblemSchema) },
           "503": { description: "The service is disabled, busy, or temporarily unavailable.", content: jsonContent(ApiProblemSchema) },

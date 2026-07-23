@@ -3222,9 +3222,7 @@
         "description": "Returns a canonical instant, range, clarification, or a 202 continuation while the scale-to-zero model warms. Closed beta requires a verified user-owned personal token with time:parse.",
         "security": [
           {
-            "bearerAuth": [
-              "time:parse"
-            ]
+            "bearerAuth": []
           }
         ],
         "parameters": [
@@ -3972,6 +3970,16 @@
               }
             }
           },
+          "409": {
+            "description": "The Idempotency-Key was already used for a different request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
           "429": {
             "description": "The request exceeded a rate limit.",
             "headers": {
@@ -4033,9 +4041,7 @@
         "summary": "Get an accepted temporal parse",
         "security": [
           {
-            "bearerAuth": [
-              "time:parse"
-            ]
+            "bearerAuth": []
           }
         ],
         "parameters": [

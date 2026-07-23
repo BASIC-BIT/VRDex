@@ -1,6 +1,9 @@
 import * as z from "zod";
 
 const TimeZoneSchema = z.string().min(1).max(100).refine((value) => {
+  if (/^[+-]/.test(value)) {
+    return false;
+  }
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: value }).format();
     return true;

@@ -1,6 +1,7 @@
 import {
   TemporalParseCompletedResponseSchema,
   TemporalParsePendingResponseSchema,
+  type TemporalParseRequest,
 } from "@vrdex/api-contracts";
 import { createHash, createHmac, randomBytes } from "node:crypto";
 
@@ -57,6 +58,22 @@ export function hashContinuationToken(value: string) {
 
 export function hashTemporalInput(value: string) {
   return createHmac("sha256", temporalHashKey()).update(value).digest("hex");
+}
+
+export function hashTemporalRequest(body: TemporalParseRequest) {
+  const normalized = JSON.stringify({
+    text: body.text,
+    timeZone: body.timeZone ?? null,
+    locale: body.locale ?? null,
+    country: body.country ?? null,
+    subdivision: body.subdivision ?? null,
+    referenceInstant: body.referenceInstant ?? null,
+    retainInput: body.retainInput ?? null,
+  });
+  return createHmac("sha256", temporalHashKey())
+    .update("vrdex-temporal-idempotency-v1\0")
+    .update(normalized)
+    .digest("hex");
 }
 
 export function completedTemporalResponse(job: TemporalJob) {
@@ -202,6 +219,13 @@ export function temporalSubmissionError(error: unknown) {
     response.headers.set("Retry-After", "2");
     return response;
   }
+  if (message.includes("idempotency_conflict")) {
+    return problem(
+      409,
+      "Idempotency conflict",
+      "Reuse an Idempotency-Key only for the identical temporal request.",
+    );
+  }
   if (message.includes("service_disabled")) {
     return problem(503, "Temporal service disabled", "The temporal parser is temporarily disabled.");
   }
@@ -212,7 +236,7 @@ export function temporalSubmissionError(error: unknown) {
 }
 
 export function problem(
-  status: 400 | 401 | 403 | 404 | 410 | 429 | 500 | 503 | 504,
+  status: 400 | 401 | 403 | 404 | 409 | 410 | 429 | 500 | 503 | 504,
   title: string,
   detail: string,
 ) {

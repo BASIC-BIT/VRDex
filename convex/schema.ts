@@ -1406,6 +1406,7 @@ export default defineSchema({
     ownerUserId: v.id("users"),
     credentialId: v.optional(v.string()),
     continuationTokenHash: v.string(),
+    idempotencyFingerprint: v.optional(v.string()),
     inputText: v.optional(v.string()),
     inputHash: v.optional(v.string()),
     inputLength: v.number(),

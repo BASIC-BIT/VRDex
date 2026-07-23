@@ -1431,8 +1431,7 @@ paths:
       summary: Parse a natural-language time expression
       description: Returns a canonical instant, range, clarification, or a 202 continuation while the scale-to-zero model warms. Closed beta requires a verified user-owned personal token with time:parse.
       security: &a8
-        - bearerAuth:
-            - time:parse
+        - bearerAuth: []
       parameters:
         - in: header
           name: idempotency-key
@@ -1979,6 +1978,12 @@ paths:
                 $ref: "#/components/schemas/ApiProblem"
         "403":
           description: Verified email, beta grant, or time:parse scope is missing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "409":
+          description: The Idempotency-Key was already used for a different request.
           content:
             application/json:
               schema:

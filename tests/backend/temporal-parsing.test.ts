@@ -53,6 +53,7 @@ function submission(ownerUserId: Id<"users">, suffix: string, retainInput = true
     credentialId: `token-${suffix}`,
     text: `next Friday at ${suffix.length + 1}pm`,
     inputHash: suffix.padEnd(64, "b").slice(0, 64),
+    idempotencyFingerprint: suffix.padEnd(64, "c").slice(0, 64),
     timeZone: "America/Indianapolis",
     locale: "en-US",
     country: "US",
@@ -75,6 +76,7 @@ async function insertQueuedJob(
       ownerUserId,
       credentialId: input.credentialId,
       continuationTokenHash: input.continuationTokenHash,
+      idempotencyFingerprint: input.idempotencyFingerprint,
       inputText: input.text,
       inputHash: input.inputHash,
       inputLength: input.text.length,
@@ -179,6 +181,31 @@ describe("temporal parsing control plane", () => {
     }
   });
 
+  it("rejects an idempotency key reused for a different request", async () => {
+    const t = convexTest({ schema, modules });
+    const userId = await createAuthorizedUser(t, "idempotency-conflict");
+    const previous = process.env.TEMPORAL_PARSING_ENABLED;
+    process.env.TEMPORAL_PARSING_ENABLED = "true";
+    try {
+      const input = submission(userId, "idempotency-conflict");
+      await t.run((ctx) => insertTemporalJobRecord(ctx, input, userId));
+      await assert.rejects(
+        t.run((ctx) => insertTemporalJobRecord(ctx, {
+          ...input,
+          text: "next Saturday at noon",
+          idempotencyFingerprint: "different".padEnd(64, "d"),
+        }, userId)),
+        /idempotency_conflict/,
+      );
+    } finally {
+      if (previous === undefined) {
+        delete process.env.TEMPORAL_PARSING_ENABLED;
+      } else {
+        process.env.TEMPORAL_PARSING_ENABLED = previous;
+      }
+    }
+  });
+
   it("accepts a fresh job when an idempotent continuation has expired", async () => {
     const t = convexTest({ schema, modules });
     const userId = await createAuthorizedUser(t, "expired-idempotency");
@@ -193,6 +220,7 @@ describe("temporal parsing control plane", () => {
       assert.equal(second.created, true);
       const oldJob = await t.run((ctx) => ctx.db.get(first.jobId));
       assert.match(oldJob?.continuationTokenHash ?? "", /^expired:/);
+      assert.equal(oldJob?.idempotencyFingerprint, undefined);
       assert.equal(oldJob?.status, "failed");
       assert.equal(oldJob?.errorCode, "continuation_expired");
     } finally {
@@ -271,8 +299,27 @@ describe("temporal parsing control plane", () => {
     assert.equal(job?.inputText, undefined);
     assert.equal(job?.inputLength, submission(userId, "private", false).text.length);
     assert.equal(job?.inputHash, undefined);
+    assert.equal(job?.idempotencyFingerprint, submission(userId, "private", false).idempotencyFingerprint);
     assert.equal(job?.status, "succeeded");
     assert.equal(job?.modelRevision, "test-model@immutable");
+  });
+
+  it("deletes the idempotency fingerprint when a completed continuation expires", async () => {
+    const t = convexTest({ schema, modules });
+    const userId = await createAuthorizedUser(t, "expired-fingerprint");
+    const jobId = await insertQueuedJob(t, userId, "expired-fingerprint", false);
+    await t.run((ctx) => ctx.db.patch(jobId, {
+      status: "succeeded",
+      outcome: "no_plan",
+      result: { status: "no_plan", reason: "test" },
+      completedAt: Date.now() - 1_000,
+      expiresAt: Date.now() - 1,
+    }));
+
+    await t.mutation(internal.temporalParsing.expireJob, { jobId });
+    const job = await t.run((ctx) => ctx.db.get(jobId));
+    assert.equal(job?.status, "succeeded");
+    assert.equal(job?.idempotencyFingerprint, undefined);
   });
 
   it("continues account opt-out scrubbing beyond the first bounded batch", async () => {

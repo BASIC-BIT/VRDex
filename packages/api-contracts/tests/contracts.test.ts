@@ -72,6 +72,7 @@ import {
 const namedSchemaMapKeys = new Set(["$defs", "definitions", "dependentSchemas", "patternProperties", "properties"]);
 
 type OpenApiOperation = {
+  description?: string;
   parameters?: Array<{ in?: string; name?: string; schema?: { maximum?: number } }>;
   requestBody?: {
     content?: Record<
@@ -992,6 +993,10 @@ describe("@vrdex/api-contracts", () => {
       /timeZone/,
     );
     assert.throws(
+      () => TemporalParseRequestSchema.parse({ text: "tomorrow", timeZone: "+05:30" }),
+      /timeZone/,
+    );
+    assert.throws(
       () => TemporalParseRequestSchema.parse({ text: "tomorrow", promptOverride: "unsafe" }),
     );
 
@@ -1050,7 +1055,8 @@ describe("@vrdex/api-contracts", () => {
       ),
     );
     assert.ok(continuation?.responses?.["410"]);
-    assert.deepEqual(submit?.security, [{ bearerAuth: ["time:parse"] }]);
+    assert.deepEqual(submit?.security, [{ bearerAuth: [] }]);
+    assert.match(submit?.description ?? "", /time:parse/);
     const oauthScheme = document.components?.securitySchemes?.oauth2 as {
       flows?: { authorizationCode?: { scopes?: Record<string, string> } };
     } | undefined;

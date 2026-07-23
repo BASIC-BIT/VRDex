@@ -6,6 +6,7 @@ import {
   createContinuationToken,
   hashContinuationToken,
   hashTemporalInput,
+  hashTemporalRequest,
   pendingTemporalResponse,
   temporalSubmissionError,
 } from "../../apps/web/src/lib/server/temporal-response";
@@ -109,6 +110,36 @@ describe("temporal API response helpers", () => {
     }
   });
 
+  it("binds idempotency fingerprints to the complete client request", () => {
+    const previous = process.env.TEMPORAL_INPUT_HASH_KEY;
+    process.env.TEMPORAL_INPUT_HASH_KEY = "test-only-hash-key";
+    try {
+      const request = {
+        text: "next Friday",
+        timeZone: "America/Indianapolis",
+        locale: "en-US",
+        country: "US",
+        retainInput: false,
+      };
+      const fingerprint = hashTemporalRequest(request);
+      assert.equal(fingerprint, hashTemporalRequest(request));
+      assert.notEqual(fingerprint, hashTemporalRequest({
+        ...request,
+        text: "next Saturday",
+      }));
+      assert.notEqual(fingerprint, hashTemporalRequest({
+        ...request,
+        referenceInstant: "2026-07-22T12:00:00.000Z",
+      }));
+    } finally {
+      if (previous === undefined) {
+        delete process.env.TEMPORAL_INPUT_HASH_KEY;
+      } else {
+        process.env.TEMPORAL_INPUT_HASH_KEY = previous;
+      }
+    }
+  });
+
   it("maps quota and capacity failures to retryable public problems", () => {
     const quota = temporalSubmissionError(new Error("account_rate_limited"));
     assert.equal(quota.status, 429);
@@ -117,5 +148,8 @@ describe("temporal API response helpers", () => {
     const capacity = temporalSubmissionError(new Error("account_concurrency_limited"));
     assert.equal(capacity.status, 503);
     assert.equal(capacity.headers.get("retry-after"), "2");
+
+    const conflict = temporalSubmissionError(new Error("idempotency_conflict"));
+    assert.equal(conflict.status, 409);
   });
 });
