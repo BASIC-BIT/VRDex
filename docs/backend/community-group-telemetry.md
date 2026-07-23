@@ -12,7 +12,7 @@ This backend implements the aggregate-only slice of [epic #176](https://github.c
 
 Reassignment is an internal operator action and is allowed only after the source account is quarantined, retiring, or retired. The mutation serially checks target headroom, releases the old lease, moves the allocation, and opens an unknown coverage window before the next fenced claim. Registering new credentials does not automatically reactivate a quarantined or retired account; an operator must reconcile its external group memberships before explicitly returning it to `ready`.
 
-The account-specific `/telemetry/worker` HTTP action authenticates a SHA-256 worker key using a constant-time comparison. Its operations are limited to claim, membership result, aggregate ingest, failure, and release. Responses and fleet-health queries redact the secret reference and worker-key hash.
+The account-specific `/telemetry/worker` HTTP action authenticates a SHA-256 worker key using a constant-time comparison. Every non-claim operation also binds the active lease to that authenticated collector account, worker ID, and fencing token. Lease expiry is checked against trusted server time; collector observation timestamps are validated separately within a bounded clock-skew window. Its operations are limited to claim, membership result, aggregate ingest, failure, and release. Responses and fleet-health queries redact the secret reference and worker-key hash.
 
 ## Observation model
 

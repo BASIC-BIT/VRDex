@@ -60,6 +60,7 @@ const telemetryWorker = httpAction(async (ctx, request) => {
     }
     const common = {
       integrationId: body.integrationId as never,
+      collectorAccountId: collectorAccountId as never,
       workerId: body.workerId,
       fencingToken: body.fencingToken,
     };
@@ -103,6 +104,7 @@ const telemetryWorker = httpAction(async (ctx, request) => {
         groupMemberCount: body.groupMemberCount,
         instances: body.instances,
         nextPollAt: body.nextPollAt,
+        now,
       } as never);
       return json(result);
     }
@@ -120,7 +122,7 @@ const telemetryWorker = httpAction(async (ctx, request) => {
       return json({ ok: true });
     }
     if (body.operation === "release") {
-      await ctx.runMutation(functions.releaseLease, common as never);
+      await ctx.runMutation(functions.releaseLease, { ...common, now } as never);
       return json({ ok: true });
     }
     return json({ error: "unknown_operation" }, 400);

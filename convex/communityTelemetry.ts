@@ -111,6 +111,7 @@ async function activeLeaseForIntegration(ctx: MutationCtx, integrationId: Id<"co
 async function assertLease(
   ctx: MutationCtx,
   integrationId: Id<"communityVrchatIntegrations">,
+  collectorAccountId: Id<"collectorAccounts">,
   workerId: string,
   fencingToken: number,
   now: number,
@@ -118,6 +119,7 @@ async function assertLease(
   const lease = await activeLeaseForIntegration(ctx, integrationId);
   if (
     lease === null ||
+    lease.collectorAccountId !== collectorAccountId ||
     lease.workerId !== workerId ||
     lease.fencingToken !== fencingToken ||
     lease.expiresAt <= now
@@ -599,6 +601,7 @@ export const setPublicMetric = mutation({
 export const recordMembershipResult = internalMutation({
   args: {
     integrationId: v.id("communityVrchatIntegrations"),
+    collectorAccountId: v.id("collectorAccounts"),
     workerId: v.string(),
     fencingToken: v.number(),
     state: telemetryIntegrationStateValidator,
@@ -609,7 +612,7 @@ export const recordMembershipResult = internalMutation({
   },
   handler: async (ctx, args) => {
     const now = args.now ?? Date.now();
-    await assertLease(ctx, args.integrationId, args.workerId, args.fencingToken, now);
+    await assertLease(ctx, args.integrationId, args.collectorAccountId, args.workerId, args.fencingToken, now);
     const integration = await ctx.db.get(args.integrationId);
     if (!integration) throw new Error("Integration was not found.");
     if (args.state === "disconnected") {
@@ -753,6 +756,7 @@ export const claimDueAssignments = internalMutation({
 export const reserveRequestBudget = internalMutation({
   args: {
     integrationId: v.id("communityVrchatIntegrations"),
+    collectorAccountId: v.id("collectorAccounts"),
     workerId: v.string(),
     fencingToken: v.number(),
     requestCount: v.number(),
@@ -764,7 +768,7 @@ export const reserveRequestBudget = internalMutation({
     if (!Number.isFinite(args.requestCount) || requestCount < 1 || requestCount > 10) {
       throw new Error("Provider request reservation is malformed.");
     }
-    await assertLease(ctx, args.integrationId, args.workerId, args.fencingToken, now);
+    await assertLease(ctx, args.integrationId, args.collectorAccountId, args.workerId, args.fencingToken, now);
     const integration = await ctx.db.get(args.integrationId);
     if (!integration?.assignedCollectorAccountId) throw new Error("Telemetry integration is unavailable.");
     const account = await ctx.db.get(integration.assignedCollectorAccountId);
@@ -812,6 +816,7 @@ export const reserveRequestBudget = internalMutation({
 export const deferAssignment = internalMutation({
   args: {
     integrationId: v.id("communityVrchatIntegrations"),
+    collectorAccountId: v.id("collectorAccounts"),
     workerId: v.string(),
     fencingToken: v.number(),
     nextPollAt: v.number(),
@@ -819,7 +824,7 @@ export const deferAssignment = internalMutation({
   },
   handler: async (ctx, args) => {
     const now = args.now ?? Date.now();
-    await assertLease(ctx, args.integrationId, args.workerId, args.fencingToken, now);
+    await assertLease(ctx, args.integrationId, args.collectorAccountId, args.workerId, args.fencingToken, now);
     const integration = await ctx.db.get(args.integrationId);
     if (!integration) throw new Error("Telemetry integration is unavailable.");
     await ctx.db.patch(integration._id, {
@@ -832,13 +837,14 @@ export const deferAssignment = internalMutation({
 export const releaseLease = internalMutation({
   args: {
     integrationId: v.id("communityVrchatIntegrations"),
+    collectorAccountId: v.id("collectorAccounts"),
     workerId: v.string(),
     fencingToken: v.number(),
     now: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const now = args.now ?? Date.now();
-    const lease = await assertLease(ctx, args.integrationId, args.workerId, args.fencingToken, now);
+    const lease = await assertLease(ctx, args.integrationId, args.collectorAccountId, args.workerId, args.fencingToken, now);
     await ctx.db.patch(lease._id, { state: "released", releasedAt: now, updatedAt: now });
   },
 });
@@ -846,6 +852,7 @@ export const releaseLease = internalMutation({
 export const ingestAggregatePoll = internalMutation({
   args: {
     integrationId: v.id("communityVrchatIntegrations"),
+    collectorAccountId: v.id("collectorAccounts"),
     workerId: v.string(),
     fencingToken: v.number(),
     pollId: v.string(),
@@ -855,12 +862,21 @@ export const ingestAggregatePoll = internalMutation({
     groupMemberCount: v.number(),
     instances: v.array(aggregateInstanceValidator),
     nextPollAt: v.number(),
+    now: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    await assertLease(ctx, args.integrationId, args.workerId, args.fencingToken, args.observedAt);
+    const now = args.now ?? Date.now();
+    await assertLease(ctx, args.integrationId, args.collectorAccountId, args.workerId, args.fencingToken, now);
     const integration = await ctx.db.get(args.integrationId);
     if (!integration) throw new Error("Integration was not found.");
-    if (!Number.isSafeInteger(args.groupMemberCount) || args.groupMemberCount < 0 || args.instances.length > 200) {
+    if (
+      !Number.isSafeInteger(args.observedAt) ||
+      args.observedAt < now - 15 * 60_000 ||
+      args.observedAt > now + 5 * 60_000 ||
+      !Number.isSafeInteger(args.groupMemberCount) ||
+      args.groupMemberCount < 0 ||
+      args.instances.length > 200
+    ) {
       throw new Error("Aggregate poll counts are malformed.");
     }
     const providerInstanceIds = new Set<string>();
@@ -1012,6 +1028,7 @@ export const ingestAggregatePoll = internalMutation({
 export const recordPollFailure = internalMutation({
   args: {
     integrationId: v.id("communityVrchatIntegrations"),
+    collectorAccountId: v.id("collectorAccounts"),
     workerId: v.string(),
     fencingToken: v.number(),
     statusClass: v.string(),
@@ -1024,7 +1041,7 @@ export const recordPollFailure = internalMutation({
   },
   handler: async (ctx, args) => {
     const now = args.now ?? Date.now();
-    await assertLease(ctx, args.integrationId, args.workerId, args.fencingToken, now);
+    await assertLease(ctx, args.integrationId, args.collectorAccountId, args.workerId, args.fencingToken, now);
     const integration = await ctx.db.get(args.integrationId);
     if (!integration) throw new Error("Integration was not found.");
     const failures = integration.consecutiveFailures + 1;

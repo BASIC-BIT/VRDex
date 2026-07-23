@@ -164,6 +164,7 @@ describe("community telemetry control plane", () => {
       assert.ok(claim);
       await t.mutation(internal.communityTelemetry.recordMembershipResult, {
         integrationId,
+        collectorAccountId: accountId,
         workerId: "membership-worker",
         fencingToken: claim.fencingToken,
         state,
@@ -173,6 +174,7 @@ describe("community telemetry control plane", () => {
       });
       await t.mutation(internal.communityTelemetry.releaseLease, {
         integrationId,
+        collectorAccountId: accountId,
         workerId: "membership-worker",
         fencingToken: claim.fencingToken,
         now: claimAt + 2,
@@ -190,6 +192,50 @@ describe("community telemetry control plane", () => {
         now: deferredUntil,
       })).length, 1);
     }
+  });
+
+  it("binds lease operations to the authenticated collector account and trusted server time", async () => {
+    const t = convexTest({ schema, modules });
+    await seedCommunity(t);
+    const firstAccountId = await registerAccount(t, 3, 1);
+    const secondAccountId = await registerAccount(t, 3, 2);
+    const integrationId = await t.withIdentity(identity).mutation(api.communityTelemetry.connectGroup, {
+      communitySlug: "faceless",
+      vrchatGroupId: "grp_00000000-0000-4000-8000-000000000001",
+      groupVisibility: "public",
+      joinPolicy: "free",
+    });
+    const claimAt = Date.now() + 1_000;
+    const [claim] = await t.mutation(internal.communityTelemetry.claimDueAssignments, {
+      collectorAccountId: firstAccountId,
+      workerId: "isolated-worker",
+      leaseMs: 30_000,
+      now: claimAt,
+    });
+    assert.ok(claim);
+
+    const poll = {
+      integrationId,
+      workerId: "isolated-worker",
+      fencingToken: claim.fencingToken,
+      pollId: "account-isolation",
+      observedAt: claimAt + 1_000,
+      collectorVersion: "test-v1",
+      source: "first_party" as const,
+      groupMemberCount: 10,
+      instances: [],
+      nextPollAt: claimAt + 60_000,
+    };
+    await assert.rejects(t.mutation(internal.communityTelemetry.ingestAggregatePoll, {
+      ...poll,
+      collectorAccountId: secondAccountId,
+      now: claimAt + 2_000,
+    }), /lease is stale/);
+    await assert.rejects(t.mutation(internal.communityTelemetry.ingestAggregatePoll, {
+      ...poll,
+      collectorAccountId: firstAccountId,
+      now: claimAt + 31_000,
+    }), /lease is stale/);
   });
 
   it("fences stale workers, deduplicates polls, compacts heartbeats, and closes missing instances", async () => {
@@ -214,12 +260,14 @@ describe("community telemetry control plane", () => {
 
     const poll = {
       integrationId,
+      collectorAccountId: accountId,
       workerId: "worker-one",
       fencingToken: 1,
       collectorVersion: "test-v1",
       source: "first_party" as const,
       groupMemberCount: 100,
       nextPollAt: claimAt + 60_000,
+      now: claimAt + 1_000,
     };
     const first = await t.mutation(internal.communityTelemetry.ingestAggregatePoll, {
       ...poll,
@@ -332,7 +380,7 @@ describe("community telemetry control plane", () => {
     assert.equal((await t.run((ctx) => ctx.db.get(rollupId)))?.peakConcurrency, 20);
 
     await t.mutation(internal.communityTelemetry.releaseLease, {
-      integrationId, workerId: "worker-one", fencingToken: 1, now: claimAt + 182_000,
+      integrationId, collectorAccountId: accountId, workerId: "worker-one", fencingToken: 1, now: claimAt + 182_000,
     });
     await t.run(async (ctx) => ctx.db.patch(integrationId, { nextPollAt: claimAt + 182_000 }));
     const secondClaims = await t.mutation(internal.communityTelemetry.claimDueAssignments, {
@@ -380,7 +428,7 @@ describe("community telemetry control plane", () => {
     assert.equal(cleanupClaims[0]?.state, "disconnecting");
     assert.equal(cleanupClaims[0]?.fencingToken, 3);
     await t.mutation(internal.communityTelemetry.recordMembershipResult, {
-      integrationId, workerId: "worker-three", fencingToken: 3, state: "disconnected",
+      integrationId, collectorAccountId: accountId, workerId: "worker-three", fencingToken: 3, state: "disconnected",
       groupVisibility: "private", joinPolicy: "request", detail: "service_account_left_group", now: claimAt + 186_000,
     });
     const account = await t.run((ctx) => ctx.db.get(accountId));
@@ -693,6 +741,7 @@ describe("community telemetry control plane", () => {
     });
     const firstReservation = await t.mutation(internal.communityTelemetry.reserveRequestBudget, {
       integrationId,
+      collectorAccountId: accountId,
       workerId: "worker",
       fencingToken: claims[0]!.fencingToken,
       requestCount: 2,
@@ -701,6 +750,7 @@ describe("community telemetry control plane", () => {
     assert.equal(firstReservation.granted, true);
     const exhaustedReservation = await t.mutation(internal.communityTelemetry.reserveRequestBudget, {
       integrationId,
+      collectorAccountId: accountId,
       workerId: "worker",
       fencingToken: claims[0]!.fencingToken,
       requestCount: 2,
@@ -713,6 +763,7 @@ describe("community telemetry control plane", () => {
     assert.ok(counters.every((counter) => counter.requestCount === 2));
     await t.mutation(internal.communityTelemetry.deferAssignment, {
       integrationId,
+      collectorAccountId: accountId,
       workerId: "worker",
       fencingToken: claims[0]!.fencingToken,
       nextPollAt: budgetAt + 10 * 60_000,
@@ -724,6 +775,7 @@ describe("community telemetry control plane", () => {
     );
     await assert.rejects(t.mutation(internal.communityTelemetry.ingestAggregatePoll, {
       integrationId,
+      collectorAccountId: accountId,
       workerId: "worker",
       fencingToken: claims[0]!.fencingToken,
       pollId: "malformed",
@@ -736,6 +788,7 @@ describe("community telemetry control plane", () => {
     }), /malformed/);
     await assert.rejects(t.mutation(internal.communityTelemetry.ingestAggregatePoll, {
       integrationId,
+      collectorAccountId: accountId,
       workerId: "worker",
       fencingToken: claims[0]!.fencingToken,
       pollId: "person-bearing-location",
@@ -753,6 +806,7 @@ describe("community telemetry control plane", () => {
     }), /malformed/);
     await assert.rejects(t.mutation(internal.communityTelemetry.ingestAggregatePoll, {
       integrationId,
+      collectorAccountId: accountId,
       workerId: "worker",
       fencingToken: claims[0]!.fencingToken,
       pollId: "wrong-group-location",
@@ -770,6 +824,7 @@ describe("community telemetry control plane", () => {
     }), /malformed/);
     await t.mutation(internal.communityTelemetry.recordPollFailure, {
       integrationId,
+      collectorAccountId: accountId,
       workerId: "worker",
       fencingToken: claims[0]!.fencingToken,
       statusClass: "401",
@@ -889,6 +944,7 @@ describe("community telemetry control plane", () => {
     assert.equal(secondClaim[0]?.fencingToken, 2);
     await assert.rejects(t.mutation(internal.communityTelemetry.ingestAggregatePoll, {
       integrationId,
+      collectorAccountId: firstAccountId,
       workerId: "first-worker",
       fencingToken: 1,
       pollId: "stale-after-reassignment",
