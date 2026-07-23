@@ -40,8 +40,20 @@ function temporalHashKey() {
   return key;
 }
 
-export function createContinuationToken(ownerKey?: string, idempotencyKey?: string) {
-  if (ownerKey === undefined || idempotencyKey === undefined) {
+export function createContinuationNonce() {
+  return randomBytes(16).toString("base64url");
+}
+
+export function createContinuationToken(
+  ownerKey?: string,
+  idempotencyKey?: string,
+  continuationNonce?: string,
+) {
+  if (
+    ownerKey === undefined
+    || idempotencyKey === undefined
+    || continuationNonce === undefined
+  ) {
     return randomBytes(32).toString("base64url");
   }
   return createHmac("sha256", temporalHashKey())
@@ -49,11 +61,22 @@ export function createContinuationToken(ownerKey?: string, idempotencyKey?: stri
     .update(ownerKey)
     .update("\0")
     .update(idempotencyKey)
+    .update("\0")
+    .update(continuationNonce)
     .digest("base64url");
 }
 
 export function hashContinuationToken(value: string) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+export function hashTemporalIdempotencyKey(ownerKey: string, value: string) {
+  return createHmac("sha256", temporalHashKey())
+    .update("vrdex-temporal-idempotency-key-v1\0")
+    .update(ownerKey)
+    .update("\0")
+    .update(value)
+    .digest("hex");
 }
 
 export function hashTemporalInput(value: string) {

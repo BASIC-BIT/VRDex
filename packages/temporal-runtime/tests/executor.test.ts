@@ -88,6 +88,81 @@ describe("migrated temporal Plan-IR executor", () => {
     assert.equal(result.epoch, 1784851200);
   });
 
+  it("recognizes standalone Eastern as America/New_York", async () => {
+    const implementations = createDeterministicTemporalToolImplementations();
+    const resolution = await implementations.resolveTimeZone({
+      text: "next Friday at 8pm Eastern",
+      calendarContext: parseCalendarContext(
+        "America/Indianapolis",
+        "2026-07-22T12:00:00.000Z",
+      ),
+    });
+
+    assert.equal(resolution.status, "resolved");
+    assert.equal(resolution.candidates[0]?.timeZone, "America/New_York");
+  });
+
+  it("rejects invalid 12-hour clock values", async () => {
+    const implementations = createDeterministicTemporalToolImplementations();
+    assert.deepEqual(
+      (await implementations.resolveClockTime({ text: "99pm" })).candidates,
+      [],
+    );
+    assert.deepEqual(
+      (await implementations.resolveClockTime({ text: "0am" })).candidates,
+      [],
+    );
+  });
+
+  it("fails cyclic step references instead of awaiting itself", async () => {
+    const result = await execute({
+      outcome: "plans",
+      plans: [{
+        label: "cyclic",
+        finalStep: 0,
+        steps: [
+          { op: "set_clock_time", baseStep: 0, time: { hour: 20, minute: 0 } },
+        ],
+      }],
+    }, "cyclic plan");
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.epoch, undefined);
+  });
+
+  it("fails an explicit finalStep that does not produce candidates", async () => {
+    const result = await execute({
+      outcome: "plans",
+      plans: [{
+        label: "invalid final output",
+        finalStep: 0,
+        steps: [
+          { op: "resolve_clock_time", text: "8pm" },
+          { op: "resolve_calendar_query", query: "tomorrow" },
+        ],
+      }],
+    }, "invalid final output");
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.epoch, undefined);
+  });
+
+  it("fails an explicit finalStep that references a missing step", async () => {
+    const result = await execute({
+      outcome: "plans",
+      plans: [{
+        label: "missing final output",
+        finalStep: 9,
+        steps: [
+          { op: "resolve_calendar_query", query: "tomorrow" },
+        ],
+      }],
+    }, "missing final output");
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.epoch, undefined);
+  });
+
   it("returns an ordered canonical range from one date anchor", async () => {
     const result = await execute({
       outcome: "plans",

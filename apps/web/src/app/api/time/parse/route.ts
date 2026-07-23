@@ -5,6 +5,7 @@ import { TemporalParseRequestSchema } from "@vrdex/api-contracts";
 import { convexHttpClient } from "@/lib/server/convex-http";
 import {
   completedTemporalResponse,
+  createContinuationNonce,
   createContinuationToken,
   pendingTemporalResponse,
   parseTemporalIdempotencyKey,
@@ -54,15 +55,30 @@ export async function POST(request: Request) {
     return idempotency.response;
   }
   try {
-    const continuationToken = createContinuationToken(
+    const continuationNonce = idempotency.value === undefined
+      ? undefined
+      : createContinuationNonce();
+    let continuationToken = createContinuationToken(
       String(viewer.user.id),
       idempotency.value,
+      continuationNonce,
     );
     const job = await submitTemporalJob({
       auth,
       body: parsed.data,
       continuationToken,
+      ...(idempotency.value === undefined ? {} : {
+        idempotencyKey: idempotency.value,
+        continuationNonce,
+      }),
     });
+    if (idempotency.value !== undefined && job.continuationNonce !== undefined) {
+      continuationToken = createContinuationToken(
+        String(viewer.user.id),
+        idempotency.value,
+        job.continuationNonce,
+      );
+    }
     const completed = await waitForImmediateTemporalResult({
       auth,
       continuationToken,

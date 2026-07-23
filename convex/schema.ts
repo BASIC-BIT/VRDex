@@ -1406,7 +1406,9 @@ export default defineSchema({
     ownerUserId: v.id("users"),
     credentialId: v.optional(v.string()),
     continuationTokenHash: v.string(),
+    idempotencyKeyHash: v.optional(v.string()),
     idempotencyFingerprint: v.optional(v.string()),
+    continuationNonce: v.optional(v.string()),
     inputText: v.optional(v.string()),
     inputHash: v.optional(v.string()),
     inputLength: v.number(),
@@ -1432,6 +1434,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_continuationTokenHash", ["continuationTokenHash"])
+    .index("by_ownerUserId_idempotencyKeyHash", ["ownerUserId", "idempotencyKeyHash"])
     .index("by_ownerUserId_status_createdAt", ["ownerUserId", "status", "createdAt"])
     .index("by_ownerUserId_createdAt", ["ownerUserId", "createdAt"])
     .index("by_status_createdAt", ["status", "createdAt"]),

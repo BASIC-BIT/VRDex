@@ -1470,7 +1470,15 @@ async function executeTemporalPlan(
     });
   };
 
-  const executeStep = (stepIndex: number): Promise<TemporalPlanStepOutput> => {
+  const executeStep = (
+    stepIndex: number,
+    path: ReadonlySet<number> = new Set(),
+  ): Promise<TemporalPlanStepOutput> => {
+    if (path.has(stepIndex)) {
+      throw new Error(
+        `Plan ${plan.label} contains a cyclic reference through step ${stepIndex}.`,
+      );
+    }
     const existing = executions.get(stepIndex);
     if (existing !== undefined) {
       return existing;
@@ -1479,7 +1487,16 @@ async function executeTemporalPlan(
     if (step === undefined) {
       throw new Error(`Plan ${plan.label} references missing step ${stepIndex}.`);
     }
-    const execution = executePlanStep(step, stepIndex, executeStep, request, options, recordTool);
+    const dependencyPath = new Set(path);
+    dependencyPath.add(stepIndex);
+    const execution = executePlanStep(
+      step,
+      stepIndex,
+      (dependencyIndex) => executeStep(dependencyIndex, dependencyPath),
+      request,
+      options,
+      recordTool,
+    );
     executions.set(stepIndex, execution);
     return execution;
   };
@@ -1786,9 +1803,17 @@ function baseForPlanCandidate(candidate: Candidate, calendarContext: CalendarCon
 function finalPlanOutput(plan: TemporalPlan, outputs: TemporalPlanStepOutput[]): TemporalPlanStepOutput {
   if (plan.finalStep !== null) {
     const output = outputs[plan.finalStep];
-    if (output?.kind === 'candidates') {
-      return output;
+    if (output === undefined) {
+      throw new Error(
+        `Plan ${plan.label} finalStep references missing step ${plan.finalStep}.`,
+      );
     }
+    if (output.kind !== 'candidates') {
+      throw new Error(
+        `Plan ${plan.label} finalStep ${plan.finalStep} produced ${output.kind}, not candidates.`,
+      );
+    }
+    return output;
   }
 
   for (let index = outputs.length - 1; index >= 0; index -= 1) {

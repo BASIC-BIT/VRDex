@@ -3,8 +3,10 @@ import { describe, it } from "node:test";
 
 import {
   completedTemporalResponse,
+  createContinuationNonce,
   createContinuationToken,
   hashContinuationToken,
+  hashTemporalIdempotencyKey,
   hashTemporalInput,
   hashTemporalRequest,
   pendingTemporalResponse,
@@ -76,15 +78,32 @@ describe("temporal API response helpers", () => {
     assert.equal((await response.json()).continuationToken, token);
   });
 
-  it("derives stable account-bound continuations for idempotent retries", () => {
+  it("derives nonce-bound continuations and separate idempotency lookup hashes", () => {
     const previous = process.env.TEMPORAL_INPUT_HASH_KEY;
     process.env.TEMPORAL_INPUT_HASH_KEY = "test-only-hash-key";
     try {
-      const first = createContinuationToken("owner-1", "request-1");
-      assert.equal(first, createContinuationToken("owner-1", "request-1"));
-      assert.notEqual(first, createContinuationToken("owner-2", "request-1"));
-      assert.notEqual(first, createContinuationToken("owner-1", "request-2"));
+      const nonce = createContinuationNonce();
+      const first = createContinuationToken("owner-1", "request-1", nonce);
+      assert.equal(
+        first,
+        createContinuationToken("owner-1", "request-1", nonce),
+      );
+      assert.notEqual(
+        first,
+        createContinuationToken("owner-1", "request-1", createContinuationNonce()),
+      );
+      assert.notEqual(first, createContinuationToken("owner-2", "request-1", nonce));
+      assert.notEqual(first, createContinuationToken("owner-1", "request-2", nonce));
       assert.match(first, /^[A-Za-z0-9_-]{43}$/);
+      assert.match(nonce, /^[A-Za-z0-9_-]{22}$/);
+      assert.equal(
+        hashTemporalIdempotencyKey("owner-1", "request-1"),
+        hashTemporalIdempotencyKey("owner-1", "request-1"),
+      );
+      assert.notEqual(
+        hashTemporalIdempotencyKey("owner-1", "request-1"),
+        hashTemporalIdempotencyKey("owner-2", "request-1"),
+      );
     } finally {
       if (previous === undefined) {
         delete process.env.TEMPORAL_INPUT_HASH_KEY;

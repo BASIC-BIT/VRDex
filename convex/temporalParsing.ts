@@ -47,10 +47,12 @@ const temporalOutcomeValidator = v.union(
 
 const submitArgs = {
   continuationTokenHash: v.string(),
+  idempotencyKeyHash: v.optional(v.string()),
   credentialId: v.optional(v.string()),
   text: v.string(),
   inputHash: v.string(),
   idempotencyFingerprint: v.string(),
+  continuationNonce: v.optional(v.string()),
   timeZone: v.string(),
   locale: v.optional(v.string()),
   country: v.optional(v.string()),
@@ -61,10 +63,12 @@ const submitArgs = {
 
 type SubmitInput = {
   continuationTokenHash: string;
+  idempotencyKeyHash?: string;
   credentialId?: string;
   text: string;
   inputHash: string;
   idempotencyFingerprint: string;
+  continuationNonce?: string;
   timeZone: string;
   locale?: string;
   country?: string;
@@ -107,12 +111,20 @@ export async function insertTemporalJobRecord(
   const now = Date.now();
   await requireTemporalAccess(ctx, ownerUserId, now);
 
-  const existing = await ctx.db
-    .query("temporalParseJobs")
-    .withIndex("by_continuationTokenHash", (q) =>
-      q.eq("continuationTokenHash", args.continuationTokenHash),
-    )
-    .unique();
+  const existing = args.idempotencyKeyHash === undefined
+    ? await ctx.db
+      .query("temporalParseJobs")
+      .withIndex("by_continuationTokenHash", (q) =>
+        q.eq("continuationTokenHash", args.continuationTokenHash),
+      )
+      .unique()
+    : await ctx.db
+      .query("temporalParseJobs")
+      .withIndex("by_ownerUserId_idempotencyKeyHash", (q) =>
+        q.eq("ownerUserId", ownerUserId)
+          .eq("idempotencyKeyHash", args.idempotencyKeyHash),
+      )
+      .unique();
   if (existing !== null) {
     if (existing.ownerUserId !== ownerUserId) {
       throw new Error("continuation_conflict");
@@ -125,20 +137,28 @@ export async function insertTemporalJobRecord(
         jobId: existing._id,
         expiresAt: existing.expiresAt,
         retainInput: existing.retainInput,
+        continuationNonce: existing.continuationNonce,
         created: false,
       };
     }
     const active = existing.status === "queued" || existing.status === "running";
     await ctx.db.patch(existing._id, {
       continuationTokenHash: `expired:${existing._id}:${existing.continuationTokenHash}`,
+      idempotencyKeyHash: undefined,
       idempotencyFingerprint: undefined,
+      continuationNonce: undefined,
+      ...(!existing.retainInput ? {
+        inputText: undefined,
+        inputHash: undefined,
+        result: undefined,
+        ...(!active ? { errorDetail: undefined } : {}),
+      } : {}),
       ...(active ? {
         status: "failed" as const,
         outcome: "timeout" as const,
         errorCode: "continuation_expired",
         errorDetail: "The temporal parse continuation expired before completion.",
         totalLatencyMs: now - existing.createdAt,
-        ...(!existing.retainInput ? { inputText: undefined, inputHash: undefined } : {}),
         completedAt: now,
       } : {}),
       updatedAt: now,
@@ -202,7 +222,13 @@ export async function insertTemporalJobRecord(
     ownerUserId,
     ...(args.credentialId === undefined ? {} : { credentialId: args.credentialId }),
     continuationTokenHash: args.continuationTokenHash,
+    ...(args.idempotencyKeyHash === undefined ? {} : {
+      idempotencyKeyHash: args.idempotencyKeyHash,
+    }),
     idempotencyFingerprint: args.idempotencyFingerprint,
+    ...(args.continuationNonce === undefined ? {} : {
+      continuationNonce: args.continuationNonce,
+    }),
     inputText: args.text,
     inputHash: args.inputHash,
     inputLength: args.text.length,
@@ -218,7 +244,13 @@ export async function insertTemporalJobRecord(
     updatedAt: now,
   });
 
-  return { jobId, expiresAt, retainInput, created: true };
+  return {
+    jobId,
+    expiresAt,
+    retainInput,
+    continuationNonce: args.continuationNonce,
+    created: true,
+  };
 }
 
 async function insertJob(
@@ -239,6 +271,7 @@ async function insertJob(
     jobId: result.jobId,
     expiresAt: result.expiresAt,
     retainInput: result.retainInput,
+    continuationNonce: result.continuationNonce,
   };
 }
 

@@ -23,7 +23,7 @@ const UTC_ZONE_PATTERN = /\b(?:UTC|GMT|Zulu)\b/gi;
 
 const NAMED_ZONE_RULES: NamedZoneRule[] = [
   {
-    pattern: /\b(?:eastern|east coast|new york|nyc|ny)\s+time\b/i,
+    pattern: /\b(?:eastern(?:\s+time)?|(?:east coast|new york|nyc|ny)\s+time)\b/i,
     timeZone: 'America/New_York',
     label: 'Eastern time',
     assumption: 'Interpreted the timezone phrase as America/New_York and applied that zone\'s date-specific offset.',

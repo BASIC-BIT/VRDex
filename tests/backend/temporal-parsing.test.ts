@@ -50,10 +50,12 @@ function submission(ownerUserId: Id<"users">, suffix: string, retainInput = true
   return {
     ownerUserId,
     continuationTokenHash: suffix.padEnd(64, "a").slice(0, 64),
+    idempotencyKeyHash: suffix.padEnd(64, "i").slice(0, 64),
     credentialId: `token-${suffix}`,
     text: `next Friday at ${suffix.length + 1}pm`,
     inputHash: suffix.padEnd(64, "b").slice(0, 64),
     idempotencyFingerprint: suffix.padEnd(64, "c").slice(0, 64),
+    continuationNonce: suffix.padEnd(22, "n").slice(0, 22),
     timeZone: "America/Indianapolis",
     locale: "en-US",
     country: "US",
@@ -76,7 +78,9 @@ async function insertQueuedJob(
       ownerUserId,
       credentialId: input.credentialId,
       continuationTokenHash: input.continuationTokenHash,
+      idempotencyKeyHash: input.idempotencyKeyHash,
       idempotencyFingerprint: input.idempotencyFingerprint,
+      continuationNonce: input.continuationNonce,
       inputText: input.text,
       inputHash: input.inputHash,
       inputLength: input.text.length,
@@ -156,7 +160,7 @@ describe("temporal parsing control plane", () => {
     }
   });
 
-  it("returns an already accepted job for the same continuation hash", async () => {
+  it("returns the accepted job and nonce for an idempotent retry", async () => {
     const t = convexTest({ schema, modules });
     const userId = await createAuthorizedUser(t, "idempotent");
     const previous = process.env.TEMPORAL_PARSING_ENABLED;
@@ -164,9 +168,14 @@ describe("temporal parsing control plane", () => {
     try {
       const input = submission(userId, "idempotent");
       const first = await t.run((ctx) => insertTemporalJobRecord(ctx, input, userId));
-      const second = await t.run((ctx) => insertTemporalJobRecord(ctx, input, userId));
+      const second = await t.run((ctx) => insertTemporalJobRecord(ctx, {
+        ...input,
+        continuationTokenHash: "retry".padEnd(64, "r"),
+        continuationNonce: "retry".padEnd(22, "r"),
+      }, userId));
       assert.equal(second.jobId, first.jobId);
       assert.equal(second.expiresAt, first.expiresAt);
+      assert.equal(second.continuationNonce, input.continuationNonce);
       const jobs = await t.run((ctx) => ctx.db
         .query("temporalParseJobs")
         .withIndex("by_ownerUserId_createdAt", (q) => q.eq("ownerUserId", userId))
@@ -212,17 +221,36 @@ describe("temporal parsing control plane", () => {
     const previous = process.env.TEMPORAL_PARSING_ENABLED;
     process.env.TEMPORAL_PARSING_ENABLED = "true";
     try {
-      const input = submission(userId, "expired-idempotency");
+      const input = submission(userId, "expired-idempotency", false);
       const first = await t.run((ctx) => insertTemporalJobRecord(ctx, input, userId));
-      await t.run((ctx) => ctx.db.patch(first.jobId, { expiresAt: Date.now() - 1 }));
-      const second = await t.run((ctx) => insertTemporalJobRecord(ctx, input, userId));
+      await t.run((ctx) => ctx.db.patch(first.jobId, {
+        status: "succeeded",
+        outcome: "no_plan",
+        result: { status: "no_plan", reason: "content-derived" },
+        errorDetail: "content-derived diagnostic",
+        completedAt: Date.now() - 1_000,
+        expiresAt: Date.now() - 1,
+      }));
+      const replacement = {
+        ...input,
+        continuationTokenHash: "fresh".padEnd(64, "f"),
+        continuationNonce: "fresh".padEnd(22, "f"),
+      };
+      const second = await t.run((ctx) =>
+        insertTemporalJobRecord(ctx, replacement, userId));
       assert.notEqual(second.jobId, first.jobId);
       assert.equal(second.created, true);
+      assert.equal(second.continuationNonce, replacement.continuationNonce);
       const oldJob = await t.run((ctx) => ctx.db.get(first.jobId));
       assert.match(oldJob?.continuationTokenHash ?? "", /^expired:/);
+      assert.equal(oldJob?.idempotencyKeyHash, undefined);
       assert.equal(oldJob?.idempotencyFingerprint, undefined);
-      assert.equal(oldJob?.status, "failed");
-      assert.equal(oldJob?.errorCode, "continuation_expired");
+      assert.equal(oldJob?.continuationNonce, undefined);
+      assert.equal(oldJob?.status, "succeeded");
+      assert.equal(oldJob?.inputText, undefined);
+      assert.equal(oldJob?.inputHash, undefined);
+      assert.equal(oldJob?.result, undefined);
+      assert.equal(oldJob?.errorDetail, undefined);
     } finally {
       if (previous === undefined) {
         delete process.env.TEMPORAL_PARSING_ENABLED;

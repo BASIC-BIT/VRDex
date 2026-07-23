@@ -143,6 +143,9 @@ jobs:
       - name: Run backend unit tests
         run: pnpm test:backend
 
+      - name: Run temporal runtime tests
+        run: pnpm test:temporal-runtime
+
   verify-backend-local:
     name: Verify Backend Local
     runs-on: ubuntu-latest

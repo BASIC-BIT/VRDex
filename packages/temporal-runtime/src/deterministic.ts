@@ -1322,24 +1322,30 @@ function resolveClockTimeCandidates(text: string): ResolveClockTimeOutput['candi
 
   const twelveHour = TWELVE_HOUR_TIME_PATTERN.exec(text);
   if (twelveHour?.[1] && twelveHour[3]) {
+    const sourceHour = Number(twelveHour[1]);
     const suffix = twelveHour[3].toLowerCase();
-    let hour = Number(twelveHour[1]) % 12;
-    if (suffix === 'pm') {
-      hour += 12;
+    if (sourceHour >= 1 && sourceHour <= 12) {
+      let hour = sourceHour % 12;
+      if (suffix === 'pm') {
+        hour += 12;
+      }
+      const minute = Number(twelveHour[2] ?? 0);
+      addCandidate({ hour, minute, normalized: formatRequestedTime({ hour, minute }), assumptions: [`Interpreted ${twelveHour[0]} as a 12-hour clock time.`], confidence: 0.95 });
     }
-    const minute = Number(twelveHour[2] ?? 0);
-    addCandidate({ hour, minute, normalized: formatRequestedTime({ hour, minute }), assumptions: [`Interpreted ${twelveHour[0]} as a 12-hour clock time.`], confidence: 0.95 });
   }
 
   const compactMeridiem = COMPACT_MERIDIEM_TIME_PATTERN.exec(text);
   if (compactMeridiem?.[1] && compactMeridiem[3]) {
+    const sourceHour = Number(compactMeridiem[1]);
     const suffix = compactMeridiem[3].toLowerCase();
-    let hour = Number(compactMeridiem[1]) % 12;
-    if (suffix === 'p') {
-      hour += 12;
+    if (sourceHour >= 1 && sourceHour <= 12) {
+      let hour = sourceHour % 12;
+      if (suffix === 'p') {
+        hour += 12;
+      }
+      const minute = Number(compactMeridiem[2] ?? 0);
+      addCandidate({ hour, minute, normalized: formatRequestedTime({ hour, minute }), assumptions: [`Interpreted ${compactMeridiem[0]} as compact AM/PM clock time.`], confidence: 0.94 });
     }
-    const minute = Number(compactMeridiem[2] ?? 0);
-    addCandidate({ hour, minute, normalized: formatRequestedTime({ hour, minute }), assumptions: [`Interpreted ${compactMeridiem[0]} as compact AM/PM clock time.`], confidence: 0.94 });
   }
 
   const twentyFourHour = TWENTY_FOUR_HOUR_TIME_PATTERN.exec(text);

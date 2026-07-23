@@ -47,7 +47,9 @@ and stores it with the job. Polling and retries therefore preserve the meaning o
 relative phrases. `Idempotency-Key` is optional; reuse the same key only when
 retrying the identical request. For the same account, reuse within the 15-minute
 continuation window returns the originally accepted job instead of consuming a
-second quota unit.
+second quota unit. The idempotency lookup and bearer continuation are separate:
+accepting a new job after expiry creates a new continuation token, so an expired
+continuation URL cannot retrieve the replacement job.
 
 The response contains canonical timestamps, not Discord presentation strings.
 Turn an epoch `E` into Discord syntax in client code with `<t:E>` or
@@ -134,9 +136,11 @@ until the job completes, fails, or expires, then removes both while keeping
 non-content outcome and latency metrics. The completed response remains
 available only through the 15-minute continuation window, after which VRDex
 removes it and any content-derived error detail. A separate keyed fingerprint
-of the complete request may remain through that same window so
-VRDex can reject an `Idempotency-Key` reused for different input; it cannot
-recover the expression and is deleted at expiry. Opted-in beta expressions have no
+of the complete request may remain through that same window so VRDex can reject
+an `Idempotency-Key` reused for different input; it cannot recover the expression
+and is deleted at expiry. A keyed account-and-idempotency lookup identifier is
+likewise deleted at expiry; it does not contain the raw key or expression.
+Opted-in beta expressions have no
 automatic content expiry: they remain until the account turns retention off or
 an operator deletes them. Account opt-out takes effect immediately; large
 histories finish deletion asynchronously in bounded batches.

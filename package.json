@@ -125,6 +125,8 @@
     "test:storybook:visual": "pnpm --filter web test:storybook:visual",
     "pretest:backend": "node scripts/guard-main-worktree.mjs",
     "test:backend": "node --conditions=import --import tsx --test tests/backend/**/*.test.ts",
+    "pretest:temporal-runtime": "node scripts/guard-main-worktree.mjs",
+    "test:temporal-runtime": "pnpm --filter @vrdex/temporal-runtime test",
     "pretest:api-contracts": "node scripts/guard-main-worktree.mjs",
     "test:api-contracts": "pnpm --filter @vrdex/api-contracts test",
     "pretest:vrdex-mcp": "node scripts/guard-main-worktree.mjs",
@@ -160,7 +162,7 @@
     "preverify:api-mcp-rollout:external": "node scripts/guard-main-worktree.mjs",
     "verify:api-mcp-rollout:external": "pnpm verify:api-contracts && pnpm verify:vrdex-mcp && pnpm verify:docs && pnpm check:api-mcp-rollout -- --require-ready",
     "preverify": "node scripts/guard-main-worktree.mjs",
-    "verify": "pnpm verify:api-contracts && pnpm verify:vrdex-mcp && pnpm verify:docs && pnpm verify:web && pnpm check:backend:generated && pnpm typecheck:backend && pnpm test:backend",
+    "verify": "pnpm verify:api-contracts && pnpm verify:vrdex-mcp && pnpm verify:docs && pnpm verify:web && pnpm check:backend:generated && pnpm typecheck:backend && pnpm test:backend && pnpm test:temporal-runtime",
     "prepare": "husky"
   },
   "lint-staged": {

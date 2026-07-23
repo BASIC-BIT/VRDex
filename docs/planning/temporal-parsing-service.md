@@ -114,7 +114,10 @@ underscores, colons, or hyphens. Reusing a key for the same account within the
 15-minute continuation window returns the original accepted job. A key must
 only be reused for an identical request; reuse with different input returns
 `409 Conflict`. VRDex stores a keyed fingerprint of the complete parsed request
-until the continuation expires to enforce this contract.
+and a separate keyed account-and-idempotency lookup identifier until the
+continuation expires to enforce this contract. The bearer continuation includes
+per-job entropy: accepting a replacement job after expiry produces a new token,
+so the expired continuation URL cannot retrieve the replacement.
 
 ### Continuations And Cold Starts
 

@@ -13,6 +13,7 @@ import {
 import { convexAdminHttpClient } from "@/lib/server/convex-http";
 import {
   hashContinuationToken,
+  hashTemporalIdempotencyKey,
   hashTemporalInput,
   hashTemporalRequest,
   problem,
@@ -21,8 +22,10 @@ import {
 
 export {
   completedTemporalResponse,
+  createContinuationNonce,
   createContinuationToken,
   hashContinuationToken,
+  hashTemporalIdempotencyKey,
   hashTemporalInput,
   hashTemporalRequest,
   pendingTemporalResponse,
@@ -103,6 +106,8 @@ export async function submitTemporalJob(args: {
   auth: AuthorizedTemporalRequest;
   body: TemporalParseRequest;
   continuationToken: string;
+  idempotencyKey?: string;
+  continuationNonce?: string;
 }) {
   const referenceInstant = args.body.referenceInstant ?? new Date().toISOString();
   const timeZone = args.body.timeZone ?? DEFAULT_TIME_ZONE;
@@ -110,6 +115,15 @@ export async function submitTemporalJob(args: {
     ownerUserId: args.auth.ownerUserId,
     credentialId: args.auth.tokenId,
     continuationTokenHash: hashContinuationToken(args.continuationToken),
+    ...(args.idempotencyKey === undefined ? {} : {
+      idempotencyKeyHash: hashTemporalIdempotencyKey(
+        String(args.auth.ownerUserId),
+        args.idempotencyKey,
+      ),
+    }),
+    ...(args.continuationNonce === undefined ? {} : {
+      continuationNonce: args.continuationNonce,
+    }),
     text: args.body.text,
     inputHash: hashTemporalInput(args.body.text),
     idempotencyFingerprint: hashTemporalRequest(args.body),

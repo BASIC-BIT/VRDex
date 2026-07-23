@@ -4,6 +4,7 @@ import { rejectBearerTokenQuery } from "@/lib/server/api-v0";
 import {
   authorizeTemporalApiRequest,
   completedTemporalResponse,
+  createContinuationNonce,
   createContinuationToken,
   pendingTemporalResponse,
   parseTemporalIdempotencyKey,
@@ -47,15 +48,30 @@ export async function POST(request: Request) {
     return idempotency.response;
   }
   try {
-    const continuationToken = createContinuationToken(
+    const continuationNonce = idempotency.value === undefined
+      ? undefined
+      : createContinuationNonce();
+    let continuationToken = createContinuationToken(
       String(authorization.context.ownerUserId),
       idempotency.value,
+      continuationNonce,
     );
     const job = await submitTemporalJob({
       auth: authorization.context,
       body: parsed.data,
       continuationToken,
+      ...(idempotency.value === undefined ? {} : {
+        idempotencyKey: idempotency.value,
+        continuationNonce,
+      }),
     });
+    if (idempotency.value !== undefined && job.continuationNonce !== undefined) {
+      continuationToken = createContinuationToken(
+        String(authorization.context.ownerUserId),
+        idempotency.value,
+        job.continuationNonce,
+      );
+    }
     const completed = await waitForImmediateTemporalResult({
       auth: authorization.context,
       continuationToken,
