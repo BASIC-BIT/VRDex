@@ -397,7 +397,46 @@ test("serves VRDex tools over stdio and calls the configured API base URL", asyn
     assert.match(thrownReadbackResult.content?.[0]?.text ?? "", /write for slug "invalid-readback"/);
     assert.match(thrownReadbackResult.content?.[0]?.text ?? "", /Do not retry the mutation automatically/);
 
-    assert.equal(fixture.captured.length, 16);
+    const serverErrorCreate = await callTool({
+      id: 15,
+      messages,
+      name: "vrdex_event_create",
+      onMessage,
+      send,
+      stderr,
+      toolArgs: {
+        communitySlug: "basic-bit",
+        startAt: 1_798_761_600_000,
+        title: "Server Error After Create",
+      },
+    });
+    const serverErrorCreateResult = serverErrorCreate.result as {
+      content?: Array<{ text?: string }>;
+      isError?: boolean;
+    };
+    assert.equal(serverErrorCreateResult.isError, true);
+    assert.match(serverErrorCreateResult.content?.[0]?.text ?? "", /may already have accepted the mutation/);
+
+    const serverErrorUpdate = await callTool({
+      id: 16,
+      messages,
+      name: "vrdex_event_update",
+      onMessage,
+      send,
+      stderr,
+      toolArgs: {
+        slug: "club-night",
+        update: { summary: "Server Error After Update" },
+      },
+    });
+    const serverErrorUpdateResult = serverErrorUpdate.result as {
+      content?: Array<{ text?: string }>;
+      isError?: boolean;
+    };
+    assert.equal(serverErrorUpdateResult.isError, true);
+    assert.match(serverErrorUpdateResult.content?.[0]?.text ?? "", /may already have accepted the mutation/);
+
+    assert.equal(fixture.captured.length, 18);
     assert.deepEqual(
       fixture.captured.map((request) => request.pathname),
       [
@@ -417,6 +456,8 @@ test("serves VRDex tools over stdio and calls the configured API base URL", asyn
         "/api/v0/events/club-night",
         "/api/v0/events",
         "/api/v0/events/invalid-readback",
+        "/api/v0/events",
+        "/api/v0/events/club-night",
       ],
     );
     assert.equal(fixture.captured[0]?.searchParams.get("q"), "club");
@@ -424,11 +465,11 @@ test("serves VRDex tools over stdio and calls the configured API base URL", asyn
     assert.equal(fixture.captured[0]?.searchParams.get("limit"), "2");
     assert.equal(fixture.captured[3]?.searchParams.get("limit"), "1");
     assert.equal(fixture.captured[5]?.searchParams.get("limit"), "1");
-    const anonymousReadbackIndexes = new Set([7, 9, 11, 15]);
+    const authenticatedMutationIndexes = new Set([6, 8, 10, 12, 13, 14, 16, 17]);
     fixture.captured.forEach((request, index) => {
       assert.equal(
         request.authorization,
-        anonymousReadbackIndexes.has(index) ? undefined : "Bearer vrdx_stdio_token",
+        authenticatedMutationIndexes.has(index) ? "Bearer vrdx_stdio_token" : undefined,
       );
     });
     assert.equal(fixture.captured[6]?.method, "POST");

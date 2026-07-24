@@ -104,6 +104,21 @@ async function handleFixtureRequest(
       body !== null &&
       typeof body === "object" &&
       "title" in body &&
+      body.title === "Server Error After Create"
+    ) {
+      writeJson(response, 500, {
+        status: 500,
+        title: "Response failed after mutation",
+        type: "about:blank",
+      });
+
+      return;
+    }
+
+    if (
+      body !== null &&
+      typeof body === "object" &&
+      "title" in body &&
       body.title === "Readback Failure"
     ) {
       writeJson(response, 200, {
@@ -147,6 +162,21 @@ async function handleFixtureRequest(
       body.summary === "Indeterminate Update"
     ) {
       response.destroy();
+
+      return;
+    }
+
+    if (
+      body !== null &&
+      typeof body === "object" &&
+      "summary" in body &&
+      body.summary === "Server Error After Update"
+    ) {
+      writeJson(response, 500, {
+        status: 500,
+        title: "Response failed after mutation",
+        type: "about:blank",
+      });
 
       return;
     }

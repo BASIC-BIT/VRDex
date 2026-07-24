@@ -250,7 +250,7 @@ test("calls public API routes with bearer credentials and validates schemas", as
         "/custom-root/api/v0/events/club-night",
       ],
     );
-    assert.equal(fixture.requests[0]?.authorization, "Bearer vrdx_test_token");
+    assert.equal(fixture.requests[0]?.authorization, undefined);
     assert.equal(fixture.requests[0]?.searchParams.get("q"), "club");
     assert.equal(fixture.requests[0]?.searchParams.get("type"), "event");
     assert.equal(fixture.requests[0]?.searchParams.get("limit"), "2");
@@ -263,6 +263,7 @@ test("calls public API routes with bearer credentials and validates schemas", as
       title: "Created Club Night",
     });
     assert.equal(fixture.requests[7]?.authorization, undefined);
+    assert.equal(fixture.requests[8]?.authorization, "Bearer vrdx_test_token");
     assert.equal(fixture.requests[8]?.method, "PATCH");
     assert.deepEqual(fixture.requests[8]?.body, { summary: null });
   } finally {

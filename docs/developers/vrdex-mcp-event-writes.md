@@ -38,6 +38,8 @@ Both tools:
 - call the public API rather than a private Convex mutation path
 - require an API-resource credential with `events:write`, user authority, and
   ownership of the target community
+- keep the six public read tools anonymous even when the local server has a
+  write credential configured
 - are annotated as mutating and open-world so an MCP host can require
   explicit user approval
 - read the saved public event back anonymously after an accepted write, so the
@@ -94,6 +96,10 @@ readback fails, the tool reports that the write already succeeded and tells the
 caller not to retry automatically. Inspect the event by its returned slug
 before taking another action; blind retries can create a duplicate event or
 repeat an audit entry.
+
+Thrown mutation requests and HTTP 5xx mutation responses are also reported as
+indeterminate outcomes because the server may have committed before the
+response failed. Inspect existing state before retrying either operation.
 
 API problem responses remain structured tool errors. They may include safe
 status, title, detail, and retry timing, but never the bearer credential.

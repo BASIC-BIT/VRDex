@@ -302,7 +302,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
         }
 
         if (!write.ok) {
-          return mcpApiError(write);
+          return write.status >= 500 ? mcpEventWriteIndeterminate("create") : mcpApiError(write);
         }
 
         let readback: Awaited<ReturnType<typeof apiClient.getPublicEvent>>;
@@ -354,7 +354,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
         }
 
         if (!write.ok) {
-          return mcpApiError(write);
+          return write.status >= 500 ? mcpEventWriteIndeterminate("update") : mcpApiError(write);
         }
 
         let readback: Awaited<ReturnType<typeof apiClient.getPublicEvent>>;

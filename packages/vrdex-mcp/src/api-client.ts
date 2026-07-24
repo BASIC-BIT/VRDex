@@ -163,7 +163,7 @@ export function createVrdexApiClient(options: ApiClientOptions) {
     path: string,
     searchParams?: Record<string, number | string | undefined>,
   ) {
-    return request(schema, path, { searchParams });
+    return request(schema, path, { authenticate: false, searchParams });
   }
 
   return {
