@@ -308,6 +308,33 @@ describe("temporal parsing control plane", () => {
     assert.equal(secondStart.state, "busy");
   });
 
+  it("does not let an expired active job block a new submission", async () => {
+    const t = convexTest({ schema, modules });
+    const userId = await createAuthorizedUser(t, "expired-concurrency");
+    const previous = process.env.TEMPORAL_PARSING_ENABLED;
+    process.env.TEMPORAL_PARSING_ENABLED = "true";
+    try {
+      const expiredJobId = await insertQueuedJob(t, userId, "expired-concurrency");
+      await t.run((ctx) => ctx.db.patch(expiredJobId, {
+        expiresAt: Date.now() - 1,
+      }));
+
+      const result = await t.run((ctx) => insertTemporalJobRecord(
+        ctx,
+        submission(userId, "fresh-after-expired"),
+        userId,
+      ));
+      assert.equal(result.created, true);
+      assert.notEqual(result.jobId, expiredJobId);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.TEMPORAL_PARSING_ENABLED;
+      } else {
+        process.env.TEMPORAL_PARSING_ENABLED = previous;
+      }
+    }
+  });
+
   it("classifies executor failures as invalid plans without changing explicit no-plan outcomes", () => {
     assert.equal(temporalExecutionOutcome("plans", "failed"), "invalid_plan");
     assert.equal(temporalExecutionOutcome("clarification", "failed"), "invalid_plan");

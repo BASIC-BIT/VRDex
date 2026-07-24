@@ -7,7 +7,12 @@ ENV DEBIAN_FRONTEND=noninteractive \
     TEMPORAL_INFERENCE_PORT=8000
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates python3.12 python3-pip \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        python3.12 \
+        python3-pip \
+        tzdata \
+        tzdata-legacy \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

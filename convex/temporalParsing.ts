@@ -208,7 +208,9 @@ export async function insertTemporalJobRecord(
   if (monthly.length >= monthlyLimit) {
     throw new Error("account_monthly_limited");
   }
-  if (queuedForAccount.length + runningForAccount.length >= 1) {
+  const activeJobs = [...queuedForAccount, ...runningForAccount]
+    .filter((job) => job.expiresAt > now);
+  if (activeJobs.length >= 1) {
     throw new Error("account_concurrency_limited");
   }
 
@@ -282,14 +284,6 @@ export const submitForApiOwner = internalMutation({
   },
   handler: async (ctx, args) => {
     return insertJob(ctx, args, args.ownerUserId);
-  },
-});
-
-export const submitForCurrentUser = mutation({
-  args: submitArgs,
-  handler: async (ctx, args) => {
-    const user = await requireVerifiedEmailUser(ctx);
-    return insertJob(ctx, args, user._id);
   },
 });
 

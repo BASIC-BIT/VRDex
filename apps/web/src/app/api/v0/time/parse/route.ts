@@ -23,9 +23,7 @@ export async function POST(request: Request) {
     return rejected;
   }
 
-  const authorization = await authorizeTemporalApiRequest(request, {
-    consumeSubmissionQuota: false,
-  });
+  const authorization = await authorizeTemporalApiRequest(request);
   if (!authorization.ok) {
     return authorization.response;
   }

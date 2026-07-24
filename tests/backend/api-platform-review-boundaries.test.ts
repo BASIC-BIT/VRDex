@@ -88,10 +88,8 @@ describe("API platform review boundaries", () => {
     );
     const temporalContinuation = source("apps/web/src/app/api/v0/time/parse/[continuationToken]/route.ts");
     const temporalSubmission = source("apps/web/src/app/api/v0/time/parse/route.ts");
-    assert.match(
-      temporalSubmission,
-      /authorizeTemporalApiRequest\(request, \{\s*consumeSubmissionQuota: false,/,
-    );
+    assert.match(temporalSubmission, /authorizeTemporalApiRequest\(request\)/);
+    assert.doesNotMatch(temporalSubmission, /consumeSubmissionQuota: false/);
     assert.match(
       temporalContinuation,
       /authorizeTemporalApiRequest\(request, \{\s*consumeSubmissionQuota: false,/,
@@ -100,6 +98,15 @@ describe("API platform review boundaries", () => {
       mcpEvaluation.indexOf("increment: false")
         < mcpEvaluation.indexOf("authenticateMcpBearerToken(request, bearerToken)"),
     );
+  });
+
+  it("keeps temporal submissions internal and ships ICU-compatible timezone data", () => {
+    const temporalParsing = source("convex/temporalParsing.ts");
+    const workerDockerfile = source("workers/temporal-inference/Dockerfile");
+
+    assert.doesNotMatch(temporalParsing, /export const submitForCurrentUser = mutation/);
+    assert.match(workerDockerfile, /\btzdata\b/);
+    assert.match(workerDockerfile, /\btzdata-legacy\b/);
   });
 
   it("keeps temporal retention controls available when beta parsing is disabled", () => {
