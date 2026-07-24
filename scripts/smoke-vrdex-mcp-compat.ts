@@ -42,7 +42,7 @@ type HostedToolDescriptor = {
   name?: unknown;
 };
 
-const localExpectedTools = [
+const localReadTools = [
   "vrdex_search",
   "vrdex_get_profile",
   "vrdex_get_event",
@@ -50,7 +50,12 @@ const localExpectedTools = [
   "vrdex_get_world",
   "vrdex_list_active_worlds",
 ];
-const hostedExpectedTools = ["search", "fetch", ...localExpectedTools];
+const localExpectedTools = [
+  ...localReadTools,
+  "vrdex_event_create",
+  "vrdex_event_update",
+];
+const hostedExpectedTools = ["search", "fetch", ...localReadTools];
 
 function assertHostedPublicReadSecuritySchemes(tool: HostedToolDescriptor) {
   assert.equal(typeof tool._meta, "object", `Hosted tool ${String(tool.name)} is missing _meta.`);

@@ -157,7 +157,20 @@ test("serves VRDex tools over stdio and calls the configured API base URL", asyn
     send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
 
     const tools = await waitForMessage(messages, onMessage, 2, stderr);
-    const listedTools = (tools.result as { tools: Array<{ name: string; outputSchema?: unknown }> }).tools;
+    const listedTools = (
+      tools.result as {
+        tools: Array<{
+          annotations?: {
+            destructiveHint?: boolean;
+            idempotentHint?: boolean;
+            openWorldHint?: boolean;
+            readOnlyHint?: boolean;
+          };
+          name: string;
+          outputSchema?: unknown;
+        }>;
+      }
+    ).tools;
 
     assert.deepEqual(
       listedTools.map((tool) => tool.name),
@@ -168,9 +181,23 @@ test("serves VRDex tools over stdio and calls the configured API base URL", asyn
         "vrdex_list_upcoming_events",
         "vrdex_get_world",
         "vrdex_list_active_worlds",
+        "vrdex_event_create",
+        "vrdex_event_update",
       ],
     );
     assert.equal(listedTools.every((tool) => !hasLegacySchemaId(tool.outputSchema)), true);
+    assert.deepEqual(listedTools.find((tool) => tool.name === "vrdex_event_create")?.annotations, {
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+      readOnlyHint: false,
+    });
+    assert.deepEqual(listedTools.find((tool) => tool.name === "vrdex_event_update")?.annotations, {
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+      readOnlyHint: false,
+    });
 
     const search = await callTool({
       id: 3,
@@ -244,8 +271,172 @@ test("serves VRDex tools over stdio and calls the configured API base URL", asyn
       stderr,
       toolArgs: { limit: 1 },
     });
+    const create = await callTool({
+      id: 9,
+      messages,
+      name: "vrdex_event_create",
+      onMessage,
+      send,
+      stderr,
+      toolArgs: {
+        communitySlug: "basic-bit",
+        startAt: 1_798_761_600_000,
+        title: "Created Club Night",
+      },
+    });
+    assert.deepEqual((create.result as { structuredContent: unknown }).structuredContent, {
+      canonicalUrl: `${fixture.origin}/events/created-club-night`,
+      event: {
+        id: "event_created",
+        slug: "created-club-night",
+        source: { label: "VRDex", sourceType: "manual" },
+        startAt: 1_798_761_600_000,
+        title: "Club Night",
+        watchSurfaceEnabled: false,
+      },
+      eventId: "event_created",
+      eventPath: "/events/created-club-night",
+      slug: "created-club-night",
+    });
+    const update = await callTool({
+      id: 10,
+      messages,
+      name: "vrdex_event_update",
+      onMessage,
+      send,
+      stderr,
+      toolArgs: {
+        slug: "club-night",
+        update: { summary: null },
+      },
+    });
+    assert.equal(
+      (update.result as { structuredContent?: { canonicalUrl?: string } }).structuredContent?.canonicalUrl,
+      `${fixture.origin}/events/club-night`,
+    );
+    const failedReadback = await callTool({
+      id: 11,
+      messages,
+      name: "vrdex_event_create",
+      onMessage,
+      send,
+      stderr,
+      toolArgs: {
+        communitySlug: "basic-bit",
+        startAt: 1_798_761_600_000,
+        title: "Readback Failure",
+      },
+    });
+    const failedReadbackResult = failedReadback.result as {
+      content?: Array<{ text?: string }>;
+      isError?: boolean;
+    };
+    assert.equal(failedReadbackResult.isError, true);
+    assert.match(failedReadbackResult.content?.[0]?.text ?? "", /write for slug "missing-readback"/);
+    assert.match(failedReadbackResult.content?.[0]?.text ?? "", /Do not retry the mutation automatically/);
 
-    assert.equal(fixture.captured.length, 6);
+    const indeterminateCreate = await callTool({
+      id: 12,
+      messages,
+      name: "vrdex_event_create",
+      onMessage,
+      send,
+      stderr,
+      toolArgs: {
+        communitySlug: "basic-bit",
+        startAt: 1_798_761_600_000,
+        title: "Indeterminate Create",
+      },
+    });
+    const indeterminateCreateResult = indeterminateCreate.result as {
+      content?: Array<{ text?: string }>;
+      isError?: boolean;
+    };
+    assert.equal(indeterminateCreateResult.isError, true);
+    assert.match(indeterminateCreateResult.content?.[0]?.text ?? "", /may already have accepted the mutation/);
+    assert.match(indeterminateCreateResult.content?.[0]?.text ?? "", /Do not retry the mutation automatically/);
+
+    const indeterminateUpdate = await callTool({
+      id: 13,
+      messages,
+      name: "vrdex_event_update",
+      onMessage,
+      send,
+      stderr,
+      toolArgs: {
+        slug: "club-night",
+        update: { summary: "Indeterminate Update" },
+      },
+    });
+    const indeterminateUpdateResult = indeterminateUpdate.result as {
+      content?: Array<{ text?: string }>;
+      isError?: boolean;
+    };
+    assert.equal(indeterminateUpdateResult.isError, true);
+    assert.match(indeterminateUpdateResult.content?.[0]?.text ?? "", /may already have accepted the mutation/);
+    assert.match(indeterminateUpdateResult.content?.[0]?.text ?? "", /Do not retry the mutation automatically/);
+
+    const thrownReadback = await callTool({
+      id: 14,
+      messages,
+      name: "vrdex_event_create",
+      onMessage,
+      send,
+      stderr,
+      toolArgs: {
+        communitySlug: "basic-bit",
+        startAt: 1_798_761_600_000,
+        title: "Thrown Readback",
+      },
+    });
+    const thrownReadbackResult = thrownReadback.result as {
+      content?: Array<{ text?: string }>;
+      isError?: boolean;
+    };
+    assert.equal(thrownReadbackResult.isError, true);
+    assert.match(thrownReadbackResult.content?.[0]?.text ?? "", /write for slug "invalid-readback"/);
+    assert.match(thrownReadbackResult.content?.[0]?.text ?? "", /Do not retry the mutation automatically/);
+
+    const serverErrorCreate = await callTool({
+      id: 15,
+      messages,
+      name: "vrdex_event_create",
+      onMessage,
+      send,
+      stderr,
+      toolArgs: {
+        communitySlug: "basic-bit",
+        startAt: 1_798_761_600_000,
+        title: "Server Error After Create",
+      },
+    });
+    const serverErrorCreateResult = serverErrorCreate.result as {
+      content?: Array<{ text?: string }>;
+      isError?: boolean;
+    };
+    assert.equal(serverErrorCreateResult.isError, true);
+    assert.match(serverErrorCreateResult.content?.[0]?.text ?? "", /may already have accepted the mutation/);
+
+    const serverErrorUpdate = await callTool({
+      id: 16,
+      messages,
+      name: "vrdex_event_update",
+      onMessage,
+      send,
+      stderr,
+      toolArgs: {
+        slug: "club-night",
+        update: { summary: "Server Error After Update" },
+      },
+    });
+    const serverErrorUpdateResult = serverErrorUpdate.result as {
+      content?: Array<{ text?: string }>;
+      isError?: boolean;
+    };
+    assert.equal(serverErrorUpdateResult.isError, true);
+    assert.match(serverErrorUpdateResult.content?.[0]?.text ?? "", /may already have accepted the mutation/);
+
+    assert.equal(fixture.captured.length, 18);
     assert.deepEqual(
       fixture.captured.map((request) => request.pathname),
       [
@@ -255,6 +446,18 @@ test("serves VRDex tools over stdio and calls the configured API base URL", asyn
         "/api/v0/events/upcoming",
         "/api/v0/worlds/club-world",
         "/api/v0/worlds/active",
+        "/api/v0/events",
+        "/api/v0/events/created-club-night",
+        "/api/v0/events/club-night",
+        "/api/v0/events/club-night",
+        "/api/v0/events",
+        "/api/v0/events/missing-readback",
+        "/api/v0/events",
+        "/api/v0/events/club-night",
+        "/api/v0/events",
+        "/api/v0/events/invalid-readback",
+        "/api/v0/events",
+        "/api/v0/events/club-night",
       ],
     );
     assert.equal(fixture.captured[0]?.searchParams.get("q"), "club");
@@ -262,10 +465,102 @@ test("serves VRDex tools over stdio and calls the configured API base URL", asyn
     assert.equal(fixture.captured[0]?.searchParams.get("limit"), "2");
     assert.equal(fixture.captured[3]?.searchParams.get("limit"), "1");
     assert.equal(fixture.captured[5]?.searchParams.get("limit"), "1");
+    const authenticatedMutationIndexes = new Set([6, 8, 10, 12, 13, 14, 16, 17]);
+    fixture.captured.forEach((request, index) => {
+      assert.equal(
+        request.authorization,
+        authenticatedMutationIndexes.has(index) ? "Bearer vrdx_stdio_token" : undefined,
+      );
+    });
+    assert.equal(fixture.captured[6]?.method, "POST");
+    assert.deepEqual(fixture.captured[6]?.body, {
+      communitySlug: "basic-bit",
+      startAt: 1_798_761_600_000,
+      title: "Created Club Night",
+    });
+    assert.equal(fixture.captured[8]?.method, "PATCH");
+    assert.deepEqual(fixture.captured[8]?.body, { summary: null });
   } finally {
     child.stdin.end();
     child.kill();
     lines.close();
     await fixture.close();
+  }
+});
+
+test("keeps event write tools hidden when local stdio has no bearer credential", async () => {
+  const messages: JsonRpcMessage[] = [];
+  const stderr: string[] = [];
+  const messageListeners = new Set<() => void>();
+  const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
+  const command = pnpmExecCommand(repoRoot);
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    VRDEX_API_BASE_URL: "http://127.0.0.1:1",
+  };
+
+  delete env.VRDEX_API_TOKEN;
+  delete env.VRDEX_BEARER_TOKEN;
+  delete env.VRDEX_OAUTH_ACCESS_TOKEN;
+  delete env.VRDEX_OAUTH_TOKEN_FILE;
+
+  const child = spawn(command.command, command.args, {
+    cwd: repoRoot,
+    env,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  const lines = createInterface({ input: child.stdout });
+
+  function onMessage(listener: () => void) {
+    messageListeners.add(listener);
+  }
+
+  function send(message: JsonRpcMessage) {
+    child.stdin.write(`${JSON.stringify(message)}\n`);
+  }
+
+  lines.on("line", (line) => {
+    messages.push(JSON.parse(line) as JsonRpcMessage);
+
+    for (const listener of messageListeners) {
+      listener();
+    }
+  });
+
+  child.stderr.on("data", (chunk: Buffer) => {
+    stderr.push(chunk.toString("utf8"));
+  });
+
+  try {
+    send({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        capabilities: {},
+        clientInfo: { name: "vrdex-mcp-anonymous-test", version: "0.0.0" },
+        protocolVersion: "2025-06-18",
+      },
+    });
+
+    await waitForMessage(messages, onMessage, 1, stderr);
+    send({ jsonrpc: "2.0", method: "notifications/initialized", params: {} });
+    send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
+
+    const tools = await waitForMessage(messages, onMessage, 2, stderr);
+    const names = (tools.result as { tools: Array<{ name: string }> }).tools.map((tool) => tool.name);
+
+    assert.deepEqual(names, [
+      "vrdex_search",
+      "vrdex_get_profile",
+      "vrdex_get_event",
+      "vrdex_list_upcoming_events",
+      "vrdex_get_world",
+      "vrdex_list_active_worlds",
+    ]);
+  } finally {
+    child.stdin.end();
+    child.kill();
+    lines.close();
   }
 });

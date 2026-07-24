@@ -18,6 +18,7 @@ This repo keeps durable markdown under `docs/` so product, developer, engineerin
 - `docs/developers/partner-agent-skill.md` - Docusaurus-visible canonical partner-agent guidance
 - `docs/developers/public-api.md` - public API posture, versioning, client classes, and rate-limiting direction
 - `docs/developers/vrdex-mcp-read-tools.md` - hosted read-only VRDex MCP tools and private/local MCP direction
+- `docs/developers/vrdex-mcp-event-writes.md` - authenticated local MCP event-write contract and operator runbook
 - `docs/engineering/service-map.md` - cross-link map for services, docs, and implementation surfaces
 - `docs/deployment/aws-baseline.md` - first-pass AWS service baseline for SES and private S3 profile assets
 - `docs/deployment/docs-site.md` - Docusaurus docs deployment runbook for `docs.vrdex.net`

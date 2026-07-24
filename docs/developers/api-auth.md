@@ -43,6 +43,11 @@ Personal tokens are best for local automation and the local stdio MCP package:
 VRDEX_API_TOKEN=<personal-api-token> pnpm --silent --dir <path-to-vrdex-checkout> exec tsx packages/vrdex-mcp/src/stdio.ts
 ```
 
+When that token includes `events:write`, local stdio registers authenticated
+event create/update tools. The hosted anonymous MCP remains read-only. See
+`docs/developers/vrdex-mcp-event-writes.md` for approval, readback, rotation,
+and real-event production-proof requirements.
+
 ## OAuth Access Tokens
 
 OAuth access tokens are short-lived JWT bearer tokens. They are bound to:

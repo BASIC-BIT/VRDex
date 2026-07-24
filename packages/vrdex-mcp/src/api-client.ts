@@ -1,5 +1,8 @@
 import type { z } from "@vrdex/api-contracts";
 import {
+  ApiEventCreateRequestSchema,
+  ApiEventUpdateRequestSchema,
+  ApiEventWriteResponseSchema,
   PublicActiveWorldsResponseSchema,
   PublicEventSchema,
   PublicEventsResponseSchema,
@@ -12,6 +15,8 @@ import type { VrdexMcpConfig } from "./config";
 
 export type VrdexSearchType = "all" | "person" | "community" | "profile" | "world" | "event";
 export type VrdexProfileType = "person" | "community";
+export type VrdexEventCreateInput = z.infer<typeof ApiEventCreateRequestSchema>;
+export type VrdexEventUpdateInput = z.infer<typeof ApiEventUpdateRequestSchema>;
 
 export type VrdexApiSuccess<T> = {
   data: T;
@@ -105,22 +110,35 @@ export function createVrdexApiClient(options: ApiClientOptions) {
   const fetcher = options.fetch ?? fetch;
   const userAgent = options.userAgent ?? "vrdex-mcp/0.0.0";
 
-  async function get<T>(
+  async function request<T>(
     schema: ResponseSchema<T>,
     path: string,
-    searchParams?: Record<string, number | string | undefined>,
+    requestOptions: {
+      authenticate?: boolean;
+      body?: unknown;
+      method?: "GET" | "PATCH" | "POST";
+      searchParams?: Record<string, number | string | undefined>;
+    } = {},
   ): Promise<VrdexApiResult<T>> {
-    const url = buildApiUrl(options.apiBaseUrl, path, searchParams);
+    const url = buildApiUrl(options.apiBaseUrl, path, requestOptions.searchParams);
     const headers = new Headers({
       accept: "application/json",
       "user-agent": userAgent,
     });
 
-    if (options.bearerToken !== undefined) {
+    if (requestOptions.authenticate !== false && options.bearerToken !== undefined) {
       headers.set("authorization", `Bearer ${options.bearerToken}`);
     }
 
-    const response = await fetcher(url, { headers });
+    if (requestOptions.body !== undefined) {
+      headers.set("content-type", "application/json");
+    }
+
+    const response = await fetcher(url, {
+      headers,
+      method: requestOptions.method ?? "GET",
+      ...(requestOptions.body === undefined ? {} : { body: JSON.stringify(requestOptions.body) }),
+    });
     const payload = await parseResponseBody(response);
 
     if (!response.ok) {
@@ -140,12 +158,31 @@ export function createVrdexApiClient(options: ApiClientOptions) {
     return { ok: true, data: schema.parse(payload) };
   }
 
+  function get<T>(
+    schema: ResponseSchema<T>,
+    path: string,
+    searchParams?: Record<string, number | string | undefined>,
+  ) {
+    return request(schema, path, { authenticate: false, searchParams });
+  }
+
   return {
     get apiBaseUrl() {
       return options.apiBaseUrl;
     },
+    createEvent(input: VrdexEventCreateInput) {
+      return request(ApiEventWriteResponseSchema, "events", {
+        body: ApiEventCreateRequestSchema.parse(input),
+        method: "POST",
+      });
+    },
     getEvent(slug: string) {
       return get(PublicEventSchema, `events/${encodeURIComponent(slug)}`);
+    },
+    getPublicEvent(slug: string) {
+      return request(PublicEventSchema, `events/${encodeURIComponent(slug)}`, {
+        authenticate: false,
+      });
     },
     getProfile(input: { profileType?: VrdexProfileType; slug: string }) {
       const segment =
@@ -167,6 +204,12 @@ export function createVrdexApiClient(options: ApiClientOptions) {
         limit: input.limit,
         q: input.query,
         type: input.type,
+      });
+    },
+    updateEvent(slug: string, input: VrdexEventUpdateInput) {
+      return request(ApiEventWriteResponseSchema, `events/${encodeURIComponent(slug)}`, {
+        body: ApiEventUpdateRequestSchema.parse(input),
+        method: "PATCH",
       });
     },
   };

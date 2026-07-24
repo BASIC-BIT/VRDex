@@ -1,5 +1,8 @@
 import { fromJsonSchema, McpServer } from "@modelcontextprotocol/server";
 import {
+  ApiEventCreateRequestSchema,
+  ApiEventUpdateRequestSchema,
+  ApiEventWriteResponseSchema,
   mcpOutputJsonSchemaForZodSchema,
   PublicActiveWorldsResponseSchema,
   PublicEventSchema,
@@ -24,6 +27,17 @@ export type VrdexMcpServerOptions = {
 const mcpSearchTypes = ["all", "person", "community", "profile", "world", "event"] as const;
 const mcpSlugSchema = z.string().min(1).max(160);
 const mcpLimitSchema = z.number().int().min(1);
+const mcpEventUpdateInputSchema = z.object({
+  slug: mcpSlugSchema.describe("Current public event slug."),
+  update: ApiEventUpdateRequestSchema,
+});
+const mcpEventWriteResultSchema = ApiEventWriteResponseSchema.extend({
+  canonicalUrl: z.string().url(),
+  event: PublicEventSchema,
+}).meta({
+  description: "Accepted event write plus the normalized public event read back from VRDex.",
+  id: "McpEventWriteResult",
+});
 
 function boundedLimit(value: number | undefined, fallback: number, max: number) {
   return Math.max(1, Math.min(value ?? fallback, max));
@@ -66,6 +80,49 @@ function mcpApiError(error: VrdexApiFailure) {
 
   return {
     content: [{ type: "text" as const, text: parts.join(" ") }],
+    isError: true as const,
+  };
+}
+
+function canonicalEventUrl(apiBaseUrl: string, eventPath: string) {
+  const url = new URL(apiBaseUrl);
+
+  url.pathname = eventPath;
+  url.search = "";
+  url.hash = "";
+
+  return url.toString();
+}
+
+function mcpEventReadbackError(
+  write: z.infer<typeof ApiEventWriteResponseSchema>,
+  error?: VrdexApiFailure,
+) {
+  const parts = [
+    error === undefined
+      ? `VRDex accepted the event write for slug "${write.slug}", but the required readback did not complete cleanly.`
+      : `VRDex accepted the event write for slug "${write.slug}", but the required readback failed with ${error.status}: ${error.title}.`,
+    "Do not retry the mutation automatically; inspect the saved event first.",
+  ];
+
+  if (error?.detail !== undefined) {
+    parts.push(error.detail);
+  }
+
+  return {
+    content: [{ type: "text" as const, text: parts.join(" ") }],
+    isError: true as const,
+  };
+}
+
+function mcpEventWriteIndeterminate(operation: "create" | "update") {
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `The VRDex event ${operation} request did not complete cleanly, and the server may already have accepted the mutation. Do not retry the mutation automatically; inspect the target event or community first.`,
+      },
+    ],
     isError: true as const,
   };
 }
@@ -218,6 +275,112 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
         : mcpApiError(result);
     },
   );
+
+  if (config.bearerToken !== undefined) {
+    server.registerTool(
+      "vrdex_event_create",
+      {
+        title: "Create VRDex Event",
+        description:
+          "Create and publish a community event through the authenticated VRDex API. This changes public VRDex data and requires explicit operator approval.",
+        inputSchema: ApiEventCreateRequestSchema,
+        outputSchema: mcpOutputSchema(mcpEventWriteResultSchema),
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: true,
+        },
+      },
+      async (input) => {
+        let write: Awaited<ReturnType<typeof apiClient.createEvent>>;
+
+        try {
+          write = await apiClient.createEvent(input);
+        } catch {
+          return mcpEventWriteIndeterminate("create");
+        }
+
+        if (!write.ok) {
+          return write.status >= 500 ? mcpEventWriteIndeterminate("create") : mcpApiError(write);
+        }
+
+        let readback: Awaited<ReturnType<typeof apiClient.getPublicEvent>>;
+
+        try {
+          readback = await apiClient.getPublicEvent(write.data.slug);
+        } catch {
+          return mcpEventReadbackError(write.data);
+        }
+
+        if (!readback.ok) {
+          return mcpEventReadbackError(write.data, readback);
+        }
+
+        return mcpJsonResult(
+          mcpEventWriteResultSchema,
+          {
+            ...write.data,
+            canonicalUrl: canonicalEventUrl(apiClient.apiBaseUrl, write.data.eventPath),
+            event: readback.data,
+          },
+          config.outputMode,
+        );
+      },
+    );
+
+    server.registerTool(
+      "vrdex_event_update",
+      {
+        title: "Update VRDex Event",
+        description:
+          "Update a community event through the authenticated VRDex API. Omitted fields are preserved; explicit nulls and empty arrays can clear data. This changes public VRDex data and requires explicit operator approval.",
+        inputSchema: mcpEventUpdateInputSchema,
+        outputSchema: mcpOutputSchema(mcpEventWriteResultSchema),
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: true,
+          idempotentHint: false,
+          openWorldHint: true,
+        },
+      },
+      async ({ slug, update }) => {
+        let write: Awaited<ReturnType<typeof apiClient.updateEvent>>;
+
+        try {
+          write = await apiClient.updateEvent(slug, update);
+        } catch {
+          return mcpEventWriteIndeterminate("update");
+        }
+
+        if (!write.ok) {
+          return write.status >= 500 ? mcpEventWriteIndeterminate("update") : mcpApiError(write);
+        }
+
+        let readback: Awaited<ReturnType<typeof apiClient.getPublicEvent>>;
+
+        try {
+          readback = await apiClient.getPublicEvent(write.data.slug);
+        } catch {
+          return mcpEventReadbackError(write.data);
+        }
+
+        if (!readback.ok) {
+          return mcpEventReadbackError(write.data, readback);
+        }
+
+        return mcpJsonResult(
+          mcpEventWriteResultSchema,
+          {
+            ...write.data,
+            canonicalUrl: canonicalEventUrl(apiClient.apiBaseUrl, write.data.eventPath),
+            event: readback.data,
+          },
+          config.outputMode,
+        );
+      },
+    );
+  }
 
   return server;
 }
