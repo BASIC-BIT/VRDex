@@ -110,6 +110,7 @@ test("production smoke probes a rate-limited anonymous API read", async () => {
 
 test("fixture-backed handoff coverage runs in the flow lane and stays out of production smoke", async () => {
   const handoff = await readFile("apps/web/e2e/handoff.flow.spec.ts", "utf8");
+  const workflow = await readFile(".github/workflows/baseline-checks.yml", "utf8");
   const webPackage = JSON.parse(await readFile("apps/web/package.json", "utf8")) as {
     scripts?: Record<string, string>;
   };
@@ -119,7 +120,9 @@ test("fixture-backed handoff coverage runs in the flow lane and stays out of pro
 
   assert.equal(fixtureTags.length, 7);
   assert.equal(flowTags.length, 7);
+  assert.match(workflow, /playwright test --grep @flow --project=desktop-chromium/);
   assert.match(webPackage.scripts?.["test:e2e:hosted"] ?? "", /--grep @flow/);
+  assert.match(webPackage.scripts?.["test:e2e:hosted"] ?? "", /--grep-invert @fixture/);
   assert.match(webPackage.scripts?.["test:e2e:hosted:smoke"] ?? "", /--grep-invert.*@flow/);
   assert.match(webPackage.scripts?.["test:e2e:hosted:smoke"] ?? "", /--grep-invert.*@fixture/);
 });
