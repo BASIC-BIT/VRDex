@@ -160,15 +160,17 @@ describe("API-created event ownership", () => {
       ],
     });
 
-    await assert.rejects(
-      t.mutation(internal.events.updateCommunityEventForApiOwner, {
-        actorKind: "personal_api_token",
-        ownerUserId: userId,
-        currentSlug: created.slug,
-        timezone: null,
-      }),
-      /Time zone cannot be cleared while event slots are preserved/,
-    );
+    for (const timezone of [null, "", "   "]) {
+      await assert.rejects(
+        t.mutation(internal.events.updateCommunityEventForApiOwner, {
+          actorKind: "personal_api_token",
+          ownerUserId: userId,
+          currentSlug: created.slug,
+          timezone,
+        }),
+        /Time zone cannot be cleared while event slots are preserved/,
+      );
+    }
 
     const stored = await t.run(async (ctx) => ctx.db.get(created.eventId));
     assert.equal(stored?.timezone, "UTC");

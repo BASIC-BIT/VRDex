@@ -1923,7 +1923,10 @@ export const updateCommunityEventForApiOwner = internalMutation({
     }
 
     const updateFields = suppliedEventDraftFields(args);
-    if (args.timezone === null && !updateFields.has("slotLinks")) {
+    const clearsTimezone =
+      args.timezone === null ||
+      (typeof args.timezone === "string" && args.timezone.trim().length === 0);
+    if (clearsTimezone && !updateFields.has("slotLinks")) {
       const preservedSlot = await ctx.db
         .query("eventSlots")
         .withIndex("by_eventId_startAt", (query) => query.eq("eventId", event._id))
