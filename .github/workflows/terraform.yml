@@ -30,6 +30,7 @@ on:
           - vercel
           - rate-limit-redis
           - restream-worker
+          - group-telemetry-collector
       apply:
         description: Apply the selected stack after a successful plan.
         required: true
@@ -201,6 +202,19 @@ jobs:
             requires_upstash: "true"
           - name: restream-worker
             path: infra/terraform/restream-worker
+            backend: "true"
+            plan: "false"
+            auto_apply: "false"
+            manual_apply: "false"
+            requires_aws: "false"
+            requires_vercel: "false"
+            requires_posthog: "false"
+            requires_posthog_public_key: "false"
+            requires_ses_domain: "false"
+            requires_profile_assets_enabled: "false"
+            requires_upstash: "false"
+          - name: group-telemetry-collector
+            path: infra/terraform/group-telemetry-collector
             backend: "true"
             plan: "false"
             auto_apply: "false"

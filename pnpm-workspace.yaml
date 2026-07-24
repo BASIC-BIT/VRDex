@@ -2,6 +2,12 @@ packages:
   - apps/*
   - packages/*
 
+overrides:
+  webpack: 5.99.9
+
+onlyBuiltDependencies:
+  - keytar
+
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver

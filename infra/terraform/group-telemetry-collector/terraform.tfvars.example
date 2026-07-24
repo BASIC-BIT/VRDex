@@ -1,0 +1,7 @@
+enable_service       = false
+desired_count        = 0
+convex_site_url      = "https://example.convex.site"
+collector_account_id = "replace-with-convex-document-id"
+account_secret_arn   = "arn:aws:secretsmanager:us-east-1:123456789012:secret:vrdex/group-telemetry/account-01"
+subnet_ids           = ["subnet-replace-me"]
+security_group_ids   = ["sg-replace-me"]

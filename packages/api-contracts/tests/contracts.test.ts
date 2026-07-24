@@ -126,10 +126,21 @@ describe("@vrdex/api-contracts", () => {
       },
       profileType: "community",
       slug: "vrdex",
+      telemetry: {
+        schemaVersion: 1,
+        rollupVersion: "community-telemetry-v1",
+        freshness: "current",
+        observedAt: 1784635200000,
+        definitions: {
+          currentPopulation: { unit: "people", grain: "latest_poll", gapPolicy: "omitted_when_stale" },
+        },
+        currentPopulation: { value: 42, activeInstanceCount: 2, observedAt: 1784635200000, coverage: "observed" },
+      },
       trustLabel: "claimed_verified",
     });
 
     assert.equal((profile as { futureField?: string }).futureField, "kept");
+    assert.equal(profile.telemetry?.currentPopulation?.value, 42);
     assert.throws(() => PublicProfileSchema.parse({
       avatarImageUrl: "//cdn.example.test/avatar.png",
       displayName: "VRDex",

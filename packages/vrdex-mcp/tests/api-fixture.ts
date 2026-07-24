@@ -52,6 +52,14 @@ function handleFixtureRequest(
       displayName: "BASIC BIT",
       profileType: "community",
       slug: "basic-bit",
+      telemetry: {
+        schemaVersion: 1,
+        rollupVersion: "community-telemetry-v1",
+        freshness: "current",
+        observedAt: 1798761600000,
+        definitions: { currentPopulation: { unit: "people", grain: "latest_poll", gapPolicy: "omitted_when_stale" } },
+        currentPopulation: { value: 42, activeInstanceCount: 2, observedAt: 1798761600000, coverage: "observed" },
+      },
       trustLabel: "claimed_verified",
     });
 
