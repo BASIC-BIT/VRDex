@@ -950,19 +950,24 @@ export const ingestAggregatePoll = internalMutation({
       });
     }
     const seen = new Set<string>();
+    const epochStartedAt = integration.telemetryEpochStartedAt ?? integration.createdAt;
     for (const item of args.instances) {
       seen.add(item.providerLocation);
       let session = await ctx.db
         .query("instanceSessions")
-        .withIndex("by_integrationId_providerLocation_state", (q) =>
-          q.eq("integrationId", integration._id).eq("providerLocation", item.providerLocation).eq("state", "open"),
+        .withIndex("by_integrationId_providerLocation_state_openedAt", (q) =>
+          q
+            .eq("integrationId", integration._id)
+            .eq("providerLocation", item.providerLocation)
+            .eq("state", "open")
+            .gte("openedAt", epochStartedAt),
         )
         .first();
+      const world = await ctx.db
+        .query("worlds")
+        .withIndex("by_vrchatWorldId", (q) => q.eq("vrchatWorldId", item.vrchatWorldId))
+        .first();
       if (!session) {
-        const world = await ctx.db
-          .query("worlds")
-          .withIndex("by_vrchatWorldId", (q) => q.eq("vrchatWorldId", item.vrchatWorldId))
-          .first();
         const sessionId = await ctx.db.insert("instanceSessions", {
           integrationId: integration._id,
           communityProfileId: integration.communityProfileId,
@@ -981,6 +986,7 @@ export const ingestAggregatePoll = internalMutation({
       } else {
         await ctx.db.patch(session._id, {
           providerLocation: item.providerLocation.slice(0, 500),
+          ...(!session.worldId && world ? { worldId: world._id } : {}),
           lastObservedAt: args.observedAt,
           consecutiveMisses: 0,
           updatedAt: args.observedAt,
@@ -1396,22 +1402,10 @@ export const scheduleTelemetryRollups = internalMutation({
         });
         scheduled += 1;
       }
-      const confirmed = await ctx.db.query("eventInstanceAssociations")
-        .withIndex("by_communityProfileId_state", (query) => query.eq("communityProfileId", integration.communityProfileId).eq("state", "confirmed"))
-        .take(200);
-      for (const eventId of new Set(confirmed.map((association) => association.eventId))) {
-        const event = await ctx.db.get(eventId);
-        if (!event || event.startAt > now || event.startAt < now - 14 * 24 * 60 * 60_000) continue;
-        await ctx.scheduler.runAfter(0, internal.communityTelemetry.recomputeRollup, {
-          communityProfileId: integration.communityProfileId,
-          eventId: event._id,
-          grain: "event",
-          bucketStartAt: event.startAt,
-          bucketEndAt: event.endAt ?? event.startAt + 6 * 60 * 60_000,
-          now,
-        });
-        scheduled += 1;
-      }
+      await ctx.scheduler.runAfter(0, internal.communityTelemetry.scheduleTelemetryEventWorkForCommunity, {
+        communityProfileId: integration.communityProfileId,
+        now,
+      });
     }
     if (!integrationsPage.isDone) {
       await ctx.scheduler.runAfter(0, internal.communityTelemetry.scheduleTelemetryRollups, {
@@ -1422,6 +1416,87 @@ export const scheduleTelemetryRollups = internalMutation({
     return { integrations: integrationsPage.page.length, scheduled, isDone: integrationsPage.isDone };
   },
 });
+
+export const scheduleTelemetryEventWorkForCommunity = internalMutation({
+  args: {
+    communityProfileId: v.id("profiles"),
+    now: v.number(),
+    cursor: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("events")
+      .withIndex("by_communityProfileId_startAt", (query) =>
+        query
+          .eq("communityProfileId", args.communityProfileId)
+          .gte("startAt", args.now - 14 * 24 * 60 * 60_000)
+          .lte("startAt", args.now + 6 * 60 * 60_000),
+      )
+      .paginate({
+        cursor: args.cursor ?? null,
+        numItems: Math.max(1, Math.min(Math.floor(args.limit ?? 100), 100)),
+      });
+    let rollupsScheduled = 0;
+    for (const event of page.page) {
+      await ctx.scheduler.runAfter(0, internal.communityTelemetry.suggestEventAssociations, {
+        eventId: event._id,
+        now: args.now,
+      });
+      if (event.startAt > args.now) continue;
+      const confirmed = await ctx.db
+        .query("eventInstanceAssociations")
+        .withIndex("by_eventId_state", (query) => query.eq("eventId", event._id).eq("state", "confirmed"))
+        .first();
+      if (!confirmed) continue;
+      await ctx.scheduler.runAfter(0, internal.communityTelemetry.recomputeRollup, {
+        communityProfileId: args.communityProfileId,
+        eventId: event._id,
+        grain: "event",
+        bucketStartAt: event.startAt,
+        bucketEndAt: event.endAt ?? event.startAt + 6 * 60 * 60_000,
+        now: args.now,
+      });
+      rollupsScheduled += 1;
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.communityTelemetry.scheduleTelemetryEventWorkForCommunity, {
+        communityProfileId: args.communityProfileId,
+        now: args.now,
+        cursor: page.continueCursor,
+        ...(args.limit === undefined ? {} : { limit: args.limit }),
+      });
+    }
+    return {
+      events: page.page.length,
+      rollupsScheduled,
+      isDone: page.isDone,
+    };
+  },
+});
+
+async function rolledHoursForObservations(
+  ctx: MutationCtx,
+  communityProfileId: Id<"profiles">,
+  observedAts: number[],
+) {
+  const hours = new Set(
+    observedAts.map((observedAt) => Math.floor(observedAt / (60 * 60_000)) * 60 * 60_000),
+  );
+  const results = await Promise.all([...hours].map(async (hour) => ({
+    hour,
+    rollup: await ctx.db
+      .query("communityTelemetryRollups")
+      .withIndex("by_communityProfileId_grain_bucketStartAt", (query) =>
+        query
+          .eq("communityProfileId", communityProfileId)
+          .eq("grain", "hour")
+          .eq("bucketStartAt", hour),
+      )
+      .first(),
+  })));
+  return new Set(results.filter((result) => result.rollup).map((result) => result.hour));
+}
 
 export const compactRawTelemetry = internalMutation({
   args: {
@@ -1436,17 +1511,16 @@ export const compactRawTelemetry = internalMutation({
     if (!integration) return { aggregateDeleted: 0, instanceDeleted: 0, isDone: true };
     const limit = Math.max(1, Math.min(args.limit ?? 500, 1000));
     const phase = args.phase ?? "aggregate";
-    const hourlyRollups = await ctx.db.query("communityTelemetryRollups")
-      .withIndex("by_communityProfileId_grain_bucketStartAt", (query) =>
-        query.eq("communityProfileId", integration.communityProfileId).eq("grain", "hour").lt("bucketStartAt", args.rawBeforeAt),
-      )
-      .collect();
-    const rolledHours = new Set(hourlyRollups.map((rollup) => rollup.bucketStartAt));
 
     if (phase === "aggregate") {
       const page = await ctx.db.query("communityPopulationObservations")
         .withIndex("by_integrationId_observedAt", (query) => query.eq("integrationId", integration._id).lt("observedAt", args.rawBeforeAt))
         .paginate({ cursor: args.cursor ?? null, numItems: limit });
+      const rolledHours = await rolledHoursForObservations(
+        ctx,
+        integration.communityProfileId,
+        page.page.map((point) => point.observedAt),
+      );
       let aggregateDeleted = 0;
       for (const point of page.page) {
         const hour = Math.floor(point.observedAt / (60 * 60_000)) * 60 * 60_000;
@@ -1464,21 +1538,37 @@ export const compactRawTelemetry = internalMutation({
       return { aggregateDeleted, instanceDeleted: 0, isDone: false };
     }
 
-    const confirmed = await ctx.db.query("eventInstanceAssociations")
-      .withIndex("by_communityProfileId_state", (query) => query.eq("communityProfileId", integration.communityProfileId).eq("state", "confirmed"))
-      .collect();
-    const eventRollups = await ctx.db.query("communityTelemetryRollups")
-      .withIndex("by_communityProfileId_grain_bucketStartAt", (query) => query.eq("communityProfileId", integration.communityProfileId).eq("grain", "event"))
-      .collect();
-    const rolledEvents = new Set(eventRollups.flatMap((rollup) => rollup.eventId ? [rollup.eventId as string] : []));
-    const protectedSessions = new Set(confirmed.filter((association) => !rolledEvents.has(association.eventId as string)).map((association) => association.sessionId as string));
     const page = await ctx.db.query("instancePopulationObservations")
       .withIndex("by_integrationId_observedAt", (query) => query.eq("integrationId", integration._id).lt("observedAt", args.rawBeforeAt))
       .paginate({ cursor: args.cursor ?? null, numItems: limit });
+    const rolledHours = await rolledHoursForObservations(
+      ctx,
+      integration.communityProfileId,
+      page.page.map((point) => point.observedAt),
+    );
+    const protectedSessionResults = await Promise.all(
+      [...new Set(page.page.map((point) => point.sessionId))].map(async (sessionId) => {
+        const confirmed = await ctx.db.query("eventInstanceAssociations")
+          .withIndex("by_sessionId_state", (query) =>
+            query.eq("sessionId", sessionId).eq("state", "confirmed"),
+          )
+          .first();
+        if (!confirmed) return undefined;
+        const eventRollup = await ctx.db.query("communityTelemetryRollups")
+          .withIndex("by_eventId_rollupVersion", (query) =>
+            query.eq("eventId", confirmed.eventId).eq("rollupVersion", TELEMETRY_ROLLUP_VERSION),
+          )
+          .first();
+        return eventRollup ? undefined : sessionId;
+      }),
+    );
+    const protectedSessions = new Set(
+      protectedSessionResults.filter((sessionId): sessionId is Id<"instanceSessions"> => Boolean(sessionId)),
+    );
     let instanceDeleted = 0;
     for (const point of page.page) {
       const hour = Math.floor(point.observedAt / (60 * 60_000)) * 60 * 60_000;
-      if (!rolledHours.has(hour) || protectedSessions.has(point.sessionId as string)) continue;
+      if (!rolledHours.has(hour) || protectedSessions.has(point.sessionId)) continue;
       await ctx.db.delete(point._id);
       instanceDeleted += 1;
     }

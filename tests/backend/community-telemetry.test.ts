@@ -238,6 +238,122 @@ describe("community telemetry control plane", () => {
     }), /lease is stale/);
   });
 
+  it("starts a new session after reconnect and backfills a world discovered later", async () => {
+    const t = convexTest({ schema, modules });
+    const communityProfileId = await seedCommunity(t);
+    const accountId = await registerAccount(t);
+    const vrchatGroupId = "grp_00000000-0000-4000-8000-000000000001";
+    const vrchatWorldId = "wrld_00000000-0000-4000-8000-000000000001";
+    const providerInstanceId = `12345~group(${vrchatGroupId})`;
+    const providerLocation = `${vrchatWorldId}:${providerInstanceId}`;
+    const integrationId = await t.withIdentity(identity).mutation(api.communityTelemetry.connectGroup, {
+      communitySlug: "faceless",
+      vrchatGroupId,
+      groupVisibility: "public",
+      joinPolicy: "free",
+    });
+    const oldSessionId = await t.run(async (ctx) => {
+      const integration = await ctx.db.get(integrationId);
+      assert.ok(integration);
+      const openedAt = integration.telemetryEpochStartedAt ?? integration.createdAt;
+      const sessionId = await ctx.db.insert("instanceSessions", {
+        integrationId,
+        communityProfileId,
+        providerInstanceId,
+        providerLocation,
+        vrchatWorldId,
+        source: "first_party",
+        state: "open",
+        openedAt,
+        lastObservedAt: openedAt,
+        consecutiveMisses: 0,
+        updatedAt: openedAt,
+      });
+      await ctx.db.patch(integrationId, {
+        state: "disconnected",
+        assignedCollectorAccountId: undefined,
+        nextPollAt: undefined,
+        disconnectedAt: openedAt,
+        updatedAt: openedAt,
+      });
+      await ctx.db.patch(accountId, { assignedGroupCount: 0, updatedAt: openedAt });
+      return sessionId;
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 5));
+    assert.equal(await t.withIdentity(identity).mutation(api.communityTelemetry.connectGroup, {
+      communitySlug: "faceless",
+      vrchatGroupId,
+      groupVisibility: "public",
+      joinPolicy: "free",
+    }), integrationId);
+    const integration = await t.run((ctx) => ctx.db.get(integrationId));
+    assert.ok(integration?.telemetryEpochStartedAt);
+    const claimAt = integration.telemetryEpochStartedAt + 1_000;
+    const [claim] = await t.mutation(internal.communityTelemetry.claimDueAssignments, {
+      collectorAccountId: accountId,
+      workerId: "reconnect-worker",
+      now: claimAt,
+    });
+    assert.ok(claim);
+    const poll = {
+      integrationId,
+      collectorAccountId: accountId,
+      workerId: "reconnect-worker",
+      fencingToken: claim.fencingToken,
+      collectorVersion: "test-v1",
+      source: "first_party" as const,
+      groupMemberCount: 10,
+      instances: [{ providerInstanceId, providerLocation, vrchatWorldId, population: 4 }],
+      nextPollAt: claimAt + 60_000,
+    };
+    await t.mutation(internal.communityTelemetry.ingestAggregatePoll, {
+      ...poll,
+      pollId: "reconnect-poll-1",
+      observedAt: claimAt + 1_000,
+      now: claimAt + 1_000,
+    });
+    const newSession = await t.run(async (ctx) => {
+      const sessions = await ctx.db
+        .query("instanceSessions")
+        .withIndex("by_integrationId_providerLocation_state_openedAt", (query) =>
+          query
+            .eq("integrationId", integrationId)
+            .eq("providerLocation", providerLocation)
+            .eq("state", "open")
+            .gte("openedAt", integration.telemetryEpochStartedAt!),
+        )
+        .collect();
+      assert.equal(sessions.length, 1);
+      return sessions[0]!;
+    });
+    assert.notEqual(newSession._id, oldSessionId);
+    assert.ok(newSession.openedAt >= integration.telemetryEpochStartedAt);
+    assert.equal(newSession.worldId, undefined);
+
+    const worldId = await t.run((ctx) => ctx.db.insert("worlds", {
+      slug: "late-world",
+      displayName: "Late World",
+      sortName: "late world",
+      tags: [],
+      vrchatWorldId,
+      visibilityStatus: "public",
+      platformCompatibility: [],
+      media: [],
+      creatorAttributions: [],
+      outboundLinks: [],
+      publicationState: "published",
+      creationSource: "self",
+      updatedAt: claimAt + 2_000,
+    }));
+    await t.mutation(internal.communityTelemetry.ingestAggregatePoll, {
+      ...poll,
+      pollId: "reconnect-poll-2",
+      observedAt: claimAt + 2_000,
+      now: claimAt + 2_000,
+    });
+    assert.equal((await t.run((ctx) => ctx.db.get(newSession._id)))?.worldId, worldId);
+  });
+
   it("fences stale workers, deduplicates polls, compacts heartbeats, and closes missing instances", async () => {
     const t = convexTest({ schema, modules });
     await seedCommunity(t);
@@ -641,6 +757,142 @@ describe("community telemetry control plane", () => {
     assert.equal(await t.query(api.communityTelemetry.getPublicForCommunity, {
       communitySlug: "faceless", now: dayStart + 5 * 60_000,
     }), null);
+  });
+
+  it("pages recent event work to refresh confirmed rollups and create suggestions", async () => {
+    const t = convexTest({ schema, modules });
+    const communityProfileId = await seedCommunity(t);
+    await registerAccount(t);
+    const integrationId = await t.withIdentity(identity).mutation(api.communityTelemetry.connectGroup, {
+      communitySlug: "faceless",
+      vrchatGroupId: "grp_00000000-0000-4000-8000-000000000001",
+      groupVisibility: "public",
+      joinPolicy: "free",
+    });
+    const eventNow = await t.run(async (ctx) => {
+      const integration = await ctx.db.get(integrationId);
+      assert.ok(integration);
+      return (integration.telemetryEpochStartedAt ?? integration.createdAt) + 3 * 60 * 60_000;
+    });
+    const seeded = await t.run(async (ctx) => {
+      const worldId = await ctx.db.insert("worlds", {
+        slug: "event-work-world",
+        displayName: "Event Work World",
+        sortName: "event work world",
+        tags: [],
+        vrchatWorldId: "wrld_00000000-0000-4000-8000-000000000001",
+        visibilityStatus: "public",
+        platformCompatibility: [],
+        media: [],
+        creatorAttributions: [],
+        outboundLinks: [],
+        publicationState: "published",
+        creationSource: "self",
+        updatedAt: eventNow,
+      });
+      const createEvent = (slug: string, startAt: number) => ctx.db.insert("events", {
+        slug,
+        title: slug,
+        sortTitle: slug,
+        startAt,
+        endAt: startAt + 30 * 60_000,
+        communityProfileId,
+        sourceType: "manual" as const,
+        sourceLabel: "test",
+        publicationState: "published" as const,
+        publishedAt: eventNow,
+        updatedAt: eventNow,
+      });
+      await createEvent("first-unassociated", eventNow - 2 * 60 * 60_000);
+      const confirmedEventId = await createEvent("second-confirmed", eventNow - 60 * 60_000);
+      const suggestionEventId = await createEvent("third-suggestion", eventNow - 30 * 60_000);
+      await ctx.db.insert("eventWorlds", {
+        eventId: suggestionEventId,
+        worldId,
+        eventStartAt: eventNow - 30 * 60_000,
+        sourceType: "manual",
+        confidence: 1,
+        confirmationState: "confirmed",
+        confirmedAt: eventNow,
+        updatedAt: eventNow,
+      });
+      const confirmedSessionId = await ctx.db.insert("instanceSessions", {
+        integrationId,
+        communityProfileId,
+        providerInstanceId: "confirmed~group(grp_example)",
+        providerLocation: "wrld_00000000-0000-4000-8000-000000000001:confirmed~group(grp_example)",
+        vrchatWorldId: "wrld_00000000-0000-4000-8000-000000000001",
+        worldId,
+        source: "first_party",
+        state: "closed",
+        openedAt: eventNow - 60 * 60_000,
+        lastObservedAt: eventNow - 45 * 60_000,
+        closedAt: eventNow - 30 * 60_000,
+        consecutiveMisses: 2,
+        updatedAt: eventNow - 30 * 60_000,
+      });
+      const suggestionSessionId = await ctx.db.insert("instanceSessions", {
+        integrationId,
+        communityProfileId,
+        providerInstanceId: "suggestion~group(grp_example)",
+        providerLocation: "wrld_00000000-0000-4000-8000-000000000001:suggestion~group(grp_example)",
+        vrchatWorldId: "wrld_00000000-0000-4000-8000-000000000001",
+        worldId,
+        source: "first_party",
+        state: "closed",
+        openedAt: eventNow - 40 * 60_000,
+        lastObservedAt: eventNow - 10 * 60_000,
+        closedAt: eventNow - 10 * 60_000,
+        consecutiveMisses: 2,
+        updatedAt: eventNow - 10 * 60_000,
+      });
+      await ctx.db.insert("instancePopulationObservations", {
+        integrationId,
+        sessionId: confirmedSessionId,
+        idempotencyKey: "confirmed-event-point",
+        providerInstanceId: "confirmed~group(grp_example)",
+        vrchatWorldId: "wrld_00000000-0000-4000-8000-000000000001",
+        population: 8,
+        observedAt: eventNow - 45 * 60_000,
+        source: "first_party",
+        collectorVersion: "test-v1",
+        coverageState: "observed",
+        fencingToken: 1,
+      });
+      await ctx.db.insert("eventInstanceAssociations", {
+        eventId: confirmedEventId,
+        sessionId: confirmedSessionId,
+        communityProfileId,
+        source: "manual",
+        confidence: 1,
+        state: "confirmed",
+        createdAt: eventNow,
+        updatedAt: eventNow,
+      });
+      return { confirmedEventId, suggestionEventId, suggestionSessionId };
+    });
+
+    const firstPage = await t.mutation(
+      internal.communityTelemetry.scheduleTelemetryEventWorkForCommunity,
+      { communityProfileId, now: eventNow, limit: 1 },
+    );
+    assert.equal(firstPage.events, 1);
+    assert.equal(firstPage.isDone, false);
+    await finishImmediateSchedules(t);
+    const result = await t.run(async (ctx) => ({
+      confirmedRollup: await ctx.db.query("communityTelemetryRollups")
+        .withIndex("by_eventId_rollupVersion", (query) =>
+          query.eq("eventId", seeded.confirmedEventId).eq("rollupVersion", "community-telemetry-v1"),
+        )
+        .first(),
+      suggestion: await ctx.db.query("eventInstanceAssociations")
+        .withIndex("by_eventId_state", (query) =>
+          query.eq("eventId", seeded.suggestionEventId).eq("state", "suggested"),
+        )
+        .first(),
+    }));
+    assert.equal(result.confirmedRollup?.peakConcurrency, 8);
+    assert.equal(result.suggestion?.sessionId, seeded.suggestionSessionId);
   });
 
   it("pages rollup scheduling across every connected integration", async () => {
