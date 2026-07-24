@@ -80,6 +80,37 @@ export type EventDraftInput = {
   preferredSlug?: string;
 };
 
+export const eventDraftNullableFields = [
+  "doorsOpenAt",
+  "endAt",
+  "timezone",
+  "worldSlug",
+  "summary",
+  "notes",
+  "sourceUrl",
+  "posterImageUrl",
+  "bannerImageUrl",
+  "thumbnailImageUrl",
+] as const satisfies ReadonlyArray<keyof EventDraftInput>;
+
+type EventDraftNullableField = (typeof eventDraftNullableFields)[number];
+
+export type EventDraftUpdateInput = Omit<Partial<EventDraftInput>, EventDraftNullableField> & {
+  [Field in EventDraftNullableField]?: EventDraftInput[Field] | null;
+};
+
+export function normalizeEventDraftUpdateInput(input: EventDraftUpdateInput): Partial<EventDraftInput> {
+  const normalized = { ...input } as Record<string, unknown>;
+
+  for (const field of eventDraftNullableFields) {
+    if (normalized[field] === null) {
+      normalized[field] = undefined;
+    }
+  }
+
+  return normalized as Partial<EventDraftInput>;
+}
+
 export function preserveOmittedEventDraftFields(
   input: Partial<EventDraftInput>,
   preserved: EventDraftInput,

@@ -1,3 +1,4 @@
+import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
@@ -36,9 +37,11 @@ import {
   sanitizeVrcdnOperatorOwnedOutputSetup,
 } from "./_eventMediaControl";
 import {
+  normalizeEventDraftUpdateInput,
   preserveOmittedEventDraftFields,
   sanitizeEventDraftInput,
   type EventDraftInput,
+  type EventDraftUpdateInput,
   type SanitizedEventDraftInput,
 } from "./_eventInputs";
 import { findEventOperationSlots } from "./_eventOperations";
@@ -146,6 +149,16 @@ const eventDraftUpdateArgs = {
   ...eventDraftArgs,
   title: v.optional(v.string()),
   startAt: v.optional(v.number()),
+  doorsOpenAt: v.optional(v.union(v.number(), v.null())),
+  endAt: v.optional(v.union(v.number(), v.null())),
+  timezone: v.optional(v.union(v.string(), v.null())),
+  worldSlug: v.optional(v.union(v.string(), v.null())),
+  summary: v.optional(v.union(v.string(), v.null())),
+  notes: v.optional(v.union(v.string(), v.null())),
+  sourceUrl: v.optional(v.union(v.string(), v.null())),
+  posterImageUrl: v.optional(v.union(v.string(), v.null())),
+  bannerImageUrl: v.optional(v.union(v.string(), v.null())),
+  thumbnailImageUrl: v.optional(v.union(v.string(), v.null())),
 };
 
 const vrcdnOutputSetupArgs = {
@@ -382,6 +395,7 @@ async function canUpdateEvent(
   db: DatabaseReader,
   event: Doc<"events">,
   subject: AuthSubject,
+  userId?: Id<"users"> | null,
 ): Promise<boolean> {
   if (isSameAuthSubject(event.submitter, subject)) {
     return true;
@@ -389,6 +403,14 @@ async function canUpdateEvent(
 
   if (event.communityProfileId === undefined) {
     return false;
+  }
+
+  if (
+    userId !== undefined &&
+    userId !== null &&
+    await userOwnsProfile(db, event.communityProfileId, userId)
+  ) {
+    return true;
   }
 
   return subjectHasCommunityCapability(db, event.communityProfileId, subject, "manage_events");
@@ -398,6 +420,7 @@ async function canManageEventMedia(
   db: DatabaseReader,
   event: Doc<"events">,
   subject: AuthSubject,
+  userId?: Id<"users"> | null,
 ): Promise<boolean> {
   if (isSameAuthSubject(event.submitter, subject)) {
     return true;
@@ -405,6 +428,14 @@ async function canManageEventMedia(
 
   if (event.communityProfileId === undefined) {
     return false;
+  }
+
+  if (
+    userId !== undefined &&
+    userId !== null &&
+    await userOwnsProfile(db, event.communityProfileId, userId)
+  ) {
+    return true;
   }
 
   return subjectHasCommunityCapability(db, event.communityProfileId, subject, "manage_event_media");
@@ -414,6 +445,7 @@ async function canViewEventOperations(
   db: DatabaseReader,
   event: Doc<"events">,
   subject: AuthSubject,
+  userId?: Id<"users"> | null,
 ): Promise<boolean> {
   if (isSameAuthSubject(event.submitter, subject)) {
     return true;
@@ -421,6 +453,14 @@ async function canViewEventOperations(
 
   if (event.communityProfileId === undefined) {
     return false;
+  }
+
+  if (
+    userId !== undefined &&
+    userId !== null &&
+    await userOwnsProfile(db, event.communityProfileId, userId)
+  ) {
+    return true;
   }
 
   return subjectHasAnyCommunityCapability(db, event.communityProfileId, subject, [
@@ -609,7 +649,7 @@ async function linkedPublishedEventWorld(db: DatabaseReader, eventId: Id<"events
   return world?.publicationState === "published" ? world : undefined;
 }
 
-function suppliedEventDraftFields(input: Partial<EventDraftInput>) {
+function suppliedEventDraftFields(input: EventDraftUpdateInput) {
   const fields = new Set<keyof EventDraftInput>();
 
   for (const field of Object.keys(eventDraftArgs) as Array<keyof EventDraftInput>) {
@@ -934,7 +974,7 @@ async function getEditableEventBySlug(
     throw new Error("Event was not found.");
   }
 
-  if (!(await canUpdateEvent(ctx.db, event, subject))) {
+  if (!(await canUpdateEvent(ctx.db, event, subject, await getAuthUserId(ctx)))) {
     throw new Error("You do not have permission to update this event.");
   }
 
@@ -958,7 +998,7 @@ async function getMediaManageableEventBySlug(
     throw new Error("Event was not found.");
   }
 
-  if (!(await canManageEventMedia(ctx.db, event, subject))) {
+  if (!(await canManageEventMedia(ctx.db, event, subject, await getAuthUserId(ctx)))) {
     throw new Error("You do not have permission to control event media.");
   }
 
@@ -982,7 +1022,7 @@ async function getOperationsReadableEventBySlug(
     throw new Error("Event was not found.");
   }
 
-  if (!(await canViewEventOperations(ctx.db, event, subject))) {
+  if (!(await canViewEventOperations(ctx.db, event, subject, await getAuthUserId(ctx)))) {
     throw new Error("You do not have permission to view event operations.");
   }
 
@@ -1883,8 +1923,9 @@ export const updateCommunityEventForApiOwner = internalMutation({
     }
 
     const updateFields = suppliedEventDraftFields(args);
+    const normalizedUpdate = normalizeEventDraftUpdateInput(args);
     const input = sanitizeEventDraftInput(
-      preserveOmittedEventDraftFields(args, {
+      preserveOmittedEventDraftFields(normalizedUpdate, {
         title: event.title,
         startAt: event.startAt,
         communitySlug: currentCommunity.slug,
@@ -1930,6 +1971,7 @@ export const updateCommunityEvent = mutation({
   },
   handler: async (ctx, args) => {
     const subject = await requireAuthenticatedSubject(ctx);
+    const userId = await getAuthUserId(ctx);
     const validation = validateEventSlug(args.currentSlug);
 
     if (!validation.ok) {
@@ -1944,7 +1986,7 @@ export const updateCommunityEvent = mutation({
 
     const isSubmitter = isSameAuthSubject(event.submitter, subject);
 
-    if (!(await canUpdateEvent(ctx.db, event, subject))) {
+    if (!(await canUpdateEvent(ctx.db, event, subject, userId))) {
       throw new Error("You do not have permission to update this event.");
     }
 

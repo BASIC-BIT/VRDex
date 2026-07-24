@@ -332,9 +332,41 @@ describe("@vrdex/api-contracts", () => {
       summary: "Updated public event details.",
     });
 
-    assert.throws(() => ApiEventUpdateRequestSchema.parse({
-      participantLinks: [],
-    }), /participantLinks and slotLinks must be supplied together/);
+    ApiEventUpdateRequestSchema.parse({
+      doorsOpenAt: null,
+      endAt: null,
+      timezone: null,
+      worldSlug: null,
+      summary: null,
+      notes: null,
+      sourceUrl: null,
+      posterImageUrl: null,
+      bannerImageUrl: null,
+      thumbnailImageUrl: null,
+    });
+
+    assert.throws(() =>
+      ApiEventUpdateRequestSchema.parse({
+        title: null,
+      }),
+    );
+    assert.throws(() =>
+      ApiEventUpdateRequestSchema.parse({
+        communitySlug: null,
+      }),
+    );
+    assert.throws(() =>
+      ApiEventUpdateRequestSchema.parse({
+        mediaLinks: null,
+      }),
+    );
+    assert.throws(
+      () =>
+        ApiEventUpdateRequestSchema.parse({
+          participantLinks: [],
+        }),
+      /participantLinks and slotLinks must be supplied together/,
+    );
   });
 
   it("parses profile update contracts", () => {

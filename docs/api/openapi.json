@@ -3735,23 +3735,51 @@
             "maximum": 9007199254740991
           },
           "doorsOpenAt": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "endAt": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "timezone": {
-            "type": "string",
-            "maxLength": 64
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "worldSlug": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 160
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "preferredSlug": {
             "type": "string",
@@ -3759,32 +3787,74 @@
             "maxLength": 160
           },
           "summary": {
-            "type": "string",
-            "maxLength": 240
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 240
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "notes": {
-            "type": "string",
-            "maxLength": 1200
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1200
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "sourceLabel": {
             "type": "string",
             "maxLength": 120
           },
           "sourceUrl": {
-            "type": "string",
-            "format": "uri"
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uri"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "posterImageUrl": {
-            "type": "string",
-            "format": "uri"
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uri"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "bannerImageUrl": {
-            "type": "string",
-            "format": "uri"
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uri"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "thumbnailImageUrl": {
-            "type": "string",
-            "format": "uri"
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uri"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "watchSurfaceEnabled": {
             "type": "boolean"
@@ -3917,7 +3987,7 @@
             }
           }
         },
-        "description": "Update a public event attached to a community profile owned by the current authenticated API user."
+        "description": "Update a public event attached to a community profile owned by the current authenticated API user. Omitted fields are preserved; null clears optional scalar fields and the world relation; empty arrays clear collection fields."
       },
       "ApiEventCreateRequest": {
         "type": "object",
