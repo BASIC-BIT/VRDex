@@ -144,6 +144,8 @@ Opted-in beta expressions have no
 automatic content expiry: they remain until the account turns retention off or
 an operator deletes them. Account opt-out takes effect immediately; large
 histories finish deletion asynchronously in bounded batches.
+Turning retention off also removes stored completed results from that retained
+history. Polling one of those still-unexpired continuations returns `410 Gone`.
 
 Do not submit passwords, tokens, sensitive personal information, regulated
 data, or private third-party material. Raw temporal text is not sent to PostHog

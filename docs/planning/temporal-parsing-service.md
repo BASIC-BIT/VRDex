@@ -207,7 +207,9 @@ opted-in beta expression remains stored until the account turns
 retention off or an operator deletes it; the beta has no automatic content
 expiry. Turning the account preference off takes effect immediately, prevents
 in-flight jobs from retaining content, and deletes retained beta history in
-bounded asynchronous batches. The website confirms this destructive action.
+bounded asynchronous batches. A still-unexpired continuation whose completed
+result was deleted returns `410 Gone`. The website confirms this destructive
+action.
 
 The initial parser is intentionally bounded to simple temporal phrases. Before
 accepting arbitrary event descriptions, poster images, or third-party personal

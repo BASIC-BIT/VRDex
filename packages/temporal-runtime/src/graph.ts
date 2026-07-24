@@ -37,7 +37,7 @@ const CalendarContextSchema = z.object({
 const WEEKDAY_TEXT_PATTERN = /\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i;
 const TOP_LEVEL_NEXT_WEEKDAY_PATTERN = new RegExp(`^\\s*next\\s+(?:${PLAN_WEEKDAYS.join('|')})(?:\\b[\\s\\S]*)?$`, 'i');
 const MONTH_DATE_QUERY_PATTERN = /\b(?:(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+)?(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|sept|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:,?\s+\d{4})?\b/i;
-const AM_PM_CLOCK_MENTION_PATTERN = /\b(\d{1,2})(?::([0-5]\d))?\s*(am|pm)\b/gi;
+const AM_PM_CLOCK_MENTION_PATTERN = /\b(0?[1-9]|1[0-2])(?::([0-5]\d))?\s*(am|pm)\b/gi;
 const AMBIGUOUS_BARE_COLON_CLOCK_PATTERN = /(?<![\d.])\b(0?[1-9]|1[0-2])[:.]([0-5]\d)\b(?!\s*(?:[ap](?:\.?m)?\b|:))/gi;
 const AMBIGUOUS_BARE_COMPACT_CLOCK_PATTERN = /\b(0?[1-9]|1[0-2])([0-5]\d)\b(?!\s*(?:[ap](?:\.?m)?|minutes?|mins?|hours?|hrs?|days?|weeks?|months?|years?)\b)/gi;
 const DISCORD_TIMESTAMP_FORMAT_CODES = [':d', ':D', ':t', ':T', ':f', ':F', ':R'] as const;
@@ -2822,10 +2822,6 @@ async function bareMeridiemClockAmbiguityPolicy(
   implementations: TemporalToolImplementations,
   features?: TemporalFeatureFlags,
 ): Promise<AmbiguityPolicyResult | null> {
-  if (TOP_LEVEL_NEXT_WEEKDAY_PATTERN.test(request.text)) {
-    return null;
-  }
-
   const mentions = ambiguousBareClockMentions(request.text);
   if (mentions.length !== 1) {
     return null;

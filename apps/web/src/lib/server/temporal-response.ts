@@ -109,6 +109,14 @@ export function completedTemporalResponse(job: TemporalJob) {
     );
   }
 
+  if (job.result === undefined) {
+    return problem(
+      410,
+      "Temporal result deleted",
+      "This completed result was deleted after input retention was disabled. Submit the temporal expression again.",
+    );
+  }
+
   const source = job.result as {
     status?: string;
     kind?: "instant" | "time_range";

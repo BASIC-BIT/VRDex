@@ -10,7 +10,10 @@ import {
   insertTemporalJobRecord,
   scrubRetainedJobInputs,
 } from "../../convex/temporalParsing";
-import { temporalProviderRetryDelayMs } from "../../convex/temporalParsingActions";
+import {
+  temporalExecutionOutcome,
+  temporalProviderRetryDelayMs,
+} from "../../convex/temporalParsingActions";
 
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
@@ -303,6 +306,12 @@ describe("temporal parsing control plane", () => {
 
     assert.equal(firstStart.state, "started");
     assert.equal(secondStart.state, "busy");
+  });
+
+  it("classifies executor failures as invalid plans without changing explicit no-plan outcomes", () => {
+    assert.equal(temporalExecutionOutcome("plans", "failed"), "invalid_plan");
+    assert.equal(temporalExecutionOutcome("clarification", "failed"), "invalid_plan");
+    assert.equal(temporalExecutionOutcome("no_plan", "failed"), "no_plan");
   });
 
   it("scrubs opted-out input after completion while preserving aggregate metadata", async () => {

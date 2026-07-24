@@ -148,6 +148,30 @@ describe("migrated temporal Plan-IR executor", () => {
     );
   });
 
+  it("does not turn invalid multi-clock mentions into clarification alternatives", async () => {
+    const result = await execute(
+      tomorrowAtEight,
+      "Sept 1 at 99pm or 2pm",
+    );
+
+    assert.equal(result.status, "resolved");
+    assert.equal(
+      (result.clarificationAlternatives ?? []).some((alternative) => alternative.label === "3 PM"),
+      false,
+    );
+  });
+
+  it("clarifies bare clocks in next-weekday inputs before executing a plan", async () => {
+    const result = await execute(tomorrowAtEight, "next Friday at 8");
+
+    assert.equal(result.status, "needs_clarification");
+    assert.equal(result.clarificationQuestion, "Did you mean AM or PM?");
+    assert.deepEqual(
+      result.clarificationAlternatives?.map((alternative) => alternative.label),
+      ["8 AM", "8 PM"],
+    );
+  });
+
   it("fails cyclic step references instead of awaiting itself", async () => {
     const result = await execute({
       outcome: "plans",

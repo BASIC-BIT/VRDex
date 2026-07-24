@@ -62,6 +62,18 @@ describe("temporal API response helpers", () => {
     assert.equal((await response.json()).title, "Temporal result unavailable");
   });
 
+  it("returns gone when retention scrubbing removed a completed result", async () => {
+    const response = completedTemporalResponse({
+      id: "job-scrubbed",
+      status: "succeeded",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    assert.equal(response.status, 410);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.equal((await response.json()).title, "Temporal result deleted");
+  });
+
   it("returns a reusable continuation with the caller-specific location", async () => {
     const token = "a".repeat(43);
     const response = pendingTemporalResponse({

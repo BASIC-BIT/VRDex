@@ -30,6 +30,22 @@ export async function temporalProviderRetryDelayMs(response: Response) {
     : null;
 }
 
+export function temporalExecutionOutcome(
+  planOutcome: "plans" | "clarification" | "no_plan",
+  resultStatus: string,
+) {
+  if (resultStatus === "resolved") {
+    return "resolved" as const;
+  }
+  if (resultStatus === "needs_clarification" || resultStatus === "ambiguous") {
+    return "needs_clarification" as const;
+  }
+  if (resultStatus === "failed" && planOutcome !== "no_plan") {
+    return "invalid_plan" as const;
+  }
+  return "no_plan" as const;
+}
+
 function serviceEnabled(): boolean {
   return process.env.TEMPORAL_PARSING_ENABLED?.trim().toLowerCase() === "true";
 }
@@ -132,11 +148,20 @@ export const processJob = internalAction({
           planningDurationMs: provider.inferenceLatencyMs ?? Date.now() - startedAt,
         },
       );
-      const outcome = result.status === "resolved"
-        ? "resolved"
-        : result.status === "needs_clarification" || result.status === "ambiguous"
-          ? "needs_clarification"
-          : "no_plan";
+      const outcome = temporalExecutionOutcome(plan.outcome, result.status);
+      if (outcome === "invalid_plan") {
+        await ctx.runMutation(internal.temporalParsing.completeJob, {
+          jobId: args.jobId,
+          outcome,
+          errorCode: "invalid_plan",
+          errorDetail: "Temporal inference returned a plan that failed deterministic execution.",
+          ...(provider.modelRevision === undefined ? {} : { modelRevision: provider.modelRevision }),
+          ...(provider.inferenceLatencyMs === undefined
+            ? {}
+            : { inferenceLatencyMs: provider.inferenceLatencyMs }),
+        });
+        return;
+      }
       await ctx.runMutation(internal.temporalParsing.completeJob, {
         jobId: args.jobId,
         outcome,
