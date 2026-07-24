@@ -1,7 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import type { TemporalParseCompletedResponse } from "@vrdex/api-contracts";
 
-import { TemporalParserSurface } from "@/app/time/temporal-parser";
+import {
+  TemporalParserSurface,
+  TemporalRetentionUnavailableSurface,
+} from "@/app/time/temporal-parser";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 
 const resolvedResult = {
@@ -80,6 +83,26 @@ export const Resolved: Story = {
           subdivision="IN"
           text="Next Friday from 8pm to 9pm Eastern"
           timeZone="America/New_York"
+        />
+      </PageContainer>
+    </PageShell>
+  ),
+};
+
+export const RetentionUnavailable: Story = {
+  render: () => (
+    <PageShell tone="public">
+      <PageContainer max="4xl">
+        <PageNav accountMode="signed-out">
+          <BrandLink />
+        </PageNav>
+        <header className="py-5 sm:py-8">
+          <h1 className="text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">VRDex Time</h1>
+        </header>
+        <TemporalRetentionUnavailableSurface
+          error={null}
+          onRetentionChange={() => undefined}
+          retainInput
         />
       </PageContainer>
     </PageShell>

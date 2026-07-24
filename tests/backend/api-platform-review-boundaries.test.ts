@@ -87,6 +87,11 @@ describe("API platform review boundaries", () => {
         < evaluation.indexOf("authenticateOptionalApiBearerToken(request, options)"),
     );
     const temporalContinuation = source("apps/web/src/app/api/v0/time/parse/[continuationToken]/route.ts");
+    const temporalSubmission = source("apps/web/src/app/api/v0/time/parse/route.ts");
+    assert.match(
+      temporalSubmission,
+      /authorizeTemporalApiRequest\(request, \{\s*consumeSubmissionQuota: false,/,
+    );
     assert.match(
       temporalContinuation,
       /authorizeTemporalApiRequest\(request, \{\s*consumeSubmissionQuota: false,/,
@@ -95,5 +100,21 @@ describe("API platform review boundaries", () => {
       mcpEvaluation.indexOf("increment: false")
         < mcpEvaluation.indexOf("authenticateMcpBearerToken(request, bearerToken)"),
     );
+  });
+
+  it("keeps temporal retention controls available when beta parsing is disabled", () => {
+    const temporalPage = source("apps/web/src/app/time/temporal-parser.tsx");
+    const disabledSurface = temporalPage.slice(
+      temporalPage.indexOf("if (!enabled)"),
+      temporalPage.indexOf("return (", temporalPage.indexOf("if (!enabled)")) + 1_000,
+    );
+    const retentionSurface = temporalPage.slice(
+      temporalPage.indexOf("export function TemporalRetentionUnavailableSurface"),
+      temporalPage.indexOf("async function readTemporalResponse"),
+    );
+
+    assert.match(disabledSurface, /TemporalRetentionUnavailableSurface/);
+    assert.match(disabledSurface, /changeRetention/);
+    assert.match(retentionSurface, /TemporalRetentionControl/);
   });
 });

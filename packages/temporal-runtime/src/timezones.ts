@@ -29,7 +29,7 @@ const NAMED_ZONE_RULES: NamedZoneRule[] = [
     assumption: 'Interpreted the timezone phrase as America/New_York and applied that zone\'s date-specific offset.',
   },
   {
-    pattern: /\b(?:pacific|west coast|los angeles|la)\s+time\b/i,
+    pattern: /\b(?:pacific(?:\s+time)?|(?:west coast|los angeles|la)\s+time)\b/i,
     timeZone: 'America/Los_Angeles',
     label: 'Pacific time',
     assumption: 'Interpreted the timezone phrase as America/Los_Angeles and applied that zone\'s date-specific offset.',
@@ -207,8 +207,11 @@ export function stripResolvedTimeZoneText(text: string, candidate: TimeZoneResol
     return text.trim();
   }
   const escaped = escapeRegExp(matchedText);
+  const bounded = /^\w+$/.test(matchedText)
+    ? String.raw`\b${escaped}\b`
+    : escaped;
   return text
-    .replace(new RegExp(String.raw`\s*(?:in|on|at|for)?\s*${escaped}\s*`, 'i'), ' ')
+    .replace(new RegExp(String.raw`\s*(?:in|on|at|for)?\s*${bounded}\s*`, 'i'), ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }

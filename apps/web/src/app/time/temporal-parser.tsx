@@ -46,6 +46,55 @@ function completedOutcome(result: TemporalParseCompletedResponse) {
 
 class TemporalUserError extends Error {}
 
+function TemporalRetentionControl({
+  onChange,
+  retainInput,
+}: {
+  onChange: (value: boolean) => void;
+  retainInput: boolean;
+}) {
+  return (
+    <label className="flex items-start gap-3 text-sm leading-6">
+      <input
+        checked={retainInput}
+        className="mt-1 size-4 accent-[var(--accent)]"
+        onChange={(event) => onChange(event.target.checked)}
+        type="checkbox"
+      />
+      <span>
+        Save my time expressions to improve the parser.
+        <span className="block text-xs text-muted">
+          Turning this off deletes retained beta history. Do not submit secrets or sensitive personal information.
+        </span>
+      </span>
+    </label>
+  );
+}
+
+export function TemporalRetentionUnavailableSurface({
+  error,
+  onRetentionChange,
+  retainInput,
+}: {
+  error: string | null;
+  onRetentionChange: (value: boolean) => void;
+  retainInput: boolean;
+}) {
+  return (
+    <div className="grid gap-5">
+      <Notice>VRDex Time is currently available only in the closed beta.</Notice>
+      <Card>
+        <h2 className="mb-3 text-base font-medium">Data retention</h2>
+        <TemporalRetentionControl
+          onChange={onRetentionChange}
+          retainInput={retainInput}
+        />
+      </Card>
+      {error !== null ? <Notice variant="error">{error}</Notice> : null}
+    </div>
+  );
+}
+
 async function readTemporalResponse(response: Response): Promise<Result> {
   const body = await response.json().catch(() => null) as Result | null;
   if (response.ok && body !== null) {
@@ -235,12 +284,14 @@ function ConnectedTemporalParser() {
     return <Notice variant="warning">Verify your email before using VRDex Time.</Notice>;
   }
 
-  if (!access.allowed) {
-    return <Notice>VRDex Time is currently available only in the closed beta.</Notice>;
-  }
-
   if (!enabled) {
-    return <Notice>VRDex Time is currently available only in the closed beta.</Notice>;
+    return (
+      <TemporalRetentionUnavailableSurface
+        error={error}
+        onRetentionChange={(next) => void changeRetention(next)}
+        retainInput={retainInput}
+      />
+    );
   }
 
   return (
@@ -380,20 +431,10 @@ export function TemporalParserSurface({
             </div>
           </details>
 
-          <label className="flex items-start gap-3 text-sm leading-6">
-            <input
-              checked={retainInput}
-              className="mt-1 size-4 accent-[var(--accent)]"
-              onChange={(event) => onRetentionChange(event.target.checked)}
-              type="checkbox"
-            />
-            <span>
-              Save my time expressions to improve the parser.
-              <span className="block text-xs text-muted">
-                Turning this off deletes retained beta history. Do not submit secrets or sensitive personal information.
-              </span>
-            </span>
-          </label>
+          <TemporalRetentionControl
+            onChange={onRetentionChange}
+            retainInput={retainInput}
+          />
 
           <div>
             <Button disabled={!text.trim() || submitting} type="submit">

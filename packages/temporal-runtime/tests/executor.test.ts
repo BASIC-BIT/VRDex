@@ -8,6 +8,7 @@ import {
   parseTemporalExpression,
   parseTemporalPlanPlannerOutput,
 } from "../src/index";
+import { stripResolvedTimeZoneText } from "../src/timezones";
 
 async function execute(input: unknown, text: string) {
   return executeTemporalPlanPlannerOutput(
@@ -100,6 +101,39 @@ describe("migrated temporal Plan-IR executor", () => {
 
     assert.equal(resolution.status, "resolved");
     assert.equal(resolution.candidates[0]?.timeZone, "America/New_York");
+  });
+
+  it("recognizes standalone Pacific as America/Los_Angeles", async () => {
+    const implementations = createDeterministicTemporalToolImplementations();
+    const resolution = await implementations.resolveTimeZone({
+      text: "next Friday at 8pm Pacific",
+      calendarContext: parseCalendarContext(
+        "America/Indianapolis",
+        "2026-07-22T12:00:00.000Z",
+      ),
+    });
+
+    assert.equal(resolution.status, "resolved");
+    assert.equal(resolution.candidates[0]?.timeZone, "America/Los_Angeles");
+  });
+
+  it("strips the resolved abbreviation instead of matching letters inside a date", async () => {
+    const implementations = createDeterministicTemporalToolImplementations();
+    const resolution = await implementations.resolveTimeZone({
+      text: "Sept 1 at 8pm PT",
+      calendarContext: parseCalendarContext(
+        "America/Indianapolis",
+        "2026-07-22T12:00:00.000Z",
+      ),
+    });
+
+    assert.equal(resolution.status, "resolved");
+    const candidate = resolution.candidates[0];
+    assert.ok(candidate);
+    assert.equal(
+      stripResolvedTimeZoneText("Sept 1 at 8pm PT", candidate),
+      "Sept 1 at 8pm",
+    );
   });
 
   it("rejects invalid 12-hour clock values", async () => {

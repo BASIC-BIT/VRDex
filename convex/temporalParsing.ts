@@ -576,6 +576,7 @@ export const expireJob = internalMutation({
     }
     const active = job.status === "queued" || job.status === "running";
     await ctx.db.patch(job._id, {
+      idempotencyKeyHash: undefined,
       idempotencyFingerprint: undefined,
       ...(!job.retainInput ? {
         inputText: undefined,

@@ -348,6 +348,7 @@ describe("temporal parsing control plane", () => {
     await t.mutation(internal.temporalParsing.expireJob, { jobId });
     const job = await t.run((ctx) => ctx.db.get(jobId));
     assert.equal(job?.status, "succeeded");
+    assert.equal(job?.idempotencyKeyHash, undefined);
     assert.equal(job?.idempotencyFingerprint, undefined);
     assert.equal(job?.inputText, undefined);
     assert.equal(job?.inputHash, undefined);

@@ -134,6 +134,11 @@ jobs:
           node-version: 24
           cache: pnpm
 
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -145,6 +150,9 @@ jobs:
 
       - name: Run temporal runtime tests
         run: pnpm test:temporal-runtime
+
+      - name: Run temporal inference worker tests
+        run: pnpm test:temporal-inference
 
   verify-backend-local:
     name: Verify Backend Local
