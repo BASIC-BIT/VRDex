@@ -458,6 +458,18 @@ export const ApiEventCreateRequestSchema = z
   });
 
 export const ApiEventUpdateRequestSchema = ApiEventCreateRequestSchema.partial()
+  .extend({
+    doorsOpenAt: timestampMs.nullable().optional(),
+    endAt: timestampMs.nullable().optional(),
+    timezone: z.string().max(64).nullable().optional(),
+    worldSlug: slug.nullable().optional(),
+    summary: z.string().max(240).nullable().optional(),
+    notes: z.string().max(1_200).nullable().optional(),
+    sourceUrl: absoluteUrl.nullable().optional(),
+    posterImageUrl: absoluteUrl.nullable().optional(),
+    bannerImageUrl: absoluteUrl.nullable().optional(),
+    thumbnailImageUrl: absoluteUrl.nullable().optional(),
+  })
   .superRefine((value, context) => {
     const replacesParticipants = value.participantLinks !== undefined;
     const replacesSlots = value.slotLinks !== undefined;
@@ -472,7 +484,7 @@ export const ApiEventUpdateRequestSchema = ApiEventCreateRequestSchema.partial()
   })
   .meta({
     description:
-      "Update a public event attached to a community profile owned by the current authenticated API user.",
+      "Update a public event attached to a community profile owned by the current authenticated API user. Omitted fields are preserved; null clears optional scalar fields and the world relation; empty arrays clear collection fields.",
     id: "ApiEventUpdateRequest",
   });
 

@@ -36,8 +36,10 @@ describe("API platform review boundaries", () => {
     const events = source("convex/events.ts");
 
     assert.match(events, /const eventDraftUpdateArgs = \{[\s\S]*title: v\.optional\(v\.string\(\)\)[\s\S]*startAt: v\.optional\(v\.number\(\)\)/);
+    assert.match(events, /summary: v\.optional\(v\.union\(v\.string\(\), v\.null\(\)\)\)/);
     assert.match(events, /const updateFields = suppliedEventDraftFields\(args\)/);
-    assert.match(events, /preserveOmittedEventDraftFields\(args, \{/);
+    assert.match(events, /const normalizedUpdate = normalizeEventDraftUpdateInput\(args\)/);
+    assert.match(events, /preserveOmittedEventDraftFields\(normalizedUpdate, \{/);
     assert.match(events, /communitySlug: currentCommunity\.slug/);
     assert.match(events, /shouldUpdate\("watchSurfaceEnabled"\)/);
     assert.match(events, /shouldUpdate\("mediaLinks"\)/);
@@ -45,6 +47,15 @@ describe("API platform review boundaries", () => {
     assert.match(events, /const replaceSlots = shouldUpdate\("slotLinks"\)/);
     assert.match(events, /const replaceParticipants = shouldUpdate\("participantLinks"\)/);
     assert.match(events, /syncPreservedEventAssociationStartAt/);
+  });
+
+  it("authorizes normal event sessions through durable profile ownership", () => {
+    const events = source("convex/events.ts");
+
+    assert.match(events, /canUpdateEvent\([\s\S]*userOwnsProfile\(db, event\.communityProfileId, userId\)/);
+    assert.match(events, /canManageEventMedia\([\s\S]*userOwnsProfile\(db, event\.communityProfileId, userId\)/);
+    assert.match(events, /canViewEventOperations\([\s\S]*userOwnsProfile\(db, event\.communityProfileId, userId\)/);
+    assert.match(events, /canUpdateEvent\(ctx\.db, event, subject, userId\)/);
   });
 
   it("creates and returns refresh tokens only for clients that allow refresh", () => {

@@ -4,7 +4,11 @@ import { describe, it } from "node:test";
 import type { Doc } from "../../convex/_generated/dataModel";
 import type { DatabaseReader } from "../../convex/_generated/server";
 import { createDiscordTimestampSet, toDiscordTimestamp } from "../../convex/_discordTimestamps";
-import { preserveOmittedEventDraftFields, sanitizeEventDraftInput } from "../../convex/_eventInputs";
+import {
+  normalizeEventDraftUpdateInput,
+  preserveOmittedEventDraftFields,
+  sanitizeEventDraftInput,
+} from "../../convex/_eventInputs";
 import { findEventOperationSlots } from "../../convex/_eventOperations";
 import {
   getPublicEventPreviews,
@@ -77,6 +81,18 @@ describe("event draft input", () => {
     assert.equal(input.summary, "Updated public event details.");
     assert.equal(Object.hasOwn(input, "participantLinks"), false);
     assert.equal(Object.hasOwn(input, "slotLinks"), false);
+  });
+
+  it("normalizes explicit API nulls into clear operations without losing supplied keys", () => {
+    const input = normalizeEventDraftUpdateInput({
+      summary: null,
+      worldSlug: null,
+    });
+
+    assert.equal(Object.hasOwn(input, "summary"), true);
+    assert.equal(Object.hasOwn(input, "worldSlug"), true);
+    assert.equal(input.summary, undefined);
+    assert.equal(input.worldSlug, undefined);
   });
 
   it("sanitizes media links, participants, and optional event fields", () => {
