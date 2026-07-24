@@ -59,6 +59,14 @@ function handleFixtureRequest(request: IncomingMessage, response: ServerResponse
       displayName: "BASIC BIT",
       profileType: "community",
       slug: "basic-bit",
+      telemetry: {
+        schemaVersion: 1,
+        rollupVersion: "community-telemetry-v1",
+        freshness: "current",
+        observedAt: 1798761600000,
+        definitions: { currentPopulation: { unit: "people", grain: "latest_poll", gapPolicy: "omitted_when_stale" } },
+        currentPopulation: { value: 42, activeInstanceCount: 2, observedAt: 1798761600000, coverage: "observed" },
+      },
       trustLabel: "claimed_verified",
     });
 
@@ -156,6 +164,7 @@ test("calls public API routes with bearer credentials and validates schemas", as
 
     assert.equal(search.ok, true);
     assert.equal(profile.ok, true);
+    assert.equal(profile.ok ? profile.data.telemetry?.currentPopulation?.value : undefined, 42);
     assert.equal(event.ok, true);
     assert.equal(upcoming.ok, true);
     assert.equal(world.ok, true);

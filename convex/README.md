@@ -24,6 +24,10 @@ This directory holds the initial Convex backend slice for `VRDex`.
 - `_vrcdnOutputAccounts.ts` contains configured operator-owned VRCDN output accounts and hides credential references from public account options
 - `_billing.ts` contains Stripe subscription status normalization and internal entitlement-state helpers
 - `events.ts` exposes public event reads, authenticated event editor mutations, and token-gated event media worker bridge mutations
+- `_communityTelemetry.ts` contains group-telemetry metric, cadence, coverage, and redaction helpers
+- `_communityTelemetryPublic.ts` contains the sanitized public telemetry projection shared by web, API, and MCP reads
+- `communityTelemetry.ts` exposes community-authorized telemetry settings and the collector control plane
+- `crons.ts` schedules bounded telemetry rollups and retention compaction
 - `migrations.ts` contains deploy-time data backfills for schema additions
 - `_searchDocuments.ts`, `_vocabulary.ts`, `search.ts`, and `suppressions.ts` contain public discovery, vocabulary, and suppression helpers
 - `_generated/` contains committed Convex codegen output and should not be edited by hand
@@ -51,3 +55,5 @@ The event schema and profile-association contracts live in `docs/backend/event-s
 Search, discovery, and vocabulary contracts live in `docs/backend/search-discovery.md` and `docs/backend/vocabulary-model.md`.
 
 The first-pass billing state and Stripe bootstrap direction live in `docs/backend/billing-foundation.md`.
+
+The aggregate group-telemetry contracts live in `docs/planning/community-group-telemetry.md`.

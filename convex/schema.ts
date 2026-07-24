@@ -101,6 +101,19 @@ import {
   seedImportPublicationPolicyValidator,
   seedImportSourceTypeValidator,
 } from "./_seedImportValidators";
+import {
+  collectorAccountStateValidator,
+  collectorLeaseStateValidator,
+  coverageStateValidator,
+  eventInstanceAssociationSourceValidator,
+  eventInstanceAssociationStateValidator,
+  instanceSessionStateValidator,
+  publicTelemetrySettingsValidator,
+  telemetryIntegrationStateValidator,
+  telemetrySourceValidator,
+  vrchatGroupJoinPolicyValidator,
+  vrchatGroupVisibilityValidator,
+} from "./_communityTelemetry";
 
 const claimState = v.union(
   v.literal("unclaimed"),
@@ -1085,6 +1098,217 @@ export default defineSchema({
       "state",
       "communityProfileId",
     ]),
+  collectorFleetSettings: defineTable({
+    key: v.literal("global"),
+    killSwitchEnabled: v.boolean(),
+    globalRequestsPerMinute: v.number(),
+    updatedAt: v.number(),
+    updatedBy: v.optional(authSubject),
+  }).index("by_key", ["key"]),
+  collectorAccounts: defineTable({
+    vrchatUserId: v.string(),
+    accountAlias: v.string(),
+    state: collectorAccountStateValidator,
+    capacity: v.number(),
+    reservedHeadroom: v.number(),
+    assignedGroupCount: v.number(),
+    requestsPerMinute: v.number(),
+    secretRef: v.string(),
+    workerKeyHash: v.string(),
+    credentialGeneration: v.number(),
+    killSwitchEnabled: v.boolean(),
+    lastHealthAt: v.optional(v.number()),
+    lastHealthResult: v.optional(v.string()),
+    cooldownUntil: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_vrchatUserId", ["vrchatUserId"])
+    .index("by_state_assignedGroupCount", ["state", "assignedGroupCount"]),
+  collectorRequestBudgetCounters: defineTable({
+    scopeKey: v.string(),
+    windowStartedAt: v.number(),
+    requestCount: v.number(),
+    updatedAt: v.number(),
+  }).index("by_scopeKey", ["scopeKey"]),
+  communityVrchatIntegrations: defineTable({
+    communityProfileId: v.id("profiles"),
+    vrchatGroupId: v.string(),
+    groupVisibility: vrchatGroupVisibilityValidator,
+    joinPolicy: vrchatGroupJoinPolicyValidator,
+    state: telemetryIntegrationStateValidator,
+    assignedCollectorAccountId: v.optional(v.id("collectorAccounts")),
+    killSwitchEnabled: v.boolean(),
+    requestsPerMinute: v.number(),
+    leaseGeneration: v.number(),
+    publicMetrics: publicTelemetrySettingsValidator,
+    lastSuccessfulObservationAt: v.optional(v.number()),
+    lastAttemptAt: v.optional(v.number()),
+    nextPollAt: v.optional(v.number()),
+    consecutiveFailures: v.number(),
+    backoffUntil: v.optional(v.number()),
+    disconnectedAt: v.optional(v.number()),
+    telemetryEpochStartedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_communityProfileId", ["communityProfileId"])
+    .index("by_vrchatGroupId", ["vrchatGroupId"])
+    .index("by_assignedCollectorAccountId_state", ["assignedCollectorAccountId", "state"])
+    .index("by_state_nextPollAt", ["state", "nextPollAt"]),
+  collectorAccountLeases: defineTable({
+    integrationId: v.id("communityVrchatIntegrations"),
+    collectorAccountId: v.id("collectorAccounts"),
+    workerId: v.string(),
+    fencingToken: v.number(),
+    state: collectorLeaseStateValidator,
+    claimedAt: v.number(),
+    expiresAt: v.number(),
+    releasedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_integrationId_state", ["integrationId", "state"])
+    .index("by_collectorAccountId_state_expiresAt", ["collectorAccountId", "state", "expiresAt"])
+    .index("by_expiresAt", ["expiresAt"]),
+  communityPopulationObservations: defineTable({
+    integrationId: v.id("communityVrchatIntegrations"),
+    idempotencyKey: v.string(),
+    totalPopulation: v.number(),
+    activeInstanceCount: v.number(),
+    worldDistribution: v.array(v.object({
+      vrchatWorldId: v.string(),
+      population: v.number(),
+      instanceCount: v.number(),
+    })),
+    observedAt: v.number(),
+    source: telemetrySourceValidator,
+    collectorVersion: v.string(),
+    coverageState: coverageStateValidator,
+    coverageWindowId: v.optional(v.id("collectionCoverageWindows")),
+    fencingToken: v.number(),
+  })
+    .index("by_idempotencyKey", ["idempotencyKey"])
+    .index("by_integrationId_observedAt", ["integrationId", "observedAt"]),
+  instanceSessions: defineTable({
+    integrationId: v.id("communityVrchatIntegrations"),
+    communityProfileId: v.id("profiles"),
+    providerInstanceId: v.string(),
+    providerLocation: v.string(),
+    vrchatWorldId: v.string(),
+    worldId: v.optional(v.id("worlds")),
+    source: telemetrySourceValidator,
+    state: instanceSessionStateValidator,
+    openedAt: v.number(),
+    lastObservedAt: v.number(),
+    closedAt: v.optional(v.number()),
+    consecutiveMisses: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_integrationId_state", ["integrationId", "state"])
+    .index("by_integrationId_providerInstanceId_state", ["integrationId", "providerInstanceId", "state"])
+    .index("by_integrationId_providerLocation_state", ["integrationId", "providerLocation", "state"])
+    .index("by_integrationId_providerLocation_state_openedAt", [
+      "integrationId",
+      "providerLocation",
+      "state",
+      "openedAt",
+    ])
+    .index("by_communityProfileId_openedAt", ["communityProfileId", "openedAt"])
+    .index("by_worldId_openedAt", ["worldId", "openedAt"]),
+  collectionCoverageWindows: defineTable({
+    integrationId: v.id("communityVrchatIntegrations"),
+    state: coverageStateValidator,
+    reason: v.optional(v.string()),
+    source: telemetrySourceValidator,
+    collectorVersion: v.string(),
+    startedAt: v.number(),
+    endedAt: v.optional(v.number()),
+    requestStatusClass: v.optional(v.string()),
+    updatedAt: v.number(),
+  })
+    .index("by_integrationId_startedAt", ["integrationId", "startedAt"])
+    .index("by_integrationId_state_startedAt", ["integrationId", "state", "startedAt"]),
+  instancePopulationObservations: defineTable({
+    integrationId: v.id("communityVrchatIntegrations"),
+    sessionId: v.id("instanceSessions"),
+    idempotencyKey: v.string(),
+    providerInstanceId: v.string(),
+    vrchatWorldId: v.string(),
+    population: v.number(),
+    observedAt: v.number(),
+    source: telemetrySourceValidator,
+    collectorVersion: v.string(),
+    coverageState: coverageStateValidator,
+    coverageWindowId: v.optional(v.id("collectionCoverageWindows")),
+    fencingToken: v.number(),
+  })
+    .index("by_idempotencyKey", ["idempotencyKey"])
+    .index("by_integrationId_observedAt", ["integrationId", "observedAt"])
+    .index("by_sessionId_observedAt", ["sessionId", "observedAt"]),
+  communityMemberCountObservations: defineTable({
+    integrationId: v.id("communityVrchatIntegrations"),
+    communityProfileId: v.id("profiles"),
+    idempotencyKey: v.string(),
+    vrchatGroupId: v.string(),
+    memberCount: v.number(),
+    observedAt: v.number(),
+    source: telemetrySourceValidator,
+    collectorVersion: v.string(),
+    coverageState: coverageStateValidator,
+    coverageWindowId: v.optional(v.id("collectionCoverageWindows")),
+    fencingToken: v.number(),
+  })
+    .index("by_idempotencyKey", ["idempotencyKey"])
+    .index("by_integrationId_observedAt", ["integrationId", "observedAt"])
+    .index("by_communityProfileId_observedAt", ["communityProfileId", "observedAt"]),
+  eventInstanceAssociations: defineTable({
+    eventId: v.id("events"),
+    sessionId: v.id("instanceSessions"),
+    communityProfileId: v.id("profiles"),
+    source: eventInstanceAssociationSourceValidator,
+    confidence: v.number(),
+    state: eventInstanceAssociationStateValidator,
+    actor: v.optional(authSubject),
+    reviewedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_eventId_state", ["eventId", "state"])
+    .index("by_sessionId_state", ["sessionId", "state"])
+    .index("by_communityProfileId_state", ["communityProfileId", "state"])
+    .index("by_communityProfileId_createdAt", ["communityProfileId", "createdAt"]),
+  communityTelemetryRollups: defineTable({
+    communityProfileId: v.id("profiles"),
+    eventId: v.optional(v.id("events")),
+    grain: v.union(v.literal("hour"), v.literal("day"), v.literal("event")),
+    bucketStartAt: v.number(),
+    bucketEndAt: v.number(),
+    rollupVersion: v.string(),
+    currentPopulation: v.optional(v.number()),
+    activeInstanceCount: v.number(),
+    peakConcurrency: v.number(),
+    playerMinutes: v.number(),
+    coverageRatio: v.number(),
+    groupMemberCount: v.optional(v.number()),
+    groupMemberGrowth: v.optional(v.number()),
+    worldDistribution: v.array(v.object({ vrchatWorldId: v.string(), samples: v.number() })),
+    computedAt: v.number(),
+  })
+    .index("by_communityProfileId_grain_bucketStartAt", ["communityProfileId", "grain", "bucketStartAt"])
+    .index("by_eventId_rollupVersion", ["eventId", "rollupVersion"]),
+  communityTelemetryAuditEvents: defineTable({
+    communityProfileId: v.optional(v.id("profiles")),
+    integrationId: v.optional(v.id("communityVrchatIntegrations")),
+    collectorAccountId: v.optional(v.id("collectorAccounts")),
+    actor: v.optional(authSubject),
+    workerId: v.optional(v.string()),
+    action: v.string(),
+    result: v.string(),
+    detail: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_communityProfileId_createdAt", ["communityProfileId", "createdAt"])
+    .index("by_collectorAccountId_createdAt", ["collectorAccountId", "createdAt"]),
   profileOwners: defineTable({
     profileId: v.id("profiles"),
     userId: v.id("users"),

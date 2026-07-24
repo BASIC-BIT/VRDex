@@ -116,6 +116,56 @@ export const PublicProfileMediaKitSchema = z
   .passthrough()
   .meta({ description: "Public media kit metadata for a public profile." });
 
+const PublicTelemetryWorldDistributionSchema = z.object({
+  vrchatWorldId: z.string().startsWith("wrld_"),
+  samples: z.number().int().nonnegative(),
+});
+
+const PublicTelemetryRollupSchema = z.object({
+  startAt: z.number().int().nonnegative(),
+  endAt: z.number().int().nonnegative(),
+  durationMinutes: z.number().nonnegative(),
+  currentPopulation: z.number().int().nonnegative().optional(),
+  activeInstanceCount: z.number().int().nonnegative(),
+  peakConcurrency: z.number().int().nonnegative(),
+  playerHours: z.number().nonnegative(),
+  coverageRatio: z.number().min(0).max(1),
+  groupMemberCount: z.number().int().nonnegative().optional(),
+  groupMemberGrowth: z.number().int().optional(),
+  worldDistribution: z.array(PublicTelemetryWorldDistributionSchema),
+});
+
+export const PublicCommunityTelemetrySchema = z.object({
+  schemaVersion: z.literal(1),
+  rollupVersion: z.string().min(1),
+  freshness: z.enum(["current", "stale"]),
+  observedAt: z.number().int().nonnegative().optional(),
+  definitions: z.record(z.string(), z.object({
+    unit: z.string().min(1),
+    grain: z.string().min(1),
+    gapPolicy: z.string().min(1),
+  })),
+  currentPopulation: z.object({
+    value: z.number().int().nonnegative(),
+    activeInstanceCount: z.number().int().nonnegative(),
+    observedAt: z.number().int().nonnegative(),
+    coverage: z.enum(["observed", "estimated", "stale", "unknown", "degraded"]),
+  }).optional(),
+  populationHistory: z.array(PublicTelemetryRollupSchema).optional(),
+  groupMemberCount: z.object({
+    value: z.number().int().nonnegative(),
+    observedAt: z.number().int().nonnegative(),
+  }).optional(),
+  groupMemberGrowth: z.object({
+    value: z.number().int(),
+    startAt: z.number().int().nonnegative(),
+    endAt: z.number().int().nonnegative(),
+  }).optional(),
+  eventRecaps: z.array(PublicTelemetryRollupSchema.extend({
+    event: z.object({ slug, title: z.string().min(1) }).optional(),
+  })).optional(),
+}).meta({ description: "Independently opted-in aggregate telemetry for a public community profile." });
+
 export const PublicProfileSchema = z
   .object({
     aliases: z.array(z.string()).optional(),
@@ -132,6 +182,7 @@ export const PublicProfileSchema = z
     slug,
     source: SourceSummarySchema.optional(),
     tags: z.array(z.string()).optional(),
+    telemetry: PublicCommunityTelemetrySchema.optional(),
     trustLabel: TrustLabelSchema,
     upcomingEvents: z.array(z.unknown()).optional(),
     worldCredits: z.array(z.unknown()).optional(),
