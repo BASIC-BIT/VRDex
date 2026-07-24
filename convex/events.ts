@@ -1923,6 +1923,17 @@ export const updateCommunityEventForApiOwner = internalMutation({
     }
 
     const updateFields = suppliedEventDraftFields(args);
+    if (args.timezone === null && !updateFields.has("slotLinks")) {
+      const preservedSlot = await ctx.db
+        .query("eventSlots")
+        .withIndex("by_eventId_startAt", (query) => query.eq("eventId", event._id))
+        .first();
+
+      if (preservedSlot !== null) {
+        throw new Error("Time zone cannot be cleared while event slots are preserved.");
+      }
+    }
+
     const normalizedUpdate = normalizeEventDraftUpdateInput(args);
     const input = sanitizeEventDraftInput(
       preserveOmittedEventDraftFields(normalizedUpdate, {

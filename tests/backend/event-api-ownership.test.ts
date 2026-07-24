@@ -138,4 +138,39 @@ describe("API-created event ownership", () => {
     assert.equal(result.event?.notes, "Preserved when omitted.");
     assert.deepEqual(result.worldLinks, []);
   });
+
+  it("does not clear the timezone while preserving existing event slots", async () => {
+    const t = convexTest({ schema, modules });
+    const { userId } = await seedOwnedCommunity(t);
+    const startAt = NOW + 86_400_000;
+    const created = await t.mutation(internal.events.createCommunityEventForApiOwner, {
+      actorKind: "personal_api_token",
+      ownerUserId: userId,
+      title: "Faceless Friday",
+      communitySlug: "faceless",
+      startAt,
+      timezone: "UTC",
+      participantLinks: [],
+      slotLinks: [
+        {
+          displayLabel: "Opening set",
+          startAt,
+          endAt: startAt + 3_600_000,
+        },
+      ],
+    });
+
+    await assert.rejects(
+      t.mutation(internal.events.updateCommunityEventForApiOwner, {
+        actorKind: "personal_api_token",
+        ownerUserId: userId,
+        currentSlug: created.slug,
+        timezone: null,
+      }),
+      /Time zone cannot be cleared while event slots are preserved/,
+    );
+
+    const stored = await t.run(async (ctx) => ctx.db.get(created.eventId));
+    assert.equal(stored?.timezone, "UTC");
+  });
 });
