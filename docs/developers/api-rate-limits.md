@@ -32,7 +32,7 @@ the source of truth for API clients and partner policy.
 
 ## Temporal parsing
 
-`time_parse` has a three-request-per-minute credential burst limit. Convex also
+`time_parse` has a six-request-per-minute credential burst limit. Convex also
 enforces a six-request-per-minute account aggregate and one in-flight parse per
 account so minting more personal tokens cannot multiply model allowance.
 Operational trust tiers do not increase temporal parsing limits.

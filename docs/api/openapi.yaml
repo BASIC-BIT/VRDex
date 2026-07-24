@@ -2511,6 +2511,7 @@ paths:
                   - estimatedWaitSeconds
                   - expiresAt
                 additionalProperties: false
+        "400": *a2
         "401":
           description: A valid personal API token is required.
           content:

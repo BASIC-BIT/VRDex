@@ -143,7 +143,6 @@ export async function insertTemporalJobRecord(
     }
     const active = existing.status === "queued" || existing.status === "running";
     await ctx.db.patch(existing._id, {
-      continuationTokenHash: `expired:${existing._id}:${existing.continuationTokenHash}`,
       idempotencyKeyHash: undefined,
       idempotencyFingerprint: undefined,
       continuationNonce: undefined,

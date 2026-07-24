@@ -134,7 +134,7 @@ function ConnectedTemporalParser() {
   const [submitting, setSubmitting] = useState(false);
   const pageOpened = useRef(false);
   const enabled = access?.allowed === true && access.emailVerified && (
-    !posthogConfigured || uiFlag !== false
+    !posthogConfigured || uiFlag === true
   );
 
   useEffect(() => {

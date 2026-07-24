@@ -245,7 +245,7 @@ describe("temporal parsing control plane", () => {
       assert.equal(second.created, true);
       assert.equal(second.continuationNonce, replacement.continuationNonce);
       const oldJob = await t.run((ctx) => ctx.db.get(first.jobId));
-      assert.match(oldJob?.continuationTokenHash ?? "", /^expired:/);
+      assert.equal(oldJob?.continuationTokenHash, input.continuationTokenHash);
       assert.equal(oldJob?.idempotencyKeyHash, undefined);
       assert.equal(oldJob?.idempotencyFingerprint, undefined);
       assert.equal(oldJob?.continuationNonce, undefined);
@@ -254,6 +254,15 @@ describe("temporal parsing control plane", () => {
       assert.equal(oldJob?.inputHash, undefined);
       assert.equal(oldJob?.result, undefined);
       assert.equal(oldJob?.errorDetail, undefined);
+      const expiredContinuation = await t.query(
+        internal.temporalParsing.getJobForApiOwner,
+        {
+          ownerUserId: userId,
+          continuationTokenHash: input.continuationTokenHash,
+        },
+      );
+      assert.equal(expiredContinuation?.id, first.jobId);
+      assert.ok((expiredContinuation?.expiresAt ?? Number.POSITIVE_INFINITY) <= Date.now());
     } finally {
       if (previous === undefined) {
         delete process.env.TEMPORAL_PARSING_ENABLED;

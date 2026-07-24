@@ -124,4 +124,11 @@ describe("API platform review boundaries", () => {
     assert.match(disabledSurface, /changeRetention/);
     assert.match(retentionSurface, /TemporalRetentionControl/);
   });
+
+  it("fails the temporal UI closed while its configured PostHog flag is unresolved", () => {
+    const temporalPage = source("apps/web/src/app/time/temporal-parser.tsx");
+
+    assert.match(temporalPage, /!posthogConfigured \|\| uiFlag === true/);
+    assert.doesNotMatch(temporalPage, /uiFlag !== false/);
+  });
 });

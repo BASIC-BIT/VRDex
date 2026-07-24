@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import unittest
+from inspect import getsource
 from http import HTTPStatus
 from pathlib import Path
 from types import MethodType
@@ -12,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from server import (
     ModelState,
+    TemporalGenerator,
     create_handler,
     model_revision_label,
     parse_json_object,
@@ -21,6 +23,17 @@ from server import (
 
 
 class TemporalInferenceWorkerTests(unittest.TestCase):
+    def test_loads_tokenizer_from_the_base_model(self) -> None:
+        constructor = getsource(TemporalGenerator.__init__)
+        tokenizer_load = constructor[
+            constructor.index("self.tokenizer = AutoTokenizer.from_pretrained"):
+            constructor.index("if self.tokenizer.pad_token is None")
+        ]
+        self.assertIn("base_model", tokenizer_load)
+        self.assertIn("revision=base_revision", tokenizer_load)
+        self.assertNotIn("adapter_model", tokenizer_load)
+        self.assertNotIn("adapter_revision", tokenizer_load)
+
     def test_parses_plain_fenced_and_embedded_json_objects(self) -> None:
         expected = {"outcome": "no_plan", "plans": []}
         self.assertEqual(parse_json_object('{"outcome":"no_plan","plans":[]}'), expected)

@@ -39,8 +39,8 @@ class TemporalGenerator:
         token = os.environ.get("HF_TOKEN")
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            adapter_model,
-            revision=adapter_revision,
+            base_model,
+            revision=base_revision,
             token=token,
             trust_remote_code=False,
         )

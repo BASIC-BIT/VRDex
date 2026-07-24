@@ -1081,6 +1081,7 @@ describe("@vrdex/api-contracts", () => {
         "in" in parameter && parameter.in === "header" && parameter.name === "idempotency-key",
       ),
     );
+    assert.ok(continuation?.responses?.["400"]);
     assert.ok(continuation?.responses?.["410"]);
     assert.deepEqual(submit?.security, [{ bearerAuth: [] }]);
     assert.match(submit?.description ?? "", /time:parse/);

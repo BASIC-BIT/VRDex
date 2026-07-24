@@ -1184,6 +1184,7 @@ export const openApiSource = {
             },
             content: jsonContent(TemporalParsePendingResponseSchema),
           },
+          "400": publicReadProblemResponses["400"],
           "401": { description: "A valid personal API token is required.", content: jsonContent(ApiProblemSchema) },
           "403": { description: "The credential cannot access this temporal parse.", content: jsonContent(ApiProblemSchema) },
           "404": { description: "The continuation token is unknown.", content: jsonContent(ApiProblemSchema) },
