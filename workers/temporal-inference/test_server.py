@@ -57,12 +57,12 @@ class TemporalInferenceWorkerTests(unittest.TestCase):
             validate_inference_payload({
                 "text": "  tomorrow at noon  ",
                 "referenceInstant": "2026-07-22T12:00:00Z",
-                "timeZone": "America/Indianapolis",
+                "timeZone": "America/Indiana/Indianapolis",
             }),
             {
                 "text": "tomorrow at noon",
                 "referenceInstant": "2026-07-22T12:00:00Z",
-                "timeZone": "America/Indianapolis",
+                "timeZone": "America/Indiana/Indianapolis",
             },
         )
         with self.assertRaisesRegex(ValueError, "only text"):
