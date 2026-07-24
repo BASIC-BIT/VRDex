@@ -13,6 +13,7 @@ import {
   hashOAuthConsentTransactionValue,
   oauthConsentOriginAllowed,
 } from "../../apps/web/src/lib/server/oauth-consent-transaction";
+import { hostedMcpEventWriteGrantAllowed } from "../../apps/web/src/lib/server/hosted-mcp-policy";
 import { oauthRateLimitResponse } from "../../apps/web/src/lib/server/oauth-route-rate-limit";
 
 function restoreEnv(name: string, value: string | undefined) {
@@ -154,6 +155,21 @@ describe("OAuth edge security", () => {
     } finally {
       restoreEnv("VRDEX_OAUTH_ISSUER_URL", previousIssuer);
     }
+  });
+
+  it("keeps hosted MCP write grants ineligible while the feature is default-off", () => {
+    const input = {
+      mcpResource: "https://app.example.test/mcp",
+      requestedScopes: ["mcp:write", "events:write"],
+      resource: "https://app.example.test/mcp",
+    };
+
+    assert.equal(hostedMcpEventWriteGrantAllowed({ ...input, eventWritesEnabled: false }), false);
+    assert.equal(hostedMcpEventWriteGrantAllowed({ ...input, eventWritesEnabled: true }), true);
+
+    const authorize = readFileSync("apps/web/src/app/oauth/authorize/route.ts", "utf8");
+    assert.match(authorize, /if \(!hostedMcpEventWriteGrantAllowed\(\{/);
+    assert.match(authorize, /reason: "invalid_scope"/);
   });
 
   it("hashes opaque consent transactions and rejects missing, expired, or cross-user records", async () => {

@@ -1,7 +1,7 @@
 import {
+  authorizeHostedMcpRequest,
   createVrdexMcpHandler,
   recordAcceptedMcpToolInvocations,
-  rejectInvalidOrRateLimitedMcpRequest,
   withMcpHttpHeaders,
 } from "@/lib/server/vrdex-mcp";
 
@@ -11,15 +11,19 @@ export const runtime = "nodejs";
 const handler = createVrdexMcpHandler();
 
 async function handleMcpRequest(request: Request) {
-  const rejected = await rejectInvalidOrRateLimitedMcpRequest(request);
+  const authorization = await authorizeHostedMcpRequest(request);
 
-  if (rejected !== null) {
-    return rejected;
+  if (authorization.response !== null) {
+    return authorization.response;
   }
 
   await recordAcceptedMcpToolInvocations(request.clone());
 
-  return withMcpHttpHeaders(await handler.fetch(request));
+  return withMcpHttpHeaders(await handler.fetch(request, {
+    ...(!("authInfo" in authorization) || authorization.authInfo === undefined
+      ? {}
+      : { authInfo: authorization.authInfo }),
+  }));
 }
 
 export function OPTIONS() {

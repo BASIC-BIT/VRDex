@@ -9,6 +9,10 @@ import {
 } from "@/lib/server/api-rate-limit";
 import { recordApiRateLimitBlockedEvent } from "@/lib/server/api-rate-limit-events";
 import { convexAdminHttpClient, convexHttpClient } from "@/lib/server/convex-http";
+import {
+  hostedMcpEventWriteGrantAllowed,
+  hostedMcpEventWritesEnabled,
+} from "@/lib/server/hosted-mcp-policy";
 import { upsertClientMetadataDocumentMcpClient } from "@/lib/server/oauth-dynamic-client-persistence";
 import { oauthAuthorizeProblemRedirect } from "@/lib/server/oauth-authorize-problem";
 import { fetchOAuthClientMetadataDocument } from "@/lib/server/oauth-client-metadata-document";
@@ -85,7 +89,8 @@ async function ensureClientMetadataDocumentClient(
     );
   }
 
-  const metadata = await fetchOAuthClientMetadataDocument(authorization.clientId);
+  const allowEventWrites = hostedMcpEventWritesEnabled();
+  const metadata = await fetchOAuthClientMetadataDocument(authorization.clientId, { allowEventWrites });
 
   await upsertClientMetadataDocumentMcpClient({
     clientId: metadata.clientId,
@@ -100,6 +105,7 @@ async function ensureClientMetadataDocumentClient(
     ...(metadata.softwareId === undefined ? {} : { softwareId: metadata.softwareId }),
     ...(metadata.softwareVersion === undefined ? {} : { softwareVersion: metadata.softwareVersion }),
     allowedScopes: metadata.allowedScopes,
+    ...(allowEventWrites ? { allowEventWrites: true } : {}),
     resource: authorization.resource,
   });
 
@@ -165,6 +171,20 @@ export async function GET(request: Request) {
     }
 
     return oauthAuthorizeProblemRedirect(request, "invalid_client");
+  }
+
+  if (!hostedMcpEventWriteGrantAllowed({
+    mcpResource: oauthMcpResourceUri(request),
+    requestedScopes: authorization.requestedScopes,
+    resource: authorization.resource,
+  })) {
+    return redirectResponse(
+      redirectUriWithOAuthClientError({
+        reason: "invalid_scope",
+        redirectUri: authorization.redirectUri,
+        state: authorization.state,
+      }),
+    );
   }
 
   const transaction = createOAuthConsentTransactionValue();

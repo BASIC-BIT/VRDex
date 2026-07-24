@@ -1,6 +1,11 @@
 import { oauthApiScopes } from "@vrdex/api-contracts";
 
 import { oauthApiResourceUri, oauthIssuerUrl, oauthMcpResourceUri } from "./oauth-jwt";
+import {
+  hostedMcpEventWritesEnabled,
+  hostedMcpEventWriteScopes,
+  hostedMcpReadScopes,
+} from "./hosted-mcp-policy";
 
 const apiResourceScopes = oauthApiScopes.filter((scope) => scope !== "mcp:read" && scope !== "mcp:write");
 
@@ -36,6 +41,8 @@ export function mcpProtectedResourceMetadata(request: Request) {
   return protectedResourceMetadata(request, {
     name: "VRDex MCP",
     resource: oauthMcpResourceUri(request),
-    scopes: ["mcp:read"],
+    scopes: hostedMcpEventWritesEnabled()
+      ? [...hostedMcpReadScopes, ...hostedMcpEventWriteScopes]
+      : hostedMcpReadScopes,
   });
 }

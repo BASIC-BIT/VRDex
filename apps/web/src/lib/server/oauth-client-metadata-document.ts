@@ -22,6 +22,7 @@ interface PinnedLookupCallback {
 }
 
 type FetchOAuthClientMetadataDocumentOptions = {
+  allowEventWrites?: boolean;
   deadlineMs?: number;
   requestDocument?: (url: URL, address: HostAddress, signal: AbortSignal) => Promise<Response>;
   resolveHostname?: (hostname: string) => Promise<HostAddress[]>;
@@ -305,7 +306,9 @@ export async function fetchOAuthClientMetadataDocument(
 
     return {
       clientId: normalizedClientId,
-      ...normalizeDynamicMcpClientRegistration(payload),
+      ...normalizeDynamicMcpClientRegistration(payload, {
+        allowEventWrites: options.allowEventWrites === true,
+      }),
     };
   } finally {
     clearTimeout(deadline);

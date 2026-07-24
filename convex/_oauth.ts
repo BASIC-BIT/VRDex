@@ -118,7 +118,8 @@ const oauthGrantTypes = new Set<OAuthGrantType>([
   "client_credentials",
 ]);
 const oauthResponseTypes = new Set<OAuthResponseType>(["code"]);
-const dynamicMcpScopes = new Set<ApiScope>(["public:read", "mcp:read"]);
+const dynamicMcpReadScopes = new Set<ApiScope>(["public:read", "mcp:read"]);
+const dynamicMcpEventWriteScopes = new Set<ApiScope>(["mcp:write", "events:write"]);
 const clientMetadataDocumentMaxLength = 2048;
 const clientIdPattern = /^vrdx_app_[0-9a-f]{24}$/;
 const secretPrefixPattern = /^vrdx_secret_[0-9a-f]{16}$/;
@@ -415,12 +416,23 @@ export function normalizeOAuthSoftwareValue(value: string | undefined, label: st
   return normalized;
 }
 
-export function normalizeDynamicMcpScopes(scopes: readonly string[] | undefined) {
+export function normalizeDynamicMcpScopes(
+  scopes: readonly string[] | undefined,
+  options: { allowEventWrites?: boolean } = {},
+) {
   const normalizedScopes = normalizeOAuthScopes(scopes ?? ["public:read", "mcp:read"]);
-  const unsupportedScopes = normalizedScopes.filter((scope) => !dynamicMcpScopes.has(scope));
+  const unsupportedScopes = normalizedScopes.filter(
+    (scope) =>
+      !dynamicMcpReadScopes.has(scope)
+      && !(options.allowEventWrites === true && dynamicMcpEventWriteScopes.has(scope)),
+  );
 
   if (unsupportedScopes.length > 0) {
-    throw new Error("Dynamic MCP clients can only request public:read and mcp:read.");
+    const supportedScopes = options.allowEventWrites === true
+      ? "public:read, mcp:read, mcp:write, and events:write"
+      : "public:read and mcp:read";
+
+    throw new Error(`Dynamic MCP clients can only request ${supportedScopes}.`);
   }
 
   if (!normalizedScopes.includes("mcp:read")) {

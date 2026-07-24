@@ -1038,6 +1038,7 @@ const dynamicMcpClientPersistenceArgs = {
   softwareId: v.optional(v.string()),
   softwareVersion: v.optional(v.string()),
   allowedScopes: v.optional(v.array(apiScopeValidator)),
+  allowEventWrites: v.optional(v.boolean()),
   resource: v.string(),
 };
 
@@ -1054,6 +1055,7 @@ type DynamicMcpClientPersistenceInput = {
   softwareId?: string;
   softwareVersion?: string;
   allowedScopes?: ApiScope[];
+  allowEventWrites?: boolean;
   resource: string;
 };
 
@@ -1073,7 +1075,9 @@ async function createDynamicMcpClientRecord(
     const contacts = normalizeOAuthContactValues(args.contacts);
     const softwareId = normalizeOAuthSoftwareValue(args.softwareId, "software_id");
     const softwareVersion = normalizeOAuthSoftwareValue(args.softwareVersion, "software_version");
-    const allowedScopes = normalizeDynamicMcpScopes(args.allowedScopes);
+    const allowedScopes = normalizeDynamicMcpScopes(args.allowedScopes, {
+      allowEventWrites: args.allowEventWrites === true,
+    });
     const resource = normalizeOAuthResourceUri(args.resource);
     const existingApplication = await ctx.db
       .query("oauthApplications")
@@ -1149,7 +1153,9 @@ async function upsertClientMetadataDocumentMcpClientRecord(
     const contacts = normalizeOAuthContactValues(args.contacts);
     const softwareId = normalizeOAuthSoftwareValue(args.softwareId, "software_id");
     const softwareVersion = normalizeOAuthSoftwareValue(args.softwareVersion, "software_version");
-    const allowedScopes = normalizeDynamicMcpScopes(args.allowedScopes);
+    const allowedScopes = normalizeDynamicMcpScopes(args.allowedScopes, {
+      allowEventWrites: args.allowEventWrites === true,
+    });
     const resource = normalizeOAuthResourceUri(args.resource);
     const existingApplication = await ctx.db
       .query("oauthApplications")

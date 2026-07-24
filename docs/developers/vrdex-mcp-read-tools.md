@@ -60,6 +60,13 @@ metadata document during authorization, rejects redirects, requires exact
 `client_id` document matching, caps responses at 5 KB, rejects special-use
 address resolution, and stores accepted documents as dynamic MCP clients.
 
+The hosted endpoint also contains a default-off authenticated event-write
+surface documented in
+[`hosted-mcp-oauth-writes.md`](./hosted-mcp-oauth-writes.md). It is not an
+anonymous fallback and does not replace the local stdio operator bridge.
+Unless `VRDEX_HOSTED_MCP_EVENT_WRITES=true`, its tools and write scopes are
+absent while all anonymous reads above continue unchanged.
+
 ## Locked Direction
 
 - Default to a standalone VRDex MCP for VRDex public data.

@@ -94,6 +94,20 @@ describe("OAuth metadata routes", () => {
     assert.match(output, /"resource_documentation":"https:\/\/app\.example\.test\/developers\/api"/);
   });
 
+  it("advertises MCP event-write scopes only while the feature is enabled", () => {
+    const output = runRouteProbe(
+      `
+        import { GET } from "./apps/web/src/app/.well-known/oauth-protected-resource/mcp/route.ts";
+
+        const response = GET(new Request("https://app.example.test/.well-known/oauth-protected-resource/mcp"));
+        console.log(JSON.stringify(await response.json()));
+      `,
+      { VRDEX_HOSTED_MCP_EVENT_WRITES: "true" },
+    );
+
+    assert.match(output, /"scopes_supported":\["mcp:read","mcp:write","events:write"\]/);
+  });
+
   it("serves constrained public MCP client metadata for CIMD smoke tests", () => {
     const output = runRouteProbe(`
       import { GET } from "./apps/web/src/app/.well-known/oauth-client/vrdex-mcp-public-client/route.ts";

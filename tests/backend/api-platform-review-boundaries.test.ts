@@ -91,7 +91,7 @@ describe("API platform review boundaries", () => {
     const apiV0 = source("apps/web/src/lib/server/api-v0.ts");
     const evaluation = apiV0.slice(apiV0.indexOf("export async function authenticateOptionalApiBearerRequest"));
     const mcp = source("apps/web/src/lib/server/vrdex-mcp.ts");
-    const mcpEvaluation = mcp.slice(mcp.indexOf("export async function rejectInvalidOrRateLimitedMcpRequest"));
+    const mcpEvaluation = mcp.slice(mcp.indexOf("export async function authorizeHostedMcpRequest"));
 
     assert.ok(
       evaluation.indexOf("increment: false")
@@ -106,7 +106,7 @@ describe("API platform review boundaries", () => {
     );
     assert.ok(
       mcpEvaluation.indexOf("increment: false")
-        < mcpEvaluation.indexOf("authenticateMcpBearerToken(request, bearerToken)"),
+        < mcpEvaluation.indexOf("authenticateMcpBearerToken("),
     );
   });
 

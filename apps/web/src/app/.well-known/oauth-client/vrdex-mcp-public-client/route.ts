@@ -1,7 +1,19 @@
+import {
+  hostedMcpEventWriteScopes,
+  hostedMcpEventWritesEnabled,
+  hostedMcpReadScopes,
+} from "@/lib/server/hosted-mcp-policy";
+
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export function GET(request: Request) {
+  const scopes = [
+    ...hostedMcpReadScopes,
+    "public:read",
+    ...(hostedMcpEventWritesEnabled() ? hostedMcpEventWriteScopes : []),
+  ];
+
   return Response.json(
     {
       client_id: new URL(request.url).toString(),
@@ -10,7 +22,7 @@ export function GET(request: Request) {
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
       token_endpoint_auth_method: "none",
-      scope: "mcp:read public:read",
+      scope: scopes.join(" "),
       software_id: "vrdex-mcp-public-client",
       software_version: "0.0.0",
     },

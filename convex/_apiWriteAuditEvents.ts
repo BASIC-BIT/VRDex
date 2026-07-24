@@ -45,13 +45,27 @@ export type ApiWriteAuditResourceType =
   | "profile_asset_upload_intent"
   | "profile_asset";
 
+export const mcpEventWriteToolNameValidator = v.union(
+  v.literal("vrdex_event_create"),
+  v.literal("vrdex_event_update"),
+);
+
+export type McpEventWriteToolName =
+  | "vrdex_event_create"
+  | "vrdex_event_update";
+
 export async function recordApiWriteAuditEvent(
   db: DatabaseWriter,
   args: {
     action: ApiWriteAuditAction;
     actorKind: ApiWriteAuditActorKind;
     assetIds?: Id<"profileAssets">[];
+    idempotencyKeyHash?: string;
+    mcpToolName?: McpEventWriteToolName;
+    oauthClientId?: string;
+    oauthTokenId?: string;
     ownerUserId?: Id<"users">;
+    requestId?: string;
     resourceType: ApiWriteAuditResourceType;
     routeClass: ApiRouteClass;
     targetEventId?: Id<"events">;
@@ -64,7 +78,12 @@ export async function recordApiWriteAuditEvent(
     action: args.action,
     actorKind: args.actorKind,
     ...(args.assetIds === undefined ? {} : { assetIds: args.assetIds }),
+    ...(args.idempotencyKeyHash === undefined ? {} : { idempotencyKeyHash: args.idempotencyKeyHash }),
+    ...(args.mcpToolName === undefined ? {} : { mcpToolName: args.mcpToolName }),
+    ...(args.oauthClientId === undefined ? {} : { oauthClientId: args.oauthClientId }),
+    ...(args.oauthTokenId === undefined ? {} : { oauthTokenId: args.oauthTokenId }),
     ...(args.ownerUserId === undefined ? {} : { ownerUserId: args.ownerUserId }),
+    ...(args.requestId === undefined ? {} : { requestId: args.requestId }),
     resourceType: args.resourceType,
     result: "accepted",
     routeClass: args.routeClass,

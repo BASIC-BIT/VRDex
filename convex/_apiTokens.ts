@@ -32,6 +32,7 @@ export const apiRouteClassValidator = v.union(
   v.literal("public_write"),
   v.literal("anonymous_mcp_public_read"),
   v.literal("authenticated_mcp"),
+  v.literal("authenticated_mcp_write"),
   v.literal("time_parse"),
 );
 
@@ -85,6 +86,7 @@ export type ApiRouteClass =
   | "public_write"
   | "anonymous_mcp_public_read"
   | "authenticated_mcp"
+  | "authenticated_mcp_write"
   | "time_parse";
 
 export const apiRouteClassValues: ApiRouteClass[] = [
@@ -98,6 +100,7 @@ export const apiRouteClassValues: ApiRouteClass[] = [
   "public_write",
   "anonymous_mcp_public_read",
   "authenticated_mcp",
+  "authenticated_mcp_write",
   "time_parse",
 ];
 

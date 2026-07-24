@@ -17,7 +17,9 @@ import {
   apiWriteAuditActorKindValidator,
   apiWriteAuditResourceTypeValidator,
   apiWriteAuditResultValidator,
+  mcpEventWriteToolNameValidator,
 } from "./_apiWriteAuditEvents";
+import { mcpEventWriteResultValidator } from "./_mcpEventWriteReceipts";
 import {
   apiRateLimitEventIdentityKindValidator,
   apiRateLimitEventQuotaTierValidator,
@@ -1412,7 +1414,12 @@ export default defineSchema({
   apiWriteAuditEvents: defineTable({
     action: apiWriteAuditActionValidator,
     actorKind: apiWriteAuditActorKindValidator,
+    idempotencyKeyHash: v.optional(v.string()),
+    mcpToolName: v.optional(mcpEventWriteToolNameValidator),
+    oauthClientId: v.optional(v.string()),
+    oauthTokenId: v.optional(v.string()),
     ownerUserId: v.optional(v.id("users")),
+    requestId: v.optional(v.string()),
     resourceType: apiWriteAuditResourceTypeValidator,
     result: apiWriteAuditResultValidator,
     routeClass: apiRouteClassValidator,
@@ -1425,6 +1432,20 @@ export default defineSchema({
     .index("by_routeClass_createdAt", ["routeClass", "createdAt"])
     .index("by_action_createdAt", ["action", "createdAt"])
     .index("by_ownerUserId_createdAt", ["ownerUserId", "createdAt"]),
+  mcpEventWriteReceipts: defineTable({
+    ownerUserId: v.id("users"),
+    oauthClientId: v.string(),
+    toolName: mcpEventWriteToolNameValidator,
+    idempotencyKeyHash: v.string(),
+    requestFingerprint: v.string(),
+    result: mcpEventWriteResultValidator,
+    createdAt: v.number(),
+  }).index("by_owner_client_tool_key", [
+    "ownerUserId",
+    "oauthClientId",
+    "toolName",
+    "idempotencyKeyHash",
+  ]),
   oauthApplications: defineTable({
     clientId: v.string(),
     ownerKind: oauthApplicationOwnerKindValidator,
@@ -1550,11 +1571,18 @@ export default defineSchema({
     routeClass: mcpToolEventRouteClassValidator,
     eventType: mcpToolEventTypeValidator,
     result: mcpToolEventResultValidator,
+    ownerUserId: v.optional(v.id("users")),
+    oauthClientId: v.optional(v.string()),
+    oauthTokenId: v.optional(v.string()),
+    requestId: v.optional(v.string()),
+    idempotencyKeyHash: v.optional(v.string()),
+    targetEventId: v.optional(v.id("events")),
     createdAt: v.number(),
   })
     .index("by_toolName_createdAt", ["toolName", "createdAt"])
     .index("by_routeClass_createdAt", ["routeClass", "createdAt"])
-    .index("by_routeClass_toolName_createdAt", ["routeClass", "toolName", "createdAt"]),
+    .index("by_routeClass_toolName_createdAt", ["routeClass", "toolName", "createdAt"])
+    .index("by_ownerUserId_createdAt", ["ownerUserId", "createdAt"]),
   oauthAuthorizationCodes: defineTable({
     codeHash: v.string(),
     applicationId: v.optional(v.id("oauthApplications")),
