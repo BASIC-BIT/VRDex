@@ -1,3 +1,6 @@
+[mcp_servers.playwright]
+url = "http://localhost:8931/mcp"
+
 [mcp_servers.vercel_vrdex]
 url = "https://mcp.vercel.com"
 
