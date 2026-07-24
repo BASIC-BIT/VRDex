@@ -96,19 +96,33 @@ function canonicalEventUrl(apiBaseUrl: string, eventPath: string) {
 
 function mcpEventReadbackError(
   write: z.infer<typeof ApiEventWriteResponseSchema>,
-  error: VrdexApiFailure,
+  error?: VrdexApiFailure,
 ) {
   const parts = [
-    `VRDex accepted the event write for slug "${write.slug}", but the required readback failed with ${error.status}: ${error.title}.`,
+    error === undefined
+      ? `VRDex accepted the event write for slug "${write.slug}", but the required readback did not complete cleanly.`
+      : `VRDex accepted the event write for slug "${write.slug}", but the required readback failed with ${error.status}: ${error.title}.`,
     "Do not retry the mutation automatically; inspect the saved event first.",
   ];
 
-  if (error.detail !== undefined) {
+  if (error?.detail !== undefined) {
     parts.push(error.detail);
   }
 
   return {
     content: [{ type: "text" as const, text: parts.join(" ") }],
+    isError: true as const,
+  };
+}
+
+function mcpEventWriteIndeterminate(operation: "create" | "update") {
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `The VRDex event ${operation} request did not complete cleanly, and the server may already have accepted the mutation. Do not retry the mutation automatically; inspect the target event or community first.`,
+      },
+    ],
     isError: true as const,
   };
 }
@@ -279,13 +293,25 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
         },
       },
       async (input) => {
-        const write = await apiClient.createEvent(input);
+        let write: Awaited<ReturnType<typeof apiClient.createEvent>>;
+
+        try {
+          write = await apiClient.createEvent(input);
+        } catch {
+          return mcpEventWriteIndeterminate("create");
+        }
 
         if (!write.ok) {
           return mcpApiError(write);
         }
 
-        const readback = await apiClient.getEvent(write.data.slug);
+        let readback: Awaited<ReturnType<typeof apiClient.getPublicEvent>>;
+
+        try {
+          readback = await apiClient.getPublicEvent(write.data.slug);
+        } catch {
+          return mcpEventReadbackError(write.data);
+        }
 
         if (!readback.ok) {
           return mcpEventReadbackError(write.data, readback);
@@ -319,13 +345,25 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
         },
       },
       async ({ slug, update }) => {
-        const write = await apiClient.updateEvent(slug, update);
+        let write: Awaited<ReturnType<typeof apiClient.updateEvent>>;
+
+        try {
+          write = await apiClient.updateEvent(slug, update);
+        } catch {
+          return mcpEventWriteIndeterminate("update");
+        }
 
         if (!write.ok) {
           return mcpApiError(write);
         }
 
-        const readback = await apiClient.getEvent(write.data.slug);
+        let readback: Awaited<ReturnType<typeof apiClient.getPublicEvent>>;
+
+        try {
+          readback = await apiClient.getPublicEvent(write.data.slug);
+        } catch {
+          return mcpEventReadbackError(write.data);
+        }
 
         if (!readback.ok) {
           return mcpEventReadbackError(write.data, readback);

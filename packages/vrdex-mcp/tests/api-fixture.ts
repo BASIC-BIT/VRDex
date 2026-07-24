@@ -93,12 +93,38 @@ async function handleFixtureRequest(
       body !== null &&
       typeof body === "object" &&
       "title" in body &&
+      body.title === "Indeterminate Create"
+    ) {
+      response.destroy();
+
+      return;
+    }
+
+    if (
+      body !== null &&
+      typeof body === "object" &&
+      "title" in body &&
       body.title === "Readback Failure"
     ) {
       writeJson(response, 200, {
         eventId: "event_missing_readback",
         eventPath: "/events/missing-readback",
         slug: "missing-readback",
+      });
+
+      return;
+    }
+
+    if (
+      body !== null &&
+      typeof body === "object" &&
+      "title" in body &&
+      body.title === "Thrown Readback"
+    ) {
+      writeJson(response, 200, {
+        eventId: "event_invalid_readback",
+        eventPath: "/events/invalid-readback",
+        slug: "invalid-readback",
       });
 
       return;
@@ -114,11 +140,28 @@ async function handleFixtureRequest(
   }
 
   if (url.pathname.endsWith("/api/v0/events/club-night") && request.method === "PATCH") {
+    if (
+      body !== null &&
+      typeof body === "object" &&
+      "summary" in body &&
+      body.summary === "Indeterminate Update"
+    ) {
+      response.destroy();
+
+      return;
+    }
+
     writeJson(response, 200, {
       eventId: "event_1",
       eventPath: "/events/club-night",
       slug: "club-night",
     });
+
+    return;
+  }
+
+  if (url.pathname.endsWith("/api/v0/events/invalid-readback")) {
+    writeJson(response, 200, {});
 
     return;
   }

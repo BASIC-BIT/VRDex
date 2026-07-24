@@ -221,6 +221,7 @@ test("calls public API routes with bearer credentials and validates schemas", as
       startAt: 1_798_761_600_000,
       title: "Created Club Night",
     });
+    const publicReadback = await client.getPublicEvent("created-club-night");
     const updated = await client.updateEvent("club-night", {
       summary: null,
     });
@@ -233,6 +234,7 @@ test("calls public API routes with bearer credentials and validates schemas", as
     assert.equal(world.ok, true);
     assert.equal(activeWorlds.ok, true);
     assert.equal(created.ok, true);
+    assert.equal(publicReadback.ok, true);
     assert.equal(updated.ok, true);
     assert.deepEqual(
       fixture.requests.map((request) => request.pathname),
@@ -244,6 +246,7 @@ test("calls public API routes with bearer credentials and validates schemas", as
         "/custom-root/api/v0/worlds/club-world",
         "/custom-root/api/v0/worlds/active",
         "/custom-root/api/v0/events",
+        "/custom-root/api/v0/events/created-club-night",
         "/custom-root/api/v0/events/club-night",
       ],
     );
@@ -259,8 +262,9 @@ test("calls public API routes with bearer credentials and validates schemas", as
       startAt: 1_798_761_600_000,
       title: "Created Club Night",
     });
-    assert.equal(fixture.requests[7]?.method, "PATCH");
-    assert.deepEqual(fixture.requests[7]?.body, { summary: null });
+    assert.equal(fixture.requests[7]?.authorization, undefined);
+    assert.equal(fixture.requests[8]?.method, "PATCH");
+    assert.deepEqual(fixture.requests[8]?.body, { summary: null });
   } finally {
     await fixture.close();
   }

@@ -882,8 +882,12 @@ pnpm ops:mcp-client-smokes -- \
    gated until reviewed OAuth smoke secrets are installed or
    `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true` is enabled alongside the
    already-present hosted auth-helper inputs.
-1. Claude Desktop local stdio starts, lists six tools, and calls
-   `vrdex_search`.
+For local stdio rows, an anonymous session lists the six public read tools. A
+session configured with a bearer credential lists eight tools: those six reads
+plus `vrdex_event_create` and `vrdex_event_update`.
+
+1. Claude Desktop local stdio starts, lists six anonymous tools or eight
+   credentialed tools as appropriate, and calls `vrdex_search`.
 2. Claude Desktop hosted Custom Connector lists anonymous tools and completes
    OAuth for `mcp:read` when protected tools are enabled.
 3. Claude Code local stdio and hosted HTTP anonymous reads pass through
@@ -893,10 +897,12 @@ pnpm ops:mcp-client-smokes -- \
    login`, uses reviewed OAuth app client credentials, or uses
    `VRDEX_CLAUDE_CODE_OAUTH_TOKEN` fallback for an authenticated smoke, paired
    with DCR and public-client CIMD protocol evidence.
-4. Gemini CLI local stdio lists six tools through `/mcp`, hosted anonymous
-   reads work through `httpUrl`, and hosted OAuth succeeds through automatic
-   discovery or a documented static OAuth fallback.
-5. VS Code local stdio lists six tools and hosted HTTP anonymous reads work.
+4. Gemini CLI local stdio lists six anonymous tools or eight credentialed
+   tools through `/mcp`, hosted anonymous reads work through `httpUrl`, and
+   hosted OAuth succeeds through automatic discovery or a documented static
+   OAuth fallback.
+5. VS Code local stdio lists six anonymous tools or eight credentialed tools
+   and hosted HTTP anonymous reads work.
 6. Cursor local stdio and hosted HTTP read tools work in the current release.
 7. OpenAI or ChatGPT MCP-capable surfaces connect to hosted `/mcp` if the
    current product supports custom remote MCP connectors. Responses API hosted

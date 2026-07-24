@@ -335,7 +335,69 @@ test("serves VRDex tools over stdio and calls the configured API base URL", asyn
     assert.match(failedReadbackResult.content?.[0]?.text ?? "", /write for slug "missing-readback"/);
     assert.match(failedReadbackResult.content?.[0]?.text ?? "", /Do not retry the mutation automatically/);
 
-    assert.equal(fixture.captured.length, 12);
+    const indeterminateCreate = await callTool({
+      id: 12,
+      messages,
+      name: "vrdex_event_create",
+      onMessage,
+      send,
+      stderr,
+      toolArgs: {
+        communitySlug: "basic-bit",
+        startAt: 1_798_761_600_000,
+        title: "Indeterminate Create",
+      },
+    });
+    const indeterminateCreateResult = indeterminateCreate.result as {
+      content?: Array<{ text?: string }>;
+      isError?: boolean;
+    };
+    assert.equal(indeterminateCreateResult.isError, true);
+    assert.match(indeterminateCreateResult.content?.[0]?.text ?? "", /may already have accepted the mutation/);
+    assert.match(indeterminateCreateResult.content?.[0]?.text ?? "", /Do not retry the mutation automatically/);
+
+    const indeterminateUpdate = await callTool({
+      id: 13,
+      messages,
+      name: "vrdex_event_update",
+      onMessage,
+      send,
+      stderr,
+      toolArgs: {
+        slug: "club-night",
+        update: { summary: "Indeterminate Update" },
+      },
+    });
+    const indeterminateUpdateResult = indeterminateUpdate.result as {
+      content?: Array<{ text?: string }>;
+      isError?: boolean;
+    };
+    assert.equal(indeterminateUpdateResult.isError, true);
+    assert.match(indeterminateUpdateResult.content?.[0]?.text ?? "", /may already have accepted the mutation/);
+    assert.match(indeterminateUpdateResult.content?.[0]?.text ?? "", /Do not retry the mutation automatically/);
+
+    const thrownReadback = await callTool({
+      id: 14,
+      messages,
+      name: "vrdex_event_create",
+      onMessage,
+      send,
+      stderr,
+      toolArgs: {
+        communitySlug: "basic-bit",
+        startAt: 1_798_761_600_000,
+        title: "Thrown Readback",
+      },
+    });
+    const thrownReadbackResult = thrownReadback.result as {
+      content?: Array<{ text?: string }>;
+      isError?: boolean;
+    };
+    assert.equal(thrownReadbackResult.isError, true);
+    assert.match(thrownReadbackResult.content?.[0]?.text ?? "", /write for slug "invalid-readback"/);
+    assert.match(thrownReadbackResult.content?.[0]?.text ?? "", /Do not retry the mutation automatically/);
+
+    assert.equal(fixture.captured.length, 16);
     assert.deepEqual(
       fixture.captured.map((request) => request.pathname),
       [
@@ -351,6 +413,10 @@ test("serves VRDex tools over stdio and calls the configured API base URL", asyn
         "/api/v0/events/club-night",
         "/api/v0/events",
         "/api/v0/events/missing-readback",
+        "/api/v0/events",
+        "/api/v0/events/club-night",
+        "/api/v0/events",
+        "/api/v0/events/invalid-readback",
       ],
     );
     assert.equal(fixture.captured[0]?.searchParams.get("q"), "club");
@@ -358,7 +424,13 @@ test("serves VRDex tools over stdio and calls the configured API base URL", asyn
     assert.equal(fixture.captured[0]?.searchParams.get("limit"), "2");
     assert.equal(fixture.captured[3]?.searchParams.get("limit"), "1");
     assert.equal(fixture.captured[5]?.searchParams.get("limit"), "1");
-    assert.equal(fixture.captured.every((request) => request.authorization === "Bearer vrdx_stdio_token"), true);
+    const anonymousReadbackIndexes = new Set([7, 9, 11, 15]);
+    fixture.captured.forEach((request, index) => {
+      assert.equal(
+        request.authorization,
+        anonymousReadbackIndexes.has(index) ? undefined : "Bearer vrdx_stdio_token",
+      );
+    });
     assert.equal(fixture.captured[6]?.method, "POST");
     assert.deepEqual(fixture.captured[6]?.body, {
       communitySlug: "basic-bit",

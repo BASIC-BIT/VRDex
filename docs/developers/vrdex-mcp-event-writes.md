@@ -40,7 +40,8 @@ Both tools:
   ownership of the target community
 - are annotated as mutating and open-world so an MCP host can require
   explicit user approval
-- read the saved public event back after an accepted write
+- read the saved public event back anonymously after an accepted write, so the
+  write credential does not also need `public:read`
 - return the write identifiers, canonical URL, and normalized public event
 
 Tool annotations are advisory protocol metadata. Operators must use an MCP host
@@ -49,9 +50,10 @@ arguments before accepting the call.
 
 ## Local Configuration
 
-Create a personal API token at `/developers/tokens` with `events:write`.
-Configure the local stdio server without placing the raw token in repository
-files:
+Create a personal API token at `/developers/tokens` with `events:write`. Add
+`community:read` when following the full operator runbook, which verifies the
+target community through `/api/v0/me/communities`. Configure the local stdio
+server without placing the raw token in repository files:
 
 ```json
 {
@@ -101,7 +103,7 @@ status, title, detail, and retry timing, but never the bearer credential.
 Before a real community event write:
 
 1. Use `GET /api/v0/me` to confirm the credential is user-authorized and has
-   `events:write`.
+   `events:write` plus `community:read`.
 2. Use `GET /api/v0/me/communities` to confirm the target community is claimed
    and owned by that user.
 3. Prepare the complete create payload or the minimal update payload.

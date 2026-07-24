@@ -114,6 +114,7 @@ export function createVrdexApiClient(options: ApiClientOptions) {
     schema: ResponseSchema<T>,
     path: string,
     requestOptions: {
+      authenticate?: boolean;
       body?: unknown;
       method?: "GET" | "PATCH" | "POST";
       searchParams?: Record<string, number | string | undefined>;
@@ -125,7 +126,7 @@ export function createVrdexApiClient(options: ApiClientOptions) {
       "user-agent": userAgent,
     });
 
-    if (options.bearerToken !== undefined) {
+    if (requestOptions.authenticate !== false && options.bearerToken !== undefined) {
       headers.set("authorization", `Bearer ${options.bearerToken}`);
     }
 
@@ -177,6 +178,11 @@ export function createVrdexApiClient(options: ApiClientOptions) {
     },
     getEvent(slug: string) {
       return get(PublicEventSchema, `events/${encodeURIComponent(slug)}`);
+    },
+    getPublicEvent(slug: string) {
+      return request(PublicEventSchema, `events/${encodeURIComponent(slug)}`, {
+        authenticate: false,
+      });
     },
     getProfile(input: { profileType?: VrdexProfileType; slug: string }) {
       const segment =
