@@ -9,6 +9,12 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      hosted_mcp_event_writes:
+        description: Enable default-off hosted MCP event-write tools for this staging deployment.
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -119,12 +125,20 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         id: vercel
         env:
+          VRDEX_HOSTED_MCP_EVENT_WRITES: ${{ inputs.hosted_mcp_event_writes || 'false' }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
           set -euo pipefail
-          deployment_url=$(pnpm dlx vercel@54.4.1 deploy --target=staging --yes --token "$VERCEL_TOKEN" | tail -n 1)
+          deploy_args=(
+            deploy
+            --target=staging
+            --yes
+            --token "$VERCEL_TOKEN"
+            --env "VRDEX_HOSTED_MCP_EVENT_WRITES=$VRDEX_HOSTED_MCP_EVENT_WRITES"
+          )
+          deployment_url=$(pnpm dlx vercel@54.4.1 "${deploy_args[@]}" | tail -n 1)
           if [ -z "$deployment_url" ]; then
             echo "Vercel staging deployment did not return a URL." >&2
             exit 1

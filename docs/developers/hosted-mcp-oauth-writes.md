@@ -125,6 +125,12 @@ replay, one update, and public readback. A client that does not perform lazy
 if neither native discovery nor explicit login can establish the scoped
 session. No matrix row may be marked pass from protocol simulation alone.
 
+The `Staging Deploy` workflow keeps the feature off unless a manual dispatch
+explicitly selects `hosted_mcp_event_writes`. Use that staging-only switch for
+the client matrix, then dispatch the current `main` revision with the switch
+cleared to restore the default-off staging state. The switch is not read by
+production deployment workflows and does not authorize any tool call.
+
 | Client | Current preflight | Staged scoped-session evidence |
 | --- | --- | --- |
 | Codex CLI 0.145.0 | Exact-branch local Streamable HTTP initialization listed `vrdex_event_create` and `vrdex_event_update` without invoking either tool. Supports `codex mcp login/logout`. | Pending same-branch staged scoped login and tool listing. |
