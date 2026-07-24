@@ -203,6 +203,13 @@ OAuth token file can contain a plain access token or a JSON object with an
 tokens used here must be issued for the API resource. Hosted `/mcp` OAuth
 sessions use the MCP resource instead.
 
+When a bearer credential is configured, local stdio also registers the
+approval-gated `vrdex_event_create` and `vrdex_event_update` tools. They require
+`events:write`, use the existing public API routes, and read the normalized
+event back after every accepted mutation. See
+`docs/developers/vrdex-mcp-event-writes.md` for the write contract and operator
+runbook. These tools are not registered by the hosted `/mcp` server.
+
 Local workspace command:
 
 ```sh

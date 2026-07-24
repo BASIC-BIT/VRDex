@@ -4,6 +4,8 @@ export type {
   VrdexApiFailure,
   VrdexApiResult,
   VrdexApiSuccess,
+  VrdexEventCreateInput,
+  VrdexEventUpdateInput,
   VrdexProfileType,
   VrdexSearchType,
 } from "./api-client";

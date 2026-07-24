@@ -1,5 +1,8 @@
 import { fromJsonSchema, McpServer } from "@modelcontextprotocol/server";
 import {
+  ApiEventCreateRequestSchema,
+  ApiEventUpdateRequestSchema,
+  ApiEventWriteResponseSchema,
   mcpOutputJsonSchemaForZodSchema,
   PublicActiveWorldsResponseSchema,
   PublicEventSchema,
@@ -24,6 +27,17 @@ export type VrdexMcpServerOptions = {
 const mcpSearchTypes = ["all", "person", "community", "profile", "world", "event"] as const;
 const mcpSlugSchema = z.string().min(1).max(160);
 const mcpLimitSchema = z.number().int().min(1);
+const mcpEventUpdateInputSchema = z.object({
+  slug: mcpSlugSchema.describe("Current public event slug."),
+  update: ApiEventUpdateRequestSchema,
+});
+const mcpEventWriteResultSchema = ApiEventWriteResponseSchema.extend({
+  canonicalUrl: z.string().url(),
+  event: PublicEventSchema,
+}).meta({
+  description: "Accepted event write plus the normalized public event read back from VRDex.",
+  id: "McpEventWriteResult",
+});
 
 function boundedLimit(value: number | undefined, fallback: number, max: number) {
   return Math.max(1, Math.min(value ?? fallback, max));
@@ -62,6 +76,35 @@ function mcpApiError(error: VrdexApiFailure) {
 
   if (error.retryAfter !== undefined) {
     parts.push(`Retry after ${error.retryAfter} seconds.`);
+  }
+
+  return {
+    content: [{ type: "text" as const, text: parts.join(" ") }],
+    isError: true as const,
+  };
+}
+
+function canonicalEventUrl(apiBaseUrl: string, eventPath: string) {
+  const url = new URL(apiBaseUrl);
+
+  url.pathname = eventPath;
+  url.search = "";
+  url.hash = "";
+
+  return url.toString();
+}
+
+function mcpEventReadbackError(
+  write: z.infer<typeof ApiEventWriteResponseSchema>,
+  error: VrdexApiFailure,
+) {
+  const parts = [
+    `VRDex accepted the event write for slug "${write.slug}", but the required readback failed with ${error.status}: ${error.title}.`,
+    "Do not retry the mutation automatically; inspect the saved event first.",
+  ];
+
+  if (error.detail !== undefined) {
+    parts.push(error.detail);
   }
 
   return {
@@ -218,6 +261,88 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
         : mcpApiError(result);
     },
   );
+
+  if (config.bearerToken !== undefined) {
+    server.registerTool(
+      "vrdex_event_create",
+      {
+        title: "Create VRDex Event",
+        description:
+          "Create and publish a community event through the authenticated VRDex API. This changes public VRDex data and requires explicit operator approval.",
+        inputSchema: ApiEventCreateRequestSchema,
+        outputSchema: mcpOutputSchema(mcpEventWriteResultSchema),
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: true,
+        },
+      },
+      async (input) => {
+        const write = await apiClient.createEvent(input);
+
+        if (!write.ok) {
+          return mcpApiError(write);
+        }
+
+        const readback = await apiClient.getEvent(write.data.slug);
+
+        if (!readback.ok) {
+          return mcpEventReadbackError(write.data, readback);
+        }
+
+        return mcpJsonResult(
+          mcpEventWriteResultSchema,
+          {
+            ...write.data,
+            canonicalUrl: canonicalEventUrl(apiClient.apiBaseUrl, write.data.eventPath),
+            event: readback.data,
+          },
+          config.outputMode,
+        );
+      },
+    );
+
+    server.registerTool(
+      "vrdex_event_update",
+      {
+        title: "Update VRDex Event",
+        description:
+          "Update a community event through the authenticated VRDex API. Omitted fields are preserved; explicit nulls and empty arrays can clear data. This changes public VRDex data and requires explicit operator approval.",
+        inputSchema: mcpEventUpdateInputSchema,
+        outputSchema: mcpOutputSchema(mcpEventWriteResultSchema),
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: true,
+          idempotentHint: false,
+          openWorldHint: true,
+        },
+      },
+      async ({ slug, update }) => {
+        const write = await apiClient.updateEvent(slug, update);
+
+        if (!write.ok) {
+          return mcpApiError(write);
+        }
+
+        const readback = await apiClient.getEvent(write.data.slug);
+
+        if (!readback.ok) {
+          return mcpEventReadbackError(write.data, readback);
+        }
+
+        return mcpJsonResult(
+          mcpEventWriteResultSchema,
+          {
+            ...write.data,
+            canonicalUrl: canonicalEventUrl(apiClient.apiBaseUrl, write.data.eventPath),
+            event: readback.data,
+          },
+          config.outputMode,
+        );
+      },
+    );
+  }
 
   return server;
 }

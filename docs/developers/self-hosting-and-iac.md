@@ -98,7 +98,7 @@ Current local stdio MCP variables:
 | Variable | Scope | Notes |
 | --- | --- | --- |
 | `VRDEX_API_BASE_URL` | Local client config | Hosted or self-hosted web origin, or explicit `/api/v0` base path. |
-| `VRDEX_API_TOKEN` | Local client secret | Personal API token for authenticated API reads. |
+| `VRDEX_API_TOKEN` | Local client secret | Personal API token for authenticated API reads and, with `events:write`, local/private MCP event tools. |
 | `VRDEX_OAUTH_ACCESS_TOKEN` | Local client secret | API-resource OAuth access token. |
 | `VRDEX_OAUTH_TOKEN_FILE` | Local client secret path | Plain token file or JSON with `access_token`. |
 | `VRDEX_MCP_OUTPUT_MODE` | Local client config | `compact` by default; `detail` pretty-prints JSON text output. |
