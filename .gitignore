@@ -39,3 +39,5 @@ tfplan
 tfplan.*
 tfplan-*
 .vercel
+__pycache__/
+*.py[cod]

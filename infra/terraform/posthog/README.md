@@ -31,6 +31,15 @@ Convex grants remain the authorization source of truth. The web app mirrors an a
 
 The PostHog Terraform provider does not currently expose cohort management. An analytic cohort can be created later from the same person property if useful, but it must not sync access back into Convex.
 
+## Temporal parsing beta
+
+Terraform manages the `temporal-parsing-beta` feature flag. It targets people
+whose `temporal_parsing_beta` property is the string `true`.
+
+Convex's `use_temporal_parsing_beta` grant remains the authorization source of
+truth. The web app mirrors an authorized result into PostHog for UI rollout and
+measurement only. Never use PostHog evaluation to grant API or model access.
+
 ## Featured discovery
 
 Terraform also manages the `featured-discovery` feature flag. It is inactive

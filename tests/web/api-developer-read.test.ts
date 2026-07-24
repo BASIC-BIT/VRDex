@@ -131,6 +131,32 @@ describe("developer read API authority", () => {
     assert.match(output, /ok/);
   });
 
+  it("maps temporal token-scope eligibility failures to actionable problems", () => {
+    const output = runDeveloperReadProbe(`
+      import assert from "node:assert/strict";
+      import { temporalTokenScopeEligibilityProblem } from "./apps/web/src/lib/server/api-token-errors.ts";
+
+      assert.deepEqual(
+        temporalTokenScopeEligibilityProblem(new Error("[CONVEX] verified_email_required")),
+        {
+          title: "Verified email required",
+          detail: "Verify the account email before creating a token with the time:parse scope.",
+        },
+      );
+      assert.deepEqual(
+        temporalTokenScopeEligibilityProblem(new Error("[CONVEX] temporal_beta_required")),
+        {
+          title: "Temporal beta access required",
+          detail: "An active temporal parsing beta grant is required for the time:parse scope.",
+        },
+      );
+      assert.equal(temporalTokenScopeEligibilityProblem(new Error("unrelated")), null);
+      console.log("ok");
+    `);
+
+    assert.match(output, /ok/);
+  });
+
   it("requires a bearer credential on developer token lists", () => {
     const output = runDeveloperReadProbe(`
       import { GET } from "./apps/web/src/app/api/v0/developer/tokens/route.ts";

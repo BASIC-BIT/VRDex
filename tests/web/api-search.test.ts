@@ -33,6 +33,7 @@ describe("public API search route", () => {
       assert.match(headers.get("access-control-allow-methods") ?? "", /\\bPATCH\\b/);
       assert.match(headers.get("access-control-allow-methods") ?? "", /\\bOPTIONS\\b/);
       assert.match(headers.get("access-control-allow-headers") ?? "", /\\bAuthorization\\b/);
+      assert.match(headers.get("access-control-allow-headers") ?? "", /\\bIdempotency-Key\\b/);
       assert.match(headers.get("access-control-allow-headers") ?? "", /\\bX-VRDEX-Upload-Token\\b/);
       assert.doesNotMatch(headers.get("access-control-allow-headers") ?? "", /\\bCookie\\b/);
       assert.doesNotMatch(headers.get("access-control-allow-headers") ?? "", /\\bX-CSRF-Token\\b/);
@@ -69,7 +70,7 @@ describe("public API search route", () => {
     assert.match(output, /GET, HEAD, POST, PATCH, DELETE, OPTIONS/);
     assert.match(
       output,
-      /Authorization, Content-Type, If-None-Match, X-VRDEX-Upload-Token/,
+      /Authorization, Content-Type, Idempotency-Key, If-None-Match, X-VRDEX-Upload-Token/,
     );
     assert.match(output, /^600$/m);
   });

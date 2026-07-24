@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { getAccountFeatureAccess } from "./_accountFeatures";
 import { getCurrentUser, requireCurrentUser } from "./accounts";
 import {
   apiRouteClassValidator,
@@ -172,6 +173,18 @@ async function createUserOwnedToken(
   const verifierHash = normalizeApiTokenVerifierHash(args.verifierHash);
   const label = normalizeApiTokenLabel(args.label);
   const scopes = normalizeApiTokenScopes(args.scopes);
+  if (scopes.includes("time:parse")) {
+    const [owner, access] = await Promise.all([
+      ctx.db.get(args.ownerUserId),
+      getAccountFeatureAccess(ctx.db, args.ownerUserId, now),
+    ]);
+    if (owner?.email === undefined || owner.emailVerificationTime === undefined) {
+      throw new Error("verified_email_required");
+    }
+    if (!access.canUseTemporalParsing) {
+      throw new Error("temporal_beta_required");
+    }
+  }
   const expiresAt = normalizeApiTokenExpiry(args.expiresAt, now);
   const existingToken = await ctx.db
     .query("apiTokens")

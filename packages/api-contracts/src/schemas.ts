@@ -1,6 +1,6 @@
 import * as z from "zod/v4";
 
-import { apiRouteClasses, apiScopes } from "./auth";
+import { apiRouteClasses, apiScopes, oauthApiScopes } from "./auth";
 
 export { z };
 
@@ -740,6 +740,9 @@ export const ApiRouteClassSchema = z
   .meta({ description: "Public API and MCP rate-limit route class." });
 
 export const ApiScopeSchema = z.enum(apiScopes).meta({ description: "Public API or MCP credential scope." });
+export const OAuthApiScopeSchema = z.enum(oauthApiScopes).meta({
+  description: "Scope available to third-party OAuth applications.",
+});
 
 export const ApiRateLimitCallerKindSchema = z
   .enum(["anonymous", "personal_api_token", "oauth_client"])
@@ -978,7 +981,7 @@ export const OAuthApplicationSummarySchema = z
     termsUrl: absoluteUrl.optional(),
     redirectUris: z.array(absoluteUrl),
     allowedGrants: z.array(OAuthGrantTypeSchema),
-    allowedScopes: z.array(ApiScopeSchema),
+    allowedScopes: z.array(OAuthApiScopeSchema),
     status: ApiCredentialStatusSchema,
     trustTier: OAuthApplicationTrustTierSchema,
     createdAt: timestampMs,
@@ -1005,7 +1008,7 @@ export const DeveloperOAuthAppCreateRequestSchema = z
     termsUrl: z.string().min(1).optional(),
     redirectUris: z.array(z.string().min(1)).min(1).max(10),
     allowedGrants: z.array(OAuthGrantTypeSchema).optional(),
-    allowedScopes: z.array(ApiScopeSchema).optional(),
+    allowedScopes: z.array(OAuthApiScopeSchema).optional(),
     ownerCommunitySlug: slug.optional(),
   })
   .meta({
@@ -1024,7 +1027,7 @@ export const DeveloperOAuthAppUpdateRequestSchema = z
     termsUrl: z.string().min(1).nullable().optional(),
     redirectUris: z.array(z.string().min(1)).min(1).max(10).optional(),
     allowedGrants: z.array(OAuthGrantTypeSchema).min(1).optional(),
-    allowedScopes: z.array(ApiScopeSchema).min(1).optional(),
+    allowedScopes: z.array(OAuthApiScopeSchema).min(1).optional(),
   })
   .meta({
     description:

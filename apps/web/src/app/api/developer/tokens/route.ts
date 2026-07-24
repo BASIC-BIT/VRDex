@@ -8,6 +8,7 @@ import {
 } from "@vrdex/api-contracts";
 
 import { apiProblemResponse } from "@/lib/server/api-v0";
+import { temporalTokenScopeEligibilityProblem } from "@/lib/server/api-token-errors";
 import { convexHttpClient } from "@/lib/server/convex-http";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +23,7 @@ function apiTokenPepper() {
   return pepper;
 }
 
-function problem(status: 400 | 401 | 500, title: string, detail: string) {
+function problem(status: 400 | 401 | 403 | 500, title: string, detail: string) {
   return apiProblemResponse({
     type: "about:blank",
     title,
@@ -95,23 +96,35 @@ export async function POST(request: Request) {
 
   convex.setAuth(authToken);
 
-  const savedToken = await convex.mutation(api.apiTokens.createPersonalToken, {
-    tokenPrefix: token.tokenPrefix,
-    verifierHash,
-    label,
-    scopes,
-    ...(expiresAt === undefined ? {} : { expiresAt }),
-  });
+  try {
+    const savedToken = await convex.mutation(api.apiTokens.createPersonalToken, {
+      tokenPrefix: token.tokenPrefix,
+      verifierHash,
+      label,
+      scopes,
+      ...(expiresAt === undefined ? {} : { expiresAt }),
+    });
 
-  return Response.json(
-    {
-      token: savedToken,
-      tokenValue: token.tokenValue,
-    },
-    {
-      headers: {
-        "cache-control": "private, no-store",
+    return Response.json(
+      {
+        token: savedToken,
+        tokenValue: token.tokenValue,
       },
-    },
-  );
+      {
+        headers: {
+          "cache-control": "private, no-store",
+        },
+      },
+    );
+  } catch (error) {
+    const eligibility = temporalTokenScopeEligibilityProblem(error);
+    if (eligibility !== null) {
+      return problem(403, eligibility.title, eligibility.detail);
+    }
+    return problem(
+      500,
+      "API token creation is unavailable",
+      "The server could not create this API token.",
+    );
+  }
 }

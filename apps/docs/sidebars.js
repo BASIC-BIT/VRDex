@@ -16,6 +16,7 @@ const sidebars = {
         "developers/opencode-skill-adapter",
         "developers/public-api",
         "developers/api-auth",
+        "developers/time-api",
         "developers/oauth-apps",
         "developers/api-rate-limits",
         "developers/self-hosting-and-iac",

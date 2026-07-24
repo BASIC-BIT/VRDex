@@ -377,6 +377,23 @@ const profileOwnerState = v.union(v.literal("active"), v.literal("revoked"));
 const accountFeature = v.union(
   v.literal("super_admin"),
   v.literal("view_private_seed_lookup"),
+  v.literal("use_temporal_parsing_beta"),
+);
+
+const temporalParseJobStatus = v.union(
+  v.literal("queued"),
+  v.literal("running"),
+  v.literal("succeeded"),
+  v.literal("failed"),
+);
+
+const temporalParseOutcome = v.union(
+  v.literal("resolved"),
+  v.literal("needs_clarification"),
+  v.literal("no_plan"),
+  v.literal("provider_error"),
+  v.literal("invalid_plan"),
+  v.literal("timeout"),
 );
 
 const accountFeatureGrantState = v.union(
@@ -1598,6 +1615,53 @@ export default defineSchema({
     .index("by_applicationId_issuedAt", ["applicationId", "issuedAt"])
     .index("by_dynamicClientId_issuedAt", ["dynamicClientId", "issuedAt"])
     .index("by_status_expiresAt", ["status", "expiresAt"]),
+  temporalPrewarmLeases: defineTable({
+    key: v.string(),
+    ownerUserId: v.id("users"),
+    requestedAt: v.number(),
+    expiresAt: v.number(),
+  }).index("by_key", ["key"]),
+  temporalParsingPreferences: defineTable({
+    userId: v.id("users"),
+    retainInputs: v.boolean(),
+    updatedAt: v.number(),
+  }).index("by_userId", ["userId"]),
+  temporalParseJobs: defineTable({
+    ownerUserId: v.id("users"),
+    credentialId: v.optional(v.string()),
+    continuationTokenHash: v.string(),
+    idempotencyKeyHash: v.optional(v.string()),
+    idempotencyFingerprint: v.optional(v.string()),
+    continuationNonce: v.optional(v.string()),
+    inputText: v.optional(v.string()),
+    inputHash: v.optional(v.string()),
+    inputLength: v.number(),
+    status: temporalParseJobStatus,
+    timeZone: v.string(),
+    locale: v.optional(v.string()),
+    country: v.optional(v.string()),
+    subdivision: v.optional(v.string()),
+    referenceInstant: v.string(),
+    retainInput: v.boolean(),
+    outcome: v.optional(temporalParseOutcome),
+    result: v.optional(v.any()),
+    errorCode: v.optional(v.string()),
+    errorDetail: v.optional(v.string()),
+    modelRevision: v.optional(v.string()),
+    inferenceLatencyMs: v.optional(v.number()),
+    totalLatencyMs: v.optional(v.number()),
+    estimatedCostMicros: v.optional(v.number()),
+    createdAt: v.number(),
+    startedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    expiresAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_continuationTokenHash", ["continuationTokenHash"])
+    .index("by_ownerUserId_idempotencyKeyHash", ["ownerUserId", "idempotencyKeyHash"])
+    .index("by_ownerUserId_status_createdAt", ["ownerUserId", "status", "createdAt"])
+    .index("by_ownerUserId_createdAt", ["ownerUserId", "createdAt"])
+    .index("by_status_createdAt", ["status", "createdAt"]),
   accountFeatureGrants: defineTable({
     userId: v.id("users"),
     feature: accountFeature,

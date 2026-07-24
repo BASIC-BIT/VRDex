@@ -14,7 +14,7 @@ export async function getAccountFeatureAccess(
   userId: Id<"users">,
   now = Date.now(),
 ): Promise<AccountFeatureAccess> {
-  const [superAdminGrants, seedLookupGrants] = await Promise.all(
+  const grantGroups = await Promise.all(
     ACCOUNT_FEATURES.map((feature) =>
       db
         .query("accountFeatureGrants")
@@ -28,10 +28,7 @@ export async function getAccountFeatureAccess(
     ),
   );
 
-  return accountFeatureAccessFromGrants(
-    [...superAdminGrants, ...seedLookupGrants],
-    now,
-  );
+  return accountFeatureAccessFromGrants(grantGroups.flat(), now);
 }
 
 export async function requirePrivateSeedLookupAccess(

@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 
-import { apiScopeValidator } from "./_apiTokens";
+import { apiScopeValidator, type ApiScope } from "./_apiTokens";
 import { mutation, query } from "./_generated/server";
 import {
   normalizeOAuthClientId,
@@ -27,21 +27,7 @@ function transactionAuthorization(transaction: {
   clientId: string;
   redirectUri: string;
   resource: string;
-  scopes: Array<
-    | "public:read"
-    | "profile:read"
-    | "profile:write"
-    | "community:read"
-    | "community:write"
-    | "events:read"
-    | "events:write"
-    | "assets:read"
-    | "assets:write"
-    | "developer:read"
-    | "developer:write"
-    | "mcp:read"
-    | "mcp:write"
-  >;
+  scopes: ApiScope[];
   codeChallenge: string;
   codeChallengeMethod: "S256";
   state?: string;

@@ -64,11 +64,15 @@ import {
   parsePublicEventsListQueryParams,
   parseSearchQueryParams,
   timingSafeEqualString,
+  TemporalParseCompletedResponseSchema,
+  TemporalParsePendingResponseSchema,
+  TemporalParseRequestSchema,
 } from "../src";
 
 const namedSchemaMapKeys = new Set(["$defs", "definitions", "dependentSchemas", "patternProperties", "properties"]);
 
 type OpenApiOperation = {
+  description?: string;
   parameters?: Array<{ in?: string; name?: string; schema?: { maximum?: number } }>;
   requestBody?: {
     content?: Record<
@@ -680,6 +684,12 @@ describe("@vrdex/api-contracts", () => {
         activeSecretPrefixes: [],
       },
     });
+
+    assert.throws(() => DeveloperOAuthAppCreateRequestSchema.parse({
+      displayName: "Unsupported temporal client",
+      redirectUris: ["https://example.test/oauth/callback"],
+      allowedScopes: ["time:parse"],
+    }));
   });
 
   it("parses developer OAuth app secret creation contracts", () => {
@@ -722,6 +732,9 @@ describe("@vrdex/api-contracts", () => {
   it("rejects OAuth app updates that clear every allowed grant", () => {
     assert.throws(() => DeveloperOAuthAppUpdateRequestSchema.parse({ allowedGrants: [] }));
     assert.throws(() => DeveloperOAuthAppUpdateRequestSchema.parse({ allowedScopes: [] }));
+    assert.throws(() => DeveloperOAuthAppUpdateRequestSchema.parse({
+      allowedScopes: ["time:parse"],
+    }));
   });
 
   it("leaves OAuth app update grant semantics to stored client type validation", () => {
@@ -828,6 +841,7 @@ describe("@vrdex/api-contracts", () => {
       "public:read",
       "mcp:read",
     ]);
+    assert.throws(() => normalizeOAuthScopes(["time:parse"]), /Unsupported OAuth scope/);
     assert.deepEqual(normalizeOAuthGrantTypes(undefined, "public"), [
       "authorization_code",
       "refresh_token",
@@ -1006,5 +1020,108 @@ describe("@vrdex/api-contracts", () => {
     assert.equal(oauth2?.type, "oauth2");
     assert.equal(oauth2.flows?.authorizationCode?.authorizationUrl, "/oauth/authorize");
     assert.equal(oauth2.flows?.authorizationCode?.tokenUrl, "/oauth/token");
+  });
+  it("validates temporal requests, canonical results, and continuation metadata", () => {
+    assert.deepEqual(
+      TemporalParseRequestSchema.parse({
+        text: "next Friday at 8pm Eastern",
+        timeZone: "America/Indianapolis",
+        locale: "en-US",
+        country: "us",
+        subdivision: "in",
+        retainInput: false,
+      }),
+      {
+        text: "next Friday at 8pm Eastern",
+        timeZone: "America/Indianapolis",
+        locale: "en-US",
+        country: "US",
+        subdivision: "IN",
+        retainInput: false,
+      },
+    );
+    assert.throws(
+      () => TemporalParseRequestSchema.parse({ text: "tomorrow", timeZone: "Eastern" }),
+      /timeZone/,
+    );
+    assert.throws(
+      () => TemporalParseRequestSchema.parse({ text: "tomorrow", timeZone: "+05:30" }),
+      /timeZone/,
+    );
+    assert.equal(
+      TemporalParseRequestSchema.parse({
+        text: "tomorrow",
+        timeZone: "america/new_york",
+      }).timeZone,
+      "America/New_York",
+    );
+    assert.throws(
+      () => TemporalParseRequestSchema.parse({ text: "tomorrow", promptOverride: "unsafe" }),
+    );
+
+    const canonical = {
+      isoInstant: "2026-07-25T00:00:00.000Z",
+      zonedDateTime: "2026-07-24T20:00:00-04:00[America/New_York]",
+      timeZone: "America/New_York",
+      precision: "datetime" as const,
+      weekday: "friday" as const,
+    };
+    assert.equal(TemporalParseCompletedResponseSchema.parse({
+      requestId: "job-1",
+      status: "resolved",
+      kind: "instant",
+      confidence: 0.95,
+      method: "trained_plan",
+      epoch: 1784937600,
+      canonical,
+      assumptions: [],
+    }).status, "resolved");
+    assert.throws(() => TemporalParseCompletedResponseSchema.parse({
+      requestId: "job-invalid-instant",
+      status: "resolved",
+      kind: "instant",
+      confidence: 0.95,
+      method: "trained_plan",
+      assumptions: [],
+    }));
+    assert.throws(() => TemporalParseCompletedResponseSchema.parse({
+      requestId: "job-invalid-range",
+      status: "resolved",
+      kind: "time_range",
+      confidence: 0.95,
+      method: "trained_plan",
+      assumptions: [],
+    }));
+    assert.equal(TemporalParsePendingResponseSchema.parse({
+      requestId: "job-2",
+      status: "pending",
+      continuationToken: "a".repeat(43),
+      retryAfterSeconds: 2,
+      estimatedWaitSeconds: 30,
+      expiresAt: "2026-07-22T16:15:00.000Z",
+    }).status, "pending");
+
+    const document = getOpenApiDocument();
+    const submit = (document.paths?.["/api/v0/time/parse"] as OpenApiPathItem | undefined)?.post;
+    const continuation = (
+      document.paths?.["/api/v0/time/parse/{continuationToken}"] as OpenApiPathItem | undefined
+    )?.get;
+    assert.ok(submit?.responses?.["200"]);
+    assert.ok(submit?.responses?.["202"]);
+    assert.ok(
+      submit?.parameters?.some((parameter) =>
+        "in" in parameter && parameter.in === "header" && parameter.name === "idempotency-key",
+      ),
+    );
+    assert.ok(continuation?.responses?.["400"]);
+    assert.ok(continuation?.responses?.["410"]);
+    assert.deepEqual(submit?.security, [{ bearerAuth: [] }]);
+    assert.match(submit?.description ?? "", /time:parse/);
+    const oauthScheme = document.components?.securitySchemes?.oauth2 as {
+      flows?: { authorizationCode?: { scopes?: Record<string, string> } };
+    } | undefined;
+    const oauthScopes = oauthScheme?.flows?.authorizationCode?.scopes;
+    assert.equal(oauthScopes?.["time:parse"], undefined);
+    assert.equal(oauthScopes?.["public:read"], "public:read");
   });
 });

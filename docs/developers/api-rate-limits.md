@@ -30,6 +30,13 @@ The backend choice is an infrastructure question about where per-request
 `INCR`/TTL counters live, not a product question about whether Convex remains
 the source of truth for API clients and partner policy.
 
+## Temporal parsing
+
+`time_parse` has a six-request-per-minute credential burst limit. Convex also
+enforces a six-request-per-minute account aggregate and one in-flight parse per
+account so minting more personal tokens cannot multiply model allowance.
+Operational trust tiers do not increase temporal parsing limits.
+
 ## Store Modes
 
 Set `VRDEX_RATE_LIMIT_STORE` on the web deployment:

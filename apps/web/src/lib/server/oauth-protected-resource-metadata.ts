@@ -1,8 +1,8 @@
-import { apiScopes } from "@vrdex/api-contracts";
+import { oauthApiScopes } from "@vrdex/api-contracts";
 
 import { oauthApiResourceUri, oauthIssuerUrl, oauthMcpResourceUri } from "./oauth-jwt";
 
-const apiResourceScopes = apiScopes.filter((scope) => scope !== "mcp:read" && scope !== "mcp:write");
+const apiResourceScopes = oauthApiScopes.filter((scope) => scope !== "mcp:read" && scope !== "mcp:write");
 
 function protectedResourceMetadata(
   request: Request,

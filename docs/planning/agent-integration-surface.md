@@ -76,6 +76,8 @@ Candidate direction:
 - provide a lightweight website navigation guide for agents that need to inspect public VRDex pages or partner docs
 - document stable route patterns for profiles, communities, events, docs, and API reference pages
 - consider publishing `llms.txt`, `llms-full.txt`, or a similar agent-oriented sitemap once the public docs site exists
+- publish concise Markdown examples for utility endpoints such as VRDex Time so
+  an agent can integrate them without reading the entire product specification
 - prefer API/MCP for structured data and reserve browser navigation for visual/UI verification, docs reading, and human-like exploration
 
 ### 4. VRDex MCP
@@ -88,6 +90,9 @@ Candidate direction:
 - authenticated write or claim tools should still use normal VRDex auth, scoped tokens, approvals, and audit trails
 - the MCP should expose curated tools first and optionally generated API coverage later
 - MCP resources could expose common read surfaces such as profile cards, upcoming events, and partner documentation
+- a future documentation resource may provide search or retrieval over the same
+  canonical public docs, but generated answers must cite those docs and must not
+  become a second policy source
 
 The documentation-only first read-tool contract lives in `docs/developers/vrdex-mcp-read-tools.md`.
 

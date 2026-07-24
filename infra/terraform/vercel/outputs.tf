@@ -16,3 +16,8 @@ output "managed_posthog_environment_keys" {
   description = "PostHog environment variable names managed by this stack."
   value       = keys(local.posthog_values)
 }
+
+output "managed_temporal_environment_keys" {
+  description = "Temporal service environment variable names managed by this stack."
+  value       = keys(local.temporal_values)
+}

@@ -18,6 +18,7 @@ export const apiScopeValidator = v.union(
   v.literal("developer:write"),
   v.literal("mcp:read"),
   v.literal("mcp:write"),
+  v.literal("time:parse"),
 );
 
 export const apiRouteClassValidator = v.union(
@@ -31,6 +32,7 @@ export const apiRouteClassValidator = v.union(
   v.literal("public_write"),
   v.literal("anonymous_mcp_public_read"),
   v.literal("authenticated_mcp"),
+  v.literal("time_parse"),
 );
 
 export const apiTokenOwnerKindValidator = v.union(v.literal("user"), v.literal("community"));
@@ -69,7 +71,8 @@ export type ApiScope =
   | "developer:read"
   | "developer:write"
   | "mcp:read"
-  | "mcp:write";
+  | "mcp:write"
+  | "time:parse";
 
 export type ApiRouteClass =
   | "anonymous_public_read"
@@ -81,7 +84,8 @@ export type ApiRouteClass =
   | "asset_upload_intent"
   | "public_write"
   | "anonymous_mcp_public_read"
-  | "authenticated_mcp";
+  | "authenticated_mcp"
+  | "time_parse";
 
 export const apiRouteClassValues: ApiRouteClass[] = [
   "anonymous_public_read",
@@ -94,6 +98,7 @@ export const apiRouteClassValues: ApiRouteClass[] = [
   "public_write",
   "anonymous_mcp_public_read",
   "authenticated_mcp",
+  "time_parse",
 ];
 
 export type ApiTokenValidationResult =
@@ -131,6 +136,7 @@ const apiScopes = new Set<ApiScope>([
   "developer:write",
   "mcp:read",
   "mcp:write",
+  "time:parse",
 ]);
 
 const tokenPrefixPattern = /^vrdx_[0-9a-f]{24}$/;

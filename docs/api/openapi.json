@@ -49,6 +49,10 @@
       "description": "API usage and rate-limit surfaces."
     },
     {
+      "name": "Time",
+      "description": "Natural-language temporal parsing utility."
+    },
+    {
       "name": "Me",
       "description": "Authenticated caller introspection surfaces."
     },
@@ -3208,6 +3212,1590 @@
         }
       }
     },
+    "/api/v0/time/parse": {
+      "post": {
+        "operationId": "parseTemporalExpression",
+        "tags": [
+          "Time"
+        ],
+        "summary": "Parse a natural-language time expression",
+        "description": "Returns a canonical instant, range, clarification, or a 202 continuation while the scale-to-zero model warms. Closed beta requires a verified user-owned personal token with time:parse.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  },
+                  "timeZone": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "locale": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 35
+                  },
+                  "country": {
+                    "type": "string",
+                    "pattern": "^[A-Z]{2}$"
+                  },
+                  "subdivision": {
+                    "type": "string",
+                    "pattern": "^[A-Z0-9]{1,3}$"
+                  },
+                  "referenceInstant": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  "retainInput": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "text"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Validated temporal result or clarification.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "status": {
+                          "type": "string",
+                          "const": "resolved"
+                        },
+                        "confidence": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        "method": {
+                          "type": "string",
+                          "const": "trained_plan"
+                        },
+                        "assumptions": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "kind": {
+                          "type": "string",
+                          "const": "instant"
+                        },
+                        "epoch": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "canonical": {
+                          "type": "object",
+                          "properties": {
+                            "isoInstant": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            "zonedDateTime": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "timeZone": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "precision": {
+                              "type": "string",
+                              "enum": [
+                                "date",
+                                "time",
+                                "datetime",
+                                "relative"
+                              ]
+                            },
+                            "weekday": {
+                              "type": "string",
+                              "enum": [
+                                "monday",
+                                "tuesday",
+                                "wednesday",
+                                "thursday",
+                                "friday",
+                                "saturday",
+                                "sunday"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "isoInstant",
+                            "zonedDateTime",
+                            "timeZone",
+                            "precision"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "requestId",
+                        "status",
+                        "confidence",
+                        "method",
+                        "assumptions",
+                        "kind",
+                        "epoch",
+                        "canonical"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "status": {
+                          "type": "string",
+                          "const": "resolved"
+                        },
+                        "confidence": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        "method": {
+                          "type": "string",
+                          "const": "trained_plan"
+                        },
+                        "assumptions": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "kind": {
+                          "type": "string",
+                          "const": "time_range"
+                        },
+                        "range": {
+                          "type": "object",
+                          "properties": {
+                            "start": {
+                              "type": "object",
+                              "properties": {
+                                "epoch": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "canonical": {
+                                  "type": "object",
+                                  "properties": {
+                                    "isoInstant": {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    "zonedDateTime": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "timeZone": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "precision": {
+                                      "type": "string",
+                                      "enum": [
+                                        "date",
+                                        "time",
+                                        "datetime",
+                                        "relative"
+                                      ]
+                                    },
+                                    "weekday": {
+                                      "type": "string",
+                                      "enum": [
+                                        "monday",
+                                        "tuesday",
+                                        "wednesday",
+                                        "thursday",
+                                        "friday",
+                                        "saturday",
+                                        "sunday"
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "isoInstant",
+                                    "zonedDateTime",
+                                    "timeZone",
+                                    "precision"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "required": [
+                                "epoch",
+                                "canonical"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "end": {
+                              "type": "object",
+                              "properties": {
+                                "epoch": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "canonical": {
+                                  "type": "object",
+                                  "properties": {
+                                    "isoInstant": {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    "zonedDateTime": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "timeZone": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "precision": {
+                                      "type": "string",
+                                      "enum": [
+                                        "date",
+                                        "time",
+                                        "datetime",
+                                        "relative"
+                                      ]
+                                    },
+                                    "weekday": {
+                                      "type": "string",
+                                      "enum": [
+                                        "monday",
+                                        "tuesday",
+                                        "wednesday",
+                                        "thursday",
+                                        "friday",
+                                        "saturday",
+                                        "sunday"
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "isoInstant",
+                                    "zonedDateTime",
+                                    "timeZone",
+                                    "precision"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "required": [
+                                "epoch",
+                                "canonical"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "start",
+                            "end"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "epoch": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "canonical": {
+                          "type": "object",
+                          "properties": {
+                            "isoInstant": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            "zonedDateTime": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "timeZone": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "precision": {
+                              "type": "string",
+                              "enum": [
+                                "date",
+                                "time",
+                                "datetime",
+                                "relative"
+                              ]
+                            },
+                            "weekday": {
+                              "type": "string",
+                              "enum": [
+                                "monday",
+                                "tuesday",
+                                "wednesday",
+                                "thursday",
+                                "friday",
+                                "saturday",
+                                "sunday"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "isoInstant",
+                            "zonedDateTime",
+                            "timeZone",
+                            "precision"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "requestId",
+                        "status",
+                        "confidence",
+                        "method",
+                        "assumptions",
+                        "kind",
+                        "range"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "status": {
+                          "type": "string",
+                          "const": "needs_clarification"
+                        },
+                        "question": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "alternatives": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "label": {
+                                "type": "string"
+                              },
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "instant",
+                                  "time_range"
+                                ]
+                              },
+                              "epoch": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "confidence": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1
+                              },
+                              "canonical": {
+                                "type": "object",
+                                "properties": {
+                                  "isoInstant": {
+                                    "type": "string",
+                                    "format": "date-time",
+                                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                  },
+                                  "zonedDateTime": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "timeZone": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "precision": {
+                                    "type": "string",
+                                    "enum": [
+                                      "date",
+                                      "time",
+                                      "datetime",
+                                      "relative"
+                                    ]
+                                  },
+                                  "weekday": {
+                                    "type": "string",
+                                    "enum": [
+                                      "monday",
+                                      "tuesday",
+                                      "wednesday",
+                                      "thursday",
+                                      "friday",
+                                      "saturday",
+                                      "sunday"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "isoInstant",
+                                  "zonedDateTime",
+                                  "timeZone",
+                                  "precision"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "range": {
+                                "type": "object",
+                                "properties": {
+                                  "start": {
+                                    "type": "object",
+                                    "properties": {
+                                      "epoch": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "canonical": {
+                                        "type": "object",
+                                        "properties": {
+                                          "isoInstant": {
+                                            "type": "string",
+                                            "format": "date-time",
+                                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                          },
+                                          "zonedDateTime": {
+                                            "type": "string",
+                                            "minLength": 1
+                                          },
+                                          "timeZone": {
+                                            "type": "string",
+                                            "minLength": 1
+                                          },
+                                          "precision": {
+                                            "type": "string",
+                                            "enum": [
+                                              "date",
+                                              "time",
+                                              "datetime",
+                                              "relative"
+                                            ]
+                                          },
+                                          "weekday": {
+                                            "type": "string",
+                                            "enum": [
+                                              "monday",
+                                              "tuesday",
+                                              "wednesday",
+                                              "thursday",
+                                              "friday",
+                                              "saturday",
+                                              "sunday"
+                                            ]
+                                          }
+                                        },
+                                        "required": [
+                                          "isoInstant",
+                                          "zonedDateTime",
+                                          "timeZone",
+                                          "precision"
+                                        ],
+                                        "additionalProperties": false
+                                      }
+                                    },
+                                    "required": [
+                                      "epoch",
+                                      "canonical"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  "end": {
+                                    "type": "object",
+                                    "properties": {
+                                      "epoch": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "canonical": {
+                                        "type": "object",
+                                        "properties": {
+                                          "isoInstant": {
+                                            "type": "string",
+                                            "format": "date-time",
+                                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                          },
+                                          "zonedDateTime": {
+                                            "type": "string",
+                                            "minLength": 1
+                                          },
+                                          "timeZone": {
+                                            "type": "string",
+                                            "minLength": 1
+                                          },
+                                          "precision": {
+                                            "type": "string",
+                                            "enum": [
+                                              "date",
+                                              "time",
+                                              "datetime",
+                                              "relative"
+                                            ]
+                                          },
+                                          "weekday": {
+                                            "type": "string",
+                                            "enum": [
+                                              "monday",
+                                              "tuesday",
+                                              "wednesday",
+                                              "thursday",
+                                              "friday",
+                                              "saturday",
+                                              "sunday"
+                                            ]
+                                          }
+                                        },
+                                        "required": [
+                                          "isoInstant",
+                                          "zonedDateTime",
+                                          "timeZone",
+                                          "precision"
+                                        ],
+                                        "additionalProperties": false
+                                      }
+                                    },
+                                    "required": [
+                                      "epoch",
+                                      "canonical"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                },
+                                "required": [
+                                  "start",
+                                  "end"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "label",
+                              "epoch",
+                              "confidence",
+                              "canonical"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "requestId",
+                        "status",
+                        "question",
+                        "alternatives"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "status": {
+                          "type": "string",
+                          "const": "no_plan"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "requestId",
+                        "status",
+                        "reason"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "The parse was accepted and can be retrieved with the continuation token.",
+            "headers": {
+              "Location": {
+                "description": "Continuation URL.",
+                "schema": {
+                  "type": "string",
+                  "format": "uri"
+                }
+              },
+              "Retry-After": {
+                "description": "Polling delay in seconds.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "requestId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "status": {
+                      "type": "string",
+                      "const": "pending"
+                    },
+                    "continuationToken": {
+                      "type": "string",
+                      "minLength": 32,
+                      "maxLength": 256
+                    },
+                    "retryAfterSeconds": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 30
+                    },
+                    "estimatedWaitSeconds": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 180
+                    },
+                    "expiresAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    }
+                  },
+                  "required": [
+                    "requestId",
+                    "status",
+                    "continuationToken",
+                    "retryAfterSeconds",
+                    "estimatedWaitSeconds",
+                    "expiresAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or used an unsupported bearer-token location.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A valid personal API token is required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Verified email, beta grant, or time:parse scope is missing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The Idempotency-Key was already used for a different request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The temporal service is not fully configured.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The service is disabled, busy, or temporarily unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Inference exceeded its bounded deadline.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v0/time/parse/{continuationToken}": {
+      "get": {
+        "operationId": "getTemporalParseContinuation",
+        "tags": [
+          "Time"
+        ],
+        "summary": "Get an accepted temporal parse",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "continuationToken",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{43}$"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Validated temporal result or clarification.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "status": {
+                          "type": "string",
+                          "const": "resolved"
+                        },
+                        "confidence": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        "method": {
+                          "type": "string",
+                          "const": "trained_plan"
+                        },
+                        "assumptions": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "kind": {
+                          "type": "string",
+                          "const": "instant"
+                        },
+                        "epoch": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "canonical": {
+                          "type": "object",
+                          "properties": {
+                            "isoInstant": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            "zonedDateTime": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "timeZone": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "precision": {
+                              "type": "string",
+                              "enum": [
+                                "date",
+                                "time",
+                                "datetime",
+                                "relative"
+                              ]
+                            },
+                            "weekday": {
+                              "type": "string",
+                              "enum": [
+                                "monday",
+                                "tuesday",
+                                "wednesday",
+                                "thursday",
+                                "friday",
+                                "saturday",
+                                "sunday"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "isoInstant",
+                            "zonedDateTime",
+                            "timeZone",
+                            "precision"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "requestId",
+                        "status",
+                        "confidence",
+                        "method",
+                        "assumptions",
+                        "kind",
+                        "epoch",
+                        "canonical"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "status": {
+                          "type": "string",
+                          "const": "resolved"
+                        },
+                        "confidence": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        "method": {
+                          "type": "string",
+                          "const": "trained_plan"
+                        },
+                        "assumptions": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "kind": {
+                          "type": "string",
+                          "const": "time_range"
+                        },
+                        "range": {
+                          "type": "object",
+                          "properties": {
+                            "start": {
+                              "type": "object",
+                              "properties": {
+                                "epoch": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "canonical": {
+                                  "type": "object",
+                                  "properties": {
+                                    "isoInstant": {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    "zonedDateTime": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "timeZone": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "precision": {
+                                      "type": "string",
+                                      "enum": [
+                                        "date",
+                                        "time",
+                                        "datetime",
+                                        "relative"
+                                      ]
+                                    },
+                                    "weekday": {
+                                      "type": "string",
+                                      "enum": [
+                                        "monday",
+                                        "tuesday",
+                                        "wednesday",
+                                        "thursday",
+                                        "friday",
+                                        "saturday",
+                                        "sunday"
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "isoInstant",
+                                    "zonedDateTime",
+                                    "timeZone",
+                                    "precision"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "required": [
+                                "epoch",
+                                "canonical"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "end": {
+                              "type": "object",
+                              "properties": {
+                                "epoch": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "canonical": {
+                                  "type": "object",
+                                  "properties": {
+                                    "isoInstant": {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    "zonedDateTime": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "timeZone": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "precision": {
+                                      "type": "string",
+                                      "enum": [
+                                        "date",
+                                        "time",
+                                        "datetime",
+                                        "relative"
+                                      ]
+                                    },
+                                    "weekday": {
+                                      "type": "string",
+                                      "enum": [
+                                        "monday",
+                                        "tuesday",
+                                        "wednesday",
+                                        "thursday",
+                                        "friday",
+                                        "saturday",
+                                        "sunday"
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "isoInstant",
+                                    "zonedDateTime",
+                                    "timeZone",
+                                    "precision"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "required": [
+                                "epoch",
+                                "canonical"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "start",
+                            "end"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "epoch": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "canonical": {
+                          "type": "object",
+                          "properties": {
+                            "isoInstant": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            "zonedDateTime": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "timeZone": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "precision": {
+                              "type": "string",
+                              "enum": [
+                                "date",
+                                "time",
+                                "datetime",
+                                "relative"
+                              ]
+                            },
+                            "weekday": {
+                              "type": "string",
+                              "enum": [
+                                "monday",
+                                "tuesday",
+                                "wednesday",
+                                "thursday",
+                                "friday",
+                                "saturday",
+                                "sunday"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "isoInstant",
+                            "zonedDateTime",
+                            "timeZone",
+                            "precision"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "requestId",
+                        "status",
+                        "confidence",
+                        "method",
+                        "assumptions",
+                        "kind",
+                        "range"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "status": {
+                          "type": "string",
+                          "const": "needs_clarification"
+                        },
+                        "question": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "alternatives": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "label": {
+                                "type": "string"
+                              },
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "instant",
+                                  "time_range"
+                                ]
+                              },
+                              "epoch": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "confidence": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1
+                              },
+                              "canonical": {
+                                "type": "object",
+                                "properties": {
+                                  "isoInstant": {
+                                    "type": "string",
+                                    "format": "date-time",
+                                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                  },
+                                  "zonedDateTime": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "timeZone": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "precision": {
+                                    "type": "string",
+                                    "enum": [
+                                      "date",
+                                      "time",
+                                      "datetime",
+                                      "relative"
+                                    ]
+                                  },
+                                  "weekday": {
+                                    "type": "string",
+                                    "enum": [
+                                      "monday",
+                                      "tuesday",
+                                      "wednesday",
+                                      "thursday",
+                                      "friday",
+                                      "saturday",
+                                      "sunday"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "isoInstant",
+                                  "zonedDateTime",
+                                  "timeZone",
+                                  "precision"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "range": {
+                                "type": "object",
+                                "properties": {
+                                  "start": {
+                                    "type": "object",
+                                    "properties": {
+                                      "epoch": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "canonical": {
+                                        "type": "object",
+                                        "properties": {
+                                          "isoInstant": {
+                                            "type": "string",
+                                            "format": "date-time",
+                                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                          },
+                                          "zonedDateTime": {
+                                            "type": "string",
+                                            "minLength": 1
+                                          },
+                                          "timeZone": {
+                                            "type": "string",
+                                            "minLength": 1
+                                          },
+                                          "precision": {
+                                            "type": "string",
+                                            "enum": [
+                                              "date",
+                                              "time",
+                                              "datetime",
+                                              "relative"
+                                            ]
+                                          },
+                                          "weekday": {
+                                            "type": "string",
+                                            "enum": [
+                                              "monday",
+                                              "tuesday",
+                                              "wednesday",
+                                              "thursday",
+                                              "friday",
+                                              "saturday",
+                                              "sunday"
+                                            ]
+                                          }
+                                        },
+                                        "required": [
+                                          "isoInstant",
+                                          "zonedDateTime",
+                                          "timeZone",
+                                          "precision"
+                                        ],
+                                        "additionalProperties": false
+                                      }
+                                    },
+                                    "required": [
+                                      "epoch",
+                                      "canonical"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  "end": {
+                                    "type": "object",
+                                    "properties": {
+                                      "epoch": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "canonical": {
+                                        "type": "object",
+                                        "properties": {
+                                          "isoInstant": {
+                                            "type": "string",
+                                            "format": "date-time",
+                                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                          },
+                                          "zonedDateTime": {
+                                            "type": "string",
+                                            "minLength": 1
+                                          },
+                                          "timeZone": {
+                                            "type": "string",
+                                            "minLength": 1
+                                          },
+                                          "precision": {
+                                            "type": "string",
+                                            "enum": [
+                                              "date",
+                                              "time",
+                                              "datetime",
+                                              "relative"
+                                            ]
+                                          },
+                                          "weekday": {
+                                            "type": "string",
+                                            "enum": [
+                                              "monday",
+                                              "tuesday",
+                                              "wednesday",
+                                              "thursday",
+                                              "friday",
+                                              "saturday",
+                                              "sunday"
+                                            ]
+                                          }
+                                        },
+                                        "required": [
+                                          "isoInstant",
+                                          "zonedDateTime",
+                                          "timeZone",
+                                          "precision"
+                                        ],
+                                        "additionalProperties": false
+                                      }
+                                    },
+                                    "required": [
+                                      "epoch",
+                                      "canonical"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                },
+                                "required": [
+                                  "start",
+                                  "end"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "label",
+                              "epoch",
+                              "confidence",
+                              "canonical"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "requestId",
+                        "status",
+                        "question",
+                        "alternatives"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "requestId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "status": {
+                          "type": "string",
+                          "const": "no_plan"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "requestId",
+                        "status",
+                        "reason"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "The accepted parse is still warming or running.",
+            "headers": {
+              "Retry-After": {
+                "description": "Polling delay in seconds.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "requestId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "status": {
+                      "type": "string",
+                      "const": "pending"
+                    },
+                    "continuationToken": {
+                      "type": "string",
+                      "minLength": 32,
+                      "maxLength": 256
+                    },
+                    "retryAfterSeconds": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 30
+                    },
+                    "estimatedWaitSeconds": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 180
+                    },
+                    "expiresAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    }
+                  },
+                  "required": [
+                    "requestId",
+                    "status",
+                    "continuationToken",
+                    "retryAfterSeconds",
+                    "estimatedWaitSeconds",
+                    "expiresAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or used an unsupported bearer-token location.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A valid personal API token is required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential cannot access this temporal parse.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The continuation token is unknown.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "The continuation token expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The accepted parse failed because inference is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Inference exceeded its bounded deadline.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v0/usage/rate-limit": {
       "get": {
         "operationId": "getApiRateLimitUsage",
@@ -3308,7 +4896,8 @@
                 "developer:read",
                 "developer:write",
                 "mcp:read",
-                "mcp:write"
+                "mcp:write",
+                "time:parse"
               ],
               "description": "Public API or MCP credential scope."
             }
@@ -3400,7 +4989,7 @@
                 "mcp:read",
                 "mcp:write"
               ],
-              "description": "Public API or MCP credential scope."
+              "description": "Scope available to third-party OAuth applications."
             }
           },
           "ownerCommunitySlug": {
@@ -3520,7 +5109,7 @@
                 "mcp:read",
                 "mcp:write"
               ],
-              "description": "Public API or MCP credential scope."
+              "description": "Scope available to third-party OAuth applications."
             }
           }
         },
@@ -4253,7 +5842,8 @@
                     "developer:read",
                     "developer:write",
                     "mcp:read",
-                    "mcp:write"
+                    "mcp:write",
+                    "time:parse"
                   ],
                   "description": "Public API or MCP credential scope."
                 }
@@ -4325,7 +5915,8 @@
                     "developer:read",
                     "developer:write",
                     "mcp:read",
-                    "mcp:write"
+                    "mcp:write",
+                    "time:parse"
                   ],
                   "description": "Public API or MCP credential scope."
                 }
@@ -4396,7 +5987,8 @@
               "asset_upload_intent",
               "public_write",
               "anonymous_mcp_public_read",
-              "authenticated_mcp"
+              "authenticated_mcp",
+              "time_parse"
             ],
             "description": "Public API and MCP rate-limit route class."
           },
@@ -4848,7 +6440,8 @@
                 "developer:read",
                 "developer:write",
                 "mcp:read",
-                "mcp:write"
+                "mcp:write",
+                "time:parse"
               ],
               "description": "Public API or MCP credential scope."
             }
@@ -4901,7 +6494,8 @@
               "asset_upload_intent",
               "public_write",
               "anonymous_mcp_public_read",
-              "authenticated_mcp"
+              "authenticated_mcp",
+              "time_parse"
             ],
             "description": "Public API and MCP rate-limit route class."
           },
@@ -5072,7 +6666,7 @@
                 "mcp:read",
                 "mcp:write"
               ],
-              "description": "Public API or MCP credential scope."
+              "description": "Scope available to third-party OAuth applications."
             }
           },
           "status": {
@@ -7782,7 +9376,8 @@
                   "asset_upload_intent",
                   "public_write",
                   "anonymous_mcp_public_read",
-                  "authenticated_mcp"
+                  "authenticated_mcp",
+                  "time_parse"
                 ],
                 "description": "Public API and MCP rate-limit route class."
               }
@@ -7834,7 +9429,8 @@
               "asset_upload_intent",
               "public_write",
               "anonymous_mcp_public_read",
-              "authenticated_mcp"
+              "authenticated_mcp",
+              "time_parse"
             ],
             "description": "Public API and MCP rate-limit route class."
           },

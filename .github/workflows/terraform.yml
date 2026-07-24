@@ -52,6 +52,7 @@ env:
   VERCEL_API_TOKEN: ${{ secrets.VERCEL_API_TOKEN || secrets.VERCEL_TOKEN }}
   POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
   TERRAFORM_POSTHOG_PUBLIC_KEY: ${{ secrets.TERRAFORM_POSTHOG_PUBLIC_KEY }}
+  TERRAFORM_TEMPORAL_INPUT_HASH_KEY: ${{ secrets.TERRAFORM_TEMPORAL_INPUT_HASH_KEY }}
   TERRAFORM_SES_DOMAIN_NAME: ${{ vars.TERRAFORM_SES_DOMAIN_NAME }}
   TERRAFORM_SES_FROM_EMAIL: ${{ vars.TERRAFORM_SES_FROM_EMAIL }}
   TERRAFORM_ROUTE53_ZONE_ID: ${{ vars.TERRAFORM_ROUTE53_ZONE_ID }}
@@ -182,6 +183,7 @@ jobs:
             requires_vercel: "true"
             requires_posthog: "false"
             requires_posthog_public_key: "true"
+            requires_temporal_input_hash_key: "true"
             requires_ses_domain: "false"
             requires_profile_assets_enabled: "false"
             requires_upstash: "false"
@@ -292,6 +294,7 @@ jobs:
           if [ "${{ matrix.stack.requires_vercel }}" = "true" ] && [ -z "$VERCEL_API_TOKEN" ]; then missing+=("VERCEL_API_TOKEN or VERCEL_TOKEN"); fi
           if [ "${{ matrix.stack.requires_posthog }}" = "true" ] && [ -z "$POSTHOG_API_KEY" ]; then missing+=("POSTHOG_API_KEY"); fi
           if [ "${{ matrix.stack.requires_posthog_public_key }}" = "true" ] && [ -z "$TERRAFORM_POSTHOG_PUBLIC_KEY" ]; then missing+=("TERRAFORM_POSTHOG_PUBLIC_KEY"); fi
+          if [ "${{ matrix.stack.requires_temporal_input_hash_key }}" = "true" ] && [ -z "$TERRAFORM_TEMPORAL_INPUT_HASH_KEY" ]; then missing+=("TERRAFORM_TEMPORAL_INPUT_HASH_KEY"); fi
           if [ "${{ matrix.stack.requires_ses_domain }}" = "true" ] && [ -z "$TERRAFORM_SES_DOMAIN_NAME" ]; then missing+=("TERRAFORM_SES_DOMAIN_NAME"); fi
           if [ "${{ matrix.stack.requires_profile_assets_enabled }}" = "true" ] && [ "$TERRAFORM_PROFILE_ASSETS_ENABLED" != "true" ]; then missing+=("TERRAFORM_PROFILE_ASSETS_ENABLED=true"); fi
           if [ "${{ matrix.stack.requires_upstash }}" = "true" ] && [ -z "$TERRAFORM_UPSTASH_EMAIL" ]; then missing+=("TERRAFORM_UPSTASH_EMAIL"); fi
@@ -374,6 +377,7 @@ jobs:
         working-directory: ${{ matrix.stack.path }}
         env:
           TF_VAR_posthog_public_key: ${{ env.TERRAFORM_POSTHOG_PUBLIC_KEY }}
+          TF_VAR_temporal_input_hash_key: ${{ env.TERRAFORM_TEMPORAL_INPUT_HASH_KEY }}
           TF_VAR_upstash_email: ${{ env.TERRAFORM_UPSTASH_EMAIL }}
           TF_VAR_upstash_api_key: ${{ env.TERRAFORM_UPSTASH_API_KEY }}
         run: |

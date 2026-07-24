@@ -87,6 +87,8 @@ import type * as seedHandoffs from "../seedHandoffs.js";
 import type * as seedImports from "../seedImports.js";
 import type * as shortLinks from "../shortLinks.js";
 import type * as suppressions from "../suppressions.js";
+import type * as temporalParsing from "../temporalParsing.js";
+import type * as temporalParsingActions from "../temporalParsingActions.js";
 import type * as worlds from "../worlds.js";
 
 import type {
@@ -175,6 +177,8 @@ declare const fullApi: ApiFromModules<{
   seedImports: typeof seedImports;
   shortLinks: typeof shortLinks;
   suppressions: typeof suppressions;
+  temporalParsing: typeof temporalParsing;
+  temporalParsingActions: typeof temporalParsingActions;
   worlds: typeof worlds;
 }>;
 

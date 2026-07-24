@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   isSessionReplayAllowedPathname,
   mirrorPrivateSeedLookupAccess,
+  mirrorTemporalParsingAccess,
   sanitizeAnalyticsUrl,
   sanitizePostHogProperties,
 } from "../../apps/web/src/lib/posthog";
@@ -34,6 +35,7 @@ describe("PostHog privacy", () => {
     assert.equal(isSessionReplayAllowedPathname("/p/dj-example"), true);
     assert.equal(isSessionReplayAllowedPathname("/handoff/secret-token"), false);
     assert.equal(isSessionReplayAllowedPathname("/lookup"), false);
+    assert.equal(isSessionReplayAllowedPathname("/time"), false);
     assert.equal(isSessionReplayAllowedPathname("/account/privacy"), false);
     assert.equal(isSessionReplayAllowedPathname("/sign-in"), false);
   });
@@ -56,6 +58,29 @@ describe("PostHog privacy", () => {
       {
         method: "flags",
         properties: { seed_lookup_beta: "true" },
+        reload: true,
+      },
+    ]);
+  });
+
+  it("mirrors temporal authorization without including user input", () => {
+    const calls: Array<{ method: string; properties: unknown; reload?: boolean }> = [];
+    const posthog = {
+      setPersonProperties(properties: unknown) {
+        calls.push({ method: "person", properties });
+      },
+      setPersonPropertiesForFlags(properties: unknown, reload: boolean) {
+        calls.push({ method: "flags", properties, reload });
+      },
+    };
+
+    mirrorTemporalParsingAccess(posthog as never, true);
+
+    assert.deepEqual(calls, [
+      { method: "person", properties: { temporal_parsing_beta: "true" } },
+      {
+        method: "flags",
+        properties: { temporal_parsing_beta: "true" },
         reload: true,
       },
     ]);

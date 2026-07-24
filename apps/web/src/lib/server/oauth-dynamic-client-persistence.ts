@@ -3,21 +3,7 @@ import type { ApiRouteClass, ApiScope } from "@vrdex/api-contracts";
 import type { ClientCredentialsMutationInput } from "./oauth-token";
 
 export type DynamicMcpClientMutationInput = {
-  allowedScopes: Array<
-    | "public:read"
-    | "profile:read"
-    | "profile:write"
-    | "community:read"
-    | "community:write"
-    | "events:read"
-    | "events:write"
-    | "assets:read"
-    | "assets:write"
-    | "developer:read"
-    | "developer:write"
-    | "mcp:read"
-    | "mcp:write"
-  >;
+  allowedScopes: ApiScope[];
   clientId: string;
   clientName: string;
   clientUri?: string;

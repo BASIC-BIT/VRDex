@@ -12,9 +12,14 @@ export const apiScopes = [
   "developer:write",
   "mcp:read",
   "mcp:write",
+  "time:parse",
 ] as const;
 
 export type ApiScope = (typeof apiScopes)[number];
+
+export const oauthApiScopes = apiScopes.filter(
+  (scope): scope is Exclude<ApiScope, "time:parse"> => scope !== "time:parse",
+);
 
 export const apiRouteClasses = [
   "anonymous_public_read",
@@ -27,6 +32,7 @@ export const apiRouteClasses = [
   "public_write",
   "anonymous_mcp_public_read",
   "authenticated_mcp",
+  "time_parse",
 ] as const;
 
 export type ApiRouteClass = (typeof apiRouteClasses)[number];
