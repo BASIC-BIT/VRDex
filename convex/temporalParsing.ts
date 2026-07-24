@@ -450,23 +450,6 @@ export const getJobForApiOwner = internalQuery({
   },
 });
 
-export const getJobForCurrentUser = query({
-  args: { continuationTokenHash: v.string() },
-  handler: async (ctx, args) => {
-    const user = await requireCurrentUser(ctx);
-    const job = await ctx.db
-      .query("temporalParseJobs")
-      .withIndex("by_continuationTokenHash", (q) =>
-        q.eq("continuationTokenHash", args.continuationTokenHash),
-      )
-      .unique();
-    if (job === null || job.ownerUserId !== user._id) {
-      return null;
-    }
-    return publicJob(job);
-  },
-});
-
 function publicJob(job: Doc<"temporalParseJobs">) {
   return {
     id: job._id,

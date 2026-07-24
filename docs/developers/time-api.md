@@ -104,7 +104,8 @@ curl "https://vrdex.net/api/v0/time/parse/$CONTINUATION_TOKEN" \
 ```
 
 Keep the continuation token private. It expires after 15 minutes. Poll no faster
-than `Retry-After`. Retrieval requires both the continuation token and a
+than `Retry-After`; polling is independently bounded by the authenticated
+public-read rate limit. Retrieval requires both the continuation token and a
 currently valid personal token for the same VRDex account that submitted the
 job. Any valid `time:parse` personal token for that account can continue the
 job after credential rotation.

@@ -89,10 +89,9 @@ describe("API platform review boundaries", () => {
     const temporalContinuation = source("apps/web/src/app/api/v0/time/parse/[continuationToken]/route.ts");
     const temporalSubmission = source("apps/web/src/app/api/v0/time/parse/route.ts");
     assert.match(temporalSubmission, /authorizeTemporalApiRequest\(request\)/);
-    assert.doesNotMatch(temporalSubmission, /consumeSubmissionQuota: false/);
     assert.match(
       temporalContinuation,
-      /authorizeTemporalApiRequest\(request, \{\s*consumeSubmissionQuota: false,/,
+      /authorizeTemporalApiRequest\(request, \{\s*routeClass: "authenticated_public_read",/,
     );
     assert.ok(
       mcpEvaluation.indexOf("increment: false")
@@ -105,6 +104,7 @@ describe("API platform review boundaries", () => {
     const workerDockerfile = source("workers/temporal-inference/Dockerfile");
 
     assert.doesNotMatch(temporalParsing, /export const submitForCurrentUser = mutation/);
+    assert.doesNotMatch(temporalParsing, /export const getJobForCurrentUser = query/);
     assert.match(workerDockerfile, /\btzdata\b/);
     assert.match(workerDockerfile, /\btzdata-legacy\b/);
   });

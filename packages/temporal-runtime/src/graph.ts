@@ -2048,13 +2048,17 @@ function resolveWeekdayAnchor(step: TemporalPlanStep, calendarContext: CalendarC
   const anchor = step.weekdayAnchor ?? 'upcoming';
   const reference = Temporal.Instant.from(calendarContext.referenceInstant).toZonedDateTimeISO(calendarContext.timeZone);
   const targetDay = PLAN_WEEKDAY_INDEX[weekday];
+  const currentWeekDate = reference.toPlainDate().add({
+    days: targetDay - reference.dayOfWeek,
+  });
   const rawDaysUntilUpcoming = (targetDay - reference.dayOfWeek + 7) % 7;
   const daysUntilUpcoming = anchor === 'after_next_ambiguous' && rawDaysUntilUpcoming === 0
     ? 7
     : rawDaysUntilUpcoming;
   const upcomingDate = reference.toPlainDate().add({ days: daysUntilUpcoming });
+  const anchorDate = anchor === 'this' ? currentWeekDate : upcomingDate;
   const candidates = weekdayAnchorOffsets(anchor).map((weeksAfterUpcoming) => {
-    const targetDate = upcomingDate.add({ weeks: weeksAfterUpcoming });
+    const targetDate = anchorDate.add({ weeks: weeksAfterUpcoming });
     const zonedDateTime = targetDate.toZonedDateTime({
       timeZone: calendarContext.timeZone,
       plainTime: Temporal.PlainTime.from('12:00'),

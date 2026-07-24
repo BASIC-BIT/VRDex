@@ -21,7 +21,7 @@ export async function GET(
   }
 
   const authorization = await authorizeTemporalApiRequest(request, {
-    consumeSubmissionQuota: false,
+    routeClass: "authenticated_public_read",
   });
   if (!authorization.ok) {
     return authorization.response;

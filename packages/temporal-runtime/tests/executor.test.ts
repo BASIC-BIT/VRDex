@@ -172,6 +172,25 @@ describe("migrated temporal Plan-IR executor", () => {
     );
   });
 
+  it("resolves this weekday inside the reference week after that day passed", async () => {
+    const result = await execute({
+      outcome: "plans",
+      plans: [{
+        label: "this Monday",
+        finalStep: 0,
+        steps: [{
+          op: "resolve_weekday_anchor",
+          weekday: "monday",
+          weekdayAnchor: "this",
+        }],
+      }],
+    }, "this Monday");
+
+    assert.equal(result.status, "resolved");
+    assert.equal(result.canonical?.isoInstant, "2026-07-20T16:00:00Z");
+    assert.equal(result.canonical?.weekday, "monday");
+  });
+
   it("fails cyclic step references instead of awaiting itself", async () => {
     const result = await execute({
       outcome: "plans",

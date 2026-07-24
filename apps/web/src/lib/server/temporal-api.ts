@@ -1,15 +1,13 @@
 import {
   TemporalIdempotencyHeaderSchema,
+  type ApiRouteClass,
   type TemporalParseRequest,
 } from "@vrdex/api-contracts";
 
 import { internal } from "@convex-generated-api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 
-import {
-  authenticateOptionalApiBearerRequest,
-  evaluateOptionalApiBearerRequest,
-} from "@/lib/server/api-v0";
+import { evaluateOptionalApiBearerRequest } from "@/lib/server/api-v0";
 import { convexAdminHttpClient } from "@/lib/server/convex-http";
 import {
   hashContinuationToken,
@@ -63,14 +61,11 @@ export function parseTemporalIdempotencyKey(request: Request) {
 
 export async function authorizeTemporalApiRequest(
   request: Request,
-  options: { consumeSubmissionQuota?: boolean } = {},
+  options: { routeClass?: ApiRouteClass } = {},
 ) {
-  const authenticate = options.consumeSubmissionQuota === false
-    ? authenticateOptionalApiBearerRequest
-    : evaluateOptionalApiBearerRequest;
-  const evaluation = await authenticate(request, {
+  const evaluation = await evaluateOptionalApiBearerRequest(request, {
     requiredScopes: ["time:parse"],
-    routeClass: "time_parse",
+    routeClass: options.routeClass ?? "time_parse",
   });
   if (!evaluation.ok) {
     return evaluation;
