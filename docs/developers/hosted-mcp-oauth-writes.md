@@ -23,6 +23,10 @@ VRDex follows the MCP authorization specification for Streamable HTTP:
   revocation takes effect before dispatch.
 - Public clients use rotating refresh tokens. Revocation is available at
   `/oauth/revoke`.
+- Native loopback callbacks honor RFC 8252 ephemeral-port behavior. For
+  interoperability, VRDex treats `localhost`, IPv4 loopback, and IPv6 loopback
+  as the same loopback target only when the HTTP scheme, path, and query match;
+  PKCE remains mandatory.
 - Bearer tokens are accepted only in the `Authorization` header. They are never
   forwarded to Convex or `/api/v0`, returned in tool output, or stored in audit
   records.
@@ -36,6 +40,8 @@ tool requires a user-delegated token for the MCP resource with both
 authoritative scope challenge; an invalid token receives `401`; insufficient
 scope or a client-credentials subject receives `403`. Anonymous public reads
 remain available, and authenticated read calls require `mcp:read`.
+Constrained DCR accepts the exact write-only scope pair advertised by those
+tools; requesting only one write scope is rejected.
 
 The canonical `/mcp` URL therefore initializes anonymously. Native clients
 whose explicit login command only starts OAuth after an initial `401` may use
@@ -84,7 +90,8 @@ retry automatically.
 
 - Write traffic uses `authenticated_mcp_write`, limited to 30 requests per
   minute before the normal token/client/user aggregate limits and
-  trusted-partner policy.
+  trusted-partner policy. A JSON-RPC batch may contain at most one hosted event
+  write, so one accepted request cannot bypass the per-write throttle.
 - `apiWriteAuditEvents` records the accepted mutation, owner, client ID, token
   ID, request ID, tool, idempotency hash, and target IDs.
 - `mcpToolEvents` records accepted, denied, indeterminate, or readback-warning outcomes
@@ -106,7 +113,7 @@ retry automatically.
 | Duplicate mutation after timeout | Transactional user/client/tool/key receipt plus request fingerprint; no automatic retry |
 | Shared-secret blast radius | No master MCP credential and no bearer forwarding |
 | Secret/content disclosure | Sanitized errors and attribution-only logs; no token, raw idempotency key, or event body persistence |
-| Metadata or redirect abuse | Exact redirect matching, PKCE, CIMD size/deadline/address restrictions, and constrained DCR |
+| Metadata or redirect abuse | Exact HTTPS redirect matching; path/query-bound native loopback matching with PKCE; CIMD size/deadline/address restrictions; constrained DCR |
 
 ## Verification and client compatibility
 
@@ -115,14 +122,15 @@ Automated coverage must prove:
 - default-off tool and metadata omission;
 - exact `401`/`403` scope challenges, wrong-resource/expired/revoked rejection,
   and client-credentials rejection;
-- conditional DCR and CIMD scope policy;
+- conditional DCR and CIMD scope policy, including the advertised write-only
+  scope pair;
 - per-request `AuthInfo` plumbing with no raw token/key reaching Convex;
 - durable ownership rejection;
 - create/update omission and null behavior;
 - exact replay, fingerprint conflict, and client namespace isolation;
 - accepted public readback, readback warning, and indeterminate/no-retry text;
-- write rate policy, audit attribution, content-safe event records, and rollback
-  to the anonymous-read-only surface.
+- write rate policy, multi-write batch rejection, audit attribution,
+  content-safe event records, and rollback to the anonymous-read-only surface.
 
 Before production activation, run the same staged authorization-code flow and a
 non-Faceless disposable event against current Codex, Claude, and OpenClaw
@@ -135,7 +143,7 @@ session. No matrix row may be marked pass from protocol simulation alone.
 
 For explicit-login clients, configure the staged server URL as
 `https://staging.vrdex.net/mcp?auth=required`, request
-`mcp:read public:read mcp:write events:write`, and confirm the resulting token
+`mcp:read mcp:write events:write`, and confirm the resulting token
 is still issued for `https://staging.vrdex.net/mcp`.
 
 The `Staging Deploy` workflow keeps the feature off unless a manual dispatch
@@ -156,3 +164,4 @@ Primary standards:
 - [MCP tools](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)
 - [OAuth Protected Resource Metadata (RFC 9728)](https://www.rfc-editor.org/rfc/rfc9728)
 - [OAuth Resource Indicators (RFC 8707)](https://www.rfc-editor.org/rfc/rfc8707)
+- [OAuth for Native Apps (RFC 8252)](https://www.rfc-editor.org/rfc/rfc8252)

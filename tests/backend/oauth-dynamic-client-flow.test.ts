@@ -47,4 +47,35 @@ describe("OAuth dynamic client authorization", () => {
     assert.equal(resolved.ok, true);
     assert.equal(resolved.redirectUri, redirectUri);
   });
+
+  it("accepts a native client's loopback host and ephemeral port at authorization", async () => {
+    const t = convexTest({ schema, modules });
+    const clientId = "vrdx_app_89abcdef0123456701234567";
+    const registeredRedirectUri = "http://localhost:1455/oauth/callback";
+    const requestedRedirectUri = "http://127.0.0.1:8989/oauth/callback";
+    const resource = "https://staging.vrdex.net/mcp";
+
+    await t.mutation(internal.oauthApps.createDynamicMcpClient, {
+      clientId,
+      clientName: "OpenClaw MCP",
+      redirectUris: [registeredRedirectUri],
+      grantTypes: ["authorization_code", "refresh_token"],
+      responseTypes: ["code"],
+      tokenEndpointAuthMethod: "none",
+      contacts: [],
+      allowedScopes: ["mcp:read", "mcp:write", "events:write"],
+      allowEventWrites: true,
+      resource,
+    });
+
+    const resolved = await t.query(internal.oauthApps.resolveAuthorizationClient, {
+      clientId,
+      redirectUri: requestedRedirectUri,
+      requestedScopes: ["mcp:read", "mcp:write", "events:write"],
+      resource,
+    });
+
+    assert.equal(resolved.ok, true);
+    assert.equal(resolved.redirectUri, requestedRedirectUri);
+  });
 });

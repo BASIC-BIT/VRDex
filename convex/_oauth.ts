@@ -287,6 +287,25 @@ export function normalizeOAuthRedirectUris(values: readonly string[]) {
   return [...new Set(redirectUris)];
 }
 
+export function oauthRedirectUriMatches(registeredRedirectUri: string, requestedRedirectUri: string) {
+  const [registered] = normalizeOAuthRedirectUris([registeredRedirectUri]);
+  const [requested] = normalizeOAuthRedirectUris([requestedRedirectUri]);
+
+  if (registered === requested) {
+    return true;
+  }
+
+  const registeredUrl = new URL(registered);
+  const requestedUrl = new URL(requested);
+
+  return registeredUrl.protocol === "http:"
+    && requestedUrl.protocol === "http:"
+    && isLoopbackHostname(registeredUrl.hostname)
+    && isLoopbackHostname(requestedUrl.hostname)
+    && registeredUrl.pathname === requestedUrl.pathname
+    && registeredUrl.search === requestedUrl.search;
+}
+
 export function normalizeOAuthScopes(scopes: readonly string[] | undefined): ApiScope[] {
   const requested = scopes === undefined || scopes.length === 0 ? ["public:read"] : scopes;
   const uniqueScopes = [...new Set(requested)];
@@ -435,8 +454,19 @@ export function normalizeDynamicMcpScopes(
     throw new Error(`Dynamic MCP clients can only request ${supportedScopes}.`);
   }
 
-  if (!normalizedScopes.includes("mcp:read")) {
-    throw new Error("Dynamic MCP clients must request mcp:read.");
+  const writeScopesRequested = normalizedScopes.some((scope) =>
+    dynamicMcpEventWriteScopes.has(scope)
+  );
+  const completeWriteScopePair = [...dynamicMcpEventWriteScopes].every((scope) =>
+    normalizedScopes.includes(scope)
+  );
+
+  if (writeScopesRequested && !completeWriteScopePair) {
+    throw new Error("Dynamic MCP event-write clients must request both mcp:write and events:write.");
+  }
+
+  if (!normalizedScopes.includes("mcp:read") && !completeWriteScopePair) {
+    throw new Error("Dynamic MCP clients must request mcp:read or both mcp:write and events:write.");
   }
 
   return normalizedScopes;

@@ -41,6 +41,7 @@ import {
   normalizeOAuthScopes,
   normalizeOAuthSoftwareValue,
   normalizeOAuthTokenExpiry,
+  oauthRedirectUriMatches,
   oauthAccessTokenValidationEventMetadata,
   oauthClientSecretHashVersion,
   oauthCodeChallengeMethodValidator,
@@ -511,7 +512,8 @@ async function resolvePublicAuthorizationClient(
       return { ok: false as const, reason: "invalid_client" as const };
     }
 
-    if (!application.redirectUris.includes(redirectUri)) {
+    if (!application.redirectUris.some((registeredRedirectUri) =>
+      oauthRedirectUriMatches(registeredRedirectUri, redirectUri))) {
       return {
         ok: false as const,
         reason: "invalid_redirect_uri" as const,
@@ -542,7 +544,8 @@ async function resolvePublicAuthorizationClient(
     return { ok: false as const, reason: "invalid_client" as const };
   }
 
-  if (!dynamicClient.redirectUris.includes(redirectUri)) {
+  if (!dynamicClient.redirectUris.some((registeredRedirectUri) =>
+    oauthRedirectUriMatches(registeredRedirectUri, redirectUri))) {
     return {
       ok: false as const,
       reason: "invalid_redirect_uri" as const,

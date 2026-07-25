@@ -175,6 +175,39 @@ describe("OAuth dynamic client registration", () => {
     }
   });
 
+  it("accepts the exact write-only scope pair advertised by hosted write tools", async () => {
+    const previous = process.env.VRDEX_HOSTED_MCP_EVENT_WRITES;
+    const mutationInputs: DynamicMcpClientMutationInput[] = [];
+
+    try {
+      process.env.VRDEX_HOSTED_MCP_EVENT_WRITES = "true";
+      const response = await dynamicMcpClientRegistrationResponse(
+        registrationRequest({
+          client_name: "OpenClaw",
+          redirect_uris: ["http://localhost:1455/callback"],
+          scope: "mcp:write events:write",
+        }),
+        {
+          checkRateLimit: async () => allowedRateLimit,
+          createClientId: () => "vrdx_app_2123456789abcdef01234567",
+          registerDynamicMcpClient: async (input) => {
+            mutationInputs.push(input);
+            return { ...input, createdAt: 1_700_000_000_123 };
+          },
+        },
+      );
+
+      assert.equal(response.status, 201);
+      assert.deepEqual(mutationInputs[0]?.allowedScopes, ["mcp:write", "events:write"]);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.VRDEX_HOSTED_MCP_EVENT_WRITES;
+      } else {
+        process.env.VRDEX_HOSTED_MCP_EVENT_WRITES = previous;
+      }
+    }
+  });
+
   it("blocks normalized client metadata before persisting a dynamic registration", async () => {
     let mutationCalled = false;
     const blockedKinds: string[] = [];

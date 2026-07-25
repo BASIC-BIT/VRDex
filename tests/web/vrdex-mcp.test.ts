@@ -541,6 +541,78 @@ describe("VRDex MCP server", () => {
     assert.match(output, /scope="mcp:read mcp:write events:write"/);
   });
 
+  it("rejects authenticated batches containing multiple hosted event writes", () => {
+    const output = runMcpProbe(`
+      import { generateKeyPairSync } from "node:crypto";
+      import { createOAuthAccessTokenId, signOAuthAccessToken } from "./apps/web/src/lib/server/oauth-jwt.ts";
+      import { authorizeHostedMcpRequest } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+      process.env.VRDEX_HOSTED_MCP_EVENT_WRITES = "true";
+      process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY =
+        privateKey.export({ format: "pem", type: "pkcs8" }).toString();
+      process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID = "test-key";
+      process.env.VRDEX_RATE_LIMIT_STORE = "memory";
+      const now = Math.floor(Date.now() / 1000);
+      const accessToken = signOAuthAccessToken({
+        aud: "https://app.example.test/mcp",
+        client_id: "vrdx_app_0123456789abcdef01234567",
+        exp: now + 60,
+        iat: now,
+        iss: "https://app.example.test",
+        jti: createOAuthAccessTokenId(),
+        scope: "mcp:write events:write",
+        sub: "user_123",
+      });
+      const authorization = await authorizeHostedMcpRequest(new Request("https://app.example.test/mcp", {
+        method: "POST",
+        headers: {
+          authorization: \`Bearer \${accessToken}\`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify([
+          {
+            jsonrpc: "2.0",
+            id: 1,
+            method: "tools/call",
+            params: {
+              name: "vrdex_event_create",
+              arguments: { idempotencyKey: "create-key-123" },
+            },
+          },
+          {
+            jsonrpc: "2.0",
+            id: 2,
+            method: "tools/call",
+            params: {
+              name: "vrdex_event_update",
+              arguments: { idempotencyKey: "update-key-123", slug: "event", update: {} },
+            },
+          },
+        ]),
+      }), {
+        validateAccessTokenRecord: async (input) => ({
+          ok: true,
+          accessTokenRecordId: "token_record_123",
+          clientId: input.clientId,
+          dynamicClientId: "dynamic_client_123",
+          resource: input.resource,
+          scopes: ["mcp:write", "events:write"],
+          subjectType: "user",
+          tokenId: input.tokenId,
+          trustTier: "standard",
+          userId: "user_123",
+        }),
+      });
+
+      console.log(authorization.response?.status);
+      console.log(await authorization.response?.text());
+    `);
+
+    assert.match(output, /^400/m);
+    assert.match(output, /MCP batches may contain at most one hosted event write/);
+  });
+
   it("rejects declared oversized MCP bodies before parsing", () => {
     const output = runMcpProbe(`
       import { authorizeHostedMcpRequest } from "./apps/web/src/lib/server/vrdex-mcp.ts";

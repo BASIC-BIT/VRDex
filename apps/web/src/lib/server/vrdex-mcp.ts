@@ -1051,8 +1051,11 @@ export async function authorizeHostedMcpRequest(
   }
 
   const toolNames = parsedRequest.toolNames;
-  const eventWriteRequested =
-    eventWrites && toolNames.some((toolName) => mcpEventWriteToolNameSet.has(toolName));
+  const eventWriteCallCount =
+    eventWrites
+      ? toolNames.filter((toolName) => mcpEventWriteToolNameSet.has(toolName)).length
+      : 0;
+  const eventWriteRequested = eventWriteCallCount > 0;
   const readToolRequested = toolNames.some((toolName) => !mcpEventWriteToolNameSet.has(toolName));
   const requiredScopes: readonly ApiScope[] =
     eventWriteRequested && readToolRequested
@@ -1143,6 +1146,17 @@ export async function authorizeHostedMcpRequest(
   }
 
   if (rateLimit.allowed) {
+    if (eventWriteCallCount > 1) {
+      return {
+        response: mcpJsonRpcError(
+          400,
+          -32600,
+          "MCP batches may contain at most one hosted event write.",
+        ),
+        routeClass,
+      };
+    }
+
     return {
       response: null,
       routeClass,

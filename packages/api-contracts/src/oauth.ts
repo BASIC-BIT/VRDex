@@ -416,8 +416,19 @@ export function normalizeDynamicMcpClientRegistration(
     throw new Error(`Dynamic MCP clients can only request ${supportedScopes.join(" ")}.`);
   }
 
-  if (!allowedScopes.includes("mcp:read")) {
-    throw new Error("Dynamic MCP clients must request mcp:read.");
+  const writeScopesRequested = allowedScopes.some((scope) =>
+    (dynamicMcpEventWriteScopes as readonly ApiScope[]).includes(scope)
+  );
+  const completeWriteScopePair = dynamicMcpEventWriteScopes.every((scope) =>
+    allowedScopes.includes(scope)
+  );
+
+  if (writeScopesRequested && !completeWriteScopePair) {
+    throw new Error("Dynamic MCP event-write clients must request both mcp:write and events:write.");
+  }
+
+  if (!allowedScopes.includes("mcp:read") && !completeWriteScopePair) {
+    throw new Error("Dynamic MCP clients must request mcp:read or both mcp:write and events:write.");
   }
 
   if (!grantTypes.includes("authorization_code")) {
