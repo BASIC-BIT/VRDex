@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   parseClaimEntrySource,
   profileClaimPath,
+  profileClaimSlugFromInput,
 } from "../../apps/web/src/lib/profile-claim";
 import { normalizeVrchatTargetId } from "../../convex/_vrchatIdentity";
 
@@ -17,6 +18,12 @@ describe("profile claim navigation", () => {
     assert.equal(parseClaimEntrySource("account"), "account");
     assert.equal(parseClaimEntrySource("search"), "search");
     assert.equal(parseClaimEntrySource("unknown"), "profile");
+  });
+
+  it("preserves legacy profile link parsing before redirecting", () => {
+    assert.equal(profileClaimSlugFromInput("https://vrdex.net/p/dj-celine"), "dj-celine");
+    assert.equal(profileClaimSlugFromInput("/c/afterglow-social?ref=account"), "afterglow-social");
+    assert.equal(profileClaimSlugFromInput("dj-basic"), "dj-basic");
   });
 });
 

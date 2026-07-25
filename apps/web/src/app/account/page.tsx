@@ -1,7 +1,7 @@
 import { AccountPanel } from "./account-panel";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 import { redirect } from "next/navigation";
-import { profileClaimPath } from "@/lib/profile-claim";
+import { profileClaimPath, profileClaimSlugFromInput } from "@/lib/profile-claim";
 
 export default async function AccountPage({
   searchParams,
@@ -10,8 +10,9 @@ export default async function AccountPage({
 }) {
   const resolvedSearchParams = await searchParams;
   const rawClaim = resolvedSearchParams.claim;
-  const defaultClaimSlug =
-    (Array.isArray(rawClaim) ? rawClaim[0] : rawClaim)?.trim().slice(0, 120) ?? "";
+  const defaultClaimSlug = profileClaimSlugFromInput(
+    (Array.isArray(rawClaim) ? rawClaim[0] : rawClaim)?.slice(0, 240) ?? "",
+  );
 
   if (defaultClaimSlug) {
     redirect(profileClaimPath(defaultClaimSlug, "account"));

@@ -198,10 +198,23 @@ export function ClaimFlow({
         return;
       }
 
-      await requestCommunityClaim({
+      const result = await requestCommunityClaim({
         profileSlug: profile.slug,
         discordGuildId: String(form.get("discordGuildId") ?? ""),
       });
+      if (result.state === "already_owned") {
+        setStatus({
+          kind: "complete",
+          message: "This community is already yours.",
+          verified: true,
+        });
+        captureProductEvent(posthog, "claim_completed", {
+          method,
+          outcome: "already_owned",
+          profile_type: profile.profileType,
+        });
+        return;
+      }
       setStatus({ kind: "notice", message: "Discord check ready. Finish the permission check below." });
     } catch (error) {
       setStatus({ kind: "error", message: errorMessage(error) });
@@ -408,8 +421,8 @@ export function ClaimFlow({
                 <p className="mt-2 break-all text-sm text-muted">{context.pendingProof.targetExternalId}</p>
                 <CopyValueRow className="mt-4" label="Proof code" value={context.pendingProof.proofCode} />
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <Button variant="primary" onClick={() => void checkProof(context.pendingProof!.id)}>Check proof now</Button>
-                  <Button variant="ghost" onClick={() => void startOver("proof")}>Start over</Button>
+                  <Button disabled={status.kind === "working"} variant="primary" onClick={() => void checkProof(context.pendingProof!.id)}>Check proof now</Button>
+                  <Button disabled={status.kind === "working"} variant="ghost" onClick={() => void startOver("proof")}>Start over</Button>
                 </div>
               </div>
             ) : context.pendingClaimRequest && !isUnverifiedViewer ? (
@@ -422,8 +435,8 @@ export function ClaimFlow({
                   <p className="mt-2 break-all text-sm text-muted">Server ID: {context.pendingClaimRequest.discordGuildId}</p>
                 ) : null}
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <Button variant="primary" onClick={() => void checkDiscord(context.pendingClaimRequest!.id)}>Check Discord access</Button>
-                  <Button variant="ghost" onClick={() => void startOver("claim_request")}>Start over</Button>
+                  <Button disabled={status.kind === "working"} variant="primary" onClick={() => void checkDiscord(context.pendingClaimRequest!.id)}>Check Discord access</Button>
+                  <Button disabled={status.kind === "working"} variant="ghost" onClick={() => void startOver("claim_request")}>Start over</Button>
                 </div>
               </div>
             ) : (
