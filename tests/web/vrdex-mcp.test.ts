@@ -382,6 +382,62 @@ describe("VRDex MCP server", () => {
     assert.match(output, /OAuth bearer token is required for hosted MCP event writes/);
   });
 
+  it("offers an explicit OAuth bootstrap without disabling canonical anonymous reads", () => {
+    const output = runMcpProbe(`
+      import { authorizeHostedMcpRequest } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      const body = JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          capabilities: {},
+          clientInfo: { name: "compatibility-test", version: "1.0.0" },
+          protocolVersion: "2025-11-25",
+        },
+      });
+      const canonical = await authorizeHostedMcpRequest(new Request("https://app.example.test/mcp", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+      }));
+      const explicit = await authorizeHostedMcpRequest(new Request(
+        "https://app.example.test/mcp?auth=required",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body,
+        },
+      ));
+
+      console.log(JSON.stringify({
+        canonical: {
+          response: canonical.response,
+          routeClass: canonical.routeClass,
+        },
+        explicit: {
+          status: explicit.response?.status,
+          challenge: explicit.response?.headers.get("www-authenticate"),
+          routeClass: explicit.routeClass,
+        },
+      }));
+    `);
+    const result = JSON.parse(output) as {
+      canonical: { response: null; routeClass: string };
+      explicit: { challenge: string; routeClass: string; status: number };
+    };
+
+    assert.equal(result.canonical.response, null);
+    assert.equal(result.canonical.routeClass, "anonymous_mcp_public_read");
+    assert.equal(result.explicit.status, 401);
+    assert.equal(result.explicit.routeClass, "anonymous_mcp_public_read");
+    assert.match(result.explicit.challenge, /scope="mcp:read"/);
+    assert.match(
+      result.explicit.challenge,
+      /resource_metadata="https:\/\/app\.example\.test\/\.well-known\/oauth-protected-resource\/mcp"/,
+    );
+  });
+
   it("returns an authoritative 403 challenge before dispatch for under-scoped write tokens", () => {
     const output = runMcpProbe(`
       import { generateKeyPairSync } from "node:crypto";

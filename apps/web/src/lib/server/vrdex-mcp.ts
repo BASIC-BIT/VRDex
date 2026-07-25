@@ -161,6 +161,10 @@ export function hostedMcpAnonymousPublicReadsEnabled(
   throw new Error("VRDEX_HOSTED_MCP_ANONYMOUS_READS must be true or false when set.");
 }
 
+function hostedMcpExplicitAuthenticationRequested(request: Request) {
+  return new URL(request.url).searchParams.get("auth") === "required";
+}
+
 function mcpReadToolMeta(anonymousPublicReads: boolean) {
   return {
     securitySchemes: anonymousPublicReads
@@ -1018,6 +1022,9 @@ export async function authorizeHostedMcpRequest(
   }
 
   const bearerToken = getBearerTokenFromAuthorizationHeader(request.headers.get("authorization"));
+  const anonymousPublicReads =
+    hostedMcpAnonymousPublicReadsEnabled()
+    && !hostedMcpExplicitAuthenticationRequested(request);
   const blockedBeforeBodyRead = await rateLimitMcpAuthenticationFailure(request, null, {
     increment: false,
   });
@@ -1059,7 +1066,7 @@ export async function authorizeHostedMcpRequest(
 
   if (
     bearerToken === null
-    && (eventWriteRequested || !hostedMcpAnonymousPublicReadsEnabled())
+    && (eventWriteRequested || !anonymousPublicReads)
   ) {
     const response = await rateLimitMcpAuthenticationFailure(
       request,

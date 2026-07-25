@@ -37,6 +37,14 @@ authoritative scope challenge; an invalid token receives `401`; insufficient
 scope or a client-credentials subject receives `403`. Anonymous public reads
 remain available, and authenticated read calls require `mcp:read`.
 
+The canonical `/mcp` URL therefore initializes anonymously. Native clients
+whose explicit login command only starts OAuth after an initial `401` may use
+`/mcp?auth=required`. That opt-in bootstrap URL requires `mcp:read` at
+connection time while keeping the token audience and protected resource bound
+to canonical `/mcp`; it does not create a second MCP resource or change
+anonymous behavior at the canonical URL. Protected write calls still require
+both write scopes per call.
+
 The SDK receives `AuthInfo` only after VRDex verifies the token. The raw token
 is present in process memory solely because the SDK contract requires it.
 Callbacks use only sanitized `extra` fields: durable user ID, OAuth client ID,
@@ -124,6 +132,11 @@ replay, one update, and public readback. A client that does not perform lazy
 `401`/`403` step-up may use its explicit MCP login command; it is a blocker only
 if neither native discovery nor explicit login can establish the scoped
 session. No matrix row may be marked pass from protocol simulation alone.
+
+For explicit-login clients, configure the staged server URL as
+`https://staging.vrdex.net/mcp?auth=required`, request
+`mcp:read public:read mcp:write events:write`, and confirm the resulting token
+is still issued for `https://staging.vrdex.net/mcp`.
 
 The `Staging Deploy` workflow keeps the feature off unless a manual dispatch
 explicitly selects `hosted_mcp_event_writes`. Use that staging-only switch for
