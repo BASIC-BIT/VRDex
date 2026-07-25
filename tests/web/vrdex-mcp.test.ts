@@ -1081,15 +1081,22 @@ describe("VRDex MCP server", () => {
         eventWrites: true,
         authInfo,
         adminConvex: { mutation: async () => write },
-        convex: { query: async () => ({ slug: "afterglow-night" }) },
+        convex: { query: async () => ({ id: "event_123", slug: "afterglow-night" }) },
       }), 10);
+      const mismatchedReadback = await call(createVrdexMcpHandler({
+        eventWrites: true,
+        authInfo,
+        adminConvex: { mutation: async () => write },
+        convex: { query: async () => ({ id: "event_other", slug: "afterglow-night" }) },
+      }), 11);
 
-      console.log(JSON.stringify({ denied, indeterminate, malformedReadback, readback }));
+      console.log(JSON.stringify({ denied, indeterminate, malformedReadback, mismatchedReadback, readback }));
     `);
     const result = JSON.parse(output) as {
       denied: string;
       indeterminate: string;
       malformedReadback: string;
+      mismatchedReadback: string;
       readback: string;
     };
 
@@ -1104,6 +1111,9 @@ describe("VRDex MCP server", () => {
     assert.match(result.malformedReadback, /accepted the event write/);
     assert.match(result.malformedReadback, /did not match the public response contract/);
     assert.match(result.malformedReadback, /Do not retry the mutation automatically/);
+    assert.match(result.mismatchedReadback, /accepted the event write/);
+    assert.match(result.mismatchedReadback, /public event readback did not match the saved event/);
+    assert.match(result.mismatchedReadback, /Do not retry the mutation automatically/);
   });
 
   it("rejects write callbacks without a user-delegated scoped principal", () => {

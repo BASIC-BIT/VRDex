@@ -159,5 +159,38 @@ describe("OAuth dynamic client authorization", () => {
     assert.deepEqual(replay, { ok: false, reason: "invalid_transaction" });
     const authorizationCodes = await t.run(async (ctx) => await ctx.db.query("oauthAuthorizationCodes").collect());
     assert.equal(authorizationCodes.length, 1);
+
+    const wrongPort = await t.mutation(internal.oauthApps.consumeAuthorizationCode, {
+      clientId,
+      codeHash: "d".repeat(64),
+      redirectUri: "http://localhost:8990/oauth/callback",
+      resource,
+      derivedCodeChallenge: codeChallenge,
+      tokenId: `vrdx_at_${"1".repeat(32)}`,
+      expiresAt: now + 60_000,
+      refreshTokenHash: "2".repeat(64),
+      refreshTokenExpiresAt: now + 120_000,
+    });
+
+    assert.equal(wrongPort.ok, false);
+    assert.equal(wrongPort.rejectionReason, "redirect_mismatch");
+
+    const loopbackAlias = await t.mutation(internal.oauthApps.consumeAuthorizationCode, {
+      clientId,
+      codeHash: "d".repeat(64),
+      redirectUri: "http://localhost:8989/oauth/callback",
+      resource,
+      derivedCodeChallenge: codeChallenge,
+      tokenId: `vrdx_at_${"3".repeat(32)}`,
+      expiresAt: now + 60_000,
+      refreshTokenHash: "4".repeat(64),
+      refreshTokenExpiresAt: now + 120_000,
+    });
+
+    assert.equal(loopbackAlias.ok, true);
+    assert.equal(
+      (await t.run(async (ctx) => await ctx.db.query("oauthAuthorizationCodes").unique()))?.status,
+      "consumed",
+    );
   });
 });

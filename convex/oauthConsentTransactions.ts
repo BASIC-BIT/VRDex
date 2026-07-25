@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { OAUTH_CONSENT_TRANSACTION_TTL_MS } from "../packages/api-contracts/src/oauth";
 
 import { apiScopeValidator, type ApiScope } from "./_apiTokens";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, query } from "./_generated/server";
 import {
   normalizeOAuthClientId,
   normalizeOAuthCodeChallenge,
@@ -42,8 +42,9 @@ function transactionAuthorization(transaction: {
   };
 }
 
-export const create = mutation({
+export const create = internalMutation({
   args: {
+    userId: v.id("users"),
     transactionHash: v.string(),
     clientId: v.string(),
     redirectUri: v.string(),
@@ -55,7 +56,6 @@ export const create = mutation({
     expiresAt: v.number(),
   },
   handler: async (ctx, args) => {
-    const user = await requireCurrentUser(ctx);
     const now = Date.now();
     const transactionHash = normalizeOAuthConsentTransactionHash(args.transactionHash);
 
@@ -74,14 +74,14 @@ export const create = mutation({
 
     const expiredTransactions = await ctx.db
       .query("oauthConsentTransactions")
-      .withIndex("by_userId_expiresAt", (index) => index.eq("userId", user._id).lte("expiresAt", now))
+      .withIndex("by_userId_expiresAt", (index) => index.eq("userId", args.userId).lte("expiresAt", now))
       .take(20);
 
     await Promise.all(expiredTransactions.map(async (transaction) => await ctx.db.delete(transaction._id)));
 
     const activeTransactions = await ctx.db
       .query("oauthConsentTransactions")
-      .withIndex("by_userId_expiresAt", (index) => index.eq("userId", user._id).gt("expiresAt", now))
+      .withIndex("by_userId_expiresAt", (index) => index.eq("userId", args.userId).gt("expiresAt", now))
       .take(10);
 
     if (activeTransactions.length >= 10) {
@@ -90,7 +90,7 @@ export const create = mutation({
 
     await ctx.db.insert("oauthConsentTransactions", {
       transactionHash,
-      userId: user._id,
+      userId: args.userId,
       clientId: normalizeOAuthClientId(args.clientId),
       redirectUri: normalizeOAuthRedirectUris([args.redirectUri])[0],
       resource: normalizeOAuthResourceUri(args.resource),

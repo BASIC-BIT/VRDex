@@ -32,6 +32,7 @@ import {
   normalizeOAuthRevokeReason,
   oauthAccessTokenValidationEventMetadata,
   oauthRedirectUriMatches,
+  oauthTokenRedirectUriMatches,
   validateOAuthAccessTokenRecord,
 } from "../../convex/_oauth";
 
@@ -180,6 +181,41 @@ describe("OAuth application helpers", () => {
       oauthRedirectUriMatches(
         "https://client.example.test/callback",
         "https://client.example.test:444/callback",
+      ),
+      false,
+    );
+    assert.equal(
+      oauthTokenRedirectUriMatches(
+        "http://127.0.0.1:8989/oauth/callback",
+        "http://localhost:8989/oauth/callback",
+      ),
+      true,
+    );
+    assert.equal(
+      oauthTokenRedirectUriMatches(
+        "http://127.0.0.1:8989/oauth/callback",
+        "http://localhost:8990/oauth/callback",
+      ),
+      false,
+    );
+    assert.equal(
+      oauthTokenRedirectUriMatches(
+        "http://127.0.0.1:8989/oauth/callback",
+        "http://localhost:8989/other",
+      ),
+      false,
+    );
+    assert.equal(
+      oauthTokenRedirectUriMatches(
+        "http://127.0.0.1:8989/oauth/callback?client=openclaw",
+        "http://localhost:8989/oauth/callback?client=other",
+      ),
+      false,
+    );
+    assert.equal(
+      oauthTokenRedirectUriMatches(
+        "https://client.example.test/callback",
+        "https://other.example.test/callback",
       ),
       false,
     );

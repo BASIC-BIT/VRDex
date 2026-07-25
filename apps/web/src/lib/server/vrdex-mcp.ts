@@ -1541,7 +1541,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
           return mcpEventReadbackError(write);
         }
 
-        if (event === null) {
+        if (event === null || event.id !== write.eventId) {
           await recordHostedMcpWriteInvocation({
             idempotencyKeyHash,
             principal,
@@ -1549,7 +1549,12 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
             targetEventId: write.eventId as Id<"events">,
             toolName: "vrdex_event_create",
           });
-          return mcpEventReadbackError(write, "The saved event is not publicly readable yet.");
+          return mcpEventReadbackError(
+            write,
+            event === null
+              ? "The saved event is not publicly readable yet."
+              : "The public event readback did not match the saved event.",
+          );
         }
 
         let result: ReturnType<typeof mcpJsonResult<z.infer<typeof mcpEventWriteResultSchema>>>;
@@ -1645,7 +1650,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
           return mcpEventReadbackError(write);
         }
 
-        if (event === null) {
+        if (event === null || event.id !== write.eventId) {
           await recordHostedMcpWriteInvocation({
             idempotencyKeyHash,
             principal,
@@ -1653,7 +1658,12 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
             targetEventId: write.eventId as Id<"events">,
             toolName: "vrdex_event_update",
           });
-          return mcpEventReadbackError(write, "The saved event is not publicly readable yet.");
+          return mcpEventReadbackError(
+            write,
+            event === null
+              ? "The saved event is not publicly readable yet."
+              : "The public event readback did not match the saved event.",
+          );
         }
 
         let result: ReturnType<typeof mcpJsonResult<z.infer<typeof mcpEventWriteResultSchema>>>;

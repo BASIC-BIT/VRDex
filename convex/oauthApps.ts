@@ -42,6 +42,7 @@ import {
   normalizeOAuthSoftwareValue,
   normalizeOAuthTokenExpiry,
   oauthRedirectUriMatches,
+  oauthTokenRedirectUriMatches,
   oauthAccessTokenValidationEventMetadata,
   oauthClientSecretHashVersion,
   oauthCodeChallengeMethodValidator,
@@ -1642,7 +1643,7 @@ export const consumeAuthorizationCode = internalMutation({
     const rejectionReason =
       code.clientId !== clientId
         ? "client_mismatch" as const
-        : code.redirectUri !== redirectUri
+        : !oauthTokenRedirectUriMatches(code.redirectUri, redirectUri)
           ? "redirect_mismatch" as const
           : requestedResource !== undefined && code.resource !== requestedResource
             ? "resource_mismatch" as const

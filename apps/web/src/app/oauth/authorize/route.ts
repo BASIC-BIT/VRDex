@@ -160,6 +160,11 @@ export async function GET(request: Request) {
   const userConvex = convexHttpClient();
 
   userConvex.setAuth(authToken);
+  const viewer = await userConvex.query(api.accounts.viewer, {});
+
+  if (viewer === null) {
+    return oauthAuthorizeProblemRedirect(request, "server_error");
+  }
 
   const client = await convexAdminHttpClient().query(internal.oauthApps.resolveAuthorizationClient, {
     clientId: authorization.clientId,
@@ -204,7 +209,8 @@ export async function GET(request: Request) {
   const transaction = createOAuthConsentTransactionValue();
 
   try {
-    await userConvex.mutation(api.oauthConsentTransactions.create, {
+    await convexAdminHttpClient().mutation(internal.oauthConsentTransactions.create, {
+      userId: viewer.user.id,
       transactionHash: await hashOAuthConsentTransactionValue(transaction),
       clientId: authorization.clientId,
       redirectUri: authorization.redirectUri,

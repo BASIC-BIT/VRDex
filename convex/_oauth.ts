@@ -306,6 +306,26 @@ export function oauthRedirectUriMatches(registeredRedirectUri: string, requested
     && registeredUrl.search === requestedUrl.search;
 }
 
+export function oauthTokenRedirectUriMatches(authorizationRedirectUri: string, tokenRedirectUri: string) {
+  const [authorization] = normalizeOAuthRedirectUris([authorizationRedirectUri]);
+  const [tokenRequest] = normalizeOAuthRedirectUris([tokenRedirectUri]);
+
+  if (authorization === tokenRequest) {
+    return true;
+  }
+
+  const authorizationUrl = new URL(authorization);
+  const tokenRequestUrl = new URL(tokenRequest);
+
+  return authorizationUrl.protocol === "http:"
+    && tokenRequestUrl.protocol === "http:"
+    && isLoopbackHostname(authorizationUrl.hostname)
+    && isLoopbackHostname(tokenRequestUrl.hostname)
+    && authorizationUrl.port === tokenRequestUrl.port
+    && authorizationUrl.pathname === tokenRequestUrl.pathname
+    && authorizationUrl.search === tokenRequestUrl.search;
+}
+
 export function normalizeOAuthScopes(scopes: readonly string[] | undefined): ApiScope[] {
   const requested = scopes === undefined || scopes.length === 0 ? ["public:read"] : scopes;
   const uniqueScopes = [...new Set(requested)];
