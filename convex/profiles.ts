@@ -10,7 +10,6 @@ import {
   recordApiWriteAuditEvent,
 } from "./_apiWriteAuditEvents";
 import { toPublicProfileAppearance } from "./_profileAppearance";
-import { toProfileLookupResult } from "./_profileLookup";
 import {
   consumeProfileAssetUploads,
   getProfileAssetDisplayPreference,
@@ -23,12 +22,10 @@ import { sanitizeCommunitySubmissionProfileInput } from "./_profileSubmissions";
 import { getPublicProfileWorldCredits } from "./_profileWorldCredits";
 import {
   createProfileSearchDocument,
-  normalizeSearchQuery,
-  sortSearchResults,
-  toPublicSearchResult,
   upsertSearchDocument,
   vocabularyForProfile,
 } from "./_searchDocuments";
+import { searchPublicDocuments } from "./_publicSearch";
 import { ensureShortLinkForTarget } from "./_shortLinks";
 import { recordVocabularyTerms } from "./_vocabulary";
 import { userOwnsProfile } from "./_profileOwnership";
@@ -277,38 +274,22 @@ export const lookupPeople = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const searchText = normalizeSearchQuery(args.query);
     const limit = boundedLimit(args.limit, PROFILE_LOOKUP_RESULT_LIMIT, 25);
-
-    if (!searchText) {
-      return [];
-    }
-
-    const documents = await ctx.db
-      .query("searchDocuments")
-      .withSearchIndex("search_text", (search) =>
-        search
-          .search("searchText", searchText)
-          .eq("publicState", "public")
-          .eq("entityType", "profile")
-          .eq("profileType", "person"),
-      )
-      .take(limit * 3);
-    const rankedPeople = sortSearchResults(documents.map((document) => toPublicSearchResult(document, searchText)))
-      .slice(0, limit);
-    const results = await Promise.all(
-      rankedPeople.map(async (result) => {
-        const profile = await getProfileBySlug(ctx.db, result.slug);
-
-        if (profile === null || profile.profileType !== "person" || !canReadProfile("public", profile)) {
-          return null;
-        }
-
-        return toProfileLookupResult(profile);
-      }),
+    const rankedPeople = await searchPublicDocuments(
+      ctx,
+      {
+        entityType: "profile",
+        limit,
+        profileType: "person",
+        query: args.query,
+      },
+      {
+        defaultLimit: PROFILE_LOOKUP_RESULT_LIMIT,
+        maxLimit: 25,
+        takeMultiplier: 3,
+      },
     );
-
-    return results.filter((result): result is NonNullable<typeof result> => result !== null);
+    return rankedPeople.flatMap((result) => result.person ?? []);
   },
 });
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useDeferredValue, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
 
 import type {
   PrivateSeedLookupResult,
@@ -11,6 +11,7 @@ import type {
 import { EntityImage } from "@/components/ui/entity-image";
 import { mergeLookupSuggestions } from "./lookup-suggestion-merge";
 import { Input, Textarea } from "@/components/ui/field";
+import { cn } from "@/lib/cn";
 
 type LookupSuggestionResponse = {
   privateResults: PrivateSeedLookupResult[];
@@ -129,8 +130,9 @@ export function LookupSearchBox({
   onClear,
   onLookup,
   showPrivateSuggestions,
+  view,
 }: {
-  actionPath?: "/" | "/lookup";
+  actionPath?: "/" | "/lookup" | "/search";
   initialQuery: string;
   initialResults: ProfileLookupDisplayResult[];
   isSearching: boolean;
@@ -138,6 +140,7 @@ export function LookupSearchBox({
   onClear: () => void;
   onLookup: (query: string) => void;
   showPrivateSuggestions: boolean;
+  view?: "dj";
 }) {
   const [query, setQuery] = useState(initialQuery);
   const [bulkMode, setBulkMode] = useState(false);
@@ -145,6 +148,8 @@ export function LookupSearchBox({
   const deferredQuery = useDeferredValue(query.trim());
   const [fetchedSuggestions, setFetchedSuggestions] = useState<FetchedSuggestions | null>(null);
   const [isOpen, setIsOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const listboxId = useId();
   const [recentSearches, setRecentSearches] = useState<string[]>(() => (
     typeof window === "undefined" ? [] : readRecentSearches()
   ));
@@ -167,6 +172,7 @@ export function LookupSearchBox({
             ? fetchedSuggestions.results
             : [];
   const recentOptions = bulkMode || deferredQuery.length > 0 ? [] : recentSearches;
+  const optionCount = recentOptions.length > 0 ? recentOptions.length : suggestions.length;
 
   useEffect(() => () => {
     if (recentSaveTimeoutRef.current !== null) {
@@ -316,6 +322,7 @@ export function LookupSearchBox({
           submitQuery(query);
         }}
       >
+        {view ? <input name="view" type="hidden" value={view} /> : null}
         {bulkMode ? (
           <div className="lookup-bulk-editor">
             <Textarea
@@ -334,15 +341,21 @@ export function LookupSearchBox({
           <div className="relative">
             <Input
               aria-label="DJ name"
+              aria-activedescendant={activeIndex >= 0 ? `${listboxId}-${activeIndex}` : undefined}
+              aria-autocomplete="list"
+              aria-controls={listboxId}
+              aria-expanded={isOpen && optionCount > 0}
               className="lookup-input lookup-input--clearable h-10 w-full"
               name="q"
               placeholder="Name or genre"
               value={query}
+              role="combobox"
               onChange={(event) => {
                 const nextQuery = event.currentTarget.value;
 
                 setQuery(nextQuery);
                 setIsOpen(true);
+                setActiveIndex(-1);
 
                 if (nextQuery.trim().length === 0) {
                   setFetchedSuggestions(null);
@@ -351,6 +364,33 @@ export function LookupSearchBox({
                 }
               }}
               onFocus={() => setIsOpen(true)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setIsOpen(false);
+                  setActiveIndex(-1);
+                  return;
+                }
+                if (event.key === "ArrowDown" && optionCount > 0) {
+                  event.preventDefault();
+                  setIsOpen(true);
+                  setActiveIndex((current) => (current + 1) % optionCount);
+                  return;
+                }
+                if (event.key === "ArrowUp" && optionCount > 0) {
+                  event.preventDefault();
+                  setIsOpen(true);
+                  setActiveIndex((current) => current <= 0 ? optionCount - 1 : current - 1);
+                  return;
+                }
+                if (event.key === "Enter" && activeIndex >= 0) {
+                  const value = recentOptions[activeIndex]
+                    ?? suggestions[activeIndex]?.displayName;
+                  if (value) {
+                    event.preventDefault();
+                    submitQuery(value);
+                  }
+                }
+              }}
               onBlur={() => {
                 scheduleRecentSearchSave(query);
                 window.setTimeout(() => setIsOpen(false), 120);
@@ -370,15 +410,19 @@ export function LookupSearchBox({
               </button>
             ) : null}
             {isOpen && (suggestions.length > 0 || recentOptions.length > 0) ? (
-              <div className="lookup-suggestions" role="listbox" aria-label={recentOptions.length > 0 && suggestions.length === 0 ? "Recent lookup searches" : "Lookup suggestions"}>
+              <div className="lookup-suggestions" id={listboxId} role="listbox" aria-label={recentOptions.length > 0 && suggestions.length === 0 ? "Recent lookup searches" : "Lookup suggestions"}>
                 {recentOptions.length > 0 && suggestions.length === 0 ? <div className="lookup-suggestions-label">Recent searches</div> : null}
-                {recentOptions.map((recentSearch) => (
+                {recentOptions.map((recentSearch, index) => (
                   <button
-                    className="lookup-suggestion-option lookup-recent-option"
+                    className={cn(
+                      "lookup-suggestion-option lookup-recent-option",
+                      activeIndex === index ? "bg-surface-strong" : undefined,
+                    )}
                     key={recentSearch}
                     type="button"
                     role="option"
-                    aria-selected={false}
+                    aria-selected={activeIndex === index}
+                    id={`${listboxId}-${index}`}
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => submitQuery(recentSearch)}
                   >
@@ -394,13 +438,14 @@ export function LookupSearchBox({
                     </span>
                   </button>
                 ))}
-                {suggestions.map((profile) => (
+                {suggestions.map((profile, index) => (
                   <button
                     className="lookup-suggestion-option"
                     key={isPrivateSuggestion(profile) ? `private:${profile.id}` : `public:${profile.slug}`}
                     type="button"
                     role="option"
-                    aria-selected={false}
+                    aria-selected={activeIndex === index}
+                    id={`${listboxId}-${index}`}
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => submitQuery(profile.displayName)}
                   >

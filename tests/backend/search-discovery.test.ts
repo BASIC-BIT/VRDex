@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import type { Doc } from "../../convex/_generated/dataModel";
+import type { QueryCtx } from "../../convex/_generated/server";
+import { projectPublicSearchResult } from "../../convex/_publicSearch";
 import {
   createEventSearchDocument,
   createProfileSearchDocument,
@@ -267,6 +269,71 @@ describe("search document projection", () => {
     ]);
 
     assert.equal(results[0]?.slug, "house-night");
+  });
+
+  it("matches BASICBIT exact aliases without case-sensitive ranking drift", () => {
+    const document = {
+      entityType: "profile",
+      profileType: "person",
+      slug: "basicbit",
+      routePath: "/p/basicbit",
+      title: "BASICBIT",
+      searchText: "BASICBIT BASIC basic_bit",
+      exactTokens: ["basic", "basic bit", "basicbit"],
+      vocabularyKeys: ["person_role:vrdj"],
+      trustRank: 40,
+      featuredRank: 0,
+      publicState: "public",
+      updatedAt: 1,
+    } as unknown as Doc<"searchDocuments">;
+
+    const upper = toPublicSearchResult(document, "BASICBIT");
+    const lower = toPublicSearchResult(document, "basicbit");
+    const underscoredAlias = toPublicSearchResult(document, "basic_bit");
+
+    assert.equal(upper.score, lower.score);
+    assert.equal(underscoredAlias.score, upper.score);
+    assert.equal(upper.slug, "basicbit");
+  });
+
+  it("drops a profile that became non-public after its search document was indexed", async () => {
+    const profile = {
+      _id: "profile123",
+      slug: "hidden-basicbit",
+      displayName: "Hidden BASICBIT",
+      aliases: [],
+      tags: [],
+      genres: [],
+      claimState: "unclaimed",
+      creationSource: "import",
+      publicationState: "published",
+      publicSurfacingState: "suppressed",
+      profileType: "person",
+      person: { roleTags: [] },
+      updatedAt: 2,
+    } as unknown as Doc<"profiles">;
+    const document = {
+      entityType: "profile",
+      profileType: "person",
+      profileId: profile._id,
+      slug: profile.slug,
+      routePath: `/p/${profile.slug}`,
+      title: profile.displayName,
+      searchText: profile.displayName,
+      exactTokens: ["hidden basicbit"],
+      vocabularyKeys: [],
+      trustRank: 8,
+      featuredRank: 0,
+      publicState: "public",
+      updatedAt: 1,
+    } as unknown as Doc<"searchDocuments">;
+    const ctx = {
+      db: {
+        get: async () => profile,
+      },
+    } as unknown as QueryCtx;
+
+    assert.equal(await projectPublicSearchResult(ctx, document, "BASICBIT"), null);
   });
 
   it("caps stale event featured rank after an event has passed", () => {

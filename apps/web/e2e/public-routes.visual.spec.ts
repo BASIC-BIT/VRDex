@@ -34,3 +34,15 @@ test("home dark theme @visual", async ({ page }, testInfo) => {
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await captureRouteScreenshot(page, testInfo, "home-dark");
 });
+
+test("unified BASICBIT search views @visual", async ({ page }, testInfo) => {
+  await page.goto("/search?q=BASICBIT");
+  await expect(page.getByRole("heading", { name: "Results for BASICBIT" })).toBeVisible();
+  await expect(page.getByText("Software Dev | 3D Designer | VRDJ")).toBeVisible();
+  await captureRouteScreenshot(page, testInfo, "search-basicbit-standard");
+
+  await page.goto("/search?q=BASICBIT&view=dj");
+  await expect(page.getByRole("heading", { name: "DJ links" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Website: basicbit.net", exact: true })).toBeVisible();
+  await captureRouteScreenshot(page, testInfo, "search-basicbit-dj");
+});

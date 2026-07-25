@@ -1,8 +1,16 @@
 "use client";
 
 import Link, { type LinkProps } from "next/link";
+import { useRouter } from "next/navigation";
 import { useFeatureFlagEnabled, usePostHog } from "posthog-js/react";
-import { type FormEvent, type ReactNode } from "react";
+import {
+  type FormEvent,
+  type ReactNode,
+  useDeferredValue,
+  useEffect,
+  useId,
+  useState,
+} from "react";
 
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
@@ -50,30 +58,145 @@ export function DiscoverySearchForm({
   tone?: "default" | "inverse";
 }) {
   const posthog = usePostHog();
+  const router = useRouter();
   const isInverse = tone === "inverse";
+  const [query, setQuery] = useState(defaultQuery ?? "");
+  const deferredQuery = useDeferredValue(query.trim());
+  const [suggestions, setSuggestions] = useState<Array<{
+    entityType: string;
+    profileType?: string;
+    routePath: string;
+    slug: string;
+    subtitle?: string;
+    title: string;
+  }>>([]);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const [isOpen, setIsOpen] = useState(false);
+  const listboxId = useId();
+  const visibleSuggestions =
+    deferredQuery.length > 0 && deferredQuery !== defaultQuery?.trim() ? suggestions : [];
+
+  useEffect(() => {
+    if (deferredQuery.length < 1 || deferredQuery === defaultQuery?.trim()) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      fetch(`/search/suggest?q=${encodeURIComponent(deferredQuery)}`, {
+        cache: "no-store",
+        signal: controller.signal,
+      })
+        .then(async (response) => response.ok
+          ? await response.json() as { results: typeof suggestions }
+          : { results: [] })
+        .then((data) => {
+          setSuggestions(data.results);
+          setActiveIndex(-1);
+        })
+        .catch((error: unknown) => {
+          if (!(error instanceof DOMException && error.name === "AbortError")) {
+            setSuggestions([]);
+          }
+        });
+    }, 180);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [defaultQuery, deferredQuery]);
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     const formData = new FormData(event.currentTarget);
     const query = String(formData.get("q") ?? "").trim();
 
     if (query) {
-      captureProductEvent(posthog, "search_submitted", { surface });
+      captureProductEvent(posthog, "search_submitted", { surface, view_key: "standard" });
     }
   }
 
   return (
     <form className={cn("flex flex-col gap-3 sm:flex-row", className)} action={action} onSubmit={onSubmit}>
-      <input
-        className={cn(
-          "min-h-14 flex-1 rounded-control border px-5 text-base outline-none focus-visible:ring-2",
-          isInverse
-            ? "border-white/25 bg-white/16 text-white placeholder:text-white/62 focus:border-white/70 focus-visible:ring-white/25"
-            : "border-border bg-surface text-foreground placeholder:text-muted focus:border-accent focus-visible:ring-accent/20",
-        )}
-        defaultValue={defaultQuery}
-        name="q"
-        placeholder="Search DJs, communities, worlds, events, genres..."
-      />
+      <div className="relative flex-1">
+        <input
+          aria-activedescendant={activeIndex >= 0 ? `${listboxId}-${activeIndex}` : undefined}
+          aria-autocomplete="list"
+          aria-controls={listboxId}
+          aria-expanded={isOpen && visibleSuggestions.length > 0}
+          className={cn(
+            "min-h-14 w-full rounded-control border px-5 text-base outline-none focus-visible:ring-2",
+            isInverse
+              ? "border-white/25 bg-white/16 text-white placeholder:text-white/62 focus:border-white/70 focus-visible:ring-white/25"
+              : "border-border bg-surface text-foreground placeholder:text-muted focus:border-accent focus-visible:ring-accent/20",
+          )}
+          name="q"
+          placeholder="Search people, communities, worlds, events..."
+          role="combobox"
+          value={query}
+          onBlur={() => window.setTimeout(() => setIsOpen(false), 100)}
+          onChange={(event) => {
+            const nextQuery = event.currentTarget.value;
+            setQuery(nextQuery);
+            setIsOpen(true);
+            setActiveIndex(-1);
+            if (!nextQuery.trim()) {
+              setSuggestions([]);
+            }
+          }}
+          onFocus={() => setIsOpen(true)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              setIsOpen(false);
+              setActiveIndex(-1);
+              return;
+            }
+            if (event.key === "ArrowDown" && visibleSuggestions.length > 0) {
+              event.preventDefault();
+              setIsOpen(true);
+              setActiveIndex((current) => (current + 1) % visibleSuggestions.length);
+              return;
+            }
+            if (event.key === "ArrowUp" && visibleSuggestions.length > 0) {
+              event.preventDefault();
+              setIsOpen(true);
+              setActiveIndex((current) => current <= 0 ? visibleSuggestions.length - 1 : current - 1);
+              return;
+            }
+            if (event.key === "Enter" && activeIndex >= 0 && visibleSuggestions[activeIndex]) {
+              event.preventDefault();
+              setIsOpen(false);
+              router.push(visibleSuggestions[activeIndex].routePath);
+            }
+          }}
+        />
+        {isOpen && visibleSuggestions.length > 0 ? (
+          <div
+            className="absolute z-30 mt-2 grid w-full overflow-hidden rounded-card border border-border bg-surface shadow-panel"
+            id={listboxId}
+            role="listbox"
+          >
+            {visibleSuggestions.map((result, index) => (
+              <button
+                aria-selected={activeIndex === index}
+                className={cn(
+                  "grid gap-1 px-4 py-3 text-left hover:bg-surface-strong",
+                  activeIndex === index ? "bg-surface-strong" : undefined,
+                )}
+                id={`${listboxId}-${index}`}
+                key={`${result.entityType}:${result.slug}`}
+                role="option"
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => router.push(result.routePath)}
+              >
+                <span className="font-medium">{result.title}</span>
+                <span className="text-xs text-muted">{result.subtitle ?? result.entityType}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
       <button
         className={cn(
           buttonVariants({ size: "lg", variant: isInverse ? "inversePrimary" : "primary" }),

@@ -183,6 +183,50 @@ test.describe("fixture lookup smoke", () => {
     await expect(page.getByRole("option", { name: /BASICBIT/i })).toBeVisible();
   });
 
+  test("unified search preserves BASICBIT identity across standard and DJ views", async ({ page }) => {
+    await page.goto("/search?q=BASICBIT");
+
+    const standardResults = page.getByRole("region", { name: "Search results" });
+    await expect(standardResults.getByRole("link", { name: /BASICBIT/ })).toHaveCount(1);
+    await expect(standardResults.getByText("BASICBIT", { exact: true })).toBeVisible();
+    await expect(standardResults.getByText("Software Dev | 3D Designer | VRDJ")).toBeVisible();
+    await expect(standardResults.locator('img[src="/seed/basicbit-avatar.png"]')).toBeVisible();
+
+    await page.getByRole("link", { name: "DJ links" }).click();
+    await expect(page).toHaveURL(/\/search\?q=BASICBIT&view=dj$/);
+    await expect(page.getByRole("heading", { name: "DJ links" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "BASICBIT", exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Website: basicbit.net", exact: true })).toBeVisible();
+    const djAvatar = page.locator(".lookup-avatar img").first();
+    await expect(djAvatar).toBeVisible();
+    await expect(djAvatar).toHaveAttribute("src", /basicbit-avatar\.png/);
+  });
+
+  test("standard search supports keyboard typeahead and sparse profile fallbacks", async ({ page }) => {
+    await page.goto("/search");
+    const searchInput = page.getByRole("combobox", { name: /Search/i });
+
+    await searchInput.fill("basic");
+    await expect(page.getByRole("option", { name: /BASICBIT/i })).toBeVisible();
+    await searchInput.press("ArrowDown");
+    await searchInput.press("Enter");
+    await expect(page).toHaveURL(/\/p\/basicbit$/);
+
+    await page.goto("/search?q=Sparse%20Import");
+    const sparseResult = page.getByRole("region", { name: "Search results" });
+    await expect(sparseResult.getByText("Sparse Import", { exact: true })).toBeVisible();
+    await expect(sparseResult.getByRole("img", { name: "Sparse Import" })).toHaveCount(0);
+    await expect(sparseResult.getByRole("link", { name: "Claim this profile" })).toHaveAttribute(
+      "href",
+      "/claim/playwright-sparse-import?source=search",
+    );
+    await expect(sparseResult.getByText("Imported profile seed", { exact: true })).toBeVisible();
+
+    await page.goto("/search?q=Sparse%20Import&view=dj");
+    await expect(page.getByRole("link", { name: "Sparse Import", exact: true })).toBeVisible();
+    await expect(page.getByText("Imported profile seed / Unclaimed", { exact: true }).first()).toBeVisible();
+  });
+
   test("lookup suggestions include authorized private seed rows", async ({ page }) => {
     await page.goto("/lookup");
     await page.getByLabel("DJ name").fill("nwinn");

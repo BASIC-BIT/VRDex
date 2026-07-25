@@ -73,16 +73,22 @@ function publicLookupLinks(profile: Doc<"profiles">): ProfileLookupLink[] {
   );
 }
 
-export function toProfileLookupResult(profile: Doc<"profiles">) {
+export function toProfileLookupResult(
+  profile: Doc<"profiles">,
+  options: {
+    avatarImageUrl?: string;
+    sourceLabel?: string;
+  } = {},
+) {
   if (profile.profileType !== "person") {
     return null;
   }
 
   const headline = optionalStringField(visibleProfileField(profile, "headline", profile.headline, "discovery"));
   const bio = optionalStringField(visibleProfileField(profile, "bio", profile.bio, "discovery"));
-  const avatarImageUrl = safeHttpsUrl(
-    visibleProfileField(profile, "avatarImageUrl", profile.avatarImageUrl, "discovery"),
-  );
+  const avatarImageUrl =
+    safeHttpsUrl(options.avatarImageUrl) ??
+    safeHttpsUrl(visibleProfileField(profile, "avatarImageUrl", profile.avatarImageUrl, "discovery"));
   const region = optionalStringField(visibleProfileField(profile, "region", profile.region, "discovery"));
   const timezone = optionalStringField(
     visibleProfileField(profile, "timezone", profile.timezone, "discovery"),
@@ -97,6 +103,7 @@ export function toProfileLookupResult(profile: Doc<"profiles">) {
     genres: publicLookupGenres(profile),
     roleTags: visibleProfileList(profile, "personRoleTags", profile.person.roleTags, "discovery"),
     trustLabel: getProfileTrustLabel(profile.claimState, profile.creationSource),
+    ...(options.sourceLabel === undefined ? {} : { sourceLabel: options.sourceLabel }),
     ...(headline === undefined ? {} : { headline }),
     ...(bio === undefined ? {} : { bio }),
     ...(avatarImageUrl === undefined ? {} : { avatarImageUrl }),

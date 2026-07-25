@@ -6,6 +6,7 @@ import {
   TrackedDiscoveryLink,
 } from "./discovery-analytics";
 import { HomeActiveWorldsSection, type PublicActiveWorld } from "./home-active-worlds";
+import { searchHref, type SearchResultFilter } from "./search-view-state";
 import { ViewerLocalEventDateTime } from "./viewer-local-event-times";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
@@ -19,7 +20,7 @@ import {
 
 type EntityType = "profile" | "world" | "event";
 type ProfileType = "person" | "community";
-export type SearchResultFilter = "all" | "event" | "person" | "community" | "world";
+export type { SearchResultFilter } from "./search-view-state";
 
 export type PublicSearchResult = {
   entityType: EntityType;
@@ -37,6 +38,15 @@ export type PublicSearchResult = {
     sourceType?: string;
     label: string;
   };
+  person?: {
+    displayName: string;
+    roleTags: string[];
+    tags: string[];
+    genres: Array<{ slug: string; displayName: string; displayLabel?: string | null }>;
+    outboundLinks: Array<{ type: string; label: string; url: string }>;
+  };
+  claimEligible?: boolean;
+  claimEntryPath?: string;
   score: number;
 };
 
@@ -174,34 +184,47 @@ function DiscoveryCard({
 
 function SearchResultCard({ result }: { result: PublicSearchResult }) {
   const subtitle = resultSubtitle(result);
+  const roleLabels = !result.summary && result.person
+    ? [...new Set([...result.person.roleTags, ...result.person.tags])].slice(0, 3)
+    : [];
 
   return (
-    <TrackedDiscoveryLink
-      className="group flex gap-4 rounded-panel border border-border bg-surface px-4 py-4 transition hover:-translate-y-0.5 hover:border-border-strong hover:bg-surface-strong hover:shadow-panel"
-      eventName={result.entityType === "event" ? "event_card_clicked" : "search_result_clicked"}
-      href={result.routePath}
-      properties={{
-        entity_type: result.entityType,
-        profile_type: result.profileType,
-        surface: "search_results",
-      }}
-    >
-      <ResultImage result={result} />
-      <span className="flex min-w-0 flex-1 flex-col gap-2">
-        <span className="flex items-start justify-between gap-4">
-          <span className="min-w-0 text-xl font-semibold group-hover:text-accent-strong">
-            {result.title}
+    <div className="rounded-panel border border-border bg-surface transition hover:-translate-y-0.5 hover:border-border-strong hover:bg-surface-strong hover:shadow-panel">
+      <TrackedDiscoveryLink
+        className="group flex gap-4 px-4 py-4"
+        eventName={result.entityType === "event" ? "event_card_clicked" : "search_result_clicked"}
+        href={result.routePath}
+        properties={{
+          entity_type: result.entityType,
+          profile_type: result.profileType,
+          surface: "search_results",
+        }}
+      >
+        <ResultImage result={result} />
+        <span className="flex min-w-0 flex-1 flex-col gap-2">
+          <span className="flex items-start justify-between gap-4">
+            <span className="min-w-0 text-xl font-semibold group-hover:text-accent-strong">
+              {result.title}
+            </span>
+            <span className="shrink-0 text-xs font-medium text-muted">
+              {entityLabel(result)}
+            </span>
           </span>
-          <span className="shrink-0 rounded-control border border-border bg-surface-strong px-3 py-1 text-xs font-medium text-muted">
-            {entityLabel(result)}
-          </span>
+          {subtitle ? <span className="text-sm text-muted">{subtitle}</span> : null}
+          {result.startsAt === undefined ? null : <ViewerLocalEventDateTime className="text-sm text-accent-strong" timestamp={result.startsAt} />}
+          {result.summary ? <span className="line-clamp-2 text-sm leading-6 text-muted">{result.summary}</span> : null}
+          {roleLabels.length > 0 ? <span className="text-xs text-muted">{roleLabels.join(" · ")}</span> : null}
+          {result.source ? <span className="text-xs text-muted">{result.source.label}</span> : null}
         </span>
-        {subtitle ? <span className="text-sm text-muted">{subtitle}</span> : null}
-        {result.startsAt === undefined ? null : <ViewerLocalEventDateTime className="text-sm text-accent-strong" timestamp={result.startsAt} />}
-        {result.summary ? <span className="line-clamp-2 text-sm leading-6 text-muted">{result.summary}</span> : null}
-        {result.source ? <span className="text-xs text-muted">{result.source.label}</span> : null}
-      </span>
-    </TrackedDiscoveryLink>
+      </TrackedDiscoveryLink>
+      {result.claimEntryPath ? (
+        <div className="border-t border-border px-4 py-3">
+          <Link className="text-sm font-medium text-accent-strong hover:underline" href={result.claimEntryPath}>
+            Claim this profile
+          </Link>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -347,16 +370,6 @@ export function DiscoveryLandingPage({
   );
 }
 
-function filterHref(query: string, filter: SearchResultFilter) {
-  const params = new URLSearchParams({ q: query });
-
-  if (filter !== "all") {
-    params.set("type", filter);
-  }
-
-  return `/search?${params.toString()}`;
-}
-
 function filterLabel(filter: SearchResultFilter): string {
   switch (filter) {
     case "event":
@@ -393,6 +406,14 @@ export function SearchResultsPage({
         <TopNav />
 
         <section className="pt-4">
+          <nav aria-label="Search view" className="mb-5 flex gap-5 border-b border-border">
+            <Link className="border-b-2 border-accent pb-2 text-sm font-medium" href={searchHref({ query })}>
+              All VRDex
+            </Link>
+            <Link className="pb-2 text-sm font-medium text-muted hover:text-foreground" href={searchHref({ query, view: "dj" })}>
+              DJ links
+            </Link>
+          </nav>
           <h1 className="text-4xl leading-none font-semibold sm:text-6xl">
             {hasQuery ? `Results for ${query}` : "Search VRDex"}
           </h1>
@@ -409,25 +430,21 @@ export function SearchResultsPage({
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap gap-2">
                 {filters.map((filter) => {
-                  const count = results.filter((result) => resultMatchesFilter(result, filter)).length;
                   const active = filter === activeFilter;
 
                   return (
                     <Link
-                      className={cn(
-                        buttonVariants({ size: "sm", variant: active ? "primary" : "secondary" }),
-                        count === 0 ? "pointer-events-none opacity-50" : undefined,
-                      )}
-                      href={filterHref(query, filter)}
+                      className={cn(buttonVariants({ size: "sm", variant: active ? "primary" : "secondary" }))}
+                      href={searchHref({ filter, query })}
                       key={filter}
                     >
-                      {filterLabel(filter)} {count}
+                      {filterLabel(filter)}
                     </Link>
                   );
                 })}
               </div>
               <p className="text-sm text-muted">
-                {filteredResults.length} {filteredResults.length === 1 ? "result" : "results"}
+                Showing {filteredResults.length} {filteredResults.length === 1 ? "result" : "results"}
               </p>
             </div>
 

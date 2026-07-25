@@ -1,18 +1,16 @@
 import { v } from "convex/values";
 
 import { internalMutation, query, type QueryCtx } from "./_generated/server";
-import type { Doc } from "./_generated/dataModel";
-import { getPublicProfileMediaKit } from "./_profileAssets";
 import {
   createWorldSearchDocument,
   getHiddenWorldAttributionProfileKeys,
-  normalizeSearchQuery,
   sortSearchResults,
   toPublicSearchResult,
   type SearchEntityType,
   upsertSearchDocument,
   vocabularyForWorld,
 } from "./_searchDocuments";
+import { projectPublicSearchResult, searchPublicDocuments } from "./_publicSearch";
 import { SEEDED_VOCABULARY_TERMS, recordVocabularyTerms } from "./_vocabulary";
 
 const SEARCH_RESULT_LIMIT = 24;
@@ -29,28 +27,6 @@ const searchProfileType = v.union(
   v.literal("community"),
 );
 
-function boundedLimit(value: number | undefined, fallback: number, max: number): number {
-  return Math.max(1, Math.min(value ?? fallback, max));
-}
-
-async function toPublicSearchResultWithMedia(
-  ctx: QueryCtx,
-  document: Doc<"searchDocuments">,
-  searchText: string | undefined,
-) {
-  if (document.entityType !== "profile" || document.profileId === undefined) {
-    return toPublicSearchResult(document, searchText);
-  }
-
-  const profile = await ctx.db.get(document.profileId);
-
-  return toPublicSearchResult(
-    document,
-    searchText,
-    profile === null ? undefined : await getPublicProfileMediaKit(ctx.db, profile),
-  );
-}
-
 export const searchUniversal = query({
   args: {
     query: v.string(),
@@ -59,31 +35,10 @@ export const searchUniversal = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const searchText = normalizeSearchQuery(args.query);
-    const limit = boundedLimit(args.limit, SEARCH_RESULT_LIMIT, 50);
-
-    if (!searchText) {
-      return [];
-    }
-
-    const documents = await ctx.db
-      .query("searchDocuments")
-      .withSearchIndex("search_text", (search) => {
-        const filtered = search.search("searchText", searchText).eq("publicState", "public");
-
-        const byEntity = args.entityType === undefined ? filtered : filtered.eq("entityType", args.entityType);
-
-        return args.profileType === undefined ? byEntity : byEntity.eq("profileType", args.profileType);
-      })
-      .take(limit * 2);
-
-    const results = await Promise.all(
-      documents.map((document) => toPublicSearchResultWithMedia(ctx, document, searchText)),
-    );
-
-    return sortSearchResults(results).slice(
-      0,
-      limit,
+    return await searchPublicDocuments(
+      ctx,
+      args,
+      { defaultLimit: SEARCH_RESULT_LIMIT, maxLimit: 50 },
     );
   },
 });
@@ -120,8 +75,11 @@ export const listDiscovery = query({
       listUpcomingEventDocuments(ctx, now),
       ctx.db.query("vocabularyTerms").take(60),
     ]);
+    const projectedProfiles = await Promise.all(
+      profiles.map((document) => projectPublicSearchResult(ctx, document, undefined)),
+    );
     const profileResults = sortSearchResults(
-      await Promise.all(profiles.map((document) => toPublicSearchResultWithMedia(ctx, document, undefined))),
+      projectedProfiles.filter((result): result is NonNullable<typeof result> => result !== null),
     );
     const worldResults = sortSearchResults(worlds.map((document) => toPublicSearchResult(document, undefined)));
     const eventDocuments = new Map(events.map((document) => [document._id, document]));

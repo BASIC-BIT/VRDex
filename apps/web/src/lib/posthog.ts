@@ -86,7 +86,7 @@ type ProductAnalyticsEvents = {
     outcome: "conflict" | "expired" | "not_verified" | "unavailable" | "unknown";
     profile_type: "person" | "community";
   };
-  search_submitted: { surface: "home" | "search" };
+  search_submitted: { surface: "home" | "search"; view_key: "standard" };
   search_result_clicked: {
     entity_type: string;
     profile_type?: string;
@@ -98,6 +98,7 @@ type ProductAnalyticsEvents = {
   lookup_submitted: {
     access_scope: "private_and_public" | "public_only";
     mode: "bulk" | "single";
+    view_key: "dj";
   };
   private_seed_results_shown: {
     result_count: "multiple" | "one";

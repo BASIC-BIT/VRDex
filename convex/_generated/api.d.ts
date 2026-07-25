@@ -49,6 +49,7 @@ import type * as _profileSubmissions from "../_profileSubmissions.js";
 import type * as _profileUpdates from "../_profileUpdates.js";
 import type * as _profileWorldCredits from "../_profileWorldCredits.js";
 import type * as _publicFields from "../_publicFields.js";
+import type * as _publicSearch from "../_publicSearch.js";
 import type * as _searchDocuments from "../_searchDocuments.js";
 import type * as _seedAccess from "../_seedAccess.js";
 import type * as _seedHandoffs from "../_seedHandoffs.js";
@@ -142,6 +143,7 @@ declare const fullApi: ApiFromModules<{
   _profileUpdates: typeof _profileUpdates;
   _profileWorldCredits: typeof _profileWorldCredits;
   _publicFields: typeof _publicFields;
+  _publicSearch: typeof _publicSearch;
   _searchDocuments: typeof _searchDocuments;
   _seedAccess: typeof _seedAccess;
   _seedHandoffs: typeof _seedHandoffs;
