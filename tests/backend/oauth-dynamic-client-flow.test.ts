@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { convexTest } from "convex-test";
+import { OAUTH_CONSENT_TRANSACTION_TTL_MS } from "../../packages/api-contracts/src/oauth";
 
 import { internal } from "../../convex/_generated/api";
 import schemaModule from "../../convex/schema";
@@ -77,5 +78,86 @@ describe("OAuth dynamic client authorization", () => {
 
     assert.equal(resolved.ok, true);
     assert.equal(resolved.redirectUri, requestedRedirectUri);
+  });
+
+  it("consumes a bound consent transaction once and denies replay without weakening redirect validation", async () => {
+    const t = convexTest({ schema, modules });
+    const clientId = "vrdx_app_fedcba987654321001234567";
+    const redirectUri = "http://127.0.0.1:8989/oauth/callback";
+    const resource = "https://staging.vrdex.net/mcp";
+    const scopes = ["mcp:read", "mcp:write", "events:write"] as const;
+    const transactionHash = "a".repeat(64);
+    const codeChallenge = "b".repeat(43);
+    const now = Date.now();
+
+    await t.mutation(internal.oauthApps.createDynamicMcpClient, {
+      clientId,
+      clientName: "OpenClaw MCP",
+      redirectUris: [redirectUri],
+      grantTypes: ["authorization_code", "refresh_token"],
+      responseTypes: ["code"],
+      tokenEndpointAuthMethod: "none",
+      contacts: [],
+      allowedScopes: [...scopes],
+      allowEventWrites: true,
+      resource,
+    });
+
+    const { transactionId, userId } = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {});
+      const transactionId = await ctx.db.insert("oauthConsentTransactions", {
+        transactionHash,
+        userId,
+        clientId,
+        redirectUri: "http://127.0.0.1:8989/wrong-path",
+        resource,
+        scopes: [...scopes],
+        codeChallenge,
+        codeChallengeMethod: "S256",
+        state: "opaque-client-state",
+        createdAt: now,
+        expiresAt: now + OAUTH_CONSENT_TRANSACTION_TTL_MS,
+      });
+
+      return { transactionId, userId };
+    });
+
+    const bindingRejected = await t.mutation(internal.oauthApps.completeAuthorizationConsent, {
+      transactionHash,
+      userId,
+      decision: "approve",
+      codeHash: "c".repeat(64),
+      expiresAt: now + 60_000,
+    });
+
+    assert.equal(bindingRejected.ok, false);
+    assert.equal(bindingRejected.reason, "invalid_redirect_uri");
+    assert.notEqual(await t.run(async (ctx) => await ctx.db.get(transactionId)), null);
+
+    await t.run(async (ctx) => await ctx.db.patch(transactionId, { redirectUri }));
+
+    const approved = await t.mutation(internal.oauthApps.completeAuthorizationConsent, {
+      transactionHash,
+      userId,
+      decision: "approve",
+      codeHash: "d".repeat(64),
+      expiresAt: now + 60_000,
+    });
+
+    assert.equal(approved.ok, true);
+    assert.equal(approved.approved, true);
+    assert.equal(await t.run(async (ctx) => await ctx.db.get(transactionId)), null);
+
+    const replay = await t.mutation(internal.oauthApps.completeAuthorizationConsent, {
+      transactionHash,
+      userId,
+      decision: "approve",
+      codeHash: "e".repeat(64),
+      expiresAt: now + 60_000,
+    });
+
+    assert.deepEqual(replay, { ok: false, reason: "invalid_transaction" });
+    const authorizationCodes = await t.run(async (ctx) => await ctx.db.query("oauthAuthorizationCodes").collect());
+    assert.equal(authorizationCodes.length, 1);
   });
 });

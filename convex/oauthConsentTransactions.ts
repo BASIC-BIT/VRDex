@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { OAUTH_CONSENT_TRANSACTION_TTL_MS } from "../packages/api-contracts/src/oauth";
 
 import { apiScopeValidator, type ApiScope } from "./_apiTokens";
 import { mutation, query } from "./_generated/server";
@@ -16,8 +17,6 @@ import {
   oauthConsentTransactionDisposition,
 } from "./_oauthConsentTransactions";
 import { requireCurrentUser } from "./accounts";
-
-const consentTransactionTtlMs = 5 * 60 * 1000;
 
 const transactionArgs = {
   transactionHash: v.string(),
@@ -60,8 +59,8 @@ export const create = mutation({
     const now = Date.now();
     const transactionHash = normalizeOAuthConsentTransactionHash(args.transactionHash);
 
-    if (args.expiresAt <= now || args.expiresAt > now + consentTransactionTtlMs) {
-      throw new Error("OAuth consent transaction expiry must be within five minutes.");
+    if (args.expiresAt <= now || args.expiresAt > now + OAUTH_CONSENT_TRANSACTION_TTL_MS) {
+      throw new Error("OAuth consent transaction expiry exceeds the configured lifetime.");
     }
 
     const existing = await ctx.db

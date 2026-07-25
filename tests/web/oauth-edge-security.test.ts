@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
+import { OAUTH_CONSENT_TRANSACTION_TTL_MS } from "../../packages/api-contracts/src/oauth";
 import type { Id } from "../../convex/_generated/dataModel";
 import { oauthConsentTransactionDisposition } from "../../convex/_oauthConsentTransactions";
 import {
@@ -173,25 +174,33 @@ describe("OAuth edge security", () => {
     assert.match(authorize, /reason: "invalid_scope"/);
   });
 
-  it("hashes opaque consent transactions and rejects missing, expired, or cross-user records", async () => {
+  it("keeps opaque consent transactions valid for 30 minutes, then rejects expiry and cross-user use", async () => {
     const first = createOAuthConsentTransactionValue();
     const second = createOAuthConsentTransactionValue();
     const userA = "user-a" as Id<"users">;
     const userB = "user-b" as Id<"users">;
+    const createdAt = 1_000;
     const transaction = {
       _id: "transaction-a" as Id<"oauthConsentTransactions">,
       userId: userA,
-      expiresAt: 2_000,
+      expiresAt: createdAt + OAUTH_CONSENT_TRANSACTION_TTL_MS,
     };
 
+    assert.equal(OAUTH_CONSENT_TRANSACTION_TTL_MS, 30 * 60 * 1000);
     assert.notEqual(first, second);
     assert.match(first, /^vrdx_consent_[A-Za-z0-9_-]{43}$/);
     assert.match(await hashOAuthConsentTransactionValue(first), /^[0-9a-f]{64}$/);
     assert.notEqual(await hashOAuthConsentTransactionValue(first), first);
-    assert.equal(oauthConsentTransactionDisposition(transaction, userA, 1_000), "accepted");
-    assert.equal(oauthConsentTransactionDisposition(transaction, userB, 1_000), "cross_user");
-    assert.equal(oauthConsentTransactionDisposition(transaction, userA, 2_000), "expired");
-    assert.equal(oauthConsentTransactionDisposition(null, userA, 1_000), "missing");
+    assert.equal(
+      oauthConsentTransactionDisposition(transaction, userA, transaction.expiresAt - 1),
+      "accepted",
+    );
+    assert.equal(oauthConsentTransactionDisposition(transaction, userB, createdAt), "cross_user");
+    assert.equal(
+      oauthConsentTransactionDisposition(transaction, userA, transaction.expiresAt),
+      "expired",
+    );
+    assert.equal(oauthConsentTransactionDisposition(null, userA, createdAt), "missing");
   });
 
   it("distinguishes an expired consent transaction from client binding failures", () => {

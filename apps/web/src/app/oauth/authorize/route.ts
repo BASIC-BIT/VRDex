@@ -1,6 +1,9 @@
 import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
 import { api, internal } from "@convex-generated-api";
-import { isOAuthClientMetadataDocumentUrl } from "@vrdex/api-contracts";
+import {
+  isOAuthClientMetadataDocumentUrl,
+  OAUTH_CONSENT_TRANSACTION_TTL_MS,
+} from "@vrdex/api-contracts";
 
 import {
   apiRateLimitPolicyForRouteClass,
@@ -29,8 +32,6 @@ import { oauthRateLimitResponse } from "@/lib/server/oauth-route-rate-limit";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-const consentTransactionTtlMs = 5 * 60 * 1000;
 
 function oauthProblem(status: 400 | 429 | 500, error: string, errorDescription: string, headers: HeadersInit = {}) {
   return Response.json(
@@ -212,7 +213,7 @@ export async function GET(request: Request) {
       codeChallenge: authorization.codeChallenge,
       codeChallengeMethod: authorization.codeChallengeMethod,
       ...(authorization.state === undefined ? {} : { state: authorization.state }),
-      expiresAt: Date.now() + consentTransactionTtlMs,
+      expiresAt: Date.now() + OAUTH_CONSENT_TRANSACTION_TTL_MS,
     });
   } catch {
     return oauthAuthorizeProblemRedirect(request, "server_error");

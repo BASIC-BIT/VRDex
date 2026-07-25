@@ -17,6 +17,7 @@ export const oauthResponseTypes = ["code"] as const;
 export const oauthTokenEndpointAuthMethods = ["none"] as const;
 export const dynamicMcpClientScopes = ["public:read", "mcp:read"] as const;
 export const dynamicMcpEventWriteScopes = ["mcp:write", "events:write"] as const;
+export const OAUTH_CONSENT_TRANSACTION_TTL_MS = 30 * 60 * 1000;
 
 export type OAuthClientType = (typeof oauthClientTypes)[number];
 export type OAuthGrantType = (typeof oauthGrantTypes)[number];
