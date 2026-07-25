@@ -136,6 +136,7 @@ type HostedMcpPrincipal = {
   userId: Id<"users">;
 };
 type HostedMcpAuthorizationDependencies = {
+  checkRateLimit?: typeof checkApiRateLimit;
   validateAccessTokenRecord?: typeof validateOAuthAccessTokenRecord;
 };
 
@@ -1001,6 +1002,37 @@ async function rateLimitMcpAuthenticationFailure(
       });
 }
 
+async function oversizedMcpRequestResponse(
+  request: Request,
+  dependencies: HostedMcpAuthorizationDependencies,
+) {
+  const identity = { kind: "ip" as const, value: clientIpForRequest(request) };
+  const quotaTier = "standard" as const;
+  const routeClass = "anonymous_mcp_public_read" as const;
+  let rateLimit;
+
+  try {
+    rateLimit = await (dependencies.checkRateLimit ?? checkApiRateLimit)({
+      identity,
+      quotaTier,
+      routeClass,
+    });
+  } catch {
+    return mcpJsonRpcError(500, -32603, "MCP rate limiting is unavailable.");
+  }
+
+  if (!rateLimit.allowed) {
+    return await mcpRateLimitExceededResponse({
+      identity,
+      quotaTier,
+      rateLimit,
+      routeClass,
+    });
+  }
+
+  return mcpJsonRpcError(413, -32600, "MCP request body exceeds the 1 MiB limit.");
+}
+
 export async function authorizeHostedMcpRequest(
   request: Request,
   dependencies: HostedMcpAuthorizationDependencies = {},
@@ -1043,7 +1075,7 @@ export async function authorizeHostedMcpRequest(
 
   if ("tooLarge" in parsedRequest && parsedRequest.tooLarge) {
     return {
-      response: mcpJsonRpcError(413, -32600, "MCP request body exceeds the 1 MiB limit."),
+      response: await oversizedMcpRequestResponse(request, dependencies),
       routeClass: bearerToken === null
         ? "anonymous_mcp_public_read" as const
         : "authenticated_mcp" as const,

@@ -164,7 +164,13 @@ export async function dynamicMcpClientRegistrationResponse(
   let registration: NormalizedDynamicMcpClientRegistration;
 
   try {
-    registration = normalizeDynamicMcpClientRegistration(body, { allowEventWrites });
+    registration = normalizeDynamicMcpClientRegistration(body, {
+      allowEventWrites,
+      // Some native clients copy the issuer-wide scope catalog into an MCP
+      // DCR request. Persist and return only scopes valid for this MCP
+      // resource; explicit CIMD scope declarations remain strict.
+      discardKnownNonMcpScopes: true,
+    });
   } catch (error) {
     return registrationProblem(
       400,

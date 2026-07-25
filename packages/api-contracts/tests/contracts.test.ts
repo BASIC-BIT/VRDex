@@ -893,6 +893,20 @@ describe("@vrdex/api-contracts", () => {
       ).allowedScopes,
       ["mcp:write", "events:write"],
     );
+    assert.deepEqual(
+      normalizeDynamicMcpClientRegistration(
+        {
+          client_name: "Issuer Scope Catalog Client",
+          redirect_uris: ["http://localhost:1455/callback"],
+          scope: "public:read profile:read events:write mcp:read mcp:write time:parse",
+        },
+        {
+          allowEventWrites: true,
+          discardKnownNonMcpScopes: true,
+        },
+      ).allowedScopes,
+      ["public:read", "events:write", "mcp:read", "mcp:write"],
+    );
 
     assert.throws(
       () =>

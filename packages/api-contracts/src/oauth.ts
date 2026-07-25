@@ -1,4 +1,4 @@
-import { oauthApiScopes, type ApiScope } from "./auth";
+import { apiScopes, oauthApiScopes, type ApiScope } from "./auth";
 
 const oauthClientIdHexLength = 24;
 const oauthClientMetadataDocumentMaxLength = 2048;
@@ -395,7 +395,10 @@ function scopeValues(value: unknown) {
 
 export function normalizeDynamicMcpClientRegistration(
   input: Record<string, unknown>,
-  options: { allowEventWrites?: boolean } = {},
+  options: {
+    allowEventWrites?: boolean;
+    discardKnownNonMcpScopes?: boolean;
+  } = {},
 ): DynamicMcpClientRegistration {
   const clientName = normalizeOAuthApplicationName(optionalString(input.client_name, "client_name") ?? "VRDex MCP Client");
   const redirectUris = normalizeOAuthRedirectUris(stringArray(input.redirect_uris, "redirect_uris") ?? []);
@@ -408,15 +411,34 @@ export function normalizeDynamicMcpClientRegistration(
   );
   const supportedScopes = allowedDynamicMcpScopes(options.allowEventWrites === true);
   const supportedScopeSet = new Set<ApiScope>(supportedScopes);
-  const allowedScopes = normalizeOAuthScopes(scopeValues(input.scope));
-  const unsupportedScopes = allowedScopes.filter(
-    (scope) => !supportedScopeSet.has(scope),
-  );
+  const recognizedMcpScopeSet = new Set<ApiScope>([
+    ...dynamicMcpClientScopes,
+    ...dynamicMcpEventWriteScopes,
+  ]);
+  const requestedScopeValues = scopeValues(input.scope);
+  const requestedScopes = options.discardKnownNonMcpScopes === true
+    ? [...new Set(requestedScopeValues)].map((scope) => {
+      if (!(apiScopes as readonly string[]).includes(scope)) {
+        throw new Error(`Unsupported OAuth scope: ${scope}`);
+      }
+
+      return scope as ApiScope;
+    })
+    : normalizeOAuthScopes(requestedScopeValues);
+  const requestedMcpScopes = requestedScopes.filter((scope) => recognizedMcpScopeSet.has(scope));
+  const unsupportedScopes = requestedScopes.filter((scope) => {
+    if (recognizedMcpScopeSet.has(scope)) {
+      return !supportedScopeSet.has(scope);
+    }
+
+    return options.discardKnownNonMcpScopes !== true || requestedMcpScopes.length === 0;
+  });
 
   if (unsupportedScopes.length > 0) {
     throw new Error(`Dynamic MCP clients can only request ${supportedScopes.join(" ")}.`);
   }
 
+  const allowedScopes = requestedMcpScopes;
   const writeScopesRequested = allowedScopes.some((scope) =>
     (dynamicMcpEventWriteScopes as readonly ApiScope[]).includes(scope)
   );

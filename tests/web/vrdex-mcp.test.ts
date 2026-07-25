@@ -617,6 +617,7 @@ describe("VRDex MCP server", () => {
     const output = runMcpProbe(`
       import { authorizeHostedMcpRequest } from "./apps/web/src/lib/server/vrdex-mcp.ts";
 
+      let rateLimitChecks = 0;
       const authorization = await authorizeHostedMcpRequest(new Request("https://app.example.test/mcp", {
         method: "POST",
         headers: {
@@ -624,14 +625,28 @@ describe("VRDex MCP server", () => {
           "content-type": "application/json",
         },
         body: "{}",
-      }));
+      }), {
+        checkRateLimit: async () => {
+          rateLimitChecks += 1;
+          return {
+            allowed: true,
+            key: "test:oversized",
+            limit: 60,
+            remaining: 59,
+            resetAt: Date.now() + 60_000,
+            retryAfterSeconds: 60,
+          };
+        },
+      });
 
       console.log(authorization.response?.status);
       console.log(await authorization.response?.text());
+      console.log(\`RATE_LIMIT_CHECKS=\${rateLimitChecks}\`);
     `);
 
     assert.match(output, /^413/m);
     assert.match(output, /MCP request body exceeds the 1 MiB limit/);
+    assert.match(output, /RATE_LIMIT_CHECKS=1/);
   });
 
   it("allows write-only OAuth sessions to initialize and list tools without invoking them", () => {
