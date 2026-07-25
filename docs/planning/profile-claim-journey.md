@@ -78,10 +78,12 @@ Current recommendation:
 - `already_owned`: show the profile and owner-management actions.
 - `owned_by_another`: render a calm terminal state without verification forms.
 - `success_unverified`: owner control was granted through Discord person claim;
-  offer profile access and a later verified path.
+  offer profile access and keep the VRChat upgrade path available on return.
 - `success_verified`: verified owner control was granted.
 - `failed` or `expired`: give an accurate recovery action rather than replacing
   the error with a false profile-not-found message.
+- `provider_unavailable`: preserve the pending proof and distinguish an adapter
+  outage from a proof code that has not been found yet.
 
 ## Security And Privacy
 
@@ -95,6 +97,8 @@ Current recommendation:
 - The UI does not imply that Discord person quick claim verifies the represented
   identity.
 - Claimed-by-another conflicts do not reveal the owner or private evidence.
+- Canceling a visible pending step changes only that proof attempt or claim
+  request; it does not silently reject another legacy pending record.
 
 ## Implementation Boundary
 

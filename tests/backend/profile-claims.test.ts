@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 
 import { convexTest } from "convex-test";
 
-import { internal } from "../../convex/_generated/api";
+import { api, internal } from "../../convex/_generated/api";
 import schemaModule from "../../convex/schema";
 
 const modules = {
@@ -176,5 +176,82 @@ describe("profile claim lifecycle", () => {
     );
     assert.equal(owners.length, 1);
     assert.equal(owners[0]?.state, "active");
+  });
+
+  it("cancels only the pending record shown in the journey", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        email: "scoped-cancel@example.test",
+        emailVerificationTime: now,
+      });
+      const profileId = await ctx.db.insert("profiles", {
+        profileType: "community",
+        slug: "scoped-cancel",
+        displayName: "Scoped Cancel",
+        sortName: "scoped cancel",
+        aliases: [],
+        tags: [],
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "public",
+        creationSource: "self",
+        community: { categoryTags: [] },
+        updatedAt: now,
+      });
+      const claimRequestId = await ctx.db.insert("profileClaimRequests", {
+        profileId,
+        profileSlug: "scoped-cancel",
+        profileType: "community",
+        requestedDisplayName: "Scoped Cancel",
+        userId,
+        method: "discord_community_admin",
+        state: "pending",
+        discordGuildId: "123456789012345678",
+        createdAt: now,
+        updatedAt: now,
+      });
+      const attemptId = await ctx.db.insert("profileVerificationAttempts", {
+        profileId,
+        userId,
+        method: "vrchat_group_proof",
+        targetType: "vrchat_group",
+        targetExternalId: "grp_e2e00000-0000-4000-8000-000000000002",
+        proofCode: "VRDEX-SCOPED",
+        state: "pending",
+        createdAt: now,
+        updatedAt: now,
+        expiresAt: now + 60_000,
+      });
+
+      return {
+        attemptId,
+        claimRequestId,
+        identity: {
+          subject: `${userId}|web-session`,
+          issuer: "test",
+          tokenIdentifier: `test|${userId}`,
+        },
+      };
+    });
+
+    await t.withIdentity(seeded.identity).mutation(api.profileClaims.cancelClaimJourneyPending, {
+      profileSlug: "scoped-cancel",
+      pendingType: "proof",
+    });
+    const afterProofCancel = await t.run(async (ctx) => ({
+      attempt: await ctx.db.get(seeded.attemptId),
+      claimRequest: await ctx.db.get(seeded.claimRequestId),
+    }));
+    assert.equal(afterProofCancel.attempt?.state, "failed");
+    assert.equal(afterProofCancel.claimRequest?.state, "pending");
+
+    await t.withIdentity(seeded.identity).mutation(api.profileClaims.cancelClaimJourneyPending, {
+      profileSlug: "scoped-cancel",
+      pendingType: "claim_request",
+    });
+    const claimRequest = await t.run(async (ctx) => await ctx.db.get(seeded.claimRequestId));
+    assert.equal(claimRequest?.state, "rejected");
   });
 });

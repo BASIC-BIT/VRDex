@@ -259,6 +259,10 @@ test("verified email account with linked Discord can claim person and community 
       page.getByRole("heading", { name: "Claimed", exact: true }).or(page.getByText("Person profile / Claimed", { exact: true })),
     );
 
+    await gotoFlowPage(page, `/claim/${encodeURIComponent(createdSlug!)}`);
+    await expect(page.getByText("You manage this profile, but it is not verified yet.")).toBeVisible();
+    await expect(page.getByLabel("VRChat profile URL or user ID")).toBeVisible();
+
     await gotoFlowPage(
       page,
       `/claim/${encodeURIComponent(communitySlug!)}`,
@@ -288,6 +292,7 @@ test("verified email account can complete VRChat adapter claims @flow", async ({
   const email = `adapter-${runSuffix}@e2e.vrdex.local`;
   const password = `VRDex-${runSuffix}-adapter-password-12345`;
   let vrchatPersonSlug: string | undefined;
+  let vrchatCommunitySlug: string | undefined;
 
   try {
     vrchatPersonSlug = await createE2eProfile({
@@ -299,7 +304,24 @@ test("verified email account can complete VRChat adapter claims @flow", async ({
       tags: ["playwright", "vrchat-proof"],
       roleTags: ["Proof test profile"],
     });
+    vrchatCommunitySlug = await createE2eProfile({
+      request,
+      e2eToken,
+      runId,
+      profileType: "community",
+      displayName: `Playwright VRChat Group ${runSuffix}`,
+      tags: ["playwright", "vrchat-group-proof"],
+      subtype: "Club",
+      categoryTags: ["Proof test community"],
+    });
     await createVerifiedE2eAccount({ page, request, e2eToken, email, password });
+    await gotoFlowPage(page, `/claim/${encodeURIComponent(vrchatCommunitySlug!)}`);
+    await expect(page.getByRole("button", { name: /Verify with VRChat/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(page.getByLabel("VRChat group URL or group ID")).toBeVisible();
+
     await gotoFlowPage(page, `/claim/${encodeURIComponent(vrchatPersonSlug!)}`);
     if (!(await hostedTargetHasClaimJourney(page, `Claim Playwright VRChat Proof ${runSuffix}`))) {
       testInfo.annotations.push({
@@ -332,7 +354,7 @@ test("verified email account can complete VRChat adapter claims @flow", async ({
       request,
       e2eToken,
       email,
-      [vrchatPersonSlug],
+      [vrchatPersonSlug, vrchatCommunitySlug],
       runId,
     );
   }

@@ -60,6 +60,7 @@ type DiscordCommunityClaimAdapterContext = {
 };
 type VerifyAdapterResult =
   | { state: Doc<"profileVerificationAttempts">["state"] }
+  | { state: "unavailable" }
   | {
       claimRequestId: Id<"profileClaimRequests">;
       profileId: Id<"profiles">;
@@ -190,6 +191,7 @@ export const getClaimJourneyContext = query({
     if (user === null) {
       return {
         ownership: "signed_out" as const,
+        verified: false,
         emailVerified: false,
         hasDiscord: false,
         pendingClaimRequest: null,
@@ -222,6 +224,7 @@ export const getClaimJourneyContext = query({
     return {
       ownership:
         owner === null ? ("available" as const) : owner.userId === user._id ? ("viewer" as const) : ("other" as const),
+      verified: profile.claimState === "claimed_verified",
       emailVerified: user.email !== undefined && user.emailVerificationTime !== undefined,
       hasDiscord: discordAccount !== null,
       pendingClaimRequest: request
@@ -247,7 +250,10 @@ export const getClaimJourneyContext = query({
 });
 
 export const cancelClaimJourneyPending = mutation({
-  args: { profileSlug: v.string() },
+  args: {
+    profileSlug: v.string(),
+    pendingType: v.union(v.literal("claim_request"), v.literal("proof")),
+  },
   handler: async (ctx, args) => {
     const user = await requireCurrentUser(ctx);
     const validation = validateProfileSlug(args.profileSlug);
@@ -259,41 +265,45 @@ export const cancelClaimJourneyPending = mutation({
       throw new Error("Profile not found.");
     }
 
-    const [request, proof] = await Promise.all([
-      ctx.db
+    const now = Date.now();
+
+    if (args.pendingType === "claim_request") {
+      const request = await ctx.db
         .query("profileClaimRequests")
         .withIndex("by_profileId_userId_state_updatedAt", (q) =>
           q.eq("profileId", profile._id).eq("userId", user._id).eq("state", "pending"),
         )
         .order("desc")
-        .first(),
-      ctx.db
-        .query("profileVerificationAttempts")
-        .withIndex("by_profileId_userId_state_updatedAt", (q) =>
-          q.eq("profileId", profile._id).eq("userId", user._id).eq("state", "pending"),
-        )
-        .order("desc")
-        .first(),
-    ]);
-    const now = Date.now();
-
-    if (request) {
+        .first();
+      if (request === null) {
+        return { canceled: false };
+      }
       await ctx.db.patch(request._id, {
         state: "rejected",
         rejectionReason: "Canceled by claimant.",
         reviewedAt: now,
         updatedAt: now,
       });
-    }
-    if (proof) {
-      await ctx.db.patch(proof._id, {
-        state: proof.expiresAt <= now ? "expired" : "failed",
-        evidenceSummary: "Canceled by claimant.",
-        updatedAt: now,
-      });
+      return { canceled: true };
     }
 
-    return { canceled: request !== null || proof !== null };
+    const proof = await ctx.db
+      .query("profileVerificationAttempts")
+      .withIndex("by_profileId_userId_state_updatedAt", (q) =>
+        q.eq("profileId", profile._id).eq("userId", user._id).eq("state", "pending"),
+      )
+      .filter((q) => q.neq(q.field("targetType"), "vrclinking"))
+      .order("desc")
+      .first();
+    if (proof === null) {
+      return { canceled: false };
+    }
+    await ctx.db.patch(proof._id, {
+      state: proof.expiresAt <= now ? "expired" : "failed",
+      evidenceSummary: "Canceled by claimant.",
+      updatedAt: now,
+    });
+    return { canceled: true };
   },
 });
 
@@ -971,7 +981,7 @@ export const verifyVrchatProofViaAdapter = action({
     });
 
     if (!response.ok) {
-      return { state: "pending" as const };
+      return { state: "unavailable" as const };
     }
 
     const result = (await response.json()) as ProofAdapterResponse;

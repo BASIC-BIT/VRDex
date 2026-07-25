@@ -14,6 +14,7 @@ export function ClaimFlowPreview() {
           emailVerified: true,
           hasDiscord: true,
           ownership: "available",
+          verified: false,
           pendingClaimRequest: null,
           pendingProof: null,
         }}

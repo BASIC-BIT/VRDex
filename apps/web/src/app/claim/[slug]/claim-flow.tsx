@@ -100,6 +100,7 @@ export function ClaimFlow({
     emailVerified: boolean;
     hasDiscord: boolean;
     ownership: "available" | "viewer" | "other";
+    verified: boolean;
     pendingClaimRequest: null;
     pendingProof: null;
   };
@@ -118,13 +119,24 @@ export function ClaimFlow({
   const verifyDiscord = useAction(api.profileClaims.verifyDiscordCommunityAdminClaim);
   const verifyVrchat = useAction(api.profileClaims.verifyVrchatProofViaAdapter);
   const posthog = usePostHog();
-  const [method, setMethod] = useState<ClaimMethod>(
-    profile.profileType === "community" ? "discord" : "vrchat",
+  const [selectedMethod, setMethod] = useState<ClaimMethod | null>(
+    previewContext
+      ? previewContext.hasDiscord && profile.profileType === "community"
+        ? "discord"
+        : "vrchat"
+      : null,
   );
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const statusRef = useRef<HTMLDivElement>(null);
   const completionRef = useRef<HTMLDivElement>(null);
   const profilePath = `/${profile.profileType === "community" ? "c" : "p"}/${profile.slug}`;
+  const isUnverifiedViewer = context?.ownership === "viewer" && !context.verified;
+  const canUseClaimJourney = context?.ownership === "available" || isUnverifiedViewer;
+  const method: ClaimMethod =
+    selectedMethod ??
+    (context?.hasDiscord && profile.profileType === "community" && context.ownership === "available"
+      ? "discord"
+      : "vrchat");
 
   useEffect(() => {
     captureProductEvent(posthog, "claim_journey_viewed", {
@@ -213,15 +225,35 @@ export function ClaimFlow({
           profile_type: profile.profileType,
         });
       } else {
+        const outcome =
+          result.state === "expired"
+            ? "expired"
+            : result.state === "unavailable"
+              ? "unavailable"
+              : null;
         setStatus({
           kind: "error",
           message: result.state === "expired"
             ? "This proof code expired. Start again to get a new code."
+            : result.state === "unavailable"
+              ? "VRChat verification is temporarily unavailable. Your proof is still pending; try again shortly."
             : "We could not find the proof code yet. Check where you placed it, then try again.",
         });
+        if (outcome !== null) {
+          captureProductEvent(posthog, "claim_failed", {
+            method: "vrchat",
+            outcome,
+            profile_type: profile.profileType,
+          });
+        }
       }
     } catch (error) {
       setStatus({ kind: "error", message: errorMessage(error) });
+      captureProductEvent(posthog, "claim_failed", {
+        method: "vrchat",
+        outcome: outcomeForError(error),
+        profile_type: profile.profileType,
+      });
     }
   }
 
@@ -241,16 +273,28 @@ export function ClaimFlow({
           kind: "error",
           message: "Administrator access was not found. Check the server and your role, then start again.",
         });
+        if (result.state === "rejected") {
+          captureProductEvent(posthog, "claim_failed", {
+            method: "discord",
+            outcome: "not_verified",
+            profile_type: profile.profileType,
+          });
+        }
       }
     } catch (error) {
       setStatus({ kind: "error", message: errorMessage(error) });
+      captureProductEvent(posthog, "claim_failed", {
+        method: "discord",
+        outcome: outcomeForError(error),
+        profile_type: profile.profileType,
+      });
     }
   }
 
-  async function startOver() {
+  async function startOver(pendingType: "claim_request" | "proof") {
     setStatus({ kind: "working", message: "Canceling this attempt…" });
     try {
-      await cancelPending({ profileSlug: profile.slug });
+      await cancelPending({ profileSlug: profile.slug, pendingType });
       setStatus({ kind: "notice", message: "Attempt canceled. Choose a method to start again." });
     } catch (error) {
       setStatus({ kind: "error", message: errorMessage(error) });
@@ -310,7 +354,7 @@ export function ClaimFlow({
         </p>
 
         {context === undefined ? <p className="mt-8 text-sm text-muted">Loading claim options…</p> : null}
-        {context?.ownership === "viewer" || status.kind === "complete" ? (
+        {(context?.ownership === "viewer" && context.verified) || status.kind === "complete" ? (
           <div
             aria-live="polite"
             className="outline-none"
@@ -340,13 +384,19 @@ export function ClaimFlow({
             <p className="mt-1">If ownership changed or this looks wrong, contact support rather than creating another claim.</p>
           </Notice>
         ) : null}
-        {context?.ownership === "available" && !context.emailVerified ? (
+        {isUnverifiedViewer && status.kind !== "complete" ? (
+          <Notice className="mt-8">
+            <p className="font-semibold">You manage this profile, but it is not verified yet.</p>
+            <p className="mt-1">Complete the VRChat proof below to add verified status.</p>
+          </Notice>
+        ) : null}
+        {canUseClaimJourney && !context?.emailVerified ? (
           <Notice className="mt-8" variant="warning">
             Verify your email before claiming. This protects profile ownership and recovery.
           </Notice>
         ) : null}
 
-        {context?.ownership === "available" && context.emailVerified && status.kind !== "complete" ? (
+        {canUseClaimJourney && context?.emailVerified && status.kind !== "complete" ? (
           <>
             {context.pendingProof && !context.pendingProof.expired ? (
               <div className="mt-8 rounded-card border border-border bg-surface p-5">
@@ -359,10 +409,10 @@ export function ClaimFlow({
                 <CopyValueRow className="mt-4" label="Proof code" value={context.pendingProof.proofCode} />
                 <div className="mt-4 flex flex-wrap gap-2">
                   <Button variant="primary" onClick={() => void checkProof(context.pendingProof!.id)}>Check proof now</Button>
-                  <Button variant="ghost" onClick={() => void startOver()}>Start over</Button>
+                  <Button variant="ghost" onClick={() => void startOver("proof")}>Start over</Button>
                 </div>
               </div>
-            ) : context.pendingClaimRequest ? (
+            ) : context.pendingClaimRequest && !isUnverifiedViewer ? (
               <div className="mt-8 rounded-card border border-border bg-surface p-5">
                 <h2 className="text-xl font-semibold">Finish your Discord check</h2>
                 <p className="mt-2 text-sm leading-6 text-muted">
@@ -373,18 +423,26 @@ export function ClaimFlow({
                 ) : null}
                 <div className="mt-4 flex flex-wrap gap-2">
                   <Button variant="primary" onClick={() => void checkDiscord(context.pendingClaimRequest!.id)}>Check Discord access</Button>
-                  <Button variant="ghost" onClick={() => void startOver()}>Start over</Button>
+                  <Button variant="ghost" onClick={() => void startOver("claim_request")}>Start over</Button>
                 </div>
               </div>
             ) : (
               <form className="mt-8" onSubmit={submit}>
                 <fieldset>
-                  <legend className="text-xl font-semibold">Choose how to confirm ownership</legend>
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                    {profile.profileType === "person" ? vrchatMethodCard : discordMethodCard}
-                    {profile.profileType === "person" ? discordMethodCard : vrchatMethodCard}
+                  <legend className="text-xl font-semibold">
+                    {isUnverifiedViewer ? "Verify this profile with VRChat" : "Choose how to confirm ownership"}
+                  </legend>
+                  <div className={cn("mt-4 grid gap-3", isUnverifiedViewer ? undefined : "sm:grid-cols-2")}>
+                    {isUnverifiedViewer ? (
+                      vrchatMethodCard
+                    ) : (
+                      <>
+                        {profile.profileType === "person" ? vrchatMethodCard : discordMethodCard}
+                        {profile.profileType === "person" ? discordMethodCard : vrchatMethodCard}
+                      </>
+                    )}
                   </div>
-                  {!context.hasDiscord ? (
+                  {!isUnverifiedViewer && !context.hasDiscord ? (
                     <Link className="mt-3 inline-block text-sm underline underline-offset-4" href="/account">
                       Review sign-in methods
                     </Link>
@@ -414,7 +472,13 @@ export function ClaimFlow({
                       This grants profile controls using your linked Discord account. It does not add a verified-owner badge.
                     </Notice>
                   )}
-                  <Button className="mt-5" disabled={status.kind === "working"} size="lg" type="submit" variant="primary">
+                  <Button
+                    className="mt-5"
+                    disabled={status.kind === "working" || (method === "discord" && !context.hasDiscord)}
+                    size="lg"
+                    type="submit"
+                    variant="primary"
+                  >
                     {method === "vrchat" ? "Create proof code" : profile.profileType === "community" ? "Continue with Discord" : "Claim with Discord"}
                   </Button>
                 </div>
