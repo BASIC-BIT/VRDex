@@ -277,11 +277,61 @@ describe("OAuth token route helper", () => {
             reason: "pkce_mismatch",
           }),
         ]);
-        assert.equal(warnings[0]?.includes(clientId), false);
-        assert.equal(warnings[0]?.includes(code), false);
-        assert.equal(warnings[0]?.includes(codeVerifier), false);
-        assert.equal(warnings[0]?.includes(redirectUri), false);
-        assert.equal(warnings[0]?.includes("https://app.example.test/mcp"), false);
+      } finally {
+        console.warn = originalWarn;
+      }
+    });
+  });
+
+  it("logs only numeric redirect mismatch diagnostics", async () => {
+    await withOAuthEnv(async () => {
+      const warnings: string[] = [];
+      const originalWarn = console.warn;
+
+      console.warn = (...values: unknown[]) => {
+        warnings.push(values.map(String).join(" "));
+      };
+
+      try {
+        const response = await oauthTokenResponse(
+          tokenRequest({
+            client_id: clientId,
+            code: "vrdx_code_0123456789abcdef0123456789abcdef",
+            code_verifier: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+            grant_type: "authorization_code",
+            redirect_uri: "http://localhost:8765/callback",
+          }),
+          {
+            mutations: {
+              ...defaultMutations(),
+              consumeAuthorizationCode: async () => ({
+                ok: false,
+                reason: "invalid_grant",
+                rejectionReason: "redirect_mismatch",
+                redirectDiagnostics: {
+                  authorizationLength: 36,
+                  firstMismatchIndex: 7,
+                  tokenRequestLength: 36,
+                },
+              }),
+            },
+            now: () => now,
+          },
+        );
+
+        assert.equal(response.status, 400);
+        assert.deepEqual(warnings, [
+          JSON.stringify({
+            event: "oauth_authorization_code_rejected",
+            reason: "redirect_mismatch",
+            redirectDiagnostics: {
+              authorizationLength: 36,
+              firstMismatchIndex: 7,
+              tokenRequestLength: 36,
+            },
+          }),
+        ]);
+        assert.doesNotMatch(warnings[0] ?? "", /localhost|127\.0\.0\.1|callback/);
       } finally {
         console.warn = originalWarn;
       }

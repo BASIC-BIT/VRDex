@@ -105,6 +105,11 @@ type AuthorizationCodeResult =
         | "redirect_mismatch"
         | "resource_mismatch"
         | "unsupported_challenge_method";
+      redirectDiagnostics?: {
+        authorizationLength: number;
+        firstMismatchIndex: number;
+        tokenRequestLength: number;
+      };
     };
 
 type RefreshTokenResult =
@@ -279,6 +284,9 @@ async function authorizationCodeTokenResponse(
     console.warn(JSON.stringify({
       event: "oauth_authorization_code_rejected",
       reason: result.rejectionReason ?? "unspecified",
+      ...(result.redirectDiagnostics === undefined
+        ? {}
+        : { redirectDiagnostics: result.redirectDiagnostics }),
     }));
 
     return oauthProblem(400, "invalid_grant", "The authorization code is invalid, expired, or already used.");

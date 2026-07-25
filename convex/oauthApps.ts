@@ -1657,10 +1657,31 @@ export const consumeAuthorizationCode = internalMutation({
                     : null;
 
     if (rejectionReason !== null) {
+      const sharedRedirectLength = Math.min(code.redirectUri.length, redirectUri.length);
+      let firstRedirectMismatchIndex = sharedRedirectLength;
+
+      if (rejectionReason === "redirect_mismatch") {
+        for (let index = 0; index < sharedRedirectLength; index += 1) {
+          if (code.redirectUri[index] !== redirectUri[index]) {
+            firstRedirectMismatchIndex = index;
+            break;
+          }
+        }
+      }
+
       return {
         ok: false as const,
         reason: "invalid_grant" as const,
         rejectionReason,
+        ...(rejectionReason === "redirect_mismatch"
+          ? {
+              redirectDiagnostics: {
+                authorizationLength: code.redirectUri.length,
+                firstMismatchIndex: firstRedirectMismatchIndex,
+                tokenRequestLength: redirectUri.length,
+              },
+            }
+          : {}),
       };
     }
 
