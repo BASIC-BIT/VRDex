@@ -479,6 +479,25 @@ async function resolvePublicAuthorizationClient(
   const redirectUri = normalizeOAuthRedirectUris([args.redirectUri])[0];
   const requestedScopes = normalizeOAuthScopes(args.requestedScopes);
   const resource = normalizeOAuthResourceUri(args.resource);
+  const redirectDiagnostics = (registeredRedirectUris: readonly string[]) => registeredRedirectUris.map(
+    (registeredRedirectUri) => {
+      const sharedLength = Math.min(registeredRedirectUri.length, redirectUri.length);
+      let firstMismatchIndex = sharedLength;
+
+      for (let index = 0; index < sharedLength; index += 1) {
+        if (registeredRedirectUri[index] !== redirectUri[index]) {
+          firstMismatchIndex = index;
+          break;
+        }
+      }
+
+      return {
+        firstMismatchIndex,
+        registeredLength: registeredRedirectUri.length,
+        requestedLength: redirectUri.length,
+      };
+    },
+  );
   const application = await ctx.db
     .query("oauthApplications")
     .withIndex("by_clientId", (index) => index.eq("clientId", clientId))
@@ -493,7 +512,11 @@ async function resolvePublicAuthorizationClient(
     }
 
     if (!application.redirectUris.includes(redirectUri)) {
-      return { ok: false as const, reason: "invalid_redirect_uri" as const };
+      return {
+        ok: false as const,
+        reason: "invalid_redirect_uri" as const,
+        redirectDiagnostics: redirectDiagnostics(application.redirectUris),
+      };
     }
 
     if (!hasRequiredApiScopes(application.allowedScopes, requestedScopes)) {
@@ -520,7 +543,11 @@ async function resolvePublicAuthorizationClient(
   }
 
   if (!dynamicClient.redirectUris.includes(redirectUri)) {
-    return { ok: false as const, reason: "invalid_redirect_uri" as const };
+    return {
+      ok: false as const,
+      reason: "invalid_redirect_uri" as const,
+      redirectDiagnostics: redirectDiagnostics(dynamicClient.redirectUris),
+    };
   }
 
   if (dynamicClient.resource !== resource) {

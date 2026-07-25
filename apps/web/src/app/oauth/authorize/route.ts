@@ -50,8 +50,15 @@ function redirectResponse(location: string) {
   return Response.redirect(location, 303);
 }
 
-function recordAuthorizationClientRejection(reason: string) {
-  console.warn("VRDex OAuth authorization client rejected.", { reason });
+function recordAuthorizationClientRejection(
+  client: { reason: string; redirectDiagnostics?: unknown },
+) {
+  console.warn("VRDex OAuth authorization client rejected.", {
+    reason: client.reason,
+    ...(client.redirectDiagnostics === undefined
+      ? {}
+      : { redirectDiagnostics: client.redirectDiagnostics }),
+  });
 }
 
 async function ensureClientMetadataDocumentClient(
@@ -161,7 +168,7 @@ export async function GET(request: Request) {
   });
 
   if (!client.ok) {
-    recordAuthorizationClientRejection(client.reason);
+    recordAuthorizationClientRejection(client);
 
     if (
       (client.reason === "invalid_scope" || client.reason === "wrong_resource") &&

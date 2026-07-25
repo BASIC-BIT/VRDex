@@ -204,7 +204,7 @@ describe("OAuth edge security", () => {
     assert.match(authorize, /oauthRateLimitResponse\(request, "oauth_authorize"\)/);
     assert.match(authorize, /client\.reason === "invalid_scope" \|\| client\.reason === "wrong_resource"/);
     assert.match(authorize, /redirectUriWithOAuthClientError/);
-    assert.match(authorize, /recordAuthorizationClientRejection\(client\.reason\)/);
+    assert.match(authorize, /recordAuthorizationClientRejection\(client\)/);
     const rejectionLog = authorize.slice(
       authorize.indexOf("function recordAuthorizationClientRejection"),
       authorize.indexOf("async function ensureClientMetadataDocumentClient"),
