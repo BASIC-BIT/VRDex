@@ -29,6 +29,7 @@ import {
   recordMcpEventWriteReceipt,
   requireSha256Hex,
 } from "./_mcpEventWriteReceipts";
+import { normalizeOAuthClientId } from "./_oauth";
 import {
   eventMediaCommandTypeValidator,
   eventMediaPlaybackPlatformValidator,
@@ -2007,7 +2008,7 @@ export const createCommunityEventForMcpOwner = internalMutation({
     ...eventDraftArgs,
   },
   handler: async (ctx, args) => {
-    const oauthClientId = requireMcpAttributionText(args.oauthClientId, "OAuth client id", 256);
+    const oauthClientId = normalizeOAuthClientId(args.oauthClientId);
     const oauthTokenId = requireMcpAttributionText(args.oauthTokenId, "OAuth token id", 256);
     const requestId = requireMcpAttributionText(args.requestId, "Request id", 256);
     const idempotencyKeyHash = requireSha256Hex(args.idempotencyKeyHash, "Idempotency key hash");
@@ -2100,7 +2101,7 @@ export const updateCommunityEventForMcpOwner = internalMutation({
     ...eventDraftUpdateArgs,
   },
   handler: async (ctx, args) => {
-    const oauthClientId = requireMcpAttributionText(args.oauthClientId, "OAuth client id", 256);
+    const oauthClientId = normalizeOAuthClientId(args.oauthClientId);
     const oauthTokenId = requireMcpAttributionText(args.oauthTokenId, "OAuth token id", 256);
     const requestId = requireMcpAttributionText(args.requestId, "Request id", 256);
     const idempotencyKeyHash = requireSha256Hex(args.idempotencyKeyHash, "Idempotency key hash");

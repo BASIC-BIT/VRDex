@@ -106,6 +106,7 @@ const mcpAuthenticatedReadSecuritySchemes = [
 const mcpEventWriteSecuritySchemes = [
   { scopes: [...hostedMcpEventWriteScopes], type: "oauth2" },
 ] satisfies Array<Record<string, unknown>>;
+const hostedMcpMaxRequestBodyBytes = 1024 * 1024;
 const mcpToolNameSet = new Set<string>(mcpToolNames);
 const mcpEventWriteToolNameSet = new Set<string>(mcpEventWriteToolNames);
 const mcpDocumentIdSchema = z.string().min(1).max(260);
@@ -496,6 +497,70 @@ export async function recordAcceptedMcpToolInvocations(request: Request) {
     });
   } catch {
     return { recorded: 0 };
+  }
+}
+
+async function boundedMcpToolCallNamesFromRequest(request: Request) {
+  if (request.method !== "POST") {
+    return { toolNames: [] as string[] };
+  }
+
+  const declaredLength = request.headers.get("content-length");
+
+  if (
+    declaredLength !== null
+    && /^\d+$/.test(declaredLength)
+    && Number(declaredLength) > hostedMcpMaxRequestBodyBytes
+  ) {
+    return { tooLarge: true as const, toolNames: [] as string[] };
+  }
+
+  if (request.body === null) {
+    return { toolNames: [] as string[] };
+  }
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+
+      if (done) {
+        break;
+      }
+
+      totalBytes += value.byteLength;
+
+      if (totalBytes > hostedMcpMaxRequestBodyBytes) {
+        await reader.cancel();
+
+        return { tooLarge: true as const, toolNames: [] as string[] };
+      }
+
+      chunks.push(value);
+    }
+  } catch {
+    return { toolNames: [] as string[] };
+  }
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  try {
+    return {
+      toolNames: mcpToolCallNamesFromPayload(
+        JSON.parse(new TextDecoder().decode(bytes)) as unknown,
+      ),
+    };
+  } catch {
+    return { toolNames: [] as string[] };
   }
 }
 
@@ -952,30 +1017,45 @@ export async function authorizeHostedMcpRequest(
     };
   }
 
+  const bearerToken = getBearerTokenFromAuthorizationHeader(request.headers.get("authorization"));
+  const blockedBeforeBodyRead = await rateLimitMcpAuthenticationFailure(request, null, {
+    increment: false,
+  });
+
+  if (blockedBeforeBodyRead !== null) {
+    return {
+      response: blockedBeforeBodyRead,
+      routeClass: bearerToken === null
+        ? "anonymous_mcp_public_read" as const
+        : "authenticated_mcp" as const,
+    };
+  }
+
   const eventWrites = hostedMcpEventWritesEnabled();
-  const toolNames = await mcpToolCallNamesFromRequest(request.clone());
+  const parsedRequest = await boundedMcpToolCallNamesFromRequest(request.clone());
+
+  if ("tooLarge" in parsedRequest && parsedRequest.tooLarge) {
+    return {
+      response: mcpJsonRpcError(413, -32600, "MCP request body exceeds the 1 MiB limit."),
+      routeClass: bearerToken === null
+        ? "anonymous_mcp_public_read" as const
+        : "authenticated_mcp" as const,
+    };
+  }
+
+  const toolNames = parsedRequest.toolNames;
   const eventWriteRequested =
     eventWrites && toolNames.some((toolName) => mcpEventWriteToolNameSet.has(toolName));
-  const requiredScopes: readonly ApiScope[] = eventWriteRequested
-    ? hostedMcpEventWriteScopes
-    : mcpRequiredScopes;
+  const readToolRequested = toolNames.some((toolName) => !mcpEventWriteToolNameSet.has(toolName));
+  const requiredScopes: readonly ApiScope[] =
+    eventWriteRequested && readToolRequested
+      ? [...mcpRequiredScopes, ...hostedMcpEventWriteScopes]
+      : eventWriteRequested
+        ? hostedMcpEventWriteScopes
+        : mcpRequiredScopes;
   const authenticatedRouteClass = eventWriteRequested
     ? "authenticated_mcp_write" as const
     : "authenticated_mcp" as const;
-  const bearerToken = getBearerTokenFromAuthorizationHeader(request.headers.get("authorization"));
-
-  if (bearerToken !== null) {
-    const blockedBeforeAuthentication = await rateLimitMcpAuthenticationFailure(request, null, {
-      increment: false,
-    });
-
-    if (blockedBeforeAuthentication !== null) {
-      return {
-        response: blockedBeforeAuthentication,
-        routeClass: authenticatedRouteClass,
-      };
-    }
-  }
 
   if (
     bearerToken === null
@@ -986,7 +1066,7 @@ export async function authorizeHostedMcpRequest(
       mcpAuthenticationErrorResponse(request, 401, -32600, eventWriteRequested
         ? "OAuth bearer token is required for hosted MCP event writes."
         : "OAuth bearer token is required for this MCP deployment.", {
-        requiredScopes: eventWriteRequested ? hostedMcpEventWriteScopes : mcpRequiredScopes,
+        requiredScopes,
       }),
     );
 

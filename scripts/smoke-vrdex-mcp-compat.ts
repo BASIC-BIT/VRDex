@@ -25,6 +25,7 @@ type HostedOAuthMetadata = {
   issuer: string;
   registrationEndpoint: string;
   resource: string;
+  scopes: string[];
 };
 
 type SmokeOptions = {
@@ -56,8 +57,9 @@ const localExpectedTools = [
   "vrdex_event_update",
 ];
 const hostedExpectedTools = ["search", "fetch", ...localReadTools];
+const hostedEventWriteTools = new Set(["vrdex_event_create", "vrdex_event_update"]);
 
-function assertHostedPublicReadSecuritySchemes(tool: HostedToolDescriptor) {
+function assertHostedToolSecuritySchemes(tool: HostedToolDescriptor) {
   assert.equal(typeof tool._meta, "object", `Hosted tool ${String(tool.name)} is missing _meta.`);
   assert.notEqual(tool._meta, null, `Hosted tool ${String(tool.name)} is missing _meta.`);
 
@@ -65,14 +67,22 @@ function assertHostedPublicReadSecuritySchemes(tool: HostedToolDescriptor) {
     securitySchemes?: unknown;
   };
 
-  assert.deepEqual(
-    metadata.securitySchemes,
-    [
-      { type: "noauth" },
-      { scopes: ["mcp:read"], type: "oauth2" },
-    ],
-    `Hosted tool ${String(tool.name)} is missing public-read auth metadata.`,
-  );
+  if (hostedEventWriteTools.has(String(tool.name))) {
+    assert.deepEqual(
+      metadata.securitySchemes,
+      [{ scopes: ["mcp:write", "events:write"], type: "oauth2" }],
+      `Hosted tool ${String(tool.name)} is missing event-write auth metadata.`,
+    );
+  } else {
+    assert.deepEqual(
+      metadata.securitySchemes,
+      [
+        { type: "noauth" },
+        { scopes: ["mcp:read"], type: "oauth2" },
+      ],
+      `Hosted tool ${String(tool.name)} is missing public-read auth metadata.`,
+    );
+  }
 }
 
 const localClientProfiles = [
@@ -586,7 +596,17 @@ async function smokeHostedOAuthMetadata(url: URL, results: SmokeResult[]): Promi
     status: "pass",
   });
 
-  return { authorizationEndpoint, issuer, registrationEndpoint, resource };
+  return { authorizationEndpoint, issuer, registrationEndpoint, resource, scopes };
+}
+
+function requestedHostedOAuthScopes(metadata: HostedOAuthMetadata) {
+  return [
+    "mcp:read",
+    "public:read",
+    ...(metadata.scopes.includes("mcp:write") && metadata.scopes.includes("events:write")
+      ? ["mcp:write", "events:write"]
+      : []),
+  ];
 }
 
 async function smokeHostedDynamicClientRegistration(
@@ -604,6 +624,7 @@ async function smokeHostedDynamicClientRegistration(
     return;
   }
 
+  const requestedScopes = requestedHostedOAuthScopes(metadata);
   const registration = await fetch(metadata.registrationEndpoint, {
     body: JSON.stringify({
       client_name: "VRDex MCP Smoke Client",
@@ -611,7 +632,7 @@ async function smokeHostedDynamicClientRegistration(
       grant_types: ["authorization_code", "refresh_token"],
       redirect_uris: ["http://localhost:8765/callback"],
       response_types: ["code"],
-      scope: "mcp:read public:read",
+      scope: requestedScopes.join(" "),
       software_id: "vrdex-mcp-compat-smoke",
       software_version: "0.0.0",
       token_endpoint_auth_method: "none",
@@ -631,10 +652,14 @@ async function smokeHostedDynamicClientRegistration(
   assert.equal(stringField(body.resource, "registered resource"), metadata.resource);
   assert.equal(stringField(body.authorization_server, "authorization server"), metadata.issuer);
   assert.equal(stringField(body.token_endpoint_auth_method, "token endpoint auth method"), "none");
-  assert.equal(stringField(body.scope, "registered scope").split(/\s+/).includes("mcp:read"), true);
+  const registeredScopes = stringField(body.scope, "registered scope").split(/\s+/);
+
+  for (const requestedScope of requestedScopes) {
+    assert.equal(registeredScopes.includes(requestedScope), true);
+  }
 
   results.push({
-    details: "public MCP client registration passed",
+    details: `public MCP client registration passed for scopes=${requestedScopes.join(" ")}`,
     name: "Hosted Dynamic Client Registration",
     status: "pass",
   });
@@ -670,12 +695,13 @@ async function smokeHostedClientMetadataDocument(
     "/.well-known/oauth-client/vrdex-mcp-public-client",
   ).toString();
   const authorizationUrl = new URL(metadata.authorizationEndpoint);
+  const requestedScopes = requestedHostedOAuthScopes(metadata);
 
   authorizationUrl.searchParams.set("response_type", "code");
   authorizationUrl.searchParams.set("client_id", clientMetadataUrl);
   authorizationUrl.searchParams.set("redirect_uri", "http://localhost:8765/callback");
   authorizationUrl.searchParams.set("resource", metadata.resource);
-  authorizationUrl.searchParams.set("scope", "mcp:read public:read");
+  authorizationUrl.searchParams.set("scope", requestedScopes.join(" "));
   authorizationUrl.searchParams.set("code_challenge", "a".repeat(43));
   authorizationUrl.searchParams.set("code_challenge_method", "S256");
   authorizationUrl.searchParams.set("state", "vrdex-cimd-smoke");
@@ -697,7 +723,7 @@ async function smokeHostedClientMetadataDocument(
   assert.match(decodeURIComponent(location), /\/oauth\/authorize\?/);
 
   results.push({
-    details: "URL-form public client id metadata was accepted before the expected sign-in redirect",
+    details: `URL-form public client id metadata was accepted for scopes=${requestedScopes.join(" ")} before the expected sign-in redirect`,
     name: "Hosted Client ID Metadata Document",
     status: "pass",
   });
@@ -890,8 +916,11 @@ async function smokeHostedHttp(results: SmokeResult[], options: SmokeOptions) {
   }
 
   for (const tool of listedTools ?? []) {
-    assertHostedPublicReadSecuritySchemes(tool);
+    assertHostedToolSecuritySchemes(tool);
   }
+
+  const listedToolNames = new Set((listedTools ?? []).map((tool) => String(tool.name)));
+  const eventWritesListed = [...hostedEventWriteTools].every((toolName) => listedToolNames.has(toolName));
 
   const anonymousSearch = await postMcpJsonRpc(url, {
     jsonrpc: "2.0",
@@ -950,6 +979,11 @@ async function smokeHostedHttp(results: SmokeResult[], options: SmokeOptions) {
   assert.match(invalidBearer.headers.get("www-authenticate") ?? "", /scope="mcp:read"/);
 
   const metadata = await smokeHostedOAuthMetadata(url, results);
+
+  if (eventWritesListed) {
+    assert.equal(metadata.scopes.includes("mcp:write"), true);
+    assert.equal(metadata.scopes.includes("events:write"), true);
+  }
 
   await runHostedDiagnosticStep(results, options, "Hosted Dynamic Client Registration", () =>
     smokeHostedDynamicClientRegistration(metadata, options, results),

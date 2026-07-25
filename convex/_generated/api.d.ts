@@ -28,6 +28,7 @@ import type * as _eventOperations from "../_eventOperations.js";
 import type * as _eventPublic from "../_eventPublic.js";
 import type * as _eventSlots from "../_eventSlots.js";
 import type * as _eventSlugs from "../_eventSlugs.js";
+import type * as _mcpEventWriteReceipts from "../_mcpEventWriteReceipts.js";
 import type * as _mcpToolEvents from "../_mcpToolEvents.js";
 import type * as _oauth from "../_oauth.js";
 import type * as _oauthConsentTransactions from "../_oauthConsentTransactions.js";
@@ -118,6 +119,7 @@ declare const fullApi: ApiFromModules<{
   _eventPublic: typeof _eventPublic;
   _eventSlots: typeof _eventSlots;
   _eventSlugs: typeof _eventSlugs;
+  _mcpEventWriteReceipts: typeof _mcpEventWriteReceipts;
   _mcpToolEvents: typeof _mcpToolEvents;
   _oauth: typeof _oauth;
   _oauthConsentTransactions: typeof _oauthConsentTransactions;

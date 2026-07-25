@@ -222,4 +222,36 @@ describe("hosted MCP event writes", () => {
     const receipts = await t.run(async (ctx) => ctx.db.query("mcpEventWriteReceipts").collect());
     assert.equal(receipts.length, 1);
   });
+
+  it("accepts the OAuth layer's maximum-length client metadata URL for create and update", async () => {
+    const t = convexTest({ schema, modules });
+    const owner = await seedCommunityOwner(t, "long-client-id");
+    const clientIdPrefix = "https://client.example/";
+    const oauthClientId = `${clientIdPrefix}${"a".repeat(2048 - clientIdPrefix.length)}`;
+    const created = await t.mutation(internal.events.createCommunityEventForMcpOwner, {
+      ...createAttribution(owner.userId, { oauthClientId }),
+      title: "Long Client Event",
+      communitySlug: owner.slug,
+      startAt: NOW + 86_400_000,
+    });
+    const updated = await t.mutation(internal.events.updateCommunityEventForMcpOwner, {
+      ...createAttribution(owner.userId, {
+        oauthClientId,
+        idempotencyKeyHash: "3".repeat(64),
+        requestFingerprint: "4".repeat(64),
+      }),
+      currentSlug: created.slug,
+      summary: "Updated through the same client.",
+    });
+    const stored = await t.run(async (ctx) => ({
+      audits: await ctx.db.query("apiWriteAuditEvents").collect(),
+      receipts: await ctx.db.query("mcpEventWriteReceipts").collect(),
+    }));
+
+    assert.equal(updated.eventId, created.eventId);
+    assert.equal(stored.audits.length, 2);
+    assert.equal(stored.receipts.length, 2);
+    assert.equal(stored.audits.every((audit) => audit.oauthClientId === oauthClientId), true);
+    assert.equal(stored.receipts.every((receipt) => receipt.oauthClientId === oauthClientId), true);
+  });
 });
