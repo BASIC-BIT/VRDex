@@ -116,6 +116,54 @@ describe("profile claim lifecycle", () => {
     assert.equal(state.owners.length, 0);
   });
 
+  it("records a proof adapter miss after the deadline as expired", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const attemptId = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        email: "expired-adapter-miss@example.test",
+        emailVerificationTime: now,
+      });
+      const profileId = await ctx.db.insert("profiles", {
+        profileType: "person",
+        slug: "expired-adapter-miss",
+        displayName: "Expired Adapter Miss",
+        sortName: "expired adapter miss",
+        aliases: [],
+        tags: [],
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "public",
+        creationSource: "self",
+        person: { roleTags: [] },
+        updatedAt: now,
+      });
+
+      return await ctx.db.insert("profileVerificationAttempts", {
+        profileId,
+        userId,
+        method: "vrchat_user_proof",
+        targetType: "vrchat_user",
+        targetExternalId: "usr_1cf38bf8-f62a-41be-a4a1-2363f3465d51",
+        proofCode: "VRDEX-ADAPTER-MISS",
+        state: "pending",
+        createdAt: now - 1000,
+        updatedAt: now - 1000,
+        expiresAt: now - 1,
+      });
+    });
+
+    const result = await t.mutation(internal.profileClaims.recordVrchatProofFailure, {
+      attemptId,
+      evidenceSource: "vrchat_api",
+      evidenceSummary: "Synthetic adapter miss after expiry.",
+    });
+
+    assert.deepEqual(result, { state: "expired" });
+    const attempt = await t.run(async (ctx) => await ctx.db.get(attemptId));
+    assert.equal(attempt?.state, "expired");
+  });
+
   it("rejects replay after a proof has granted ownership", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();

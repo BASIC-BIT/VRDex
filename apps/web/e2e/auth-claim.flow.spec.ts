@@ -263,6 +263,12 @@ test("verified email account with linked Discord can claim person and community 
     await expect(page.getByText("You manage this profile, but it is not verified yet.")).toBeVisible();
     await expect(page.getByLabel("VRChat profile URL or user ID")).toBeVisible();
 
+    await gotoFlowPage(page, "/account");
+    await expect(page.getByRole("link", { name: "Verify with VRChat" })).toHaveAttribute(
+      "href",
+      `/claim/${encodeURIComponent(createdSlug!)}?source=account`,
+    );
+
     await gotoFlowPage(
       page,
       `/claim/${encodeURIComponent(communitySlug!)}`,

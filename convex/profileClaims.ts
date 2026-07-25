@@ -987,6 +987,15 @@ export const verifyVrchatProofViaAdapter = action({
     const result = (await response.json()) as ProofAdapterResponse;
 
     if (result.verified !== true) {
+      if (attemptContext.attempt.expiresAt <= Date.now()) {
+        await ctx.runMutation(internal.profileClaims.recordVrchatProofFailure, {
+          attemptId: args.attemptId,
+          evidenceSource: result.evidenceSource ?? "vrchat_api",
+          evidenceSummary: result.evidenceSummary ?? "Proof code was not found before the attempt expired.",
+        });
+        return { state: "expired" as const };
+      }
+
       return { state: "pending" as const };
     }
 

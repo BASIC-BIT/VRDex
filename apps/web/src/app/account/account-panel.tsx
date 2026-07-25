@@ -9,14 +9,16 @@ import { api } from "@convex-generated-api";
 import { buttonVariants, Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
 import { cn } from "@/lib/cn";
+import { profileClaimPath } from "@/lib/profile-claim";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
 function ConnectedAccountPanel() {
   const viewer = useQuery(api.accounts.viewer);
+  const ownedProfiles = useQuery(api.profilePrivacy.listOwnedPrivacyProfilesForAccount);
   const { signOut } = useAuthActions();
 
-  if (viewer === undefined) {
+  if (viewer === undefined || ownedProfiles === undefined) {
     return <p className="text-sm text-muted">Loading account…</p>;
   }
 
@@ -80,9 +82,38 @@ function ConnectedAccountPanel() {
             Find a profile
           </Link>
         </div>
-        <Notice className="mt-5" variant="dashed">
-          Open an unclaimed profile and choose <strong>Claim profile</strong>. Profiles you manage appear in personalization and privacy controls.
-        </Notice>
+        {ownedProfiles && ownedProfiles.length > 0 ? (
+          <ul className="mt-5 divide-y divide-border border-y border-border">
+            {ownedProfiles.map((profile) => {
+              const profilePath = `/${profile.profileType === "community" ? "c" : "p"}/${profile.slug}`;
+
+              return (
+                <li className="flex flex-wrap items-center justify-between gap-3 py-4" key={profile.profileId}>
+                  <div>
+                    <Link className="font-medium underline underline-offset-4" href={profilePath}>
+                      {profile.displayName}
+                    </Link>
+                    <p className="mt-1 text-sm text-muted">
+                      {profile.claimState === "claimed_verified" ? "Verified owner" : "Owner · Verification available"}
+                    </p>
+                  </div>
+                  {profile.claimState === "claimed_unverified" ? (
+                    <Link
+                      className={buttonVariants({ size: "sm", variant: "secondary" })}
+                      href={profileClaimPath(profile.slug, "account")}
+                    >
+                      Verify with VRChat
+                    </Link>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <Notice className="mt-5" variant="dashed">
+            Open an unclaimed profile and choose <strong>Claim profile</strong>.
+          </Notice>
+        )}
       </section>
     </div>
   );
@@ -108,7 +139,7 @@ export function AccountPanel() {
   if (!convexUrl) {
     return (
       <Notice className="leading-7" variant="dashed">
-        Account details are unavailable because the application backend is not configured.
+        Account details are temporarily unavailable. Try again shortly.
       </Notice>
     );
   }
