@@ -50,6 +50,10 @@ function redirectResponse(location: string) {
   return Response.redirect(location, 303);
 }
 
+function recordAuthorizationClientRejection(reason: string) {
+  console.warn("VRDex OAuth authorization client rejected.", { reason });
+}
+
 async function ensureClientMetadataDocumentClient(
   authorization: ReturnType<typeof normalizeOAuthAuthorizationRequest>,
   request: Request,
@@ -157,6 +161,8 @@ export async function GET(request: Request) {
   });
 
   if (!client.ok) {
+    recordAuthorizationClientRejection(client.reason);
+
     if (
       (client.reason === "invalid_scope" || client.reason === "wrong_resource") &&
       client.redirectUri !== undefined

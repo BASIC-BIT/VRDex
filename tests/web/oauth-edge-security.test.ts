@@ -204,6 +204,12 @@ describe("OAuth edge security", () => {
     assert.match(authorize, /oauthRateLimitResponse\(request, "oauth_authorize"\)/);
     assert.match(authorize, /client\.reason === "invalid_scope" \|\| client\.reason === "wrong_resource"/);
     assert.match(authorize, /redirectUriWithOAuthClientError/);
+    assert.match(authorize, /recordAuthorizationClientRejection\(client\.reason\)/);
+    const rejectionLog = authorize.slice(
+      authorize.indexOf("function recordAuthorizationClientRejection"),
+      authorize.indexOf("async function ensureClientMetadataDocumentClient"),
+    );
+    assert.doesNotMatch(rejectionLog, /clientId|redirectUri|requestedScopes|resource|state|codeChallenge/);
     assert.ok(
       authorize.indexOf('const rateLimited = await oauthRateLimitResponse(request, "oauth_authorize")') <
         authorize.indexOf("authorization = normalizeOAuthAuthorizationRequest"),
