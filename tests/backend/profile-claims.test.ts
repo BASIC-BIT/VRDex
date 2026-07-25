@@ -59,4 +59,122 @@ describe("profile claim lifecycle", () => {
     assert.equal(attempt?.state, "expired");
     assert.equal(attempt?.proofCode, "VRDEX-EXPIRED");
   });
+
+  it("does not grant ownership from an expired proof attempt", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const { attemptId, profileId } = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        email: "expired-proof@example.test",
+        emailVerificationTime: now,
+      });
+      const profileId = await ctx.db.insert("profiles", {
+        profileType: "person",
+        slug: "expired-proof",
+        displayName: "Expired Proof",
+        sortName: "expired proof",
+        aliases: [],
+        tags: [],
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "public",
+        creationSource: "self",
+        person: { roleTags: [] },
+        updatedAt: now,
+      });
+      const attemptId = await ctx.db.insert("profileVerificationAttempts", {
+        profileId,
+        userId,
+        method: "vrchat_user_proof",
+        targetType: "vrchat_user",
+        targetExternalId: "usr_1cf38bf8-f62a-41be-a4a1-2363f3465d51",
+        proofCode: "VRDEX-TOO-LATE",
+        state: "pending",
+        createdAt: now - 1000,
+        updatedAt: now - 1000,
+        expiresAt: now - 1,
+      });
+
+      return { attemptId, profileId };
+    });
+
+    const result = await t.mutation(internal.profileClaims.recordVrchatProofVerification, {
+      attemptId,
+      evidenceSource: "vrchat_api",
+      evidenceSummary: "Synthetic expired proof.",
+    });
+    assert.deepEqual(result, { state: "expired" });
+
+    const state = await t.run(async (ctx) => ({
+      attempt: await ctx.db.get(attemptId),
+      owners: await ctx.db
+        .query("profileOwners")
+        .withIndex("by_profileId_state", (q) => q.eq("profileId", profileId))
+        .collect(),
+    }));
+    assert.equal(state.attempt?.state, "expired");
+    assert.equal(state.owners.length, 0);
+  });
+
+  it("rejects replay after a proof has granted ownership", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const { attemptId, profileId } = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        email: "proof-replay@example.test",
+        emailVerificationTime: now,
+      });
+      const profileId = await ctx.db.insert("profiles", {
+        profileType: "person",
+        slug: "proof-replay",
+        displayName: "Proof Replay",
+        sortName: "proof replay",
+        aliases: [],
+        tags: [],
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "public",
+        creationSource: "self",
+        person: { roleTags: [] },
+        updatedAt: now,
+      });
+      const attemptId = await ctx.db.insert("profileVerificationAttempts", {
+        profileId,
+        userId,
+        method: "vrchat_user_proof",
+        targetType: "vrchat_user",
+        targetExternalId: "usr_5e7adcef-c7f4-4df1-b4e6-e86fb529ac08",
+        proofCode: "VRDEX-ONE-TIME",
+        state: "pending",
+        createdAt: now,
+        updatedAt: now,
+        expiresAt: now + 60_000,
+      });
+
+      return { attemptId, profileId };
+    });
+
+    await t.mutation(internal.profileClaims.recordVrchatProofVerification, {
+      attemptId,
+      evidenceSource: "vrchat_api",
+      evidenceSummary: "Synthetic verified proof.",
+    });
+    await assert.rejects(
+      t.mutation(internal.profileClaims.recordVrchatProofVerification, {
+        attemptId,
+        evidenceSource: "vrchat_api",
+        evidenceSummary: "Synthetic replay.",
+      }),
+      /Only pending verification attempts can be approved/,
+    );
+
+    const owners = await t.run(async (ctx) =>
+      ctx.db
+        .query("profileOwners")
+        .withIndex("by_profileId_state", (q) => q.eq("profileId", profileId))
+        .collect(),
+    );
+    assert.equal(owners.length, 1);
+    assert.equal(owners[0]?.state, "active");
+  });
 });
