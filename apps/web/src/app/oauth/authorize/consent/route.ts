@@ -6,6 +6,7 @@ import { redirectUriWithOAuthResult } from "@/lib/server/oauth-authorization-req
 import {
   hashOAuthConsentTransactionValue,
   normalizeOAuthConsentTransactionValue,
+  oauthConsentCompletionErrorDescription,
   oauthConsentOriginAllowed,
 } from "@/lib/server/oauth-consent-transaction";
 import {
@@ -105,7 +106,7 @@ export async function POST(request: Request) {
     return Response.json(
       {
         error: result.reason,
-        error_description: "The OAuth client cannot use the requested redirect URI, resource, or scopes.",
+        error_description: oauthConsentCompletionErrorDescription(result.reason),
       },
       { status: 400 },
     );

@@ -11,6 +11,7 @@ import {
 import {
   createOAuthConsentTransactionValue,
   hashOAuthConsentTransactionValue,
+  oauthConsentCompletionErrorDescription,
   oauthConsentOriginAllowed,
 } from "../../apps/web/src/lib/server/oauth-consent-transaction";
 import { hostedMcpEventWriteGrantAllowed } from "../../apps/web/src/lib/server/hosted-mcp-policy";
@@ -191,6 +192,25 @@ describe("OAuth edge security", () => {
     assert.equal(oauthConsentTransactionDisposition(transaction, userB, 1_000), "cross_user");
     assert.equal(oauthConsentTransactionDisposition(transaction, userA, 2_000), "expired");
     assert.equal(oauthConsentTransactionDisposition(null, userA, 1_000), "missing");
+  });
+
+  it("distinguishes an expired consent transaction from client binding failures", () => {
+    assert.equal(
+      oauthConsentCompletionErrorDescription("invalid_transaction"),
+      "The OAuth consent transaction is invalid or expired. Restart authorization.",
+    );
+    assert.equal(
+      oauthConsentCompletionErrorDescription("invalid_redirect_uri"),
+      "The OAuth client cannot use the requested redirect URI, resource, or scopes.",
+    );
+    assert.equal(
+      oauthConsentCompletionErrorDescription("wrong_resource"),
+      "The OAuth client cannot use the requested redirect URI, resource, or scopes.",
+    );
+    assert.equal(
+      oauthConsentCompletionErrorDescription("invalid_scope"),
+      "The OAuth client cannot use the requested redirect URI, resource, or scopes.",
+    );
   });
 
   it("guards every OAuth route and keeps raw authorization fields out of consent POST", () => {
