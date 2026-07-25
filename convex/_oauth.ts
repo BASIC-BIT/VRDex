@@ -339,6 +339,10 @@ export function normalizeOAuthScopes(scopes: readonly string[] | undefined): Api
   return uniqueScopes as ApiScope[];
 }
 
+export function normalizeOAuthRequiredScopes(scopes: readonly string[] | undefined): ApiScope[] {
+  return scopes?.length === 0 ? [] : normalizeOAuthScopes(scopes);
+}
+
 export function normalizeOAuthGrantTypes(
   grantTypes: readonly string[] | undefined,
   clientType: OAuthClientType,

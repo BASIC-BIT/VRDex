@@ -26,6 +26,7 @@ import {
   normalizeOAuthResponseTypes,
   normalizeOAuthTokenEndpointAuthMethod,
   normalizeOAuthResourceUri,
+  normalizeOAuthRequiredScopes,
   normalizeOAuthScopes,
   normalizeOAuthSoftwareValue,
   normalizeOAuthTokenExpiry,
@@ -223,6 +224,8 @@ describe("OAuth application helpers", () => {
       "public:read",
       "mcp:read",
     ]);
+    assert.deepEqual(normalizeOAuthRequiredScopes(undefined), ["public:read"]);
+    assert.deepEqual(normalizeOAuthRequiredScopes([]), []);
     assert.deepEqual(normalizeOAuthGrantTypes(undefined, "public"), [
       "authorization_code",
       "refresh_token",

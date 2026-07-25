@@ -192,5 +192,15 @@ describe("OAuth dynamic client authorization", () => {
       (await t.run(async (ctx) => await ctx.db.query("oauthAuthorizationCodes").unique()))?.status,
       "consumed",
     );
+
+    const protocolSetupValidation = await t.mutation(internal.oauthApps.validateAccessToken, {
+      clientId,
+      tokenId: `vrdx_at_${"3".repeat(32)}`,
+      resource,
+      requiredScopes: [],
+      routeClass: "authenticated_mcp",
+    });
+
+    assert.equal(protocolSetupValidation.ok, true);
   });
 });

@@ -38,6 +38,7 @@ import {
   normalizeOAuthRevokeReason,
   normalizeOAuthResourceUri,
   normalizeOAuthRefreshTokenHash,
+  normalizeOAuthRequiredScopes,
   normalizeOAuthScopes,
   normalizeOAuthSoftwareValue,
   normalizeOAuthTokenExpiry,
@@ -2296,7 +2297,7 @@ async function validateAccessTokenRecord(
     const clientId = normalizeOAuthClientId(args.clientId);
     const tokenId = normalizeOAuthAccessTokenId(args.tokenId);
     const resource = normalizeOAuthResourceUri(args.resource);
-    const requiredScopes = normalizeOAuthScopes(args.requiredScopes);
+    const requiredScopes = normalizeOAuthRequiredScopes(args.requiredScopes);
     const routeClass = args.routeClass ?? "authenticated_public_read";
     const token = await ctx.db
       .query("oauthAccessTokens")
