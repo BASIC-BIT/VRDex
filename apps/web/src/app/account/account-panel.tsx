@@ -1,6 +1,5 @@
 "use client";
 
-import { useAuthActions } from "@convex-dev/auth/react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { Component, useState, useTransition, type FormEvent, type ReactNode } from "react";
@@ -12,6 +11,7 @@ import { Field, Input } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { cn } from "@/lib/cn";
 import type { Id } from "../../../../../convex/_generated/dataModel";
+import { AccountSignOutControl } from "./sign-out-control";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
@@ -450,7 +450,6 @@ function ConnectedAccountPanel({
   defaultClaimType: ClaimProfileType;
 }) {
   const viewer = useQuery(api.accounts.viewer);
-  const { signOut } = useAuthActions();
 
   if (viewer === undefined) {
     return <p className="text-sm text-muted">Loading account...</p>;
@@ -489,9 +488,7 @@ function ConnectedAccountPanel({
             <Link className={buttonVariants({ variant: "secondary" })} href="/account/appearance">
               Personalization
             </Link>
-            <Button type="button" variant="ghost" onClick={() => void signOut()}>
-              Sign out
-            </Button>
+            <AccountSignOutControl />
           </div>
         </div>
 
