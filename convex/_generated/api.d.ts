@@ -57,6 +57,7 @@ import type * as _shortLinks from "../_shortLinks.js";
 import type * as _vocabulary from "../_vocabulary.js";
 import type * as _vrcdnLinks from "../_vrcdnLinks.js";
 import type * as _vrcdnOutputAccounts from "../_vrcdnOutputAccounts.js";
+import type * as _vrchatIdentity from "../_vrchatIdentity.js";
 import type * as _worldEvents from "../_worldEvents.js";
 import type * as _worldIds from "../_worldIds.js";
 import type * as _worldPublic from "../_worldPublic.js";
@@ -148,6 +149,7 @@ declare const fullApi: ApiFromModules<{
   _vocabulary: typeof _vocabulary;
   _vrcdnLinks: typeof _vrcdnLinks;
   _vrcdnOutputAccounts: typeof _vrcdnOutputAccounts;
+  _vrchatIdentity: typeof _vrchatIdentity;
   _worldEvents: typeof _worldEvents;
   _worldIds: typeof _worldIds;
   _worldPublic: typeof _worldPublic;

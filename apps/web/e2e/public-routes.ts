@@ -369,9 +369,9 @@ export async function expectVerifiedPersonProfilePage(page: Page) {
 
 export async function expectCommunityProfilePage(page: Page) {
   await expect(page.getByRole("heading", { name: "Afterglow Social" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Claim this profile" })).toHaveAttribute(
+  await expect(page.getByRole("link", { name: "Manage this community? Claim profile" })).toHaveAttribute(
     "href",
-    "/account?claim=playwright-afterglow-social&claimType=community",
+    "/claim/playwright-afterglow-social?source=profile",
   );
   await expect(page.getByRole("heading", { name: "Hosted events" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions" })).toBeVisible();

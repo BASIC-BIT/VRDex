@@ -13,6 +13,7 @@ describe("protected route redirects", () => {
       "/account",
       "/account/privacy",
       "/account/privacy/details",
+      "/claim/example-profile",
       "/submit",
       "/events/new",
       "/events/summer-social/edit",
@@ -27,6 +28,7 @@ describe("protected route redirects", () => {
     for (const pathname of [
       "/",
       "/accounting",
+      "/claims/example-profile",
       "/events/summer-social",
       "/events/summer-social/edit/history",
       "/developers/api",
@@ -48,6 +50,13 @@ describe("protected route redirects", () => {
     assert.equal(
       protectedRouteSignInPath("/account/privacy", "?profileId=profile-1&tab=links"),
       "/sign-in?returnTo=%2Faccount%2Fprivacy%3FprofileId%3Dprofile-1%26tab%3Dlinks",
+    );
+  });
+
+  it("preserves a contextual claim source in the sign-in returnTo", () => {
+    assert.equal(
+      protectedRouteSignInPath("/claim/example-profile", "?source=search"),
+      "/sign-in?returnTo=%2Fclaim%2Fexample-profile%3Fsource%3Dsearch",
     );
   });
 

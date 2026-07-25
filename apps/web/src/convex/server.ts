@@ -69,6 +69,34 @@ export async function fetchPublicProfileBySlug(slug: string, profileType: Public
   }
 }
 
+export async function fetchClaimProfileBySlug(slug: string) {
+  const fixtureProfile =
+    getPlaywrightPublicProfileFixture(slug, "person") ??
+    getPlaywrightPublicProfileFixture(slug, "community");
+
+  if (fixtureProfile !== null) {
+    return { kind: "live" as const, profile: fixtureProfile };
+  }
+
+  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
+    return { kind: "missing-url" as const, profile: null };
+  }
+
+  try {
+    const profile = await fetchQuery(
+      api.profiles.getPublicBySlug,
+      { slug, now: Date.now(), includeTelemetry: false },
+      { token: await convexAuthNextjsToken() },
+    );
+
+    return { kind: "live" as const, profile };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Server-side Convex claim profile fetch failed: ${message}`);
+    return { kind: "error" as const, profile: null };
+  }
+}
+
 export async function fetchPublicEventBySlug(slug: string) {
   const fixtureEvent = getPlaywrightPublicEventFixture(slug);
 

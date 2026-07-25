@@ -9,6 +9,7 @@ import { CopyValueRow } from "@/components/ui/copy-value-row";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 import { avatarFrameStyle, defaultAvatarAppearance, type AvatarAppearance } from "@/lib/avatar-appearance";
 import { cn } from "@/lib/cn";
+import { profileClaimPath } from "@/lib/profile-claim";
 import { safeImageBackground } from "@/lib/safe-image";
 import type { TwitchLiveState } from "@/lib/server/twitch-live";
 import { twitchLoginFromUrl } from "@/lib/twitch-url";
@@ -527,9 +528,9 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
                   {canClaim ? (
                     <Link
                       className={cn(buttonVariants({ variant: "inversePrimary" }), "mt-5 !text-[#08090d]")}
-                      href={`/account?claim=${encodeURIComponent(profile.slug)}&claimType=${profile.profileType}`}
+                      href={profileClaimPath(profile.slug, "profile")}
                     >
-                      Claim this profile
+                      {profile.profileType === "person" ? "Is this you? Claim profile" : "Manage this community? Claim profile"}
                     </Link>
                   ) : null}
                 </div>
