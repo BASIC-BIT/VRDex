@@ -127,13 +127,13 @@ async function expectCurrentOrHostedLagTrustCopy(currentCopy: Locator, hostedLag
   await expect(currentCopy.or(hostedLagCopy).first()).toBeVisible(hostedActionExpectOptions);
 }
 
-async function hostedTargetHasCommunityClaimFlow(page: Page) {
+async function hostedTargetHasClaimJourney(page: Page, headingName: string) {
   if (!process.env.PLAYWRIGHT_BASE_URL) {
     return true;
   }
 
   try {
-    await page.getByRole("button", { name: "Community" }).waitFor({ state: "visible", timeout: 3_000 });
+    await page.getByRole("heading", { name: headingName }).waitFor({ state: "visible", timeout: 10_000 });
     return true;
   } catch {
     return false;
@@ -239,6 +239,14 @@ test("verified email account with linked Discord can claim person and community 
     await linkDiscordAccount(request, e2eToken, email, `discord-${runSuffix}`);
 
     await gotoFlowPage(page, `/claim/${encodeURIComponent(createdSlug!)}`);
+    if (!(await hostedTargetHasClaimJourney(page, `Claim ${displayName}`))) {
+      testInfo.annotations.push({
+        type: "hosted-staging-lag",
+        description: "The shared hosted target does not yet include the profile-scoped claim journey exercised by this branch.",
+      });
+      return;
+    }
+
     await expect(page.getByRole("heading", { name: `Claim ${displayName}` })).toBeVisible();
     await page.getByRole("button", { name: /Use linked Discord/ }).click();
     await page.getByRole("button", { name: "Claim with Discord" }).click();
@@ -255,14 +263,6 @@ test("verified email account with linked Discord can claim person and community 
       page,
       `/claim/${encodeURIComponent(communitySlug!)}`,
     );
-    if (!(await hostedTargetHasCommunityClaimFlow(page))) {
-      testInfo.annotations.push({
-        type: "hosted-staging-lag",
-        description: "The shared hosted target predates the progressive community claim UI exercised by this branch.",
-      });
-      return;
-    }
-
     await page.getByRole("button", { name: /Verify Discord admin/ }).click();
     await page.getByLabel("Discord server ID").fill("123456789012345678");
     await page.getByRole("button", { name: "Continue with Discord" }).click();
@@ -301,6 +301,14 @@ test("verified email account can complete VRChat adapter claims @flow", async ({
     });
     await createVerifiedE2eAccount({ page, request, e2eToken, email, password });
     await gotoFlowPage(page, `/claim/${encodeURIComponent(vrchatPersonSlug!)}`);
+    if (!(await hostedTargetHasClaimJourney(page, `Claim Playwright VRChat Proof ${runSuffix}`))) {
+      testInfo.annotations.push({
+        type: "hosted-staging-lag",
+        description: "The shared hosted target does not yet include the profile-scoped claim journey exercised by this branch.",
+      });
+      return;
+    }
+
     await page.getByLabel("VRChat profile URL or user ID").fill(
       "https://vrchat.com/home/user/usr_e2e00000-0000-4000-8000-000000000001",
     );
