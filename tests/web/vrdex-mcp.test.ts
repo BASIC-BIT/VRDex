@@ -634,6 +634,107 @@ describe("VRDex MCP server", () => {
     assert.match(output, /MCP request body exceeds the 1 MiB limit/);
   });
 
+  it("allows write-only OAuth sessions to initialize and list tools without invoking them", () => {
+    const output = runMcpProbe(`
+      import assert from "node:assert/strict";
+      import { generateKeyPairSync } from "node:crypto";
+      import { createOAuthAccessTokenId, signOAuthAccessToken } from "./apps/web/src/lib/server/oauth-jwt.ts";
+      import {
+        authorizeHostedMcpRequest,
+        createVrdexMcpHandler,
+      } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+      process.env.VRDEX_HOSTED_MCP_EVENT_WRITES = "true";
+      process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY =
+        privateKey.export({ format: "pem", type: "pkcs8" }).toString();
+      process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID = "test-key";
+      process.env.VRDEX_RATE_LIMIT_STORE = "memory";
+      const now = Math.floor(Date.now() / 1000);
+      const resource = "https://app.example.test/mcp";
+      const clientId = "vrdx_app_0123456789abcdef01234567";
+      const accessToken = signOAuthAccessToken({
+        aud: resource,
+        client_id: clientId,
+        exp: now + 60,
+        iat: now,
+        iss: "https://app.example.test",
+        jti: createOAuthAccessTokenId(),
+        scope: "mcp:write events:write",
+        sub: "user_123",
+      });
+      const handler = createVrdexMcpHandler({ eventWrites: true });
+      const validateAccessTokenRecord = async (input) => ({
+        ok: true,
+        accessTokenRecordId: "token_record_123",
+        clientId: input.clientId,
+        dynamicClientId: "dynamic_client_123",
+        resource: input.resource,
+        scopes: ["mcp:write", "events:write"],
+        subjectType: "user",
+        tokenId: input.tokenId,
+        trustTier: "standard",
+        userId: "user_123",
+      });
+
+      async function dispatch(payload) {
+        const request = new Request(resource, {
+          method: "POST",
+          headers: {
+            accept: "application/json, text/event-stream",
+            authorization: \`Bearer \${accessToken}\`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        });
+        const authorization = await authorizeHostedMcpRequest(request.clone(), {
+          validateAccessTokenRecord,
+        });
+        assert.equal(authorization.response, null);
+        assert.ok("authInfo" in authorization && authorization.authInfo !== undefined);
+        return await handler.fetch(request, { authInfo: authorization.authInfo });
+      }
+
+      const initialized = await dispatch({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "write-only-proof", version: "1.0.0" },
+        },
+      });
+      const listed = await dispatch({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/list",
+        params: {},
+      });
+      const listedBody = await listed.text();
+
+      console.log(JSON.stringify({
+        initializedStatus: initialized.status,
+        listedStatus: listed.status,
+        listsCreate: listedBody.includes('"name":"vrdex_event_create"'),
+        listsUpdate: listedBody.includes('"name":"vrdex_event_update"'),
+      }));
+    `);
+    const result = JSON.parse(output) as {
+      initializedStatus: number;
+      listedStatus: number;
+      listsCreate: boolean;
+      listsUpdate: boolean;
+    };
+
+    assert.deepEqual(result, {
+      initializedStatus: 200,
+      listedStatus: 200,
+      listsCreate: true,
+      listsUpdate: true,
+    });
+  });
+
   it("composes JWT, durable validation, AuthInfo, and write-subject rejection", () => {
     const output = runMcpProbe(`
       import assert from "node:assert/strict";

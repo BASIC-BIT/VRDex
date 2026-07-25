@@ -1062,7 +1062,9 @@ export async function authorizeHostedMcpRequest(
       ? [...mcpRequiredScopes, ...hostedMcpEventWriteScopes]
       : eventWriteRequested
         ? hostedMcpEventWriteScopes
-        : mcpRequiredScopes;
+        : readToolRequested || bearerToken === null || request.method !== "POST"
+          ? mcpRequiredScopes
+          : [];
   const authenticatedRouteClass = eventWriteRequested
     ? "authenticated_mcp_write" as const
     : "authenticated_mcp" as const;
