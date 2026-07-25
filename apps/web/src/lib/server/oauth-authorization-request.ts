@@ -7,13 +7,13 @@ import {
 import {
   oauthApiResourceUri,
   oauthMcpResourceUri,
-  oauthSupportedResources,
   parseOAuthScopeString,
 } from "./oauth-jwt";
 import {
   normalizeOAuthCodeChallenge,
   normalizeOAuthCodeChallengeMethod,
 } from "./oauth-pkce";
+import { normalizedOAuthResourceIndicator } from "./oauth-resource-indicator";
 
 export type OAuthAuthorizationRequest = {
   clientId: string;
@@ -56,16 +56,12 @@ function requestedResource(
   input: URLSearchParams | FormData,
   requestedScopes: readonly ApiScope[],
 ) {
-  const resource = inputValue(input, "resource");
+  const resource = normalizedOAuthResourceIndicator(request, input);
 
   if (!resource) {
     return requestedScopes.some((scope) => scope === "mcp:read" || scope === "mcp:write")
       ? oauthMcpResourceUri(request)
       : oauthApiResourceUri(request);
-  }
-
-  if (!oauthSupportedResources(request).includes(resource)) {
-    throw new Error("resource is not supported by this deployment.");
   }
 
   return resource;

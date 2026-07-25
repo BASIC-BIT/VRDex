@@ -30,6 +30,7 @@ import {
   normalizeOAuthRefreshTokenValue,
   refreshTokenPepper,
 } from "./oauth-pkce";
+import { normalizedOAuthResourceIndicator } from "./oauth-resource-indicator";
 
 type OAuthScope = ReturnType<typeof parseOAuthScopeString>[number];
 
@@ -164,29 +165,21 @@ async function formData(request: Request) {
 }
 
 function requestedResource(request: Request, form: FormData) {
-  const resource = String(form.get("resource") ?? "").trim();
+  const resource = normalizedOAuthResourceIndicator(request, form);
   const supportedResources = oauthSupportedResources(request);
 
   if (!resource) {
     return supportedResources[0];
   }
 
-  if (!supportedResources.includes(resource)) {
-    throw new Error("The requested OAuth resource is not supported by this deployment.");
-  }
-
   return resource;
 }
 
 function requestedAuthorizationCodeResource(request: Request, form: FormData) {
-  const resource = String(form.get("resource") ?? "").trim();
+  const resource = normalizedOAuthResourceIndicator(request, form);
 
   if (!resource) {
     return undefined;
-  }
-
-  if (!oauthSupportedResources(request).includes(resource)) {
-    throw new Error("The requested OAuth resource is not supported by this deployment.");
   }
 
   return resource;
