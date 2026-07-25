@@ -15,7 +15,7 @@ import { Field, FieldText, Input } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { captureProductEvent } from "@/lib/posthog";
 import { cn } from "@/lib/cn";
-import type { ClaimEntrySource } from "@/lib/profile-claim";
+import { profileClaimPath, type ClaimEntrySource } from "@/lib/profile-claim";
 
 type ProfileType = "person" | "community";
 type ClaimMethod = "discord" | "vrchat";
@@ -367,6 +367,17 @@ export function ClaimFlow({
         </p>
 
         {context === undefined ? <p className="mt-8 text-sm text-muted">Loading claim options…</p> : null}
+        {context?.ownership === "signed_out" ? (
+          <Notice className="mt-8" variant="warning">
+            <p className="font-semibold">Sign in to continue this claim.</p>
+            <Link
+              className={cn(buttonVariants({ variant: "primary" }), "mt-4")}
+              href={`/sign-in?returnTo=${encodeURIComponent(profileClaimPath(profile.slug, source))}`}
+            >
+              Sign in
+            </Link>
+          </Notice>
+        ) : null}
         {(context?.ownership === "viewer" && context.verified) || status.kind === "complete" ? (
           <div
             aria-live="polite"

@@ -84,8 +84,8 @@ export async function fetchClaimProfileBySlug(slug: string) {
 
   try {
     const profile = await fetchQuery(
-      api.profiles.getPublicBySlug,
-      { slug, now: Date.now(), includeTelemetry: false },
+      api.profileClaims.getClaimTargetBySlug,
+      { profileSlug: slug },
       { token: await convexAuthNextjsToken() },
     );
 

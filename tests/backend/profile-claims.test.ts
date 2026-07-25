@@ -15,6 +15,58 @@ const schema = (
 ).default ?? schemaModule;
 
 describe("profile claim lifecycle", () => {
+  it("lets an owner fetch a private claim target without making it public", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        email: "private-claim-target@example.test",
+        emailVerificationTime: now,
+      });
+      const profileId = await ctx.db.insert("profiles", {
+        profileType: "person",
+        slug: "private-claim-target",
+        displayName: "Private Claim Target",
+        sortName: "private claim target",
+        aliases: [],
+        tags: [],
+        claimState: "claimed_unverified",
+        publicationState: "draft_private",
+        publicSurfacingState: "opted_out",
+        creationSource: "concierge",
+        person: { roleTags: [] },
+        updatedAt: now,
+      });
+      await ctx.db.insert("profileOwners", {
+        profileId,
+        userId,
+        roleKey: "owner",
+        state: "active",
+        grantedAt: now,
+        updatedAt: now,
+      });
+
+      return {
+        identity: {
+          subject: `${userId}|web-session`,
+          issuer: "test",
+          tokenIdentifier: `test|${userId}`,
+        },
+      };
+    });
+
+    const signedOutResult = await t.query(api.profileClaims.getClaimTargetBySlug, {
+      profileSlug: "private-claim-target",
+    });
+    assert.equal(signedOutResult, null);
+
+    const ownerResult = await t.withIdentity(seeded.identity).query(api.profileClaims.getClaimTargetBySlug, {
+      profileSlug: "private-claim-target",
+    });
+    assert.equal(ownerResult?.displayName, "Private Claim Target");
+    assert.equal(ownerResult?.slug, "private-claim-target");
+  });
+
   it("expires stale pending proof attempts without deleting history", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();

@@ -6,7 +6,8 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { createClaimedDiscordProfileForUser } from "./_profileClaimCreation";
-import { approveProfileClaimForUser, getActiveProfileOwner } from "./_profileOwnership";
+import { approveProfileClaimForUser, getActiveProfileOwner, userOwnsProfile } from "./_profileOwnership";
+import { canReadProfile } from "./_profilePermissions";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { createProfileSearchDocument, upsertSearchDocument } from "./_searchDocuments";
 import { normalizeVrchatTargetId } from "./_vrchatIdentity";
@@ -43,6 +44,36 @@ const claimedCommunityProfileArgs = {
     }),
   ),
 };
+
+export const getClaimTargetBySlug = query({
+  args: {
+    profileSlug: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const validation = validateProfileSlug(args.profileSlug);
+    if (!validation.ok) {
+      return null;
+    }
+
+    const profile = await getProfileBySlug(ctx.db, validation.slug);
+    if (profile === null) {
+      return null;
+    }
+
+    const user = await getCurrentUser(ctx);
+    const isOwner = user !== null && await userOwnsProfile(ctx.db, profile._id, user._id);
+    if (!canReadProfile("public", profile) && !isOwner) {
+      return null;
+    }
+
+    return {
+      avatarImageUrl: profile.avatarImageUrl,
+      displayName: profile.displayName,
+      profileType: profile.profileType,
+      slug: profile.slug,
+    };
+  },
+});
 
 type VrchatTargetType = Doc<"profileVerificationAttempts">["targetType"];
 type VerificationAttemptAdapterContext = {
@@ -980,6 +1011,15 @@ export const verifyVrchatProofViaAdapter = action({
       }),
     });
 
+    if (attemptContext.attempt.expiresAt <= Date.now()) {
+      await ctx.runMutation(internal.profileClaims.recordVrchatProofFailure, {
+        attemptId: args.attemptId,
+        evidenceSource: "vrchat_api",
+        evidenceSummary: "The proof attempt expired before adapter verification completed.",
+      });
+      return { state: "expired" as const };
+    }
+
     if (!response.ok) {
       return { state: "unavailable" as const };
     }
@@ -987,15 +1027,6 @@ export const verifyVrchatProofViaAdapter = action({
     const result = (await response.json()) as ProofAdapterResponse;
 
     if (result.verified !== true) {
-      if (attemptContext.attempt.expiresAt <= Date.now()) {
-        await ctx.runMutation(internal.profileClaims.recordVrchatProofFailure, {
-          attemptId: args.attemptId,
-          evidenceSource: result.evidenceSource ?? "vrchat_api",
-          evidenceSummary: result.evidenceSummary ?? "Proof code was not found before the attempt expired.",
-        });
-        return { state: "expired" as const };
-      }
-
       return { state: "pending" as const };
     }
 
