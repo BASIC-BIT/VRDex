@@ -1,5 +1,167 @@
 @import "tailwindcss";
 
+@property --background {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #08090d;
+}
+
+@property --foreground {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #f5f7fb;
+}
+
+@property --canvas {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #0b0d12;
+}
+
+@property --canvas-muted {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #0f131a;
+}
+
+@property --surface {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: rgba(17, 22, 30, 0.82);
+}
+
+@property --surface-muted {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: rgba(25, 31, 40, 0.72);
+}
+
+@property --surface-strong {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #151b24;
+}
+
+@property --surface-elevated {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #1b232e;
+}
+
+@property --muted {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #98a3b3;
+}
+
+@property --subtle {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #647080;
+}
+
+@property --inverse {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #08090d;
+}
+
+@property --accent {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #8ed8ff;
+}
+
+@property --accent-strong {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #c7ecff;
+}
+
+@property --accent-muted {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: rgba(142, 216, 255, 0.14);
+}
+
+@property --danger {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #ff8a8a;
+}
+
+@property --danger-strong {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #ffd6d6;
+}
+
+@property --success {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #8ee6ae;
+}
+
+@property --success-strong {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #d6ffe4;
+}
+
+@property --warning {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #ffd47a;
+}
+
+@property --warning-strong {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #fff0bd;
+}
+
+@property --info {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #8ed8ff;
+}
+
+@property --info-strong {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #d6f2ff;
+}
+
+@property --border {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: rgba(229, 235, 244, 0.14);
+}
+
+@property --border-strong {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: rgba(229, 235, 244, 0.24);
+}
+
+@property --focus {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: rgba(142, 216, 255, 0.38);
+}
+
+@property --media {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #020307;
+}
+
+@property --media-raised {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #172033;
+}
+
 :root {
   --background: #08090d;
   --foreground: #f5f7fb;
@@ -175,16 +337,27 @@ body {
   min-height: 100vh;
 }
 
+:root[data-theme-transition="true"] {
+  transition-duration: 650ms !important;
+  transition-property:
+    --background, --foreground, --canvas, --canvas-muted, --surface, --surface-muted, --surface-strong,
+    --surface-elevated, --muted, --subtle, --inverse, --accent, --accent-strong, --accent-muted, --danger,
+    --danger-strong, --success, --success-strong, --warning, --warning-strong, --info, --info-strong, --border,
+    --border-strong, --focus, --media, --media-raised !important;
+  transition-timing-function: ease-in-out !important;
+}
+
 :root[data-theme-transition="true"] body,
 :root[data-theme-transition="true"] body *,
 :root[data-theme-transition="true"] body *::before,
 :root[data-theme-transition="true"] body *::after {
   transition-duration: 650ms !important;
-  transition-property: background-color, border-color, box-shadow, color, fill, stroke !important;
+  transition-property: box-shadow !important;
   transition-timing-function: ease-in-out !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
+  :root[data-theme-transition="true"],
   :root[data-theme-transition="true"] body,
   :root[data-theme-transition="true"] body *,
   :root[data-theme-transition="true"] body *::before,
