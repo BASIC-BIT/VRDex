@@ -4,6 +4,8 @@ import { BlockList, isIP } from "node:net";
 import { Readable } from "node:stream";
 
 import {
+  dynamicMcpClientScopes,
+  dynamicMcpEventWriteScopes,
   normalizeDynamicMcpClientRegistration,
   normalizeOAuthClientMetadataDocumentUrl,
   type DynamicMcpClientRegistration,
@@ -304,9 +306,16 @@ export async function fetchOAuthClientMetadataDocument(
       throw new Error("OAuth client metadata document client_id must match the document URL.");
     }
 
+    const defaultScopes = options.allowEventWrites === true
+      ? [...dynamicMcpClientScopes, ...dynamicMcpEventWriteScopes]
+      : [...dynamicMcpClientScopes];
+    const normalizedPayload = payload.scope === undefined
+      ? { ...payload, scope: defaultScopes.join(" ") }
+      : payload;
+
     return {
       clientId: normalizedClientId,
-      ...normalizeDynamicMcpClientRegistration(payload, {
+      ...normalizeDynamicMcpClientRegistration(normalizedPayload, {
         allowEventWrites: options.allowEventWrites === true,
       }),
     };

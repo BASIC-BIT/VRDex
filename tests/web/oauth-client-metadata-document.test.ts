@@ -53,6 +53,38 @@ describe("OAuth client metadata documents", () => {
     });
   });
 
+  it("does not treat an omitted CIMD scope field as a client scope restriction", async () => {
+    const responseWithoutScope = () =>
+      Response.json({
+        client_id: clientId,
+        client_name: "Claude Code",
+        redirect_uris: ["http://localhost/callback", "http://127.0.0.1/callback"],
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+      });
+    const requestDocument = async () => responseWithoutScope();
+    const resolveHostname = async () => [{ address: publicAddress }];
+
+    const readOnlyMetadata = await fetchOAuthClientMetadataDocument(clientId, {
+      requestDocument,
+      resolveHostname,
+    });
+    const writeEnabledMetadata = await fetchOAuthClientMetadataDocument(clientId, {
+      allowEventWrites: true,
+      requestDocument,
+      resolveHostname,
+    });
+
+    assert.deepEqual(readOnlyMetadata.allowedScopes, ["public:read", "mcp:read"]);
+    assert.deepEqual(writeEnabledMetadata.allowedScopes, [
+      "public:read",
+      "mcp:read",
+      "mcp:write",
+      "events:write",
+    ]);
+  });
+
   it("pins the first validated address without a second hostname resolution", async () => {
     let resolutions = 0;
     let connectedAddress = "";
