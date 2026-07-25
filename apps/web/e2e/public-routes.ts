@@ -95,7 +95,16 @@ export async function prepareVisualPage(page: Page) {
         display: none !important;
       }
     `;
-    document.head.appendChild(style);
+    const installVisualStyle = () => {
+      if (!document.head || document.querySelector("[data-visual-test]")) {
+        return;
+      }
+
+      document.head.appendChild(style);
+    };
+
+    installVisualStyle();
+    document.addEventListener("DOMContentLoaded", installVisualStyle, { once: true });
 
     const removeDevIndicators = () => {
       const directSelectors = [
@@ -139,7 +148,7 @@ export async function prepareVisualPage(page: Page) {
     };
 
     removeDevIndicators();
-    new MutationObserver(removeDevIndicators).observe(document.documentElement, {
+    new MutationObserver(removeDevIndicators).observe(document, {
       childList: true,
       subtree: true,
     });
