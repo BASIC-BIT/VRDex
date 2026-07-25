@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
+import { OAUTH_CONSENT_TRANSACTION_TTL_MS } from "../../packages/api-contracts/src/oauth";
 import type { Id } from "../../convex/_generated/dataModel";
 import { oauthConsentTransactionDisposition } from "../../convex/_oauthConsentTransactions";
 import {
@@ -11,8 +12,10 @@ import {
 import {
   createOAuthConsentTransactionValue,
   hashOAuthConsentTransactionValue,
+  oauthConsentCompletionErrorDescription,
   oauthConsentOriginAllowed,
 } from "../../apps/web/src/lib/server/oauth-consent-transaction";
+import { hostedMcpEventWriteGrantAllowed } from "../../apps/web/src/lib/server/hosted-mcp-policy";
 import { oauthRateLimitResponse } from "../../apps/web/src/lib/server/oauth-route-rate-limit";
 
 function restoreEnv(name: string, value: string | undefined) {
@@ -156,25 +159,67 @@ describe("OAuth edge security", () => {
     }
   });
 
-  it("hashes opaque consent transactions and rejects missing, expired, or cross-user records", async () => {
+  it("keeps hosted MCP write grants ineligible while the feature is default-off", () => {
+    const input = {
+      mcpResource: "https://app.example.test/mcp",
+      requestedScopes: ["mcp:write", "events:write"],
+      resource: "https://app.example.test/mcp",
+    };
+
+    assert.equal(hostedMcpEventWriteGrantAllowed({ ...input, eventWritesEnabled: false }), false);
+    assert.equal(hostedMcpEventWriteGrantAllowed({ ...input, eventWritesEnabled: true }), true);
+
+    const authorize = readFileSync("apps/web/src/app/oauth/authorize/route.ts", "utf8");
+    assert.match(authorize, /if \(!hostedMcpEventWriteGrantAllowed\(\{/);
+    assert.match(authorize, /reason: "invalid_scope"/);
+  });
+
+  it("keeps opaque consent transactions valid for 30 minutes, then rejects expiry and cross-user use", async () => {
     const first = createOAuthConsentTransactionValue();
     const second = createOAuthConsentTransactionValue();
     const userA = "user-a" as Id<"users">;
     const userB = "user-b" as Id<"users">;
+    const createdAt = 1_000;
     const transaction = {
       _id: "transaction-a" as Id<"oauthConsentTransactions">,
       userId: userA,
-      expiresAt: 2_000,
+      expiresAt: createdAt + OAUTH_CONSENT_TRANSACTION_TTL_MS,
     };
 
+    assert.equal(OAUTH_CONSENT_TRANSACTION_TTL_MS, 30 * 60 * 1000);
     assert.notEqual(first, second);
     assert.match(first, /^vrdx_consent_[A-Za-z0-9_-]{43}$/);
     assert.match(await hashOAuthConsentTransactionValue(first), /^[0-9a-f]{64}$/);
     assert.notEqual(await hashOAuthConsentTransactionValue(first), first);
-    assert.equal(oauthConsentTransactionDisposition(transaction, userA, 1_000), "accepted");
-    assert.equal(oauthConsentTransactionDisposition(transaction, userB, 1_000), "cross_user");
-    assert.equal(oauthConsentTransactionDisposition(transaction, userA, 2_000), "expired");
-    assert.equal(oauthConsentTransactionDisposition(null, userA, 1_000), "missing");
+    assert.equal(
+      oauthConsentTransactionDisposition(transaction, userA, transaction.expiresAt - 1),
+      "accepted",
+    );
+    assert.equal(oauthConsentTransactionDisposition(transaction, userB, createdAt), "cross_user");
+    assert.equal(
+      oauthConsentTransactionDisposition(transaction, userA, transaction.expiresAt),
+      "expired",
+    );
+    assert.equal(oauthConsentTransactionDisposition(null, userA, createdAt), "missing");
+  });
+
+  it("distinguishes an expired consent transaction from client binding failures", () => {
+    assert.equal(
+      oauthConsentCompletionErrorDescription("invalid_transaction"),
+      "The OAuth consent transaction is invalid or expired. Restart authorization.",
+    );
+    assert.equal(
+      oauthConsentCompletionErrorDescription("invalid_redirect_uri"),
+      "The OAuth client cannot use the requested redirect URI, resource, or scopes.",
+    );
+    assert.equal(
+      oauthConsentCompletionErrorDescription("wrong_resource"),
+      "The OAuth client cannot use the requested redirect URI, resource, or scopes.",
+    );
+    assert.equal(
+      oauthConsentCompletionErrorDescription("invalid_scope"),
+      "The OAuth client cannot use the requested redirect URI, resource, or scopes.",
+    );
   });
 
   it("guards every OAuth route and keeps raw authorization fields out of consent POST", () => {
@@ -188,6 +233,12 @@ describe("OAuth edge security", () => {
     assert.match(authorize, /oauthRateLimitResponse\(request, "oauth_authorize"\)/);
     assert.match(authorize, /client\.reason === "invalid_scope" \|\| client\.reason === "wrong_resource"/);
     assert.match(authorize, /redirectUriWithOAuthClientError/);
+    assert.match(authorize, /recordAuthorizationClientRejection\(client\)/);
+    const rejectionLog = authorize.slice(
+      authorize.indexOf("function recordAuthorizationClientRejection"),
+      authorize.indexOf("async function ensureClientMetadataDocumentClient"),
+    );
+    assert.doesNotMatch(rejectionLog, /clientId|redirectUri|requestedScopes|resource|state|codeChallenge/);
     assert.ok(
       authorize.indexOf('const rateLimited = await oauthRateLimitResponse(request, "oauth_authorize")') <
         authorize.indexOf("authorization = normalizeOAuthAuthorizationRequest"),

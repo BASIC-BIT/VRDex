@@ -231,6 +231,113 @@ describe("OAuth token route helper", () => {
     });
   });
 
+  it("logs only a sanitized authorization-code rejection category", async () => {
+    await withOAuthEnv(async () => {
+      const code = "vrdx_code_0123456789abcdef0123456789abcdef";
+      const codeVerifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+      const redirectUri = "http://localhost:8765/callback";
+      const warnings: string[] = [];
+      const originalWarn = console.warn;
+
+      console.warn = (...values: unknown[]) => {
+        warnings.push(values.map(String).join(" "));
+      };
+
+      try {
+        const response = await oauthTokenResponse(
+          tokenRequest({
+            client_id: clientId,
+            code,
+            code_verifier: codeVerifier,
+            grant_type: "authorization_code",
+            redirect_uri: redirectUri,
+            resource: "https://app.example.test/mcp",
+          }),
+          {
+            mutations: {
+              ...defaultMutations(),
+              consumeAuthorizationCode: async () => ({
+                ok: false,
+                reason: "invalid_grant",
+                rejectionReason: "pkce_mismatch",
+              }),
+            },
+            now: () => now,
+          },
+        );
+
+        assert.equal(response.status, 400);
+        assert.deepEqual(await jsonBody(response), {
+          error: "invalid_grant",
+          error_description: "The authorization code is invalid, expired, or already used.",
+        });
+        assert.deepEqual(warnings, [
+          JSON.stringify({
+            event: "oauth_authorization_code_rejected",
+            reason: "pkce_mismatch",
+          }),
+        ]);
+      } finally {
+        console.warn = originalWarn;
+      }
+    });
+  });
+
+  it("logs only numeric redirect mismatch diagnostics", async () => {
+    await withOAuthEnv(async () => {
+      const warnings: string[] = [];
+      const originalWarn = console.warn;
+
+      console.warn = (...values: unknown[]) => {
+        warnings.push(values.map(String).join(" "));
+      };
+
+      try {
+        const response = await oauthTokenResponse(
+          tokenRequest({
+            client_id: clientId,
+            code: "vrdx_code_0123456789abcdef0123456789abcdef",
+            code_verifier: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+            grant_type: "authorization_code",
+            redirect_uri: "http://localhost:8765/callback",
+          }),
+          {
+            mutations: {
+              ...defaultMutations(),
+              consumeAuthorizationCode: async () => ({
+                ok: false,
+                reason: "invalid_grant",
+                rejectionReason: "redirect_mismatch",
+                redirectDiagnostics: {
+                  authorizationLength: 36,
+                  firstMismatchIndex: 7,
+                  tokenRequestLength: 36,
+                },
+              }),
+            },
+            now: () => now,
+          },
+        );
+
+        assert.equal(response.status, 400);
+        assert.deepEqual(warnings, [
+          JSON.stringify({
+            event: "oauth_authorization_code_rejected",
+            reason: "redirect_mismatch",
+            redirectDiagnostics: {
+              authorizationLength: 36,
+              firstMismatchIndex: 7,
+              tokenRequestLength: 36,
+            },
+          }),
+        ]);
+        assert.doesNotMatch(warnings[0] ?? "", /localhost|127\.0\.0\.1|callback/);
+      } finally {
+        console.warn = originalWarn;
+      }
+    });
+  });
+
   it("omits refresh tokens when an authorization-code client does not allow refresh", async () => {
     await withOAuthEnv(async () => {
       const mutations = defaultMutations();

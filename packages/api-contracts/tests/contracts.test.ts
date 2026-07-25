@@ -882,6 +882,31 @@ describe("@vrdex/api-contracts", () => {
         tokenEndpointAuthMethod: "none",
       },
     );
+    assert.deepEqual(
+      normalizeDynamicMcpClientRegistration(
+        {
+          client_name: "Write MCP",
+          redirect_uris: ["http://localhost:3333/callback"],
+          scope: "mcp:write events:write",
+        },
+        { allowEventWrites: true },
+      ).allowedScopes,
+      ["mcp:write", "events:write"],
+    );
+    assert.deepEqual(
+      normalizeDynamicMcpClientRegistration(
+        {
+          client_name: "Issuer Scope Catalog Client",
+          redirect_uris: ["http://localhost:1455/callback"],
+          scope: "public:read profile:read events:write mcp:read mcp:write time:parse",
+        },
+        {
+          allowEventWrites: true,
+          discardKnownNonMcpScopes: true,
+        },
+      ).allowedScopes,
+      ["public:read", "events:write", "mcp:read", "mcp:write"],
+    );
 
     assert.throws(
       () =>
@@ -891,6 +916,18 @@ describe("@vrdex/api-contracts", () => {
           scope: "public:read",
         }),
       /mcp:read/,
+    );
+    assert.throws(
+      () =>
+        normalizeDynamicMcpClientRegistration(
+          {
+            client_name: "Write MCP",
+            redirect_uris: ["http://localhost:3333/callback"],
+            scope: "mcp:write",
+          },
+          { allowEventWrites: true },
+        ),
+      /both mcp:write and events:write/,
     );
     assert.throws(
       () =>

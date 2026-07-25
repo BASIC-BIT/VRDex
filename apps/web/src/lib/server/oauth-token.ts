@@ -30,6 +30,7 @@ import {
   normalizeOAuthRefreshTokenValue,
   refreshTokenPepper,
 } from "./oauth-pkce";
+import { normalizedOAuthResourceIndicator } from "./oauth-resource-indicator";
 
 type OAuthScope = ReturnType<typeof parseOAuthScopeString>[number];
 
@@ -93,7 +94,24 @@ type ClientCredentialsResult =
 
 type AuthorizationCodeResult =
   | (UserAccessTokenResult & { refreshTokenIssued: boolean })
-  | { ok: false; reason: "invalid_client" | "invalid_grant" };
+  | {
+      ok: false;
+      reason: "invalid_client" | "invalid_grant";
+      rejectionReason?:
+        | "client_mismatch"
+        | "code_expired"
+        | "code_not_active"
+        | "code_not_found"
+        | "pkce_mismatch"
+        | "redirect_mismatch"
+        | "resource_mismatch"
+        | "unsupported_challenge_method";
+      redirectDiagnostics?: {
+        authorizationLength: number;
+        firstMismatchIndex: number;
+        tokenRequestLength: number;
+      };
+    };
 
 type RefreshTokenResult =
   | UserAccessTokenResult
@@ -147,29 +165,21 @@ async function formData(request: Request) {
 }
 
 function requestedResource(request: Request, form: FormData) {
-  const resource = String(form.get("resource") ?? "").trim();
+  const resource = normalizedOAuthResourceIndicator(request, form);
   const supportedResources = oauthSupportedResources(request);
 
   if (!resource) {
     return supportedResources[0];
   }
 
-  if (!supportedResources.includes(resource)) {
-    throw new Error("The requested OAuth resource is not supported by this deployment.");
-  }
-
   return resource;
 }
 
 function requestedAuthorizationCodeResource(request: Request, form: FormData) {
-  const resource = String(form.get("resource") ?? "").trim();
+  const resource = normalizedOAuthResourceIndicator(request, form);
 
   if (!resource) {
     return undefined;
-  }
-
-  if (!oauthSupportedResources(request).includes(resource)) {
-    throw new Error("The requested OAuth resource is not supported by this deployment.");
   }
 
   return resource;
@@ -263,6 +273,14 @@ async function authorizationCodeTokenResponse(
     if (result.reason === "invalid_client") {
       return oauthProblem(401, "invalid_client", "Client authentication failed.");
     }
+
+    console.warn(JSON.stringify({
+      event: "oauth_authorization_code_rejected",
+      reason: result.rejectionReason ?? "unspecified",
+      ...(result.redirectDiagnostics === undefined
+        ? {}
+        : { redirectDiagnostics: result.redirectDiagnostics }),
+    }));
 
     return oauthProblem(400, "invalid_grant", "The authorization code is invalid, expired, or already used.");
   }

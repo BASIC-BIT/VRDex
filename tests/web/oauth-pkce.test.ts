@@ -20,6 +20,7 @@ import {
   normalizeOAuthRefreshTokenValue,
   refreshTokenPepper,
 } from "../../apps/web/src/lib/server/oauth-pkce";
+import { normalizedOAuthResourceIndicator } from "../../apps/web/src/lib/server/oauth-resource-indicator";
 import { createOAuthClientSecretValue } from "../../packages/api-contracts/src/oauth";
 
 describe("OAuth PKCE authorization helpers", () => {
@@ -92,6 +93,37 @@ describe("OAuth PKCE authorization helpers", () => {
       resource: "https://app.example.test/mcp",
       state: "opaque-state",
     });
+
+    const codexParams = new URLSearchParams(params);
+    codexParams.append("resource", "https://app.example.test/mcp?auth=required");
+    codexParams.append("resource", "https://app.example.test/mcp");
+
+    assert.equal(
+      normalizeOAuthAuthorizationRequest(codexParams, request).resource,
+      "https://app.example.test/mcp",
+    );
+    const codexTokenForm = new FormData();
+    codexTokenForm.append("resource", "https://app.example.test/mcp?auth=required");
+    codexTokenForm.append("resource", "https://app.example.test/mcp");
+    assert.equal(
+      normalizedOAuthResourceIndicator(request, codexTokenForm),
+      "https://app.example.test/mcp",
+    );
+
+    const bootstrapOnlyParams = new URLSearchParams(params);
+    bootstrapOnlyParams.set("resource", "https://app.example.test/mcp?auth=required");
+    assert.equal(
+      normalizeOAuthAuthorizationRequest(bootstrapOnlyParams, request).resource,
+      "https://app.example.test/mcp",
+    );
+
+    const unrelatedDuplicateParams = new URLSearchParams(params);
+    unrelatedDuplicateParams.append("resource", "https://app.example.test/mcp");
+    unrelatedDuplicateParams.append("resource", "https://app.example.test/mcp?other=value");
+    assert.throws(
+      () => normalizeOAuthAuthorizationRequest(unrelatedDuplicateParams, request),
+      /resource is not supported/,
+    );
 
     const apiParams = new URLSearchParams(params);
     apiParams.set("scope", "profile:write");

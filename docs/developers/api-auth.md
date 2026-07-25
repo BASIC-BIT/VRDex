@@ -123,8 +123,8 @@ Current constraints:
 - Client ID Metadata Document clients stay public/no-secret in this checkpoint
 - `code_challenge_method=S256`
 - exact redirect URI matching
-- short-lived consent transactions bound to the signed-in user and stored as
-  one-way hashes
+- consent transactions have a 30-minute interaction window, are bound to the
+  signed-in user, and are stored as one-way hashes
 - consent approval accepts only the opaque single-use transaction and decision,
   not hidden authorization request fields
 - production consent POSTs require a same-origin `Origin` header

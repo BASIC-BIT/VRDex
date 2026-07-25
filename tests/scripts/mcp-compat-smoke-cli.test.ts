@@ -14,6 +14,7 @@ const expectedTools = [
   "vrdex_get_world",
   "vrdex_list_active_worlds",
 ];
+const expectedWriteTools = ["vrdex_event_create", "vrdex_event_update"];
 
 function smokeEnv() {
   return {
@@ -252,7 +253,7 @@ async function startHostedSuccessFixture() {
       writeJson(response, 200, {
         authorization_servers: [origin],
         resource: `${origin}/mcp`,
-        scopes_supported: ["mcp:read"],
+        scopes_supported: ["mcp:read", "mcp:write", "events:write"],
       });
       return;
     }
@@ -275,7 +276,7 @@ async function startHostedSuccessFixture() {
         grant_types: ["authorization_code"],
         redirect_uris: ["http://localhost:8765/callback"],
         response_types: ["code"],
-        scope: "public:read mcp:read",
+        scope: "public:read mcp:read mcp:write events:write",
         token_endpoint_auth_method: "none",
       });
       return;
@@ -328,12 +329,14 @@ async function startHostedSuccessFixture() {
         id: body.id,
         jsonrpc: "2.0",
         result: {
-          tools: expectedTools.map((name) => ({
+          tools: [...expectedTools, ...expectedWriteTools].map((name) => ({
             _meta: {
-              securitySchemes: [
-                { type: "noauth" },
-                { scopes: ["mcp:read"], type: "oauth2" },
-              ],
+              securitySchemes: expectedWriteTools.includes(name)
+                ? [{ scopes: ["mcp:write", "events:write"], type: "oauth2" }]
+                : [
+                    { type: "noauth" },
+                    { scopes: ["mcp:read"], type: "oauth2" },
+                  ],
             },
             name,
           })),

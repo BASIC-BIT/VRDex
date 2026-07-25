@@ -27,6 +27,12 @@ export async function hashOAuthConsentTransactionValue(value: string) {
   return bytesToHex(await crypto.subtle.digest("SHA-256", bytes));
 }
 
+export function oauthConsentCompletionErrorDescription(reason: string) {
+  return reason === "invalid_transaction"
+    ? "The OAuth consent transaction is invalid or expired. Restart authorization."
+    : "The OAuth client cannot use the requested redirect URI, resource, or scopes.";
+}
+
 export function oauthConsentOriginAllowed(
   request: Request,
   production = process.env.NODE_ENV === "production",

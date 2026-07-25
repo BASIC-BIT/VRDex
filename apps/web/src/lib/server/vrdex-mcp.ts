@@ -1,11 +1,17 @@
 import {
   createMcpHandler,
   fromJsonSchema,
+  type AuthInfo,
   type McpHttpHandler,
   McpServer,
 } from "@modelcontextprotocol/server";
 import { api, internal } from "@convex-generated-api";
+import type { Id } from "../../../../../convex/_generated/dataModel";
 import {
+  ApiEventCreateRequestSchema,
+  ApiEventUpdateRequestSchema,
+  ApiEventWriteResponseSchema,
+  type ApiScope,
   getBearerTokenFromAuthorizationHeader,
   hasBearerTokenInUrl,
   McpDocumentFetchResponseSchema,
@@ -19,6 +25,7 @@ import {
   PublicWorldSchema,
   z,
 } from "@vrdex/api-contracts";
+import { createHash, randomUUID } from "node:crypto";
 
 import {
   apiRateLimitPolicyForRouteClass,
@@ -41,15 +48,27 @@ import {
   verifyOAuthAccessToken,
 } from "@/lib/server/oauth-jwt";
 import { publicSearchBackendFilters } from "@/lib/server/public-search-query";
+import {
+  hostedMcpEventWritesEnabled,
+  hostedMcpEventWriteScopes,
+  hostedMcpReadScopes,
+} from "@/lib/server/hosted-mcp-policy";
 
 type ResponseSchema<T> = z.ZodType<T>;
 
 type VrdexMcpConvexClient = Pick<ReturnType<typeof convexHttpClient>, "query">;
-type AcceptedMcpRouteClass = "anonymous_mcp_public_read" | "authenticated_mcp";
+type VrdexMcpAdminConvexClient = Pick<ReturnType<typeof convexAdminHttpClient>, "mutation">;
+type AcceptedMcpRouteClass =
+  | "anonymous_mcp_public_read"
+  | "authenticated_mcp"
+  | "authenticated_mcp_write";
 
 type VrdexMcpServerOptions = {
   anonymousPublicReads?: boolean;
+  authInfo?: AuthInfo;
+  adminConvex?: VrdexMcpAdminConvexClient;
   convex?: VrdexMcpConvexClient;
+  eventWrites?: boolean;
   now?: () => number;
 };
 type PublicSearchResponse = z.infer<typeof PublicSearchResponseSchema>;
@@ -64,7 +83,8 @@ type McpDocumentDescriptor =
   | { entityType: "world"; slug: string };
 
 const mcpSearchTypes = ["all", "person", "community", "profile", "world", "event"] as const;
-const mcpRequiredScopes = ["mcp:read"] as const;
+const mcpRequiredScopes = hostedMcpReadScopes;
+const mcpEventWriteToolNames = ["vrdex_event_create", "vrdex_event_update"] as const;
 const mcpToolNames = [
   "search",
   "fetch",
@@ -74,6 +94,7 @@ const mcpToolNames = [
   "vrdex_list_upcoming_events",
   "vrdex_get_world",
   "vrdex_list_active_worlds",
+  ...mcpEventWriteToolNames,
 ] as const;
 const mcpPublicReadSecuritySchemes = [
   { type: "noauth" },
@@ -82,10 +103,42 @@ const mcpPublicReadSecuritySchemes = [
 const mcpAuthenticatedReadSecuritySchemes = [
   { scopes: [...mcpRequiredScopes], type: "oauth2" },
 ] satisfies Array<Record<string, unknown>>;
+const mcpEventWriteSecuritySchemes = [
+  { scopes: [...hostedMcpEventWriteScopes], type: "oauth2" },
+] satisfies Array<Record<string, unknown>>;
+const hostedMcpMaxRequestBodyBytes = 1024 * 1024;
 const mcpToolNameSet = new Set<string>(mcpToolNames);
+const mcpEventWriteToolNameSet = new Set<string>(mcpEventWriteToolNames);
 const mcpDocumentIdSchema = z.string().min(1).max(260);
 const mcpSlugSchema = z.string().min(1).max(160);
 const mcpLimitSchema = z.number().int().min(1);
+const mcpIdempotencyKeySchema = z.string().trim().min(8).max(128);
+const mcpEventUpdateInputSchema = z.object({
+  idempotencyKey: mcpIdempotencyKeySchema,
+  slug: mcpSlugSchema.describe("Current public event slug."),
+  update: ApiEventUpdateRequestSchema,
+});
+const mcpEventCreateInputSchema = ApiEventCreateRequestSchema.extend({
+  idempotencyKey: mcpIdempotencyKeySchema,
+});
+const mcpEventWriteResultSchema = ApiEventWriteResponseSchema.extend({
+  canonicalUrl: z.string().url(),
+  event: PublicEventSchema,
+}).meta({
+  description: "Accepted event write plus the normalized public event read back from VRDex.",
+  id: "HostedMcpEventWriteResult",
+});
+
+type HostedMcpPrincipal = {
+  clientId: string;
+  requestId: string;
+  tokenId: string;
+  userId: Id<"users">;
+};
+type HostedMcpAuthorizationDependencies = {
+  checkRateLimit?: typeof checkApiRateLimit;
+  validateAccessTokenRecord?: typeof validateOAuthAccessTokenRecord;
+};
 
 export function hostedMcpAnonymousPublicReadsEnabled(
   value = process.env.VRDEX_HOSTED_MCP_ANONYMOUS_READS,
@@ -107,6 +160,10 @@ export function hostedMcpAnonymousPublicReadsEnabled(
   }
 
   throw new Error("VRDEX_HOSTED_MCP_ANONYMOUS_READS must be true or false when set.");
+}
+
+function hostedMcpExplicitAuthenticationRequested(request: Request) {
+  return new URL(request.url).searchParams.get("auth") === "required";
 }
 
 function mcpReadToolMeta(anonymousPublicReads: boolean) {
@@ -431,7 +488,8 @@ export function acceptedMcpRouteClassForRequest(request: Request): AcceptedMcpRo
 }
 
 export async function recordAcceptedMcpToolInvocations(request: Request) {
-  const toolNames = await mcpToolCallNamesFromRequest(request);
+  const toolNames = (await mcpToolCallNamesFromRequest(request))
+    .filter((toolName) => !mcpEventWriteToolNameSet.has(toolName));
 
   if (toolNames.length === 0) {
     return { recorded: 0 };
@@ -444,6 +502,93 @@ export async function recordAcceptedMcpToolInvocations(request: Request) {
     });
   } catch {
     return { recorded: 0 };
+  }
+}
+
+async function boundedMcpToolCallNamesFromRequest(request: Request) {
+  if (request.method !== "POST") {
+    return { toolNames: [] as string[] };
+  }
+
+  const declaredLength = request.headers.get("content-length");
+
+  if (
+    declaredLength !== null
+    && /^\d+$/.test(declaredLength)
+    && Number(declaredLength) > hostedMcpMaxRequestBodyBytes
+  ) {
+    return { tooLarge: true as const, toolNames: [] as string[] };
+  }
+
+  if (request.body === null) {
+    return { toolNames: [] as string[] };
+  }
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+
+      if (done) {
+        break;
+      }
+
+      totalBytes += value.byteLength;
+
+      if (totalBytes > hostedMcpMaxRequestBodyBytes) {
+        await reader.cancel();
+
+        return { tooLarge: true as const, toolNames: [] as string[] };
+      }
+
+      chunks.push(value);
+    }
+  } catch {
+    return { toolNames: [] as string[] };
+  }
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  try {
+    return {
+      toolNames: mcpToolCallNamesFromPayload(
+        JSON.parse(new TextDecoder().decode(bytes)) as unknown,
+      ),
+    };
+  } catch {
+    return { toolNames: [] as string[] };
+  }
+}
+
+async function recordHostedMcpWriteInvocation(args: {
+  idempotencyKeyHash: string;
+  principal: HostedMcpPrincipal;
+  result: "accepted" | "denied" | "indeterminate" | "readback_warning";
+  targetEventId?: Id<"events">;
+  toolName: (typeof mcpEventWriteToolNames)[number];
+}) {
+  try {
+    await convexAdminHttpClient().mutation(internal.mcpToolEvents.recordWriteInvocation, {
+      idempotencyKeyHash: args.idempotencyKeyHash,
+      oauthClientId: args.principal.clientId,
+      oauthTokenId: args.principal.tokenId,
+      ownerUserId: args.principal.userId,
+      requestId: args.principal.requestId,
+      result: args.result,
+      toolName: args.toolName,
+      ...(args.targetEventId === undefined ? {} : { targetEventId: args.targetEventId }),
+    });
+  } catch {
+    // Observability must never turn an accepted or rejected write into a retry.
   }
 }
 
@@ -475,6 +620,99 @@ function mcpPublicReadUnavailable(operation: string) {
         text: `VRDex public data is temporarily unavailable for ${operation}. Try again later.`,
       },
     ],
+    isError: true as const,
+  };
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJson).join(",")}]`;
+  }
+
+  if (isRecord(value)) {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+      .join(",")}}`;
+  }
+
+  return JSON.stringify(value) ?? "null";
+}
+
+function sha256(value: string) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function hostedMcpPrincipal(authInfo: AuthInfo | undefined): HostedMcpPrincipal | null {
+  const extra = authInfo?.extra;
+
+  if (
+    authInfo === undefined
+    || extra === undefined
+    || extra.subjectType !== "user"
+    || typeof extra.userId !== "string"
+    || typeof extra.tokenId !== "string"
+    || typeof extra.requestId !== "string"
+    || !hasRequiredScopes(authInfo.scopes, hostedMcpEventWriteScopes)
+  ) {
+    return null;
+  }
+
+  return {
+    clientId: authInfo.clientId,
+    requestId: extra.requestId,
+    tokenId: extra.tokenId,
+    userId: extra.userId as Id<"users">,
+  };
+}
+
+function mcpEventWriteUnauthorized() {
+  return {
+    content: [{
+      type: "text" as const,
+      text: "A user-delegated VRDex OAuth session with mcp:write and events:write is required.",
+    }],
+    isError: true as const,
+  };
+}
+
+function mcpEventWriteIndeterminate(operation: "create" | "update") {
+  return {
+    content: [{
+      type: "text" as const,
+      text: `The VRDex event ${operation} request did not complete cleanly, and the server may already have accepted the mutation. Do not retry automatically; inspect the target event or replay only with the same idempotency key after operator review.`,
+    }],
+    isError: true as const,
+  };
+}
+
+function isMcpEventWriteDenied(error: unknown) {
+  return isRecord(error)
+    && isRecord(error.data)
+    && error.data.code === "MCP_EVENT_WRITE_DENIED";
+}
+
+function mcpEventWriteDenied() {
+  return {
+    content: [{
+      type: "text" as const,
+      text: "VRDex rejected the event write. Confirm the event input, idempotency key, and durable community ownership before trying a corrected request.",
+    }],
+    isError: true as const,
+  };
+}
+
+function mcpEventReadbackError(
+  write: z.infer<typeof ApiEventWriteResponseSchema>,
+  detail?: string,
+) {
+  const suffix = detail === undefined ? "" : ` ${detail}`;
+
+  return {
+    content: [{
+      type: "text" as const,
+      text: `VRDex accepted the event write for slug "${write.slug}", but public readback did not complete cleanly.${suffix} Do not retry the mutation automatically; inspect the saved event first.`,
+    }],
     isError: true as const,
   };
 }
@@ -511,11 +749,12 @@ function mcpWwwAuthenticateHeader(
   options: {
     error?: "invalid_request" | "invalid_token" | "insufficient_scope";
     errorDescription?: string;
+    requiredScopes?: readonly string[];
   } = {},
 ) {
   const params = [
     ["resource_metadata", `${oauthIssuerUrl(request)}/.well-known/oauth-protected-resource/mcp`],
-    ["scope", oauthScopeString(mcpRequiredScopes)],
+    ["scope", oauthScopeString(options.requiredScopes ?? mcpRequiredScopes)],
     ...(options.error === undefined ? [] : [["error", options.error] as const]),
     ...(options.errorDescription === undefined ? [] : [["error_description", options.errorDescription] as const]),
   ];
@@ -537,7 +776,13 @@ function mcpAuthenticationErrorResponse(
   return response;
 }
 
-async function authenticateMcpBearerToken(request: Request, tokenValue: string) {
+async function authenticateMcpBearerToken(
+  request: Request,
+  tokenValue: string,
+  requiredScopes: readonly string[],
+  routeClass: "authenticated_mcp" | "authenticated_mcp_write",
+  dependencies: HostedMcpAuthorizationDependencies = {},
+) {
   if (!oauthAccessTokenSigningConfigured()) {
     if (!looksLikeCompactJwt(tokenValue)) {
       return {
@@ -573,12 +818,15 @@ async function authenticateMcpBearerToken(request: Request, tokenValue: string) 
     };
   }
 
-  if (!hasRequiredScopes(tokenScopes, mcpRequiredScopes)) {
+  if (!hasRequiredScopes(tokenScopes, requiredScopes)) {
+    const scopeDescription = oauthScopeString(requiredScopes);
+
     return {
       ok: false as const,
       response: mcpAuthenticationErrorResponse(request, 403, -32600, "OAuth bearer token scope is insufficient.", {
         error: "insufficient_scope",
-        errorDescription: "The bearer token must include the mcp:read scope.",
+        errorDescription: `The bearer token must include: ${scopeDescription}.`,
+        requiredScopes,
       }),
     };
   }
@@ -586,12 +834,12 @@ async function authenticateMcpBearerToken(request: Request, tokenValue: string) 
   let validation;
 
   try {
-    validation = await validateOAuthAccessTokenRecord({
+    validation = await (dependencies.validateAccessTokenRecord ?? validateOAuthAccessTokenRecord)({
       clientId: claims.client_id,
       tokenId: claims.jti,
       resource,
-      requiredScopes: [...mcpRequiredScopes],
-      routeClass: "authenticated_mcp",
+      requiredScopes: [...requiredScopes] as ApiScope[],
+      routeClass,
     });
   } catch {
     return {
@@ -605,11 +853,14 @@ async function authenticateMcpBearerToken(request: Request, tokenValue: string) 
 
   if (!validation.ok) {
     if (validation.reason === "missing_scope") {
+      const scopeDescription = oauthScopeString(requiredScopes);
+
       return {
         ok: false as const,
         response: mcpAuthenticationErrorResponse(request, 403, -32600, "OAuth bearer token scope is insufficient.", {
           error: "insufficient_scope",
-          errorDescription: "The bearer token must include the mcp:read scope.",
+          errorDescription: `The bearer token must include: ${scopeDescription}.`,
+          requiredScopes,
         }),
       };
     }
@@ -620,6 +871,23 @@ async function authenticateMcpBearerToken(request: Request, tokenValue: string) 
         error: "invalid_token",
         errorDescription: "The bearer token is expired, revoked, or issued for the wrong resource.",
       }),
+    };
+  }
+
+  if (routeClass === "authenticated_mcp_write" && (validation.subjectType !== "user" || validation.userId === undefined)) {
+    return {
+      ok: false as const,
+      response: mcpAuthenticationErrorResponse(
+        request,
+        403,
+        -32600,
+        "Hosted MCP event writes require a user-delegated OAuth token.",
+        {
+          error: "insufficient_scope",
+          errorDescription: "Use an authorization-code session for a VRDex user who owns the target community.",
+          requiredScopes,
+        },
+      ),
     };
   }
 
@@ -638,6 +906,19 @@ async function authenticateMcpBearerToken(request: Request, tokenValue: string) 
 
   return {
     ok: true as const,
+    authInfo: {
+      token: tokenValue,
+      clientId: validation.clientId,
+      scopes: tokenScopes,
+      expiresAt: claims.exp,
+      resource: new URL(resource),
+      extra: {
+        requestId: randomUUID(),
+        subjectType: validation.subjectType,
+        tokenId: claims.jti,
+        ...(validation.userId === undefined ? {} : { userId: String(validation.userId) }),
+      },
+    } satisfies AuthInfo,
     clientId: validation.clientId,
     identity: { kind: "oauth_client" as const, value: validation.clientId },
     ...(owner === undefined ? {} : { owner }),
@@ -721,43 +1002,124 @@ async function rateLimitMcpAuthenticationFailure(
       });
 }
 
-export async function rejectInvalidOrRateLimitedMcpRequest(request: Request) {
+async function oversizedMcpRequestResponse(
+  request: Request,
+  dependencies: HostedMcpAuthorizationDependencies,
+) {
+  const identity = { kind: "ip" as const, value: clientIpForRequest(request) };
+  const quotaTier = "standard" as const;
+  const routeClass = "anonymous_mcp_public_read" as const;
+  let rateLimit;
+
+  try {
+    rateLimit = await (dependencies.checkRateLimit ?? checkApiRateLimit)({
+      identity,
+      quotaTier,
+      routeClass,
+    });
+  } catch {
+    return mcpJsonRpcError(500, -32603, "MCP rate limiting is unavailable.");
+  }
+
+  if (!rateLimit.allowed) {
+    return await mcpRateLimitExceededResponse({
+      identity,
+      quotaTier,
+      rateLimit,
+      routeClass,
+    });
+  }
+
+  return mcpJsonRpcError(413, -32600, "MCP request body exceeds the 1 MiB limit.");
+}
+
+export async function authorizeHostedMcpRequest(
+  request: Request,
+  dependencies: HostedMcpAuthorizationDependencies = {},
+) {
   if (hasBearerTokenInUrl(request.url)) {
-    return mcpAuthenticationErrorResponse(
-      request,
-      400,
-      -32600,
-      "Bearer tokens must be sent in the Authorization header, not the URL.",
-      {
-        error: "invalid_request",
-        errorDescription: "Bearer tokens must be sent in the Authorization header.",
-      },
-    );
+    return {
+      response: mcpAuthenticationErrorResponse(
+        request,
+        400,
+        -32600,
+        "Bearer tokens must be sent in the Authorization header, not the URL.",
+        {
+          error: "invalid_request",
+          errorDescription: "Bearer tokens must be sent in the Authorization header.",
+        },
+      ),
+      routeClass: "anonymous_mcp_public_read" as const,
+    };
   }
 
   const bearerToken = getBearerTokenFromAuthorizationHeader(request.headers.get("authorization"));
+  const anonymousPublicReads =
+    hostedMcpAnonymousPublicReadsEnabled()
+    && !hostedMcpExplicitAuthenticationRequested(request);
+  const blockedBeforeBodyRead = await rateLimitMcpAuthenticationFailure(request, null, {
+    increment: false,
+  });
 
-  if (bearerToken !== null) {
-    const blockedBeforeAuthentication = await rateLimitMcpAuthenticationFailure(request, null, {
-      increment: false,
-    });
-
-    if (blockedBeforeAuthentication !== null) {
-      return blockedBeforeAuthentication;
-    }
+  if (blockedBeforeBodyRead !== null) {
+    return {
+      response: blockedBeforeBodyRead,
+      routeClass: bearerToken === null
+        ? "anonymous_mcp_public_read" as const
+        : "authenticated_mcp" as const,
+    };
   }
 
-  if (bearerToken === null && !hostedMcpAnonymousPublicReadsEnabled()) {
-    return await rateLimitMcpAuthenticationFailure(
+  const eventWrites = hostedMcpEventWritesEnabled();
+  const parsedRequest = await boundedMcpToolCallNamesFromRequest(request.clone());
+
+  if ("tooLarge" in parsedRequest && parsedRequest.tooLarge) {
+    return {
+      response: await oversizedMcpRequestResponse(request, dependencies),
+      routeClass: bearerToken === null
+        ? "anonymous_mcp_public_read" as const
+        : "authenticated_mcp" as const,
+    };
+  }
+
+  const toolNames = parsedRequest.toolNames;
+  const eventWriteCallCount =
+    eventWrites
+      ? toolNames.filter((toolName) => mcpEventWriteToolNameSet.has(toolName)).length
+      : 0;
+  const eventWriteRequested = eventWriteCallCount > 0;
+  const readToolRequested = toolNames.some((toolName) => !mcpEventWriteToolNameSet.has(toolName));
+  const requiredScopes: readonly ApiScope[] =
+    eventWriteRequested && readToolRequested
+      ? [...mcpRequiredScopes, ...hostedMcpEventWriteScopes]
+      : eventWriteRequested
+        ? hostedMcpEventWriteScopes
+        : readToolRequested || bearerToken === null || request.method !== "POST"
+          ? mcpRequiredScopes
+          : [];
+  const authenticatedRouteClass = eventWriteRequested
+    ? "authenticated_mcp_write" as const
+    : "authenticated_mcp" as const;
+
+  if (
+    bearerToken === null
+    && (eventWriteRequested || !anonymousPublicReads)
+  ) {
+    const response = await rateLimitMcpAuthenticationFailure(
       request,
-      mcpAuthenticationErrorResponse(
-        request,
-        401,
-        -32600,
-        "OAuth bearer token is required for this MCP deployment.",
-        {},
-      ),
+      mcpAuthenticationErrorResponse(request, 401, -32600, eventWriteRequested
+        ? "OAuth bearer token is required for hosted MCP event writes."
+        : "OAuth bearer token is required for this MCP deployment.", {
+        requiredScopes,
+      }),
     );
+
+    return {
+      response,
+      routeClass: eventWriteRequested
+        ? "authenticated_mcp_write" as const
+        : "anonymous_mcp_public_read" as const,
+    };
   }
 
   const authentication =
@@ -767,14 +1129,25 @@ export async function rejectInvalidOrRateLimitedMcpRequest(request: Request) {
           identity: { kind: "ip" as const, value: clientIpForRequest(request) },
           quotaTier: "standard" as const,
         }
-      : await authenticateMcpBearerToken(request, bearerToken);
+      : await authenticateMcpBearerToken(
+          request,
+          bearerToken,
+          requiredScopes,
+          authenticatedRouteClass,
+          dependencies,
+        );
 
   if (!authentication.ok) {
-    return await rateLimitMcpAuthenticationFailure(request, authentication.response);
+    return {
+      response: await rateLimitMcpAuthenticationFailure(request, authentication.response),
+      routeClass: authenticatedRouteClass,
+    };
   }
 
   const routeClass =
-    authentication.identity.kind === "oauth_client" ? "authenticated_mcp" : "anonymous_mcp_public_read";
+    authentication.identity.kind === "oauth_client"
+      ? authenticatedRouteClass
+      : "anonymous_mcp_public_read";
   const quotaTier = authentication.quotaTier;
 
   let rateLimit;
@@ -800,26 +1173,54 @@ export async function rejectInvalidOrRateLimitedMcpRequest(request: Request) {
       });
     }
   } catch {
-    return mcpJsonRpcError(500, -32603, "MCP rate limiting is unavailable.");
+    return {
+      response: mcpJsonRpcError(500, -32603, "MCP rate limiting is unavailable."),
+      routeClass,
+    };
   }
 
   if (rateLimit.allowed) {
-    return null;
+    if (eventWriteCallCount > 1) {
+      return {
+        response: mcpJsonRpcError(
+          400,
+          -32600,
+          "MCP batches may contain at most one hosted event write.",
+        ),
+        routeClass,
+      };
+    }
+
+    return {
+      response: null,
+      routeClass,
+      ...("authInfo" in authentication ? { authInfo: authentication.authInfo } : {}),
+    };
   }
 
-  return await mcpRateLimitExceededResponse({
-    identity: rateLimitIdentity,
-    quotaTier,
-    rateLimit,
+  return {
+    response: await mcpRateLimitExceededResponse({
+      identity: rateLimitIdentity,
+      quotaTier,
+      rateLimit,
+      routeClass,
+    }),
     routeClass,
-  });
+  };
+}
+
+export async function rejectInvalidOrRateLimitedMcpRequest(request: Request) {
+  return (await authorizeHostedMcpRequest(request)).response;
 }
 
 export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
   const anonymousPublicReads = options.anonymousPublicReads ?? hostedMcpAnonymousPublicReadsEnabled();
+  const eventWrites = options.eventWrites ?? hostedMcpEventWritesEnabled();
   const convex = () => options.convex ?? convexHttpClient();
+  const adminConvex = () => options.adminConvex ?? convexAdminHttpClient();
   const now = options.now ?? Date.now;
   const readToolMeta = mcpReadToolMeta(anonymousPublicReads);
+  const principal = hostedMcpPrincipal(options.authInfo);
   const server = new McpServer({
     name: "vrdex",
     version: "0.5.0",
@@ -1109,11 +1510,233 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     },
   );
 
+  if (eventWrites) {
+    server.registerTool(
+      "vrdex_event_create",
+      {
+        title: "Create VRDex Event",
+        description:
+          "Create and publish an event for a community owned by the signed-in VRDex user. This changes public data and requires explicit approval.",
+        inputSchema: mcpEventCreateInputSchema,
+        outputSchema: mcpOutputSchema(mcpEventWriteResultSchema),
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: true,
+        },
+        _meta: { securitySchemes: mcpEventWriteSecuritySchemes },
+      },
+      async ({ idempotencyKey, ...input }) => {
+        if (principal === null) {
+          return mcpEventWriteUnauthorized();
+        }
+
+        const idempotencyKeyHash = sha256(idempotencyKey);
+        const requestFingerprint = sha256(canonicalJson(input));
+        let write: z.infer<typeof ApiEventWriteResponseSchema>;
+
+        try {
+          write = await adminConvex().mutation(internal.events.createCommunityEventForMcpOwner, {
+            ...input,
+            idempotencyKeyHash,
+            oauthClientId: principal.clientId,
+            oauthTokenId: principal.tokenId,
+            ownerUserId: principal.userId,
+            requestFingerprint,
+            requestId: principal.requestId,
+          });
+        } catch (error) {
+          const denied = isMcpEventWriteDenied(error);
+
+          await recordHostedMcpWriteInvocation({
+            idempotencyKeyHash,
+            principal,
+            result: denied ? "denied" : "indeterminate",
+            toolName: "vrdex_event_create",
+          });
+          return denied ? mcpEventWriteDenied() : mcpEventWriteIndeterminate("create");
+        }
+
+        let event: PublicEvent | null;
+
+        try {
+          event = await convex().query(api.events.getPublicBySlug, { slug: write.slug });
+        } catch {
+          await recordHostedMcpWriteInvocation({
+            idempotencyKeyHash,
+            principal,
+            result: "readback_warning",
+            targetEventId: write.eventId as Id<"events">,
+            toolName: "vrdex_event_create",
+          });
+          return mcpEventReadbackError(write);
+        }
+
+        if (event === null || event.id !== write.eventId) {
+          await recordHostedMcpWriteInvocation({
+            idempotencyKeyHash,
+            principal,
+            result: "readback_warning",
+            targetEventId: write.eventId as Id<"events">,
+            toolName: "vrdex_event_create",
+          });
+          return mcpEventReadbackError(
+            write,
+            event === null
+              ? "The saved event is not publicly readable yet."
+              : "The public event readback did not match the saved event.",
+          );
+        }
+
+        let result: ReturnType<typeof mcpJsonResult<z.infer<typeof mcpEventWriteResultSchema>>>;
+
+        try {
+          result = mcpJsonResult(mcpEventWriteResultSchema, {
+            ...write,
+            canonicalUrl: publicUrlForRoutePath(write.eventPath),
+            event,
+          });
+        } catch {
+          await recordHostedMcpWriteInvocation({
+            idempotencyKeyHash,
+            principal,
+            result: "readback_warning",
+            targetEventId: write.eventId as Id<"events">,
+            toolName: "vrdex_event_create",
+          });
+          return mcpEventReadbackError(write, "The saved event did not match the public response contract.");
+        }
+
+        await recordHostedMcpWriteInvocation({
+          idempotencyKeyHash,
+          principal,
+          result: "accepted",
+          targetEventId: write.eventId as Id<"events">,
+          toolName: "vrdex_event_create",
+        });
+        return result;
+      },
+    );
+
+    server.registerTool(
+      "vrdex_event_update",
+      {
+        title: "Update VRDex Event",
+        description:
+          "Update an event owned through the signed-in VRDex user's community. Omitted fields are preserved; explicit nulls and empty arrays clear data. This changes public data and requires explicit approval.",
+        inputSchema: mcpEventUpdateInputSchema,
+        outputSchema: mcpOutputSchema(mcpEventWriteResultSchema),
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: true,
+          idempotentHint: false,
+          openWorldHint: true,
+        },
+        _meta: { securitySchemes: mcpEventWriteSecuritySchemes },
+      },
+      async ({ idempotencyKey, slug, update }) => {
+        if (principal === null) {
+          return mcpEventWriteUnauthorized();
+        }
+
+        const idempotencyKeyHash = sha256(idempotencyKey);
+        const requestFingerprint = sha256(canonicalJson({ slug, update }));
+        let write: z.infer<typeof ApiEventWriteResponseSchema>;
+
+        try {
+          write = await adminConvex().mutation(internal.events.updateCommunityEventForMcpOwner, {
+            ...update,
+            currentSlug: slug,
+            idempotencyKeyHash,
+            oauthClientId: principal.clientId,
+            oauthTokenId: principal.tokenId,
+            ownerUserId: principal.userId,
+            requestFingerprint,
+            requestId: principal.requestId,
+          });
+        } catch (error) {
+          const denied = isMcpEventWriteDenied(error);
+
+          await recordHostedMcpWriteInvocation({
+            idempotencyKeyHash,
+            principal,
+            result: denied ? "denied" : "indeterminate",
+            toolName: "vrdex_event_update",
+          });
+          return denied ? mcpEventWriteDenied() : mcpEventWriteIndeterminate("update");
+        }
+
+        let event: PublicEvent | null;
+
+        try {
+          event = await convex().query(api.events.getPublicBySlug, { slug: write.slug });
+        } catch {
+          await recordHostedMcpWriteInvocation({
+            idempotencyKeyHash,
+            principal,
+            result: "readback_warning",
+            targetEventId: write.eventId as Id<"events">,
+            toolName: "vrdex_event_update",
+          });
+          return mcpEventReadbackError(write);
+        }
+
+        if (event === null || event.id !== write.eventId) {
+          await recordHostedMcpWriteInvocation({
+            idempotencyKeyHash,
+            principal,
+            result: "readback_warning",
+            targetEventId: write.eventId as Id<"events">,
+            toolName: "vrdex_event_update",
+          });
+          return mcpEventReadbackError(
+            write,
+            event === null
+              ? "The saved event is not publicly readable yet."
+              : "The public event readback did not match the saved event.",
+          );
+        }
+
+        let result: ReturnType<typeof mcpJsonResult<z.infer<typeof mcpEventWriteResultSchema>>>;
+
+        try {
+          result = mcpJsonResult(mcpEventWriteResultSchema, {
+            ...write,
+            canonicalUrl: publicUrlForRoutePath(write.eventPath),
+            event,
+          });
+        } catch {
+          await recordHostedMcpWriteInvocation({
+            idempotencyKeyHash,
+            principal,
+            result: "readback_warning",
+            targetEventId: write.eventId as Id<"events">,
+            toolName: "vrdex_event_update",
+          });
+          return mcpEventReadbackError(write, "The saved event did not match the public response contract.");
+        }
+
+        await recordHostedMcpWriteInvocation({
+          idempotencyKeyHash,
+          principal,
+          result: "accepted",
+          targetEventId: write.eventId as Id<"events">,
+          toolName: "vrdex_event_update",
+        });
+        return result;
+      },
+    );
+  }
+
   return server;
 }
 
 export function createVrdexMcpHandler(options: VrdexMcpServerOptions = {}): McpHttpHandler {
-  return createMcpHandler(() => buildVrdexMcpServer(options), {
+  return createMcpHandler((context) => buildVrdexMcpServer({
+    ...options,
+    authInfo: context.authInfo ?? options.authInfo,
+  }), {
     legacy: "stateless",
   });
 }

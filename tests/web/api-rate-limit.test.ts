@@ -70,6 +70,11 @@ describe("public API rate limiting", () => {
       apiRateLimitPolicyForRouteClass("authenticated_mcp", "trusted_partner").limit,
       apiRateLimitPolicyForRouteClass("authenticated_mcp").limit * trustedPartnerApiRateLimitMultiplier,
     );
+    assert.equal(apiRateLimitPolicyForRouteClass("authenticated_mcp_write").limit, 30);
+    assert.equal(
+      apiRateLimitPolicyForRouteClass("authenticated_mcp_write", "trusted_partner").limit,
+      apiRateLimitPolicyForRouteClass("authenticated_mcp_write").limit * trustedPartnerApiRateLimitMultiplier,
+    );
     assert.equal(
       apiRateLimitPolicyForRouteClass("asset_upload_intent", "trusted_partner").limit,
       apiRateLimitPolicyForRouteClass("asset_upload_intent").limit * trustedPartnerApiRateLimitMultiplier,

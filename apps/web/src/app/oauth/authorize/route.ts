@@ -1,6 +1,9 @@
 import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
 import { api, internal } from "@convex-generated-api";
-import { isOAuthClientMetadataDocumentUrl } from "@vrdex/api-contracts";
+import {
+  isOAuthClientMetadataDocumentUrl,
+  OAUTH_CONSENT_TRANSACTION_TTL_MS,
+} from "@vrdex/api-contracts";
 
 import {
   apiRateLimitPolicyForRouteClass,
@@ -9,6 +12,10 @@ import {
 } from "@/lib/server/api-rate-limit";
 import { recordApiRateLimitBlockedEvent } from "@/lib/server/api-rate-limit-events";
 import { convexAdminHttpClient, convexHttpClient } from "@/lib/server/convex-http";
+import {
+  hostedMcpEventWriteGrantAllowed,
+  hostedMcpEventWritesEnabled,
+} from "@/lib/server/hosted-mcp-policy";
 import { upsertClientMetadataDocumentMcpClient } from "@/lib/server/oauth-dynamic-client-persistence";
 import { oauthAuthorizeProblemRedirect } from "@/lib/server/oauth-authorize-problem";
 import { fetchOAuthClientMetadataDocument } from "@/lib/server/oauth-client-metadata-document";
@@ -26,8 +33,6 @@ import { oauthRateLimitResponse } from "@/lib/server/oauth-route-rate-limit";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const consentTransactionTtlMs = 5 * 60 * 1000;
-
 function oauthProblem(status: 400 | 429 | 500, error: string, errorDescription: string, headers: HeadersInit = {}) {
   return Response.json(
     { error, error_description: errorDescription },
@@ -44,6 +49,17 @@ function oauthProblem(status: 400 | 429 | 500, error: string, errorDescription: 
 
 function redirectResponse(location: string) {
   return Response.redirect(location, 303);
+}
+
+function recordAuthorizationClientRejection(
+  client: { reason: string; redirectDiagnostics?: unknown },
+) {
+  console.warn("VRDex OAuth authorization client rejected.", {
+    reason: client.reason,
+    ...(client.redirectDiagnostics === undefined
+      ? {}
+      : { redirectDiagnostics: client.redirectDiagnostics }),
+  });
 }
 
 async function ensureClientMetadataDocumentClient(
@@ -85,7 +101,8 @@ async function ensureClientMetadataDocumentClient(
     );
   }
 
-  const metadata = await fetchOAuthClientMetadataDocument(authorization.clientId);
+  const allowEventWrites = hostedMcpEventWritesEnabled();
+  const metadata = await fetchOAuthClientMetadataDocument(authorization.clientId, { allowEventWrites });
 
   await upsertClientMetadataDocumentMcpClient({
     clientId: metadata.clientId,
@@ -100,6 +117,7 @@ async function ensureClientMetadataDocumentClient(
     ...(metadata.softwareId === undefined ? {} : { softwareId: metadata.softwareId }),
     ...(metadata.softwareVersion === undefined ? {} : { softwareVersion: metadata.softwareVersion }),
     allowedScopes: metadata.allowedScopes,
+    ...(allowEventWrites ? { allowEventWrites: true } : {}),
     resource: authorization.resource,
   });
 
@@ -142,6 +160,11 @@ export async function GET(request: Request) {
   const userConvex = convexHttpClient();
 
   userConvex.setAuth(authToken);
+  const viewer = await userConvex.query(api.accounts.viewer, {});
+
+  if (viewer === null) {
+    return oauthAuthorizeProblemRedirect(request, "server_error");
+  }
 
   const client = await convexAdminHttpClient().query(internal.oauthApps.resolveAuthorizationClient, {
     clientId: authorization.clientId,
@@ -151,6 +174,8 @@ export async function GET(request: Request) {
   });
 
   if (!client.ok) {
+    recordAuthorizationClientRejection(client);
+
     if (
       (client.reason === "invalid_scope" || client.reason === "wrong_resource") &&
       client.redirectUri !== undefined
@@ -167,10 +192,25 @@ export async function GET(request: Request) {
     return oauthAuthorizeProblemRedirect(request, "invalid_client");
   }
 
+  if (!hostedMcpEventWriteGrantAllowed({
+    mcpResource: oauthMcpResourceUri(request),
+    requestedScopes: authorization.requestedScopes,
+    resource: authorization.resource,
+  })) {
+    return redirectResponse(
+      redirectUriWithOAuthClientError({
+        reason: "invalid_scope",
+        redirectUri: authorization.redirectUri,
+        state: authorization.state,
+      }),
+    );
+  }
+
   const transaction = createOAuthConsentTransactionValue();
 
   try {
-    await userConvex.mutation(api.oauthConsentTransactions.create, {
+    await convexAdminHttpClient().mutation(internal.oauthConsentTransactions.create, {
+      userId: viewer.user.id,
       transactionHash: await hashOAuthConsentTransactionValue(transaction),
       clientId: authorization.clientId,
       redirectUri: authorization.redirectUri,
@@ -179,7 +219,7 @@ export async function GET(request: Request) {
       codeChallenge: authorization.codeChallenge,
       codeChallengeMethod: authorization.codeChallengeMethod,
       ...(authorization.state === undefined ? {} : { state: authorization.state }),
-      expiresAt: Date.now() + consentTransactionTtlMs,
+      expiresAt: Date.now() + OAUTH_CONSENT_TRANSACTION_TTL_MS,
     });
   } catch {
     return oauthAuthorizeProblemRedirect(request, "server_error");

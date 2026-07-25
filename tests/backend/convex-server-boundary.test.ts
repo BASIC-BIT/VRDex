@@ -30,6 +30,7 @@ describe("server-only Convex boundary", () => {
       expectInternalExport("convex/oauthApps.ts", name, "internalMutation");
     }
     expectInternalExport("convex/oauthApps.ts", "resolveAuthorizationClient", "internalQuery");
+    expectInternalExport("convex/oauthConsentTransactions.ts", "create", "internalMutation");
     for (const name of ["createPreviewDynamicMcpClient", "upsertPreviewClientMetadataDocumentMcpClient"]) {
       expectGuardedMutation("convex/oauthApps.ts", name, "requirePreviewPersistenceBridge");
     }
@@ -57,7 +58,7 @@ describe("server-only Convex boundary", () => {
     const expectedReferences = new Map([
       ["apps/web/src/app/oauth/token/route.ts", ["convexAdminHttpClient", "internal.oauthApps.consumeAuthorizationCode", "issueClientCredentialsAccessToken", "internal.oauthApps.rotateRefreshToken"]],
       ["apps/web/src/app/oauth/revoke/route.ts", ["convexAdminHttpClient", "internal.oauthApps.revokeClientAccessToken", "internal.oauthApps.revokeClientRefreshToken"]],
-      ["apps/web/src/app/oauth/authorize/route.ts", ["convexAdminHttpClient", "upsertClientMetadataDocumentMcpClient", "internal.oauthApps.resolveAuthorizationClient"]],
+      ["apps/web/src/app/oauth/authorize/route.ts", ["convexAdminHttpClient", "upsertClientMetadataDocumentMcpClient", "internal.oauthApps.resolveAuthorizationClient", "internal.oauthConsentTransactions.create"]],
       ["apps/web/src/app/oauth/authorize/review/page.tsx", ["convexAdminHttpClient", "internal.oauthApps.resolveAuthorizationClient"]],
       ["apps/web/src/app/oauth/authorize/consent/route.ts", ["convexAdminHttpClient", "internal.oauthApps.completeAuthorizationConsent"]],
       ["apps/web/src/lib/server/oauth-dynamic-client-registration.ts", ["createDynamicMcpClient"]],

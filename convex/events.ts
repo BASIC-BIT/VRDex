@@ -1,5 +1,5 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import {
@@ -23,6 +23,13 @@ import {
   apiWriteAuditActorKindValidator,
   recordApiWriteAuditEvent,
 } from "./_apiWriteAuditEvents";
+import {
+  findMcpEventWriteReceipt,
+  type McpEventWriteResult,
+  recordMcpEventWriteReceipt,
+  requireSha256Hex,
+} from "./_mcpEventWriteReceipts";
+import { normalizeOAuthClientId } from "./_oauth";
 import {
   eventMediaCommandTypeValidator,
   eventMediaPlaybackPlatformValidator,
@@ -159,6 +166,15 @@ const eventDraftUpdateArgs = {
   posterImageUrl: v.optional(v.union(v.string(), v.null())),
   bannerImageUrl: v.optional(v.union(v.string(), v.null())),
   thumbnailImageUrl: v.optional(v.union(v.string(), v.null())),
+};
+
+const mcpEventWriteAttributionArgs = {
+  ownerUserId: v.id("users"),
+  oauthClientId: v.string(),
+  oauthTokenId: v.string(),
+  requestId: v.string(),
+  idempotencyKeyHash: v.string(),
+  requestFingerprint: v.string(),
 };
 
 const vrcdnOutputSetupArgs = {
@@ -713,6 +729,111 @@ async function requireApiOwnedPublishedCommunity(
   }
 
   return community;
+}
+
+function requireMcpAttributionText(input: string, fieldName: string, maxLength: number) {
+  const value = input.trim();
+
+  if (value.length === 0 || value.length > maxLength) {
+    throw new Error(`${fieldName} must be between 1 and ${maxLength} characters.`);
+  }
+
+  return value;
+}
+
+async function createCommunityEventForApiOwnerRecord(
+  db: DatabaseWriter,
+  args: EventDraftInput & { ownerUserId: Id<"users"> },
+) {
+  const input = sanitizeEventDraftInput(args);
+  const community = await requireApiOwnedPublishedCommunity(db, input.communitySlug, args.ownerUserId);
+  const world = await getPublishedWorldBySlug(db, input.worldSlug);
+  const result = await insertCommunityEventRecord(db, {
+    input,
+    community,
+    world,
+    submitter: apiOwnerAuthSubject(args.ownerUserId),
+  });
+
+  return { community, result };
+}
+
+async function updateCommunityEventForApiOwnerRecord(
+  db: DatabaseWriter,
+  args: EventDraftUpdateInput & {
+    currentSlug: string;
+    ownerUserId: Id<"users">;
+  },
+) {
+  const validation = validateEventSlug(args.currentSlug);
+
+  if (!validation.ok) {
+    throw new Error("Current event slug is invalid.");
+  }
+
+  const event = await getEventBySlug(db, validation.slug);
+
+  if (event === null) {
+    throw new Error("Event was not found.");
+  }
+
+  const communityProfileId = event.communityProfileId;
+
+  if (
+    communityProfileId === undefined ||
+    !(await userOwnsProfile(db, communityProfileId, args.ownerUserId))
+  ) {
+    throw new Error("You do not have permission to update this event.");
+  }
+
+  const currentCommunity = await db.get(communityProfileId);
+
+  if (currentCommunity === null) {
+    throw new Error("Event community was not found.");
+  }
+
+  const updateFields = suppliedEventDraftFields(args);
+  const clearsTimezone =
+    args.timezone === null ||
+    (typeof args.timezone === "string" && args.timezone.trim().length === 0);
+  if (clearsTimezone && !updateFields.has("slotLinks")) {
+    const preservedSlot = await db
+      .query("eventSlots")
+      .withIndex("by_eventId_startAt", (query) => query.eq("eventId", event._id))
+      .first();
+
+    if (preservedSlot !== null) {
+      throw new Error("Time zone cannot be cleared while event slots are preserved.");
+    }
+  }
+
+  const normalizedUpdate = normalizeEventDraftUpdateInput(args);
+  const input = sanitizeEventDraftInput(
+    preserveOmittedEventDraftFields(normalizedUpdate, {
+      title: event.title,
+      startAt: event.startAt,
+      communitySlug: currentCommunity.slug,
+      doorsOpenAt: event.doorsOpenAt,
+      endAt: event.endAt,
+      timezone: event.timezone,
+      summary: event.summary,
+      notes: event.notes,
+      sourceLabel: event.sourceLabel,
+      sourceUrl: event.sourceUrl,
+      posterImageUrl: event.posterImageUrl,
+      bannerImageUrl: event.bannerImageUrl,
+      thumbnailImageUrl: event.thumbnailImageUrl,
+      watchSurfaceEnabled: event.watchSurfaceEnabled ?? false,
+      mediaLinks: event.mediaLinks ?? [],
+    }),
+  );
+  const community = await requireApiOwnedPublishedCommunity(db, input.communitySlug, args.ownerUserId);
+  const world = updateFields.has("worldSlug")
+    ? await getPublishedWorldBySlug(db, input.worldSlug)
+    : await linkedPublishedEventWorld(db, event._id);
+  const result = await updateCommunityEventRecord(db, { event, input, community, world, updateFields });
+
+  return { community, event, result };
 }
 
 export const listCommunityManagedEventsForApiOwner = internalQuery({
@@ -1862,16 +1983,10 @@ export const createCommunityEventForApiOwner = internalMutation({
     ...eventDraftArgs,
   },
   handler: async (ctx, args) => {
-    const input = sanitizeEventDraftInput(args);
-    const community = await requireApiOwnedPublishedCommunity(ctx.db, input.communitySlug, args.ownerUserId);
-    const world = await getPublishedWorldBySlug(ctx.db, input.worldSlug);
-
-    const result = await insertCommunityEventRecord(ctx.db, {
-      input,
-      community,
-      world,
-      submitter: apiOwnerAuthSubject(args.ownerUserId),
-    });
+    const { community, result } = await createCommunityEventForApiOwnerRecord(
+      ctx.db,
+      args,
+    );
     await recordApiWriteAuditEvent(ctx.db, {
       action: "event_created",
       actorKind: args.actorKind,
@@ -1887,6 +2002,71 @@ export const createCommunityEventForApiOwner = internalMutation({
   },
 });
 
+export const createCommunityEventForMcpOwner = internalMutation({
+  args: {
+    ...mcpEventWriteAttributionArgs,
+    ...eventDraftArgs,
+  },
+  handler: async (ctx, args) => {
+    const oauthClientId = normalizeOAuthClientId(args.oauthClientId);
+    const oauthTokenId = requireMcpAttributionText(args.oauthTokenId, "OAuth token id", 256);
+    const requestId = requireMcpAttributionText(args.requestId, "Request id", 256);
+    const idempotencyKeyHash = requireSha256Hex(args.idempotencyKeyHash, "Idempotency key hash");
+    const requestFingerprint = requireSha256Hex(args.requestFingerprint, "Request fingerprint");
+    const toolName = "vrdex_event_create" as const;
+    const existing = await findMcpEventWriteReceipt(ctx.db, {
+      ownerUserId: args.ownerUserId,
+      oauthClientId,
+      toolName,
+      idempotencyKeyHash,
+      requestFingerprint,
+    });
+
+    if (existing !== null) {
+      return existing.result;
+    }
+
+    let community: Doc<"profiles">;
+    let result: McpEventWriteResult;
+
+    try {
+      ({ community, result } = await createCommunityEventForApiOwnerRecord(
+        ctx.db,
+        args,
+      ));
+    } catch {
+      throw new ConvexError({ code: "MCP_EVENT_WRITE_DENIED" });
+    }
+    const now = Date.now();
+    await recordApiWriteAuditEvent(ctx.db, {
+      action: "event_created",
+      actorKind: "user_delegated_oauth",
+      ownerUserId: args.ownerUserId,
+      resourceType: "event",
+      routeClass: "authenticated_mcp_write",
+      targetEventId: result.eventId,
+      targetProfileId: community._id,
+      oauthClientId,
+      oauthTokenId,
+      requestId,
+      mcpToolName: toolName,
+      idempotencyKeyHash,
+      now,
+    });
+    await recordMcpEventWriteReceipt(ctx.db, {
+      ownerUserId: args.ownerUserId,
+      oauthClientId,
+      toolName,
+      idempotencyKeyHash,
+      requestFingerprint,
+      result,
+      now,
+    });
+
+    return result;
+  },
+});
+
 export const updateCommunityEventForApiOwner = internalMutation({
   args: {
     actorKind: apiWriteAuditActorKindValidator,
@@ -1895,74 +2075,10 @@ export const updateCommunityEventForApiOwner = internalMutation({
     ...eventDraftUpdateArgs,
   },
   handler: async (ctx, args) => {
-    const validation = validateEventSlug(args.currentSlug);
-
-    if (!validation.ok) {
-      throw new Error("Current event slug is invalid.");
-    }
-
-    const event = await getEventBySlug(ctx.db, validation.slug);
-
-    if (event === null) {
-      throw new Error("Event was not found.");
-    }
-
-    const communityProfileId = event.communityProfileId;
-
-    if (
-      communityProfileId === undefined ||
-      !(await userOwnsProfile(ctx.db, communityProfileId, args.ownerUserId))
-    ) {
-      throw new Error("You do not have permission to update this event.");
-    }
-
-    const currentCommunity = await ctx.db.get(communityProfileId);
-
-    if (currentCommunity === null) {
-      throw new Error("Event community was not found.");
-    }
-
-    const updateFields = suppliedEventDraftFields(args);
-    const clearsTimezone =
-      args.timezone === null ||
-      (typeof args.timezone === "string" && args.timezone.trim().length === 0);
-    if (clearsTimezone && !updateFields.has("slotLinks")) {
-      const preservedSlot = await ctx.db
-        .query("eventSlots")
-        .withIndex("by_eventId_startAt", (query) => query.eq("eventId", event._id))
-        .first();
-
-      if (preservedSlot !== null) {
-        throw new Error("Time zone cannot be cleared while event slots are preserved.");
-      }
-    }
-
-    const normalizedUpdate = normalizeEventDraftUpdateInput(args);
-    const input = sanitizeEventDraftInput(
-      preserveOmittedEventDraftFields(normalizedUpdate, {
-        title: event.title,
-        startAt: event.startAt,
-        communitySlug: currentCommunity.slug,
-        doorsOpenAt: event.doorsOpenAt,
-        endAt: event.endAt,
-        timezone: event.timezone,
-        summary: event.summary,
-        notes: event.notes,
-        sourceLabel: event.sourceLabel,
-        sourceUrl: event.sourceUrl,
-        posterImageUrl: event.posterImageUrl,
-        bannerImageUrl: event.bannerImageUrl,
-        thumbnailImageUrl: event.thumbnailImageUrl,
-        watchSurfaceEnabled: event.watchSurfaceEnabled ?? false,
-        mediaLinks: event.mediaLinks ?? [],
-      }),
+    const { community, event, result } = await updateCommunityEventForApiOwnerRecord(
+      ctx.db,
+      args,
     );
-    const community = await requireApiOwnedPublishedCommunity(ctx.db, input.communitySlug, args.ownerUserId);
-    const world = updateFields.has("worldSlug")
-      ? await getPublishedWorldBySlug(ctx.db, input.worldSlug)
-      : await linkedPublishedEventWorld(ctx.db, event._id);
-
-    const result = await updateCommunityEventRecord(ctx.db, { event, input, community, world, updateFields });
     await recordApiWriteAuditEvent(ctx.db, {
       action: "event_updated",
       actorKind: args.actorKind,
@@ -1972,6 +2088,73 @@ export const updateCommunityEventForApiOwner = internalMutation({
       targetEventId: event._id,
       ...(community === undefined ? {} : { targetProfileId: community._id }),
       now: Date.now(),
+    });
+
+    return result;
+  },
+});
+
+export const updateCommunityEventForMcpOwner = internalMutation({
+  args: {
+    ...mcpEventWriteAttributionArgs,
+    currentSlug: v.string(),
+    ...eventDraftUpdateArgs,
+  },
+  handler: async (ctx, args) => {
+    const oauthClientId = normalizeOAuthClientId(args.oauthClientId);
+    const oauthTokenId = requireMcpAttributionText(args.oauthTokenId, "OAuth token id", 256);
+    const requestId = requireMcpAttributionText(args.requestId, "Request id", 256);
+    const idempotencyKeyHash = requireSha256Hex(args.idempotencyKeyHash, "Idempotency key hash");
+    const requestFingerprint = requireSha256Hex(args.requestFingerprint, "Request fingerprint");
+    const toolName = "vrdex_event_update" as const;
+    const existing = await findMcpEventWriteReceipt(ctx.db, {
+      ownerUserId: args.ownerUserId,
+      oauthClientId,
+      toolName,
+      idempotencyKeyHash,
+      requestFingerprint,
+    });
+
+    if (existing !== null) {
+      return existing.result;
+    }
+
+    let community: Doc<"profiles">;
+    let event: Doc<"events">;
+    let result: McpEventWriteResult;
+
+    try {
+      ({ community, event, result } = await updateCommunityEventForApiOwnerRecord(
+        ctx.db,
+        args,
+      ));
+    } catch {
+      throw new ConvexError({ code: "MCP_EVENT_WRITE_DENIED" });
+    }
+    const now = Date.now();
+    await recordApiWriteAuditEvent(ctx.db, {
+      action: "event_updated",
+      actorKind: "user_delegated_oauth",
+      ownerUserId: args.ownerUserId,
+      resourceType: "event",
+      routeClass: "authenticated_mcp_write",
+      targetEventId: event._id,
+      targetProfileId: community._id,
+      oauthClientId,
+      oauthTokenId,
+      requestId,
+      mcpToolName: toolName,
+      idempotencyKeyHash,
+      now,
+    });
+    await recordMcpEventWriteReceipt(ctx.db, {
+      ownerUserId: args.ownerUserId,
+      oauthClientId,
+      toolName,
+      idempotencyKeyHash,
+      requestFingerprint,
+      result,
+      now,
     });
 
     return result;

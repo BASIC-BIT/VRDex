@@ -1,4 +1,4 @@
-import { oauthApiScopes, type ApiScope } from "./auth";
+import { apiScopes, oauthApiScopes, type ApiScope } from "./auth";
 
 const oauthClientIdHexLength = 24;
 const oauthClientMetadataDocumentMaxLength = 2048;
@@ -16,6 +16,8 @@ export const oauthDynamicClientStatuses = ["active", "revoked", "promoted"] as c
 export const oauthResponseTypes = ["code"] as const;
 export const oauthTokenEndpointAuthMethods = ["none"] as const;
 export const dynamicMcpClientScopes = ["public:read", "mcp:read"] as const;
+export const dynamicMcpEventWriteScopes = ["mcp:write", "events:write"] as const;
+export const OAUTH_CONSENT_TRANSACTION_TTL_MS = 30 * 60 * 1000;
 
 export type OAuthClientType = (typeof oauthClientTypes)[number];
 export type OAuthGrantType = (typeof oauthGrantTypes)[number];
@@ -373,6 +375,12 @@ function optionalString(value: unknown, label: string) {
   return value;
 }
 
+function allowedDynamicMcpScopes(allowEventWrites: boolean) {
+  return allowEventWrites
+    ? [...dynamicMcpClientScopes, ...dynamicMcpEventWriteScopes]
+    : [...dynamicMcpClientScopes];
+}
+
 function scopeValues(value: unknown) {
   if (value === undefined || value === null || value === "") {
     return [...dynamicMcpClientScopes];
@@ -385,7 +393,13 @@ function scopeValues(value: unknown) {
   return value.trim().split(/\s+/);
 }
 
-export function normalizeDynamicMcpClientRegistration(input: Record<string, unknown>): DynamicMcpClientRegistration {
+export function normalizeDynamicMcpClientRegistration(
+  input: Record<string, unknown>,
+  options: {
+    allowEventWrites?: boolean;
+    discardKnownNonMcpScopes?: boolean;
+  } = {},
+): DynamicMcpClientRegistration {
   const clientName = normalizeOAuthApplicationName(optionalString(input.client_name, "client_name") ?? "VRDex MCP Client");
   const redirectUris = normalizeOAuthRedirectUris(stringArray(input.redirect_uris, "redirect_uris") ?? []);
   const grantTypes = normalizeOAuthGrantTypes(stringArray(input.grant_types, "grant_types"), "public").filter(
@@ -395,17 +409,49 @@ export function normalizeDynamicMcpClientRegistration(input: Record<string, unkn
   const tokenEndpointAuthMethod = normalizeOAuthTokenEndpointAuthMethod(
     optionalString(input.token_endpoint_auth_method, "token_endpoint_auth_method"),
   );
-  const allowedScopes = normalizeOAuthScopes(scopeValues(input.scope));
-  const unsupportedScopes = allowedScopes.filter(
-    (scope) => !(dynamicMcpClientScopes as readonly string[]).includes(scope),
-  );
+  const supportedScopes = allowedDynamicMcpScopes(options.allowEventWrites === true);
+  const supportedScopeSet = new Set<ApiScope>(supportedScopes);
+  const recognizedMcpScopeSet = new Set<ApiScope>([
+    ...dynamicMcpClientScopes,
+    ...dynamicMcpEventWriteScopes,
+  ]);
+  const requestedScopeValues = scopeValues(input.scope);
+  const requestedScopes = options.discardKnownNonMcpScopes === true
+    ? [...new Set(requestedScopeValues)].map((scope) => {
+      if (!(apiScopes as readonly string[]).includes(scope)) {
+        throw new Error(`Unsupported OAuth scope: ${scope}`);
+      }
+
+      return scope as ApiScope;
+    })
+    : normalizeOAuthScopes(requestedScopeValues);
+  const requestedMcpScopes = requestedScopes.filter((scope) => recognizedMcpScopeSet.has(scope));
+  const unsupportedScopes = requestedScopes.filter((scope) => {
+    if (recognizedMcpScopeSet.has(scope)) {
+      return !supportedScopeSet.has(scope);
+    }
+
+    return options.discardKnownNonMcpScopes !== true || requestedMcpScopes.length === 0;
+  });
 
   if (unsupportedScopes.length > 0) {
-    throw new Error(`Dynamic MCP clients can only request ${dynamicMcpClientScopes.join(" ")}.`);
+    throw new Error(`Dynamic MCP clients can only request ${supportedScopes.join(" ")}.`);
   }
 
-  if (!allowedScopes.includes("mcp:read")) {
-    throw new Error("Dynamic MCP clients must request mcp:read.");
+  const allowedScopes = requestedMcpScopes;
+  const writeScopesRequested = allowedScopes.some((scope) =>
+    (dynamicMcpEventWriteScopes as readonly ApiScope[]).includes(scope)
+  );
+  const completeWriteScopePair = dynamicMcpEventWriteScopes.every((scope) =>
+    allowedScopes.includes(scope)
+  );
+
+  if (writeScopesRequested && !completeWriteScopePair) {
+    throw new Error("Dynamic MCP event-write clients must request both mcp:write and events:write.");
+  }
+
+  if (!allowedScopes.includes("mcp:read") && !completeWriteScopePair) {
+    throw new Error("Dynamic MCP clients must request mcp:read or both mcp:write and events:write.");
   }
 
   if (!grantTypes.includes("authorization_code")) {

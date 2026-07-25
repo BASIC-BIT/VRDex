@@ -7,6 +7,14 @@ Changelog for the unstable `/api/v0` and MCP platform foundation.
 `v0` is allowed to change before public launch. Breaking changes still need a
 docs update and a changelog entry so early consumers and agents can adapt.
 
+## Unreleased
+
+- added a default-off hosted MCP OAuth event-write surface with per-user
+  `AuthInfo`, exact `mcp:write events:write` authorization, durable community
+  ownership checks, transactional idempotency receipts, public readback, and
+  sanitized audit/rate-limit attribution; production activation remains a
+  separate authorized rollout
+
 ## 2026-07-14
 
 - changed external MCP readiness from exhaustive named-client confirmation to

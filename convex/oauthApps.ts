@@ -38,9 +38,12 @@ import {
   normalizeOAuthRevokeReason,
   normalizeOAuthResourceUri,
   normalizeOAuthRefreshTokenHash,
+  normalizeOAuthRequiredScopes,
   normalizeOAuthScopes,
   normalizeOAuthSoftwareValue,
   normalizeOAuthTokenExpiry,
+  oauthRedirectUriMatches,
+  oauthTokenRedirectUriMatches,
   oauthAccessTokenValidationEventMetadata,
   oauthClientSecretHashVersion,
   oauthCodeChallengeMethodValidator,
@@ -479,6 +482,25 @@ async function resolvePublicAuthorizationClient(
   const redirectUri = normalizeOAuthRedirectUris([args.redirectUri])[0];
   const requestedScopes = normalizeOAuthScopes(args.requestedScopes);
   const resource = normalizeOAuthResourceUri(args.resource);
+  const redirectDiagnostics = (registeredRedirectUris: readonly string[]) => registeredRedirectUris.map(
+    (registeredRedirectUri) => {
+      const sharedLength = Math.min(registeredRedirectUri.length, redirectUri.length);
+      let firstMismatchIndex = sharedLength;
+
+      for (let index = 0; index < sharedLength; index += 1) {
+        if (registeredRedirectUri[index] !== redirectUri[index]) {
+          firstMismatchIndex = index;
+          break;
+        }
+      }
+
+      return {
+        firstMismatchIndex,
+        registeredLength: registeredRedirectUri.length,
+        requestedLength: redirectUri.length,
+      };
+    },
+  );
   const application = await ctx.db
     .query("oauthApplications")
     .withIndex("by_clientId", (index) => index.eq("clientId", clientId))
@@ -492,8 +514,13 @@ async function resolvePublicAuthorizationClient(
       return { ok: false as const, reason: "invalid_client" as const };
     }
 
-    if (!application.redirectUris.includes(redirectUri)) {
-      return { ok: false as const, reason: "invalid_redirect_uri" as const };
+    if (!application.redirectUris.some((registeredRedirectUri) =>
+      oauthRedirectUriMatches(registeredRedirectUri, redirectUri))) {
+      return {
+        ok: false as const,
+        reason: "invalid_redirect_uri" as const,
+        redirectDiagnostics: redirectDiagnostics(application.redirectUris),
+      };
     }
 
     if (!hasRequiredApiScopes(application.allowedScopes, requestedScopes)) {
@@ -519,8 +546,13 @@ async function resolvePublicAuthorizationClient(
     return { ok: false as const, reason: "invalid_client" as const };
   }
 
-  if (!dynamicClient.redirectUris.includes(redirectUri)) {
-    return { ok: false as const, reason: "invalid_redirect_uri" as const };
+  if (!dynamicClient.redirectUris.some((registeredRedirectUri) =>
+    oauthRedirectUriMatches(registeredRedirectUri, redirectUri))) {
+    return {
+      ok: false as const,
+      reason: "invalid_redirect_uri" as const,
+      redirectDiagnostics: redirectDiagnostics(dynamicClient.redirectUris),
+    };
   }
 
   if (dynamicClient.resource !== resource) {
@@ -1038,6 +1070,7 @@ const dynamicMcpClientPersistenceArgs = {
   softwareId: v.optional(v.string()),
   softwareVersion: v.optional(v.string()),
   allowedScopes: v.optional(v.array(apiScopeValidator)),
+  allowEventWrites: v.optional(v.boolean()),
   resource: v.string(),
 };
 
@@ -1054,6 +1087,7 @@ type DynamicMcpClientPersistenceInput = {
   softwareId?: string;
   softwareVersion?: string;
   allowedScopes?: ApiScope[];
+  allowEventWrites?: boolean;
   resource: string;
 };
 
@@ -1073,7 +1107,9 @@ async function createDynamicMcpClientRecord(
     const contacts = normalizeOAuthContactValues(args.contacts);
     const softwareId = normalizeOAuthSoftwareValue(args.softwareId, "software_id");
     const softwareVersion = normalizeOAuthSoftwareValue(args.softwareVersion, "software_version");
-    const allowedScopes = normalizeDynamicMcpScopes(args.allowedScopes);
+    const allowedScopes = normalizeDynamicMcpScopes(args.allowedScopes, {
+      allowEventWrites: args.allowEventWrites === true,
+    });
     const resource = normalizeOAuthResourceUri(args.resource);
     const existingApplication = await ctx.db
       .query("oauthApplications")
@@ -1149,7 +1185,9 @@ async function upsertClientMetadataDocumentMcpClientRecord(
     const contacts = normalizeOAuthContactValues(args.contacts);
     const softwareId = normalizeOAuthSoftwareValue(args.softwareId, "software_id");
     const softwareVersion = normalizeOAuthSoftwareValue(args.softwareVersion, "software_version");
-    const allowedScopes = normalizeDynamicMcpScopes(args.allowedScopes);
+    const allowedScopes = normalizeDynamicMcpScopes(args.allowedScopes, {
+      allowEventWrites: args.allowEventWrites === true,
+    });
     const resource = normalizeOAuthResourceUri(args.resource);
     const existingApplication = await ctx.db
       .query("oauthApplications")
@@ -1595,17 +1633,58 @@ export const consumeAuthorizationCode = internalMutation({
       .withIndex("by_codeHash", (index) => index.eq("codeHash", codeHash))
       .unique();
 
-    if (
-      code === null ||
-      code.clientId !== clientId ||
-      code.redirectUri !== redirectUri ||
-      (requestedResource !== undefined && code.resource !== requestedResource) ||
-      code.status !== "active" ||
-      code.expiresAt <= now ||
-      code.codeChallengeMethod !== "S256" ||
-      code.codeChallenge !== derivedCodeChallenge
-    ) {
-      return { ok: false as const, reason: "invalid_grant" as const };
+    if (code === null) {
+      return {
+        ok: false as const,
+        reason: "invalid_grant" as const,
+        rejectionReason: "code_not_found" as const,
+      };
+    }
+
+    const rejectionReason =
+      code.clientId !== clientId
+        ? "client_mismatch" as const
+        : !oauthTokenRedirectUriMatches(code.redirectUri, redirectUri)
+          ? "redirect_mismatch" as const
+          : requestedResource !== undefined && code.resource !== requestedResource
+            ? "resource_mismatch" as const
+            : code.status !== "active"
+              ? "code_not_active" as const
+              : code.expiresAt <= now
+                ? "code_expired" as const
+                : code.codeChallengeMethod !== "S256"
+                  ? "unsupported_challenge_method" as const
+                  : code.codeChallenge !== derivedCodeChallenge
+                    ? "pkce_mismatch" as const
+                    : null;
+
+    if (rejectionReason !== null) {
+      const sharedRedirectLength = Math.min(code.redirectUri.length, redirectUri.length);
+      let firstRedirectMismatchIndex = sharedRedirectLength;
+
+      if (rejectionReason === "redirect_mismatch") {
+        for (let index = 0; index < sharedRedirectLength; index += 1) {
+          if (code.redirectUri[index] !== redirectUri[index]) {
+            firstRedirectMismatchIndex = index;
+            break;
+          }
+        }
+      }
+
+      return {
+        ok: false as const,
+        reason: "invalid_grant" as const,
+        rejectionReason,
+        ...(rejectionReason === "redirect_mismatch"
+          ? {
+              redirectDiagnostics: {
+                authorizationLength: code.redirectUri.length,
+                firstMismatchIndex: firstRedirectMismatchIndex,
+                tokenRequestLength: redirectUri.length,
+              },
+            }
+          : {}),
+      };
     }
 
     // Convex mutations are serializable transactions. A concurrent redemption
@@ -2218,7 +2297,7 @@ async function validateAccessTokenRecord(
     const clientId = normalizeOAuthClientId(args.clientId);
     const tokenId = normalizeOAuthAccessTokenId(args.tokenId);
     const resource = normalizeOAuthResourceUri(args.resource);
-    const requiredScopes = normalizeOAuthScopes(args.requiredScopes);
+    const requiredScopes = normalizeOAuthRequiredScopes(args.requiredScopes);
     const routeClass = args.routeClass ?? "authenticated_public_read";
     const token = await ctx.db
       .query("oauthAccessTokens")

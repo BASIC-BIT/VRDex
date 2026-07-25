@@ -32,6 +32,7 @@ export const apiRouteClasses = [
   "public_write",
   "anonymous_mcp_public_read",
   "authenticated_mcp",
+  "authenticated_mcp_write",
   "time_parse",
 ] as const;
 

@@ -26,11 +26,14 @@ import {
   normalizeOAuthResponseTypes,
   normalizeOAuthTokenEndpointAuthMethod,
   normalizeOAuthResourceUri,
+  normalizeOAuthRequiredScopes,
   normalizeOAuthScopes,
   normalizeOAuthSoftwareValue,
   normalizeOAuthTokenExpiry,
   normalizeOAuthRevokeReason,
   oauthAccessTokenValidationEventMetadata,
+  oauthRedirectUriMatches,
+  oauthTokenRedirectUriMatches,
   validateOAuthAccessTokenRecord,
 } from "../../convex/_oauth";
 
@@ -161,10 +164,68 @@ describe("OAuth application helpers", () => {
     assert.deepEqual(normalizeOAuthRedirectUris(["http://localhost:3456/callback"]), [
       "http://localhost:3456/callback",
     ]);
+    assert.equal(
+      oauthRedirectUriMatches(
+        "http://localhost:3456/callback",
+        "http://127.0.0.1:8989/callback",
+      ),
+      true,
+    );
+    assert.equal(
+      oauthRedirectUriMatches(
+        "http://localhost:3456/callback",
+        "http://127.0.0.1:8989/other",
+      ),
+      false,
+    );
+    assert.equal(
+      oauthRedirectUriMatches(
+        "https://client.example.test/callback",
+        "https://client.example.test:444/callback",
+      ),
+      false,
+    );
+    assert.equal(
+      oauthTokenRedirectUriMatches(
+        "http://127.0.0.1:8989/oauth/callback",
+        "http://localhost:8989/oauth/callback",
+      ),
+      true,
+    );
+    assert.equal(
+      oauthTokenRedirectUriMatches(
+        "http://127.0.0.1:8989/oauth/callback",
+        "http://localhost:8990/oauth/callback",
+      ),
+      false,
+    );
+    assert.equal(
+      oauthTokenRedirectUriMatches(
+        "http://127.0.0.1:8989/oauth/callback",
+        "http://localhost:8989/other",
+      ),
+      false,
+    );
+    assert.equal(
+      oauthTokenRedirectUriMatches(
+        "http://127.0.0.1:8989/oauth/callback?client=openclaw",
+        "http://localhost:8989/oauth/callback?client=other",
+      ),
+      false,
+    );
+    assert.equal(
+      oauthTokenRedirectUriMatches(
+        "https://client.example.test/callback",
+        "https://other.example.test/callback",
+      ),
+      false,
+    );
     assert.deepEqual(normalizeOAuthScopes(["public:read", "mcp:read", "public:read"]), [
       "public:read",
       "mcp:read",
     ]);
+    assert.deepEqual(normalizeOAuthRequiredScopes(undefined), ["public:read"]);
+    assert.deepEqual(normalizeOAuthRequiredScopes([]), []);
     assert.deepEqual(normalizeOAuthGrantTypes(undefined, "public"), [
       "authorization_code",
       "refresh_token",
@@ -211,6 +272,13 @@ describe("OAuth application helpers", () => {
       "mcp:read",
       "public:read",
     ]);
+    assert.deepEqual(
+      normalizeDynamicMcpScopes(
+        ["mcp:write", "events:write"],
+        { allowEventWrites: true },
+      ),
+      ["mcp:write", "events:write"],
+    );
     assert.equal(normalizeOAuthRedirectHost("http://localhost:3456/callback"), "localhost:3456");
     assert.deepEqual(normalizeOAuthResponseTypes(undefined), ["code"]);
     assert.equal(normalizeOAuthTokenEndpointAuthMethod(undefined), "none");
@@ -221,6 +289,10 @@ describe("OAuth application helpers", () => {
 
     assert.throws(() => normalizeDynamicMcpScopes(["profile:read"]), /public:read and mcp:read/);
     assert.throws(() => normalizeDynamicMcpScopes(["public:read"]), /mcp:read/);
+    assert.throws(
+      () => normalizeDynamicMcpScopes(["mcp:write"], { allowEventWrites: true }),
+      /both mcp:write and events:write/,
+    );
     assert.throws(() => normalizeOAuthResponseTypes(["token"]), /response type/);
     assert.throws(() => normalizeOAuthTokenEndpointAuthMethod("client_secret_basic"), /token_endpoint_auth_method=none/);
   });

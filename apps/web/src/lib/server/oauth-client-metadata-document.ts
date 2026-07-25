@@ -4,6 +4,8 @@ import { BlockList, isIP } from "node:net";
 import { Readable } from "node:stream";
 
 import {
+  dynamicMcpClientScopes,
+  dynamicMcpEventWriteScopes,
   normalizeDynamicMcpClientRegistration,
   normalizeOAuthClientMetadataDocumentUrl,
   type DynamicMcpClientRegistration,
@@ -22,6 +24,7 @@ interface PinnedLookupCallback {
 }
 
 type FetchOAuthClientMetadataDocumentOptions = {
+  allowEventWrites?: boolean;
   deadlineMs?: number;
   requestDocument?: (url: URL, address: HostAddress, signal: AbortSignal) => Promise<Response>;
   resolveHostname?: (hostname: string) => Promise<HostAddress[]>;
@@ -303,9 +306,18 @@ export async function fetchOAuthClientMetadataDocument(
       throw new Error("OAuth client metadata document client_id must match the document URL.");
     }
 
+    const defaultScopes = options.allowEventWrites === true
+      ? [...dynamicMcpClientScopes, ...dynamicMcpEventWriteScopes]
+      : [...dynamicMcpClientScopes];
+    const normalizedPayload = payload.scope === undefined
+      ? { ...payload, scope: defaultScopes.join(" ") }
+      : payload;
+
     return {
       clientId: normalizedClientId,
-      ...normalizeDynamicMcpClientRegistration(payload),
+      ...normalizeDynamicMcpClientRegistration(normalizedPayload, {
+        allowEventWrites: options.allowEventWrites === true,
+      }),
     };
   } finally {
     clearTimeout(deadline);
