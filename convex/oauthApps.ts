@@ -1631,17 +1631,37 @@ export const consumeAuthorizationCode = internalMutation({
       .withIndex("by_codeHash", (index) => index.eq("codeHash", codeHash))
       .unique();
 
-    if (
-      code === null ||
-      code.clientId !== clientId ||
-      code.redirectUri !== redirectUri ||
-      (requestedResource !== undefined && code.resource !== requestedResource) ||
-      code.status !== "active" ||
-      code.expiresAt <= now ||
-      code.codeChallengeMethod !== "S256" ||
-      code.codeChallenge !== derivedCodeChallenge
-    ) {
-      return { ok: false as const, reason: "invalid_grant" as const };
+    if (code === null) {
+      return {
+        ok: false as const,
+        reason: "invalid_grant" as const,
+        rejectionReason: "code_not_found" as const,
+      };
+    }
+
+    const rejectionReason =
+      code.clientId !== clientId
+        ? "client_mismatch" as const
+        : code.redirectUri !== redirectUri
+          ? "redirect_mismatch" as const
+          : requestedResource !== undefined && code.resource !== requestedResource
+            ? "resource_mismatch" as const
+            : code.status !== "active"
+              ? "code_not_active" as const
+              : code.expiresAt <= now
+                ? "code_expired" as const
+                : code.codeChallengeMethod !== "S256"
+                  ? "unsupported_challenge_method" as const
+                  : code.codeChallenge !== derivedCodeChallenge
+                    ? "pkce_mismatch" as const
+                    : null;
+
+    if (rejectionReason !== null) {
+      return {
+        ok: false as const,
+        reason: "invalid_grant" as const,
+        rejectionReason,
+      };
     }
 
     // Convex mutations are serializable transactions. A concurrent redemption

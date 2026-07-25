@@ -93,7 +93,19 @@ type ClientCredentialsResult =
 
 type AuthorizationCodeResult =
   | (UserAccessTokenResult & { refreshTokenIssued: boolean })
-  | { ok: false; reason: "invalid_client" | "invalid_grant" };
+  | {
+      ok: false;
+      reason: "invalid_client" | "invalid_grant";
+      rejectionReason?:
+        | "client_mismatch"
+        | "code_expired"
+        | "code_not_active"
+        | "code_not_found"
+        | "pkce_mismatch"
+        | "redirect_mismatch"
+        | "resource_mismatch"
+        | "unsupported_challenge_method";
+    };
 
 type RefreshTokenResult =
   | UserAccessTokenResult
@@ -263,6 +275,11 @@ async function authorizationCodeTokenResponse(
     if (result.reason === "invalid_client") {
       return oauthProblem(401, "invalid_client", "Client authentication failed.");
     }
+
+    console.warn(JSON.stringify({
+      event: "oauth_authorization_code_rejected",
+      reason: result.rejectionReason ?? "unspecified",
+    }));
 
     return oauthProblem(400, "invalid_grant", "The authorization code is invalid, expired, or already used.");
   }

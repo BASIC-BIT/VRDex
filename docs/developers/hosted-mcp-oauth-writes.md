@@ -99,6 +99,8 @@ retry automatically.
   identities.
 - Existing OAuth validation events cover invalid, expired, revoked,
   wrong-resource, and under-scoped tokens.
+- Authorization-code exchange failures log only a bounded rejection category;
+  client IDs, codes, verifiers, redirects, resources, and scopes are omitted.
 - Rollback is one setting: restore `VRDEX_HOSTED_MCP_EVENT_WRITES=false` and
   redeploy. Reads and the local bridge are unaffected. Existing tokens remain
   revocable but cannot reach a registered write tool.
