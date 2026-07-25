@@ -112,9 +112,9 @@ describe("OAuth PKCE authorization helpers", () => {
 
     const bootstrapOnlyParams = new URLSearchParams(params);
     bootstrapOnlyParams.set("resource", "https://app.example.test/mcp?auth=required");
-    assert.throws(
-      () => normalizeOAuthAuthorizationRequest(bootstrapOnlyParams, request),
-      /resource is not supported/,
+    assert.equal(
+      normalizeOAuthAuthorizationRequest(bootstrapOnlyParams, request).resource,
+      "https://app.example.test/mcp",
     );
 
     const unrelatedDuplicateParams = new URLSearchParams(params);

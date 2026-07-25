@@ -47,8 +47,7 @@ export function normalizedOAuthResourceIndicator(
   const mcpResource = oauthMcpResourceUri(request);
 
   if (
-    resources.includes(mcpResource)
-    && resources.every(
+    resources.every(
       (resource) => resource === mcpResource || mcpAuthenticationBootstrapAlias(resource, mcpResource),
     )
   ) {
