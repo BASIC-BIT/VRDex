@@ -63,6 +63,8 @@ type PublicProfileAsset = {
   assetId: string;
   label?: string;
   caption?: string;
+  altText?: string;
+  credit?: string;
   mimeType: string;
   byteSize: number;
   imageUrl: string;
@@ -72,6 +74,7 @@ type PublicProfileAsset = {
 type PublicProfileMediaKit = {
   profileImage?: PublicProfileAsset;
   banner?: PublicProfileAsset;
+  featuredAsset?: PublicProfileAsset;
   primaryLogo?: PublicProfileAsset;
   additionalLogos: PublicProfileAsset[];
   logos: PublicProfileAsset[];
@@ -290,29 +293,30 @@ function mimeLabel(value: string): string {
   return value.replace(/^image\//, "").replace("svg+xml", "svg").toUpperCase();
 }
 
-function MediaAssetCard({ asset, label }: { asset: PublicProfileAsset; label: string }) {
-  const imageStyle = safeImageBackground(asset.imageUrl);
-
+function MediaAssetCard({ asset, label, featured = false }: { asset: PublicProfileAsset; label: string; featured?: boolean }) {
   return (
-    <a
-      className="group grid gap-3 rounded-card border border-border bg-surface-strong p-3 text-sm transition hover:-translate-y-0.5 hover:shadow-panel"
-      download
-      href={asset.downloadUrl}
-    >
-      <span
-        className="flex aspect-[4/3] items-center justify-center rounded-control border border-border bg-[linear-gradient(135deg,var(--canvas-muted),var(--surface-raised))] bg-contain bg-center bg-no-repeat text-lg font-semibold text-white"
-        style={imageStyle}
-      >
-        {!imageStyle ? label.slice(0, 2).toUpperCase() : null}
-      </span>
-      <span className="grid gap-1">
-        <span className="font-medium group-hover:text-accent-strong">{asset.label ?? label}</span>
-        {asset.caption ? <span className="line-clamp-2 leading-5 text-muted">{asset.caption}</span> : null}
-        <span className="text-xs text-muted">
+    <article className={cn("group grid overflow-hidden rounded-card border border-border bg-surface-strong text-sm transition hover:-translate-y-0.5 hover:shadow-panel", featured ? "lg:grid-cols-[minmax(0,1.35fr)_minmax(16rem,0.65fr)]" : undefined)}>
+      <div className={cn("relative bg-canvas-muted", featured ? "min-h-72" : "aspect-[4/3]")}>
+        {/* Controlled VRDex asset routes are intentionally rendered as ordinary images. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          alt={asset.altText ?? ""}
+          className="absolute inset-0 size-full object-contain"
+          src={asset.imageUrl}
+        />
+      </div>
+      <div className="grid content-start gap-2 p-4">
+        <h3 className={cn("font-medium", featured ? "text-xl" : undefined)}>{asset.label ?? label}</h3>
+        {asset.caption ? <p className="leading-6 text-muted">{asset.caption}</p> : null}
+        {asset.credit ? <p className="text-xs text-muted">{asset.credit}</p> : null}
+        <p className="text-xs text-muted">
           {mimeLabel(asset.mimeType)} / {formatByteSize(asset.byteSize)}
-        </span>
-      </span>
-    </a>
+        </p>
+        <a className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "mt-2 w-fit")} download href={asset.downloadUrl}>
+          Download {asset.label ?? label}
+        </a>
+      </div>
+    </article>
   );
 }
 
@@ -405,7 +409,7 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
     profile.region,
     ...(profile.headline ? [] : focusItems.slice(0, 4)),
   ].filter((item): item is string => Boolean(item))));
-  const hasMediaKit = Boolean(mediaKit.primaryLogo || mediaKit.additionalLogos.length > 0 || mediaKit.logoZipUrl);
+  const hasMediaKit = mediaKit.assets.length > 0;
   const canClaim = profile.trustLabel === "community_submitted" || profile.trustLabel === "unclaimed";
   const secondaryOrder = normalizeProfileSectionOrder(profile.appearance?.sectionOrder).filter((section) =>
     ["events", "media_kit", "worlds"].includes(section),
@@ -431,10 +435,14 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
             </a>
           ) : null}
         </div>
+        {mediaKit.featuredAsset ? (
+          <div className="mt-5">
+            <MediaAssetCard asset={mediaKit.featuredAsset} featured label="Featured media" />
+          </div>
+        ) : null}
         <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {mediaKit.primaryLogo ? <MediaAssetCard asset={mediaKit.primaryLogo} label="Primary logo" /> : null}
-          {mediaKit.additionalLogos.map((asset, index) => (
-            <MediaAssetCard asset={asset} key={asset.assetId} label={`Logo ${index + 2}`} />
+          {mediaKit.assets.filter((asset) => asset.assetId !== mediaKit.featuredAsset?.assetId).map((asset, index) => (
+            <MediaAssetCard asset={asset} key={asset.assetId} label={`Media ${index + 1}`} />
           ))}
         </div>
       </section>

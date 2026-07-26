@@ -68,6 +68,9 @@ The first asset-storage implementation uses:
 - server-side encryption; SSE-S3 is acceptable for the first slice because S3 encrypts new object uploads by default
 - authenticated Convex upload intents plus token-gated Next.js upload/import routes for controlled browser uploads
 - import-by-URL guarded to public HTTPS destinations with bounded response sizes before any object is written
+- content-derived image validation, bounded decoded dimensions, raster
+  re-encoding with metadata removal, and a restricted SVG profile before any
+  object is written
 - app-generated reads through `/api/v0/profiles/:slug/assets/:assetId/file` and `/api/v0/profiles/:slug/logos.zip`, instead of public bucket objects
 - deterministic object prefixes keyed by asset upload date and upload intent token
 - metadata sufficient to connect uploaded objects to profile records, uploader, upload time, and moderation/review state
@@ -96,11 +99,15 @@ Terraform/runtime baseline:
 - Hosted bucket name default: `vrdex-profile-assets-${account_id}`
 - Hosted runtime auth: Vercel OIDC, scoped to the `vr-dex-web` project and the allowed production/staging environments
 
+The first owner-facing gallery keeps at most 12 active public assets per
+profile. Deletion is recoverable metadata state; it does not synchronously
+delete the private object.
+
 Deferred follow-on work:
 
 - moderation or malware scanning
-- CloudFront or image optimization
-- lifecycle rules and deletion/retention policy
+- CloudFront, responsive variants, or a dedicated image CDN
+- physical-object retention, expired-intent cleanup, and orphan reconciliation
 
 Runtime environment/config names:
 

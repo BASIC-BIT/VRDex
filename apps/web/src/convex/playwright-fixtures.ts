@@ -43,6 +43,8 @@ type FixturePersonProfile = Extract<PublicProfile, { profileType: "person" }> & 
 const auroraProfileImage = {
   assetId: "fixture-aurora-profile-image",
   label: "Profile image",
+  altText: "DJ Aurora framed by violet light and a warm orange glow.",
+  credit: "Artwork by Afterglow Studio",
   mimeType: "image/png",
   byteSize: 184_000,
   imageUrl: "/api/e2e/fixture-assets/fixture-aurora-profile-image",
@@ -53,6 +55,7 @@ const auroraPrimaryLogo = {
   assetId: "fixture-aurora-primary-logo",
   label: "Primary logo",
   caption: "Aurora wordmark for event flyers and lineup cards.",
+  altText: "AURORA wordmark in white over violet and cyan light.",
   mimeType: "image/svg+xml",
   byteSize: 24_000,
   imageUrl: "/api/e2e/fixture-assets/fixture-aurora-primary-logo",
@@ -62,6 +65,7 @@ const auroraPrimaryLogo = {
 const auroraAdditionalLogo = {
   assetId: "fixture-aurora-alt-logo",
   label: "Square mark",
+  altText: "Square Aurora monogram in warm orange light.",
   mimeType: "image/png",
   byteSize: 96_000,
   imageUrl: "/api/e2e/fixture-assets/fixture-aurora-alt-logo",
@@ -174,6 +178,7 @@ const personProfile: FixturePersonProfile = {
   ],
   mediaKit: {
     profileImage: auroraProfileImage,
+    featuredAsset: auroraProfileImage,
     primaryLogo: auroraPrimaryLogo,
     additionalLogos: [auroraAdditionalLogo],
     logos: [auroraPrimaryLogo, auroraAdditionalLogo],

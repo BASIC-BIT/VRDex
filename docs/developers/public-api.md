@@ -103,6 +103,14 @@ when posting the file or source import to
 does not accept bearer credentials; the one-time upload token is the credential
 for that operation. When that upload completes, the intent is consumed into an
 active public profile asset and any supplied media-kit placement metadata.
+Supported placement keys include `gallery` and singleton `featured` alongside
+the existing profile-image, banner, and logo placements. Upload intent metadata
+may include `label`, `caption`, `altText`, and `credit`.
+
+Upload completion validates image content independently from the declared MIME
+type. Raster images are decoded, bounded, re-encoded, and stripped of embedded
+metadata; SVG uploads use a restricted profile that rejects active or external
+content.
 
 `POST /api/v0/events` and `PATCH /api/v0/events/:slug` require `events:write`,
 user authority, and ownership of the target `communitySlug`. Event updates also

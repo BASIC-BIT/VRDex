@@ -9,6 +9,9 @@ export const PROFILE_ASSET_UPLOAD_MAX_BYTES = 12 * 1024 * 1024;
 export const PROFILE_ASSET_UPLOAD_INTENT_TTL_MS = 30 * 60 * 1000;
 export const PROFILE_ASSET_LABEL_MAX_LENGTH = 80;
 export const PROFILE_ASSET_CAPTION_MAX_LENGTH = 240;
+export const PROFILE_ASSET_ALT_TEXT_MAX_LENGTH = 180;
+export const PROFILE_ASSET_CREDIT_MAX_LENGTH = 120;
+export const PROFILE_ASSET_MAX_ACTIVE_COUNT = 12;
 
 export const DEFAULT_PROFILE_AVATAR_APPEARANCE = {
   borderEnabled: true,
@@ -31,6 +34,8 @@ export type PublicProfileAsset = {
   assetId: Id<"profileAssets">;
   label?: string;
   caption?: string;
+  altText?: string;
+  credit?: string;
   mimeType: string;
   byteSize: number;
   imageUrl: string;
@@ -48,6 +53,7 @@ export type PublicProfileAvatarAppearance = {
 export type PublicProfileMediaKit = {
   profileImage?: PublicProfileAsset;
   banner?: PublicProfileAsset;
+  featuredAsset?: PublicProfileAsset;
   primaryLogo?: PublicProfileAsset;
   additionalLogos: PublicProfileAsset[];
   logos: PublicProfileAsset[];
@@ -64,6 +70,8 @@ export type ProfileAssetUploadInput = {
   uploadToken: string;
   label?: string;
   caption?: string;
+  altText?: string;
+  credit?: string;
   placements: ProfileAssetPlacement[];
   position?: number;
 };
@@ -79,11 +87,44 @@ export type ProfileAssetUploadIntentCreateInput = {
   targetProfileId?: Id<"profiles">;
   label?: string;
   caption?: string;
+  altText?: string;
+  credit?: string;
   placements?: ProfileAssetPlacement[];
   position?: number;
   source?: Doc<"profileAssets">["source"];
   now: number;
 };
+
+export async function assertProfileAssetCapacity(
+  db: DatabaseReader,
+  profileId: Id<"profiles">,
+  additionalCount = 1,
+) {
+  const activeAssets = await db
+    .query("profileAssets")
+    .withIndex("by_profileId_state_visibility", (query) =>
+      query.eq("profileId", profileId).eq("state", "active").eq("visibility", "public"),
+    )
+    .collect();
+
+  if (activeAssets.length + additionalCount > PROFILE_ASSET_MAX_ACTIVE_COUNT) {
+    throw new Error(`Profiles can have up to ${PROFILE_ASSET_MAX_ACTIVE_COUNT} active media items.`);
+  }
+}
+
+export async function assertProfileAssetIntentCapacity(
+  db: DatabaseReader,
+  profileId: Id<"profiles">,
+  now: number,
+) {
+  const openIntents = await db
+    .query("profileAssetUploadIntents")
+    .withIndex("by_targetProfileId_state_expiresAt", (query) =>
+      query.eq("targetProfileId", profileId).eq("state", "pending").gt("expiresAt", now),
+    )
+    .collect();
+  await assertProfileAssetCapacity(db, profileId, openIntents.length + 1);
+}
 
 function normalizeInlineText(value: string | undefined): string | undefined {
   const normalized = value?.trim().replace(/\s+/g, " ");
@@ -123,6 +164,34 @@ export function sanitizeProfileAssetCaption(value: string | undefined): string |
   }
 
   return caption;
+}
+
+export function sanitizeProfileAssetAltText(value: string | undefined): string | undefined {
+  const altText = normalizeInlineText(value);
+
+  if (altText === undefined) {
+    return undefined;
+  }
+
+  if (altText.length > PROFILE_ASSET_ALT_TEXT_MAX_LENGTH) {
+    throw new Error(`Accessibility descriptions must be ${PROFILE_ASSET_ALT_TEXT_MAX_LENGTH} characters or fewer.`);
+  }
+
+  return altText;
+}
+
+export function sanitizeProfileAssetCredit(value: string | undefined): string | undefined {
+  const credit = normalizeInlineText(value);
+
+  if (credit === undefined) {
+    return undefined;
+  }
+
+  if (credit.length > PROFILE_ASSET_CREDIT_MAX_LENGTH) {
+    throw new Error(`Asset credits must be ${PROFILE_ASSET_CREDIT_MAX_LENGTH} characters or fewer.`);
+  }
+
+  return credit;
 }
 
 function normalizeHexColor(value: string): string {
@@ -262,6 +331,11 @@ export async function createProfileAssetUploadIntentRecord(
   });
   const label = sanitizeProfileAssetLabel(input.label);
   const caption = sanitizeProfileAssetCaption(input.caption);
+  const altText = sanitizeProfileAssetAltText(input.altText);
+  const credit = sanitizeProfileAssetCredit(input.credit);
+  if (input.placements?.includes("gallery") && (label === undefined || altText === undefined)) {
+    throw new Error("Gallery images require a title and accessibility description.");
+  }
   const expiresAt = input.now + PROFILE_ASSET_UPLOAD_INTENT_TTL_MS;
   const intentId = await db.insert("profileAssetUploadIntents", {
     uploadToken,
@@ -274,6 +348,8 @@ export async function createProfileAssetUploadIntentRecord(
     storageKey,
     ...(label !== undefined ? { label } : {}),
     ...(caption !== undefined ? { caption } : {}),
+    ...(altText !== undefined ? { altText } : {}),
+    ...(credit !== undefined ? { credit } : {}),
     ...(input.placements !== undefined ? { placements: input.placements } : {}),
     ...(input.position !== undefined ? { position: input.position } : {}),
     ...(input.source !== undefined ? { source: input.source } : {}),
@@ -318,6 +394,8 @@ function toPublicAsset(profile: Doc<"profiles">, asset: Doc<"profileAssets">): P
     assetId: asset._id,
     ...(asset.label !== undefined ? { label: asset.label } : {}),
     ...(asset.caption !== undefined ? { caption: asset.caption } : {}),
+    ...(asset.altText !== undefined ? { altText: asset.altText } : {}),
+    ...(asset.credit !== undefined ? { credit: asset.credit } : {}),
     mimeType: asset.mimeType,
     byteSize: asset.byteSize,
     imageUrl: publicProfileAssetImageUrl(profile.slug, asset._id),
@@ -373,6 +451,7 @@ export async function getPublicProfileMediaKit(
   const profileImageAsset = firstPlacedAsset(assetsById, sortedPlacements, "profile_image");
   const bannerAsset = firstPlacedAsset(assetsById, sortedPlacements, "banner");
   const primaryLogoAsset = firstPlacedAsset(assetsById, sortedPlacements, "primary_logo");
+  const featuredAsset = firstPlacedAsset(assetsById, sortedPlacements, "featured");
   const additionalLogoAssets = placedAssets(assetsById, sortedPlacements, "additional_logo").filter(
     (asset) => asset._id !== primaryLogoAsset?._id,
   );
@@ -380,6 +459,11 @@ export async function getPublicProfileMediaKit(
   const primaryLogo = primaryLogoAsset ? toPublicAsset(profile, primaryLogoAsset) : undefined;
   const additionalLogos = additionalLogoAssets.map((asset) => toPublicAsset(profile, asset));
   const logos = primaryLogo ? [primaryLogo, ...additionalLogos] : additionalLogos;
+  const galleryAssets = placedAssets(assetsById, sortedPlacements, "gallery");
+  const orderedAssets = [
+    ...galleryAssets,
+    ...assets.filter((asset) => !galleryAssets.some((galleryAsset) => galleryAsset._id === asset._id)),
+  ];
   const compactDisplay =
     preference?.compactDisplay === "logo" || (!profileImage && primaryLogo)
       ? "logo"
@@ -391,10 +475,11 @@ export async function getPublicProfileMediaKit(
   return {
     ...(profileImage ? { profileImage } : {}),
     ...(bannerAsset ? { banner: toPublicAsset(profile, bannerAsset) } : {}),
+    ...(featuredAsset ? { featuredAsset: toPublicAsset(profile, featuredAsset) } : {}),
     ...(primaryLogo ? { primaryLogo } : {}),
     additionalLogos,
     logos,
-    assets: assets.map((asset) => toPublicAsset(profile, asset)),
+    assets: orderedAssets.map((asset) => toPublicAsset(profile, asset)),
     ...(logos.length > 0 ? { logoZipUrl: publicProfileLogoZipUrl(profile.slug) } : {}),
     compactDisplay,
     avatarAppearance,
@@ -415,6 +500,7 @@ export async function consumeProfileAssetUploads(
     now: number;
   },
 ): Promise<Id<"profileAssets">[]> {
+  await assertProfileAssetCapacity(db, input.profileId, input.uploads.length);
   const assetIds: Id<"profileAssets">[] = [];
   const seenPlacementKeys = new Set<string>();
 
@@ -435,6 +521,8 @@ export async function consumeProfileAssetUploads(
 
     const label = sanitizeProfileAssetLabel(upload.label);
     const caption = sanitizeProfileAssetCaption(upload.caption);
+    const altText = sanitizeProfileAssetAltText(upload.altText);
+    const credit = sanitizeProfileAssetCredit(upload.credit);
     const assetId = await db.insert("profileAssets", {
       profileId: input.profileId,
       storageKey: intent.storageKey,
@@ -444,6 +532,11 @@ export async function consumeProfileAssetUploads(
       byteSize: intent.byteSize,
       ...(label !== undefined ? { label } : {}),
       ...(caption !== undefined ? { caption } : {}),
+      ...(altText !== undefined ? { altText } : {}),
+      ...(credit !== undefined ? { credit } : {}),
+      ...(intent.contentSha256 !== undefined ? { contentSha256: intent.contentSha256 } : {}),
+      ...(intent.width !== undefined ? { width: intent.width } : {}),
+      ...(intent.height !== undefined ? { height: intent.height } : {}),
       visibility: "public",
       source: input.source,
       uploadedBy: input.requestedBy,
@@ -453,17 +546,31 @@ export async function consumeProfileAssetUploads(
     });
 
     for (const placement of upload.placements) {
-      const key = placement === "additional_logo" ? `${placement}:${assetId}` : placement;
+      const orderedMultiPlacement = placement === "additional_logo" || placement === "gallery";
+      const key = orderedMultiPlacement ? `${placement}:${assetId}` : placement;
       if (seenPlacementKeys.has(key)) {
         continue;
       }
 
       seenPlacementKeys.add(key);
+      if (!orderedMultiPlacement) {
+        const existing = await db
+          .query("profileAssetPlacements")
+          .withIndex("by_profileId_placement_state_position", (query) =>
+            query.eq("profileId", input.profileId).eq("placement", placement).eq("state", "active"),
+          )
+          .collect();
+        await Promise.all(
+          existing.map((current) =>
+            db.patch(current._id, { state: "deleted", updatedAt: input.now }),
+          ),
+        );
+      }
       await db.insert("profileAssetPlacements", {
         profileId: input.profileId,
         assetId,
         placement,
-        position: placement === "additional_logo" ? upload.position ?? uploadIndex : 0,
+        position: orderedMultiPlacement ? upload.position ?? uploadIndex : 0,
         state: "active",
         updatedAt: input.now,
       });
@@ -487,6 +594,9 @@ export async function finalizeProfileAssetUploadIntentUpload(
     uploadToken: string;
     mimeType: string;
     byteSize: number;
+    contentSha256?: string;
+    width?: number;
+    height?: number;
     now: number;
   },
 ) {
@@ -512,9 +622,22 @@ export async function finalizeProfileAssetUploadIntentUpload(
     throw new Error("You do not have permission to update this profile.");
   }
 
+  if (intent.targetProfileId !== undefined && input.contentSha256 !== undefined) {
+    const existingAssets = await db
+      .query("profileAssets")
+      .withIndex("by_profileId", (query) => query.eq("profileId", intent.targetProfileId!))
+      .collect();
+    if (existingAssets.some((asset) => asset.contentSha256 === input.contentSha256)) {
+      throw new Error("This image already exists in the profile media kit.");
+    }
+  }
+
   await db.patch(intent._id, {
     mimeType: normalizeProfileAssetMimeType(input.mimeType),
     byteSize: validateProfileAssetByteSize(input.byteSize),
+    ...(input.contentSha256 !== undefined ? { contentSha256: input.contentSha256 } : {}),
+    ...(input.width !== undefined ? { width: input.width } : {}),
+    ...(input.height !== undefined ? { height: input.height } : {}),
     state: "uploaded",
     uploadedAt: input.now,
     updatedAt: input.now,
@@ -533,6 +656,8 @@ export async function finalizeProfileAssetUploadIntentUpload(
         uploadToken: input.uploadToken,
         ...(intent.label !== undefined ? { label: intent.label } : {}),
         ...(intent.caption !== undefined ? { caption: intent.caption } : {}),
+        ...(intent.altText !== undefined ? { altText: intent.altText } : {}),
+        ...(intent.credit !== undefined ? { credit: intent.credit } : {}),
         placements: intent.placements ?? [],
         ...(intent.position !== undefined ? { position: intent.position } : {}),
       },

@@ -7,9 +7,10 @@ import { NextRequest, NextResponse } from "next/server";
 import type { GenericId } from "convex/values";
 
 import { ApiProfileAssetUploadIntentCompleteResponseSchema } from "@vrdex/api-contracts";
-import { api } from "@convex-generated-api";
-import { convexHttpClient } from "@/lib/server/convex-http";
+import { api, internal } from "@convex-generated-api";
+import { convexAdminHttpClient, convexHttpClient } from "@/lib/server/convex-http";
 import { isProfileAssetStorageConfigured, putProfileAssetObject } from "@/lib/server/profile-asset-storage";
+import { validateAndNormalizeProfileAsset } from "@/lib/server/profile-asset-validation";
 
 export const dynamic = "force-dynamic";
 
@@ -444,24 +445,37 @@ export async function POST(request: NextRequest, context: RouteContext) {
       : await bodyFromFileRequest(request);
 
     validateUploadBody(upload);
+    const normalized = await validateAndNormalizeProfileAsset(upload.body, intent.mimeType);
+    assertAllowedByteSize(normalized.body.byteLength);
+    const duplicate = await convex.query(api.profileAssets.hasDuplicateAssetForUpload, {
+      intentId: intent.intentId,
+      uploadToken,
+      contentSha256: normalized.contentSha256,
+    });
+    if (duplicate) {
+      throw new Error("This image already exists in the profile media kit.");
+    }
 
     await putProfileAssetObject({
       storageKey: intent.storageKey,
-      body: upload.body,
-      contentType: upload.mimeType,
+      body: normalized.body,
+      contentType: normalized.mimeType,
     });
-    const completed = await convex.mutation(api.profileAssets.markUploadIntentUploaded, {
+    const completed = await convexAdminHttpClient().mutation(internal.profileAssets.markUploadIntentUploaded, {
       intentId: intent.intentId,
       uploadToken,
-      mimeType: upload.mimeType,
-      byteSize: upload.body.byteLength,
+      mimeType: normalized.mimeType,
+      byteSize: normalized.body.byteLength,
+      contentSha256: normalized.contentSha256,
+      width: normalized.width,
+      height: normalized.height,
     });
 
     const responseBody = ApiProfileAssetUploadIntentCompleteResponseSchema.parse({
       intentId: intent.intentId,
       storageKey: intent.storageKey,
-      mimeType: upload.mimeType,
-      byteSize: upload.body.byteLength,
+      mimeType: normalized.mimeType,
+      byteSize: normalized.body.byteLength,
       assetIds: completed.assetIds,
     });
 

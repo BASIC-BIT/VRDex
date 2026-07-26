@@ -82,6 +82,8 @@ export const PublicProfileAssetSchema = z
     assetId: z.string().optional(),
     byteSize: z.number().int().positive().optional(),
     caption: z.string().optional(),
+    altText: z.string().optional(),
+    credit: z.string().optional(),
     downloadUrl: absoluteOrRootRelativeUrl.optional(),
     imageUrl: absoluteOrRootRelativeUrl.optional(),
     label: z.string().optional(),
@@ -107,6 +109,7 @@ export const PublicProfileMediaKitSchema = z
     assets: z.array(PublicProfileAssetSchema),
     avatarAppearance: PublicProfileAvatarAppearanceSchema.optional(),
     banner: PublicProfileAssetSchema.optional(),
+    featuredAsset: PublicProfileAssetSchema.optional(),
     compactDisplay: z.enum(["profile_image", "logo"]).optional(),
     logoZipUrl: absoluteOrRootRelativeUrl.optional(),
     logos: z.array(PublicProfileAssetSchema),
@@ -542,7 +545,7 @@ export const ApiProfileWriteResponseSchema = z
   });
 
 export const ProfileAssetPlacementSchema = z
-  .enum(["profile_image", "banner", "primary_logo", "additional_logo"])
+  .enum(["profile_image", "banner", "primary_logo", "additional_logo", "gallery", "featured"])
   .meta({ description: "Profile media-kit placement to apply after upload completion." });
 
 export const ProfileAssetMimeTypeSchema = z
@@ -557,6 +560,8 @@ export const ApiProfileAssetUploadIntentCreateRequestSchema = z
     byteSize: z.number().int().positive().max(12 * 1024 * 1024).optional(),
     label: z.string().max(80).optional(),
     caption: z.string().max(240).optional(),
+    altText: z.string().max(180).optional(),
+    credit: z.string().max(120).optional(),
     placements: z.array(ProfileAssetPlacementSchema).max(8).optional(),
     position: z.number().int().nonnegative().optional(),
   })

@@ -5280,6 +5280,14 @@
             "type": "string",
             "maxLength": 240
           },
+          "altText": {
+            "type": "string",
+            "maxLength": 180
+          },
+          "credit": {
+            "type": "string",
+            "maxLength": 120
+          },
           "placements": {
             "maxItems": 8,
             "type": "array",
@@ -5289,7 +5297,9 @@
                 "profile_image",
                 "banner",
                 "primary_logo",
-                "additional_logo"
+                "additional_logo",
+                "gallery",
+                "featured"
               ],
               "description": "Profile media-kit placement to apply after upload completion."
             }
@@ -7010,6 +7020,12 @@
                     "caption": {
                       "type": "string"
                     },
+                    "altText": {
+                      "type": "string"
+                    },
+                    "credit": {
+                      "type": "string"
+                    },
                     "downloadUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                     },
@@ -7041,6 +7057,12 @@
                       "maximum": 9007199254740991
                     },
                     "caption": {
+                      "type": "string"
+                    },
+                    "altText": {
+                      "type": "string"
+                    },
+                    "credit": {
                       "type": "string"
                     },
                     "downloadUrl": {
@@ -7109,6 +7131,48 @@
                   "caption": {
                     "type": "string"
                   },
+                  "altText": {
+                    "type": "string"
+                  },
+                  "credit": {
+                    "type": "string"
+                  },
+                  "downloadUrl": {
+                    "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  },
+                  "imageUrl": {
+                    "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "mimeType": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": {},
+                "description": "A public profile media or brand asset."
+              },
+              "featuredAsset": {
+                "type": "object",
+                "properties": {
+                  "assetId": {
+                    "type": "string"
+                  },
+                  "byteSize": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "caption": {
+                    "type": "string"
+                  },
+                  "altText": {
+                    "type": "string"
+                  },
+                  "credit": {
+                    "type": "string"
+                  },
                   "downloadUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   },
@@ -7151,6 +7215,12 @@
                     "caption": {
                       "type": "string"
                     },
+                    "altText": {
+                      "type": "string"
+                    },
+                    "credit": {
+                      "type": "string"
+                    },
                     "downloadUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                     },
@@ -7182,6 +7252,12 @@
                   "caption": {
                     "type": "string"
                   },
+                  "altText": {
+                    "type": "string"
+                  },
+                  "credit": {
+                    "type": "string"
+                  },
                   "downloadUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   },
@@ -7210,6 +7286,12 @@
                     "maximum": 9007199254740991
                   },
                   "caption": {
+                    "type": "string"
+                  },
+                  "altText": {
+                    "type": "string"
+                  },
+                  "credit": {
                     "type": "string"
                   },
                   "downloadUrl": {
@@ -7744,6 +7826,12 @@
                 "caption": {
                   "type": "string"
                 },
+                "altText": {
+                  "type": "string"
+                },
+                "credit": {
+                  "type": "string"
+                },
                 "downloadUrl": {
                   "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 },
@@ -7784,6 +7872,12 @@
                     "caption": {
                       "type": "string"
                     },
+                    "altText": {
+                      "type": "string"
+                    },
+                    "credit": {
+                      "type": "string"
+                    },
                     "downloadUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                     },
@@ -7815,6 +7909,12 @@
                       "maximum": 9007199254740991
                     },
                     "caption": {
+                      "type": "string"
+                    },
+                    "altText": {
+                      "type": "string"
+                    },
+                    "credit": {
                       "type": "string"
                     },
                     "downloadUrl": {
@@ -7883,6 +7983,48 @@
                   "caption": {
                     "type": "string"
                   },
+                  "altText": {
+                    "type": "string"
+                  },
+                  "credit": {
+                    "type": "string"
+                  },
+                  "downloadUrl": {
+                    "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  },
+                  "imageUrl": {
+                    "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "mimeType": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": {},
+                "description": "A public profile media or brand asset."
+              },
+              "featuredAsset": {
+                "type": "object",
+                "properties": {
+                  "assetId": {
+                    "type": "string"
+                  },
+                  "byteSize": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "caption": {
+                    "type": "string"
+                  },
+                  "altText": {
+                    "type": "string"
+                  },
+                  "credit": {
+                    "type": "string"
+                  },
                   "downloadUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   },
@@ -7925,6 +8067,12 @@
                     "caption": {
                       "type": "string"
                     },
+                    "altText": {
+                      "type": "string"
+                    },
+                    "credit": {
+                      "type": "string"
+                    },
                     "downloadUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                     },
@@ -7956,6 +8104,12 @@
                   "caption": {
                     "type": "string"
                   },
+                  "altText": {
+                    "type": "string"
+                  },
+                  "credit": {
+                    "type": "string"
+                  },
                   "downloadUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   },
@@ -7984,6 +8138,12 @@
                     "maximum": 9007199254740991
                   },
                   "caption": {
+                    "type": "string"
+                  },
+                  "altText": {
+                    "type": "string"
+                  },
+                  "credit": {
                     "type": "string"
                   },
                   "downloadUrl": {
@@ -8127,6 +8287,12 @@
                 "caption": {
                   "type": "string"
                 },
+                "altText": {
+                  "type": "string"
+                },
+                "credit": {
+                  "type": "string"
+                },
                 "downloadUrl": {
                   "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 },
@@ -8167,6 +8333,12 @@
                 "caption": {
                   "type": "string"
                 },
+                "altText": {
+                  "type": "string"
+                },
+                "credit": {
+                  "type": "string"
+                },
                 "downloadUrl": {
                   "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 },
@@ -8196,6 +8368,12 @@
                 "maximum": 9007199254740991
               },
               "caption": {
+                "type": "string"
+              },
+              "altText": {
+                "type": "string"
+              },
+              "credit": {
                 "type": "string"
               },
               "downloadUrl": {

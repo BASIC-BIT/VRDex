@@ -51,6 +51,7 @@ function ConnectedAccountPanel() {
           <div className="mt-5 flex flex-wrap gap-2">
             <Link className={buttonVariants({ variant: "secondary" })} href="/account/privacy">Privacy controls</Link>
             <Link className={buttonVariants({ variant: "secondary" })} href="/account/appearance">Personalization</Link>
+            <Link className={buttonVariants({ variant: "secondary" })} href="/account/media-kit">Media kit</Link>
             <Button type="button" variant="ghost" onClick={() => void signOut()}>Sign out</Button>
           </div>
         </div>
@@ -105,6 +106,12 @@ function ConnectedAccountPanel() {
                       Verify with VRChat
                     </Link>
                   ) : null}
+                  <Link
+                    className={buttonVariants({ size: "sm", variant: "secondary" })}
+                    href="/account/media-kit"
+                  >
+                    Manage media
+                  </Link>
                 </li>
               );
             })}

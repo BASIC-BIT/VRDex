@@ -12,11 +12,19 @@ import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { userOwnsProfile } from "./_profileOwnership";
 import { canReadProfile } from "./_profilePermissions";
 import {
+  PROFILE_ASSET_MAX_ACTIVE_COUNT,
+  assertProfileAssetCapacity,
+  assertProfileAssetIntentCapacity,
   createProfileAssetUploadIntentRecord,
   finalizeProfileAssetUploadIntentUpload,
   getProfileAssetDisplayPreference,
   getPublicProfileMediaKit,
   normalizeProfileAvatarAppearance,
+  publicProfileAssetImageUrl,
+  sanitizeProfileAssetAltText,
+  sanitizeProfileAssetCaption,
+  sanitizeProfileAssetCredit,
+  sanitizeProfileAssetLabel,
 } from "./_profileAssets";
 import {
   apiWriteAuditActorKindValidator,
@@ -38,6 +46,8 @@ const profileAssetPlacement = v.union(
   v.literal("banner"),
   v.literal("primary_logo"),
   v.literal("additional_logo"),
+  v.literal("gallery"),
+  v.literal("featured"),
 );
 const profileAssetUploadIntentArgs = {
   originalFileName: v.optional(v.string()),
@@ -48,6 +58,8 @@ const profileAssetUploadIntentArgs = {
 const profileAssetAttachMetadataArgs = {
   label: v.optional(v.string()),
   caption: v.optional(v.string()),
+  altText: v.optional(v.string()),
+  credit: v.optional(v.string()),
   placements: v.optional(v.array(profileAssetPlacement)),
   position: v.optional(v.number()),
 };
@@ -145,7 +157,7 @@ async function patchProfileDisplayPreference(
   });
 }
 
-export const createUploadIntent = mutation({
+export const createUploadIntent = internalMutation({
   args: profileAssetUploadIntentArgs,
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -182,6 +194,7 @@ export const createUploadIntentForApiProfileOwner = internalMutation({
   handler: async (ctx, args) => {
     const profile = await requireApiOwnedClaimedProfileBySlug(ctx, args.slug, args.ownerUserId);
     const now = Date.now();
+    await assertProfileAssetIntentCapacity(ctx.db, profile._id, now);
     const intent = await createProfileAssetUploadIntentRecord(ctx.db, {
       requestedBy: apiOwnerAuthSubject(args.ownerUserId),
       targetProfileId: profile._id,
@@ -191,6 +204,8 @@ export const createUploadIntentForApiProfileOwner = internalMutation({
       byteSize: args.byteSize,
       label: args.label,
       caption: args.caption,
+      altText: args.altText,
+      credit: args.credit,
       placements: args.placements,
       position: args.position,
       source: "owner_authored",
@@ -217,6 +232,56 @@ export const createUploadIntentForApiProfileOwner = internalMutation({
       uploadUrl: `/api/v0/profile-assets/upload-intents/${intent.intentId}`,
       uploadTokenHeader: "x-vrdex-upload-token",
       expiresAt: intent.expiresAt,
+    };
+  },
+});
+
+export const createUploadIntentForOwnedProfile = mutation({
+  args: {
+    profileId,
+    ...profileAssetUploadIntentArgs,
+    ...profileAssetAttachMetadataArgs,
+  },
+  handler: async (ctx, args) => {
+    const profile = await requireOwnedAppearanceProfile(ctx, args.profileId);
+
+    if (profile.claimState === "unclaimed") {
+      throw new Error("Claim this profile before adding media.");
+    }
+
+    const user = await requireCurrentUser(ctx);
+    const now = Date.now();
+    await assertProfileAssetIntentCapacity(ctx.db, profile._id, now);
+    const intent = await createProfileAssetUploadIntentRecord(ctx.db, {
+      requestedBy: apiOwnerAuthSubject(user._id),
+      targetProfileId: profile._id,
+      originalFileName: args.originalFileName,
+      sourceUrl: args.sourceUrl,
+      mimeType: args.mimeType,
+      byteSize: args.byteSize,
+      label: args.label,
+      caption: args.caption,
+      altText: args.altText,
+      credit: args.credit,
+      placements: args.placements ?? ["gallery"],
+      position: args.position,
+      source: "owner_authored",
+      now,
+    });
+
+    await ctx.db.insert("profileAuditEvents", {
+      profileId: profile._id,
+      action: "profile_asset_upload_intent_created",
+      actor: apiOwnerAuthSubject(user._id),
+      sourceType: "owner",
+      note: "Owner started a profile media upload.",
+      createdAt: now,
+    });
+
+    return {
+      ...intent,
+      uploadUrl: `/api/v0/profile-assets/upload-intents/${intent.intentId}`,
+      uploadTokenHeader: "x-vrdex-upload-token",
     };
   },
 });
@@ -250,17 +315,295 @@ export const validateUploadIntentForStorage = query({
   },
 });
 
-export const markUploadIntentUploaded = mutation({
+export const markUploadIntentUploaded = internalMutation({
   args: {
     intentId: profileAssetUploadIntentId,
     uploadToken: v.string(),
     mimeType: v.string(),
     byteSize: v.number(),
+    contentSha256: v.optional(v.string()),
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
 
     return await finalizeProfileAssetUploadIntentUpload(ctx.db, { ...args, now });
+  },
+});
+
+export const hasDuplicateAssetForUpload = query({
+  args: {
+    intentId: profileAssetUploadIntentId,
+    uploadToken: v.string(),
+    contentSha256: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const intent = await ctx.db.get(args.intentId);
+    if (
+      intent === null ||
+      intent.uploadToken !== args.uploadToken ||
+      intent.targetProfileId === undefined ||
+      intent.state !== "pending" ||
+      intent.expiresAt < Date.now()
+    ) {
+      return false;
+    }
+
+    const assets = await ctx.db
+      .query("profileAssets")
+      .withIndex("by_profileId", (query) => query.eq("profileId", intent.targetProfileId!))
+      .collect();
+    return assets.some((asset) => asset.contentSha256 === args.contentSha256);
+  },
+});
+
+export const listOwnedMediaKitProfiles = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await getCurrentUser(ctx);
+
+    if (user === null) {
+      return null;
+    }
+
+    const owners = await ctx.db
+      .query("profileOwners")
+      .withIndex("by_userId_state", (query) => query.eq("userId", user._id).eq("state", "active"))
+      .collect();
+    const results = [];
+
+    for (const owner of owners) {
+      const profile = await ctx.db.get(owner.profileId);
+      if (profile === null || profile.claimState === "unclaimed") {
+        continue;
+      }
+
+      const [assets, placements] = await Promise.all([
+        ctx.db.query("profileAssets").withIndex("by_profileId", (query) => query.eq("profileId", profile._id)).collect(),
+        ctx.db
+          .query("profileAssetPlacements")
+          .withIndex("by_profileId_state", (query) => query.eq("profileId", profile._id).eq("state", "active"))
+          .collect(),
+      ]);
+      const activePlacements = placements.sort((first, second) => first.position - second.position);
+      const featuredAssetId = activePlacements.find((placement) => placement.placement === "featured")?.assetId;
+      const galleryPosition = new Map(
+        activePlacements
+          .filter((placement) => placement.placement === "gallery")
+          .map((placement, index) => [placement.assetId, index]),
+      );
+
+      results.push({
+        profileId: profile._id,
+        profileType: profile.profileType,
+        slug: profile.slug,
+        displayName: profile.displayName,
+        assets: assets
+          .sort((first, second) => {
+            if (first.state !== second.state) {
+              return first.state === "active" ? -1 : 1;
+            }
+            return (galleryPosition.get(first._id) ?? Number.MAX_SAFE_INTEGER) -
+              (galleryPosition.get(second._id) ?? Number.MAX_SAFE_INTEGER);
+          })
+          .map((asset) => ({
+            assetId: asset._id,
+            state: asset.state,
+            label: asset.label,
+            caption: asset.caption,
+            altText: asset.altText,
+            credit: asset.credit,
+            mimeType: asset.mimeType,
+            byteSize: asset.byteSize,
+            width: asset.width,
+            height: asset.height,
+            featured: asset._id === featuredAssetId,
+            imageUrl: asset.state === "active" ? publicProfileAssetImageUrl(profile.slug, asset._id) : undefined,
+          })),
+      });
+    }
+
+    return results.sort((first, second) => first.displayName.localeCompare(second.displayName));
+  },
+});
+
+async function requireOwnedAsset(ctx: MutationCtx, requestedProfileId: Id<"profiles">, requestedAssetId: Id<"profileAssets">) {
+  const profile = await requireOwnedAppearanceProfile(ctx, requestedProfileId);
+  const asset = await ctx.db.get(requestedAssetId);
+
+  if (asset === null || asset.profileId !== profile._id) {
+    throw new Error("Profile media item was not found.");
+  }
+
+  return { profile, asset };
+}
+
+export const updateOwnedAssetMetadata = mutation({
+  args: {
+    profileId,
+    assetId: v.id("profileAssets"),
+    label: v.optional(v.string()),
+    caption: v.optional(v.string()),
+    altText: v.optional(v.string()),
+    credit: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const { profile, asset } = await requireOwnedAsset(ctx, args.profileId, args.assetId);
+    const user = await requireCurrentUser(ctx);
+    const now = Date.now();
+    const label = sanitizeProfileAssetLabel(args.label);
+    const altText = sanitizeProfileAssetAltText(args.altText);
+    const placements = await ctx.db
+      .query("profileAssetPlacements")
+      .withIndex("by_assetId", (query) => query.eq("assetId", asset._id))
+      .collect();
+    if (
+      asset.state === "active" &&
+      placements.some((placement) => placement.state === "active" && placement.placement === "gallery") &&
+      (label === undefined || altText === undefined)
+    ) {
+      throw new Error("Gallery images require a title and accessibility description.");
+    }
+    await ctx.db.patch(asset._id, {
+      label,
+      caption: sanitizeProfileAssetCaption(args.caption),
+      altText,
+      credit: sanitizeProfileAssetCredit(args.credit),
+      updatedAt: now,
+    });
+    await ctx.db.insert("profileAuditEvents", {
+      profileId: profile._id,
+      action: "profile_asset_metadata_updated",
+      actor: apiOwnerAuthSubject(user._id),
+      sourceType: "owner",
+      note: "Owner updated profile media metadata.",
+      createdAt: now,
+    });
+    return { ok: true };
+  },
+});
+
+export const reorderOwnedGallery = mutation({
+  args: {
+    profileId,
+    assetIds: v.array(v.id("profileAssets")),
+  },
+  handler: async (ctx, args) => {
+    const profile = await requireOwnedAppearanceProfile(ctx, args.profileId);
+    const user = await requireCurrentUser(ctx);
+    const uniqueIds = [...new Set(args.assetIds)];
+    if (uniqueIds.length !== args.assetIds.length || uniqueIds.length > PROFILE_ASSET_MAX_ACTIVE_COUNT) {
+      throw new Error("Gallery order is invalid.");
+    }
+
+    const assets = await Promise.all(uniqueIds.map((assetId) => ctx.db.get(assetId)));
+    if (assets.some((asset) => asset === null || asset.profileId !== profile._id || asset.state !== "active")) {
+      throw new Error("Gallery order includes unavailable media.");
+    }
+
+    const existing = await ctx.db
+      .query("profileAssetPlacements")
+      .withIndex("by_profileId_placement_state_position", (query) =>
+        query.eq("profileId", profile._id).eq("placement", "gallery").eq("state", "active"),
+      )
+      .collect();
+    const now = Date.now();
+    await Promise.all(existing.map((placement) => ctx.db.patch(placement._id, { state: "deleted", updatedAt: now })));
+    await Promise.all(uniqueIds.map((assetId, position) =>
+      ctx.db.insert("profileAssetPlacements", {
+        profileId: profile._id,
+        assetId,
+        placement: "gallery",
+        position,
+        state: "active",
+        updatedAt: now,
+      }),
+    ));
+    await ctx.db.insert("profileAuditEvents", {
+      profileId: profile._id,
+      action: "profile_asset_gallery_reordered",
+      actor: apiOwnerAuthSubject(user._id),
+      sourceType: "owner",
+      note: "Owner reordered the public media gallery.",
+      createdAt: now,
+    });
+    return { ok: true };
+  },
+});
+
+export const setOwnedFeaturedAsset = mutation({
+  args: {
+    profileId,
+    assetId: v.union(v.id("profileAssets"), v.null()),
+  },
+  handler: async (ctx, args) => {
+    const profile = await requireOwnedAppearanceProfile(ctx, args.profileId);
+    const user = await requireCurrentUser(ctx);
+    if (args.assetId !== null) {
+      const asset = await ctx.db.get(args.assetId);
+      if (asset === null || asset.profileId !== profile._id || asset.state !== "active") {
+        throw new Error("Featured media must be an active item from this profile.");
+      }
+    }
+
+    const existing = await ctx.db
+      .query("profileAssetPlacements")
+      .withIndex("by_profileId_placement_state_position", (query) =>
+        query.eq("profileId", profile._id).eq("placement", "featured").eq("state", "active"),
+      )
+      .collect();
+    const now = Date.now();
+    await Promise.all(existing.map((placement) => ctx.db.patch(placement._id, { state: "deleted", updatedAt: now })));
+    if (args.assetId !== null) {
+      await ctx.db.insert("profileAssetPlacements", {
+        profileId: profile._id,
+        assetId: args.assetId,
+        placement: "featured",
+        position: 0,
+        state: "active",
+        updatedAt: now,
+      });
+    }
+    await ctx.db.insert("profileAuditEvents", {
+      profileId: profile._id,
+      action: "profile_asset_featured_updated",
+      actor: apiOwnerAuthSubject(user._id),
+      sourceType: "owner",
+      note: args.assetId === null ? "Owner cleared featured profile media." : "Owner selected featured profile media.",
+      createdAt: now,
+    });
+    return { ok: true };
+  },
+});
+
+export const setOwnedAssetDeleted = mutation({
+  args: {
+    profileId,
+    assetId: v.id("profileAssets"),
+    deleted: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const { profile, asset } = await requireOwnedAsset(ctx, args.profileId, args.assetId);
+    const user = await requireCurrentUser(ctx);
+    const now = Date.now();
+    if (!args.deleted && asset.state !== "active") {
+      await assertProfileAssetCapacity(ctx.db, profile._id);
+    }
+    await ctx.db.patch(asset._id, {
+      state: args.deleted ? "deleted" : "active",
+      ...(args.deleted ? { deletedAt: now } : { deletedAt: undefined }),
+      updatedAt: now,
+    });
+    await ctx.db.insert("profileAuditEvents", {
+      profileId: profile._id,
+      action: args.deleted ? "profile_asset_deleted" : "profile_asset_restored",
+      actor: apiOwnerAuthSubject(user._id),
+      sourceType: "owner",
+      note: args.deleted ? "Owner removed public profile media." : "Owner restored public profile media.",
+      createdAt: now,
+    });
+    return { ok: true };
   },
 });
 
