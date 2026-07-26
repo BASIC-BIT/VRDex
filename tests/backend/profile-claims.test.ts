@@ -15,12 +15,16 @@ const schema = (
 ).default ?? schemaModule;
 
 describe("profile claim lifecycle", () => {
-  it("lets an owner fetch a private claim target without making it public", async () => {
+  it("lets only an owner fetch private claim context without making the profile public", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const seeded = await t.run(async (ctx) => {
       const userId = await ctx.db.insert("users", {
         email: "private-claim-target@example.test",
+        emailVerificationTime: now,
+      });
+      const otherUserId = await ctx.db.insert("users", {
+        email: "private-claim-target-other@example.test",
         emailVerificationTime: now,
       });
       const profileId = await ctx.db.insert("profiles", {
@@ -47,10 +51,15 @@ describe("profile claim lifecycle", () => {
       });
 
       return {
-        identity: {
+        ownerIdentity: {
           subject: `${userId}|web-session`,
           issuer: "test",
           tokenIdentifier: `test|${userId}`,
+        },
+        otherIdentity: {
+          subject: `${otherUserId}|web-session`,
+          issuer: "test",
+          tokenIdentifier: `test|${otherUserId}`,
         },
       };
     });
@@ -59,12 +68,26 @@ describe("profile claim lifecycle", () => {
       profileSlug: "private-claim-target",
     });
     assert.equal(signedOutResult, null);
+    const signedOutJourney = await t.query(api.profileClaims.getClaimJourneyContext, {
+      profileSlug: "private-claim-target",
+    });
+    assert.equal(signedOutJourney, null);
 
-    const ownerResult = await t.withIdentity(seeded.identity).query(api.profileClaims.getClaimTargetBySlug, {
+    const otherJourney = await t.withIdentity(seeded.otherIdentity).query(api.profileClaims.getClaimJourneyContext, {
+      profileSlug: "private-claim-target",
+    });
+    assert.equal(otherJourney, null);
+
+    const ownerResult = await t.withIdentity(seeded.ownerIdentity).query(api.profileClaims.getClaimTargetBySlug, {
       profileSlug: "private-claim-target",
     });
     assert.equal(ownerResult?.displayName, "Private Claim Target");
     assert.equal(ownerResult?.slug, "private-claim-target");
+
+    const ownerJourney = await t.withIdentity(seeded.ownerIdentity).query(api.profileClaims.getClaimJourneyContext, {
+      profileSlug: "private-claim-target",
+    });
+    assert.equal(ownerJourney?.ownership, "viewer");
   });
 
   it("expires stale pending proof attempts without deleting history", async () => {
@@ -214,6 +237,76 @@ describe("profile claim lifecycle", () => {
     assert.deepEqual(result, { state: "expired" });
     const attempt = await t.run(async (ctx) => await ctx.db.get(attemptId));
     assert.equal(attempt?.state, "expired");
+  });
+
+  it("preserves VRC Linking evidence when adapter verification finishes after expiry", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        email: "expired-vrclinking@example.test",
+        emailVerificationTime: now,
+      });
+      const profileId = await ctx.db.insert("profiles", {
+        profileType: "person",
+        slug: "expired-vrclinking",
+        displayName: "Expired VRC Linking",
+        sortName: "expired vrc linking",
+        aliases: [],
+        tags: [],
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "public",
+        creationSource: "self",
+        person: { roleTags: [] },
+        updatedAt: now,
+      });
+
+      const attemptId = await ctx.db.insert("profileVerificationAttempts", {
+        profileId,
+        userId,
+        method: "vrclinking_attestation",
+        targetType: "vrclinking",
+        targetExternalId: "usr_1cf38bf8-f62a-41be-a4a1-2363f3465d51",
+        proofCode: "VRDEX-VRCLINKING-EXPIRED",
+        state: "pending",
+        createdAt: now - 1000,
+        updatedAt: now - 1000,
+        expiresAt: now - 1,
+      });
+
+      return {
+        attemptId,
+        identity: {
+          subject: `${userId}|web-session`,
+          issuer: "test",
+          tokenIdentifier: `test|${userId}`,
+        },
+      };
+    });
+
+    const originalFetch = globalThis.fetch;
+    const originalAdapterUrl = process.env.VRCLINKING_PROOF_ADAPTER_URL;
+    process.env.VRCLINKING_PROOF_ADAPTER_URL = "https://adapter.example.test/verify";
+    globalThis.fetch = (async () => new Response(null, { status: 503 })) as typeof fetch;
+
+    try {
+      const result = await t.withIdentity(seeded.identity).action(api.profileClaims.verifyVrchatProofViaAdapter, {
+        attemptId: seeded.attemptId,
+      });
+      assert.deepEqual(result, { state: "expired" });
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (originalAdapterUrl === undefined) {
+        delete process.env.VRCLINKING_PROOF_ADAPTER_URL;
+      } else {
+        process.env.VRCLINKING_PROOF_ADAPTER_URL = originalAdapterUrl;
+      }
+    }
+
+    const attempt = await t.run(async (ctx) => await ctx.db.get(seeded.attemptId));
+    assert.equal(attempt?.state, "expired");
+    assert.equal(attempt?.evidenceSource, "vrclinking");
   });
 
   it("rejects replay after a proof has granted ownership", async () => {

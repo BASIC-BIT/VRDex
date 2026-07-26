@@ -191,6 +191,12 @@ function proofMethodForTarget(targetType: VrchatTargetType): Doc<"profileVerific
   return "vrclinking_attestation";
 }
 
+function proofEvidenceSourceForTarget(
+  targetType: VrchatTargetType,
+): "vrchat_api" | "vrclinking" {
+  return targetType === "vrclinking" ? "vrclinking" : "vrchat_api";
+}
+
 function requireCompatibleProofTarget(profile: Doc<"profiles">, targetType: VrchatTargetType) {
   if (targetType === "vrchat_user" && profile.profileType !== "person") {
     throw new Error("VRChat user proof requires a person profile.");
@@ -219,7 +225,12 @@ export const getClaimJourneyContext = query({
     }
 
     const user = await getCurrentUser(ctx);
+    const publiclyReadable = canReadProfile("public", profile);
     if (user === null) {
+      if (!publiclyReadable) {
+        return null;
+      }
+
       return {
         ownership: "signed_out" as const,
         verified: false,
@@ -230,8 +241,12 @@ export const getClaimJourneyContext = query({
       };
     }
 
-    const [owner, discordAccount, pendingRequests, pendingProofs] = await Promise.all([
-      getActiveProfileOwner(ctx.db, profile._id),
+    const owner = await getActiveProfileOwner(ctx.db, profile._id);
+    if (!publiclyReadable && owner?.userId !== user._id) {
+      return null;
+    }
+
+    const [discordAccount, pendingRequests, pendingProofs] = await Promise.all([
       getLinkedProviderAccount(ctx, user._id, "discord"),
       ctx.db
         .query("profileClaimRequests")
@@ -1014,7 +1029,7 @@ export const verifyVrchatProofViaAdapter = action({
     if (attemptContext.attempt.expiresAt <= Date.now()) {
       await ctx.runMutation(internal.profileClaims.recordVrchatProofFailure, {
         attemptId: args.attemptId,
-        evidenceSource: "vrchat_api",
+        evidenceSource: proofEvidenceSourceForTarget(attemptContext.attempt.targetType),
         evidenceSummary: "The proof attempt expired before adapter verification completed.",
       });
       return { state: "expired" as const };
@@ -1032,7 +1047,7 @@ export const verifyVrchatProofViaAdapter = action({
 
     return await ctx.runMutation(internal.profileClaims.recordVrchatProofVerification, {
       attemptId: args.attemptId,
-      evidenceSource: result.evidenceSource ?? "vrchat_api",
+      evidenceSource: result.evidenceSource ?? proofEvidenceSourceForTarget(attemptContext.attempt.targetType),
       evidenceSummary: result.evidenceSummary ?? "Proof code was found by the configured adapter.",
     });
   },
