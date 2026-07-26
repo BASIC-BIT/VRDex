@@ -198,9 +198,20 @@ function AvatarPreview({ appearance, profile }: { appearance: AvatarAppearance; 
   );
 }
 
-function AppearanceEditor({ demo, profiles }: { demo?: boolean; profiles: AppearanceProfile[] }) {
+function AppearanceEditor({
+  demo,
+  initialProfileId,
+  profiles,
+}: {
+  demo?: boolean;
+  initialProfileId?: string;
+  profiles: AppearanceProfile[];
+}) {
   const updateAppearance = useMutation(api.profileAssets.updateAppearance);
-  const [selectedProfileId, setSelectedProfileId] = useState<string>(profiles[0]?.profileId ?? "");
+  const requestedProfile = profiles.find((profile) => profile.profileId === initialProfileId);
+  const [selectedProfileId, setSelectedProfileId] = useState<string>(
+    requestedProfile?.profileId ?? profiles[0]?.profileId ?? "",
+  );
   const selectedProfile = profiles.find((profile) => profile.profileId === selectedProfileId) ?? profiles[0];
   const [draft, setDraft] = useState<AvatarAppearance>(selectedProfile?.avatarAppearance ?? defaultAvatarAppearance);
   const [sectionOrder, setSectionOrder] = useState<SupportingSectionKey[]>(
@@ -210,12 +221,6 @@ function AppearanceEditor({ demo, profiles }: { demo?: boolean; profiles: Appear
   const colorPickerValue = /^#[0-9a-fA-F]{6}$/.test(draft.borderColor) ? draft.borderColor : "#000000";
   const [status, setStatus] = useState<SaveStatus>({ kind: "idle" });
   const [, startTransition] = useTransition();
-
-  useEffect(() => {
-    if (!selectedProfileId && profiles[0]) {
-      setSelectedProfileId(profiles[0].profileId);
-    }
-  }, [profiles, selectedProfileId]);
 
   useEffect(() => {
     if (selectedProfile) {
@@ -459,7 +464,7 @@ function AppearanceEditor({ demo, profiles }: { demo?: boolean; profiles: Appear
   );
 }
 
-function OwnerAppearancePanel() {
+function OwnerAppearancePanel({ initialProfileId }: { initialProfileId?: string }) {
   const profiles = useQuery(api.profileAssets.listOwnedAppearanceProfiles);
 
   if (profiles === undefined) {
@@ -490,15 +495,21 @@ function OwnerAppearancePanel() {
     );
   }
 
-  return <AppearanceEditor profiles={profiles} />;
+  return <AppearanceEditor initialProfileId={initialProfileId} profiles={profiles} />;
 }
 
-function ConnectedAppearancePanel({ demoMode }: { demoMode: boolean }) {
+function ConnectedAppearancePanel({
+  demoMode,
+  initialProfileId,
+}: {
+  demoMode: boolean;
+  initialProfileId?: string;
+}) {
   if (demoMode) {
-    return <AppearanceEditor demo profiles={demoProfiles} />;
+    return <AppearanceEditor demo initialProfileId={initialProfileId} profiles={demoProfiles} />;
   }
 
-  return <OwnerAppearancePanel />;
+  return <OwnerAppearancePanel initialProfileId={initialProfileId} />;
 }
 
 class AppearancePanelErrorBoundary extends Component<
@@ -524,7 +535,13 @@ class AppearancePanelErrorBoundary extends Component<
   }
 }
 
-export function AppearancePanel({ demoMode = false }: { demoMode?: boolean }) {
+export function AppearancePanel({
+  demoMode = false,
+  initialProfileId,
+}: {
+  demoMode?: boolean;
+  initialProfileId?: string;
+}) {
   if (!convexUrl && !demoMode) {
     return (
       <Notice className="leading-7" variant="dashed">
@@ -535,7 +552,7 @@ export function AppearancePanel({ demoMode = false }: { demoMode?: boolean }) {
 
   return (
     <AppearancePanelErrorBoundary>
-      <ConnectedAppearancePanel demoMode={demoMode} />
+      <ConnectedAppearancePanel demoMode={demoMode} initialProfileId={initialProfileId} />
     </AppearancePanelErrorBoundary>
   );
 }

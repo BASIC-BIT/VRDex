@@ -21,6 +21,7 @@ export function ClaimFlowPreview({ privateProfile = false }: { privateProfile?: 
         profile={{
           displayName: "BASICBIT",
           hasPublicProfile: !privateProfile,
+          profileId: "playwright-profile",
           profileType: "person",
           slug: "basicbit",
         }}

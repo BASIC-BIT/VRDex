@@ -71,6 +71,7 @@ export const getClaimTargetBySlug = query({
       avatarImageUrl: profile.avatarImageUrl,
       displayName: profile.displayName,
       hasPublicProfile,
+      profileId: profile._id,
       profileType: profile.profileType,
       slug: profile.slug,
     };

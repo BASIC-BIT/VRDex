@@ -27,6 +27,7 @@ type ClaimProfile = {
   avatarImageUrl?: string;
   displayName: string;
   hasPublicProfile: boolean;
+  profileId?: string;
   profileType: ProfileType;
   slug: string;
 };
@@ -136,7 +137,10 @@ export function ClaimFlow({
   const completionRef = useRef<HTMLDivElement>(null);
   const publicProfilePath = `/${profile.profileType === "community" ? "c" : "p"}/${profile.slug}`;
   const backPath = ownerProfileDestinationPath(profile, "/account");
-  const completionPath = ownerProfileDestinationPath(profile, "/account/appearance");
+  const appearancePath = profile.profileId
+    ? `/account/appearance?profileId=${encodeURIComponent(profile.profileId)}`
+    : "/account/appearance";
+  const completionPath = ownerProfileDestinationPath(profile, appearancePath);
   const isUnverifiedViewer = context?.ownership === "viewer" && !context.verified;
   const canUseClaimJourney = context?.ownership === "available" || isUnverifiedViewer;
   const method: ClaimMethod =
@@ -361,7 +365,9 @@ export function ClaimFlow({
             {profile.profileType}
           </p>
           <h2 className="mt-1 break-words text-2xl font-semibold">{profile.displayName}</h2>
-          <p className="mt-2 text-sm text-muted">vrdex.net{publicProfilePath}</p>
+          {profile.hasPublicProfile ? (
+            <p className="mt-2 text-sm text-muted">vrdex.net{publicProfilePath}</p>
+          ) : null}
         </div>
       </aside>
 
@@ -405,7 +411,7 @@ export function ClaimFlow({
                       {profile.hasPublicProfile ? "View profile" : "Manage profile"}
                     </Link>
                     {profile.hasPublicProfile ? (
-                      <Link className={buttonVariants({ variant: "secondary" })} href="/account/appearance">
+                      <Link className={buttonVariants({ variant: "secondary" })} href={appearancePath}>
                         Edit appearance
                       </Link>
                     ) : null}

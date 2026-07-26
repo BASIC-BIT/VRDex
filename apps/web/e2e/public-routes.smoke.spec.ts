@@ -56,9 +56,10 @@ test("private profile claim actions stay on owner-aware routes", async ({ page }
   await expect(page.getByRole("link", { name: "Back to account" })).toHaveAttribute("href", "/account");
   await expect(page.getByRole("link", { name: "Manage profile" })).toHaveAttribute(
     "href",
-    "/account/appearance",
+    "/account/appearance?profileId=playwright-profile",
   );
   await expect(page.getByRole("link", { name: "View profile" })).toHaveCount(0);
+  await expect(page.getByText("vrdex.net/p/basicbit")).toHaveCount(0);
 });
 
 test("OpenAPI YAML document is served", async ({ page }) => {

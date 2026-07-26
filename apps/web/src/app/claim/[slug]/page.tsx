@@ -42,6 +42,10 @@ export default async function ClaimProfilePage({
                 "hasPublicProfile" in result.profile
                   ? result.profile.hasPublicProfile
                   : true,
+              profileId:
+                "profileId" in result.profile && typeof result.profile.profileId === "string"
+                  ? result.profile.profileId
+                  : undefined,
               profileType: result.profile.profileType,
               slug: result.profile.slug,
             }}
