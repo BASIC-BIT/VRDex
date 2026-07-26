@@ -38,6 +38,10 @@ export default async function ClaimProfilePage({
                   ? result.profile.avatarImageUrl
                   : undefined,
               displayName: result.profile.displayName,
+              hasPublicProfile:
+                "hasPublicProfile" in result.profile
+                  ? result.profile.hasPublicProfile
+                  : true,
               profileType: result.profile.profileType,
               slug: result.profile.slug,
             }}

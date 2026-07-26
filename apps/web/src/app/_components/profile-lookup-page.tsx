@@ -11,11 +11,9 @@ import { LookupCopyButton } from "./lookup-copy-button";
 import { shouldRefreshBulkPrivateLookup } from "./lookup-private-refresh";
 import { LookupSearchBox } from "./lookup-search-box";
 import { mergeLookupSuggestions } from "./lookup-suggestion-merge";
-import { searchHref } from "./search-view-state";
-import { buttonVariants } from "@/components/ui/button";
+import { SearchViewShell } from "./search-view-shell";
 import { Card } from "@/components/ui/card";
 import { EntityImage } from "@/components/ui/entity-image";
-import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 import { Table, TableCell, TableFrame, TableHead, TableHeaderCell } from "@/components/ui/table";
 import { cn } from "@/lib/cn";
 import { discordCopyValue } from "@/lib/discord-link";
@@ -870,7 +868,6 @@ type ProfileLookupPageProps = {
   results: PublicProfileLookupResult[];
   routePath?: "/" | "/lookup" | "/search";
   status: LookupStatus;
-  title?: string;
   view?: "dj";
   viewerAccess: SeedLookupViewerAccess;
 };
@@ -885,11 +882,10 @@ export function ProfileLookupPage({
   results,
   routePath = "/lookup",
   status,
-  title = "DJ link lookup",
   view,
   viewerAccess,
 }: ProfileLookupPageProps) {
-  const props = { privateResults, query, results, routePath, status, title, view, viewerAccess };
+  const props = { privateResults, query, results, routePath, status, view, viewerAccess };
 
   return process.env.NEXT_PUBLIC_CONVEX_URL
     ? <ConnectedProfileLookupPage {...props} />
@@ -916,7 +912,6 @@ function ProfileLookupPageContent({
   results,
   routePath = "/lookup",
   status,
-  title = "DJ link lookup",
   view,
   viewerAccess,
 }: ProfileLookupPageProps & { queryPrivateResults: QueryPrivateResults | null }) {
@@ -1222,55 +1217,28 @@ function ProfileLookupPageContent({
     });
   }, [privateUiFlag, routePath, view]);
 
+  const canonicalView = view ?? "dj";
+  const switcherQuery = bulkEntries.length > 0 ? undefined : displayQuery;
+
   return (
-    <PageShell className="lookup-theme">
-      <PageContainer className="gap-3" max="7xl">
-        <PageNav>
-          <BrandLink />
-          <div className="flex flex-wrap items-center gap-2">
-            {view === "dj" ? (
-              <nav aria-label="Search view" className="flex items-center gap-4">
-                <Link
-                  className="text-sm font-medium text-muted hover:text-foreground"
-                  href={searchHref({ query: bulkEntries.length > 0 ? undefined : displayQuery })}
-                >
-                  All VRDex
-                </Link>
-                <span aria-current="page" className="border-b-2 border-accent py-2 text-sm font-medium">
-                  DJ links
-                </span>
-              </nav>
-            ) : (
-              <Link
-                className={buttonVariants({ variant: "secondary" })}
-                href={searchHref({ query: bulkEntries.length > 0 ? undefined : displayQuery })}
-              >
-                All VRDex
-              </Link>
-            )}
-            <Link className={buttonVariants({ variant: "secondary" })} href="/submit">
-              Add profile
-            </Link>
-          </div>
-        </PageNav>
-
-        <section className="lookup-hero grid gap-2 rounded-card border p-3 shadow-panel">
-          <div className="max-w-3xl">
-            <h1 className="text-2xl leading-none font-semibold tracking-[-0.045em] sm:text-3xl">{title}</h1>
-          </div>
-          <LookupSearchBox
-            actionPath={routePath}
-            initialQuery={displayQuery}
-            initialResults={visibleResults}
-            isSearching={isSearching}
-            onBulkLookup={runBulkLookup}
-            onClear={clearLookup}
-            onLookup={runLookup}
-            showPrivateSuggestions={seedViewerAccess.allowed && privateUiEnabled}
-            view={view}
-          />
-        </section>
-
+    <SearchViewShell
+      activeView={canonicalView}
+      className="lookup-theme"
+      query={switcherQuery}
+      searchControl={(
+        <LookupSearchBox
+          actionPath={routePath}
+          initialQuery={displayQuery}
+          initialResults={visibleResults}
+          isSearching={isSearching}
+          onBulkLookup={runBulkLookup}
+          onClear={clearLookup}
+          onLookup={runLookup}
+          showPrivateSuggestions={seedViewerAccess.allowed && privateUiEnabled}
+          view={view}
+        />
+      )}
+    >
         <LookupStatusNotice status={lookupStatus} />
 
         {hasQuery ? (
@@ -1312,7 +1280,6 @@ function ProfileLookupPageContent({
             </div>
           </section>
         ) : null}
-      </PageContainer>
-    </PageShell>
+    </SearchViewShell>
   );
 }

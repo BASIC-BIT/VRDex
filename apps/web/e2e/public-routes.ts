@@ -180,7 +180,7 @@ export async function captureRouteScreenshot(page: Page, testInfo: TestInfo, nam
 }
 
 export async function expectHomePage(page: Page) {
-  await expect(page.getByRole("heading", { name: /DJ link lookup/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Search VRDex" })).toBeVisible();
   await expect(page.getByLabel("DJ name")).toBeVisible();
   await expect(page.getByRole("button", { name: "Toggle color theme" })).toBeVisible();
   await expect(page.getByText(/Start with a name, scene, world, genre, or event/i)).toHaveCount(0);
@@ -199,6 +199,7 @@ export async function expectDiscoveryPage(page: Page) {
 }
 
 export async function expectSearchPage(page: Page) {
+  await expect(page.getByRole("heading", { name: "Search VRDex" })).toBeVisible();
   await expect(page.getByRole("heading", { name: /Results for aurora/i })).toBeVisible();
   await expect(page.getByRole("button", { name: /Search VRDex/i })).toBeVisible();
   await expect(page.getByRole("link", { name: /DJ Aurora/i }).first()).toBeVisible();
@@ -207,7 +208,8 @@ export async function expectSearchPage(page: Page) {
 }
 
 export async function expectLookupPage(page: Page) {
-  await expect(page.getByRole("heading", { name: /DJ link lookup/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Search VRDex" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "DJ links" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByLabel("DJ name")).toBeVisible();
   await expect(page.getByRole("button", { name: "Toggle color theme" })).toBeVisible();
   await expect(page.getByRole("link", { name: "BASICBIT", exact: true })).toBeVisible();
@@ -226,7 +228,7 @@ export async function expectLookupPage(page: Page) {
 export async function expectPrivateSeedLookupPage(page: Page) {
   const privateResult = page.locator(".lookup-private-result:visible");
 
-  await expect(page.getByRole("heading", { name: /DJ link lookup/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Search VRDex" })).toBeVisible();
   await expect(privateResult).toHaveCount(1);
   await expect(privateResult.getByText("Private seed", { exact: true })).toBeVisible();
   await expect(privateResult.getByText("DJ Northstar", { exact: true })).toBeVisible();

@@ -3,8 +3,10 @@ import { ProfileLookupPage } from "../_components/profile-lookup-page";
 import {
   parseSearchFilter,
   parseSearchView,
+  searchHref,
 } from "../_components/search-view-state";
 import { fetchDiscoverySearch, fetchProfileLookup } from "@/convex/server";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +25,10 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
   const filter = parseSearchFilter(type, view);
 
   if (view === "dj") {
+    if (type !== undefined) {
+      redirect(searchHref({ query, view }));
+    }
+
     const lookup = await fetchProfileLookup(query);
 
     return (
@@ -32,7 +38,6 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
         results={lookup.results}
         routePath="/search"
         status={lookup.kind}
-        title="DJ links"
         view="dj"
         viewerAccess={lookup.viewerAccess}
       />

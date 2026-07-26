@@ -6,20 +6,21 @@ import { ClaimFlow } from "@/app/claim/[slug]/claim-flow";
 
 const previewClient = new ConvexReactClient("https://playwright-preview.convex.cloud");
 
-export function ClaimFlowPreview() {
+export function ClaimFlowPreview({ privateProfile = false }: { privateProfile?: boolean }) {
   return (
     <ConvexProvider client={previewClient}>
       <ClaimFlow
         previewContext={{
           emailVerified: true,
           hasDiscord: true,
-          ownership: "available",
-          verified: false,
+          ownership: privateProfile ? "viewer" : "available",
+          verified: privateProfile,
           pendingClaimRequest: null,
           pendingProof: null,
         }}
         profile={{
           displayName: "BASICBIT",
+          hasPublicProfile: !privateProfile,
           profileType: "person",
           slug: "basicbit",
         }}

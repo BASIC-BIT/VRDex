@@ -7,6 +7,7 @@ import {
 } from "./discovery-analytics";
 import { HomeActiveWorldsSection, type PublicActiveWorld } from "./home-active-worlds";
 import { searchHref, type SearchResultFilter } from "./search-view-state";
+import { SearchViewShell } from "./search-view-shell";
 import { ViewerLocalEventDateTime } from "./viewer-local-event-times";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
@@ -85,18 +86,6 @@ function resultSubtitle(result: PublicSearchResult): string | undefined {
   const redundantLabels = [label, `${label} profile`];
 
   return redundantLabels.includes(subtitle.toLowerCase()) ? undefined : subtitle;
-}
-
-function resultMatchesFilter(result: PublicSearchResult, filter: SearchResultFilter): boolean {
-  if (filter === "all") {
-    return true;
-  }
-
-  if (filter === "person" || filter === "community") {
-    return result.entityType === "profile" && result.profileType === filter;
-  }
-
-  return result.entityType === filter;
 }
 
 function ResultImage({ result }: { result: PublicSearchResult }) {
@@ -397,44 +386,31 @@ export function SearchResultsPage({
   status: DiscoveryStatus;
 }) {
   const hasQuery = Boolean(query.trim());
-  const filteredResults = results.filter((result) => resultMatchesFilter(result, activeFilter));
   const filters: SearchResultFilter[] = ["all", "event", "person", "community", "world"];
 
   return (
-    <PageShell>
-      <PageContainer className="gap-7" max="5xl">
-        <TopNav />
-
-        <section className="pt-4">
-          <nav aria-label="Search view" className="mb-5 flex gap-5 border-b border-border">
-            <Link className="border-b-2 border-accent pb-2 text-sm font-medium" href={searchHref({ query })}>
-              All VRDex
-            </Link>
-            <Link className="pb-2 text-sm font-medium text-muted hover:text-foreground" href={searchHref({ query, view: "dj" })}>
-              DJ links
-            </Link>
-          </nav>
-          <h1 className="text-4xl leading-none font-semibold sm:text-6xl">
-            {hasQuery ? `Results for ${query}` : "Search VRDex"}
-          </h1>
-          <p className="mt-4 max-w-2xl text-sm leading-6 text-muted sm:text-base">
-            Search across public people, communities, worlds, and events.
-          </p>
-          <DiscoverySearchForm className="mt-6 max-w-3xl" defaultQuery={query} surface="search" tone="default" />
-        </section>
-
+    <SearchViewShell
+      activeView="standard"
+      query={query}
+      searchControl={<DiscoverySearchForm className="max-w-3xl" defaultQuery={query} surface="search" tone="default" />}
+    >
         {status === "live" ? null : <Card surface="dashed">{status === "missing-url" ? "Search data is not available in this environment yet." : "Search data is temporarily unavailable."}</Card>}
 
         {hasQuery ? (
           <section aria-label="Search results" className="space-y-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap gap-2">
+            <h2 className="text-2xl font-semibold tracking-[-0.03em]">Results for {query}</h2>
+            <div className="flex flex-wrap items-center gap-3">
+              <nav aria-label="Entity type" className="flex flex-wrap gap-2">
                 {filters.map((filter) => {
                   const active = filter === activeFilter;
 
                   return (
                     <Link
-                      className={cn(buttonVariants({ size: "sm", variant: active ? "primary" : "secondary" }))}
+                      aria-current={active ? "page" : undefined}
+                      className={cn(
+                        buttonVariants({ size: "sm", variant: active ? "primary" : "secondary" }),
+                        "min-h-11",
+                      )}
                       href={searchHref({ filter, query })}
                       key={filter}
                     >
@@ -442,13 +418,10 @@ export function SearchResultsPage({
                     </Link>
                   );
                 })}
-              </div>
-              <p className="text-sm text-muted">
-                Showing {filteredResults.length} {filteredResults.length === 1 ? "result" : "results"}
-              </p>
+              </nav>
             </div>
 
-            {filteredResults.length === 0 ? (
+            {results.length === 0 ? (
               <Card surface="dashed">
                 <p className="font-medium">No public results matched that search yet.</p>
                 <p className="mt-2 text-sm leading-6 text-muted">
@@ -457,12 +430,11 @@ export function SearchResultsPage({
               </Card>
             ) : (
               <div className="grid gap-4">
-                {filteredResults.map((result) => <SearchResultCard key={`${result.entityType}-${result.slug}`} result={result} />)}
+                {results.map((result) => <SearchResultCard key={`${result.entityType}-${result.slug}`} result={result} />)}
               </div>
             )}
           </section>
         ) : null}
-      </PageContainer>
-    </PageShell>
+    </SearchViewShell>
   );
 }
