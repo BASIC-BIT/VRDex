@@ -5,6 +5,7 @@ import {
   parseSearchFilter,
   parseSearchView,
   searchHref,
+  searchSuggestionHref,
 } from "../../apps/web/src/app/_components/search-view-state.ts";
 
 test("search view state accepts only built-in presets and filters", () => {
@@ -25,5 +26,16 @@ test("search URLs are stable, shareable, and omit default state", () => {
   assert.equal(
     searchHref({ filter: "world", query: "Neon Harbor" }),
     "/search?q=Neon+Harbor&type=world",
+  );
+});
+
+test("search suggestions preserve the active entity filter", () => {
+  assert.equal(
+    searchSuggestionHref("Afterglow", "person"),
+    "/search/suggest?q=Afterglow&type=person",
+  );
+  assert.equal(
+    searchSuggestionHref("Neon Harbor"),
+    "/search/suggest?q=Neon+Harbor",
   );
 });

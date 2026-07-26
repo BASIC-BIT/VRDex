@@ -225,6 +225,23 @@ test.describe("fixture lookup smoke", () => {
     await expect(page.getByRole("option", { name: /BASICBIT/i })).toHaveCount(0);
   });
 
+  test("standard search keeps typeahead and submission within the active entity filter", async ({ page }) => {
+    await page.goto("/search?q=BASICBIT&type=person");
+    const searchInput = page.getByRole("combobox", { name: /Search/i });
+    const suggestionResponse = page.waitForResponse((response) =>
+      response.url().includes("/search/suggest?q=Afterglow&type=person"),
+    );
+
+    await searchInput.fill("Afterglow");
+    await suggestionResponse;
+    await expect(page.getByRole("option", { name: /Afterglow Harbor Sessions/i })).toHaveCount(0);
+    await expect(page.getByRole("option", { name: /Afterglow Social/i })).toHaveCount(0);
+
+    await searchInput.press("Enter");
+    await expect(page).toHaveURL(/\/search\?q=Afterglow&type=person$/);
+    await expect(page.getByRole("link", { name: "People" })).toHaveAttribute("aria-current", "page");
+  });
+
   test("unified search preserves BASICBIT identity across standard and DJ views", async ({ page }) => {
     await page.goto("/search?q=BASICBIT");
 

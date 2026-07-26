@@ -16,6 +16,10 @@ import {
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import {
+  type SearchResultFilter,
+  searchSuggestionHref,
+} from "./search-view-state";
+import {
   captureProductEvent,
   type DiscoveryAnalyticsSurface,
   type ProductAnalyticsEvent,
@@ -63,12 +67,14 @@ export function DiscoverySearchForm({
   action = "/search",
   className,
   defaultQuery,
+  filter = "all",
   surface = "search",
   tone = "inverse",
 }: {
   action?: string;
   className?: string;
   defaultQuery?: string;
+  filter?: SearchResultFilter;
   surface?: "home" | "search";
   tone?: "default" | "inverse";
 }) {
@@ -98,7 +104,7 @@ export function DiscoverySearchForm({
 
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => {
-      fetch(`/search/suggest?q=${encodeURIComponent(deferredQuery)}`, {
+      fetch(searchSuggestionHref(deferredQuery, filter), {
         cache: "no-store",
         signal: controller.signal,
       })
@@ -127,7 +133,7 @@ export function DiscoverySearchForm({
       window.clearTimeout(timeoutId);
       controller.abort();
     };
-  }, [defaultQuery, deferredQuery]);
+  }, [defaultQuery, deferredQuery, filter]);
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     const formData = new FormData(event.currentTarget);
@@ -228,6 +234,7 @@ export function DiscoverySearchForm({
           </div>
         ) : null}
       </div>
+      {filter === "all" ? null : <input name="type" type="hidden" value={filter} />}
       <button
         className={cn(
           buttonVariants({ size: "lg", variant: isInverse ? "inversePrimary" : "primary" }),

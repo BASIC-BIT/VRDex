@@ -74,3 +74,16 @@ export function searchHref({
   const encoded = params.toString();
   return encoded ? `/search?${encoded}` : "/search";
 }
+
+export function searchSuggestionHref(
+  query: string,
+  filter: SearchResultFilter = "all",
+): string {
+  const params = new URLSearchParams({ q: query });
+
+  if (filter !== "all") {
+    params.set("type", filter);
+  }
+
+  return `/search/suggest?${params.toString()}`;
+}
