@@ -7,6 +7,11 @@ import { convexAuth } from "@convex-dev/auth/server";
 
 import { internal } from "./_generated/api";
 import { siteRelativeRedirectUrl } from "./_authRedirects";
+import {
+  AUTH_JWT_DURATION_MS,
+  AUTH_SESSION_INACTIVE_DURATION_MS,
+  AUTH_SESSION_TOTAL_DURATION_MS,
+} from "./_authSession";
 
 function requiredEnv(name: string): string {
   const value = process.env[name]?.trim();
@@ -86,6 +91,13 @@ const SesOtp = Email({
 });
 
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
+  session: {
+    inactiveDurationMs: AUTH_SESSION_INACTIVE_DURATION_MS,
+    totalDurationMs: AUTH_SESSION_TOTAL_DURATION_MS,
+  },
+  jwt: {
+    durationMs: AUTH_JWT_DURATION_MS,
+  },
   providers: [
     Discord({
       authorization: {
