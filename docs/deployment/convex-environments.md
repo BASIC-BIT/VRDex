@@ -129,6 +129,11 @@ Production Convex Auth env names:
 - `JWKS`: Convex Auth public key set matching `JWT_PRIVATE_KEY`
 - `AWS_SES_REGION`, `AWS_SES_FROM_EMAIL`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY`: production SES sender configuration for email/password verification
 
+Session durations are code-owned rather than dashboard-owned. See
+[`docs/backend/auth-sessions.md`](../backend/auth-sessions.md). Do not add
+`AUTH_SESSION_TOTAL_DURATION_MS` or `AUTH_SESSION_INACTIVE_DURATION_MS` as
+undocumented deployment overrides.
+
 The production authenticated smoke lane does not require Convex E2E helpers and should not enable them in production. It reuses the normal production Auth configuration above and only supplies a pre-authenticated browser storage state from GitHub Actions.
 
 GitHub Actions repository settings for the optional authenticated smoke:

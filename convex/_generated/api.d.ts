@@ -15,6 +15,7 @@ import type * as _apiRateLimitEvents from "../_apiRateLimitEvents.js";
 import type * as _apiTokens from "../_apiTokens.js";
 import type * as _apiWriteAuditEvents from "../_apiWriteAuditEvents.js";
 import type * as _authRedirects from "../_authRedirects.js";
+import type * as _authSession from "../_authSession.js";
 import type * as _billing from "../_billing.js";
 import type * as _communityAuthority from "../_communityAuthority.js";
 import type * as _communityTelemetry from "../_communityTelemetry.js";
@@ -107,6 +108,7 @@ declare const fullApi: ApiFromModules<{
   _apiTokens: typeof _apiTokens;
   _apiWriteAuditEvents: typeof _apiWriteAuditEvents;
   _authRedirects: typeof _authRedirects;
+  _authSession: typeof _authSession;
   _billing: typeof _billing;
   _communityAuthority: typeof _communityAuthority;
   _communityTelemetry: typeof _communityTelemetry;

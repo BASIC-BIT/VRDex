@@ -71,6 +71,33 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(result);
   }
 
+  if (action === "set-session-state") {
+    const state =
+      body.state === "absolute_expired" ||
+      body.state === "inactive_expired" ||
+      body.state === "invalid_refresh" ||
+      body.state === "revoked"
+        ? body.state
+        : null;
+    const now = typeof body.now === "number" ? body.now : Number.NaN;
+
+    if (state === null || !Number.isFinite(now)) {
+      return e2eError("Invalid E2E auth session state.", 400);
+    }
+
+    const result = await convexClient().mutation(
+      api.e2e.setAuthSessionStateByEmail,
+      {
+        secret: convexSecret,
+        email,
+        state,
+        now,
+      },
+    );
+
+    return NextResponse.json(result);
+  }
+
   return e2eError("Unsupported E2E auth helper action.", 400);
 }
 

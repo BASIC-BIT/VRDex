@@ -238,6 +238,7 @@ Current production auth status:
 - Discord OAuth app `VRDex` uses client ID `1516492492189466625` and allows `https://db.vrdex.net/api/auth/callback/discord`.
 - Discord sign-in from `https://vrdex.net/sign-in` returns to an authenticated `https://vrdex.net/account` session.
 - Convex production includes `JWT_PRIVATE_KEY` and matching `JWKS`, required for Convex Auth to mint web session cookies after OAuth callbacks.
+- App sessions use the explicit remembered-session contract in [`docs/backend/auth-sessions.md`](../backend/auth-sessions.md): 30 days of inactivity, a 90-day absolute cap for newly created sessions, and one-hour JWT rotation.
 
 ### Production authenticated account smoke
 
