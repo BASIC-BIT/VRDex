@@ -216,6 +216,10 @@ test("verified email account with linked Discord can claim person and community 
     Boolean(process.env.PLAYWRIGHT_BASE_URL) && process.env.VRDEX_ENABLE_E2E_AUTH_HELPERS !== "true",
     "Hosted auth E2E helpers are not enabled for this target.",
   );
+  test.skip(
+    Boolean(process.env.PLAYWRIGHT_BASE_URL) && process.env.VRDEX_ENABLE_E2E_ADAPTER_HELPERS !== "true",
+    "Hosted adapter E2E helpers are not enabled for this target.",
+  );
 
   const e2eToken = e2eBrowserToken();
   const runId = e2eRunId(testInfo);
