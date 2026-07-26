@@ -1,6 +1,6 @@
 import type { Doc } from "./_generated/dataModel";
 import { visibleProfileField, visibleProfileList } from "./_profileFieldVisibility";
-import { optionalField, safeHttpsUrl } from "./_publicFields";
+import { optionalField, safeHttpsUrl, safePublicImageUrl } from "./_publicFields";
 import { getProfileTrustLabel } from "./_profileStates";
 
 type ProfileLookupLink = NonNullable<Doc<"profiles">["outboundLinks"]>[number] & { url: string };
@@ -87,8 +87,8 @@ export function toProfileLookupResult(
   const headline = optionalStringField(visibleProfileField(profile, "headline", profile.headline, "discovery"));
   const bio = optionalStringField(visibleProfileField(profile, "bio", profile.bio, "discovery"));
   const avatarImageUrl =
-    safeHttpsUrl(options.avatarImageUrl) ??
-    safeHttpsUrl(visibleProfileField(profile, "avatarImageUrl", profile.avatarImageUrl, "discovery"));
+    safePublicImageUrl(options.avatarImageUrl) ??
+    safePublicImageUrl(visibleProfileField(profile, "avatarImageUrl", profile.avatarImageUrl, "discovery"));
   const region = optionalStringField(visibleProfileField(profile, "region", profile.region, "discovery"));
   const timezone = optionalStringField(
     visibleProfileField(profile, "timezone", profile.timezone, "discovery"),

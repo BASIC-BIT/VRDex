@@ -3,6 +3,7 @@ import type { QueryCtx } from "./_generated/server";
 import { getPublicProfileMediaKit } from "./_profileAssets";
 import { toProfileLookupResult } from "./_profileLookup";
 import { canReadProfile } from "./_profilePermissions";
+import { firstSafePublicImageUrl } from "./_publicFields";
 import {
   normalizeSearchQuery,
   sortSearchResults,
@@ -41,7 +42,7 @@ export async function projectPublicSearchResult(
     await getPublicProfileMediaKit(ctx.db, profile),
   );
   const person = toProfileLookupResult(profile, {
-    avatarImageUrl: result.profileImageUrl ?? result.imageUrl,
+    avatarImageUrl: firstSafePublicImageUrl(result.profileImageUrl, result.imageUrl),
     sourceLabel: result.source?.label,
   });
 
@@ -86,7 +87,7 @@ export async function searchPublicDocuments(
   );
   const rankedDocuments = sortSearchResults(
     documents.map((document) => toPublicSearchResult(document, searchText)),
-  ).slice(0, limit);
+  );
   const projected = await Promise.all(
     rankedDocuments.map((result) =>
       projectPublicSearchResult(
@@ -97,5 +98,7 @@ export async function searchPublicDocuments(
     ),
   );
 
-  return projected.filter((result): result is PublicSearchResult => result !== null);
+  return projected
+    .filter((result): result is PublicSearchResult => result !== null)
+    .slice(0, limit);
 }

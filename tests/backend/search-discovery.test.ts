@@ -3,7 +3,9 @@ import { describe, it } from "node:test";
 
 import type { Doc } from "../../convex/_generated/dataModel";
 import type { QueryCtx } from "../../convex/_generated/server";
-import { projectPublicSearchResult } from "../../convex/_publicSearch";
+import { projectPublicSearchResult, searchPublicDocuments } from "../../convex/_publicSearch";
+import { toProfileLookupResult } from "../../convex/_profileLookup";
+import { firstSafePublicImageUrl } from "../../convex/_publicFields";
 import {
   createEventSearchDocument,
   createProfileSearchDocument,
@@ -334,6 +336,101 @@ describe("search document projection", () => {
     } as unknown as QueryCtx;
 
     assert.equal(await projectPublicSearchResult(ctx, document, "BASICBIT"), null);
+  });
+
+  it("applies the result limit after dropping stale search documents", async () => {
+    const hiddenProfile = {
+      _id: "hiddenProfile",
+      slug: "hidden-house",
+      displayName: "House",
+      aliases: [],
+      tags: [],
+      genres: [],
+      claimState: "unclaimed",
+      creationSource: "import",
+      publicationState: "published",
+      publicSurfacingState: "suppressed",
+      profileType: "person",
+      person: { roleTags: [] },
+      updatedAt: 2,
+    } as unknown as Doc<"profiles">;
+    const hiddenDocument = {
+      entityType: "profile",
+      profileType: "person",
+      profileId: hiddenProfile._id,
+      slug: hiddenProfile.slug,
+      routePath: `/p/${hiddenProfile.slug}`,
+      title: hiddenProfile.displayName,
+      searchText: "House",
+      exactTokens: ["house"],
+      vocabularyKeys: [],
+      trustRank: 40,
+      featuredRank: 0,
+      publicState: "public",
+      updatedAt: 1,
+    } as unknown as Doc<"searchDocuments">;
+    const visibleDocument = {
+      entityType: "event",
+      slug: "visible-house-night",
+      routePath: "/e/visible-house-night",
+      title: "Visible House Night",
+      searchText: "House",
+      exactTokens: [],
+      vocabularyKeys: ["event_tag:house"],
+      trustRank: 10,
+      featuredRank: 0,
+      publicState: "public",
+      updatedAt: 1,
+    } as unknown as Doc<"searchDocuments">;
+    const searchBuilder = {
+      search: () => searchBuilder,
+      eq: () => searchBuilder,
+    };
+    const queryBuilder = {
+      withSearchIndex: (_index: string, configure: (builder: typeof searchBuilder) => unknown) => {
+        configure(searchBuilder);
+        return queryBuilder;
+      },
+      take: async () => [hiddenDocument, visibleDocument],
+    };
+    const ctx = {
+      db: {
+        get: async () => hiddenProfile,
+        query: () => queryBuilder,
+      },
+    } as unknown as QueryCtx;
+
+    const results = await searchPublicDocuments(
+      ctx,
+      { query: "House", limit: 1 },
+      { defaultLimit: 10, maxLimit: 20 },
+    );
+
+    assert.deepEqual(results.map((result) => result.slug), ["visible-house-night"]);
+  });
+
+  it("uses the first safe public avatar candidate, including local media routes", () => {
+    const profile = {
+      slug: "basicbit",
+      displayName: "BASICBIT",
+      aliases: [],
+      tags: [],
+      genres: [],
+      claimState: "claimed_verified",
+      creationSource: "self",
+      profileType: "person",
+      person: { roleTags: ["VRDJ"] },
+      outboundLinks: [],
+    } as unknown as Doc<"profiles">;
+    const avatarImageUrl = firstSafePublicImageUrl(
+      "javascript:alert(1)",
+      "/api/profile-assets/basicbit",
+      "https://example.invalid/fallback.png",
+    );
+    const result = toProfileLookupResult(profile, { avatarImageUrl });
+
+    assert.equal(avatarImageUrl, "/api/profile-assets/basicbit");
+    assert.equal(result?.avatarImageUrl, "/api/profile-assets/basicbit");
   });
 
   it("caps stale event featured rank after an event has passed", () => {

@@ -9,6 +9,7 @@ import {
   useDeferredValue,
   useEffect,
   useId,
+  useRef,
   useState,
 } from "react";
 
@@ -30,6 +31,20 @@ type TrackedDiscoveryProperties = {
   event_card_clicked: { entity_type: "event"; surface: DiscoveryAnalyticsSurface };
   featured_card_clicked: { entity_type: string; surface: "featured" };
   search_result_clicked: { entity_type: string; profile_type?: string; surface: DiscoveryAnalyticsSurface };
+};
+
+type SearchSuggestion = {
+  entityType: string;
+  profileType?: string;
+  routePath: string;
+  slug: string;
+  subtitle?: string;
+  title: string;
+};
+
+type FetchedSearchSuggestions = {
+  query: string;
+  results: SearchSuggestion[];
 };
 
 export function DiscoveryFeatureGate({
@@ -62,21 +77,20 @@ export function DiscoverySearchForm({
   const isInverse = tone === "inverse";
   const [query, setQuery] = useState(defaultQuery ?? "");
   const deferredQuery = useDeferredValue(query.trim());
-  const [suggestions, setSuggestions] = useState<Array<{
-    entityType: string;
-    profileType?: string;
-    routePath: string;
-    slug: string;
-    subtitle?: string;
-    title: string;
-  }>>([]);
+  const [fetchedSuggestions, setFetchedSuggestions] = useState<FetchedSearchSuggestions | null>(null);
   const [activeIndex, setActiveIndex] = useState(-1);
   const [isOpen, setIsOpen] = useState(false);
   const listboxId = useId();
+  const suggestionRequestId = useRef(0);
+  const suggestions = fetchedSuggestions?.query === deferredQuery
+    ? fetchedSuggestions.results
+    : [];
   const visibleSuggestions =
     deferredQuery.length > 0 && deferredQuery !== defaultQuery?.trim() ? suggestions : [];
 
   useEffect(() => {
+    const requestId = ++suggestionRequestId.current;
+
     if (deferredQuery.length < 1 || deferredQuery === defaultQuery?.trim()) {
       return;
     }
@@ -88,15 +102,22 @@ export function DiscoverySearchForm({
         signal: controller.signal,
       })
         .then(async (response) => response.ok
-          ? await response.json() as { results: typeof suggestions }
+          ? await response.json() as { results: SearchSuggestion[] }
           : { results: [] })
         .then((data) => {
-          setSuggestions(data.results);
+          if (requestId !== suggestionRequestId.current) {
+            return;
+          }
+
+          setFetchedSuggestions({ query: deferredQuery, results: data.results });
           setActiveIndex(-1);
         })
         .catch((error: unknown) => {
-          if (!(error instanceof DOMException && error.name === "AbortError")) {
-            setSuggestions([]);
+          if (
+            requestId === suggestionRequestId.current &&
+            !(error instanceof DOMException && error.name === "AbortError")
+          ) {
+            setFetchedSuggestions({ query: deferredQuery, results: [] });
           }
         });
     }, 180);
@@ -114,6 +135,16 @@ export function DiscoverySearchForm({
     if (query) {
       captureProductEvent(posthog, "search_submitted", { surface, view_key: "standard" });
     }
+  }
+
+  function selectSuggestion(result: SearchSuggestion) {
+    captureProductEvent(posthog, "search_result_clicked", {
+      entity_type: result.entityType,
+      profile_type: result.profileType,
+      surface,
+    });
+    setIsOpen(false);
+    router.push(result.routePath);
   }
 
   return (
@@ -141,7 +172,7 @@ export function DiscoverySearchForm({
             setIsOpen(true);
             setActiveIndex(-1);
             if (!nextQuery.trim()) {
-              setSuggestions([]);
+              setFetchedSuggestions(null);
             }
           }}
           onFocus={() => setIsOpen(true)}
@@ -165,8 +196,7 @@ export function DiscoverySearchForm({
             }
             if (event.key === "Enter" && activeIndex >= 0 && visibleSuggestions[activeIndex]) {
               event.preventDefault();
-              setIsOpen(false);
-              router.push(visibleSuggestions[activeIndex].routePath);
+              selectSuggestion(visibleSuggestions[activeIndex]);
             }
           }}
         />
@@ -188,7 +218,7 @@ export function DiscoverySearchForm({
                 role="option"
                 type="button"
                 onMouseDown={(event) => event.preventDefault()}
-                onClick={() => router.push(result.routePath)}
+                onClick={() => selectSuggestion(result)}
               >
                 <span className="font-medium">{result.title}</span>
                 <span className="text-xs text-muted">{result.subtitle ?? result.entityType}</span>

@@ -158,6 +158,8 @@ test.describe("fixture lookup smoke", () => {
     const basicBitOption = page.getByRole("option", { name: /BASICBIT/i });
     await expect(basicBitOption).toHaveCount(1);
     await expect(basicBitOption).not.toContainText("Private seed");
+    await page.getByLabel("DJ name").press("ArrowDown");
+    await expect(page.getByRole("option", { selected: true })).toHaveClass(/bg-surface-strong/);
     await basicBitOption.click();
     await expect(page).toHaveURL(/\/lookup\?q=BASICBIT$/);
     await expect(page.getByRole("link", { name: "BASICBIT", exact: true })).toBeVisible();
@@ -209,6 +211,7 @@ test.describe("fixture lookup smoke", () => {
     await searchInput.fill("basic");
     await expect(page.getByRole("option", { name: /BASICBIT/i })).toBeVisible();
     await searchInput.press("ArrowDown");
+    await expect(page.getByRole("option", { name: /BASICBIT/i })).toHaveClass(/bg-surface-strong/);
     await searchInput.press("Enter");
     await expect(page).toHaveURL(/\/p\/basicbit$/);
 

@@ -440,7 +440,10 @@ export function LookupSearchBox({
                 ))}
                 {suggestions.map((profile, index) => (
                   <button
-                    className="lookup-suggestion-option"
+                    className={cn(
+                      "lookup-suggestion-option",
+                      activeIndex === index ? "bg-surface-strong" : undefined,
+                    )}
                     key={isPrivateSuggestion(profile) ? `private:${profile.id}` : `public:${profile.slug}`}
                     type="button"
                     role="option"
