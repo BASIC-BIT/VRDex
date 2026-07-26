@@ -18,7 +18,8 @@ import type { Id } from "../../../../../../convex/_generated/dataModel";
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
 type AppearanceProfile = {
-  profileId: Id<"profiles"> | "demo";
+  hasPublicProfile: boolean;
+  profileId: Id<"profiles"> | "demo" | "playwright-profile";
   profileType: "person" | "community";
   slug: string;
   displayName: string;
@@ -83,6 +84,7 @@ function normalizeSupportingSectionOrder(input: readonly ProfilePublicSectionKey
 
 const demoProfiles: AppearanceProfile[] = [
   {
+    hasPublicProfile: true,
     profileId: "demo",
     profileType: "person",
     slug: "playwright-dj-aurora",
@@ -237,7 +239,12 @@ function AppearanceEditor({
   async function submitAppearance(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!selectedProfile || demo || selectedProfile.profileId === "demo") {
+    if (
+      !selectedProfile ||
+      demo ||
+      selectedProfile.profileId === "demo" ||
+      selectedProfile.profileId === "playwright-profile"
+    ) {
       return;
     }
 
@@ -453,9 +460,11 @@ function AppearanceEditor({
           <Button disabled={demo || status.kind === "saving"} size="lg" type="submit" variant="primary">
             Save appearance
           </Button>
-          <Link className={buttonVariants({ size: "lg", variant: "secondary" })} href={`/${selectedProfile.profileType === "community" ? "c" : "p"}/${selectedProfile.slug}`}>
-            View profile
-          </Link>
+          {selectedProfile.hasPublicProfile ? (
+            <Link className={buttonVariants({ size: "lg", variant: "secondary" })} href={`/${selectedProfile.profileType === "community" ? "c" : "p"}/${selectedProfile.slug}`}>
+              View profile
+            </Link>
+          ) : null}
         </div>
       </form>
 
@@ -506,7 +515,15 @@ function ConnectedAppearancePanel({
   initialProfileId?: string;
 }) {
   if (demoMode) {
-    return <AppearanceEditor demo initialProfileId={initialProfileId} profiles={demoProfiles} />;
+    const profiles = initialProfileId === "playwright-profile"
+      ? [{
+          ...demoProfiles[0],
+          hasPublicProfile: false,
+          profileId: "playwright-profile" as const,
+        }]
+      : demoProfiles;
+
+    return <AppearanceEditor demo initialProfileId={initialProfileId} profiles={profiles} />;
   }
 
   return <OwnerAppearancePanel initialProfileId={initialProfileId} />;

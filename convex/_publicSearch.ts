@@ -94,17 +94,27 @@ export async function searchPublicDocuments(
   const rankedDocuments = sortSearchResults(
     documents.map((document) => toPublicSearchResult(document, searchText)),
   );
-  const projected = await Promise.all(
-    rankedDocuments.map((result) =>
-      projectPublicSearchResult(
-        ctx,
-        documentsByKey.get(`${result.entityType}:${result.slug}`)!,
-        searchText,
-      ),
-    ),
-  );
+  const projected: PublicSearchResult[] = [];
+  let offset = 0;
 
-  return projected
-    .filter((result): result is PublicSearchResult => result !== null)
-    .slice(0, limit);
+  while (projected.length < limit && offset < rankedDocuments.length) {
+    const batchSize = limit - projected.length;
+    const batch = rankedDocuments.slice(offset, offset + batchSize);
+    offset += batch.length;
+    const batchResults = await Promise.all(
+      batch.map((result) =>
+        projectPublicSearchResult(
+          ctx,
+          documentsByKey.get(`${result.entityType}:${result.slug}`)!,
+          searchText,
+        ),
+      ),
+    );
+
+    projected.push(
+      ...batchResults.filter((result): result is PublicSearchResult => result !== null),
+    );
+  }
+
+  return projected;
 }

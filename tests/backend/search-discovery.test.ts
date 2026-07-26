@@ -413,6 +413,74 @@ describe("search document projection", () => {
     assert.deepEqual(results.map((result) => result.slug), ["visible-house-night"]);
   });
 
+  it("hydrates only the ranked window needed to fill the result limit", async () => {
+    const profiles = ["first-house", "second-house"].map((slug, index) => ({
+      _id: `profile-${index}`,
+      slug,
+      displayName: index === 0 ? "First House" : "Second House",
+      aliases: [],
+      tags: [],
+      genres: [],
+      claimState: "claimed_verified",
+      creationSource: "self",
+      publicationState: "published",
+      publicSurfacingState: "public",
+      profileType: "person",
+      person: { roleTags: [] },
+      updatedAt: 2,
+    })) as unknown as Doc<"profiles">[];
+    const documents = profiles.map((profile, index) => ({
+      entityType: "profile",
+      profileType: "person",
+      profileId: profile._id,
+      slug: profile.slug,
+      routePath: `/p/${profile.slug}`,
+      title: profile.displayName,
+      searchText: "House",
+      exactTokens: index === 0 ? ["house"] : [],
+      vocabularyKeys: [],
+      trustRank: 20 - index,
+      featuredRank: 0,
+      publicState: "public",
+      updatedAt: 1,
+    })) as unknown as Doc<"searchDocuments">[];
+    const searchBuilder = {
+      search: () => searchBuilder,
+      eq: () => searchBuilder,
+    };
+    const searchQuery = {
+      withSearchIndex: (_index: string, configure: (builder: typeof searchBuilder) => unknown) => {
+        configure(searchBuilder);
+        return searchQuery;
+      },
+      take: async () => documents,
+    };
+    const emptyIndexQuery = {
+      withIndex: () => emptyIndexQuery,
+      collect: async () => [],
+      unique: async () => null,
+    };
+    let profileReads = 0;
+    const ctx = {
+      db: {
+        get: async (id: string) => {
+          profileReads += 1;
+          return profiles.find((profile) => profile._id === id) ?? null;
+        },
+        query: (table: string) => table === "searchDocuments" ? searchQuery : emptyIndexQuery,
+      },
+    } as unknown as QueryCtx;
+
+    const results = await searchPublicDocuments(
+      ctx,
+      { query: "House", limit: 1, profileType: "person" },
+      { defaultLimit: 10, maxLimit: 20 },
+    );
+
+    assert.equal(results.length, 1);
+    assert.equal(profileReads, 1);
+  });
+
   it("uses the first safe public avatar candidate, including local media routes", () => {
     const profile = {
       slug: "basicbit",
