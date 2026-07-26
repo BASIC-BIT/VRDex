@@ -6,6 +6,7 @@ import { E2E_DISCORD_GUILD_ID } from "../src/lib/e2e-discord-fixture";
 test.describe.configure({ mode: "serial" });
 
 const hostedActionExpectOptions = { timeout: process.env.PLAYWRIGHT_BASE_URL ? 20_000 : 5_000 };
+const PRE_NUMERIC_DISCORD_FIXTURE_STAGING_COMMIT = "1e1ac2f";
 
 function e2eBrowserToken() {
   const token = process.env.VRDEX_E2E_BROWSER_TOKEN ?? (process.env.PLAYWRIGHT_BASE_URL ? undefined : "local-playwright-token");
@@ -26,40 +27,14 @@ function e2eRunId(testInfo: { project: { name: string }; workerIndex: number; re
     .slice(0, 120);
 }
 
-async function hostedTargetHasNumericDiscordFixture({
-  request,
-  e2eToken,
-  runId,
-  testInfo,
-}: {
-  request: APIRequestContext;
-  e2eToken: string;
-  runId: string;
-  testInfo: { annotations: Array<{ type: string; description?: string }> };
-}) {
+async function hostedTargetIsKnownPreNumericDiscordFixture(request: APIRequestContext) {
   if (!process.env.PLAYWRIGHT_BASE_URL) {
-    return true;
-  }
-
-  const headers = { "x-vrdex-e2e-token": e2eToken };
-  const numericResponse = await request.get(`/api/e2e/adapters/discord/guilds/${E2E_DISCORD_GUILD_ID}`, { headers });
-
-  if (numericResponse.ok()) {
-    return true;
-  }
-
-  const legacyResponse = await request.get(`/api/e2e/adapters/discord/guilds/e2e-${runId.slice(-32)}`, { headers });
-
-  if (numericResponse.status() === 404 && legacyResponse.ok()) {
-    testInfo.annotations.push({
-      type: "hosted-staging-lag",
-      description: "The shared hosted target still exposes the legacy Discord fixture contract fixed by this branch.",
-    });
     return false;
   }
 
-  await expect(numericResponse).toBeOK();
-  return false;
+  const response = await request.get("/deployment");
+  await expect(response).toBeOK();
+  return (await response.text()).includes(PRE_NUMERIC_DISCORD_FIXTURE_STAGING_COMMIT);
 }
 
 async function createE2eProfile({
@@ -306,10 +281,6 @@ test("verified email account with linked Discord can claim person and community 
       `/claim/${encodeURIComponent(createdSlug!)}?source=account`,
     );
 
-    if (!(await hostedTargetHasNumericDiscordFixture({ request, e2eToken, runId, testInfo }))) {
-      return;
-    }
-
     await gotoFlowPage(
       page,
       `/claim/${encodeURIComponent(communitySlug!)}`,
@@ -319,9 +290,22 @@ test("verified email account with linked Discord can claim person and community 
     await page.getByRole("button", { name: "Continue with Discord" }).click();
     await expect(page.getByRole("heading", { name: "Finish your Discord check" })).toBeVisible(hostedActionExpectOptions);
     await page.getByRole("button", { name: "Check Discord access" }).click();
-    await expect(page.getByText("Administrator access verified. This community is now yours.")).toBeVisible(
-      hostedActionExpectOptions,
+    const communityClaimed = page.getByText("Administrator access verified. This community is now yours.");
+    const communityClaimFailed = page.getByText(
+      "We could not complete that check. Nothing changed; try again or choose another method.",
     );
+    await expect(communityClaimed.or(communityClaimFailed)).toBeVisible(hostedActionExpectOptions);
+
+    if (await communityClaimFailed.isVisible()) {
+      if (await hostedTargetIsKnownPreNumericDiscordFixture(request)) {
+        testInfo.annotations.push({
+          type: "hosted-staging-lag",
+          description: "The exact shared staging commit predates the numeric Discord fixture contract fixed by this branch.",
+        });
+        return;
+      }
+      await expect(communityClaimed).toBeVisible();
+    }
 
     await gotoFlowPage(page, `/c/${communitySlug}`);
     await expect(page.getByRole("heading", { name: `Playwright Community Claim ${runSuffix}` })).toBeVisible(
