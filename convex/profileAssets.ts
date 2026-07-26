@@ -13,6 +13,7 @@ import { userOwnsProfile } from "./_profileOwnership";
 import { canReadProfile } from "./_profilePermissions";
 import {
   PROFILE_ASSET_MAX_ACTIVE_COUNT,
+  PROFILE_ASSET_UPLOAD_PROCESSING_MAX_ATTEMPTS,
   PROFILE_ASSET_UPLOAD_PROCESSING_LEASE_MS,
   assertProfileAssetIntentCapacity,
   createProfileAssetUploadIntentRecord,
@@ -370,9 +371,19 @@ export const claimUploadIntentForStorage = internalMutation({
       return { status: "in_use" as const };
     }
 
+    const processingAttempts = intent.processingAttempts ?? 0;
+    if (processingAttempts >= PROFILE_ASSET_UPLOAD_PROCESSING_MAX_ATTEMPTS) {
+      await ctx.db.patch(intent._id, {
+        expiresAt: Math.min(intent.expiresAt, now - 1),
+        updatedAt: now,
+      });
+      return { status: "not_found" as const };
+    }
+
     await ctx.db.patch(intent._id, {
       processingToken: args.processingToken,
       processingStartedAt: now,
+      processingAttempts: processingAttempts + 1,
       updatedAt: now,
     });
 

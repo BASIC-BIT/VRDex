@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { XMLValidator } from "fast-xml-parser";
 import sharp from "sharp";
 
 export const PROFILE_ASSET_MAX_SOURCE_DIMENSION = 8_192;
@@ -174,8 +175,11 @@ function svgDimensions(source: string): { width: number; height: number } {
 
 function validateSafeSvg(body: Uint8Array): { body: Uint8Array; width: number; height: number } {
   const source = new TextDecoder("utf-8", { fatal: true }).decode(body).replace(/^\uFEFF/, "").trim();
+  if (XMLValidator.validate(source) !== true) {
+    throw new Error("Profile media must be one valid, still image.");
+  }
   const blockedMarkup = /<!doctype|<!entity|<(?:(?:[a-z_][\w.-]*):)?(?:script|style|foreignobject|iframe|object|embed|audio|video|image|animate(?:color|motion|transform)?|discard|mpath|set)\b/i;
-  const namespacePrefix = /(?:<|\s)[a-z_][\w.-]*:[a-z_][\w.-]*(?:\s|=|\/?>)/i;
+  const namespaceSyntax = /<\s*\/?\s*[^\s/>:]+:|\s[^\s=/>:]+:[^\s=/>]+\s*=/u;
   const processingInstruction = /<\?(?!xml\b)/i;
   const activeAttribute = /\son[a-z0-9_-]+\s*=/i;
   const styleAttribute = /\sstyle\s*=/i;
@@ -187,7 +191,7 @@ function validateSafeSvg(body: Uint8Array): { body: Uint8Array; width: number; h
 
   if (
     blockedMarkup.test(source) ||
-    namespacePrefix.test(source) ||
+    namespaceSyntax.test(source) ||
     processingInstruction.test(source) ||
     activeAttribute.test(source) ||
     styleAttribute.test(source) ||

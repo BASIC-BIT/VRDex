@@ -174,9 +174,24 @@ describe("profile asset content validation", () => {
     const namespacedScript = new TextEncoder().encode(
       '<svg xmlns="http://www.w3.org/2000/svg" xmlns:s="http://www.w3.org/2000/svg" width="20" height="20"><s:script>alert(1)</s:script></svg>',
     );
+    const unicodeNamespacedScript = new TextEncoder().encode(
+      '<svg xmlns="http://www.w3.org/2000/svg" xmlns:é="http://www.w3.org/2000/svg" width="20" height="20"><é:script>alert(1)</é:script></svg>',
+    );
+    for (const activeSvg of [namespacedScript, unicodeNamespacedScript]) {
+      await assert.rejects(
+        validateAndNormalizeProfileAsset(activeSvg, "image/svg+xml"),
+        /cannot contain scripts/,
+      );
+    }
+  });
+
+  it("rejects malformed SVG descendant markup", async () => {
+    const malformed = new TextEncoder().encode(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><g></svg>',
+    );
     await assert.rejects(
-      validateAndNormalizeProfileAsset(namespacedScript, "image/svg+xml"),
-      /cannot contain scripts/,
+      validateAndNormalizeProfileAsset(malformed, "image/svg+xml"),
+      /one valid, still image/,
     );
   });
 });

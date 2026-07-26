@@ -5,7 +5,10 @@ import { convexTest } from "convex-test";
 
 import { api, internal } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
-import { PROFILE_ASSET_UPLOAD_PROCESSING_LEASE_MS } from "../../convex/_profileAssets";
+import {
+  PROFILE_ASSET_UPLOAD_PROCESSING_LEASE_MS,
+  PROFILE_ASSET_UPLOAD_PROCESSING_MAX_ATTEMPTS,
+} from "../../convex/_profileAssets";
 import schemaModule from "../../convex/schema";
 
 process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true";
@@ -216,6 +219,42 @@ describe("profile media-kit owner management", () => {
       label: "Retry upload",
       altText: "A synthetic retry upload.",
     });
+  });
+
+  it("expires an upload intent after bounded processing attempts", async () => {
+    const seeded = await seedOwnedProfile(0);
+    const owner = seeded.t.withIdentity(seeded.ownerIdentity);
+    const intent = await owner.mutation(api.profileAssets.createUploadIntentForOwnedProfile, {
+      profileId: seeded.profileId,
+      originalFileName: "bounded-attempts.png",
+      mimeType: "image/png",
+      byteSize: 128,
+      label: "Bounded attempts",
+      altText: "A synthetic upload used to verify bounded processing attempts.",
+    });
+
+    for (let attempt = 0; attempt < PROFILE_ASSET_UPLOAD_PROCESSING_MAX_ATTEMPTS; attempt += 1) {
+      const processingToken = `processing-${attempt}`;
+      assert.equal((await seeded.t.mutation(internal.profileAssets.claimUploadIntentForStorage, {
+        intentId: intent.intentId,
+        uploadToken: intent.uploadToken,
+        processingToken,
+      })).status, "claimed");
+      assert.equal(await seeded.t.mutation(internal.profileAssets.releaseUploadIntentStorageClaim, {
+        intentId: intent.intentId,
+        uploadToken: intent.uploadToken,
+        processingToken,
+      }), true);
+    }
+
+    assert.equal((await seeded.t.mutation(internal.profileAssets.claimUploadIntentForStorage, {
+      intentId: intent.intentId,
+      uploadToken: intent.uploadToken,
+      processingToken: "processing-exhausted",
+    })).status, "not_found");
+    const expired = await seeded.t.run(async (ctx) => await ctx.db.get(intent.intentId));
+    assert.ok(expired);
+    assert.equal(expired.expiresAt < Date.now(), true);
   });
 
   it("atomically fences storage processing for one upload request", async () => {
