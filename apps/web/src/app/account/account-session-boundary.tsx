@@ -4,7 +4,9 @@ import { useConvexAuth } from "convex/react";
 
 import { AccountPanel } from "./account-panel";
 
-export function AccountSessionBoundary() {
+const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+
+function ConnectedAccountSessionBoundary() {
   const { isLoading } = useConvexAuth();
 
   if (isLoading) {
@@ -12,4 +14,12 @@ export function AccountSessionBoundary() {
   }
 
   return <AccountPanel />;
+}
+
+export function AccountSessionBoundary() {
+  if (!convexUrl) {
+    return <AccountPanel />;
+  }
+
+  return <ConnectedAccountSessionBoundary />;
 }

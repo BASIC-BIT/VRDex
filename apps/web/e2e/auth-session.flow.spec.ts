@@ -176,7 +176,7 @@ async function createAuthenticatedContext({
 }
 
 test(
-  "remembered session survives restart, deployment hydration, rotation, concurrent tabs, and sign-out @flow",
+  "remembered session survives restart, deployment hydration, rotation, concurrent tabs, and sign-out @flow @fixture",
   async ({ browser, request }, testInfo) => {
     test.setTimeout(90_000);
     test.skip(
@@ -285,7 +285,7 @@ for (const state of [
   "invalid_refresh",
   "revoked",
 ] as const) {
-  test(`${state} session fails closed without retaining browser credentials @flow`, async ({
+  test(`${state} session fails closed without retaining browser credentials @flow @fixture`, async ({
     browser,
     request,
   }, testInfo) => {
