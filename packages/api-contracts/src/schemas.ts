@@ -107,6 +107,7 @@ export const PublicProfileMediaKitSchema = z
   .object({
     additionalLogos: z.array(PublicProfileAssetSchema),
     assets: z.array(PublicProfileAssetSchema),
+    galleryAssets: z.array(PublicProfileAssetSchema).optional(),
     avatarAppearance: PublicProfileAvatarAppearanceSchema.optional(),
     banner: PublicProfileAssetSchema.optional(),
     featuredAsset: PublicProfileAssetSchema.optional(),

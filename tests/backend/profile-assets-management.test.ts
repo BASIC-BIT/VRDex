@@ -265,9 +265,21 @@ describe("profile media-kit owner management", () => {
         mimeType: "image/png",
         byteSize: 128,
         label: "Missing featured alt",
-        placements: ["featured"],
+        placements: ["gallery", "featured"],
       }),
       /accessibility description/,
+    );
+    await assert.rejects(
+      seeded.t.withIdentity(seeded.ownerIdentity).mutation(api.profileAssets.createUploadIntentForOwnedProfile, {
+        profileId: seeded.profileId,
+        originalFileName: "featured-only.png",
+        mimeType: "image/png",
+        byteSize: 128,
+        label: "Featured only",
+        altText: "A valid but featured-only test image.",
+        placements: ["featured"],
+      }),
+      /must also be a gallery item/,
     );
   });
 

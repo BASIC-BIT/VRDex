@@ -39,8 +39,9 @@ Current recommendation:
 - strip raster metadata by decoding and re-encoding uploads, bound decoded
   dimensions, verify content independently of the browser-provided MIME type,
   and reject SVGs containing active or external content
-- project only explicit gallery placements with a title and accessibility
-  description; featured media must also be an accessible gallery item
+- project only explicit `galleryAssets` placements with a title and
+  accessibility description into the public gallery; preserve the existing
+  all-public-assets API, and require featured media to be a gallery item
 - keep deletion recoverable in Convex for this slice; physical object deletion
   follows a documented retention and orphan-cleanup job rather than happening
   synchronously in an owner request

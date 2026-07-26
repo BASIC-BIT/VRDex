@@ -79,6 +79,7 @@ type PublicProfileMediaKit = {
   additionalLogos: PublicProfileAsset[];
   logos: PublicProfileAsset[];
   assets: PublicProfileAsset[];
+  galleryAssets?: PublicProfileAsset[];
   logoZipUrl?: string;
   compactDisplay: "profile_image" | "logo";
   avatarAppearance?: PublicProfileAvatarAppearance;
@@ -356,6 +357,7 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
     additionalLogos: [],
     logos: [],
     assets: [],
+    galleryAssets: [],
     compactDisplay: "profile_image" as const,
   };
   const avatarAppearance = mediaKit.avatarAppearance ?? defaultAvatarAppearance;
@@ -412,7 +414,13 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
   const mediaKitGalleryEnabled =
     process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED === "true" ||
     process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES === "true";
-  const hasMediaKit = mediaKit.assets.length > 0 || mediaKit.logos.length > 0;
+  const galleryAssets = mediaKit.galleryAssets ?? [];
+  const galleryAssetIds = new Set([
+    ...galleryAssets.map((asset) => asset.assetId),
+    ...(mediaKit.featuredAsset ? [mediaKit.featuredAsset.assetId] : []),
+  ]);
+  const remainingLogos = mediaKit.logos.filter((asset) => !galleryAssetIds.has(asset.assetId));
+  const hasMediaKit = galleryAssets.length > 0 || mediaKit.logos.length > 0;
   const canClaim = profile.trustLabel === "community_submitted" || profile.trustLabel === "unclaimed";
   const secondaryOrder = normalizeProfileSectionOrder(profile.appearance?.sectionOrder).filter((section) =>
     ["events", "media_kit", "worlds"].includes(section),
@@ -445,7 +453,7 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
         ) : null}
         <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {mediaKitGalleryEnabled ? (
-            mediaKit.assets
+            galleryAssets
               .filter((asset) => asset.assetId !== mediaKit.featuredAsset?.assetId)
               .map((asset, index) => (
                 <MediaAssetCard asset={asset} key={asset.assetId} label={`Media ${index + 1}`} />
@@ -458,6 +466,11 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
               ))}
             </>
           )}
+          {mediaKitGalleryEnabled
+            ? remainingLogos.map((asset, index) => (
+                <MediaAssetCard asset={asset} key={asset.assetId} label={`Logo ${index + 1}`} />
+              ))
+            : null}
         </div>
       </section>
     ) : null,

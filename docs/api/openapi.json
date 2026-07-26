@@ -7082,6 +7082,45 @@
                   "description": "A public profile media or brand asset."
                 }
               },
+              "galleryAssets": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "assetId": {
+                      "type": "string"
+                    },
+                    "byteSize": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "caption": {
+                      "type": "string"
+                    },
+                    "altText": {
+                      "type": "string"
+                    },
+                    "credit": {
+                      "type": "string"
+                    },
+                    "downloadUrl": {
+                      "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                    },
+                    "imageUrl": {
+                      "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "mimeType": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": {},
+                  "description": "A public profile media or brand asset."
+                }
+              },
               "avatarAppearance": {
                 "type": "object",
                 "properties": {
@@ -7896,6 +7935,45 @@
                 }
               },
               "assets": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "assetId": {
+                      "type": "string"
+                    },
+                    "byteSize": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "caption": {
+                      "type": "string"
+                    },
+                    "altText": {
+                      "type": "string"
+                    },
+                    "credit": {
+                      "type": "string"
+                    },
+                    "downloadUrl": {
+                      "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                    },
+                    "imageUrl": {
+                      "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "mimeType": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": {},
+                  "description": "A public profile media or brand asset."
+                }
+              },
+              "galleryAssets": {
                 "type": "array",
                 "items": {
                   "type": "object",

@@ -183,6 +183,7 @@ const personProfile: FixturePersonProfile = {
     additionalLogos: [auroraAdditionalLogo],
     logos: [auroraPrimaryLogo, auroraAdditionalLogo],
     assets: [auroraProfileImage, auroraPrimaryLogo, auroraAdditionalLogo],
+    galleryAssets: [auroraProfileImage, auroraPrimaryLogo, auroraAdditionalLogo],
     logoZipUrl: "/api/v0/profiles/playwright-dj-aurora/logos.zip",
     compactDisplay: "profile_image",
     avatarAppearance: {

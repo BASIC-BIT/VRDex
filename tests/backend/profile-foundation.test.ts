@@ -1635,7 +1635,8 @@ describe("profile media kit asset helpers", () => {
 
     const mediaKit = await getPublicProfileMediaKit(db as never, profile);
 
-    assert.deepEqual(mediaKit.assets.map((asset) => asset.assetId), [second._id, first._id]);
+    assert.deepEqual(mediaKit.assets.map((asset) => asset.assetId), [second._id, first._id, unplaced._id]);
+    assert.deepEqual(mediaKit.galleryAssets.map((asset) => asset.assetId), [second._id, first._id]);
     assert.equal(mediaKit.featuredAsset?.assetId, first._id);
     assert.equal(mediaKit.featuredAsset?.altText, "DJ Aurora under violet stage light.");
     assert.equal(mediaKit.featuredAsset?.credit, "Photo by Example");
