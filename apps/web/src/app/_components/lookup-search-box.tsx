@@ -145,7 +145,8 @@ export function LookupSearchBox({
   const [query, setQuery] = useState(initialQuery);
   const [bulkMode, setBulkMode] = useState(false);
   const [bulkText, setBulkText] = useState("");
-  const deferredQuery = useDeferredValue(query.trim());
+  const normalizedQuery = query.trim();
+  const deferredQuery = useDeferredValue(normalizedQuery);
   const [fetchedSuggestions, setFetchedSuggestions] = useState<FetchedSuggestions | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -162,7 +163,7 @@ export function LookupSearchBox({
     deferredQuery.startsWith(fetchedSuggestions.query) || fetchedSuggestions.query.startsWith(deferredQuery)
   );
   const suggestions =
-    bulkMode || deferredQuery.length < 1
+    bulkMode || normalizedQuery.length < 1 || deferredQuery !== normalizedQuery
       ? []
       : deferredQuery === normalizedInitialQuery
         ? initialResults
@@ -171,7 +172,7 @@ export function LookupSearchBox({
           : canReuseFetchedSuggestions
             ? fetchedSuggestions.results
             : [];
-  const recentOptions = bulkMode || deferredQuery.length > 0 ? [] : recentSearches;
+  const recentOptions = bulkMode || normalizedQuery.length > 0 ? [] : recentSearches;
   const optionCount = recentOptions.length > 0 ? recentOptions.length : suggestions.length;
 
   useEffect(() => () => {

@@ -17,6 +17,12 @@ export type PublicSearchFilters = {
   profileType?: "person" | "community";
 };
 
+export function publicSearchLookupAvatarUrl(
+  result: Pick<PublicSearchResult, "imageUrl" | "profileImageUrl">,
+): string | undefined {
+  return firstSafePublicImageUrl(result.imageUrl, result.profileImageUrl);
+}
+
 function boundedLimit(value: number | undefined, fallback: number, max: number): number {
   return Math.max(1, Math.min(value ?? fallback, max));
 }
@@ -42,7 +48,7 @@ export async function projectPublicSearchResult(
     await getPublicProfileMediaKit(ctx.db, profile),
   );
   const person = toProfileLookupResult(profile, {
-    avatarImageUrl: firstSafePublicImageUrl(result.profileImageUrl, result.imageUrl),
+    avatarImageUrl: publicSearchLookupAvatarUrl(result),
     sourceLabel: result.source?.label,
   });
 

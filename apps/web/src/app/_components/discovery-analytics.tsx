@@ -76,17 +76,18 @@ export function DiscoverySearchForm({
   const router = useRouter();
   const isInverse = tone === "inverse";
   const [query, setQuery] = useState(defaultQuery ?? "");
-  const deferredQuery = useDeferredValue(query.trim());
+  const normalizedQuery = query.trim();
+  const deferredQuery = useDeferredValue(normalizedQuery);
   const [fetchedSuggestions, setFetchedSuggestions] = useState<FetchedSearchSuggestions | null>(null);
   const [activeIndex, setActiveIndex] = useState(-1);
   const [isOpen, setIsOpen] = useState(false);
   const listboxId = useId();
   const suggestionRequestId = useRef(0);
-  const suggestions = fetchedSuggestions?.query === deferredQuery
+  const suggestions = fetchedSuggestions?.query === normalizedQuery
     ? fetchedSuggestions.results
     : [];
   const visibleSuggestions =
-    deferredQuery.length > 0 && deferredQuery !== defaultQuery?.trim() ? suggestions : [];
+    normalizedQuery.length > 0 && normalizedQuery !== defaultQuery?.trim() ? suggestions : [];
 
   useEffect(() => {
     const requestId = ++suggestionRequestId.current;

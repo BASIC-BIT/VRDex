@@ -3,7 +3,11 @@ import { describe, it } from "node:test";
 
 import type { Doc } from "../../convex/_generated/dataModel";
 import type { QueryCtx } from "../../convex/_generated/server";
-import { projectPublicSearchResult, searchPublicDocuments } from "../../convex/_publicSearch";
+import {
+  projectPublicSearchResult,
+  publicSearchLookupAvatarUrl,
+  searchPublicDocuments,
+} from "../../convex/_publicSearch";
 import { toProfileLookupResult } from "../../convex/_profileLookup";
 import { firstSafePublicImageUrl } from "../../convex/_publicFields";
 import {
@@ -431,6 +435,16 @@ describe("search document projection", () => {
 
     assert.equal(avatarImageUrl, "/api/profile-assets/basicbit");
     assert.equal(result?.avatarImageUrl, "/api/profile-assets/basicbit");
+  });
+
+  it("keeps the configured compact-display image ahead of the profile-image fallback", () => {
+    assert.equal(
+      publicSearchLookupAvatarUrl({
+        imageUrl: "/api/v0/profiles/basicbit/assets/compact-logo/file",
+        profileImageUrl: "/api/v0/profiles/basicbit/assets/profile-image/file",
+      }),
+      "/api/v0/profiles/basicbit/assets/compact-logo/file",
+    );
   });
 
   it("caps stale event featured rank after an event has passed", () => {

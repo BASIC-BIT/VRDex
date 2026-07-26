@@ -637,7 +637,7 @@ function LookupIdentity({ profile }: { profile: PublicProfileLookupResult }) {
         {identityMeta ? <div className="lookup-identity-meta">{identityMeta}</div> : null}
         {profile.sourceLabel || trustLabel ? (
           <div className="lookup-identity-meta">
-            {compactList([profile.sourceLabel, trustLabel]).join(" / ")}
+            {[...new Set(compactList([profile.sourceLabel, trustLabel]))].join(" / ")}
           </div>
         ) : null}
       </div>

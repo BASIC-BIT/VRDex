@@ -185,6 +185,26 @@ test.describe("fixture lookup smoke", () => {
     await expect(page.getByRole("option", { name: /BASICBIT/i })).toBeVisible();
   });
 
+  test("lookup hides stale suggestions as soon as the visible query changes", async ({ page }) => {
+    await page.goto("/search?view=dj");
+    const lookupInput = page.getByLabel("DJ name");
+
+    await lookupInput.fill("b");
+    await expect(page.getByRole("option", { name: /BASICBIT/i })).toBeVisible();
+    await lookupInput.fill("unrelated query");
+    await expect(page.getByRole("option", { name: /BASICBIT/i })).toHaveCount(0);
+  });
+
+  test("standard search hides stale suggestions as soon as the visible query changes", async ({ page }) => {
+    await page.goto("/search");
+    const searchInput = page.getByRole("combobox", { name: /Search/i });
+
+    await searchInput.fill("basic");
+    await expect(page.getByRole("option", { name: /BASICBIT/i })).toBeVisible();
+    await searchInput.fill("unrelated query");
+    await expect(page.getByRole("option", { name: /BASICBIT/i })).toHaveCount(0);
+  });
+
   test("unified search preserves BASICBIT identity across standard and DJ views", async ({ page }) => {
     await page.goto("/search?q=BASICBIT");
 
@@ -228,6 +248,10 @@ test.describe("fixture lookup smoke", () => {
     await page.goto("/search?q=Sparse%20Import&view=dj");
     await expect(page.getByRole("link", { name: "Sparse Import", exact: true })).toBeVisible();
     await expect(page.getByText("Imported profile seed / Unclaimed", { exact: true }).first()).toBeVisible();
+
+    await page.goto("/search?q=DJ%20Aurora&view=dj");
+    await expect(page.getByText("Community submitted", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Community submitted / Community submitted", { exact: true })).toHaveCount(0);
   });
 
   test("lookup suggestions include authorized private seed rows", async ({ page }) => {
