@@ -37,6 +37,23 @@ test("owner upload failure stays beside the publish control", async ({ page }) =
   );
 });
 
+test("owner preview failure can retry", async ({ page }) => {
+  await page.goto("/account/media-kit");
+
+  const preview = page.getByRole("img", {
+    name: "DJ Aurora framed by violet light and a warm orange glow.",
+  });
+  await preview.scrollIntoViewIfNeeded();
+  await preview.evaluate((image: HTMLImageElement) => {
+    image.src = "/api/e2e/fixture-assets/missing-preview";
+  });
+  await expect(page.getByText("Preview unavailable.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Retry" }).click();
+  await expect(
+    page.getByRole("img", { name: "DJ Aurora framed by violet light and a warm orange glow." }),
+  ).toBeVisible();
+});
+
 test("public profile media kit @visual", async ({ page }, testInfo) => {
   await page.goto("/p/playwright-dj-aurora");
   const mediaKit = page.getByRole("heading", { name: "Media kit" }).locator("xpath=ancestor::section");

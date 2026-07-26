@@ -10,6 +10,7 @@ import type { Id } from "../../../../../../convex/_generated/dataModel";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
+import { MediaPreviewImage } from "@/app/_components/media-preview-image";
 import { cn } from "@/lib/cn";
 
 type MediaAsset = {
@@ -134,9 +135,7 @@ function AssetEditor({
         <div className="grid lg:grid-cols-[minmax(14rem,0.8fr)_minmax(0,1.2fr)]">
           <div className="relative min-h-56 bg-canvas-muted">
             {asset.imageUrl ? (
-              // Controlled VRDex asset routes are intentionally rendered as ordinary images.
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
+              <MediaPreviewImage
                 alt={draft.altText || `${draft.label || "Profile media"} preview`}
                 className="absolute inset-0 size-full object-contain"
                 src={asset.imageUrl}
@@ -520,6 +519,7 @@ function DemoMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: string
 function ConnectedMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: string }) {
   const profiles = useQuery(api.profileAssets.listOwnedMediaKitProfiles);
   const createUploadIntent = useMutation(api.profileAssets.createUploadIntentForOwnedProfile);
+  const cancelUploadIntent = useMutation(api.profileAssets.cancelOwnedUploadIntent);
   const updateMetadata = useMutation(api.profileAssets.updateOwnedAssetMetadata);
   const reorderGallery = useMutation(api.profileAssets.reorderOwnedGallery);
   const setFeatured = useMutation(api.profileAssets.setOwnedFeaturedAsset);
@@ -540,16 +540,24 @@ function ConnectedMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: s
         credit: metadata.credit,
         placements: ["gallery"],
       });
-      const data = new FormData();
-      data.set("file", file);
-      const response = await fetch(intent.uploadUrl, {
-        method: "POST",
-        headers: { [intent.uploadTokenHeader]: intent.uploadToken },
-        body: data,
-      });
-      if (!response.ok) {
-        const body = await response.json().catch(() => null) as { error?: string } | null;
-        throw new Error(body?.error || "Upload failed. Try again.");
+      try {
+        const data = new FormData();
+        data.set("file", file);
+        const response = await fetch(intent.uploadUrl, {
+          method: "POST",
+          headers: { [intent.uploadTokenHeader]: intent.uploadToken },
+          body: data,
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => null) as { error?: string } | null;
+          throw new Error(body?.error || "Upload failed. Try again.");
+        }
+      } catch (error) {
+        await cancelUploadIntent({
+          intentId: intent.intentId,
+          uploadToken: intent.uploadToken,
+        }).catch(() => false);
+        throw error;
       }
     },
     saveMetadata: async (profileId, asset) => {

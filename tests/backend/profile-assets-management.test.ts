@@ -154,6 +154,54 @@ describe("profile media-kit owner management", () => {
     );
   });
 
+  it("authorizes owner previews without requiring public profile visibility", async () => {
+    const seeded = await seedOwnedProfile(1);
+    await seeded.t.run(async (ctx) => {
+      await ctx.db.patch(seeded.profileId, {
+        publicSurfacingState: "suppressed",
+      });
+      await ctx.db.patch(seeded.assetIds[0]!, { visibility: "private" });
+    });
+
+    const ownerAsset = await seeded.t.withIdentity(seeded.ownerIdentity).query(
+      api.profileAssets.getOwnedAssetForStorage,
+      { profileId: seeded.profileId, assetId: seeded.assetIds[0]! },
+    );
+    const otherAsset = await seeded.t.withIdentity(seeded.otherIdentity).query(
+      api.profileAssets.getOwnedAssetForStorage,
+      { profileId: seeded.profileId, assetId: seeded.assetIds[0]! },
+    );
+
+    assert.equal(ownerAsset?.storageKey, "profile-assets/test/0.png");
+    assert.equal(otherAsset, null);
+  });
+
+  it("releases a failed owner upload reservation for an immediate retry", async () => {
+    const seeded = await seedOwnedProfile(11);
+    const owner = seeded.t.withIdentity(seeded.ownerIdentity);
+    const intent = await owner.mutation(api.profileAssets.createUploadIntentForOwnedProfile, {
+      profileId: seeded.profileId,
+      originalFileName: "failed.png",
+      mimeType: "image/png",
+      byteSize: 128,
+      label: "Failed upload",
+      altText: "A synthetic failed upload.",
+    });
+
+    assert.equal(await owner.mutation(api.profileAssets.cancelOwnedUploadIntent, {
+      intentId: intent.intentId,
+      uploadToken: intent.uploadToken,
+    }), true);
+    await owner.mutation(api.profileAssets.createUploadIntentForOwnedProfile, {
+      profileId: seeded.profileId,
+      originalFileName: "retry.png",
+      mimeType: "image/png",
+      byteSize: 128,
+      label: "Retry upload",
+      altText: "A synthetic retry upload.",
+    });
+  });
+
   it("enforces quota when a removed asset is restored", async () => {
     const seeded = await seedOwnedProfile(12);
     const deletedAssetId = await seeded.t.run(async (ctx) => {

@@ -86,7 +86,7 @@ Current recommendation:
    quick type/size feedback; server validation remains authoritative.
 5. The explicit Publish action starts the upload. Progress and a status
    announcement remain associated with that file, and a failed item remains
-   available to retry.
+   available to retry without retaining an active quota reservation.
 6. The owner can later update the title, accessibility description, caption,
    and credit.
 7. Up/down controls reorder the gallery without requiring drag gestures. A
@@ -116,6 +116,8 @@ Verified:
   pass.
 - public object delivery rechecks profile readability, asset state, visibility,
   and profile tenancy before reading S3.
+- editor previews use a separate signed-in owner route, recheck current profile
+  ownership, and remain private/no-store instead of weakening public delivery.
 - SVG files are served only through the controlled application route and
   displayed as ordinary image resources, not inserted as inline markup. The
   route applies `nosniff` and a sandboxed content security policy with scripts

@@ -3,6 +3,7 @@ import { BadgeCheck, ExternalLink } from "lucide-react";
 import { Fragment, type CSSProperties, type ReactNode } from "react";
 
 import { EventPreviewCard, type PublicEventPreview } from "./event-public-page";
+import { MediaPreviewImage } from "./media-preview-image";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, Eyebrow, SectionHeading } from "@/components/ui/card";
 import { CopyValueRow } from "@/components/ui/copy-value-row";
@@ -10,6 +11,7 @@ import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/pa
 import { avatarFrameStyle, defaultAvatarAppearance, type AvatarAppearance } from "@/lib/avatar-appearance";
 import { cn } from "@/lib/cn";
 import { profileClaimPath } from "@/lib/profile-claim";
+import { hasRenderableProfileMediaKit } from "@/lib/profile-media-kit";
 import { safeImageBackground } from "@/lib/safe-image";
 import type { TwitchLiveState } from "@/lib/server/twitch-live";
 import { twitchLoginFromUrl } from "@/lib/twitch-url";
@@ -298,9 +300,7 @@ function MediaAssetCard({ asset, label, featured = false }: { asset: PublicProfi
   return (
     <article className={cn("group grid overflow-hidden rounded-card border border-border bg-surface-strong text-sm transition hover:-translate-y-0.5 hover:shadow-panel", featured ? "lg:grid-cols-[minmax(0,1.35fr)_minmax(16rem,0.65fr)]" : undefined)}>
       <div className={cn("relative bg-canvas-muted", featured ? "min-h-72" : "aspect-[4/3]")}>
-        {/* Controlled VRDex asset routes are intentionally rendered as ordinary images. */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
+        <MediaPreviewImage
           alt={asset.altText ?? ""}
           className="absolute inset-0 size-full object-contain"
           src={asset.imageUrl}
@@ -420,7 +420,13 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
     ...(mediaKit.featuredAsset ? [mediaKit.featuredAsset.assetId] : []),
   ]);
   const remainingLogos = mediaKit.logos.filter((asset) => !galleryAssetIds.has(asset.assetId));
-  const hasMediaKit = galleryAssets.length > 0 || mediaKit.logos.length > 0;
+  const hasMediaKit = hasRenderableProfileMediaKit({
+    additionalLogoCount: mediaKit.additionalLogos.length,
+    galleryAssetCount: galleryAssets.length,
+    galleryEnabled: mediaKitGalleryEnabled,
+    hasPrimaryLogo: mediaKit.primaryLogo !== undefined,
+    logoCount: mediaKit.logos.length,
+  });
   const canClaim = profile.trustLabel === "community_submitted" || profile.trustLabel === "unclaimed";
   const secondaryOrder = normalizeProfileSectionOrder(profile.appearance?.sectionOrder).filter((section) =>
     ["events", "media_kit", "worlds"].includes(section),

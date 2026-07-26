@@ -300,6 +300,37 @@ export const createUploadIntentForOwnedProfile = mutation({
   },
 });
 
+export const cancelOwnedUploadIntent = mutation({
+  args: {
+    intentId: profileAssetUploadIntentId,
+    uploadToken: v.string(),
+  },
+  handler: async (ctx, args) => {
+    assertProfileMediaKitEnabled();
+    const user = await requireCurrentUser(ctx);
+    const intent = await ctx.db.get(args.intentId);
+
+    if (
+      intent === null ||
+      intent.uploadToken !== args.uploadToken ||
+      intent.targetProfileId === undefined ||
+      intent.state !== "pending" ||
+      intent.requestedBy.issuer !== "vrdex:api" ||
+      intent.requestedBy.subject !== String(user._id) ||
+      !(await userOwnsProfile(ctx.db, intent.targetProfileId, user._id))
+    ) {
+      return false;
+    }
+
+    const now = Date.now();
+    await ctx.db.patch(intent._id, {
+      expiresAt: Math.min(intent.expiresAt, now - 1),
+      updatedAt: now,
+    });
+    return true;
+  },
+});
+
 export const validateUploadIntentForStorage = query({
   args: {
     intentId: profileAssetUploadIntentId,
@@ -452,7 +483,7 @@ export const listOwnedMediaKitProfiles = query({
             width: asset.width,
             height: asset.height,
             featured: asset._id === featuredAssetId,
-            imageUrl: asset.state === "active" ? publicProfileAssetImageUrl(profile.slug, asset._id) : undefined,
+            imageUrl: `/api/account/media-kit/${encodeURIComponent(profile._id)}/assets/${encodeURIComponent(asset._id)}/file`,
           })),
       });
     }
@@ -866,6 +897,46 @@ export const getPublicAssetForStorage = query({
       slug: profile.slug,
       displayName: profile.displayName,
       assetId: asset._id,
+      label: asset.label,
+      storageKey: asset.storageKey,
+      originalFileName: asset.originalFileName,
+      mimeType: asset.mimeType,
+      byteSize: asset.byteSize,
+    };
+  },
+});
+
+export const getOwnedAssetForStorage = query({
+  args: {
+    profileId: v.string(),
+    assetId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    assertProfileMediaKitEnabled();
+    const user = await getCurrentUser(ctx);
+    const profileId = ctx.db.normalizeId("profiles", args.profileId);
+    const assetId = ctx.db.normalizeId("profileAssets", args.assetId);
+
+    if (
+      user === null ||
+      profileId === null ||
+      assetId === null ||
+      !(await userOwnsProfile(ctx.db, profileId, user._id))
+    ) {
+      return null;
+    }
+
+    const [profile, asset] = await Promise.all([
+      ctx.db.get(profileId),
+      ctx.db.get(assetId),
+    ]);
+
+    if (profile === null || asset === null || asset.profileId !== profile._id) {
+      return null;
+    }
+
+    return {
+      displayName: profile.displayName,
       label: asset.label,
       storageKey: asset.storageKey,
       originalFileName: asset.originalFileName,
