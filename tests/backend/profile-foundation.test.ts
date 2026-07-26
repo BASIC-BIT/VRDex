@@ -1603,6 +1603,12 @@ describe("profile media kit asset helpers", () => {
       label: "Wordmark",
       altText: "Aurora wordmark.",
     } as Doc<"profileAssets">;
+    const unplaced = {
+      ...first,
+      _id: "asset-unplaced",
+      label: undefined,
+      altText: undefined,
+    } as Doc<"profileAssets">;
     const placements = [
       { assetId: second._id, placement: "gallery", position: 0, state: "active" },
       { assetId: first._id, placement: "gallery", position: 1, state: "active" },
@@ -1614,7 +1620,7 @@ describe("profile media kit asset helpers", () => {
           withIndex() {
             return {
               async collect() {
-                if (tableName === "profileAssets") return [first, second];
+                if (tableName === "profileAssets") return [first, second, unplaced];
                 if (tableName === "profileAssetPlacements") return placements;
                 return [];
               },

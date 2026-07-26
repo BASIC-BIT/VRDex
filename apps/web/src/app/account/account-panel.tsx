@@ -114,7 +114,7 @@ function ConnectedAccountPanel({ mediaKitEnabled }: { mediaKitEnabled: boolean }
                   {mediaKitEnabled ? (
                     <Link
                       className={buttonVariants({ size: "sm", variant: "secondary" })}
-                      href="/account/media-kit"
+                      href={`/account/media-kit?profile=${encodeURIComponent(profile.slug)}`}
                     >
                       Manage media
                     </Link>

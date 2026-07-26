@@ -333,7 +333,10 @@ export async function createProfileAssetUploadIntentRecord(
   const caption = sanitizeProfileAssetCaption(input.caption);
   const altText = sanitizeProfileAssetAltText(input.altText);
   const credit = sanitizeProfileAssetCredit(input.credit);
-  if (input.placements?.includes("gallery") && (label === undefined || altText === undefined)) {
+  if (
+    input.placements?.some((placement) => placement === "gallery" || placement === "featured") &&
+    (label === undefined || altText === undefined)
+  ) {
     throw new Error("Gallery images require a title and accessibility description.");
   }
   const expiresAt = input.now + PROFILE_ASSET_UPLOAD_INTENT_TTL_MS;
@@ -451,7 +454,6 @@ export async function getPublicProfileMediaKit(
   const profileImageAsset = firstPlacedAsset(assetsById, sortedPlacements, "profile_image");
   const bannerAsset = firstPlacedAsset(assetsById, sortedPlacements, "banner");
   const primaryLogoAsset = firstPlacedAsset(assetsById, sortedPlacements, "primary_logo");
-  const featuredAsset = firstPlacedAsset(assetsById, sortedPlacements, "featured");
   const additionalLogoAssets = placedAssets(assetsById, sortedPlacements, "additional_logo").filter(
     (asset) => asset._id !== primaryLogoAsset?._id,
   );
@@ -459,11 +461,13 @@ export async function getPublicProfileMediaKit(
   const primaryLogo = primaryLogoAsset ? toPublicAsset(profile, primaryLogoAsset) : undefined;
   const additionalLogos = additionalLogoAssets.map((asset) => toPublicAsset(profile, asset));
   const logos = primaryLogo ? [primaryLogo, ...additionalLogos] : additionalLogos;
-  const galleryAssets = placedAssets(assetsById, sortedPlacements, "gallery");
-  const orderedAssets = [
-    ...galleryAssets,
-    ...assets.filter((asset) => !galleryAssets.some((galleryAsset) => galleryAsset._id === asset._id)),
-  ];
+  const galleryAssets = placedAssets(assetsById, sortedPlacements, "gallery").filter(
+    (asset) =>
+      sanitizeProfileAssetLabel(asset.label) !== undefined &&
+      sanitizeProfileAssetAltText(asset.altText) !== undefined,
+  );
+  const featuredCandidate = firstPlacedAsset(assetsById, sortedPlacements, "featured");
+  const featuredAsset = galleryAssets.find((asset) => asset._id === featuredCandidate?._id);
   const compactDisplay =
     preference?.compactDisplay === "logo" || (!profileImage && primaryLogo)
       ? "logo"
@@ -479,7 +483,7 @@ export async function getPublicProfileMediaKit(
     ...(primaryLogo ? { primaryLogo } : {}),
     additionalLogos,
     logos,
-    assets: orderedAssets.map((asset) => toPublicAsset(profile, asset)),
+    assets: galleryAssets.map((asset) => toPublicAsset(profile, asset)),
     ...(logos.length > 0 ? { logoZipUrl: publicProfileLogoZipUrl(profile.slug) } : {}),
     compactDisplay,
     avatarAppearance,
@@ -523,6 +527,12 @@ export async function consumeProfileAssetUploads(
     const caption = sanitizeProfileAssetCaption(upload.caption);
     const altText = sanitizeProfileAssetAltText(upload.altText);
     const credit = sanitizeProfileAssetCredit(upload.credit);
+    if (
+      upload.placements.some((placement) => placement === "gallery" || placement === "featured") &&
+      (label === undefined || altText === undefined)
+    ) {
+      throw new Error("Gallery images require a title and accessibility description.");
+    }
     const assetId = await db.insert("profileAssets", {
       profileId: input.profileId,
       storageKey: intent.storageKey,

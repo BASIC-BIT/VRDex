@@ -19,6 +19,24 @@ test("owner media-kit editor @visual", async ({ page }, testInfo) => {
   await captureRouteScreenshot(page, testInfo, "media-kit-editor");
 });
 
+test("owner upload failure stays beside the publish control", async ({ page }) => {
+  await page.goto("/account/media-kit");
+  await page.getByLabel("Add image").setInputFiles({
+    name: "synthetic.png",
+    mimeType: "image/png",
+    buffer: Buffer.from("synthetic image"),
+  });
+  const publish = page.getByRole("button", { name: "Publish" });
+  const uploadForm = publish.locator("xpath=ancestor::form");
+  await uploadForm.getByLabel("Accessibility description").fill("Synthetic upload test image.");
+
+  await publish.click();
+
+  await expect(uploadForm.getByRole("alert")).toHaveText(
+    "Synthetic preview storage does not accept new files.",
+  );
+});
+
 test("public profile media kit @visual", async ({ page }, testInfo) => {
   await page.goto("/p/playwright-dj-aurora");
   const mediaKit = page.getByRole("heading", { name: "Media kit" }).locator("xpath=ancestor::section");

@@ -3,7 +3,7 @@
 import { useMutation, useQuery } from "convex/react";
 import { ArrowDown, ArrowUp, ImagePlus, RotateCcw, Star, Trash2 } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
 
 import { api } from "@convex-generated-api";
 import type { Id } from "../../../../../../convex/_generated/dataModel";
@@ -47,11 +47,34 @@ type EditorActions = {
   setDeleted: (profileId: string, assetId: string, deleted: boolean) => Promise<void>;
 };
 
+type ActionStatus = {
+  kind: "error" | "progress" | "success";
+  message: string;
+};
+
 const inputClass =
   "mt-1.5 w-full rounded-control border border-border bg-surface px-3 py-2.5 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-focus";
 
 function formatBytes(bytes: number) {
   return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function ActionStatusMessage({ className, status }: { className?: string; status: ActionStatus | null }) {
+  if (!status) return null;
+
+  if (status?.kind === "error") {
+    return (
+      <Notice className={className} role="alert" variant="error">
+        {status.message}
+      </Notice>
+    );
+  }
+
+  return (
+    <p className={cn("text-sm text-muted", className)} role="status">
+      {status.message}
+    </p>
+  );
 }
 
 function AssetEditor({
@@ -62,6 +85,7 @@ function AssetEditor({
   actions,
   operationBusy,
   runOperation,
+  onRemoved,
 }: {
   asset: MediaAsset;
   index: number;
@@ -69,13 +93,22 @@ function AssetEditor({
   profileId: string;
   actions: EditorActions;
   operationBusy: boolean;
-  runOperation: (successMessage: string, action: () => Promise<void>) => Promise<void>;
+  runOperation: (
+    successMessage: string,
+    action: () => Promise<void>,
+    setStatus: (status: ActionStatus | null) => void,
+  ) => Promise<boolean>;
+  onRemoved: (assetId: string) => void;
 }) {
   const [draft, setDraft] = useState(asset);
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState<ActionStatus | null>(null);
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
-    await runOperation("Saved.", () => actions.saveMetadata(profileId, draft));
+    setSaving(true);
+    await runOperation("Saved.", () => actions.saveMetadata(profileId, draft), setStatus);
+    setSaving(false);
   };
 
   const move = async (direction: -1 | 1) => {
@@ -83,7 +116,16 @@ function AssetEditor({
     const container = document.querySelector(`[data-gallery="${profileId}"]`);
     const ids = container ? Array.from(container.querySelectorAll<HTMLElement>("[data-asset-id]")).map((item) => item.dataset.assetId!) : [];
     [ids[index], ids[nextIndex]] = [ids[nextIndex]!, ids[index]!];
-    await runOperation("Order saved.", () => actions.reorder(profileId, ids));
+    await runOperation("Order saved.", () => actions.reorder(profileId, ids), setStatus);
+  };
+
+  const remove = async () => {
+    const removed = await runOperation(
+      "Removed.",
+      () => actions.setDeleted(profileId, asset.assetId, true),
+      setStatus,
+    );
+    if (removed) onRemoved(asset.assetId);
   };
 
   return (
@@ -147,16 +189,28 @@ function AssetEditor({
             </label>
 
             <div className="flex flex-wrap items-center gap-2 border-t border-border pt-4">
-              <Button disabled={operationBusy} type="submit" variant="primary">{operationBusy ? "Saving…" : "Save"}</Button>
-              <Button disabled={operationBusy || asset.featured} onClick={() => void runOperation("Featured.", () => actions.feature(profileId, asset.assetId))} type="button" variant="secondary">
+              <Button disabled={operationBusy} type="submit" variant="primary">{saving ? "Saving…" : "Save"}</Button>
+              <Button
+                disabled={operationBusy || asset.featured}
+                onClick={() => {
+                  void runOperation(
+                    "Featured.",
+                    () => actions.feature(profileId, asset.assetId),
+                    setStatus,
+                  );
+                }}
+                type="button"
+                variant="secondary"
+              >
                 <Star aria-hidden="true" className="mr-2 size-4" />
                 {asset.featured ? "Featured" : "Make featured"}
               </Button>
-              <Button className="ml-auto" disabled={operationBusy} onClick={() => void runOperation("Removed.", () => actions.setDeleted(profileId, asset.assetId, true))} type="button" variant="ghost">
+              <Button className="ml-auto" disabled={operationBusy} onClick={() => void remove()} type="button" variant="ghost">
                 <Trash2 aria-hidden="true" className="mr-2 size-4" />
                 Remove
               </Button>
             </div>
+            <ActionStatusMessage status={status} />
           </form>
         </div>
       </Card>
@@ -164,28 +218,52 @@ function AssetEditor({
   );
 }
 
-function MediaKitEditor({ initialProfiles, actions }: { initialProfiles: MediaProfile[]; actions: EditorActions }) {
-  const [selectedId, setSelectedId] = useState(initialProfiles[0]?.profileId ?? "");
-  const [uploadStatus, setUploadStatus] = useState("");
+function MediaKitEditor({
+  initialProfiles,
+  initialProfileSlug,
+  actions,
+}: {
+  initialProfiles: MediaProfile[];
+  initialProfileSlug?: string;
+  actions: EditorActions;
+}) {
+  const [selectedId, setSelectedId] = useState(
+    initialProfiles.find((profile) => profile.slug === initialProfileSlug)?.profileId ??
+      initialProfiles[0]?.profileId ??
+      "",
+  );
+  const [uploadStatus, setUploadStatus] = useState<ActionStatus | null>(null);
   const [uploading, setUploading] = useState(false);
   const [operationBusy, setOperationBusy] = useState(false);
-  const [operationStatus, setOperationStatus] = useState("");
+  const [galleryStatus, setGalleryStatus] = useState<ActionStatus | null>(null);
+  const [removedStatus, setRemovedStatus] = useState<ActionStatus | null>(null);
+  const [focusRestoreAssetId, setFocusRestoreAssetId] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [uploadMetadata, setUploadMetadata] = useState({ label: "", altText: "", credit: "" });
   const profile = initialProfiles.find((item) => item.profileId === selectedId) ?? initialProfiles[0];
   const activeAssets = profile?.assets.filter((asset) => asset.state === "active") ?? [];
   const deletedAssets = profile?.assets.filter((asset) => asset.state === "deleted") ?? [];
+  const deletedAssetIds = deletedAssets.map((asset) => asset.assetId).join(",");
+
+  useEffect(() => {
+    if (!focusRestoreAssetId) return;
+    const restore = document.getElementById(`restore-${focusRestoreAssetId}`);
+    if (restore instanceof HTMLElement) {
+      restore.focus();
+      setFocusRestoreAssetId(null);
+    }
+  }, [deletedAssetIds, focusRestoreAssetId]);
 
   const chooseFile = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file || !profile) return;
     if (!["image/png", "image/jpeg", "image/webp", "image/svg+xml"].includes(file.type)) {
-      setUploadStatus("Choose a PNG, JPEG, WebP, or SVG image.");
+      setUploadStatus({ kind: "error", message: "Choose a PNG, JPEG, WebP, or SVG image." });
       return;
     }
     if (file.size <= 0 || file.size > 12 * 1024 * 1024) {
-      setUploadStatus("Choose an image up to 12 MB.");
+      setUploadStatus({ kind: "error", message: "Choose an image up to 12 MB." });
       return;
     }
     setPendingFile(file);
@@ -194,37 +272,49 @@ function MediaKitEditor({ initialProfiles, actions }: { initialProfiles: MediaPr
       altText: "",
       credit: "",
     });
-    setUploadStatus("");
+    setUploadStatus(null);
   };
 
   const publishUpload = async (event: FormEvent) => {
     event.preventDefault();
     if (!pendingFile || !profile) return;
     if (!uploadMetadata.label.trim() || !uploadMetadata.altText.trim()) {
-      setUploadStatus("Title and accessibility description are required.");
+      setUploadStatus({ kind: "error", message: "Title and accessibility description are required." });
       return;
     }
     setUploading(true);
-    setUploadStatus(`Uploading ${pendingFile.name}…`);
+    setUploadStatus({ kind: "progress", message: `Uploading ${pendingFile.name}…` });
     try {
       await actions.upload(profile.profileId, pendingFile, uploadMetadata);
-      setUploadStatus("Published.");
+      setUploadStatus({ kind: "success", message: "Published." });
       setPendingFile(null);
     } catch (error) {
-      setUploadStatus(error instanceof Error ? error.message : "Upload failed. Try again.");
+      setUploadStatus({
+        kind: "error",
+        message: error instanceof Error ? error.message : "Upload failed. Try again.",
+      });
     } finally {
       setUploading(false);
     }
   };
 
-  const runOperation = async (successMessage: string, action: () => Promise<void>) => {
+  const runOperation = async (
+    successMessage: string,
+    action: () => Promise<void>,
+    setStatus: (status: ActionStatus | null) => void,
+  ) => {
     setOperationBusy(true);
-    setOperationStatus("");
+    setStatus(null);
     try {
       await action();
-      setOperationStatus(successMessage);
+      setStatus({ kind: "success", message: successMessage });
+      return true;
     } catch (error) {
-      setOperationStatus(error instanceof Error ? error.message : "Change failed. Try again.");
+      setStatus({
+        kind: "error",
+        message: error instanceof Error ? error.message : "Change failed. Try again.",
+      });
+      return false;
     } finally {
       setOperationBusy(false);
     }
@@ -261,7 +351,7 @@ function MediaKitEditor({ initialProfiles, actions }: { initialProfiles: MediaPr
           </div>
         </div>
         {uploading ? <progress aria-label="Image upload in progress" className="mt-5 w-full" /> : null}
-        <p aria-live="polite" className="mt-3 min-h-6 text-sm text-muted">{uploadStatus}</p>
+        {!pendingFile ? <ActionStatusMessage className="mt-3" status={uploadStatus} /> : null}
         {pendingFile ? (
           <form className="mt-4 grid gap-4 border-t border-border pt-4" onSubmit={publishUpload}>
             <p className="text-sm font-medium">{pendingFile.name}</p>
@@ -283,6 +373,7 @@ function MediaKitEditor({ initialProfiles, actions }: { initialProfiles: MediaPr
               <Button disabled={uploading} type="submit" variant="primary">Publish</Button>
               <Button disabled={uploading} onClick={() => setPendingFile(null)} type="button" variant="ghost">Cancel</Button>
             </div>
+            <ActionStatusMessage status={uploadStatus} />
           </form>
         ) : null}
       </Card>
@@ -294,14 +385,25 @@ function MediaKitEditor({ initialProfiles, actions }: { initialProfiles: MediaPr
               <h2 className="text-2xl font-semibold" id="gallery-heading">Public gallery</h2>
             </div>
             {activeAssets.some((asset) => asset.featured) ? (
-              <Button className="whitespace-nowrap" disabled={operationBusy} onClick={() => void runOperation("Featured cleared.", () => actions.feature(profile.profileId, null))} size="sm" type="button" variant="ghost">
+              <Button className="whitespace-nowrap" disabled={operationBusy} onClick={() => void runOperation("Featured cleared.", () => actions.feature(profile.profileId, null), setGalleryStatus)} size="sm" type="button" variant="ghost">
                 Clear featured
               </Button>
             ) : null}
           </div>
+          <ActionStatusMessage className="mb-4" status={galleryStatus} />
           <ol className="grid gap-4" data-gallery={profile.profileId}>
             {activeAssets.map((asset, index) => (
-              <AssetEditor actions={actions} asset={asset} count={activeAssets.length} index={index} key={asset.assetId} operationBusy={operationBusy} profileId={profile.profileId} runOperation={runOperation} />
+              <AssetEditor
+                actions={actions}
+                asset={asset}
+                count={activeAssets.length}
+                index={index}
+                key={asset.assetId}
+                onRemoved={setFocusRestoreAssetId}
+                operationBusy={operationBusy}
+                profileId={profile.profileId}
+                runOperation={runOperation}
+              />
             ))}
           </ol>
         </section>
@@ -318,16 +420,23 @@ function MediaKitEditor({ initialProfiles, actions }: { initialProfiles: MediaPr
             {deletedAssets.map((asset) => (
               <li className="flex flex-wrap items-center justify-between gap-3 py-3" key={asset.assetId}>
                 <span className="text-sm">{asset.label || "Untitled image"}</span>
-                <Button disabled={operationBusy} onClick={() => void runOperation("Restored.", () => actions.setDeleted(profile.profileId, asset.assetId, false))} size="sm" type="button" variant="secondary">
+                <Button
+                  disabled={operationBusy}
+                  id={`restore-${asset.assetId}`}
+                  onClick={() => void runOperation("Restored.", () => actions.setDeleted(profile.profileId, asset.assetId, false), setRemovedStatus)}
+                  size="sm"
+                  type="button"
+                  variant="secondary"
+                >
                   <RotateCcw aria-hidden="true" className="mr-2 size-4" />
                   Restore
                 </Button>
               </li>
             ))}
           </ul>
+          <ActionStatusMessage className="mt-3" status={removedStatus} />
         </section>
       ) : null}
-      <p aria-live="polite" className="min-h-5 text-sm text-muted">{operationStatus}</p>
     </div>
   );
 }
@@ -376,7 +485,7 @@ const demoProfiles: MediaProfile[] = [{
   ],
 }];
 
-function DemoMediaKitPanel() {
+function DemoMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: string }) {
   const [profiles, setProfiles] = useState(demoProfiles);
   const actions = useMemo<EditorActions>(() => ({
     upload: async () => {
@@ -405,10 +514,10 @@ function DemoMediaKitPanel() {
         : profile));
     },
   }), []);
-  return <MediaKitEditor actions={actions} initialProfiles={profiles} />;
+  return <MediaKitEditor actions={actions} initialProfiles={profiles} initialProfileSlug={initialProfileSlug} />;
 }
 
-function ConnectedMediaKitPanel() {
+function ConnectedMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: string }) {
   const profiles = useQuery(api.profileAssets.listOwnedMediaKitProfiles);
   const createUploadIntent = useMutation(api.profileAssets.createUploadIntentForOwnedProfile);
   const updateMetadata = useMutation(api.profileAssets.updateOwnedAssetMetadata);
@@ -416,7 +525,7 @@ function ConnectedMediaKitPanel() {
   const setFeatured = useMutation(api.profileAssets.setOwnedFeaturedAsset);
   const setDeleted = useMutation(api.profileAssets.setOwnedAssetDeleted);
 
-  if (profiles === undefined) return <p className="text-sm text-muted">Loading media kit…</p>;
+  if (profiles === undefined) return <p aria-busy="true" className="text-sm text-muted" role="status">Loading media kit…</p>;
   if (profiles === null) return <Notice variant="warning">Sign in to manage profile media.</Notice>;
 
   const actions: EditorActions = {
@@ -474,9 +583,25 @@ function ConnectedMediaKitPanel() {
     },
   };
 
-  return <MediaKitEditor actions={actions} initialProfiles={profiles as MediaProfile[]} />;
+  return (
+    <MediaKitEditor
+      actions={actions}
+      initialProfiles={profiles as MediaProfile[]}
+      initialProfileSlug={initialProfileSlug}
+    />
+  );
 }
 
-export function MediaKitPanel({ demoMode }: { demoMode: boolean }) {
-  return demoMode ? <DemoMediaKitPanel /> : <ConnectedMediaKitPanel />;
+export function MediaKitPanel({
+  demoMode,
+  initialProfileSlug,
+}: {
+  demoMode: boolean;
+  initialProfileSlug?: string;
+}) {
+  return demoMode ? (
+    <DemoMediaKitPanel initialProfileSlug={initialProfileSlug} />
+  ) : (
+    <ConnectedMediaKitPanel initialProfileSlug={initialProfileSlug} />
+  );
 }

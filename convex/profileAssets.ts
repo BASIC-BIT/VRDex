@@ -398,19 +398,28 @@ export const listOwnedMediaKitProfiles = query({
         continue;
       }
 
-      const [assets, placements] = await Promise.all([
+      const [assets, activePlacementRecords, deletedPlacementRecords] = await Promise.all([
         ctx.db.query("profileAssets").withIndex("by_profileId", (query) => query.eq("profileId", profile._id)).collect(),
         ctx.db
           .query("profileAssetPlacements")
           .withIndex("by_profileId_state", (query) => query.eq("profileId", profile._id).eq("state", "active"))
           .collect(),
+        ctx.db
+          .query("profileAssetPlacements")
+          .withIndex("by_profileId_state", (query) => query.eq("profileId", profile._id).eq("state", "deleted"))
+          .collect(),
       ]);
-      const activePlacements = placements.sort((first, second) => first.position - second.position);
+      const activePlacements = activePlacementRecords.sort((first, second) => first.position - second.position);
       const featuredAssetId = activePlacements.find((placement) => placement.placement === "featured")?.assetId;
       const galleryPosition = new Map(
         activePlacements
           .filter((placement) => placement.placement === "gallery")
           .map((placement, index) => [placement.assetId, index]),
+      );
+      const historicalGalleryAssetIds = new Set(
+        [...activePlacementRecords, ...deletedPlacementRecords]
+          .filter((placement) => placement.placement === "gallery")
+          .map((placement) => placement.assetId),
       );
 
       results.push({
@@ -419,6 +428,11 @@ export const listOwnedMediaKitProfiles = query({
         slug: profile.slug,
         displayName: profile.displayName,
         assets: assets
+          .filter((asset) =>
+            asset.state === "active"
+              ? galleryPosition.has(asset._id)
+              : historicalGalleryAssetIds.has(asset._id),
+          )
           .sort((first, second) => {
             if (first.state !== second.state) {
               return first.state === "active" ? -1 : 1;
@@ -522,6 +536,16 @@ export const reorderOwnedGallery = mutation({
     if (assets.some((asset) => asset === null || asset.profileId !== profile._id || asset.state !== "active")) {
       throw new Error("Gallery order includes unavailable media.");
     }
+    if (
+      assets.some(
+        (asset) =>
+          asset === null ||
+          sanitizeProfileAssetLabel(asset.label) === undefined ||
+          sanitizeProfileAssetAltText(asset.altText) === undefined,
+      )
+    ) {
+      throw new Error("Gallery images require a title and accessibility description.");
+    }
 
     const existing = await ctx.db
       .query("profileAssetPlacements")
@@ -566,6 +590,17 @@ export const setOwnedFeaturedAsset = mutation({
       const asset = await ctx.db.get(args.assetId);
       if (asset === null || asset.profileId !== profile._id || asset.state !== "active") {
         throw new Error("Featured media must be an active item from this profile.");
+      }
+      const placements = await ctx.db
+        .query("profileAssetPlacements")
+        .withIndex("by_assetId", (query) => query.eq("assetId", asset._id))
+        .collect();
+      if (
+        !placements.some((placement) => placement.state === "active" && placement.placement === "gallery") ||
+        sanitizeProfileAssetLabel(asset.label) === undefined ||
+        sanitizeProfileAssetAltText(asset.altText) === undefined
+      ) {
+        throw new Error("Featured media must be an accessible public gallery item.");
       }
     }
 
@@ -618,6 +653,36 @@ export const setOwnedAssetDeleted = mutation({
       ...(args.deleted ? { deletedAt: now } : { deletedAt: undefined }),
       updatedAt: now,
     });
+    if (!args.deleted) {
+      const assetPlacements = await ctx.db
+        .query("profileAssetPlacements")
+        .withIndex("by_assetId", (query) => query.eq("assetId", asset._id))
+        .collect();
+      const wasGalleryAsset = assetPlacements.some((placement) => placement.placement === "gallery");
+      const hasActiveGalleryPlacement = assetPlacements.some(
+        (placement) => placement.placement === "gallery" && placement.state === "active",
+      );
+      if (wasGalleryAsset && !hasActiveGalleryPlacement) {
+        const activeGallery = await ctx.db
+          .query("profileAssetPlacements")
+          .withIndex("by_profileId_placement_state_position", (query) =>
+            query.eq("profileId", profile._id).eq("placement", "gallery").eq("state", "active"),
+          )
+          .collect();
+        const nextPosition = activeGallery.reduce(
+          (position, placement) => Math.max(position, placement.position + 1),
+          0,
+        );
+        await ctx.db.insert("profileAssetPlacements", {
+          profileId: profile._id,
+          assetId: asset._id,
+          placement: "gallery",
+          position: nextPosition,
+          state: "active",
+          updatedAt: now,
+        });
+      }
+    }
     await ctx.db.insert("profileAuditEvents", {
       profileId: profile._id,
       action: args.deleted ? "profile_asset_deleted" : "profile_asset_restored",

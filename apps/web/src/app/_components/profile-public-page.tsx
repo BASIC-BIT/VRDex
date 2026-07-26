@@ -412,7 +412,7 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
   const mediaKitGalleryEnabled =
     process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED === "true" ||
     process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES === "true";
-  const hasMediaKit = mediaKit.assets.length > 0;
+  const hasMediaKit = mediaKit.assets.length > 0 || mediaKit.logos.length > 0;
   const canClaim = profile.trustLabel === "community_submitted" || profile.trustLabel === "unclaimed";
   const secondaryOrder = normalizeProfileSectionOrder(profile.appearance?.sectionOrder).filter((section) =>
     ["events", "media_kit", "worlds"].includes(section),

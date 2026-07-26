@@ -57,6 +57,7 @@ async function seedOwnedProfile(assetCount = 2) {
         byteSize: 128,
         contentSha256: `hash-${index}`,
         label: `Asset ${index + 1}`,
+        altText: `Test asset ${index + 1}.`,
         visibility: "public",
         source: "owner_authored",
         uploadedBy: {
@@ -257,6 +258,52 @@ describe("profile media-kit owner management", () => {
       }),
       /accessibility description/,
     );
+    await assert.rejects(
+      seeded.t.withIdentity(seeded.ownerIdentity).mutation(api.profileAssets.createUploadIntentForOwnedProfile, {
+        profileId: seeded.profileId,
+        originalFileName: "missing-featured-alt.png",
+        mimeType: "image/png",
+        byteSize: 128,
+        label: "Missing featured alt",
+        placements: ["featured"],
+      }),
+      /accessibility description/,
+    );
+  });
+
+  it("keeps unplaced assets out of gallery and featured owner controls", async () => {
+    const seeded = await seedOwnedProfile(1);
+    const owner = seeded.t.withIdentity(seeded.ownerIdentity);
+    const unplacedAssetId = await seeded.t.run(async (ctx) => {
+      return await ctx.db.insert("profileAssets", {
+        profileId: seeded.profileId,
+        storageKey: "profile-assets/test/unplaced.png",
+        mimeType: "image/png",
+        byteSize: 128,
+        label: "Unplaced",
+        altText: "An unplaced test asset.",
+        visibility: "public",
+        source: "owner_authored",
+        uploadedBy: {
+          tokenIdentifier: `api:${seeded.userId}`,
+          issuer: "vrdex:api",
+          subject: String(seeded.userId),
+        },
+        uploadedAt: Date.now(),
+        state: "active",
+        updatedAt: Date.now(),
+      });
+    });
+
+    const profiles = await owner.query(api.profileAssets.listOwnedMediaKitProfiles, {});
+    assert.deepEqual(profiles?.[0]?.assets.map((asset) => asset.assetId), seeded.assetIds);
+    await assert.rejects(
+      owner.mutation(api.profileAssets.setOwnedFeaturedAsset, {
+        profileId: seeded.profileId,
+        assetId: unplacedAssetId,
+      }),
+      /accessible public gallery item/,
+    );
   });
 
   it("updates metadata, order, featured state, and recoverable deletion", async () => {
@@ -292,6 +339,10 @@ describe("profile media-kit owner management", () => {
       assetId: seeded.assetIds[0]!,
       deleted: true,
     });
+    await owner.mutation(api.profileAssets.reorderOwnedGallery, {
+      profileId: seeded.profileId,
+      assetIds: [seeded.assetIds[1]!],
+    });
     let profiles = await owner.query(api.profileAssets.listOwnedMediaKitProfiles, {});
     assert.deepEqual(profiles?.[0]?.assets.map((asset) => asset.assetId), [seeded.assetIds[1], seeded.assetIds[0]]);
     assert.equal(profiles?.[0]?.assets[1]?.state, "deleted");
@@ -305,5 +356,15 @@ describe("profile media-kit owner management", () => {
     assert.equal(profiles?.[0]?.assets[1]?.state, "active");
     assert.equal(profiles?.[0]?.assets[1]?.featured, true);
     assert.equal(profiles?.[0]?.assets[1]?.altText, "Owner standing under violet light.");
+    const restoredGallery = await seeded.t.run(async (ctx) => {
+      return await ctx.db
+        .query("profileAssetPlacements")
+        .withIndex("by_assetId", (query) => query.eq("assetId", seeded.assetIds[0]!))
+        .collect();
+    });
+    assert.equal(
+      restoredGallery.some((placement) => placement.placement === "gallery" && placement.state === "active"),
+      true,
+    );
   });
 });
