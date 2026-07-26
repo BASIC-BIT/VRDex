@@ -6,7 +6,7 @@ import { E2E_DISCORD_GUILD_ID } from "../src/lib/e2e-discord-fixture";
 test.describe.configure({ mode: "serial" });
 
 const hostedActionExpectOptions = { timeout: process.env.PLAYWRIGHT_BASE_URL ? 20_000 : 5_000 };
-const PRE_NUMERIC_DISCORD_FIXTURE_STAGING_COMMIT = "1e1ac2f";
+const PRE_NUMERIC_DISCORD_FIXTURE_STAGING_COMMITS = ["1e1ac2f", "05f1ca7"] as const;
 
 function e2eBrowserToken() {
   const token = process.env.VRDEX_E2E_BROWSER_TOKEN ?? (process.env.PLAYWRIGHT_BASE_URL ? undefined : "local-playwright-token");
@@ -34,7 +34,8 @@ async function hostedTargetIsKnownPreNumericDiscordFixture(request: APIRequestCo
 
   const response = await request.get("/deployment");
   await expect(response).toBeOK();
-  return (await response.text()).includes(PRE_NUMERIC_DISCORD_FIXTURE_STAGING_COMMIT);
+  const deploymentPage = await response.text();
+  return PRE_NUMERIC_DISCORD_FIXTURE_STAGING_COMMITS.some((commit) => deploymentPage.includes(commit));
 }
 
 async function createE2eProfile({
