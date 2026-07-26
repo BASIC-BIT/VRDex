@@ -61,6 +61,11 @@ describe("public API rate limiting", () => {
     }
   });
 
+  it("keeps gallery asset delivery out of the shared public API budget", () => {
+    assert.equal(apiRateLimitPolicyForRouteClass("profile_asset_file").limit, 1_200);
+    assert.equal(apiRateLimitPolicyForRouteClass("anonymous_public_read").limit, 120);
+  });
+
   it("boosts trusted partner quotas only for authenticated traffic classes", () => {
     assert.equal(
       apiRateLimitPolicyForRouteClass("authenticated_public_read", "trusted_partner").limit,

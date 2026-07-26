@@ -38,6 +38,7 @@ export type MemoryApiRateLimitStore = Map<string, MemoryBucket>;
 
 export const defaultApiRateLimitPolicies: Record<ApiRouteClass, ApiRateLimitPolicy> = {
   anonymous_public_read: { limit: 120, windowMs: 60_000 },
+  profile_asset_file: { limit: 1_200, windowMs: 60_000 },
   authenticated_public_read: { limit: 600, windowMs: 60_000 },
   developer_credential_management: { limit: 30, windowMs: 60_000 },
   oauth_authorize: { limit: 60, windowMs: 60_000 },

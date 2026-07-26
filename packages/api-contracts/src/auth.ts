@@ -23,6 +23,7 @@ export const oauthApiScopes = apiScopes.filter(
 
 export const apiRouteClasses = [
   "anonymous_public_read",
+  "profile_asset_file",
   "authenticated_public_read",
   "developer_credential_management",
   "oauth_authorize",

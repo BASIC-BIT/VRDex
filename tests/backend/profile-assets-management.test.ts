@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import { convexTest } from "convex-test";
 
 import { api, internal } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
 import schemaModule from "../../convex/schema";
 
 process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true";
@@ -96,6 +97,20 @@ async function seedOwnedProfile(assetCount = 2) {
     };
   });
   return { t, ...seeded };
+}
+
+async function claimUploadIntent(
+  seeded: Awaited<ReturnType<typeof seedOwnedProfile>>,
+  intent: { intentId: Id<"profileAssetUploadIntents">; uploadToken: string },
+) {
+  const processingToken = `processing-${crypto.randomUUID()}`;
+  const claimed = await seeded.t.mutation(internal.profileAssets.claimUploadIntentForStorage, {
+    intentId: intent.intentId,
+    uploadToken: intent.uploadToken,
+    processingToken,
+  });
+  assert.notEqual(claimed, null);
+  return processingToken;
 }
 
 describe("profile media-kit owner management", () => {
@@ -202,6 +217,49 @@ describe("profile media-kit owner management", () => {
     });
   });
 
+  it("atomically fences storage processing for one upload request", async () => {
+    const seeded = await seedOwnedProfile(0);
+    const intent = await seeded.t.withIdentity(seeded.ownerIdentity).mutation(
+      api.profileAssets.createUploadIntentForOwnedProfile,
+      {
+        profileId: seeded.profileId,
+        originalFileName: "claimed.png",
+        mimeType: "image/png",
+        byteSize: 128,
+        label: "Claimed upload",
+        altText: "A synthetic claimed upload.",
+      },
+    );
+    const firstToken = "processing-first";
+    assert.notEqual(await seeded.t.mutation(internal.profileAssets.claimUploadIntentForStorage, {
+      intentId: intent.intentId,
+      uploadToken: intent.uploadToken,
+      processingToken: firstToken,
+    }), null);
+    assert.equal(await seeded.t.mutation(internal.profileAssets.claimUploadIntentForStorage, {
+      intentId: intent.intentId,
+      uploadToken: intent.uploadToken,
+      processingToken: "processing-replay",
+    }), null);
+    assert.equal(await seeded.t.withIdentity(seeded.ownerIdentity).mutation(
+      api.profileAssets.cancelOwnedUploadIntent,
+      {
+        intentId: intent.intentId,
+        uploadToken: intent.uploadToken,
+      },
+    ), false);
+    assert.equal(await seeded.t.mutation(internal.profileAssets.releaseUploadIntentStorageClaim, {
+      intentId: intent.intentId,
+      uploadToken: intent.uploadToken,
+      processingToken: firstToken,
+    }), true);
+    assert.notEqual(await seeded.t.mutation(internal.profileAssets.claimUploadIntentForStorage, {
+      intentId: intent.intentId,
+      uploadToken: intent.uploadToken,
+      processingToken: "processing-retry",
+    }), null);
+  });
+
   it("enforces quota when a removed asset is restored", async () => {
     const seeded = await seedOwnedProfile(12);
     const deletedAssetId = await seeded.t.run(async (ctx) => {
@@ -234,6 +292,66 @@ describe("profile media-kit owner management", () => {
     );
   });
 
+  it("keeps pending upload reservations ahead of restores", async () => {
+    const seeded = await seedOwnedProfile(11);
+    const owner = seeded.t.withIdentity(seeded.ownerIdentity);
+    const deletedAssetId = await seeded.t.run(async (ctx) => {
+      return await ctx.db.insert("profileAssets", {
+        profileId: seeded.profileId,
+        storageKey: "profile-assets/test/reserved-restore.png",
+        mimeType: "image/png",
+        byteSize: 128,
+        visibility: "public",
+        source: "owner_authored",
+        uploadedBy: {
+          tokenIdentifier: `api:${seeded.userId}`,
+          issuer: "vrdex:api",
+          subject: String(seeded.userId),
+        },
+        uploadedAt: Date.now(),
+        state: "deleted",
+        deletedAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+    await owner.mutation(api.profileAssets.createUploadIntentForOwnedProfile, {
+      profileId: seeded.profileId,
+      originalFileName: "reserved.png",
+      mimeType: "image/png",
+      byteSize: 128,
+      label: "Reserved upload",
+      altText: "A synthetic reserved upload.",
+    });
+
+    await assert.rejects(owner.mutation(api.profileAssets.setOwnedAssetDeleted, {
+      profileId: seeded.profileId,
+      assetId: deletedAssetId,
+      deleted: false,
+    }), /up to 12/);
+  });
+
+  it("requires accessible gallery metadata before restore", async () => {
+    const seeded = await seedOwnedProfile(1);
+    const owner = seeded.t.withIdentity(seeded.ownerIdentity);
+    await owner.mutation(api.profileAssets.setOwnedAssetDeleted, {
+      profileId: seeded.profileId,
+      assetId: seeded.assetIds[0]!,
+      deleted: true,
+    });
+    await seeded.t.run(async (ctx) => {
+      await ctx.db.patch(seeded.assetIds[0]!, {
+        label: "   ",
+        altText: "\t",
+      });
+    });
+
+    await assert.rejects(owner.mutation(api.profileAssets.setOwnedAssetDeleted, {
+      profileId: seeded.profileId,
+      assetId: seeded.assetIds[0]!,
+      deleted: false,
+    }), /title and accessibility description/);
+  });
+
   it("rechecks duplicate content and replaces singleton featured placement during completion", async () => {
     const seeded = await seedOwnedProfile(2);
     const owner = seeded.t.withIdentity(seeded.ownerIdentity);
@@ -250,10 +368,12 @@ describe("profile media-kit owner management", () => {
       label: "Duplicate",
       altText: "Duplicate image.",
     });
+    const duplicateProcessingToken = await claimUploadIntent(seeded, duplicateIntent);
     await assert.rejects(
       seeded.t.mutation(internal.profileAssets.markUploadIntentUploaded, {
         intentId: duplicateIntent.intentId,
         uploadToken: duplicateIntent.uploadToken,
+        processingToken: duplicateProcessingToken,
         mimeType: "image/png",
         byteSize: 128,
         contentSha256: "hash-0",
@@ -272,9 +392,11 @@ describe("profile media-kit owner management", () => {
       altText: "New featured image.",
       placements: ["gallery", "featured"],
     });
+    const featuredProcessingToken = await claimUploadIntent(seeded, featuredIntent);
     const completed = await seeded.t.mutation(internal.profileAssets.markUploadIntentUploaded, {
       intentId: featuredIntent.intentId,
       uploadToken: featuredIntent.uploadToken,
+      processingToken: featuredProcessingToken,
       mimeType: "image/png",
       byteSize: 128,
       contentSha256: "new-featured-hash",
@@ -309,9 +431,11 @@ describe("profile media-kit owner management", () => {
       label: "Appended",
       altText: "An appended gallery image.",
     });
+    const processingToken = await claimUploadIntent(seeded, intent);
     const completed = await seeded.t.mutation(internal.profileAssets.markUploadIntentUploaded, {
       intentId: intent.intentId,
       uploadToken: intent.uploadToken,
+      processingToken,
       mimeType: "image/png",
       byteSize: 128,
       contentSha256: "appended-hash",
@@ -440,8 +564,9 @@ describe("profile media-kit owner management", () => {
     });
 
     const profiles = await owner.query(api.profileAssets.listOwnedMediaKitProfiles, {});
-    assert.deepEqual(profiles?.[0]?.assets.map((asset) => asset.assetId), seeded.assetIds);
+    assert.deepEqual(profiles?.[0]?.assets.map((asset) => asset.assetId), [...seeded.assetIds, unplacedAssetId]);
     assert.equal(profiles?.[0]?.activePublicAssetCount, 2);
+    assert.equal(profiles?.[0]?.assets.find((asset) => asset.assetId === unplacedAssetId)?.gallery, false);
     await assert.rejects(
       owner.mutation(api.profileAssets.setOwnedFeaturedAsset, {
         profileId: seeded.profileId,

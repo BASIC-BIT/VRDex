@@ -86,7 +86,7 @@ function svgDimensions(source: string): { width: number; height: number } {
 
 function validateSafeSvg(body: Uint8Array): { body: Uint8Array; width: number; height: number } {
   const source = new TextDecoder("utf-8", { fatal: true }).decode(body).replace(/^\uFEFF/, "").trim();
-  const blockedMarkup = /<!doctype|<!entity|<(?:(?:[a-z_][\w.-]*):)?(?:script|style|foreignobject|iframe|object|embed|audio|video|image)\b/i;
+  const blockedMarkup = /<!doctype|<!entity|<(?:(?:[a-z_][\w.-]*):)?(?:script|style|foreignobject|iframe|object|embed|audio|video|image|animate(?:color|motion|transform)?|discard|mpath|set)\b/i;
   const namespacePrefix = /(?:<|\s)[a-z_][\w.-]*:[a-z_][\w.-]*(?:\s|=|\/?>)/i;
   const processingInstruction = /<\?(?!xml\b)/i;
   const activeAttribute = /\son[a-z0-9_-]+\s*=/i;

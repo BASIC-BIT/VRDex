@@ -658,6 +658,8 @@ export default defineSchema({
     position: v.optional(v.number()),
     source: v.optional(profileAssetSource),
     state: profileAssetUploadIntentState,
+    processingToken: v.optional(v.string()),
+    processingStartedAt: v.optional(v.number()),
     createdAt: v.number(),
     expiresAt: v.number(),
     uploadedAt: v.optional(v.number()),

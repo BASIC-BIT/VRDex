@@ -167,7 +167,8 @@ Current owner inventory backend primitives:
 Current profile media backend primitives:
 
 - `profileAssets.createUploadIntentForApiProfileOwner`
-- `profileAssets.validateUploadIntentForStorage`
+- `profileAssets.claimUploadIntentForStorage`
+- `profileAssets.releaseUploadIntentStorageClaim`
 - `profileAssets.markUploadIntentUploaded`
 
 Current OAuth app registry primitives:

@@ -66,9 +66,17 @@ describe("profile asset content validation", () => {
     const externalCss = new TextEncoder().encode(
       '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><path fill="url(https://example.invalid/pixel.svg)"/></svg>',
     );
+    const animatedExternal = new TextEncoder().encode(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><feImage id="target"/><set href="#target" attributeName="href" to="https://example.invalid/pixel"/></svg>',
+    );
+    const animatedColor = new TextEncoder().encode(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><path><animateColor attributeName="fill" from="red" to="blue"/></path></svg>',
+    );
     await assert.rejects(validateAndNormalizeProfileAsset(scripted, "image/svg+xml"), /cannot contain/);
     await assert.rejects(validateAndNormalizeProfileAsset(external, "image/svg+xml"), /cannot contain/);
     await assert.rejects(validateAndNormalizeProfileAsset(externalCss, "image/svg+xml"), /cannot contain/);
+    await assert.rejects(validateAndNormalizeProfileAsset(animatedExternal, "image/svg+xml"), /cannot contain/);
+    await assert.rejects(validateAndNormalizeProfileAsset(animatedColor, "image/svg+xml"), /cannot contain/);
   });
 
   it("rejects namespace-prefixed active SVG content", async () => {

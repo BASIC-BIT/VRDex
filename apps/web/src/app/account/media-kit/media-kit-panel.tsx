@@ -25,6 +25,7 @@ type MediaAsset = {
   byteSize: number;
   width?: number;
   height?: number;
+  gallery: boolean;
   featured: boolean;
   imageUrl?: string;
 };
@@ -132,7 +133,7 @@ function AssetEditor({
   };
 
   return (
-    <li data-asset-id={asset.assetId}>
+    <li data-asset-id={asset.assetId} id={`active-${asset.assetId}`} tabIndex={-1}>
       <Card className="overflow-hidden" padding="none" surface="strong">
         <div className="grid lg:grid-cols-[minmax(14rem,0.8fr)_minmax(0,1.2fr)]">
           <div className="relative min-h-56 bg-canvas-muted">
@@ -219,6 +220,61 @@ function AssetEditor({
   );
 }
 
+function OtherAsset({
+  asset,
+  profileId,
+  actions,
+  operationBusy,
+  runOperation,
+  onRemoved,
+}: {
+  asset: MediaAsset;
+  profileId: string;
+  actions: EditorActions;
+  operationBusy: boolean;
+  runOperation: (
+    successMessage: string,
+    action: () => Promise<void>,
+    setStatus: (status: ActionStatus | null) => void,
+  ) => Promise<boolean>;
+  onRemoved: (assetId: string) => void;
+}) {
+  const [status, setStatus] = useState<ActionStatus | null>(null);
+  const remove = async () => {
+    const removed = await runOperation(
+      "Removed.",
+      () => actions.setDeleted(profileId, asset.assetId, true),
+      setStatus,
+    );
+    if (removed) onRemoved(asset.assetId);
+  };
+
+  return (
+    <li className="grid grid-cols-[5rem_minmax(0,1fr)] items-center gap-3 py-4 sm:grid-cols-[6rem_minmax(0,1fr)_auto]" id={`active-${asset.assetId}`} tabIndex={-1}>
+      <div className="relative aspect-[4/3] overflow-hidden rounded-control bg-canvas-muted">
+        {asset.imageUrl ? (
+          <MediaPreviewImage
+            alt={asset.altText || `${asset.label || "Profile media"} preview`}
+            className="absolute inset-0 size-full object-contain"
+            src={asset.imageUrl}
+          />
+        ) : null}
+      </div>
+      <div>
+        <p className="font-medium">{asset.label || "Untitled image"}</p>
+        <p className="mt-1 text-xs text-muted">
+          {asset.mimeType.replace("image/", "").toUpperCase()} · {formatBytes(asset.byteSize)}
+        </p>
+        <ActionStatusMessage className="mt-2" status={status} />
+      </div>
+      <Button className="col-span-2 justify-self-end sm:col-span-1" disabled={operationBusy} onClick={() => void remove()} type="button" variant="ghost">
+        <Trash2 aria-hidden="true" className="mr-2 size-4" />
+        Remove
+      </Button>
+    </li>
+  );
+}
+
 function MediaKitEditor({
   initialProfiles,
   initialProfileSlug,
@@ -239,11 +295,14 @@ function MediaKitEditor({
   const [galleryStatus, setGalleryStatus] = useState<ActionStatus | null>(null);
   const [removedStatus, setRemovedStatus] = useState<ActionStatus | null>(null);
   const [focusRestoreAssetId, setFocusRestoreAssetId] = useState<string | null>(null);
+  const [focusActiveAssetId, setFocusActiveAssetId] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [uploadMetadata, setUploadMetadata] = useState({ label: "", altText: "", credit: "" });
   const profile = initialProfiles.find((item) => item.profileId === selectedId) ?? initialProfiles[0];
-  const activeAssets = profile?.assets.filter((asset) => asset.state === "active") ?? [];
+  const activeAssets = profile?.assets.filter((asset) => asset.state === "active" && asset.gallery) ?? [];
+  const otherActiveAssets = profile?.assets.filter((asset) => asset.state === "active" && !asset.gallery) ?? [];
   const deletedAssets = profile?.assets.filter((asset) => asset.state === "deleted") ?? [];
+  const activeAssetIds = [...activeAssets, ...otherActiveAssets].map((asset) => asset.assetId).join(",");
   const deletedAssetIds = deletedAssets.map((asset) => asset.assetId).join(",");
 
   useEffect(() => {
@@ -254,6 +313,33 @@ function MediaKitEditor({
       setFocusRestoreAssetId(null);
     }
   }, [deletedAssetIds, focusRestoreAssetId]);
+
+  useEffect(() => {
+    if (!focusActiveAssetId) return;
+    const restored = document.getElementById(`active-${focusActiveAssetId}`);
+    if (restored instanceof HTMLElement) {
+      restored.focus();
+      setFocusActiveAssetId(null);
+    }
+  }, [activeAssetIds, focusActiveAssetId]);
+
+  const selectProfile = (profileId: string) => {
+    setSelectedId(profileId);
+    setPendingFile(null);
+    setUploadMetadata({ label: "", altText: "", credit: "" });
+    setUploadStatus(null);
+    setGalleryStatus(null);
+    setRemovedStatus(null);
+  };
+
+  const restoreAsset = async (assetId: string) => {
+    const restored = await runOperation(
+      "Restored.",
+      () => actions.setDeleted(profile.profileId, assetId, false),
+      setRemovedStatus,
+    );
+    if (restored) setFocusActiveAssetId(assetId);
+  };
 
   const chooseFile = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -335,7 +421,7 @@ function MediaKitEditor({
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
           <div>
             <label className="text-sm font-medium" htmlFor="media-profile">Profile</label>
-            <select className={cn(inputClass, "max-w-md")} id="media-profile" onChange={(event) => setSelectedId(event.target.value)} value={profile.profileId}>
+            <select className={cn(inputClass, "max-w-md")} disabled={uploading || operationBusy} id="media-profile" onChange={(event) => selectProfile(event.target.value)} value={profile.profileId}>
               {initialProfiles.map((item) => <option key={item.profileId} value={item.profileId}>{item.displayName}</option>)}
             </select>
             <p className="mt-3 text-sm text-muted">{profile.activePublicAssetCount} / 12</p>
@@ -414,6 +500,25 @@ function MediaKitEditor({
         </Notice>
       )}
 
+      {otherActiveAssets.length > 0 ? (
+        <section aria-labelledby="other-media-heading" className="border-t border-border pt-7">
+          <h2 className="text-lg font-semibold" id="other-media-heading">Other profile media</h2>
+          <ul className="mt-3 divide-y divide-border border-y border-border">
+            {otherActiveAssets.map((asset) => (
+              <OtherAsset
+                actions={actions}
+                asset={asset}
+                key={asset.assetId}
+                onRemoved={setFocusRestoreAssetId}
+                operationBusy={operationBusy}
+                profileId={profile.profileId}
+                runOperation={runOperation}
+              />
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       {deletedAssets.length > 0 ? (
         <section aria-labelledby="removed-heading" className="border-t border-border pt-7">
           <h2 className="text-lg font-semibold" id="removed-heading">Recently removed</h2>
@@ -424,7 +529,7 @@ function MediaKitEditor({
                 <Button
                   disabled={operationBusy}
                   id={`restore-${asset.assetId}`}
-                  onClick={() => void runOperation("Restored.", () => actions.setDeleted(profile.profileId, asset.assetId, false), setRemovedStatus)}
+                  onClick={() => void restoreAsset(asset.assetId)}
                   size="sm"
                   type="button"
                   variant="secondary"
@@ -435,20 +540,21 @@ function MediaKitEditor({
               </li>
             ))}
           </ul>
-          <ActionStatusMessage className="mt-3" status={removedStatus} />
         </section>
       ) : null}
+      <ActionStatusMessage status={removedStatus} />
     </div>
   );
 }
 
-const demoProfiles: MediaProfile[] = [{
-  profileId: "demo-profile",
-  profileType: "person",
-  slug: "playwright-dj-aurora",
-  displayName: "DJ Aurora",
-  activePublicAssetCount: 2,
-  assets: [
+const demoProfiles: MediaProfile[] = [
+  {
+    profileId: "demo-profile",
+    profileType: "person",
+    slug: "playwright-dj-aurora",
+    displayName: "DJ Aurora",
+    activePublicAssetCount: 3,
+    assets: [
     {
       assetId: "aurora-primary",
       state: "active",
@@ -460,6 +566,7 @@ const demoProfiles: MediaProfile[] = [{
       byteSize: 428_000,
       width: 1600,
       height: 1200,
+      gallery: true,
       featured: true,
       imageUrl: "/api/e2e/fixture-assets/fixture-aurora-profile-image",
     },
@@ -473,8 +580,22 @@ const demoProfiles: MediaProfile[] = [{
       byteSize: 86_000,
       width: 1200,
       height: 675,
+      gallery: true,
       featured: false,
       imageUrl: "/api/e2e/fixture-assets/fixture-aurora-primary-logo",
+    },
+    {
+      assetId: "aurora-avatar",
+      state: "active",
+      label: "Old square mark",
+      altText: "AURORA wordmark in white over violet and cyan light.",
+      mimeType: "image/png",
+      byteSize: 210_000,
+      width: 800,
+      height: 800,
+      gallery: false,
+      featured: false,
+      imageUrl: "/api/e2e/fixture-assets/fixture-aurora-alt-logo",
     },
     {
       assetId: "aurora-removed",
@@ -482,15 +603,28 @@ const demoProfiles: MediaProfile[] = [{
       label: "Old square mark",
       mimeType: "image/png",
       byteSize: 210_000,
+      gallery: true,
       featured: false,
     },
-  ],
-}];
+    ],
+  },
+  {
+    profileId: "demo-community",
+    profileType: "community",
+    slug: "playwright-night-shift",
+    displayName: "Night Shift",
+    activePublicAssetCount: 0,
+    assets: [],
+  },
+];
 
 function DemoMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: string }) {
   const [profiles, setProfiles] = useState(demoProfiles);
   const actions = useMemo<EditorActions>(() => ({
-    upload: async () => {
+    upload: async (_profileId, file) => {
+      if (file.name === "slow.png") {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
       throw new Error("Synthetic preview storage does not accept new files.");
     },
     saveMetadata: async (profileId, updated) => {

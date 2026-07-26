@@ -27,7 +27,8 @@ Locked decision:
 - the public profile shows a calm featured-media treatment, an ordered gallery,
   individual downloads, and the existing logo ZIP when logos are present
 - profile image, banner, and logo placements remain supported by the existing
-  asset model, but the launch editor focuses on gallery and featured placement
+  asset model; the launch editor manages gallery/featured placement and exposes
+  other quota-consuming public assets for removal or restore
 - video, audio, bulk DAM operations, collaborative roles, licensing workflows,
   and AI-generated metadata remain deferred
 
@@ -67,7 +68,7 @@ Current recommendation:
 | Public presentation | Public logo cards exist | Render the ordered gallery and featured asset, not logos only |
 | Mobile and accessibility | Shared responsive primitives and profile visual coverage exist | Add labeled file input, live progress/status, keyboard reorder controls, meaningful image alternatives, mobile visuals |
 | Error handling | API returns bounded upload errors | Surface unsupported, oversized, duplicate, retry, and storage-unavailable states for the single-file upload flow |
-| Quotas/rate limits | API intent route is rate-limited to 30/minute | Add 12-active-assets profile quota; retain the existing request limit |
+| Quotas/rate limits | API intent route is rate-limited to 30/minute | Add a 12-active-assets profile quota and a separate 1,200/minute public asset-file budget |
 | Storage tenancy | Private bucket, per-intent random keys, Vercel OIDC role, Block Public Access, SSE-S3, controlled reads | No hosted storage variables are present in this local checkout; live provider readiness remains unverified here |
 | Deletion/orphans | Soft-delete fields exist | Physical deletion, expired-intent cleanup, and orphan reconciliation are required before enabling hosted uploads for real users |
 | Moderation/abuse | Profile suppression gates public reads | Asset-specific reports, malware scanning, and moderator asset quarantine remain follow-up work |
@@ -79,8 +80,9 @@ Current recommendation:
 
 1. The owner opens **Media kit** from Account or an owned profile row.
 2. They choose a claimed person or community profile.
-3. The editor lists active assets in public order and a separate recoverable
-   removed section.
+3. The editor lists gallery assets in public order, other quota-consuming
+   public assets in a compact management section, and recoverable removed
+   assets separately.
 4. They choose an image and add the required title and accessibility
    description plus optional credit before publishing. Client checks provide
    quick type/size feedback; server validation remains authoritative.
@@ -121,15 +123,20 @@ Verified:
   ownership, and remain private/no-store instead of weakening public delivery.
 - the editor's quota count uses the same active-public-asset set as backend
   admission, including profile images, banners, and logos outside the gallery.
+- public asset delivery uses a separate `profile_asset_file` quota rather than
+  consuming the shared anonymous API-read budget.
 - SVG files are served only through the controlled application route and
   displayed as ordinary image resources, not inserted as inline markup. The
-  route applies `nosniff` and a sandboxed content security policy with scripts
-  and objects disabled; explicit downloads use attachment disposition.
+  validator rejects scripting, external references, and animation elements.
+  The route applies `nosniff` and a sandboxed content security policy with
+  default, image, script, and object sources disabled; explicit downloads use
+  attachment disposition.
 - HTTPS imports pin a publicly resolved address and re-check redirects, ports,
   credentials, response size, and MIME.
-- upload completion is server-only; physical cleanup stays in the deferred
-  reconciliation job so concurrent idempotent retries cannot delete a winner's
-  object.
+- upload completion is server-only and atomically claims an intent before
+  external fetch or image processing. Failed pre-write work releases the exact
+  claim; claimed work cannot be cancelled concurrently. Physical cleanup stays
+  in the deferred reconciliation job for post-write failures.
 
 Follow-up risks:
 

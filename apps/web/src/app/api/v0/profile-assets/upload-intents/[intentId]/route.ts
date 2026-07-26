@@ -404,16 +404,18 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return errorResponse("Upload token is required.", 403);
   }
 
-  const convex = convexHttpClient();
-  const intent = await convex.query(api.profileAssets.validateUploadIntentForStorage, {
+  const processingToken = crypto.randomUUID();
+  const intent = await convexAdminHttpClient().mutation(internal.profileAssets.claimUploadIntentForStorage, {
     intentId: intentId as GenericId<"profileAssetUploadIntents">,
     uploadToken,
+    processingToken,
   });
 
   if (intent === null) {
-    return errorResponse("Upload intent was not found or expired.", 404);
+    return errorResponse("Upload intent was not found, expired, or already in use.", 409);
   }
 
+  let objectWritten = false;
   try {
     const upload = intent.sourceUrl
       ? await bodyFromSourceUrl(intent.sourceUrl)
@@ -422,7 +424,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     validateUploadBody(upload);
     const normalized = await validateAndNormalizeProfileAsset(upload.body, intent.mimeType);
     assertAllowedByteSize(normalized.body.byteLength);
-    const duplicate = await convex.query(api.profileAssets.hasDuplicateAssetForUpload, {
+    const duplicate = await convexHttpClient().query(api.profileAssets.hasDuplicateAssetForUpload, {
       intentId: intent.intentId,
       uploadToken,
       contentSha256: normalized.contentSha256,
@@ -436,9 +438,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
       body: normalized.body,
       contentType: normalized.mimeType,
     });
+    objectWritten = true;
     const completed = await convexAdminHttpClient().mutation(internal.profileAssets.markUploadIntentUploaded, {
       intentId: intent.intentId,
       uploadToken,
+      processingToken,
       mimeType: normalized.mimeType,
       byteSize: normalized.body.byteLength,
       contentSha256: normalized.contentSha256,
@@ -456,6 +460,13 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     return NextResponse.json(responseBody);
   } catch (error) {
+    if (!objectWritten) {
+      await convexAdminHttpClient().mutation(internal.profileAssets.releaseUploadIntentStorageClaim, {
+        intentId: intent.intentId,
+        uploadToken,
+        processingToken,
+      }).catch(() => false);
+    }
     const message = error instanceof Error ? error.message : "Profile media upload failed.";
 
     return errorResponse(message, 400);

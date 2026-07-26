@@ -37,6 +37,47 @@ test("owner upload failure stays beside the publish control", async ({ page }) =
   );
 });
 
+test("owner profile switch clears an unsubmitted upload", async ({ page }) => {
+  await page.goto("/account/media-kit");
+  await page.getByLabel("Add image").setInputFiles({
+    name: "synthetic.png",
+    mimeType: "image/png",
+    buffer: Buffer.from("synthetic image"),
+  });
+  await expect(page.getByRole("button", { name: "Publish" })).toBeVisible();
+
+  await page.getByLabel("Profile", { exact: true }).selectOption("demo-community");
+
+  await expect(page.getByRole("button", { name: "Publish" })).toHaveCount(0);
+  await expect(page.getByText("synthetic.png", { exact: true })).toHaveCount(0);
+});
+
+test("owner profile switch stays locked during upload", async ({ page }) => {
+  await page.goto("/account/media-kit");
+  await page.getByLabel("Add image").setInputFiles({
+    name: "slow.png",
+    mimeType: "image/png",
+    buffer: Buffer.from("synthetic image"),
+  });
+  await page.getByLabel("Accessibility description", { exact: true }).fill("Synthetic upload test image.");
+  await page.getByRole("button", { name: "Publish" }).click();
+
+  await expect(page.getByLabel("Profile", { exact: true })).toBeDisabled();
+  await expect(page.getByRole("alert")).toHaveText(
+    "Synthetic preview storage does not accept new files.",
+  );
+  await expect(page.getByLabel("Profile", { exact: true })).toBeEnabled();
+  await expect(page.getByLabel("Profile", { exact: true })).toHaveValue("demo-profile");
+});
+
+test("owner restore keeps status and focus in the active gallery", async ({ page }) => {
+  await page.goto("/account/media-kit");
+  await page.getByRole("button", { name: "Restore" }).click();
+
+  await expect(page.getByText("Restored.", { exact: true })).toBeVisible();
+  await expect(page.locator("#active-aurora-removed")).toBeFocused();
+});
+
 test("owner preview failure can retry", async ({ page }) => {
   await page.goto("/account/media-kit");
 

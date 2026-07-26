@@ -634,6 +634,7 @@ export async function finalizeProfileAssetUploadIntentUpload(
   input: {
     intentId: Id<"profileAssetUploadIntents">;
     uploadToken: string;
+    processingToken: string;
     mimeType: string;
     byteSize: number;
     contentSha256?: string;
@@ -644,7 +645,11 @@ export async function finalizeProfileAssetUploadIntentUpload(
 ) {
   const intent = await db.get(input.intentId);
 
-  if (intent === null || intent.uploadToken !== input.uploadToken) {
+  if (
+    intent === null ||
+    intent.uploadToken !== input.uploadToken ||
+    intent.processingToken !== input.processingToken
+  ) {
     throw new Error("Profile media upload intent was not found.");
   }
 
@@ -681,6 +686,8 @@ export async function finalizeProfileAssetUploadIntentUpload(
     ...(input.width !== undefined ? { width: input.width } : {}),
     ...(input.height !== undefined ? { height: input.height } : {}),
     state: "uploaded",
+    processingToken: undefined,
+    processingStartedAt: undefined,
     uploadedAt: input.now,
     updatedAt: input.now,
   });
