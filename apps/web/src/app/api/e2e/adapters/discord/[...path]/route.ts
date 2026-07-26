@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { E2E_DISCORD_GUILD_ID } from "@/lib/e2e-discord-fixture";
+
 export const dynamic = "force-dynamic";
 
 type DiscordAdapterRouteProps = {
@@ -34,7 +36,7 @@ export async function GET(request: NextRequest, { params }: DiscordAdapterRouteP
   const path = (await params).path ?? [];
   const [resource, guildId, nested, subjectId] = path;
 
-  if (resource !== "guilds" || !guildId?.startsWith("e2e-")) {
+  if (resource !== "guilds" || guildId !== E2E_DISCORD_GUILD_ID) {
     return adapterError("Unknown E2E Discord adapter route.", 404);
   }
 

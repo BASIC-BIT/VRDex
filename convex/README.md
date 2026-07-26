@@ -29,7 +29,7 @@ This directory holds the initial Convex backend slice for `VRDex`.
 - `communityTelemetry.ts` exposes community-authorized telemetry settings and the collector control plane
 - `crons.ts` schedules bounded telemetry rollups and retention compaction
 - `migrations.ts` contains deploy-time data backfills for schema additions
-- `_searchDocuments.ts`, `_vocabulary.ts`, `search.ts`, and `suppressions.ts` contain public discovery, vocabulary, and suppression helpers
+- `_searchDocuments.ts`, `_publicSearch.ts`, `_vocabulary.ts`, `search.ts`, and `suppressions.ts` contain public discovery, vocabulary, and suppression helpers
 - `_generated/` contains committed Convex codegen output and should not be edited by hand
 - `tsconfig.json` is the Convex-managed TypeScript config for backend functions
 

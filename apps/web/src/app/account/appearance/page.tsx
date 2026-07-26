@@ -5,8 +5,16 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 
-export default function AppearancePage() {
+export default async function AppearancePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ profileId?: string | string[] }>;
+}) {
   const demoMode = process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES === "true";
+  const requestedProfileId = (await searchParams).profileId;
+  const initialProfileId = Array.isArray(requestedProfileId)
+    ? requestedProfileId[0]
+    : requestedProfileId;
 
   return (
     <PageShell className="py-10">
@@ -28,7 +36,7 @@ export default function AppearancePage() {
             Personalization
           </h1>
           <div className="mt-8">
-            <AppearancePanel demoMode={demoMode} />
+            <AppearancePanel demoMode={demoMode} initialProfileId={initialProfileId} />
           </div>
         </Card>
       </PageContainer>

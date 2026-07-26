@@ -61,14 +61,17 @@ export const getClaimTargetBySlug = query({
     }
 
     const user = await getCurrentUser(ctx);
+    const hasPublicProfile = canReadProfile("public", profile);
     const isOwner = user !== null && await userOwnsProfile(ctx.db, profile._id, user._id);
-    if (!canReadProfile("public", profile) && !isOwner) {
+    if (!hasPublicProfile && !isOwner) {
       return null;
     }
 
     return {
       avatarImageUrl: profile.avatarImageUrl,
       displayName: profile.displayName,
+      hasPublicProfile,
+      profileId: profile._id,
       profileType: profile.profileType,
       slug: profile.slug,
     };

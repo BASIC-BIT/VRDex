@@ -1,6 +1,7 @@
 import type { Doc } from "./_generated/dataModel";
 import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
 import type { PublicProfileMediaKit } from "./_profileAssets";
+import type { toProfileLookupResult } from "./_profileLookup";
 import { visibleProfileField, visibleProfileList } from "./_profileFieldVisibility";
 import { firstSafeHttpsUrl, optionalField, safeHttpsUrl } from "./_publicFields";
 import { canReadProfile } from "./_profilePermissions";
@@ -28,6 +29,8 @@ export type PublicSearchResult = {
     sourceType: Doc<"searchDocuments">["sourceType"];
     label: string;
   };
+  person?: NonNullable<ReturnType<typeof toProfileLookupResult>>;
+  claimEligible?: boolean;
   startsAt?: number;
   score: number;
 };

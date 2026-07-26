@@ -51,6 +51,7 @@ describe("profile claim lifecycle", () => {
       });
 
       return {
+        profileId,
         ownerIdentity: {
           subject: `${userId}|web-session`,
           issuer: "test",
@@ -82,6 +83,8 @@ describe("profile claim lifecycle", () => {
       profileSlug: "private-claim-target",
     });
     assert.equal(ownerResult?.displayName, "Private Claim Target");
+    assert.equal(ownerResult?.hasPublicProfile, false);
+    assert.equal(ownerResult?.profileId, seeded.profileId);
     assert.equal(ownerResult?.slug, "private-claim-target");
 
     const ownerJourney = await t.withIdentity(seeded.ownerIdentity).query(api.profileClaims.getClaimJourneyContext, {

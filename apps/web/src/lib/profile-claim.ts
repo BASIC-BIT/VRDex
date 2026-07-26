@@ -1,4 +1,9 @@
 export type ClaimEntrySource = "account" | "profile" | "search";
+type ProfileRouteTarget = {
+  hasPublicProfile: boolean;
+  profileType: "person" | "community";
+  slug: string;
+};
 
 const claimEntrySources = new Set<ClaimEntrySource>(["account", "profile", "search"]);
 
@@ -33,6 +38,17 @@ export function profileClaimPath(
   const path = `/claim/${encodeURIComponent(slug)}`;
 
   return source === undefined ? path : `${path}?source=${source}`;
+}
+
+export function ownerProfileDestinationPath(
+  profile: ProfileRouteTarget,
+  privateDestination: string,
+): string {
+  if (!profile.hasPublicProfile) {
+    return privateDestination;
+  }
+
+  return `/${profile.profileType === "community" ? "c" : "p"}/${encodeURIComponent(profile.slug)}`;
 }
 
 export function parseClaimEntrySource(value: string | string[] | undefined): ClaimEntrySource {

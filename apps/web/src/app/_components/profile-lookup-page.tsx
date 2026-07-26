@@ -11,10 +11,9 @@ import { LookupCopyButton } from "./lookup-copy-button";
 import { shouldRefreshBulkPrivateLookup } from "./lookup-private-refresh";
 import { LookupSearchBox } from "./lookup-search-box";
 import { mergeLookupSuggestions } from "./lookup-suggestion-merge";
-import { buttonVariants } from "@/components/ui/button";
+import { SearchViewShell } from "./search-view-shell";
 import { Card } from "@/components/ui/card";
 import { EntityImage } from "@/components/ui/entity-image";
-import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 import { Table, TableCell, TableFrame, TableHead, TableHeaderCell } from "@/components/ui/table";
 import { cn } from "@/lib/cn";
 import { discordCopyValue } from "@/lib/discord-link";
@@ -75,6 +74,7 @@ export type PublicProfileLookupResult = {
   region?: OptionalPublicText;
   timezone?: OptionalPublicText;
   trustLabel: ProfileTrustLabel;
+  sourceLabel?: string;
   outboundLinks: Array<{
     type: ProfileLookupLinkType;
     label: string;
@@ -603,6 +603,13 @@ function lookupIdentityStyle(profile: PublicProfileLookupResult): CSSProperties 
 function LookupIdentity({ profile }: { profile: PublicProfileLookupResult }) {
   const hasFlair = Boolean(profile.accentColor?.trim());
   const identityMeta = compactList([profile.region, profile.timezone]).join(" / ");
+  const trustLabel = profile.trustLabel === "community_submitted"
+    ? "Community submitted"
+    : profile.trustLabel === "unclaimed"
+      ? "Unclaimed"
+      : profile.trustLabel === "claimed_unverified"
+        ? "Claimed, not verified"
+        : undefined;
 
   return (
     <div
@@ -626,6 +633,11 @@ function LookupIdentity({ profile }: { profile: PublicProfileLookupResult }) {
           </div>
         ) : null}
         {identityMeta ? <div className="lookup-identity-meta">{identityMeta}</div> : null}
+        {profile.sourceLabel || trustLabel ? (
+          <div className="lookup-identity-meta">
+            {[...new Set(compactList([profile.sourceLabel, trustLabel]))].join(" / ")}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -834,18 +846,29 @@ async function fetchLookupResults(query: string): Promise<LookupResponse> {
   return data;
 }
 
-function updateLookupUrl(query: string, routePath: "/" | "/lookup") {
-  const nextUrl = query ? `${routePath}?q=${encodeURIComponent(query)}` : routePath;
+function updateLookupUrl(query: string, routePath: "/" | "/lookup" | "/search", view?: "dj") {
+  const params = new URLSearchParams();
+  if (query) {
+    params.set("q", query);
+  }
+  if (view) {
+    params.set("view", view);
+  }
+  const nextUrl = params.size > 0 ? `${routePath}?${params.toString()}` : routePath;
 
-  window.history.replaceState(null, "", nextUrl);
+  const currentUrl = `${window.location.pathname}${window.location.search}`;
+  if (currentUrl !== nextUrl) {
+    window.history.pushState(null, "", nextUrl);
+  }
 }
 
 type ProfileLookupPageProps = {
   privateResults: PrivateSeedLookupResult[];
   query: string;
   results: PublicProfileLookupResult[];
-  routePath?: "/" | "/lookup";
+  routePath?: "/" | "/lookup" | "/search";
   status: LookupStatus;
+  view?: "dj";
   viewerAccess: SeedLookupViewerAccess;
 };
 
@@ -859,9 +882,10 @@ export function ProfileLookupPage({
   results,
   routePath = "/lookup",
   status,
+  view,
   viewerAccess,
 }: ProfileLookupPageProps) {
-  const props = { privateResults, query, results, routePath, status, viewerAccess };
+  const props = { privateResults, query, results, routePath, status, view, viewerAccess };
 
   return process.env.NEXT_PUBLIC_CONVEX_URL
     ? <ConnectedProfileLookupPage {...props} />
@@ -888,6 +912,7 @@ function ProfileLookupPageContent({
   results,
   routePath = "/lookup",
   status,
+  view,
   viewerAccess,
 }: ProfileLookupPageProps & { queryPrivateResults: QueryPrivateResults | null }) {
   const posthog = usePostHog();
@@ -919,6 +944,12 @@ function ProfileLookupPageContent({
   const seedViewerAccessAllowed = seedViewerAccess.allowed;
   const seedViewerAccessSource = seedViewerAccess.source;
   const hasQuery = Boolean(displayQuery.trim()) || bulkEntries.length > 0 || isSearching;
+
+  useEffect(() => {
+    const handleHistoryNavigation = () => window.location.reload();
+    window.addEventListener("popstate", handleHistoryNavigation);
+    return () => window.removeEventListener("popstate", handleHistoryNavigation);
+  }, []);
 
   useEffect(() => {
     mirrorPrivateSeedLookupAccess(posthog, seedViewerAccess.allowed);
@@ -1023,6 +1054,7 @@ function ProfileLookupPageContent({
         ? "private_and_public"
         : "public_only",
       mode: "single",
+      view_key: "dj",
     });
 
     try {
@@ -1043,7 +1075,7 @@ function ProfileLookupPageContent({
         setSeedViewerAccess(nextLookup.viewerAccess);
         setLookupStatus("live");
         setBulkEntries([]);
-        updateLookupUrl(normalizedQuery, routePath);
+        updateLookupUrl(normalizedQuery, routePath, view);
       });
     } catch {
       if (requestVersionRef.current === requestVersion) {
@@ -1054,7 +1086,7 @@ function ProfileLookupPageContent({
         setPendingLabel(null);
       }
     }
-  }, [fetchAllowedPrivateResults, posthog, privateUiEnabled, routePath, seedViewerAccess.allowed]);
+  }, [fetchAllowedPrivateResults, posthog, privateUiEnabled, routePath, seedViewerAccess.allowed, view]);
 
   const runBulkLookup = useCallback(async (
     lines: string[],
@@ -1072,7 +1104,7 @@ function ProfileLookupPageContent({
         setDisplayResults([]);
         setDisplayPrivateResults([]);
         setLookupStatus("live");
-        updateLookupUrl("", routePath);
+        updateLookupUrl("", routePath, view);
       });
       return;
     }
@@ -1086,6 +1118,7 @@ function ProfileLookupPageContent({
         ? "private_and_public"
         : "public_only",
       mode: "bulk",
+      view_key: "dj",
     });
 
     try {
@@ -1132,7 +1165,7 @@ function ProfileLookupPageContent({
         setDisplayPrivateResults(nextViewerAccess.allowed ? nextPrivateResults : []);
         setSeedViewerAccess(nextViewerAccess);
         setLookupStatus("live");
-        updateLookupUrl("", routePath);
+        updateLookupUrl("", routePath, view);
       });
     } catch {
       if (requestVersionRef.current === requestVersion) {
@@ -1151,6 +1184,7 @@ function ProfileLookupPageContent({
     routePath,
     seedViewerAccessAllowed,
     seedViewerAccessSource,
+    view,
   ]);
 
   useEffect(() => {
@@ -1179,38 +1213,32 @@ function ProfileLookupPageContent({
       setBulkEntries([]);
       setLookupStatus("live");
       setPendingLabel(null);
-      updateLookupUrl("", routePath);
+      updateLookupUrl("", routePath, view);
     });
-  }, [privateUiFlag, routePath]);
+  }, [privateUiFlag, routePath, view]);
+
+  const canonicalView = view ?? "dj";
+  const switcherQuery = bulkEntries.length > 0 ? undefined : displayQuery;
 
   return (
-    <PageShell className="lookup-theme">
-      <PageContainer className="gap-3" max="7xl">
-        <PageNav>
-          <BrandLink />
-          <div className="flex flex-wrap items-center gap-2">
-            <Link className={buttonVariants({ variant: "secondary" })} href="/submit">
-              Add profile
-            </Link>
-          </div>
-        </PageNav>
-
-        <section className="lookup-hero grid gap-2 rounded-card border p-3 shadow-panel">
-          <div className="max-w-3xl">
-            <h1 className="text-2xl leading-none font-semibold tracking-[-0.045em] sm:text-3xl">DJ link lookup</h1>
-          </div>
-          <LookupSearchBox
-            actionPath={routePath}
-            initialQuery={displayQuery}
-            initialResults={visibleResults}
-            isSearching={isSearching}
-            onBulkLookup={runBulkLookup}
-            onClear={clearLookup}
-            onLookup={runLookup}
-            showPrivateSuggestions={seedViewerAccess.allowed && privateUiEnabled}
-          />
-        </section>
-
+    <SearchViewShell
+      activeView={canonicalView}
+      className="lookup-theme"
+      query={switcherQuery}
+      searchControl={(
+        <LookupSearchBox
+          actionPath={routePath}
+          initialQuery={displayQuery}
+          initialResults={visibleResults}
+          isSearching={isSearching}
+          onBulkLookup={runBulkLookup}
+          onClear={clearLookup}
+          onLookup={runLookup}
+          showPrivateSuggestions={seedViewerAccess.allowed && privateUiEnabled}
+          view={view}
+        />
+      )}
+    >
         <LookupStatusNotice status={lookupStatus} />
 
         {hasQuery ? (
@@ -1252,7 +1280,6 @@ function ProfileLookupPageContent({
             </div>
           </section>
         ) : null}
-      </PageContainer>
-    </PageShell>
+    </SearchViewShell>
   );
 }
