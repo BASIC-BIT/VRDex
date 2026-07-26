@@ -34,7 +34,13 @@ export async function POST(request: NextRequest) {
   const targetType = String(body.targetType ?? "");
   const targetExternalId = String(body.targetExternalId ?? "");
   const proofCode = String(body.proofCode ?? "");
-  const verified = targetExternalId.startsWith("e2e-") && proofCode.startsWith("VRDEX-");
+  const verified =
+    (
+      targetExternalId.startsWith("e2e-") ||
+      targetExternalId.startsWith("usr_e2e") ||
+      targetExternalId.startsWith("grp_e2e")
+    ) &&
+    proofCode.startsWith("VRDEX-");
 
   return NextResponse.json({
     verified,

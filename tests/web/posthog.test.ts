@@ -15,6 +15,10 @@ describe("PostHog privacy", () => {
       sanitizeAnalyticsUrl("https://vrdex.example/handoff/secret-token?step=review#fields"),
       "https://vrdex.example/handoff/redacted",
     );
+    assert.equal(
+      sanitizeAnalyticsUrl("https://vrdex.example/claim/private-profile?source=search"),
+      "https://vrdex.example/claim/redacted",
+    );
     assert.equal(sanitizeAnalyticsUrl("/search?q=DJ%20Example"), "/search");
     assert.deepEqual(
       sanitizePostHogProperties({

@@ -16,6 +16,10 @@ export function isProtectedRoute(
     return true;
   }
 
+  if (pathname === "/claim" || pathname.startsWith("/claim/")) {
+    return true;
+  }
+
   if (
     pathname === "/submit" ||
     pathname === "/events/new" ||

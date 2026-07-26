@@ -326,6 +326,13 @@ export async function expectOAuthAuthorizeProblemPage(page: Page) {
 
 export async function expectPersonProfilePage(page: Page) {
   await expect(page.getByRole("heading", { name: "DJ Aurora" })).toBeVisible();
+  const profileCard = page.getByRole("region", { name: "DJ Aurora" });
+  const ownershipAction = page.getByRole("complementary", { name: "Profile ownership" });
+  const claimLink = ownershipAction.getByRole("link", { name: "Claim profile" });
+  await expect(ownershipAction.getByText("Is this your profile?", { exact: true })).toBeVisible();
+  await expect(claimLink).toHaveAttribute("href", "/claim/playwright-dj-aurora?source=profile");
+  await expect(profileCard.getByRole("link", { name: "Claim profile" })).toHaveCount(0);
+  expect(await claimLink.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
   await expect(page.getByText("Melodic house DJ playing warm, vocal-led sets across VRChat club nights.")).toBeVisible();
   await expect(page.getByText("Known for sunrise handoffs, soft-focus visuals, and long blends that keep the room moving.")).toHaveCount(0);
   await expect(page.getByText(/Jan 1, 2025/i)).toBeVisible();
@@ -355,6 +362,8 @@ export async function expectPersonProfilePage(page: Page) {
 
 export async function expectVerifiedPersonProfilePage(page: Page) {
   await expect(page.getByRole("heading", { name: "BASICBIT" })).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "Profile ownership" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Claim profile" })).toHaveCount(0);
   await expect(page.getByLabel("Owner verified")).toBeVisible();
   await expect(page.getByText("Multigenre DJ but I really love DnB <3", { exact: true })).toBeVisible();
   await expect(page.getByText(/Public lookup seed for validating operator workflows/i)).toHaveCount(0);
@@ -369,10 +378,13 @@ export async function expectVerifiedPersonProfilePage(page: Page) {
 
 export async function expectCommunityProfilePage(page: Page) {
   await expect(page.getByRole("heading", { name: "Afterglow Social" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Claim this profile" })).toHaveAttribute(
-    "href",
-    "/account?claim=playwright-afterglow-social&claimType=community",
-  );
+  const profileCard = page.getByRole("region", { name: "Afterglow Social" });
+  const ownershipAction = page.getByRole("complementary", { name: "Profile ownership" });
+  const claimLink = ownershipAction.getByRole("link", { name: "Claim profile" });
+  await expect(ownershipAction.getByText("Manage this community?", { exact: true })).toBeVisible();
+  await expect(claimLink).toHaveAttribute("href", "/claim/playwright-afterglow-social?source=profile");
+  await expect(profileCard.getByRole("link", { name: "Claim profile" })).toHaveCount(0);
+  expect(await claimLink.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
   await expect(page.getByRole("heading", { name: "Hosted events" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions" })).toBeVisible();
   await expect(page.getByText("A warm VRChat club night for music-first communities.", { exact: true })).toBeVisible();

@@ -1,5 +1,7 @@
 import { AccountPanel } from "./account-panel";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
+import { redirect } from "next/navigation";
+import { profileClaimPath, profileClaimSlugFromInput } from "@/lib/profile-claim";
 
 export default async function AccountPage({
   searchParams,
@@ -8,12 +10,13 @@ export default async function AccountPage({
 }) {
   const resolvedSearchParams = await searchParams;
   const rawClaim = resolvedSearchParams.claim;
-  const rawClaimType = Array.isArray(resolvedSearchParams.claimType)
-    ? resolvedSearchParams.claimType[0]
-    : resolvedSearchParams.claimType;
-  const defaultClaimSlug =
-    (Array.isArray(rawClaim) ? rawClaim[0] : rawClaim)?.trim().slice(0, 120) ?? "";
-  const defaultClaimType = rawClaimType === "community" ? "community" : "person";
+  const defaultClaimSlug = profileClaimSlugFromInput(
+    (Array.isArray(rawClaim) ? rawClaim[0] : rawClaim)?.slice(0, 240) ?? "",
+  );
+
+  if (defaultClaimSlug) {
+    redirect(profileClaimPath(defaultClaimSlug, "account"));
+  }
 
   return (
     <PageShell className="py-10">
@@ -26,7 +29,7 @@ export default async function AccountPage({
           <h1 className="text-3xl font-semibold sm:text-4xl">Account</h1>
         </header>
 
-        <AccountPanel defaultClaimSlug={defaultClaimSlug} defaultClaimType={defaultClaimType} />
+        <AccountPanel />
       </PageContainer>
     </PageShell>
   );

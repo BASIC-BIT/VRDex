@@ -1819,6 +1819,7 @@ export default defineSchema({
     reviewedAt: v.optional(v.number()),
   })
     .index("by_profileId_state", ["profileId", "state"])
+    .index("by_profileId_userId_state_updatedAt", ["profileId", "userId", "state", "updatedAt"])
     .index("by_userId_state", ["userId", "state"])
     .index("by_method_state", ["method", "state"]),
   profileVerificationAttempts: defineTable({
@@ -1837,6 +1838,7 @@ export default defineSchema({
     verifiedAt: v.optional(v.number()),
   })
     .index("by_profileId_state", ["profileId", "state"])
+    .index("by_profileId_userId_state_updatedAt", ["profileId", "userId", "state", "updatedAt"])
     .index("by_userId_state", ["userId", "state"])
     .index("by_state_expiresAt", ["state", "expiresAt"]),
   profileSuppressionRequests: defineTable({
