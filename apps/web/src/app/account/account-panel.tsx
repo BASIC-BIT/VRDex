@@ -9,7 +9,7 @@ import { api } from "@convex-generated-api";
 import { buttonVariants, Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
 import { cn } from "@/lib/cn";
-import { profileClaimPath } from "@/lib/profile-claim";
+import { ownerProfileDestinationPath, profileClaimPath } from "@/lib/profile-claim";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
@@ -88,7 +88,10 @@ function ConnectedAccountPanel({ mediaKitEnabled }: { mediaKitEnabled: boolean }
         {ownedProfiles && ownedProfiles.length > 0 ? (
           <ul className="mt-5 divide-y divide-border border-y border-border">
             {ownedProfiles.map((profile) => {
-              const profilePath = `/${profile.profileType === "community" ? "c" : "p"}/${profile.slug}`;
+              const profilePath = ownerProfileDestinationPath(
+                profile,
+                profileClaimPath(profile.slug, "account"),
+              );
 
               return (
                 <li className="flex flex-wrap items-center justify-between gap-3 py-4" key={profile.profileId}>

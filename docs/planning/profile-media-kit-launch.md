@@ -4,7 +4,6 @@
 
 Current recommendation for the first owner-usable profile media kit. This plan
 was checked against `main` after PR
-[#193](https://github.com/BASIC-BIT/VRDex/pull/193), open PR
 [#194](https://github.com/BASIC-BIT/VRDex/pull/194), issue
 [#115](https://github.com/BASIC-BIT/VRDex/issues/115), the current Convex
 schema, web routes, and checked-in AWS configuration.
@@ -155,9 +154,10 @@ Follow-up risks:
 ## Unified Search Coordination
 
 PR #194 owns public search queries, projections, cards, view state, and their
-tests. This slice does not modify those files. Search will continue to consume
-the existing media-kit projection; richer gallery fields are additive and do
-not change its compact-image selection contract.
+tests. The combined head preserves its compact-image selection contract while
+adding gallery fields to the shared profile projection. Account navigation,
+synthetic fixtures, backend wiring and tests, and person-profile visual
+baselines were reconciled after #194 merged.
 
 The separate Persona/JTBD proposal also recommends one reusable asset system
 for people and communities and a stable compact Search projection. That

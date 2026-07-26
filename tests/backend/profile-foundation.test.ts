@@ -27,7 +27,10 @@ import {
 } from "../../convex/_profileFieldVisibility";
 import { toProfileLookupResult } from "../../convex/_profileLookup";
 import { approveProfileClaimForUser, grantProfileOwner } from "../../convex/_profileOwnership";
-import { applyProfileFieldVisibilityUpdate } from "../../convex/_profilePrivacy";
+import {
+  applyProfileFieldVisibilityUpdate,
+  toOwnedProfilePrivacyResult,
+} from "../../convex/_profilePrivacy";
 import {
   createProfileSlugBase,
   createProfileSlugCandidate,
@@ -620,6 +623,17 @@ describe("profile field visibility owner controls", () => {
     assert.throws(
       () => normalizeProfileFieldVisibility({ bio: "friends_only" }),
       /Unsupported profile field visibility state/,
+    );
+  });
+
+  it("tells account navigation whether an owned profile has a public route", () => {
+    assert.equal(toOwnedProfilePrivacyResult(profile).hasPublicProfile, true);
+    assert.equal(
+      toOwnedProfilePrivacyResult({
+        ...profile,
+        publicSurfacingState: "opted_out",
+      }).hasPublicProfile,
+      false,
     );
   });
 

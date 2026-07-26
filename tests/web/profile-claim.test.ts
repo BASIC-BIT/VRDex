@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  ownerProfileDestinationPath,
   parseClaimEntrySource,
   profileClaimPath,
   profileClaimSlugFromInput,
@@ -12,6 +13,23 @@ describe("profile claim navigation", () => {
   it("builds a canonical encoded contextual route", () => {
     assert.equal(profileClaimPath("dj/basic", "search"), "/claim/dj%2Fbasic?source=search");
     assert.equal(profileClaimPath("afterglow", undefined), "/claim/afterglow");
+  });
+
+  it("keeps public profiles on public routes and private owners on an owner-aware destination", () => {
+    assert.equal(
+      ownerProfileDestinationPath(
+        { hasPublicProfile: true, profileType: "person", slug: "dj/basic" },
+        "/account",
+      ),
+      "/p/dj%2Fbasic",
+    );
+    assert.equal(
+      ownerProfileDestinationPath(
+        { hasPublicProfile: false, profileType: "community", slug: "private-club" },
+        "/account/appearance",
+      ),
+      "/account/appearance",
+    );
   });
 
   it("accepts only bounded entry sources", () => {

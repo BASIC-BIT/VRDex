@@ -18,7 +18,8 @@ import type { Id } from "../../../../../../convex/_generated/dataModel";
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
 type AppearanceProfile = {
-  profileId: Id<"profiles"> | "demo";
+  hasPublicProfile: boolean;
+  profileId: Id<"profiles"> | "demo" | "playwright-profile";
   profileType: "person" | "community";
   slug: string;
   displayName: string;
@@ -83,6 +84,7 @@ function normalizeSupportingSectionOrder(input: readonly ProfilePublicSectionKey
 
 const demoProfiles: AppearanceProfile[] = [
   {
+    hasPublicProfile: true,
     profileId: "demo",
     profileType: "person",
     slug: "playwright-dj-aurora",
@@ -198,9 +200,20 @@ function AvatarPreview({ appearance, profile }: { appearance: AvatarAppearance; 
   );
 }
 
-function AppearanceEditor({ demo, profiles }: { demo?: boolean; profiles: AppearanceProfile[] }) {
+function AppearanceEditor({
+  demo,
+  initialProfileId,
+  profiles,
+}: {
+  demo?: boolean;
+  initialProfileId?: string;
+  profiles: AppearanceProfile[];
+}) {
   const updateAppearance = useMutation(api.profileAssets.updateAppearance);
-  const [selectedProfileId, setSelectedProfileId] = useState<string>(profiles[0]?.profileId ?? "");
+  const requestedProfile = profiles.find((profile) => profile.profileId === initialProfileId);
+  const [selectedProfileId, setSelectedProfileId] = useState<string>(
+    requestedProfile?.profileId ?? profiles[0]?.profileId ?? "",
+  );
   const selectedProfile = profiles.find((profile) => profile.profileId === selectedProfileId) ?? profiles[0];
   const [draft, setDraft] = useState<AvatarAppearance>(selectedProfile?.avatarAppearance ?? defaultAvatarAppearance);
   const [sectionOrder, setSectionOrder] = useState<SupportingSectionKey[]>(
@@ -210,12 +223,6 @@ function AppearanceEditor({ demo, profiles }: { demo?: boolean; profiles: Appear
   const colorPickerValue = /^#[0-9a-fA-F]{6}$/.test(draft.borderColor) ? draft.borderColor : "#000000";
   const [status, setStatus] = useState<SaveStatus>({ kind: "idle" });
   const [, startTransition] = useTransition();
-
-  useEffect(() => {
-    if (!selectedProfileId && profiles[0]) {
-      setSelectedProfileId(profiles[0].profileId);
-    }
-  }, [profiles, selectedProfileId]);
 
   useEffect(() => {
     if (selectedProfile) {
@@ -232,7 +239,12 @@ function AppearanceEditor({ demo, profiles }: { demo?: boolean; profiles: Appear
   async function submitAppearance(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!selectedProfile || demo || selectedProfile.profileId === "demo") {
+    if (
+      !selectedProfile ||
+      demo ||
+      selectedProfile.profileId === "demo" ||
+      selectedProfile.profileId === "playwright-profile"
+    ) {
       return;
     }
 
@@ -448,9 +460,11 @@ function AppearanceEditor({ demo, profiles }: { demo?: boolean; profiles: Appear
           <Button disabled={demo || status.kind === "saving"} size="lg" type="submit" variant="primary">
             Save appearance
           </Button>
-          <Link className={buttonVariants({ size: "lg", variant: "secondary" })} href={`/${selectedProfile.profileType === "community" ? "c" : "p"}/${selectedProfile.slug}`}>
-            View profile
-          </Link>
+          {selectedProfile.hasPublicProfile ? (
+            <Link className={buttonVariants({ size: "lg", variant: "secondary" })} href={`/${selectedProfile.profileType === "community" ? "c" : "p"}/${selectedProfile.slug}`}>
+              View profile
+            </Link>
+          ) : null}
         </div>
       </form>
 
@@ -459,7 +473,7 @@ function AppearanceEditor({ demo, profiles }: { demo?: boolean; profiles: Appear
   );
 }
 
-function OwnerAppearancePanel() {
+function OwnerAppearancePanel({ initialProfileId }: { initialProfileId?: string }) {
   const profiles = useQuery(api.profileAssets.listOwnedAppearanceProfiles);
 
   if (profiles === undefined) {
@@ -490,15 +504,29 @@ function OwnerAppearancePanel() {
     );
   }
 
-  return <AppearanceEditor profiles={profiles} />;
+  return <AppearanceEditor initialProfileId={initialProfileId} profiles={profiles} />;
 }
 
-function ConnectedAppearancePanel({ demoMode }: { demoMode: boolean }) {
+function ConnectedAppearancePanel({
+  demoMode,
+  initialProfileId,
+}: {
+  demoMode: boolean;
+  initialProfileId?: string;
+}) {
   if (demoMode) {
-    return <AppearanceEditor demo profiles={demoProfiles} />;
+    const profiles = initialProfileId === "playwright-profile"
+      ? [{
+          ...demoProfiles[0],
+          hasPublicProfile: false,
+          profileId: "playwright-profile" as const,
+        }]
+      : demoProfiles;
+
+    return <AppearanceEditor demo initialProfileId={initialProfileId} profiles={profiles} />;
   }
 
-  return <OwnerAppearancePanel />;
+  return <OwnerAppearancePanel initialProfileId={initialProfileId} />;
 }
 
 class AppearancePanelErrorBoundary extends Component<
@@ -524,7 +552,13 @@ class AppearancePanelErrorBoundary extends Component<
   }
 }
 
-export function AppearancePanel({ demoMode = false }: { demoMode?: boolean }) {
+export function AppearancePanel({
+  demoMode = false,
+  initialProfileId,
+}: {
+  demoMode?: boolean;
+  initialProfileId?: string;
+}) {
   if (!convexUrl && !demoMode) {
     return (
       <Notice className="leading-7" variant="dashed">
@@ -535,7 +569,7 @@ export function AppearancePanel({ demoMode = false }: { demoMode?: boolean }) {
 
   return (
     <AppearancePanelErrorBoundary>
-      <ConnectedAppearancePanel demoMode={demoMode} />
+      <ConnectedAppearancePanel demoMode={demoMode} initialProfileId={initialProfileId} />
     </AppearancePanelErrorBoundary>
   );
 }

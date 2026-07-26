@@ -655,6 +655,7 @@ export const listOwnedAppearanceProfiles = query({
       const mediaKit = await getPublicProfileMediaKit(ctx.db, profile, { preference });
       const appearance = toPublicProfileAppearance(preference);
       results.push({
+        hasPublicProfile: canReadProfile("public", profile),
         profileId: profile._id,
         profileType: profile.profileType,
         slug: profile.slug,

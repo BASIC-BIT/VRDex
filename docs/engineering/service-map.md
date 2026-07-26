@@ -18,7 +18,7 @@ Use this page as the high-level map between VRDex services, docs, and implementa
 | Service | Purpose | Related Docs |
 | --- | --- | --- |
 | Vercel | Hosted web deployments, preview deployments, staging helpers. | [Vercel preview deployment](../deployment/vercel-preview.md), [Self-hosting and IaC](../developers/self-hosting-and-iac.md) |
-| Convex | Application data, functions, auth integration, local backend verification. | [Convex bootstrap](../backend/convex-bootstrap.md), [Convex environments](../deployment/convex-environments.md) |
+| Convex | Application data, functions, auth integration, local backend verification. | [Convex bootstrap](../backend/convex-bootstrap.md), [App auth sessions](../backend/auth-sessions.md), [Convex environments](../deployment/convex-environments.md) |
 | AWS SES | Auth email sender and domain email verification. | [SES auth email](../deployment/ses-auth-email.md), [AWS service baseline](../deployment/aws-baseline.md) |
 | AWS S3 | Private profile asset storage baseline. | [AWS service baseline](../deployment/aws-baseline.md) |
 | Route 53 | DNS records for hosted domains, SES, and future provider-owned records. | [AWS service baseline](../deployment/aws-baseline.md), [Self-hosting and IaC](../developers/self-hosting-and-iac.md) |

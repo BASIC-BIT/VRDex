@@ -1,10 +1,12 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 
 import { gotoFlowPage } from "./flow-navigation";
+import { E2E_DISCORD_GUILD_ID } from "../src/lib/e2e-discord-fixture";
 
 test.describe.configure({ mode: "serial" });
 
 const hostedActionExpectOptions = { timeout: process.env.PLAYWRIGHT_BASE_URL ? 20_000 : 5_000 };
+const PRE_NUMERIC_DISCORD_FIXTURE_STAGING_COMMITS = ["1e1ac2f", "05f1ca7"] as const;
 
 function e2eBrowserToken() {
   const token = process.env.VRDEX_E2E_BROWSER_TOKEN ?? (process.env.PLAYWRIGHT_BASE_URL ? undefined : "local-playwright-token");
@@ -23,6 +25,17 @@ function e2eRunId(testInfo: { project: { name: string }; workerIndex: number; re
     .replace(/[^a-z0-9]+/gi, "-")
     .toLowerCase()
     .slice(0, 120);
+}
+
+async function hostedTargetIsKnownPreNumericDiscordFixture(request: APIRequestContext) {
+  if (!process.env.PLAYWRIGHT_BASE_URL) {
+    return false;
+  }
+
+  const response = await request.get("/deployment");
+  await expect(response).toBeOK();
+  const deploymentPage = await response.text();
+  return PRE_NUMERIC_DISCORD_FIXTURE_STAGING_COMMITS.some((commit) => deploymentPage.includes(commit));
 }
 
 async function createE2eProfile({
@@ -204,6 +217,10 @@ test("verified email account with linked Discord can claim person and community 
     Boolean(process.env.PLAYWRIGHT_BASE_URL) && process.env.VRDEX_ENABLE_E2E_AUTH_HELPERS !== "true",
     "Hosted auth E2E helpers are not enabled for this target.",
   );
+  test.skip(
+    Boolean(process.env.PLAYWRIGHT_BASE_URL) && process.env.VRDEX_ENABLE_E2E_ADAPTER_HELPERS !== "true",
+    "Hosted adapter E2E helpers are not enabled for this target.",
+  );
 
   const e2eToken = e2eBrowserToken();
   const runId = e2eRunId(testInfo);
@@ -274,9 +291,37 @@ test("verified email account with linked Discord can claim person and community 
       `/claim/${encodeURIComponent(communitySlug!)}`,
     );
     await page.getByRole("button", { name: /Verify Discord admin/ }).click();
-    await page.getByLabel("Discord server ID").fill("123456789012345678");
+    await page.getByLabel("Discord server ID").fill(E2E_DISCORD_GUILD_ID);
     await page.getByRole("button", { name: "Continue with Discord" }).click();
     await expect(page.getByRole("heading", { name: "Finish your Discord check" })).toBeVisible(hostedActionExpectOptions);
+    await page.getByRole("button", { name: "Check Discord access" }).click();
+    const communityClaimed = page.getByText("Administrator access verified. This community is now yours.");
+    const communityClaimFailed = page.getByText(
+      "We could not complete that check. Nothing changed; try again or choose another method.",
+    );
+    await expect(communityClaimed.or(communityClaimFailed)).toBeVisible(hostedActionExpectOptions);
+
+    if (await communityClaimFailed.isVisible()) {
+      if (await hostedTargetIsKnownPreNumericDiscordFixture(request)) {
+        testInfo.annotations.push({
+          type: "hosted-staging-lag",
+          description: "The exact shared staging commit predates the numeric Discord fixture contract fixed by this branch.",
+        });
+        return;
+      }
+      await expect(communityClaimed).toBeVisible();
+    }
+
+    await gotoFlowPage(page, `/c/${communitySlug}`);
+    await expect(page.getByRole("heading", { name: `Playwright Community Claim ${runSuffix}` })).toBeVisible(
+      hostedActionExpectOptions,
+    );
+    await expectCurrentOrHostedLagTrustCopy(
+      page.getByLabel("Owner verified").or(profileStatusCopy(page, "Verified")),
+      page
+        .getByRole("heading", { name: "Verified owner", exact: true })
+        .or(page.getByText("Community profile / Verified", { exact: true })),
+    );
   } finally {
     await cleanupAuthAndProfiles(request, e2eToken, email, [createdSlug, communitySlug], runId);
   }

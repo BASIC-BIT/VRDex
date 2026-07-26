@@ -15,13 +15,19 @@ import { Field, FieldText, Input } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { captureProductEvent } from "@/lib/posthog";
 import { cn } from "@/lib/cn";
-import { profileClaimPath, type ClaimEntrySource } from "@/lib/profile-claim";
+import {
+  ownerProfileDestinationPath,
+  profileClaimPath,
+  type ClaimEntrySource,
+} from "@/lib/profile-claim";
 
 type ProfileType = "person" | "community";
 type ClaimMethod = "discord" | "vrchat";
 type ClaimProfile = {
   avatarImageUrl?: string;
   displayName: string;
+  hasPublicProfile: boolean;
+  profileId?: string;
   profileType: ProfileType;
   slug: string;
 };
@@ -129,7 +135,12 @@ export function ClaimFlow({
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const statusRef = useRef<HTMLDivElement>(null);
   const completionRef = useRef<HTMLDivElement>(null);
-  const profilePath = `/${profile.profileType === "community" ? "c" : "p"}/${profile.slug}`;
+  const publicProfilePath = `/${profile.profileType === "community" ? "c" : "p"}/${profile.slug}`;
+  const backPath = ownerProfileDestinationPath(profile, "/account");
+  const appearancePath = profile.profileId
+    ? `/account/appearance?profileId=${encodeURIComponent(profile.profileId)}`
+    : "/account/appearance";
+  const completionPath = ownerProfileDestinationPath(profile, appearancePath);
   const isUnverifiedViewer = context?.ownership === "viewer" && !context.verified;
   const canUseClaimJourney = context?.ownership === "available" || isUnverifiedViewer;
   const method: ClaimMethod =
@@ -340,8 +351,8 @@ export function ClaimFlow({
   return (
     <div className="grid gap-8 py-4 sm:py-8 lg:grid-cols-[minmax(0,0.72fr)_minmax(0,1.28fr)] lg:gap-12">
       <aside className="lg:sticky lg:top-24 lg:self-start">
-        <Link className="text-sm text-muted underline underline-offset-4" href={profilePath}>
-          Back to profile
+        <Link className="text-sm text-muted underline underline-offset-4" href={backPath}>
+          {profile.hasPublicProfile ? "Back to profile" : "Back to account"}
         </Link>
         <div className="mt-5 rounded-card border border-border bg-surface p-5">
           <EntityImage
@@ -354,7 +365,9 @@ export function ClaimFlow({
             {profile.profileType}
           </p>
           <h2 className="mt-1 break-words text-2xl font-semibold">{profile.displayName}</h2>
-          <p className="mt-2 text-sm text-muted">vrdex.net{profilePath}</p>
+          {profile.hasPublicProfile ? (
+            <p className="mt-2 text-sm text-muted">vrdex.net{publicProfilePath}</p>
+          ) : null}
         </div>
       </aside>
 
@@ -394,8 +407,14 @@ export function ClaimFlow({
                     {status.kind === "complete" ? status.message : "You already manage this profile."}
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <Link className={buttonVariants({ variant: "primary" })} href={profilePath}>View profile</Link>
-                    <Link className={buttonVariants({ variant: "secondary" })} href="/account/appearance">Edit appearance</Link>
+                    <Link className={buttonVariants({ variant: "primary" })} href={completionPath}>
+                      {profile.hasPublicProfile ? "View profile" : "Manage profile"}
+                    </Link>
+                    {profile.hasPublicProfile ? (
+                      <Link className={buttonVariants({ variant: "secondary" })} href={appearancePath}>
+                        Edit appearance
+                      </Link>
+                    ) : null}
                   </div>
                 </div>
               </div>
