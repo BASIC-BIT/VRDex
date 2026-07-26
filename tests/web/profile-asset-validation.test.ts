@@ -90,6 +90,14 @@ describe("profile asset content validation", () => {
     assert.equal(normalized.mimeType, "image/svg+xml");
     assert.equal(normalized.width, 120);
     assert.equal(normalized.height, 68);
+
+    const commentedLookalike = new TextEncoder().encode(
+      '<!-- <svg width="120" height="68"> --><svg xmlns="http://www.w3.org/2000/svg" width="99999" height="99999"><path d="M0 0h10v10H0z"/></svg>',
+    );
+    await assert.rejects(
+      validateAndNormalizeProfileAsset(commentedLookalike, "image/svg+xml"),
+      /8192 pixels/,
+    );
   });
 
   it("rejects ambiguous SVG dimensions and escaped CSS references", async () => {
@@ -98,6 +106,14 @@ describe("profile asset content validation", () => {
     );
     const escapedCssReference = new TextEncoder().encode(
       String.raw`<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><path style="fill:u\72l(https://tracker.example/p.svg#x)" d="M0 0h10v10H0z"/></svg>`,
+    );
+    const escapedPresentationReference = new TextEncoder().encode(
+      String.raw`<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><path fill="u\72l(https://tracker.example/p.svg#x)" d="M0 0h10v10H0z"/></svg>`,
+    );
+    const encodedPresentationReferences = ["u&#92;72l", "u&#x5c;72l"].map((escapedUrl) =>
+      new TextEncoder().encode(
+        `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><path fill="${escapedUrl}(https://tracker.example/p.svg#x)" d="M0 0h10v10H0z"/></svg>`,
+      ),
     );
 
     await assert.rejects(
@@ -108,6 +124,50 @@ describe("profile asset content validation", () => {
       validateAndNormalizeProfileAsset(escapedCssReference, "image/svg+xml"),
       /cannot contain/,
     );
+    await assert.rejects(
+      validateAndNormalizeProfileAsset(escapedPresentationReference, "image/svg+xml"),
+      /cannot contain/,
+    );
+    for (const encodedReference of encodedPresentationReferences) {
+      await assert.rejects(
+        validateAndNormalizeProfileAsset(encodedReference, "image/svg+xml"),
+        /cannot contain/,
+      );
+    }
+  });
+
+  it("requires exactly four complete viewBox coordinates", async () => {
+    for (const viewBox of ["0,0,120,68", "0 0\n120 68"]) {
+      const valid = new TextEncoder().encode(
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}"><path d="M0 0h10v10H0z"/></svg>`,
+      );
+      const normalized = await validateAndNormalizeProfileAsset(valid, "image/svg+xml");
+      assert.equal(normalized.width, 120);
+      assert.equal(normalized.height, 68);
+    }
+
+    for (const viewBox of ["0 0 100 100 garbage", "0 0 100 100 200"]) {
+      const malformed = new TextEncoder().encode(
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}"><path d="M0 0h10v10H0z"/></svg>`,
+      );
+      await assert.rejects(
+        validateAndNormalizeProfileAsset(malformed, "image/svg+xml"),
+        /valid viewBox/,
+      );
+    }
+
+    const prefixedOnly = new TextEncoder().encode(
+      '<svg xmlns="http://www.w3.org/2000/svg" data-width="120" data-height="68" data-viewBox="0 0 120 68"><path d="M0 0h10v10H0z"/></svg>',
+    );
+    const nestedLookalike = new TextEncoder().encode(
+      `<svg xmlns="http://www.w3.org/2000/svg" data-note=" viewBox='0 0 120 68'"><path d="M0 0h10v10H0z"/></svg>`,
+    );
+    for (const lookalike of [prefixedOnly, nestedLookalike]) {
+      await assert.rejects(
+        validateAndNormalizeProfileAsset(lookalike, "image/svg+xml"),
+        /valid viewBox/,
+      );
+    }
   });
 
   it("rejects namespace-prefixed active SVG content", async () => {

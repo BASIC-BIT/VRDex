@@ -58,66 +58,115 @@ function detectedRasterMimeType(body: Uint8Array): SafeProfileAsset["mimeType"] 
   return null;
 }
 
+function svgRootOffset(source: string): number | null {
+  let offset = 0;
+  const skipWhitespace = () => {
+    while (offset < source.length && /\s/u.test(source[offset]!)) {
+      offset += 1;
+    }
+  };
+
+  skipWhitespace();
+  if (source.slice(offset, offset + 5).toLowerCase() === "<?xml") {
+    const declarationEnd = source.indexOf("?>", offset + 5);
+    if (declarationEnd === -1) return null;
+    offset = declarationEnd + 2;
+    skipWhitespace();
+  }
+  while (source.startsWith("<!--", offset)) {
+    const commentEnd = source.indexOf("-->", offset + 4);
+    if (commentEnd === -1) return null;
+    offset = commentEnd + 3;
+    skipWhitespace();
+  }
+
+  return /^<svg\b/i.test(source.slice(offset)) ? offset : null;
+}
+
 function hasSvgRoot(body: Uint8Array): boolean {
   try {
     const source = new TextDecoder("utf-8", { fatal: true }).decode(body).replace(/^\uFEFF/, "");
-    let offset = 0;
-    const skipWhitespace = () => {
-      while (offset < source.length && /\s/u.test(source[offset]!)) {
-        offset += 1;
-      }
-    };
-
-    skipWhitespace();
-    if (source.slice(offset, offset + 5).toLowerCase() === "<?xml") {
-      const declarationEnd = source.indexOf("?>", offset + 5);
-      if (declarationEnd === -1) {
-        return false;
-      }
-      offset = declarationEnd + 2;
-      skipWhitespace();
-    }
-    while (source.startsWith("<!--", offset)) {
-      const commentEnd = source.indexOf("-->", offset + 4);
-      if (commentEnd === -1) {
-        return false;
-      }
-      offset = commentEnd + 3;
-      skipWhitespace();
-    }
-
-    return /^<svg\b/i.test(source.slice(offset));
+    return svgRootOffset(source) !== null;
   } catch {
     return false;
   }
 }
 
 function svgDimensions(source: string): { width: number; height: number } {
-  const svgTag = source.match(/<svg\b[^>]*>/i)?.[0];
-  if (!svgTag) {
+  const rootOffset = svgRootOffset(source);
+  if (rootOffset === null) {
     throw new Error("SVG uploads must contain an SVG root element.");
   }
+  let quote: '"' | "'" | null = null;
+  let tagEnd = -1;
+  for (let index = rootOffset + 4; index < source.length; index += 1) {
+    const character = source[index];
+    if (quote) {
+      if (character === quote) quote = null;
+    } else if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === ">") {
+      tagEnd = index;
+      break;
+    }
+  }
+  if (tagEnd === -1 || quote) {
+    throw new Error("SVG uploads must contain an SVG root element.");
+  }
+  const svgTag = source.slice(rootOffset, tagEnd + 1);
 
+  const invalidDimensions = () => {
+    throw new Error("SVG uploads must include positive width and height or a valid viewBox.");
+  };
+  const attributes = new Map<string, string>();
+  let offset = 4;
+  while (offset < svgTag.length - 1) {
+    while (/\s/u.test(svgTag[offset]!)) offset += 1;
+    if (svgTag[offset] === "/" || svgTag[offset] === ">") break;
+
+    const nameStart = offset;
+    if (!/[a-z_:]/iu.test(svgTag[offset]!)) invalidDimensions();
+    offset += 1;
+    while (/[a-z0-9_.:-]/iu.test(svgTag[offset] ?? "")) offset += 1;
+    const name = svgTag.slice(nameStart, offset).toLowerCase();
+    while (/\s/u.test(svgTag[offset]!)) offset += 1;
+    if (svgTag[offset] !== "=") invalidDimensions();
+    offset += 1;
+    while (/\s/u.test(svgTag[offset]!)) offset += 1;
+
+    const quote = svgTag[offset];
+    if (quote !== '"' && quote !== "'") invalidDimensions();
+    const valueStart = ++offset;
+    const valueEnd = svgTag.indexOf(quote, valueStart);
+    if (valueEnd === -1 || attributes.has(name)) invalidDimensions();
+    attributes.set(name, svgTag.slice(valueStart, valueEnd));
+    offset = valueEnd + 1;
+  }
+
+  const attributeValue = (name: string) => attributes.get(name.toLowerCase())?.trim();
   const numberAttribute = (name: string) => {
-    const match = svgTag.match(new RegExp(`\\b${name}\\s*=\\s*["']\\s*([^"']+?)\\s*["']`, "i"));
-    if (!match?.[1]) return undefined;
-    const value = match[1].trim();
+    const value = attributeValue(name);
+    if (!value) return undefined;
     if (!/^(?:\d+(?:\.\d*)?|\.\d+)$/u.test(value)) {
-      throw new Error("SVG uploads must include positive width and height or a valid viewBox.");
+      invalidDimensions();
     }
     return Number(value);
   };
   let width = numberAttribute("width");
   let height = numberAttribute("height");
-  const viewBox = svgTag.match(/\bviewBox\s*=\s*["']\s*[-+0-9.e]+\s+[-+0-9.e]+\s+([-+0-9.e]+)\s+([-+0-9.e]+)/i);
 
-  if ((width === undefined || height === undefined) && viewBox?.[1] && viewBox[2]) {
-    width ??= Number(viewBox[1]);
-    height ??= Number(viewBox[2]);
+  if (width === undefined || height === undefined) {
+    const viewBox = attributeValue("viewBox")?.split(/(?:\s*,\s*|\s+)/u);
+    const svgNumber = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/iu;
+    if (viewBox?.length !== 4 || viewBox.some((value) => !svgNumber.test(value))) {
+      invalidDimensions();
+    }
+    width ??= Number(viewBox![2]);
+    height ??= Number(viewBox![3]);
   }
 
   if (!Number.isFinite(width) || !Number.isFinite(height) || width! <= 0 || height! <= 0) {
-    throw new Error("SVG uploads must include positive width and height or a valid viewBox.");
+    invalidDimensions();
   }
 
   return { width: Math.round(width!), height: Math.round(height!) };
@@ -130,6 +179,8 @@ function validateSafeSvg(body: Uint8Array): { body: Uint8Array; width: number; h
   const processingInstruction = /<\?(?!xml\b)/i;
   const activeAttribute = /\son[a-z0-9_-]+\s*=/i;
   const styleAttribute = /\sstyle\s*=/i;
+  const cssEscape = /\\/u;
+  const numericCharacterReference = /&#(?:x[0-9a-f]+|\d+);/iu;
   const externalReference = /\b(?:href|src)\s*=\s*["']\s*(?!#)[^"']+/i;
   const externalCssUrl = [...source.matchAll(/url\(\s*["']?([^"')\s]+)["']?\s*\)/gi)]
     .some((match) => !match[1]?.startsWith("#"));
@@ -140,6 +191,8 @@ function validateSafeSvg(body: Uint8Array): { body: Uint8Array; width: number; h
     processingInstruction.test(source) ||
     activeAttribute.test(source) ||
     styleAttribute.test(source) ||
+    cssEscape.test(source) ||
+    numericCharacterReference.test(source) ||
     externalReference.test(source) ||
     externalCssUrl
   ) {
