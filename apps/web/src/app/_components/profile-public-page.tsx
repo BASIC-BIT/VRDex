@@ -466,7 +466,10 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
           <BrandLink />
         </PageNav>
 
-        <section className="overflow-hidden rounded-card border border-border bg-media shadow-panel">
+        <section
+          aria-labelledby={`profile-title-${profile.slug}`}
+          className="overflow-hidden rounded-card border border-border bg-media shadow-panel"
+        >
           <div
             className="relative bg-media bg-cover bg-center p-5 text-white sm:p-6"
             style={bannerStyle}
@@ -511,7 +514,12 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
                   {profile.trustLabel === "claimed_verified" ? null : (
                     <p className="text-sm text-white/75">{sourceLine}</p>
                   )}
-                  <h1 className="break-words text-4xl leading-none font-semibold sm:text-5xl">{profile.displayName}</h1>
+                  <h1
+                    className="break-words text-4xl leading-none font-semibold sm:text-5xl"
+                    id={`profile-title-${profile.slug}`}
+                  >
+                    {profile.displayName}
+                  </h1>
                   {aliases.length > 0 ? (
                     <div className="mt-2 flex flex-wrap items-center gap-x-2 text-sm text-white/75">
                       <span>AKA {aliases.join(", ")}</span>
@@ -525,14 +533,6 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
                   ) : null}
                   {profile.headline ? <p className="mt-3 max-w-2xl text-base leading-7 text-white/85">{profile.headline}</p> : null}
                   {metadata.length > 0 ? <p className="mt-2 text-sm text-white/70">{metadata.join(" / ")}</p> : null}
-                  {canClaim ? (
-                    <Link
-                      className={cn(buttonVariants({ variant: "inversePrimary" }), "mt-5 !text-[#08090d]")}
-                      href={profileClaimPath(profile.slug, "profile")}
-                    >
-                      {profile.profileType === "person" ? "Is this you? Claim profile" : "Manage this community? Claim profile"}
-                    </Link>
-                  ) : null}
                 </div>
               </div>
               {aboutCopy ? (
@@ -544,6 +544,23 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
             </div>
           </div>
         </section>
+
+        {canClaim ? (
+          <aside
+            aria-label="Profile ownership"
+            className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2 py-4"
+          >
+            <p className="text-sm text-muted">
+              {profile.profileType === "person" ? "Is this your profile?" : "Manage this community?"}
+            </p>
+            <Link
+              className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "shrink-0 whitespace-nowrap")}
+              href={profileClaimPath(profile.slug, "profile")}
+            >
+              Claim profile
+            </Link>
+          </aside>
+        ) : null}
 
         <div className={cn("grid gap-x-10", hasWatchSurface ? "lg:grid-cols-[minmax(0,1fr)_32rem]" : undefined)}>
           <div>

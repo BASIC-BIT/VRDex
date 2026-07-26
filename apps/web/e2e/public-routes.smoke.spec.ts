@@ -119,6 +119,33 @@ test.describe("hosted lookup smoke", () => {
 test.describe("fixture lookup smoke", () => {
   test.skip(isHostedRun, "Fixture-specific lookup suggestions are local-only.");
 
+  test("profile claim actions stay separate and keyboard focusable", async ({ page }) => {
+    await page.goto("/c/playwright-afterglow-social");
+
+    const communityCard = page.getByRole("region", { name: "Afterglow Social" });
+    const communityClaim = page
+      .getByRole("complementary", { name: "Profile ownership" })
+      .getByRole("link", { name: "Claim profile" });
+
+    await expect(communityCard.getByRole("link", { name: "Claim profile" })).toHaveCount(0);
+    await communityClaim.focus();
+    await expect(communityClaim).toBeFocused();
+
+    await page.goto("/p/playwright-dj-aurora");
+
+    const personCard = page.getByRole("region", { name: "DJ Aurora" });
+    const personClaim = page
+      .getByRole("complementary", { name: "Profile ownership" })
+      .getByRole("link", { name: "Claim profile" });
+
+    await expect(personCard.getByRole("link", { name: "Claim profile" })).toHaveCount(0);
+    await personClaim.focus();
+    await expect(personClaim).toBeFocused();
+
+    await page.goto("/p/basicbit");
+    await expect(page.getByRole("complementary", { name: "Profile ownership" })).toHaveCount(0);
+  });
+
   test("event short link redirects to its public event", async ({ page }) => {
     await page.goto("/l/afh2x67");
     await expect(page).toHaveURL(/\/e\/playwright-afterglow-harbor-sessions$/);
