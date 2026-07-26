@@ -12,6 +12,7 @@ import { Card } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
 import { MediaPreviewImage } from "@/app/_components/media-preview-image";
 import { cn } from "@/lib/cn";
+import { profileMediaMimeType } from "@/lib/profile-media-kit";
 
 type MediaAsset = {
   assetId: string;
@@ -33,6 +34,7 @@ type MediaProfile = {
   profileType: "person" | "community";
   slug: string;
   displayName: string;
+  activePublicAssetCount: number;
   assets: MediaAsset[];
 };
 
@@ -257,7 +259,7 @@ function MediaKitEditor({
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file || !profile) return;
-    if (!["image/png", "image/jpeg", "image/webp", "image/svg+xml"].includes(file.type)) {
+    if (profileMediaMimeType(file.type, file.name) === null) {
       setUploadStatus({ kind: "error", message: "Choose a PNG, JPEG, WebP, or SVG image." });
       return;
     }
@@ -336,16 +338,16 @@ function MediaKitEditor({
             <select className={cn(inputClass, "max-w-md")} id="media-profile" onChange={(event) => setSelectedId(event.target.value)} value={profile.profileId}>
               {initialProfiles.map((item) => <option key={item.profileId} value={item.profileId}>{item.displayName}</option>)}
             </select>
-            <p className="mt-3 text-sm text-muted">{activeAssets.length} / 12</p>
+            <p className="mt-3 text-sm text-muted">{profile.activePublicAssetCount} / 12</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Link className={buttonVariants({ variant: "secondary" })} href={`/${profile.profileType === "community" ? "c" : "p"}/${profile.slug}`}>
               View profile
             </Link>
-            <label className={cn(buttonVariants({ variant: "primary" }), "cursor-pointer focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-2", uploading || activeAssets.length >= 12 ? "pointer-events-none opacity-60" : "")}>
+            <label className={cn(buttonVariants({ variant: "primary" }), "cursor-pointer focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-2", uploading || profile.activePublicAssetCount >= 12 ? "pointer-events-none opacity-60" : "")}>
               <ImagePlus aria-hidden="true" className="mr-2 size-4" />
               {uploading ? "Uploading…" : "Add image"}
-              <input accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml" className="sr-only" disabled={uploading || activeAssets.length >= 12} onChange={chooseFile} type="file" />
+              <input accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml" className="sr-only" disabled={uploading || profile.activePublicAssetCount >= 12} onChange={chooseFile} type="file" />
             </label>
           </div>
         </div>
@@ -445,6 +447,7 @@ const demoProfiles: MediaProfile[] = [{
   profileType: "person",
   slug: "playwright-dj-aurora",
   displayName: "DJ Aurora",
+  activePublicAssetCount: 2,
   assets: [
     {
       assetId: "aurora-primary",
@@ -533,7 +536,7 @@ function ConnectedMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: s
       const intent = await createUploadIntent({
         profileId: profileId as Id<"profiles">,
         originalFileName: file.name,
-        mimeType: file.type,
+        mimeType: profileMediaMimeType(file.type, file.name) ?? file.type,
         byteSize: file.size,
         label: metadata.label,
         altText: metadata.altText,

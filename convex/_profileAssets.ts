@@ -525,7 +525,7 @@ export async function consumeProfileAssetUploads(
   const assetIds: Id<"profileAssets">[] = [];
   const seenPlacementKeys = new Set<string>();
 
-  for (const [uploadIndex, upload] of input.uploads.entries()) {
+  for (const upload of input.uploads) {
     const intent = await db.get(upload.intentId);
 
     if (intent === null || intent.uploadToken !== upload.uploadToken) {
@@ -588,11 +588,31 @@ export async function consumeProfileAssetUploads(
           ),
         );
       }
+      let position = 0;
+      if (orderedMultiPlacement) {
+        if (upload.position !== undefined) {
+          position = upload.position;
+        } else {
+          const existingOrderedPlacements = await db
+            .query("profileAssetPlacements")
+            .withIndex("by_profileId_placement_state_position", (query) =>
+              query
+                .eq("profileId", input.profileId)
+                .eq("placement", placement)
+                .eq("state", "active"),
+            )
+            .collect();
+          position = existingOrderedPlacements.reduce(
+            (next, current) => Math.max(next, current.position + 1),
+            0,
+          );
+        }
+      }
       await db.insert("profileAssetPlacements", {
         profileId: input.profileId,
         assetId,
         placement,
-        position: orderedMultiPlacement ? upload.position ?? uploadIndex : 0,
+        position,
         state: "active",
         updatedAt: input.now,
       });

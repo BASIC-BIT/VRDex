@@ -294,6 +294,90 @@ describe("profile media-kit owner management", () => {
     assert.equal(activeFeatured[0]?.assetId, completed.assetIds[0]);
   });
 
+  it("appends a new upload after the current gallery order", async () => {
+    const seeded = await seedOwnedProfile(2);
+    const owner = seeded.t.withIdentity(seeded.ownerIdentity);
+    await owner.mutation(api.profileAssets.reorderOwnedGallery, {
+      profileId: seeded.profileId,
+      assetIds: [seeded.assetIds[1]!, seeded.assetIds[0]!],
+    });
+    const intent = await owner.mutation(api.profileAssets.createUploadIntentForOwnedProfile, {
+      profileId: seeded.profileId,
+      originalFileName: "appended.png",
+      mimeType: "image/png",
+      byteSize: 128,
+      label: "Appended",
+      altText: "An appended gallery image.",
+    });
+    const completed = await seeded.t.mutation(internal.profileAssets.markUploadIntentUploaded, {
+      intentId: intent.intentId,
+      uploadToken: intent.uploadToken,
+      mimeType: "image/png",
+      byteSize: 128,
+      contentSha256: "appended-hash",
+      width: 20,
+      height: 20,
+    });
+    const gallery = await seeded.t.run(async (ctx) => {
+      return await ctx.db
+        .query("profileAssetPlacements")
+        .withIndex("by_profileId_placement_state_position", (query) =>
+          query.eq("profileId", seeded.profileId).eq("placement", "gallery").eq("state", "active"),
+        )
+        .collect();
+    });
+
+    assert.deepEqual(
+      gallery.sort((first, second) => first.position - second.position).map((item) => item.assetId),
+      [seeded.assetIds[1], seeded.assetIds[0], completed.assetIds[0]],
+    );
+  });
+
+  it("rejects a stale reorder that omits a concurrently added gallery item", async () => {
+    const seeded = await seedOwnedProfile(2);
+    const owner = seeded.t.withIdentity(seeded.ownerIdentity);
+    const concurrentAssetId = await seeded.t.run(async (ctx) => {
+      const now = Date.now();
+      const assetId = await ctx.db.insert("profileAssets", {
+        profileId: seeded.profileId,
+        storageKey: "profile-assets/test/concurrent.png",
+        mimeType: "image/png",
+        byteSize: 128,
+        label: "Concurrent",
+        altText: "A concurrently added gallery image.",
+        visibility: "public",
+        source: "owner_authored",
+        uploadedBy: {
+          tokenIdentifier: `api:${seeded.userId}`,
+          issuer: "vrdex:api",
+          subject: String(seeded.userId),
+        },
+        uploadedAt: now,
+        state: "active",
+        updatedAt: now,
+      });
+      await ctx.db.insert("profileAssetPlacements", {
+        profileId: seeded.profileId,
+        assetId,
+        placement: "gallery",
+        position: 2,
+        state: "active",
+        updatedAt: now,
+      });
+      return assetId;
+    });
+
+    await assert.rejects(
+      owner.mutation(api.profileAssets.reorderOwnedGallery, {
+        profileId: seeded.profileId,
+        assetIds: [seeded.assetIds[1]!, seeded.assetIds[0]!],
+      }),
+      /Gallery changed/,
+    );
+    const profiles = await owner.query(api.profileAssets.listOwnedMediaKitProfiles, {});
+    assert.equal(profiles?.[0]?.assets.some((asset) => asset.assetId === concurrentAssetId), true);
+  });
+
   it("requires accessible metadata before reserving a public gallery upload", async () => {
     const seeded = await seedOwnedProfile();
     await assert.rejects(
@@ -357,6 +441,7 @@ describe("profile media-kit owner management", () => {
 
     const profiles = await owner.query(api.profileAssets.listOwnedMediaKitProfiles, {});
     assert.deepEqual(profiles?.[0]?.assets.map((asset) => asset.assetId), seeded.assetIds);
+    assert.equal(profiles?.[0]?.activePublicAssetCount, 2);
     await assert.rejects(
       owner.mutation(api.profileAssets.setOwnedFeaturedAsset, {
         profileId: seeded.profileId,

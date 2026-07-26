@@ -90,7 +90,8 @@ Current recommendation:
 6. The owner can later update the title, accessibility description, caption,
    and credit.
 7. Up/down controls reorder the gallery without requiring drag gestures. A
-   featured control selects the public lead image.
+   featured control selects the public lead image. New uploads append to the
+   current order, and stale reorder snapshots fail without hiding newer items.
 8. Removing an asset immediately hides it from public reads but keeps a Restore
    action. Uploading a replacement before removal avoids a broken public state.
 9. The public profile presents the featured asset followed by the remaining
@@ -118,6 +119,8 @@ Verified:
   and profile tenancy before reading S3.
 - editor previews use a separate signed-in owner route, recheck current profile
   ownership, and remain private/no-store instead of weakening public delivery.
+- the editor's quota count uses the same active-public-asset set as backend
+  admission, including profile images, banners, and logos outside the gallery.
 - SVG files are served only through the controlled application route and
   displayed as ordinary image resources, not inserted as inline markup. The
   route applies `nosniff` and a sandboxed content security policy with scripts

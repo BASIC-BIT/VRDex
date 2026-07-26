@@ -10,7 +10,10 @@ import { ApiProfileAssetUploadIntentCompleteResponseSchema } from "@vrdex/api-co
 import { api, internal } from "@convex-generated-api";
 import { convexAdminHttpClient, convexHttpClient } from "@/lib/server/convex-http";
 import { isProfileAssetStorageConfigured, putProfileAssetObject } from "@/lib/server/profile-asset-storage";
-import { validateAndNormalizeProfileAsset } from "@/lib/server/profile-asset-validation";
+import {
+  profileAssetMimeTypeForFile,
+  validateAndNormalizeProfileAsset,
+} from "@/lib/server/profile-asset-validation";
 
 export const dynamic = "force-dynamic";
 
@@ -36,34 +39,6 @@ function errorResponse(message: string, status: number) {
 
 function normalizedContentType(value: string | null): string {
   return (value ?? "application/octet-stream").split(";")[0]!.trim().toLowerCase();
-}
-
-function mimeTypeForFile(file: File): string {
-  const contentType = normalizedContentType(file.type);
-
-  if (contentType !== "application/octet-stream") {
-    return contentType;
-  }
-
-  const lowerName = file.name.toLowerCase();
-
-  if (lowerName.endsWith(".svg")) {
-    return "image/svg+xml";
-  }
-
-  if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) {
-    return "image/jpeg";
-  }
-
-  if (lowerName.endsWith(".webp")) {
-    return "image/webp";
-  }
-
-  if (lowerName.endsWith(".png")) {
-    return "image/png";
-  }
-
-  return contentType;
 }
 
 function assertAllowedMimeType(mimeType: string) {
@@ -166,7 +141,7 @@ async function bodyFromFileRequest(request: NextRequest): Promise<UploadBody> {
     throw new Error("Upload requests must include a file field.");
   }
 
-  const mimeType = mimeTypeForFile(file);
+  const mimeType = profileAssetMimeTypeForFile(file.type, file.name);
   assertAllowedMimeType(mimeType);
   assertAllowedByteSize(file.size);
 

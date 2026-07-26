@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { hasRenderableProfileMediaKit } from "../../apps/web/src/lib/profile-media-kit";
+import {
+  hasRenderableProfileMediaKit,
+  profileMediaMimeType,
+} from "../../apps/web/src/lib/profile-media-kit";
 
 describe("profile media-kit visibility", () => {
   it("does not render an empty section while the gallery feature is disabled", () => {
@@ -29,5 +32,18 @@ describe("profile media-kit visibility", () => {
       hasPrimaryLogo: false,
       logoCount: 1,
     }), true);
+  });
+});
+
+describe("profile media-kit MIME fallback", () => {
+  it("accepts supported extensions when the browser omits MIME", () => {
+    assert.equal(profileMediaMimeType("", "portrait.webp"), "image/webp");
+    assert.equal(profileMediaMimeType("", "logo.SVG"), "image/svg+xml");
+  });
+
+  it("falls back from generic MIME but does not override an unsupported declared MIME", () => {
+    assert.equal(profileMediaMimeType("application/octet-stream", "portrait.webp"), "image/webp");
+    assert.equal(profileMediaMimeType("text/plain", "portrait.webp"), null);
+    assert.equal(profileMediaMimeType("", "animated.gif"), null);
   });
 });

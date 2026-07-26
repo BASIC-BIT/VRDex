@@ -458,6 +458,9 @@ export const listOwnedMediaKitProfiles = query({
         profileType: profile.profileType,
         slug: profile.slug,
         displayName: profile.displayName,
+        activePublicAssetCount: assets.filter(
+          (asset) => asset.state === "active" && asset.visibility === "public",
+        ).length,
         assets: assets
           .filter((asset) =>
             asset.state === "active"
@@ -584,6 +587,18 @@ export const reorderOwnedGallery = mutation({
         query.eq("profileId", profile._id).eq("placement", "gallery").eq("state", "active"),
       )
       .collect();
+    const existingAssets = await Promise.all(existing.map((placement) => ctx.db.get(placement.assetId)));
+    const existingAssetIds = new Set(
+      existing
+        .filter((_, index) => existingAssets[index]?.state === "active")
+        .map((placement) => placement.assetId),
+    );
+    if (
+      existingAssetIds.size !== uniqueIds.length ||
+      uniqueIds.some((assetId) => !existingAssetIds.has(assetId))
+    ) {
+      throw new Error("Gallery changed. Reload and try again.");
+    }
     const now = Date.now();
     await Promise.all(existing.map((placement) => ctx.db.patch(placement._id, { state: "deleted", updatedAt: now })));
     await Promise.all(uniqueIds.map((assetId, position) =>

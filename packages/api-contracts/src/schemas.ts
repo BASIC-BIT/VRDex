@@ -569,9 +569,29 @@ export const ApiProfileAssetUploadIntentCreateRequestSchema = z
   .refine((value) => value.originalFileName !== undefined || value.sourceUrl !== undefined, {
     message: "Send originalFileName for direct uploads or sourceUrl for server-side imports.",
   })
+  .superRefine((value, context) => {
+    const placements = value.placements ?? [];
+    if (placements.includes("featured") && !placements.includes("gallery")) {
+      context.addIssue({
+        code: "custom",
+        message: "Featured media must also be a gallery item.",
+        path: ["placements"],
+      });
+    }
+    if (
+      placements.some((placement) => placement === "gallery" || placement === "featured") &&
+      (!value.label?.trim() || !value.altText?.trim())
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Gallery images require a title and accessibility description.",
+        path: ["placements"],
+      });
+    }
+  })
   .meta({
     description:
-      "Create a one-time profile media upload intent for a claimed profile owned by the current authenticated API user.",
+      "Create a one-time profile media upload intent for a claimed profile owned by the current authenticated API user. Gallery placement requires a nonblank label and altText; featured placement also requires gallery.",
     id: "ApiProfileAssetUploadIntentCreateRequest",
   });
 

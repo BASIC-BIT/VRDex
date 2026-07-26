@@ -5,6 +5,21 @@ import sharp from "sharp";
 export const PROFILE_ASSET_MAX_SOURCE_DIMENSION = 8_192;
 export const PROFILE_ASSET_MAX_STORED_DIMENSION = 4_096;
 
+export function profileAssetMimeTypeForFile(fileType: string, fileName: string): string {
+  const contentType = fileType.split(";")[0]!.trim().toLowerCase();
+
+  if (contentType && contentType !== "application/octet-stream") {
+    return contentType;
+  }
+
+  const lowerName = fileName.toLowerCase();
+  if (lowerName.endsWith(".svg")) return "image/svg+xml";
+  if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) return "image/jpeg";
+  if (lowerName.endsWith(".webp")) return "image/webp";
+  if (lowerName.endsWith(".png")) return "image/png";
+  return contentType;
+}
+
 type SafeProfileAsset = {
   body: Uint8Array;
   mimeType: "image/png" | "image/jpeg" | "image/webp" | "image/svg+xml";
