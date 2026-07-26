@@ -43,6 +43,10 @@ Current recommendation:
 - keep deletion recoverable in Convex for this slice; physical object deletion
   follows a documented retention and orphan-cleanup job rather than happening
   synchronously in an owner request
+- before enablement, cap retained storage per profile at 24 source objects and
+  288 MB across active, deleted, pending, expired, and reconcilable orphan
+  states; reconcile expired/orphaned objects within 24 hours and physically
+  remove soft-deleted objects after a 30-day recovery window
 
 ## Existing Capability And Gaps
 
@@ -123,9 +127,9 @@ Verified:
 Follow-up risks:
 
 - add a scheduled cleanup process for expired intents, unconsumed objects, and
-  soft-deleted objects after a defined recovery window; do not enable hosted
-  uploads for real users until retained objects and bytes are operationally
-  bounded
+  soft-deleted objects with the retained-storage cap and deadlines above; do
+  not enable hosted uploads for real users until automated tests and a real
+  non-production staging exercise prove those controls
 - choose malware-scanning and asset-report/quarantine behavior before accepting
   higher-risk media formats or broad anonymous submissions
 - measure download egress and decide on controlled caching/variants or a CDN

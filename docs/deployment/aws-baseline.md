@@ -101,7 +101,10 @@ Terraform/runtime baseline:
 
 The first owner-facing gallery keeps at most 12 active public assets per
 profile. Deletion is recoverable metadata state; it does not synchronously
-delete the private object.
+delete the private object. Before the launch flag is enabled, add a 24-object /
+288 MB retained-storage cap per profile, reconcile expired or orphaned objects
+within 24 hours, and remove soft-deleted objects after a 30-day recovery
+window.
 
 Deferred follow-on work:
 
