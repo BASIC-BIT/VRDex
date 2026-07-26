@@ -405,15 +405,19 @@ export async function POST(request: NextRequest, context: RouteContext) {
   }
 
   const processingToken = crypto.randomUUID();
-  const intent = await convexAdminHttpClient().mutation(internal.profileAssets.claimUploadIntentForStorage, {
+  const claim = await convexAdminHttpClient().mutation(internal.profileAssets.claimUploadIntentForStorage, {
     intentId: intentId as GenericId<"profileAssetUploadIntents">,
     uploadToken,
     processingToken,
   });
 
-  if (intent === null) {
+  if (claim.status === "not_found") {
+    return errorResponse("Upload intent was not found, expired, or already in use.", 404);
+  }
+  if (claim.status === "in_use") {
     return errorResponse("Upload intent was not found, expired, or already in use.", 409);
   }
+  const intent = claim;
 
   let objectWritten = false;
   try {

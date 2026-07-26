@@ -989,13 +989,19 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiProfileAssetUploadErrorResponse"
         "403":
-          description: The one-time upload token was missing or invalid.
+          description: The one-time upload token was missing.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiProfileAssetUploadErrorResponse"
         "404":
-          description: The upload intent was not found or has expired.
+          description: The upload intent was not found, has expired, or the upload token was invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProfileAssetUploadErrorResponse"
+        "409":
+          description: The upload intent is already being processed.
           content:
             application/json:
               schema:

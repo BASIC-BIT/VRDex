@@ -7,6 +7,7 @@ import { userOwnsProfile } from "./_profileOwnership";
 
 export const PROFILE_ASSET_UPLOAD_MAX_BYTES = 12 * 1024 * 1024;
 export const PROFILE_ASSET_UPLOAD_INTENT_TTL_MS = 30 * 60 * 1000;
+export const PROFILE_ASSET_UPLOAD_PROCESSING_LEASE_MS = 10 * 60 * 1000;
 export const PROFILE_ASSET_LABEL_MAX_LENGTH = 80;
 export const PROFILE_ASSET_CAPTION_MAX_LENGTH = 240;
 export const PROFILE_ASSET_ALT_TEXT_MAX_LENGTH = 180;

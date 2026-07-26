@@ -13,6 +13,7 @@ import { userOwnsProfile } from "./_profileOwnership";
 import { canReadProfile } from "./_profilePermissions";
 import {
   PROFILE_ASSET_MAX_ACTIVE_COUNT,
+  PROFILE_ASSET_UPLOAD_PROCESSING_LEASE_MS,
   assertProfileAssetIntentCapacity,
   createProfileAssetUploadIntentRecord,
   finalizeProfileAssetUploadIntentUpload,
@@ -314,7 +315,6 @@ export const cancelOwnedUploadIntent = mutation({
       intent.uploadToken !== args.uploadToken ||
       intent.targetProfileId === undefined ||
       intent.state !== "pending" ||
-      intent.processingToken !== undefined ||
       intent.requestedBy.issuer !== "vrdex:api" ||
       intent.requestedBy.subject !== String(user._id) ||
       !(await userOwnsProfile(ctx.db, intent.targetProfileId, user._id))
@@ -323,6 +323,13 @@ export const cancelOwnedUploadIntent = mutation({
     }
 
     const now = Date.now();
+    if (
+      intent.processingToken !== undefined &&
+      (intent.processingStartedAt === undefined ||
+        intent.processingStartedAt > now - PROFILE_ASSET_UPLOAD_PROCESSING_LEASE_MS)
+    ) {
+      return false;
+    }
     await ctx.db.patch(intent._id, {
       expiresAt: Math.min(intent.expiresAt, now - 1),
       updatedAt: now,
@@ -341,16 +348,26 @@ export const claimUploadIntentForStorage = internalMutation({
     const intent = await ctx.db.get(args.intentId);
     const now = Date.now();
 
-    if (
-      intent === null ||
-      intent.uploadToken !== args.uploadToken ||
-      intent.processingToken !== undefined
-    ) {
-      return null;
+    if (intent === null || intent.uploadToken !== args.uploadToken) {
+      return { status: "not_found" as const };
     }
 
     if (intent.state !== "pending" || intent.expiresAt < now) {
-      return null;
+      return { status: "not_found" as const };
+    }
+
+    if (intent.processingToken !== undefined) {
+      if (
+        intent.processingStartedAt !== undefined &&
+        intent.processingStartedAt <= now - PROFILE_ASSET_UPLOAD_PROCESSING_LEASE_MS
+      ) {
+        await ctx.db.patch(intent._id, {
+          expiresAt: Math.min(intent.expiresAt, now - 1),
+          updatedAt: now,
+        });
+        return { status: "not_found" as const };
+      }
+      return { status: "in_use" as const };
     }
 
     await ctx.db.patch(intent._id, {
@@ -360,6 +377,7 @@ export const claimUploadIntentForStorage = internalMutation({
     });
 
     return {
+      status: "claimed" as const,
       intentId: intent._id,
       originalFileName: intent.originalFileName,
       sourceUrl: intent.sourceUrl,

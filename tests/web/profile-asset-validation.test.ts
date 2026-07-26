@@ -79,6 +79,19 @@ describe("profile asset content validation", () => {
     await assert.rejects(validateAndNormalizeProfileAsset(animatedColor, "image/svg+xml"), /cannot contain/);
   });
 
+  it("accepts safe SVG comments before the root element", async () => {
+    const safe = new TextEncoder().encode(
+      `<?xml version="1.0" encoding="UTF-8"?>
+      <!-- ${"Generator metadata ".repeat(20)} -->
+      <svg xmlns="http://www.w3.org/2000/svg" width="120" height="68"><path d="M0 0h10v10H0z"/></svg>`,
+    );
+    const normalized = await validateAndNormalizeProfileAsset(safe, "image/svg+xml");
+
+    assert.equal(normalized.mimeType, "image/svg+xml");
+    assert.equal(normalized.width, 120);
+    assert.equal(normalized.height, 68);
+  });
+
   it("rejects namespace-prefixed active SVG content", async () => {
     const namespacedScript = new TextEncoder().encode(
       '<svg xmlns="http://www.w3.org/2000/svg" xmlns:s="http://www.w3.org/2000/svg" width="20" height="20"><s:script>alert(1)</s:script></svg>',

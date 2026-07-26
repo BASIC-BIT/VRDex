@@ -135,8 +135,10 @@ Verified:
   credentials, response size, and MIME.
 - upload completion is server-only and atomically claims an intent before
   external fetch or image processing. Failed pre-write work releases the exact
-  claim; claimed work cannot be cancelled concurrently. Physical cleanup stays
-  in the deferred reconciliation job for post-write failures.
+  claim; active work cannot be cancelled concurrently, and claims abandoned
+  for 10 minutes expire instead of being reassigned to the same storage target.
+  Physical cleanup stays in the deferred reconciliation job for post-write
+  failures.
 
 Follow-up risks:
 

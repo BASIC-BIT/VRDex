@@ -58,6 +58,18 @@ function detectedRasterMimeType(body: Uint8Array): SafeProfileAsset["mimeType"] 
   return null;
 }
 
+function hasSvgRoot(body: Uint8Array): boolean {
+  try {
+    const source = new TextDecoder("utf-8", { fatal: true })
+      .decode(body)
+      .replace(/^\uFEFF/, "")
+      .trimStart();
+    return /^(?:<\?xml\b[\s\S]*?\?>\s*)?(?:<!--[\s\S]*?-->\s*)*<svg\b/i.test(source);
+  } catch {
+    return false;
+  }
+}
+
 function svgDimensions(source: string): { width: number; height: number } {
   const svgTag = source.match(/<svg\b[^>]*>/i)?.[0];
   if (!svgTag) {
@@ -156,8 +168,7 @@ export async function validateAndNormalizeProfileAsset(
   declaredMimeType: string,
 ): Promise<SafeProfileAsset> {
   const rasterMimeType = detectedRasterMimeType(body);
-  const trimmedStart = new TextDecoder("utf-8").decode(body.slice(0, Math.min(body.length, 256))).replace(/^\uFEFF/, "").trimStart();
-  const detectedMimeType = rasterMimeType ?? (/^(?:<\?xml\b[\s\S]*?\?>\s*)?<svg\b/i.test(trimmedStart) ? "image/svg+xml" : null);
+  const detectedMimeType = rasterMimeType ?? (hasSvgRoot(body) ? "image/svg+xml" : null);
 
   if (detectedMimeType === null) {
     throw new Error("The file contents are not a supported PNG, JPEG, WebP, or SVG image.");

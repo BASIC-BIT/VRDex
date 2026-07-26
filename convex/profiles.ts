@@ -100,8 +100,6 @@ const profileAssetPlacement = v.union(
   v.literal("banner"),
   v.literal("primary_logo"),
   v.literal("additional_logo"),
-  v.literal("gallery"),
-  v.literal("featured"),
 );
 const profileAssetUploadInput = v.object({
   intentId: v.id("profileAssetUploadIntents"),

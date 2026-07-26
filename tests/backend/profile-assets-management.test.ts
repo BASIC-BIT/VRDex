@@ -5,6 +5,7 @@ import { convexTest } from "convex-test";
 
 import { api, internal } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
+import { PROFILE_ASSET_UPLOAD_PROCESSING_LEASE_MS } from "../../convex/_profileAssets";
 import schemaModule from "../../convex/schema";
 
 process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true";
@@ -109,7 +110,7 @@ async function claimUploadIntent(
     uploadToken: intent.uploadToken,
     processingToken,
   });
-  assert.notEqual(claimed, null);
+  assert.equal(claimed.status, "claimed");
   return processingToken;
 }
 
@@ -231,16 +232,16 @@ describe("profile media-kit owner management", () => {
       },
     );
     const firstToken = "processing-first";
-    assert.notEqual(await seeded.t.mutation(internal.profileAssets.claimUploadIntentForStorage, {
+    assert.equal((await seeded.t.mutation(internal.profileAssets.claimUploadIntentForStorage, {
       intentId: intent.intentId,
       uploadToken: intent.uploadToken,
       processingToken: firstToken,
-    }), null);
-    assert.equal(await seeded.t.mutation(internal.profileAssets.claimUploadIntentForStorage, {
+    })).status, "claimed");
+    assert.equal((await seeded.t.mutation(internal.profileAssets.claimUploadIntentForStorage, {
       intentId: intent.intentId,
       uploadToken: intent.uploadToken,
       processingToken: "processing-replay",
-    }), null);
+    })).status, "in_use");
     assert.equal(await seeded.t.withIdentity(seeded.ownerIdentity).mutation(
       api.profileAssets.cancelOwnedUploadIntent,
       {
@@ -253,11 +254,75 @@ describe("profile media-kit owner management", () => {
       uploadToken: intent.uploadToken,
       processingToken: firstToken,
     }), true);
-    assert.notEqual(await seeded.t.mutation(internal.profileAssets.claimUploadIntentForStorage, {
+    assert.equal((await seeded.t.mutation(internal.profileAssets.claimUploadIntentForStorage, {
       intentId: intent.intentId,
       uploadToken: intent.uploadToken,
       processingToken: "processing-retry",
-    }), null);
+    })).status, "claimed");
+  });
+
+  it("expires an abandoned storage claim instead of reusing its object target", async () => {
+    const seeded = await seedOwnedProfile(0);
+    const intent = await seeded.t.withIdentity(seeded.ownerIdentity).mutation(
+      api.profileAssets.createUploadIntentForOwnedProfile,
+      {
+        profileId: seeded.profileId,
+        originalFileName: "abandoned.png",
+        mimeType: "image/png",
+        byteSize: 128,
+        label: "Abandoned upload",
+        altText: "A synthetic abandoned upload.",
+      },
+    );
+    assert.equal((await seeded.t.mutation(internal.profileAssets.claimUploadIntentForStorage, {
+      intentId: intent.intentId,
+      uploadToken: intent.uploadToken,
+      processingToken: "processing-abandoned",
+    })).status, "claimed");
+    await seeded.t.run(async (ctx) => {
+      await ctx.db.patch(intent.intentId, {
+        processingStartedAt: Date.now() - PROFILE_ASSET_UPLOAD_PROCESSING_LEASE_MS - 1,
+      });
+    });
+
+    assert.equal((await seeded.t.mutation(internal.profileAssets.claimUploadIntentForStorage, {
+      intentId: intent.intentId,
+      uploadToken: intent.uploadToken,
+      processingToken: "processing-new",
+    })).status, "not_found");
+    const expired = await seeded.t.run(async (ctx) => await ctx.db.get(intent.intentId));
+    assert.ok(expired);
+    assert.equal(expired.processingToken, "processing-abandoned");
+    assert.equal(expired.expiresAt < Date.now(), true);
+
+    const cancellable = await seeded.t.withIdentity(seeded.ownerIdentity).mutation(
+      api.profileAssets.createUploadIntentForOwnedProfile,
+      {
+        profileId: seeded.profileId,
+        originalFileName: "abandoned-cancel.png",
+        mimeType: "image/png",
+        byteSize: 128,
+        label: "Abandoned cancel upload",
+        altText: "A second synthetic abandoned upload.",
+      },
+    );
+    assert.equal((await seeded.t.mutation(internal.profileAssets.claimUploadIntentForStorage, {
+      intentId: cancellable.intentId,
+      uploadToken: cancellable.uploadToken,
+      processingToken: "processing-cancellable",
+    })).status, "claimed");
+    await seeded.t.run(async (ctx) => {
+      await ctx.db.patch(cancellable.intentId, {
+        processingStartedAt: Date.now() - PROFILE_ASSET_UPLOAD_PROCESSING_LEASE_MS - 1,
+      });
+    });
+    assert.equal(await seeded.t.withIdentity(seeded.ownerIdentity).mutation(
+      api.profileAssets.cancelOwnedUploadIntent,
+      {
+        intentId: cancellable.intentId,
+        uploadToken: cancellable.uploadToken,
+      },
+    ), true);
   });
 
   it("enforces quota when a removed asset is restored", async () => {

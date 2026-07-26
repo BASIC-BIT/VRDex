@@ -425,10 +425,11 @@ export async function evaluateOptionalApiBearerRequest(
   }
   const authentication = authenticated.context;
 
-  const routeClass =
+  const defaultRouteClass =
     authentication.identity.kind === "api_token" || authentication.identity.kind === "oauth_client"
-      ? options.routeClass ?? "authenticated_public_read"
+      ? "authenticated_public_read"
       : "anonymous_public_read";
+  const routeClass = options.routeClass ?? defaultRouteClass;
   const quotaTier = quotaTierForCredential(authentication.credential);
   const policy = apiRateLimitPolicyForRouteClass(routeClass, quotaTier);
   let rateLimit;
