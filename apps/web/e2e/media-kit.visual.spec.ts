@@ -52,6 +52,50 @@ test("owner profile switch clears an unsubmitted upload", async ({ page }) => {
   await expect(page.getByText("synthetic.png", { exact: true })).toHaveCount(0);
 });
 
+test("removed profile cannot inherit a staged upload", async ({ page }) => {
+  await page.goto("/account/media-kit");
+  await page.getByLabel("Add image").setInputFiles({
+    name: "transfer.png",
+    mimeType: "image/png",
+    buffer: Buffer.from("synthetic image"),
+  });
+  await expect(page.getByRole("button", { name: "Publish" })).toBeVisible();
+  const uploadForm = page.locator("form").filter({ has: page.getByRole("button", { name: "Publish" }) });
+  await uploadForm.getByLabel("Title", { exact: true }).focus();
+
+  await page.evaluate(() => {
+    window.dispatchEvent(new CustomEvent("vrdex:toggle-media-profile", {
+      detail: { profileId: "demo-profile", present: false },
+    }));
+  });
+
+  await expect(page.getByLabel("Profile", { exact: true })).toHaveValue("demo-community");
+  await expect(page.getByLabel("Profile", { exact: true })).toBeFocused();
+  await expect(page.getByText("No profiles", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Publish" })).toHaveCount(0);
+  await expect(page.getByText("transfer.png", { exact: true })).toHaveCount(0);
+
+  await page.getByLabel("Add image").setInputFiles({
+    name: "last-profile.png",
+    mimeType: "image/png",
+    buffer: Buffer.from("synthetic image"),
+  });
+  await page.evaluate(() => {
+    window.dispatchEvent(new CustomEvent("vrdex:toggle-media-profile", {
+      detail: { profileId: "demo-community", present: false },
+    }));
+  });
+  await expect(page.getByText("No profiles", { exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    window.dispatchEvent(new CustomEvent("vrdex:toggle-media-profile", {
+      detail: { profileId: "demo-community", present: true },
+    }));
+  });
+  await expect(page.getByLabel("Profile", { exact: true })).toHaveValue("demo-community");
+  await expect(page.getByRole("button", { name: "Publish" })).toHaveCount(0);
+  await expect(page.getByText("last-profile.png", { exact: true })).toHaveCount(0);
+});
+
 test("owner profile switch stays locked during upload", async ({ page }) => {
   await page.goto("/account/media-kit");
   await page.getByLabel("Add image").setInputFiles({

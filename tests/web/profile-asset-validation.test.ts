@@ -92,6 +92,24 @@ describe("profile asset content validation", () => {
     assert.equal(normalized.height, 68);
   });
 
+  it("rejects ambiguous SVG dimensions and escaped CSS references", async () => {
+    const scientificDimensions = new TextEncoder().encode(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="1e9" height="1e9"><path d="M0 0h10v10H0z"/></svg>',
+    );
+    const escapedCssReference = new TextEncoder().encode(
+      String.raw`<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><path style="fill:u\72l(https://tracker.example/p.svg#x)" d="M0 0h10v10H0z"/></svg>`,
+    );
+
+    await assert.rejects(
+      validateAndNormalizeProfileAsset(scientificDimensions, "image/svg+xml"),
+      /positive width and height/,
+    );
+    await assert.rejects(
+      validateAndNormalizeProfileAsset(escapedCssReference, "image/svg+xml"),
+      /cannot contain/,
+    );
+  });
+
   it("rejects namespace-prefixed active SVG content", async () => {
     const namespacedScript = new TextEncoder().encode(
       '<svg xmlns="http://www.w3.org/2000/svg" xmlns:s="http://www.w3.org/2000/svg" width="20" height="20"><s:script>alert(1)</s:script></svg>',

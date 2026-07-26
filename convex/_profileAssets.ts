@@ -113,6 +113,13 @@ function validateProfileAssetGalleryPlacements(
   }
 }
 
+function validateProfileAssetPosition(value: number | undefined): number | undefined {
+  if (value !== undefined && (!Number.isSafeInteger(value) || value < 0)) {
+    throw new Error("Profile media position must be a nonnegative integer.");
+  }
+  return value;
+}
+
 export async function assertProfileAssetCapacity(
   db: DatabaseReader,
   profileId: Id<"profiles">,
@@ -351,6 +358,7 @@ export async function createProfileAssetUploadIntentRecord(
   const caption = sanitizeProfileAssetCaption(input.caption);
   const altText = sanitizeProfileAssetAltText(input.altText);
   const credit = sanitizeProfileAssetCredit(input.credit);
+  const position = validateProfileAssetPosition(input.position);
   validateProfileAssetGalleryPlacements(input.placements, label, altText);
   const expiresAt = input.now + PROFILE_ASSET_UPLOAD_INTENT_TTL_MS;
   const intentId = await db.insert("profileAssetUploadIntents", {
@@ -367,7 +375,7 @@ export async function createProfileAssetUploadIntentRecord(
     ...(altText !== undefined ? { altText } : {}),
     ...(credit !== undefined ? { credit } : {}),
     ...(input.placements !== undefined ? { placements: input.placements } : {}),
-    ...(input.position !== undefined ? { position: input.position } : {}),
+    ...(position !== undefined ? { position } : {}),
     ...(input.source !== undefined ? { source: input.source } : {}),
     state: "pending",
     createdAt: input.now,
@@ -591,18 +599,32 @@ export async function consumeProfileAssetUploads(
       }
       let position = 0;
       if (orderedMultiPlacement) {
+        const existingOrderedPlacements = await db
+          .query("profileAssetPlacements")
+          .withIndex("by_profileId_placement_state_position", (query) =>
+            query
+              .eq("profileId", input.profileId)
+              .eq("placement", placement)
+              .eq("state", "active"),
+          )
+          .collect();
         if (upload.position !== undefined) {
-          position = upload.position;
+          const requestedPosition = validateProfileAssetPosition(upload.position)!;
+          const ordered = existingOrderedPlacements.sort(
+            (first, second) =>
+              first.position - second.position ||
+              String(first._id).localeCompare(String(second._id)),
+          );
+          position = Math.min(requestedPosition, ordered.length);
+          await Promise.all(
+            ordered.map((current, index) => {
+              const nextPosition = index >= position ? index + 1 : index;
+              return current.position === nextPosition
+                ? Promise.resolve()
+                : db.patch(current._id, { position: nextPosition, updatedAt: input.now });
+            }),
+          );
         } else {
-          const existingOrderedPlacements = await db
-            .query("profileAssetPlacements")
-            .withIndex("by_profileId_placement_state_position", (query) =>
-              query
-                .eq("profileId", input.profileId)
-                .eq("placement", placement)
-                .eq("state", "active"),
-            )
-            .collect();
           position = existingOrderedPlacements.reduce(
             (next, current) => Math.max(next, current.position + 1),
             0,

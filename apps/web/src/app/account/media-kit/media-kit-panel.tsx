@@ -3,7 +3,7 @@
 import { useMutation, useQuery } from "convex/react";
 import { ArrowDown, ArrowUp, ImagePlus, RotateCcw, Star, Trash2 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 
 import { api } from "@convex-generated-api";
 import type { Id } from "../../../../../../convex/_generated/dataModel";
@@ -298,12 +298,33 @@ function MediaKitEditor({
   const [focusActiveAssetId, setFocusActiveAssetId] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [uploadMetadata, setUploadMetadata] = useState({ label: "", altText: "", credit: "" });
-  const profile = initialProfiles.find((item) => item.profileId === selectedId) ?? initialProfiles[0];
+  const profileSelectRef = useRef<HTMLSelectElement>(null);
+  const shouldFocusProfileRef = useRef(false);
+  const selectedProfile = initialProfiles.find((item) => item.profileId === selectedId);
+  const profile = selectedProfile ?? initialProfiles[0];
   const activeAssets = profile?.assets.filter((asset) => asset.state === "active" && asset.gallery) ?? [];
   const otherActiveAssets = profile?.assets.filter((asset) => asset.state === "active" && !asset.gallery) ?? [];
   const deletedAssets = profile?.assets.filter((asset) => asset.state === "deleted") ?? [];
   const activeAssetIds = [...activeAssets, ...otherActiveAssets].map((asset) => asset.assetId).join(",");
   const deletedAssetIds = deletedAssets.map((asset) => asset.assetId).join(",");
+
+  useEffect(() => {
+    if (selectedProfile) return;
+    setPendingFile(null);
+    setUploadMetadata({ label: "", altText: "", credit: "" });
+    setUploadStatus(null);
+    setGalleryStatus(null);
+    setRemovedStatus(null);
+    const fallbackId = initialProfiles[0]?.profileId ?? "";
+    shouldFocusProfileRef.current = Boolean(fallbackId && selectedId);
+    setSelectedId(fallbackId);
+  }, [initialProfiles, selectedId, selectedProfile]);
+
+  useEffect(() => {
+    if (!selectedProfile || !shouldFocusProfileRef.current) return;
+    shouldFocusProfileRef.current = false;
+    profileSelectRef.current?.focus();
+  }, [selectedProfile]);
 
   useEffect(() => {
     if (!focusRestoreAssetId) return;
@@ -333,6 +354,7 @@ function MediaKitEditor({
   };
 
   const restoreAsset = async (assetId: string) => {
+    if (!profile) return;
     const restored = await runOperation(
       "Restored.",
       () => actions.setDeleted(profile.profileId, assetId, false),
@@ -364,7 +386,7 @@ function MediaKitEditor({
 
   const publishUpload = async (event: FormEvent) => {
     event.preventDefault();
-    if (!pendingFile || !profile) return;
+    if (!pendingFile || !selectedProfile) return;
     if (!uploadMetadata.label.trim() || !uploadMetadata.altText.trim()) {
       setUploadStatus({ kind: "error", message: "Title and accessibility description are required." });
       return;
@@ -372,7 +394,7 @@ function MediaKitEditor({
     setUploading(true);
     setUploadStatus({ kind: "progress", message: `Uploading ${pendingFile.name}…` });
     try {
-      await actions.upload(profile.profileId, pendingFile, uploadMetadata);
+      await actions.upload(selectedProfile.profileId, pendingFile, uploadMetadata);
       setUploadStatus({ kind: "success", message: "Published." });
       setPendingFile(null);
     } catch (error) {
@@ -421,7 +443,7 @@ function MediaKitEditor({
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
           <div>
             <label className="text-sm font-medium" htmlFor="media-profile">Profile</label>
-            <select className={cn(inputClass, "max-w-md")} disabled={uploading || operationBusy} id="media-profile" onChange={(event) => selectProfile(event.target.value)} value={profile.profileId}>
+            <select className={cn(inputClass, "max-w-md")} disabled={uploading || operationBusy} id="media-profile" onChange={(event) => selectProfile(event.target.value)} ref={profileSelectRef} value={profile.profileId}>
               {initialProfiles.map((item) => <option key={item.profileId} value={item.profileId}>{item.displayName}</option>)}
             </select>
             <p className="mt-3 text-sm text-muted">{profile.activePublicAssetCount} / 12</p>
@@ -430,16 +452,16 @@ function MediaKitEditor({
             <Link className={buttonVariants({ variant: "secondary" })} href={`/${profile.profileType === "community" ? "c" : "p"}/${profile.slug}`}>
               View profile
             </Link>
-            <label className={cn(buttonVariants({ variant: "primary" }), "cursor-pointer focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-2", uploading || profile.activePublicAssetCount >= 12 ? "pointer-events-none opacity-60" : "")}>
+            <label className={cn(buttonVariants({ variant: "primary" }), "cursor-pointer focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-2", !selectedProfile || uploading || profile.activePublicAssetCount >= 12 ? "pointer-events-none opacity-60" : "")}>
               <ImagePlus aria-hidden="true" className="mr-2 size-4" />
               {uploading ? "Uploading…" : "Add image"}
-              <input accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml" className="sr-only" disabled={uploading || profile.activePublicAssetCount >= 12} onChange={chooseFile} type="file" />
+              <input accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml" className="sr-only" disabled={!selectedProfile || uploading || profile.activePublicAssetCount >= 12} onChange={chooseFile} type="file" />
             </label>
           </div>
         </div>
         {uploading ? <progress aria-label="Image upload in progress" className="mt-5 w-full" /> : null}
         {!pendingFile ? <ActionStatusMessage className="mt-3" status={uploadStatus} /> : null}
-        {pendingFile ? (
+        {selectedProfile && pendingFile ? (
           <form className="mt-4 grid gap-4 border-t border-border pt-4" onSubmit={publishUpload}>
             <p className="text-sm font-medium">{pendingFile.name}</p>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -620,6 +642,19 @@ const demoProfiles: MediaProfile[] = [
 
 function DemoMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: string }) {
   const [profiles, setProfiles] = useState(demoProfiles);
+  useEffect(() => {
+    const toggleProfile = (event: Event) => {
+      const { profileId, present } = (event as CustomEvent<{ profileId: string; present: boolean }>).detail;
+      setProfiles((items) => {
+        if (!present) return items.filter((profile) => profile.profileId !== profileId);
+        if (items.some((profile) => profile.profileId === profileId)) return items;
+        const fixture = demoProfiles.find((profile) => profile.profileId === profileId);
+        return fixture ? [...items, fixture] : items;
+      });
+    };
+    window.addEventListener("vrdex:toggle-media-profile", toggleProfile);
+    return () => window.removeEventListener("vrdex:toggle-media-profile", toggleProfile);
+  }, []);
   const actions = useMemo<EditorActions>(() => ({
     upload: async (_profileId, file) => {
       if (file.name === "slow.png") {

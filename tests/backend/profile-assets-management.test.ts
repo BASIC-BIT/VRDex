@@ -522,6 +522,68 @@ describe("profile media-kit owner management", () => {
     );
   });
 
+  it("reindexes the gallery around an explicit upload position", async () => {
+    const seeded = await seedOwnedProfile(2);
+    const owner = seeded.t.withIdentity(seeded.ownerIdentity);
+    const intent = await owner.mutation(api.profileAssets.createUploadIntentForOwnedProfile, {
+      profileId: seeded.profileId,
+      originalFileName: "inserted.png",
+      mimeType: "image/png",
+      byteSize: 128,
+      label: "Inserted",
+      altText: "An inserted gallery image.",
+      position: 0,
+    });
+    const processingToken = await claimUploadIntent(seeded, intent);
+    const completed = await seeded.t.mutation(internal.profileAssets.markUploadIntentUploaded, {
+      intentId: intent.intentId,
+      uploadToken: intent.uploadToken,
+      processingToken,
+      mimeType: "image/png",
+      byteSize: 128,
+      contentSha256: "inserted-hash",
+      width: 20,
+      height: 20,
+    });
+    const gallery = await seeded.t.run(async (ctx) => {
+      return await ctx.db
+        .query("profileAssetPlacements")
+        .withIndex("by_profileId_placement_state_position", (query) =>
+          query.eq("profileId", seeded.profileId).eq("placement", "gallery").eq("state", "active"),
+        )
+        .collect();
+    });
+
+    assert.deepEqual(
+      gallery.sort((first, second) => first.position - second.position)
+        .map((item) => [item.assetId, item.position]),
+      [
+        [completed.assetIds[0], 0],
+        [seeded.assetIds[0], 1],
+        [seeded.assetIds[1], 2],
+      ],
+    );
+  });
+
+  it("rejects invalid gallery insertion positions at the Convex boundary", async () => {
+    const seeded = await seedOwnedProfile(0);
+    const owner = seeded.t.withIdentity(seeded.ownerIdentity);
+    for (const position of [-1, 0.5]) {
+      await assert.rejects(
+        owner.mutation(api.profileAssets.createUploadIntentForOwnedProfile, {
+          profileId: seeded.profileId,
+          originalFileName: `invalid-${position}.png`,
+          mimeType: "image/png",
+          byteSize: 128,
+          label: "Invalid position",
+          altText: "A synthetic invalid-position image.",
+          position,
+        }),
+        /nonnegative integer/,
+      );
+    }
+  });
+
   it("rejects a stale reorder that omits a concurrently added gallery item", async () => {
     const seeded = await seedOwnedProfile(2);
     const owner = seeded.t.withIdentity(seeded.ownerIdentity);

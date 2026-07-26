@@ -99,8 +99,13 @@ function svgDimensions(source: string): { width: number; height: number } {
   }
 
   const numberAttribute = (name: string) => {
-    const match = svgTag.match(new RegExp(`\\b${name}\\s*=\\s*["']\\s*([0-9]+(?:\\.[0-9]+)?)`, "i"));
-    return match?.[1] ? Number(match[1]) : undefined;
+    const match = svgTag.match(new RegExp(`\\b${name}\\s*=\\s*["']\\s*([^"']+?)\\s*["']`, "i"));
+    if (!match?.[1]) return undefined;
+    const value = match[1].trim();
+    if (!/^(?:\d+(?:\.\d*)?|\.\d+)$/u.test(value)) {
+      throw new Error("SVG uploads must include positive width and height or a valid viewBox.");
+    }
+    return Number(value);
   };
   let width = numberAttribute("width");
   let height = numberAttribute("height");
@@ -124,6 +129,7 @@ function validateSafeSvg(body: Uint8Array): { body: Uint8Array; width: number; h
   const namespacePrefix = /(?:<|\s)[a-z_][\w.-]*:[a-z_][\w.-]*(?:\s|=|\/?>)/i;
   const processingInstruction = /<\?(?!xml\b)/i;
   const activeAttribute = /\son[a-z0-9_-]+\s*=/i;
+  const styleAttribute = /\sstyle\s*=/i;
   const externalReference = /\b(?:href|src)\s*=\s*["']\s*(?!#)[^"']+/i;
   const externalCssUrl = [...source.matchAll(/url\(\s*["']?([^"')\s]+)["']?\s*\)/gi)]
     .some((match) => !match[1]?.startsWith("#"));
@@ -133,6 +139,7 @@ function validateSafeSvg(body: Uint8Array): { body: Uint8Array; width: number; h
     namespacePrefix.test(source) ||
     processingInstruction.test(source) ||
     activeAttribute.test(source) ||
+    styleAttribute.test(source) ||
     externalReference.test(source) ||
     externalCssUrl
   ) {
