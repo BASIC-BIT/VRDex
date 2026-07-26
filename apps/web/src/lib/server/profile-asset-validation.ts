@@ -60,11 +60,33 @@ function detectedRasterMimeType(body: Uint8Array): SafeProfileAsset["mimeType"] 
 
 function hasSvgRoot(body: Uint8Array): boolean {
   try {
-    const source = new TextDecoder("utf-8", { fatal: true })
-      .decode(body)
-      .replace(/^\uFEFF/, "")
-      .trimStart();
-    return /^(?:<\?xml\b[\s\S]*?\?>\s*)?(?:<!--[\s\S]*?-->\s*)*<svg\b/i.test(source);
+    const source = new TextDecoder("utf-8", { fatal: true }).decode(body).replace(/^\uFEFF/, "");
+    let offset = 0;
+    const skipWhitespace = () => {
+      while (offset < source.length && /\s/u.test(source[offset]!)) {
+        offset += 1;
+      }
+    };
+
+    skipWhitespace();
+    if (source.slice(offset, offset + 5).toLowerCase() === "<?xml") {
+      const declarationEnd = source.indexOf("?>", offset + 5);
+      if (declarationEnd === -1) {
+        return false;
+      }
+      offset = declarationEnd + 2;
+      skipWhitespace();
+    }
+    while (source.startsWith("<!--", offset)) {
+      const commentEnd = source.indexOf("-->", offset + 4);
+      if (commentEnd === -1) {
+        return false;
+      }
+      offset = commentEnd + 3;
+      skipWhitespace();
+    }
+
+    return /^<svg\b/i.test(source.slice(offset));
   } catch {
     return false;
   }
