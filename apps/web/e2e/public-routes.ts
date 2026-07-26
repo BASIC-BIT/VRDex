@@ -169,6 +169,7 @@ export async function waitForVisualReady(page: Page) {
 
 export async function captureRouteScreenshot(page: Page, testInfo: TestInfo, name: string) {
   await waitForVisualReady(page);
+  await page.evaluate(() => window.scrollTo(0, 0));
 
   const projectPrefix = testInfo.project.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
   const fileName = `${projectPrefix}-${name}.png`;
