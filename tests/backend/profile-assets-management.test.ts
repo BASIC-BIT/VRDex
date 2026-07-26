@@ -6,6 +6,8 @@ import { convexTest } from "convex-test";
 import { api, internal } from "../../convex/_generated/api";
 import schemaModule from "../../convex/schema";
 
+process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true";
+
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/profileAssets.ts": () => import("../../convex/profileAssets"),
@@ -96,6 +98,28 @@ async function seedOwnedProfile(assetCount = 2) {
 }
 
 describe("profile media-kit owner management", () => {
+  it("keeps owner gallery mutations disabled until the launch flag is enabled", async () => {
+    const seeded = await seedOwnedProfile(0);
+    const previous = process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED;
+    delete process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED;
+
+    try {
+      await assert.rejects(
+        seeded.t.withIdentity(seeded.ownerIdentity).mutation(api.profileAssets.createUploadIntentForOwnedProfile, {
+          profileId: seeded.profileId,
+          originalFileName: "disabled.png",
+          mimeType: "image/png",
+          byteSize: 128,
+          label: "Disabled image",
+          altText: "A test image.",
+        }),
+        /not enabled/,
+      );
+    } finally {
+      process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = previous ?? "true";
+    }
+  });
+
   it("enforces owner authority and the active asset quota", async () => {
     const seeded = await seedOwnedProfile(12);
 

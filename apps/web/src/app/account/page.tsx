@@ -29,7 +29,12 @@ export default async function AccountPage({
           <h1 className="text-3xl font-semibold sm:text-4xl">Account</h1>
         </header>
 
-        <AccountPanel />
+        <AccountPanel
+          mediaKitEnabled={
+            process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED === "true" ||
+            process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES === "true"
+          }
+        />
       </PageContainer>
     </PageShell>
   );

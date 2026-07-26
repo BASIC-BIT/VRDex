@@ -409,6 +409,9 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
     profile.region,
     ...(profile.headline ? [] : focusItems.slice(0, 4)),
   ].filter((item): item is string => Boolean(item))));
+  const mediaKitGalleryEnabled =
+    process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED === "true" ||
+    process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES === "true";
   const hasMediaKit = mediaKit.assets.length > 0;
   const canClaim = profile.trustLabel === "community_submitted" || profile.trustLabel === "unclaimed";
   const secondaryOrder = normalizeProfileSectionOrder(profile.appearance?.sectionOrder).filter((section) =>
@@ -435,15 +438,26 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
             </a>
           ) : null}
         </div>
-        {mediaKit.featuredAsset ? (
+        {mediaKitGalleryEnabled && mediaKit.featuredAsset ? (
           <div className="mt-5">
             <MediaAssetCard asset={mediaKit.featuredAsset} featured label="Featured media" />
           </div>
         ) : null}
         <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {mediaKit.assets.filter((asset) => asset.assetId !== mediaKit.featuredAsset?.assetId).map((asset, index) => (
-            <MediaAssetCard asset={asset} key={asset.assetId} label={`Media ${index + 1}`} />
-          ))}
+          {mediaKitGalleryEnabled ? (
+            mediaKit.assets
+              .filter((asset) => asset.assetId !== mediaKit.featuredAsset?.assetId)
+              .map((asset, index) => (
+                <MediaAssetCard asset={asset} key={asset.assetId} label={`Media ${index + 1}`} />
+              ))
+          ) : (
+            <>
+              {mediaKit.primaryLogo ? <MediaAssetCard asset={mediaKit.primaryLogo} label="Primary logo" /> : null}
+              {mediaKit.additionalLogos.map((asset, index) => (
+                <MediaAssetCard asset={asset} key={asset.assetId} label={`Logo ${index + 2}`} />
+              ))}
+            </>
+          )}
         </div>
       </section>
     ) : null,

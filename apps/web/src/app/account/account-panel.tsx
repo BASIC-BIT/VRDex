@@ -13,7 +13,7 @@ import { profileClaimPath } from "@/lib/profile-claim";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
-function ConnectedAccountPanel() {
+function ConnectedAccountPanel({ mediaKitEnabled }: { mediaKitEnabled: boolean }) {
   const viewer = useQuery(api.accounts.viewer);
   const ownedProfiles = useQuery(api.profilePrivacy.listOwnedPrivacyProfilesForAccount);
   const { signOut } = useAuthActions();
@@ -51,7 +51,9 @@ function ConnectedAccountPanel() {
           <div className="mt-5 flex flex-wrap gap-2">
             <Link className={buttonVariants({ variant: "secondary" })} href="/account/privacy">Privacy controls</Link>
             <Link className={buttonVariants({ variant: "secondary" })} href="/account/appearance">Personalization</Link>
-            <Link className={buttonVariants({ variant: "secondary" })} href="/account/media-kit">Media kit</Link>
+            {mediaKitEnabled ? (
+              <Link className={buttonVariants({ variant: "secondary" })} href="/account/media-kit">Media kit</Link>
+            ) : null}
             <Button type="button" variant="ghost" onClick={() => void signOut()}>Sign out</Button>
           </div>
         </div>
@@ -106,12 +108,14 @@ function ConnectedAccountPanel() {
                       Verify with VRChat
                     </Link>
                   ) : null}
-                  <Link
-                    className={buttonVariants({ size: "sm", variant: "secondary" })}
-                    href="/account/media-kit"
-                  >
-                    Manage media
-                  </Link>
+                  {mediaKitEnabled ? (
+                    <Link
+                      className={buttonVariants({ size: "sm", variant: "secondary" })}
+                      href="/account/media-kit"
+                    >
+                      Manage media
+                    </Link>
+                  ) : null}
                 </li>
               );
             })}
@@ -142,7 +146,7 @@ class AccountPanelErrorBoundary extends Component<{ children: ReactNode }, { has
   }
 }
 
-export function AccountPanel() {
+export function AccountPanel({ mediaKitEnabled }: { mediaKitEnabled: boolean }) {
   if (!convexUrl) {
     return (
       <Notice className="leading-7" variant="dashed">
@@ -153,7 +157,7 @@ export function AccountPanel() {
 
   return (
     <AccountPanelErrorBoundary>
-      <ConnectedAccountPanel />
+      <ConnectedAccountPanel mediaKitEnabled={mediaKitEnabled} />
     </AccountPanelErrorBoundary>
   );
 }

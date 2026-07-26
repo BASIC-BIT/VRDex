@@ -111,6 +111,10 @@ Deferred follow-on work:
 
 Runtime environment/config names:
 
+- `VRDEX_PROFILE_MEDIA_KIT_ENABLED=true` in both the web and Convex runtimes
+  only after the hosted upload/read/download smoke test and retained-storage
+  launch gates pass; absence keeps owner gallery entry points and mutations
+  disabled
 - `VRDEX_PROFILE_ASSET_BUCKET` or fallback `VRDEX_ASSET_BUCKET`
 - `VRDEX_PROFILE_ASSET_REGION`, fallback `AWS_REGION`, or fallback `AWS_DEFAULT_REGION`
 - `VRDEX_PROFILE_ASSET_ROLE_ARN` for hosted Vercel OIDC role-based auth

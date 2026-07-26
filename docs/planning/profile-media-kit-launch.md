@@ -11,7 +11,9 @@ schema, web routes, and checked-in AWS configuration.
 
 This implementation can be merge-ready without being production-launch-ready.
 A hosted upload/read/download smoke test and a bounded retained-storage cleanup
-path are launch gates.
+path are launch gates. Owner gallery entry points and backend mutations stay
+disabled unless `VRDEX_PROFILE_MEDIA_KIT_ENABLED=true` is set in both the web
+and Convex runtimes.
 
 ## Smallest Coherent Launch Slice
 
@@ -103,6 +105,9 @@ Verified:
 - Local runtime configuration does not currently contain any profile-asset
   bucket or region variables. This work can validate isolated fixture behavior,
   but it cannot claim a live upload environment is ready.
+- the owner gallery is disabled by default in both the web and Convex runtimes;
+  enabling it requires an explicit environment change after the launch gates
+  pass.
 - public object delivery rechecks profile readability, asset state, visibility,
   and profile tenancy before reading S3.
 - SVG files are served only through the controlled application route and

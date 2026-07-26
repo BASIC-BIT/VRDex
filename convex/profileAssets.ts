@@ -64,6 +64,16 @@ const profileAssetAttachMetadataArgs = {
   position: v.optional(v.number()),
 };
 
+function assertProfileMediaKitEnabled() {
+  if (process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED !== "true") {
+    throw new Error("Profile media kits are not enabled.");
+  }
+}
+
+function requestsGalleryPlacement(placements: Array<"profile_image" | "banner" | "primary_logo" | "additional_logo" | "gallery" | "featured"> | undefined) {
+  return placements?.some((placement) => placement === "gallery" || placement === "featured") ?? false;
+}
+
 function optionalIdentityDisplayName(name: string | undefined): string | undefined {
   const trimmed = name?.trim();
 
@@ -192,6 +202,9 @@ export const createUploadIntentForApiProfileOwner = internalMutation({
     ...profileAssetAttachMetadataArgs,
   },
   handler: async (ctx, args) => {
+    if (requestsGalleryPlacement(args.placements)) {
+      assertProfileMediaKitEnabled();
+    }
     const profile = await requireApiOwnedClaimedProfileBySlug(ctx, args.slug, args.ownerUserId);
     const now = Date.now();
     await assertProfileAssetIntentCapacity(ctx.db, profile._id, now);
@@ -243,6 +256,7 @@ export const createUploadIntentForOwnedProfile = mutation({
     ...profileAssetAttachMetadataArgs,
   },
   handler: async (ctx, args) => {
+    assertProfileMediaKitEnabled();
     const profile = await requireOwnedAppearanceProfile(ctx, args.profileId);
 
     if (profile.claimState === "unclaimed") {
@@ -326,6 +340,10 @@ export const markUploadIntentUploaded = internalMutation({
     height: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    const intent = await ctx.db.get(args.intentId);
+    if (requestsGalleryPlacement(intent?.placements)) {
+      assertProfileMediaKitEnabled();
+    }
     const now = Date.now();
 
     return await finalizeProfileAssetUploadIntentUpload(ctx.db, { ...args, now });
@@ -361,6 +379,7 @@ export const hasDuplicateAssetForUpload = query({
 export const listOwnedMediaKitProfiles = query({
   args: {},
   handler: async (ctx) => {
+    assertProfileMediaKitEnabled();
     const user = await getCurrentUser(ctx);
 
     if (user === null) {
@@ -449,6 +468,7 @@ export const updateOwnedAssetMetadata = mutation({
     credit: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    assertProfileMediaKitEnabled();
     const { profile, asset } = await requireOwnedAsset(ctx, args.profileId, args.assetId);
     const user = await requireCurrentUser(ctx);
     const now = Date.now();
@@ -490,6 +510,7 @@ export const reorderOwnedGallery = mutation({
     assetIds: v.array(v.id("profileAssets")),
   },
   handler: async (ctx, args) => {
+    assertProfileMediaKitEnabled();
     const profile = await requireOwnedAppearanceProfile(ctx, args.profileId);
     const user = await requireCurrentUser(ctx);
     const uniqueIds = [...new Set(args.assetIds)];
@@ -538,6 +559,7 @@ export const setOwnedFeaturedAsset = mutation({
     assetId: v.union(v.id("profileAssets"), v.null()),
   },
   handler: async (ctx, args) => {
+    assertProfileMediaKitEnabled();
     const profile = await requireOwnedAppearanceProfile(ctx, args.profileId);
     const user = await requireCurrentUser(ctx);
     if (args.assetId !== null) {
@@ -584,6 +606,7 @@ export const setOwnedAssetDeleted = mutation({
     deleted: v.boolean(),
   },
   handler: async (ctx, args) => {
+    assertProfileMediaKitEnabled();
     const { profile, asset } = await requireOwnedAsset(ctx, args.profileId, args.assetId);
     const user = await requireCurrentUser(ctx);
     const now = Date.now();
