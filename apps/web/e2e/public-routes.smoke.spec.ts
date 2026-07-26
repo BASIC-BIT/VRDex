@@ -230,6 +230,11 @@ test.describe("fixture lookup smoke", () => {
     await expect(standardResults.getByText("Software Dev | 3D Designer | VRDJ")).toBeVisible();
     await expect(standardResults.getByRole("img", { name: "BASICBIT" })).toBeVisible();
 
+    await page.reload();
+    await expect(page).toHaveURL(/\/search\?q=BASICBIT$/);
+    await expect(page.getByRole("link", { name: "All VRDex" })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("region", { name: "Search results" }).getByText("BASICBIT", { exact: true })).toBeVisible();
+
     await page.getByRole("link", { name: "DJ links" }).click();
     await expect(page).toHaveURL(/\/search\?q=BASICBIT&view=dj$/);
     await expect(page.getByRole("heading", { name: "Search VRDex" })).toBeVisible();
@@ -239,6 +244,11 @@ test.describe("fixture lookup smoke", () => {
     const djAvatar = page.locator(".lookup-avatar img").first();
     await expect(djAvatar).toBeVisible();
     await expect(djAvatar).toHaveAttribute("src", /basicbit-avatar\.png/);
+
+    await page.reload();
+    await expect(page).toHaveURL(/\/search\?q=BASICBIT&view=dj$/);
+    await expect(page.getByRole("link", { name: "DJ links" })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("link", { name: "BASICBIT", exact: true })).toBeVisible();
 
     await page.getByRole("link", { name: "All VRDex" }).click();
     await expect(page).toHaveURL(/\/search\?q=BASICBIT$/);
