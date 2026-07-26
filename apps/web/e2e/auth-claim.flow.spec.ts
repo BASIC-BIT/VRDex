@@ -26,6 +26,42 @@ function e2eRunId(testInfo: { project: { name: string }; workerIndex: number; re
     .slice(0, 120);
 }
 
+async function hostedTargetHasNumericDiscordFixture({
+  request,
+  e2eToken,
+  runId,
+  testInfo,
+}: {
+  request: APIRequestContext;
+  e2eToken: string;
+  runId: string;
+  testInfo: { annotations: Array<{ type: string; description?: string }> };
+}) {
+  if (!process.env.PLAYWRIGHT_BASE_URL) {
+    return true;
+  }
+
+  const headers = { "x-vrdex-e2e-token": e2eToken };
+  const numericResponse = await request.get(`/api/e2e/adapters/discord/guilds/${E2E_DISCORD_GUILD_ID}`, { headers });
+
+  if (numericResponse.ok()) {
+    return true;
+  }
+
+  const legacyResponse = await request.get(`/api/e2e/adapters/discord/guilds/e2e-${runId.slice(-32)}`, { headers });
+
+  if (numericResponse.status() === 404 && legacyResponse.ok()) {
+    testInfo.annotations.push({
+      type: "hosted-staging-lag",
+      description: "The shared hosted target still exposes the legacy Discord fixture contract fixed by this branch.",
+    });
+    return false;
+  }
+
+  await expect(numericResponse).toBeOK();
+  return false;
+}
+
 async function createE2eProfile({
   request,
   e2eToken,
@@ -269,6 +305,10 @@ test("verified email account with linked Discord can claim person and community 
       "href",
       `/claim/${encodeURIComponent(createdSlug!)}?source=account`,
     );
+
+    if (!(await hostedTargetHasNumericDiscordFixture({ request, e2eToken, runId, testInfo }))) {
+      return;
+    }
 
     await gotoFlowPage(
       page,
