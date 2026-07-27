@@ -130,6 +130,8 @@ type ProofAdapterResponse = {
   evidenceSummary?: string;
   /** Set by the VRC Linking adapter to name the delegation that answered. */
   matchedGuildId?: string;
+  /** Index into the delegations sent; unambiguous when guilds repeat. */
+  matchedDelegationIndex?: number;
 };
 
 function optionalEnv(name: string): string | undefined {
@@ -217,6 +219,27 @@ function requireCompatibleProofTarget(profile: Doc<"profiles">, targetType: Vrch
   if (targetType === "vrchat_group" && profile.profileType !== "community") {
     throw claimError("WRONG_PROFILE_TYPE", "community");
   }
+}
+
+/**
+ * Audit provenance for a verified proof.
+ *
+ * One fixed string claimed a proof code was read by the VRChat proof adapter,
+ * which is wrong for both other paths now reaching this mutation: VRC Linking
+ * never uses the proof code, and collector reads involve no adapter. Support
+ * and audit consumers should not have to know that.
+ */
+function proofAuditNote(
+  targetType: VrchatTargetType,
+  evidenceSource: Doc<"profileVerificationAttempts">["evidenceSource"],
+): string {
+  if (targetType === "vrclinking") {
+    return "VRC Linking reported a verified Discord-to-VRChat link for this claimant.";
+  }
+
+  return evidenceSource === "vrchat_api"
+    ? "The proof code was found on the VRChat target by the collector fleet."
+    : "The proof code was found on the VRChat target by the configured proof adapter.";
 }
 
 function createProofCode(): string {
@@ -977,7 +1000,7 @@ export const recordVrchatProofVerification = internalMutation({
       grantedByClaimRequestId: claimRequestId,
       verified: true,
       now,
-      note: "External profile proof code was verified by the VRChat proof adapter.",
+      note: proofAuditNote(attempt.targetType, args.evidenceSource),
     });
 
     // Record the durable control proof and profile association so VRChat
@@ -1111,15 +1134,18 @@ export const verifyVrchatProofViaAdapter = action({
 
     // Each consultation spends community-provided VRCLinking quota across up to
     // five delegations, and a negative leaves the attempt pending, so an
-    // unthrottled caller could drain an operator's quota by retrying. Reuse the
-    // attempt's own check timestamp as the cooldown; vrclinking rows are not
-    // collector-eligible, so nothing else writes it.
-    if (
-      attemptContext.attempt.targetType === "vrclinking" &&
-      attemptContext.attempt.lastCheckedAt !== undefined &&
-      attemptContext.attempt.lastCheckedAt > Date.now() - VRCLINKING_CHECK_COOLDOWN_MS
-    ) {
-      return { state: "pending" as const };
+    // unthrottled caller could drain an operator's quota by retrying. Reserved
+    // atomically before the fetch, not stamped after it, so concurrent callers
+    // and a throwing fetch cannot both slip through.
+    if (attemptContext.attempt.targetType === "vrclinking") {
+      const reservation = (await ctx.runMutation(internal.profileClaims.reserveVrclinkingCheck, {
+        attemptId: args.attemptId,
+        cooldownMs: VRCLINKING_CHECK_COOLDOWN_MS,
+      })) as { granted: boolean };
+
+      if (!reservation.granted) {
+        return { state: "pending" as const };
+      }
     }
 
     const response = await fetch(adapterUrl, {
@@ -1150,10 +1176,6 @@ export const verifyVrchatProofViaAdapter = action({
           (delegation) => delegation.credentialId,
         ),
       });
-      // Advances the per-attempt cooldown checked above.
-      await ctx.runMutation(internal.profileClaims.stampProofCheckedAt, {
-        attemptId: args.attemptId,
-      });
     }
 
     if (attemptContext.attempt.expiresAt <= Date.now()) {
@@ -1177,9 +1199,15 @@ export const verifyVrchatProofViaAdapter = action({
 
     // Only the delegation the adapter says answered gets the operator-visible
     // audit stamp.
-    const matched = delegationContext?.delegations.find(
-      (delegation) => delegation.guildId === result.matchedGuildId,
-    );
+    // Index first: two communities may delegate for the same guild, and
+    // matching on guild id alone would stamp whichever was listed first rather
+    // than the delegation that actually answered.
+    const matched =
+      typeof result.matchedDelegationIndex === "number"
+        ? delegationContext?.delegations[result.matchedDelegationIndex]
+        : delegationContext?.delegations.find(
+            (delegation) => delegation.guildId === result.matchedGuildId,
+          );
 
     if (matched !== undefined) {
       await ctx.runMutation(internal.vrclinkingCredentials.recordCredentialUse, {
@@ -1196,19 +1224,32 @@ export const verifyVrchatProofViaAdapter = action({
   },
 });
 
-/** Records that a pending attempt was just consulted, for cooldown pacing. */
-export const stampProofCheckedAt = internalMutation({
-  args: { attemptId: v.id("profileVerificationAttempts") },
+/**
+ * Claim the right to consult delegated credentials for one attempt.
+ *
+ * Checking a timestamp in the action and stamping it after the fetch leaves a
+ * window where concurrent callers all pass, and a fetch that throws never
+ * stamps at all. Reserving inside a mutation makes the check and the stamp one
+ * atomic step, so the cooldown holds under both.
+ */
+export const reserveVrclinkingCheck = internalMutation({
+  args: { attemptId: v.id("profileVerificationAttempts"), cooldownMs: v.number() },
   handler: async (ctx, args) => {
     const attempt = await ctx.db.get(args.attemptId);
 
     if (attempt === null || attempt.state !== "pending") {
-      return { stamped: false };
+      return { granted: false };
     }
 
-    await ctx.db.patch(args.attemptId, { lastCheckedAt: Date.now() });
+    const now = Date.now();
 
-    return { stamped: true };
+    if (attempt.lastCheckedAt !== undefined && attempt.lastCheckedAt > now - args.cooldownMs) {
+      return { granted: false };
+    }
+
+    await ctx.db.patch(args.attemptId, { lastCheckedAt: now });
+
+    return { granted: true };
   },
 });
 

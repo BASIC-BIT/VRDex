@@ -250,12 +250,18 @@ process.stdout.write(
     `Two-factor cookie:    ${stored.twoFactorAuthCookie === undefined ? "absent" : "included"}`,
     `Preserved keys:       ${preservedKeys.length === 0 ? "(none)" : preservedKeys.join(", ")}`,
     "",
-    "Register the collector with this hash (safe to copy; it is not a secret):",
-    `  workerKeyHash: ${workerKeyHash}`,
-    `  secretRef:     ${secretId.startsWith("arn:") ? secretId : `secret://${secretId}`}`,
+    dryRun
+      // The key this hash covers was never written, so registering it would
+      // make every worker credential check fail.
+      ? "Dry run: no key was stored, so there is nothing to register. Re-run without --dry-run."
+      : "Register the collector with this hash (safe to copy; it is not a secret):",
+    ...(dryRun ? [] : [`  workerKeyHash: ${workerKeyHash}`]),
+    ...(dryRun
+      ? []
+      : [`  secretRef:     ${secretId.startsWith("arn:") ? secretId : `secret://${secretId}`}`]),
     "",
-    "The worker API key and session cookies were never printed. Restart the ECS",
-    "task after registering so it picks up the new credential generation.",
+    "The worker API key and session cookies were never printed." +
+      (dryRun ? "" : " Restart the ECS task after registering so it picks up the new credential generation."),
     "",
   ].join("\n"),
 );

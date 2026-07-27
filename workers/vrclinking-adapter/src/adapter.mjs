@@ -60,8 +60,12 @@ export function validateRequest(body) {
  */
 export async function verifyLinkage({ request, resolveSecret, getGuildMemberByDiscordId }) {
   const failures = [];
+  // Whether any delegation was actually asked. One broken credential alongside
+  // a working one is still a real answer, so it must not be reported as "we
+  // could not consult anything".
+  let consulted = false;
 
-  for (const delegation of request.delegations) {
+  for (const [index, delegation] of request.delegations.entries()) {
     let token;
 
     try {
@@ -84,6 +88,8 @@ export async function verifyLinkage({ request, resolveSecret, getGuildMemberByDi
       continue;
     }
 
+    consulted = true;
+
     if (member === null || member === undefined) {
       continue;
     }
@@ -95,6 +101,9 @@ export async function verifyLinkage({ request, resolveSecret, getGuildMemberByDi
         // Naming the matching guild lets the control plane stamp only the
         // delegation that actually answered, instead of every one consulted.
         matchedGuildId: delegation.guildId,
+        // Index, not just the guild id: two communities may delegate for the
+        // same guild, and the control plane must stamp the one that answered.
+        matchedDelegationIndex: index,
         evidenceSummary: `VRCLinking reports a verified link for this Discord account in guild ${delegation.guildId}.`,
       };
     }
@@ -103,12 +112,11 @@ export async function verifyLinkage({ request, resolveSecret, getGuildMemberByDi
   // Distinguish "we could not ask" from "we asked and the answer was no", so a
   // credential problem is not reported to the user as a failed claim.
   //
-  // Any recorded failure means that delegation was never actually consulted, so
-  // the list is every reason rather than an allow-list. An allow-list silently
-  // reclassified new reasons — an empty or malformed secret, or a provider
-  // schema change — as "VRCLinking says no", which tells the user to check
-  // their proof when the real fault is a broken credential.
-  const unavailable = failures.length > 0;
+  // Unavailable means nothing could be asked at all. Any failure reason counts
+  // rather than an allow-list, because a new reason must not silently become
+  // "VRCLinking says no" — but a delegation that did answer makes the result a
+  // real negative even if another credential alongside it was broken.
+  const unavailable = failures.length > 0 && !consulted;
 
   return {
     verified: false,

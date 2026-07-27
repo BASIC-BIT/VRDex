@@ -66,11 +66,15 @@ At least one secret backend must be configured or every request resolves to
 
 ## Running locally
 
+`workers/*` are not pnpm workspace members, so this runs on bare Node rather
+than through a workspace filter. Install its one optional dependency first only
+if you need AWS-backed secrets; the file backend below needs nothing.
+
 ```bash
 mkdir -p /tmp/vrclinking-secrets && printf 'my-token' > /tmp/vrclinking-secrets/community-a
 VRCHAT_PROOF_ADAPTER_BEARER_TOKEN=dev-token \
 VRDEX_VRCLINKING_SECRET_DIR=/tmp/vrclinking-secrets \
-pnpm --filter @vrdex/vrclinking-adapter start
+node workers/vrclinking-adapter/src/server.mjs
 ```
 
 Then point Convex at it with `VRCLINKING_PROOF_ADAPTER_URL=http://127.0.0.1:8080`.

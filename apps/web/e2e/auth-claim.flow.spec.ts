@@ -158,8 +158,16 @@ async function recordGuildControlProof(
   // The shared hosted target runs whatever is on main. Until this branch is
   // deployed there, the helper action does not exist, which is a staging lag
   // rather than a product failure — the local run still covers this path.
+  //
+  // Matched on the specific unsupported-action response, not any 400: once the
+  // helper is deployed, a malformed request or a regressed route must fail this
+  // test rather than be excused indefinitely as an old deployment.
   if (process.env.PLAYWRIGHT_BASE_URL && response.status() === 400) {
-    return false;
+    const body = (await response.json().catch(() => null)) as { error?: string } | null;
+
+    if (body?.error === "Unsupported E2E auth helper action.") {
+      return false;
+    }
   }
 
   await expect(response).toBeOK();
