@@ -592,12 +592,31 @@ describe("public event projection", () => {
       updatedAt: now,
     } as unknown as Doc<"eventSlots">;
 
+    const avatarAppearance = {
+      borderEnabled: true,
+      borderColor: "#67e8f9",
+      borderWidthPx: 4,
+      borderSoftnessPx: 12,
+      radiusPercent: 18,
+    };
     const publicEvent = toPublicEvent({
       event,
       community,
+      communityImageUrl: "https://example.invalid/community-media-kit.png",
+      communityAvatarAppearance: avatarAppearance,
       worlds: [{ association: worldAssociation, world }],
-      participants: [{ association: participant, profile: person }],
-      slots: [{ slot, profile: person }],
+      participants: [{
+        association: participant,
+        profile: person,
+        imageUrl: "https://example.invalid/dj-aurora-media-kit.png",
+        avatarAppearance,
+      }],
+      slots: [{
+        slot,
+        profile: person,
+        imageUrl: "https://example.invalid/dj-aurora-media-kit.png",
+        avatarAppearance,
+      }],
     });
 
     assert.notEqual(publicEvent, null);
@@ -607,15 +626,18 @@ describe("public event projection", () => {
     assert.equal(publicEvent?.thumbnailImageUrl, "https://example.invalid/card.png");
     assert.equal(publicEvent?.authoredBannerImageUrl, "https://example.invalid/banner.png");
     assert.equal(publicEvent?.authoredThumbnailImageUrl, "https://example.invalid/card.png");
-    assert.equal(publicEvent?.communityImageUrl, "https://example.invalid/community-avatar.png");
+    assert.equal(publicEvent?.communityImageUrl, "https://example.invalid/community-media-kit.png");
+    assert.deepEqual(publicEvent?.communityAvatarAppearance, avatarAppearance);
     assert.equal(publicEvent?.watchSurfaceEnabled, true);
     assert.equal(publicEvent?.mediaLinks.length, 1);
     assert.equal(publicEvent?.worlds[0]?.heroImageUrl, "https://example.invalid/world-hero.png");
     assert.equal(publicEvent?.worlds[0]?.displayName, "Neon Harbor");
     assert.equal(publicEvent?.participants[0]?.displayName, "DJ Aurora");
-    assert.equal(publicEvent?.participants[0]?.imageUrl, "https://example.invalid/dj-aurora.png");
+    assert.equal(publicEvent?.participants[0]?.imageUrl, "https://example.invalid/dj-aurora-media-kit.png");
+    assert.deepEqual(publicEvent?.participants[0]?.avatarAppearance, avatarAppearance);
     assert.equal(publicEvent?.slots[0]?.displayLabel, "DJ Aurora");
-    assert.equal(publicEvent?.slots[0]?.performer?.imageUrl, "https://example.invalid/dj-aurora.png");
+    assert.equal(publicEvent?.slots[0]?.performer?.imageUrl, "https://example.invalid/dj-aurora-media-kit.png");
+    assert.deepEqual(publicEvent?.slots[0]?.performer?.avatarAppearance, avatarAppearance);
     assert.equal(publicEvent?.slots[0]?.discord.shortTime, "<t:1779710400:t>");
     assert.equal("url" in publicEvent!.source, false);
   });

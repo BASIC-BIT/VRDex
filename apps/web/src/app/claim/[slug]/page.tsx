@@ -33,6 +33,12 @@ export default async function ClaimProfilePage({
         {result.kind === "live" && result.profile ? (
           <ClaimFlow
             profile={{
+              avatarAppearance:
+                "avatarAppearance" in result.profile && result.profile.avatarAppearance
+                  ? result.profile.avatarAppearance
+                  : "mediaKit" in result.profile && result.profile.mediaKit?.avatarAppearance
+                    ? result.profile.mediaKit.avatarAppearance
+                  : undefined,
               avatarImageUrl:
                 "avatarImageUrl" in result.profile && typeof result.profile.avatarImageUrl === "string"
                   ? result.profile.avatarImageUrl

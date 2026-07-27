@@ -26,6 +26,7 @@ export type PublicSearchResult = {
   imageUrl?: string;
   profileImageUrl?: string;
   logoImageUrl?: string;
+  avatarAppearance?: PublicProfileMediaKit["avatarAppearance"];
   trustLabel?: ProfileTrustLabel;
   source?: {
     sourceType: Doc<"searchDocuments">["sourceType"];
@@ -458,6 +459,9 @@ export function toPublicSearchResult(
     ...optionalField("imageUrl", imageUrl),
     ...optionalField("profileImageUrl", profileImageUrl),
     ...optionalField("logoImageUrl", logoImageUrl),
+    ...(document.entityType === "profile" && mediaKit
+      ? { avatarAppearance: mediaKit.avatarAppearance }
+      : {}),
     ...optionalField("startsAt", document.startsAt),
     source:
       document.sourceType && document.sourceLabel

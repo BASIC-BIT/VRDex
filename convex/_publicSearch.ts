@@ -43,13 +43,11 @@ export async function projectPublicSearchResult(
     return null;
   }
 
-  const result = toPublicSearchResult(
-    document,
-    searchText,
-    await getPublicProfileMediaKit(ctx.db, profile),
-  );
+  const mediaKit = await getPublicProfileMediaKit(ctx.db, profile);
+  const result = toPublicSearchResult(document, searchText, mediaKit);
   const person = toProfileLookupResult(profile, {
     avatarImageUrl: publicSearchLookupAvatarUrl(result),
+    avatarAppearance: mediaKit.avatarAppearance,
     sourceLabel: result.source?.label,
   });
 

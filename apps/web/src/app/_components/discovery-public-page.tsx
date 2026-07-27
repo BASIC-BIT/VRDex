@@ -12,6 +12,8 @@ import { ViewerLocalEventDateTime } from "./viewer-local-event-times";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
 import { EntityImage } from "@/components/ui/entity-image";
+import { ProfileAvatarImage } from "@/components/ui/profile-avatar-image";
+import type { AvatarAppearance } from "@/lib/avatar-appearance";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 import { VerifiedTrustMark } from "@/components/ui/verified-trust-mark";
 import { cn } from "@/lib/cn";
@@ -35,6 +37,7 @@ export type PublicSearchResult = {
   imageUrl?: string;
   profileImageUrl?: string;
   logoImageUrl?: string;
+  avatarAppearance?: AvatarAppearance;
   trustLabel?: "community_submitted" | "unclaimed" | "claimed_unverified" | "claimed_verified";
   startsAt?: number;
   source?: {
@@ -95,20 +98,44 @@ function ResultImage({ result }: { result: PublicSearchResult }) {
     ? result.profileImageUrl ?? result.imageUrl
     : result.imageUrl;
 
+  if (result.entityType !== "profile") {
+    return (
+      <EntityImage
+        className="size-14 rounded-card bg-[linear-gradient(135deg,var(--canvas-muted),var(--surface-raised))] text-lg text-white"
+        label={result.title}
+        sizes="56px"
+        src={primaryImageUrl}
+      />
+    );
+  }
+
   if (
-    result.entityType !== "profile" ||
     !result.logoImageUrl ||
     !result.profileImageUrl ||
     result.logoImageUrl === result.profileImageUrl
   ) {
+    const imageIsLogoOnly = !result.profileImageUrl && Boolean(result.logoImageUrl);
+
     return (
       <span className="relative shrink-0">
-        <EntityImage
-          className="size-14 rounded-card bg-[linear-gradient(135deg,var(--canvas-muted),var(--surface-raised))] text-lg text-white"
-          label={result.title}
-          sizes="56px"
-          src={primaryImageUrl}
-        />
+        {imageIsLogoOnly ? (
+          <EntityImage
+            className="size-14 rounded-card border border-border bg-surface-strong text-xs"
+            fallback="Logo"
+            imageClassName="!object-contain p-1"
+            label={`${result.title} logo`}
+            sizes="56px"
+            src={primaryImageUrl}
+          />
+        ) : (
+          <ProfileAvatarImage
+            appearance={result.avatarAppearance}
+            className="size-14 rounded-card bg-[linear-gradient(135deg,var(--canvas-muted),var(--surface-raised))] text-lg text-white"
+            label={result.title}
+            sizes="56px"
+            src={primaryImageUrl}
+          />
+        )}
         {result.trustLabel === "claimed_verified" ? (
           <VerifiedTrustMark className="verified-trust-mark--avatar" />
         ) : null}
@@ -119,7 +146,8 @@ function ResultImage({ result }: { result: PublicSearchResult }) {
   return (
     <span className="grid shrink-0 grid-cols-2 gap-1">
       <span className="relative">
-        <EntityImage
+        <ProfileAvatarImage
+          appearance={result.avatarAppearance}
           className="size-14 rounded-card bg-[linear-gradient(135deg,var(--canvas-muted),var(--surface-raised))] text-lg text-white"
           label={result.title}
           sizes="56px"
@@ -237,7 +265,8 @@ function FeaturedProfileCard({ result }: { result: PublicSearchResult }) {
       properties={{ entity_type: result.entityType, surface: "featured" }}
     >
       <span className="relative">
-        <EntityImage
+        <ProfileAvatarImage
+          appearance={result.avatarAppearance}
           className="aspect-square h-auto w-full rounded-none bg-media text-4xl text-white lg:size-72"
           label={result.title}
           sizes="(min-width: 1024px) 288px, (min-width: 768px) 50vw, 100vw"

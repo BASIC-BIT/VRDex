@@ -72,6 +72,14 @@ const auroraAdditionalLogo = {
   downloadUrl: "/api/v0/profiles/playwright-dj-aurora/assets/fixture-aurora-alt-logo/file?download=1",
 };
 
+const auroraAvatarAppearance = {
+  borderEnabled: true,
+  borderColor: "#67e8f9",
+  borderWidthPx: 4,
+  borderSoftnessPx: 12,
+  radiusPercent: 18,
+};
+
 const eventPreview = {
   slug: eventSlug,
   title: "Afterglow Harbor Sessions",
@@ -82,6 +90,7 @@ const eventPreview = {
   communityName: "Afterglow Social",
   communitySlug,
   communityImageUrl: "/api/e2e/fixture-assets/fixture-afterglow-event-poster",
+  communityAvatarAppearance: auroraAvatarAppearance,
   summary: "Late-night harbor club session with house, trance, and warm social energy.",
   posterImageUrl: "/api/e2e/fixture-assets/fixture-afterglow-event-poster",
   bannerImageUrl: "/api/e2e/fixture-assets/fixture-afterglow-event-banner",
@@ -186,13 +195,7 @@ const personProfile: FixturePersonProfile = {
     galleryAssets: [auroraProfileImage, auroraPrimaryLogo, auroraAdditionalLogo],
     logoZipUrl: "/api/v0/profiles/playwright-dj-aurora/logos.zip",
     compactDisplay: "profile_image",
-    avatarAppearance: {
-      borderEnabled: true,
-      borderColor: "#67e8f9",
-      borderWidthPx: 4,
-      borderSoftnessPx: 12,
-      radiusPercent: 18,
-    },
+    avatarAppearance: auroraAvatarAppearance,
   },
   upcomingEvents: [eventPreview],
   hostedEvents: [],
@@ -308,6 +311,20 @@ const basicBitProfile: FixturePersonProfile = {
   worldCredits: [],
   upcomingEvents: [],
   hostedEvents: [],
+  mediaKit: {
+    additionalLogos: [],
+    assets: [],
+    avatarAppearance: {
+      borderEnabled: true,
+      borderColor: "#67e8f9",
+      borderWidthPx: 4,
+      borderSoftnessPx: 8,
+      radiusPercent: 18,
+    },
+    compactDisplay: "profile_image",
+    galleryAssets: [],
+    logos: [],
+  },
   person: {
     roleTags: ["Software Dev", "3D Designer", "VRDJ"],
   },
@@ -872,6 +889,7 @@ const publicEvent: PublicEvent = {
       roleLabel: "Performer",
       trustLabel: "community_submitted",
       imageUrl: auroraProfileImage.imageUrl,
+      avatarAppearance: auroraAvatarAppearance,
       source: {
         sourceType: "community",
         label: "Afterglow lineup",
@@ -899,6 +917,7 @@ const publicEvent: PublicEvent = {
         displayName: "DJ Aurora",
         trustLabel: "community_submitted",
         imageUrl: auroraProfileImage.imageUrl,
+        avatarAppearance: auroraAvatarAppearance,
       },
       source: {
         sourceType: "community",
@@ -1022,6 +1041,7 @@ const discoveryResults: PublicSearchResult[] = [
     imageUrl: auroraProfileImage.imageUrl,
     profileImageUrl: auroraProfileImage.imageUrl,
     logoImageUrl: auroraPrimaryLogo.imageUrl,
+    avatarAppearance: auroraAvatarAppearance,
     trustLabel: "community_submitted",
     source: {
       sourceType: "community",
@@ -1038,6 +1058,7 @@ const discoveryResults: PublicSearchResult[] = [
     subtitle: "Person profile",
     summary: "Software Dev | 3D Designer | VRDJ",
     imageUrl: "/seed/basicbit-avatar.png",
+    avatarAppearance: basicBitProfile.mediaKit!.avatarAppearance,
     trustLabel: "claimed_verified",
     person: toProfileLookupFixture(basicBitProfile)!,
     source: {
@@ -1167,6 +1188,9 @@ function toProfileLookupFixture(
     ...(profile.headline === undefined ? {} : { headline: profile.headline }),
     ...(profile.bio === undefined ? {} : { bio: profile.bio }),
     ...(profile.avatarImageUrl === undefined ? {} : { avatarImageUrl: profile.avatarImageUrl }),
+    ...("mediaKit" in profile && profile.mediaKit?.avatarAppearance
+      ? { avatarAppearance: profile.mediaKit.avatarAppearance }
+      : {}),
     ...(accentColor === undefined ? {} : { accentColor }),
     ...(secondaryColor === undefined ? {} : { secondaryColor }),
     ...(profile.region === undefined ? {} : { region: profile.region }),

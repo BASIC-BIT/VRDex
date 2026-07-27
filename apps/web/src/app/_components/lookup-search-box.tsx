@@ -9,6 +9,7 @@ import type {
   SeedLookupViewerAccess,
 } from "./profile-lookup-page";
 import { EntityImage } from "@/components/ui/entity-image";
+import { ProfileAvatarImage } from "@/components/ui/profile-avatar-image";
 import { mergeLookupSuggestions } from "./lookup-suggestion-merge";
 import { Input, Textarea } from "@/components/ui/field";
 import { cn } from "@/lib/cn";
@@ -44,15 +45,25 @@ function profileOptionLabel(profile: ProfileLookupDisplayResult): string | undef
 }
 
 function SuggestionAvatar({ profile }: { profile: ProfileLookupDisplayResult }) {
-  const avatarImageUrl = isPrivateSuggestion(profile) ? undefined : profile.avatarImageUrl;
+  if (isPrivateSuggestion(profile)) {
+    return (
+      <EntityImage
+        alt=""
+        className="lookup-suggestion-avatar"
+        label={profile.displayName}
+        sizes="38px"
+      />
+    );
+  }
 
   return (
-    <EntityImage
+    <ProfileAvatarImage
       alt=""
+      appearance={profile.avatarAppearance}
       className="lookup-suggestion-avatar"
       label={profile.displayName}
       sizes="38px"
-      src={avatarImageUrl}
+      src={profile.avatarImageUrl}
     />
   );
 }

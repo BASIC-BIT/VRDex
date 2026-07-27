@@ -2,6 +2,7 @@ import type { Doc } from "./_generated/dataModel";
 import { visibleProfileField, visibleProfileList } from "./_profileFieldVisibility";
 import { optionalField, safeHttpsUrl, safePublicImageUrl } from "./_publicFields";
 import { getProfileTrustLabel } from "./_profileStates";
+import type { PublicProfileAvatarAppearance } from "./_profileAssets";
 
 type ProfileLookupLink = NonNullable<Doc<"profiles">["outboundLinks"]>[number] & { url: string };
 type ProfileLookupGenre = NonNullable<Doc<"profiles">["genres"]>[number];
@@ -77,6 +78,7 @@ export function toProfileLookupResult(
   profile: Doc<"profiles">,
   options: {
     avatarImageUrl?: string;
+    avatarAppearance?: PublicProfileAvatarAppearance;
     sourceLabel?: string;
   } = {},
 ) {
@@ -107,6 +109,7 @@ export function toProfileLookupResult(
     ...(headline === undefined ? {} : { headline }),
     ...(bio === undefined ? {} : { bio }),
     ...(avatarImageUrl === undefined ? {} : { avatarImageUrl }),
+    ...(options.avatarAppearance === undefined ? {} : { avatarAppearance: options.avatarAppearance }),
     ...(region === undefined ? {} : { region }),
     ...(timezone === undefined ? {} : { timezone }),
     outboundLinks: sortProfileLookupLinks(publicLookupLinks(profile)),

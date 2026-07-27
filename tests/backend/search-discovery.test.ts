@@ -555,6 +555,56 @@ describe("search document projection", () => {
     assert.equal(result?.avatarImageUrl, "/api/profile-assets/basicbit");
   });
 
+  it("preserves avatar appearance through public search and lookup projections", () => {
+    const avatarAppearance = {
+      borderEnabled: true,
+      borderColor: "#67e8f9",
+      borderWidthPx: 4,
+      borderSoftnessPx: 12,
+      radiusPercent: 18,
+    };
+    const profile = {
+      slug: "basicbit",
+      displayName: "BASICBIT",
+      aliases: [],
+      tags: [],
+      genres: [],
+      claimState: "claimed_verified",
+      creationSource: "self",
+      profileType: "person",
+      person: { roleTags: ["VRDJ"] },
+      outboundLinks: [],
+    } as unknown as Doc<"profiles">;
+    const document = {
+      entityType: "profile",
+      profileType: "person",
+      slug: "basicbit",
+      routePath: "/p/basicbit",
+      title: "BASICBIT",
+      searchText: "BASICBIT",
+      exactTokens: ["basicbit"],
+      vocabularyKeys: [],
+      trustRank: 40,
+      featuredRank: 40,
+      publicState: "public",
+      updatedAt: 1,
+    } as unknown as Doc<"searchDocuments">;
+    const mediaKit = {
+      additionalLogos: [],
+      assets: [],
+      avatarAppearance,
+      compactDisplay: "profile_image" as const,
+      galleryAssets: [],
+      logos: [],
+    };
+
+    assert.deepEqual(toPublicSearchResult(document, "", mediaKit).avatarAppearance, avatarAppearance);
+    assert.deepEqual(
+      toProfileLookupResult(profile, { avatarAppearance })?.avatarAppearance,
+      avatarAppearance,
+    );
+  });
+
   it("keeps the configured compact-display image ahead of the profile-image fallback", () => {
     assert.equal(
       publicSearchLookupAvatarUrl({

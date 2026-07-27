@@ -13,11 +13,12 @@ import { LookupSearchBox } from "./lookup-search-box";
 import { mergeLookupSuggestions } from "./lookup-suggestion-merge";
 import { SearchViewShell } from "./search-view-shell";
 import { Card } from "@/components/ui/card";
-import { EntityImage } from "@/components/ui/entity-image";
+import { ProfileAvatarImage } from "@/components/ui/profile-avatar-image";
 import { VerifiedTrustMark } from "@/components/ui/verified-trust-mark";
 import { Table, TableCell, TableFrame, TableHead, TableHeaderCell } from "@/components/ui/table";
 import { cn } from "@/lib/cn";
 import { discordCopyValue } from "@/lib/discord-link";
+import type { AvatarAppearance } from "@/lib/avatar-appearance";
 import {
   captureProductEvent,
   mirrorPrivateSeedLookupAccess,
@@ -70,6 +71,7 @@ export type PublicProfileLookupResult = {
   headline?: OptionalPublicText;
   bio?: OptionalPublicText;
   avatarImageUrl?: OptionalPublicText;
+  avatarAppearance?: AvatarAppearance;
   accentColor?: OptionalPublicText;
   secondaryColor?: OptionalPublicText;
   region?: OptionalPublicText;
@@ -255,10 +257,11 @@ function ExternalIcon({ className }: { className?: string }) {
   );
 }
 
-function ProfileAvatar({ profile }: { profile: Pick<PublicProfileLookupResult, "avatarImageUrl" | "displayName"> }) {
+function ProfileAvatar({ profile }: { profile: Pick<PublicProfileLookupResult, "avatarAppearance" | "avatarImageUrl" | "displayName"> }) {
   return (
-    <EntityImage
+    <ProfileAvatarImage
       alt=""
+      appearance={profile.avatarAppearance}
       className="lookup-avatar"
       label={profile.displayName}
       sizes="83px"
