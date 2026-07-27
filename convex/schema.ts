@@ -1888,11 +1888,15 @@ export default defineSchema({
     updatedAt: v.number(),
     expiresAt: v.number(),
     verifiedAt: v.optional(v.number()),
+    // Paces the collector so a pending attempt is not re-read from the
+    // provider on every worker pass.
+    lastCheckedAt: v.optional(v.number()),
   })
     .index("by_profileId_state", ["profileId", "state"])
     .index("by_profileId_userId_state_updatedAt", ["profileId", "userId", "state", "updatedAt"])
     .index("by_userId_state", ["userId", "state"])
-    .index("by_state_expiresAt", ["state", "expiresAt"]),
+    .index("by_state_expiresAt", ["state", "expiresAt"])
+    .index("by_state_lastCheckedAt", ["state", "lastCheckedAt"]),
   // A user proved they control an external asset. This is deliberately not a
   // claim: proving you administer a Discord guild says nothing about which
   // VRDex profile that guild represents. Profile ownership is granted only

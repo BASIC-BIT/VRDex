@@ -1,3 +1,5 @@
+import { containsProofCode, proofSurfaceFields } from "./proof-matching.mjs";
+
 const DEFAULT_BASE_URL = "https://api.vrchat.cloud/api/1";
 
 export class VrchatProviderError extends Error {
@@ -144,6 +146,32 @@ export class VrchatClient {
     };
     this.groupCache.set(groupId, { cachedAt: this.clock(), group: normalized });
     return normalized;
+  }
+
+  /**
+   * Look for a one-time ownership proof code on a VRChat user or group.
+   *
+   * Returns only a boolean. The bio or description text is read in-process and
+   * deliberately never returned, cached, or logged, so the control plane learns
+   * whether the code was present and nothing else about the subject.
+   */
+  async findProofCode(targetType, targetExternalId, proofCode) {
+    const isGroup = targetType === "vrchat_group";
+    const path = isGroup
+      ? `/groups/${encodeURIComponent(requireExternalId(targetExternalId, "grp_", "Group ID"))}`
+      : `/users/${encodeURIComponent(requireExternalId(targetExternalId, "usr_", "User ID"))}`;
+    const record = await this.request(path);
+
+    if (!record || typeof record !== "object") {
+      throw new VrchatProviderError("Proof target response is malformed.", {
+        category: "schema_drift",
+      });
+    }
+
+    return containsProofCode(
+      proofSurfaceFields(targetType).map((field) => record[field]),
+      proofCode,
+    );
   }
 
   async joinGroup(groupId) {

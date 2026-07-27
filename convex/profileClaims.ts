@@ -6,6 +6,7 @@ import { toAuthSubject } from "./_communityAuthority";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { linkProfileToAsset, recordExternalControlProof } from "./_externalControl";
 import { createClaimedDiscordProfileForUser } from "./_profileClaimCreation";
 import { approveProfileClaimForUser, getActiveProfileOwner, userOwnsProfile } from "./_profileOwnership";
 import { canReadProfile } from "./_profilePermissions";
@@ -955,6 +956,31 @@ export const recordVrchatProofVerification = internalMutation({
       now,
       note: "External profile proof code was verified by the VRChat proof adapter.",
     });
+
+    // Record the durable control proof and profile association so VRChat
+    // targets participate in the same many-to-many link model as Discord
+    // guilds, rather than the association living only on the claim request.
+    if (attempt.targetType !== "vrclinking") {
+      const assetType = attempt.targetType === "vrchat_group" ? "vrchat_group" : "vrchat_user";
+      const proofId = await recordExternalControlProof(ctx.db, {
+        userId: attempt.userId,
+        assetType,
+        assetExternalId: attempt.targetExternalId,
+        controlLevel: assetType === "vrchat_user" ? "self" : "owner",
+        evidenceSource: args.evidenceSource,
+        evidenceSummary: args.evidenceSummary,
+        now,
+      });
+
+      await linkProfileToAsset(ctx.db, {
+        profileId: profile._id,
+        assetType,
+        assetExternalId: attempt.targetExternalId,
+        linkedByUserId: attempt.userId,
+        verifiedByProofId: proofId,
+        now,
+      });
+    }
 
     const updatedProfile = await ctx.db.get(profile._id);
     if (updatedProfile !== null) {

@@ -109,6 +109,45 @@ async function collect(assignment) {
   }
 }
 
+/**
+ * Look for ownership proof codes on pending VRChat targets.
+ *
+ * Proof checks are not lease-scoped, so the account-level budget is the only
+ * rate guard here. A provider error leaves the attempt pending rather than
+ * failing it: the owner may simply not have posted the code yet, and the
+ * attempt expires on its own.
+ */
+async function checkProofs() {
+  const claimNow = Date.now();
+  if (accountBudget.retryAfterMs(1, claimNow) > 0) return 0;
+
+  const { attempts: pending = [] } = await control.send("proof_claim", { limit: 5, now: claimNow });
+
+  for (const attempt of pending) {
+    if (stopping) break;
+    const now = Date.now();
+    if (!accountBudget.tryConsume(1, now)) break;
+
+    let found = false;
+    try {
+      found = await provider.findProofCode(
+        attempt.targetType,
+        attempt.targetExternalId,
+        attempt.proofCode,
+      );
+    } catch (error) {
+      // An expired service-account session must stop the worker, matching the
+      // telemetry path's handling of authenticated provider 401s.
+      if (error?.category === "authentication") stopping = true;
+      continue;
+    }
+
+    await control.send("proof_result", { attemptId: attempt.attemptId, found, now: Date.now() });
+  }
+
+  return pending.length;
+}
+
 while (!stopping) {
   try {
     const { assignments = [] } = await control.send("claim", { limit: 10, now: Date.now() });
@@ -117,7 +156,8 @@ while (!stopping) {
       if (stopping) break;
       await collect(assignment);
     }
-    await sleep(assignments.length > 0 ? 1_000 : 10_000);
+    const proofCount = stopping ? 0 : await checkProofs();
+    await sleep(assignments.length > 0 || proofCount > 0 ? 1_000 : 10_000);
   } catch {
     controlFailures += 1;
     await sleep(retryDelayMs(controlFailures));

@@ -93,7 +93,13 @@ Current recommendation:
 - Claim analytics contain only profile type, method, entry source, and bounded
   outcome labels. They exclude profile slugs, proof codes, guild IDs, VRChat
   IDs, provider account IDs, and error text.
-- Session replay remains disabled on the claim route.
+- Session replay was originally disabled on the claim route. Superseded on
+  2026-07-27 by an explicit product decision to record every route. The claim
+  journey section keeps its `data-ph-no-capture` marker, so replay blocks that
+  region outright, `maskAllInputs` redacts typed proof codes and provider
+  identifiers, and `sanitizeAnalyticsUrl` still strips claim slugs. Masking
+  rather than route exclusion is now what protects this route; removing either
+  protection would leak credentials into recordings.
 - The UI does not imply that Discord person quick claim verifies the represented
   identity.
 - Claimed-by-another conflicts do not reveal the owner or private evidence.

@@ -129,6 +129,14 @@ Production Convex Auth env names:
 - `JWKS`: Convex Auth public key set matching `JWT_PRIVATE_KEY`
 - `AWS_SES_REGION`, `AWS_SES_FROM_EMAIL`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY`: production SES sender configuration for email/password verification
 
+Profile claiming needs no additional production Convex environment variables.
+Discord community verification reuses `AUTH_DISCORD_ID`, `AUTH_DISCORD_SECRET`,
+and `SITE_URL` through a purpose-scoped OAuth round-trip; it requires only that
+`https://vrdex.net/api/discord/verify/callback` is registered as a redirect URI
+on the production Discord application. The optional bot and collector paths, and
+the exact operator steps, are documented in
+[`claim-verification-enablement.md`](./claim-verification-enablement.md).
+
 Session durations are code-owned rather than dashboard-owned. See
 [`docs/backend/auth-sessions.md`](../backend/auth-sessions.md). Do not add
 `AUTH_SESSION_TOTAL_DURATION_MS` or `AUTH_SESSION_INACTIVE_DURATION_MS` as

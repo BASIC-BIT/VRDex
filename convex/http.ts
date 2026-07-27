@@ -58,6 +58,30 @@ const telemetryWorker = httpAction(async (ctx, request) => {
       });
       return json({ assignments });
     }
+    // Proof checks are not lease-scoped: they target verification attempts
+    // rather than a community integration, so they are handled before the
+    // lease validation below.
+    if (body.operation === "proof_claim") {
+      const result = await ctx.runMutation(functions.claimPendingProofChecks, {
+        collectorAccountId,
+        workerId: body.workerId,
+        limit: typeof body.limit === "number" ? body.limit : undefined,
+        now,
+      });
+      return json(result);
+    }
+    if (body.operation === "proof_result") {
+      if (typeof body.attemptId !== "string" || typeof body.found !== "boolean") {
+        return json({ error: "invalid_request" }, 400);
+      }
+      const result = await ctx.runMutation(functions.recordProofCheckResult, {
+        collectorAccountId,
+        attemptId: body.attemptId as never,
+        found: body.found,
+        now,
+      });
+      return json(result);
+    }
     const common = {
       integrationId: body.integrationId as never,
       collectorAccountId: collectorAccountId as never,

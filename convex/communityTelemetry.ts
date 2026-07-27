@@ -1702,3 +1702,102 @@ export const collectorWorkerAuthorization = internalQuery({
     };
   },
 });
+
+const PROOF_CHECK_COOLDOWN_MS = 5 * 60_000;
+const PROOF_CHECK_SCAN_LIMIT = 100;
+
+/**
+ * Hand the collector a batch of pending VRChat proof attempts to look for.
+ *
+ * Ordered by `lastCheckedAt` ascending so untouched attempts go first and the
+ * rest rotate, and stamped on claim so a batch is not immediately re-served.
+ * Only the target id and proof code leave the control plane.
+ */
+export const claimPendingProofChecks = internalMutation({
+  args: {
+    collectorAccountId: v.string(),
+    workerId: v.string(),
+    limit: v.optional(v.number()),
+    now: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const accountId = ctx.db.normalizeId("collectorAccounts", args.collectorAccountId);
+    if (!accountId) return { attempts: [] };
+    const account = await ctx.db.get(accountId);
+    if (!account || account.state !== "ready" || account.killSwitchEnabled) {
+      return { attempts: [] };
+    }
+
+    const fleet = await ctx.db
+      .query("collectorFleetSettings")
+      .withIndex("by_key", (q) => q.eq("key", "global"))
+      .first();
+    if (fleet?.killSwitchEnabled) return { attempts: [] };
+
+    const limit = Math.max(1, Math.min(args.limit ?? 5, 25));
+    const candidates = await ctx.db
+      .query("profileVerificationAttempts")
+      .withIndex("by_state_lastCheckedAt", (q) => q.eq("state", "pending"))
+      .take(PROOF_CHECK_SCAN_LIMIT);
+    const due = candidates
+      .filter(
+        (attempt) =>
+          attempt.targetType !== "vrclinking" &&
+          attempt.expiresAt > args.now &&
+          (attempt.lastCheckedAt === undefined ||
+            attempt.lastCheckedAt <= args.now - PROOF_CHECK_COOLDOWN_MS),
+      )
+      .slice(0, limit);
+
+    await Promise.all(due.map((attempt) => ctx.db.patch(attempt._id, { lastCheckedAt: args.now })));
+
+    return {
+      attempts: due.map((attempt) => ({
+        attemptId: attempt._id,
+        targetType: attempt.targetType,
+        targetExternalId: attempt.targetExternalId,
+        proofCode: attempt.proofCode,
+      })),
+    };
+  },
+});
+
+/**
+ * Record a collector proof check. A negative result is not a failure: the owner
+ * may simply not have posted the code yet, so the attempt stays pending until
+ * it expires.
+ */
+export const recordProofCheckResult = internalMutation({
+  args: {
+    collectorAccountId: v.string(),
+    attemptId: v.id("profileVerificationAttempts"),
+    found: v.boolean(),
+    now: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const accountId = ctx.db.normalizeId("collectorAccounts", args.collectorAccountId);
+    if (!accountId) return { state: "unauthorized" as const };
+
+    const attempt = await ctx.db.get(args.attemptId);
+    if (attempt === null || attempt.state !== "pending") {
+      return { state: "not_pending" as const };
+    }
+
+    if (attempt.expiresAt <= args.now) {
+      await ctx.db.patch(attempt._id, { state: "expired", updatedAt: args.now });
+      return { state: "expired" as const };
+    }
+
+    if (!args.found) {
+      return { state: "pending" as const };
+    }
+
+    await ctx.runMutation(internal.profileClaims.recordVrchatProofVerification, {
+      attemptId: attempt._id,
+      evidenceSource: "vrchat_api",
+      evidenceSummary: "Proof code was found on the VRChat target by the collector.",
+    });
+
+    return { state: "verified" as const };
+  },
+});
