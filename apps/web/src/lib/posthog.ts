@@ -41,17 +41,19 @@ export function sanitizePostHogProperties(properties: Record<string, unknown>) {
   return sanitized;
 }
 
-export function isSessionReplayAllowedPathname(pathname: string): boolean {
-  return pathname === "/" ||
-    pathname === "/search" ||
-    pathname === "/discover" ||
-    pathname === "/discovery" ||
-    pathname === "/upcoming" ||
-    pathname.startsWith("/p/") ||
-    pathname.startsWith("/c/") ||
-    pathname.startsWith("/e/") ||
-    pathname.startsWith("/worlds/");
-}
+/**
+ * Session replay runs on every route by product decision (2026-07-27),
+ * superseding the earlier public-routes-only allowlist.
+ *
+ * Replay stays safe through masking rather than route exclusion:
+ * `maskAllInputs` redacts every input value (passwords, OTP codes, VRChat and
+ * Discord identifiers typed into claim forms), and regions marked
+ * `data-ph-no-capture` — notably the whole claim journey section — are blocked
+ * from capture entirely. URL properties are still sanitized by
+ * `sanitizeAnalyticsUrl`, so handoff tokens and claim slugs never reach
+ * PostHog. Removing either protection would leak credentials into replays.
+ */
+export const SESSION_REPLAY_MASKED_SELECTOR = "[data-ph-no-capture]";
 
 export type DiscoveryAnalyticsSurface =
   | "featured"

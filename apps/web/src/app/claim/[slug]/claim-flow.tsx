@@ -14,11 +14,13 @@ import { EntityImage } from "@/components/ui/entity-image";
 import { Field, FieldText, Input } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { captureProductEvent } from "@/lib/posthog";
+import { claimErrorMessage, claimFailureOutcome } from "@/lib/claim-errors";
 import { cn } from "@/lib/cn";
 import {
   ownerProfileDestinationPath,
   profileClaimPath,
   type ClaimEntrySource,
+  type DiscordVerifyStatus,
 } from "@/lib/profile-claim";
 
 type ProfileType = "person" | "community";
@@ -38,31 +40,11 @@ type Status =
   | { kind: "error"; message: string }
   | { kind: "complete"; message: string; verified: boolean };
 
-function errorMessage(error: unknown): string {
-  const value = error instanceof Error ? error.message : String(error);
-  const known = [
-    "A verified email address is required before claim-level actions.",
-    "A linked Discord account is required for this claim method.",
-    "This profile already has an active owner.",
-    "This community profile already has an active owner.",
-    "Enter a valid Discord server id.",
-    "Enter a valid VRChat group URL or id.",
-    "Enter a valid VRChat profile URL or user id.",
-    "Verification attempt has expired.",
-  ];
-
-  return known.find((message) => value.includes(message)) ??
-    "We could not complete that check. Nothing changed; try again or choose another method.";
-}
-
-function outcomeForError(error: unknown): "conflict" | "expired" | "not_verified" | "unavailable" | "unknown" {
-  const value = error instanceof Error ? error.message : String(error);
-  if (value.includes("active owner")) return "conflict";
-  if (value.includes("expired")) return "expired";
-  if (value.includes("verified email")) return "not_verified";
-  if (value.includes("not configured") || value.includes("linked Discord")) return "unavailable";
-  return "unknown";
-}
+// Claim failures arrive as structured ConvexError codes; matching on message
+// text no longer works because Convex redacts plain Error messages in
+// production. See apps/web/src/lib/claim-errors.ts.
+const errorMessage = claimErrorMessage;
+const outcomeForError = claimFailureOutcome;
 
 function MethodCard({
   active,
@@ -97,11 +79,20 @@ function MethodCard({
   );
 }
 
+const CONTROL_LEVEL_LABELS: Record<string, string> = {
+  owner: "Owner",
+  administrator: "Administrator",
+  manager: "Manage Server",
+  self: "You",
+};
+
 export function ClaimFlow({
+  discordVerify = null,
   previewContext,
   profile,
   source,
 }: {
+  discordVerify?: DiscordVerifyStatus;
   previewContext?: {
     emailVerified: boolean;
     hasDiscord: boolean;
@@ -118,8 +109,14 @@ export function ClaimFlow({
     previewContext ? "skip" : { profileSlug: profile.slug },
   );
   const context = previewContext ?? queriedContext;
+  const manageableGuilds = useQuery(
+    api.discordVerification.getManageableGuilds,
+    previewContext ? "skip" : {},
+  );
   const claimPerson = useMutation(api.profileClaims.claimExistingPersonWithDiscord);
-  const requestCommunityClaim = useMutation(api.profileClaims.requestCommunityDiscordAdminClaim);
+  const claimWithVerifiedGuild = useMutation(
+    api.profileConnections.claimCommunityWithVerifiedGuild,
+  );
   const startVrchatProof = useMutation(api.profileClaims.startVrchatProof);
   const cancelPending = useMutation(api.profileClaims.cancelClaimJourneyPending);
   const verifyDiscord = useAction(api.profileClaims.verifyDiscordCommunityAdminClaim);
@@ -135,6 +132,11 @@ export function ClaimFlow({
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const statusRef = useRef<HTMLDivElement>(null);
   const completionRef = useRef<HTMLDivElement>(null);
+  const verifiedGuilds = manageableGuilds ?? [];
+  const discordVerifyState = discordVerify;
+  const discordVerifyHref = `/api/discord/verify/start?returnTo=${encodeURIComponent(
+    profileClaimPath(profile.slug, source),
+  )}`;
   const publicProfilePath = `/${profile.profileType === "community" ? "c" : "p"}/${profile.slug}`;
   const backPath = ownerProfileDestinationPath(profile, "/account");
   const appearancePath = profile.profileId
@@ -209,24 +211,22 @@ export function ClaimFlow({
         return;
       }
 
-      const result = await requestCommunityClaim({
+      // Control was already proved during the Discord OAuth round-trip, so
+      // claiming is a single step: pair the existing proof with this profile.
+      await claimWithVerifiedGuild({
         profileSlug: profile.slug,
-        discordGuildId: String(form.get("discordGuildId") ?? ""),
+        guildId: String(form.get("discordGuildId") ?? ""),
       });
-      if (result.state === "already_owned") {
-        setStatus({
-          kind: "complete",
-          message: "This community is already yours.",
-          verified: true,
-        });
-        captureProductEvent(posthog, "claim_completed", {
-          method,
-          outcome: "already_owned",
-          profile_type: profile.profileType,
-        });
-        return;
-      }
-      setStatus({ kind: "notice", message: "Discord check ready. Finish the permission check below." });
+      setStatus({
+        kind: "complete",
+        message: "Administrator access verified. This community is now yours.",
+        verified: true,
+      });
+      captureProductEvent(posthog, "claim_completed", {
+        method,
+        outcome: "claimed_verified",
+        profile_type: profile.profileType,
+      });
     } catch (error) {
       setStatus({ kind: "error", message: errorMessage(error) });
       captureProductEvent(posthog, "claim_failed", {
@@ -505,25 +505,70 @@ export function ClaimFlow({
                       <FieldText>We only use this identifier to check the one-time proof code.</FieldText>
                     </Field>
                   ) : profile.profileType === "community" ? (
-                    <Field>
-                      Discord server ID
-                      <Input autoComplete="off" inputMode="numeric" name="discordGuildId" pattern="\d{17,20}" required />
-                      <FieldText>VRDex checks server ownership or the Administrator permission. It does not read message content.</FieldText>
-                    </Field>
+                    verifiedGuilds.length > 0 ? (
+                      <Field>
+                        Discord server
+                        <select
+                          className="w-full rounded-input border border-border bg-surface px-3 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                          name="discordGuildId"
+                          required
+                        >
+                          {verifiedGuilds.map((guild) => (
+                            <option key={guild.guildId} value={guild.guildId}>
+                              {guild.guildName ?? guild.guildId} ({CONTROL_LEVEL_LABELS[guild.controlLevel]})
+                            </option>
+                          ))}
+                        </select>
+                        <FieldText>
+                          Only servers you own or administer appear here. VRDex reads your server list and
+                          permissions once, then discards the access token. It never reads message content.
+                        </FieldText>
+                      </Field>
+                    ) : (
+                      <Notice>
+                        <p className="font-semibold">Verify your Discord servers first.</p>
+                        <p className="mt-1">
+                          VRDex checks which servers you own, administer, or manage. You will return here to
+                          finish the claim.
+                        </p>
+                        <Link
+                          className={cn(buttonVariants({ variant: "primary" }), "mt-4")}
+                          href={discordVerifyHref}
+                        >
+                          {discordVerifyState === "verified"
+                            ? "Check Discord servers again"
+                            : "Verify with Discord"}
+                        </Link>
+                        {discordVerifyState === "verified" ? (
+                          <p className="mt-3 text-sm">
+                            Discord did not report any server you own, administer, or manage.
+                          </p>
+                        ) : null}
+                        {discordVerifyState === "failed" || discordVerifyState === "unavailable" ? (
+                          <p className="mt-3 text-sm">
+                            That check could not finish. Nothing changed; try again.
+                          </p>
+                        ) : null}
+                      </Notice>
+                    )
                   ) : (
                     <Notice>
                       This grants profile controls using your linked Discord account. It does not add a verified-owner badge.
                     </Notice>
                   )}
-                  <Button
-                    className="mt-5"
-                    disabled={status.kind === "working" || (method === "discord" && !context.hasDiscord)}
-                    size="lg"
-                    type="submit"
-                    variant="primary"
-                  >
-                    {method === "vrchat" ? "Create proof code" : profile.profileType === "community" ? "Continue with Discord" : "Claim with Discord"}
-                  </Button>
+                  {method === "vrchat" ||
+                  profile.profileType !== "community" ||
+                  verifiedGuilds.length > 0 ? (
+                    <Button
+                      className="mt-5"
+                      disabled={status.kind === "working" || (method === "discord" && !context.hasDiscord)}
+                      size="lg"
+                      type="submit"
+                      variant="primary"
+                    >
+                      {method === "vrchat" ? "Create proof code" : profile.profileType === "community" ? "Claim with this server" : "Claim with Discord"}
+                    </Button>
+                  ) : null}
                 </div>
               </form>
             )}

@@ -361,7 +361,7 @@ describe("profile claim lifecycle", () => {
         evidenceSource: "vrchat_api",
         evidenceSummary: "Synthetic replay.",
       }),
-      /Only pending verification attempts can be approved/,
+      /PROOF_NOT_PENDING/,
     );
 
     const owners = await t.run(async (ctx) =>

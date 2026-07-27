@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
-  isSessionReplayAllowedPathname,
+  SESSION_REPLAY_MASKED_SELECTOR,
   mirrorPrivateSeedLookupAccess,
   mirrorTemporalParsingAccess,
   sanitizeAnalyticsUrl,
@@ -34,14 +34,18 @@ describe("PostHog privacy", () => {
     );
   });
 
-  it("records only explicitly public, non-form routes", () => {
-    assert.equal(isSessionReplayAllowedPathname("/"), true);
-    assert.equal(isSessionReplayAllowedPathname("/p/dj-example"), true);
-    assert.equal(isSessionReplayAllowedPathname("/handoff/secret-token"), false);
-    assert.equal(isSessionReplayAllowedPathname("/lookup"), false);
-    assert.equal(isSessionReplayAllowedPathname("/time"), false);
-    assert.equal(isSessionReplayAllowedPathname("/account/privacy"), false);
-    assert.equal(isSessionReplayAllowedPathname("/sign-in"), false);
+  // Replay now runs on every route, so URL redaction is the protection that
+  // stops sensitive path segments reaching PostHog on the routes that used to
+  // be excluded outright.
+  it("redacts sensitive path segments on formerly excluded routes", () => {
+    assert.equal(sanitizeAnalyticsUrl("/handoff/secret-token"), "/handoff/redacted");
+    assert.equal(sanitizeAnalyticsUrl("/claim/private-profile"), "/claim/redacted");
+    assert.equal(sanitizeAnalyticsUrl("/account/privacy?tab=exports"), "/account/privacy");
+    assert.equal(sanitizeAnalyticsUrl("/sign-in?returnTo=%2Fclaim%2Fsecret"), "/sign-in");
+  });
+
+  it("keeps the replay masking selector aligned with the blocked claim region", () => {
+    assert.equal(SESSION_REPLAY_MASKED_SELECTOR, "[data-ph-no-capture]");
   });
 
   it("mirrors lookup grants into persisted and immediate flag properties", () => {

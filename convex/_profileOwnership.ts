@@ -1,5 +1,6 @@
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
+import { claimError } from "./_claimErrors";
 import type { AuthSubject } from "./_communityAuthority";
 import { requireProfileClaimStateTransition } from "./_profileStates";
 
@@ -58,7 +59,7 @@ export async function grantProfileOwner(db: DatabaseWriter, options: GrantProfil
       return existingOwner._id;
     }
 
-    throw new Error("This profile already has an active owner.");
+    throw claimError("PROFILE_ALREADY_OWNED");
   }
 
   return await db.insert("profileOwners", {

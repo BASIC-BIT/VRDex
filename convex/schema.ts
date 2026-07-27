@@ -444,9 +444,45 @@ const profileVerificationAttemptState = v.union(
 
 const profileVerificationEvidenceSource = v.union(
   v.literal("discord_api"),
+  v.literal("discord_oauth"),
+  v.literal("discord_bot"),
   v.literal("vrchat_api"),
   v.literal("vrclinking"),
   v.literal("manual"),
+);
+
+// An external asset a user can prove control of. Deliberately independent of
+// profile type: one Discord guild can back several community profiles, and one
+// community can hold several guilds and VRChat groups.
+const externalAssetType = v.union(
+  v.literal("discord_guild"),
+  v.literal("vrchat_group"),
+  v.literal("vrchat_user"),
+);
+
+// Ordered weakest to strongest by `externalControlLevelRank` in
+// `_externalControl.ts`. `self` means the user proved they are that account.
+const externalControlLevel = v.union(
+  v.literal("manager"),
+  v.literal("administrator"),
+  v.literal("owner"),
+  v.literal("self"),
+);
+
+const externalControlProofState = v.union(
+  v.literal("active"),
+  v.literal("stale"),
+  v.literal("revoked"),
+);
+
+const profileExternalLinkRole = v.union(
+  v.literal("primary"),
+  v.literal("secondary"),
+);
+
+const profileExternalLinkState = v.union(
+  v.literal("active"),
+  v.literal("removed"),
 );
 
 const suppressionRequestType = v.union(
@@ -1857,6 +1893,67 @@ export default defineSchema({
     .index("by_profileId_userId_state_updatedAt", ["profileId", "userId", "state", "updatedAt"])
     .index("by_userId_state", ["userId", "state"])
     .index("by_state_expiresAt", ["state", "expiresAt"]),
+  // A user proved they control an external asset. This is deliberately not a
+  // claim: proving you administer a Discord guild says nothing about which
+  // VRDex profile that guild represents. Profile ownership is granted only
+  // when a proof is paired with a `profileExternalLinks` row.
+  externalControlProofs: defineTable({
+    userId: v.id("users"),
+    assetType: externalAssetType,
+    assetExternalId: v.string(),
+    assetDisplayName: v.optional(v.string()),
+    controlLevel: externalControlLevel,
+    state: externalControlProofState,
+    evidenceSource: profileVerificationEvidenceSource,
+    evidenceSummary: v.optional(v.string()),
+    verifiedAt: v.number(),
+    revalidateAfter: v.optional(v.number()),
+    lastRevalidatedAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+    revokedReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_userId_assetType_assetExternalId", ["userId", "assetType", "assetExternalId"])
+    .index("by_userId_state", ["userId", "state"])
+    .index("by_assetType_assetExternalId_state", ["assetType", "assetExternalId", "state"])
+    .index("by_state_revalidateAfter", ["state", "revalidateAfter"]),
+  // Short-lived CSRF state for the purpose-scoped Discord guild-verification
+  // OAuth round-trip. Stored server-side rather than in a cookie so the flow
+  // survives browser restarts and stays bound to the signed-in user.
+  discordVerificationStates: defineTable({
+    userId: v.id("users"),
+    state: v.string(),
+    returnTo: v.string(),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+  })
+    .index("by_state", ["state"])
+    .index("by_expiresAt", ["expiresAt"]),
+  // Many-to-many association between a profile and an external asset. One
+  // community may hold several Discord guilds and VRChat groups (one marked
+  // `primary`), and one guild may back several community profiles.
+  profileExternalLinks: defineTable({
+    profileId: v.id("profiles"),
+    assetType: externalAssetType,
+    assetExternalId: v.string(),
+    assetDisplayName: v.optional(v.string()),
+    linkRole: profileExternalLinkRole,
+    state: profileExternalLinkState,
+    linkedByUserId: v.id("users"),
+    verifiedByProofId: v.optional(v.id("externalControlProofs")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    removedAt: v.optional(v.number()),
+  })
+    .index("by_profileId_state", ["profileId", "state"])
+    .index("by_profileId_assetType_state", ["profileId", "assetType", "state"])
+    .index("by_assetType_assetExternalId_state", ["assetType", "assetExternalId", "state"])
+    .index("by_profileId_assetType_assetExternalId", [
+      "profileId",
+      "assetType",
+      "assetExternalId",
+    ]),
   profileSuppressionRequests: defineTable({
     profileId: v.optional(v.id("profiles")),
     profileSlug: v.optional(v.string()),

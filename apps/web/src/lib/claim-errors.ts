@@ -1,0 +1,114 @@
+import { ConvexError } from "convex/values";
+
+// Mirrors `CLAIM_ERROR_CODES` in convex/_claimErrors.ts. Convex redacts plain
+// `Error` messages on production deployments, so these structured codes are the
+// only claim failure detail that survives the trip to the browser.
+export type ClaimErrorCode =
+  | "SIGN_IN_REQUIRED"
+  | "EMAIL_NOT_VERIFIED"
+  | "DISCORD_NOT_LINKED"
+  | "PROFILE_NOT_FOUND"
+  | "INVALID_PROFILE_SLUG"
+  | "WRONG_PROFILE_TYPE"
+  | "PROFILE_ALREADY_OWNED"
+  | "INVALID_DISCORD_GUILD_ID"
+  | "INVALID_VRCHAT_TARGET"
+  | "CONTROL_NOT_VERIFIED"
+  | "CONTROL_LEVEL_TOO_LOW"
+  | "PROOF_NOT_FOUND"
+  | "PROOF_EXPIRED"
+  | "PROOF_NOT_PENDING"
+  | "PROOF_NOT_FOUND_YET"
+  | "LINK_NOT_FOUND"
+  | "LINK_ALREADY_EXISTS"
+  | "ADAPTER_NOT_CONFIGURED"
+  | "ADAPTER_UNAVAILABLE"
+  | "NOT_PROFILE_OWNER"
+  | "VERIFICATION_STATE_INVALID";
+
+export type ClaimFailureOutcome =
+  | "conflict"
+  | "expired"
+  | "not_verified"
+  | "unavailable"
+  | "unknown";
+
+const CLAIM_ERROR_COPY: Record<ClaimErrorCode, string> = {
+  SIGN_IN_REQUIRED: "Sign in to continue this claim.",
+  EMAIL_NOT_VERIFIED: "Verify your email address before claiming a profile.",
+  DISCORD_NOT_LINKED: "Link your Discord account from your account page first.",
+  PROFILE_NOT_FOUND: "We could not find that profile.",
+  INVALID_PROFILE_SLUG: "We could not find that profile.",
+  WRONG_PROFILE_TYPE: "That verification method does not apply to this profile type.",
+  PROFILE_ALREADY_OWNED: "This profile already has an active owner.",
+  INVALID_DISCORD_GUILD_ID: "Choose a Discord server from the list.",
+  INVALID_VRCHAT_TARGET: "Enter a valid VRChat profile or group URL.",
+  CONTROL_NOT_VERIFIED:
+    "You have not verified control of that server or group yet. Run the verification step first.",
+  CONTROL_LEVEL_TOO_LOW:
+    "Your Discord role is not high enough. You need Manage Server, Administrator, or server ownership.",
+  PROOF_NOT_FOUND: "We could not find that verification attempt.",
+  PROOF_EXPIRED: "This proof code expired. Start again to get a new code.",
+  PROOF_NOT_PENDING: "This verification attempt is already resolved.",
+  PROOF_NOT_FOUND_YET:
+    "We could not find the proof code yet. Check where you placed it, then try again.",
+  LINK_NOT_FOUND: "That connection is no longer attached to this profile.",
+  LINK_ALREADY_EXISTS: "That server or group is already connected to this profile.",
+  ADAPTER_NOT_CONFIGURED:
+    "This verification method is not available yet. Try another method or contact support.",
+  ADAPTER_UNAVAILABLE:
+    "Verification is temporarily unavailable. Nothing changed; try again shortly.",
+  NOT_PROFILE_OWNER: "You need to manage this profile before changing its connections.",
+  VERIFICATION_STATE_INVALID: "That verification link expired. Start the check again.",
+};
+
+const OUTCOME_BY_CODE: Record<ClaimErrorCode, ClaimFailureOutcome> = {
+  SIGN_IN_REQUIRED: "not_verified",
+  EMAIL_NOT_VERIFIED: "not_verified",
+  DISCORD_NOT_LINKED: "unavailable",
+  PROFILE_NOT_FOUND: "unknown",
+  INVALID_PROFILE_SLUG: "unknown",
+  WRONG_PROFILE_TYPE: "unknown",
+  PROFILE_ALREADY_OWNED: "conflict",
+  INVALID_DISCORD_GUILD_ID: "unknown",
+  INVALID_VRCHAT_TARGET: "unknown",
+  CONTROL_NOT_VERIFIED: "not_verified",
+  CONTROL_LEVEL_TOO_LOW: "not_verified",
+  PROOF_NOT_FOUND: "unknown",
+  PROOF_EXPIRED: "expired",
+  PROOF_NOT_PENDING: "conflict",
+  PROOF_NOT_FOUND_YET: "not_verified",
+  LINK_NOT_FOUND: "unknown",
+  LINK_ALREADY_EXISTS: "conflict",
+  ADAPTER_NOT_CONFIGURED: "unavailable",
+  ADAPTER_UNAVAILABLE: "unavailable",
+  NOT_PROFILE_OWNER: "conflict",
+  VERIFICATION_STATE_INVALID: "expired",
+};
+
+const FALLBACK_MESSAGE =
+  "We could not complete that check. Nothing changed; try again or choose another method.";
+
+export function claimErrorCode(error: unknown): ClaimErrorCode | null {
+  const data = error instanceof ConvexError ? (error.data as unknown) : null;
+
+  if (data === null || typeof data !== "object") {
+    return null;
+  }
+
+  const code = (data as { code?: unknown }).code;
+
+  return typeof code === "string" && code in CLAIM_ERROR_COPY ? (code as ClaimErrorCode) : null;
+}
+
+export function claimErrorMessage(error: unknown): string {
+  const code = claimErrorCode(error);
+
+  return code === null ? FALLBACK_MESSAGE : CLAIM_ERROR_COPY[code];
+}
+
+export function claimFailureOutcome(error: unknown): ClaimFailureOutcome {
+  const code = claimErrorCode(error);
+
+  return code === null ? "unknown" : OUTCOME_BY_CODE[code];
+}

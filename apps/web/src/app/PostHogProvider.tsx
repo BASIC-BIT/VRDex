@@ -2,22 +2,16 @@
 
 import posthog from "posthog-js";
 import { PostHogProvider as Provider } from "posthog-js/react";
-import { usePathname } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { type ReactNode, useEffect } from "react";
 
 import {
-  isSessionReplayAllowedPathname,
+  SESSION_REPLAY_MASKED_SELECTOR,
   sanitizePostHogProperties,
 } from "@/lib/posthog";
 
 const posthogKey = process.env.NEXT_PUBLIC_POSTHOG_KEY?.trim();
 
 export function PostHogProvider({ children }: { children: ReactNode }) {
-  const pathname = usePathname();
-  const [ready, setReady] = useState(
-    () => Boolean((posthog as { __loaded?: boolean }).__loaded),
-  );
-
   useEffect(() => {
     if (!posthogKey || (posthog as { __loaded?: boolean }).__loaded) {
       return;
@@ -28,33 +22,22 @@ export function PostHogProvider({ children }: { children: ReactNode }) {
       capture_pageview: true,
       capture_pageleave: true,
       defaults: "2025-05-24",
-      disable_session_recording: true,
       sanitize_properties: sanitizePostHogProperties,
+      // Replay records every route; masking, not route exclusion, is what
+      // keeps credentials and proof codes out of recordings. See
+      // `SESSION_REPLAY_MASKED_SELECTOR` for the full rationale.
       session_recording: {
-        blockSelector: "[data-ph-no-capture]",
+        blockSelector: SESSION_REPLAY_MASKED_SELECTOR,
         maskAllInputs: true,
-        maskTextSelector: "[data-ph-no-capture]",
+        maskTextSelector: SESSION_REPLAY_MASKED_SELECTOR,
       },
       loaded: (client) => {
         if (process.env.NODE_ENV !== "production") {
           client.opt_out_capturing();
         }
-        setReady(true);
       },
     });
   }, []);
-
-  useEffect(() => {
-    if (!ready || process.env.NODE_ENV !== "production") {
-      return;
-    }
-
-    if (isSessionReplayAllowedPathname(pathname)) {
-      posthog.startSessionRecording();
-    } else {
-      posthog.stopSessionRecording();
-    }
-  }, [pathname, ready]);
 
   return <Provider client={posthog}>{children}</Provider>;
 }

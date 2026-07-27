@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 
 import { getCurrentUser, getLinkedProviderAccount, requireCurrentUser, requireVerifiedEmailUser } from "./accounts";
+import { claimError } from "./_claimErrors";
 import { toAuthSubject } from "./_communityAuthority";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -136,7 +137,10 @@ function requiredEnv(name: string): string {
   const value = optionalEnv(name);
 
   if (!value) {
-    throw new Error(`${name} is not configured.`);
+    // Surfaces as "this method is not available yet" rather than a redacted
+    // server error, which is what made the missing production adapter
+    // configuration so hard to diagnose.
+    throw claimError("ADAPTER_NOT_CONFIGURED", name);
   }
 
   return value;
@@ -146,7 +150,7 @@ async function requireLinkedDiscordAccount(ctx: Parameters<typeof getLinkedProvi
   const account = await getLinkedProviderAccount(ctx, userId, "discord");
 
   if (account === null) {
-    throw new Error("A linked Discord account is required for this claim method.");
+    throw claimError("DISCORD_NOT_LINKED");
   }
 
   return account;
@@ -160,17 +164,17 @@ async function getClaimableProfileBySlug(
   const validation = validateProfileSlug(slug);
 
   if (!validation.ok) {
-    throw new Error("A valid profile slug is required.");
+    throw claimError("INVALID_PROFILE_SLUG");
   }
 
   const profile = await getProfileBySlug(ctx, validation.slug);
 
   if (profile === null) {
-    throw new Error("Profile not found.");
+    throw claimError("PROFILE_NOT_FOUND");
   }
 
   if (profile.profileType !== expectedProfileType) {
-    throw new Error(`This claim method requires a ${expectedProfileType} profile.`);
+    throw claimError("WRONG_PROFILE_TYPE", expectedProfileType);
   }
 
   return profile;
@@ -202,11 +206,11 @@ function proofEvidenceSourceForTarget(
 
 function requireCompatibleProofTarget(profile: Doc<"profiles">, targetType: VrchatTargetType) {
   if (targetType === "vrchat_user" && profile.profileType !== "person") {
-    throw new Error("VRChat user proof requires a person profile.");
+    throw claimError("WRONG_PROFILE_TYPE", "person");
   }
 
   if (targetType === "vrchat_group" && profile.profileType !== "community") {
-    throw new Error("VRChat group proof requires a community profile.");
+    throw claimError("WRONG_PROFILE_TYPE", "community");
   }
 }
 
@@ -307,11 +311,11 @@ export const cancelClaimJourneyPending = mutation({
     const user = await requireCurrentUser(ctx);
     const validation = validateProfileSlug(args.profileSlug);
     if (!validation.ok) {
-      throw new Error("A valid profile slug is required.");
+      throw claimError("INVALID_PROFILE_SLUG");
     }
     const profile = await getProfileBySlug(ctx.db, validation.slug);
     if (profile === null) {
-      throw new Error("Profile not found.");
+      throw claimError("PROFILE_NOT_FOUND");
     }
 
     const now = Date.now();
@@ -382,7 +386,7 @@ async function fetchDiscordJson<T>(path: string): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new Error(`Discord API returned HTTP ${response.status}.`);
+    throw claimError("ADAPTER_UNAVAILABLE", `discord_${response.status}`);
   }
 
   return (await response.json()) as T;
@@ -434,7 +438,7 @@ export const claimExistingPersonWithDiscord = mutation({
     const activeOwner = await getActiveProfileOwner(ctx.db, profile._id);
 
     if (activeOwner !== null && activeOwner.userId !== user._id) {
-      throw new Error("This profile already has an active owner.");
+      throw claimError("PROFILE_ALREADY_OWNED");
     }
 
     if (activeOwner !== null) {
@@ -556,13 +560,13 @@ export const requestCommunityDiscordAdminClaim = mutation({
     ]);
     const discordGuildId = args.discordGuildId.trim();
     if (!DISCORD_GUILD_ID_PATTERN.test(discordGuildId)) {
-      throw new Error("Enter a valid Discord server id.");
+      throw claimError("INVALID_DISCORD_GUILD_ID");
     }
 
     const activeOwner = await getActiveProfileOwner(ctx.db, profile._id);
 
     if (activeOwner !== null && activeOwner.userId !== user._id) {
-      throw new Error("This community profile already has an active owner.");
+      throw claimError("PROFILE_ALREADY_OWNED");
     }
 
     if (activeOwner !== null) {
@@ -631,21 +635,21 @@ export const recordDiscordCommunityAdminApproval = internalMutation({
     const claimRequest = await ctx.db.get(args.claimRequestId);
 
     if (claimRequest === null) {
-      throw new Error("Claim request not found.");
+      throw claimError("PROOF_NOT_FOUND");
     }
 
     if (claimRequest.method !== "discord_community_admin" || claimRequest.state !== "pending") {
-      throw new Error("Only pending Discord community admin claims can be approved this way.");
+      throw claimError("PROOF_NOT_PENDING");
     }
 
     if (claimRequest.profileId === undefined) {
-      throw new Error("Claim request is missing a profile target.");
+      throw claimError("PROFILE_NOT_FOUND");
     }
 
     const profile = await ctx.db.get(claimRequest.profileId);
 
     if (profile === null || profile.profileType !== "community") {
-      throw new Error("Community profile not found.");
+      throw claimError("PROFILE_NOT_FOUND");
     }
 
     const now = Date.now();
@@ -688,19 +692,19 @@ export const getDiscordCommunityClaimForAdapter = internalQuery({
     const claimRequest = await ctx.db.get(args.claimRequestId);
 
     if (claimRequest === null) {
-      throw new Error("Claim request not found.");
+      throw claimError("PROOF_NOT_FOUND");
     }
 
     if (claimRequest.userId !== user._id) {
-      throw new Error("Claim request does not belong to the signed-in user.");
+      throw claimError("PROOF_NOT_FOUND");
     }
 
     if (claimRequest.method !== "discord_community_admin" || claimRequest.state !== "pending") {
-      throw new Error("Only pending Discord community admin claims can be verified this way.");
+      throw claimError("PROOF_NOT_PENDING");
     }
 
     if (claimRequest.discordGuildId === undefined) {
-      throw new Error("Claim request is missing a Discord guild id.");
+      throw claimError("INVALID_DISCORD_GUILD_ID");
     }
 
     const discordAccount = await requireLinkedDiscordAccount(ctx, user._id);
@@ -721,7 +725,7 @@ export const recordDiscordCommunityAdminRejection = internalMutation({
     const claimRequest = await ctx.db.get(args.claimRequestId);
 
     if (claimRequest === null) {
-      throw new Error("Claim request not found.");
+      throw claimError("PROOF_NOT_FOUND");
     }
 
     if (claimRequest.method !== "discord_community_admin" || claimRequest.state !== "pending") {
@@ -752,7 +756,7 @@ export const verifyDiscordCommunityAdminClaim = action({
     const guildId = claimContext.claimRequest.discordGuildId;
 
     if (guildId === undefined) {
-      throw new Error("Claim request is missing a Discord guild id.");
+      throw claimError("INVALID_DISCORD_GUILD_ID");
     }
 
     const result = await verifyDiscordAdministratorPermission(guildId, claimContext.discordUserId);
@@ -788,7 +792,7 @@ export const startVrchatProof = mutation({
 
     const activeOwner = await getActiveProfileOwner(ctx.db, profile._id);
     if (activeOwner !== null && activeOwner.userId !== user._id) {
-      throw new Error("This profile already has an active owner.");
+      throw claimError("PROFILE_ALREADY_OWNED");
     }
 
     const targetExternalId =
@@ -796,13 +800,7 @@ export const startVrchatProof = mutation({
         ? args.targetExternalId.trim()
         : normalizeVrchatTargetId(args.targetExternalId, args.targetType);
     if (!targetExternalId) {
-      throw new Error(
-        args.targetType === "vrchat_group"
-          ? "Enter a valid VRChat group URL or id."
-          : args.targetType === "vrchat_user"
-            ? "Enter a valid VRChat profile URL or user id."
-            : "A VRC Linking user id is required.",
-      );
+      throw claimError("INVALID_VRCHAT_TARGET", args.targetType);
     }
 
     const now = Date.now();
@@ -850,7 +848,7 @@ export const startVrchatProof = mutation({
     const attempt = await ctx.db.get(attemptId);
 
     if (attempt === null) {
-      throw new Error("Unable to create verification attempt.");
+      throw claimError("PROOF_NOT_FOUND");
     }
 
     return {
@@ -875,7 +873,7 @@ export const getVerificationAttemptForAdapter = internalQuery({
     }
 
     if (attempt.userId !== user._id) {
-      throw new Error("Verification attempt does not belong to the signed-in user.");
+      throw claimError("PROOF_NOT_FOUND");
     }
 
     const profile = await ctx.db.get(attempt.profileId);
@@ -906,11 +904,11 @@ export const recordVrchatProofVerification = internalMutation({
     const attempt = await ctx.db.get(args.attemptId);
 
     if (attempt === null) {
-      throw new Error("Verification attempt not found.");
+      throw claimError("PROOF_NOT_FOUND");
     }
 
     if (attempt.state !== "pending") {
-      throw new Error("Only pending verification attempts can be approved.");
+      throw claimError("PROOF_NOT_PENDING");
     }
 
     const now = Date.now();
@@ -921,7 +919,7 @@ export const recordVrchatProofVerification = internalMutation({
 
     const profile = await ctx.db.get(attempt.profileId);
     if (profile === null) {
-      throw new Error("Profile not found.");
+      throw claimError("PROFILE_NOT_FOUND");
     }
 
     const claimRequestId = await ctx.db.insert("profileClaimRequests", {
@@ -981,7 +979,7 @@ export const recordVrchatProofFailure = internalMutation({
     const attempt = await ctx.db.get(args.attemptId);
 
     if (attempt === null) {
-      throw new Error("Verification attempt not found.");
+      throw claimError("PROOF_NOT_FOUND");
     }
 
     if (attempt.state !== "pending") {
@@ -1010,7 +1008,7 @@ export const verifyVrchatProofViaAdapter = action({
     })) as VerificationAttemptAdapterContext | null;
 
     if (attemptContext === null) {
-      throw new Error("Verification attempt not found.");
+      throw claimError("PROOF_NOT_FOUND");
     }
 
     if (attemptContext.attempt.state !== "pending") {
