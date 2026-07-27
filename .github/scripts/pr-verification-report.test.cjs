@@ -18,13 +18,6 @@ function successfulNeeds() {
     "playwright-public-preview": { outputs: {}, result: "success" },
     "storybook-component-preview": { outputs: {}, result: "success" },
     "storybook-image-diff": { outputs: {}, result: "success" },
-    "vercel-preview": {
-      outputs: {
-        "convex-preview-url": "https://example.convex.cloud",
-        "deployment-url": "https://preview.example.com",
-      },
-      result: "success",
-    },
   };
 }
 
@@ -50,7 +43,7 @@ test("buildReport collates checks, artifacts, previews, and changed baselines", 
   assert.match(report, new RegExp(REPORT_MARKER));
   assert.match(report, /Mutation data flow \| PASSED \| \[Open artifact\]/);
   assert.match(report, /Hosted data flow \| SKIPPED \| Not configured/);
-  assert.match(report, /\[Open preview\]\(https:\/\/preview\.example\.com\)/);
+  assert.doesNotMatch(report, /Vercel preview/);
   assert.match(report, /<details><summary>Changed visual baselines \(14\)<\/summary>/);
   assert.equal(report.match(/<img /g)?.length, 14);
   assert.match(report, /desktop-chromium \/ route-0/);
