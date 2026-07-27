@@ -50,6 +50,7 @@ function ConnectedAccountPanel({ mediaKitEnabled }: { mediaKitEnabled: boolean }
           </dl>
           <div className="mt-5 flex flex-wrap gap-2">
             <Link className={buttonVariants({ variant: "secondary" })} href="/account/privacy">Privacy controls</Link>
+            <Link className={buttonVariants({ variant: "secondary" })} href="/account/connections">Connections</Link>
             <Link className={buttonVariants({ variant: "secondary" })} href="/account/appearance">Personalization</Link>
             {mediaKitEnabled ? (
               <Link className={buttonVariants({ variant: "secondary" })} href="/account/media-kit">Media kit</Link>
