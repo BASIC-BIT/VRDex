@@ -97,7 +97,12 @@ export async function approveProfileClaimForUser(
     options.profile.claimState === "claimed_verified" &&
     (await getActiveProfileOwner(db, options.profileId)) === null
   ) {
-    throw claimError("PROFILE_ALREADY_OWNED", "verified_without_owner");
+    // Its own code, not `PROFILE_ALREADY_OWNED`. The collector path catches that
+    // one specifically and settles the attempt as "claimed by someone else" —
+    // which is the opposite of this condition, where nobody owns the profile.
+    // A distinct code makes that catch rethrow, which is right for something
+    // retrying cannot resolve and support has to look at.
+    throw claimError("PROFILE_STATE_UNSUPPORTED", "verified_without_owner");
   }
 
   await grantProfileOwner(db, options);

@@ -274,6 +274,35 @@ async function findLink(
   return links.find((link) => link.state === "active") ?? null;
 }
 
+/**
+ * A previously removed link for the same asset, if one exists.
+ *
+ * Re-attaching reuses it rather than inserting a replacement, because
+ * `linkedByUserId` is what tells an operator-recorded association from the
+ * owner's own. Inserting a fresh row on re-add meant one click on "Remove"
+ * followed by re-adding from the picker silently converted an operator record
+ * into the owner's own assertion — permanently, and with nothing to show why
+ * the listing could no longer be verified.
+ */
+async function findRemovedLink(
+  db: DatabaseReader,
+  profileId: Id<"profiles">,
+  assetType: ExternalAssetType,
+  assetExternalId: string,
+) {
+  const links = await db
+    .query("profileExternalLinks")
+    .withIndex("by_profileId_assetType_assetExternalId", (q) =>
+      q
+        .eq("profileId", profileId)
+        .eq("assetType", assetType)
+        .eq("assetExternalId", assetExternalId),
+    )
+    .collect();
+
+  return links.find((link) => link.state === "removed") ?? null;
+}
+
 type LinkProfileOptions = {
   profileId: Id<"profiles">;
   assetType: ExternalAssetType;
@@ -295,12 +324,11 @@ export async function linkProfileToAsset(
   options: LinkProfileOptions,
 ): Promise<Id<"profileExternalLinks">> {
   const siblings = await getActiveProfileLinks(db, options.profileId, options.assetType);
-  const existing = await findLink(
-    db,
-    options.profileId,
-    options.assetType,
-    options.assetExternalId,
-  );
+  // A removed link is reused, not superseded, so re-attaching an asset restores
+  // the row — and with it whoever originally put the association on record.
+  const existing =
+    (await findLink(db, options.profileId, options.assetType, options.assetExternalId)) ??
+    (await findRemovedLink(db, options.profileId, options.assetType, options.assetExternalId));
   // Re-linking an asset that is already attached must not change its role.
   // `siblings` includes the existing row, so defaulting on count alone demoted
   // an incumbent primary to secondary and left the profile with none.
@@ -325,6 +353,9 @@ export async function linkProfileToAsset(
 
   if (existing !== null) {
     await db.patch(existing._id, {
+      // Restores a removed row; a no-op for one that is already active.
+      state: "active",
+      removedAt: undefined,
       linkRole,
       ...(options.assetDisplayName !== undefined
         ? { assetDisplayName: options.assetDisplayName }

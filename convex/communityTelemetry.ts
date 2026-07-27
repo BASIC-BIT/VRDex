@@ -815,16 +815,6 @@ export const reserveRequestBudget = internalMutation({
 });
 
 /**
- * Reserve provider requests for a proof read against the shared budget.
- *
- * Proof checks are not lease-scoped, so `reserveRequestBudget` does not apply,
- * but a process-local counter is not a budget: two tasks on one service
- * account, or a task that restarts mid-window, each start from zero and can
- * collectively exceed the account's configured rate. This reserves centrally
- * against the same counters the telemetry path uses, and re-checks the stop
- * switches so a kill switch halts proof reads too.
- */
-/**
  * Mark a collector account as needing re-authentication after a proof read
  * returned an authenticated 401.
  *
@@ -899,6 +889,16 @@ export const releaseProofChecks = internalMutation({
   },
 });
 
+/**
+ * Reserve provider requests for a proof read against the shared budget.
+ *
+ * Proof checks are not lease-scoped, so `reserveRequestBudget` does not apply,
+ * but a process-local counter is not a budget: two tasks on one service
+ * account, or a task that restarts mid-window, each start from zero and can
+ * collectively exceed the account's configured rate. This reserves centrally
+ * against the same counters the telemetry path uses, and re-checks the stop
+ * switches so a kill switch halts proof reads too.
+ */
 export const reserveProofRequestBudget = internalMutation({
   args: {
     collectorAccountId: v.string(),

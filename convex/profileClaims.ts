@@ -147,6 +147,12 @@ type ProofAdapterResponse = {
   matchedGuildId?: string;
   /** Index into the delegations sent; unambiguous when guilds repeat. */
   matchedDelegationIndex?: number;
+  /**
+   * Set when the adapter could not consult anything — every delegated
+   * credential failed to resolve or was rejected. Distinct from a real negative,
+   * and the adapter goes out of its way to signal it.
+   */
+  unavailable?: boolean;
 };
 
 function optionalEnv(name: string): string | undefined {
@@ -1354,6 +1360,14 @@ export const verifyVrchatProofViaAdapter = action({
     }
 
     const result = (await response.json()) as ProofAdapterResponse;
+
+    // "We could not ask anyone" is not "we asked and the answer is no". Reading
+    // the first as the second told a claimant to go check where they put a proof
+    // code, when the real problem was a community's expired delegated key and
+    // nothing they could do would change the outcome.
+    if (result.unavailable === true) {
+      return { state: "unavailable" as const };
+    }
 
     if (result.verified !== true) {
       return { state: "pending" as const };

@@ -11,6 +11,7 @@ export type ClaimErrorCode =
   | "INVALID_PROFILE_SLUG"
   | "WRONG_PROFILE_TYPE"
   | "PROFILE_ALREADY_OWNED"
+  | "PROFILE_STATE_UNSUPPORTED"
   | "INVALID_DISCORD_GUILD_ID"
   | "INVALID_VRCHAT_TARGET"
   | "CONTROL_NOT_VERIFIED"
@@ -42,6 +43,8 @@ const CLAIM_ERROR_COPY: Record<ClaimErrorCode, string> = {
   INVALID_PROFILE_SLUG: "We could not find that profile.",
   WRONG_PROFILE_TYPE: "That verification method does not apply to this profile type.",
   PROFILE_ALREADY_OWNED: "This profile already has an active owner.",
+  PROFILE_STATE_UNSUPPORTED:
+    "This profile is in a state that needs a person to sort out. Contact support rather than claiming again.",
   INVALID_DISCORD_GUILD_ID: "Choose a Discord server from the list.",
   INVALID_VRCHAT_TARGET: "Enter a valid VRChat profile or group URL.",
   CONTROL_NOT_VERIFIED:
@@ -73,6 +76,7 @@ const OUTCOME_BY_CODE: Record<ClaimErrorCode, ClaimFailureOutcome> = {
   INVALID_PROFILE_SLUG: "unknown",
   WRONG_PROFILE_TYPE: "unknown",
   PROFILE_ALREADY_OWNED: "conflict",
+  PROFILE_STATE_UNSUPPORTED: "conflict",
   INVALID_DISCORD_GUILD_ID: "unknown",
   INVALID_VRCHAT_TARGET: "unknown",
   CONTROL_NOT_VERIFIED: "not_verified",

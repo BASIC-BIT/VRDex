@@ -34,48 +34,68 @@ export function sanitizeAnalyticsUrl(value: string): string {
   }
 }
 
-/**
- * Rewrite the `href` a replay recording carries alongside the DOM.
- *
- * Session replay ships rrweb records inside `$snapshot_data`, and the meta
- * record (`type: 4`) holds the raw page URL — that is what the replay player
- * shows as the recording's address. Redacting the event-level URL properties
- * does not touch it, so with replay enabled on every route a handoff token in
- * the path would still reach PostHog even though the page DOM is blocked from
- * capture. Anything with an `href` gets the same treatment as `$current_url`.
- */
 const RRWEB_META_EVENT_TYPE = 4;
+const RRWEB_CUSTOM_EVENT_TYPE = 5;
 
+/**
+ * Rewrite the page URLs a replay recording carries alongside the DOM.
+ *
+ * Session replay ships rrweb records inside `$snapshot_data`, and two of them
+ * hold a raw page URL of their own: the meta record (`type: 4`), which is what
+ * the replay player shows as the recording's address, and the recorder's
+ * `$url_changed` custom record (`type: 5`), which it emits on SPA navigation
+ * when `capture_pageview` is off. Redacting the event-level URL properties
+ * touches neither, so with replay on every route a handoff token in the path
+ * would still reach PostHog even though the page DOM is blocked from capture.
+ *
+ * Deliberately not every `href` in the payload. The DOM snapshot is full of
+ * them — stylesheet links, `<use href="#id">`, `data:` favicons — and
+ * `sanitizeAnalyticsUrl` is built for page URLs: it drops the query and
+ * fragment, which would rewrite a query-keyed stylesheet into one the replay
+ * player cannot fetch.
+ */
 function sanitizeSnapshotData(value: unknown): unknown {
   if (!Array.isArray(value)) {
     return value;
   }
 
-  // Only the meta record's own `href`, not every `href` in the payload. The DOM
-  // snapshot is full of them — stylesheet links, `<use href="#id">`, `data:`
-  // favicons — and `sanitizeAnalyticsUrl` is built for page URLs: it drops the
-  // query and fragment, which would silently rewrite a query-keyed stylesheet
-  // into one the replay player cannot fetch.
   return value.map((record) => {
-    if (
-      record === null ||
-      typeof record !== "object" ||
-      (record as { type?: unknown }).type !== RRWEB_META_EVENT_TYPE
-    ) {
+    if (record === null || typeof record !== "object") {
       return record;
     }
 
-    const data = (record as { data?: unknown }).data;
+    const { type, data } = record as { type?: unknown; data?: unknown };
 
     if (data === null || typeof data !== "object") {
       return record;
     }
 
-    const href = (data as { href?: unknown }).href;
+    if (type === RRWEB_META_EVENT_TYPE) {
+      const href = (data as { href?: unknown }).href;
 
-    return typeof href === "string"
-      ? { ...record, data: { ...data, href: sanitizeAnalyticsUrl(href) } }
-      : record;
+      return typeof href === "string"
+        ? { ...record, data: { ...data, href: sanitizeAnalyticsUrl(href) } }
+        : record;
+    }
+
+    if (type === RRWEB_CUSTOM_EVENT_TYPE) {
+      const payload = (data as { payload?: unknown }).payload;
+
+      if (payload === null || typeof payload !== "object") {
+        return record;
+      }
+
+      const href = (payload as { href?: unknown }).href;
+
+      return typeof href === "string"
+        ? {
+            ...record,
+            data: { ...data, payload: { ...payload, href: sanitizeAnalyticsUrl(href) } },
+          }
+        : record;
+    }
+
+    return record;
   });
 }
 

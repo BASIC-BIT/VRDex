@@ -149,6 +149,23 @@ credentials, so they are deliberately not automated:
    `scripts/prove-vrchat-group-telemetry.mjs`, the local provider-proof harness,
    and setting it on the worker changes nothing.
 
+4. Record which external assets back which listings, for any listing that should
+   be able to reach `claimed_verified`. **Nothing does this automatically, and
+   without it no claim reaches verified** — proving control of a server or group
+   shows the claimant runs that asset, not that the asset is the one a listing
+   represents, so VRDex requires an association it did not get from the
+   claimant:
+
+   ```bash
+   npx convex run --prod profileConnections:recordOperatorAssociation '{"profileSlug":"example-community","assetType":"discord_guild","assetExternalId":"123456789012345678"}'
+   ```
+
+   `assetType` is `discord_guild`, `vrchat_group`, or `vrchat_user`. Claims
+   still grant ownership without it, at `claimed_unverified`; the association is
+   what allows the upgrade. It is internal on purpose — a self-service version
+   would be the claimant corroborating their own claim, which is the takeover
+   this rule exists to prevent.
+
 Nothing else is required: the schema, functions, routes, and UI ship with the
 application deploy.
 

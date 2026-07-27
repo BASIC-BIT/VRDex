@@ -71,8 +71,24 @@ export class TelemetryControlClient {
       body: JSON.stringify({ operation, workerId: this.workerId, ...body }),
       signal: AbortSignal.timeout(timeoutMs),
     });
-    const payload = await response.json().catch(() => ({}));
+    let payload = {};
+    let unreadable = false;
+
+    try {
+      const text = await response.text();
+      payload = text.length === 0 ? {} : JSON.parse(text);
+    } catch {
+      unreadable = true;
+    }
+
     if (!response.ok) throw new Error(`Control plane ${response.status}: ${payload.error ?? "request_failed"}`);
+    // A body that could not be read is not an empty result. Swallowing it made
+    // an aborted read indistinguishable from "no work available", so a batch the
+    // control plane had already stamped was dropped on the floor and sat out its
+    // whole cooldown with nobody looking at it. The deadline above makes that a
+    // reachable path rather than a theoretical one.
+    if (unreadable) throw new Error(`Control plane ${response.status}: response_unreadable`);
+
     return payload;
   }
 }

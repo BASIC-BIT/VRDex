@@ -68,6 +68,30 @@ describe("PostHog privacy", () => {
     assert.equal(meta!.data.href, "https://vrdex.example/handoff/redacted");
   });
 
+  // The recorder emits its own `$url_changed` custom record on SPA navigation
+  // when `capture_pageview` is off, carrying path and query. Narrowing the
+  // walker to the meta record alone silently stopped covering it.
+  it("redacts the URL in a recorder navigation record", () => {
+    const event = sanitizePostHogEvent({
+      properties: {
+        $snapshot_data: [
+          {
+            type: 5,
+            data: {
+              tag: "$url_changed",
+              payload: { href: "https://vrdex.example/handoff/secret-token?step=review" },
+            },
+          },
+        ],
+      },
+    });
+    const custom = (
+      event!.properties!.$snapshot_data as { data: { payload: { href: string } } }[]
+    )[0]!;
+
+    assert.equal(custom.data.payload.href, "https://vrdex.example/handoff/redacted");
+  });
+
   // Only the meta record's own href. The DOM snapshot is full of hrefs that are
   // not page URLs, and the page-URL sanitizer drops query and fragment — which
   // would rewrite a query-keyed stylesheet into one the player cannot fetch.

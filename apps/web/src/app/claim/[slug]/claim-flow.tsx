@@ -238,7 +238,7 @@ export function ClaimFlow({
         kind: "complete",
         message: verified
           ? "Server control verified. This community is now yours."
-          : "Server control verified, and this community is now yours. It is not marked verified yet, because this server was not already on record for the listing — connect its VRChat group to finish.",
+          : "Server control verified, and this community is now yours. The listing is not marked verified, which needs VRDex to have this server on record for it — contact support if it should be.",
         verified,
       });
       captureProductEvent(posthog, "claim_completed", {
@@ -352,7 +352,7 @@ export function ClaimFlow({
           kind: "complete",
           message: verified
             ? "Server control verified. This community is now yours."
-            : "Server control verified, and this community is now yours. It is not marked verified yet, because this server was not already on record for the listing — connect its VRChat group to finish.",
+            : "Server control verified, and this community is now yours. The listing is not marked verified, which needs VRDex to have this server on record for it — contact support if it should be.",
           verified,
         });
         captureProductEvent(posthog, "claim_completed", {
@@ -396,7 +396,7 @@ export function ClaimFlow({
   const vrchatMethodCard = (
     <MethodCard active={method === "vrchat"} title="Verify with VRChat" onClick={() => selectMethod("vrchat")}>
       <ShieldCheck aria-hidden="true" className="mb-2 size-5 text-accent" />
-      Match a one-time code on your VRChat {profile.profileType === "person" ? "profile" : "group"}. Grants verified ownership.
+      Match a one-time code on your VRChat {profile.profileType === "person" ? "profile" : "group"}. Grants ownership.
     </MethodCard>
   );
   const discordMethodCard = (
@@ -411,7 +411,7 @@ export function ClaimFlow({
       {profile.profileType === "person" ? <UserRound aria-hidden="true" className="mb-2 size-5 text-accent" /> : <Building2 aria-hidden="true" className="mb-2 size-5 text-accent" />}
       {profile.profileType === "person"
         ? "Fast access with your linked account. This claims the profile but does not verify that it represents you."
-        : "Confirm you own, administer, or manage the community’s Discord server. Grants verified ownership."}
+        : "Confirm you own, administer, or manage the community’s Discord server. Grants ownership."}
       {discordMethodBlocked ? " Link Discord from your account first." : ""}
     </MethodCard>
   );
@@ -500,8 +500,8 @@ export function ClaimFlow({
             <p className="font-semibold">You manage this profile, but it is not verified yet.</p>
             <p className="mt-1">
               {profile.profileType === "community"
-                ? "Prove control of its Discord server or VRChat group below to add verified status."
-                : "Complete the VRChat proof below to add verified status."}
+                ? "Prove control of its Discord server or VRChat group below to record that control."
+                : "Complete the VRChat proof below to record that control."}
             </p>
           </Notice>
         ) : null}
