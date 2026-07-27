@@ -101,16 +101,15 @@ export type ProfileAssetUploadIntentCreateInput = {
 function validateProfileAssetGalleryPlacements(
   placements: ProfileAssetPlacement[] | undefined,
   label: string | undefined,
-  altText: string | undefined,
 ) {
   if (placements?.includes("featured") && !placements.includes("gallery")) {
     throw new Error("Featured media must also be a gallery item.");
   }
   if (
     placements?.some((placement) => placement === "gallery" || placement === "featured") &&
-    (label === undefined || altText === undefined)
+    label === undefined
   ) {
-    throw new Error("Gallery images require a title and accessibility description.");
+    throw new Error("Gallery images require a title.");
   }
 }
 
@@ -360,7 +359,7 @@ export async function createProfileAssetUploadIntentRecord(
   const altText = sanitizeProfileAssetAltText(input.altText);
   const credit = sanitizeProfileAssetCredit(input.credit);
   const position = validateProfileAssetPosition(input.position);
-  validateProfileAssetGalleryPlacements(input.placements, label, altText);
+  validateProfileAssetGalleryPlacements(input.placements, label);
   const expiresAt = input.now + PROFILE_ASSET_UPLOAD_INTENT_TTL_MS;
   const intentId = await db.insert("profileAssetUploadIntents", {
     uploadToken,
@@ -485,9 +484,7 @@ export async function getPublicProfileMediaKit(
   const additionalLogos = additionalLogoAssets.map((asset) => toPublicAsset(profile, asset));
   const logos = primaryLogo ? [primaryLogo, ...additionalLogos] : additionalLogos;
   const galleryAssets = placedAssets(assetsById, sortedPlacements, "gallery").filter(
-    (asset) =>
-      sanitizeProfileAssetLabel(asset.label) !== undefined &&
-      sanitizeProfileAssetAltText(asset.altText) !== undefined,
+    (asset) => sanitizeProfileAssetLabel(asset.label) !== undefined,
   );
   const featuredCandidate = firstPlacedAsset(assetsById, sortedPlacements, "featured");
   const featuredAsset = galleryAssets.find((asset) => asset._id === featuredCandidate?._id);
@@ -555,7 +552,7 @@ export async function consumeProfileAssetUploads(
     const caption = sanitizeProfileAssetCaption(upload.caption);
     const altText = sanitizeProfileAssetAltText(upload.altText);
     const credit = sanitizeProfileAssetCredit(upload.credit);
-    validateProfileAssetGalleryPlacements(upload.placements, label, altText);
+    validateProfileAssetGalleryPlacements(upload.placements, label);
     const assetId = await db.insert("profileAssets", {
       profileId: input.profileId,
       storageKey: intent.storageKey,

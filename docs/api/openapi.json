@@ -5323,7 +5323,7 @@
         "required": [
           "mimeType"
         ],
-        "description": "Create a one-time profile media upload intent for a claimed profile owned by the current authenticated API user. Gallery placement requires a nonblank label and altText; featured placement also requires gallery."
+        "description": "Create a one-time profile media upload intent for a claimed profile owned by the current authenticated API user. Gallery placement requires a nonblank label; featured placement also requires gallery."
       },
       "ApiEventUpdateRequest": {
         "type": "object",
