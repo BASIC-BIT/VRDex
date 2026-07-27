@@ -367,10 +367,16 @@ test("verified email account with linked Discord can claim person and community 
     await expect(page.getByRole("heading", { name: `Playwright Community Claim ${runSuffix}` })).toBeVisible(
       hostedActionExpectOptions,
     );
+    // Claimed, not verified: the fixture guild is not on record for this fresh
+    // listing, and control of a server the claimant picked is not evidence that
+    // the server is this listing's. A hosted target that predates that rule
+    // still shows the verified label, so both are accepted here.
     await expectCurrentOrHostedLagTrustCopy(
-      page.getByLabel("Owner verified").or(profileStatusCopy(page, "Verified")),
+      profileStatusCopy(page, "Claimed"),
       page
-        .getByRole("heading", { name: "Verified owner", exact: true })
+        .getByLabel("Owner verified")
+        .or(profileStatusCopy(page, "Verified"))
+        .or(page.getByRole("heading", { name: "Verified owner", exact: true }))
         .or(page.getByText("Community profile / Verified", { exact: true })),
     );
   } finally {
