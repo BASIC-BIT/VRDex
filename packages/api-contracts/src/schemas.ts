@@ -580,18 +580,18 @@ export const ApiProfileAssetUploadIntentCreateRequestSchema = z
     }
     if (
       placements.some((placement) => placement === "gallery" || placement === "featured") &&
-      (!value.label?.trim() || !value.altText?.trim())
+      !value.label?.trim()
     ) {
       context.addIssue({
         code: "custom",
-        message: "Gallery images require a title and accessibility description.",
+        message: "Gallery images require a title.",
         path: ["placements"],
       });
     }
   })
   .meta({
     description:
-      "Create a one-time profile media upload intent for a claimed profile owned by the current authenticated API user. Gallery placement requires a nonblank label and altText; featured placement also requires gallery.",
+      "Create a one-time profile media upload intent for a claimed profile owned by the current authenticated API user. Gallery placement requires a nonblank label; featured placement also requires gallery.",
     id: "ApiProfileAssetUploadIntentCreateRequest",
   });
 

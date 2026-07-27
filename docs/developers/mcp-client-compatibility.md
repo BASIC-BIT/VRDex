@@ -362,15 +362,18 @@ reauthentication.
 PR Baseline Checks run the same local stdio protocol smoke through
 `pnpm verify:vrdex-mcp`.
 
-PR Baseline Checks also run `Hosted MCP Preview Smoke` after the Vercel preview
-deployment. When the preview URL exists, that lane runs this smoke against the
+The manual `On-Demand Vercel Preview` workflow runs `Hosted MCP Preview Smoke`
+after the Vercel preview it deploys; comment `@vrdex preview` on a pull request
+to request it. Baseline Checks no longer runs this lane, so a pull request
+without a requested preview produces no hosted MCP evidence. That lane runs this
+smoke against the
 preview `/mcp` endpoint for anonymous Streamable HTTP, an anonymous
 empty-query `vrdex_search` tool call, OAuth metadata, and bearer challenge
-coverage. Data-backed non-empty public reads, Dynamic Client Registration, and
-Client ID Metadata Document authorization are enabled only when
-`CONVEX_DEPLOY_KEY_PREVIEW` provisions a same-branch Convex preview backend; if
-that backend is unavailable, the lane records the preview-backend prerequisite
-and still runs the non-mutating hosted smoke.
+coverage, plus data-backed non-empty public reads, Dynamic Client Registration,
+and Client ID Metadata Document authorization. It is fail-closed: when
+`CONVEX_DEPLOY_KEY_PREVIEW` does not provision a same-branch Convex preview
+backend, the lane fails and names that prerequisite instead of downgrading
+coverage.
 
 The command starts the local stdio MCP package against a local API fixture and
 replays initialize, tool-list, and every curated read-tool call with protocol
@@ -660,10 +663,12 @@ PR preview transport smoke cannot accidentally satisfy the production-like
 data-backed, DCR, and CIMD readiness gate.
 
 A green PR is implementation-ready, not externally ready. Baseline Checks
-enforces the API/MCP contract and local protocol suites, and its hosted preview
-smoke fails unless a Vercel preview is connected to a same-branch Convex
-preview for data-backed reads, DCR, and CIMD. It does not convert pending major
-client UI evidence into passes.
+enforces the API/MCP contract and local protocol suites only; it carries no
+hosted evidence. Hosted preview evidence comes from the on-demand
+`Hosted MCP Preview Smoke`, which runs only after someone requests a preview and
+fails unless a Vercel preview is connected to a same-branch Convex preview for
+data-backed reads, DCR, and CIMD. Neither converts pending major client UI
+evidence into passes.
 
 `pnpm check:api-mcp-rollout` is the advisory summary for current rollout state.
 It reports pending and failed external evidence without requiring every manual
@@ -731,7 +736,7 @@ not commit real tokens or smoke output containing credentials.
 GitHub also has a manual `Deployed Health Checks` workflow target named
 `hosted-mcp-smoke` for production-like or same-branch Convex preview targets.
 Use it for targeted production-like diagnostics or to collect hosted evidence
-before the external launch gate. The required PR `Hosted MCP Preview Smoke`
+before the external launch gate. The on-demand `Hosted MCP Preview Smoke`
 fails when `CONVEX_DEPLOY_KEY_PREVIEW` is unavailable; it no longer downgrades
 coverage and reports green. The deployed-health workflow keeps selected hosted
 diagnostics running after a subcheck failure so one run can distinguish

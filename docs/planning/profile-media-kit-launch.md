@@ -21,9 +21,9 @@ Locked decision:
 - a signed-in owner of a claimed person or community profile can manage a small
   public image gallery
 - the first gallery supports PNG, JPEG, WebP, and restricted safe SVG files
-- an owner can add a short title, accessibility description, caption, and
-  credit; reorder assets; select one featured image; and soft-delete or restore
-  an asset
+- an owner can accept the filename-derived title or replace it, and can add an
+  accessibility description, caption, and credit; reorder assets; select one
+  featured image; and soft-delete or restore an asset
 - the public profile shows a calm featured-media treatment, an ordered gallery,
   individual downloads, and the existing logo ZIP when logos are present
 - profile image, banner, and logo placements remain supported by the existing
@@ -40,9 +40,13 @@ Current recommendation:
 - strip raster metadata by decoding and re-encoding uploads, bound decoded
   dimensions, verify content independently of the browser-provided MIME type,
   and reject SVGs containing active or external content
-- project only explicit `galleryAssets` placements with a title and
-  accessibility description into the public gallery; preserve the existing
-  all-public-assets API, and require featured media to be a gallery item
+- prepare raster files above the hosted function body limit in the browser as
+  bounded WebP files before the same server-side validation and normalization;
+  do not send oversized SVG bodies through the hosted function
+- project only explicit `galleryAssets` placements with a title into the public
+  gallery; preserve optional accessibility descriptions in that projection,
+  keep the existing all-public-assets API, and require featured media to be a
+  gallery item
 - keep deletion recoverable in Convex for this slice; physical object deletion
   follows a documented retention and orphan-cleanup job rather than happening
   synchronously in an owner request
@@ -83,8 +87,8 @@ Current recommendation:
 3. The editor lists gallery assets in public order, other quota-consuming
    public assets in a compact management section, and recoverable removed
    assets separately.
-4. They choose an image and add the required title and accessibility
-   description plus optional credit before publishing. Client checks provide
+4. They choose an image and can accept its filename-derived title or replace
+   it. Credit and accessibility description are optional. Client checks provide
    quick type/size feedback; server validation remains authoritative.
 5. The explicit Publish action starts the upload. Progress and a status
    announcement remain associated with that file, and a failed item remains
@@ -128,6 +132,8 @@ Verified:
 - SVG files are served only through the controlled application route and
   displayed as ordinary image resources, not inserted as inline markup. The
   validator rejects scripting, external references, and animation elements.
+  Oversized animated raster sources are rejected before browser preparation so
+  animation cannot be flattened into a still image.
   The route applies `nosniff` and a sandboxed content security policy with
   default, image, script, and object sources disabled; explicit downloads use
   attachment disposition.

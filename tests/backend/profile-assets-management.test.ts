@@ -434,7 +434,7 @@ describe("profile media-kit owner management", () => {
     }), /up to 12/);
   });
 
-  it("requires accessible gallery metadata before restore", async () => {
+  it("requires a gallery title before restore", async () => {
     const seeded = await seedOwnedProfile(1);
     const owner = seeded.t.withIdentity(seeded.ownerIdentity);
     await owner.mutation(api.profileAssets.setOwnedAssetDeleted, {
@@ -453,7 +453,7 @@ describe("profile media-kit owner management", () => {
       profileId: seeded.profileId,
       assetId: seeded.assetIds[0]!,
       deleted: false,
-    }), /title and accessibility description/);
+    }), /title/);
   });
 
   it("rechecks duplicate content and replaces singleton featured placement during completion", async () => {
@@ -668,29 +668,20 @@ describe("profile media-kit owner management", () => {
     assert.equal(profiles?.[0]?.assets.some((asset) => asset.assetId === concurrentAssetId), true);
   });
 
-  it("requires accessible metadata before reserving a public gallery upload", async () => {
+  it("requires a title and accepts optional accessibility text for a public gallery upload", async () => {
     const seeded = await seedOwnedProfile();
-    await assert.rejects(
-      seeded.t.withIdentity(seeded.ownerIdentity).mutation(api.profileAssets.createUploadIntentForOwnedProfile, {
+    const intent = await seeded.t.withIdentity(seeded.ownerIdentity).mutation(
+      api.profileAssets.createUploadIntentForOwnedProfile,
+      {
         profileId: seeded.profileId,
-        originalFileName: "missing-alt.png",
+        originalFileName: "optional-alt.png",
         mimeType: "image/png",
         byteSize: 128,
-        label: "Missing alt",
-      }),
-      /accessibility description/,
-    );
-    await assert.rejects(
-      seeded.t.withIdentity(seeded.ownerIdentity).mutation(api.profileAssets.createUploadIntentForOwnedProfile, {
-        profileId: seeded.profileId,
-        originalFileName: "missing-featured-alt.png",
-        mimeType: "image/png",
-        byteSize: 128,
-        label: "Missing featured alt",
+        label: "Optional alt",
         placements: ["gallery", "featured"],
-      }),
-      /accessibility description/,
+      },
     );
+    assert.ok(intent.intentId);
     await assert.rejects(
       seeded.t.withIdentity(seeded.ownerIdentity).mutation(api.profileAssets.createUploadIntentForOwnedProfile, {
         profileId: seeded.profileId,
@@ -738,7 +729,7 @@ describe("profile media-kit owner management", () => {
         profileId: seeded.profileId,
         assetId: unplacedAssetId,
       }),
-      /accessible public gallery item/,
+      /titled public gallery item/,
     );
   });
 
@@ -753,15 +744,12 @@ describe("profile media-kit owner management", () => {
       altText: "Owner standing under violet light.",
       credit: "Photo by Example",
     });
-    await assert.rejects(
-      owner.mutation(api.profileAssets.updateOwnedAssetMetadata, {
-        profileId: seeded.profileId,
-        assetId: seeded.assetIds[0]!,
-        label: "Press portrait",
-        altText: "",
-      }),
-      /accessibility description/,
-    );
+    await owner.mutation(api.profileAssets.updateOwnedAssetMetadata, {
+      profileId: seeded.profileId,
+      assetId: seeded.assetIds[0]!,
+      label: "Press portrait",
+      altText: "",
+    });
     await owner.mutation(api.profileAssets.reorderOwnedGallery, {
       profileId: seeded.profileId,
       assetIds: [seeded.assetIds[1]!, seeded.assetIds[0]!],
@@ -791,7 +779,7 @@ describe("profile media-kit owner management", () => {
     profiles = await owner.query(api.profileAssets.listOwnedMediaKitProfiles, {});
     assert.equal(profiles?.[0]?.assets[1]?.state, "active");
     assert.equal(profiles?.[0]?.assets[1]?.featured, true);
-    assert.equal(profiles?.[0]?.assets[1]?.altText, "Owner standing under violet light.");
+    assert.equal(profiles?.[0]?.assets[1]?.altText, undefined);
     const restoredGallery = await seeded.t.run(async (ctx) => {
       return await ctx.db
         .query("profileAssetPlacements")
