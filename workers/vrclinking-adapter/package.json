@@ -1,0 +1,13 @@
+{
+  "name": "@vrdex/vrclinking-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "comment": "Not a pnpm workspace member; workers/* run on bare node. This manifest exists so the container image can install the one optional runtime dependency. Tests run from the repo root via `pnpm test:vrclinking-adapter`.",
+  "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.1055.0"
+  }
+}

@@ -11,7 +11,7 @@ import type { Id } from "../../../../../../convex/_generated/dataModel";
 import { buttonVariants, Button } from "@/components/ui/button";
 import { CopyValueRow } from "@/components/ui/copy-value-row";
 import { EntityImage } from "@/components/ui/entity-image";
-import { Field, FieldText, Input } from "@/components/ui/field";
+import { Field, FieldText, Input, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { captureProductEvent } from "@/lib/posthog";
 import { claimErrorMessage, claimFailureOutcome } from "@/lib/claim-errors";
@@ -508,17 +508,13 @@ export function ClaimFlow({
                     verifiedGuilds.length > 0 ? (
                       <Field>
                         Discord server
-                        <select
-                          className="w-full rounded-input border border-border bg-surface px-3 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
-                          name="discordGuildId"
-                          required
-                        >
+                        <Select name="discordGuildId" required>
                           {verifiedGuilds.map((guild) => (
                             <option key={guild.guildId} value={guild.guildId}>
                               {guild.guildName ?? guild.guildId} ({CONTROL_LEVEL_LABELS[guild.controlLevel]})
                             </option>
                           ))}
-                        </select>
+                        </Select>
                         <FieldText>
                           Only servers you own or administer appear here. VRDex reads your server list and
                           permissions once, then discards the access token. It never reads message content.

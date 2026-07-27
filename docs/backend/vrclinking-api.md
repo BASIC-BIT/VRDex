@@ -168,15 +168,19 @@ differently does not need a migration.
 
 ## Remaining work
 
-Not built, and deliberately so — each needs something outside the codebase:
+The adapter service is built at
+[`workers/vrclinking-adapter`](../../workers/vrclinking-adapter/README.md), and
+delegation is manageable from `/account/connections`. What is left needs
+something outside the codebase:
 
-1. **The adapter service.** Small: resolve a secret reference, call one
-   endpoint, map the response. It needs somewhere to run with IAM access to the
-   secret store, then `VRCLINKING_PROOF_ADAPTER_URL` pointed at it.
-2. **Onboarding a first community.** Requires talking to an operator and to
-   VRCLinking about third-party use. Both are conversations with people.
-3. **A UI for delegation.** The mutations exist; nothing surfaces them yet.
-   Worth deferring until at least one community has agreed.
+1. **Deploying the adapter.** It needs somewhere to run with either the Secrets
+   Manager task-role policy or a mounted secret directory, and
+   `VRCLINKING_PROOF_ADAPTER_URL` in Convex pointed at it. Its README documents
+   the configuration and a local run.
+2. **Putting a real key in the secret store** and recording its reference
+   against a community.
+3. **Talking to VRCLinking** about third-party server-to-server use, which has
+   no published terms. Currently deferred.
 
 The OAuth guild verification already shipped covers Discord community claiming
 without VRCLinking, so this remains an enrichment path — VRChat identity

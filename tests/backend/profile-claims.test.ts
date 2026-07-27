@@ -9,6 +9,7 @@ import schemaModule from "../../convex/schema";
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/profileClaims.ts": () => import("../../convex/profileClaims"),
+  "../../convex/vrclinkingCredentials.ts": () => import("../../convex/vrclinkingCredentials"),
 };
 const schema = (
   schemaModule as unknown as { default?: typeof schemaModule }

@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 
-import { requireVerifiedEmailUser } from "./accounts";
+import { getLinkedProviderAccount, requireVerifiedEmailUser } from "./accounts";
 import { claimError } from "./_claimErrors";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { MINIMUM_COMMUNITY_CONTROL_LEVEL, requireControlProof } from "./_externalControl";
@@ -200,6 +200,42 @@ export const getCredentialForAdapter = internalQuery({
           guildId: active.guildId,
           secretRef: active.secretRef,
         };
+  },
+});
+
+/** Bounds how many delegated guilds one claim may consult. */
+const MAX_ADAPTER_DELEGATIONS = 5;
+
+/**
+ * Delegation context for a VRC Linking proof attempt: the claimant's Discord
+ * identity plus the guilds VRDex may ask about on their behalf.
+ *
+ * Internal only — this is the single place `secretRef` leaves the table, and it
+ * goes to the action that forwards it to the adapter.
+ */
+export const getAdapterContext = internalQuery({
+  args: { userId: v.id("users") },
+  handler: async (ctx, args) => {
+    const discordAccount = await getLinkedProviderAccount(ctx, args.userId, "discord");
+
+    if (discordAccount === null) {
+      return null;
+    }
+
+    const delegations = await ctx.db
+      .query("communityVrclinkingCredentials")
+      .withIndex("by_state_updatedAt", (q) => q.eq("state", "active"))
+      .order("desc")
+      .take(MAX_ADAPTER_DELEGATIONS);
+
+    return {
+      discordUserId: discordAccount.providerAccountId,
+      delegations: delegations.map((row) => ({
+        credentialId: row._id,
+        guildId: row.guildId,
+        secretRef: row.secretRef,
+      })),
+    };
   },
 });
 

@@ -1944,7 +1944,8 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_communityProfileId_state", ["communityProfileId", "state"])
-    .index("by_guildId_state", ["guildId", "state"]),
+    .index("by_guildId_state", ["guildId", "state"])
+    .index("by_state_updatedAt", ["state", "updatedAt"]),
   // Short-lived CSRF state for the purpose-scoped Discord guild-verification
   // OAuth round-trip. Stored server-side rather than in a cookie so the flow
   // survives browser restarts and stays bound to the signed-in user.

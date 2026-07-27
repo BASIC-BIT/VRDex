@@ -6,7 +6,7 @@ import { useState, type FormEvent } from "react";
 
 import { api } from "@convex-generated-api";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Field, FieldText } from "@/components/ui/field";
+import { Field, FieldText, Input, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { claimErrorMessage } from "@/lib/claim-errors";
 import { cn } from "@/lib/cn";
@@ -25,9 +25,6 @@ const CONTROL_LEVEL_LABELS: Record<string, string> = {
   self: "You",
 };
 
-const selectClassName =
-  "w-full rounded-input border border-border bg-surface px-3 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus";
-
 export function ConnectionsPanel({ initialProfileSlug }: { initialProfileSlug?: string }) {
   const ownedProfiles = useQuery(api.profilePrivacy.listOwnedPrivacyProfilesForAccount);
   const [selectedSlug, setSelectedSlug] = useState(initialProfileSlug ?? "");
@@ -40,6 +37,12 @@ export function ConnectionsPanel({ initialProfileSlug }: { initialProfileSlug?: 
     api.profileConnections.listAvailableConnections,
     activeSlug ? { profileSlug: activeSlug } : "skip",
   );
+  const vrclinkingCredentials = useQuery(
+    api.vrclinkingCredentials.listCredentials,
+    activeSlug ? { profileSlug: activeSlug } : "skip",
+  );
+  const registerCredential = useMutation(api.vrclinkingCredentials.registerCredential);
+  const revokeCredential = useMutation(api.vrclinkingCredentials.revokeCredential);
   const addConnection = useMutation(api.profileConnections.addVerifiedConnection);
   const setPrimary = useMutation(api.profileConnections.setPrimaryConnection);
   const removeConnection = useMutation(api.profileConnections.removeConnection);
@@ -77,6 +80,21 @@ export function ConnectionsPanel({ initialProfileSlug }: { initialProfileSlug?: 
     );
   }
 
+  async function submitDelegation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+
+    await run(async () => {
+      await registerCredential({
+        profileSlug: activeSlug,
+        guildId: String(data.get("delegationGuildId") ?? ""),
+        secretRef: String(data.get("secretRef") ?? ""),
+      });
+      form.reset();
+    });
+  }
+
   if (ownedProfiles === undefined) {
     return <p className="text-sm text-muted">Loading your profiles…</p>;
   }
@@ -93,13 +111,20 @@ export function ConnectionsPanel({ initialProfileSlug }: { initialProfileSlug?: 
   const verifyHref = `/api/discord/verify/start?returnTo=${encodeURIComponent(
     `/account/connections?profileSlug=${activeSlug}`,
   )}`;
+  const activeProfile = ownedProfiles.find((profile) => profile.slug === activeSlug);
+  // A delegation only makes sense for a Discord server already connected here.
+  const connectedGuilds = (connections?.connections ?? []).filter(
+    (connection) => connection.assetType === "discord_guild",
+  );
+  const guildLabel = (guildId: string) =>
+    connectedGuilds.find((connection) => connection.assetExternalId === guildId)
+      ?.assetDisplayName ?? guildId;
 
   return (
     <div className="grid gap-8">
       <Field>
         Profile
-        <select
-          className={selectClassName}
+        <Select
           name="profileSlug"
           value={activeSlug}
           onChange={(event) => setSelectedSlug(event.target.value)}
@@ -109,7 +134,7 @@ export function ConnectionsPanel({ initialProfileSlug }: { initialProfileSlug?: 
               {profile.displayName} ({profile.profileType})
             </option>
           ))}
-        </select>
+        </Select>
         <FieldText>
           A community can hold several Discord servers and VRChat groups. One of each kind is the
           primary, which is the one shown first on the public profile.
@@ -198,7 +223,7 @@ export function ConnectionsPanel({ initialProfileSlug }: { initialProfileSlug?: 
           <form className="mt-4" onSubmit={submitAdd}>
             <Field>
               Verified server or group
-              <select className={selectClassName} name="asset" required>
+              <Select name="asset" required>
                 {available.map((asset) => (
                   <option
                     key={`${asset.assetType}:${asset.assetExternalId}`}
@@ -209,7 +234,7 @@ export function ConnectionsPanel({ initialProfileSlug }: { initialProfileSlug?: 
                     {CONTROL_LEVEL_LABELS[asset.controlLevel] ?? asset.controlLevel})
                   </option>
                 ))}
-              </select>
+              </Select>
             </Field>
             <Button className="mt-4" disabled={busy} type="submit" variant="primary">
               Connect to this profile
@@ -217,6 +242,96 @@ export function ConnectionsPanel({ initialProfileSlug }: { initialProfileSlug?: 
           </form>
         )}
       </section>
+
+      {activeProfile?.profileType === "community" ? (
+        <section className="border-t border-border pt-6">
+          <h2 className="text-xl font-semibold">VRCLinking delegation</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
+            If your community uses VRCLinking, you can let VRDex read its Discord-to-VRChat links
+            so members can verify a VRChat account without placing a proof code. VRDex only ever
+            asks whether a given member is linked and verified.
+          </p>
+
+          {connectedGuilds.length === 0 ? (
+            <Notice className="mt-4">
+              Connect a verified Discord server to this profile first. A delegation applies to one
+              server.
+            </Notice>
+          ) : (
+            <>
+              {vrclinkingCredentials && vrclinkingCredentials.length > 0 ? (
+                <ul className="mt-4 grid gap-3">
+                  {vrclinkingCredentials.map((credential) => (
+                    <li
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-border bg-surface p-4"
+                      key={credential.guildId}
+                    >
+                      <div className="min-w-0">
+                        <p className="font-medium break-words">
+                          {guildLabel(credential.guildId)}
+                        </p>
+                        <p className="mt-1 text-sm text-muted">
+                          {credential.lastUsedAt
+                            ? `Last used ${new Date(credential.lastUsedAt).toLocaleString()}`
+                            : "Not used yet"}
+                        </p>
+                      </div>
+                      <Button
+                        disabled={busy}
+                        variant="ghost"
+                        onClick={() =>
+                          void run(() =>
+                            revokeCredential({
+                              profileSlug: activeSlug,
+                              guildId: credential.guildId,
+                            }),
+                          )
+                        }
+                      >
+                        Revoke
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+
+              <form className="mt-4" onSubmit={submitDelegation}>
+                <Field>
+                  Discord server
+                  <Select name="delegationGuildId" required>
+                    {connectedGuilds.map((connection) => (
+                      <option key={connection.assetExternalId} value={connection.assetExternalId}>
+                        {connection.assetDisplayName ?? connection.assetExternalId}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field className="mt-4">
+                  Secret store reference
+                  <Input
+                    autoComplete="off"
+                    name="secretRef"
+                    placeholder="secret://my-community-vrclinking"
+                    required
+                    spellCheck={false}
+                  />
+                  <FieldText>
+                    <strong>Do not paste your VRCLinking API key here.</strong> Store the key in the
+                    operator secret store and enter its reference — either{" "}
+                    <code>secret://name</code> or an{" "}
+                    <code>arn:aws:secretsmanager:…</code> ARN. VRDex records the reference only; the
+                    key itself is never sent to or stored by VRDex&apos;s database. A pasted key is
+                    rejected.
+                  </FieldText>
+                </Field>
+                <Button className="mt-4" disabled={busy} type="submit" variant="secondary">
+                  Save delegation
+                </Button>
+              </form>
+            </>
+          )}
+        </section>
+      ) : null}
 
       <div aria-live="polite">
         {error === null ? null : <Notice variant="error">{error}</Notice>}

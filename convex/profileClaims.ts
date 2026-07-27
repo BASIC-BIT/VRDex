@@ -1041,7 +1041,38 @@ export const verifyVrchatProofViaAdapter = action({
       return { state: attemptContext.attempt.state };
     }
 
+    // An attempt that is already expired is expired regardless of whether the
+    // adapter could be reached, so settle it before spending a provider call or
+    // reading a delegated credential. Expiry *during* verification is still
+    // handled after the fetch below.
+    if (attemptContext.attempt.expiresAt <= Date.now()) {
+      await ctx.runMutation(internal.profileClaims.recordVrchatProofFailure, {
+        attemptId: args.attemptId,
+        evidenceSource: proofEvidenceSourceForTarget(attemptContext.attempt.targetType),
+        evidenceSummary: "The proof attempt expired before adapter verification started.",
+      });
+
+      return { state: "expired" as const };
+    }
+
     const adapterUrl = proofAdapterUrl(attemptContext.attempt.targetType);
+    // VRC Linking answers from a community's delegated credential rather than
+    // from a proof code, so that path carries the claimant's Discord identity
+    // and the delegations VRDex may consult. Only secret *references* travel.
+    const delegationContext =
+      attemptContext.attempt.targetType === "vrclinking"
+        ? ((await ctx.runQuery(internal.vrclinkingCredentials.getAdapterContext, {
+            userId: attemptContext.attempt.userId,
+          })) as {
+            discordUserId: string;
+            delegations: { credentialId: Id<"communityVrclinkingCredentials">; guildId: string; secretRef: string }[];
+          } | null)
+        : null;
+
+    if (attemptContext.attempt.targetType === "vrclinking" && delegationContext === null) {
+      return { state: "unavailable" as const };
+    }
+
     const response = await fetch(adapterUrl, {
       method: "POST",
       headers: proofAdapterHeaders(),
@@ -1050,8 +1081,28 @@ export const verifyVrchatProofViaAdapter = action({
         targetExternalId: attemptContext.attempt.targetExternalId,
         proofCode: attemptContext.attempt.proofCode,
         profile: attemptContext.profile,
+        ...(delegationContext === null
+          ? {}
+          : {
+              discordUserId: delegationContext.discordUserId,
+              delegations: delegationContext.delegations.map(({ guildId, secretRef }) => ({
+                guildId,
+                secretRef,
+              })),
+            }),
       }),
     });
+
+    if (delegationContext !== null) {
+      await Promise.all(
+        delegationContext.delegations.map((delegation) =>
+          ctx.runMutation(internal.vrclinkingCredentials.recordCredentialUse, {
+            credentialId: delegation.credentialId,
+            resultSummary: `Consulted for a VRC Linking proof (HTTP ${response.status}).`,
+          }),
+        ),
+      );
+    }
 
     if (attemptContext.attempt.expiresAt <= Date.now()) {
       await ctx.runMutation(internal.profileClaims.recordVrchatProofFailure, {
