@@ -6,8 +6,8 @@ import { internal } from "./_generated/api";
 import { action, internalMutation, mutation, query } from "./_generated/server";
 import {
   type ExternalControlLevel,
-  getActiveControlProof,
   recordExternalControlProof,
+  revokeExternalControlProof,
 } from "./_externalControl";
 
 const STATE_TTL_MS = 10 * 60_000;
@@ -193,7 +193,32 @@ export const recordGuildControlProofs = internalMutation({
       ),
     );
 
-    return { recorded: args.guilds.length };
+    // The OAuth response is the complete list of guilds this user can manage,
+    // so a previously proved guild missing from it is positive evidence that
+    // control was lost. Leaving those rows active would let someone who just
+    // demonstrated they no longer manage a server keep claiming with it until
+    // the 30-day window lapsed.
+    const manageable = new Set(args.guilds.map((guild) => guild.id));
+    const existing = await ctx.db
+      .query("externalControlProofs")
+      .withIndex("by_userId_state", (q) => q.eq("userId", user._id).eq("state", "active"))
+      .collect();
+    const revoked = existing.filter(
+      (proof) => proof.assetType === "discord_guild" && !manageable.has(proof.assetExternalId),
+    );
+
+    await Promise.all(
+      revoked.map((proof) =>
+        revokeExternalControlProof(
+          ctx.db,
+          proof._id,
+          "Discord no longer reports manageable access to this server.",
+          now,
+        ),
+      ),
+    );
+
+    return { recorded: args.guilds.length, revoked: revoked.length };
   },
 });
 

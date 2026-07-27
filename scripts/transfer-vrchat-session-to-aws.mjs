@@ -32,7 +32,9 @@ Required environment:
   VRDEX_VRCHAT_PROOF_ACCOUNT_ALIAS   Stable local alias, such as VRDex_Oak
   VRDEX_GROUP_TELEMETRY_USER_AGENT   Application/version/contact string
   AWS credentials in the ambient environment, with secretsmanager:GetSecretValue
-  and secretsmanager:PutSecretValue on the target secret only.
+  and secretsmanager:PutSecretValue on the target secret. A first run against a
+  bare secret name that does not exist yet also needs secretsmanager:CreateSecret;
+  pass an existing ARN instead if you would rather provision it separately.
 
 Options:
   --secret-id <id>       Target secret ARN or name (required)
@@ -49,8 +51,20 @@ function fail(message) {
 function argValue(name) {
   const inline = process.argv.find((value) => value.startsWith(`${name}=`));
   if (inline !== undefined) return inline.slice(name.length + 1);
+
   const index = process.argv.indexOf(name);
-  return index >= 0 ? process.argv[index + 1] : undefined;
+  if (index < 0) return undefined;
+
+  const value = process.argv[index + 1];
+
+  // `--secret-id --dry-run` must report a missing value rather than silently
+  // treating the next flag as the secret name, which would target the wrong
+  // Secrets Manager entry.
+  if (value === undefined || value.startsWith("--")) {
+    fail(`${name} requires a value.`);
+  }
+
+  return value;
 }
 
 function requiredEnv(name) {

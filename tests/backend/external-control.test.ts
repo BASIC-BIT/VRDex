@@ -434,6 +434,74 @@ describe("control proof revalidation", () => {
   });
 });
 
+describe("Discord guild proof reconciliation", () => {
+  // A fresh OAuth result is the complete manageable list, so a guild missing
+  // from it is evidence control was lost. Leaving the old proof active would
+  // let someone claim with a server they just demonstrated they no longer run.
+  it("revokes proofs for guilds absent from a later verification", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        email: "reconcile@example.test",
+        emailVerificationTime: now,
+      });
+
+      return {
+        userId,
+        identity: {
+          subject: `${userId}|web-session`,
+          issuer: "test",
+          tokenIdentifier: `test|${userId}`,
+        },
+      };
+    });
+
+    await t.run(async (ctx) => {
+      for (const guildId of ["111", "222"]) {
+        await recordExternalControlProof(ctx.db, {
+          userId: seeded.userId,
+          assetType: "discord_guild",
+          assetExternalId: guildId,
+          controlLevel: "administrator",
+          evidenceSource: "discord_oauth",
+          now,
+        });
+      }
+      // An unrelated asset type must survive reconciliation untouched.
+      await recordExternalControlProof(ctx.db, {
+        userId: seeded.userId,
+        assetType: "vrchat_user",
+        assetExternalId: "usr_keep",
+        controlLevel: "self",
+        evidenceSource: "vrclinking",
+        now,
+      });
+    });
+
+    await t
+      .withIdentity(seeded.identity)
+      .mutation(internal.discordVerification.recordGuildControlProofs, {
+        guilds: [{ id: "111", name: "Still Managed", controlLevel: "owner" }],
+      });
+
+    await t.run(async (ctx) => {
+      assert.notEqual(
+        await getActiveControlProof(ctx.db, seeded.userId, "discord_guild", "111"),
+        null,
+      );
+      assert.equal(
+        await getActiveControlProof(ctx.db, seeded.userId, "discord_guild", "222"),
+        null,
+      );
+      assert.notEqual(
+        await getActiveControlProof(ctx.db, seeded.userId, "vrchat_user", "usr_keep"),
+        null,
+      );
+    });
+  });
+});
+
 describe("VRCLinking credential delegation", () => {
   async function seedOwnedCommunity(t: ReturnType<typeof convexTest>, slug: string, now: number) {
     return await t.run(async (ctx) => {

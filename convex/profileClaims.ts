@@ -15,6 +15,8 @@ import { createProfileSearchDocument, upsertSearchDocument } from "./_searchDocu
 import { normalizeVrchatTargetId } from "./_vrchatIdentity";
 
 const DAY_MS = 86_400_000;
+// Minimum gap between delegated VRC Linking consultations for one attempt.
+const VRCLINKING_CHECK_COOLDOWN_MS = 60_000;
 const DISCORD_ADMINISTRATOR_PERMISSION = BigInt(8);
 const DISCORD_GUILD_ID_PATTERN = /^\d{17,20}$/;
 const noSuitableMatchConfirmed = v.boolean();
@@ -1091,6 +1093,19 @@ export const verifyVrchatProofViaAdapter = action({
       return { state: "unavailable" as const };
     }
 
+    // Each consultation spends community-provided VRCLinking quota across up to
+    // five delegations, and a negative leaves the attempt pending, so an
+    // unthrottled caller could drain an operator's quota by retrying. Reuse the
+    // attempt's own check timestamp as the cooldown; vrclinking rows are not
+    // collector-eligible, so nothing else writes it.
+    if (
+      attemptContext.attempt.targetType === "vrclinking" &&
+      attemptContext.attempt.lastCheckedAt !== undefined &&
+      attemptContext.attempt.lastCheckedAt > Date.now() - VRCLINKING_CHECK_COOLDOWN_MS
+    ) {
+      return { state: "pending" as const };
+    }
+
     const response = await fetch(adapterUrl, {
       method: "POST",
       headers: proofAdapterHeaders(),
@@ -1118,6 +1133,10 @@ export const verifyVrchatProofViaAdapter = action({
         credentialIds: delegationContext.delegations.map(
           (delegation) => delegation.credentialId,
         ),
+      });
+      // Advances the per-attempt cooldown checked above.
+      await ctx.runMutation(internal.profileClaims.stampProofCheckedAt, {
+        attemptId: args.attemptId,
       });
     }
 
@@ -1158,6 +1177,22 @@ export const verifyVrchatProofViaAdapter = action({
       evidenceSource: result.evidenceSource ?? proofEvidenceSourceForTarget(attemptContext.attempt.targetType),
       evidenceSummary: result.evidenceSummary ?? "Proof code was found by the configured adapter.",
     });
+  },
+});
+
+/** Records that a pending attempt was just consulted, for cooldown pacing. */
+export const stampProofCheckedAt = internalMutation({
+  args: { attemptId: v.id("profileVerificationAttempts") },
+  handler: async (ctx, args) => {
+    const attempt = await ctx.db.get(args.attemptId);
+
+    if (attempt === null || attempt.state !== "pending") {
+      return { stamped: false };
+    }
+
+    await ctx.db.patch(args.attemptId, { lastCheckedAt: Date.now() });
+
+    return { stamped: true };
   },
 });
 
