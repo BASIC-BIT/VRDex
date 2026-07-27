@@ -162,7 +162,7 @@ const personProfile: FixturePersonProfile = {
     {
       type: "vrcdn",
       label: "VRCDN",
-      url: "https://vrcdn.live/dj-aurora",
+      url: "https://stream.vrcdn.live/live/dj-aurora.live.ts",
       source: "owner_authored",
     },
     {
@@ -850,7 +850,7 @@ const publicEvent: PublicEvent = {
     {
       type: "vrcdn",
       label: "VRCDN copy link",
-      url: "https://example.invalid/events/afterglow-vrcdn",
+      url: "https://stream.vrcdn.live/live/playwright-afterglow-harbor-sessions.live.ts",
       presentation: "copy",
     },
   ],
@@ -864,7 +864,7 @@ const publicEvent: PublicEvent = {
     {
       type: "vrcdn",
       label: "VRCDN copy link",
-      url: "https://example.invalid/events/afterglow-vrcdn",
+      url: "https://stream.vrcdn.live/live/playwright-afterglow-harbor-sessions.live.ts",
       presentation: "copy",
     },
   ],

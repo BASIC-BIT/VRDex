@@ -359,6 +359,8 @@ export async function expectPersonProfilePage(page: Page) {
   await expect(page.getByRole("link", { name: /Watch on Twitch/i })).toBeVisible();
   await expect(page.getByText("Quest (MPEG-TS)", { exact: true })).toBeVisible();
   await expect(page.getByText("PC (RTSPT)", { exact: true })).toBeVisible();
+  await expect(page.getByText("https://stream.vrcdn.live/live/dj-aurora.live.ts", { exact: true })).toBeVisible();
+  await expect(page.getByText("rtspt://stream.vrcdn.live/live/dj-aurora", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Open preview" })).toHaveAttribute(
     "href",
     "https://panel.vrcdn.live/preview/dj-aurora",
@@ -439,6 +441,9 @@ export async function expectEventPage(page: Page) {
     "/events/playwright-afterglow-harbor-sessions/edit",
   );
   await expect(page.getByText("Afterglow watch link", { exact: true })).toBeVisible();
+  await expect(
+    page.locator('a[href="https://stream.vrcdn.live/live/playwright-afterglow-harbor-sessions.live.ts"]'),
+  ).toBeVisible();
   await expect(page.getByText("Watch now", { exact: true })).toHaveCount(0);
 }
 
