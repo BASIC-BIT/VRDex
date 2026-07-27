@@ -85,7 +85,24 @@ export function classifySecretRef(secretRef) {
 export function createSecretResolver({ secretDir, awsClient, cacheTtlMs = 300_000, clock = Date.now } = {}) {
   const cache = new Map();
 
-  return async function resolveSecret(secretRef) {
+  /**
+   * Drop a cached token the provider has rejected.
+   *
+   * Without this, a community that rotates its key keeps getting
+   * `credential_rejected` for the rest of the TTL while the adapter replays the
+   * old token — and every one of those attempts burns the claimant's cooldown.
+   */
+  resolveSecret.invalidate = function invalidate(secretRef) {
+    const classified = classifySecretRef(secretRef);
+
+    if (classified.kind !== "invalid") {
+      cache.delete(classified.id);
+    }
+  };
+
+  return resolveSecret;
+
+  async function resolveSecret(secretRef) {
     const classified = classifySecretRef(secretRef);
 
     if (classified.kind === "invalid") {
@@ -141,5 +158,5 @@ export function createSecretResolver({ secretDir, awsClient, cacheTtlMs = 300_00
     cache.set(classified.id, { token, expiresAt: clock() + cacheTtlMs });
 
     return token;
-  };
+  }
 }

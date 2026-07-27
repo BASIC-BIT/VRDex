@@ -8,6 +8,12 @@ const URL_PROPERTY_NAMES = new Set([
   "$pathname",
   "$referrer",
   "$initial_referrer",
+  // `save_campaign_params`/`save_referrer` default on, so posthog-js records
+  // the first page a person ever landed on as a `$set_once` person property.
+  // For someone whose first VRDex page is their handoff link — which is how
+  // recipients discover the product — that stored value is the live token.
+  "$initial_current_url",
+  "$initial_pathname",
 ]);
 
 export function sanitizeAnalyticsUrl(value: string): string {
@@ -28,6 +34,34 @@ export function sanitizeAnalyticsUrl(value: string): string {
   }
 }
 
+/**
+ * Rewrite the `href` a replay recording carries alongside the DOM.
+ *
+ * Session replay ships rrweb records inside `$snapshot_data`, and the meta
+ * record (`type: 4`) holds the raw page URL — that is what the replay player
+ * shows as the recording's address. Redacting the event-level URL properties
+ * does not touch it, so with replay enabled on every route a handoff token in
+ * the path would still reach PostHog even though the page DOM is blocked from
+ * capture. Anything with an `href` gets the same treatment as `$current_url`.
+ */
+function sanitizeSnapshotData(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sanitizeSnapshotData);
+  }
+
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, entry]) =>
+      key === "href" && typeof entry === "string"
+        ? [key, sanitizeAnalyticsUrl(entry)]
+        : [key, sanitizeSnapshotData(entry)],
+    ),
+  );
+}
+
 export function sanitizePostHogProperties(properties: Record<string, unknown>) {
   const sanitized = { ...properties };
 
@@ -38,7 +72,46 @@ export function sanitizePostHogProperties(properties: Record<string, unknown>) {
     }
   }
 
+  if (sanitized.$snapshot_data !== undefined) {
+    sanitized.$snapshot_data = sanitizeSnapshotData(sanitized.$snapshot_data);
+  }
+
   return sanitized;
+}
+
+type CapturedEvent = {
+  properties?: Record<string, unknown>;
+  $set?: Record<string, unknown>;
+  $set_once?: Record<string, unknown>;
+} | null;
+
+/**
+ * Redaction hook for every outgoing event.
+ *
+ * This must be `before_send`, not `sanitize_properties`. posthog-js
+ * short-circuits `$snapshot` events before the `sanitize_properties` hook runs,
+ * so session-replay payloads were never passed through it — and replay is the
+ * one thing that carries a raw page URL of its own, in the rrweb meta record.
+ * `sanitize_properties` is also deprecated in favour of this hook.
+ */
+export function sanitizePostHogEvent<T extends CapturedEvent>(event: T): T {
+  if (event === null) {
+    return event;
+  }
+
+  if (event.properties !== undefined) {
+    event.properties = sanitizePostHogProperties(event.properties);
+  }
+
+  for (const bucket of ["$set", "$set_once"] as const) {
+    const values = event[bucket];
+
+    if (values !== undefined) {
+      event[bucket] = sanitizePostHogProperties(values);
+    }
+  }
+
+  return event;
 }
 
 /**

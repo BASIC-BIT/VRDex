@@ -231,29 +231,6 @@ export const listCredentials = query({
   },
 });
 
-/**
- * Resolve the delegation the adapter should use for a guild. Internal only:
- * this is the one place `secretRef` leaves the table, and it goes to a Convex
- * action that forwards it to the configured adapter.
- */
-export const getCredentialForAdapter = internalQuery({
-  args: { guildId: v.string() },
-  handler: async (ctx, args) => {
-    const active = await ctx.db
-      .query("communityVrclinkingCredentials")
-      .withIndex("by_guildId_state", (q) => q.eq("guildId", args.guildId).eq("state", "active"))
-      .first();
-
-    return active === null
-      ? null
-      : {
-          credentialId: active._id,
-          communityProfileId: active.communityProfileId,
-          guildId: active.guildId,
-          secretRef: active.secretRef,
-        };
-  },
-});
 
 /** Bounds how many delegated guilds one claim may consult. */
 const MAX_ADAPTER_DELEGATIONS = 5;

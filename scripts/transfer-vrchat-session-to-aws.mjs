@@ -38,6 +38,7 @@ Required environment:
 
 Options:
   --secret-id <id>       Target secret ARN or name (required)
+  --region <region>      AWS region; defaults to AWS_REGION, then us-east-1
   --skip-validation      Do not re-check the session against VRChat first
   --dry-run              Do everything except write the secret
   --help                 Show this message
@@ -169,11 +170,11 @@ const {
 
 // The ambient environment does not always carry a default region, and the SDK
 // reports that as a bare `Error`, so resolve it explicitly.
-const region =
+const explicitRegion =
   argValue("--region")?.trim() ||
   process.env.AWS_REGION?.trim() ||
-  process.env.AWS_DEFAULT_REGION?.trim() ||
-  "us-east-1";
+  process.env.AWS_DEFAULT_REGION?.trim();
+const region = explicitRegion || "us-east-1";
 const client = new SecretsManagerClient({ region });
 let existing = {};
 let secretMissing = false;
@@ -228,6 +229,17 @@ if (secretMissing && secretId.startsWith("arn:")) {
   fail(`No secret exists at ${secretId}. Check the ARN, or pass a name to create it.`);
 }
 
+// "Not found" in the wrong region looks exactly like "not created yet", and the
+// create path would then write a second copy of the live session cookies into
+// an unintended region while reporting success. Creating is only safe when the
+// operator said which region they meant.
+if (secretMissing && !explicitRegion) {
+  fail(
+    `No secret named ${secretId} exists in ${region}, which is only a default guess. ` +
+      "Pass --region (or set AWS_REGION) to confirm where it should be created.",
+  );
+}
+
 const next = buildSessionSecretPayload(existing, {
   workerApiKey,
   authCookie: stored.authCookie,
@@ -254,7 +266,9 @@ const preservedKeys = preservedSecretKeys(existing);
 
 process.stdout.write(
   [
-    dryRun ? "Dry run: no secret was written." : `Updated secret ${secretId}.`,
+    dryRun
+      ? "Dry run: no secret was written."
+      : `${secretMissing ? "Created" : "Updated"} secret ${secretId} in ${region}.`,
     `Service account:      ${stored.userId}`,
     `Session validated:    ${skipValidation ? "skipped" : "yes"}`,
     `Two-factor cookie:    ${stored.twoFactorAuthCookie === undefined ? "absent" : "included"}`,

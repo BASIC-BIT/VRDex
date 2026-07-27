@@ -420,12 +420,17 @@ function proofAdapterUrl(targetType: VrchatTargetType): string | null {
   return optionalEnv("VRCHAT_PROOF_ADAPTER_URL") ?? null;
 }
 
+/**
+ * Both adapters require this bearer token, so treating it as optional here only
+ * bought a silent failure: Convex would post with no `authorization`, the
+ * adapter would answer 401, and `!response.ok` maps that to the non-terminal
+ * `unavailable` — a claim that stalls forever with the misconfiguration
+ * reported nowhere. If an adapter is configured, so must its token be.
+ */
 function proofAdapterHeaders(): Record<string, string> {
-  const token = optionalEnv("VRCHAT_PROOF_ADAPTER_BEARER_TOKEN");
-
   return {
     "content-type": "application/json",
-    ...(token !== undefined ? { authorization: `Bearer ${token}` } : {}),
+    authorization: `Bearer ${requiredEnv("VRCHAT_PROOF_ADAPTER_BEARER_TOKEN")}`,
   };
 }
 
@@ -921,10 +926,14 @@ export const startVrchatProof = mutation({
       throw claimError("PROFILE_ALREADY_OWNED");
     }
 
-    const targetExternalId =
-      args.targetType === "vrclinking"
-        ? args.targetExternalId.trim()
-        : normalizeVrchatTargetId(args.targetExternalId, args.targetType);
+    // A VRC Linking attestation names a VRChat account exactly as a direct
+    // proof does — it becomes the `assetExternalId` of a `self`-level
+    // `vrchat_user` proof — so it gets the same validation. Trimming alone let
+    // arbitrary text become the identity of a durable control proof.
+    const targetExternalId = normalizeVrchatTargetId(
+      args.targetExternalId,
+      args.targetType === "vrclinking" ? "vrchat_user" : args.targetType,
+    );
     if (!targetExternalId) {
       throw claimError("INVALID_VRCHAT_TARGET", args.targetType);
     }
@@ -1072,6 +1081,23 @@ export const recordVrchatProofVerification = internalMutation({
       throw claimError("PROFILE_NOT_FOUND");
     }
 
+    // Same rule as the Discord paths, and for the same reason. Placing a proof
+    // code in a VRChat group's description proves the claimant administers that
+    // group; it says nothing about whether the group is the one this listing
+    // represents, and `startVrchatProof` takes the target id from the claimant.
+    // Without this the Discord guard is decorative: claim any listing with any
+    // guild to get `claimed_unverified`, then upgrade it to `claimed_verified`
+    // with a throwaway VRChat group. Read before the link is written below, and
+    // only associations somebody else recorded count.
+    const assetType = attempt.targetType === "vrchat_group" ? "vrchat_group" : "vrchat_user";
+    const assetBacksThisProfile = (
+      await getActiveProfileLinks(ctx.db, profile._id, assetType)
+    ).some(
+      (link) =>
+        link.assetExternalId === attempt.targetExternalId &&
+        link.linkedByUserId !== attempt.userId,
+    );
+
     const claimRequestId = await ctx.db.insert("profileClaimRequests", {
       profileId: profile._id,
       profileSlug: profile.slug,
@@ -1101,9 +1127,11 @@ export const recordVrchatProofVerification = internalMutation({
       profileId: profile._id,
       userId: attempt.userId,
       grantedByClaimRequestId: claimRequestId,
-      verified: true,
+      verified: assetBacksThisProfile,
       now,
-      note: proofAuditNote(attempt.targetType, args.evidenceSource),
+      note: assetBacksThisProfile
+        ? proofAuditNote(attempt.targetType, args.evidenceSource)
+        : `${proofAuditNote(attempt.targetType, args.evidenceSource)} The target did not already back this profile, so ownership is unverified.`,
     });
 
     // Record the durable control proof and profile association so VRChat
@@ -1113,7 +1141,6 @@ export const recordVrchatProofVerification = internalMutation({
     // proof does, so it earns the same connection; skipping it left a profile
     // verified with nothing shown under its connections.
     {
-      const assetType = attempt.targetType === "vrchat_group" ? "vrchat_group" : "vrchat_user";
       const proofId = await recordExternalControlProof(ctx.db, {
         userId: attempt.userId,
         assetType,
@@ -1294,10 +1321,15 @@ export const verifyVrchatProofViaAdapter = action({
       body: JSON.stringify({
         targetType: attemptContext.attempt.targetType,
         targetExternalId: attemptContext.attempt.targetExternalId,
-        proofCode: attemptContext.attempt.proofCode,
-        profile: attemptContext.profile,
+        // The VRC Linking adapter answers from the claimant's Discord identity
+        // and a delegated key; it neither reads nor validates these. Sending a
+        // live one-time proof code and the profile record to a service that has
+        // no use for them is avoidable exposure.
         ...(delegationContext === null
-          ? {}
+          ? {
+              proofCode: attemptContext.attempt.proofCode,
+              profile: attemptContext.profile,
+            }
           : {
               discordUserId: delegationContext.discordUserId,
               delegations: delegationContext.delegations.map(({ guildId, secretRef }) => ({

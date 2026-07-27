@@ -280,7 +280,7 @@ type LinkProfileOptions = {
   assetExternalId: string;
   assetDisplayName?: string;
   linkRole?: ProfileExternalLinkRole;
-  linkedByUserId: Id<"users">;
+  linkedByUserId?: Id<"users">;
   verifiedByProofId?: Id<"externalControlProofs">;
   now: number;
 };
@@ -304,8 +304,16 @@ export async function linkProfileToAsset(
   // Re-linking an asset that is already attached must not change its role.
   // `siblings` includes the existing row, so defaulting on count alone demoted
   // an incumbent primary to secondary and left the profile with none.
-  const linkRole: ProfileExternalLinkRole =
+  const requested: ProfileExternalLinkRole =
     options.linkRole ?? existing?.linkRole ?? (siblings.length === 0 ? "primary" : "secondary");
+  // An explicit `secondary` — which `addVerifiedConnection` takes straight from
+  // the client — must not be able to leave the type with no primary at all,
+  // whether by being the only link or by demoting the incumbent. Removal
+  // already repairs this invariant; adding has to as well.
+  const wouldLeaveNoPrimary =
+    requested === "secondary" &&
+    !siblings.some((link) => link.linkRole === "primary" && link._id !== existing?._id);
+  const linkRole: ProfileExternalLinkRole = wouldLeaveNoPrimary ? "primary" : requested;
 
   if (linkRole === "primary") {
     await Promise.all(
@@ -324,6 +332,13 @@ export async function linkProfileToAsset(
       ...(options.verifiedByProofId !== undefined
         ? { verifiedByProofId: options.verifiedByProofId }
         : {}),
+      // `linkedByUserId` records who put this association on record, and the
+      // verified claim paths read it to tell independent corroboration from a
+      // claimant's own assertion. An operator write (no id) clears it and wins;
+      // a claimant re-linking an asset never overwrites what is already there,
+      // or re-running their own claim would launder an operator record into
+      // their own and destroy the corroboration it exists to provide.
+      ...(options.linkedByUserId === undefined ? { linkedByUserId: undefined } : {}),
       updatedAt: options.now,
     });
 
@@ -339,7 +354,9 @@ export async function linkProfileToAsset(
       : {}),
     linkRole,
     state: "active",
-    linkedByUserId: options.linkedByUserId,
+    ...(options.linkedByUserId !== undefined
+      ? { linkedByUserId: options.linkedByUserId }
+      : {}),
     ...(options.verifiedByProofId !== undefined
       ? { verifiedByProofId: options.verifiedByProofId }
       : {}),
@@ -388,7 +405,10 @@ export async function requireControlProof(
   required: ExternalControlLevel,
   now: number = Date.now(),
 ) {
-  const proof = await getActiveControlProof(db, userId, assetType, assetExternalId);
+  // `now` forwarded, not just used for the expiry check below: the selection
+  // prefers proofs that are live *at that instant*, so letting it fall back to
+  // wall-clock time would pick against one instant and judge against another.
+  const proof = await getActiveControlProof(db, userId, assetType, assetExternalId, now);
 
   if (proof === null) {
     throw claimError("CONTROL_NOT_VERIFIED");

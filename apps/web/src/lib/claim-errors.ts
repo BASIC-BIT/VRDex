@@ -105,10 +105,41 @@ export function claimErrorCode(error: unknown): ClaimErrorCode | null {
   return typeof code === "string" && code in CLAIM_ERROR_COPY ? (code as ClaimErrorCode) : null;
 }
 
+const SECRET_REFERENCE_DETAIL_PREFIX = "vrclinking_credentials_require_secret_reference:";
+
+/** Operator-facing context the backend attached, when it sent any. */
+export function claimErrorDetail(error: unknown): string | null {
+  const data = error instanceof ConvexError ? (error.data as unknown) : null;
+
+  if (data === null || typeof data !== "object") {
+    return null;
+  }
+
+  const detail = (data as { detail?: unknown }).detail;
+
+  return typeof detail === "string" ? detail : null;
+}
+
 export function claimErrorMessage(error: unknown): string {
   const code = claimErrorCode(error);
 
-  return code === null ? FALLBACK_MESSAGE : CLAIM_ERROR_COPY[code];
+  if (code === null) {
+    return FALLBACK_MESSAGE;
+  }
+
+  // The generic "not available yet" copy is actively misleading for a rejected
+  // secret reference: the feature works, the name was wrong, and the backend
+  // already said which name it wants. Dropping that detail left the action
+  // unreachable for anyone following the UI.
+  const detail = claimErrorDetail(error);
+
+  if (code === "ADAPTER_NOT_CONFIGURED" && detail?.startsWith(SECRET_REFERENCE_DETAIL_PREFIX)) {
+    const requiredName = detail.slice(SECRET_REFERENCE_DETAIL_PREFIX.length);
+
+    return `That secret reference does not name this server. Use secret://${requiredName} or the matching Secrets Manager ARN.`;
+  }
+
+  return CLAIM_ERROR_COPY[code];
 }
 
 export function claimFailureOutcome(error: unknown): ClaimFailureOutcome {

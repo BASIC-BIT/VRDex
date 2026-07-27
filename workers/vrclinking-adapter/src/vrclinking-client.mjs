@@ -22,16 +22,30 @@ export function createVrclinkingClient({
   fetcher = fetch,
   timeoutMs = 10_000,
 } = {}) {
+  // Every request to this host carries a community's delegated key as a bearer
+  // token, and the README invites overriding the base URL to point at a stub —
+  // so a hand-edited `http://` or a typo'd host would put those credentials on
+  // the wire in the clear. Plain HTTP is allowed only for a loopback stub.
+  const parsedBaseUrl = new URL(baseUrl);
+
+  if (
+    parsedBaseUrl.protocol !== "https:" &&
+    !(parsedBaseUrl.protocol === "http:" &&
+      (parsedBaseUrl.hostname === "localhost" || parsedBaseUrl.hostname === "127.0.0.1"))
+  ) {
+    throw new Error(
+      "VRDEX_VRCLINKING_BASE_URL must use https, or http on localhost for a local stub.",
+    );
+  }
+
   const normalizedBaseUrl = baseUrl.replace(/\/$/, "");
 
-  async function fetchPage(guildId, discordUserId, token, page) {
+  async function fetchPage(guildId, discordUserId, token, page, controller) {
     const query = new URLSearchParams({
       search: discordUserId,
       searchBy: "DiscordId",
       page: String(page),
     });
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     let response;
 
     try {
@@ -48,13 +62,16 @@ export function createVrclinkingClient({
         error?.name === "AbortError" ? "Provider request timed out." : "Provider request failed.",
         { reason: error?.name === "AbortError" ? "timeout" : "network" },
       );
-    } finally {
-      clearTimeout(timeout);
     }
+
+    // Every non-2xx path below abandons the response without reading it. Cancel
+    // the body rather than leaving the socket pinned until GC.
+    const discard = () => response.body?.cancel?.().catch(() => undefined);
 
     if (response.status === 401 || response.status === 403) {
       // The delegation is no longer usable; surfaced so operators can be told
       // to re-delegate rather than silently returning "not linked".
+      discard();
       throw new VrclinkingProviderError("Delegated credential was rejected.", {
         status: response.status,
         reason: "credential_rejected",
@@ -62,10 +79,12 @@ export function createVrclinkingClient({
     }
 
     if (response.status === 404) {
+      discard();
       return null;
     }
 
     if (!response.ok) {
+      discard();
       throw new VrclinkingProviderError(`Provider returned HTTP ${response.status}.`, {
         status: response.status,
         reason: response.status === 429 ? "rate_limited" : "provider_error",
@@ -75,10 +94,11 @@ export function createVrclinkingClient({
     let payload;
     try {
       payload = await response.json();
-    } catch {
-      throw new VrclinkingProviderError("Provider returned malformed JSON.", {
-        reason: "schema_drift",
-      });
+    } catch (error) {
+      throw new VrclinkingProviderError(
+        error?.name === "AbortError" ? "Provider request timed out." : "Provider returned malformed JSON.",
+        { reason: error?.name === "AbortError" ? "timeout" : "schema_drift" },
+      );
     }
 
     // A missing or non-array `results` is schema drift, not an empty search. A
@@ -94,19 +114,9 @@ export function createVrclinkingClient({
     return payload;
   }
 
-  /**
-   * Look up one guild member by Discord id.
-   *
-   * Returns the matching `SearchMember` or null. The caller receives provider
-   * data for the requested member only; nothing else from the page is exposed.
-   *
-   * The provider's search is fuzzy and paginated, so the exact id can sit on a
-   * page after the first. Stopping at page one would report a linked claimant as
-   * unlinked, which is a real negative the claimant cannot do anything about.
-   */
-  return async function getGuildMemberByDiscordId(guildId, discordUserId, token) {
+  async function search(guildId, discordUserId, token, controller) {
     for (let page = 1; page <= MAX_SEARCH_PAGES; page += 1) {
-      const payload = await fetchPage(guildId, discordUserId, token, page);
+      const payload = await fetchPage(guildId, discordUserId, token, page, controller);
 
       if (payload === null) {
         return null;
@@ -129,5 +139,31 @@ export function createVrclinkingClient({
     // Exhausting the bound without a match is indistinguishable from no match
     // for the claimant, and the page cap is ours rather than the provider's.
     return null;
+  }
+
+  /**
+   * Look up one guild member by Discord id.
+   *
+   * Returns the matching `SearchMember` or null. The caller receives provider
+   * data for the requested member only; nothing else from the page is exposed.
+   *
+   * The provider's search is fuzzy and paginated, so the exact id can sit on a
+   * page after the first. Stopping at page one would report a linked claimant as
+   * unlinked, which is a real negative the claimant cannot do anything about.
+   */
+  return async function getGuildMemberByDiscordId(guildId, discordUserId, token) {
+    // One deadline for the whole lookup, not one per request. Per-request
+    // timers bound nothing useful when a lookup pages up to five times, and the
+    // old one stopped covering the response body entirely — `fetch` resolves on
+    // headers, so a provider that sent headers and then stalled the body left
+    // the read with no deadline at all.
+    const controller = new AbortController();
+    const deadline = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      return await search(guildId, discordUserId, token, controller);
+    } finally {
+      clearTimeout(deadline);
+    }
   };
 }

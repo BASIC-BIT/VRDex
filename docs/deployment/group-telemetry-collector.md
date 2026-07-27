@@ -51,9 +51,11 @@ Run read-only membership inspection first with `pnpm proof:group-telemetry`. On 
 
 Steps 1-7 are the bring-up sequence for standing a fleet up, not a description of
 the current state. Production has been through them: BASIC accepted durable
-service-account sessions on 2026-07-27, the checked-in `terraform.tfvars` carries
-`enable_service = true` and `desired_count = 1`, and proof reading is on. The
-stop condition in `docs/planning/community-group-telemetry.md` still applies — if
+service-account sessions on 2026-07-27, and the running deployment sets
+`enable_service = true` and `desired_count = 1` in the operator's untracked
+`terraform.tfvars`. Only `terraform.tfvars.example` is checked in, and it ships
+disabled — applying a clean checkout as-is tears the fleet down. The stop
+condition in `docs/planning/community-group-telemetry.md` still applies: if
 VRChat objects, stop the traffic and clear the saved session.
 
 The execution role reads only the assigned account secret and SSM startup gate. The application task role has no AWS data permissions. The worker receives no customer credential and cannot claim work for a different collector account ID.
@@ -72,7 +74,7 @@ The execution role reads only the assigned account secret and SSM startup gate. 
 
 Use the Convex global kill switch to stop all new claims without taking the web app down. Use the account kill switch or `quarantined` state for one account, and the integration kill switch/disconnect for one group. Set ECS desired count to zero for the live infrastructure stop. The SSM deployment gate prevents a disabled revision from starting after a task restart; it is not a dynamic stop for an already running process.
 
-Any authenticated provider 401 immediately sets the account and every assigned integration to `auth_required`, releases all leases, and opens degraded coverage. Hosted recovery remains blocked until the provider-approved, secret-safe vault-to-AWS transfer command exists; do not manually extract the local vault record. Once that command ships, it must replace only the session fields, re-register the account to increment credential generation, and restart the task before an operator returns the account to `ready`. Password-based unattended reauthentication is intentionally absent. Recovery puts integrations into `connecting`; it does not backfill the outage or turn it into zero attendance.
+Any authenticated provider 401 immediately sets the account and every assigned integration to `auth_required`, releases all leases, and opens degraded coverage. Recover with `pnpm ops:vrchat-session:transfer` (`scripts/transfer-vrchat-session-to-aws.mjs`), which validates the session, replaces only the session fields, and mints a fresh worker key; do not manually extract the local vault record. Re-register the account with the printed `workerKeyHash` to increment credential generation, restart the task, then return the account to `ready`. Password-based unattended reauthentication is intentionally absent. Recovery puts integrations into `connecting`; it does not backfill the outage or turn it into zero attendance.
 
 For account loss, quarantine the account before assigning groups elsewhere. Capacity allocation chooses only ready, non-cooled-down accounts with reserved headroom. The internal reassignment operation checks target headroom, releases the old lease, and opens an unknown coverage window before the replacement account joins. A quarantined account stays quarantined when credentials rotate; reconcile or remove its old VRChat group memberships before explicitly returning it to `ready`. For rollback, stop ECS, turn on the global kill switch, and leave stored history in place while the previous image/configuration is restored.
 

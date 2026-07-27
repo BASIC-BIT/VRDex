@@ -339,7 +339,9 @@ export const setPrimaryConnection = mutation({
       assetType: args.assetType,
       assetExternalId: args.assetExternalId,
       linkRole: "primary",
-      linkedByUserId: existing.linkedByUserId,
+      ...(existing.linkedByUserId !== undefined
+        ? { linkedByUserId: existing.linkedByUserId }
+        : {}),
       ...(existing.verifiedByProofId !== undefined
         ? { verifiedByProofId: existing.verifiedByProofId }
         : {}),
@@ -402,6 +404,16 @@ export const listAvailableConnections = query({
       return [];
     }
 
+    // Every sibling query gates the lookup this way. Without it, a non-empty
+    // result is an existence-and-type oracle for draft and suppressed profiles
+    // that `listProfileConnections` and the claim queries deliberately hide.
+    if (
+      !canReadProfile("public", profile) &&
+      !(await userOwnsProfile(ctx.db, profile._id, user._id))
+    ) {
+      return [];
+    }
+
     const [proofs, links] = await Promise.all([
       ctx.db
         .query("externalControlProofs")
@@ -449,6 +461,55 @@ export const listAvailableConnections = query({
     }
 
     return [...offers.values()];
+  },
+});
+
+/**
+ * Record, as the operator, that an external asset backs a listing.
+ *
+ * This is the writer the verified claim paths check against. Proving control of
+ * a Discord server or a VRChat group shows the claimant runs *that asset*; it
+ * cannot show the asset is the one a listing represents, and a claimant's own
+ * assertion cannot corroborate their own claim. Somebody who knows the listing
+ * has to say so, which for a concierge-seeded profile is whoever seeded it.
+ *
+ * Internal, and deliberately so: run it with the deployment key, the same way
+ * `communityTelemetry:registerCollectorAccount` is run. There is no
+ * self-service surface for it, because self-service is exactly what it exists
+ * to rule out. Links written here carry no `linkedByUserId` — no VRDex user
+ * asserted them.
+ */
+export const recordOperatorAssociation = internalMutation({
+  args: {
+    profileSlug: v.string(),
+    assetType: externalAssetType,
+    assetExternalId: v.string(),
+    assetDisplayName: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const profile = await requireProfileFromSlug(ctx.db, args.profileSlug);
+
+    if (!assetTypeAllowedForProfile(args.assetType, profile.profileType)) {
+      throw claimError("WRONG_PROFILE_TYPE", profile.profileType);
+    }
+
+    const assetExternalId = args.assetExternalId.trim();
+
+    if (assetExternalId.length === 0) {
+      throw claimError("INVALID_VRCHAT_TARGET", args.assetType);
+    }
+
+    const linkId = await linkProfileToAsset(ctx.db, {
+      profileId: profile._id,
+      assetType: args.assetType,
+      assetExternalId,
+      ...(args.assetDisplayName !== undefined
+        ? { assetDisplayName: args.assetDisplayName }
+        : {}),
+      now: Date.now(),
+    });
+
+    return { linkId, profileId: profile._id };
   },
 });
 

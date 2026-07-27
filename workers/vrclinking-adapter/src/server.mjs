@@ -126,7 +126,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   // Without a backend every request resolves to 503 while the process looks
   // healthy, which reads as a provider outage rather than a missing
   // deployment variable. Fail at startup instead.
-  if (secretDir === undefined && awsClient === undefined) {
+  // `!secretDir`, not `=== undefined`: a templated-but-unset deployment
+  // variable arrives as an empty string, which would clear an identity check
+  // and leave the guard passing on a process that can resolve nothing.
+  if (!secretDir && awsClient === undefined) {
     throw new Error(
       "No secret backend configured. Set VRDEX_VRCLINKING_SECRET_DIR or VRDEX_VRCLINKING_ENABLE_AWS_SECRETS=true.",
     );
@@ -143,7 +146,16 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     console.log(`vrclinking-adapter listening on ${port}`);
   });
 
-  const shutdown = () => server.close(() => process.exit(0));
+  // `close` alone waits for every pooled keep-alive socket Convex holds open to
+  // end on its own, which for an idle connection is never — the callback would
+  // not fire and the orchestrator would SIGKILL instead of draining. Close the
+  // idle ones, and keep a deadline for a request still in flight.
+  const shutdown = () => {
+    const forced = setTimeout(() => process.exit(0), 10_000);
+    forced.unref();
+    server.close(() => process.exit(0));
+    server.closeIdleConnections();
+  };
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
 }

@@ -109,9 +109,10 @@ and community owners can register a delegation from `/account/connections`.
 Two things still gate the path, neither of them code:
 
 1. **The adapter is not deployed.** It needs somewhere to run with either the
-   Secrets Manager task-role policy or a mounted secret directory, and
-   `VRCLINKING_PROOF_ADAPTER_URL` pointed at it. Its README documents the
-   configuration and a local run.
+   Secrets Manager task-role policy or a mounted secret directory,
+   `VRCLINKING_PROOF_ADAPTER_URL` pointed at it, and
+   `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN` set to the same value in Convex and on
+   the adapter. Its README documents the configuration and a local run.
 2. **No claimant-facing entry point exists yet.** The claim UI submits only
    `vrchat_user` and `vrchat_group`, so a registered delegation cannot be
    exercised by a member until that method is added. Register delegations
@@ -134,11 +135,19 @@ credentials, so they are deliberately not automated:
    kept for the deferred re-validation work.
 3. Decide whether to enable collector-backed VRChat proof reading. **Enabled
    2026-07-27**, on BASIC's decision that a durable VRChat service-account
-   session is an accepted operating pattern. `terraform.tfvars` carries
-   `enable_service = true` and `desired_count = 1`, and
-   `VRDEX_GROUP_TELEMETRY_PROOF_ENABLED=true` is set on the worker. The
-   disabled-first sequence in `docs/deployment/group-telemetry-collector.md` is
-   the bring-up runbook for standing a fleet up, not the current state.
+   session is an accepted operating pattern. The running deployment sets
+   `enable_service = true` and `desired_count = 1` in the operator's
+   `terraform.tfvars`, which is untracked — the checked-in
+   `terraform.tfvars.example` ships disabled, so a clean checkout applied as-is
+   would tear the fleet down. The disabled-first sequence in
+   `docs/deployment/group-telemetry-collector.md` is the bring-up runbook for
+   standing a fleet up, not a description of the current state.
+
+   The collector has no separate proof gate: `VRDEX_GROUP_TELEMETRY_ENABLED` is
+   its only switch, and proof checks run whenever it does.
+   `VRDEX_GROUP_TELEMETRY_PROOF_ENABLED` belongs to
+   `scripts/prove-vrchat-group-telemetry.mjs`, the local provider-proof harness,
+   and setting it on the worker changes nothing.
 
 Nothing else is required: the schema, functions, routes, and UI ship with the
 application deploy.

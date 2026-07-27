@@ -1873,7 +1873,17 @@ export const claimPendingProofChecks = internalMutation({
     const accountId = ctx.db.normalizeId("collectorAccounts", args.collectorAccountId);
     if (!accountId) return { attempts: [] };
     const account = await ctx.db.get(accountId);
-    if (!account || account.state !== "ready" || account.killSwitchEnabled) {
+    // `cooldownUntil` too, matching `reserveRequestBudget` and
+    // `reserveProofRequestBudget`. Provider backoff leaves `state: "ready"`, so
+    // checking state alone kept serving proof work to an account that is
+    // supposed to be standing down — and stamped those attempts into their own
+    // cooldown on the way.
+    if (
+      !account ||
+      account.state !== "ready" ||
+      account.killSwitchEnabled ||
+      (account.cooldownUntil ?? 0) > args.now
+    ) {
       return { attempts: [] };
     }
 
@@ -1985,6 +1995,12 @@ export const recordProofCheckResult = internalMutation({
     // are separate transactions, so a concurrent 401 report or an operator
     // moving the account to quarantined/retiring lands in that window and must
     // not still grant verified ownership.
+    //
+    // Deliberately not `cooldownUntil`, which the claim path does check. That
+    // is provider backoff — a throughput signal, not a trust one. This verdict
+    // was obtained from a read that was authorized when it happened, so
+    // discarding it would throw away real work and send the attempt back to
+    // pending for no safety gain.
     if (
       fleet?.killSwitchEnabled ||
       account === null ||

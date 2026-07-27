@@ -1991,7 +1991,10 @@ export default defineSchema({
     assetDisplayName: v.optional(v.string()),
     linkRole: profileExternalLinkRole,
     state: profileExternalLinkState,
-    linkedByUserId: v.id("users"),
+    // Absent when an operator seeded the association rather than a claimant
+    // asserting it. That distinction is what makes the association usable as
+    // independent corroboration of a claim.
+    linkedByUserId: v.optional(v.id("users")),
     verifiedByProofId: v.optional(v.id("externalControlProofs")),
     createdAt: v.number(),
     updatedAt: v.number(),

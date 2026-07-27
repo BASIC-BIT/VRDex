@@ -1162,6 +1162,68 @@ describe("claiming a community with a verified guild", () => {
     assert.equal(result.claimState, "claimed_verified");
   });
 
+  // The verified branch is only reachable if some writer records an association
+  // the claimant did not. `recordOperatorAssociation` is that writer; without it
+  // `claimed_verified` would be dead code in production and only a test that
+  // hand-inserts a link could reach it.
+  it("reaches verified through an operator-recorded association", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        email: "operator-seeded@example.test",
+        emailVerificationTime: now,
+      });
+      await seedCommunity(ctx as never, "operator-seeded", now);
+      await recordExternalControlProof(ctx.db, {
+        userId,
+        assetType: "discord_guild",
+        assetExternalId: "424242",
+        controlLevel: "owner",
+        evidenceSource: "discord_oauth",
+        now,
+      });
+
+      return {
+        identity: {
+          subject: `${userId}|web-session`,
+          issuer: "test",
+          tokenIdentifier: `test|${userId}`,
+        },
+      };
+    });
+    const asUser = t.withIdentity(seeded.identity);
+
+    // Without the association, control of the guild is not evidence about this
+    // listing, so ownership is granted unverified.
+    assert.equal(
+      (
+        await asUser.mutation(api.profileConnections.claimCommunityWithVerifiedGuild, {
+          profileSlug: "operator-seeded",
+          guildId: "424242",
+        })
+      ).claimState,
+      "claimed_unverified",
+    );
+
+    await t.mutation(internal.profileConnections.recordOperatorAssociation, {
+      profileSlug: "operator-seeded",
+      assetType: "discord_guild",
+      assetExternalId: "424242",
+      assetDisplayName: "Operator Seeded HQ",
+    });
+
+    assert.equal(
+      (
+        await asUser.mutation(api.profileConnections.claimCommunityWithVerifiedGuild, {
+          profileSlug: "operator-seeded",
+          guildId: "424242",
+        })
+      ).claimState,
+      "claimed_verified",
+    );
+  });
+
   it("refuses a second claimant even with their own verified guild", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();

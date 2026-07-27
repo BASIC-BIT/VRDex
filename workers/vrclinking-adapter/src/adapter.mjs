@@ -82,9 +82,16 @@ export async function verifyLinkage({ request, resolveSecret, getGuildMemberByDi
     try {
       member = await getGuildMemberByDiscordId(delegation.guildId, request.discordUserId, token);
     } catch (error) {
-      failures.push(
-        error instanceof VrclinkingProviderError ? error.reason : "provider_error",
-      );
+      const reason = error instanceof VrclinkingProviderError ? error.reason : "provider_error";
+
+      // A rejected token is stale by definition. Leaving it cached makes a key
+      // rotation take the full cache TTL to take effect, and every attempt in
+      // that window burns the claimant's cooldown for nothing.
+      if (reason === "credential_rejected") {
+        resolveSecret.invalidate?.(delegation.secretRef);
+      }
+
+      failures.push(reason);
       continue;
     }
 

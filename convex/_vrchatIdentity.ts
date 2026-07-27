@@ -19,5 +19,10 @@ export function normalizeVrchatTargetId(
   }
 
   const pattern = targetType === "vrchat_user" ? VRCHAT_USER_ID_PATTERN : VRCHAT_GROUP_ID_PATTERN;
-  return pattern.test(candidate) ? candidate : null;
+
+  // Lower-cased, not just validated. The patterns accept either case but every
+  // consumer compares `assetExternalId` as an exact string, so returning the
+  // input verbatim let `USR_1a2b…` and `usr_1a2b…` become two proofs, two link
+  // rows, and two picker entries for one VRChat account.
+  return pattern.test(candidate) ? candidate.toLowerCase() : null;
 }

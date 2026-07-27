@@ -6,6 +6,7 @@ import {
   mirrorPrivateSeedLookupAccess,
   mirrorTemporalParsingAccess,
   sanitizeAnalyticsUrl,
+  sanitizePostHogEvent,
   sanitizePostHogProperties,
 } from "../../apps/web/src/lib/posthog";
 
@@ -46,6 +47,43 @@ describe("PostHog privacy", () => {
 
   it("keeps the replay masking selector aligned with the blocked claim region", () => {
     assert.equal(SESSION_REPLAY_MASKED_SELECTOR, "[data-ph-no-capture]");
+  });
+
+  // A replay recording carries its own copy of the page URL, in the rrweb meta
+  // record inside `$snapshot_data`. Blocking the DOM does not touch it, and
+  // posthog-js skips `sanitize_properties` entirely for `$snapshot` events —
+  // which is why redaction has to run from `before_send` and has to walk the
+  // snapshot payload. Without this a handoff token survives in the recording.
+  it("redacts the URL a replay recording carries with it", () => {
+    const event = sanitizePostHogEvent({
+      properties: {
+        $snapshot_data: [
+          { type: 4, data: { href: "https://vrdex.example/handoff/secret-token", width: 1280 } },
+          { type: 2, data: { node: { tagName: "div" } } },
+        ],
+      },
+    });
+    const meta = (event!.properties!.$snapshot_data as { data: { href?: string } }[])[0];
+
+    assert.equal(meta!.data.href, "https://vrdex.example/handoff/redacted");
+  });
+
+  // `save_campaign_params` stores the first page a person ever landed on as a
+  // `$set_once` person property. For a recipient who arrives via their handoff
+  // link, that is the live token, kept forever.
+  it("redacts the initial landing URL recorded as a person property", () => {
+    const event = sanitizePostHogEvent({
+      properties: {},
+      $set_once: {
+        $initial_current_url: "https://vrdex.example/handoff/secret-token",
+        $initial_referrer: "https://vrdex.example/claim/private-profile",
+      },
+    });
+
+    assert.deepEqual(event!.$set_once, {
+      $initial_current_url: "https://vrdex.example/handoff/redacted",
+      $initial_referrer: "https://vrdex.example/claim/redacted",
+    });
   });
 
   it("mirrors lookup grants into persisted and immediate flag properties", () => {

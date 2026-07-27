@@ -144,7 +144,8 @@ Constraints enforced in `vrclinkingCredentials.ts`:
   adapter resolves whatever it is given through its own IAM role, so accepting
   arbitrary well-formed names would let the owner of one guild register another
   tenant's reference and have VRDex spend that tenant's key;
-- `secretRef` is returned by exactly one internal query, consumed by the action
+- `secretRef` is returned by exactly one internal query (`getAdapterContext`),
+  consumed by the action
   that calls the adapter, and never by a client-facing query;
 - every consultation stamps `lastConsultedAt`, and a consultation that produced
   the match additionally stamps `lastUsedAt` and a short result summary. Both are
@@ -183,8 +184,11 @@ something outside the codebase:
 
 1. **Deploying the adapter.** It needs somewhere to run with either the Secrets
    Manager task-role policy or a mounted secret directory, and
-   `VRCLINKING_PROOF_ADAPTER_URL` in Convex pointed at it. Its README documents
-   the configuration and a local run.
+   `VRCLINKING_PROOF_ADAPTER_URL` in Convex pointed at it.
+   `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN` must be set to the same value on both
+   sides — the adapter refuses to start without it and Convex refuses to call
+   an adapter without it. Its README documents the configuration and a local
+   run.
 2. **Putting a real key in the secret store** and recording its reference
    against a community.
 3. **Talking to VRCLinking** about third-party server-to-server use, which has

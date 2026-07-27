@@ -261,10 +261,41 @@ export function ClaimFlow({
     try {
       const result = await verifyVrchat({ attemptId });
       if ("claimState" in result) {
-        setStatus({ kind: "complete", message: "Ownership verified. This profile is now yours.", verified: true });
+        // Proving control of the target does not by itself establish that the
+        // target is the one this listing represents, so report the state the
+        // claim actually reached.
+        const verified = result.claimState === "claimed_verified";
+        setStatus({
+          kind: "complete",
+          message: verified
+            ? "Ownership verified. This profile is now yours."
+            : "Ownership confirmed, and this profile is now yours. It is not marked verified yet, because this account or group was not already on record for the listing.",
+          verified,
+        });
         captureProductEvent(posthog, "claim_completed", {
           method: "vrchat",
-          outcome: "claimed_verified",
+          outcome: verified ? "claimed_verified" : "claimed_unverified",
+          profile_type: profile.profileType,
+        });
+      } else if (result.state === "verified") {
+        // The collector fleet resolves attempts on its own schedule, so it may
+        // have landed the verdict between render and this click. Reporting the
+        // stale "we could not find the code yet" for an attempt that already
+        // succeeded told users their completed claim had failed.
+        setStatus({
+          kind: "complete",
+          message: "Ownership confirmed. This profile is now yours.",
+          verified: true,
+        });
+      } else if (result.state === "failed") {
+        setStatus({
+          kind: "error",
+          message:
+            "This verification attempt was rejected. Start again to get a new code.",
+        });
+        captureProductEvent(posthog, "claim_failed", {
+          method: "vrchat",
+          outcome: "not_verified",
           profile_type: profile.profileType,
         });
       } else {

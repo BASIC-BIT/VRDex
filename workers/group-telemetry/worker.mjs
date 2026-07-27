@@ -37,8 +37,22 @@ const attempts = new Map();
 let stopping = false;
 let controlFailures = 0;
 
-process.on("SIGTERM", () => { stopping = true; });
-process.on("SIGINT", () => { stopping = true; });
+// A rate-limit backoff can park the loop for minutes, and ECS SIGKILLs 30s
+// after SIGTERM by default. Without a signal the flag is not read again until
+// the sleep returns, so the process dies mid-sleep instead of draining.
+const shutdownSignal = new AbortController();
+const stop = () => { stopping = true; shutdownSignal.abort(); };
+process.on("SIGTERM", stop);
+process.on("SIGINT", stop);
+
+/** `sleep` that returns early on shutdown rather than throwing. */
+async function pause(ms) {
+  try {
+    await sleep(ms, undefined, { signal: shutdownSignal.signal });
+  } catch {
+    // Aborted by shutdown; the caller re-checks `stopping`.
+  }
+}
 
 async function collect(assignment) {
   const lease = { integrationId: assignment.integrationId, fencingToken: assignment.fencingToken };
@@ -147,7 +161,13 @@ async function checkProofs() {
   const { attempts: pending = [] } = await control.send("proof_claim", { limit: 5, now: claimNow });
 
   for (const attempt of pending) {
-    if (stopping) break;
+    if (stopping) {
+      // The only exit that used to skip this. The claim stamped the whole
+      // batch, so a SIGTERM mid-batch parked every attempt behind it for the
+      // full cooldown — multiplied across replicas on a rolling deploy.
+      await releaseUnread(pending, attempt);
+      break;
+    }
     const now = Date.now();
 
     if (!accountBudget.tryConsume(1, now)) {
@@ -209,7 +229,7 @@ async function checkProofs() {
         // it already cost a provider request, and its cooldown is the only thing
         // stopping another replica from immediately retrying into the throttle.
         await releaseUnread(pending, attempt, false);
-        await sleep(Math.min(Math.max(error.retryAfterMs ?? 60_000, 1_000), 5 * 60_000));
+        await pause(Math.min(Math.max(error.retryAfterMs ?? 60_000, 1_000), 5 * 60_000));
         break;
       }
 
@@ -231,9 +251,9 @@ while (!stopping) {
       await collect(assignment);
     }
     const proofCount = stopping ? 0 : await checkProofs();
-    await sleep(assignments.length > 0 || proofCount > 0 ? 1_000 : 10_000);
+    await pause(assignments.length > 0 || proofCount > 0 ? 1_000 : 10_000);
   } catch {
     controlFailures += 1;
-    await sleep(retryDelayMs(controlFailures));
+    await pause(retryDelayMs(controlFailures));
   }
 }
