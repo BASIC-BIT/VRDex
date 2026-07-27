@@ -23,8 +23,21 @@ Run read-only membership inspection first with `pnpm proof:group-telemetry`. On 
 ## Account bootstrap
 
 1. Create a dedicated VRDex-owned VRChat account and enable the provider-required account protections.
-2. Keep hosted bootstrap blocked until explicit provider approval and a reviewed secret-transfer command exist. That future command must generate at least 32 random bytes for `workerApiKey`, register its lowercase 64-character SHA-256 hex digest, read the validated alias-scoped session from the operating-system vault, and update only `workerApiKey`, `authCookie`, and optional `twoFactorAuthCookie` in the account's AWS Secrets Manager secret without displaying them.
-3. No vault-to-AWS transfer command ships in this slice. Do not manually extract cookies, store the password or TOTP seed, or enable the service to work around that missing gate.
+2. The provider-approval half of this gate was cleared by BASIC on 2026-07-27:
+   durable VRChat service-account sessions are accepted as a known, acceptable
+   operating pattern for VRDex-owned proof accounts. This is a product-owner
+   risk decision, not a statement that VRChat has granted VRDex anything, so the
+   stop condition in `docs/planning/community-group-telemetry.md` still stands —
+   if VRChat objects, stop proof traffic and clear the saved session.
+3. Hosted bootstrap remains blocked on the *second* half of the gate: a reviewed
+   vault-to-AWS secret-transfer command, which does not ship yet. That command
+   must generate at least 32 random bytes for `workerApiKey`, register its
+   lowercase 64-character SHA-256 hex digest, read the validated alias-scoped
+   session from the operating-system vault, and update only `workerApiKey`,
+   `authCookie`, and optional `twoFactorAuthCookie` in the account's AWS Secrets
+   Manager secret without displaying them. Until it exists, do not manually
+   extract cookies, store the password or TOTP seed, or enable the service to
+   work around it.
 4. SHA-256 hash the worker key locally. Register the account through the internal `communityTelemetry.registerCollectorAccount` mutation using only the hash, secret ARN, capacity, reserved headroom, and request budget.
 5. Build `workers/group-telemetry/Dockerfile`, push the image, and configure `container_image` with its immutable `@sha256:` digest URI. Terraform rejects service enablement when that digest is absent.
 6. Apply with `enable_service=false` and `desired_count=0`. Review the task role, execution role, one-secret scope, SSM deployment gate, logs, alarms, budget, and egress-only networking.

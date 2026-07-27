@@ -168,9 +168,8 @@ differently does not need a migration.
 
 ## Remaining work
 
-The adapter service is built at
-[`workers/vrclinking-adapter`](../../workers/vrclinking-adapter/README.md), and
-delegation is manageable from `/account/connections`. What is left needs
+The adapter service is built at `workers/vrclinking-adapter` (see its README),
+and delegation is manageable from `/account/connections`. What is left needs
 something outside the codebase:
 
 1. **Deploying the adapter.** It needs somewhere to run with either the Secrets

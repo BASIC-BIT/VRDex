@@ -83,7 +83,7 @@ This runs on the existing collector fleet and therefore inherits its gates:
 
 The collector is deliberately disabled pending VRChat's approval of durable
 service-account sessions — see
-[`workers/group-telemetry/README.md`](../../workers/group-telemetry/README.md).
+`workers/group-telemetry/README.md`.
 Enabling proof reading means enabling real VRChat API access, so treat it as the
 same decision.
 
