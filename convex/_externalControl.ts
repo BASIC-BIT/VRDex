@@ -326,14 +326,25 @@ export async function linkProfileToAsset(
   const siblings = await getActiveProfileLinks(db, options.profileId, options.assetType);
   // A removed link is reused, not superseded, so re-attaching an asset restores
   // the row — and with it whoever originally put the association on record.
+  const active = await findLink(
+    db,
+    options.profileId,
+    options.assetType,
+    options.assetExternalId,
+  );
   const existing =
-    (await findLink(db, options.profileId, options.assetType, options.assetExternalId)) ??
+    active ??
     (await findRemovedLink(db, options.profileId, options.assetType, options.assetExternalId));
   // Re-linking an asset that is already attached must not change its role.
   // `siblings` includes the existing row, so defaulting on count alone demoted
   // an incumbent primary to secondary and left the profile with none.
+  //
+  // A resurrected row inherits nothing: `removeProfileLink` leaves its stale
+  // `linkRole` in place and already promoted a replacement, so honouring it
+  // would silently take `primary` back from whichever link the owner attached
+  // in the meantime. Re-attaching is a fresh attach that happens to reuse a row.
   const requested: ProfileExternalLinkRole =
-    options.linkRole ?? existing?.linkRole ?? (siblings.length === 0 ? "primary" : "secondary");
+    options.linkRole ?? active?.linkRole ?? (siblings.length === 0 ? "primary" : "secondary");
   // An explicit `secondary` — which `addVerifiedConnection` takes straight from
   // the client — must not be able to leave the type with no primary at all,
   // whether by being the only link or by demoting the incumbent. Removal
@@ -365,11 +376,21 @@ export async function linkProfileToAsset(
         : {}),
       // `linkedByUserId` records who put this association on record, and the
       // verified claim paths read it to tell independent corroboration from a
-      // claimant's own assertion. An operator write (no id) clears it and wins;
-      // a claimant re-linking an asset never overwrites what is already there,
-      // or re-running their own claim would launder an operator record into
-      // their own and destroy the corroboration it exists to provide.
-      ...(options.linkedByUserId === undefined ? { linkedByUserId: undefined } : {}),
+      // claimant's own assertion.
+      //
+      // - An operator write (no id) clears it and wins.
+      // - A claimant re-linking a still-active row never overwrites it, or
+      //   re-running their own claim would launder an operator record into
+      //   their own and destroy the corroboration it provides.
+      // - Resurrecting a *removed* row re-attributes it to whoever is attaching
+      //   it now, unless an operator recorded it. Keeping a previous user's id
+      //   there would hand the new linker corroboration they did not earn, from
+      //   a row they resurrected themselves.
+      ...(options.linkedByUserId === undefined
+        ? { linkedByUserId: undefined }
+        : active === null && existing.linkedByUserId !== undefined
+          ? { linkedByUserId: options.linkedByUserId }
+          : {}),
       updatedAt: options.now,
     });
 

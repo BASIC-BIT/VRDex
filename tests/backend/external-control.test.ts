@@ -192,6 +192,93 @@ describe("profile external links", () => {
     });
   });
 
+  // Re-attaching reuses the removed row so an operator-recorded association
+  // survives a remove/re-add, but the row must not bring its stale role or its
+  // stale attribution back with it.
+  it("reuses a removed link without restoring its role or its linker", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+
+    await t.run(async (ctx) => {
+      const owner = await ctx.db.insert("users", {
+        email: "resurrect-owner@example.test",
+        emailVerificationTime: now,
+      });
+      const other = await ctx.db.insert("users", {
+        email: "resurrect-other@example.test",
+        emailVerificationTime: now,
+      });
+      const profileId = await seedCommunity(ctx as never, "link-resurrect", now);
+
+      await linkProfileToAsset(ctx.db, {
+        profileId,
+        assetType: "discord_guild",
+        assetExternalId: "111",
+        linkedByUserId: owner,
+        now,
+      });
+      await removeProfileLink(ctx.db, profileId, "discord_guild", "111", now + 1);
+      await linkProfileToAsset(ctx.db, {
+        profileId,
+        assetType: "discord_guild",
+        assetExternalId: "222",
+        linkedByUserId: owner,
+        now: now + 2,
+      });
+
+      // 111 comes back. It was primary before removal, but 222 holds that now.
+      await linkProfileToAsset(ctx.db, {
+        profileId,
+        assetType: "discord_guild",
+        assetExternalId: "111",
+        linkedByUserId: other,
+        now: now + 3,
+      });
+
+      const links = await getActiveProfileLinks(ctx.db, profileId, "discord_guild");
+      assert.equal(links.length, 2);
+      assert.equal(links.find((l) => l.assetExternalId === "222")?.linkRole, "primary");
+      assert.equal(links.find((l) => l.assetExternalId === "111")?.linkRole, "secondary");
+      // Re-attributed to whoever attached it, so resurrecting a row cannot hand
+      // the new linker corroboration they did not earn.
+      assert.equal(links.find((l) => l.assetExternalId === "111")?.linkedByUserId, other);
+    });
+  });
+
+  // An operator record has no linker, and must survive a remove/re-add — that
+  // is the whole reason re-attaching reuses the row.
+  it("keeps an operator-recorded association through a remove and re-add", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+
+    await t.run(async (ctx) => {
+      const owner = await ctx.db.insert("users", {
+        email: "operator-survives@example.test",
+        emailVerificationTime: now,
+      });
+      const profileId = await seedCommunity(ctx as never, "link-operator-survives", now);
+
+      await linkProfileToAsset(ctx.db, {
+        profileId,
+        assetType: "discord_guild",
+        assetExternalId: "333",
+        now,
+      });
+      await removeProfileLink(ctx.db, profileId, "discord_guild", "333", now + 1);
+      await linkProfileToAsset(ctx.db, {
+        profileId,
+        assetType: "discord_guild",
+        assetExternalId: "333",
+        linkedByUserId: owner,
+        now: now + 2,
+      });
+
+      const links = await getActiveProfileLinks(ctx.db, profileId, "discord_guild");
+      assert.equal(links.length, 1);
+      assert.equal(links[0]?.linkedByUserId, undefined);
+    });
+  });
+
   it("promotes a remaining link when the primary is removed", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();

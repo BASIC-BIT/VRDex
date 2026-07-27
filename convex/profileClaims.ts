@@ -147,12 +147,6 @@ type ProofAdapterResponse = {
   matchedGuildId?: string;
   /** Index into the delegations sent; unambiguous when guilds repeat. */
   matchedDelegationIndex?: number;
-  /**
-   * Set when the adapter could not consult anything — every delegated
-   * credential failed to resolve or was rejected. Distinct from a real negative,
-   * and the adapter goes out of its way to signal it.
-   */
-  unavailable?: boolean;
 };
 
 function optionalEnv(name: string): string | undefined {
@@ -1355,19 +1349,16 @@ export const verifyVrchatProofViaAdapter = action({
       return { state: "expired" as const };
     }
 
+    // Covers the adapter's "could not consult anything" case too: it maps that
+    // to a 503 rather than a 200 body flag, precisely so "we could not ask
+    // anyone" never reaches the claimant as "we asked and the code was not
+    // there". Do not add a body-level `unavailable` check here without also
+    // making the adapter emit one — it does not.
     if (!response.ok) {
       return { state: "unavailable" as const };
     }
 
     const result = (await response.json()) as ProofAdapterResponse;
-
-    // "We could not ask anyone" is not "we asked and the answer is no". Reading
-    // the first as the second told a claimant to go check where they put a proof
-    // code, when the real problem was a community's expired delegated key and
-    // nothing they could do would change the outcome.
-    if (result.unavailable === true) {
-      return { state: "unavailable" as const };
-    }
 
     if (result.verified !== true) {
       return { state: "pending" as const };

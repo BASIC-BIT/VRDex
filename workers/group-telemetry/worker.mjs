@@ -158,7 +158,11 @@ async function checkProofs() {
   const claimNow = Date.now();
   if (accountBudget.retryAfterMs(1, claimNow) > 0) return 0;
 
-  const { attempts: pending = [] } = await control.send("proof_claim", { limit: 5, now: claimNow });
+  const { attempts: pending = [] } = await control.send(
+    "proof_claim",
+    { limit: 5, now: claimNow },
+    { requirePayload: true },
+  );
 
   for (const attempt of pending) {
     if (stopping) {
@@ -249,7 +253,11 @@ async function checkProofs() {
 
 while (!stopping) {
   try {
-    const { assignments = [] } = await control.send("claim", { limit: 10, now: Date.now() });
+    const { assignments = [] } = await control.send(
+      "claim",
+      { limit: 10, now: Date.now() },
+      { requirePayload: true },
+    );
     controlFailures = 0;
     for (const assignment of assignments) {
       if (stopping) break;

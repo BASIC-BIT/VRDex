@@ -64,7 +64,7 @@ export class TelemetryControlClient {
   // path, where an unbounded fetch against a wedged control plane outlasts the
   // orchestrator's SIGKILL grace period and strands the work the call was
   // trying to hand back.
-  async send(operation, body = {}, { timeoutMs = 15_000 } = {}) {
+  async send(operation, body = {}, { timeoutMs = 15_000, requirePayload = false } = {}) {
     const response = await this.fetcher(this.endpoint, {
       method: "POST",
       headers: { authorization: `Bearer ${this.workerApiKey}`, "content-type": "application/json", "x-vrdex-collector-account": this.collectorAccountId },
@@ -82,12 +82,20 @@ export class TelemetryControlClient {
     }
 
     if (!response.ok) throw new Error(`Control plane ${response.status}: ${payload.error ?? "request_failed"}`);
-    // A body that could not be read is not an empty result. Swallowing it made
+    // A body that could not be read is not an empty result — but only where the
+    // caller needs the payload. For `claim` and `proof_claim`, swallowing it made
     // an aborted read indistinguishable from "no work available", so a batch the
-    // control plane had already stamped was dropped on the floor and sat out its
-    // whole cooldown with nobody looking at it. The deadline above makes that a
-    // reachable path rather than a theoretical one.
-    if (unreadable) throw new Error(`Control plane ${response.status}: response_unreadable`);
+    // control plane had already stamped sat out its whole cooldown with nobody
+    // looking at it.
+    //
+    // Write-only operations are the opposite: a 2xx whose body was truncated
+    // means the mutation committed. Throwing there routes a succeeded poll into
+    // `failureDisposition`, which reports a provider failure, increments
+    // `consecutiveFailures`, and marks coverage degraded — blaming VRChat for a
+    // control-plane transport fault.
+    if (unreadable && requirePayload) {
+      throw new Error(`Control plane ${response.status}: response_unreadable`);
+    }
 
     return payload;
   }
