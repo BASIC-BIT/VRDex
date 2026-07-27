@@ -6,7 +6,7 @@ test.beforeEach(async ({ page }) => {
   await prepareVisualPage(page);
 });
 
-test("owner media-kit editor @visual", async ({ page }, testInfo) => {
+test("owner media-kit editor @visual @fixture", async ({ page }, testInfo) => {
   await page.goto("/account/media-kit");
   await expect(page.getByRole("heading", { name: "Media kit", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Public gallery" })).toBeVisible();
@@ -19,7 +19,7 @@ test("owner media-kit editor @visual", async ({ page }, testInfo) => {
   await captureRouteScreenshot(page, testInfo, "media-kit-editor");
 });
 
-test("owner upload failure stays beside the publish control", async ({ page }) => {
+test("owner upload failure stays beside the publish control @fixture", async ({ page }) => {
   await page.goto("/account/media-kit");
   await page.getByLabel("Add image").setInputFiles({
     name: "synthetic.png",
@@ -37,7 +37,7 @@ test("owner upload failure stays beside the publish control", async ({ page }) =
   );
 });
 
-test("owner profile switch clears an unsubmitted upload", async ({ page }) => {
+test("owner profile switch clears an unsubmitted upload @fixture", async ({ page }) => {
   await page.goto("/account/media-kit");
   await page.getByLabel("Add image").setInputFiles({
     name: "synthetic.png",
@@ -52,7 +52,7 @@ test("owner profile switch clears an unsubmitted upload", async ({ page }) => {
   await expect(page.getByText("synthetic.png", { exact: true })).toHaveCount(0);
 });
 
-test("removed profile cannot inherit a staged upload", async ({ page }) => {
+test("removed profile cannot inherit a staged upload @fixture", async ({ page }) => {
   await page.goto("/account/media-kit");
   await page.getByLabel("Add image").setInputFiles({
     name: "transfer.png",
@@ -96,7 +96,7 @@ test("removed profile cannot inherit a staged upload", async ({ page }) => {
   await expect(page.getByText("last-profile.png", { exact: true })).toHaveCount(0);
 });
 
-test("owner profile switch stays locked during upload", async ({ page }) => {
+test("owner profile switch stays locked during upload @fixture", async ({ page }) => {
   await page.goto("/account/media-kit");
   await page.getByLabel("Add image").setInputFiles({
     name: "slow.png",
@@ -114,7 +114,7 @@ test("owner profile switch stays locked during upload", async ({ page }) => {
   await expect(page.getByLabel("Profile", { exact: true })).toHaveValue("demo-profile");
 });
 
-test("owner restore keeps status and focus in the active gallery", async ({ page }) => {
+test("owner restore keeps status and focus in the active gallery @fixture", async ({ page }) => {
   await page.goto("/account/media-kit");
   await page.getByRole("button", { name: "Restore" }).click();
 
@@ -122,7 +122,7 @@ test("owner restore keeps status and focus in the active gallery", async ({ page
   await expect(page.locator("#active-aurora-removed")).toBeFocused();
 });
 
-test("owner preview failure can retry", async ({ page }) => {
+test("owner preview failure can retry @fixture", async ({ page }) => {
   await page.goto("/account/media-kit");
 
   const preview = page.getByRole("img", {
@@ -139,7 +139,7 @@ test("owner preview failure can retry", async ({ page }) => {
   ).toBeVisible();
 });
 
-test("public profile media kit @visual", async ({ page }, testInfo) => {
+test("public profile media kit @visual @fixture", async ({ page }, testInfo) => {
   await page.goto("/p/playwright-dj-aurora");
   const mediaKit = page.getByRole("heading", { name: "Media kit" }).locator("xpath=ancestor::section");
   await expect(mediaKit.getByRole("heading", { name: "Profile image" })).toHaveCount(1);
