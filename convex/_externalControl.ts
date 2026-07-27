@@ -36,20 +36,55 @@ export function meetsControlLevel(
  */
 export const MINIMUM_COMMUNITY_CONTROL_LEVEL: ExternalControlLevel = "manager";
 
-export async function getActiveControlProof(
+async function listProofsForAsset(
   db: DatabaseReader,
   userId: Id<"users">,
   assetType: ExternalAssetType,
   assetExternalId: string,
 ) {
-  const proofs = await db
+  return await db
     .query("externalControlProofs")
     .withIndex("by_userId_assetType_assetExternalId", (q) =>
       q.eq("userId", userId).eq("assetType", assetType).eq("assetExternalId", assetExternalId),
     )
     .collect();
+}
 
-  return proofs.find((proof) => proof.state === "active") ?? null;
+/**
+ * The strongest usable proof this user holds over one asset.
+ *
+ * One user may hold several — a guild manageable through two Discord logins
+ * gets one row per identity, so that losing access on one does not revoke the
+ * other. Callers only ever ask "may they act on this asset", so pick the row
+ * that answers best: still inside its window first, then the higher control
+ * level, then the more recent evidence.
+ */
+export async function getActiveControlProof(
+  db: DatabaseReader,
+  userId: Id<"users">,
+  assetType: ExternalAssetType,
+  assetExternalId: string,
+  now: number = Date.now(),
+) {
+  const active = (await listProofsForAsset(db, userId, assetType, assetExternalId)).filter(
+    (proof) => proof.state === "active",
+  );
+
+  return (
+    active.sort((left, right) => {
+      const leftLive = left.revalidateAfter === undefined || left.revalidateAfter > now;
+      const rightLive = right.revalidateAfter === undefined || right.revalidateAfter > now;
+
+      if (leftLive !== rightLive) {
+        return leftLive ? -1 : 1;
+      }
+
+      const rank =
+        externalControlLevelRank(right.controlLevel) - externalControlLevelRank(left.controlLevel);
+
+      return rank !== 0 ? rank : right.verifiedAt - left.verifiedAt;
+    })[0] ?? null
+  );
 }
 
 export async function listActiveControlProofsForUser(db: DatabaseReader, userId: Id<"users">) {
@@ -73,25 +108,61 @@ type RecordControlProofOptions = {
 };
 
 /**
- * Upsert the caller's proof of control over one external asset. Re-verifying
- * refreshes the existing row rather than accumulating duplicates, so
- * `by_userId_assetType_assetExternalId` stays effectively unique per user.
+ * Upsert the caller's proof of control over one external asset.
+ *
+ * Identity is (user, asset, evidence subject), not (user, asset): a guild the
+ * same person manages through two Discord logins earns one row per login, so
+ * reconciling one identity cannot revoke what the other proved.
+ *
+ * Matching ignores state deliberately. A revoked or stale row is refreshed in
+ * place rather than superseded, because `profileExternalLinks` reference proofs
+ * by id — inserting a replacement would leave every existing link pointing at
+ * the dead row and reporting a re-verified connection as unverified forever.
+ * A row that predates `evidenceSubjectId` is adopted by the first identity to
+ * re-verify it, for the same reason.
  */
+async function findProofToRefresh(
+  db: DatabaseReader,
+  options: RecordControlProofOptions,
+) {
+  const candidates = await listProofsForAsset(
+    db,
+    options.userId,
+    options.assetType,
+    options.assetExternalId,
+  );
+  const preferActive = <T extends { state: string; updatedAt: number }>(rows: T[]) =>
+    rows.sort((left, right) => {
+      if ((left.state === "active") !== (right.state === "active")) {
+        return left.state === "active" ? -1 : 1;
+      }
+
+      return right.updatedAt - left.updatedAt;
+    })[0] ?? null;
+
+  return (
+    preferActive(
+      candidates.filter((proof) => proof.evidenceSubjectId === options.evidenceSubjectId),
+    ) ??
+    preferActive(candidates.filter((proof) => proof.evidenceSubjectId === undefined))
+  );
+}
+
 export async function recordExternalControlProof(
   db: DatabaseWriter,
   options: RecordControlProofOptions,
 ): Promise<Id<"externalControlProofs">> {
   const revalidateAfter =
     options.now + (options.revalidateAfterMs ?? CONTROL_PROOF_REVALIDATE_MS);
-  const existing = await getActiveControlProof(
-    db,
-    options.userId,
-    options.assetType,
-    options.assetExternalId,
-  );
+  const existing = await findProofToRefresh(db, options);
 
   if (existing !== null) {
     await db.patch(existing._id, {
+      // Re-verification restores a row the sweeper marked stale or reconciliation
+      // revoked; that is the whole point of re-verifying.
+      state: "active",
+      revokedAt: undefined,
+      revokedReason: undefined,
       controlLevel: options.controlLevel,
       evidenceSource: options.evidenceSource,
       ...(options.assetDisplayName !== undefined

@@ -9,7 +9,6 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Field, FieldText, Input, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { claimErrorMessage } from "@/lib/claim-errors";
-import { cn } from "@/lib/cn";
 
 type AssetType = "discord_guild" | "vrchat_group" | "vrchat_user";
 
@@ -225,9 +224,19 @@ export function ConnectionsPanel({ initialProfileSlug }: { initialProfileSlug?: 
               Only servers and groups you have proved you control can be connected. Verify more
               Discord servers, or complete a VRChat proof from the profile&apos;s claim page.
             </p>
-            <Link className={cn(buttonVariants({ variant: "primary" }), "mt-4")} href={verifyHref}>
-              Verify Discord servers
-            </Link>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Link className={buttonVariants({ variant: "primary" })} href={verifyHref}>
+                Verify Discord servers
+              </Link>
+              {activeSlug ? (
+                <Link
+                  className={buttonVariants({ variant: "secondary" })}
+                  href={`/claim/${activeSlug}`}
+                >
+                  Start a VRChat proof
+                </Link>
+              ) : null}
+            </div>
           </Notice>
         ) : (
           <form className="mt-4" onSubmit={submitAdd}>

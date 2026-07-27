@@ -960,7 +960,10 @@ export const startVrchatProof = mutation({
         (attempt) => attempt.targetType === args.targetType && attempt.expiresAt > now,
       ).length >= MAX_OPEN_PROOF_ATTEMPTS
     ) {
-      throw claimError("PROOF_NOT_PENDING", "too_many_open_proof_attempts");
+      // Its own code, not `PROOF_NOT_PENDING`: nothing was created and nothing
+      // was resolved, and the outstanding attempts may well be on other
+      // profiles, so the copy has to point somewhere the claimant can act.
+      throw claimError("TOO_MANY_OPEN_PROOFS", args.targetType);
     }
 
     const attemptId = await ctx.db.insert("profileVerificationAttempts", {
@@ -1215,12 +1218,14 @@ export const verifyVrchatProofViaAdapter = action({
         : null;
 
     if (delegationContext !== null) {
-      // Rotation position for every row this selection touched, stamped before
-      // the fetch rather than after it. Skipped rows must advance or they pin
-      // the head of the index forever, and a throwing fetch must not leave the
-      // consulted ones unstamped either. The audit stamp is applied further
-      // below, only to the delegation that actually answered.
-      await ctx.runMutation(internal.vrclinkingCredentials.recordCredentialConsultations, {
+      // Advance the selection cursor for every row this pass looked at, before
+      // anything can short-circuit. Skipped rows must advance or they pin the
+      // head of the index forever, and a denied cooldown or a throwing fetch
+      // must not leave the selected ones unstamped either. This is rotation
+      // only — the operator-visible "was queried" stamp happens once a provider
+      // call is actually going out, and the audit stamp only for the delegation
+      // that answered.
+      await ctx.runMutation(internal.vrclinkingCredentials.recordCredentialRotation, {
         credentialIds: [
           ...delegationContext.delegations.map((delegation) => delegation.credentialId),
           ...delegationContext.skippedCredentialIds,
@@ -1252,6 +1257,18 @@ export const verifyVrchatProofViaAdapter = action({
       if (!reservation.granted) {
         return { state: "pending" as const };
       }
+    }
+
+    if (delegationContext !== null) {
+      // Past the cooldown gate, so these references really are going out. This
+      // is the stamp an operator sees, which is why it is here and not with the
+      // rotation cursor above: a key denied by the cooldown, or skipped as
+      // ineligible, was never sent anywhere and must not report otherwise.
+      await ctx.runMutation(internal.vrclinkingCredentials.recordCredentialConsultations, {
+        credentialIds: delegationContext.delegations.map(
+          (delegation) => delegation.credentialId,
+        ),
+      });
     }
 
     const response = await fetch(adapterUrl, {

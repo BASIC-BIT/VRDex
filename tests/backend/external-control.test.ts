@@ -502,6 +502,69 @@ describe("Discord guild proof reconciliation", () => {
     });
   });
 
+  // Proofs are keyed by evidence subject, not just by user and asset. Sharing a
+  // row across two Discord logins meant the second overwrote the first, and then
+  // the second's reconciliation revoked the only row even though the first login
+  // still controlled the guild.
+  it("keeps a separate proof per Discord identity for the same guild", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        email: "shared-guild@example.test",
+        emailVerificationTime: now,
+      });
+
+      return {
+        userId,
+        identity: {
+          subject: `${userId}|web-session`,
+          issuer: "test",
+          tokenIdentifier: `test|${userId}`,
+        },
+      };
+    });
+    const asUser = t.withIdentity(seeded.identity);
+
+    for (const discordUserId of ["discord-subject-a", "discord-subject-b"]) {
+      await asUser.mutation(internal.discordVerification.recordGuildControlProofs, {
+        discordUserId,
+        guilds: [{ id: "999", name: "Shared Server", controlLevel: "administrator" }],
+      });
+    }
+
+    // B loses access. A still runs the server, so the guild must stay proved.
+    await asUser.mutation(internal.discordVerification.recordGuildControlProofs, {
+      discordUserId: "discord-subject-b",
+      guilds: [],
+    });
+
+    await t.run(async (ctx) => {
+      const rows = await ctx.db
+        .query("externalControlProofs")
+        .withIndex("by_userId_assetType_assetExternalId", (q) =>
+          q.eq("userId", seeded.userId).eq("assetType", "discord_guild").eq("assetExternalId", "999"),
+        )
+        .collect();
+      assert.equal(rows.length, 2);
+      assert.deepEqual(
+        rows.filter((row) => row.state === "active").map((row) => row.evidenceSubjectId),
+        ["discord-subject-a"],
+      );
+      assert.notEqual(
+        await getActiveControlProof(ctx.db, seeded.userId, "discord_guild", "999"),
+        null,
+      );
+    });
+
+    // The picker shows servers, not evidence, so one guild is one entry.
+    const guilds = await asUser.query(api.discordVerification.getManageableGuilds, {});
+    assert.deepEqual(
+      guilds.map((guild) => guild.guildId),
+      ["999"],
+    );
+  });
+
   // One VRDex account may manage servers through more than one Discord login.
   // A result from the second login is only complete about the second login's
   // guilds, so it must not revoke what the first one proved.
@@ -658,7 +721,7 @@ describe("VRCLinking credential delegation", () => {
         t.withIdentity(seeded.identity).mutation(api.vrclinkingCredentials.registerCredential, {
           profileSlug: "delegation-unproved",
           guildId: "12345678901234567",
-          secretRef: "secret://vrdex/vrclinking/delegation-unproved",
+          secretRef: "secret://vrdex/vrclinking/12345678901234567",
         }),
       /CONTROL_NOT_VERIFIED/,
     );
@@ -685,10 +748,16 @@ describe("VRCLinking credential delegation", () => {
     });
 
     for (const secretRef of [
+      // Reference syntax is not authorization. The adapter resolves whatever it
+      // is handed through its own IAM role, so a name that is well-formed but
+      // belongs to another guild would have VRDex spend another tenant's key.
+      "secret://vrdex/vrclinking/99999999999999999",
+      "arn:aws:secretsmanager:us-east-1:123456789012:secret:vrdex/vrclinking/99999999999999999",
+      "secret://vrdex/group-telemetry/oak",
       // An overlong ARN used to pass validation and then be truncated on write,
       // so the adapter resolved a different reference and every verification
       // through the delegation was permanently unavailable.
-      `arn:aws:secretsmanager:us-east-1:1234:secret:${"o".repeat(600)}`,
+      `arn:aws:secretsmanager:us-east-1:123456789012:secret:vrdex/vrclinking/${guildId}${"o".repeat(600)}`,
       "SECRET://vrdex/group-telemetry/oak",
       "ARN:aws:secretsmanager:us-east-1:1234:secret:oak",
       // The adapter's local-name grammar allows only [A-Za-z0-9._/-] and
@@ -757,7 +826,8 @@ describe("VRCLinking credential delegation", () => {
     await asOwner.mutation(api.vrclinkingCredentials.registerCredential, {
       profileSlug: "delegation-ok",
       guildId,
-      secretRef: "arn:aws:secretsmanager:us-east-1:1234:secret:vrdex/vrclinking/ok",
+      secretRef:
+        "arn:aws:secretsmanager:us-east-1:123456789012:secret:vrdex/vrclinking/12345678901234567-AbC123",
     });
 
     const listed = await asOwner.query(api.vrclinkingCredentials.listCredentials, {
@@ -811,12 +881,12 @@ describe("VRCLinking credential delegation", () => {
     await t.withIdentity(lapsed.identity).mutation(api.vrclinkingCredentials.registerCredential, {
       profileSlug: "delegation-lapsed",
       guildId: lapsedGuild,
-      secretRef: "secret://vrdex/vrclinking/lapsed",
+      secretRef: "secret://vrdex/vrclinking/12345678901234567",
     });
     await t.withIdentity(live.identity).mutation(api.vrclinkingCredentials.registerCredential, {
       profileSlug: "delegation-live",
       guildId: liveGuild,
-      secretRef: "secret://vrdex/vrclinking/live",
+      secretRef: "secret://vrdex/vrclinking/22345678901234567",
     });
 
     const claimantId = await t.run(async (ctx) => {
@@ -1008,6 +1078,20 @@ describe("claiming a community with a verified guild", () => {
       assert.equal(connections?.connections.length, 1);
       assert.equal(connections?.connections[0]?.verified, false);
     }
+
+    // Re-verifying must refresh the row the link already points at. Inserting a
+    // replacement instead left every link referencing the dead row, so a
+    // successfully re-verified connection read as unverified forever.
+    await t.withIdentity(seeded.identity).mutation(
+      internal.discordVerification.recordGuildControlProofs,
+      { discordUserId: "discord-subject-a", guilds: [{ id: "888", controlLevel: "administrator" }] },
+    );
+
+    const afterReverify = await asUser.query(api.profileConnections.listProfileConnections, {
+      profileSlug: "lapsing-connection",
+    });
+    assert.equal(afterReverify?.connections.length, 1);
+    assert.equal(afterReverify?.connections[0]?.verified, true);
   });
 
   // The no-match creation path grants ownership without verification. Proving

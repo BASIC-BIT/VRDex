@@ -151,7 +151,13 @@ export function ClaimFlow({
     : "/account/appearance";
   const completionPath = ownerProfileDestinationPath(profile, appearancePath);
   const isUnverifiedViewer = context?.ownership === "viewer" && !context.verified;
-  const canUseClaimJourney = context?.ownership === "available" || isUnverifiedViewer;
+  // A verified owner still needs this journey: it is the only surface that
+  // creates a control proof, and `/account/connections` sends them here to make
+  // one for a second VRChat group or account. Excluding them left that
+  // instruction pointing at a page that rendered nothing but "already managed".
+  const isVerifiedViewer = context?.ownership === "viewer" && context.verified;
+  const canUseClaimJourney =
+    context?.ownership === "available" || isUnverifiedViewer || isVerifiedViewer;
   const method: ClaimMethod =
     selectedMethod ??
     (profile.profileType === "community" && context?.ownership === "available"
@@ -455,6 +461,15 @@ export function ClaimFlow({
             </p>
           </Notice>
         ) : null}
+        {isVerifiedViewer && status.kind !== "complete" ? (
+          <Notice className="mt-8">
+            <p className="font-semibold">Adding another connection?</p>
+            <p className="mt-1">
+              This profile is already verified. Proving control of another server, group, or account
+              below adds it to the list you can connect from your account page.
+            </p>
+          </Notice>
+        ) : null}
         {canUseClaimJourney && !context?.emailVerified ? (
           <Notice className="mt-8" variant="warning">
             Verify your email before claiming. This protects profile ownership and recovery.
@@ -477,7 +492,7 @@ export function ClaimFlow({
                   <Button disabled={status.kind === "working"} variant="ghost" onClick={() => void startOver("proof")}>Start over</Button>
                 </div>
               </div>
-            ) : context.pendingClaimRequest && !isUnverifiedViewer ? (
+            ) : context.pendingClaimRequest && !isUnverifiedViewer && !isVerifiedViewer ? (
               <div className="mt-8 rounded-card border border-border bg-surface p-5">
                 <h2 className="text-xl font-semibold">Finish your Discord check</h2>
                 <p className="mt-2 text-sm leading-6 text-muted">
@@ -495,17 +510,22 @@ export function ClaimFlow({
               <form className="mt-8" onSubmit={submit}>
                 <fieldset>
                   <legend className="text-xl font-semibold">
-                    {isUnverifiedViewer
-                      ? profile.profileType === "person"
-                        ? "Verify this profile with VRChat"
-                        : "Verify this community"
-                      : "Choose how to confirm ownership"}
+                    {isVerifiedViewer
+                      ? "Prove control of another server, group, or account"
+                      : isUnverifiedViewer
+                        ? profile.profileType === "person"
+                          ? "Verify this profile with VRChat"
+                          : "Verify this community"
+                        : "Choose how to confirm ownership"}
                   </legend>
                   {/* An unverified community owner (created through the no-match
                       path) can upgrade to verified by proving Discord server
-                      control, so both methods must stay reachable for them. */}
-                  <div className={cn("mt-4 grid gap-3", isUnverifiedViewer && profile.profileType === "person" ? undefined : "sm:grid-cols-2")}>
-                    {isUnverifiedViewer && profile.profileType === "person" ? (
+                      control, so both methods must stay reachable for them. A
+                      person profile only ever has the VRChat method to offer an
+                      existing owner — the Discord person claim would just report
+                      the ownership they already hold. */}
+                  <div className={cn("mt-4 grid gap-3", (isUnverifiedViewer || isVerifiedViewer) && profile.profileType === "person" ? undefined : "sm:grid-cols-2")}>
+                    {(isUnverifiedViewer || isVerifiedViewer) && profile.profileType === "person" ? (
                       vrchatMethodCard
                     ) : (
                       <>
@@ -514,7 +534,7 @@ export function ClaimFlow({
                       </>
                     )}
                   </div>
-                  {!isUnverifiedViewer && discordMethodBlocked ? (
+                  {!isUnverifiedViewer && !isVerifiedViewer && discordMethodBlocked ? (
                     <Link className="mt-3 inline-block text-sm underline underline-offset-4" href="/account">
                       Review sign-in methods
                     </Link>

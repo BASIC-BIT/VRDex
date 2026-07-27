@@ -137,6 +137,13 @@ Constraints enforced in `vrclinkingCredentials.ts`:
   can delegate a key for a server they do not control;
 - each delegation records the single `guildId` it is authorized for, so a key
   that could technically read other guilds is never used to;
+- the reference itself is bound to that guild: the only accepted values are
+  `secret://vrdex/vrclinking/<guildId>` or an
+  `arn:aws:secretsmanager:<region>:<account>:secret:vrdex/vrclinking/<guildId>`
+  (with the optional Secrets Manager suffix). Syntax is not authorization — the
+  adapter resolves whatever it is given through its own IAM role, so accepting
+  arbitrary well-formed names would let the owner of one guild register another
+  tenant's reference and have VRDex spend that tenant's key;
 - `secretRef` is returned by exactly one internal query, consumed by the action
   that calls the adapter, and never by a client-facing query;
 - every consultation stamps `lastConsultedAt`, and a consultation that produced

@@ -283,7 +283,9 @@ describe("open proof attempt cap", () => {
       await start(index);
     }
 
-    await assert.rejects(() => start(3), /too_many_open_proof_attempts/);
+    // Its own code, not `PROOF_NOT_PENDING`: nothing was created and nothing was
+    // resolved, so the copy has to say something the claimant can act on.
+    await assert.rejects(() => start(3), /TOO_MANY_OPEN_PROOFS/);
 
     // Re-requesting an attempt that already exists is a read, not new polling
     // work, so the cap must not lock a claimant out of their own proof code.

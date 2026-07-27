@@ -19,26 +19,45 @@ import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 // every resolution forever, with no operator-visible signal beyond a
 // permanently "unavailable" claim — so the two must agree on case, on the
 // allowed characters after `secret://`, and on rejecting traversal.
-const SECRET_REF_ARN_PATTERN = /^arn:aws:secretsmanager:[^\s]+$/;
-const SECRET_REF_LOCAL_PATTERN = /^secret:\/\/[A-Za-z0-9._/-]{1,200}$/;
 // Storage bound, enforced at validation rather than by truncating on write. A
 // silently shortened ARN still resolves — to something else, or to nothing — so
 // registration would succeed and every verification through that delegation
 // would then be permanently unavailable with no operator-visible cause.
 const SECRET_REF_MAX_LENGTH = 500;
+const DISCORD_GUILD_ID_PATTERN = /^\d{17,20}$/;
 
-function isSupportedSecretRef(value: string): boolean {
+/**
+ * The one secret name a delegation for `guildId` may point at.
+ *
+ * Reference syntax is not authorization. The adapter resolves whatever it is
+ * given through its own IAM role, so accepting any well-formed name let a
+ * verified owner of guild A register another tenant's guessable reference and
+ * have VRDex send that tenant's key to VRCLinking on their behalf — cross-tenant
+ * credential use, quota burn, and disclosure of any non-JSON secret the task
+ * role happens to read. Binding the name to the guild the caller has just proved
+ * control of removes the choice: the only reference they can register is the one
+ * an operator provisioned for their own server.
+ */
+function secretNameForGuild(guildId: string): string {
+  return `vrdex/vrclinking/${guildId}`;
+}
+
+function isSecretRefForGuild(value: string, guildId: string): boolean {
   if (value.length > SECRET_REF_MAX_LENGTH) {
     return false;
   }
 
-  if (SECRET_REF_ARN_PATTERN.test(value)) {
+  const name = secretNameForGuild(guildId);
+
+  if (value === `secret://${name}`) {
     return true;
   }
 
-  return SECRET_REF_LOCAL_PATTERN.test(value) && !value.includes("..");
+  // Secrets Manager appends a six-character suffix to the name in the ARN.
+  return new RegExp(
+    `^arn:aws:secretsmanager:[a-z0-9-]{1,32}:\\d{12}:secret:${name}(-[A-Za-z0-9]{6})?$`,
+  ).test(value);
 }
-const DISCORD_GUILD_ID_PATTERN = /^\d{17,20}$/;
 
 async function requireCommunityProfile(
   db: Parameters<typeof getProfileBySlug>[0],
@@ -103,10 +122,10 @@ export const registerCredential = mutation({
 
     const secretRef = args.secretRef.trim();
 
-    if (!isSupportedSecretRef(secretRef)) {
+    if (!isSecretRefForGuild(secretRef, guildId)) {
       throw claimError(
         "ADAPTER_NOT_CONFIGURED",
-        "vrclinking_credentials_require_secret_reference",
+        `vrclinking_credentials_require_secret_reference:${secretNameForGuild(guildId)}`,
       );
     }
 
@@ -255,10 +274,11 @@ export const getAdapterContext = internalQuery({
       return null;
     }
 
-    // Oldest-consulted first, so consultation rotates fairly across every
-    // delegation instead of pinning the same few. Selecting on `updatedAt`
-    // while also bumping it on use was self-reinforcing: past the cap, the
-    // delegations never consulted could never become eligible.
+    // Oldest-rotated first, so consultation rotates fairly across every
+    // delegation instead of pinning the same few. The cursor is its own field:
+    // selecting on `updatedAt` while also bumping it on use was
+    // self-reinforcing, and selecting on the operator-visible
+    // `lastConsultedAt` would have to stamp rows that were never queried.
     //
     // Membership is not knowable here — VRDex cannot tell which delegated
     // guilds a claimant belongs to without asking — so a claimant beyond the
@@ -266,7 +286,7 @@ export const getAdapterContext = internalQuery({
     // eventually does.
     const candidates = await ctx.db
       .query("communityVrclinkingCredentials")
-      .withIndex("by_state_lastConsultedAt", (q) => q.eq("state", "active"))
+      .withIndex("by_state_lastRotatedAt", (q) => q.eq("state", "active"))
       .take(MAX_ADAPTER_DELEGATIONS * 4);
 
     // A delegation is only as good as the delegator's current control of the
@@ -305,7 +325,7 @@ export const getAdapterContext = internalQuery({
         secretRef: row.secretRef,
       })),
       // Ineligible rows still have to advance in the rotation. They sort by
-      // `lastConsultedAt` like everything else, so leaving them unstamped pins
+      // `lastRotatedAt` like everything else, so leaving them unstamped pins
       // them permanently at the head of the index and, once there are more of
       // them than the scan window, no usable delegation is ever reached again.
       skippedCredentialIds: skipped,
@@ -314,7 +334,28 @@ export const getAdapterContext = internalQuery({
 });
 
 /**
- * Stamp rotation position for every delegation that was consulted.
+ * Advance the selection cursor for every row a selection pass considered.
+ *
+ * Rotation-only, and separate from the operator-visible record on purpose: a
+ * row is stamped here for having been looked at, which includes rows skipped as
+ * ineligible and rows selected for a request that the cooldown then denied.
+ * Neither was sent anywhere, so neither may claim to have been consulted.
+ */
+export const recordCredentialRotation = internalMutation({
+  args: { credentialIds: v.array(v.id("communityVrclinkingCredentials")) },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+
+    await Promise.all(
+      args.credentialIds.map((credentialId) =>
+        ctx.db.patch(credentialId, { lastRotatedAt: now }),
+      ),
+    );
+  },
+});
+
+/**
+ * Record that a delegation's reference was actually sent to the adapter.
  *
  * Deliberately does not touch `updatedAt`, `lastUsedAt`, or
  * `lastResultSummary`: being asked is not the same as having answered, and an
@@ -343,6 +384,7 @@ export const recordCredentialUse = internalMutation({
     const now = Date.now();
 
     await ctx.db.patch(args.credentialId, {
+      lastRotatedAt: now,
       lastConsultedAt: now,
       lastUsedAt: now,
       lastResultSummary: args.resultSummary.slice(0, 300),

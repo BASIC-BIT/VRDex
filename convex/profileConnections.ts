@@ -6,7 +6,9 @@ import { claimError } from "./_claimErrors";
 import { internalMutation, mutation, query } from "./_generated/server";
 import {
   type ExternalAssetType,
+  type ExternalControlLevel,
   MINIMUM_COMMUNITY_CONTROL_LEVEL,
+  externalControlLevelRank,
   getActiveControlProof,
   getActiveProfileLinks,
   getProfilesLinkedToAsset,
@@ -389,22 +391,42 @@ export const listAvailableConnections = query({
 
     const now = Date.now();
 
-    return proofs
-      .filter(
-        (proof) =>
-          assetTypeAllowedForProfile(proof.assetType, profile.profileType) &&
-          !attached.has(`${proof.assetType}:${proof.assetExternalId}`) &&
-          // Same expiry rule as requireControlProof: between a proof lapsing and
-          // the sweeper marking it stale, offering it here would produce an
-          // option that the attach then refuses.
-          (proof.revalidateAfter === undefined || proof.revalidateAfter > now),
-      )
-      .map((proof) => ({
-        assetType: proof.assetType,
-        assetExternalId: proof.assetExternalId,
-        assetDisplayName: proof.assetDisplayName,
-        controlLevel: proof.controlLevel,
-      }));
+    // One asset may have a proof per verifying identity, so key the offer by the
+    // asset and keep the strongest. Offering it twice would show the same server
+    // as two options that attach to the same link.
+    const offers = new Map<string, { assetType: string; assetExternalId: string; assetDisplayName?: string; controlLevel: ExternalControlLevel }>();
+
+    for (const proof of proofs) {
+      const key = `${proof.assetType}:${proof.assetExternalId}`;
+
+      if (
+        !assetTypeAllowedForProfile(proof.assetType, profile.profileType) ||
+        attached.has(key) ||
+        // Same expiry rule as requireControlProof: between a proof lapsing and
+        // the sweeper marking it stale, offering it here would produce an option
+        // that the attach then refuses.
+        (proof.revalidateAfter !== undefined && proof.revalidateAfter <= now)
+      ) {
+        continue;
+      }
+
+      const incumbent = offers.get(key);
+
+      if (
+        incumbent === undefined ||
+        externalControlLevelRank(proof.controlLevel) >
+          externalControlLevelRank(incumbent.controlLevel)
+      ) {
+        offers.set(key, {
+          assetType: proof.assetType,
+          assetExternalId: proof.assetExternalId,
+          assetDisplayName: proof.assetDisplayName,
+          controlLevel: proof.controlLevel,
+        });
+      }
+    }
+
+    return [...offers.values()];
   },
 });
 

@@ -1949,10 +1949,14 @@ export default defineSchema({
     secretRef: v.string(),
     state: v.union(v.literal("active"), v.literal("revoked")),
     delegatedByUserId: v.id("users"),
-    // `lastConsultedAt` drives round-robin selection and must not be the same
-    // field the selection index orders on being bumped by unrelated writes;
-    // `lastUsedAt` records only consultations that actually matched, so an
-    // operator's audit trail is not noise from every other community's proofs.
+    // Three separate facts, because conflating them makes one of them wrong.
+    // `lastRotatedAt` is a selection cursor only: every row a selection pass
+    // considers is stamped, eligible or not, or ineligible rows pin the head of
+    // the index forever. `lastConsultedAt` is operator-visible and means the
+    // reference was actually sent to the adapter. `lastUsedAt` records only the
+    // consultation that matched, so an operator's audit trail is not noise from
+    // every other community's proofs.
+    lastRotatedAt: v.optional(v.number()),
     lastConsultedAt: v.optional(v.number()),
     lastUsedAt: v.optional(v.number()),
     lastResultSummary: v.optional(v.string()),
@@ -1963,7 +1967,7 @@ export default defineSchema({
   })
     .index("by_communityProfileId_state", ["communityProfileId", "state"])
     .index("by_guildId_state", ["guildId", "state"])
-    .index("by_state_lastConsultedAt", ["state", "lastConsultedAt"]),
+    .index("by_state_lastRotatedAt", ["state", "lastRotatedAt"]),
   // Short-lived CSRF state for the purpose-scoped Discord guild-verification
   // OAuth round-trip. Stored server-side rather than in a cookie so the flow
   // survives browser restarts and stays bound to the signed-in user.

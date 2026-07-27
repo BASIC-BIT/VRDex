@@ -64,6 +64,10 @@ outcome: the user's claim did not fail, we could not ask.
 At least one secret backend must be configured or every request resolves to
 `503`.
 
+Secrets are named `vrdex/vrclinking/<guildId>` — Convex only accepts a delegation
+whose reference names the guild it is for, so provision the secret under that
+name (or the matching Secrets Manager ARN) before the operator registers it.
+
 ## Running locally
 
 `workers/*` are not pnpm workspace members, so this runs on bare Node rather

@@ -6,6 +6,7 @@ import { internal } from "./_generated/api";
 import { action, internalMutation, mutation, query } from "./_generated/server";
 import {
   type ExternalControlLevel,
+  externalControlLevelRank,
   recordExternalControlProof,
   revokeExternalControlProof,
 } from "./_externalControl";
@@ -274,22 +275,38 @@ export const getManageableGuilds = query({
       .withIndex("by_userId_state", (q) => q.eq("userId", user._id).eq("state", "active"))
       .collect();
 
-    return proofs
-      .filter(
-        (proof) =>
-          proof.assetType === "discord_guild" &&
-          // Match the authorization check exactly. Between a proof lapsing and
-          // the sweeper marking it stale it is still `active`, and offering it
-          // here would show a server that `requireControlProof` then rejects,
-          // while hiding the re-verify prompt that would fix it.
-          (proof.revalidateAfter === undefined || proof.revalidateAfter > now),
-      )
-      .map((proof) => ({
-        guildId: proof.assetExternalId,
-        guildName: proof.assetDisplayName,
-        controlLevel: proof.controlLevel,
-        verifiedAt: proof.verifiedAt,
-      }));
+    const usable = proofs.filter(
+      (proof) =>
+        proof.assetType === "discord_guild" &&
+        // Match the authorization check exactly. Between a proof lapsing and
+        // the sweeper marking it stale it is still `active`, and offering it
+        // here would show a server that `requireControlProof` then rejects,
+        // while hiding the re-verify prompt that would fix it.
+        (proof.revalidateAfter === undefined || proof.revalidateAfter > now),
+    );
+    // One guild manageable through two Discord logins has one proof per login.
+    // The picker is about servers, not evidence, so collapse to the strongest.
+    const byGuild = new Map<string, (typeof usable)[number]>();
+
+    for (const proof of usable) {
+      const incumbent = byGuild.get(proof.assetExternalId);
+
+      if (
+        incumbent === undefined ||
+        externalControlLevelRank(proof.controlLevel) >
+          externalControlLevelRank(incumbent.controlLevel) ||
+        (proof.controlLevel === incumbent.controlLevel && proof.verifiedAt > incumbent.verifiedAt)
+      ) {
+        byGuild.set(proof.assetExternalId, proof);
+      }
+    }
+
+    return [...byGuild.values()].map((proof) => ({
+      guildId: proof.assetExternalId,
+      guildName: proof.assetDisplayName,
+      controlLevel: proof.controlLevel,
+      verifiedAt: proof.verifiedAt,
+    }));
   },
 });
 
