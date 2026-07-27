@@ -427,7 +427,6 @@ body {
 
 .lookup-theme {
   min-height: 100vh;
-  padding: 0.7rem 1rem !important;
   transition:
     background 420ms ease,
     color 420ms ease;
@@ -1351,10 +1350,6 @@ body {
 }
 
 @media (max-width: 640px) {
-  .lookup-theme {
-    padding: 0.7rem !important;
-  }
-
   .lookup-single-form,
   .lookup-bulk-form {
     grid-template-columns: 1fr;

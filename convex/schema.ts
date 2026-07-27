@@ -287,6 +287,8 @@ const profileAssetPlacement = v.union(
   v.literal("banner"),
   v.literal("primary_logo"),
   v.literal("additional_logo"),
+  v.literal("gallery"),
+  v.literal("featured"),
 );
 
 const profileAssetDisplayPreference = v.union(
@@ -647,10 +649,18 @@ export default defineSchema({
     storageKey: v.string(),
     label: v.optional(v.string()),
     caption: v.optional(v.string()),
+    altText: v.optional(v.string()),
+    credit: v.optional(v.string()),
+    contentSha256: v.optional(v.string()),
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
     placements: v.optional(v.array(profileAssetPlacement)),
     position: v.optional(v.number()),
     source: v.optional(profileAssetSource),
     state: profileAssetUploadIntentState,
+    processingToken: v.optional(v.string()),
+    processingStartedAt: v.optional(v.number()),
+    processingAttempts: v.optional(v.number()),
     createdAt: v.number(),
     expiresAt: v.number(),
     uploadedAt: v.optional(v.number()),
@@ -659,6 +669,7 @@ export default defineSchema({
   })
     .index("by_uploadToken", ["uploadToken"])
     .index("by_state_expiresAt", ["state", "expiresAt"])
+    .index("by_targetProfileId_state_expiresAt", ["targetProfileId", "state", "expiresAt"])
     .index("by_requestedBy", ["requestedBy.tokenIdentifier"]),
   profileAssets: defineTable({
     profileId: v.id("profiles"),
@@ -669,6 +680,11 @@ export default defineSchema({
     byteSize: v.number(),
     label: v.optional(v.string()),
     caption: v.optional(v.string()),
+    altText: v.optional(v.string()),
+    credit: v.optional(v.string()),
+    contentSha256: v.optional(v.string()),
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
     visibility: profileAssetVisibility,
     source: profileAssetSource,
     uploadedBy: authSubject,
@@ -1819,6 +1835,7 @@ export default defineSchema({
     reviewedAt: v.optional(v.number()),
   })
     .index("by_profileId_state", ["profileId", "state"])
+    .index("by_profileId_userId_state_updatedAt", ["profileId", "userId", "state", "updatedAt"])
     .index("by_userId_state", ["userId", "state"])
     .index("by_method_state", ["method", "state"]),
   profileVerificationAttempts: defineTable({
@@ -1837,6 +1854,7 @@ export default defineSchema({
     verifiedAt: v.optional(v.number()),
   })
     .index("by_profileId_state", ["profileId", "state"])
+    .index("by_profileId_userId_state_updatedAt", ["profileId", "userId", "state", "updatedAt"])
     .index("by_userId_state", ["userId", "state"])
     .index("by_state_expiresAt", ["state", "expiresAt"]),
   profileSuppressionRequests: defineTable({

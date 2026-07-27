@@ -3,6 +3,8 @@ import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
 import type { FunctionReference } from "convex/server";
 import { api } from "@convex-generated-api";
 import type { PrivateSeedLookupResult, SeedLookupViewerAccess } from "@/app/_components/profile-lookup-page";
+import type { SearchResultFilter } from "@/app/_components/search-view-state";
+import { publicSearchBackendFilters } from "@/lib/server/public-search-query";
 import { getTwitchLiveState } from "@/lib/server/twitch-live";
 import {
   getPlaywrightActiveWorldFixtures,
@@ -14,6 +16,7 @@ import {
   getPlaywrightPublicWorldFixture,
   searchPlaywrightDiscoveryFixture,
 } from "./playwright-fixtures";
+import { profileClaimPath } from "@/lib/profile-claim";
 
 const seedAccessApi = (api as unknown as {
   seedAccess: {
@@ -66,6 +69,34 @@ export async function fetchPublicProfileBySlug(slug: string, profileType: Public
     return {
       kind: "error" as const,
     };
+  }
+}
+
+export async function fetchClaimProfileBySlug(slug: string) {
+  const fixtureProfile =
+    getPlaywrightPublicProfileFixture(slug, "person") ??
+    getPlaywrightPublicProfileFixture(slug, "community");
+
+  if (fixtureProfile !== null) {
+    return { kind: "live" as const, profile: fixtureProfile };
+  }
+
+  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
+    return { kind: "missing-url" as const, profile: null };
+  }
+
+  try {
+    const profile = await fetchQuery(
+      api.profileClaims.getClaimTargetBySlug,
+      { profileSlug: slug },
+      { token: await convexAuthNextjsToken() },
+    );
+
+    return { kind: "live" as const, profile };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Server-side Convex claim profile fetch failed: ${message}`);
+    return { kind: "error" as const, profile: null };
   }
 }
 
@@ -232,13 +263,42 @@ export async function fetchDiscovery() {
   }
 }
 
-export async function fetchDiscoverySearch(query: string) {
+function matchesSearchFilter(
+  result: { entityType: string; profileType?: string },
+  filter: SearchResultFilter,
+) {
+  if (filter === "all") {
+    return true;
+  }
+
+  return filter === "person" || filter === "community"
+    ? result.entityType === "profile" && result.profileType === filter
+    : result.entityType === filter;
+}
+
+function withSearchClaimEntry<T extends {
+  claimEligible?: boolean;
+  slug: string;
+}>(result: T): T & { claimEntryPath?: string } {
+  return {
+    ...result,
+    ...(result.claimEligible ? { claimEntryPath: profileClaimPath(result.slug, "search") } : {}),
+  };
+}
+
+export async function fetchDiscoverySearch(
+  query: string,
+  filter: SearchResultFilter = "all",
+  limit = 24,
+) {
   const fixtureSearch = searchPlaywrightDiscoveryFixture(query);
 
   if (fixtureSearch.kind === "handled") {
     return {
       kind: "live" as const,
-      results: fixtureSearch.results,
+      results: fixtureSearch.results
+        .filter((result) => matchesSearchFilter(result, filter))
+        .map(withSearchClaimEntry),
     };
   }
 
@@ -247,11 +307,15 @@ export async function fetchDiscoverySearch(query: string) {
   }
 
   try {
-    const results = await fetchQuery(api.search.searchUniversal, { query, limit: 24 });
+    const results = await fetchQuery(api.search.searchUniversal, {
+      query,
+      limit,
+      ...publicSearchBackendFilters(filter),
+    });
 
     return {
       kind: "live" as const,
-      results,
+      results: results.map(withSearchClaimEntry),
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -288,7 +352,12 @@ export async function fetchProfileLookup(query: string) {
     const publicResultsPromise = fixtureLookup.kind === "handled"
       ? Promise.resolve(fixtureLookup.results)
       : query
-        ? fetchQuery(api.profiles.lookupPeople, { query, limit: 12 })
+        ? fetchQuery(api.search.searchUniversal, {
+            query,
+            limit: 12,
+            entityType: "profile",
+            profileType: "person",
+          }).then((searchResults) => searchResults.flatMap((result) => result.person ?? []))
         : Promise.resolve([]);
     const viewerAccessPromise = fixtureViewerAccess
       ? Promise.resolve(fixtureViewerAccess)

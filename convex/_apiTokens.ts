@@ -23,6 +23,7 @@ export const apiScopeValidator = v.union(
 
 export const apiRouteClassValidator = v.union(
   v.literal("anonymous_public_read"),
+  v.literal("profile_asset_file"),
   v.literal("authenticated_public_read"),
   v.literal("developer_credential_management"),
   v.literal("oauth_authorize"),
@@ -77,6 +78,7 @@ export type ApiScope =
 
 export type ApiRouteClass =
   | "anonymous_public_read"
+  | "profile_asset_file"
   | "authenticated_public_read"
   | "developer_credential_management"
   | "oauth_authorize"
@@ -91,6 +93,7 @@ export type ApiRouteClass =
 
 export const apiRouteClassValues: ApiRouteClass[] = [
   "anonymous_public_read",
+  "profile_asset_file",
   "authenticated_public_read",
   "developer_credential_management",
   "oauth_authorize",

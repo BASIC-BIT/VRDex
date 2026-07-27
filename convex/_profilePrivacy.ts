@@ -4,6 +4,7 @@ import {
   materializeProfileFieldVisibility,
   normalizeProfileFieldVisibility,
 } from "./_profileFieldVisibility";
+import { canReadProfile } from "./_profilePermissions";
 import { userOwnsProfile } from "./_profileOwnership";
 
 type ProfilePrivacyUpdateInput = {
@@ -20,6 +21,7 @@ export function toOwnedProfilePrivacyResult(profile: Doc<"profiles">) {
     slug: profile.slug,
     displayName: profile.displayName,
     claimState: profile.claimState,
+    hasPublicProfile: canReadProfile("public", profile),
     fieldVisibility: materializeProfileFieldVisibility(profile.fieldVisibility),
   };
 }

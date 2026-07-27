@@ -1,5 +1,6 @@
-import { ProfileLookupPage } from "../_components/profile-lookup-page";
-import { fetchProfileLookup } from "@/convex/server";
+import { redirect } from "next/navigation";
+
+import { searchHref } from "../_components/search-view-state";
 
 export const dynamic = "force-dynamic";
 
@@ -11,16 +12,5 @@ type LookupPageProps = {
 
 export default async function LookupPage({ searchParams }: LookupPageProps) {
   const { q } = await searchParams;
-  const query = q?.trim() ?? "";
-  const lookup = await fetchProfileLookup(query);
-
-  return (
-    <ProfileLookupPage
-      privateResults={lookup.privateResults}
-      query={query}
-      results={lookup.results}
-      status={lookup.kind}
-      viewerAccess={lookup.viewerAccess}
-    />
-  );
+  redirect(searchHref({ query: q, view: "dj" }));
 }

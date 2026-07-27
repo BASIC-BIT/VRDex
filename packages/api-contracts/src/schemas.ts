@@ -82,6 +82,8 @@ export const PublicProfileAssetSchema = z
     assetId: z.string().optional(),
     byteSize: z.number().int().positive().optional(),
     caption: z.string().optional(),
+    altText: z.string().optional(),
+    credit: z.string().optional(),
     downloadUrl: absoluteOrRootRelativeUrl.optional(),
     imageUrl: absoluteOrRootRelativeUrl.optional(),
     label: z.string().optional(),
@@ -105,8 +107,10 @@ export const PublicProfileMediaKitSchema = z
   .object({
     additionalLogos: z.array(PublicProfileAssetSchema),
     assets: z.array(PublicProfileAssetSchema),
+    galleryAssets: z.array(PublicProfileAssetSchema).optional(),
     avatarAppearance: PublicProfileAvatarAppearanceSchema.optional(),
     banner: PublicProfileAssetSchema.optional(),
+    featuredAsset: PublicProfileAssetSchema.optional(),
     compactDisplay: z.enum(["profile_image", "logo"]).optional(),
     logoZipUrl: absoluteOrRootRelativeUrl.optional(),
     logos: z.array(PublicProfileAssetSchema),
@@ -542,7 +546,7 @@ export const ApiProfileWriteResponseSchema = z
   });
 
 export const ProfileAssetPlacementSchema = z
-  .enum(["profile_image", "banner", "primary_logo", "additional_logo"])
+  .enum(["profile_image", "banner", "primary_logo", "additional_logo", "gallery", "featured"])
   .meta({ description: "Profile media-kit placement to apply after upload completion." });
 
 export const ProfileAssetMimeTypeSchema = z
@@ -557,15 +561,37 @@ export const ApiProfileAssetUploadIntentCreateRequestSchema = z
     byteSize: z.number().int().positive().max(12 * 1024 * 1024).optional(),
     label: z.string().max(80).optional(),
     caption: z.string().max(240).optional(),
+    altText: z.string().max(180).optional(),
+    credit: z.string().max(120).optional(),
     placements: z.array(ProfileAssetPlacementSchema).max(8).optional(),
     position: z.number().int().nonnegative().optional(),
   })
   .refine((value) => value.originalFileName !== undefined || value.sourceUrl !== undefined, {
     message: "Send originalFileName for direct uploads or sourceUrl for server-side imports.",
   })
+  .superRefine((value, context) => {
+    const placements = value.placements ?? [];
+    if (placements.includes("featured") && !placements.includes("gallery")) {
+      context.addIssue({
+        code: "custom",
+        message: "Featured media must also be a gallery item.",
+        path: ["placements"],
+      });
+    }
+    if (
+      placements.some((placement) => placement === "gallery" || placement === "featured") &&
+      (!value.label?.trim() || !value.altText?.trim())
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Gallery images require a title and accessibility description.",
+        path: ["placements"],
+      });
+    }
+  })
   .meta({
     description:
-      "Create a one-time profile media upload intent for a claimed profile owned by the current authenticated API user.",
+      "Create a one-time profile media upload intent for a claimed profile owned by the current authenticated API user. Gallery placement requires a nonblank label and altText; featured placement also requires gallery.",
     id: "ApiProfileAssetUploadIntentCreateRequest",
   });
 

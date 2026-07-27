@@ -1,4 +1,4 @@
-const FIXTURE_DEMO_PATHS = new Set(["/account/appearance", "/account/privacy"]);
+const FIXTURE_DEMO_PATHS = new Set(["/account/appearance", "/account/privacy", "/account/media-kit"]);
 
 export type ProtectedRouteOptions = {
   allowFixtureDemos?: boolean;
@@ -13,6 +13,10 @@ export function isProtectedRoute(
   }
 
   if (pathname === "/account" || pathname.startsWith("/account/")) {
+    return true;
+  }
+
+  if (pathname === "/claim" || pathname.startsWith("/claim/")) {
     return true;
   }
 

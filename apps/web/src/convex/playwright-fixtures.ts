@@ -43,6 +43,8 @@ type FixturePersonProfile = Extract<PublicProfile, { profileType: "person" }> & 
 const auroraProfileImage = {
   assetId: "fixture-aurora-profile-image",
   label: "Profile image",
+  altText: "DJ Aurora framed by violet light and a warm orange glow.",
+  credit: "Artwork by Afterglow Studio",
   mimeType: "image/png",
   byteSize: 184_000,
   imageUrl: "/api/e2e/fixture-assets/fixture-aurora-profile-image",
@@ -53,6 +55,7 @@ const auroraPrimaryLogo = {
   assetId: "fixture-aurora-primary-logo",
   label: "Primary logo",
   caption: "Aurora wordmark for event flyers and lineup cards.",
+  altText: "AURORA wordmark in white over violet and cyan light.",
   mimeType: "image/svg+xml",
   byteSize: 24_000,
   imageUrl: "/api/e2e/fixture-assets/fixture-aurora-primary-logo",
@@ -62,6 +65,7 @@ const auroraPrimaryLogo = {
 const auroraAdditionalLogo = {
   assetId: "fixture-aurora-alt-logo",
   label: "Square mark",
+  altText: "Square Aurora monogram in warm orange light.",
   mimeType: "image/png",
   byteSize: 96_000,
   imageUrl: "/api/e2e/fixture-assets/fixture-aurora-alt-logo",
@@ -174,10 +178,12 @@ const personProfile: FixturePersonProfile = {
   ],
   mediaKit: {
     profileImage: auroraProfileImage,
+    featuredAsset: auroraProfileImage,
     primaryLogo: auroraPrimaryLogo,
     additionalLogos: [auroraAdditionalLogo],
     logos: [auroraPrimaryLogo, auroraAdditionalLogo],
     assets: [auroraProfileImage, auroraPrimaryLogo, auroraAdditionalLogo],
+    galleryAssets: [auroraProfileImage, auroraPrimaryLogo, auroraAdditionalLogo],
     logoZipUrl: "/api/v0/profiles/playwright-dj-aurora/logos.zip",
     compactDisplay: "profile_image",
     avatarAppearance: {
@@ -609,7 +615,30 @@ function generatedFixtureProfile(seed: GeneratedPersonSeed, index: number): Fixt
 }
 
 const generatedFixtureProfiles = generatedPersonSeeds.map(generatedFixtureProfile);
-const personProfiles = [personProfile, basicBitProfile, longNameProfile, ...generatedFixtureProfiles];
+const sparseImportedProfile: FixturePersonProfile = {
+  profileType: "person",
+  slug: "playwright-sparse-import",
+  displayName: "Sparse Import",
+  aliases: [],
+  searchAliases: ["sparse imported entry"],
+  tags: [],
+  genres: [],
+  trustLabel: "unclaimed",
+  outboundLinks: [],
+  worldCredits: [],
+  upcomingEvents: [],
+  hostedEvents: [],
+  person: {
+    roleTags: [],
+  },
+};
+const personProfiles = [
+  personProfile,
+  basicBitProfile,
+  longNameProfile,
+  sparseImportedProfile,
+  ...generatedFixtureProfiles,
+];
 
 const communityProfile: PublicProfile = {
   profileType: "community",
@@ -1008,11 +1037,28 @@ const discoveryResults: PublicSearchResult[] = [
     subtitle: "Person profile",
     summary: "Software Dev | 3D Designer | VRDJ",
     imageUrl: "/seed/basicbit-avatar.png",
+    person: toProfileLookupFixture(basicBitProfile)!,
     source: {
       sourceType: "owner",
       label: "Owner-authored",
     },
     score: 168,
+  },
+  {
+    entityType: "profile",
+    profileType: "person",
+    slug: generatedFixtureProfiles[0]!.slug,
+    routePath: `/p/${generatedFixtureProfiles[0]!.slug}`,
+    title: generatedFixtureProfiles[0]!.displayName,
+    subtitle: "Person profile",
+    summary: generatedFixtureProfiles[0]!.headline,
+    person: toProfileLookupFixture(generatedFixtureProfiles[0]!)!,
+    source: {
+      sourceType: "community",
+      label: "Community submitted",
+    },
+    claimEligible: true,
+    score: 164,
   },
   {
     entityType: "profile",
@@ -1041,14 +1087,29 @@ const discoveryResults: PublicSearchResult[] = [
     },
     score: 150,
   },
+  {
+    entityType: "profile",
+    profileType: "person",
+    slug: sparseImportedProfile.slug,
+    routePath: `/p/${sparseImportedProfile.slug}`,
+    title: sparseImportedProfile.displayName,
+    subtitle: "Person profile",
+    person: toProfileLookupFixture(sparseImportedProfile, "Imported profile seed")!,
+    source: {
+      sourceType: "import",
+      label: "Imported profile seed",
+    },
+    claimEligible: true,
+    score: 120,
+  },
 ];
 
 const discoveryData: PublicDiscoveryData = {
-  featured: [discoveryResults[0]!, discoveryResults[4]!],
+  featured: [discoveryResults[0]!, discoveryResults[5]!],
   upcomingEvents: [discoveryResults[0]!],
-  people: [discoveryResults[1]!, discoveryResults[2]!],
-  communities: [discoveryResults[3]!],
-  worlds: [discoveryResults[4]!],
+  people: [discoveryResults[1]!, discoveryResults[2]!, discoveryResults[3]!],
+  communities: [discoveryResults[4]!],
+  worlds: [discoveryResults[5]!],
   terms: [
     { scope: "profile_tag", key: "melodic_house", label: "Melodic House", usageCount: 2 },
     { scope: "profile_genre", key: "drum_and_bass", label: "Drum and Bass", usageCount: 1 },
@@ -1077,7 +1138,10 @@ type PlaywrightPublicShortLinkFixture = {
   path: string;
 };
 
-function toProfileLookupFixture(profile: PublicProfile): PublicProfileLookupResult | null {
+function toProfileLookupFixture(
+  profile: PublicProfile,
+  sourceLabel?: string,
+): PublicProfileLookupResult | null {
   if (profile.profileType !== "person") {
     return null;
   }
@@ -1094,6 +1158,7 @@ function toProfileLookupFixture(profile: PublicProfile): PublicProfileLookupResu
     genres: profile.genres,
     roleTags: profile.person.roleTags,
     trustLabel: profile.trustLabel,
+    ...(sourceLabel === undefined ? {} : { sourceLabel }),
     ...(profile.headline === undefined ? {} : { headline: profile.headline }),
     ...(profile.bio === undefined ? {} : { bio: profile.bio }),
     ...(profile.avatarImageUrl === undefined ? {} : { avatarImageUrl: profile.avatarImageUrl }),
@@ -1103,6 +1168,18 @@ function toProfileLookupFixture(profile: PublicProfile): PublicProfileLookupResu
     ...(profile.timezone === undefined ? {} : { timezone: profile.timezone }),
     outboundLinks: profile.outboundLinks,
   };
+}
+
+function lookupFixtureSourceLabel(profile: PublicProfile): string {
+  if (profile.slug === sparseImportedProfile.slug) {
+    return "Imported profile seed";
+  }
+
+  if (profile.source?.label) {
+    return profile.source.label;
+  }
+
+  return profile.trustLabel === "claimed_verified" ? "Owner-authored" : "Community submitted";
 }
 
 function toPublicFixturePersonProfile(profile: FixturePersonProfile): Extract<PublicProfile, { profileType: "person" }> {
@@ -1162,7 +1239,17 @@ export function searchPlaywrightDiscoveryFixture(query: string): PlaywrightDisco
   }
 
   const matches = discoveryResults.filter((result) =>
-    [result.title, result.subtitle, result.summary, result.source?.label]
+    [
+      result.title,
+      result.subtitle,
+      result.summary,
+      result.source?.label,
+      result.person?.displayName,
+      ...(result.person?.roleTags ?? []),
+      ...(result.person?.tags ?? []),
+      ...(result.person?.genres.map((genre) => `${genre.displayName} ${genre.displayLabel ?? ""}`) ?? []),
+      ...(result.person?.outboundLinks.map((link) => link.label) ?? []),
+    ]
       .filter(Boolean)
       .join(" ")
       .toLowerCase()
@@ -1284,7 +1371,7 @@ export function getPlaywrightProfileLookupFixture(query: string): PlaywrightProf
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
-    const result = toProfileLookupFixture(profile);
+    const result = toProfileLookupFixture(profile, lookupFixtureSourceLabel(profile));
 
     return result !== null && searchableText.includes(normalized) ? [result] : [];
   });

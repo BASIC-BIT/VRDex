@@ -30,7 +30,9 @@ export async function GET(request: Request, context: RouteContext) {
     return rejected;
   }
 
-  const rejectedBearerToken = await rejectInvalidOrRateLimitedPublicApiRequest(request);
+  const rejectedBearerToken = await rejectInvalidOrRateLimitedPublicApiRequest(request, {
+    routeClass: "profile_asset_file",
+  });
   if (rejectedBearerToken !== null) {
     return rejectedBearerToken;
   }
@@ -70,7 +72,7 @@ export async function GET(request: Request, context: RouteContext) {
       "cache-control": "private, no-store",
       "content-disposition": `${download ? "attachment" : "inline"}; filename="${fileName}"`,
       "content-length": String(object.contentLength ?? object.body.byteLength),
-      "content-security-policy": "sandbox; script-src 'none'; object-src 'none'",
+      "content-security-policy": "sandbox; default-src 'none'; img-src 'none'; script-src 'none'; object-src 'none'",
       "content-type": object.contentType,
       "x-content-type-options": "nosniff",
     },

@@ -61,6 +61,20 @@ Prefer explicit labels in docs:
 - Contextual surfaces should appear only when they match the moment. A watch surface belongs to an event that is currently watchable, not every event that happens to have a stream link.
 - Time displays should feel seamless. Public event schedule times should render in the viewer's local timezone across the app, including event cards, event pages, and set times; do not show a separate canonical event-timezone value or a duplicate "Your time" line unless the user explicitly needs timezone-authoring context.
 
+## Public product copy rule
+
+- Status: locked decision. BASIC approved this wording on 2026-07-27.
+- Use `VR Johnny` as BASIC's internal tone-risk stress test: a stand-in for one ordinary VR-community user who may reject copy that feels corporate, patronizing, AI-promotional, AI-generated, or slop-like. It is not a demographic category, observed evidence, or a claim that all VR users react alike.
+- Every substantive new word of public-facing product or website prose must be evaluated through the VR Johnny lens.
+- Obvious one- or two-word utility labels and exact strings matching an already-approved pattern may proceed. When in doubt, treat copy as reviewable.
+- New taglines, marketing copy, onboarding or help prose, explanatory cards, empty-state prose, profile or media-kit guidance, and other authored sentences require BASIC's review of the exact copy before shipping unless BASIC already approved that exact copy.
+- Do not foreground or mention AI to users without explicit owner direction.
+- Fable and blind review may improve a draft but cannot substitute for BASIC's approval.
+- Preserve existing approved copy unless a task has a concrete reason to change it. Do not invent explanatory prose because a layout has space.
+- This rule applies to public-facing product copy. It does not apply to code, tests, internal engineering prose, accessibility names that must be explicit, or required safety and legal text.
+- A task that changes public prose must show the exact proposed wording in its handoff and identify BASIC's approval before shipping.
+- `VR Johnny` can veto or simplify tone; it cannot be cited as evidence for adding, prioritizing, or designing features.
+
 ## Repo opinionation
 
 - This repo is intentionally opinionated toward software-factory principles and agent-first delivery.

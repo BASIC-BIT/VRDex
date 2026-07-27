@@ -84,10 +84,13 @@ Current recommendation:
 - user-provided public HTTPS image URLs should be treated as import sources; VRDex should reject private/internal destinations, copy bounded PNG/SVG/JPEG/WebP responses into managed object storage such as S3, and serve the VRDex-owned object as the canonical asset
 - one uploaded asset can fill multiple placements, such as both profile picture and primary logo
 - public UX should say `primary logo` and `additional logos` instead of `non-primary` or defaulting to `alternative logo`
-- uploaded assets can have loose labels and optional public captions; separate required accessibility text is not part of the first slice
+- uploaded assets can have loose labels, optional public captions and credits,
+  and an owner-authored accessibility description
 - PNG and SVG logos are required from day one
 - unclaimed and community-submitted profiles may carry public logos/assets, but public projections must preserve claim, source, and trust labels
 - public media-kit surfaces should support individual asset downloads and a zip of all public logos
+- claimed owners can order up to 12 active public gallery images, select one
+  featured image, and soft-delete or restore an item
 
 Candidate `profileAssets` fields:
 
@@ -100,6 +103,11 @@ Candidate `profileAssets` fields:
 - `byteSize`: stored object size
 - `label`: optional loose display label
 - `caption`: optional public caption or description
+- `altText`: optional concise accessibility description
+- `credit`: optional public creator or photographer credit
+- `contentSha256`: normalized-content digest used to reject duplicate uploads,
+  including recoverable removed assets, without exposing it publicly
+- `width` and `height`: validated stored dimensions
 - `visibility`: public, unlisted, or private visibility aligned with the profile visibility model
 - `source`: owner-authored, community-submitted, partner-provided, moderator, import, or concierge provenance
 - `uploadedBy`: authenticated subject or source attribution where available
@@ -111,6 +119,7 @@ Candidate placement fields can live on the profile or in a companion placement t
 - `bannerAssetId`
 - `primaryLogoAssetId`
 - ordered additional logo asset ids
+- ordered gallery asset ids and an optional featured asset id
 - compact/card display preference with an automatic fallback that uses profile image first and logo when no distinct profile image exists or the owner chooses logo-first display
 - avatar appearance controls: border on/off, six-digit border color, bounded border thickness, bounded border softness, and `0..50` percent roundedness from square to circle
 

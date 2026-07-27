@@ -264,6 +264,73 @@ export const linkDiscordAccountByEmail = mutation({
   },
 });
 
+export const setAuthSessionStateByEmail = mutation({
+  args: {
+    secret: v.string(),
+    email: v.string(),
+    state: v.union(
+      v.literal("absolute_expired"),
+      v.literal("inactive_expired"),
+      v.literal("invalid_refresh"),
+      v.literal("revoked"),
+    ),
+    now: v.number(),
+  },
+  handler: async (ctx, args) => {
+    requireE2eAuthHelper(args.secret);
+
+    const email = normalizeE2eEmail(args.email);
+    const user = await userByEmail(ctx, email);
+
+    if (user === null) {
+      throw new Error("E2E user not found.");
+    }
+
+    const sessions = await ctx.db
+      .query("authSessions")
+      .withIndex("userId", (query) => query.eq("userId", user._id))
+      .collect();
+    const session = [...sessions].sort(
+      (left, right) => right._creationTime - left._creationTime,
+    )[0];
+
+    if (session === undefined) {
+      throw new Error("E2E auth session not found.");
+    }
+
+    const refreshTokens = await ctx.db
+      .query("authRefreshTokens")
+      .withIndex("sessionId", (query) => query.eq("sessionId", session._id))
+      .collect();
+
+    if (args.state === "absolute_expired") {
+      await ctx.db.patch(session._id, { expirationTime: args.now - 1 });
+    } else if (args.state === "inactive_expired") {
+      await Promise.all(
+        refreshTokens
+          .filter((token) => token.firstUsedTime === undefined)
+          .map((token) =>
+            ctx.db.patch(token._id, { expirationTime: args.now - 1 }),
+          ),
+      );
+    } else if (args.state === "invalid_refresh") {
+      await Promise.all(
+        refreshTokens
+          .filter((token) => token.firstUsedTime === undefined)
+          .map((token) => ctx.db.delete(token._id)),
+      );
+    } else {
+      await Promise.all(refreshTokens.map((token) => ctx.db.delete(token._id)));
+      await ctx.db.delete(session._id);
+    }
+
+    return {
+      state: args.state,
+      affectedRefreshTokens: refreshTokens.length,
+    };
+  },
+});
+
 export const cleanupAuthUserByEmail = mutation({
   args: {
     secret: v.string(),

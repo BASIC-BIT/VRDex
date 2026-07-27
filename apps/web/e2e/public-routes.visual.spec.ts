@@ -34,3 +34,28 @@ test("home dark theme @visual", async ({ page }, testInfo) => {
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await captureRouteScreenshot(page, testInfo, "home-dark");
 });
+
+test("unified BASICBIT search views @visual", async ({ page }, testInfo) => {
+  await page.goto("/search?q=BASICBIT");
+  await expect(page.getByRole("heading", { name: "Search VRDex" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Results for BASICBIT" })).toBeVisible();
+  await expect(page.getByText("Software Dev | 3D Designer | VRDJ")).toBeVisible();
+  await captureRouteScreenshot(page, testInfo, "search-basicbit-standard");
+
+  await page.goto("/search?q=BASICBIT&view=dj");
+  await expect(page.getByRole("heading", { name: "Search VRDex" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Website: basicbit.net", exact: true })).toBeVisible();
+  await captureRouteScreenshot(page, testInfo, "search-basicbit-dj");
+});
+
+test("unified sparse import search views @visual", async ({ page }, testInfo) => {
+  await page.goto("/search?q=Sparse%20Import");
+  await expect(page.getByText("Sparse Import", { exact: true })).toBeVisible();
+  await expect(page.getByText("Imported profile seed", { exact: true })).toBeVisible();
+  await captureRouteScreenshot(page, testInfo, "search-sparse-import-standard");
+
+  await page.goto("/search?q=Sparse%20Import&view=dj");
+  await expect(page.getByRole("link", { name: "Sparse Import", exact: true })).toBeVisible();
+  await expect(page.getByText("Imported profile seed / Unclaimed", { exact: true }).first()).toBeVisible();
+  await captureRouteScreenshot(page, testInfo, "search-sparse-import-dj");
+});

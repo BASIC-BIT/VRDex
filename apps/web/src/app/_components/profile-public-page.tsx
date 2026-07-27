@@ -3,12 +3,15 @@ import { BadgeCheck, ExternalLink } from "lucide-react";
 import { Fragment, type CSSProperties, type ReactNode } from "react";
 
 import { EventPreviewCard, type PublicEventPreview } from "./event-public-page";
+import { MediaPreviewImage } from "./media-preview-image";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, Eyebrow, SectionHeading } from "@/components/ui/card";
 import { CopyValueRow } from "@/components/ui/copy-value-row";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 import { avatarFrameStyle, defaultAvatarAppearance, type AvatarAppearance } from "@/lib/avatar-appearance";
 import { cn } from "@/lib/cn";
+import { profileClaimPath } from "@/lib/profile-claim";
+import { hasRenderableProfileMediaKit } from "@/lib/profile-media-kit";
 import { safeImageBackground } from "@/lib/safe-image";
 import type { TwitchLiveState } from "@/lib/server/twitch-live";
 import { twitchLoginFromUrl } from "@/lib/twitch-url";
@@ -62,6 +65,8 @@ type PublicProfileAsset = {
   assetId: string;
   label?: string;
   caption?: string;
+  altText?: string;
+  credit?: string;
   mimeType: string;
   byteSize: number;
   imageUrl: string;
@@ -71,10 +76,12 @@ type PublicProfileAsset = {
 type PublicProfileMediaKit = {
   profileImage?: PublicProfileAsset;
   banner?: PublicProfileAsset;
+  featuredAsset?: PublicProfileAsset;
   primaryLogo?: PublicProfileAsset;
   additionalLogos: PublicProfileAsset[];
   logos: PublicProfileAsset[];
   assets: PublicProfileAsset[];
+  galleryAssets?: PublicProfileAsset[];
   logoZipUrl?: string;
   compactDisplay: "profile_image" | "logo";
   avatarAppearance?: PublicProfileAvatarAppearance;
@@ -289,29 +296,28 @@ function mimeLabel(value: string): string {
   return value.replace(/^image\//, "").replace("svg+xml", "svg").toUpperCase();
 }
 
-function MediaAssetCard({ asset, label }: { asset: PublicProfileAsset; label: string }) {
-  const imageStyle = safeImageBackground(asset.imageUrl);
-
+function MediaAssetCard({ asset, label, featured = false }: { asset: PublicProfileAsset; label: string; featured?: boolean }) {
   return (
-    <a
-      className="group grid gap-3 rounded-card border border-border bg-surface-strong p-3 text-sm transition hover:-translate-y-0.5 hover:shadow-panel"
-      download
-      href={asset.downloadUrl}
-    >
-      <span
-        className="flex aspect-[4/3] items-center justify-center rounded-control border border-border bg-[linear-gradient(135deg,var(--canvas-muted),var(--surface-raised))] bg-contain bg-center bg-no-repeat text-lg font-semibold text-white"
-        style={imageStyle}
-      >
-        {!imageStyle ? label.slice(0, 2).toUpperCase() : null}
-      </span>
-      <span className="grid gap-1">
-        <span className="font-medium group-hover:text-accent-strong">{asset.label ?? label}</span>
-        {asset.caption ? <span className="line-clamp-2 leading-5 text-muted">{asset.caption}</span> : null}
-        <span className="text-xs text-muted">
+    <article className={cn("group grid overflow-hidden rounded-card border border-border bg-surface-strong text-sm transition hover:-translate-y-0.5 hover:shadow-panel", featured ? "lg:grid-cols-[minmax(0,1.35fr)_minmax(16rem,0.65fr)]" : undefined)}>
+      <div className={cn("relative bg-canvas-muted", featured ? "min-h-72" : "aspect-[4/3]")}>
+        <MediaPreviewImage
+          alt={asset.altText ?? ""}
+          className="absolute inset-0 size-full object-contain"
+          src={asset.imageUrl}
+        />
+      </div>
+      <div className="grid content-start gap-2 p-4">
+        <h3 className={cn("font-medium", featured ? "text-xl" : undefined)}>{asset.label ?? label}</h3>
+        {asset.caption ? <p className="leading-6 text-muted">{asset.caption}</p> : null}
+        {asset.credit ? <p className="text-xs text-muted">{asset.credit}</p> : null}
+        <p className="text-xs text-muted">
           {mimeLabel(asset.mimeType)} / {formatByteSize(asset.byteSize)}
-        </span>
-      </span>
-    </a>
+        </p>
+        <a className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "mt-2 w-fit")} download href={asset.downloadUrl}>
+          Download {asset.label ?? label}
+        </a>
+      </div>
+    </article>
   );
 }
 
@@ -351,6 +357,7 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
     additionalLogos: [],
     logos: [],
     assets: [],
+    galleryAssets: [],
     compactDisplay: "profile_image" as const,
   };
   const avatarAppearance = mediaKit.avatarAppearance ?? defaultAvatarAppearance;
@@ -404,7 +411,22 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
     profile.region,
     ...(profile.headline ? [] : focusItems.slice(0, 4)),
   ].filter((item): item is string => Boolean(item))));
-  const hasMediaKit = Boolean(mediaKit.primaryLogo || mediaKit.additionalLogos.length > 0 || mediaKit.logoZipUrl);
+  const mediaKitGalleryEnabled =
+    process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED === "true" ||
+    process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES === "true";
+  const galleryAssets = mediaKit.galleryAssets ?? [];
+  const galleryAssetIds = new Set([
+    ...galleryAssets.map((asset) => asset.assetId),
+    ...(mediaKit.featuredAsset ? [mediaKit.featuredAsset.assetId] : []),
+  ]);
+  const remainingLogos = mediaKit.logos.filter((asset) => !galleryAssetIds.has(asset.assetId));
+  const hasMediaKit = hasRenderableProfileMediaKit({
+    additionalLogoCount: mediaKit.additionalLogos.length,
+    galleryAssetCount: galleryAssets.length,
+    galleryEnabled: mediaKitGalleryEnabled,
+    hasPrimaryLogo: mediaKit.primaryLogo !== undefined,
+    logoCount: mediaKit.logos.length,
+  });
   const canClaim = profile.trustLabel === "community_submitted" || profile.trustLabel === "unclaimed";
   const secondaryOrder = normalizeProfileSectionOrder(profile.appearance?.sectionOrder).filter((section) =>
     ["events", "media_kit", "worlds"].includes(section),
@@ -430,11 +452,31 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
             </a>
           ) : null}
         </div>
+        {mediaKitGalleryEnabled && mediaKit.featuredAsset ? (
+          <div className="mt-5">
+            <MediaAssetCard asset={mediaKit.featuredAsset} featured label="Featured media" />
+          </div>
+        ) : null}
         <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {mediaKit.primaryLogo ? <MediaAssetCard asset={mediaKit.primaryLogo} label="Primary logo" /> : null}
-          {mediaKit.additionalLogos.map((asset, index) => (
-            <MediaAssetCard asset={asset} key={asset.assetId} label={`Logo ${index + 2}`} />
-          ))}
+          {mediaKitGalleryEnabled ? (
+            galleryAssets
+              .filter((asset) => asset.assetId !== mediaKit.featuredAsset?.assetId)
+              .map((asset, index) => (
+                <MediaAssetCard asset={asset} key={asset.assetId} label={`Media ${index + 1}`} />
+              ))
+          ) : (
+            <>
+              {mediaKit.primaryLogo ? <MediaAssetCard asset={mediaKit.primaryLogo} label="Primary logo" /> : null}
+              {mediaKit.additionalLogos.map((asset, index) => (
+                <MediaAssetCard asset={asset} key={asset.assetId} label={`Logo ${index + 2}`} />
+              ))}
+            </>
+          )}
+          {mediaKitGalleryEnabled
+            ? remainingLogos.map((asset, index) => (
+                <MediaAssetCard asset={asset} key={asset.assetId} label={`Logo ${index + 1}`} />
+              ))
+            : null}
         </div>
       </section>
     ) : null,
@@ -465,7 +507,10 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
           <BrandLink />
         </PageNav>
 
-        <section className="overflow-hidden rounded-card border border-border bg-media shadow-panel">
+        <section
+          aria-labelledby={`profile-title-${profile.slug}`}
+          className="overflow-hidden rounded-card border border-border bg-media shadow-panel"
+        >
           <div
             className="relative bg-media bg-cover bg-center p-5 text-white sm:p-6"
             style={bannerStyle}
@@ -510,7 +555,12 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
                   {profile.trustLabel === "claimed_verified" ? null : (
                     <p className="text-sm text-white/75">{sourceLine}</p>
                   )}
-                  <h1 className="break-words text-4xl leading-none font-semibold sm:text-5xl">{profile.displayName}</h1>
+                  <h1
+                    className="break-words text-4xl leading-none font-semibold sm:text-5xl"
+                    id={`profile-title-${profile.slug}`}
+                  >
+                    {profile.displayName}
+                  </h1>
                   {aliases.length > 0 ? (
                     <div className="mt-2 flex flex-wrap items-center gap-x-2 text-sm text-white/75">
                       <span>AKA {aliases.join(", ")}</span>
@@ -524,14 +574,6 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
                   ) : null}
                   {profile.headline ? <p className="mt-3 max-w-2xl text-base leading-7 text-white/85">{profile.headline}</p> : null}
                   {metadata.length > 0 ? <p className="mt-2 text-sm text-white/70">{metadata.join(" / ")}</p> : null}
-                  {canClaim ? (
-                    <Link
-                      className={cn(buttonVariants({ variant: "inversePrimary" }), "mt-5 !text-[#08090d]")}
-                      href={`/account?claim=${encodeURIComponent(profile.slug)}&claimType=${profile.profileType}`}
-                    >
-                      Claim this profile
-                    </Link>
-                  ) : null}
                 </div>
               </div>
               {aboutCopy ? (
@@ -543,6 +585,23 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
             </div>
           </div>
         </section>
+
+        {canClaim ? (
+          <aside
+            aria-label="Profile ownership"
+            className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2 py-4"
+          >
+            <p className="text-sm text-muted">
+              {profile.profileType === "person" ? "Is this your profile?" : "Manage this community?"}
+            </p>
+            <Link
+              className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "shrink-0 whitespace-nowrap")}
+              href={profileClaimPath(profile.slug, "profile")}
+            >
+              Claim profile
+            </Link>
+          </aside>
+        ) : null}
 
         <div className={cn("grid gap-x-10", hasWatchSurface ? "lg:grid-cols-[minmax(0,1fr)_32rem]" : undefined)}>
           <div>

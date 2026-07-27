@@ -6,6 +6,8 @@ import {
   TrackedDiscoveryLink,
 } from "./discovery-analytics";
 import { HomeActiveWorldsSection, type PublicActiveWorld } from "./home-active-worlds";
+import { searchHref, type SearchResultFilter } from "./search-view-state";
+import { SearchViewShell } from "./search-view-shell";
 import { ViewerLocalEventDateTime } from "./viewer-local-event-times";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
@@ -19,7 +21,7 @@ import {
 
 type EntityType = "profile" | "world" | "event";
 type ProfileType = "person" | "community";
-export type SearchResultFilter = "all" | "event" | "person" | "community" | "world";
+export type { SearchResultFilter } from "./search-view-state";
 
 export type PublicSearchResult = {
   entityType: EntityType;
@@ -37,6 +39,15 @@ export type PublicSearchResult = {
     sourceType?: string;
     label: string;
   };
+  person?: {
+    displayName: string;
+    roleTags: string[];
+    tags: string[];
+    genres: Array<{ slug: string; displayName: string; displayLabel?: string | null }>;
+    outboundLinks: Array<{ type: string; label: string; url: string }>;
+  };
+  claimEligible?: boolean;
+  claimEntryPath?: string;
   score: number;
 };
 
@@ -75,18 +86,6 @@ function resultSubtitle(result: PublicSearchResult): string | undefined {
   const redundantLabels = [label, `${label} profile`];
 
   return redundantLabels.includes(subtitle.toLowerCase()) ? undefined : subtitle;
-}
-
-function resultMatchesFilter(result: PublicSearchResult, filter: SearchResultFilter): boolean {
-  if (filter === "all") {
-    return true;
-  }
-
-  if (filter === "person" || filter === "community") {
-    return result.entityType === "profile" && result.profileType === filter;
-  }
-
-  return result.entityType === filter;
 }
 
 function ResultImage({ result }: { result: PublicSearchResult }) {
@@ -174,34 +173,47 @@ function DiscoveryCard({
 
 function SearchResultCard({ result }: { result: PublicSearchResult }) {
   const subtitle = resultSubtitle(result);
+  const roleLabels = !result.summary && result.person
+    ? [...new Set([...result.person.roleTags, ...result.person.tags])].slice(0, 3)
+    : [];
 
   return (
-    <TrackedDiscoveryLink
-      className="group flex gap-4 rounded-panel border border-border bg-surface px-4 py-4 transition hover:-translate-y-0.5 hover:border-border-strong hover:bg-surface-strong hover:shadow-panel"
-      eventName={result.entityType === "event" ? "event_card_clicked" : "search_result_clicked"}
-      href={result.routePath}
-      properties={{
-        entity_type: result.entityType,
-        profile_type: result.profileType,
-        surface: "search_results",
-      }}
-    >
-      <ResultImage result={result} />
-      <span className="flex min-w-0 flex-1 flex-col gap-2">
-        <span className="flex items-start justify-between gap-4">
-          <span className="min-w-0 text-xl font-semibold group-hover:text-accent-strong">
-            {result.title}
+    <div className="rounded-panel border border-border bg-surface transition hover:-translate-y-0.5 hover:border-border-strong hover:bg-surface-strong hover:shadow-panel">
+      <TrackedDiscoveryLink
+        className="group flex gap-4 px-4 py-4"
+        eventName={result.entityType === "event" ? "event_card_clicked" : "search_result_clicked"}
+        href={result.routePath}
+        properties={{
+          entity_type: result.entityType,
+          profile_type: result.profileType,
+          surface: "search_results",
+        }}
+      >
+        <ResultImage result={result} />
+        <span className="flex min-w-0 flex-1 flex-col gap-2">
+          <span className="flex items-start justify-between gap-4">
+            <span className="min-w-0 text-xl font-semibold group-hover:text-accent-strong">
+              {result.title}
+            </span>
+            <span className="shrink-0 text-xs font-medium text-muted">
+              {entityLabel(result)}
+            </span>
           </span>
-          <span className="shrink-0 rounded-control border border-border bg-surface-strong px-3 py-1 text-xs font-medium text-muted">
-            {entityLabel(result)}
-          </span>
+          {subtitle ? <span className="text-sm text-muted">{subtitle}</span> : null}
+          {result.startsAt === undefined ? null : <ViewerLocalEventDateTime className="text-sm text-accent-strong" timestamp={result.startsAt} />}
+          {result.summary ? <span className="line-clamp-2 text-sm leading-6 text-muted">{result.summary}</span> : null}
+          {roleLabels.length > 0 ? <span className="text-xs text-muted">{roleLabels.join(" · ")}</span> : null}
+          {result.source ? <span className="text-xs text-muted">{result.source.label}</span> : null}
         </span>
-        {subtitle ? <span className="text-sm text-muted">{subtitle}</span> : null}
-        {result.startsAt === undefined ? null : <ViewerLocalEventDateTime className="text-sm text-accent-strong" timestamp={result.startsAt} />}
-        {result.summary ? <span className="line-clamp-2 text-sm leading-6 text-muted">{result.summary}</span> : null}
-        {result.source ? <span className="text-xs text-muted">{result.source.label}</span> : null}
-      </span>
-    </TrackedDiscoveryLink>
+      </TrackedDiscoveryLink>
+      {result.claimEntryPath ? (
+        <div className="border-t border-border px-4 py-3">
+          <Link className="text-sm font-medium text-accent-strong hover:underline" href={result.claimEntryPath}>
+            Claim this profile
+          </Link>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -347,16 +359,6 @@ export function DiscoveryLandingPage({
   );
 }
 
-function filterHref(query: string, filter: SearchResultFilter) {
-  const params = new URLSearchParams({ q: query });
-
-  if (filter !== "all") {
-    params.set("type", filter);
-  }
-
-  return `/search?${params.toString()}`;
-}
-
 function filterLabel(filter: SearchResultFilter): string {
   switch (filter) {
     case "event":
@@ -384,54 +386,42 @@ export function SearchResultsPage({
   status: DiscoveryStatus;
 }) {
   const hasQuery = Boolean(query.trim());
-  const filteredResults = results.filter((result) => resultMatchesFilter(result, activeFilter));
   const filters: SearchResultFilter[] = ["all", "event", "person", "community", "world"];
 
   return (
-    <PageShell>
-      <PageContainer className="gap-7" max="5xl">
-        <TopNav />
-
-        <section className="pt-4">
-          <h1 className="text-4xl leading-none font-semibold sm:text-6xl">
-            {hasQuery ? `Results for ${query}` : "Search VRDex"}
-          </h1>
-          <p className="mt-4 max-w-2xl text-sm leading-6 text-muted sm:text-base">
-            Search across public people, communities, worlds, and events.
-          </p>
-          <DiscoverySearchForm className="mt-6 max-w-3xl" defaultQuery={query} surface="search" tone="default" />
-        </section>
-
+    <SearchViewShell
+      activeView="standard"
+      query={query}
+      searchControl={<DiscoverySearchForm className="max-w-3xl" defaultQuery={query} filter={activeFilter} surface="search" tone="default" />}
+    >
         {status === "live" ? null : <Card surface="dashed">{status === "missing-url" ? "Search data is not available in this environment yet." : "Search data is temporarily unavailable."}</Card>}
 
         {hasQuery ? (
           <section aria-label="Search results" className="space-y-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap gap-2">
+            <h2 className="text-2xl font-semibold tracking-[-0.03em]">Results for {query}</h2>
+            <div className="flex flex-wrap items-center gap-3">
+              <nav aria-label="Entity type" className="flex flex-wrap gap-2">
                 {filters.map((filter) => {
-                  const count = results.filter((result) => resultMatchesFilter(result, filter)).length;
                   const active = filter === activeFilter;
 
                   return (
                     <Link
+                      aria-current={active ? "page" : undefined}
                       className={cn(
                         buttonVariants({ size: "sm", variant: active ? "primary" : "secondary" }),
-                        count === 0 ? "pointer-events-none opacity-50" : undefined,
+                        "min-h-11",
                       )}
-                      href={filterHref(query, filter)}
+                      href={searchHref({ filter, query })}
                       key={filter}
                     >
-                      {filterLabel(filter)} {count}
+                      {filterLabel(filter)}
                     </Link>
                   );
                 })}
-              </div>
-              <p className="text-sm text-muted">
-                {filteredResults.length} {filteredResults.length === 1 ? "result" : "results"}
-              </p>
+              </nav>
             </div>
 
-            {filteredResults.length === 0 ? (
+            {results.length === 0 ? (
               <Card surface="dashed">
                 <p className="font-medium">No public results matched that search yet.</p>
                 <p className="mt-2 text-sm leading-6 text-muted">
@@ -440,12 +430,11 @@ export function SearchResultsPage({
               </Card>
             ) : (
               <div className="grid gap-4">
-                {filteredResults.map((result) => <SearchResultCard key={`${result.entityType}-${result.slug}`} result={result} />)}
+                {results.map((result) => <SearchResultCard key={`${result.entityType}-${result.slug}`} result={result} />)}
               </div>
             )}
           </section>
         ) : null}
-      </PageContainer>
-    </PageShell>
+    </SearchViewShell>
   );
 }

@@ -1,5 +1,12 @@
-import { SearchResultsPage, type SearchResultFilter } from "../_components/discovery-public-page";
-import { fetchDiscoverySearch } from "@/convex/server";
+import { SearchResultsPage } from "../_components/discovery-public-page";
+import { ProfileLookupPage } from "../_components/profile-lookup-page";
+import {
+  parseSearchFilter,
+  parseSearchView,
+  searchHref,
+} from "../_components/search-view-state";
+import { fetchDiscoverySearch, fetchProfileLookup } from "@/convex/server";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -7,23 +14,43 @@ type SearchPageProps = {
   searchParams: Promise<{
     q?: string;
     type?: string;
+    view?: string;
   }>;
 };
 
-const searchFilters = new Set<SearchResultFilter>(["all", "event", "person", "community", "world"]);
-
-function parseSearchFilter(value: string | undefined): SearchResultFilter {
-  return value && searchFilters.has(value as SearchResultFilter) ? (value as SearchResultFilter) : "all";
-}
-
 export default async function SearchPage({ searchParams }: SearchPageProps) {
-  const { q, type } = await searchParams;
+  const { q, type, view: rawView } = await searchParams;
   const query = q?.trim() ?? "";
-  const search = query ? await fetchDiscoverySearch(query) : { kind: "live" as const, results: [] };
+  const view = parseSearchView(rawView);
+  const filter = parseSearchFilter(type, view);
+
+  if (view === "dj") {
+    if (type !== undefined) {
+      redirect(searchHref({ query, view }));
+    }
+
+    const lookup = await fetchProfileLookup(query);
+
+    return (
+      <ProfileLookupPage
+        privateResults={lookup.privateResults}
+        query={query}
+        results={lookup.results}
+        routePath="/search"
+        status={lookup.kind}
+        view="dj"
+        viewerAccess={lookup.viewerAccess}
+      />
+    );
+  }
+
+  const search = query
+    ? await fetchDiscoverySearch(query, filter)
+    : { kind: "live" as const, results: [] };
 
   return (
     <SearchResultsPage
-      activeFilter={parseSearchFilter(type)}
+      activeFilter={filter}
       query={query}
       results={search.results}
       status={search.kind}

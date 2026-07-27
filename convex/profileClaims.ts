@@ -1,17 +1,20 @@
 import { v } from "convex/values";
 
-import { getLinkedProviderAccount, requireVerifiedEmailUser } from "./accounts";
+import { getCurrentUser, getLinkedProviderAccount, requireCurrentUser, requireVerifiedEmailUser } from "./accounts";
 import { toAuthSubject } from "./_communityAuthority";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { action, internalMutation, internalQuery, mutation } from "./_generated/server";
+import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { createClaimedDiscordProfileForUser } from "./_profileClaimCreation";
-import { approveProfileClaimForUser, getActiveProfileOwner } from "./_profileOwnership";
+import { approveProfileClaimForUser, getActiveProfileOwner, userOwnsProfile } from "./_profileOwnership";
+import { canReadProfile } from "./_profilePermissions";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { createProfileSearchDocument, upsertSearchDocument } from "./_searchDocuments";
+import { normalizeVrchatTargetId } from "./_vrchatIdentity";
 
 const DAY_MS = 86_400_000;
 const DISCORD_ADMINISTRATOR_PERMISSION = BigInt(8);
+const DISCORD_GUILD_ID_PATTERN = /^\d{17,20}$/;
 const noSuitableMatchConfirmed = v.boolean();
 const vrchatTargetType = v.union(
   v.literal("vrchat_user"),
@@ -42,6 +45,39 @@ const claimedCommunityProfileArgs = {
   ),
 };
 
+export const getClaimTargetBySlug = query({
+  args: {
+    profileSlug: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const validation = validateProfileSlug(args.profileSlug);
+    if (!validation.ok) {
+      return null;
+    }
+
+    const profile = await getProfileBySlug(ctx.db, validation.slug);
+    if (profile === null) {
+      return null;
+    }
+
+    const user = await getCurrentUser(ctx);
+    const hasPublicProfile = canReadProfile("public", profile);
+    const isOwner = user !== null && await userOwnsProfile(ctx.db, profile._id, user._id);
+    if (!hasPublicProfile && !isOwner) {
+      return null;
+    }
+
+    return {
+      avatarImageUrl: profile.avatarImageUrl,
+      displayName: profile.displayName,
+      hasPublicProfile,
+      profileId: profile._id,
+      profileType: profile.profileType,
+      slug: profile.slug,
+    };
+  },
+});
+
 type VrchatTargetType = Doc<"profileVerificationAttempts">["targetType"];
 type VerificationAttemptAdapterContext = {
   attempt: Doc<"profileVerificationAttempts">;
@@ -58,6 +94,7 @@ type DiscordCommunityClaimAdapterContext = {
 };
 type VerifyAdapterResult =
   | { state: Doc<"profileVerificationAttempts">["state"] }
+  | { state: "unavailable" }
   | {
       claimRequestId: Id<"profileClaimRequests">;
       profileId: Id<"profiles">;
@@ -157,6 +194,12 @@ function proofMethodForTarget(targetType: VrchatTargetType): Doc<"profileVerific
   return "vrclinking_attestation";
 }
 
+function proofEvidenceSourceForTarget(
+  targetType: VrchatTargetType,
+): "vrchat_api" | "vrclinking" {
+  return targetType === "vrclinking" ? "vrclinking" : "vrchat_api";
+}
+
 function requireCompatibleProofTarget(profile: Doc<"profiles">, targetType: VrchatTargetType) {
   if (targetType === "vrchat_user" && profile.profileType !== "person") {
     throw new Error("VRChat user proof requires a person profile.");
@@ -170,6 +213,148 @@ function requireCompatibleProofTarget(profile: Doc<"profiles">, targetType: Vrch
 function createProofCode(): string {
   return `VRDEX-${crypto.randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase()}`;
 }
+
+export const getClaimJourneyContext = query({
+  args: { profileSlug: v.string() },
+  handler: async (ctx, args) => {
+    const validation = validateProfileSlug(args.profileSlug);
+    if (!validation.ok) {
+      return null;
+    }
+
+    const profile = await getProfileBySlug(ctx.db, validation.slug);
+    if (profile === null) {
+      return null;
+    }
+
+    const user = await getCurrentUser(ctx);
+    const publiclyReadable = canReadProfile("public", profile);
+    if (user === null) {
+      if (!publiclyReadable) {
+        return null;
+      }
+
+      return {
+        ownership: "signed_out" as const,
+        verified: false,
+        emailVerified: false,
+        hasDiscord: false,
+        pendingClaimRequest: null,
+        pendingProof: null,
+      };
+    }
+
+    const owner = await getActiveProfileOwner(ctx.db, profile._id);
+    if (!publiclyReadable && owner?.userId !== user._id) {
+      return null;
+    }
+
+    const [discordAccount, pendingRequests, pendingProofs] = await Promise.all([
+      getLinkedProviderAccount(ctx, user._id, "discord"),
+      ctx.db
+        .query("profileClaimRequests")
+        .withIndex("by_profileId_userId_state_updatedAt", (q) =>
+          q.eq("profileId", profile._id).eq("userId", user._id).eq("state", "pending"),
+        )
+        .order("desc")
+        .first(),
+      ctx.db
+        .query("profileVerificationAttempts")
+        .withIndex("by_profileId_userId_state_updatedAt", (q) =>
+          q.eq("profileId", profile._id).eq("userId", user._id).eq("state", "pending"),
+        )
+        .filter((q) => q.neq(q.field("targetType"), "vrclinking"))
+        .order("desc")
+        .first(),
+    ]);
+    const request = pendingRequests;
+    const proof = pendingProofs;
+
+    return {
+      ownership:
+        owner === null ? ("available" as const) : owner.userId === user._id ? ("viewer" as const) : ("other" as const),
+      verified: profile.claimState === "claimed_verified",
+      emailVerified: user.email !== undefined && user.emailVerificationTime !== undefined,
+      hasDiscord: discordAccount !== null,
+      pendingClaimRequest: request
+        ? {
+            id: request._id,
+            method: request.method,
+            discordGuildId: request.discordGuildId,
+            discordGuildName: request.discordGuildName,
+          }
+        : null,
+      pendingProof: proof
+        ? {
+            id: proof._id,
+            targetType: proof.targetType,
+            targetExternalId: proof.targetExternalId,
+            proofCode: proof.proofCode,
+            expiresAt: proof.expiresAt,
+            expired: proof.expiresAt <= Date.now(),
+          }
+        : null,
+    };
+  },
+});
+
+export const cancelClaimJourneyPending = mutation({
+  args: {
+    profileSlug: v.string(),
+    pendingType: v.union(v.literal("claim_request"), v.literal("proof")),
+  },
+  handler: async (ctx, args) => {
+    const user = await requireCurrentUser(ctx);
+    const validation = validateProfileSlug(args.profileSlug);
+    if (!validation.ok) {
+      throw new Error("A valid profile slug is required.");
+    }
+    const profile = await getProfileBySlug(ctx.db, validation.slug);
+    if (profile === null) {
+      throw new Error("Profile not found.");
+    }
+
+    const now = Date.now();
+
+    if (args.pendingType === "claim_request") {
+      const request = await ctx.db
+        .query("profileClaimRequests")
+        .withIndex("by_profileId_userId_state_updatedAt", (q) =>
+          q.eq("profileId", profile._id).eq("userId", user._id).eq("state", "pending"),
+        )
+        .order("desc")
+        .first();
+      if (request === null) {
+        return { canceled: false };
+      }
+      await ctx.db.patch(request._id, {
+        state: "rejected",
+        rejectionReason: "Canceled by claimant.",
+        reviewedAt: now,
+        updatedAt: now,
+      });
+      return { canceled: true };
+    }
+
+    const proof = await ctx.db
+      .query("profileVerificationAttempts")
+      .withIndex("by_profileId_userId_state_updatedAt", (q) =>
+        q.eq("profileId", profile._id).eq("userId", user._id).eq("state", "pending"),
+      )
+      .filter((q) => q.neq(q.field("targetType"), "vrclinking"))
+      .order("desc")
+      .first();
+    if (proof === null) {
+      return { canceled: false };
+    }
+    await ctx.db.patch(proof._id, {
+      state: proof.expiresAt <= now ? "expired" : "failed",
+      evidenceSummary: "Canceled by claimant.",
+      updatedAt: now,
+    });
+    return { canceled: true };
+  },
+});
 
 function proofAdapterUrl(targetType: VrchatTargetType): string {
   if (targetType === "vrclinking") {
@@ -369,6 +554,11 @@ export const requestCommunityDiscordAdminClaim = mutation({
       getClaimableProfileBySlug(ctx.db, args.profileSlug, "community"),
       requireLinkedDiscordAccount(ctx, user._id),
     ]);
+    const discordGuildId = args.discordGuildId.trim();
+    if (!DISCORD_GUILD_ID_PATTERN.test(discordGuildId)) {
+      throw new Error("Enter a valid Discord server id.");
+    }
+
     const activeOwner = await getActiveProfileOwner(ctx.db, profile._id);
 
     if (activeOwner !== null && activeOwner.userId !== user._id) {
@@ -384,6 +574,29 @@ export const requestCommunityDiscordAdminClaim = mutation({
     }
 
     const now = Date.now();
+    const existingRequest = await ctx.db
+      .query("profileClaimRequests")
+      .withIndex("by_profileId_userId_state_updatedAt", (q) =>
+        q.eq("profileId", profile._id).eq("userId", user._id).eq("state", "pending"),
+      )
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("method"), "discord_community_admin"),
+          q.eq(q.field("discordGuildId"), discordGuildId),
+        ),
+      )
+      .order("desc")
+      .first();
+
+    if (existingRequest) {
+      return {
+        claimRequestId: existingRequest._id,
+        profileId: profile._id,
+        profilePath: `/c/${profile.slug}`,
+        state: "pending_admin_verification" as const,
+      };
+    }
+
     const claimRequestId = await ctx.db.insert("profileClaimRequests", {
       profileId: profile._id,
       profileSlug: profile.slug,
@@ -392,7 +605,7 @@ export const requestCommunityDiscordAdminClaim = mutation({
       userId: user._id,
       method: "discord_community_admin",
       state: "pending",
-      discordGuildId: args.discordGuildId.trim(),
+      discordGuildId,
       ...(args.discordGuildName?.trim() ? { discordGuildName: args.discordGuildName.trim() } : {}),
       evidenceSource: "discord_api",
       evidenceSummary: `Linked Discord account ${discordAccount.providerAccountId} requested Administrator verification.`,
@@ -578,12 +791,50 @@ export const startVrchatProof = mutation({
       throw new Error("This profile already has an active owner.");
     }
 
-    const targetExternalId = args.targetExternalId.trim();
+    const targetExternalId =
+      args.targetType === "vrclinking"
+        ? args.targetExternalId.trim()
+        : normalizeVrchatTargetId(args.targetExternalId, args.targetType);
     if (!targetExternalId) {
-      throw new Error("A VRChat or VRCLinking target id is required.");
+      throw new Error(
+        args.targetType === "vrchat_group"
+          ? "Enter a valid VRChat group URL or id."
+          : args.targetType === "vrchat_user"
+            ? "Enter a valid VRChat profile URL or user id."
+            : "A VRC Linking user id is required.",
+      );
     }
 
     const now = Date.now();
+    const pendingAttempts = await ctx.db
+      .query("profileVerificationAttempts")
+      .withIndex("by_profileId_userId_state_updatedAt", (q) =>
+        q.eq("profileId", profile._id).eq("userId", user._id).eq("state", "pending"),
+      )
+      .collect();
+    const existingAttempt = pendingAttempts.find(
+      (attempt) =>
+        attempt.userId === user._id &&
+        attempt.targetType === args.targetType &&
+        attempt.targetExternalId === targetExternalId &&
+        attempt.expiresAt > now,
+    );
+
+    if (existingAttempt) {
+      return {
+        attemptId: existingAttempt._id,
+        profileId: profile._id,
+        proofCode: existingAttempt.proofCode,
+        expiresAt: existingAttempt.expiresAt,
+      };
+    }
+
+    await Promise.all(
+      pendingAttempts
+        .filter((attempt) => attempt.expiresAt <= now)
+        .map((attempt) => ctx.db.patch(attempt._id, { state: "expired", updatedAt: now })),
+    );
+
     const attemptId = await ctx.db.insert("profileVerificationAttempts", {
       profileId: profile._id,
       userId: user._id,
@@ -663,9 +914,9 @@ export const recordVrchatProofVerification = internalMutation({
     }
 
     const now = Date.now();
-    if (attempt.expiresAt < now) {
+    if (attempt.expiresAt <= now) {
       await ctx.db.patch(attempt._id, { state: "expired", updatedAt: now });
-      throw new Error("Verification attempt has expired.");
+      return { state: "expired" as const };
     }
 
     const profile = await ctx.db.get(attempt.profileId);
@@ -739,13 +990,13 @@ export const recordVrchatProofFailure = internalMutation({
 
     const now = Date.now();
     await ctx.db.patch(attempt._id, {
-      state: attempt.expiresAt < now ? "expired" : "failed",
+      state: attempt.expiresAt <= now ? "expired" : "failed",
       ...(args.evidenceSource !== undefined ? { evidenceSource: args.evidenceSource } : {}),
       evidenceSummary: args.evidenceSummary,
       updatedAt: now,
     });
 
-    return { state: attempt.expiresAt < now ? "expired" : "failed" };
+    return { state: attempt.expiresAt <= now ? "expired" : "failed" };
   },
 });
 
@@ -778,32 +1029,48 @@ export const verifyVrchatProofViaAdapter = action({
       }),
     });
 
-    if (!response.ok) {
+    if (attemptContext.attempt.expiresAt <= Date.now()) {
       await ctx.runMutation(internal.profileClaims.recordVrchatProofFailure, {
         attemptId: args.attemptId,
-        evidenceSource: "manual",
-        evidenceSummary: `Proof adapter returned HTTP ${response.status}.`,
+        evidenceSource: proofEvidenceSourceForTarget(attemptContext.attempt.targetType),
+        evidenceSummary: "The proof attempt expired before adapter verification completed.",
       });
+      return { state: "expired" as const };
+    }
 
-      return { state: "failed" as const };
+    if (!response.ok) {
+      return { state: "unavailable" as const };
     }
 
     const result = (await response.json()) as ProofAdapterResponse;
 
     if (result.verified !== true) {
-      await ctx.runMutation(internal.profileClaims.recordVrchatProofFailure, {
-        attemptId: args.attemptId,
-        evidenceSource: result.evidenceSource ?? "manual",
-        evidenceSummary: result.evidenceSummary ?? "Proof code was not found by the adapter.",
-      });
-
-      return { state: "failed" as const };
+      return { state: "pending" as const };
     }
 
     return await ctx.runMutation(internal.profileClaims.recordVrchatProofVerification, {
       attemptId: args.attemptId,
-      evidenceSource: result.evidenceSource ?? "vrchat_api",
+      evidenceSource: result.evidenceSource ?? proofEvidenceSourceForTarget(attemptContext.attempt.targetType),
       evidenceSummary: result.evidenceSummary ?? "Proof code was found by the configured adapter.",
     });
+  },
+});
+
+export const expireStaleVerificationAttempts = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const attempts = await ctx.db
+      .query("profileVerificationAttempts")
+      .withIndex("by_state_expiresAt", (q) => q.eq("state", "pending").lte("expiresAt", now))
+      .take(500);
+
+    await Promise.all(
+      attempts.map((attempt) =>
+        ctx.db.patch(attempt._id, { state: "expired", updatedAt: now }),
+      ),
+    );
+
+    return { expired: attempts.length };
   },
 });

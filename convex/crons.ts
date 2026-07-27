@@ -18,4 +18,11 @@ crons.daily(
   {},
 );
 
+crons.hourly(
+  "expire stale profile verification attempts",
+  { minuteUTC: 35 },
+  internal.profileClaims.expireStaleVerificationAttempts,
+  {},
+);
+
 export default crons;

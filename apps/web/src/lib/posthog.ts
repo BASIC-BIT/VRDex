@@ -16,11 +16,15 @@ export function sanitizeAnalyticsUrl(value: string): string {
   try {
     const absolute = /^[a-z][a-z\d+.-]*:\/\//i.test(value);
     const url = new URL(value, "https://vrdex.invalid");
-    const pathname = url.pathname.replace(/^\/handoff\/[^/]+/, "/handoff/redacted");
+    const pathname = url.pathname
+      .replace(/^\/handoff\/[^/]+/, "/handoff/redacted")
+      .replace(/^\/claim\/[^/]+/, "/claim/redacted");
 
     return absolute ? `${url.protocol}//${url.host}${pathname}` : pathname;
   } catch {
-    return fallback.replace(/^\/handoff\/[^/]+/, "/handoff/redacted");
+    return fallback
+      .replace(/^\/handoff\/[^/]+/, "/handoff/redacted")
+      .replace(/^\/claim\/[^/]+/, "/claim/redacted");
   }
 }
 
@@ -60,7 +64,29 @@ export type DiscoveryAnalyticsSurface =
   | "featured_picks";
 
 type ProductAnalyticsEvents = {
-  search_submitted: { surface: "home" | "search" };
+  claim_journey_viewed: {
+    profile_type: "person" | "community";
+    source: "account" | "profile" | "search";
+  };
+  claim_method_selected: {
+    method: "discord" | "vrchat";
+    profile_type: "person" | "community";
+  };
+  claim_submitted: {
+    method: "discord" | "vrchat";
+    profile_type: "person" | "community";
+  };
+  claim_completed: {
+    method: "discord" | "vrchat";
+    outcome: "already_owned" | "claimed_unverified" | "claimed_verified";
+    profile_type: "person" | "community";
+  };
+  claim_failed: {
+    method: "discord" | "vrchat";
+    outcome: "conflict" | "expired" | "not_verified" | "unavailable" | "unknown";
+    profile_type: "person" | "community";
+  };
+  search_submitted: { surface: "home" | "search"; view_key: "standard" };
   search_result_clicked: {
     entity_type: string;
     profile_type?: string;
@@ -72,6 +98,7 @@ type ProductAnalyticsEvents = {
   lookup_submitted: {
     access_scope: "private_and_public" | "public_only";
     mode: "bulk" | "single";
+    view_key: "dj";
   };
   private_seed_results_shown: {
     result_count: "multiple" | "one";
