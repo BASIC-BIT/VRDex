@@ -63,7 +63,7 @@ Prefer explicit labels in docs:
 
 ## Public product copy rule
 
-- Status: owner-directed proposal. BASIC must approve this exact wording before this change merges.
+- Status: locked decision. BASIC approved this wording on 2026-07-27.
 - Use `VR Johnny` as BASIC's internal tone-risk stress test: a stand-in for one ordinary VR-community user who may reject copy that feels corporate, patronizing, AI-promotional, AI-generated, or slop-like. It is not a demographic category, observed evidence, or a claim that all VR users react alike.
 - Every substantive new word of public-facing product or website prose must be evaluated through the VR Johnny lens.
 - Obvious one- or two-word utility labels and exact strings matching an already-approved pattern may proceed. When in doubt, treat copy as reviewable.

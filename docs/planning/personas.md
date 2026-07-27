@@ -154,8 +154,7 @@ Likely trust tests:
 
 ## Taste Lens: VR Johnny
 
-`Owner-directed proposal; BASIC must approve this exact wording before this
-change merges`.
+`Locked decision; BASIC approved this wording on 2026-07-27`.
 
 VR Johnny is BASIC's owner-authored tone-risk stress test: a stand-in for one
 ordinary VR-community user who may reject copy that feels corporate,
@@ -181,8 +180,7 @@ median user, or source of evidence.
 
 ## Public Product Copy Rule
 
-`Owner-directed proposal; BASIC must approve this exact wording before this
-change merges`.
+`Locked decision; BASIC approved this wording on 2026-07-27`.
 
 The canonical operational copy is in `AGENTS.md`. It is repeated here so the
 persona artifact remains self-contained; update both copies together.
