@@ -460,13 +460,21 @@ test("verified email account can complete VRChat adapter claims @flow", async ({
     await page.reload();
     await expect(page.getByRole("heading", { name: "Finish your VRChat proof" })).toBeVisible(hostedActionExpectOptions);
     await page.getByRole("button", { name: "Check proof now" }).click();
-    await expect(page.getByText(/Ownership verified/i)).toBeVisible(hostedActionExpectOptions);
+    await expect(page.getByText(/Ownership (verified|confirmed)/i)).toBeVisible(hostedActionExpectOptions);
 
     await gotoFlowPage(page, `/p/${vrchatPersonSlug}`);
     await expect(page.getByRole("heading", { name: `Playwright VRChat Proof ${runSuffix}` })).toBeVisible(hostedActionExpectOptions);
+    // Claimed, not verified: the fixture VRChat account is not on record for
+    // this fresh listing, and controlling an account is not evidence that the
+    // account is the one the listing represents. A hosted target predating that
+    // rule still shows the verified label, so both are accepted.
     await expectCurrentOrHostedLagTrustCopy(
-      page.getByLabel("Owner verified").or(profileStatusCopy(page, "Verified")),
-      page.getByRole("heading", { name: "Verified owner", exact: true }).or(page.getByText("Person profile / Verified", { exact: true })),
+      profileStatusCopy(page, "Claimed"),
+      page
+        .getByLabel("Owner verified")
+        .or(profileStatusCopy(page, "Verified"))
+        .or(page.getByRole("heading", { name: "Verified owner", exact: true }))
+        .or(page.getByText("Person profile / Verified", { exact: true })),
     );
 
   } finally {
