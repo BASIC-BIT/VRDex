@@ -166,6 +166,8 @@ export function LookupSearchBox({
     typeof window === "undefined" ? [] : readRecentSearches()
   ));
   const recentSaveTimeoutRef = useRef<number | null>(null);
+  const bulkEditorRef = useRef<HTMLDivElement>(null);
+  const pendingBulkSelectionRef = useRef<number | null>(null);
   const [isPending, startTransition] = useTransition();
   const normalizedInitialQuery = initialQuery.trim();
   const parsedBulkLines = useMemo(() => parseBulkLookupLines(bulkText), [bulkText]);
@@ -232,6 +234,21 @@ export function LookupSearchBox({
 
     return () => controller.abort();
   }, [bulkMode, deferredQuery, normalizedInitialQuery, showPrivateSuggestions]);
+
+  useEffect(() => {
+    if (!bulkMode) {
+      return;
+    }
+
+    const editor = bulkEditorRef.current?.querySelector("textarea");
+    const selection = pendingBulkSelectionRef.current;
+
+    if (editor && selection !== null) {
+      editor.focus();
+      editor.setSelectionRange(selection, selection);
+      pendingBulkSelectionRef.current = null;
+    }
+  }, [bulkMode]);
 
   useEffect(() => {
     if (!bulkMode) {
@@ -318,6 +335,28 @@ export function LookupSearchBox({
     setIsOpen(false);
   }
 
+  function enterBulkMode(text: string, selection: number) {
+    setBulkText(text);
+    pendingBulkSelectionRef.current = selection;
+    setBulkMode(true);
+    setIsOpen(false);
+    setActiveIndex(-1);
+  }
+
+  function textWithInsertion(
+    input: HTMLInputElement,
+    insertion: string,
+  ): { selection: number; text: string } {
+    const start = input.selectionStart ?? input.value.length;
+    const end = input.selectionEnd ?? start;
+    const text = `${input.value.slice(0, start)}${insertion}${input.value.slice(end)}`;
+
+    return {
+      text,
+      selection: start + insertion.length,
+    };
+  }
+
   return (
     <div className="grid gap-2">
       <form
@@ -336,7 +375,7 @@ export function LookupSearchBox({
       >
         {view ? <input name="view" type="hidden" value={view} /> : null}
         {bulkMode ? (
-          <div className="lookup-bulk-editor">
+          <div className="lookup-bulk-editor" ref={bulkEditorRef}>
             <Textarea
               aria-label="Lineup text"
               className="lookup-input min-h-20 resize-y font-mono text-sm"
@@ -376,7 +415,26 @@ export function LookupSearchBox({
                 }
               }}
               onFocus={() => setIsOpen(true)}
+              onPaste={(event) => {
+                const pastedText = event.clipboardData.getData("text");
+
+                if (!/[\r\n]/.test(pastedText)) {
+                  return;
+                }
+
+                event.preventDefault();
+                const nextBulkValue = textWithInsertion(event.currentTarget, pastedText);
+
+                enterBulkMode(nextBulkValue.text, nextBulkValue.selection);
+              }}
               onKeyDown={(event) => {
+                if (event.key === "Enter" && event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
+                  event.preventDefault();
+                  const nextBulkValue = textWithInsertion(event.currentTarget, "\n");
+
+                  enterBulkMode(nextBulkValue.text, nextBulkValue.selection);
+                  return;
+                }
                 if (event.key === "Escape") {
                   setIsOpen(false);
                   setActiveIndex(-1);

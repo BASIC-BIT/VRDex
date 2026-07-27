@@ -215,6 +215,38 @@ test.describe("fixture lookup smoke", () => {
     await expect(page.getByRole("option", { name: /BASICBIT/i })).toHaveCount(0);
   });
 
+  test("lookup promotes Shift+Enter and multiline paste into bulk mode", async ({ page }) => {
+    await page.goto("/search?view=dj");
+    const lookupInput = page.getByLabel("DJ name");
+
+    await lookupInput.fill("BASICBIT");
+    await lookupInput.press("Shift+Enter");
+
+    const shiftedBulkEditor = page.getByLabel("Lineup text");
+    await expect(shiftedBulkEditor).toBeFocused();
+    await expect(shiftedBulkEditor).toHaveValue("BASICBIT\n");
+    await expect(page.getByRole("button", { name: "Single" })).toHaveAttribute("aria-pressed", "true");
+
+    await page.goto("/search?view=dj");
+    const pasteTarget = page.getByLabel("DJ name");
+
+    await pasteTarget.evaluate((element) => {
+      const clipboardData = new DataTransfer();
+
+      clipboardData.setData("text/plain", "BASICBIT\nDJ Aurora");
+      element.dispatchEvent(new ClipboardEvent("paste", {
+        bubbles: true,
+        cancelable: true,
+        clipboardData,
+      }));
+    });
+
+    const pastedBulkEditor = page.getByLabel("Lineup text");
+    await expect(pastedBulkEditor).toBeFocused();
+    await expect(pastedBulkEditor).toHaveValue("BASICBIT\nDJ Aurora");
+    await expect(page.getByText("2 pasted entries")).toBeVisible();
+  });
+
   test("standard search hides stale suggestions as soon as the visible query changes", async ({ page }) => {
     await page.goto("/search");
     const searchInput = page.getByRole("combobox", { name: /Search/i });
