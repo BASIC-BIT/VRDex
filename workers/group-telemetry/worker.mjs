@@ -109,13 +109,27 @@ async function collect(assignment) {
   }
 }
 
+/** Hands back attempts from `from` onward that were claimed but never read. */
+async function releaseUnread(batch, from) {
+  const index = batch.indexOf(from);
+
+  if (index < 0) return;
+
+  await control
+    .send("proof_release", {
+      attemptIds: batch.slice(index).map((entry) => entry.attemptId),
+      now: Date.now(),
+    })
+    .catch(() => undefined);
+}
+
 /**
  * Look for ownership proof codes on pending VRChat targets.
  *
- * Proof checks are not lease-scoped, so the account-level budget is the only
- * rate guard here. A provider error leaves the attempt pending rather than
- * failing it: the owner may simply not have posted the code yet, and the
- * attempt expires on its own.
+ * Proof checks are not lease-scoped, so the account budget is the only rate
+ * guard here. A provider error leaves the attempt pending rather than failing
+ * it: the owner may simply not have posted the code yet, and the attempt
+ * expires on its own.
  */
 async function checkProofs() {
   const claimNow = Date.now();
@@ -126,7 +140,15 @@ async function checkProofs() {
   for (const attempt of pending) {
     if (stopping) break;
     const now = Date.now();
-    if (!accountBudget.tryConsume(1, now)) break;
+
+    if (!accountBudget.tryConsume(1, now)) {
+      // Same reason as the shared-budget denial below: the claim stamped the
+      // whole batch, so leaving without releasing holds unread attempts in
+      // cooldown. Telemetry polling can drain the local budget between the
+      // initial check and this point.
+      await releaseUnread(pending, attempt);
+      break;
+    }
 
     // The process-local counter above is only a fast local guard. Replicas on
     // the same service account, and restarts mid-window, each start from zero,
@@ -134,15 +156,7 @@ async function checkProofs() {
     const reservation = await control.send("proof_budget", { requestCount: 1, now });
 
     if (!reservation?.granted) {
-      // The claim already stamped every attempt in this batch, so leaving now
-      // would hold them all in cooldown without a single read. Hand back the
-      // ones that were never looked at.
-      await control
-        .send("proof_release", {
-          attemptIds: pending.slice(pending.indexOf(attempt)).map((entry) => entry.attemptId),
-          now: Date.now(),
-        })
-        .catch(() => undefined);
+      await releaseUnread(pending, attempt);
       break;
     }
 

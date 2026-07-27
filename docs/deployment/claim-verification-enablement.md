@@ -81,11 +81,15 @@ This runs on the existing collector fleet and therefore inherits its gates:
 - a ready `collectorAccounts` row with its kill switch off,
 - the global `collectorFleetSettings` kill switch off.
 
-The collector is deliberately disabled pending VRChat's approval of durable
-service-account sessions — see
-`workers/group-telemetry/README.md`.
-Enabling proof reading means enabling real VRChat API access, so treat it as the
-same decision.
+Both gates are cleared as of 2026-07-27 and the fleet is enabled: BASIC accepted
+durable service-account sessions as an operating pattern, and the vault-to-AWS
+transfer command (`pnpm ops:vrchat-session:transfer`) ships. See
+`workers/group-telemetry/README.md` for the credential lifecycle and
+`docs/deployment/group-telemetry-collector.md` for the runbook.
+
+Proof reading is real VRChat API access. The stop condition in
+`docs/planning/community-group-telemetry.md` still applies: if VRChat objects,
+stop proof traffic and clear the saved session.
 
 `VRCHAT_PROOF_ADAPTER_URL` remains supported as an alternative external adapter
 seam and is no longer required for VRChat proofs to work.

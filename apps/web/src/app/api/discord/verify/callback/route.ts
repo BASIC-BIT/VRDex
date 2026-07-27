@@ -26,6 +26,12 @@ export async function GET(request: NextRequest) {
   // `code`. Consume the row so it is not stranded, and return the user to the
   // page they started from rather than dropping them on /account.
   if (!code) {
+    // Discord also omits `code` for provider and configuration errors such as
+    // `temporarily_unavailable` or `invalid_request`. Reporting those as
+    // "declined" would tell the user they refused something they did not.
+    const oauthError = request.nextUrl.searchParams.get("error");
+    const status =
+      oauthError === null || oauthError === "access_denied" ? "declined" : "failed";
     let declinedReturnTo = "/account";
 
     if (state) {
@@ -42,7 +48,7 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.redirect(
-      resolveSameOriginUrl(withStatus(declinedReturnTo, "declined"), request.nextUrl.origin),
+      resolveSameOriginUrl(withStatus(declinedReturnTo, status), request.nextUrl.origin),
     );
   }
 

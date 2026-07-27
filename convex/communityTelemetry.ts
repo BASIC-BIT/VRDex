@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 
 import { internal } from "./_generated/api";
@@ -845,7 +845,10 @@ export const recordProofAuthFailure = internalMutation({
 
     const account = await ctx.db.get(accountId);
 
-    if (account === null || account.state === "auth_required") {
+    // Only a `ready` account moves to `auth_required`. An operator may have
+    // quarantined or retired it between the request being authorized and this
+    // mutation running, and a 401 report must not overwrite that decision.
+    if (account === null || account.state !== "ready") {
       return { recorded: false };
     }
 
@@ -1895,8 +1898,20 @@ export const claimPendingProofChecks = internalMutation({
           .take(PROOF_CHECK_SCAN_LIMIT),
       ),
     );
-    const due = scanned
-      .flat()
+    // Expired rows sit in this index until the hourly sweeper clears them, and
+    // never-checked ones sort to the head, so a backlog of them could fill the
+    // scan window and starve live attempts. Settle the ones this scan trips
+    // over so they leave the pending index immediately rather than accumulating.
+    const scannedFlat = scanned.flat();
+    await Promise.all(
+      scannedFlat
+        .filter((attempt) => attempt.expiresAt <= args.now)
+        .map((attempt) =>
+          ctx.db.patch(attempt._id, { state: "expired", updatedAt: args.now }),
+        ),
+    );
+
+    const due = scannedFlat
       .filter(
         (attempt) =>
           attempt.expiresAt > args.now &&
@@ -1995,10 +2010,20 @@ export const recordProofCheckResult = internalMutation({
         evidenceSummary: "Proof code was found on the VRChat target by the collector.",
       });
     } catch (error) {
-      // Another claimant won the profile between this attempt being issued and
-      // its code being found. Throwing would 500 the worker and leave the
-      // attempt pending to be retried forever against an outcome that cannot
-      // change, so settle it instead.
+      // Only an ownership conflict is terminal. Another claimant won between
+      // this attempt being issued and its code being found, and retrying cannot
+      // change that, so settle it. Anything else — a transient failure while
+      // writing ownership, audit, link, or search rows — must propagate, or a
+      // valid proof would be marked failed for a condition that will clear.
+      const code =
+        error instanceof ConvexError && typeof error.data === "object" && error.data !== null
+          ? (error.data as { code?: unknown }).code
+          : undefined;
+
+      if (code !== "PROFILE_ALREADY_OWNED") {
+        throw error;
+      }
+
       await ctx.db.patch(attempt._id, {
         state: "failed",
         evidenceSource: "vrchat_api",

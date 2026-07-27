@@ -261,9 +261,9 @@ export function ConnectionsPanel({ initialProfileSlug }: { initialProfileSlug?: 
             VRDex only ever asks whether a given member is linked and verified.
           </p>
           <Notice className="mt-3">
-            Not yet in use by members. The claim flow does not offer a VRCLinking method yet, so a
-            delegation saved here has no member-visible effect until it does. Saving one now is
-            preparation, not activation.
+            Optional, and not required for anything today. Set this up only if you already run
+            VRCLinking and want VRDex ready to use it; there is nothing to gain from creating a
+            credential for it otherwise.
           </Notice>
 
           {connectedGuilds.length === 0 && (vrclinkingCredentials?.length ?? 0) === 0 ? (
