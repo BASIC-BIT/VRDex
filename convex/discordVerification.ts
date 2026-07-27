@@ -11,6 +11,8 @@ import {
 } from "./_externalControl";
 
 const STATE_TTL_MS = 10 * 60_000;
+/** Outstanding OAuth round-trips one account may hold at once. */
+const MAX_OPEN_VERIFICATION_STATES = 5;
 
 /** Code-point scan; no escaping subtlety can hide a control byte. */
 function hasControlCharacter(value: string): boolean {
@@ -121,13 +123,30 @@ export const createVerificationState = internalMutation({
     const now = Date.now();
     const state = createStateToken();
 
-    // Opportunistically clear this user's expired rows so the table stays small
-    // without needing a dedicated cron.
+    // Opportunistically clear expired rows so the table stays small without
+    // needing a dedicated cron.
     const stale = await ctx.db
       .query("discordVerificationStates")
       .withIndex("by_expiresAt", (q) => q.lte("expiresAt", now))
       .take(50);
     await Promise.all(stale.map((row) => ctx.db.delete(row._id)));
+
+    // Expiry sweeping alone does not bound anything: a caller who starts the
+    // flow and never finishes it accumulates unexpired rows faster than the
+    // sweep reclaims them. Keeping only the caller's most recent few caps the
+    // backlog per account outright, and still leaves room for the ordinary
+    // reason to hold more than one — the same person starting the flow in a
+    // couple of tabs.
+    const own = await ctx.db
+      .query("discordVerificationStates")
+      .withIndex("by_userId_createdAt", (q) => q.eq("userId", user._id))
+      .order("desc")
+      // One extra beyond the cap absorbs the overshoot from concurrent calls;
+      // every call trims back to the cap, so the backlog cannot grow past it.
+      .take(MAX_OPEN_VERIFICATION_STATES + 5);
+    await Promise.all(
+      own.slice(MAX_OPEN_VERIFICATION_STATES - 1).map((row) => ctx.db.delete(row._id)),
+    );
 
     await ctx.db.insert("discordVerificationStates", {
       userId: user._id,

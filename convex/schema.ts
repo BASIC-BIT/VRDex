@@ -1975,7 +1975,8 @@ export default defineSchema({
     expiresAt: v.number(),
   })
     .index("by_state", ["state"])
-    .index("by_expiresAt", ["expiresAt"]),
+    .index("by_expiresAt", ["expiresAt"])
+    .index("by_userId_createdAt", ["userId", "createdAt"]),
   // Many-to-many association between a profile and an external asset. One
   // community may hold several Discord guilds and VRChat groups (one marked
   // `primary`), and one guild may back several community profiles.

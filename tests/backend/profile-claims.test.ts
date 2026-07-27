@@ -451,4 +451,74 @@ describe("profile claim lifecycle", () => {
     const claimRequest = await t.run(async (ctx) => await ctx.db.get(seeded.claimRequestId));
     assert.equal(claimRequest?.state, "rejected");
   });
+
+  // The bot-token path proves the same thing the OAuth round-trip does, so it
+  // has to leave the same durable record. Without it the guild is verified but
+  // absent from the connection model, and nothing can delegate for it.
+  it("records a control proof and profile link when the bot token approves", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const guildId = "123456789012345678";
+    const seeded = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        email: "bot-approval@example.test",
+        emailVerificationTime: now,
+      });
+      const profileId = await ctx.db.insert("profiles", {
+        profileType: "community",
+        slug: "bot-approval",
+        displayName: "Bot Approval",
+        sortName: "bot approval",
+        aliases: [],
+        tags: [],
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "public",
+        creationSource: "self",
+        community: { categoryTags: [] },
+        updatedAt: now,
+      });
+      const claimRequestId = await ctx.db.insert("profileClaimRequests", {
+        profileId,
+        profileSlug: "bot-approval",
+        profileType: "community",
+        requestedDisplayName: "Bot Approval",
+        userId,
+        method: "discord_community_admin",
+        state: "pending",
+        discordGuildId: guildId,
+        discordGuildName: "Bot Approval HQ",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      return { userId, profileId, claimRequestId };
+    });
+
+    await t.mutation(internal.profileClaims.recordDiscordCommunityAdminApproval, {
+      claimRequestId: seeded.claimRequestId,
+      evidenceSummary: "Administrator permission confirmed by the Discord bot.",
+    });
+
+    await t.run(async (ctx) => {
+      const proofs = await ctx.db
+        .query("externalControlProofs")
+        .withIndex("by_userId_state", (q) => q.eq("userId", seeded.userId).eq("state", "active"))
+        .collect();
+      assert.equal(proofs.length, 1);
+      assert.equal(proofs[0]?.assetExternalId, guildId);
+      assert.equal(proofs[0]?.evidenceSource, "discord_bot");
+      assert.equal(proofs[0]?.controlLevel, "administrator");
+
+      const links = await ctx.db
+        .query("profileExternalLinks")
+        .withIndex("by_profileId_state", (q) =>
+          q.eq("profileId", seeded.profileId).eq("state", "active"),
+        )
+        .collect();
+      assert.equal(links.length, 1);
+      assert.equal(links[0]?.assetExternalId, guildId);
+      assert.equal(links[0]?.verifiedByProofId, proofs[0]?._id);
+    });
+  });
 });

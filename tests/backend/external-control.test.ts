@@ -571,6 +571,55 @@ describe("Discord guild proof reconciliation", () => {
   });
 });
 
+describe("Discord verification state backlog", () => {
+  // Expiry sweeping alone bounds nothing: a caller who starts the flow and never
+  // finishes it accumulates unexpired rows faster than the sweep reclaims them.
+  it("keeps only the caller's most recent outstanding states", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        email: "state-spam@example.test",
+        emailVerificationTime: now,
+      });
+
+      return {
+        userId,
+        identity: {
+          subject: `${userId}|web-session`,
+          issuer: "test",
+          tokenIdentifier: `test|${userId}`,
+        },
+      };
+    });
+    const asCaller = t.withIdentity(seeded.identity);
+    const states: string[] = [];
+
+    for (let index = 0; index < 20; index += 1) {
+      const { state } = await asCaller.mutation(
+        internal.discordVerification.createVerificationState,
+        { returnTo: `/claim/target-${index}` },
+      );
+      states.push(state);
+    }
+
+    const remaining = await t.run(async (ctx) =>
+      await ctx.db
+        .query("discordVerificationStates")
+        .withIndex("by_userId_createdAt", (q) => q.eq("userId", seeded.userId))
+        .collect(),
+    );
+
+    assert.equal(remaining.length, 5);
+    // The newest survive, so the round-trip a caller is actually in the middle
+    // of still completes.
+    assert.deepEqual(
+      remaining.map((row) => row.state).sort(),
+      states.slice(-5).sort(),
+    );
+  });
+});
+
 describe("VRCLinking credential delegation", () => {
   async function seedOwnedCommunity(t: ReturnType<typeof convexTest>, slug: string, now: number) {
     return await t.run(async (ctx) => {
@@ -615,10 +664,11 @@ describe("VRCLinking credential delegation", () => {
     );
   });
 
-  // The adapter classifies references with case-sensitive startsWith, so an
-  // uppercase scheme would register cleanly and then fail every resolution
-  // forever with no operator-visible signal.
-  it("refuses a reference whose scheme casing the adapter cannot resolve", async () => {
+  // Every one of these would register cleanly and then fail resolution forever,
+  // with no operator-visible signal beyond a permanently unavailable claim: the
+  // adapter classifies references with case-sensitive startsWith, allows only
+  // [A-Za-z0-9._/-] after `secret://`, and receives whatever is stored verbatim.
+  it("refuses references the adapter could never resolve", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const seeded = await seedOwnedCommunity(t, "delegation-casing", now);
@@ -635,6 +685,10 @@ describe("VRCLinking credential delegation", () => {
     });
 
     for (const secretRef of [
+      // An overlong ARN used to pass validation and then be truncated on write,
+      // so the adapter resolved a different reference and every verification
+      // through the delegation was permanently unavailable.
+      `arn:aws:secretsmanager:us-east-1:1234:secret:${"o".repeat(600)}`,
       "SECRET://vrdex/group-telemetry/oak",
       "ARN:aws:secretsmanager:us-east-1:1234:secret:oak",
       // The adapter's local-name grammar allows only [A-Za-z0-9._/-] and

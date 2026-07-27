@@ -21,8 +21,17 @@ import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 // allowed characters after `secret://`, and on rejecting traversal.
 const SECRET_REF_ARN_PATTERN = /^arn:aws:secretsmanager:[^\s]+$/;
 const SECRET_REF_LOCAL_PATTERN = /^secret:\/\/[A-Za-z0-9._/-]{1,200}$/;
+// Storage bound, enforced at validation rather than by truncating on write. A
+// silently shortened ARN still resolves — to something else, or to nothing — so
+// registration would succeed and every verification through that delegation
+// would then be permanently unavailable with no operator-visible cause.
+const SECRET_REF_MAX_LENGTH = 500;
 
 function isSupportedSecretRef(value: string): boolean {
+  if (value.length > SECRET_REF_MAX_LENGTH) {
+    return false;
+  }
+
   if (SECRET_REF_ARN_PATTERN.test(value)) {
     return true;
   }
@@ -112,7 +121,7 @@ export const registerCredential = mutation({
 
     if (sameGuild !== undefined) {
       await ctx.db.patch(sameGuild._id, {
-        secretRef: secretRef.slice(0, 500),
+        secretRef,
         delegatedByUserId: user._id,
         updatedAt: now,
       });
@@ -123,7 +132,7 @@ export const registerCredential = mutation({
     const credentialId = await ctx.db.insert("communityVrclinkingCredentials", {
       communityProfileId: profile._id,
       guildId,
-      secretRef: secretRef.slice(0, 500),
+      secretRef,
       state: "active",
       delegatedByUserId: user._id,
       createdAt: now,

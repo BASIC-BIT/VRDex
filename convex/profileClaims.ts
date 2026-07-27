@@ -729,6 +729,37 @@ export const recordDiscordCommunityAdminApproval = internalMutation({
       note: "Discord Administrator permission verified by the Discord claim adapter.",
     });
 
+    // The bot-token path proves the same thing the OAuth round-trip does, so it
+    // has to leave the same durable record. Without it the guild is verified but
+    // absent from the connection model: nothing shows under `/account/connections`
+    // and nothing can delegate a VRC Linking credential for it.
+    if (claimRequest.discordGuildId !== undefined) {
+      const proofId = await recordExternalControlProof(ctx.db, {
+        userId: claimRequest.userId,
+        assetType: "discord_guild",
+        assetExternalId: claimRequest.discordGuildId,
+        ...(claimRequest.discordGuildName !== undefined
+          ? { assetDisplayName: claimRequest.discordGuildName }
+          : {}),
+        controlLevel: "administrator",
+        evidenceSource: "discord_bot",
+        evidenceSummary: args.evidenceSummary,
+        now,
+      });
+
+      await linkProfileToAsset(ctx.db, {
+        profileId: profile._id,
+        assetType: "discord_guild",
+        assetExternalId: claimRequest.discordGuildId,
+        ...(claimRequest.discordGuildName !== undefined
+          ? { assetDisplayName: claimRequest.discordGuildName }
+          : {}),
+        linkedByUserId: claimRequest.userId,
+        verifiedByProofId: proofId,
+        now,
+      });
+    }
+
     const updatedProfile = await ctx.db.get(profile._id);
     if (updatedProfile !== null) {
       await upsertSearchDocument(ctx.db, createProfileSearchDocument(updatedProfile));
