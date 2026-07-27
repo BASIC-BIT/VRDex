@@ -29,16 +29,22 @@ Run read-only membership inspection first with `pnpm proof:group-telemetry`. On 
    risk decision, not a statement that VRChat has granted VRDex anything, so the
    stop condition in `docs/planning/community-group-telemetry.md` still stands —
    if VRChat objects, stop proof traffic and clear the saved session.
-3. Hosted bootstrap remains blocked on the *second* half of the gate: a reviewed
-   vault-to-AWS secret-transfer command, which does not ship yet. That command
-   must generate at least 32 random bytes for `workerApiKey`, register its
-   lowercase 64-character SHA-256 hex digest, read the validated alias-scoped
-   session from the operating-system vault, and update only `workerApiKey`,
-   `authCookie`, and optional `twoFactorAuthCookie` in the account's AWS Secrets
-   Manager secret without displaying them. Until it exists, do not manually
-   extract cookies, store the password or TOTP seed, or enable the service to
-   work around it.
-4. SHA-256 hash the worker key locally. Register the account through the internal `communityTelemetry.registerCollectorAccount` mutation using only the hash, secret ARN, capacity, reserved headroom, and request budget.
+3. Transfer the session with `pnpm ops:vrchat-session:transfer -- --secret-id
+   <arn>`. It re-validates the saved alias-scoped session against VRChat,
+   generates a 48-byte `workerApiKey`, writes only `workerApiKey`, `authCookie`,
+   and `twoFactorAuthCookie` into the named secret, and prints just the
+   lowercase SHA-256 digest for registration. No secret value is printed, passed
+   as a process argument, or written to disk. Add `--dry-run` to rehearse.
+   Do not hand-extract cookies or store the password or TOTP seed.
+4. Register the account with the digest printed by step 3 — never the key itself:
+
+   ```bash
+   npx convex run --prod communityTelemetry:registerCollectorAccount '{"vrchatUserId":"usr_...","accountAlias":"VRDex_Oak","secretRef":"arn:aws:secretsmanager:...","workerKeyHash":"<digest from step 3>","capacity":100,"reservedHeadroom":15,"requestsPerMinute":30}'
+   ```
+
+   The mutation rejects a `secretRef` that is not an ARN or `secret://` reference
+   and a `workerKeyHash` that is not a 64-character hex digest, so a pasted key
+   fails rather than being stored.
 5. Build `workers/group-telemetry/Dockerfile`, push the image, and configure `container_image` with its immutable `@sha256:` digest URI. Terraform rejects service enablement when that digest is absent.
 6. Apply with `enable_service=false` and `desired_count=0`. Review the task role, execution role, one-secret scope, SSM deployment gate, logs, alarms, budget, and egress-only networking.
 7. After a `go` or acceptable `adjust` and explicit provider approval, set `enable_service=true`, `desired_count=1`, and a budget alert email. Keep the task cap at two.

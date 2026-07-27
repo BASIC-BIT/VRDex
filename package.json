@@ -47,6 +47,8 @@
     "check:restream:local": "node --import tsx scripts/restream-local-validation.ts check",
     "preproof:group-telemetry": "node scripts/guard-main-worktree.mjs",
     "proof:group-telemetry": "node --env-file-if-exists=.env.local scripts/prove-vrchat-group-telemetry.mjs",
+    "preops:vrchat-session:transfer": "node scripts/guard-main-worktree.mjs",
+    "ops:vrchat-session:transfer": "node --env-file-if-exists=.env.local scripts/transfer-vrchat-session-to-aws.mjs",
     "preproof:restream:control": "node scripts/guard-main-worktree.mjs",
     "proof:restream:control": "node --import tsx scripts/restream-control-demo.ts",
     "preproof:restream:live-control": "node scripts/guard-main-worktree.mjs",
@@ -194,7 +196,8 @@
     "@aws-sdk/client-ses": "^3.1055.0",
     "@convex-dev/auth": "^0.0.92",
     "@convex-dev/migrations": "^0.3.4",
-    "@vrdex/temporal-runtime": "workspace:*"
+    "@vrdex/temporal-runtime": "workspace:*",
+    "@aws-sdk/client-secrets-manager": "^3.1055.0"
   },
   "optionalDependencies": {
     "keytar": "7.9.0"
