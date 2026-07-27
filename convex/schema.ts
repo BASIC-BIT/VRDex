@@ -1891,12 +1891,20 @@ export default defineSchema({
     // Paces the collector so a pending attempt is not re-read from the
     // provider on every worker pass.
     lastCheckedAt: v.optional(v.number()),
+    // The collector that was served this attempt. `recordProofCheckResult`
+    // accepts a verdict only from this collector, so one leaked worker key
+    // cannot attest arbitrary attempts it was never given.
+    lastCheckedByCollectorAccountId: v.optional(v.id("collectorAccounts")),
   })
     .index("by_profileId_state", ["profileId", "state"])
     .index("by_profileId_userId_state_updatedAt", ["profileId", "userId", "state", "updatedAt"])
     .index("by_userId_state", ["userId", "state"])
     .index("by_state_expiresAt", ["state", "expiresAt"])
-    .index("by_state_lastCheckedAt", ["state", "lastCheckedAt"]),
+    // targetType precedes lastCheckedAt so collector-eligible attempts are
+    // selected by the index rather than filtered after the fact; filtering
+    // afterwards let never-stamped vrclinking rows hold the head of the scan
+    // window forever and starve the queue.
+    .index("by_state_targetType_lastCheckedAt", ["state", "targetType", "lastCheckedAt"]),
   // A user proved they control an external asset. This is deliberately not a
   // claim: proving you administer a Discord guild says nothing about which
   // VRDex profile that guild represents. Profile ownership is granted only
@@ -1936,6 +1944,11 @@ export default defineSchema({
     secretRef: v.string(),
     state: v.union(v.literal("active"), v.literal("revoked")),
     delegatedByUserId: v.id("users"),
+    // `lastConsultedAt` drives round-robin selection and must not be the same
+    // field the selection index orders on being bumped by unrelated writes;
+    // `lastUsedAt` records only consultations that actually matched, so an
+    // operator's audit trail is not noise from every other community's proofs.
+    lastConsultedAt: v.optional(v.number()),
     lastUsedAt: v.optional(v.number()),
     lastResultSummary: v.optional(v.string()),
     revokedAt: v.optional(v.number()),
@@ -1945,7 +1958,7 @@ export default defineSchema({
   })
     .index("by_communityProfileId_state", ["communityProfileId", "state"])
     .index("by_guildId_state", ["guildId", "state"])
-    .index("by_state_updatedAt", ["state", "updatedAt"]),
+    .index("by_state_lastConsultedAt", ["state", "lastConsultedAt"]),
   // Short-lived CSRF state for the purpose-scoped Discord guild-verification
   // OAuth round-trip. Stored server-side rather than in a cookie so the flow
   // survives browser restarts and stays bound to the signed-in user.

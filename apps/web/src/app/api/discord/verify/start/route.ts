@@ -3,15 +3,12 @@ import { fetchAction } from "convex/nextjs";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { api } from "@convex-generated-api";
+import { resolveSameOriginUrl, safeReturnPath } from "@/lib/return-path";
 
 export const dynamic = "force-dynamic";
 
-function safeReturnTo(value: string | null): string {
-  return value && value.startsWith("/") && !value.startsWith("//") ? value : "/account";
-}
-
 export async function GET(request: NextRequest) {
-  const returnTo = safeReturnTo(request.nextUrl.searchParams.get("returnTo"));
+  const returnTo = safeReturnPath(request.nextUrl.searchParams.get("returnTo"));
   const token = await convexAuthNextjsToken();
 
   if (!token) {
@@ -34,7 +31,10 @@ export async function GET(request: NextRequest) {
     );
 
     return NextResponse.redirect(
-      new URL(`${returnTo}${returnTo.includes("?") ? "&" : "?"}discordVerify=unavailable`, request.nextUrl.origin),
+      resolveSameOriginUrl(
+        `${returnTo}${returnTo.includes("?") ? "&" : "?"}discordVerify=unavailable`,
+        request.nextUrl.origin,
+      ),
     );
   }
 }

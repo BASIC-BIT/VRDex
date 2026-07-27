@@ -92,6 +92,9 @@ export async function verifyLinkage({ request, resolveSecret, getGuildMemberByDi
       return {
         verified: true,
         evidenceSource: "vrclinking",
+        // Naming the matching guild lets the control plane stamp only the
+        // delegation that actually answered, instead of every one consulted.
+        matchedGuildId: delegation.guildId,
         evidenceSummary: `VRCLinking reports a verified link for this Discord account in guild ${delegation.guildId}.`,
       };
     }

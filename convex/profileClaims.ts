@@ -126,6 +126,8 @@ type ProofAdapterResponse = {
   verified?: boolean;
   evidenceSource?: "vrchat_api" | "vrclinking" | "manual";
   evidenceSummary?: string;
+  /** Set by the VRC Linking adapter to name the delegation that answered. */
+  matchedGuildId?: string;
 };
 
 function optionalEnv(name: string): string | undefined {
@@ -1094,14 +1096,13 @@ export const verifyVrchatProofViaAdapter = action({
     });
 
     if (delegationContext !== null) {
-      await Promise.all(
-        delegationContext.delegations.map((delegation) =>
-          ctx.runMutation(internal.vrclinkingCredentials.recordCredentialUse, {
-            credentialId: delegation.credentialId,
-            resultSummary: `Consulted for a VRC Linking proof (HTTP ${response.status}).`,
-          }),
+      // Rotation position for everything consulted; the audit stamp is applied
+      // below only to the delegation that actually answered.
+      await ctx.runMutation(internal.vrclinkingCredentials.recordCredentialConsultations, {
+        credentialIds: delegationContext.delegations.map(
+          (delegation) => delegation.credentialId,
         ),
-      );
+      });
     }
 
     if (attemptContext.attempt.expiresAt <= Date.now()) {
@@ -1121,6 +1122,19 @@ export const verifyVrchatProofViaAdapter = action({
 
     if (result.verified !== true) {
       return { state: "pending" as const };
+    }
+
+    // Only the delegation the adapter says answered gets the operator-visible
+    // audit stamp.
+    const matched = delegationContext?.delegations.find(
+      (delegation) => delegation.guildId === result.matchedGuildId,
+    );
+
+    if (matched !== undefined) {
+      await ctx.runMutation(internal.vrclinkingCredentials.recordCredentialUse, {
+        credentialId: matched.credentialId,
+        resultSummary: "Confirmed a VRC Linking identity attestation.",
+      });
     }
 
     return await ctx.runMutation(internal.profileClaims.recordVrchatProofVerification, {

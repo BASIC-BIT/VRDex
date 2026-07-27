@@ -11,6 +11,19 @@ import {
 } from "./_externalControl";
 
 const STATE_TTL_MS = 10 * 60_000;
+
+/** Code-point scan; no escaping subtlety can hide a control byte. */
+function hasControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) ?? 0;
+
+    if (codePoint < 0x20 || codePoint === 0x7f) {
+      return true;
+    }
+  }
+
+  return false;
+}
 const DISCORD_ADMINISTRATOR_PERMISSION = BigInt(8);
 const DISCORD_MANAGE_GUILD_PERMISSION = BigInt(32);
 
@@ -92,9 +105,16 @@ export const createVerificationState = internalMutation({
   handler: async (ctx, args) => {
     const user = await requireVerifiedEmailUser(ctx);
 
-    // Reuse the auth guard so a crafted `returnTo` cannot turn the callback
-    // into an open redirect.
-    if (!args.returnTo.startsWith("/") || args.returnTo.startsWith("//")) {
+    // A crafted `returnTo` must not turn the callback into an open redirect.
+    // Backslashes matter: the WHATWG URL parser normalizes them to forward
+    // slashes for http(s), so `/\evil.com` clears a naive `//` check and then
+    // resolves to a different host.
+    if (
+      !args.returnTo.startsWith("/") ||
+      args.returnTo.startsWith("//") ||
+      args.returnTo.includes("\\") ||
+      hasControlCharacter(args.returnTo)
+    ) {
       throw claimError("VERIFICATION_STATE_INVALID", "return_to_not_relative");
     }
 
@@ -273,12 +293,25 @@ async function revokeAccessToken(accessToken: string): Promise<void> {
 
 export const completeGuildVerification = action({
   args: { code: v.string(), state: v.string() },
-  handler: async (ctx, args): Promise<{ returnTo: string; verifiedGuildCount: number }> => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ status: "verified" | "failed"; returnTo: string; verifiedGuildCount: number }> => {
+    // Consuming the state keeps it single-use, but it also destroys the only
+    // record of where the user came from. Everything after this point reports
+    // failure through the return value so the callback can still send them
+    // back where they started.
     const { returnTo } = (await ctx.runMutation(
       internal.discordVerification.consumeVerificationState,
       { state: args.state },
     )) as { returnTo: string };
-    const accessToken = await exchangeCodeForAccessToken(args.code);
+    let accessToken: string;
+
+    try {
+      accessToken = await exchangeCodeForAccessToken(args.code);
+    } catch {
+      return { status: "failed", returnTo, verifiedGuildCount: 0 };
+    }
 
     try {
       const response = await fetch(`${discordApiBaseUrl()}/users/@me/guilds`, {
@@ -308,7 +341,9 @@ export const completeGuildVerification = action({
         guilds: manageable,
       });
 
-      return { returnTo, verifiedGuildCount: manageable.length };
+      return { status: "verified", returnTo, verifiedGuildCount: manageable.length };
+    } catch {
+      return { status: "failed", returnTo, verifiedGuildCount: 0 };
     } finally {
       await revokeAccessToken(accessToken);
     }

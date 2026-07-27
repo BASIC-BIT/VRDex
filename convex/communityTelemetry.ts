@@ -1735,21 +1735,39 @@ export const claimPendingProofChecks = internalMutation({
     if (fleet?.killSwitchEnabled) return { attempts: [] };
 
     const limit = Math.max(1, Math.min(args.limit ?? 5, 25));
-    const candidates = await ctx.db
-      .query("profileVerificationAttempts")
-      .withIndex("by_state_lastCheckedAt", (q) => q.eq("state", "pending"))
-      .take(PROOF_CHECK_SCAN_LIMIT);
-    const due = candidates
+    // Select collector-eligible target types through the index. Scanning all
+    // pending attempts and filtering afterwards let vrclinking rows, which are
+    // never stamped, hold the head of the window permanently and starve the
+    // queue once enough of them existed.
+    const scanned = await Promise.all(
+      (["vrchat_user", "vrchat_group"] as const).map((targetType) =>
+        ctx.db
+          .query("profileVerificationAttempts")
+          .withIndex("by_state_targetType_lastCheckedAt", (q) =>
+            q.eq("state", "pending").eq("targetType", targetType),
+          )
+          .take(PROOF_CHECK_SCAN_LIMIT),
+      ),
+    );
+    const due = scanned
+      .flat()
       .filter(
         (attempt) =>
-          attempt.targetType !== "vrclinking" &&
           attempt.expiresAt > args.now &&
           (attempt.lastCheckedAt === undefined ||
             attempt.lastCheckedAt <= args.now - PROOF_CHECK_COOLDOWN_MS),
       )
+      .sort((left, right) => (left.lastCheckedAt ?? 0) - (right.lastCheckedAt ?? 0))
       .slice(0, limit);
 
-    await Promise.all(due.map((attempt) => ctx.db.patch(attempt._id, { lastCheckedAt: args.now })));
+    await Promise.all(
+      due.map((attempt) =>
+        ctx.db.patch(attempt._id, {
+          lastCheckedAt: args.now,
+          lastCheckedByCollectorAccountId: accountId,
+        }),
+      ),
+    );
 
     return {
       attempts: due.map((attempt) => ({
@@ -1781,6 +1799,13 @@ export const recordProofCheckResult = internalMutation({
     const attempt = await ctx.db.get(args.attemptId);
     if (attempt === null || attempt.state !== "pending") {
       return { state: "not_pending" as const };
+    }
+
+    // A verdict is only accepted from the collector this attempt was served to.
+    // Without this, any authorized worker key could assert `found` for any
+    // pending attempt and mint verified ownership without reading VRChat.
+    if (attempt.lastCheckedByCollectorAccountId !== accountId) {
+      return { state: "unauthorized" as const };
     }
 
     if (attempt.expiresAt <= args.now) {

@@ -222,10 +222,18 @@ export const getAdapterContext = internalQuery({
       return null;
     }
 
+    // Oldest-consulted first, so consultation rotates fairly across every
+    // delegation instead of pinning the same few. Selecting on `updatedAt`
+    // while also bumping it on use was self-reinforcing: past the cap, the
+    // delegations never consulted could never become eligible.
+    //
+    // Membership is not knowable here — VRDex cannot tell which delegated
+    // guilds a claimant belongs to without asking — so a claimant beyond the
+    // cap may need to retry before their guild comes up. Rotation guarantees it
+    // eventually does.
     const delegations = await ctx.db
       .query("communityVrclinkingCredentials")
-      .withIndex("by_state_updatedAt", (q) => q.eq("state", "active"))
-      .order("desc")
+      .withIndex("by_state_lastConsultedAt", (q) => q.eq("state", "active"))
       .take(MAX_ADAPTER_DELEGATIONS);
 
     return {
@@ -239,6 +247,27 @@ export const getAdapterContext = internalQuery({
   },
 });
 
+/**
+ * Stamp rotation position for every delegation that was consulted.
+ *
+ * Deliberately does not touch `updatedAt`, `lastUsedAt`, or
+ * `lastResultSummary`: being asked is not the same as having answered, and an
+ * operator's audit trail should not fill with other communities' proofs.
+ */
+export const recordCredentialConsultations = internalMutation({
+  args: { credentialIds: v.array(v.id("communityVrclinkingCredentials")) },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+
+    await Promise.all(
+      args.credentialIds.map((credentialId) =>
+        ctx.db.patch(credentialId, { lastConsultedAt: now }),
+      ),
+    );
+  },
+});
+
+/** Record that a delegation actually produced the match. */
 export const recordCredentialUse = internalMutation({
   args: {
     credentialId: v.id("communityVrclinkingCredentials"),
@@ -248,6 +277,7 @@ export const recordCredentialUse = internalMutation({
     const now = Date.now();
 
     await ctx.db.patch(args.credentialId, {
+      lastConsultedAt: now,
       lastUsedAt: now,
       lastResultSummary: args.resultSummary.slice(0, 300),
       updatedAt: now,

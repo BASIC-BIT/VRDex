@@ -3,6 +3,7 @@ import { fetchAction } from "convex/nextjs";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { api } from "@convex-generated-api";
+import { resolveSameOriginUrl } from "@/lib/return-path";
 
 export const dynamic = "force-dynamic";
 
@@ -31,14 +32,22 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const { returnTo, verifiedGuildCount } = await fetchAction(
+    const { status, returnTo, verifiedGuildCount } = await fetchAction(
       api.discordVerification.completeGuildVerification,
       { code, state },
       { token },
     );
 
+    // The action reports operational failure in its result rather than
+    // throwing, so a transient Discord outage still returns the user to the
+    // page they started from instead of stranding them on /account.
     return NextResponse.redirect(
-      new URL(withStatus(returnTo, "verified", verifiedGuildCount), request.nextUrl.origin),
+      resolveSameOriginUrl(
+        status === "verified"
+          ? withStatus(returnTo, "verified", verifiedGuildCount)
+          : withStatus(returnTo, "failed"),
+        request.nextUrl.origin,
+      ),
     );
   } catch (error) {
     console.error(

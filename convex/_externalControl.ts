@@ -223,8 +223,11 @@ export async function linkProfileToAsset(
     options.assetType,
     options.assetExternalId,
   );
+  // Re-linking an asset that is already attached must not change its role.
+  // `siblings` includes the existing row, so defaulting on count alone demoted
+  // an incumbent primary to secondary and left the profile with none.
   const linkRole: ProfileExternalLinkRole =
-    options.linkRole ?? (siblings.length === 0 ? "primary" : "secondary");
+    options.linkRole ?? existing?.linkRole ?? (siblings.length === 0 ? "primary" : "secondary");
 
   if (linkRole === "primary") {
     await Promise.all(

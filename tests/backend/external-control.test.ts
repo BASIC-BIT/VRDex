@@ -116,6 +116,81 @@ describe("profile external links", () => {
     });
   });
 
+  // Re-verifying or re-claiming calls linkProfileToAsset again without a
+  // linkRole. Defaulting on sibling count alone demoted the incumbent primary
+  // and left the profile with none, silently changing public ordering.
+  it("keeps an incumbent primary primary when the same asset is re-linked", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+
+    await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        email: "relink@example.test",
+        emailVerificationTime: now,
+      });
+      const profileId = await seedCommunity(ctx as never, "link-relink", now);
+
+      for (const guildId of ["111", "222"]) {
+        await linkProfileToAsset(ctx.db, {
+          profileId,
+          assetType: "discord_guild",
+          assetExternalId: guildId,
+          linkedByUserId: userId,
+          now,
+        });
+      }
+
+      // Same asset, no explicit role — as every claim and proof path calls it.
+      await linkProfileToAsset(ctx.db, {
+        profileId,
+        assetType: "discord_guild",
+        assetExternalId: "111",
+        linkedByUserId: userId,
+        now: now + 1,
+      });
+
+      const links = await getActiveProfileLinks(ctx.db, profileId, "discord_guild");
+      assert.equal(links.find((l) => l.assetExternalId === "111")?.linkRole, "primary");
+      assert.equal(links.find((l) => l.assetExternalId === "222")?.linkRole, "secondary");
+      assert.equal(links.filter((l) => l.linkRole === "primary").length, 1);
+    });
+  });
+
+  it("keeps a re-linked secondary secondary", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+
+    await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        email: "relink-secondary@example.test",
+        emailVerificationTime: now,
+      });
+      const profileId = await seedCommunity(ctx as never, "link-relink-secondary", now);
+
+      for (const guildId of ["111", "222"]) {
+        await linkProfileToAsset(ctx.db, {
+          profileId,
+          assetType: "discord_guild",
+          assetExternalId: guildId,
+          linkedByUserId: userId,
+          now,
+        });
+      }
+
+      await linkProfileToAsset(ctx.db, {
+        profileId,
+        assetType: "discord_guild",
+        assetExternalId: "222",
+        linkedByUserId: userId,
+        now: now + 1,
+      });
+
+      const links = await getActiveProfileLinks(ctx.db, profileId, "discord_guild");
+      assert.equal(links.find((l) => l.assetExternalId === "111")?.linkRole, "primary");
+      assert.equal(links.find((l) => l.assetExternalId === "222")?.linkRole, "secondary");
+    });
+  });
+
   it("promotes a remaining link when the primary is removed", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();

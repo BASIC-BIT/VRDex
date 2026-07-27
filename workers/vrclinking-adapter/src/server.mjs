@@ -94,6 +94,9 @@ export function createAdapterServer({ resolveSecret, getGuildMemberByDiscordId, 
         verified: result.verified,
         evidenceSource: result.evidenceSource,
         evidenceSummary: result.evidenceSummary,
+        ...(result.matchedGuildId === undefined
+          ? {}
+          : { matchedGuildId: result.matchedGuildId }),
       });
     } catch {
       // Never surface provider or secret detail to the caller.
