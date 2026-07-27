@@ -2,6 +2,7 @@ import { v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, mutation, type MutationCtx } from "./_generated/server";
+import { recordExternalControlProof } from "./_externalControl";
 import { findAvailableProfileSlug, getProfileBySlug } from "./_profileSlugs";
 import { sanitizeCommunitySubmissionProfileInput } from "./_profileSubmissions";
 import { createProfileSearchDocument, upsertSearchDocument } from "./_searchDocuments";
@@ -261,6 +262,49 @@ export const linkDiscordAccountByEmail = mutation({
     });
 
     return { linked: true };
+  },
+});
+
+/**
+ * Seed a verified Discord guild control proof, standing in for the OAuth
+ * round-trip that hosted runs cannot perform against real Discord.
+ */
+export const recordGuildControlProofByEmail = mutation({
+  args: {
+    secret: v.string(),
+    email: v.string(),
+    guildId: v.string(),
+    guildName: v.optional(v.string()),
+    controlLevel: v.optional(
+      v.union(v.literal("manager"), v.literal("administrator"), v.literal("owner")),
+    ),
+  },
+  handler: async (ctx, args) => {
+    requireE2eAuthHelper(args.secret);
+
+    const user = await userByEmail(ctx, normalizeE2eEmail(args.email));
+
+    if (user === null) {
+      throw new Error("E2E user not found.");
+    }
+
+    const guildId = args.guildId.trim();
+    if (!guildId) {
+      throw new Error("Discord guild id is required.");
+    }
+
+    const proofId = await recordExternalControlProof(ctx.db, {
+      userId: user._id,
+      assetType: "discord_guild",
+      assetExternalId: guildId,
+      ...(args.guildName !== undefined ? { assetDisplayName: args.guildName } : {}),
+      controlLevel: args.controlLevel ?? "administrator",
+      evidenceSource: "discord_oauth",
+      evidenceSummary: "Seeded by the E2E helper.",
+      now: Date.now(),
+    });
+
+    return { proofId };
   },
 });
 

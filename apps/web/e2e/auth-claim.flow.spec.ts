@@ -136,6 +136,24 @@ async function linkDiscordAccount(request: APIRequestContext, e2eToken: string, 
   await expect(linkResponse).toBeOK();
 }
 
+/**
+ * Stands in for the Discord OAuth round-trip, which hosted runs cannot perform
+ * against real Discord. Records the same control proof that callback would.
+ */
+async function recordGuildControlProof(
+  request: APIRequestContext,
+  e2eToken: string,
+  email: string,
+  guildId: string,
+) {
+  const response = await request.post("/api/e2e/auth", {
+    headers: { "x-vrdex-e2e-token": e2eToken },
+    data: { action: "record-guild-proof", email, guildId, guildName: "E2E Verified Server" },
+  });
+
+  await expect(response).toBeOK();
+}
+
 async function expectCurrentOrHostedLagTrustCopy(currentCopy: Locator, hostedLagCopy: Locator) {
   await expect(currentCopy.or(hostedLagCopy).first()).toBeVisible(hostedActionExpectOptions);
 }
@@ -286,15 +304,16 @@ test("verified email account with linked Discord can claim person and community 
       `/claim/${encodeURIComponent(createdSlug!)}?source=account`,
     );
 
+    await recordGuildControlProof(request, e2eToken, email, E2E_DISCORD_GUILD_ID);
     await gotoFlowPage(
       page,
       `/claim/${encodeURIComponent(communitySlug!)}`,
     );
     await page.getByRole("button", { name: /Verify Discord admin/ }).click();
-    await page.getByLabel("Discord server ID").fill(E2E_DISCORD_GUILD_ID);
-    await page.getByRole("button", { name: "Continue with Discord" }).click();
-    await expect(page.getByRole("heading", { name: "Finish your Discord check" })).toBeVisible(hostedActionExpectOptions);
-    await page.getByRole("button", { name: "Check Discord access" }).click();
+    // Control is proved before claiming now, so the form offers verified
+    // servers instead of asking for a pasted guild id.
+    await page.getByLabel("Discord server").selectOption(E2E_DISCORD_GUILD_ID);
+    await page.getByRole("button", { name: "Claim with this server" }).click();
     const communityClaimed = page.getByText("Administrator access verified. This community is now yours.");
     const communityClaimFailed = page.getByText(
       "We could not complete that check. Nothing changed; try again or choose another method.",
