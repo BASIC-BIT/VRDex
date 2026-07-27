@@ -261,6 +261,7 @@ export const getAdapterContext = internalQuery({
     // though the credential row itself is still active.
     const now = Date.now();
     const usable = [];
+    const skipped = [];
 
     for (const row of candidates) {
       if (usable.length >= MAX_ADAPTER_DELEGATIONS) {
@@ -275,6 +276,7 @@ export const getAdapterContext = internalQuery({
       );
 
       if (proof === null || (proof.revalidateAfter !== undefined && proof.revalidateAfter <= now)) {
+        skipped.push(row._id);
         continue;
       }
 
@@ -288,6 +290,11 @@ export const getAdapterContext = internalQuery({
         guildId: row.guildId,
         secretRef: row.secretRef,
       })),
+      // Ineligible rows still have to advance in the rotation. They sort by
+      // `lastConsultedAt` like everything else, so leaving them unstamped pins
+      // them permanently at the head of the index and, once there are more of
+      // them than the scan window, no usable delegation is ever reached again.
+      skippedCredentialIds: skipped,
     };
   },
 });

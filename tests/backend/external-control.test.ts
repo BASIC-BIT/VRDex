@@ -482,6 +482,7 @@ describe("Discord guild proof reconciliation", () => {
     await t
       .withIdentity(seeded.identity)
       .mutation(internal.discordVerification.recordGuildControlProofs, {
+        discordUserId: "discord-subject-a",
         guilds: [{ id: "111", name: "Still Managed", controlLevel: "owner" }],
       });
 
@@ -496,6 +497,74 @@ describe("Discord guild proof reconciliation", () => {
       );
       assert.notEqual(
         await getActiveControlProof(ctx.db, seeded.userId, "vrchat_user", "usr_keep"),
+        null,
+      );
+    });
+  });
+
+  // One VRDex account may manage servers through more than one Discord login.
+  // A result from the second login is only complete about the second login's
+  // guilds, so it must not revoke what the first one proved.
+  it("leaves proofs from a different Discord identity alone", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        email: "two-logins@example.test",
+        emailVerificationTime: now,
+      });
+
+      return {
+        userId,
+        identity: {
+          subject: `${userId}|web-session`,
+          issuer: "test",
+          tokenIdentifier: `test|${userId}`,
+        },
+      };
+    });
+
+    await t
+      .withIdentity(seeded.identity)
+      .mutation(internal.discordVerification.recordGuildControlProofs, {
+        discordUserId: "discord-subject-a",
+        guilds: [{ id: "111", name: "From Login A", controlLevel: "owner" }],
+      });
+
+    await t
+      .withIdentity(seeded.identity)
+      .mutation(internal.discordVerification.recordGuildControlProofs, {
+        discordUserId: "discord-subject-b",
+        guilds: [{ id: "222", name: "From Login B", controlLevel: "owner" }],
+      });
+
+    await t.run(async (ctx) => {
+      assert.notEqual(
+        await getActiveControlProof(ctx.db, seeded.userId, "discord_guild", "111"),
+        null,
+      );
+      assert.notEqual(
+        await getActiveControlProof(ctx.db, seeded.userId, "discord_guild", "222"),
+        null,
+      );
+    });
+
+    // The same identity re-verifying without guild 111 is still authoritative
+    // about its own guilds, so that one does get revoked.
+    await t
+      .withIdentity(seeded.identity)
+      .mutation(internal.discordVerification.recordGuildControlProofs, {
+        discordUserId: "discord-subject-a",
+        guilds: [],
+      });
+
+    await t.run(async (ctx) => {
+      assert.equal(
+        await getActiveControlProof(ctx.db, seeded.userId, "discord_guild", "111"),
+        null,
+      );
+      assert.notEqual(
+        await getActiveControlProof(ctx.db, seeded.userId, "discord_guild", "222"),
         null,
       );
     });
@@ -656,6 +725,79 @@ describe("VRCLinking credential delegation", () => {
       }),
       [],
     );
+  });
+
+  // Selection sorts by `lastConsultedAt`, so a delegation that is skipped but
+  // never stamped stays at the head of the index forever. Once there are more
+  // of those than the scan window, no usable delegation is reachable again.
+  it("reports skipped delegations so their rotation position advances", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const lapsed = await seedOwnedCommunity(t, "delegation-lapsed", now);
+    const live = await seedOwnedCommunity(t, "delegation-live", now);
+    const lapsedGuild = "12345678901234567";
+    const liveGuild = "22345678901234567";
+
+    for (const [seeded, guildId] of [
+      [lapsed, lapsedGuild],
+      [live, liveGuild],
+    ] as const) {
+      await t.run(async (ctx) => {
+        await recordExternalControlProof(ctx.db, {
+          userId: seeded.userId,
+          assetType: "discord_guild",
+          assetExternalId: guildId,
+          controlLevel: "owner",
+          evidenceSource: "discord_oauth",
+          now,
+        });
+      });
+    }
+
+    await t.withIdentity(lapsed.identity).mutation(api.vrclinkingCredentials.registerCredential, {
+      profileSlug: "delegation-lapsed",
+      guildId: lapsedGuild,
+      secretRef: "secret://vrdex/vrclinking/lapsed",
+    });
+    await t.withIdentity(live.identity).mutation(api.vrclinkingCredentials.registerCredential, {
+      profileSlug: "delegation-live",
+      guildId: liveGuild,
+      secretRef: "secret://vrdex/vrclinking/live",
+    });
+
+    const claimantId = await t.run(async (ctx) => {
+      // The lapsed delegator's proof is past its revalidation window, which is
+      // what makes their still-active credential ineligible.
+      const proof = await getActiveControlProof(
+        ctx.db,
+        lapsed.userId,
+        "discord_guild",
+        lapsedGuild,
+      );
+      await ctx.db.patch(proof!._id, { revalidateAfter: now - 1 });
+
+      const userId = await ctx.db.insert("users", {
+        email: "rotation-claimant@example.test",
+        emailVerificationTime: now,
+      });
+      await ctx.db.insert("authAccounts", {
+        userId,
+        provider: "discord",
+        providerAccountId: "discord-claimant",
+      });
+
+      return userId;
+    });
+
+    const context = await t.query(internal.vrclinkingCredentials.getAdapterContext, {
+      userId: claimantId,
+    });
+
+    assert.deepEqual(
+      context?.delegations.map((delegation) => delegation.guildId),
+      [liveGuild],
+    );
+    assert.equal(context?.skippedCredentialIds.length, 1);
   });
 });
 

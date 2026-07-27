@@ -235,6 +235,18 @@ describe("VRCLinking client", () => {
     assert.equal(await clientWith(200, { results: [] })("guild", DISCORD_ID, "t"), null);
   });
 
+  // A response without a `results` array is drift, not an empty search. Read as
+  // an empty search it becomes a real negative: the claimant is told they are
+  // not linked because the provider changed its shape.
+  it("refuses to read a missing results array as an empty search", async () => {
+    for (const payload of [{}, { results: null }, { results: { id: DISCORD_ID } }, []]) {
+      await assert.rejects(
+        () => clientWith(200, payload)("guild", DISCORD_ID, "t"),
+        (error) => error.reason === "schema_drift",
+      );
+    }
+  });
+
   it("surfaces a rejected credential distinctly from a missing member", async () => {
     await assert.rejects(
       () => clientWith(401, {})("guild", DISCORD_ID, "t"),

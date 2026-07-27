@@ -17,9 +17,13 @@ import { normalizeVrchatTargetId } from "./_vrchatIdentity";
 const DAY_MS = 86_400_000;
 // Minimum gap between delegated VRC Linking consultations for one attempt.
 const VRCLINKING_CHECK_COOLDOWN_MS = 60_000;
-// Bounds delegated provider spend that the per-attempt cooldown alone cannot:
-// one claimant creating many attempts and consulting each once.
-const MAX_OPEN_VRCLINKING_ATTEMPTS = 3;
+// Bounds provider spend that the per-attempt cooldown alone cannot: one
+// claimant creating many attempts and having each consulted once. Applies to
+// every proof target — the collector fleet polls `vrchat_user`/`vrchat_group`
+// attempts against a shared service-account budget just as delegated VRC
+// Linking credentials are spent, so an unbounded backlog is the same abuse
+// either way.
+const MAX_OPEN_PROOF_ATTEMPTS = 3;
 const DISCORD_ADMINISTRATOR_PERMISSION = BigInt(8);
 const DISCORD_GUILD_ID_PATTERN = /^\d{17,20}$/;
 const noSuitableMatchConfirmed = v.boolean();
@@ -859,24 +863,6 @@ export const startVrchatProof = mutation({
 
     const now = Date.now();
 
-    // A per-attempt cooldown alone is bypassable: unlimited pending attempts,
-    // each consulted once, still spends a community's delegated VRC Linking
-    // quota five reads at a time. Cap how many a claimant may hold open.
-    if (args.targetType === "vrclinking") {
-      const openVrclinking = await ctx.db
-        .query("profileVerificationAttempts")
-        .withIndex("by_userId_state", (q) => q.eq("userId", user._id).eq("state", "pending"))
-        .collect();
-
-      if (
-        openVrclinking.filter(
-          (attempt) => attempt.targetType === "vrclinking" && attempt.expiresAt > now,
-        ).length >= MAX_OPEN_VRCLINKING_ATTEMPTS
-      ) {
-        throw claimError("PROOF_NOT_PENDING", "too_many_open_vrclinking_attempts");
-      }
-    }
-
     const pendingAttempts = await ctx.db
       .query("profileVerificationAttempts")
       .withIndex("by_profileId_userId_state_updatedAt", (q) =>
@@ -905,6 +891,26 @@ export const startVrchatProof = mutation({
         .filter((attempt) => attempt.expiresAt <= now)
         .map((attempt) => ctx.db.patch(attempt._id, { state: "expired", updatedAt: now })),
     );
+
+    // A per-attempt cooldown alone is bypassable: unlimited pending attempts,
+    // each read once, still spends provider quota one attempt at a time. Cap
+    // how many of a given target type a claimant may hold open. Counted per
+    // type so a VRC Linking backlog cannot lock someone out of VRChat proofs,
+    // and checked only on the create path so re-reading an existing code always
+    // works — the cap is on how much polling a claimant can queue, not on
+    // reading back what they already queued.
+    const openAttempts = await ctx.db
+      .query("profileVerificationAttempts")
+      .withIndex("by_userId_state", (q) => q.eq("userId", user._id).eq("state", "pending"))
+      .collect();
+
+    if (
+      openAttempts.filter(
+        (attempt) => attempt.targetType === args.targetType && attempt.expiresAt > now,
+      ).length >= MAX_OPEN_PROOF_ATTEMPTS
+    ) {
+      throw claimError("PROOF_NOT_PENDING", "too_many_open_proof_attempts");
+    }
 
     const attemptId = await ctx.db.insert("profileVerificationAttempts", {
       profileId: profile._id,
@@ -1153,8 +1159,23 @@ export const verifyVrchatProofViaAdapter = action({
           })) as {
             discordUserId: string;
             delegations: { credentialId: Id<"communityVrclinkingCredentials">; guildId: string; secretRef: string }[];
+            skippedCredentialIds: Id<"communityVrclinkingCredentials">[];
           } | null)
         : null;
+
+    if (delegationContext !== null) {
+      // Rotation position for every row this selection touched, stamped before
+      // the fetch rather than after it. Skipped rows must advance or they pin
+      // the head of the index forever, and a throwing fetch must not leave the
+      // consulted ones unstamped either. The audit stamp is applied further
+      // below, only to the delegation that actually answered.
+      await ctx.runMutation(internal.vrclinkingCredentials.recordCredentialConsultations, {
+        credentialIds: [
+          ...delegationContext.delegations.map((delegation) => delegation.credentialId),
+          ...delegationContext.skippedCredentialIds,
+        ],
+      });
+    }
 
     // No linked Discord account, or no community has delegated a credential:
     // either way there is nothing to ask. Short-circuit rather than posting the
@@ -1201,16 +1222,6 @@ export const verifyVrchatProofViaAdapter = action({
             }),
       }),
     });
-
-    if (delegationContext !== null) {
-      // Rotation position for everything consulted; the audit stamp is applied
-      // below only to the delegation that actually answered.
-      await ctx.runMutation(internal.vrclinkingCredentials.recordCredentialConsultations, {
-        credentialIds: delegationContext.delegations.map(
-          (delegation) => delegation.credentialId,
-        ),
-      });
-    }
 
     if (attemptContext.attempt.expiresAt <= Date.now()) {
       await ctx.runMutation(internal.profileClaims.recordVrchatProofFailure, {

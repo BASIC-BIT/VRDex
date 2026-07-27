@@ -79,10 +79,18 @@ export function createVrclinkingClient({
       });
     }
 
-    const results = Array.isArray(payload?.results) ? payload.results : [];
+    // A missing or non-array `results` is schema drift, not an empty search. A
+    // caller that reads it as an empty search reports a real negative — the
+    // claimant is told they are not linked because the provider changed its
+    // response shape.
+    if (!Array.isArray(payload?.results)) {
+      throw new VrclinkingProviderError("Provider response had no results array.", {
+        reason: "schema_drift",
+      });
+    }
 
     // Search is fuzzy by contract, so require an exact Discord id match rather
     // than trusting the first row.
-    return results.find((member) => member?.id === discordUserId) ?? null;
+    return payload.results.find((member) => member?.id === discordUserId) ?? null;
   };
 }

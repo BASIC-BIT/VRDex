@@ -1917,6 +1917,11 @@ export default defineSchema({
     controlLevel: externalControlLevel,
     state: externalControlProofState,
     evidenceSource: profileVerificationEvidenceSource,
+    // Which external identity the evidence came from — for Discord, the
+    // provider account id that completed the OAuth round-trip. A user may
+    // verify through more than one Discord account, and a later result is only
+    // authoritative about the guilds of the identity that produced it.
+    evidenceSubjectId: v.optional(v.string()),
     evidenceSummary: v.optional(v.string()),
     verifiedAt: v.number(),
     revalidateAfter: v.optional(v.number()),

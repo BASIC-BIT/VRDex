@@ -162,6 +162,7 @@ export const consumeVerificationState = internalMutation({
 
 export const recordGuildControlProofs = internalMutation({
   args: {
+    discordUserId: v.string(),
     guilds: v.array(
       v.object({
         id: v.string(),
@@ -188,6 +189,7 @@ export const recordGuildControlProofs = internalMutation({
           controlLevel: guild.controlLevel,
           evidenceSource: "discord_oauth",
           evidenceSummary: `Discord OAuth reported ${guild.controlLevel} access in guild ${guild.name ?? guild.id}.`,
+          evidenceSubjectId: args.discordUserId,
           now,
         }),
       ),
@@ -198,13 +200,24 @@ export const recordGuildControlProofs = internalMutation({
     // control was lost. Leaving those rows active would let someone who just
     // demonstrated they no longer manage a server keep claiming with it until
     // the 30-day window lapsed.
+    //
+    // "Complete" only holds for the Discord identity that authorized this
+    // round-trip, though. One VRDex user may manage servers through more than
+    // one Discord account; reconciling across all of them would let a second
+    // account's consent silently revoke the first account's servers. Proofs
+    // predating this field have no recorded subject, so they reconcile against
+    // whoever verifies next — the same behaviour they had when written.
     const manageable = new Set(args.guilds.map((guild) => guild.id));
     const existing = await ctx.db
       .query("externalControlProofs")
       .withIndex("by_userId_state", (q) => q.eq("userId", user._id).eq("state", "active"))
       .collect();
     const revoked = existing.filter(
-      (proof) => proof.assetType === "discord_guild" && !manageable.has(proof.assetExternalId),
+      (proof) =>
+        proof.assetType === "discord_guild" &&
+        (proof.evidenceSubjectId === undefined ||
+          proof.evidenceSubjectId === args.discordUserId) &&
+        !manageable.has(proof.assetExternalId),
     );
 
     await Promise.all(
@@ -367,6 +380,31 @@ async function fetchAllGuilds(accessToken: string): Promise<DiscordOAuthGuild[]>
   return collected;
 }
 
+/**
+ * The Discord account that authorized this round-trip.
+ *
+ * Recorded on every proof so reconciliation can tell "this identity no longer
+ * manages that server" from "a different identity of the same VRDex user was
+ * never asked about it".
+ */
+async function fetchCurrentDiscordUserId(accessToken: string): Promise<string> {
+  const response = await fetch(`${discordApiBaseUrl()}/users/@me`, {
+    headers: { authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!response.ok) {
+    throw claimError("ADAPTER_UNAVAILABLE", `identity_${response.status}`);
+  }
+
+  const payload = (await response.json()) as { id?: unknown };
+
+  if (typeof payload.id !== "string" || payload.id.length === 0) {
+    throw claimError("ADAPTER_UNAVAILABLE", "identity_malformed_payload");
+  }
+
+  return payload.id;
+}
+
 async function revokeAccessToken(accessToken: string): Promise<void> {
   // Best effort: the proof is already recorded, and a lingering token is the
   // thing we are trying to avoid, so failures here must not fail the claim.
@@ -424,6 +462,7 @@ export const completeGuildVerification = action({
     }
 
     try {
+      const discordUserId = await fetchCurrentDiscordUserId(accessToken);
       const guilds = await fetchAllGuilds(accessToken);
       const manageable = guilds.flatMap((guild) => {
         const controlLevel = discordControlLevel(guild);
@@ -440,6 +479,7 @@ export const completeGuildVerification = action({
       });
 
       await ctx.runMutation(internal.discordVerification.recordGuildControlProofs, {
+        discordUserId,
         guilds: manageable,
       });
 

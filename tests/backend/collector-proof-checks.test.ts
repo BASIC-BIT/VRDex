@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 
 import { convexTest } from "convex-test";
 
-import { internal } from "../../convex/_generated/api";
+import { api, internal } from "../../convex/_generated/api";
 import schemaModule from "../../convex/schema";
 
 const modules = {
@@ -226,5 +226,67 @@ describe("collector proof check queue", () => {
     assert.equal(second.attempts.length, 1);
     const firstIds = new Set(first.attempts.map((attempt) => attempt.attemptId));
     assert.equal(firstIds.has(second.attempts[0]!.attemptId), false);
+  });
+});
+
+// The collector fleet polls every pending VRChat attempt against one shared
+// service-account budget, so an unbounded backlog from a single claimant is the
+// same abuse as draining a community's delegated VRC Linking quota.
+describe("open proof attempt cap", () => {
+  it("bounds new attempts per target type but still returns an existing code", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await t.run(async (ctx) => {
+      const db = (ctx as unknown as {
+        db: { insert: (table: string, value: unknown) => Promise<string> };
+      }).db;
+      const userId = await db.insert("users", {
+        email: "capped@example.test",
+        emailVerificationTime: now,
+      });
+
+      for (let index = 0; index < 4; index += 1) {
+        await db.insert("profiles", {
+          profileType: "person",
+          slug: `cap-target-${index}`,
+          displayName: `Cap Target ${index}`,
+          sortName: `cap target ${index}`,
+          aliases: [],
+          tags: [],
+          claimState: "unclaimed",
+          publicationState: "published",
+          publicSurfacingState: "public",
+          creationSource: "concierge",
+          person: { roleTags: [] },
+          updatedAt: now,
+        });
+      }
+
+      return {
+        identity: {
+          subject: `${userId}|web-session`,
+          issuer: "test",
+          tokenIdentifier: `test|${userId}`,
+        },
+      };
+    });
+    const asClaimant = t.withIdentity(seeded.identity);
+    const start = (index: number) =>
+      asClaimant.mutation(api.profileClaims.startVrchatProof, {
+        profileSlug: `cap-target-${index}`,
+        targetType: "vrchat_user" as const,
+        targetExternalId: `usr_${"0".repeat(8)}-0000-4000-8000-00000000000${index}`,
+      });
+
+    const first = await start(0);
+    for (let index = 1; index < 3; index += 1) {
+      await start(index);
+    }
+
+    await assert.rejects(() => start(3), /too_many_open_proof_attempts/);
+
+    // Re-requesting an attempt that already exists is a read, not new polling
+    // work, so the cap must not lock a claimant out of their own proof code.
+    assert.equal((await start(0)).proofCode, first.proofCode);
   });
 });

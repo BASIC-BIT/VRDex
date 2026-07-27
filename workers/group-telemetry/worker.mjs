@@ -109,17 +109,26 @@ async function collect(assignment) {
   }
 }
 
-/** Hands back attempts from `from` onward that were claimed but never read. */
-async function releaseUnread(batch, from) {
+/**
+ * Hands back attempts that were claimed but never read.
+ *
+ * `includeFrom` decides whether `from` itself is one of them. It is when the
+ * batch stops before spending anything on it (a budget denial), and it is not
+ * when the provider already answered for it — releasing a throttled attempt
+ * puts it straight back in the pool for the next replica to retry against the
+ * same throttle, which is exactly what the backoff is meant to prevent.
+ */
+async function releaseUnread(batch, from, includeFrom = true) {
   const index = batch.indexOf(from);
 
   if (index < 0) return;
 
+  const attemptIds = batch.slice(includeFrom ? index : index + 1).map((entry) => entry.attemptId);
+
+  if (attemptIds.length === 0) return;
+
   await control
-    .send("proof_release", {
-      attemptIds: batch.slice(index).map((entry) => entry.attemptId),
-      now: Date.now(),
-    })
+    .send("proof_release", { attemptIds, now: Date.now() })
     .catch(() => undefined);
 }
 
@@ -188,8 +197,10 @@ async function checkProofs() {
       if (error?.category === "rate_limit") {
         // The rest of the batch is still stamped from the claim, so hand it
         // back before sleeping. Otherwise a throttle also parks attempts that
-        // nobody looked at for the whole cooldown.
-        await releaseUnread(pending, attempt);
+        // nobody looked at for the whole cooldown. This attempt keeps its stamp:
+        // it already cost a provider request, and its cooldown is the only thing
+        // stopping another replica from immediately retrying into the throttle.
+        await releaseUnread(pending, attempt, false);
         await sleep(Math.min(Math.max(error.retryAfterMs ?? 60_000, 1_000), 5 * 60_000));
         break;
       }

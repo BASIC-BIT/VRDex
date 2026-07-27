@@ -67,6 +67,7 @@ type RecordControlProofOptions = {
   controlLevel: ExternalControlLevel;
   evidenceSource: ExternalControlEvidenceSource;
   evidenceSummary?: string;
+  evidenceSubjectId?: string;
   now: number;
   revalidateAfterMs?: number;
 };
@@ -99,6 +100,9 @@ export async function recordExternalControlProof(
       ...(options.evidenceSummary !== undefined
         ? { evidenceSummary: options.evidenceSummary }
         : {}),
+      ...(options.evidenceSubjectId !== undefined
+        ? { evidenceSubjectId: options.evidenceSubjectId }
+        : {}),
       verifiedAt: options.now,
       lastRevalidatedAt: options.now,
       revalidateAfter,
@@ -120,6 +124,9 @@ export async function recordExternalControlProof(
     evidenceSource: options.evidenceSource,
     ...(options.evidenceSummary !== undefined
       ? { evidenceSummary: options.evidenceSummary }
+      : {}),
+    ...(options.evidenceSubjectId !== undefined
+      ? { evidenceSubjectId: options.evidenceSubjectId }
       : {}),
     verifiedAt: options.now,
     lastRevalidatedAt: options.now,
