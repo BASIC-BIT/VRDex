@@ -288,8 +288,10 @@ export function ConnectionsPanel({ initialProfileSlug }: { initialProfileSlug?: 
                         </p>
                         <p className="mt-1 text-sm text-muted">
                           {credential.lastUsedAt
-                            ? `Last used ${new Date(credential.lastUsedAt).toLocaleString()}`
-                            : "Not used yet"}
+                            ? `Last matched ${new Date(credential.lastUsedAt).toLocaleString()}`
+                            : credential.lastConsultedAt
+                              ? `Last queried ${new Date(credential.lastConsultedAt).toLocaleString()} · no match yet`
+                              : "Not used yet"}
                         </p>
                       </div>
                       <Button

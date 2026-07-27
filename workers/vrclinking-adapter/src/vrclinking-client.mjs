@@ -3,6 +3,10 @@
 // SDK; see docs/backend/vrclinking-api.md.
 
 const DEFAULT_BASE_URL = "https://vrclinking.com/api";
+// Bound on how far an exact-id search will page. A search for one Discord id
+// should land on page one; this only exists so a provider that mis-reports
+// `totalPages` cannot loop.
+const MAX_SEARCH_PAGES = 5;
 
 export class VrclinkingProviderError extends Error {
   constructor(message, { status = 0, reason = "provider_error" } = {}) {
@@ -20,14 +24,12 @@ export function createVrclinkingClient({
 } = {}) {
   const normalizedBaseUrl = baseUrl.replace(/\/$/, "");
 
-  /**
-   * Look up one guild member by Discord id.
-   *
-   * Returns the matching `SearchMember` or null. The caller receives provider
-   * data for the requested member only; nothing else from the page is exposed.
-   */
-  return async function getGuildMemberByDiscordId(guildId, discordUserId, token) {
-    const query = new URLSearchParams({ search: discordUserId, searchBy: "DiscordId" });
+  async function fetchPage(guildId, discordUserId, token, page) {
+    const query = new URLSearchParams({
+      search: discordUserId,
+      searchBy: "DiscordId",
+      page: String(page),
+    });
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     let response;
@@ -89,8 +91,43 @@ export function createVrclinkingClient({
       });
     }
 
-    // Search is fuzzy by contract, so require an exact Discord id match rather
-    // than trusting the first row.
-    return payload.results.find((member) => member?.id === discordUserId) ?? null;
+    return payload;
+  }
+
+  /**
+   * Look up one guild member by Discord id.
+   *
+   * Returns the matching `SearchMember` or null. The caller receives provider
+   * data for the requested member only; nothing else from the page is exposed.
+   *
+   * The provider's search is fuzzy and paginated, so the exact id can sit on a
+   * page after the first. Stopping at page one would report a linked claimant as
+   * unlinked, which is a real negative the claimant cannot do anything about.
+   */
+  return async function getGuildMemberByDiscordId(guildId, discordUserId, token) {
+    for (let page = 1; page <= MAX_SEARCH_PAGES; page += 1) {
+      const payload = await fetchPage(guildId, discordUserId, token, page);
+
+      if (payload === null) {
+        return null;
+      }
+
+      // Fuzzy by contract, so require an exact match rather than the first row.
+      const match = payload.results.find((member) => member?.id === discordUserId);
+
+      if (match !== undefined) {
+        return match;
+      }
+
+      const totalPages = Number(payload.totalPages);
+
+      if (payload.results.length === 0 || !Number.isFinite(totalPages) || page >= totalPages) {
+        return null;
+      }
+    }
+
+    // Exhausting the bound without a match is indistinguishable from no match
+    // for the claimant, and the page cap is ours rather than the provider's.
+    return null;
   };
 }

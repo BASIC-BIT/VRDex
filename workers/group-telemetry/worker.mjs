@@ -183,13 +183,21 @@ async function checkProofs() {
       // leaving the account `ready` for every other replica to rediscover the
       // same dead session one 401 at a time.
       if (error?.category === "authentication") {
-        stopping = true;
+        // Release before reporting, not after. Reporting moves the account to
+        // `auth_required` and the control plane then rejects this worker, so a
+        // release attempted afterwards cannot succeed and the rest of the batch
+        // would sit out its full claim cooldown even though other accounts are
+        // healthy. The current attempt goes back too: a dead session says
+        // nothing about it.
+        await releaseUnread(pending, attempt);
 
         try {
           await control.send("proof_auth_failure", { now: Date.now() });
         } catch {
           // Exiting on the 401 matters more than reporting it.
         }
+
+        stopping = true;
       }
 
       // Continuing through the batch during an explicit backoff window sends

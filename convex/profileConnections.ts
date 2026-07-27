@@ -77,19 +77,36 @@ export const listProfileConnections = query({
     }
 
     const links = await getActiveProfileLinks(ctx.db, profile._id);
+    // A link deliberately outlives its proof: losing control of a server should
+    // not silently detach it from the profile. The "Verified" label must not
+    // outlive it too, so read through to the proof rather than treating the
+    // presence of a reference as proof of anything.
+    const now = Date.now();
+    const proofs = await Promise.all(
+      links.map((link) =>
+        link.verifiedByProofId === undefined ? null : ctx.db.get(link.verifiedByProofId),
+      ),
+    );
 
     return {
       isManager,
       connections: links
-        .map((link) => ({
-          id: link._id,
-          assetType: link.assetType,
-          assetExternalId: link.assetExternalId,
-          assetDisplayName: link.assetDisplayName,
-          linkRole: link.linkRole,
-          verified: link.verifiedByProofId !== undefined,
-          ...(isManager ? { createdAt: link.createdAt } : {}),
-        }))
+        .map((link, index) => {
+          const proof = proofs[index];
+
+          return {
+            id: link._id,
+            assetType: link.assetType,
+            assetExternalId: link.assetExternalId,
+            assetDisplayName: link.assetDisplayName,
+            linkRole: link.linkRole,
+            verified:
+              proof != null &&
+              proof.state === "active" &&
+              (proof.revalidateAfter === undefined || proof.revalidateAfter > now),
+            ...(isManager ? { createdAt: link.createdAt } : {}),
+          };
+        })
         // Primary first, then stable by creation order.
         .sort((left, right) =>
           left.linkRole === right.linkRole
@@ -134,6 +151,38 @@ export const claimCommunityWithVerifiedGuild = mutation({
     }
 
     const now = Date.now();
+
+    // Attaching the guild is idempotent and has to happen either way — a
+    // verified owner may be claiming with a server that is not linked yet.
+    const linkGuild = async (verifiedByProofId: typeof proof._id) =>
+      await linkProfileToAsset(ctx.db, {
+        profileId: profile._id,
+        assetType: "discord_guild",
+        assetExternalId: args.guildId,
+        ...(proof.assetDisplayName !== undefined
+          ? { assetDisplayName: proof.assetDisplayName }
+          : {}),
+        linkedByUserId: user._id,
+        verifiedByProofId,
+        now,
+      });
+
+    // Beyond that there is nothing to do when this caller already owns a
+    // verified profile: a retry after a lost response, or a second call from the
+    // account UI, would otherwise pile up duplicate approved claim requests and
+    // redundant ownership and search writes. A `claimed_unverified` owner still
+    // falls through, since proving server control is exactly what upgrades that.
+    if (activeOwner !== null && profile.claimState === "claimed_verified") {
+      await linkGuild(proof._id);
+
+      return {
+        claimRequestId: null,
+        profileId: profile._id,
+        claimState: profile.claimState,
+        profilePath: `/c/${profile.slug}`,
+      };
+    }
+
     const claimRequestId = await ctx.db.insert("profileClaimRequests", {
       profileId: profile._id,
       profileSlug: profile.slug,
@@ -154,17 +203,7 @@ export const claimCommunityWithVerifiedGuild = mutation({
       reviewedAt: now,
     });
 
-    await linkProfileToAsset(ctx.db, {
-      profileId: profile._id,
-      assetType: "discord_guild",
-      assetExternalId: args.guildId,
-      ...(proof.assetDisplayName !== undefined
-        ? { assetDisplayName: proof.assetDisplayName }
-        : {}),
-      linkedByUserId: user._id,
-      verifiedByProofId: proof._id,
-      now,
-    });
+    await linkGuild(proof._id);
 
     // Also runs when the caller already owns the profile but it is still
     // `claimed_unverified` — the no-match creation path grants ownership without

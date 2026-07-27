@@ -200,6 +200,11 @@ export const listCredentials = query({
 
     return active.map((row) => ({
       guildId: row.guildId,
+      // Being consulted and having answered are different things, and only the
+      // second stamps `lastUsedAt`. An operator whose key has been queried
+      // several times without ever matching should still see that, rather than
+      // "Not used yet".
+      lastConsultedAt: row.lastConsultedAt,
       lastUsedAt: row.lastUsedAt,
       lastResultSummary: row.lastResultSummary,
       createdAt: row.createdAt,

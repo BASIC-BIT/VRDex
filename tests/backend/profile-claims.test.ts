@@ -487,7 +487,10 @@ describe("profile claim lifecycle", () => {
         method: "discord_community_admin",
         state: "pending",
         discordGuildId: guildId,
-        discordGuildName: "Bot Approval HQ",
+        // Caller-supplied label from the request step. It must never become the
+        // durable name — an admin of a real server could otherwise present it
+        // under any name they liked.
+        discordGuildName: "Totally Not A Scam Server",
         createdAt: now,
         updatedAt: now,
       });
@@ -498,6 +501,8 @@ describe("profile claim lifecycle", () => {
     await t.mutation(internal.profileClaims.recordDiscordCommunityAdminApproval, {
       claimRequestId: seeded.claimRequestId,
       evidenceSummary: "Administrator permission confirmed by the Discord bot.",
+      discordUserId: "discord-subject-bot",
+      guildName: "Bot Approval HQ",
     });
 
     await t.run(async (ctx) => {
@@ -509,6 +514,10 @@ describe("profile claim lifecycle", () => {
       assert.equal(proofs[0]?.assetExternalId, guildId);
       assert.equal(proofs[0]?.evidenceSource, "discord_bot");
       assert.equal(proofs[0]?.controlLevel, "administrator");
+      // Bound to the identity the bot actually checked, so a later OAuth
+      // round-trip by a different Discord account cannot revoke it.
+      assert.equal(proofs[0]?.evidenceSubjectId, "discord-subject-bot");
+      assert.equal(proofs[0]?.assetDisplayName, "Bot Approval HQ");
 
       const links = await ctx.db
         .query("profileExternalLinks")
@@ -518,6 +527,7 @@ describe("profile claim lifecycle", () => {
         .collect();
       assert.equal(links.length, 1);
       assert.equal(links[0]?.assetExternalId, guildId);
+      assert.equal(links[0]?.assetDisplayName, "Bot Approval HQ");
       assert.equal(links[0]?.verifiedByProofId, proofs[0]?._id);
     });
   });

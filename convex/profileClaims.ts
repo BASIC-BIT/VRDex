@@ -449,9 +449,15 @@ async function verifyDiscordAdministratorPermission(discordGuildId: string, disc
     fetchDiscordJson<DiscordRole[]>(`/guilds/${encodeURIComponent(discordGuildId)}/roles`),
   ]);
 
+  // The provider's own name for the guild. The claim request carries a caller-
+  // supplied label, which must never reach a durable proof or link: an admin of
+  // a real server could otherwise present it under a misleading name.
+  const guildName = typeof guild.name === "string" && guild.name.length > 0 ? guild.name : undefined;
+
   if (guild.owner_id === discordUserId) {
     return {
       verified: true,
+      guildName,
       evidenceSummary: `Discord user ${discordUserId} owns guild ${guild.name ?? discordGuildId}.`,
     };
   }
@@ -464,6 +470,7 @@ async function verifyDiscordAdministratorPermission(discordGuildId: string, disc
 
   return {
     verified,
+    guildName,
     evidenceSummary: verified
       ? `Discord user ${discordUserId} has Administrator permission in guild ${guild.name ?? discordGuildId}.`
       : `Discord user ${discordUserId} does not have Administrator permission in guild ${guild.name ?? discordGuildId}.`,
@@ -688,6 +695,8 @@ export const recordDiscordCommunityAdminApproval = internalMutation({
   args: {
     claimRequestId: v.id("profileClaimRequests"),
     evidenceSummary: v.string(),
+    discordUserId: v.string(),
+    guildName: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const claimRequest = await ctx.db.get(args.claimRequestId);
@@ -734,16 +743,25 @@ export const recordDiscordCommunityAdminApproval = internalMutation({
     // absent from the connection model: nothing shows under `/account/connections`
     // and nothing can delegate a VRC Linking credential for it.
     if (claimRequest.discordGuildId !== undefined) {
+      // `claimRequest.discordGuildName` is a caller-supplied label from the
+      // request step. Only the name the bot read from Discord may become durable
+      // — otherwise an admin of a real server could display it under any name
+      // they liked.
+      const displayName =
+        args.guildName === undefined ? {} : { assetDisplayName: args.guildName };
       const proofId = await recordExternalControlProof(ctx.db, {
         userId: claimRequest.userId,
         assetType: "discord_guild",
         assetExternalId: claimRequest.discordGuildId,
-        ...(claimRequest.discordGuildName !== undefined
-          ? { assetDisplayName: claimRequest.discordGuildName }
-          : {}),
+        ...displayName,
         controlLevel: "administrator",
         evidenceSource: "discord_bot",
         evidenceSummary: args.evidenceSummary,
+        // The Discord identity the bot actually checked. Reconciliation treats a
+        // proof with no recorded subject as belonging to whoever verifies next,
+        // so leaving this off would let a later OAuth round-trip by a different
+        // Discord account revoke this one.
+        evidenceSubjectId: args.discordUserId,
         now,
       });
 
@@ -751,9 +769,7 @@ export const recordDiscordCommunityAdminApproval = internalMutation({
         profileId: profile._id,
         assetType: "discord_guild",
         assetExternalId: claimRequest.discordGuildId,
-        ...(claimRequest.discordGuildName !== undefined
-          ? { assetDisplayName: claimRequest.discordGuildName }
-          : {}),
+        ...displayName,
         linkedByUserId: claimRequest.userId,
         verifiedByProofId: proofId,
         now,
@@ -860,6 +876,10 @@ export const verifyDiscordCommunityAdminClaim = action({
     return await ctx.runMutation(internal.profileClaims.recordDiscordCommunityAdminApproval, {
       claimRequestId: args.claimRequestId,
       evidenceSummary: result.evidenceSummary,
+      // The identity the bot actually checked, and the provider's own name for
+      // the guild — not the label the claimant typed.
+      discordUserId: claimContext.discordUserId,
+      ...(result.guildName !== undefined ? { guildName: result.guildName } : {}),
     });
   },
 });

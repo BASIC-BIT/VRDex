@@ -247,6 +247,55 @@ describe("VRCLinking client", () => {
     }
   });
 
+  // The provider search is fuzzy and paginated, so the exact id can land past
+  // page one. Stopping at the first page reports a linked claimant as unlinked.
+  it("pages until the exact id is found or the pages run out", async () => {
+    const pages = [];
+    const get = createVrclinkingClient({
+      baseUrl: "https://provider.test/api",
+      fetcher: async (url) => {
+        const page = Number(new URL(url).searchParams.get("page"));
+        pages.push(page);
+
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            totalPages: 3,
+            results:
+              page === 3
+                ? [{ id: DISCORD_ID, vrcId: VRC_ID, isVerified: true }]
+                : [{ id: "999999999999999999", vrcId: OTHER_VRC_ID, isVerified: true }],
+          }),
+        };
+      },
+    });
+
+    assert.equal((await get("guild", DISCORD_ID, "t"))?.vrcId, VRC_ID);
+    assert.deepEqual(pages, [1, 2, 3]);
+
+    // A genuinely absent member still stops at the last page rather than looping.
+    const missPages = [];
+    const miss = createVrclinkingClient({
+      baseUrl: "https://provider.test/api",
+      fetcher: async (url) => {
+        missPages.push(Number(new URL(url).searchParams.get("page")));
+
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            totalPages: 2,
+            results: [{ id: "999999999999999999", vrcId: OTHER_VRC_ID, isVerified: true }],
+          }),
+        };
+      },
+    });
+
+    assert.equal(await miss("guild", DISCORD_ID, "t"), null);
+    assert.deepEqual(missPages, [1, 2]);
+  });
+
   it("surfaces a rejected credential distinctly from a missing member", async () => {
     await assert.rejects(
       () => clientWith(401, {})("guild", DISCORD_ID, "t"),

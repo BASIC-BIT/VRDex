@@ -913,6 +913,101 @@ describe("claiming a community with a verified guild", () => {
       assert.equal(links[0]?.linkRole, "primary");
       assert.notEqual(links[0]?.verifiedByProofId, undefined);
     });
+
+    // A retry after a lost response, or a second call from the account UI, must
+    // not pile up duplicate approved claim requests.
+    const retry = await asUser.mutation(api.profileConnections.claimCommunityWithVerifiedGuild, {
+      profileSlug: "guild-claim",
+      guildId: "777",
+    });
+
+    assert.equal(retry.claimRequestId, null);
+    assert.equal(retry.claimState, "claimed_verified");
+
+    await t.run(async (ctx) => {
+      const requests = await ctx.db
+        .query("profileClaimRequests")
+        .withIndex("by_profileId_userId_state_updatedAt", (q) =>
+          q.eq("profileId", result.profileId).eq("userId", seeded.userId).eq("state", "approved"),
+        )
+        .collect();
+      assert.equal(requests.length, 1);
+      assert.equal(
+        (await getActiveProfileLinks(ctx.db, result.profileId, "discord_guild")).length,
+        1,
+      );
+    });
+  });
+
+  // The link deliberately outlives its proof, so losing control of a server does
+  // not silently detach it. The "Verified" label must not outlive it too.
+  it("stops reporting a connection as verified once its proof lapses", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        email: "lapsing@example.test",
+        emailVerificationTime: now,
+      });
+      await seedCommunity(ctx as never, "lapsing-connection", now);
+
+      return {
+        userId,
+        identity: {
+          subject: `${userId}|web-session`,
+          issuer: "test",
+          tokenIdentifier: `test|${userId}`,
+        },
+      };
+    });
+    const asUser = t.withIdentity(seeded.identity);
+
+    await t.run(async (ctx) => {
+      await recordExternalControlProof(ctx.db, {
+        userId: seeded.userId,
+        assetType: "discord_guild",
+        assetExternalId: "888",
+        controlLevel: "administrator",
+        evidenceSource: "discord_oauth",
+        now,
+      });
+    });
+    await asUser.mutation(api.profileConnections.claimCommunityWithVerifiedGuild, {
+      profileSlug: "lapsing-connection",
+      guildId: "888",
+    });
+
+    const verifiedBefore = await asUser.query(api.profileConnections.listProfileConnections, {
+      profileSlug: "lapsing-connection",
+    });
+    assert.equal(verifiedBefore?.connections[0]?.verified, true);
+
+    for (const lapse of [
+      // Revoked by OAuth reconciliation...
+      { state: "revoked" as const },
+      // ...and overdue but not yet swept.
+      { state: "active" as const, revalidateAfter: now - 1 },
+    ]) {
+      await t.run(async (ctx) => {
+        const proofs = await ctx.db
+          .query("externalControlProofs")
+          .withIndex("by_userId_assetType_assetExternalId", (q) =>
+            q
+              .eq("userId", seeded.userId)
+              .eq("assetType", "discord_guild")
+              .eq("assetExternalId", "888"),
+          )
+          .collect();
+        await ctx.db.patch(proofs[0]!._id, lapse);
+      });
+
+      const connections = await asUser.query(api.profileConnections.listProfileConnections, {
+        profileSlug: "lapsing-connection",
+      });
+      // The link survives; only the label changes.
+      assert.equal(connections?.connections.length, 1);
+      assert.equal(connections?.connections[0]?.verified, false);
+    }
   });
 
   // The no-match creation path grants ownership without verification. Proving

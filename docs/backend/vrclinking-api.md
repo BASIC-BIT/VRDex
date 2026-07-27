@@ -139,8 +139,10 @@ Constraints enforced in `vrclinkingCredentials.ts`:
   that could technically read other guilds is never used to;
 - `secretRef` is returned by exactly one internal query, consumed by the action
   that calls the adapter, and never by a client-facing query;
-- every use stamps `lastUsedAt` and a short result summary, giving operators a
-  visible record of what their delegation did;
+- every consultation stamps `lastConsultedAt`, and a consultation that produced
+  the match additionally stamps `lastUsedAt` and a short result summary. Both are
+  surfaced under the profile's connections, so an operator can tell a key that
+  has never been asked from one that has been asked and never matched;
 - owners can revoke, which takes effect immediately for subsequent reads.
 
 ## What VRDex asks the adapter
