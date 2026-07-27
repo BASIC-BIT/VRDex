@@ -97,6 +97,7 @@ import type * as shortLinks from "../shortLinks.js";
 import type * as suppressions from "../suppressions.js";
 import type * as temporalParsing from "../temporalParsing.js";
 import type * as temporalParsingActions from "../temporalParsingActions.js";
+import type * as vrclinkingCredentials from "../vrclinkingCredentials.js";
 import type * as worlds from "../worlds.js";
 
 import type {
@@ -195,6 +196,7 @@ declare const fullApi: ApiFromModules<{
   suppressions: typeof suppressions;
   temporalParsing: typeof temporalParsing;
   temporalParsingActions: typeof temporalParsingActions;
+  vrclinkingCredentials: typeof vrclinkingCredentials;
   worlds: typeof worlds;
 }>;
 

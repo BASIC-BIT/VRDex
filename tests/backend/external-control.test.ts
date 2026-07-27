@@ -20,6 +20,7 @@ const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/profileConnections.ts": () => import("../../convex/profileConnections"),
   "../../convex/discordVerification.ts": () => import("../../convex/discordVerification"),
+  "../../convex/vrclinkingCredentials.ts": () => import("../../convex/vrclinkingCredentials"),
 };
 const schema = (
   schemaModule as unknown as { default?: typeof schemaModule }
@@ -301,6 +302,122 @@ describe("control proof revalidation", () => {
       );
       assert.equal(live.state, "active");
     });
+  });
+});
+
+describe("VRCLinking credential delegation", () => {
+  async function seedOwnedCommunity(t: ReturnType<typeof convexTest>, slug: string, now: number) {
+    return await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        email: `${slug}@example.test`,
+        emailVerificationTime: now,
+      });
+      const profileId = await seedCommunity(ctx as never, slug, now);
+      await ctx.db.insert("profileOwners", {
+        profileId,
+        userId,
+        roleKey: "owner",
+        state: "active",
+        grantedAt: now,
+        updatedAt: now,
+      });
+
+      return {
+        userId,
+        identity: {
+          subject: `${userId}|web-session`,
+          issuer: "test",
+          tokenIdentifier: `test|${userId}`,
+        },
+      };
+    });
+  }
+
+  it("refuses a delegation for a guild the owner has not proved they manage", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await seedOwnedCommunity(t, "delegation-unproved", now);
+
+    await assert.rejects(
+      () =>
+        t.withIdentity(seeded.identity).mutation(api.vrclinkingCredentials.registerCredential, {
+          profileSlug: "delegation-unproved",
+          guildId: "12345678901234567",
+          secretRef: "secret://vrdex/vrclinking/delegation-unproved",
+        }),
+      /CONTROL_NOT_VERIFIED/,
+    );
+  });
+
+  it("refuses a raw token and requires a secret store reference", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await seedOwnedCommunity(t, "delegation-rawtoken", now);
+    await t.run(async (ctx) => {
+      await recordExternalControlProof(ctx.db, {
+        userId: seeded.userId,
+        assetType: "discord_guild",
+        assetExternalId: "12345678901234567",
+        controlLevel: "owner",
+        evidenceSource: "discord_oauth",
+        now,
+      });
+    });
+
+    await assert.rejects(
+      () =>
+        t.withIdentity(seeded.identity).mutation(api.vrclinkingCredentials.registerCredential, {
+          profileSlug: "delegation-rawtoken",
+          guildId: "12345678901234567",
+          // A pasted VRCLinking token must never be accepted into the database.
+          secretRef: "eyJhbGciOiJIUzI1NiJ9.fake.token",
+        }),
+      /ADAPTER_NOT_CONFIGURED/,
+    );
+  });
+
+  it("stores a reference the owner can see without exposing it, and revokes", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await seedOwnedCommunity(t, "delegation-ok", now);
+    const guildId = "12345678901234567";
+    await t.run(async (ctx) => {
+      await recordExternalControlProof(ctx.db, {
+        userId: seeded.userId,
+        assetType: "discord_guild",
+        assetExternalId: guildId,
+        controlLevel: "administrator",
+        evidenceSource: "discord_oauth",
+        now,
+      });
+    });
+    const asOwner = t.withIdentity(seeded.identity);
+
+    await asOwner.mutation(api.vrclinkingCredentials.registerCredential, {
+      profileSlug: "delegation-ok",
+      guildId,
+      secretRef: "arn:aws:secretsmanager:us-east-1:1234:secret:vrdex/vrclinking/ok",
+    });
+
+    const listed = await asOwner.query(api.vrclinkingCredentials.listCredentials, {
+      profileSlug: "delegation-ok",
+    });
+    assert.equal(listed.length, 1);
+    assert.equal(listed[0]?.guildId, guildId);
+    // The reference must not travel to a client-facing surface.
+    assert.equal("secretRef" in (listed[0] ?? {}), false);
+
+    const revoked = await asOwner.mutation(api.vrclinkingCredentials.revokeCredential, {
+      profileSlug: "delegation-ok",
+      guildId,
+    });
+    assert.equal(revoked.revoked, true);
+    assert.deepEqual(
+      await asOwner.query(api.vrclinkingCredentials.listCredentials, {
+        profileSlug: "delegation-ok",
+      }),
+      [],
+    );
   });
 });
 

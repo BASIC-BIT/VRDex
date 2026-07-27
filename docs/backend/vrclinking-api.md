@@ -101,27 +101,84 @@ where `status` is `Success`, `Conflict`, or `SuccessVerified`. `/users/verify`,
 to the authenticated VRCLinking user, so they are not a route for VRDex to
 verify *someone else's* linkage.
 
-## Blocker before implementing
+## Access model
 
-The shape is not the obstacle; access is.
+The shape was never the obstacle; access is. `/generate_api_key` mints a key
+from a logged-in VRCLinking account and `/members/{guildId}` is guild-scoped, so
+reading a community's linkage needs a VRCLinking account with standing access to
+that guild.
 
-`/generate_api_key` mints a key for a logged-in VRCLinking account, and
-`/members/{guildId}` is guild-scoped. So reading a community's linkage appears
-to require a VRCLinking account with standing access to that guild. VRDex cannot
-satisfy that for arbitrary communities without either:
+**Accepted approach (product decision, 2026-07-27): per-community delegation.**
+A community operator generates a VRCLinking key and delegates it to VRDex.
+This is knowingly accepted despite the key granting broad read across every
+guild the granting account can see; VRDex constrains its own use rather than
+relying on the credential being narrow.
 
-- each community operator generating a key and delegating it to VRDex, which
-  moves a credential with broad guild read access into our custody; or
-- a partnership granting VRDex an application-level credential.
+The rejected alternative was one global VRDex key, which concentrates the same
+risk without the per-community revocation story.
 
-There is also no published ToS covering third-party server-to-server use.
+There is still no published ToS covering third-party server-to-server use.
 
-**Recommendation:** keep the adapter seam and do not implement a client until
-one of those access paths exists, because neither is a code decision. If the
-per-community key route is taken, the credential should be stored per community
-and scoped to that guild, never as one global VRDex key.
+## Credential handling
 
-Note that the OAuth guild verification already shipped covers the Discord side
-of community claiming without VRCLinking, so this is an enrichment path — VRChat
-identity attestation for *person* profiles — rather than a blocker for anything
-currently broken.
+VRDex holds a delegated credential that is broader than the use it is put to, so
+the containment is in how it is stored and used, not in the token itself.
+
+**Convex never sees the token.** `communityVrclinkingCredentials` stores only a
+`secretRef` (`arn:aws:secretsmanager:…` or `secret://…`), matching
+`collectorAccounts` and the event media-control credential. The adapter resolves
+the reference through its own IAM role. This is why the token is not encrypted
+in Convex: it is never there.
+
+Constraints enforced in `vrclinkingCredentials.ts`:
+
+- registering requires **both** profile ownership and a current
+  `externalControlProofs` row proving the caller manages that guild, so nobody
+  can delegate a key for a server they do not control;
+- each delegation records the single `guildId` it is authorized for, so a key
+  that could technically read other guilds is never used to;
+- `secretRef` is returned by exactly one internal query, consumed by the action
+  that calls the adapter, and never by a client-facing query;
+- every use stamps `lastUsedAt` and a short result summary, giving operators a
+  visible record of what their delegation did;
+- owners can revoke, which takes effect immediately for subsequent reads.
+
+## What VRDex asks the adapter
+
+The `VRCLINKING_PROOF_ADAPTER_URL` seam is the credential boundary. Convex sends
+the guild, the Discord user id, the claimed VRChat id, and the `secretRef` — no
+token — and the adapter answers the narrow question:
+
+> Does VRCLinking report this Discord user as linked to this VRChat account in
+> this guild, and is that link verified?
+
+The adapter resolves the secret, calls
+`GET /members/{guildId}?search=<discordUserId>&searchBy=DiscordId`, and returns
+the existing `{ verified, evidenceSource, evidenceSummary }` contract with
+`evidenceSource: "vrclinking"`. A match requires `isVerified === true` **and**
+`vrcId` equal to the claimed account.
+
+## Trust posture
+
+A VRCLinking attestation is a different signal from our own proof code: it is a
+third party asserting linkage rather than VRDex observing it directly. It is
+recorded with `evidenceSource: "vrclinking"` so the two never become
+indistinguishable in the audit trail, and so a future decision to weight them
+differently does not need a migration.
+
+## Remaining work
+
+Not built, and deliberately so — each needs something outside the codebase:
+
+1. **The adapter service.** Small: resolve a secret reference, call one
+   endpoint, map the response. It needs somewhere to run with IAM access to the
+   secret store, then `VRCLINKING_PROOF_ADAPTER_URL` pointed at it.
+2. **Onboarding a first community.** Requires talking to an operator and to
+   VRCLinking about third-party use. Both are conversations with people.
+3. **A UI for delegation.** The mutations exist; nothing surfaces them yet.
+   Worth deferring until at least one community has agreed.
+
+The OAuth guild verification already shipped covers Discord community claiming
+without VRCLinking, so this remains an enrichment path — VRChat identity
+attestation for *person* profiles, without a proof code — rather than a fix for
+anything currently broken.

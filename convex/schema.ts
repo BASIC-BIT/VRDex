@@ -1922,6 +1922,29 @@ export default defineSchema({
     .index("by_userId_state", ["userId", "state"])
     .index("by_assetType_assetExternalId_state", ["assetType", "assetExternalId", "state"])
     .index("by_state_revalidateAfter", ["state", "revalidateAfter"]),
+  // A community operator's delegated VRCLinking API key, held so VRDex can read
+  // that guild's Discord-to-VRChat linkage.
+  //
+  // Only a reference is stored. VRCLinking keys are account-scoped and grant
+  // broad read over every guild the granting account can see, so the token
+  // itself lives in the operator secret store and is resolved by the adapter,
+  // never by Convex. `guildId` records the single guild this delegation is
+  // authorized for, so a key that can technically read more cannot be used to.
+  communityVrclinkingCredentials: defineTable({
+    communityProfileId: v.id("profiles"),
+    guildId: v.string(),
+    secretRef: v.string(),
+    state: v.union(v.literal("active"), v.literal("revoked")),
+    delegatedByUserId: v.id("users"),
+    lastUsedAt: v.optional(v.number()),
+    lastResultSummary: v.optional(v.string()),
+    revokedAt: v.optional(v.number()),
+    revokedReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_communityProfileId_state", ["communityProfileId", "state"])
+    .index("by_guildId_state", ["guildId", "state"]),
   // Short-lived CSRF state for the purpose-scoped Discord guild-verification
   // OAuth round-trip. Stored server-side rather than in a cookie so the flow
   // survives browser restarts and stays bound to the signed-in user.
