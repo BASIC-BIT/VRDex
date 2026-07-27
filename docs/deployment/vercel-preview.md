@@ -69,6 +69,20 @@ When any gate is absent, the workflow writes the Convex E2E and preview OAuth
 token capability switches as `false` and omits the developer runtime secrets for
 that preview.
 
+## On-demand preview deploy
+
+The `Vercel Preview` job above runs inside `Baseline Checks` for every non-fork pull request commit. Two extra workflows add a second, lighter path for when a reviewer or an agent wants a preview URL without waiting for a full baseline run:
+
+- `.github/workflows/vercel-preview-comment.yml` listens for `issue_comment` and dispatches the deploy when a pull request comment contains `@vrdex preview` or `/vercel-preview`. It requires an `author_association` of `OWNER`, `MEMBER`, or `COLLABORATOR`, and refuses fork branches and non-open pull requests.
+- `.github/workflows/vercel-preview-deploy.yml` performs the deploy. Its only triggers are `workflow_dispatch` and `workflow_call`, so it cannot fire on `push` or `pull_request`. The `workflow_call` interface exposes a `deployment_url` output so a calling workflow can capture the link.
+
+This path reuses the existing `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID` repository secrets and adds no new ones. If any of the three is missing, the run fails and names the missing secrets instead of deploying partially.
+
+It differs from the `Baseline Checks` preview in two ways:
+
+- It runs `pnpm dlx vercel@54.4.1 deploy --target=preview --yes`, so Vercel builds remotely from the project's own Preview environment variables instead of uploading prebuilt output.
+- It does not create a `pr-<number>` Convex preview backend and injects no preview persistence, E2E, or developer-runtime values. Use the `Baseline Checks` preview when a review needs a per-pull-request Convex backend.
+
 ## Web environment
 
 Set these in the Vercel project as needed:

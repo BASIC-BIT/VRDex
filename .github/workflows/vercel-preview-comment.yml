@@ -1,0 +1,142 @@
+name: Request On-Demand Vercel Preview
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions:
+  actions: write
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  queue-preview:
+    name: Queue On-Demand Preview
+    if: ${{ github.event.issue.pull_request && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) && (contains(github.event.comment.body, '@vrdex preview') || contains(github.event.comment.body, '/vercel-preview')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Validate request
+        id: request
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const body = context.payload.comment.body || "";
+            if (!/(^|\s)(@vrdex\s+preview|\/vercel-preview)(\s|$)/i.test(body)) {
+              core.setFailed("Comment does not contain an on-demand preview request.");
+              return;
+            }
+
+            const allowed = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
+            const association = context.payload.comment.author_association || "NONE";
+            if (!allowed.has(association)) {
+              core.setFailed(
+                `On-demand previews may only be requested by trusted collaborators. Got: ${association}`,
+              );
+              return;
+            }
+
+            const { data: pull } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+
+            if (pull.head.repo?.full_name !== `${context.repo.owner}/${context.repo.repo}`) {
+              core.setFailed(
+                "On-demand previews only run for branches inside this repository. Mirror a fork PR to a trusted branch first.",
+              );
+              return;
+            }
+
+            if (pull.state !== "open") {
+              core.setFailed(
+                `On-demand previews only run for open pull requests. This one is ${pull.state}.`,
+              );
+              return;
+            }
+
+            core.setOutput("comment_id", String(context.payload.comment.id));
+            core.setOutput("pr_number", String(pull.number));
+
+      - name: Dispatch preview deployment
+        uses: actions/github-script@v9
+        env:
+          COMMENT_ID: ${{ steps.request.outputs.comment_id }}
+          PR_NUMBER: ${{ steps.request.outputs.pr_number }}
+        with:
+          script: |
+            try {
+              await github.rest.reactions.createForIssueComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: Number(process.env.COMMENT_ID),
+                content: "eyes",
+              });
+            } catch (error) {
+              core.warning(`Unable to add reaction: ${error}`);
+            }
+
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: "vercel-preview-deploy.yml",
+              ref: context.payload.repository.default_branch,
+              inputs: {
+                pull_number: process.env.PR_NUMBER,
+                comment_id: process.env.COMMENT_ID,
+              },
+            });
+
+      - name: Report queue failure
+        if: failure() && steps.request.outcome == 'success'
+        uses: actions/github-script@v9
+        env:
+          COMMENT_ID: ${{ steps.request.outputs.comment_id }}
+          PR_NUMBER: ${{ steps.request.outputs.pr_number }}
+        with:
+          script: |
+            const marker = "<!-- on-demand-vercel-preview-queue-failure-comment -->";
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = Number(process.env.PR_NUMBER);
+            const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`;
+            const body = [
+              marker,
+              "On-demand Vercel preview request could not be queued.",
+              `Workflow logs: ${runUrl}`,
+            ].join("\n");
+
+            try {
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner,
+                repo,
+                issue_number,
+                per_page: 100,
+              });
+              const existing = comments.find(
+                (comment) => comment.user?.type === "Bot" && comment.body?.includes(marker),
+              );
+
+              if (existing) {
+                await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+              } else {
+                await github.rest.issues.createComment({ owner, repo, issue_number, body });
+              }
+            } catch (error) {
+              core.warning(`Unable to post queue failure comment: ${error}`);
+            }
+
+            try {
+              await github.rest.reactions.createForIssueComment({
+                owner,
+                repo,
+                comment_id: Number(process.env.COMMENT_ID),
+                content: "confused",
+              });
+            } catch (error) {
+              core.warning(`Unable to add failure reaction: ${error}`);
+            }
