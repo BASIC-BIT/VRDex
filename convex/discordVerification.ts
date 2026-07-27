@@ -236,13 +236,22 @@ export const getManageableGuilds = query({
       return [];
     }
 
+    const now = Date.now();
     const proofs = await ctx.db
       .query("externalControlProofs")
       .withIndex("by_userId_state", (q) => q.eq("userId", user._id).eq("state", "active"))
       .collect();
 
     return proofs
-      .filter((proof) => proof.assetType === "discord_guild")
+      .filter(
+        (proof) =>
+          proof.assetType === "discord_guild" &&
+          // Match the authorization check exactly. Between a proof lapsing and
+          // the sweeper marking it stale it is still `active`, and offering it
+          // here would show a server that `requireControlProof` then rejects,
+          // while hiding the re-verify prompt that would fix it.
+          (proof.revalidateAfter === undefined || proof.revalidateAfter > now),
+      )
       .map((proof) => ({
         guildId: proof.assetExternalId,
         guildName: proof.assetDisplayName,

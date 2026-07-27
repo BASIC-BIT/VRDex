@@ -74,12 +74,14 @@ async function deleteE2eProfile(ctx: MutationCtx, profile: Doc<"profiles">) {
     throw new Error("Only E2E-created profiles can be cleaned up by this helper.");
   }
 
-  const [searchDocuments, auditEvents, owners, claimRequests, verificationAttempts] = await Promise.all([
+  const [searchDocuments, auditEvents, owners, claimRequests, verificationAttempts, externalLinks] = await Promise.all([
     ctx.db.query("searchDocuments").withIndex("by_profileId", (query) => query.eq("profileId", profile._id)).collect(),
     ctx.db.query("profileAuditEvents").withIndex("by_profileId_createdAt", (query) => query.eq("profileId", profile._id)).collect(),
     ctx.db.query("profileOwners").withIndex("by_profileId_state", (query) => query.eq("profileId", profile._id)).collect(),
     ctx.db.query("profileClaimRequests").withIndex("by_profileId_state", (query) => query.eq("profileId", profile._id)).collect(),
     ctx.db.query("profileVerificationAttempts").withIndex("by_profileId_state", (query) => query.eq("profileId", profile._id)).collect(),
+    // Created when a community claim pairs a control proof with the profile.
+    ctx.db.query("profileExternalLinks").withIndex("by_profileId_state", (query) => query.eq("profileId", profile._id).eq("state", "active")).collect(),
   ]);
 
   await Promise.all([
@@ -88,6 +90,7 @@ async function deleteE2eProfile(ctx: MutationCtx, profile: Doc<"profiles">) {
     ...owners.map((owner) => ctx.db.delete(owner._id)),
     ...claimRequests.map((claimRequest) => ctx.db.delete(claimRequest._id)),
     ...verificationAttempts.map((attempt) => ctx.db.delete(attempt._id)),
+    ...externalLinks.map((link) => ctx.db.delete(link._id)),
     ctx.db.delete(profile._id),
   ]);
 }
@@ -107,12 +110,15 @@ async function cleanupE2eUserByEmail(ctx: MutationCtx, email: string) {
 
   await cleanupE2eDeveloperCredentials(ctx, user._id);
 
-  const [accounts, sessions, claimRequests, verificationAttempts, profileOwners] = await Promise.all([
+  const [accounts, sessions, claimRequests, verificationAttempts, profileOwners, controlProofs] = await Promise.all([
     ctx.db.query("authAccounts").withIndex("userIdAndProvider", (query) => query.eq("userId", user._id)).collect(),
     ctx.db.query("authSessions").withIndex("userId", (query) => query.eq("userId", user._id)).collect(),
     ctx.db.query("profileClaimRequests").withIndex("by_userId_state", (query) => query.eq("userId", user._id)).collect(),
     ctx.db.query("profileVerificationAttempts").withIndex("by_userId_state", (query) => query.eq("userId", user._id)).collect(),
     ctx.db.query("profileOwners").withIndex("by_userId_state", (query) => query.eq("userId", user._id)).collect(),
+    // Seeded by the claim flow through the record-guild-proof helper; without
+    // this, every shared-staging run leaves a dangling proof behind.
+    ctx.db.query("externalControlProofs").withIndex("by_userId_state", (query) => query.eq("userId", user._id).eq("state", "active")).collect(),
   ]);
   const verificationCodes = await Promise.all(
     accounts.map((account) => ctx.db.query("authVerificationCodes").withIndex("accountId", (query) => query.eq("accountId", account._id)).collect()),
@@ -127,6 +133,7 @@ async function cleanupE2eUserByEmail(ctx: MutationCtx, email: string) {
     ...claimRequests.map((claimRequest) => ctx.db.delete(claimRequest._id)),
     ...verificationAttempts.map((attempt) => ctx.db.delete(attempt._id)),
     ...profileOwners.map((owner) => ctx.db.delete(owner._id)),
+    ...controlProofs.map((proof) => ctx.db.delete(proof._id)),
     ...accounts.map((account) => ctx.db.delete(account._id)),
     ...sessions.map((session) => ctx.db.delete(session._id)),
     ctx.db.delete(user._id),

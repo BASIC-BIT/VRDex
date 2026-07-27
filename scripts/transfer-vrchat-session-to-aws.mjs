@@ -119,7 +119,10 @@ if (!skipValidation) {
   });
 
   try {
-    await login.validateSession(stored);
+    // Validation applies any `Set-Cookie` the provider returns and hands back
+    // the refreshed session. Discarding it would write the pre-rotation cookies
+    // and deploy a credential that is already stale.
+    stored = (await login.validateSession(stored)) ?? stored;
   } catch (error) {
     fail(
       `The saved session for ${accountAlias} did not validate against VRChat (${error?.message ?? "unknown error"}). ` +

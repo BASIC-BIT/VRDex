@@ -365,12 +365,21 @@ export const cancelClaimJourneyPending = mutation({
   },
 });
 
-function proofAdapterUrl(targetType: VrchatTargetType): string {
+/**
+ * Adapter endpoint for a proof target, or null when none is configured.
+ *
+ * VRC Linking has no other reader, so a missing endpoint there is a
+ * misconfiguration. VRChat targets are read by the collector fleet in
+ * production, where `VRCHAT_PROOF_ADAPTER_URL` is deliberately unset — treating
+ * that as an error is what made "Check proof now" fail in the first place, so
+ * an absent VRChat adapter means "the collector has this", not "broken".
+ */
+function proofAdapterUrl(targetType: VrchatTargetType): string | null {
   if (targetType === "vrclinking") {
     return requiredEnv("VRCLINKING_PROOF_ADAPTER_URL");
   }
 
-  return requiredEnv("VRCHAT_PROOF_ADAPTER_URL");
+  return optionalEnv("VRCHAT_PROOF_ADAPTER_URL") ?? null;
 }
 
 function proofAdapterHeaders(): Record<string, string> {
@@ -1070,6 +1079,13 @@ export const verifyVrchatProofViaAdapter = action({
     }
 
     const adapterUrl = proofAdapterUrl(attemptContext.attempt.targetType);
+
+    // No adapter for a VRChat target means the collector fleet reads it on its
+    // own schedule. The attempt stays pending and the collector resolves it, so
+    // report that rather than failing the user's manual check.
+    if (adapterUrl === null) {
+      return { state: "pending" as const };
+    }
     // VRC Linking answers from a community's delegated credential rather than
     // from a proof code, so that path carries the claimant's Discord identity
     // and the delegations VRDex may consult. Only secret *references* travel.
