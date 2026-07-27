@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 
 import { convexTest } from "convex-test";
 
-import { api } from "../../convex/_generated/api";
+import { api, internal } from "../../convex/_generated/api";
 import schemaModule from "../../convex/schema";
 import { discordControlLevel } from "../../convex/discordVerification";
 import {
@@ -245,6 +245,61 @@ describe("external control proofs", () => {
         () => requireControlProof(ctx.db, userId, "vrchat_group", "grp_weak", "owner"),
         /CONTROL_LEVEL_TOO_LOW/,
       );
+    });
+  });
+});
+
+describe("control proof revalidation", () => {
+  it("marks overdue proofs stale so they can no longer grant anything", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const userId = await t.run(async (ctx) => {
+      const id = await ctx.db.insert("users", {
+        email: "overdue@example.test",
+        emailVerificationTime: now,
+      });
+      await recordExternalControlProof(ctx.db, {
+        userId: id,
+        assetType: "discord_guild",
+        assetExternalId: "expiring",
+        controlLevel: "owner",
+        evidenceSource: "discord_oauth",
+        now,
+        revalidateAfterMs: -1_000,
+      });
+      await recordExternalControlProof(ctx.db, {
+        userId: id,
+        assetType: "discord_guild",
+        assetExternalId: "current",
+        controlLevel: "owner",
+        evidenceSource: "discord_oauth",
+        now,
+      });
+
+      return id;
+    });
+
+    const result = await t.mutation(
+      internal.profileConnections.markOverdueControlProofsStale,
+      {},
+    );
+    assert.equal(result.stale, 1);
+
+    await t.run(async (ctx) => {
+      // The overdue proof no longer satisfies a control requirement...
+      await assert.rejects(
+        () => requireControlProof(ctx.db, userId, "discord_guild", "expiring", "manager"),
+        /CONTROL_NOT_VERIFIED/,
+      );
+      // ...while one still inside its window is untouched.
+      const live = await requireControlProof(
+        ctx.db,
+        userId,
+        "discord_guild",
+        "current",
+        "manager",
+      );
+      assert.equal(live.state, "active");
     });
   });
 });

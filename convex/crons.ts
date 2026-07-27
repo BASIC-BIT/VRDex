@@ -25,4 +25,11 @@ crons.hourly(
   {},
 );
 
+crons.daily(
+  "mark overdue external control proofs stale",
+  { hourUTC: 5, minuteUTC: 15 },
+  internal.profileConnections.markOverdueControlProofsStale,
+  {},
+);
+
 export default crons;

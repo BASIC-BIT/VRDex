@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import { getCurrentUser, requireVerifiedEmailUser } from "./accounts";
 import { toAuthSubject } from "./_communityAuthority";
 import { claimError } from "./_claimErrors";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import {
   type ExternalAssetType,
   MINIMUM_COMMUNITY_CONTROL_LEVEL,
@@ -377,5 +377,33 @@ export const listAvailableConnections = query({
         assetDisplayName: proof.assetDisplayName,
         controlLevel: proof.controlLevel,
       }));
+  },
+});
+
+/**
+ * Mark control proofs whose revalidation window has passed as stale.
+ *
+ * A stale proof no longer satisfies `requireControlProof`, so it cannot be used
+ * to claim a new profile or attach a new connection until the owner re-verifies.
+ * Existing ownership and links are deliberately left alone: losing Manage Server
+ * on one Discord account should not silently detach a community, which is a
+ * support decision rather than an automatic one.
+ */
+export const markOverdueControlProofsStale = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const overdue = await ctx.db
+      .query("externalControlProofs")
+      .withIndex("by_state_revalidateAfter", (q) =>
+        q.eq("state", "active").lte("revalidateAfter", now),
+      )
+      .take(200);
+
+    await Promise.all(
+      overdue.map((proof) => ctx.db.patch(proof._id, { state: "stale", updatedAt: now })),
+    );
+
+    return { stale: overdue.length };
   },
 });
