@@ -218,6 +218,11 @@ async function checkProofs() {
         }
 
         stopping = true;
+        // Break rather than `continue`: the loop head releases the tail when it
+        // sees `stopping`, and this path has already released it. The second
+        // call would be a doomed round-trip at best, and at worst would un-stamp
+        // an attempt a sibling worker on this account had just re-claimed.
+        break;
       }
 
       // Continuing through the batch during an explicit backoff window sends

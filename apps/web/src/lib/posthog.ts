@@ -44,22 +44,39 @@ export function sanitizeAnalyticsUrl(value: string): string {
  * the path would still reach PostHog even though the page DOM is blocked from
  * capture. Anything with an `href` gets the same treatment as `$current_url`.
  */
-function sanitizeSnapshotData(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(sanitizeSnapshotData);
-  }
+const RRWEB_META_EVENT_TYPE = 4;
 
-  if (value === null || typeof value !== "object") {
+function sanitizeSnapshotData(value: unknown): unknown {
+  if (!Array.isArray(value)) {
     return value;
   }
 
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>).map(([key, entry]) =>
-      key === "href" && typeof entry === "string"
-        ? [key, sanitizeAnalyticsUrl(entry)]
-        : [key, sanitizeSnapshotData(entry)],
-    ),
-  );
+  // Only the meta record's own `href`, not every `href` in the payload. The DOM
+  // snapshot is full of them — stylesheet links, `<use href="#id">`, `data:`
+  // favicons — and `sanitizeAnalyticsUrl` is built for page URLs: it drops the
+  // query and fragment, which would silently rewrite a query-keyed stylesheet
+  // into one the replay player cannot fetch.
+  return value.map((record) => {
+    if (
+      record === null ||
+      typeof record !== "object" ||
+      (record as { type?: unknown }).type !== RRWEB_META_EVENT_TYPE
+    ) {
+      return record;
+    }
+
+    const data = (record as { data?: unknown }).data;
+
+    if (data === null || typeof data !== "object") {
+      return record;
+    }
+
+    const href = (data as { href?: unknown }).href;
+
+    return typeof href === "string"
+      ? { ...record, data: { ...data, href: sanitizeAnalyticsUrl(href) } }
+      : record;
+  });
 }
 
 export function sanitizePostHogProperties(properties: Record<string, unknown>) {

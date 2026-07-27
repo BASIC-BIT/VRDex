@@ -68,6 +68,37 @@ describe("PostHog privacy", () => {
     assert.equal(meta!.data.href, "https://vrdex.example/handoff/redacted");
   });
 
+  // Only the meta record's own href. The DOM snapshot is full of hrefs that are
+  // not page URLs, and the page-URL sanitizer drops query and fragment — which
+  // would rewrite a query-keyed stylesheet into one the player cannot fetch.
+  it("leaves hrefs inside the DOM snapshot alone", () => {
+    const stylesheet = "https://fonts.example/css2?family=Inter&display=swap";
+    const event = sanitizePostHogEvent({
+      properties: {
+        $snapshot_data: [
+          {
+            type: 2,
+            data: {
+              node: {
+                tagName: "link",
+                attributes: { href: stylesheet },
+                childNodes: [{ tagName: "use", attributes: { href: "#icon" } }],
+              },
+            },
+          },
+        ],
+      },
+    });
+    const snapshot = (
+      event!.properties!.$snapshot_data as {
+        data: { node: { attributes: { href: string }; childNodes: { attributes: { href: string } }[] } };
+      }[]
+    )[0]!;
+
+    assert.equal(snapshot.data.node.attributes.href, stylesheet);
+    assert.equal(snapshot.data.node.childNodes[0]!.attributes.href, "#icon");
+  });
+
   // `save_campaign_params` stores the first page a person ever landed on as a
   // `$set_once` person property. For a recipient who arrives via their handoff
   // link, that is the live token, kept forever.

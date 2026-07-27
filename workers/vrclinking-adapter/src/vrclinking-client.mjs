@@ -26,16 +26,24 @@ export function createVrclinkingClient({
   // token, and the README invites overriding the base URL to point at a stub —
   // so a hand-edited `http://` or a typo'd host would put those credentials on
   // the wire in the clear. Plain HTTP is allowed only for a loopback stub.
-  const parsedBaseUrl = new URL(baseUrl);
+  const BASE_URL_RULE =
+    "VRDEX_VRCLINKING_BASE_URL must be an absolute URL using https, or http on localhost for a local stub.";
+  let parsedBaseUrl;
 
-  if (
-    parsedBaseUrl.protocol !== "https:" &&
-    !(parsedBaseUrl.protocol === "http:" &&
-      (parsedBaseUrl.hostname === "localhost" || parsedBaseUrl.hostname === "127.0.0.1"))
-  ) {
-    throw new Error(
-      "VRDEX_VRCLINKING_BASE_URL must use https, or http on localhost for a local stub.",
-    );
+  try {
+    parsedBaseUrl = new URL(baseUrl);
+  } catch {
+    // Without this, a scheme-less value (`vrclinking.com/api`) crashes startup
+    // with a bare `TypeError: Invalid URL` naming neither the variable nor the
+    // rule the guard below exists to state.
+    throw new Error(BASE_URL_RULE);
+  }
+
+  // `[::1]` is loopback too, and `URL` keeps the brackets in `hostname`.
+  const isLoopback = ["localhost", "127.0.0.1", "[::1]"].includes(parsedBaseUrl.hostname);
+
+  if (parsedBaseUrl.protocol !== "https:" && !(parsedBaseUrl.protocol === "http:" && isLoopback)) {
+    throw new Error(BASE_URL_RULE);
   }
 
   const normalizedBaseUrl = baseUrl.replace(/\/$/, "");
@@ -66,7 +74,13 @@ export function createVrclinkingClient({
 
     // Every non-2xx path below abandons the response without reading it. Cancel
     // the body rather than leaving the socket pinned until GC.
-    const discard = () => response.body?.cancel?.().catch(() => undefined);
+    // `Promise.resolve` around it: optional chaining short-circuits only on a
+    // nullish `body`/`cancel`, so a `cancel` that returns undefined would throw
+    // a TypeError off `.catch` — and that TypeError would replace the
+    // `credential_rejected` classification the caller needs to evict a stale
+    // token from the secret cache.
+    const discard = () =>
+      Promise.resolve(response.body?.cancel?.()).catch(() => undefined);
 
     if (response.status === 401 || response.status === 403) {
       // The delegation is no longer usable; surfaced so operators can be told

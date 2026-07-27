@@ -60,11 +60,16 @@ export class TelemetryControlClient {
     this.workerId = workerId;
     this.fetcher = fetcher;
   }
-  async send(operation, body = {}) {
+  // Every control-plane call is bounded. Cleanup calls run on the shutdown
+  // path, where an unbounded fetch against a wedged control plane outlasts the
+  // orchestrator's SIGKILL grace period and strands the work the call was
+  // trying to hand back.
+  async send(operation, body = {}, { timeoutMs = 15_000 } = {}) {
     const response = await this.fetcher(this.endpoint, {
       method: "POST",
       headers: { authorization: `Bearer ${this.workerApiKey}`, "content-type": "application/json", "x-vrdex-collector-account": this.collectorAccountId },
       body: JSON.stringify({ operation, workerId: this.workerId, ...body }),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(`Control plane ${response.status}: ${payload.error ?? "request_failed"}`);
