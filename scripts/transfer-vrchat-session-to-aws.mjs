@@ -119,14 +119,18 @@ if (!skipValidation) {
 const workerApiKey = randomBytes(48).toString("base64url");
 const workerKeyHash = createHash("sha256").update(workerApiKey).digest("hex").toLowerCase();
 
-const { SecretsManagerClient, GetSecretValueCommand, PutSecretValueCommand } = await import(
-  "@aws-sdk/client-secrets-manager"
-).catch(() => {
+const {
+  SecretsManagerClient,
+  GetSecretValueCommand,
+  PutSecretValueCommand,
+  CreateSecretCommand,
+} = await import("@aws-sdk/client-secrets-manager").catch(() => {
   fail("@aws-sdk/client-secrets-manager is not installed. Run pnpm install first.");
 });
 
 const client = new SecretsManagerClient({});
 let existing = {};
+let secretMissing = false;
 
 try {
   const current = await client.send(new GetSecretValueCommand({ SecretId: secretId }));
@@ -135,9 +139,18 @@ try {
     existing = JSON.parse(current.SecretString);
   }
 } catch (error) {
-  if (error?.name !== "ResourceNotFoundException") {
+  if (error?.name === "ResourceNotFoundException") {
+    secretMissing = true;
+  } else {
     fail(`Could not read the target secret: ${error?.name ?? "unknown error"}.`);
   }
+}
+
+// CreateSecret takes a name, not an ARN. An ARN naming a secret that does not
+// exist is a typo rather than a first run, so say so instead of creating a
+// second secret under a mangled name.
+if (secretMissing && secretId.startsWith("arn:")) {
+  fail(`No secret exists at ${secretId}. Check the ARN, or pass a name to create it.`);
 }
 
 const next = buildSessionSecretPayload(existing, {
@@ -149,7 +162,13 @@ const next = buildSessionSecretPayload(existing, {
 if (!dryRun) {
   try {
     await client.send(
-      new PutSecretValueCommand({ SecretId: secretId, SecretString: JSON.stringify(next) }),
+      secretMissing
+        ? new CreateSecretCommand({
+            Name: secretId,
+            Description: "VRDex group telemetry collector session and worker key.",
+            SecretString: JSON.stringify(next),
+          })
+        : new PutSecretValueCommand({ SecretId: secretId, SecretString: JSON.stringify(next) }),
     );
   } catch (error) {
     fail(`Could not write the target secret: ${error?.name ?? "unknown error"}.`);
