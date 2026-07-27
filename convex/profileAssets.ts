@@ -582,9 +582,9 @@ export const updateOwnedAssetMetadata = mutation({
     if (
       asset.state === "active" &&
       placements.some((placement) => placement.state === "active" && placement.placement === "gallery") &&
-      (label === undefined || altText === undefined)
+      label === undefined
     ) {
-      throw new Error("Gallery images require a title and accessibility description.");
+      throw new Error("Gallery images require a title.");
     }
     await ctx.db.patch(asset._id, {
       label,
@@ -627,11 +627,10 @@ export const reorderOwnedGallery = mutation({
       assets.some(
         (asset) =>
           asset === null ||
-          sanitizeProfileAssetLabel(asset.label) === undefined ||
-          sanitizeProfileAssetAltText(asset.altText) === undefined,
+          sanitizeProfileAssetLabel(asset.label) === undefined,
       )
     ) {
-      throw new Error("Gallery images require a title and accessibility description.");
+      throw new Error("Gallery images require a title.");
     }
 
     const existing = await ctx.db
@@ -696,10 +695,9 @@ export const setOwnedFeaturedAsset = mutation({
         .collect();
       if (
         !placements.some((placement) => placement.state === "active" && placement.placement === "gallery") ||
-        sanitizeProfileAssetLabel(asset.label) === undefined ||
-        sanitizeProfileAssetAltText(asset.altText) === undefined
+        sanitizeProfileAssetLabel(asset.label) === undefined
       ) {
-        throw new Error("Featured media must be an accessible public gallery item.");
+        throw new Error("Featured media must be a titled public gallery item.");
       }
     }
 
@@ -752,10 +750,9 @@ export const setOwnedAssetDeleted = mutation({
     if (!args.deleted && asset.state !== "active") {
       if (
         wasGalleryAsset &&
-        (sanitizeProfileAssetLabel(asset.label) === undefined ||
-          sanitizeProfileAssetAltText(asset.altText) === undefined)
+        sanitizeProfileAssetLabel(asset.label) === undefined
       ) {
-        throw new Error("Gallery images require a title and accessibility description.");
+        throw new Error("Gallery images require a title.");
       }
       await assertProfileAssetIntentCapacity(ctx.db, profile._id, now);
     }

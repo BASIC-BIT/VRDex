@@ -301,7 +301,7 @@ function MediaAssetCard({ asset, label, featured = false }: { asset: PublicProfi
     <article className={cn("group grid overflow-hidden rounded-card border border-border bg-surface-strong text-sm transition hover:-translate-y-0.5 hover:shadow-panel", featured ? "lg:grid-cols-[minmax(0,1.35fr)_minmax(16rem,0.65fr)]" : undefined)}>
       <div className={cn("relative bg-canvas-muted", featured ? "min-h-72" : "aspect-[4/3]")}>
         <MediaPreviewImage
-          alt={asset.altText ?? ""}
+          alt={asset.altText || asset.label || label}
           className="absolute inset-0 size-full object-contain"
           src={asset.imageUrl}
         />

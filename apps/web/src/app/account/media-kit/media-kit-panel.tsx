@@ -46,6 +46,7 @@ type EditorActions = {
     profileId: string,
     file: File,
     metadata: Pick<MediaAsset, "label" | "altText" | "credit">,
+    onPrepared: () => void,
   ) => Promise<void>;
   saveMetadata: (profileId: string, asset: MediaAsset) => Promise<void>;
   reorder: (profileId: string, assetIds: string[]) => Promise<void>;
@@ -394,9 +395,11 @@ function MediaKitEditor({
       return;
     }
     setUploading(true);
-    setUploadStatus({ kind: "progress", message: `Uploading ${pendingFile.name}…` });
+    setUploadStatus({ kind: "progress", message: "Preparing…" });
     try {
-      await actions.upload(selectedProfile.profileId, pendingFile, uploadMetadata);
+      await actions.upload(selectedProfile.profileId, pendingFile, uploadMetadata, () => {
+        setUploadStatus({ kind: "progress", message: `Uploading ${pendingFile.name}…` });
+      });
       setUploadStatus({ kind: "success", message: "Published." });
       setPendingFile(null);
     } catch (error) {
@@ -599,7 +602,6 @@ const demoProfiles: MediaProfile[] = [
       state: "active",
       label: "Aurora wordmark",
       caption: "Primary landscape mark on a dark background.",
-      altText: "AURORA wordmark in white over violet and cyan light.",
       mimeType: "image/svg+xml",
       byteSize: 86_000,
       width: 1200,
@@ -658,7 +660,19 @@ function DemoMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: string
     return () => window.removeEventListener("vrdex:toggle-media-profile", toggleProfile);
   }, []);
   const actions = useMemo<EditorActions>(() => ({
-    upload: async (_profileId, file) => {
+    upload: async (_profileId, file, _metadata, onPrepared) => {
+      const preparedFile = await prepareProfileMediaUpload(file);
+      onPrepared();
+      const bitmap = preparedFile === file ? null : await createImageBitmap(preparedFile);
+      window.dispatchEvent(new CustomEvent("vrdex:media-upload-attempt", {
+        detail: {
+          name: preparedFile.name,
+          type: preparedFile.type,
+          size: preparedFile.size,
+          ...(bitmap ? { width: bitmap.width, height: bitmap.height } : {}),
+        },
+      }));
+      bitmap?.close();
       if (file.name === "slow.png") {
         await new Promise((resolve) => setTimeout(resolve, 500));
       }
@@ -703,11 +717,12 @@ function ConnectedMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: s
   if (profiles === null) return <Notice variant="warning">Sign in to manage profile media.</Notice>;
 
   const actions: EditorActions = {
-    upload: async (profileId, file, metadata) => {
+    upload: async (profileId, file, metadata, onPrepared) => {
       const preparedFile = await prepareProfileMediaUpload(file);
+      onPrepared();
       const intent = await createUploadIntent({
         profileId: profileId as Id<"profiles">,
-        originalFileName: file.name,
+        originalFileName: preparedFile.name,
         mimeType:
           profileMediaMimeType(preparedFile.type, preparedFile.name) ??
           preparedFile.type,

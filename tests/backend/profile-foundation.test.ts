@@ -1581,7 +1581,7 @@ describe("profile media kit asset helpers", () => {
     assert.deepEqual(mediaKit.avatarAppearance, preference.avatarAppearance);
   });
 
-  it("projects gallery order, featured media, and accessible public metadata", async () => {
+  it("projects gallery order, featured media, and optional public metadata", async () => {
     const profile = {
       _id: "profile-gallery",
       slug: "dj-aurora",
@@ -1601,7 +1601,7 @@ describe("profile media kit asset helpers", () => {
       ...first,
       _id: "asset-second",
       label: "Wordmark",
-      altText: "Aurora wordmark.",
+      altText: undefined,
     } as Doc<"profileAssets">;
     const unplaced = {
       ...first,
@@ -1640,5 +1640,6 @@ describe("profile media kit asset helpers", () => {
     assert.equal(mediaKit.featuredAsset?.assetId, first._id);
     assert.equal(mediaKit.featuredAsset?.altText, "DJ Aurora under violet stage light.");
     assert.equal(mediaKit.featuredAsset?.credit, "Photo by Example");
+    assert.equal(mediaKit.galleryAssets[0]?.altText, undefined);
   });
 });

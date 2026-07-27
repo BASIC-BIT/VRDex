@@ -53,6 +53,12 @@ test("owner oversized raster is prepared before upload @fixture", async ({ page 
   expect(image.length).toBeLessThanOrEqual(12 * 1024 * 1024);
 
   await page.goto("/account/media-kit");
+  await page.evaluate(() => {
+    window.addEventListener("vrdex:media-upload-attempt", (event) => {
+      (window as typeof window & { mediaUploadAttempt?: unknown }).mediaUploadAttempt =
+        (event as CustomEvent).detail;
+    });
+  });
   await page.getByLabel("Add image").setInputFiles({
     name: "oversized-synthetic.png",
     mimeType: "image/png",
@@ -66,6 +72,40 @@ test("owner oversized raster is prepared before upload @fixture", async ({ page 
   await expect(uploadForm.getByRole("alert")).toHaveText(
     "Synthetic preview storage does not accept new files.",
   );
+  await expect.poll(() => page.evaluate(
+    () => (window as typeof window & { mediaUploadAttempt?: unknown }).mediaUploadAttempt,
+  )).toMatchObject({
+    name: "oversized-synthetic.webp",
+    type: "image/webp",
+    width,
+    height,
+  });
+  const attempt = await page.evaluate(
+    () => (window as typeof window & {
+      mediaUploadAttempt?: { size?: number };
+    }).mediaUploadAttempt,
+  );
+  expect(attempt?.size).toBeGreaterThan(0);
+  expect(attempt?.size).toBeLessThanOrEqual(4 * 1024 * 1024);
+});
+
+test("owner oversized raster dimensions are bounded before decode @fixture", async ({ page }) => {
+  const image = Buffer.alloc(4 * 1024 * 1024 + 1);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47]).copy(image);
+  image.writeUInt32BE(9_000, 16);
+  image.writeUInt32BE(4_000, 20);
+
+  await page.goto("/account/media-kit");
+  await page.getByLabel("Add image").setInputFiles({
+    name: "oversized-dimensions.png",
+    mimeType: "image/png",
+    buffer: image,
+  });
+  const publish = page.getByRole("button", { name: "Publish" });
+  const uploadForm = publish.locator("xpath=ancestor::form");
+  await publish.click();
+
+  await expect(uploadForm.getByRole("alert")).toHaveText("Image dimensions are too large.");
 });
 
 test("owner profile switch clears an unsubmitted upload @fixture", async ({ page }) => {
@@ -176,6 +216,7 @@ test("public profile media kit @visual @fixture", async ({ page }, testInfo) => 
   await expect(
     mediaKit.getByRole("img", { name: "DJ Aurora framed by violet light and a warm orange glow." }),
   ).toHaveCount(1);
+  await expect(mediaKit.getByRole("img", { name: "Aurora wordmark" })).toHaveCount(1);
   await expect(mediaKit.getByText("Artwork by Afterglow Studio", { exact: true })).toBeVisible();
   await expect(mediaKit.getByRole("link", { name: "Download Profile image" })).toBeVisible();
   await expect(mediaKit.locator("article")).toHaveCount(3);
