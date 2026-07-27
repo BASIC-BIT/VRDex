@@ -1,4 +1,4 @@
-const FIXTURE_DEMO_PATHS = new Set(["/account/appearance", "/account/privacy"]);
+const FIXTURE_DEMO_PATHS = new Set(["/account/appearance", "/account/privacy", "/account/media-kit"]);
 
 export type ProtectedRouteOptions = {
   allowFixtureDemos?: boolean;

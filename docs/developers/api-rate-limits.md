@@ -131,6 +131,7 @@ Current defaults:
 | Route class | Standard limit | Trusted partner limit | Window |
 | --- | ---: | ---: | ---: |
 | `anonymous_public_read` | 120 | 120 | 60s |
+| `profile_asset_file` | 1,200 | 1,200 | 60s |
 | `authenticated_public_read` | 600 | 60,000 | 60s |
 | `developer_credential_management` | 30 | 30 | 60s |
 | `oauth_authorize` | 60 | 60 | 60s |
@@ -145,6 +146,8 @@ Current defaults:
 `asset_upload_intent` so one-time upload target creation can be throttled
 separately from ordinary authenticated writes. The file/import upload transport
 uses the returned one-time upload token and does not accept bearer credentials.
+Public profile asset file delivery uses `profile_asset_file` so a gallery does
+not consume the shared anonymous API-read budget.
 
 The public API also exposes:
 

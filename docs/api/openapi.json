@@ -2113,7 +2113,7 @@
             }
           },
           "403": {
-            "description": "The one-time upload token was missing or invalid.",
+            "description": "The one-time upload token was missing.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2123,7 +2123,17 @@
             }
           },
           "404": {
-            "description": "The upload intent was not found or has expired.",
+            "description": "The upload intent was not found, has expired, or the upload token was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProfileAssetUploadErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The upload intent is already being processed.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5280,6 +5290,14 @@
             "type": "string",
             "maxLength": 240
           },
+          "altText": {
+            "type": "string",
+            "maxLength": 180
+          },
+          "credit": {
+            "type": "string",
+            "maxLength": 120
+          },
           "placements": {
             "maxItems": 8,
             "type": "array",
@@ -5289,7 +5307,9 @@
                 "profile_image",
                 "banner",
                 "primary_logo",
-                "additional_logo"
+                "additional_logo",
+                "gallery",
+                "featured"
               ],
               "description": "Profile media-kit placement to apply after upload completion."
             }
@@ -5303,7 +5323,7 @@
         "required": [
           "mimeType"
         ],
-        "description": "Create a one-time profile media upload intent for a claimed profile owned by the current authenticated API user."
+        "description": "Create a one-time profile media upload intent for a claimed profile owned by the current authenticated API user. Gallery placement requires a nonblank label and altText; featured placement also requires gallery."
       },
       "ApiEventUpdateRequest": {
         "type": "object",
@@ -5979,6 +5999,7 @@
             "type": "string",
             "enum": [
               "anonymous_public_read",
+              "profile_asset_file",
               "authenticated_public_read",
               "developer_credential_management",
               "oauth_authorize",
@@ -6487,6 +6508,7 @@
             "type": "string",
             "enum": [
               "anonymous_public_read",
+              "profile_asset_file",
               "authenticated_public_read",
               "developer_credential_management",
               "oauth_authorize",
@@ -7010,6 +7032,12 @@
                     "caption": {
                       "type": "string"
                     },
+                    "altText": {
+                      "type": "string"
+                    },
+                    "credit": {
+                      "type": "string"
+                    },
                     "downloadUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                     },
@@ -7041,6 +7069,51 @@
                       "maximum": 9007199254740991
                     },
                     "caption": {
+                      "type": "string"
+                    },
+                    "altText": {
+                      "type": "string"
+                    },
+                    "credit": {
+                      "type": "string"
+                    },
+                    "downloadUrl": {
+                      "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                    },
+                    "imageUrl": {
+                      "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "mimeType": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": {},
+                  "description": "A public profile media or brand asset."
+                }
+              },
+              "galleryAssets": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "assetId": {
+                      "type": "string"
+                    },
+                    "byteSize": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "caption": {
+                      "type": "string"
+                    },
+                    "altText": {
+                      "type": "string"
+                    },
+                    "credit": {
                       "type": "string"
                     },
                     "downloadUrl": {
@@ -7109,6 +7182,48 @@
                   "caption": {
                     "type": "string"
                   },
+                  "altText": {
+                    "type": "string"
+                  },
+                  "credit": {
+                    "type": "string"
+                  },
+                  "downloadUrl": {
+                    "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  },
+                  "imageUrl": {
+                    "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "mimeType": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": {},
+                "description": "A public profile media or brand asset."
+              },
+              "featuredAsset": {
+                "type": "object",
+                "properties": {
+                  "assetId": {
+                    "type": "string"
+                  },
+                  "byteSize": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "caption": {
+                    "type": "string"
+                  },
+                  "altText": {
+                    "type": "string"
+                  },
+                  "credit": {
+                    "type": "string"
+                  },
                   "downloadUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   },
@@ -7151,6 +7266,12 @@
                     "caption": {
                       "type": "string"
                     },
+                    "altText": {
+                      "type": "string"
+                    },
+                    "credit": {
+                      "type": "string"
+                    },
                     "downloadUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                     },
@@ -7182,6 +7303,12 @@
                   "caption": {
                     "type": "string"
                   },
+                  "altText": {
+                    "type": "string"
+                  },
+                  "credit": {
+                    "type": "string"
+                  },
                   "downloadUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   },
@@ -7210,6 +7337,12 @@
                     "maximum": 9007199254740991
                   },
                   "caption": {
+                    "type": "string"
+                  },
+                  "altText": {
+                    "type": "string"
+                  },
+                  "credit": {
                     "type": "string"
                   },
                   "downloadUrl": {
@@ -7744,6 +7877,12 @@
                 "caption": {
                   "type": "string"
                 },
+                "altText": {
+                  "type": "string"
+                },
+                "credit": {
+                  "type": "string"
+                },
                 "downloadUrl": {
                   "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 },
@@ -7784,6 +7923,12 @@
                     "caption": {
                       "type": "string"
                     },
+                    "altText": {
+                      "type": "string"
+                    },
+                    "credit": {
+                      "type": "string"
+                    },
                     "downloadUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                     },
@@ -7815,6 +7960,51 @@
                       "maximum": 9007199254740991
                     },
                     "caption": {
+                      "type": "string"
+                    },
+                    "altText": {
+                      "type": "string"
+                    },
+                    "credit": {
+                      "type": "string"
+                    },
+                    "downloadUrl": {
+                      "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                    },
+                    "imageUrl": {
+                      "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "mimeType": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": {},
+                  "description": "A public profile media or brand asset."
+                }
+              },
+              "galleryAssets": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "assetId": {
+                      "type": "string"
+                    },
+                    "byteSize": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "caption": {
+                      "type": "string"
+                    },
+                    "altText": {
+                      "type": "string"
+                    },
+                    "credit": {
                       "type": "string"
                     },
                     "downloadUrl": {
@@ -7883,6 +8073,48 @@
                   "caption": {
                     "type": "string"
                   },
+                  "altText": {
+                    "type": "string"
+                  },
+                  "credit": {
+                    "type": "string"
+                  },
+                  "downloadUrl": {
+                    "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  },
+                  "imageUrl": {
+                    "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "mimeType": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": {},
+                "description": "A public profile media or brand asset."
+              },
+              "featuredAsset": {
+                "type": "object",
+                "properties": {
+                  "assetId": {
+                    "type": "string"
+                  },
+                  "byteSize": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "caption": {
+                    "type": "string"
+                  },
+                  "altText": {
+                    "type": "string"
+                  },
+                  "credit": {
+                    "type": "string"
+                  },
                   "downloadUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   },
@@ -7925,6 +8157,12 @@
                     "caption": {
                       "type": "string"
                     },
+                    "altText": {
+                      "type": "string"
+                    },
+                    "credit": {
+                      "type": "string"
+                    },
                     "downloadUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                     },
@@ -7956,6 +8194,12 @@
                   "caption": {
                     "type": "string"
                   },
+                  "altText": {
+                    "type": "string"
+                  },
+                  "credit": {
+                    "type": "string"
+                  },
                   "downloadUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                   },
@@ -7984,6 +8228,12 @@
                     "maximum": 9007199254740991
                   },
                   "caption": {
+                    "type": "string"
+                  },
+                  "altText": {
+                    "type": "string"
+                  },
+                  "credit": {
                     "type": "string"
                   },
                   "downloadUrl": {
@@ -8127,6 +8377,12 @@
                 "caption": {
                   "type": "string"
                 },
+                "altText": {
+                  "type": "string"
+                },
+                "credit": {
+                  "type": "string"
+                },
                 "downloadUrl": {
                   "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 },
@@ -8167,6 +8423,12 @@
                 "caption": {
                   "type": "string"
                 },
+                "altText": {
+                  "type": "string"
+                },
+                "credit": {
+                  "type": "string"
+                },
                 "downloadUrl": {
                   "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
                 },
@@ -8196,6 +8458,12 @@
                 "maximum": 9007199254740991
               },
               "caption": {
+                "type": "string"
+              },
+              "altText": {
+                "type": "string"
+              },
+              "credit": {
                 "type": "string"
               },
               "downloadUrl": {
@@ -9370,6 +9638,7 @@
                 "type": "string",
                 "enum": [
                   "anonymous_public_read",
+                  "profile_asset_file",
                   "authenticated_public_read",
                   "developer_credential_management",
                   "oauth_authorize",
@@ -9424,6 +9693,7 @@
             "type": "string",
             "enum": [
               "anonymous_public_read",
+              "profile_asset_file",
               "authenticated_public_read",
               "developer_credential_management",
               "oauth_authorize",

@@ -39,9 +39,10 @@ describe("protected route redirects", () => {
     }
   });
 
-  it("allows only the fixture appearance and privacy demos when requested", () => {
+  it("allows only the fixture account demos when requested", () => {
     assert.equal(isProtectedRoute("/account/appearance", { allowFixtureDemos: true }), false);
     assert.equal(isProtectedRoute("/account/privacy", { allowFixtureDemos: true }), false);
+    assert.equal(isProtectedRoute("/account/media-kit", { allowFixtureDemos: true }), false);
     assert.equal(isProtectedRoute("/account", { allowFixtureDemos: true }), true);
     assert.equal(isProtectedRoute("/account/security", { allowFixtureDemos: true }), true);
   });

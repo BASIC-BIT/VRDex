@@ -831,11 +831,15 @@ export const openApiSource = {
             content: jsonContent(ApiProfileAssetUploadErrorResponseSchema),
           },
           "403": {
-            description: "The one-time upload token was missing or invalid.",
+            description: "The one-time upload token was missing.",
             content: jsonContent(ApiProfileAssetUploadErrorResponseSchema),
           },
           "404": {
-            description: "The upload intent was not found or has expired.",
+            description: "The upload intent was not found, has expired, or the upload token was invalid.",
+            content: jsonContent(ApiProfileAssetUploadErrorResponseSchema),
+          },
+          "409": {
+            description: "The upload intent is already being processed.",
             content: jsonContent(ApiProfileAssetUploadErrorResponseSchema),
           },
           "501": {

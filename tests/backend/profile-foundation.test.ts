@@ -9,6 +9,8 @@ import {
 import {
   createProfileAssetUploadIntentRecord,
   createProfileAssetStorageKey,
+  sanitizeProfileAssetAltText,
+  sanitizeProfileAssetCredit,
   finalizeProfileAssetUploadIntentUpload,
   getPublicProfileMediaKit,
   normalizeProfileAvatarAppearance,
@@ -1214,6 +1216,13 @@ describe("public profile world credits", () => {
 });
 
 describe("profile media kit asset helpers", () => {
+  it("bounds accessibility descriptions and credits", () => {
+    assert.equal(sanitizeProfileAssetAltText("  Neon portrait of BASICBIT  "), "Neon portrait of BASICBIT");
+    assert.equal(sanitizeProfileAssetCredit(" Photo by Example "), "Photo by Example");
+    assert.throws(() => sanitizeProfileAssetAltText("a".repeat(181)), /180/);
+    assert.throws(() => sanitizeProfileAssetCredit("a".repeat(121)), /120/);
+  });
+
   it("accepts first-slice image formats and rejects unsafe imports", () => {
     assert.equal(normalizeProfileAssetMimeType(" image/svg+xml "), "image/svg+xml");
     assert.equal(normalizeProfileAssetMimeType("IMAGE/PNG"), "image/png");
@@ -1307,8 +1316,28 @@ describe("profile media kit asset helpers", () => {
         throw new Error(`Missing test row ${id}.`);
       },
       query(tableName: AssetTable) {
-        assert.equal(tableName, "profileOwners");
-        let rows = tables.profileOwners;
+        let rows = tables[tableName];
+        const result = {
+          async collect() {
+            return rows;
+          },
+          async take(limit: number) {
+            return rows.slice(0, limit);
+          },
+          filter(filterBuilder: (filter: unknown) => unknown) {
+            const filter = {
+              field(field: string) {
+                return field;
+              },
+              eq(field: string, value: unknown) {
+                rows = rows.filter((row) => row[field] === value);
+                return true;
+              },
+            };
+            filterBuilder(filter);
+            return result;
+          },
+        };
 
         return {
           withIndex(_indexName: string, builder: (index: unknown) => unknown) {
@@ -1323,27 +1352,7 @@ describe("profile media kit asset helpers", () => {
             rows = rows.filter((row) =>
               Object.entries(values).every(([field, value]) => row[field] === value),
             );
-
-            return {
-              filter(filterBuilder: (filter: unknown) => unknown) {
-                const filter = {
-                  field(field: string) {
-                    return field;
-                  },
-                  eq(field: string, value: unknown) {
-                    rows = rows.filter((row) => row[field] === value);
-                    return true;
-                  },
-                };
-                filterBuilder(filter);
-
-                return {
-                  async take(limit: number) {
-                    return rows.slice(0, limit);
-                  },
-                };
-              },
-            };
+            return result;
           },
         };
       },
@@ -1570,5 +1579,66 @@ describe("profile media kit asset helpers", () => {
 
     assert.equal(mediaKit.compactDisplay, "logo");
     assert.deepEqual(mediaKit.avatarAppearance, preference.avatarAppearance);
+  });
+
+  it("projects gallery order, featured media, and accessible public metadata", async () => {
+    const profile = {
+      _id: "profile-gallery",
+      slug: "dj-aurora",
+    } as Doc<"profiles">;
+    const first = {
+      _id: "asset-first",
+      profileId: profile._id,
+      state: "active",
+      visibility: "public",
+      label: "Press portrait",
+      altText: "DJ Aurora under violet stage light.",
+      credit: "Photo by Example",
+      mimeType: "image/webp",
+      byteSize: 1_024,
+    } as Doc<"profileAssets">;
+    const second = {
+      ...first,
+      _id: "asset-second",
+      label: "Wordmark",
+      altText: "Aurora wordmark.",
+    } as Doc<"profileAssets">;
+    const unplaced = {
+      ...first,
+      _id: "asset-unplaced",
+      label: undefined,
+      altText: undefined,
+    } as Doc<"profileAssets">;
+    const placements = [
+      { assetId: second._id, placement: "gallery", position: 0, state: "active" },
+      { assetId: first._id, placement: "gallery", position: 1, state: "active" },
+      { assetId: first._id, placement: "featured", position: 0, state: "active" },
+    ] as Doc<"profileAssetPlacements">[];
+    const db = {
+      query(tableName: string) {
+        return {
+          withIndex() {
+            return {
+              async collect() {
+                if (tableName === "profileAssets") return [first, second, unplaced];
+                if (tableName === "profileAssetPlacements") return placements;
+                return [];
+              },
+              async unique() {
+                return null;
+              },
+            };
+          },
+        };
+      },
+    };
+
+    const mediaKit = await getPublicProfileMediaKit(db as never, profile);
+
+    assert.deepEqual(mediaKit.assets.map((asset) => asset.assetId), [second._id, first._id, unplaced._id]);
+    assert.deepEqual(mediaKit.galleryAssets.map((asset) => asset.assetId), [second._id, first._id]);
+    assert.equal(mediaKit.featuredAsset?.assetId, first._id);
+    assert.equal(mediaKit.featuredAsset?.altText, "DJ Aurora under violet stage light.");
+    assert.equal(mediaKit.featuredAsset?.credit, "Photo by Example");
   });
 });

@@ -7,9 +7,13 @@ import { NextRequest, NextResponse } from "next/server";
 import type { GenericId } from "convex/values";
 
 import { ApiProfileAssetUploadIntentCompleteResponseSchema } from "@vrdex/api-contracts";
-import { api } from "@convex-generated-api";
-import { convexHttpClient } from "@/lib/server/convex-http";
+import { api, internal } from "@convex-generated-api";
+import { convexAdminHttpClient, convexHttpClient } from "@/lib/server/convex-http";
 import { isProfileAssetStorageConfigured, putProfileAssetObject } from "@/lib/server/profile-asset-storage";
+import {
+  profileAssetMimeTypeForFile,
+  validateAndNormalizeProfileAsset,
+} from "@/lib/server/profile-asset-validation";
 
 export const dynamic = "force-dynamic";
 
@@ -35,34 +39,6 @@ function errorResponse(message: string, status: number) {
 
 function normalizedContentType(value: string | null): string {
   return (value ?? "application/octet-stream").split(";")[0]!.trim().toLowerCase();
-}
-
-function mimeTypeForFile(file: File): string {
-  const contentType = normalizedContentType(file.type);
-
-  if (contentType !== "application/octet-stream") {
-    return contentType;
-  }
-
-  const lowerName = file.name.toLowerCase();
-
-  if (lowerName.endsWith(".svg")) {
-    return "image/svg+xml";
-  }
-
-  if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) {
-    return "image/jpeg";
-  }
-
-  if (lowerName.endsWith(".webp")) {
-    return "image/webp";
-  }
-
-  if (lowerName.endsWith(".png")) {
-    return "image/png";
-  }
-
-  return contentType;
 }
 
 function assertAllowedMimeType(mimeType: string) {
@@ -165,7 +141,7 @@ async function bodyFromFileRequest(request: NextRequest): Promise<UploadBody> {
     throw new Error("Upload requests must include a file field.");
   }
 
-  const mimeType = mimeTypeForFile(file);
+  const mimeType = profileAssetMimeTypeForFile(file.type, file.name);
   assertAllowedMimeType(mimeType);
   assertAllowedByteSize(file.size);
 
@@ -428,45 +404,73 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return errorResponse("Upload token is required.", 403);
   }
 
-  const convex = convexHttpClient();
-  const intent = await convex.query(api.profileAssets.validateUploadIntentForStorage, {
+  const processingToken = crypto.randomUUID();
+  const claim = await convexAdminHttpClient().mutation(internal.profileAssets.claimUploadIntentForStorage, {
     intentId: intentId as GenericId<"profileAssetUploadIntents">,
     uploadToken,
+    processingToken,
   });
 
-  if (intent === null) {
-    return errorResponse("Upload intent was not found or expired.", 404);
+  if (claim.status === "not_found") {
+    return errorResponse("Upload intent was not found, expired, or already in use.", 404);
   }
+  if (claim.status === "in_use") {
+    return errorResponse("Upload intent was not found, expired, or already in use.", 409);
+  }
+  const intent = claim;
 
+  let objectWritten = false;
   try {
     const upload = intent.sourceUrl
       ? await bodyFromSourceUrl(intent.sourceUrl)
       : await bodyFromFileRequest(request);
 
     validateUploadBody(upload);
+    const normalized = await validateAndNormalizeProfileAsset(upload.body, intent.mimeType);
+    assertAllowedByteSize(normalized.body.byteLength);
+    const duplicate = await convexHttpClient().query(api.profileAssets.hasDuplicateAssetForUpload, {
+      intentId: intent.intentId,
+      uploadToken,
+      contentSha256: normalized.contentSha256,
+    });
+    if (duplicate) {
+      throw new Error("This image already exists in the profile media kit.");
+    }
 
     await putProfileAssetObject({
       storageKey: intent.storageKey,
-      body: upload.body,
-      contentType: upload.mimeType,
+      body: normalized.body,
+      contentType: normalized.mimeType,
     });
-    const completed = await convex.mutation(api.profileAssets.markUploadIntentUploaded, {
+    objectWritten = true;
+    const completed = await convexAdminHttpClient().mutation(internal.profileAssets.markUploadIntentUploaded, {
       intentId: intent.intentId,
       uploadToken,
-      mimeType: upload.mimeType,
-      byteSize: upload.body.byteLength,
+      processingToken,
+      mimeType: normalized.mimeType,
+      byteSize: normalized.body.byteLength,
+      contentSha256: normalized.contentSha256,
+      width: normalized.width,
+      height: normalized.height,
     });
 
     const responseBody = ApiProfileAssetUploadIntentCompleteResponseSchema.parse({
       intentId: intent.intentId,
       storageKey: intent.storageKey,
-      mimeType: upload.mimeType,
-      byteSize: upload.body.byteLength,
+      mimeType: normalized.mimeType,
+      byteSize: normalized.body.byteLength,
       assetIds: completed.assetIds,
     });
 
     return NextResponse.json(responseBody);
   } catch (error) {
+    if (!objectWritten) {
+      await convexAdminHttpClient().mutation(internal.profileAssets.releaseUploadIntentStorageClaim, {
+        intentId: intent.intentId,
+        uploadToken,
+        processingToken,
+      }).catch(() => false);
+    }
     const message = error instanceof Error ? error.message : "Profile media upload failed.";
 
     return errorResponse(message, 400);

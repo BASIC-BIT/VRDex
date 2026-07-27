@@ -1,5 +1,6 @@
+import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
 import { api } from "@convex-generated-api";
-import { rejectBearerTokenQuery, rejectInvalidOrRateLimitedPublicApiRequest } from "@/lib/server/api-v0";
+
 import { convexHttpClient } from "@/lib/server/convex-http";
 import { getProfileAssetObject, isProfileAssetStorageConfigured } from "@/lib/server/profile-asset-storage";
 
@@ -7,16 +8,13 @@ export const dynamic = "force-dynamic";
 
 type RouteContext = {
   params: Promise<{
-    slug: string;
+    profileId: string;
     assetId: string;
   }>;
 };
 
 function extensionForMimeType(mimeType: string): string {
-  if (mimeType === "image/svg+xml") {
-    return "svg";
-  }
-
+  if (mimeType === "image/svg+xml") return "svg";
   return mimeType.split("/")[1] ?? "bin";
 }
 
@@ -25,25 +23,20 @@ function safeFileName(value: string): string {
 }
 
 export async function GET(request: Request, context: RouteContext) {
-  const rejected = rejectBearerTokenQuery(request);
-  if (rejected !== null) {
-    return rejected;
-  }
-
-  const rejectedBearerToken = await rejectInvalidOrRateLimitedPublicApiRequest(request, {
-    routeClass: "profile_asset_file",
-  });
-  if (rejectedBearerToken !== null) {
-    return rejectedBearerToken;
+  const authToken = await convexAuthNextjsToken();
+  if (authToken === undefined) {
+    return Response.json({ error: "Sign in required." }, { status: 401 });
   }
 
   if (!isProfileAssetStorageConfigured()) {
     return Response.json({ error: "Profile asset storage is not configured." }, { status: 501 });
   }
 
-  const { slug, assetId } = await context.params;
-  const asset = await convexHttpClient().query(api.profileAssets.getPublicAssetForStorage, {
-    slug,
+  const { profileId, assetId } = await context.params;
+  const convex = convexHttpClient();
+  convex.setAuth(authToken);
+  const asset = await convex.query(api.profileAssets.getOwnedAssetForStorage, {
+    profileId,
     assetId,
   });
 
@@ -52,16 +45,14 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   const object = await getProfileAssetObject(asset.storageKey);
-
   if (object === null) {
     return Response.json({ error: "Stored asset not found." }, { status: 404 });
   }
 
-  const url = new URL(request.url);
-  const download = url.searchParams.get("download") === "1";
-  const baseName = safeFileName(asset.originalFileName ?? asset.label ?? `${asset.displayName} logo`);
-  const hasExtension = /\.[a-z0-9]+$/i.test(baseName);
-  const fileName = hasExtension ? baseName : `${baseName}.${extensionForMimeType(asset.mimeType)}`;
+  const baseName = safeFileName(asset.originalFileName ?? asset.label ?? `${asset.displayName} media`);
+  const fileName = /\.[a-z0-9]+$/i.test(baseName)
+    ? baseName
+    : `${baseName}.${extensionForMimeType(asset.mimeType)}`;
   const body = object.body.buffer.slice(
     object.body.byteOffset,
     object.body.byteOffset + object.body.byteLength,
@@ -70,9 +61,9 @@ export async function GET(request: Request, context: RouteContext) {
   return new Response(body, {
     headers: {
       "cache-control": "private, no-store",
-      "content-disposition": `${download ? "attachment" : "inline"}; filename="${fileName}"`,
+      "content-disposition": `inline; filename="${fileName}"`,
       "content-length": String(object.contentLength ?? object.body.byteLength),
-      "content-security-policy": "sandbox; default-src 'none'; img-src 'none'; script-src 'none'; object-src 'none'",
+      "content-security-policy": "sandbox; script-src 'none'; object-src 'none'",
       "content-type": object.contentType,
       "x-content-type-options": "nosniff",
     },

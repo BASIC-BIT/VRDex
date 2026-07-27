@@ -61,6 +61,25 @@ describe("public API rate limiting", () => {
     }
   });
 
+  it("keeps gallery asset delivery out of the shared public API budget", () => {
+    assert.equal(apiRateLimitPolicyForRouteClass("profile_asset_file").limit, 1_200);
+    assert.equal(apiRateLimitPolicyForRouteClass("anonymous_public_read").limit, 120);
+  });
+
+  it("honors an explicit asset-file route class for anonymous gallery loads", () => {
+    const output = runRateLimitRouteProbe(`
+      import { evaluateOptionalApiBearerRequest } from "./apps/web/src/lib/server/api-v0.ts";
+
+      const evaluation = await evaluateOptionalApiBearerRequest(
+        new Request("https://example.test/api/v0/profiles/test/assets/test/file"),
+        { routeClass: "profile_asset_file" },
+      );
+      console.log(evaluation.ok ? evaluation.context.routeClass : evaluation.response.status);
+    `);
+
+    assert.equal(output.trim(), "profile_asset_file");
+  });
+
   it("boosts trusted partner quotas only for authenticated traffic classes", () => {
     assert.equal(
       apiRateLimitPolicyForRouteClass("authenticated_public_read", "trusted_partner").limit,
