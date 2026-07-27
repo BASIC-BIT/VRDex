@@ -309,6 +309,7 @@ function MediaKitEditor({
   const [preparedPreviewUrl, setPreparedPreviewUrl] = useState<string | null>(null);
   const [uploadMetadata, setUploadMetadata] = useState({ label: "", altText: "", credit: "" });
   const prepareRequestRef = useRef(0);
+  const uploadRequestRef = useRef(0);
   const profileSelectRef = useRef<HTMLSelectElement>(null);
   const shouldFocusProfileRef = useRef(false);
   const selectedProfile = initialProfiles.find((item) => item.profileId === selectedId);
@@ -322,6 +323,7 @@ function MediaKitEditor({
   useEffect(() => {
     if (selectedProfile) return;
     prepareRequestRef.current += 1;
+    uploadRequestRef.current += 1;
     setUploading(false);
     setPendingFile(null);
     setPreparedUpload(null);
@@ -370,6 +372,7 @@ function MediaKitEditor({
 
   const selectProfile = (profileId: string) => {
     prepareRequestRef.current += 1;
+    uploadRequestRef.current += 1;
     setSelectedId(profileId);
     setPendingFile(null);
     setPreparedUpload(null);
@@ -440,18 +443,21 @@ function MediaKitEditor({
     }
     setUploading(true);
     setUploadStatus({ kind: "progress", message: `Uploading ${pendingFile.name}…` });
+    const requestId = ++uploadRequestRef.current;
     try {
       await actions.upload(selectedProfile.profileId, preparedUpload.file, uploadMetadata);
+      if (uploadRequestRef.current !== requestId) return;
       setUploadStatus({ kind: "success", message: "Published." });
       setPendingFile(null);
       setPreparedUpload(null);
     } catch (error) {
+      if (uploadRequestRef.current !== requestId) return;
       setUploadStatus({
         kind: "error",
         message: error instanceof Error ? error.message : "Upload failed. Try again.",
       });
     } finally {
-      setUploading(false);
+      if (uploadRequestRef.current === requestId) setUploading(false);
     }
   };
 
@@ -730,6 +736,7 @@ function DemoMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: string
       bitmap?.close();
       if (file.name === "slow.png") {
         await new Promise((resolve) => setTimeout(resolve, 500));
+        window.dispatchEvent(new Event("vrdex:media-upload-settled"));
       }
       throw new Error("Synthetic preview storage does not accept new files.");
     },

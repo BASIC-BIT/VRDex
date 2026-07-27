@@ -426,17 +426,22 @@ describe("@vrdex/api-contracts", () => {
       altText: "A gallery contract test image.",
       placements: ["gallery", "featured"],
     });
-    assert.throws(() => ApiProfileAssetUploadIntentCreateRequestSchema.parse({
+    ApiProfileAssetUploadIntentCreateRequestSchema.parse({
       originalFileName: "missing-alt.webp",
       mimeType: "image/webp",
       label: "Missing alt",
       placements: ["gallery"],
-    }), /title and accessibility description/);
+    });
+    assert.throws(() => ApiProfileAssetUploadIntentCreateRequestSchema.parse({
+      originalFileName: "missing-title.webp",
+      mimeType: "image/webp",
+      altText: "A gallery image without a title.",
+      placements: ["gallery"],
+    }), /require a title/);
     assert.throws(() => ApiProfileAssetUploadIntentCreateRequestSchema.parse({
       originalFileName: "featured-only.webp",
       mimeType: "image/webp",
       label: "Featured only",
-      altText: "A featured-only contract test image.",
       placements: ["featured"],
     }), /must also be a gallery item/);
 

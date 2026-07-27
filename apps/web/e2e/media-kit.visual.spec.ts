@@ -170,6 +170,42 @@ test("owner oversized JPEG accepts legal marker fill bytes @fixture", async ({ p
   await expect(page.getByRole("button", { name: "Publish" })).toBeVisible();
 });
 
+test("owner oversized EXIF portrait preserves its oriented aspect ratio @fixture", async ({ page }) => {
+  const width = 2_000;
+  const height = 1_200;
+  const pixels = Buffer.alloc(width * height * 3);
+  for (let index = 0; index < pixels.length; index += 1) {
+    pixels[index] = (index * 31 + Math.floor(index / 97)) % 256;
+  }
+  const image = await sharp(pixels, {
+    raw: { width, height, channels: 3 },
+  }).jpeg({ quality: 100, chromaSubsampling: "4:4:4" }).withMetadata({ orientation: 6 }).toBuffer();
+  expect(image.length).toBeGreaterThan(4 * 1024 * 1024);
+
+  await page.goto("/account/media-kit");
+  await page.evaluate(() => {
+    window.addEventListener("vrdex:media-upload-attempt", (event) => {
+      (window as typeof window & { mediaUploadAttempt?: unknown }).mediaUploadAttempt =
+        (event as CustomEvent).detail;
+    });
+  });
+  await page.getByLabel("Add image").setInputFiles({
+    name: "exif-portrait.jpg",
+    mimeType: "image/jpeg",
+    buffer: image,
+  });
+  await page.getByRole("button", { name: "Publish" }).click();
+
+  await expect.poll(() => page.evaluate(
+    () => (window as typeof window & { mediaUploadAttempt?: unknown }).mediaUploadAttempt,
+  )).toMatchObject({
+    name: "exif-portrait.webp",
+    type: "image/webp",
+    width: height,
+    height: width,
+  });
+});
+
 test("owner profile switch clears an unsubmitted upload @fixture", async ({ page }) => {
   await page.goto("/account/media-kit");
   await page.getByLabel("Add image").setInputFiles({
@@ -272,6 +308,40 @@ test("owner profile switch stays locked during upload @fixture", async ({ page }
   );
   await expect(page.getByLabel("Profile", { exact: true })).toBeEnabled();
   await expect(page.getByLabel("Profile", { exact: true })).toHaveValue("demo-profile");
+});
+
+test("removed profile upload cannot overwrite a new staged upload @fixture", async ({ page }) => {
+  await page.goto("/account/media-kit");
+  await page.evaluate(() => {
+    (window as typeof window & { mediaUploadSettled?: boolean }).mediaUploadSettled = false;
+    window.addEventListener("vrdex:media-upload-settled", () => {
+      (window as typeof window & { mediaUploadSettled?: boolean }).mediaUploadSettled = true;
+    }, { once: true });
+  });
+  await page.getByLabel("Add image").setInputFiles({
+    name: "slow.png",
+    mimeType: "image/png",
+    buffer: Buffer.from("synthetic image"),
+  });
+  await page.getByRole("button", { name: "Publish" }).click();
+  await page.evaluate(() => {
+    window.dispatchEvent(new CustomEvent("vrdex:toggle-media-profile", {
+      detail: { profileId: "demo-profile", present: false },
+    }));
+  });
+  await expect(page.getByLabel("Profile", { exact: true })).toHaveValue("demo-community");
+  await page.getByLabel("Add image").setInputFiles({
+    name: "replacement.png",
+    mimeType: "image/png",
+    buffer: Buffer.from("synthetic image"),
+  });
+
+  await expect.poll(() => page.evaluate(
+    () => (window as typeof window & { mediaUploadSettled?: boolean }).mediaUploadSettled,
+  )).toBe(true);
+  await expect(page.getByText("replacement.png", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Publish" })).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
 test("owner restore keeps status and focus in the active gallery @fixture", async ({ page }) => {

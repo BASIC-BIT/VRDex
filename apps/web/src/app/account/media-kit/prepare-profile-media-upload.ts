@@ -178,30 +178,23 @@ export async function prepareProfileMediaUpload(file: File): Promise<PreparedPro
   ) {
     throw new Error("Image dimensions are too large.");
   }
-  const preparedScale = Math.min(
-    1,
-    PROFILE_MEDIA_MAX_STORED_DIMENSION / Math.max(dimensions.width, dimensions.height),
-    Math.sqrt(PROFILE_MEDIA_MAX_PREPARED_PIXELS / (dimensions.width * dimensions.height)),
-  );
-  const preparedWidth = Math.max(1, Math.round(dimensions.width * preparedScale));
-  const preparedHeight = Math.max(1, Math.round(dimensions.height * preparedScale));
-
   let bitmap: ImageBitmap;
   try {
-    bitmap = await createImageBitmap(file, {
-      resizeWidth: preparedWidth,
-      resizeHeight: preparedHeight,
-      resizeQuality: "high",
-    });
+    bitmap = await createImageBitmap(file);
   } catch {
     throw new Error("Image could not be prepared for upload.");
   }
 
   try {
+    const preparedScale = Math.min(
+      1,
+      PROFILE_MEDIA_MAX_STORED_DIMENSION / Math.max(bitmap.width, bitmap.height),
+      Math.sqrt(PROFILE_MEDIA_MAX_PREPARED_PIXELS / (bitmap.width * bitmap.height)),
+    );
     for (const scaleStep of PROFILE_MEDIA_SCALE_STEPS) {
       const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(bitmap.width * scaleStep));
-      canvas.height = Math.max(1, Math.round(bitmap.height * scaleStep));
+      canvas.width = Math.max(1, Math.round(bitmap.width * preparedScale * scaleStep));
+      canvas.height = Math.max(1, Math.round(bitmap.height * preparedScale * scaleStep));
       const context = canvas.getContext("2d");
 
       if (context === null) {
