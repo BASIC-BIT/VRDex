@@ -166,7 +166,12 @@ export const claimCommunityWithVerifiedGuild = mutation({
       now,
     });
 
-    if (activeOwner === null) {
+    // Also runs when the caller already owns the profile but it is still
+    // `claimed_unverified` — the no-match creation path grants ownership without
+    // verification, and proving server control is exactly what should upgrade
+    // it. `approveProfileClaimForUser` is idempotent for an existing owner and
+    // only advances the claim state.
+    if (activeOwner === null || profile.claimState !== "claimed_verified") {
       await approveProfileClaimForUser(ctx.db, {
         profile,
         profileId: profile._id,
@@ -343,11 +348,17 @@ export const listAvailableConnections = query({
     ]);
     const attached = new Set(links.map((link) => `${link.assetType}:${link.assetExternalId}`));
 
+    const now = Date.now();
+
     return proofs
       .filter(
         (proof) =>
           assetTypeAllowedForProfile(proof.assetType, profile.profileType) &&
-          !attached.has(`${proof.assetType}:${proof.assetExternalId}`),
+          !attached.has(`${proof.assetType}:${proof.assetExternalId}`) &&
+          // Same expiry rule as requireControlProof: between a proof lapsing and
+          // the sweeper marking it stale, offering it here would produce an
+          // option that the attach then refuses.
+          (proof.revalidateAfter === undefined || proof.revalidateAfter > now),
       )
       .map((proof) => ({
         assetType: proof.assetType,

@@ -123,6 +123,15 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     };
   }
 
+  // Without a backend every request resolves to 503 while the process looks
+  // healthy, which reads as a provider outage rather than a missing
+  // deployment variable. Fail at startup instead.
+  if (secretDir === undefined && awsClient === undefined) {
+    throw new Error(
+      "No secret backend configured. Set VRDEX_VRCLINKING_SECRET_DIR or VRDEX_VRCLINKING_ENABLE_AWS_SECRETS=true.",
+    );
+  }
+
   const server = createAdapterServer({
     bearerToken,
     resolveSecret: createSecretResolver({ secretDir, awsClient }),

@@ -568,6 +568,11 @@ describe("VRCLinking credential delegation", () => {
     for (const secretRef of [
       "SECRET://vrdex/group-telemetry/oak",
       "ARN:aws:secretsmanager:us-east-1:1234:secret:oak",
+      // The adapter's local-name grammar allows only [A-Za-z0-9._/-] and
+      // rejects traversal; anything looser registers then never resolves.
+      "secret://team:key",
+      "secret://../../etc/passwd",
+      "secret://name with spaces",
     ]) {
       await assert.rejects(
         () =>
@@ -712,6 +717,56 @@ describe("claiming a community with a verified guild", () => {
       assert.equal(links[0]?.linkRole, "primary");
       assert.notEqual(links[0]?.verifiedByProofId, undefined);
     });
+  });
+
+  // The no-match creation path grants ownership without verification. Proving
+  // server control afterwards is exactly what should upgrade that profile, but
+  // an owner-present guard skipped the upgrade and left it unverified forever.
+  it("upgrades an existing unverified owner to verified", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        email: "upgrade@example.test",
+        emailVerificationTime: now,
+      });
+      const profileId = await seedCommunity(ctx as never, "upgrade-me", now);
+      await ctx.db.patch(profileId, { claimState: "claimed_unverified", claimedAt: now });
+      await ctx.db.insert("profileOwners", {
+        profileId,
+        userId,
+        roleKey: "owner",
+        state: "active",
+        grantedAt: now,
+        updatedAt: now,
+      });
+      await recordExternalControlProof(ctx.db, {
+        userId,
+        assetType: "discord_guild",
+        assetExternalId: "999",
+        controlLevel: "owner",
+        evidenceSource: "discord_oauth",
+        now,
+      });
+
+      return {
+        profileId,
+        identity: {
+          subject: `${userId}|web-session`,
+          issuer: "test",
+          tokenIdentifier: `test|${userId}`,
+        },
+      };
+    });
+
+    const result = await t
+      .withIdentity(seeded.identity)
+      .mutation(api.profileConnections.claimCommunityWithVerifiedGuild, {
+        profileSlug: "upgrade-me",
+        guildId: "999",
+      });
+
+    assert.equal(result.claimState, "claimed_verified");
   });
 
   it("refuses a second claimant even with their own verified guild", async () => {

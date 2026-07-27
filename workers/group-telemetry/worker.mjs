@@ -143,8 +143,19 @@ async function checkProofs() {
       );
     } catch (error) {
       // An expired service-account session must stop the worker, matching the
-      // telemetry path's handling of authenticated provider 401s.
-      if (error?.category === "authentication") stopping = true;
+      // telemetry path's handling of authenticated provider 401s. Report it
+      // too: a worker that only had proof checks would otherwise exit silently,
+      // leaving the account `ready` for every other replica to rediscover the
+      // same dead session one 401 at a time.
+      if (error?.category === "authentication") {
+        stopping = true;
+
+        try {
+          await control.send("proof_auth_failure", { now: Date.now() });
+        } catch {
+          // Exiting on the 401 matters more than reporting it.
+        }
+      }
 
       // Continuing through the batch during an explicit backoff window sends
       // more requests into a throttle. Stop the batch and honour the delay.

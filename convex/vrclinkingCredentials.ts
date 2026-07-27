@@ -10,11 +10,21 @@ import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 // Mirrors the collector account rule: credentials live in the operator secret
 // store and Convex only ever holds a reference to them.
 //
-// Deliberately case-sensitive. The adapter classifies references with
-// case-sensitive `startsWith`, so accepting `SECRET://…` here would store a
-// reference that registers cleanly and then fails every resolution forever,
-// with no operator-visible signal beyond a permanently "unavailable" claim.
-const SECRET_REF_PATTERN = /^(arn:aws:secretsmanager:|secret:\/\/)[^\s]+$/;
+// Mirrors the adapter's own grammar, not a looser superset. Anything this
+// accepts that `classifySecretRef` rejects registers cleanly and then fails
+// every resolution forever, with no operator-visible signal beyond a
+// permanently "unavailable" claim — so the two must agree on case, on the
+// allowed characters after `secret://`, and on rejecting traversal.
+const SECRET_REF_ARN_PATTERN = /^arn:aws:secretsmanager:[^\s]+$/;
+const SECRET_REF_LOCAL_PATTERN = /^secret:\/\/[A-Za-z0-9._/-]{1,200}$/;
+
+function isSupportedSecretRef(value: string): boolean {
+  if (SECRET_REF_ARN_PATTERN.test(value)) {
+    return true;
+  }
+
+  return SECRET_REF_LOCAL_PATTERN.test(value) && !value.includes("..");
+}
 const DISCORD_GUILD_ID_PATTERN = /^\d{17,20}$/;
 
 async function requireCommunityProfile(
@@ -80,7 +90,7 @@ export const registerCredential = mutation({
 
     const secretRef = args.secretRef.trim();
 
-    if (!SECRET_REF_PATTERN.test(secretRef)) {
+    if (!isSupportedSecretRef(secretRef)) {
       throw claimError(
         "ADAPTER_NOT_CONFIGURED",
         "vrclinking_credentials_require_secret_reference",

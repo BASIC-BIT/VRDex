@@ -122,7 +122,17 @@ if (!skipValidation) {
     // Validation applies any `Set-Cookie` the provider returns and hands back
     // the refreshed session. Discarding it would write the pre-rotation cookies
     // and deploy a credential that is already stale.
-    stored = (await login.validateSession(stored)) ?? stored;
+    const refreshed = (await login.validateSession(stored)) ?? stored;
+
+    // Persist rotation locally too. Writing only to AWS would leave the vault
+    // holding pre-rotation cookies, so the next local run would validate an
+    // already-superseded session.
+    if (refreshed.authCookie !== stored.authCookie ||
+        refreshed.twoFactorAuthCookie !== stored.twoFactorAuthCookie) {
+      await sessionStore.save(accountAlias, refreshed);
+    }
+
+    stored = refreshed;
   } catch (error) {
     fail(
       `The saved session for ${accountAlias} did not validate against VRChat (${error?.message ?? "unknown error"}). ` +

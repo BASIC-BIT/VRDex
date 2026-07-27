@@ -824,6 +824,37 @@ export const reserveRequestBudget = internalMutation({
  * against the same counters the telemetry path uses, and re-checks the stop
  * switches so a kill switch halts proof reads too.
  */
+/**
+ * Mark a collector account as needing re-authentication after a proof read
+ * returned an authenticated 401.
+ *
+ * The telemetry path routes 401s through `recordPollFailure`, which requires a
+ * lease. Proof checks have none, so without this a worker that only had proof
+ * work would exit silently and leave the account `ready` for every other
+ * replica to rediscover the same dead session.
+ */
+export const recordProofAuthFailure = internalMutation({
+  args: { collectorAccountId: v.string(), now: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const now = args.now ?? Date.now();
+    const accountId = ctx.db.normalizeId("collectorAccounts", args.collectorAccountId);
+
+    if (!accountId) {
+      return { recorded: false };
+    }
+
+    const account = await ctx.db.get(accountId);
+
+    if (account === null || account.state === "auth_required") {
+      return { recorded: false };
+    }
+
+    await applyCollectorAccountState(ctx, account, "auth_required", now, "provider_401");
+
+    return { recorded: true };
+  },
+});
+
 export const reserveProofRequestBudget = internalMutation({
   args: {
     collectorAccountId: v.string(),
