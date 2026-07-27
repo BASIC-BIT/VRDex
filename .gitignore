@@ -41,3 +41,6 @@ tfplan-*
 .vercel
 __pycache__/
 *.py[cod]
+
+# Claude Code personal settings
+.claude/settings.local.json
