@@ -104,13 +104,13 @@ function EntityTypeIcon({ result }: { result: PublicSearchResult }) {
   return (
     <span
       aria-label={label}
-      className="relative inline-flex size-7 shrink-0 items-center justify-center rounded-control text-muted transition-colors group-hover:text-accent-strong group-focus-visible:text-accent-strong"
+      className="group/type relative inline-flex size-7 shrink-0 items-center justify-center rounded-control text-muted transition-colors hover:text-accent-strong"
       role="img"
     >
       {entityIcon(result)}
       <span
         aria-hidden="true"
-        className="pointer-events-none absolute top-full right-0 z-10 mt-1.5 rounded-control border border-border bg-surface-strong px-2 py-1 text-xs font-medium whitespace-nowrap text-foreground opacity-0 shadow-panel transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+        className="pointer-events-none absolute top-full right-0 z-10 mt-1.5 rounded-control border border-border bg-surface-strong px-2 py-1 text-xs font-medium whitespace-nowrap text-foreground opacity-0 shadow-panel transition-opacity group-hover/type:opacity-100"
       >
         {label}
       </span>

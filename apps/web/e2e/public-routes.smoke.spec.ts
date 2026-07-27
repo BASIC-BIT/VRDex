@@ -362,10 +362,9 @@ test.describe("fixture lookup smoke", () => {
     await expect(searchMark).toBeVisible();
     await expect(resultTypeIcon).toBeVisible();
     await expect(resultTypeTooltip).toHaveCSS("opacity", "0");
+    await searchResult.hover({ position: { x: 200, y: 45 } });
+    await expect(resultTypeTooltip).toHaveCSS("opacity", "0");
     await resultTypeIcon.hover();
-    await expect(resultTypeTooltip).toHaveCSS("opacity", "1");
-    await page.mouse.move(0, 0);
-    await searchResult.focus();
     await expect(resultTypeTooltip).toHaveCSS("opacity", "1");
     const searchBox = await searchMark.boundingBox();
 
