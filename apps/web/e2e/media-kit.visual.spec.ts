@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import sharp from "sharp";
 
 import { captureRouteScreenshot, prepareVisualPage } from "./public-routes";
 
@@ -28,8 +29,38 @@ test("owner upload failure stays beside the publish control @fixture", async ({ 
   });
   const publish = page.getByRole("button", { name: "Publish" });
   const uploadForm = publish.locator("xpath=ancestor::form");
-  await uploadForm.getByLabel("Accessibility description").fill("Synthetic upload test image.");
+  await expect(uploadForm.getByLabel("Title")).toHaveValue("synthetic");
+  await expect(uploadForm.getByLabel("Accessibility description")).not.toHaveAttribute("required");
 
+  await publish.click();
+
+  await expect(uploadForm.getByRole("alert")).toHaveText(
+    "Synthetic preview storage does not accept new files.",
+  );
+});
+
+test("owner oversized raster is prepared before upload @fixture", async ({ page }) => {
+  const width = 1_600;
+  const height = 1_600;
+  const pixels = Buffer.alloc(width * height * 3);
+  for (let index = 0; index < pixels.length; index += 1) {
+    pixels[index] = (index * 31 + Math.floor(index / 97)) % 256;
+  }
+  const image = await sharp(pixels, {
+    raw: { width, height, channels: 3 },
+  }).png({ compressionLevel: 0 }).toBuffer();
+  expect(image.length).toBeGreaterThan(4 * 1024 * 1024);
+  expect(image.length).toBeLessThanOrEqual(12 * 1024 * 1024);
+
+  await page.goto("/account/media-kit");
+  await page.getByLabel("Add image").setInputFiles({
+    name: "oversized-synthetic.png",
+    mimeType: "image/png",
+    buffer: image,
+  });
+  const publish = page.getByRole("button", { name: "Publish" });
+  const uploadForm = publish.locator("xpath=ancestor::form");
+  await expect(uploadForm.getByLabel("Title", { exact: true })).toHaveValue("oversized-synthetic");
   await publish.click();
 
   await expect(uploadForm.getByRole("alert")).toHaveText(
@@ -103,7 +134,6 @@ test("owner profile switch stays locked during upload @fixture", async ({ page }
     mimeType: "image/png",
     buffer: Buffer.from("synthetic image"),
   });
-  await page.getByLabel("Accessibility description", { exact: true }).fill("Synthetic upload test image.");
   await page.getByRole("button", { name: "Publish" }).click();
 
   await expect(page.getByLabel("Profile", { exact: true })).toBeDisabled();

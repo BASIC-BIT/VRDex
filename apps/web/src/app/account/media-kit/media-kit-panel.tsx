@@ -14,6 +14,8 @@ import { MediaPreviewImage } from "@/app/_components/media-preview-image";
 import { cn } from "@/lib/cn";
 import { profileMediaMimeType } from "@/lib/profile-media-kit";
 
+import { prepareProfileMediaUpload } from "./prepare-profile-media-upload";
+
 type MediaAsset = {
   assetId: string;
   state: "active" | "deleted";
@@ -387,8 +389,8 @@ function MediaKitEditor({
   const publishUpload = async (event: FormEvent) => {
     event.preventDefault();
     if (!pendingFile || !selectedProfile) return;
-    if (!uploadMetadata.label.trim() || !uploadMetadata.altText.trim()) {
-      setUploadStatus({ kind: "error", message: "Title and accessibility description are required." });
+    if (!uploadMetadata.label.trim()) {
+      setUploadStatus({ kind: "error", message: "Title is required." });
       return;
     }
     setUploading(true);
@@ -476,7 +478,7 @@ function MediaKitEditor({
             </div>
             <label className="text-sm font-medium">
               Accessibility description
-              <textarea className={cn(inputClass, "min-h-20 resize-y")} maxLength={180} onChange={(event) => setUploadMetadata({ ...uploadMetadata, altText: event.target.value })} required value={uploadMetadata.altText} />
+              <textarea className={cn(inputClass, "min-h-20 resize-y")} maxLength={180} onChange={(event) => setUploadMetadata({ ...uploadMetadata, altText: event.target.value })} value={uploadMetadata.altText} />
             </label>
             <div className="flex gap-2">
               <Button disabled={uploading} type="submit" variant="primary">Publish</Button>
@@ -702,11 +704,14 @@ function ConnectedMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: s
 
   const actions: EditorActions = {
     upload: async (profileId, file, metadata) => {
+      const preparedFile = await prepareProfileMediaUpload(file);
       const intent = await createUploadIntent({
         profileId: profileId as Id<"profiles">,
         originalFileName: file.name,
-        mimeType: profileMediaMimeType(file.type, file.name) ?? file.type,
-        byteSize: file.size,
+        mimeType:
+          profileMediaMimeType(preparedFile.type, preparedFile.name) ??
+          preparedFile.type,
+        byteSize: preparedFile.size,
         label: metadata.label,
         altText: metadata.altText,
         credit: metadata.credit,
@@ -714,7 +719,7 @@ function ConnectedMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: s
       });
       try {
         const data = new FormData();
-        data.set("file", file);
+        data.set("file", preparedFile);
         const response = await fetch(intent.uploadUrl, {
           method: "POST",
           headers: { [intent.uploadTokenHeader]: intent.uploadToken },
