@@ -34,24 +34,26 @@ Local ignored env names:
 
 ## Pull Request Preview Backends
 
-Baseline Checks deploys Vercel PR previews after local lint, type, docs,
-contract, backend, and visual checks pass. When `CONVEX_DEPLOY_KEY_PREVIEW` is
-configured, the Vercel preview job first creates or updates a Convex preview
+PR preview backends are created only by the manual `On-Demand Vercel Preview`
+workflow. Baseline Checks no longer deploys Vercel previews or Convex preview
+backends. When `CONVEX_DEPLOY_KEY_PREVIEW` is
+configured, the preview deploy job first creates or updates a Convex preview
 deployment named for the PR with `convex deploy --preview-create` and builds the
 web app with that preview Convex URL. The project-level
 `CONVEX_DEPLOY_KEY_PREVIEW` remains in GitHub Actions and is never injected into
-Vercel.
+Vercel. A pull request with no requested preview has no `pr-<number>` Convex
+deployment.
 
-The `Hosted MCP Preview Smoke` job always runs `pnpm smoke:mcp-compat` against
-the Vercel preview `/mcp` endpoint when the preview URL exists. CI passes that
+The `Hosted MCP Preview Smoke` job runs `pnpm smoke:mcp-compat` against
+the Vercel preview `/mcp` endpoint in that same on-demand run. CI passes that
 target through `VRDEX_MCP_SMOKE_URL`; local runs can use
-`pnpm smoke:mcp-compat -- --hosted-url <preview-/mcp-url>`. That keeps anonymous
-hosted Streamable HTTP, OAuth metadata, and bearer-challenge behavior covered
-even before a branch-specific backend is configured. Dynamic Client Registration
-and data-backed `vrdex_search` plus `search`/`fetch` alias checks are enabled
-only when `CONVEX_DEPLOY_KEY_PREVIEW` provisions the same-branch Convex preview
-backend; otherwise, the job records that DCR and data-backed public reads were
-not smoked against same-branch backend functions.
+`pnpm smoke:mcp-compat -- --hosted-url <preview-/mcp-url>`. The job is
+fail-closed: it requires both a preview deployment URL and a same-branch Convex
+preview backend, so a pass covers anonymous hosted Streamable HTTP, OAuth
+metadata, bearer challenges, Dynamic Client Registration, and data-backed
+`vrdex_search` plus `search`/`fetch` alias checks together. When
+`CONVEX_DEPLOY_KEY_PREVIEW` is absent the job fails and names that prerequisite
+rather than reporting reduced coverage as green.
 
 Use the manual `Deployed Health Checks` workflow target `hosted-mcp-smoke` when
 DCR/CIMD evidence needs to come from a staging, production-like, or otherwise

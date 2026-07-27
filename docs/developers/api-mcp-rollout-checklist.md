@@ -12,9 +12,10 @@ Readiness has three distinct levels:
    does not require every manual client row to pass.
 2. A green Baseline Checks run is PR implementation readiness. The combined
    `Verify API and MCP` job enforces contracts and local MCP behavior with one
-   dependency install, and `Hosted MCP Preview Smoke` fails unless it exercises
-   data-backed reads, DCR, and CIMD against a same-branch Convex preview. This
-   does not declare the platform externally ready.
+   dependency install. Hosted evidence is no longer part of that run: request a
+   preview with `@vrdex preview` so `Hosted MCP Preview Smoke` runs, and it
+   fails unless it exercises data-backed reads, DCR, and CIMD against a
+   same-branch Convex preview. Neither declares the platform externally ready.
 3. `pnpm verify:api-mcp-rollout:external` is the strict external launch gate.
    It composes API contract, MCP, and docs verification with
    `check:api-mcp-rollout -- --require-ready`. Dispatch the manual
@@ -139,11 +140,14 @@ from this foundation and are not implied by a green PR.
   evidence row. The smoke can optionally probe a deployed hosted `/mcp`
   endpoint with `--hosted-url`, and can include constrained Dynamic Client
   Registration and Client ID Metadata Document probes with `--dcr` and `--cimd`.
-- Baseline Checks runs `Hosted MCP Preview Smoke` after the Vercel preview. It
+- The manual `On-Demand Vercel Preview` workflow runs `Hosted MCP Preview Smoke`
+  after the Vercel preview it deploys. Request it by commenting `@vrdex preview`
+  on the pull request. It
   is fail-closed: both a Vercel preview URL and same-branch Convex preview are
   required. A pass covers data-backed anonymous `vrdex_search`, `search`, and
   `fetch`, OAuth metadata, bearer challenges, Dynamic Client Registration, and
-  Client ID Metadata Document authorization.
+  Client ID Metadata Document authorization. Baseline Checks does not run it, so
+  a pull request with no requested preview has no hosted MCP evidence.
 - Baseline Checks does not generate a client session pack on every PR. The
   manual `External API and MCP Readiness` workflow always generates and uploads
   that pack as part of the strict external launch gate.
