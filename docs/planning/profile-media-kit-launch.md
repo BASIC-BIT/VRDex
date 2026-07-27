@@ -132,6 +132,8 @@ Verified:
 - SVG files are served only through the controlled application route and
   displayed as ordinary image resources, not inserted as inline markup. The
   validator rejects scripting, external references, and animation elements.
+  Oversized animated raster sources are rejected before browser preparation so
+  animation cannot be flattened into a still image.
   The route applies `nosniff` and a sandboxed content security policy with
   default, image, script, and object sources disabled; explicit downloads use
   attachment disposition.

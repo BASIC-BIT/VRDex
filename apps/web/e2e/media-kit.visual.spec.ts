@@ -100,7 +100,7 @@ test("owner oversized raster dimensions are bounded before decode @fixture", asy
   const image = Buffer.alloc(4 * 1024 * 1024 + 1);
   Buffer.from([0x89, 0x50, 0x4e, 0x47]).copy(image);
   image.writeUInt32BE(9_000, 16);
-  image.writeUInt32BE(4_000, 20);
+  image.writeUInt32BE(1_000, 20);
 
   await page.goto("/account/media-kit");
   await page.getByLabel("Add image").setInputFiles({
@@ -111,6 +111,63 @@ test("owner oversized raster dimensions are bounded before decode @fixture", asy
 
   await expect(page.getByRole("alert")).toHaveText("Image dimensions are too large.");
   await expect(page.getByRole("button", { name: "Publish" })).toHaveCount(0);
+});
+
+test("owner oversized animated rasters are rejected before conversion @fixture", async ({ page }) => {
+  const png = Buffer.alloc(4 * 1024 * 1024 + 1);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47]).copy(png);
+  png.writeUInt32BE(13, 8);
+  png.write("IHDR", 12, "ascii");
+  png.writeUInt32BE(1_600, 16);
+  png.writeUInt32BE(1_600, 20);
+  png.writeUInt32BE(8, 33);
+  png.write("acTL", 37, "ascii");
+
+  await page.goto("/account/media-kit");
+  await page.getByLabel("Add image").setInputFiles({
+    name: "animated.png",
+    mimeType: "image/png",
+    buffer: png,
+  });
+  await expect(page.getByRole("alert")).toHaveText("Profile media must be one valid, still image.");
+  await expect(page.getByRole("button", { name: "Publish" })).toHaveCount(0);
+
+  const webp = Buffer.alloc(4 * 1024 * 1024 + 1);
+  webp.write("RIFF", 0, "ascii");
+  webp.writeUInt32LE(webp.length - 8, 4);
+  webp.write("WEBPVP8X", 8, "ascii");
+  webp.writeUInt32LE(10, 16);
+  webp[20] = 0x02;
+  webp.writeUIntLE(1_599, 24, 3);
+  webp.writeUIntLE(1_599, 27, 3);
+  await page.getByLabel("Add image").setInputFiles({
+    name: "animated.webp",
+    mimeType: "image/webp",
+    buffer: webp,
+  });
+  await expect(page.getByRole("alert")).toHaveText("Profile media must be one valid, still image.");
+  await expect(page.getByRole("button", { name: "Publish" })).toHaveCount(0);
+});
+
+test("owner oversized JPEG accepts legal marker fill bytes @fixture", async ({ page }) => {
+  const { image } = await oversizedSyntheticPng();
+  const jpeg = await sharp(image).jpeg({ quality: 100, chromaSubsampling: "4:4:4" }).toBuffer();
+  const frameMarker = jpeg.indexOf(Buffer.from([0xff, 0xc0]));
+  expect(frameMarker).toBeGreaterThan(0);
+  const withFillByte = Buffer.concat([
+    jpeg.subarray(0, frameMarker + 1),
+    Buffer.from([0xff]),
+    jpeg.subarray(frameMarker + 1),
+  ]);
+  expect(withFillByte.length).toBeGreaterThan(4 * 1024 * 1024);
+
+  await page.goto("/account/media-kit");
+  await page.getByLabel("Add image").setInputFiles({
+    name: "marker-fill.jpg",
+    mimeType: "image/jpeg",
+    buffer: withFillByte,
+  });
+  await expect(page.getByRole("button", { name: "Publish" })).toBeVisible();
 });
 
 test("owner profile switch clears an unsubmitted upload @fixture", async ({ page }) => {

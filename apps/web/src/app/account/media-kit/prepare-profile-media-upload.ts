@@ -1,5 +1,6 @@
 const PROFILE_MEDIA_BROWSER_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
 const PROFILE_MEDIA_MAX_STORED_DIMENSION = 4_096;
+const PROFILE_MEDIA_MAX_SOURCE_DIMENSION = 8_192;
 const PROFILE_MEDIA_MAX_SOURCE_PIXELS = 32_000_000;
 const PROFILE_MEDIA_MAX_PREPARED_PIXELS = 12_000_000;
 const PROFILE_MEDIA_SCALE_STEPS = [1, 0.85, 0.7, 0.55] as const;
@@ -22,13 +23,16 @@ function jpegDimensions(bytes: Uint8Array): ImageDimensions | null {
       offset += 1;
       continue;
     }
-    const marker = bytes[offset + 1]!;
+    let markerOffset = offset + 1;
+    while (bytes[markerOffset] === 0xff) markerOffset += 1;
+    if (markerOffset + 7 >= bytes.length) return null;
+    const marker = bytes[markerOffset]!;
     if (marker === 0xd8 || marker === 0xd9) {
-      offset += 2;
+      offset = markerOffset + 1;
       continue;
     }
-    const segmentLength = (bytes[offset + 2]! << 8) | bytes[offset + 3]!;
-    if (segmentLength < 2 || offset + segmentLength + 2 > bytes.length) return null;
+    const segmentLength = (bytes[markerOffset + 1]! << 8) | bytes[markerOffset + 2]!;
+    if (segmentLength < 2 || markerOffset + segmentLength + 1 > bytes.length) return null;
     if (
       (marker >= 0xc0 && marker <= 0xc3) ||
       (marker >= 0xc5 && marker <= 0xc7) ||
@@ -36,11 +40,11 @@ function jpegDimensions(bytes: Uint8Array): ImageDimensions | null {
       (marker >= 0xcd && marker <= 0xcf)
     ) {
       return {
-        height: (bytes[offset + 5]! << 8) | bytes[offset + 6]!,
-        width: (bytes[offset + 7]! << 8) | bytes[offset + 8]!,
+        height: (bytes[markerOffset + 4]! << 8) | bytes[markerOffset + 5]!,
+        width: (bytes[markerOffset + 6]! << 8) | bytes[markerOffset + 7]!,
       };
     }
-    offset += segmentLength + 2;
+    offset = markerOffset + segmentLength + 1;
   }
 
   return null;
@@ -80,7 +84,37 @@ function webpDimensions(bytes: Uint8Array): ImageDimensions | null {
   return null;
 }
 
-async function readImageDimensions(file: File): Promise<ImageDimensions | null> {
+function hasPngAnimation(bytes: Uint8Array) {
+  let offset = 8;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  while (offset + 12 <= bytes.length) {
+    const chunkLength = view.getUint32(offset);
+    const chunkEnd = offset + 12 + chunkLength;
+    if (chunkEnd > bytes.length) return false;
+    const chunkType = String.fromCharCode(...bytes.subarray(offset + 4, offset + 8));
+    if (chunkType === "acTL") return true;
+    if (chunkType === "IDAT" || chunkType === "IEND") return false;
+    offset = chunkEnd;
+  }
+  return false;
+}
+
+function hasWebpAnimation(bytes: Uint8Array) {
+  let offset = 12;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  while (offset + 8 <= bytes.length) {
+    const chunkType = String.fromCharCode(...bytes.subarray(offset, offset + 4));
+    const chunkLength = view.getUint32(offset + 4, true);
+    if (chunkType === "ANIM" || chunkType === "ANMF") return true;
+    if (chunkType === "VP8X" && chunkLength >= 1 && (bytes[offset + 8]! & 0x02) !== 0) return true;
+    const chunkEnd = offset + 8 + chunkLength + (chunkLength % 2);
+    if (chunkEnd > bytes.length) return false;
+    offset = chunkEnd;
+  }
+  return false;
+}
+
+async function inspectImage(file: File): Promise<{ animated: boolean; dimensions: ImageDimensions | null }> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   if (
     bytes.length >= 24 &&
@@ -90,9 +124,16 @@ async function readImageDimensions(file: File): Promise<ImageDimensions | null> 
     bytes[3] === 0x47
   ) {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    return { width: view.getUint32(16), height: view.getUint32(20) };
+    return {
+      animated: hasPngAnimation(bytes),
+      dimensions: { width: view.getUint32(16), height: view.getUint32(20) },
+    };
   }
-  return jpegDimensions(bytes) ?? webpDimensions(bytes);
+  const webp = webpDimensions(bytes);
+  return {
+    animated: webp !== null && hasWebpAnimation(bytes),
+    dimensions: jpegDimensions(bytes) ?? webp,
+  };
 }
 
 function webpFileName(fileName: string) {
@@ -122,11 +163,17 @@ export async function prepareProfileMediaUpload(file: File): Promise<PreparedPro
     throw new Error("SVG images must be 4 MB or smaller.");
   }
 
-  const dimensions = await readImageDimensions(file);
+  const inspected = await inspectImage(file);
+  if (inspected.animated) {
+    throw new Error("Profile media must be one valid, still image.");
+  }
+  const dimensions = inspected.dimensions;
   if (
     dimensions === null ||
     dimensions.width <= 0 ||
     dimensions.height <= 0 ||
+    dimensions.width > PROFILE_MEDIA_MAX_SOURCE_DIMENSION ||
+    dimensions.height > PROFILE_MEDIA_MAX_SOURCE_DIMENSION ||
     dimensions.width * dimensions.height > PROFILE_MEDIA_MAX_SOURCE_PIXELS
   ) {
     throw new Error("Image dimensions are too large.");
