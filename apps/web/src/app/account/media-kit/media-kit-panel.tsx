@@ -285,10 +285,12 @@ function MediaKitEditor({
   initialProfiles,
   initialProfileSlug,
   actions,
+  onPreparationSettled,
 }: {
   initialProfiles: MediaProfile[];
   initialProfileSlug?: string;
   actions: EditorActions;
+  onPreparationSettled?: () => void;
 }) {
   const [selectedId, setSelectedId] = useState(
     initialProfiles.find((profile) => profile.slug === initialProfileSlug)?.profileId ??
@@ -424,6 +426,7 @@ function MediaKitEditor({
         });
       })
       .finally(() => {
+        onPreparationSettled?.();
         if (prepareRequestRef.current === requestId) setUploading(false);
       });
   };
@@ -753,7 +756,14 @@ function DemoMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: string
         : profile));
     },
   }), []);
-  return <MediaKitEditor actions={actions} initialProfiles={profiles} initialProfileSlug={initialProfileSlug} />;
+  return (
+    <MediaKitEditor
+      actions={actions}
+      initialProfiles={profiles}
+      initialProfileSlug={initialProfileSlug}
+      onPreparationSettled={() => window.dispatchEvent(new Event("vrdex:media-preparation-settled"))}
+    />
+  );
 }
 
 function ConnectedMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: string }) {

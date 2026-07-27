@@ -175,6 +175,12 @@ test("removed profile cannot inherit a staged upload @fixture", async ({ page })
 test("removed profile cannot inherit an upload still being prepared @fixture", async ({ page }) => {
   const { image } = await oversizedSyntheticPng();
   await page.goto("/account/media-kit");
+  await page.evaluate(() => {
+    (window as typeof window & { mediaPreparationSettled?: boolean }).mediaPreparationSettled = false;
+    window.addEventListener("vrdex:media-preparation-settled", () => {
+      (window as typeof window & { mediaPreparationSettled?: boolean }).mediaPreparationSettled = true;
+    }, { once: true });
+  });
   await page.getByLabel("Add image").setInputFiles({
     name: "preparing-transfer.png",
     mimeType: "image/png",
@@ -186,6 +192,9 @@ test("removed profile cannot inherit an upload still being prepared @fixture", a
     }));
   });
 
+  await expect.poll(() => page.evaluate(
+    () => (window as typeof window & { mediaPreparationSettled?: boolean }).mediaPreparationSettled,
+  )).toBe(true);
   await expect(page.getByLabel("Profile", { exact: true })).toHaveValue("demo-community");
   await expect(page.getByRole("button", { name: "Publish" })).toHaveCount(0);
   await expect(page.getByText("preparing-transfer.png", { exact: true })).toHaveCount(0);
