@@ -3,6 +3,21 @@ import sharp from "sharp";
 
 import { captureRouteScreenshot, prepareVisualPage } from "./public-routes";
 
+async function oversizedSyntheticPng() {
+  const width = 1_600;
+  const height = 1_600;
+  const pixels = Buffer.alloc(width * height * 3);
+  for (let index = 0; index < pixels.length; index += 1) {
+    pixels[index] = (index * 31 + Math.floor(index / 97)) % 256;
+  }
+  const image = await sharp(pixels, {
+    raw: { width, height, channels: 3 },
+  }).png({ compressionLevel: 0 }).toBuffer();
+  expect(image.length).toBeGreaterThan(4 * 1024 * 1024);
+  expect(image.length).toBeLessThanOrEqual(12 * 1024 * 1024);
+  return { height, image, width };
+}
+
 test.beforeEach(async ({ page }) => {
   await prepareVisualPage(page);
 });
@@ -40,17 +55,7 @@ test("owner upload failure stays beside the publish control @fixture", async ({ 
 });
 
 test("owner oversized raster is prepared before upload @fixture", async ({ page }) => {
-  const width = 1_600;
-  const height = 1_600;
-  const pixels = Buffer.alloc(width * height * 3);
-  for (let index = 0; index < pixels.length; index += 1) {
-    pixels[index] = (index * 31 + Math.floor(index / 97)) % 256;
-  }
-  const image = await sharp(pixels, {
-    raw: { width, height, channels: 3 },
-  }).png({ compressionLevel: 0 }).toBuffer();
-  expect(image.length).toBeGreaterThan(4 * 1024 * 1024);
-  expect(image.length).toBeLessThanOrEqual(12 * 1024 * 1024);
+  const { height, image, width } = await oversizedSyntheticPng();
 
   await page.goto("/account/media-kit");
   await page.evaluate(() => {
@@ -165,6 +170,25 @@ test("removed profile cannot inherit a staged upload @fixture", async ({ page })
   await expect(page.getByLabel("Profile", { exact: true })).toHaveValue("demo-community");
   await expect(page.getByRole("button", { name: "Publish" })).toHaveCount(0);
   await expect(page.getByText("last-profile.png", { exact: true })).toHaveCount(0);
+});
+
+test("removed profile cannot inherit an upload still being prepared @fixture", async ({ page }) => {
+  const { image } = await oversizedSyntheticPng();
+  await page.goto("/account/media-kit");
+  await page.getByLabel("Add image").setInputFiles({
+    name: "preparing-transfer.png",
+    mimeType: "image/png",
+    buffer: image,
+  });
+  await page.evaluate(() => {
+    window.dispatchEvent(new CustomEvent("vrdex:toggle-media-profile", {
+      detail: { profileId: "demo-profile", present: false },
+    }));
+  });
+
+  await expect(page.getByLabel("Profile", { exact: true })).toHaveValue("demo-community");
+  await expect(page.getByRole("button", { name: "Publish" })).toHaveCount(0);
+  await expect(page.getByText("preparing-transfer.png", { exact: true })).toHaveCount(0);
 });
 
 test("owner profile switch stays locked during upload @fixture", async ({ page }) => {

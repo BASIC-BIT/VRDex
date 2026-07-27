@@ -306,6 +306,7 @@ function MediaKitEditor({
   const [preparedUpload, setPreparedUpload] = useState<PreparedProfileMediaUpload | null>(null);
   const [preparedPreviewUrl, setPreparedPreviewUrl] = useState<string | null>(null);
   const [uploadMetadata, setUploadMetadata] = useState({ label: "", altText: "", credit: "" });
+  const prepareRequestRef = useRef(0);
   const profileSelectRef = useRef<HTMLSelectElement>(null);
   const shouldFocusProfileRef = useRef(false);
   const selectedProfile = initialProfiles.find((item) => item.profileId === selectedId);
@@ -318,6 +319,8 @@ function MediaKitEditor({
 
   useEffect(() => {
     if (selectedProfile) return;
+    prepareRequestRef.current += 1;
+    setUploading(false);
     setPendingFile(null);
     setPreparedUpload(null);
     setUploadMetadata({ label: "", altText: "", credit: "" });
@@ -364,6 +367,7 @@ function MediaKitEditor({
   }, [activeAssetIds, focusActiveAssetId]);
 
   const selectProfile = (profileId: string) => {
+    prepareRequestRef.current += 1;
     setSelectedId(profileId);
     setPendingFile(null);
     setPreparedUpload(null);
@@ -399,8 +403,10 @@ function MediaKitEditor({
     setPendingFile(null);
     setPreparedUpload(null);
     setUploadStatus({ kind: "progress", message: "Preparing…" });
+    const requestId = ++prepareRequestRef.current;
     void prepareProfileMediaUpload(file)
       .then((prepared) => {
+        if (prepareRequestRef.current !== requestId) return;
         setPendingFile(file);
         setPreparedUpload(prepared);
         setUploadMetadata({
@@ -411,12 +417,15 @@ function MediaKitEditor({
         setUploadStatus(null);
       })
       .catch((error: unknown) => {
+        if (prepareRequestRef.current !== requestId) return;
         setUploadStatus({
           kind: "error",
           message: error instanceof Error ? error.message : "Image could not be prepared for upload.",
         });
       })
-      .finally(() => setUploading(false));
+      .finally(() => {
+        if (prepareRequestRef.current === requestId) setUploading(false);
+      });
   };
 
   const publishUpload = async (event: FormEvent) => {
