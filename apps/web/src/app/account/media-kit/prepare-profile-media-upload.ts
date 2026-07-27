@@ -50,9 +50,44 @@ function jpegDimensions(bytes: Uint8Array): ImageDimensions | null {
   return null;
 }
 
+function tiffOrientation(bytes: Uint8Array, payloadOffset: number, payloadEnd: number) {
+  let tiffOffset = payloadOffset;
+  if (
+    payloadOffset + 6 <= payloadEnd &&
+    String.fromCharCode(...bytes.subarray(payloadOffset, payloadOffset + 6)) === "Exif\0\0"
+  ) {
+    tiffOffset += 6;
+  }
+  if (tiffOffset + 8 > payloadEnd) return 1;
+
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const byteOrder = String.fromCharCode(bytes[tiffOffset]!, bytes[tiffOffset + 1]!);
+  const littleEndian = byteOrder === "II";
+  if ((!littleEndian && byteOrder !== "MM") || view.getUint16(tiffOffset + 2, littleEndian) !== 42) {
+    return 1;
+  }
+
+  const ifdOffset = tiffOffset + view.getUint32(tiffOffset + 4, littleEndian);
+  if (ifdOffset + 2 > payloadEnd) return 1;
+  const entryCount = view.getUint16(ifdOffset, littleEndian);
+  for (let index = 0; index < entryCount; index += 1) {
+    const entryOffset = ifdOffset + 2 + index * 12;
+    if (entryOffset + 12 > payloadEnd) break;
+    if (
+      view.getUint16(entryOffset, littleEndian) === 0x0112 &&
+      view.getUint16(entryOffset + 2, littleEndian) === 3 &&
+      view.getUint32(entryOffset + 4, littleEndian) === 1
+    ) {
+      const orientation = view.getUint16(entryOffset + 8, littleEndian);
+      return orientation >= 1 && orientation <= 8 ? orientation : 1;
+    }
+  }
+
+  return 1;
+}
+
 function jpegOrientation(bytes: Uint8Array) {
   if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return 1;
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let offset = 2;
 
   while (offset + 4 < bytes.length) {
@@ -78,27 +113,7 @@ function jpegOrientation(bytes: Uint8Array) {
       segmentLength >= 16 &&
       String.fromCharCode(...bytes.subarray(payloadOffset, payloadOffset + 6)) === "Exif\0\0"
     ) {
-      const tiffOffset = payloadOffset + 6;
-      const byteOrder = String.fromCharCode(bytes[tiffOffset]!, bytes[tiffOffset + 1]!);
-      const littleEndian = byteOrder === "II";
-      if ((littleEndian || byteOrder === "MM") && view.getUint16(tiffOffset + 2, littleEndian) === 42) {
-        const ifdOffset = tiffOffset + view.getUint32(tiffOffset + 4, littleEndian);
-        if (ifdOffset + 2 <= segmentEnd) {
-          const entryCount = view.getUint16(ifdOffset, littleEndian);
-          for (let index = 0; index < entryCount; index += 1) {
-            const entryOffset = ifdOffset + 2 + index * 12;
-            if (entryOffset + 12 > segmentEnd) break;
-            if (
-              view.getUint16(entryOffset, littleEndian) === 0x0112 &&
-              view.getUint16(entryOffset + 2, littleEndian) === 3 &&
-              view.getUint32(entryOffset + 4, littleEndian) === 1
-            ) {
-              const orientation = view.getUint16(entryOffset + 8, littleEndian);
-              return orientation >= 1 && orientation <= 8 ? orientation : 1;
-            }
-          }
-        }
-      }
+      return tiffOrientation(bytes, payloadOffset, segmentEnd);
     }
     offset = segmentEnd;
   }
@@ -155,6 +170,23 @@ function hasPngAnimation(bytes: Uint8Array) {
   return false;
 }
 
+function pngOrientation(bytes: Uint8Array) {
+  let offset = 8;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  while (offset + 12 <= bytes.length) {
+    const chunkLength = view.getUint32(offset);
+    const payloadOffset = offset + 8;
+    const payloadEnd = payloadOffset + chunkLength;
+    const chunkEnd = payloadEnd + 4;
+    if (chunkEnd > bytes.length) return 1;
+    const chunkType = String.fromCharCode(...bytes.subarray(offset + 4, offset + 8));
+    if (chunkType === "eXIf") return tiffOrientation(bytes, payloadOffset, payloadEnd);
+    if (chunkType === "IEND") return 1;
+    offset = chunkEnd;
+  }
+  return 1;
+}
+
 function hasWebpAnimation(bytes: Uint8Array) {
   let offset = 12;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -168,6 +200,22 @@ function hasWebpAnimation(bytes: Uint8Array) {
     offset = chunkEnd;
   }
   return false;
+}
+
+function webpOrientation(bytes: Uint8Array) {
+  let offset = 12;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  while (offset + 8 <= bytes.length) {
+    const chunkType = String.fromCharCode(...bytes.subarray(offset, offset + 4));
+    const chunkLength = view.getUint32(offset + 4, true);
+    const payloadOffset = offset + 8;
+    const payloadEnd = payloadOffset + chunkLength;
+    const chunkEnd = payloadEnd + (chunkLength % 2);
+    if (chunkEnd > bytes.length) return 1;
+    if (chunkType === "EXIF") return tiffOrientation(bytes, payloadOffset, payloadEnd);
+    offset = chunkEnd;
+  }
+  return 1;
 }
 
 async function inspectImage(file: File): Promise<{
@@ -184,15 +232,16 @@ async function inspectImage(file: File): Promise<{
     bytes[3] === 0x47
   ) {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const orientation = pngOrientation(bytes);
     return {
       animated: hasPngAnimation(bytes),
       dimensions: { width: view.getUint32(16), height: view.getUint32(20) },
-      swapsAxes: false,
+      swapsAxes: orientation >= 5 && orientation <= 8,
     };
   }
   const jpeg = jpegDimensions(bytes);
   const webp = webpDimensions(bytes);
-  const orientation = jpeg === null ? 1 : jpegOrientation(bytes);
+  const orientation = jpeg === null ? webpOrientation(bytes) : jpegOrientation(bytes);
   return {
     animated: webp !== null && hasWebpAnimation(bytes),
     dimensions: jpeg ?? webp,

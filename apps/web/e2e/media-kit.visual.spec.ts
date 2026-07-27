@@ -229,6 +229,89 @@ test("owner oversized EXIF portrait preserves its oriented aspect ratio @fixture
   });
 });
 
+test("owner oversized PNG and WebP preserve EXIF orientation @fixture", async ({ page }) => {
+  const width = 2_400;
+  const height = 1_200;
+  const pixels = Buffer.alloc(width * height * 3);
+  for (let index = 0; index < pixels.length; index += 1) {
+    pixels[index] = (index * 31 + Math.floor(index / 97)) % 256;
+  }
+  const source = sharp(pixels, {
+    raw: { width, height, channels: 3 },
+  }).withMetadata({ orientation: 6 });
+  const oversized = (buffer: Buffer) =>
+    buffer.length > 4 * 1024 * 1024
+      ? buffer
+      : Buffer.concat([buffer, Buffer.alloc(4 * 1024 * 1024 + 1 - buffer.length)]);
+  const images = [
+    {
+      buffer: oversized(await source.clone().png({ compressionLevel: 0 }).toBuffer()),
+      mimeType: "image/png",
+      name: "exif-portrait.png",
+    },
+    {
+      buffer: oversized(await source.clone().webp({ lossless: true }).toBuffer()),
+      mimeType: "image/webp",
+      name: "exif-portrait.webp",
+    },
+  ];
+  for (const image of images) {
+    expect(image.buffer.length).toBeGreaterThan(4 * 1024 * 1024);
+    expect(image.buffer.length).toBeLessThanOrEqual(12 * 1024 * 1024);
+  }
+
+  await page.addInitScript(() => {
+    const originalCreateImageBitmap = window.createImageBitmap.bind(window) as (
+      ...args: unknown[]
+    ) => Promise<ImageBitmap>;
+    window.createImageBitmap = ((...args: unknown[]) => {
+      if (args.length === 2) {
+        const options = args[1] as ImageBitmapOptions;
+        (window as typeof window & { mediaDecodeOptions?: ImageBitmapOptions }).mediaDecodeOptions =
+          options;
+      }
+      return originalCreateImageBitmap(...args);
+    }) as typeof window.createImageBitmap;
+  });
+  await page.goto("/account/media-kit");
+  await page.evaluate(() => {
+    window.addEventListener("vrdex:media-upload-attempt", (event) => {
+      (window as typeof window & { mediaUploadAttempt?: unknown }).mediaUploadAttempt =
+        (event as CustomEvent).detail;
+    });
+  });
+
+  for (const image of images) {
+    await page.evaluate(() => {
+      delete (window as typeof window & {
+        mediaDecodeOptions?: ImageBitmapOptions;
+        mediaUploadAttempt?: unknown;
+      }).mediaDecodeOptions;
+      delete (window as typeof window & { mediaUploadAttempt?: unknown }).mediaUploadAttempt;
+    });
+    await page.getByLabel("Add image").setInputFiles(image);
+    await page.getByRole("button", { name: "Publish" }).click();
+
+    await expect.poll(() => page.evaluate(
+      () => (window as typeof window & {
+        mediaDecodeOptions?: ImageBitmapOptions;
+      }).mediaDecodeOptions,
+    )).toMatchObject({
+      resizeWidth: height,
+      resizeHeight: width,
+      resizeQuality: "high",
+    });
+    await expect.poll(() => page.evaluate(
+      () => (window as typeof window & { mediaUploadAttempt?: unknown }).mediaUploadAttempt,
+    )).toMatchObject({
+      name: "exif-portrait.webp",
+      type: "image/webp",
+      width: height,
+      height: width,
+    });
+  }
+});
+
 test("owner profile switch clears an unsubmitted upload @fixture", async ({ page }) => {
   await page.goto("/account/media-kit");
   await page.getByLabel("Add image").setInputFiles({
