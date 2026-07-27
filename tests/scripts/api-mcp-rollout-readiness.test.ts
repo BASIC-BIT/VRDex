@@ -225,48 +225,55 @@ describe("API/MCP rollout readiness checker", () => {
     assert.match(workflow, /if: always\(\)/);
   });
 
-  it("provisions narrow per-preview persistence, E2E auth, and deterministic public fixture runtime", async () => {
-    const baseline = await readFile(".github/workflows/baseline-checks.yml", "utf8");
+  it("provisions narrow per-preview persistence, E2E auth, and deterministic public fixture runtime in the on-demand preview workflow", async () => {
+    const previewWorkflow = await readFile(".github/workflows/vercel-preview-deploy.yml", "utf8");
 
-    assert.match(baseline, /Configure Convex preview runtime and smoke fixture/);
-    assert.match(baseline, /openssl rand -hex 32/);
-    assert.match(baseline, /::add-mask::\$bridge_secret/);
-    assert.match(baseline, /convex env set --preview-name "\$PREVIEW_NAME" VRDEX_PREVIEW_PERSISTENCE_SECRET/);
-    assert.match(baseline, /HOSTED_E2E_AUTH_HELPERS: \$\{\{ vars\.VRDEX_HOSTED_E2E_AUTH_HELPERS \}\}/);
-    assert.match(baseline, /HOSTED_E2E_DEVELOPER_CREDENTIALS: \$\{\{ vars\.VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS \}\}/);
-    assert.match(baseline, /HOSTED_E2E_BROWSER_TOKEN: \$\{\{ secrets\.VRDEX_HOSTED_E2E_BROWSER_TOKEN \}\}/);
-    assert.match(baseline, /::add-mask::\$e2e_convex_secret/);
-    assert.match(baseline, /generate-convex-auth-preview-keys\.mjs/);
-    assert.match(baseline, /generate-preview-developer-runtime-secrets\.mjs/);
-    assert.match(baseline, /::add-mask::\$jwt_private_key/);
-    assert.match(baseline, /::add-mask::\$jwks/);
-    assert.match(baseline, /convex env set --preview-name "\$PREVIEW_NAME" VRDEX_ENABLE_E2E_AUTH_HELPERS/);
-    assert.match(baseline, /convex env set --preview-name "\$PREVIEW_NAME" VRDEX_E2E_CONVEX_SECRET/);
-    assert.match(baseline, /convex env set --preview-name "\$PREVIEW_NAME" JWT_PRIVATE_KEY/);
-    assert.match(baseline, /convex env set --preview-name "\$PREVIEW_NAME" JWKS/);
+    assert.match(previewWorkflow, /Configure Convex preview runtime and smoke fixture/);
+    assert.match(previewWorkflow, /openssl rand -hex 32/);
+    assert.match(previewWorkflow, /::add-mask::\$bridge_secret/);
+    assert.match(previewWorkflow, /convex env set --preview-name "\$PREVIEW_NAME" VRDEX_PREVIEW_PERSISTENCE_SECRET/);
+    assert.match(previewWorkflow, /HOSTED_E2E_AUTH_HELPERS: \$\{\{ vars\.VRDEX_HOSTED_E2E_AUTH_HELPERS \}\}/);
+    assert.match(previewWorkflow, /HOSTED_E2E_DEVELOPER_CREDENTIALS: \$\{\{ vars\.VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS \}\}/);
+    assert.match(previewWorkflow, /HOSTED_E2E_BROWSER_TOKEN: \$\{\{ secrets\.VRDEX_HOSTED_E2E_BROWSER_TOKEN \}\}/);
+    assert.match(previewWorkflow, /::add-mask::\$e2e_convex_secret/);
+    assert.match(previewWorkflow, /generate-convex-auth-preview-keys\.mjs/);
+    assert.match(previewWorkflow, /generate-preview-developer-runtime-secrets\.mjs/);
+    assert.match(previewWorkflow, /::add-mask::\$jwt_private_key/);
+    assert.match(previewWorkflow, /::add-mask::\$jwks/);
+    assert.match(previewWorkflow, /convex env set --preview-name "\$PREVIEW_NAME" VRDEX_ENABLE_E2E_AUTH_HELPERS/);
+    assert.match(previewWorkflow, /convex env set --preview-name "\$PREVIEW_NAME" VRDEX_E2E_CONVEX_SECRET/);
+    assert.match(previewWorkflow, /convex env set --preview-name "\$PREVIEW_NAME" JWT_PRIVATE_KEY/);
+    assert.match(previewWorkflow, /convex env set --preview-name "\$PREVIEW_NAME" JWKS/);
     assert.match(
-      baseline,
+      previewWorkflow,
       /convex env set --preview-name "\$PREVIEW_NAME" VRDEX_ENABLE_PREVIEW_OAUTH_TOKEN_BRIDGE/,
     );
-    assert.match(baseline, /convex env set --preview-name "\$PREVIEW_NAME" SITE_URL/);
-    assert.match(baseline, /convex run --preview-name "\$PREVIEW_NAME" hostedSmokeFixtures:ensurePublicSearchFixture/);
-    assert.match(baseline, /if \[ -n "\$CONVEX_PREVIEW_URL" \]; then/);
-    assert.match(baseline, /Preview persistence secret was not configured/);
-    assert.match(baseline, /--env "CONVEX_URL=\$CONVEX_PREVIEW_URL"/);
-    assert.match(baseline, /--env "VRDEX_DEPLOYMENT_ENV=preview"/);
-    assert.match(baseline, /--env "VRDEX_ENABLE_PREVIEW_PERSISTENCE_BRIDGE=true"/);
-    assert.match(baseline, /--env "VRDEX_PREVIEW_PERSISTENCE_SECRET=\$VRDEX_PREVIEW_PERSISTENCE_SECRET"/);
-    assert.match(baseline, /if \[ "\$\{VRDEX_PREVIEW_E2E_AUTH_ENABLED:-false\}" = "true" \]; then/);
-    assert.match(baseline, /Preview E2E Convex secret was not configured/);
-    assert.match(baseline, /Preview E2E browser token was not configured/);
-    assert.match(baseline, /--env "VRDEX_ENABLE_E2E_AUTH_HELPERS=true"/);
-    assert.match(baseline, /--env "VRDEX_E2E_BROWSER_TOKEN=\$VRDEX_E2E_BROWSER_TOKEN"/);
-    assert.match(baseline, /--env "VRDEX_E2E_CONVEX_SECRET=\$VRDEX_PREVIEW_E2E_CONVEX_SECRET"/);
-    assert.match(baseline, /--env "VRDEX_API_TOKEN_PEPPER=\$api_token_pepper"/);
-    assert.match(baseline, /--env "VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY=\$oauth_access_token_signing_key"/);
-    assert.match(baseline, /--env "VRDEX_OAUTH_CLIENT_SECRET_PEPPER=\$oauth_client_secret_pepper"/);
-    assert.match(baseline, /--env "VRDEX_OAUTH_REFRESH_TOKEN_PEPPER=\$oauth_refresh_token_pepper"/);
-    assert.doesNotMatch(baseline, /--env "CONVEX_ADMIN_TOKEN=/);
+    assert.match(previewWorkflow, /convex env set --preview-name "\$PREVIEW_NAME" SITE_URL/);
+    assert.match(previewWorkflow, /convex run --preview-name "\$PREVIEW_NAME" hostedSmokeFixtures:ensurePublicSearchFixture/);
+    assert.match(previewWorkflow, /if \[ -n "\$CONVEX_PREVIEW_URL" \]; then/);
+    assert.match(previewWorkflow, /Preview persistence secret was not configured/);
+    assert.match(previewWorkflow, /--env "CONVEX_URL=\$CONVEX_PREVIEW_URL"/);
+    assert.match(previewWorkflow, /--env "VRDEX_DEPLOYMENT_ENV=preview"/);
+    assert.match(previewWorkflow, /--env "VRDEX_ENABLE_PREVIEW_PERSISTENCE_BRIDGE=true"/);
+    assert.match(previewWorkflow, /--env "VRDEX_PREVIEW_PERSISTENCE_SECRET=\$VRDEX_PREVIEW_PERSISTENCE_SECRET"/);
+    assert.match(previewWorkflow, /if \[ "\$\{VRDEX_PREVIEW_E2E_AUTH_ENABLED:-false\}" = "true" \]; then/);
+    assert.match(previewWorkflow, /Preview E2E Convex secret was not configured/);
+    assert.match(previewWorkflow, /Preview E2E browser token was not configured/);
+    assert.match(previewWorkflow, /--env "VRDEX_ENABLE_E2E_AUTH_HELPERS=true"/);
+    assert.match(previewWorkflow, /--env "VRDEX_E2E_BROWSER_TOKEN=\$VRDEX_E2E_BROWSER_TOKEN"/);
+    assert.match(previewWorkflow, /--env "VRDEX_E2E_CONVEX_SECRET=\$VRDEX_PREVIEW_E2E_CONVEX_SECRET"/);
+    assert.match(previewWorkflow, /--env "VRDEX_API_TOKEN_PEPPER=\$api_token_pepper"/);
+    assert.match(previewWorkflow, /--env "VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY=\$oauth_access_token_signing_key"/);
+    assert.match(previewWorkflow, /--env "VRDEX_OAUTH_CLIENT_SECRET_PEPPER=\$oauth_client_secret_pepper"/);
+    assert.match(previewWorkflow, /--env "VRDEX_OAUTH_REFRESH_TOKEN_PEPPER=\$oauth_refresh_token_pepper"/);
+    assert.doesNotMatch(previewWorkflow, /--env "CONVEX_ADMIN_TOKEN=/);
+
+    // Previews are manual-only: Baseline Checks must not deploy Vercel or Convex previews.
+    const baselineChecks = await readFile(".github/workflows/baseline-checks.yml", "utf8");
+
+    assert.doesNotMatch(baselineChecks, /vercel@/);
+    assert.doesNotMatch(baselineChecks, /--preview-create/);
+    assert.doesNotMatch(baselineChecks, /Hosted MCP Preview Smoke/);
   });
 
   it("keeps hosted MCP event writes explicit and staging-only", async () => {

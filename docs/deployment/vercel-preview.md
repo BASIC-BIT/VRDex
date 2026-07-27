@@ -2,7 +2,14 @@
 
 This is the first hosted deployment path for `apps/web`. It is intentionally narrow: get a live Vercel URL for a pull request when someone asks for one, and keep unsafe public states locked. Production hardening belongs here only after an explicit follow-up issue owns it.
 
-Preview deploys are manual. Nothing in `Baseline Checks` deploys to Vercel, and no `push` or `pull_request` event triggers a preview. A preview exists only after a human requests it, as described in [On-demand preview deploy](#on-demand-preview-deploy).
+Preview deploys are manual. Two independent paths could create one, and both are closed:
+
+- GitHub Actions. Nothing in `Baseline Checks` deploys to Vercel, and no `push` or `pull_request` event triggers a preview. A preview exists only after a human requests it, as described in [On-demand preview deploy](#on-demand-preview-deploy).
+- The Vercel Git integration. `apps/web/vercel.json` sets `git.deploymentEnabled` to `{ "**": false, "main": true }`, so pushing a commit to any branch other than `main` creates no automatic Vercel deployment. `main` is listed explicitly because Vercel deploys a branch when it matches at least one `true` rule, and production hosting depends on the Git integration for `main`.
+
+Two caveats on the Git-integration control. Vercel reads `vercel.json` from the commit being pushed, so a branch that does not yet carry this setting still auto-deploys until it picks the change up from `main`. And `git.deploymentEnabled` governs the Git integration only; it does not affect `vercel deploy` from the CLI, which is how the on-demand workflow and `staging-deploy.yml` deploy.
+
+Dashboard-side state is not verifiable from this repository. If the Vercel project also has preview deployments or branch tracking configured in its dashboard settings, reconcile them with the setting above so the in-repo file stays the source of truth.
 
 ## Vercel project
 
@@ -88,7 +95,7 @@ The deploy job runs the full preview pipeline: `vercel pull`, the optional `pr-<
 
 `.github/workflows/vercel-preview-deploy.yml` also runs the `Hosted MCP Preview Smoke` job after a successful deploy. It targets `<deployment-url>/mcp` and is fail-closed: it requires both a deployment URL and a same-branch Convex preview backend, so a pass covers data-backed public reads, Dynamic Client Registration, and Client ID Metadata Document authorization.
 
-Because this workflow is dispatched rather than triggered by `pull_request`, its jobs do not appear as pull request status checks. The preview comment links the workflow run so the smoke result stays one click from the pull request.
+Because this workflow is dispatched rather than triggered by `pull_request`, its jobs do not appear as pull request status checks, so a failure cannot turn the pull request red. Two things compensate. The preview comment links the workflow run so the smoke result stays one click from the pull request. And when the smoke fails, the smoke job posts its own `Hosted MCP preview smoke failed` comment on the pull request and reacts `confused` to the requesting comment, so a failure is never silent even though the preview deploy itself succeeded.
 
 ## Web environment
 

@@ -44,6 +44,7 @@ jobs:
       convex_preview_url: ${{ steps.convex-preview.outputs.convex_url }}
       deployment_url: ${{ steps.deploy.outputs.url }}
       head_sha: ${{ steps.pr.outputs.head_sha }}
+      pr_number: ${{ steps.pr.outputs.pr_number }}
 
     steps:
       - name: Resolve pull request
@@ -397,6 +398,10 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+      issues: write
+    concurrency:
+      group: on-demand-vercel-preview-${{ inputs.pull_number }}
+      cancel-in-progress: true
 
     steps:
       - name: Checkout
@@ -460,3 +465,63 @@ jobs:
           VRDEX_MCP_SMOKE_DATA: "true"
           VRDEX_MCP_SMOKE_URL: ${{ steps.gate.outputs.mcp_url }}
         run: pnpm smoke:mcp-compat
+
+      # This workflow is dispatched, so its jobs never appear as pull request status
+      # checks. Without this step a failed smoke is invisible on the pull request,
+      # sitting under an already-posted success comment for the deploy.
+      - name: Report smoke failure on pull request
+        if: failure() && needs.deploy-preview.outputs.pr_number != ''
+        uses: actions/github-script@v9
+        env:
+          COMMENT_ID: ${{ inputs.comment_id }}
+          DEPLOYMENT_URL: ${{ needs.deploy-preview.outputs.deployment_url }}
+          PR_NUMBER: ${{ needs.deploy-preview.outputs.pr_number }}
+        with:
+          script: |
+            const marker = "<!-- on-demand-vercel-preview-smoke-failure-comment -->";
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = Number(process.env.PR_NUMBER);
+            const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`;
+            const body = [
+              marker,
+              "## Hosted MCP preview smoke failed",
+              `Target: ${process.env.DEPLOYMENT_URL}/mcp`,
+              `Workflow logs: ${runUrl}`,
+              "",
+              "The preview deployed, so the preview comment above is still accurate. Hosted MCP evidence for this commit is failing: data-backed public reads, Dynamic Client Registration, or Client ID Metadata Document authorization did not pass.",
+            ].join("\n");
+
+            try {
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner,
+                repo,
+                issue_number,
+                per_page: 100,
+              });
+              const existing = comments.find(
+                (comment) => comment.user?.type === "Bot" && comment.body?.includes(marker),
+              );
+
+              if (existing) {
+                await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+              } else {
+                await github.rest.issues.createComment({ owner, repo, issue_number, body });
+              }
+            } catch (error) {
+              core.warning(`Unable to post smoke failure comment: ${error}`);
+            }
+
+            const commentId = Number(process.env.COMMENT_ID || "0");
+            if (commentId > 0) {
+              try {
+                await github.rest.reactions.createForIssueComment({
+                  owner,
+                  repo,
+                  comment_id: commentId,
+                  content: "confused",
+                });
+              } catch (error) {
+                core.warning(`Unable to add smoke failure reaction: ${error}`);
+              }
+            }

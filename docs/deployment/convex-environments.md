@@ -20,7 +20,7 @@ Current recommendation: define environment variable names and target scopes in d
 
 GitHub Actions secret names:
 
-- `CONVEX_DEPLOY_KEY_PREVIEW`: preview deployment key used by PR Vercel previews that need same-branch backend functions
+- `CONVEX_DEPLOY_KEY_PREVIEW`: preview deployment key used by on-demand Vercel previews that need same-branch backend functions
 - `CONVEX_DEPLOY_KEY_DEV`: development deployment key
 - `CONVEX_DEPLOY_KEY_PROD`: production deployment key used by the main-branch deploy workflow
 

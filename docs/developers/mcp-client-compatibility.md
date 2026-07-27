@@ -663,10 +663,12 @@ PR preview transport smoke cannot accidentally satisfy the production-like
 data-backed, DCR, and CIMD readiness gate.
 
 A green PR is implementation-ready, not externally ready. Baseline Checks
-enforces the API/MCP contract and local protocol suites, and its hosted preview
-smoke fails unless a Vercel preview is connected to a same-branch Convex
-preview for data-backed reads, DCR, and CIMD. It does not convert pending major
-client UI evidence into passes.
+enforces the API/MCP contract and local protocol suites only; it carries no
+hosted evidence. Hosted preview evidence comes from the on-demand
+`Hosted MCP Preview Smoke`, which runs only after someone requests a preview and
+fails unless a Vercel preview is connected to a same-branch Convex preview for
+data-backed reads, DCR, and CIMD. Neither converts pending major client UI
+evidence into passes.
 
 `pnpm check:api-mcp-rollout` is the advisory summary for current rollout state.
 It reports pending and failed external evidence without requiring every manual
