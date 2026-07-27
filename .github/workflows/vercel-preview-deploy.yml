@@ -31,14 +31,20 @@ permissions:
   issues: write
   pull-requests: read
 
+# Workflow scope, not job scope. Two jobs sharing one group with
+# cancel-in-progress, both eligible to start, can reverse-cancel: a newer deploy
+# acquires the group and is then killed by an older run's newly eligible smoke,
+# discarding the most recent human request. At workflow scope a newer request
+# cancels the entire older run, which is the intended behaviour.
+concurrency:
+  group: on-demand-vercel-preview-${{ inputs.pull_number }}
+  cancel-in-progress: true
+
 jobs:
   deploy-preview:
     name: Deploy On-Demand Preview
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    concurrency:
-      group: on-demand-vercel-preview-${{ inputs.pull_number }}
-      cancel-in-progress: true
     outputs:
       convex_preview_enabled: ${{ steps.convex-preview-gate.outputs.enabled }}
       convex_preview_url: ${{ steps.convex-preview.outputs.convex_url }}
@@ -278,8 +284,11 @@ jobs:
             echo "- Deployment check page: $deployment_url/deployment"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # Non-fatal: a live preview must not be reported as a failed deploy just
+      # because the comment API call did not land.
       - name: Post preview comment
         if: success()
+        continue-on-error: true
         uses: actions/github-script@v9
         env:
           COMMENT_ID: ${{ inputs.comment_id }}
@@ -394,14 +403,15 @@ jobs:
   hosted-mcp-preview-smoke:
     name: Hosted MCP Preview Smoke
     needs: [deploy-preview]
+    # Gate on a real deployment URL rather than the aggregate job result, so a
+    # deploy that succeeded but whose comment step failed is still smoked, and a
+    # deploy that produced no URL is correctly skipped.
+    if: ${{ !cancelled() && needs.deploy-preview.outputs.deployment_url != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read
       issues: write
-    concurrency:
-      group: on-demand-vercel-preview-${{ inputs.pull_number }}
-      cancel-in-progress: true
 
     steps:
       - name: Checkout

@@ -154,8 +154,9 @@ from this foundation and are not implied by a green PR.
 - The manual `Deployed Health Checks` workflow target `hosted-mcp-smoke` can run
   the same hosted smoke against a staging, production-like, or same-branch
   Convex preview target. Use its `mcp_dcr` and `mcp_cimd` inputs for
-  external-readiness evidence when the automatic PR preview lane cannot enable
-  those probes. The manual workflow keeps selected hosted diagnostics running
+  external-readiness evidence when the on-demand `On-Demand Vercel Preview`
+  workflow cannot enable those probes, or when no preview was requested at all.
+  There is no automatic PR preview lane; previews are manual only. The manual workflow keeps selected hosted diagnostics running
   after a subcheck failure, so one run can expose data-backed read, DCR, and
   CIMD blockers separately while still failing if any selected probe fails. Use
   `mcp_oauth=true` when the run should use configured repository OAuth smoke
