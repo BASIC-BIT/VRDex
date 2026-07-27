@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery } from "convex/react";
 import { ArrowDown, ArrowUp, ImagePlus, RotateCcw, Star, Trash2 } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 
@@ -14,7 +15,10 @@ import { MediaPreviewImage } from "@/app/_components/media-preview-image";
 import { cn } from "@/lib/cn";
 import { profileMediaMimeType } from "@/lib/profile-media-kit";
 
-import { prepareProfileMediaUpload } from "./prepare-profile-media-upload";
+import {
+  prepareProfileMediaUpload,
+  type PreparedProfileMediaUpload,
+} from "./prepare-profile-media-upload";
 
 type MediaAsset = {
   assetId: string;
@@ -46,7 +50,6 @@ type EditorActions = {
     profileId: string,
     file: File,
     metadata: Pick<MediaAsset, "label" | "altText" | "credit">,
-    onPrepared: () => void,
   ) => Promise<void>;
   saveMetadata: (profileId: string, asset: MediaAsset) => Promise<void>;
   reorder: (profileId: string, assetIds: string[]) => Promise<void>;
@@ -300,6 +303,8 @@ function MediaKitEditor({
   const [focusRestoreAssetId, setFocusRestoreAssetId] = useState<string | null>(null);
   const [focusActiveAssetId, setFocusActiveAssetId] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [preparedUpload, setPreparedUpload] = useState<PreparedProfileMediaUpload | null>(null);
+  const [preparedPreviewUrl, setPreparedPreviewUrl] = useState<string | null>(null);
   const [uploadMetadata, setUploadMetadata] = useState({ label: "", altText: "", credit: "" });
   const profileSelectRef = useRef<HTMLSelectElement>(null);
   const shouldFocusProfileRef = useRef(false);
@@ -314,6 +319,7 @@ function MediaKitEditor({
   useEffect(() => {
     if (selectedProfile) return;
     setPendingFile(null);
+    setPreparedUpload(null);
     setUploadMetadata({ label: "", altText: "", credit: "" });
     setUploadStatus(null);
     setGalleryStatus(null);
@@ -322,6 +328,16 @@ function MediaKitEditor({
     shouldFocusProfileRef.current = Boolean(fallbackId && selectedId);
     setSelectedId(fallbackId);
   }, [initialProfiles, selectedId, selectedProfile]);
+
+  useEffect(() => {
+    if (!preparedUpload?.changed) {
+      setPreparedPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(preparedUpload.file);
+    setPreparedPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [preparedUpload]);
 
   useEffect(() => {
     if (!selectedProfile || !shouldFocusProfileRef.current) return;
@@ -350,6 +366,7 @@ function MediaKitEditor({
   const selectProfile = (profileId: string) => {
     setSelectedId(profileId);
     setPendingFile(null);
+    setPreparedUpload(null);
     setUploadMetadata({ label: "", altText: "", credit: "" });
     setUploadStatus(null);
     setGalleryStatus(null);
@@ -378,30 +395,44 @@ function MediaKitEditor({
       setUploadStatus({ kind: "error", message: "Choose an image up to 12 MB." });
       return;
     }
-    setPendingFile(file);
-    setUploadMetadata({
-      label: file.name.replace(/\.[^.]+$/, "").slice(0, 80),
-      altText: "",
-      credit: "",
-    });
-    setUploadStatus(null);
+    setUploading(true);
+    setPendingFile(null);
+    setPreparedUpload(null);
+    setUploadStatus({ kind: "progress", message: "Preparing…" });
+    void prepareProfileMediaUpload(file)
+      .then((prepared) => {
+        setPendingFile(file);
+        setPreparedUpload(prepared);
+        setUploadMetadata({
+          label: file.name.replace(/\.[^.]+$/, "").slice(0, 80),
+          altText: "",
+          credit: "",
+        });
+        setUploadStatus(null);
+      })
+      .catch((error: unknown) => {
+        setUploadStatus({
+          kind: "error",
+          message: error instanceof Error ? error.message : "Image could not be prepared for upload.",
+        });
+      })
+      .finally(() => setUploading(false));
   };
 
   const publishUpload = async (event: FormEvent) => {
     event.preventDefault();
-    if (!pendingFile || !selectedProfile) return;
+    if (!pendingFile || !preparedUpload || !selectedProfile) return;
     if (!uploadMetadata.label.trim()) {
       setUploadStatus({ kind: "error", message: "Title is required." });
       return;
     }
     setUploading(true);
-    setUploadStatus({ kind: "progress", message: "Preparing…" });
+    setUploadStatus({ kind: "progress", message: `Uploading ${pendingFile.name}…` });
     try {
-      await actions.upload(selectedProfile.profileId, pendingFile, uploadMetadata, () => {
-        setUploadStatus({ kind: "progress", message: `Uploading ${pendingFile.name}…` });
-      });
+      await actions.upload(selectedProfile.profileId, preparedUpload.file, uploadMetadata);
       setUploadStatus({ kind: "success", message: "Published." });
       setPendingFile(null);
+      setPreparedUpload(null);
     } catch (error) {
       setUploadStatus({
         kind: "error",
@@ -459,16 +490,27 @@ function MediaKitEditor({
             </Link>
             <label className={cn(buttonVariants({ variant: "primary" }), "cursor-pointer focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-2", !selectedProfile || uploading || profile.activePublicAssetCount >= 12 ? "pointer-events-none opacity-60" : "")}>
               <ImagePlus aria-hidden="true" className="mr-2 size-4" />
-              {uploading ? "Uploading…" : "Add image"}
+              {uploading ? (pendingFile ? "Uploading…" : "Preparing…") : "Add image"}
               <input accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml" className="sr-only" disabled={!selectedProfile || uploading || profile.activePublicAssetCount >= 12} onChange={chooseFile} type="file" />
             </label>
           </div>
         </div>
-        {uploading ? <progress aria-label="Image upload in progress" className="mt-5 w-full" /> : null}
+        {uploading ? <progress aria-label={pendingFile ? "Image upload in progress" : "Image preparation in progress"} className="mt-5 w-full" /> : null}
         {!pendingFile ? <ActionStatusMessage className="mt-3" status={uploadStatus} /> : null}
         {selectedProfile && pendingFile ? (
           <form className="mt-4 grid gap-4 border-t border-border pt-4" onSubmit={publishUpload}>
             <p className="text-sm font-medium">{pendingFile.name}</p>
+            {preparedUpload?.changed && preparedPreviewUrl ? (
+              <div className="grid gap-3 sm:grid-cols-[8rem_minmax(0,1fr)] sm:items-center">
+                <Image alt="" className="aspect-square w-32 rounded-control border border-border bg-canvas-muted object-contain" height={128} src={preparedPreviewUrl} unoptimized width={128} />
+                <p className="text-sm text-muted">
+                  {profileMediaMimeType(pendingFile.type, pendingFile.name)?.replace("image/", "").toUpperCase()} · {formatBytes(pendingFile.size)}
+                  {" → "}
+                  WEBP · {formatBytes(preparedUpload.file.size)}
+                  {preparedUpload.width && preparedUpload.height ? ` · ${preparedUpload.width} × ${preparedUpload.height}` : ""}
+                </p>
+              </div>
+            ) : null}
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="text-sm font-medium">
                 Title
@@ -485,7 +527,10 @@ function MediaKitEditor({
             </label>
             <div className="flex gap-2">
               <Button disabled={uploading} type="submit" variant="primary">Publish</Button>
-              <Button disabled={uploading} onClick={() => setPendingFile(null)} type="button" variant="ghost">Cancel</Button>
+              <Button disabled={uploading} onClick={() => {
+                setPendingFile(null);
+                setPreparedUpload(null);
+              }} type="button" variant="ghost">Cancel</Button>
             </div>
             <ActionStatusMessage status={uploadStatus} />
           </form>
@@ -660,15 +705,13 @@ function DemoMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: string
     return () => window.removeEventListener("vrdex:toggle-media-profile", toggleProfile);
   }, []);
   const actions = useMemo<EditorActions>(() => ({
-    upload: async (_profileId, file, _metadata, onPrepared) => {
-      const preparedFile = await prepareProfileMediaUpload(file);
-      onPrepared();
-      const bitmap = preparedFile === file ? null : await createImageBitmap(preparedFile);
+    upload: async (_profileId, file) => {
+      const bitmap = file.name.endsWith(".webp") ? await createImageBitmap(file) : null;
       window.dispatchEvent(new CustomEvent("vrdex:media-upload-attempt", {
         detail: {
-          name: preparedFile.name,
-          type: preparedFile.type,
-          size: preparedFile.size,
+          name: file.name,
+          type: file.type,
+          size: file.size,
           ...(bitmap ? { width: bitmap.width, height: bitmap.height } : {}),
         },
       }));
@@ -717,16 +760,14 @@ function ConnectedMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: s
   if (profiles === null) return <Notice variant="warning">Sign in to manage profile media.</Notice>;
 
   const actions: EditorActions = {
-    upload: async (profileId, file, metadata, onPrepared) => {
-      const preparedFile = await prepareProfileMediaUpload(file);
-      onPrepared();
+    upload: async (profileId, file, metadata) => {
       const intent = await createUploadIntent({
         profileId: profileId as Id<"profiles">,
-        originalFileName: preparedFile.name,
+        originalFileName: file.name,
         mimeType:
-          profileMediaMimeType(preparedFile.type, preparedFile.name) ??
-          preparedFile.type,
-        byteSize: preparedFile.size,
+          profileMediaMimeType(file.type, file.name) ??
+          file.type,
+        byteSize: file.size,
         label: metadata.label,
         altText: metadata.altText,
         credit: metadata.credit,
@@ -734,7 +775,7 @@ function ConnectedMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: s
       });
       try {
         const data = new FormData();
-        data.set("file", preparedFile);
+        data.set("file", file);
         const response = await fetch(intent.uploadUrl, {
           method: "POST",
           headers: { [intent.uploadTokenHeader]: intent.uploadToken },

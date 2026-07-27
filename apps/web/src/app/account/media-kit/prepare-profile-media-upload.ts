@@ -2,10 +2,16 @@ const PROFILE_MEDIA_BROWSER_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
 const PROFILE_MEDIA_MAX_STORED_DIMENSION = 4_096;
 const PROFILE_MEDIA_MAX_SOURCE_PIXELS = 32_000_000;
 const PROFILE_MEDIA_MAX_PREPARED_PIXELS = 12_000_000;
-const PROFILE_MEDIA_WEBP_QUALITIES = [0.88, 0.78, 0.68] as const;
 const PROFILE_MEDIA_SCALE_STEPS = [1, 0.85, 0.7, 0.55] as const;
+const PROFILE_MEDIA_WEBP_QUALITY = 0.88;
 
 type ImageDimensions = { width: number; height: number };
+export type PreparedProfileMediaUpload = {
+  changed: boolean;
+  file: File;
+  height?: number;
+  width?: number;
+};
 
 function jpegDimensions(bytes: Uint8Array): ImageDimensions | null {
   if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return null;
@@ -107,9 +113,9 @@ function canvasToWebp(canvas: HTMLCanvasElement, quality: number) {
   });
 }
 
-export async function prepareProfileMediaUpload(file: File): Promise<File> {
+export async function prepareProfileMediaUpload(file: File): Promise<PreparedProfileMediaUpload> {
   if (file.size <= PROFILE_MEDIA_BROWSER_UPLOAD_MAX_BYTES) {
-    return file;
+    return { changed: false, file };
   }
 
   if (file.type === "image/svg+xml" || file.name.toLowerCase().endsWith(".svg")) {
@@ -157,14 +163,17 @@ export async function prepareProfileMediaUpload(file: File): Promise<File> {
 
       context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
 
-      for (const quality of PROFILE_MEDIA_WEBP_QUALITIES) {
-        const blob = await canvasToWebp(canvas, quality);
-        if (blob.size <= PROFILE_MEDIA_BROWSER_UPLOAD_MAX_BYTES) {
-          return new File([blob], webpFileName(file.name), {
+      const blob = await canvasToWebp(canvas, PROFILE_MEDIA_WEBP_QUALITY);
+      if (blob.size <= PROFILE_MEDIA_BROWSER_UPLOAD_MAX_BYTES) {
+        return {
+          changed: true,
+          file: new File([blob], webpFileName(file.name), {
             type: "image/webp",
             lastModified: file.lastModified,
-          });
-        }
+          }),
+          width: canvas.width,
+          height: canvas.height,
+        };
       }
     }
   } finally {

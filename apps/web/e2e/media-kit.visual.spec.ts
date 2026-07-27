@@ -67,6 +67,8 @@ test("owner oversized raster is prepared before upload @fixture", async ({ page 
   const publish = page.getByRole("button", { name: "Publish" });
   const uploadForm = publish.locator("xpath=ancestor::form");
   await expect(uploadForm.getByLabel("Title", { exact: true })).toHaveValue("oversized-synthetic");
+  await expect(uploadForm.locator("img")).toBeVisible();
+  await expect(uploadForm.getByText(/PNG · .* → WEBP · .* · 1600 × 1600/)).toBeVisible();
   await publish.click();
 
   await expect(uploadForm.getByRole("alert")).toHaveText(
@@ -101,11 +103,9 @@ test("owner oversized raster dimensions are bounded before decode @fixture", asy
     mimeType: "image/png",
     buffer: image,
   });
-  const publish = page.getByRole("button", { name: "Publish" });
-  const uploadForm = publish.locator("xpath=ancestor::form");
-  await publish.click();
 
-  await expect(uploadForm.getByRole("alert")).toHaveText("Image dimensions are too large.");
+  await expect(page.getByRole("alert")).toHaveText("Image dimensions are too large.");
+  await expect(page.getByRole("button", { name: "Publish" })).toHaveCount(0);
 });
 
 test("owner profile switch clears an unsubmitted upload @fixture", async ({ page }) => {
