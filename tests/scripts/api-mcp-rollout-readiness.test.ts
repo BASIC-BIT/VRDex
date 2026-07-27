@@ -268,6 +268,13 @@ describe("API/MCP rollout readiness checker", () => {
     assert.match(previewWorkflow, /--env "VRDEX_OAUTH_REFRESH_TOKEN_PEPPER=\$oauth_refresh_token_pepper"/);
     assert.doesNotMatch(previewWorkflow, /--env "CONVEX_ADMIN_TOKEN=/);
 
+    // The failure comment and the step that clears it must address the same marker,
+    // or a passing rerun silently leaves the stale failure comment behind.
+    assert.equal(
+      previewWorkflow.match(/on-demand-vercel-preview-smoke-failure-comment/g)?.length,
+      2,
+    );
+
     // Previews are manual-only: Baseline Checks must not deploy Vercel or Convex previews.
     const baselineChecks = await readFile(".github/workflows/baseline-checks.yml", "utf8");
 

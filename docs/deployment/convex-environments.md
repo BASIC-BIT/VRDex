@@ -63,7 +63,8 @@ Convex-backed target. Pass the target `/mcp` URL as `base_url` and enable the
 Do not use production deploy keys for PR previews. Preview deployments are for
 schema/function compatibility and hosted smoke validation before merge.
 
-For DCR and CIMD preview smoke, Baseline Checks enables a narrow persistence
+For DCR and CIMD preview smoke, the `On-Demand Vercel Preview` workflow
+(`.github/workflows/vercel-preview-deploy.yml`) enables a narrow persistence
 bridge with `VRDEX_DEPLOYMENT_ENV=preview`,
 `VRDEX_ENABLE_PREVIEW_PERSISTENCE_BRIDGE=true`, and a random
 `VRDEX_PREVIEW_PERSISTENCE_SECRET` shared only with the matching Vercel

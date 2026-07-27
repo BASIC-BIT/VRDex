@@ -95,7 +95,7 @@ The deploy job runs the full preview pipeline: `vercel pull`, the optional `pr-<
 
 `.github/workflows/vercel-preview-deploy.yml` also runs the `Hosted MCP Preview Smoke` job after a successful deploy. It targets `<deployment-url>/mcp` and is fail-closed: it requires both a deployment URL and a same-branch Convex preview backend, so a pass covers data-backed public reads, Dynamic Client Registration, and Client ID Metadata Document authorization.
 
-Because this workflow is dispatched rather than triggered by `pull_request`, its jobs do not appear as pull request status checks, so a failure cannot turn the pull request red. Two things compensate. The preview comment links the workflow run so the smoke result stays one click from the pull request. And when the smoke fails, the smoke job posts its own `Hosted MCP preview smoke failed` comment on the pull request and reacts `confused` to the requesting comment, so a failure is never silent even though the preview deploy itself succeeded.
+Because this workflow is dispatched rather than triggered by `pull_request`, its jobs do not appear as pull request status checks, so a failure cannot turn the pull request red. Two things compensate. The preview comment links the workflow run so the smoke result stays one click from the pull request. And when the smoke fails, the smoke job posts its own `Hosted MCP preview smoke failed` comment on the pull request and reacts `confused` to the requesting comment, so a failure is never silent even though the preview deploy itself succeeded. A later passing run rewrites that same comment in place to `Hosted MCP preview smoke passed`, so a stale failure never outlives the run that cleared it.
 
 ## Web environment
 
