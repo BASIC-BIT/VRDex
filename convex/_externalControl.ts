@@ -308,11 +308,20 @@ export async function requireControlProof(
   assetType: ExternalAssetType,
   assetExternalId: string,
   required: ExternalControlLevel,
+  now: number = Date.now(),
 ) {
   const proof = await getActiveControlProof(db, userId, assetType, assetExternalId);
 
   if (proof === null) {
     throw claimError("CONTROL_NOT_VERIFIED");
+  }
+
+  // Expiry is enforced here, not only by the sweeper. The cron marks overdue
+  // proofs stale in batches, so between a proof's window closing and its batch
+  // being processed the row is still `active`; relying on the sweep alone would
+  // let a lapsed proof authorize a claim in that gap.
+  if (proof.revalidateAfter !== undefined && proof.revalidateAfter <= now) {
+    throw claimError("CONTROL_NOT_VERIFIED", "revalidation_overdue");
   }
 
   if (!meetsControlLevel(proof.controlLevel, required)) {

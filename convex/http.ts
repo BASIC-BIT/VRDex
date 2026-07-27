@@ -70,6 +70,14 @@ const telemetryWorker = httpAction(async (ctx, request) => {
       });
       return json(result);
     }
+    if (body.operation === "proof_budget") {
+      const result = await ctx.runMutation(functions.reserveProofRequestBudget, {
+        collectorAccountId,
+        requestCount: typeof body.requestCount === "number" ? body.requestCount : 1,
+        now,
+      });
+      return json(result);
+    }
     if (body.operation === "proof_result") {
       if (typeof body.attemptId !== "string" || typeof body.found !== "boolean") {
         return json({ error: "invalid_request" }, 400);

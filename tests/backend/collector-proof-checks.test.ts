@@ -153,6 +153,47 @@ describe("collector proof check queue", () => {
     assert.equal(claimantResult.state, "verified");
   });
 
+  // An emergency stop that halts reads but still accepts in-flight verdicts is
+  // not a stop: the fleet would keep granting verified ownership.
+  it("refuses a verdict once the fleet kill switch is on", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const collectorAccountId = await t.run(async (ctx) => {
+      const id = await seedCollector(ctx as never, "killswitch", now);
+      await seedAttempt(ctx as never, { targetType: "vrchat_user", now });
+
+      return id;
+    });
+    const claimed = await t.mutation(internal.communityTelemetry.claimPendingProofChecks, {
+      collectorAccountId,
+      workerId: "worker-1",
+      limit: 5,
+      now: now + 1,
+    });
+    const attemptId = claimed.attempts[0]!.attemptId;
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("collectorFleetSettings", {
+        key: "global",
+        killSwitchEnabled: true,
+        globalRequestsPerMinute: 30,
+        updatedAt: now,
+      });
+    });
+
+    const result = await t.mutation(internal.communityTelemetry.recordProofCheckResult, {
+      collectorAccountId,
+      attemptId,
+      found: true,
+      now: now + 2,
+    });
+
+    assert.equal(result.state, "unauthorized");
+    await t.run(async (ctx) => {
+      assert.equal((await ctx.db.get(attemptId))?.state, "pending");
+    });
+  });
+
   it("rotates attempts by last check so one batch does not repeat", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();

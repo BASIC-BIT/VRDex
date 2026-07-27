@@ -7,6 +7,7 @@ import { api, internal } from "../../convex/_generated/api";
 import schemaModule from "../../convex/schema";
 import { discordControlLevel } from "../../convex/discordVerification";
 import {
+  getActiveControlProof,
   getActiveProfileLinks,
   getProfilesLinkedToAsset,
   linkProfileToAsset,
@@ -290,6 +291,59 @@ describe("external control proofs", () => {
         .collect();
       assert.equal(proofs.length, 1);
       assert.equal(proofs[0]?.controlLevel, "owner");
+    });
+  });
+
+  // The sweeper marks overdue proofs stale in batches, so a proof can sit
+  // `active` past its window until its batch runs. Consumption must not trust
+  // the state field alone.
+  it("refuses a proof whose revalidation window has passed even while active", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+
+    await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        email: "overdue@example.test",
+        emailVerificationTime: now,
+      });
+
+      await recordExternalControlProof(ctx.db, {
+        userId,
+        assetType: "discord_guild",
+        assetExternalId: "overdue-guild",
+        controlLevel: "owner",
+        evidenceSource: "discord_oauth",
+        now,
+        revalidateAfterMs: 1_000,
+      });
+
+      // Still active — the sweeper has not reached it yet.
+      const proof = await getActiveControlProof(ctx.db, userId, "discord_guild", "overdue-guild");
+      assert.equal(proof?.state, "active");
+
+      await assert.rejects(
+        () =>
+          requireControlProof(
+            ctx.db,
+            userId,
+            "discord_guild",
+            "overdue-guild",
+            "manager",
+            now + 2_000,
+          ),
+        /CONTROL_NOT_VERIFIED/,
+      );
+
+      // Inside the window it still grants.
+      const fresh = await requireControlProof(
+        ctx.db,
+        userId,
+        "discord_guild",
+        "overdue-guild",
+        "manager",
+        now + 500,
+      );
+      assert.equal(fresh.controlLevel, "owner");
     });
   });
 

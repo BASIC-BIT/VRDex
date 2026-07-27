@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { validateRequest, verifyLinkage } from "./adapter.mjs";
-import { classifySecretRef, extractToken } from "./secret-resolver.mjs";
+import { SecretResolutionError, classifySecretRef, extractToken } from "./secret-resolver.mjs";
 import { VrclinkingProviderError, createVrclinkingClient } from "./vrclinking-client.mjs";
 
 const DISCORD_ID = "123456789012345678";
@@ -97,6 +97,36 @@ describe("linkage verification", () => {
       resolveSecret,
       getGuildMemberByDiscordId: async () => {
         throw new VrclinkingProviderError("nope", { reason: "credential_rejected" });
+      },
+    });
+
+    assert.equal(result.verified, false);
+    assert.equal(result.unavailable, true);
+  });
+
+  // A broken credential must not be reported as "VRCLinking says no", which
+  // sends the user to re-check a proof when the real fault is operator-side.
+  it("treats a secret that will not resolve as unavailable, not a negative", async () => {
+    for (const reason of ["empty_secret", "malformed_secret", "unsupported_reference"]) {
+      const result = await verifyLinkage({
+        request,
+        resolveSecret: async () => {
+          throw new SecretResolutionError("nope", { reason });
+        },
+        getGuildMemberByDiscordId: async () => null,
+      });
+
+      assert.equal(result.verified, false, reason);
+      assert.equal(result.unavailable, true, reason);
+    }
+  });
+
+  it("treats malformed provider JSON as unavailable", async () => {
+    const result = await verifyLinkage({
+      request,
+      resolveSecret,
+      getGuildMemberByDiscordId: async () => {
+        throw new VrclinkingProviderError("bad json", { reason: "schema_drift" });
       },
     });
 

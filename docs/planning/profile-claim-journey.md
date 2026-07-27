@@ -100,6 +100,11 @@ Current recommendation:
   identifiers, and `sanitizeAnalyticsUrl` still strips claim slugs. Masking
   rather than route exclusion is now what protects this route; removing either
   protection would leak credentials into recordings.
+- `maskAllInputs` covers input *values* only. Personal data rendered as ordinary
+  DOM text — the name and email on `/account` — is not masked by it and must
+  carry `data-ph-no-capture` explicitly, which is the configured
+  `maskTextSelector`. Any new private surface that renders identity as text
+  needs the same marker; route exclusion is no longer doing that job.
 - The UI does not imply that Discord person quick claim verifies the represented
   identity.
 - Claimed-by-another conflicts do not reveal the owner or private evidence.
@@ -137,8 +142,10 @@ Deferred:
   suitable for bounded resume queries.
 - `Verified`: public search already indexes profiles, worlds, and events; it is
   not a dependency of this PR.
-- `Verified`: current product analytics remove URL queries and do not allow
-  session replay on account/form routes.
+- `Superseded`: product analytics still remove URL queries, but session replay
+  is no longer excluded from account/form routes. Since 2026-07-27 it records
+  every route, and identity rendered as ordinary text on those routes is masked
+  with `data-ph-no-capture` rather than the route being skipped.
 - `Verified`: the VRC Linking API shape is known and recorded in
   [`vrclinking-api.md`](../backend/vrclinking-api.md). `GET /members/{guildId}`
   returns `vrcId` and `isVerified` per Discord member, and `Guild.grpId` gives

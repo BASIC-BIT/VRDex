@@ -28,7 +28,14 @@ const CONTROL_LEVEL_LABELS: Record<string, string> = {
 export function ConnectionsPanel({ initialProfileSlug }: { initialProfileSlug?: string }) {
   const ownedProfiles = useQuery(api.profilePrivacy.listOwnedPrivacyProfilesForAccount);
   const [selectedSlug, setSelectedSlug] = useState(initialProfileSlug ?? "");
-  const activeSlug = selectedSlug || ownedProfiles?.[0]?.slug || "";
+  // `initialProfileSlug` comes from a query parameter, so it may name a profile
+  // the viewer does not own or one that does not exist. Constrain it to the
+  // owned list before it reaches queries that throw on an unknown slug, rather
+  // than failing the whole account page on a mistyped URL.
+  const activeSlug =
+    (ownedProfiles?.some((profile) => profile.slug === selectedSlug) ? selectedSlug : "") ||
+    ownedProfiles?.[0]?.slug ||
+    "";
   const connections = useQuery(
     api.profileConnections.listProfileConnections,
     activeSlug ? { profileSlug: activeSlug } : "skip",
@@ -252,7 +259,7 @@ export function ConnectionsPanel({ initialProfileSlug }: { initialProfileSlug?: 
             asks whether a given member is linked and verified.
           </p>
 
-          {connectedGuilds.length === 0 ? (
+          {connectedGuilds.length === 0 && (vrclinkingCredentials?.length ?? 0) === 0 ? (
             <Notice className="mt-4">
               Connect a verified Discord server to this profile first. A delegation applies to one
               server.
@@ -295,6 +302,15 @@ export function ConnectionsPanel({ initialProfileSlug }: { initialProfileSlug?: 
                 </ul>
               ) : null}
 
+              {connectedGuilds.length === 0 ? (
+                // The delegation above outlived the connection it was created
+                // for. Revoking it must stay reachable, but there is no server
+                // left to attach a new one to.
+                <Notice className="mt-4">
+                  This profile has no connected Discord server. Reconnect one to add a delegation;
+                  existing delegations stay revocable above.
+                </Notice>
+              ) : (
               <form className="mt-4" onSubmit={submitDelegation}>
                 <Field>
                   Discord server
@@ -328,6 +344,7 @@ export function ConnectionsPanel({ initialProfileSlug }: { initialProfileSlug?: 
                   Save delegation
                 </Button>
               </form>
+              )}
             </>
           )}
         </section>

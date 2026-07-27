@@ -128,6 +128,12 @@ async function checkProofs() {
     const now = Date.now();
     if (!accountBudget.tryConsume(1, now)) break;
 
+    // The process-local counter above is only a fast local guard. Replicas on
+    // the same service account, and restarts mid-window, each start from zero,
+    // so the shared reservation is what actually bounds the account's rate.
+    const reservation = await control.send("proof_budget", { requestCount: 1, now });
+    if (!reservation?.granted) break;
+
     let found = false;
     try {
       found = await provider.findProofCode(
@@ -139,6 +145,14 @@ async function checkProofs() {
       // An expired service-account session must stop the worker, matching the
       // telemetry path's handling of authenticated provider 401s.
       if (error?.category === "authentication") stopping = true;
+
+      // Continuing through the batch during an explicit backoff window sends
+      // more requests into a throttle. Stop the batch and honour the delay.
+      if (error?.category === "rate_limit") {
+        await sleep(Math.min(Math.max(error.retryAfterMs ?? 60_000, 1_000), 5 * 60_000));
+        break;
+      }
+
       continue;
     }
 

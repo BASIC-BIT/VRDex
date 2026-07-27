@@ -814,6 +814,80 @@ export const reserveRequestBudget = internalMutation({
   },
 });
 
+/**
+ * Reserve provider requests for a proof read against the shared budget.
+ *
+ * Proof checks are not lease-scoped, so `reserveRequestBudget` does not apply,
+ * but a process-local counter is not a budget: two tasks on one service
+ * account, or a task that restarts mid-window, each start from zero and can
+ * collectively exceed the account's configured rate. This reserves centrally
+ * against the same counters the telemetry path uses, and re-checks the stop
+ * switches so a kill switch halts proof reads too.
+ */
+export const reserveProofRequestBudget = internalMutation({
+  args: {
+    collectorAccountId: v.string(),
+    requestCount: v.number(),
+    now: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const now = args.now ?? Date.now();
+    const requestCount = Math.floor(args.requestCount);
+
+    if (!Number.isFinite(args.requestCount) || requestCount < 1 || requestCount > 10) {
+      throw new Error("Provider request reservation is malformed.");
+    }
+
+    const accountId = ctx.db.normalizeId("collectorAccounts", args.collectorAccountId);
+
+    if (!accountId) {
+      return { granted: false, retryAt: now + 60_000, reason: "unavailable" as const };
+    }
+
+    const account = await ctx.db.get(accountId);
+    const fleet = await ctx.db
+      .query("collectorFleetSettings")
+      .withIndex("by_key", (q) => q.eq("key", "global"))
+      .first();
+
+    if (
+      !account || account.state !== "ready" || account.killSwitchEnabled ||
+      fleet?.killSwitchEnabled || (account.cooldownUntil ?? 0) > now
+    ) {
+      return { granted: false, retryAt: now + 60_000, reason: "unavailable" as const };
+    }
+
+    const windowStartedAt = Math.floor(now / 60_000) * 60_000;
+    const retryAt = windowStartedAt + 60_000;
+    const scopes = [
+      { scopeKey: "global", limit: fleet?.globalRequestsPerMinute ?? 30 },
+      { scopeKey: `account:${account._id}`, limit: account.requestsPerMinute },
+    ];
+    const counters = await Promise.all(scopes.map(async (scope) => ({
+      ...scope,
+      counter: await ctx.db
+        .query("collectorRequestBudgetCounters")
+        .withIndex("by_scopeKey", (q) => q.eq("scopeKey", scope.scopeKey))
+        .first(),
+    })));
+    const exhausted = counters.find(({ counter, limit }) =>
+      (counter?.windowStartedAt === windowStartedAt ? counter.requestCount : 0) + requestCount > limit,
+    );
+
+    if (exhausted) {
+      return { granted: false, retryAt, reason: "budget_exhausted" as const };
+    }
+
+    for (const { scopeKey, counter } of counters) {
+      const nextCount = (counter?.windowStartedAt === windowStartedAt ? counter.requestCount : 0) + requestCount;
+      if (counter) await ctx.db.patch(counter._id, { windowStartedAt, requestCount: nextCount, updatedAt: now });
+      else await ctx.db.insert("collectorRequestBudgetCounters", { scopeKey, windowStartedAt, requestCount: nextCount, updatedAt: now });
+    }
+
+    return { granted: true, retryAt: undefined, reason: undefined };
+  },
+});
+
 export const deferAssignment = internalMutation({
   args: {
     integrationId: v.id("communityVrchatIntegrations"),
@@ -1805,6 +1879,22 @@ export const recordProofCheckResult = internalMutation({
     // Without this, any authorized worker key could assert `found` for any
     // pending attempt and mint verified ownership without reading VRChat.
     if (attempt.lastCheckedByCollectorAccountId !== accountId) {
+      return { state: "unauthorized" as const };
+    }
+
+    // Re-check the stop switches here rather than trusting the batch that was
+    // issued earlier. A kill switch flipped mid-flight must prevent new
+    // verified ownership, otherwise the emergency stop only stops reads while
+    // in-flight verdicts keep granting.
+    const [fleet, account] = await Promise.all([
+      ctx.db
+        .query("collectorFleetSettings")
+        .withIndex("by_key", (q) => q.eq("key", "global"))
+        .first(),
+      ctx.db.get(accountId),
+    ]);
+
+    if (fleet?.killSwitchEnabled || account === null || account.killSwitchEnabled) {
       return { state: "unauthorized" as const };
     }
 

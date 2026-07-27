@@ -102,11 +102,13 @@ export async function verifyLinkage({ request, resolveSecret, getGuildMemberByDi
 
   // Distinguish "we could not ask" from "we asked and the answer was no", so a
   // credential problem is not reported to the user as a failed claim.
-  const unavailable = failures.some((reason) =>
-    ["credential_rejected", "rate_limited", "provider_error", "timeout", "network", "not_found", "unsupported_reference"].includes(
-      reason,
-    ),
-  );
+  //
+  // Any recorded failure means that delegation was never actually consulted, so
+  // the list is every reason rather than an allow-list. An allow-list silently
+  // reclassified new reasons — an empty or malformed secret, or a provider
+  // schema change — as "VRCLinking says no", which tells the user to check
+  // their proof when the real fault is a broken credential.
+  const unavailable = failures.length > 0;
 
   return {
     verified: false,
