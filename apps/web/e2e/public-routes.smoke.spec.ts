@@ -354,8 +354,19 @@ test.describe("fixture lookup smoke", () => {
     const profileBox = await profileMark.boundingBox();
 
     await page.goto("/search?q=BASICBIT");
-    const searchMark = page.getByRole("region", { name: "Search results" }).getByLabel("Verified profile");
+    const searchRegion = page.getByRole("region", { name: "Search results" });
+    const searchResult = searchRegion.getByRole("link", { name: /BASICBIT Verified profile/ });
+    const searchMark = searchRegion.getByLabel("Verified profile");
+    const resultTypeIcon = searchRegion.getByRole("img", { name: "Person" });
+    const resultTypeTooltip = searchRegion.getByText("Person", { exact: true });
     await expect(searchMark).toBeVisible();
+    await expect(resultTypeIcon).toBeVisible();
+    await expect(resultTypeTooltip).toHaveCSS("opacity", "0");
+    await resultTypeIcon.hover();
+    await expect(resultTypeTooltip).toHaveCSS("opacity", "1");
+    await page.mouse.move(0, 0);
+    await searchResult.focus();
+    await expect(resultTypeTooltip).toHaveCSS("opacity", "1");
     const searchBox = await searchMark.boundingBox();
 
     await page.goto("/search?q=BASICBIT&view=dj");

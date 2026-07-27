@@ -1,4 +1,10 @@
 import Link from "next/link";
+import {
+  CalendarDays,
+  Globe2,
+  UserRound,
+  UsersRound,
+} from "lucide-react";
 
 import {
   DiscoveryFeatureGate,
@@ -78,6 +84,38 @@ function entityLabel(result: PublicSearchResult): string {
   }
 
   return result.entityType === "event" ? "Event" : "World";
+}
+
+function entityIcon(result: PublicSearchResult) {
+  if (result.entityType === "profile") {
+    return result.profileType === "community"
+      ? <UsersRound aria-hidden="true" className="size-4.5" strokeWidth={1.8} />
+      : <UserRound aria-hidden="true" className="size-4.5" strokeWidth={1.8} />;
+  }
+
+  return result.entityType === "event"
+    ? <CalendarDays aria-hidden="true" className="size-4.5" strokeWidth={1.8} />
+    : <Globe2 aria-hidden="true" className="size-4.5" strokeWidth={1.8} />;
+}
+
+function EntityTypeIcon({ result }: { result: PublicSearchResult }) {
+  const label = entityLabel(result);
+
+  return (
+    <span
+      aria-label={label}
+      className="relative inline-flex size-7 shrink-0 items-center justify-center rounded-control text-muted transition-colors group-hover:text-accent-strong group-focus-visible:text-accent-strong"
+      role="img"
+    >
+      {entityIcon(result)}
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute top-full right-0 z-10 mt-1.5 rounded-control border border-border bg-surface-strong px-2 py-1 text-xs font-medium whitespace-nowrap text-foreground opacity-0 shadow-panel transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+      >
+        {label}
+      </span>
+    </span>
+  );
 }
 
 function resultSubtitle(result: PublicSearchResult): string | undefined {
@@ -235,9 +273,7 @@ function SearchResultCard({ result }: { result: PublicSearchResult }) {
             <span className="min-w-0 text-xl font-semibold group-hover:text-accent-strong">
               {result.title}
             </span>
-            <span className="shrink-0 text-xs font-medium text-muted">
-              {entityLabel(result)}
-            </span>
+            <EntityTypeIcon result={result} />
           </span>
           {subtitle ? <span className="text-sm text-muted">{subtitle}</span> : null}
           {result.startsAt === undefined ? null : <ViewerLocalEventDateTime className="text-sm text-accent-strong" timestamp={result.startsAt} />}
