@@ -100,7 +100,7 @@ describe("private seed Convex handlers", () => {
 
     await assert.rejects(
       t.query(api.seedAccess.lookupPeople, { query: "DJ", limit: 5 }),
-      /signed-in account/,
+      /SIGN_IN_REQUIRED/,
     );
   });
 

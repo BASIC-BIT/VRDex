@@ -132,7 +132,19 @@ async function checkProofs() {
     // the same service account, and restarts mid-window, each start from zero,
     // so the shared reservation is what actually bounds the account's rate.
     const reservation = await control.send("proof_budget", { requestCount: 1, now });
-    if (!reservation?.granted) break;
+
+    if (!reservation?.granted) {
+      // The claim already stamped every attempt in this batch, so leaving now
+      // would hold them all in cooldown without a single read. Hand back the
+      // ones that were never looked at.
+      await control
+        .send("proof_release", {
+          attemptIds: pending.slice(pending.indexOf(attempt)).map((entry) => entry.attemptId),
+          now: Date.now(),
+        })
+        .catch(() => undefined);
+      break;
+    }
 
     let found = false;
     try {

@@ -262,14 +262,25 @@ export function ClaimFlow({
             : result.state === "unavailable"
               ? "unavailable"
               : null;
-        setStatus({
-          kind: "error",
-          message: result.state === "expired"
-            ? "This proof code expired. Start again to get a new code."
-            : result.state === "unavailable"
-              ? "VRChat verification is temporarily unavailable. Your proof is still pending; try again shortly."
-            : "We could not find the proof code yet. Check where you placed it, then try again.",
-        });
+        // `queued` means nothing was checked just now — VRDex reads VRChat on
+        // its own schedule — so telling the user to go re-check where they put
+        // the code would be wrong.
+        setStatus(
+          result.state === "queued"
+            ? {
+                kind: "notice",
+                message:
+                  "Your proof is queued. VRDex checks VRChat for the code automatically; this page updates once it is found.",
+              }
+            : {
+                kind: "error",
+                message: result.state === "expired"
+                  ? "This proof code expired. Start again to get a new code."
+                  : result.state === "unavailable"
+                    ? "VRChat verification is temporarily unavailable. Your proof is still pending; try again shortly."
+                  : "We could not find the proof code yet. Check where you placed it, then try again.",
+              },
+        );
         if (outcome !== null) {
           captureProductEvent(posthog, "claim_failed", {
             method: "vrchat",

@@ -855,6 +855,47 @@ export const recordProofAuthFailure = internalMutation({
   },
 });
 
+/**
+ * Hand back proof attempts that were claimed but never read.
+ *
+ * `claimPendingProofChecks` stamps the whole batch up front. If the shared
+ * budget denies the very first read, every remaining attempt would otherwise
+ * sit in cooldown having been looked at by nobody.
+ */
+export const releaseProofChecks = internalMutation({
+  args: {
+    collectorAccountId: v.string(),
+    attemptIds: v.array(v.id("profileVerificationAttempts")),
+  },
+  handler: async (ctx, args) => {
+    const accountId = ctx.db.normalizeId("collectorAccounts", args.collectorAccountId);
+
+    if (!accountId) {
+      return { released: 0 };
+    }
+
+    const attempts = await Promise.all(args.attemptIds.map((id) => ctx.db.get(id)));
+    const releasable = attempts.filter(
+      (attempt) =>
+        attempt !== null &&
+        attempt.state === "pending" &&
+        // Only unwind this collector's own claim.
+        attempt.lastCheckedByCollectorAccountId === accountId,
+    );
+
+    await Promise.all(
+      releasable.map((attempt) =>
+        ctx.db.patch(attempt!._id, {
+          lastCheckedAt: undefined,
+          lastCheckedByCollectorAccountId: undefined,
+        }),
+      ),
+    );
+
+    return { released: releasable.length };
+  },
+});
+
 export const reserveProofRequestBudget = internalMutation({
   args: {
     collectorAccountId: v.string(),
@@ -1938,11 +1979,26 @@ export const recordProofCheckResult = internalMutation({
       return { state: "pending" as const };
     }
 
-    await ctx.runMutation(internal.profileClaims.recordVrchatProofVerification, {
-      attemptId: attempt._id,
-      evidenceSource: "vrchat_api",
-      evidenceSummary: "Proof code was found on the VRChat target by the collector.",
-    });
+    try {
+      await ctx.runMutation(internal.profileClaims.recordVrchatProofVerification, {
+        attemptId: attempt._id,
+        evidenceSource: "vrchat_api",
+        evidenceSummary: "Proof code was found on the VRChat target by the collector.",
+      });
+    } catch (error) {
+      // Another claimant won the profile between this attempt being issued and
+      // its code being found. Throwing would 500 the worker and leave the
+      // attempt pending to be retried forever against an outcome that cannot
+      // change, so settle it instead.
+      await ctx.db.patch(attempt._id, {
+        state: "failed",
+        evidenceSource: "vrchat_api",
+        evidenceSummary: "This profile was claimed by someone else before the proof was found.",
+        updatedAt: args.now,
+      });
+
+      return { state: "already_owned" as const };
+    }
 
     return { state: "verified" as const };
   },

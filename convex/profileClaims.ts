@@ -99,6 +99,10 @@ type DiscordCommunityClaimAdapterContext = {
 type VerifyAdapterResult =
   | { state: Doc<"profileVerificationAttempts">["state"] }
   | { state: "unavailable" }
+  // No adapter configured for this target: the collector fleet reads it on its
+  // own schedule, so nothing was checked just now. Distinct from `pending`,
+  // which means we asked and the code was not there.
+  | { state: "queued" }
   | {
       claimRequestId: Id<"profileClaimRequests">;
       profileId: Id<"profiles">;
@@ -1107,7 +1111,7 @@ export const verifyVrchatProofViaAdapter = action({
     // own schedule. The attempt stays pending and the collector resolves it, so
     // report that rather than failing the user's manual check.
     if (adapterUrl === null) {
-      return { state: "pending" as const };
+      return { state: "queued" as const };
     }
     // VRC Linking answers from a community's delegated credential rather than
     // from a proof code, so that path carries the claimant's Discord identity

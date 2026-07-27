@@ -1,5 +1,7 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 
+import { claimError } from "./_claimErrors";
+
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { query } from "./_generated/server";
@@ -16,11 +18,15 @@ export async function getCurrentUser(ctx: AccountCtx) {
   return await ctx.db.get(userId);
 }
 
+// These two guards are the most common claim failures — an expired session and
+// an unverified email. Convex redacts plain `Error` messages on production
+// deployments, so throwing structured codes is what lets the UI say "sign in"
+// or "verify your email" instead of one generic string.
 export async function requireCurrentUser(ctx: AccountCtx) {
   const user = await getCurrentUser(ctx);
 
   if (user === null) {
-    throw new Error("A signed-in account is required.");
+    throw claimError("SIGN_IN_REQUIRED");
   }
 
   return user;
@@ -30,7 +36,7 @@ export async function requireVerifiedEmailUser(ctx: AccountCtx) {
   const user = await requireCurrentUser(ctx);
 
   if (user.email === undefined || user.emailVerificationTime === undefined) {
-    throw new Error("A verified email address is required before claim-level actions.");
+    throw claimError("EMAIL_NOT_VERIFIED");
   }
 
   return user;

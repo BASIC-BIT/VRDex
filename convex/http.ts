@@ -70,6 +70,13 @@ const telemetryWorker = httpAction(async (ctx, request) => {
       });
       return json(result);
     }
+    if (body.operation === "proof_release") {
+      const result = await ctx.runMutation(functions.releaseProofChecks, {
+        collectorAccountId,
+        attemptIds: Array.isArray(body.attemptIds) ? body.attemptIds : [],
+      });
+      return json(result);
+    }
     if (body.operation === "proof_auth_failure") {
       const result = await ctx.runMutation(functions.recordProofAuthFailure, {
         collectorAccountId,

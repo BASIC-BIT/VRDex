@@ -44,9 +44,12 @@ export function ConnectionsPanel({ initialProfileSlug }: { initialProfileSlug?: 
     api.profileConnections.listAvailableConnections,
     activeSlug ? { profileSlug: activeSlug } : "skip",
   );
+  const activeProfileType = ownedProfiles?.find((profile) => profile.slug === activeSlug)?.profileType;
+  // Community-only: the handler rejects person profiles outright, which would
+  // fail the whole page rather than just this section.
   const vrclinkingCredentials = useQuery(
     api.vrclinkingCredentials.listCredentials,
-    activeSlug ? { profileSlug: activeSlug } : "skip",
+    activeSlug && activeProfileType === "community" ? { profileSlug: activeSlug } : "skip",
   );
   const registerCredential = useMutation(api.vrclinkingCredentials.registerCredential);
   const revokeCredential = useMutation(api.vrclinkingCredentials.revokeCredential);
@@ -162,7 +165,7 @@ export function ConnectionsPanel({ initialProfileSlug }: { initialProfileSlug?: 
                 key={connection.id}
               >
                 <div className="min-w-0">
-                  <p className="font-medium break-words">
+                  <p className="font-medium break-words" data-ph-no-capture>
                     {connection.assetDisplayName ?? connection.assetExternalId}
                   </p>
                   <p className="mt-1 text-sm text-muted">
@@ -278,7 +281,7 @@ export function ConnectionsPanel({ initialProfileSlug }: { initialProfileSlug?: 
                       key={credential.guildId}
                     >
                       <div className="min-w-0">
-                        <p className="font-medium break-words">
+                        <p className="font-medium break-words" data-ph-no-capture>
                           {guildLabel(credential.guildId)}
                         </p>
                         <p className="mt-1 text-sm text-muted">
