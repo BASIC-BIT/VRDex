@@ -10,7 +10,8 @@ import {
 } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import { getAccountFeatureAccess } from "./_accountFeatures";
-import { requireCurrentUser, requireVerifiedEmailUser } from "./accounts";
+import { requireActiveAuthSession } from "./_authSessionGuard";
+import { requireActiveVerifiedEmailUser } from "./_browserSessionAuthority";
 
 const JOB_TTL_MS = 15 * 60_000;
 const RATE_WINDOW_MS = 60_000;
@@ -326,7 +327,7 @@ export const acquirePrewarmLease = internalMutation({
 export const getAccess = query({
   args: {},
   handler: async (ctx) => {
-    const user = await requireCurrentUser(ctx);
+    const { user } = await requireActiveAuthSession(ctx);
     const access = await getAccountFeatureAccess(ctx.db, user._id);
     const preference = await ctx.db
       .query("temporalParsingPreferences")
@@ -374,7 +375,7 @@ export async function scrubRetainedJobInputs(
 export const setRetentionPreference = mutation({
   args: { retainInputs: v.boolean() },
   handler: async (ctx, args) => {
-    const user = await requireVerifiedEmailUser(ctx);
+    const user = await requireActiveVerifiedEmailUser(ctx);
     const existing = await ctx.db
       .query("temporalParsingPreferences")
       .withIndex("by_userId", (q) => q.eq("userId", user._id))

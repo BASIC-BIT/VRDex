@@ -3,10 +3,12 @@ import Google from "@auth/core/providers/google";
 import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
 import { Email } from "@convex-dev/auth/providers/Email";
 import { Password } from "@convex-dev/auth/providers/Password";
+import { ConvexCredentials } from "@convex-dev/auth/providers/ConvexCredentials";
 import { convexAuth } from "@convex-dev/auth/server";
 
 import { internal } from "./_generated/api";
 import { siteRelativeRedirectUrl } from "./_authRedirects";
+import { hashRecentAuthProof } from "./_recentAuthProof";
 import {
   AUTH_JWT_DURATION_MS,
   AUTH_SESSION_INACTIVE_DURATION_MS,
@@ -90,6 +92,31 @@ const SesOtp = Email({
   },
 });
 
+const RecentAuthPassword = ConvexCredentials({
+  id: "password-reauth",
+  async authorize(params, ctx) {
+    const challengeId = String(params.challengeId ?? "");
+    const proofValue = String(params.proof ?? "");
+    if (!challengeId || !proofValue) {
+      throw new Error("Recent authentication details are required.");
+    }
+    const claimedProof = await ctx.runMutation(
+      internal.recentAuthChallenges.claimPasswordProof,
+      {
+        challengeId,
+        proofHash: await hashRecentAuthProof(proofValue),
+      },
+    );
+    if (claimedProof.state !== "claimed") {
+      throw new Error("Recent authentication challenge is invalid.");
+    }
+    return {
+      sessionId: claimedProof.sessionId,
+      userId: claimedProof.userId,
+    };
+  },
+});
+
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
   session: {
     inactiveDurationMs: AUTH_SESSION_INACTIVE_DURATION_MS,
@@ -147,6 +174,7 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
         }
       },
     }),
+    RecentAuthPassword,
   ],
   callbacks: {
     async redirect({ redirectTo }) {

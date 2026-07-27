@@ -4,6 +4,7 @@ import type { Doc } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { getPublicCommunityHostedEvents, getPublicPersonUpcomingEvents } from "./_eventPublic";
 import type { AuthSubject } from "./_communityAuthority";
+import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import { getPublicCommunityTelemetry } from "./_communityTelemetryPublic";
 import {
   apiWriteAuditActorKindValidator,
@@ -186,16 +187,6 @@ export const updateProfileForApiOwner = internalMutation({
   },
 });
 
-function optionalIdentityDisplayName(name: string | undefined): string | undefined {
-  const trimmed = name?.trim();
-
-  if (!trimmed) {
-    return undefined;
-  }
-
-  return trimmed.slice(0, 120);
-}
-
 export const getPublicBySlug = query({
   args: {
     slug: v.string(),
@@ -313,24 +304,13 @@ export const submitCommunityProfile = mutation({
     assets: v.optional(v.array(profileAssetUploadInput)),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-
-    if (identity === null) {
-      throw new Error("Profile submissions require a signed-in user.");
-    }
-
+    const { subject } = await requireActiveBrowserSessionSubject(ctx);
     const input = sanitizeCommunitySubmissionProfileInput(args);
     const now = Date.now();
     const slug = await findAvailableProfileSlug(ctx.db, input.displayName);
-    const displayName = optionalIdentityDisplayName(identity.name);
     const sourceAttribution = {
       submittedAt: now,
-      submitter: {
-        tokenIdentifier: identity.tokenIdentifier,
-        issuer: identity.issuer,
-        subject: identity.subject,
-        ...(displayName !== undefined ? { displayName } : {}),
-      },
+      submitter: subject,
     };
 
     const sharedFields = {

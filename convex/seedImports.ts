@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 
-import { toAuthSubject } from "./_communityAuthority";
+import { activeBrowserSessionSubjectOrNull } from "./_browserSessionAuthority";
 import type { Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
 import {
@@ -43,9 +43,7 @@ async function actorFromArgs(
     return actor;
   }
 
-  const identity = await ctx.auth.getUserIdentity();
-
-  return identity === null ? undefined : toAuthSubject(identity);
+  return (await activeBrowserSessionSubjectOrNull(ctx))?.subject;
 }
 
 async function getCandidateFields(ctx: Pick<MutationCtx, "db">, candidateId: Id<"seedImportCandidateProfiles">) {

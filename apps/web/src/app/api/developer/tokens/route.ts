@@ -10,6 +10,14 @@ import {
 import { apiProblemResponse } from "@/lib/server/api-v0";
 import { temporalTokenScopeEligibilityProblem } from "@/lib/server/api-token-errors";
 import { convexHttpClient } from "@/lib/server/convex-http";
+import {
+  invalidAuthSessionResponse,
+  isAuthSessionInvalidError,
+} from "@/lib/server/invalid-auth-session";
+import {
+  isRecentAuthRequiredError,
+  recentAuthRequiredResponse,
+} from "@/lib/recent-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -117,6 +125,14 @@ export async function POST(request: Request) {
       },
     );
   } catch (error) {
+    if (isAuthSessionInvalidError(error)) {
+      return invalidAuthSessionResponse("/developers/tokens");
+    }
+
+    if (isRecentAuthRequiredError(error)) {
+      return recentAuthRequiredResponse("/developers/tokens");
+    }
+
     const eligibility = temporalTokenScopeEligibilityProblem(error);
     if (eligibility !== null) {
       return problem(403, eligibility.title, eligibility.detail);

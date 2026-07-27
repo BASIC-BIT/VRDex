@@ -1,7 +1,10 @@
 import { v } from "convex/values";
 
-import { getCurrentUser, getLinkedProviderAccount, requireCurrentUser, requireVerifiedEmailUser } from "./accounts";
-import { toAuthSubject } from "./_communityAuthority";
+import { getLinkedProviderAccount } from "./accounts";
+import {
+  activeBrowserSessionOrNull,
+  requireActiveBrowserSessionSubject,
+} from "./_browserSessionAuthority";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
@@ -45,6 +48,23 @@ const claimedCommunityProfileArgs = {
   ),
 };
 
+async function requireVerifiedActiveBrowserSession(
+  ctx: Parameters<typeof requireActiveBrowserSessionSubject>[0],
+) {
+  const activeSession = await requireActiveBrowserSessionSubject(ctx);
+
+  if (
+    activeSession.user.email === undefined ||
+    activeSession.user.emailVerificationTime === undefined
+  ) {
+    throw new Error(
+      "A verified email address is required before claim-level actions.",
+    );
+  }
+
+  return activeSession;
+}
+
 export const getClaimTargetBySlug = query({
   args: {
     profileSlug: v.string(),
@@ -60,7 +80,8 @@ export const getClaimTargetBySlug = query({
       return null;
     }
 
-    const user = await getCurrentUser(ctx);
+    const activeSession = await activeBrowserSessionOrNull(ctx);
+    const user = activeSession?.user ?? null;
     const hasPublicProfile = canReadProfile("public", profile);
     const isOwner = user !== null && await userOwnsProfile(ctx.db, profile._id, user._id);
     if (!hasPublicProfile && !isOwner) {
@@ -227,7 +248,8 @@ export const getClaimJourneyContext = query({
       return null;
     }
 
-    const user = await getCurrentUser(ctx);
+    const activeSession = await activeBrowserSessionOrNull(ctx);
+    const user = activeSession?.user ?? null;
     const publiclyReadable = canReadProfile("public", profile);
     if (user === null) {
       if (!publiclyReadable) {
@@ -304,7 +326,7 @@ export const cancelClaimJourneyPending = mutation({
     pendingType: v.union(v.literal("claim_request"), v.literal("proof")),
   },
   handler: async (ctx, args) => {
-    const user = await requireCurrentUser(ctx);
+    const { user } = await requireActiveBrowserSessionSubject(ctx);
     const validation = validateProfileSlug(args.profileSlug);
     if (!validation.ok) {
       throw new Error("A valid profile slug is required.");
@@ -423,10 +445,7 @@ export const claimExistingPersonWithDiscord = mutation({
     profileSlug: v.string(),
   },
   handler: async (ctx, args) => {
-    const [user, identity] = await Promise.all([
-      requireVerifiedEmailUser(ctx),
-      ctx.auth.getUserIdentity(),
-    ]);
+    const { subject, user } = await requireVerifiedActiveBrowserSession(ctx);
     const [profile, discordAccount] = await Promise.all([
       getClaimableProfileBySlug(ctx.db, args.profileSlug, "person"),
       requireLinkedDiscordAccount(ctx, user._id),
@@ -470,7 +489,7 @@ export const claimExistingPersonWithDiscord = mutation({
       grantedByClaimRequestId: claimRequestId,
       verified: false,
       now,
-      ...(identity !== null ? { actor: toAuthSubject(identity) } : {}),
+      actor: subject,
       note: "Discord person claim grants owner control without stronger profile verification.",
     });
 
@@ -493,10 +512,7 @@ export const createClaimedDiscordPersonProfile = mutation({
   handler: async (ctx, args) => {
     requireNoSuitableMatchConfirmed(args.noSuitableMatchConfirmed);
 
-    const [user, identity] = await Promise.all([
-      requireVerifiedEmailUser(ctx),
-      ctx.auth.getUserIdentity(),
-    ]);
+    const { subject, user } = await requireVerifiedActiveBrowserSession(ctx);
     const discordAccount = await requireLinkedDiscordAccount(ctx, user._id);
 
     return await createClaimedDiscordProfileForUser(ctx.db, {
@@ -510,7 +526,7 @@ export const createClaimedDiscordPersonProfile = mutation({
         person: args.person,
       },
       now: Date.now(),
-      ...(identity !== null ? { actor: toAuthSubject(identity) } : {}),
+      actor: subject,
     });
   },
 });
@@ -520,10 +536,7 @@ export const createClaimedDiscordCommunityProfile = mutation({
   handler: async (ctx, args) => {
     requireNoSuitableMatchConfirmed(args.noSuitableMatchConfirmed);
 
-    const [user, identity] = await Promise.all([
-      requireVerifiedEmailUser(ctx),
-      ctx.auth.getUserIdentity(),
-    ]);
+    const { subject, user } = await requireVerifiedActiveBrowserSession(ctx);
     const discordAccount = await requireLinkedDiscordAccount(ctx, user._id);
 
     return await createClaimedDiscordProfileForUser(ctx.db, {
@@ -537,7 +550,7 @@ export const createClaimedDiscordCommunityProfile = mutation({
         community: args.community,
       },
       now: Date.now(),
-      ...(identity !== null ? { actor: toAuthSubject(identity) } : {}),
+      actor: subject,
     });
   },
 });
@@ -549,7 +562,7 @@ export const requestCommunityDiscordAdminClaim = mutation({
     discordGuildName: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const user = await requireVerifiedEmailUser(ctx);
+    const { user } = await requireVerifiedActiveBrowserSession(ctx);
     const [profile, discordAccount] = await Promise.all([
       getClaimableProfileBySlug(ctx.db, args.profileSlug, "community"),
       requireLinkedDiscordAccount(ctx, user._id),
@@ -684,7 +697,7 @@ export const getDiscordCommunityClaimForAdapter = internalQuery({
     claimRequestId: v.id("profileClaimRequests"),
   },
   handler: async (ctx, args) => {
-    const user = await requireVerifiedEmailUser(ctx);
+    const { user } = await requireVerifiedActiveBrowserSession(ctx);
     const claimRequest = await ctx.db.get(args.claimRequestId);
 
     if (claimRequest === null) {
@@ -778,7 +791,7 @@ export const startVrchatProof = mutation({
     targetExternalId: v.string(),
   },
   handler: async (ctx, args) => {
-    const user = await requireVerifiedEmailUser(ctx);
+    const { user } = await requireVerifiedActiveBrowserSession(ctx);
     const profile = await getClaimableProfileBySlug(
       ctx.db,
       args.profileSlug,
@@ -867,7 +880,7 @@ export const getVerificationAttemptForAdapter = internalQuery({
     attemptId: v.id("profileVerificationAttempts"),
   },
   handler: async (ctx, args) => {
-    const user = await requireVerifiedEmailUser(ctx);
+    const { user } = await requireVerifiedActiveBrowserSession(ctx);
     const attempt = await ctx.db.get(args.attemptId);
 
     if (attempt === null) {

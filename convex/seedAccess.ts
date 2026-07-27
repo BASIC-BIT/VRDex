@@ -4,7 +4,7 @@ import {
   getAccountFeatureAccess,
   requirePrivateSeedLookupAccess,
 } from "./_accountFeatures";
-import { getCurrentUser } from "./accounts";
+import { activeBrowserSessionOrNull } from "./_browserSessionAuthority";
 import { query } from "./_generated/server";
 import {
   canIncludePrivateSeedCandidate,
@@ -14,14 +14,15 @@ import {
 export const viewerAccess = query({
   args: {},
   handler: async (ctx) => {
-    const user = await getCurrentUser(ctx);
+    const activeSession = await activeBrowserSessionOrNull(ctx);
 
-    if (user === null) {
+    if (activeSession === null) {
       return {
         allowed: false,
         source: "signed_out" as const,
       };
     }
+    const { user } = activeSession;
 
     const access = await getAccountFeatureAccess(ctx.db, user._id);
     return {

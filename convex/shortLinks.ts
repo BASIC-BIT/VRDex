@@ -1,26 +1,20 @@
 import { v } from "convex/values";
 
 import { mutation, query, type MutationCtx } from "./_generated/server";
-import { toAuthSubject } from "./_communityAuthority";
+import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import {
   ensureShortLinkForTarget,
   requireShortLinkReservationPermission,
   resolvePublicShortLinkTarget,
   type ShortLinkTarget,
 } from "./_shortLinks";
-import { requireCurrentUser } from "./accounts";
 
 async function requireAuthenticatedShortLinkActor(ctx: MutationCtx) {
-  const user = await requireCurrentUser(ctx);
-  const identity = await ctx.auth.getUserIdentity();
-
-  if (identity === null) {
-    throw new Error("Short link generation requires a signed-in user.");
-  }
+  const { subject, userId } = await requireActiveBrowserSessionSubject(ctx);
 
   return {
-    userId: user._id,
-    subject: toAuthSubject(identity),
+    userId,
+    subject,
   };
 }
 

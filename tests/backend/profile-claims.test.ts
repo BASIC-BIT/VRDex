@@ -27,6 +27,14 @@ describe("profile claim lifecycle", () => {
         email: "private-claim-target-other@example.test",
         emailVerificationTime: now,
       });
+      const ownerSessionId = await ctx.db.insert("authSessions", {
+        userId,
+        expirationTime: now + 60_000,
+      });
+      const otherSessionId = await ctx.db.insert("authSessions", {
+        userId: otherUserId,
+        expirationTime: now + 60_000,
+      });
       const profileId = await ctx.db.insert("profiles", {
         profileType: "person",
         slug: "private-claim-target",
@@ -53,12 +61,12 @@ describe("profile claim lifecycle", () => {
       return {
         profileId,
         ownerIdentity: {
-          subject: `${userId}|web-session`,
+          subject: `${userId}|${ownerSessionId}`,
           issuer: "test",
           tokenIdentifier: `test|${userId}`,
         },
         otherIdentity: {
-          subject: `${otherUserId}|web-session`,
+          subject: `${otherUserId}|${otherSessionId}`,
           issuer: "test",
           tokenIdentifier: `test|${otherUserId}`,
         },
@@ -277,11 +285,15 @@ describe("profile claim lifecycle", () => {
         updatedAt: now - 1000,
         expiresAt: now - 1,
       });
+      const sessionId = await ctx.db.insert("authSessions", {
+        userId,
+        expirationTime: now + 60_000,
+      });
 
       return {
         attemptId,
         identity: {
-          subject: `${userId}|web-session`,
+          subject: `${userId}|${sessionId}`,
           issuer: "test",
           tokenIdentifier: `test|${userId}`,
         },
@@ -420,12 +432,16 @@ describe("profile claim lifecycle", () => {
         updatedAt: now,
         expiresAt: now + 60_000,
       });
+      const sessionId = await ctx.db.insert("authSessions", {
+        userId,
+        expirationTime: now + 60_000,
+      });
 
       return {
         attemptId,
         claimRequestId,
         identity: {
-          subject: `${userId}|web-session`,
+          subject: `${userId}|${sessionId}`,
           issuer: "test",
           tokenIdentifier: `test|${userId}`,
         },

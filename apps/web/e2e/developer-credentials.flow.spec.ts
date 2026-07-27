@@ -98,6 +98,28 @@ async function createVerifiedE2eAccount({
   ]);
 }
 
+async function completePasswordStepUp({
+  page,
+  email,
+  password,
+  reauthUrl,
+}: {
+  page: Page;
+  email: string;
+  password: string;
+  reauthUrl: string;
+}) {
+  await gotoFlowPage(page, reauthUrl);
+  await expect(
+    page.getByRole("heading", { name: "Sign in again" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Use email and password" }).click();
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill(password);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page).toHaveURL(/\/developers\/tokens$/);
+}
+
 async function cleanupE2eAccount(request: APIRequestContext, e2eToken: string, email: string) {
   await request.delete("/api/e2e/auth", {
     headers: { "x-vrdex-e2e-token": e2eToken },
@@ -155,12 +177,38 @@ test("developer credentials work with v0 bearer APIs and OAuth PKCE @flow", asyn
   try {
     await createVerifiedE2eAccount({ page, request, e2eToken, email, password });
     accountCreated = true;
-    await gotoFlowPage(page, "/account");
-
-    const tokenResult = await postSessionJson(page, "/api/developer/tokens", {
+    const tokenPayload = {
       label: `Playwright developer token ${runSuffix}`,
       scopes: ["public:read", "developer:read", "developer:write"],
+    };
+    const initialTokenResult = await postSessionJson(
+      page,
+      "/api/developer/tokens",
+      tokenPayload,
+    );
+    const initialTokenBody = initialTokenResult.body as {
+      code?: string;
+      reauthUrl?: string;
+    };
+
+    expect(initialTokenResult.status).toBe(401);
+    expect(initialTokenBody.code).toBe("RECENT_AUTH_REQUIRED");
+    expect(initialTokenBody.reauthUrl).toMatch(
+      /^\/auth\/reauth\/start\?returnTo=/,
+    );
+
+    await completePasswordStepUp({
+      page,
+      email,
+      password,
+      reauthUrl: initialTokenBody.reauthUrl!,
     });
+
+    const tokenResult = await postSessionJson(
+      page,
+      "/api/developer/tokens",
+      tokenPayload,
+    );
 
     expectJsonResponseOk(tokenResult, "Personal API token creation");
     const tokenBody = tokenResult.body as {
