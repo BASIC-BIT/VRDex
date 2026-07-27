@@ -335,7 +335,7 @@ test("verified email account with linked Discord can claim person and community 
     // servers instead of asking for a pasted guild id.
     await page.getByLabel("Discord server").selectOption(E2E_DISCORD_GUILD_ID);
     await page.getByRole("button", { name: "Claim with this server" }).click();
-    const communityClaimed = page.getByText("Administrator access verified. This community is now yours.");
+    const communityClaimed = page.getByText("Server control verified. This community is now yours.");
     const communityClaimFailed = page.getByText(
       "We could not complete that check. Nothing changed; try again or choose another method.",
     );
@@ -415,6 +415,10 @@ test("verified email account can complete VRChat adapter claims @flow", async ({
       return;
     }
 
+    // Communities lead with Discord now that the OAuth round-trip no longer
+    // needs a linked Discord sign-in, so select the VRChat method this test is
+    // actually about rather than relying on it being preselected.
+    await page.getByRole("button", { name: /Verify with VRChat/ }).click();
     await expect(page.getByRole("button", { name: /Verify with VRChat/ })).toHaveAttribute(
       "aria-pressed",
       "true",
