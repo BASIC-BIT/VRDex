@@ -3,7 +3,7 @@ import { fetchAction } from "convex/nextjs";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { api } from "@convex-generated-api";
-import { resolveSameOriginUrl, safeReturnPath } from "@/lib/return-path";
+import { appendReturnPathQuery, resolveSameOriginUrl, safeReturnPath } from "@/lib/return-path";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.redirect(
       resolveSameOriginUrl(
-        `${returnTo}${returnTo.includes("?") ? "&" : "?"}discordVerify=unavailable`,
+        appendReturnPathQuery(returnTo, { discordVerify: "unavailable" }),
         request.nextUrl.origin,
       ),
     );

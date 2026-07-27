@@ -3,15 +3,12 @@ import { fetchAction } from "convex/nextjs";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { api } from "@convex-generated-api";
-import { resolveSameOriginUrl } from "@/lib/return-path";
+import { appendReturnPathQuery, resolveSameOriginUrl } from "@/lib/return-path";
 
 export const dynamic = "force-dynamic";
 
 function withStatus(path: string, status: string, count?: number): string {
-  const separator = path.includes("?") ? "&" : "?";
-  const suffix = count === undefined ? "" : `&discordGuilds=${count}`;
-
-  return `${path}${separator}discordVerify=${status}${suffix}`;
+  return appendReturnPathQuery(path, { discordVerify: status, discordGuilds: count });
 }
 
 export async function GET(request: NextRequest) {

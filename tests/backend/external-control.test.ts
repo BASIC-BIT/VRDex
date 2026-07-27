@@ -424,6 +424,42 @@ describe("VRCLinking credential delegation", () => {
     );
   });
 
+  // The adapter classifies references with case-sensitive startsWith, so an
+  // uppercase scheme would register cleanly and then fail every resolution
+  // forever with no operator-visible signal.
+  it("refuses a reference whose scheme casing the adapter cannot resolve", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await seedOwnedCommunity(t, "delegation-casing", now);
+    const guildId = "12345678901234567";
+    await t.run(async (ctx) => {
+      await recordExternalControlProof(ctx.db, {
+        userId: seeded.userId,
+        assetType: "discord_guild",
+        assetExternalId: guildId,
+        controlLevel: "owner",
+        evidenceSource: "discord_oauth",
+        now,
+      });
+    });
+
+    for (const secretRef of [
+      "SECRET://vrdex/group-telemetry/oak",
+      "ARN:aws:secretsmanager:us-east-1:1234:secret:oak",
+    ]) {
+      await assert.rejects(
+        () =>
+          t.withIdentity(seeded.identity).mutation(api.vrclinkingCredentials.registerCredential, {
+            profileSlug: "delegation-casing",
+            guildId,
+            secretRef,
+          }),
+        /ADAPTER_NOT_CONFIGURED/,
+        secretRef,
+      );
+    }
+  });
+
   it("refuses a raw token and requires a secret store reference", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();

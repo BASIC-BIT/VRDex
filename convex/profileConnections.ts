@@ -358,6 +358,9 @@ export const listAvailableConnections = query({
   },
 });
 
+/** Matches the hourly cadence and headroom of `expireStaleVerificationAttempts`. */
+const OVERDUE_PROOF_BATCH = 500;
+
 /**
  * Mark control proofs whose revalidation window has passed as stale.
  *
@@ -376,12 +379,17 @@ export const markOverdueControlProofsStale = internalMutation({
       .withIndex("by_state_revalidateAfter", (q) =>
         q.eq("state", "active").lte("revalidateAfter", now),
       )
-      .take(200);
+      .take(OVERDUE_PROOF_BATCH);
 
     await Promise.all(
       overdue.map((proof) => ctx.db.patch(proof._id, { state: "stale", updatedAt: now })),
     );
 
-    return { stale: overdue.length };
+    // Every proof shares one 30-day revalidation window and a single OAuth pass
+    // records one per manageable guild, so overdue proofs arrive in bursts. A
+    // truncated batch means the tail stayed active past its window and could
+    // still authorize a new claim, so surface it instead of returning a count
+    // that looks identical to a healthy run.
+    return { stale: overdue.length, saturated: overdue.length === OVERDUE_PROOF_BATCH };
   },
 });

@@ -9,7 +9,12 @@ import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 
 // Mirrors the collector account rule: credentials live in the operator secret
 // store and Convex only ever holds a reference to them.
-const SECRET_REF_PATTERN = /^(arn:aws:secretsmanager:|secret:\/\/)[^\s]+$/i;
+//
+// Deliberately case-sensitive. The adapter classifies references with
+// case-sensitive `startsWith`, so accepting `SECRET://…` here would store a
+// reference that registers cleanly and then fails every resolution forever,
+// with no operator-visible signal beyond a permanently "unavailable" claim.
+const SECRET_REF_PATTERN = /^(arn:aws:secretsmanager:|secret:\/\/)[^\s]+$/;
 const DISCORD_GUILD_ID_PATTERN = /^\d{17,20}$/;
 
 async function requireCommunityProfile(

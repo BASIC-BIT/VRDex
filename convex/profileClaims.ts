@@ -1081,7 +1081,13 @@ export const verifyVrchatProofViaAdapter = action({
           } | null)
         : null;
 
-    if (attemptContext.attempt.targetType === "vrclinking" && delegationContext === null) {
+    // No linked Discord account, or no community has delegated a credential:
+    // either way there is nothing to ask. Short-circuit rather than posting the
+    // claimant's Discord id to an adapter that cannot answer.
+    if (
+      attemptContext.attempt.targetType === "vrclinking" &&
+      (delegationContext === null || delegationContext.delegations.length === 0)
+    ) {
       return { state: "unavailable" as const };
     }
 
