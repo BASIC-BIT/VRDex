@@ -229,9 +229,13 @@ export function ConnectionsPanel({ initialProfileSlug }: { initialProfileSlug?: 
                 Verify Discord servers
               </Link>
               {activeSlug ? (
+                // Encoded even though `activeSlug` can only be a slug the server
+                // returned for this account: it originates in a query parameter,
+                // and a link target is not the place to rely on that narrowing
+                // holding forever.
                 <Link
                   className={buttonVariants({ variant: "secondary" })}
-                  href={`/claim/${activeSlug}`}
+                  href={`/claim/${encodeURIComponent(activeSlug)}`}
                 >
                   Start a VRChat proof
                 </Link>
