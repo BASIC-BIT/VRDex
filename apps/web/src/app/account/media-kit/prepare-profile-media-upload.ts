@@ -50,6 +50,62 @@ function jpegDimensions(bytes: Uint8Array): ImageDimensions | null {
   return null;
 }
 
+function jpegOrientation(bytes: Uint8Array) {
+  if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return 1;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let offset = 2;
+
+  while (offset + 4 < bytes.length) {
+    if (bytes[offset] !== 0xff) {
+      offset += 1;
+      continue;
+    }
+    let markerOffset = offset + 1;
+    while (bytes[markerOffset] === 0xff) markerOffset += 1;
+    if (markerOffset + 2 >= bytes.length) return 1;
+    const marker = bytes[markerOffset]!;
+    if (marker === 0xd8 || marker === 0xd9) {
+      offset = markerOffset + 1;
+      continue;
+    }
+    const segmentLength = (bytes[markerOffset + 1]! << 8) | bytes[markerOffset + 2]!;
+    const segmentEnd = markerOffset + segmentLength + 1;
+    if (segmentLength < 2 || segmentEnd > bytes.length) return 1;
+
+    const payloadOffset = markerOffset + 3;
+    if (
+      marker === 0xe1 &&
+      segmentLength >= 16 &&
+      String.fromCharCode(...bytes.subarray(payloadOffset, payloadOffset + 6)) === "Exif\0\0"
+    ) {
+      const tiffOffset = payloadOffset + 6;
+      const byteOrder = String.fromCharCode(bytes[tiffOffset]!, bytes[tiffOffset + 1]!);
+      const littleEndian = byteOrder === "II";
+      if ((littleEndian || byteOrder === "MM") && view.getUint16(tiffOffset + 2, littleEndian) === 42) {
+        const ifdOffset = tiffOffset + view.getUint32(tiffOffset + 4, littleEndian);
+        if (ifdOffset + 2 <= segmentEnd) {
+          const entryCount = view.getUint16(ifdOffset, littleEndian);
+          for (let index = 0; index < entryCount; index += 1) {
+            const entryOffset = ifdOffset + 2 + index * 12;
+            if (entryOffset + 12 > segmentEnd) break;
+            if (
+              view.getUint16(entryOffset, littleEndian) === 0x0112 &&
+              view.getUint16(entryOffset + 2, littleEndian) === 3 &&
+              view.getUint32(entryOffset + 4, littleEndian) === 1
+            ) {
+              const orientation = view.getUint16(entryOffset + 8, littleEndian);
+              return orientation >= 1 && orientation <= 8 ? orientation : 1;
+            }
+          }
+        }
+      }
+    }
+    offset = segmentEnd;
+  }
+
+  return 1;
+}
+
 function webpDimensions(bytes: Uint8Array): ImageDimensions | null {
   const text = (offset: number, length: number) =>
     String.fromCharCode(...bytes.subarray(offset, offset + length));
@@ -114,7 +170,11 @@ function hasWebpAnimation(bytes: Uint8Array) {
   return false;
 }
 
-async function inspectImage(file: File): Promise<{ animated: boolean; dimensions: ImageDimensions | null }> {
+async function inspectImage(file: File): Promise<{
+  animated: boolean;
+  dimensions: ImageDimensions | null;
+  swapsAxes: boolean;
+}> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   if (
     bytes.length >= 24 &&
@@ -127,12 +187,16 @@ async function inspectImage(file: File): Promise<{ animated: boolean; dimensions
     return {
       animated: hasPngAnimation(bytes),
       dimensions: { width: view.getUint32(16), height: view.getUint32(20) },
+      swapsAxes: false,
     };
   }
+  const jpeg = jpegDimensions(bytes);
   const webp = webpDimensions(bytes);
+  const orientation = jpeg === null ? 1 : jpegOrientation(bytes);
   return {
     animated: webp !== null && hasWebpAnimation(bytes),
-    dimensions: jpegDimensions(bytes) ?? webp,
+    dimensions: jpeg ?? webp,
+    swapsAxes: orientation >= 5 && orientation <= 8,
   };
 }
 
@@ -178,23 +242,32 @@ export async function prepareProfileMediaUpload(file: File): Promise<PreparedPro
   ) {
     throw new Error("Image dimensions are too large.");
   }
+  const orientedWidth = inspected.swapsAxes ? dimensions.height : dimensions.width;
+  const orientedHeight = inspected.swapsAxes ? dimensions.width : dimensions.height;
+  const preparedScale = Math.min(
+    1,
+    PROFILE_MEDIA_MAX_STORED_DIMENSION / Math.max(orientedWidth, orientedHeight),
+    Math.sqrt(PROFILE_MEDIA_MAX_PREPARED_PIXELS / (orientedWidth * orientedHeight)),
+  );
+  const preparedWidth = Math.max(1, Math.round(orientedWidth * preparedScale));
+  const preparedHeight = Math.max(1, Math.round(orientedHeight * preparedScale));
+
   let bitmap: ImageBitmap;
   try {
-    bitmap = await createImageBitmap(file);
+    bitmap = await createImageBitmap(file, {
+      resizeWidth: preparedWidth,
+      resizeHeight: preparedHeight,
+      resizeQuality: "high",
+    });
   } catch {
     throw new Error("Image could not be prepared for upload.");
   }
 
   try {
-    const preparedScale = Math.min(
-      1,
-      PROFILE_MEDIA_MAX_STORED_DIMENSION / Math.max(bitmap.width, bitmap.height),
-      Math.sqrt(PROFILE_MEDIA_MAX_PREPARED_PIXELS / (bitmap.width * bitmap.height)),
-    );
     for (const scaleStep of PROFILE_MEDIA_SCALE_STEPS) {
       const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(bitmap.width * preparedScale * scaleStep));
-      canvas.height = Math.max(1, Math.round(bitmap.height * preparedScale * scaleStep));
+      canvas.width = Math.max(1, Math.round(bitmap.width * scaleStep));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scaleStep));
       const context = canvas.getContext("2d");
 
       if (context === null) {

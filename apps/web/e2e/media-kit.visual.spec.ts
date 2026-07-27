@@ -171,17 +171,33 @@ test("owner oversized JPEG accepts legal marker fill bytes @fixture", async ({ p
 });
 
 test("owner oversized EXIF portrait preserves its oriented aspect ratio @fixture", async ({ page }) => {
-  const width = 2_000;
-  const height = 1_200;
-  const pixels = Buffer.alloc(width * height * 3);
-  for (let index = 0; index < pixels.length; index += 1) {
-    pixels[index] = (index * 31 + Math.floor(index / 97)) % 256;
-  }
-  const image = await sharp(pixels, {
-    raw: { width, height, channels: 3 },
-  }).jpeg({ quality: 100, chromaSubsampling: "4:4:4" }).withMetadata({ orientation: 6 }).toBuffer();
-  expect(image.length).toBeGreaterThan(4 * 1024 * 1024);
+  const source = await sharp({
+    create: {
+      width: 8_000,
+      height: 4_000,
+      channels: 3,
+      background: { r: 90, g: 40, b: 160 },
+    },
+  }).jpeg().withMetadata({ orientation: 6 }).toBuffer();
+  const image = Buffer.concat([
+    source,
+    Buffer.alloc(4 * 1024 * 1024 + 1 - source.length),
+  ]);
+  expect(image.length).toBe(4 * 1024 * 1024 + 1);
 
+  await page.addInitScript(() => {
+    const originalCreateImageBitmap = window.createImageBitmap.bind(window) as (
+      ...args: unknown[]
+    ) => Promise<ImageBitmap>;
+    window.createImageBitmap = ((...args: unknown[]) => {
+      if (args.length === 2) {
+        const options = args[1] as ImageBitmapOptions;
+        (window as typeof window & { mediaDecodeOptions?: ImageBitmapOptions }).mediaDecodeOptions =
+          options;
+      }
+      return originalCreateImageBitmap(...args);
+    }) as typeof window.createImageBitmap;
+  });
   await page.goto("/account/media-kit");
   await page.evaluate(() => {
     window.addEventListener("vrdex:media-upload-attempt", (event) => {
@@ -197,12 +213,19 @@ test("owner oversized EXIF portrait preserves its oriented aspect ratio @fixture
   await page.getByRole("button", { name: "Publish" }).click();
 
   await expect.poll(() => page.evaluate(
+    () => (window as typeof window & { mediaDecodeOptions?: ImageBitmapOptions }).mediaDecodeOptions,
+  )).toMatchObject({
+    resizeWidth: 2_048,
+    resizeHeight: 4_096,
+    resizeQuality: "high",
+  });
+  await expect.poll(() => page.evaluate(
     () => (window as typeof window & { mediaUploadAttempt?: unknown }).mediaUploadAttempt,
   )).toMatchObject({
     name: "exif-portrait.webp",
     type: "image/webp",
-    width: height,
-    height: width,
+    width: 2_048,
+    height: 4_096,
   });
 });
 
