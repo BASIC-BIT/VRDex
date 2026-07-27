@@ -233,7 +233,9 @@ export function ConnectionsPanel({ initialProfileSlug }: { initialProfileSlug?: 
           <form className="mt-4" onSubmit={submitAdd}>
             <Field>
               Verified server or group
-              <Select name="asset" required>
+              {/* Option text is a raw usr_… id or a private server name;
+                  maskAllInputs covers the select value, not the option text. */}
+              <Select name="asset" required data-ph-no-capture>
                 {available.map((asset) => (
                   <option
                     key={`${asset.assetType}:${asset.assetExternalId}`}
@@ -321,7 +323,7 @@ export function ConnectionsPanel({ initialProfileSlug }: { initialProfileSlug?: 
               <form className="mt-4" onSubmit={submitDelegation}>
                 <Field>
                   Discord server
-                  <Select name="delegationGuildId" required>
+                  <Select name="delegationGuildId" required data-ph-no-capture>
                     {connectedGuilds.map((connection) => (
                       <option key={connection.assetExternalId} value={connection.assetExternalId}>
                         {connection.assetDisplayName ?? connection.assetExternalId}

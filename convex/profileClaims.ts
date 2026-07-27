@@ -1032,13 +1032,21 @@ export const recordVrchatProofVerification = internalMutation({
     // Record the durable control proof and profile association so VRChat
     // targets participate in the same many-to-many link model as Discord
     // guilds, rather than the association living only on the claim request.
-    if (attempt.targetType !== "vrclinking") {
+    // A VRC Linking attestation targets a `usr_…` account just as a direct
+    // proof does, so it earns the same connection; skipping it left a profile
+    // verified with nothing shown under its connections.
+    {
       const assetType = attempt.targetType === "vrchat_group" ? "vrchat_group" : "vrchat_user";
       const proofId = await recordExternalControlProof(ctx.db, {
         userId: attempt.userId,
         assetType,
         assetExternalId: attempt.targetExternalId,
-        controlLevel: assetType === "vrchat_user" ? "self" : "owner",
+        // A group proof shows the claimant can edit the group's description,
+        // which staff roles can also do. That is authority to administer, not
+        // evidence of ownership, and recording `owner` would overstate it and
+        // could satisfy a future owner-only check. A bio on one's own profile
+        // does prove `self`.
+        controlLevel: assetType === "vrchat_user" ? "self" : "administrator",
         evidenceSource: args.evidenceSource,
         evidenceSummary: args.evidenceSummary,
         now,

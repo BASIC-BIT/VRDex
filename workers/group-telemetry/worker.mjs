@@ -186,6 +186,10 @@ async function checkProofs() {
       // Continuing through the batch during an explicit backoff window sends
       // more requests into a throttle. Stop the batch and honour the delay.
       if (error?.category === "rate_limit") {
+        // The rest of the batch is still stamped from the claim, so hand it
+        // back before sleeping. Otherwise a throttle also parks attempts that
+        // nobody looked at for the whole cooldown.
+        await releaseUnread(pending, attempt);
         await sleep(Math.min(Math.max(error.retryAfterMs ?? 60_000, 1_000), 5 * 60_000));
         break;
       }

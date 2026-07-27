@@ -3,7 +3,11 @@ import { v } from "convex/values";
 import { getLinkedProviderAccount, requireVerifiedEmailUser } from "./accounts";
 import { claimError } from "./_claimErrors";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
-import { MINIMUM_COMMUNITY_CONTROL_LEVEL, requireControlProof } from "./_externalControl";
+import {
+  MINIMUM_COMMUNITY_CONTROL_LEVEL,
+  getActiveControlProof,
+  requireControlProof,
+} from "./_externalControl";
 import { userOwnsProfile } from "./_profileOwnership";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 
@@ -246,14 +250,40 @@ export const getAdapterContext = internalQuery({
     // guilds a claimant belongs to without asking — so a claimant beyond the
     // cap may need to retry before their guild comes up. Rotation guarantees it
     // eventually does.
-    const delegations = await ctx.db
+    const candidates = await ctx.db
       .query("communityVrclinkingCredentials")
       .withIndex("by_state_lastConsultedAt", (q) => q.eq("state", "active"))
-      .take(MAX_ADAPTER_DELEGATIONS);
+      .take(MAX_ADAPTER_DELEGATIONS * 4);
+
+    // A delegation is only as good as the delegator's current control of the
+    // guild. Once OAuth reconciliation revokes their proof, or it passes its
+    // revalidation window, VRDex must stop querying that community's key even
+    // though the credential row itself is still active.
+    const now = Date.now();
+    const usable = [];
+
+    for (const row of candidates) {
+      if (usable.length >= MAX_ADAPTER_DELEGATIONS) {
+        break;
+      }
+
+      const proof = await getActiveControlProof(
+        ctx.db,
+        row.delegatedByUserId,
+        "discord_guild",
+        row.guildId,
+      );
+
+      if (proof === null || (proof.revalidateAfter !== undefined && proof.revalidateAfter <= now)) {
+        continue;
+      }
+
+      usable.push(row);
+    }
 
     return {
       discordUserId: discordAccount.providerAccountId,
-      delegations: delegations.map((row) => ({
+      delegations: usable.map((row) => ({
         credentialId: row._id,
         guildId: row.guildId,
         secretRef: row.secretRef,

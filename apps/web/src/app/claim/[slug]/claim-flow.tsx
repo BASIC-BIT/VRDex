@@ -448,7 +448,11 @@ export function ClaimFlow({
         {isUnverifiedViewer && status.kind !== "complete" ? (
           <Notice className="mt-8">
             <p className="font-semibold">You manage this profile, but it is not verified yet.</p>
-            <p className="mt-1">Complete the VRChat proof below to add verified status.</p>
+            <p className="mt-1">
+              {profile.profileType === "community"
+                ? "Prove control of its Discord server or VRChat group below to add verified status."
+                : "Complete the VRChat proof below to add verified status."}
+            </p>
           </Notice>
         ) : null}
         {canUseClaimJourney && !context?.emailVerified ? (
@@ -491,10 +495,17 @@ export function ClaimFlow({
               <form className="mt-8" onSubmit={submit}>
                 <fieldset>
                   <legend className="text-xl font-semibold">
-                    {isUnverifiedViewer ? "Verify this profile with VRChat" : "Choose how to confirm ownership"}
+                    {isUnverifiedViewer
+                      ? profile.profileType === "person"
+                        ? "Verify this profile with VRChat"
+                        : "Verify this community"
+                      : "Choose how to confirm ownership"}
                   </legend>
-                  <div className={cn("mt-4 grid gap-3", isUnverifiedViewer ? undefined : "sm:grid-cols-2")}>
-                    {isUnverifiedViewer ? (
+                  {/* An unverified community owner (created through the no-match
+                      path) can upgrade to verified by proving Discord server
+                      control, so both methods must stay reachable for them. */}
+                  <div className={cn("mt-4 grid gap-3", isUnverifiedViewer && profile.profileType === "person" ? undefined : "sm:grid-cols-2")}>
+                    {isUnverifiedViewer && profile.profileType === "person" ? (
                       vrchatMethodCard
                     ) : (
                       <>
