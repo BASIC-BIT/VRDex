@@ -64,6 +64,60 @@ export type DiscoveryAnalyticsSurface =
   | "featured_picks";
 
 type ProductAnalyticsEvents = {
+  auth_session_restore_completed: {
+    browser_family?: "chromium" | "firefox" | "other" | "safari";
+    deployment_category?: "development" | "preview" | "production" | "staging";
+    latency_bucket: "over_10s" | "under_10s" | "under_1s" | "under_3s";
+    os_family?: "android" | "ios" | "linux" | "macos" | "other" | "windows";
+    outcome: "anonymous" | "authenticated";
+    route_class: "auth" | "protected" | "public";
+  };
+  auth_session_restore_slow: {
+    browser_family?: "chromium" | "firefox" | "other" | "safari";
+    deployment_category?: "development" | "preview" | "production" | "staging";
+    os_family?: "android" | "ios" | "linux" | "macos" | "other" | "windows";
+    route_class: "auth" | "protected" | "public";
+  };
+  auth_session_signout_requested: Record<string, never>;
+  auth_session_state_changed: {
+    browser_family?: "chromium" | "firefox" | "other" | "safari";
+    deployment_category?: "development" | "preview" | "production" | "staging";
+    from: "anonymous" | "authenticated";
+    intent: "explicit_signout_current_tab" | "unclassified";
+    os_family?: "android" | "ios" | "linux" | "macos" | "other" | "windows";
+    to: "anonymous" | "authenticated";
+  };
+  recent_auth_challenge_completed: {
+    $insert_id?: string;
+    action_class:
+      | "developer_oauth_application"
+      | "developer_token"
+      | "session_revocation";
+    outcome: "cancelled" | "completed";
+  };
+  recent_auth_challenge_presented: {
+    action_class:
+      | "developer_oauth_application"
+      | "developer_token"
+      | "session_revocation";
+  };
+  sensitive_action_denied: {
+    action_class:
+      | "developer_oauth_application"
+      | "developer_token"
+      | "session_revocation";
+    reason: "stale";
+  };
+  session_revocation_completed: {
+    scope: "all" | "one" | "others";
+  };
+  session_revocation_started: {
+    scope: "all" | "others";
+  };
+  session_revocation_detected: Record<string, never>;
+  session_revocation_requested: {
+    scope: "all" | "one" | "others";
+  };
   claim_journey_viewed: {
     profile_type: "person" | "community";
     source: "account" | "profile" | "search";

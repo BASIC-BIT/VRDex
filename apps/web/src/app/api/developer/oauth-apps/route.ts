@@ -15,6 +15,14 @@ import {
 
 import { apiProblemResponse } from "@/lib/server/api-v0";
 import { convexHttpClient } from "@/lib/server/convex-http";
+import {
+  invalidAuthSessionResponse,
+  isAuthSessionInvalidError,
+} from "@/lib/server/invalid-auth-session";
+import {
+  isRecentAuthRequiredError,
+  recentAuthRequiredResponse,
+} from "@/lib/recent-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +46,14 @@ function problem(status: 400 | 401 | 403 | 404 | 500, title: string, detail: str
 }
 
 function createFailureResponse(error: unknown) {
+  if (isAuthSessionInvalidError(error)) {
+    return invalidAuthSessionResponse("/developers/apps");
+  }
+
+  if (isRecentAuthRequiredError(error)) {
+    return recentAuthRequiredResponse("/developers/apps");
+  }
+
   const detail = error instanceof Error ? error.message : "The OAuth app could not be created.";
 
   if (detail.includes("not found")) {

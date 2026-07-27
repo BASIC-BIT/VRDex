@@ -1,7 +1,7 @@
 import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
-import { api } from "@convex-generated-api";
 import { TemporalParseRequestSchema } from "@vrdex/api-contracts";
 
+import { activeAuthSessionViewerQuery } from "@/lib/server/active-auth-session";
 import { convexHttpClient } from "@/lib/server/convex-http";
 import {
   completedTemporalResponse,
@@ -41,7 +41,8 @@ export async function POST(request: Request) {
 
   const convex = convexHttpClient();
   convex.setAuth(authToken);
-  const viewer = await convex.query(api.accounts.viewer, {});
+  const viewer = await convex.query(activeAuthSessionViewerQuery, {});
+
   if (viewer === null) {
     return problem(401, "Sign in required", "Sign in to use VRDex Time.");
   }

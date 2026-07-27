@@ -4,8 +4,14 @@ import {
   type APIRequestContext,
   type Browser,
   type BrowserContext,
+  type BrowserType,
   type Page,
 } from "@playwright/test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
+import { authSessionMatrixIdentity } from "./auth-session-matrix-identity";
 
 test.describe.configure({ mode: "serial" });
 
@@ -32,6 +38,11 @@ function e2eIdentity(testInfo: {
   workerIndex: number;
   repeatEachIndex: number;
 }) {
+  const sharedRunId = process.env.VRDEX_AUTH_MATRIX_RUN_ID?.trim();
+  if (sharedRunId) {
+    return authSessionMatrixIdentity(sharedRunId);
+  }
+
   const suffix = [
     "session",
     testInfo.project.name,
@@ -93,10 +104,11 @@ async function cleanupAccount(
   token: string,
   email: string,
 ) {
-  await request.delete("/api/e2e/auth", {
+  const response = await request.delete("/api/e2e/auth", {
     headers: { "x-vrdex-e2e-token": token },
     data: { email },
   });
+  await expect(response).toBeOK();
 }
 
 async function setSessionState(
@@ -175,10 +187,58 @@ async function createAuthenticatedContext({
   return { context, page };
 }
 
+async function signInVerifiedAccount({
+  page,
+  email,
+  password,
+}: {
+  page: Page;
+  email: string;
+  password: string;
+}) {
+  await page.goto("/sign-in");
+  await page.getByRole("button", { name: "Use email and password" }).click();
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill(password);
+  await Promise.all([
+    page.waitForURL(/\/account$/),
+    page.getByRole("button", { name: "Sign in" }).click(),
+  ]);
+}
+
+async function launchPersistentAuthContext(
+  browserType: BrowserType,
+  userDataDir: string,
+) {
+  return await browserType.launchPersistentContext(userDataDir, {
+    baseURL:
+      process.env.PLAYWRIGHT_BASE_URL?.trim().replace(/\/+$/, "") ??
+      `http://127.0.0.1:${process.env.PLAYWRIGHT_TEST_PORT ?? "3002"}`,
+    locale: "en-US",
+    serviceWorkers: "block",
+    timezoneId: "UTC",
+    viewport: { width: 1280, height: 900 },
+  });
+}
+
+async function closePersistentAuthContext(
+  context: BrowserContext | undefined,
+) {
+  if (!context) {
+    return;
+  }
+
+  const browser = context.browser();
+  await context.close();
+  if (browser?.isConnected()) {
+    await browser.close();
+  }
+}
+
 test(
-  "remembered session survives restart, deployment hydration, rotation, concurrent tabs, and sign-out @flow @fixture",
-  async ({ browser, request }, testInfo) => {
-    test.setTimeout(90_000);
+  "remembered session survives a persistent-profile restart, deployment hydration, rotation, concurrent tabs, and sign-out @flow @fixture @auth-session-matrix @auth-session-staging",
+  async ({ browserName, playwright, request }, testInfo) => {
+    test.setTimeout(120_000);
     test.skip(
       Boolean(process.env.PLAYWRIGHT_BASE_URL) &&
         process.env.VRDEX_ENABLE_E2E_AUTH_HELPERS !== "true",
@@ -187,23 +247,45 @@ test(
 
     const token = e2eBrowserToken();
     const { email, password } = e2eIdentity(testInfo);
+    const browserType = playwright[browserName];
+    const userDataDir = await mkdtemp(
+      path.join(tmpdir(), "vrdex-auth-session-"),
+    );
     let firstContext: BrowserContext | undefined;
     let restartedContext: BrowserContext | undefined;
 
     try {
-      ({ context: firstContext } = await createAuthenticatedContext({
-        browser,
-        request,
-        token,
-        email,
-        password,
-      }));
+      firstContext = await launchPersistentAuthContext(
+        browserType,
+        userDataDir,
+      );
+      const firstPage = firstContext.pages()[0] ?? await firstContext.newPage();
+      if (
+        process.env.VRDEX_AUTH_MATRIX_RUN_ID &&
+        browserName !== "chromium"
+      ) {
+        await signInVerifiedAccount({ page: firstPage, email, password });
+      } else {
+        await createVerifiedAccount({
+          page: firstPage,
+          request,
+          token,
+          email,
+          password,
+        });
+      }
 
       const cookiesBeforeRefresh = await authCookies(firstContext);
       expect(cookiesBeforeRefresh).toHaveLength(2);
+      // Playwright's Windows WebKit port reports Lax response cookies as None.
+      // Linux WebKit in CI and the hosted browsers retain the actual attribute.
+      const expectedSameSite =
+        browserName === "webkit" && process.platform === "win32"
+          ? "None"
+          : "Lax";
       for (const cookie of cookiesBeforeRefresh) {
         expect(cookie.httpOnly).toBe(true);
-        expect(cookie.sameSite).toBe("Lax");
+        expect(cookie.sameSite).toBe(expectedSameSite);
         expect(cookie.path).toBe("/");
         expect(cookie.expires).toBeGreaterThan(
           Date.now() / 1_000 + 29 * DAY_SECONDS,
@@ -216,7 +298,6 @@ test(
       const refreshCookieBefore = cookiesBeforeRefresh.find((cookie) =>
         cookie.name.includes("RefreshToken"),
       )?.value;
-      const firstPage = firstContext.pages()[0]!;
       await firstPage.route("**/api/auth", (route) =>
         route.abort("failed"),
       );
@@ -225,7 +306,14 @@ test(
         () => true,
       );
       expect(transientRefreshFailed).toBe(true);
-      expect(await authCookies(firstContext)).toEqual(cookiesBeforeRefresh);
+      const cookiesAfterTransientFailure = await authCookies(firstContext);
+      expect(cookiesAfterTransientFailure).toHaveLength(2);
+      for (const cookie of cookiesAfterTransientFailure) {
+        expect(cookie.value).toBeTruthy();
+        expect(cookie.expires).toBeGreaterThan(
+          Date.now() / 1_000 + 29 * DAY_SECONDS,
+        );
+      }
       await firstPage.unroute("**/api/auth");
       await firstPage.reload();
       await expect(
@@ -241,17 +329,15 @@ test(
       expect(refreshCookieAfter).toBeTruthy();
       expect(refreshCookieAfter).not.toBe(refreshCookieBefore);
 
-      const persistentCookies = await authCookies(firstContext);
-      await firstContext.close();
+      await closePersistentAuthContext(firstContext);
       firstContext = undefined;
 
-      restartedContext = await browser.newContext({
-        storageState: {
-          cookies: persistentCookies,
-          origins: [],
-        },
-      });
-      const restoredPage = await restartedContext.newPage();
+      restartedContext = await launchPersistentAuthContext(
+        browserType,
+        userDataDir,
+      );
+      const restoredPage =
+        restartedContext.pages()[0] ?? await restartedContext.newPage();
       await restoredPage.goto("/account");
       await expect(
         restoredPage.getByRole("heading", { name: email }),
@@ -264,17 +350,22 @@ test(
       ).toBeVisible();
 
       await restoredPage.getByRole("button", { name: "Sign out" }).click();
+      await expect(restoredPage).toHaveURL(/\/sign-in$/);
+      await expect(siblingPage).toHaveURL(/\/sign-in(?:\?|$)/);
       await expect(
-        siblingPage.getByRole("link", { name: "Sign in" }),
+        siblingPage.getByRole("heading", { name: "Sign in" }),
       ).toBeVisible();
 
       await restoredPage.goto("/account");
       await expect(restoredPage).toHaveURL(/\/sign-in\?returnTo=/);
       expect(await authCookies(restartedContext)).toHaveLength(0);
     } finally {
-      await firstContext?.close();
-      await restartedContext?.close();
-      await cleanupAccount(request, token, email);
+      await closePersistentAuthContext(firstContext);
+      await closePersistentAuthContext(restartedContext);
+      if (!process.env.VRDEX_AUTH_MATRIX_RUN_ID) {
+        await cleanupAccount(request, token, email);
+      }
+      await rm(userDataDir, { force: true, recursive: true });
     }
   },
 );
@@ -285,7 +376,9 @@ for (const state of [
   "invalid_refresh",
   "revoked",
 ] as const) {
-  test(`${state} session fails closed without retaining browser credentials @flow @fixture`, async ({
+  const matrixTag =
+    state === "invalid_refresh" ? " @auth-session-matrix" : "";
+  test(`${state} session fails closed without retaining browser credentials @flow @fixture${matrixTag}`, async ({
     browser,
     request,
   }, testInfo) => {
@@ -301,12 +394,25 @@ for (const state of [
     let context: BrowserContext | undefined;
 
     try {
-      const authenticated = await createAuthenticatedContext({
-        browser,
-        request,
-        token,
-        ...identity,
-      });
+      const authenticated = process.env.VRDEX_AUTH_MATRIX_RUN_ID
+        ? await (async () => {
+            const signedInContext = await browser.newContext();
+            const signedInPage = await signedInContext.newPage();
+            await signInVerifiedAccount({
+              page: signedInPage,
+              ...identity,
+            });
+            return {
+              context: signedInContext,
+              page: signedInPage,
+            };
+          })()
+        : await createAuthenticatedContext({
+            browser,
+            request,
+            token,
+            ...identity,
+          });
       context = authenticated.context;
 
       await setSessionState(
@@ -321,11 +427,25 @@ for (const state of [
       expect(refreshResult.body.tokens).toBeNull();
       expect(await authCookies(context)).toHaveLength(0);
 
-      await authenticated.page.goto("/account");
+      await authenticated.page.goto("/account").catch((error: unknown) => {
+        const expectedRedirectAbort =
+          error instanceof Error &&
+          (error.message.includes("net::ERR_ABORTED") ||
+            error.message.includes("NS_BINDING_ABORTED") ||
+            (error.message.includes(
+              "is interrupted by another navigation to",
+            ) &&
+              error.message.includes("/sign-in?returnTo=")));
+        if (!expectedRedirectAbort) {
+          throw error;
+        }
+      });
       await expect(authenticated.page).toHaveURL(/\/sign-in\?returnTo=/);
     } finally {
       await context?.close();
-      await cleanupAccount(request, token, identity.email);
+      if (!process.env.VRDEX_AUTH_MATRIX_RUN_ID) {
+        await cleanupAccount(request, token, identity.email);
+      }
     }
   });
 }

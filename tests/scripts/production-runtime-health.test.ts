@@ -123,6 +123,259 @@ test("fixture-backed handoff coverage runs in the flow lane and stays out of pro
   assert.match(workflow, /playwright test --grep @flow --project=desktop-chromium/);
   assert.match(webPackage.scripts?.["test:e2e:hosted"] ?? "", /--grep @flow/);
   assert.match(webPackage.scripts?.["test:e2e:hosted"] ?? "", /--grep-invert @fixture/);
-  assert.match(webPackage.scripts?.["test:e2e:hosted:smoke"] ?? "", /--grep-invert.*@flow/);
-  assert.match(webPackage.scripts?.["test:e2e:hosted:smoke"] ?? "", /--grep-invert.*@fixture/);
+  const productionSmokeScript =
+    webPackage.scripts?.["test:e2e:hosted:smoke"] ?? "";
+  assert.equal(
+    productionSmokeScript,
+    "playwright test public-routes.smoke.spec.ts --project=desktop-chromium --project=mobile-chromium",
+  );
+  assert.doesNotMatch(
+    productionSmokeScript,
+    /--grep-invert/,
+  );
+  const untaggedVisualFixture = await readFile(
+    "apps/web/e2e/media-kit.visual.spec.ts",
+    "utf8",
+  );
+  assert.match(
+    untaggedVisualFixture,
+    /test\("owner upload failure stays beside the publish control @fixture"/,
+  );
+  assert.doesNotMatch(productionSmokeScript, /media-kit\.visual\.spec\.ts/);
+});
+
+test("auth session browser coverage is bounded to its positive matrix", async () => {
+  const baseConfig = await readFile(
+    "apps/web/playwright.config.mjs",
+    "utf8",
+  );
+  const authConfig = await readFile(
+    "apps/web/playwright.auth.config.mjs",
+    "utf8",
+  );
+  const authFlow = await readFile(
+    "apps/web/e2e/auth-session.flow.spec.ts",
+    "utf8",
+  );
+  const workflow = await readFile(
+    ".github/workflows/baseline-checks.yml",
+    "utf8",
+  );
+  const webPackage = JSON.parse(
+    await readFile("apps/web/package.json", "utf8"),
+  ) as { scripts?: Record<string, string> };
+
+  assert.match(authConfig, /auth-chromium/);
+  assert.match(authConfig, /auth-firefox/);
+  assert.match(authConfig, /auth-webkit/);
+  assert.match(authConfig, /testMatch: "auth-session\.flow\.spec\.ts"/);
+  assert.match(authConfig, /grep: \/@auth-session-matrix\//);
+  assert.match(authConfig, /serviceWorkers: "block"/);
+  assert.match(
+    authConfig,
+    /globalTeardown: "\.\/e2e\/auth-session-matrix\.global-teardown\.ts"/,
+  );
+  assert.match(authConfig, /failOnFlakyTests: true/);
+  assert.match(authConfig, /retries: 1/);
+  assert.match(authConfig, /workers: 1/);
+  assert.match(authConfig, /dependencies/);
+  assert.match(baseConfig, /trace: "on-first-retry"/);
+  assert.match(authFlow, /launchPersistentContext\(userDataDir/);
+  assert.match(authFlow, /@auth-session-matrix/);
+  assert.match(
+    webPackage.scripts?.["test:e2e:auth-session-matrix"] ?? "",
+    /playwright test --config playwright\.auth\.config\.mjs/,
+  );
+  assert.match(
+    workflow,
+    /playwright install --with-deps chromium firefox webkit/,
+  );
+  assert.match(workflow, /pnpm test:e2e:auth-session-matrix/);
+});
+
+test("deployed auth checks separate recurring staging from manual production", async () => {
+  const source = await readFile(
+    ".github/workflows/deployed-health.yml",
+    "utf8",
+  );
+  const workflow = parseYaml(source) as {
+    on?: {
+      workflow_dispatch?: {
+        inputs?: Record<string, { default?: boolean; type?: string }>;
+      };
+    };
+    jobs?: Record<
+      string,
+      {
+        steps?: Array<{
+          env?: Record<string, string>;
+          name?: string;
+          run?: string;
+        }>;
+      }
+    >;
+  };
+  const webPackage = JSON.parse(
+    await readFile("apps/web/package.json", "utf8"),
+  ) as { scripts?: Record<string, string> };
+
+  assert.deepEqual(
+    workflow.on?.workflow_dispatch?.inputs?.production_auth,
+    {
+      default: false,
+      description:
+        "Run the manual one-shot production authenticated account read",
+      required: true,
+      type: "boolean",
+    },
+  );
+
+  const stagingStep = workflow.jobs?.["hosted-data-flow"]?.steps?.find(
+    (step) => step.name === "Run recurring staging auth session contract",
+  );
+  assert.ok(stagingStep);
+  assert.equal(stagingStep.run, "pnpm test:e2e:hosted:auth-session");
+
+  const productionConfigurationGate = workflow.jobs?.["production-smoke"]?.steps?.find(
+    (step) => step.name === "Check production smoke configuration",
+  );
+  assert.ok(productionConfigurationGate);
+  assert.equal(
+    productionConfigurationGate.env?.PRODUCTION_AUTH_REQUESTED,
+    "${{ inputs.production_auth || false }}",
+  );
+  assert.match(
+    productionConfigurationGate.run ?? "",
+    /production_auth was requested but no production base URL is configured/,
+  );
+  assert.match(productionConfigurationGate.run ?? "", /exit 1/);
+
+  const productionGate = workflow.jobs?.["production-smoke"]?.steps?.find(
+    (step) =>
+      step.name === "Check production authenticated smoke configuration",
+  );
+  assert.ok(productionGate);
+  assert.equal(productionGate.env?.EVENT_NAME, "${{ github.event_name }}");
+  assert.equal(
+    productionGate.env?.PRODUCTION_AUTH_REQUESTED,
+    "${{ inputs.production_auth || false }}",
+  );
+  assert.match(productionGate.run ?? "", /manual one-shot checks/);
+  assert.match(
+    productionGate.run ?? "",
+    /production_auth was requested but VRDEX_PRODUCTION_SMOKE_BASE_URL/,
+  );
+
+  const productionRun = workflow.jobs?.["production-smoke"]?.steps?.find(
+    (step) => step.name === "Run production authenticated account smoke",
+  );
+  assert.equal(
+    productionRun?.env?.VRDEX_PRODUCTION_AUTH_SMOKE_MODE,
+    "manual-one-shot",
+  );
+  assert.match(
+    webPackage.scripts?.["test:e2e:hosted:auth-session"] ?? "",
+    /auth-session\.flow\.spec\.ts --grep @auth-session-staging/,
+  );
+  assert.match(
+    webPackage.scripts?.["test:e2e:hosted:auth-smoke"] ?? "",
+    /node scripts\/run-production-auth-smoke\.mjs/,
+  );
+
+  const productionAuthConfig = await readFile(
+    "apps/web/playwright.production-auth.config.mjs",
+    "utf8",
+  );
+  const productionAuthRunner = await readFile(
+    "apps/web/scripts/run-production-auth-smoke.mjs",
+    "utf8",
+  );
+  assert.match(
+    productionAuthConfig,
+    /testMatch: "production-auth\.smoke\.spec\.ts"/,
+  );
+  assert.match(productionAuthConfig, /grep: \/@production-auth-one-shot\//);
+  assert.match(productionAuthConfig, /reporter: \[\["null"\]\]/);
+  assert.match(productionAuthConfig, /retries: 0/);
+  assert.match(productionAuthConfig, /trace: "off"/);
+  assert.match(productionAuthConfig, /screenshot: "off"/);
+  assert.match(productionAuthConfig, /video: "off"/);
+  assert.doesNotMatch(productionAuthConfig, /playwright-report/);
+  for (const classification of [
+    "missing_state",
+    "configuration_missing",
+    "auth_state_rejected",
+    "transport_failure",
+    "server_failure",
+    "passed",
+  ]) {
+    assert.match(productionAuthRunner, new RegExp(`"${classification}"`));
+  }
+  assert.doesNotMatch(productionAuthRunner, /console\.(log|error|warn)/);
+});
+
+test("production auth runner emits only a fixed missing-state classification", () => {
+  const result = spawnSync(
+    process.execPath,
+    ["scripts/run-production-auth-smoke.mjs"],
+    {
+      cwd: "apps/web",
+      encoding: "utf8",
+      env: {
+        PATH: process.env.PATH,
+        SYSTEMROOT: process.env.SYSTEMROOT,
+      },
+    },
+  );
+
+  assert.equal(result.status, 2);
+  assert.equal(result.stdout, "missing_state\n");
+  assert.equal(result.stderr, "");
+});
+
+test("production auth runner rejects incomplete one-shot configuration", () => {
+  const state = Buffer.from(
+    JSON.stringify({
+      cookies: [
+        {
+          name: "__convexAuthJWT",
+          value: "fixture",
+          domain: "vrdex.net",
+          path: "/",
+          expires: 4_102_444_800,
+          httpOnly: true,
+          secure: true,
+          sameSite: "Lax",
+        },
+        {
+          name: "__convexAuthRefreshToken",
+          value: "fixture",
+          domain: "vrdex.net",
+          path: "/",
+          expires: 4_102_444_800,
+          httpOnly: true,
+          secure: true,
+          sameSite: "Lax",
+        },
+      ],
+      origins: [],
+    }),
+  ).toString("base64");
+  const result = spawnSync(
+    process.execPath,
+    ["scripts/run-production-auth-smoke.mjs"],
+    {
+      cwd: "apps/web",
+      encoding: "utf8",
+      env: {
+        PATH: process.env.PATH,
+        SYSTEMROOT: process.env.SYSTEMROOT,
+        VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64: state,
+      },
+    },
+  );
+
+  assert.equal(result.status, 2);
+  assert.equal(result.stdout, "configuration_missing\n");
+  assert.equal(result.stderr, "");
 });

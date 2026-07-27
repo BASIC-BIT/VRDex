@@ -1,7 +1,9 @@
 import { v } from "convex/values";
 
-import { getCurrentUser, requireCurrentUser } from "./accounts";
-import { toAuthSubject } from "./_communityAuthority";
+import {
+  activeBrowserSessionOrNull,
+  requireActiveBrowserSessionSubject,
+} from "./_browserSessionAuthority";
 import { mutation, query } from "./_generated/server";
 import {
   applyProfileFieldVisibilityUpdate,
@@ -25,13 +27,13 @@ const profileFieldVisibilityInput = v.record(v.string(), profileFieldVisibilityS
 export const listOwnedPrivacyProfilesForAccount = query({
   args: {},
   handler: async (ctx) => {
-    const user = await getCurrentUser(ctx);
+    const activeSession = await activeBrowserSessionOrNull(ctx);
 
-    if (user === null) {
+    if (activeSession === null) {
       return null;
     }
 
-    return await listOwnedPrivacyProfiles(ctx.db, user._id);
+    return await listOwnedPrivacyProfiles(ctx.db, activeSession.userId);
   },
 });
 
@@ -41,10 +43,7 @@ export const updateFieldVisibility = mutation({
     fieldVisibility: profileFieldVisibilityInput,
   },
   handler: async (ctx, args) => {
-    const [user, identity] = await Promise.all([
-      requireCurrentUser(ctx),
-      ctx.auth.getUserIdentity(),
-    ]);
+    const { subject, userId } = await requireActiveBrowserSessionSubject(ctx);
     const profile = await ctx.db.get(args.profileId);
 
     if (profile === null) {
@@ -54,7 +53,7 @@ export const updateFieldVisibility = mutation({
     const now = Date.now();
     const result = await applyProfileFieldVisibilityUpdate(ctx.db, {
       profile,
-      userId: user._id,
+      userId,
       fieldVisibility: args.fieldVisibility,
       now,
     });
@@ -67,7 +66,7 @@ export const updateFieldVisibility = mutation({
         ctx.db.insert("profileAuditEvents", {
           profileId: profile._id,
           action: "profile_field_visibility_updated",
-          ...(identity !== null ? { actor: toAuthSubject(identity) } : {}),
+          actor: subject,
           sourceType: "owner",
           note: "Claimed owner updated profile field visibility.",
           createdAt: now,

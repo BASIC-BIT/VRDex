@@ -19,6 +19,15 @@ const identity = { subject: "telemetry-operator", issuer: "test", tokenIdentifie
 
 async function seedCommunity(t: ReturnType<typeof convexTest>, slug = "faceless") {
   return t.run(async (ctx) => {
+    const userId = await ctx.db.insert("users", {
+      email: `${slug}@example.test`,
+      emailVerificationTime: NOW,
+    });
+    const sessionId = await ctx.db.insert("authSessions", {
+      userId,
+      expirationTime: Date.now() + 60_000,
+    });
+    identity.subject = `${userId}|${sessionId}`;
     const communityProfileId = await ctx.db.insert("profiles", {
       slug,
       displayName: slug === "faceless" ? "The Faceless" : "Second Community",
@@ -127,7 +136,11 @@ describe("community telemetry control plane", () => {
         grantedAt: NOW,
         updatedAt: NOW,
       });
-      return { subject: `${userId}|owner-session`, issuer: "test", tokenIdentifier: `test|${userId}` };
+      const sessionId = await ctx.db.insert("authSessions", {
+        userId,
+        expirationTime: Date.now() + 60_000,
+      });
+      return { subject: `${userId}|${sessionId}`, issuer: "test", tokenIdentifier: `test|${userId}` };
     });
     await registerAccount(t);
 

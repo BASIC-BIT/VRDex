@@ -1,5 +1,4 @@
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
 
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -20,6 +19,7 @@ import {
   vrchatGroupVisibilityValidator,
 } from "./_communityTelemetry";
 import { subjectHasCommunityCapability, toAuthSubject } from "./_communityAuthority";
+import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import { getPublicCommunityTelemetry } from "./_communityTelemetryPublic";
 import { canReadProfile } from "./_profilePermissions";
 import { userOwnsProfile } from "./_profileOwnership";
@@ -40,11 +40,7 @@ const aggregateInstanceValidator = v.object({
 });
 
 async function requireSubject(ctx: MutationCtx | QueryCtx) {
-  const identity = await ctx.auth.getUserIdentity();
-  if (identity === null || typeof identity !== "object") {
-    throw new Error("Community telemetry requires a signed-in user.");
-  }
-  return toAuthSubject(identity as { tokenIdentifier: string; issuer: string; subject: string; name?: string });
+  return (await requireActiveBrowserSessionSubject(ctx)).subject;
 }
 
 async function requireCommunityCapability(
@@ -59,8 +55,8 @@ async function requireCommunityCapability(
     "manage_integrations",
   );
   if (delegatedAllowed) return subject;
-  const userId = await getAuthUserId(ctx);
-  if (userId && await userOwnsProfile(ctx.db, communityProfileId, userId)) return subject;
+  const { userId } = await requireActiveBrowserSessionSubject(ctx);
+  if (await userOwnsProfile(ctx.db, communityProfileId, userId)) return subject;
   throw new Error("You do not have permission to manage this community integration.");
 }
 

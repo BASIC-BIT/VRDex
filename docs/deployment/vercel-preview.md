@@ -234,6 +234,14 @@ GitHub Actions uses these repository settings for hosted mutation health:
 - variable `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true`: optional; keep unset until staging has the developer token, OAuth app, and OAuth token endpoints under test
 - secret `VRDEX_HOSTED_E2E_BROWSER_TOKEN`
 
+`VRDEX_HOSTED_E2E_BROWSER_TOKEN` is a staging-only shared secret that authorizes
+the bounded E2E helper routes; it is not a user or provider credential. A
+repository administrator owns it. Store it only as the GitHub Actions
+repository secret and the matching Vercel staging
+`VRDEX_E2E_BROWSER_TOKEN`. Rotate it by replacing the Vercel value first, then
+the GitHub secret, and rerun staging deployment. Revoke it by disabling the
+hosted auth-helper variable and removing both stored values.
+
 The `Staging Deploy` workflow runs after `Baseline Checks` succeeds on `main` and can also be run manually. It requires these settings:
 
 - secret `CONVEX_DEPLOY_KEY_DEV`: deploys functions/schema to `scrupulous-corgi-247`

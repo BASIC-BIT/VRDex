@@ -52,6 +52,24 @@ PLAYWRIGHT_BASE_URL=https://vrdex.net PLAYWRIGHT_SKIP_WEBSERVERS=true pnpm test:
 
 The local Playwright suite starts a local Convex backend and Next dev server by default.
 
+The focused authentication matrix is:
+
+```powershell
+pnpm test:e2e:auth-session-matrix
+```
+
+It positively selects the auth-session contract and runs serially in
+Chromium, Firefox, and WebKit. The restart assertion closes the first
+persistent browser profile and launches the same profile again; it does not
+simulate restart by copying cookies into a fresh context.
+
+Before an authentication-sensitive release, manually check the ordinary
+remembered-session and explicit-sign-out paths in current Firefox and Safari
+with default privacy settings. Repeat in Firefox Strict Tracking Protection
+when practical. Record the browser versions and settings used. Private
+browsing, extensions, containers, enterprise policy, and Playwright WebKit are
+separate environments; do not claim coverage for one from results in another.
+
 Setting `PLAYWRIGHT_BASE_URL` switches Playwright to hosted mode and disables local web servers.
 
 Local webserver runs set token-gated E2E helper defaults so `pnpm test:e2e` includes the mutation-backed `@flow` journey without additional env setup.
@@ -172,5 +190,19 @@ The `Deployed Health Checks` workflow runs after merges to `main`, after success
 - `Production Smoke Health` uses the production deployment status URL when the workflow was triggered by a successful production deployment, otherwise `VRDEX_PRODUCTION_SMOKE_BASE_URL`, to run read-only public route smoke against production.
 
 Manual dispatch can run `all`, `staging-mutation`, or `production-smoke`. The optional `base_url` override applies only when dispatching a single selected target. The deployed health workflow uploads artifacts and fails the workflow on test failure, but it does not create GitHub issues automatically.
+
+The recurring staging lane can also run the auth-session contract when
+`VRDEX_HOSTED_E2E_AUTH_HELPERS=true`. It uses only disposable
+`@e2e.vrdex.local` accounts and the staging helper boundary.
+
+Production authenticated smoke is a separate manual one-shot option. Supply a
+fresh base64-encoded Playwright storage state for the disposable production
+test account, select `production_auth`, and discard the state after the run.
+The runner performs no business/domain mutation; normal authentication refresh
+rotation may still occur. Its dedicated configuration disables traces,
+screenshots, video, and reports, and prints only one of:
+`missing_state`, `configuration_missing`, `auth_state_rejected`, `transport_failure`,
+`server_failure`, or `passed`. Do not enable it on schedules or upload its
+output as an artifact.
 
 Current hosted mutation target: `https://staging.vrdex.net`, backed by the shared Convex development deployment. The deployed health workflow run `26695304658` passed `staging-mutation` after the Vercel staging custom domain was configured.

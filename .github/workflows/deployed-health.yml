@@ -41,6 +41,11 @@ on:
         description: Probe hosted MCP Inspector OAuth with configured smoke credentials
         required: true
         type: boolean
+      production_auth:
+        default: false
+        description: Run the manual one-shot production authenticated account read
+        required: true
+        type: boolean
   schedule:
     - cron: "17 11 * * *"
 
@@ -120,6 +125,18 @@ jobs:
           VRDEX_E2E_RUN_ID: deployed-${{ github.run_id }}-${{ github.run_attempt }}
         run: pnpm test:e2e:hosted
 
+      - name: Run recurring staging auth session contract
+        if: steps.gate.outputs.enabled == 'true' && vars.VRDEX_HOSTED_E2E_AUTH_HELPERS == 'true'
+        id: auth_session
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ steps.gate.outputs.base_url }}
+          PLAYWRIGHT_RECORD_VIDEO: "true"
+          PLAYWRIGHT_SKIP_WEBSERVERS: "true"
+          VRDEX_ENABLE_E2E_AUTH_HELPERS: "true"
+          VRDEX_E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
+          VRDEX_E2E_RUN_ID: deployed-auth-session-${{ github.run_id }}-${{ github.run_attempt }}
+        run: pnpm test:e2e:hosted:auth-session
+
       - name: Write hosted data-flow summary
         if: always() && steps.gate.outputs.enabled == 'true'
         env:
@@ -128,6 +145,7 @@ jobs:
           HOSTED_EXTENDED_PROFILE_FLOW: ${{ vars.VRDEX_HOSTED_E2E_EXTENDED_PROFILE_FLOW }}
           HOSTED_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
           HOSTED_ADAPTER_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_ADAPTER_HELPERS }}
+          HOSTED_AUTH_SESSION_OUTCOME: ${{ steps.auth_session.outcome }}
           HOSTED_DEVELOPER_CREDENTIALS: ${{ vars.VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -145,6 +163,8 @@ jobs:
 
           Hosted adapter helpers: ${HOSTED_ADAPTER_HELPERS:-skipped}
 
+          Recurring auth session contract: ${HOSTED_AUTH_SESSION_OUTCOME:-skipped}
+
           Hosted developer credentials: ${HOSTED_DEVELOPER_CREDENTIALS:-skipped}
 
           Captured flow:
@@ -152,6 +172,7 @@ jobs:
           - hosted Convex profile creation
           - hosted public profile page readback
           - hosted discovery search readback
+          - disposable-account auth refresh, persistent-profile restart, and sign-out when auth helpers are enabled
           - hosted E2E cleanup
 
           Run: ${RUN_URL}
@@ -183,6 +204,7 @@ jobs:
         id: gate
         env:
           DEPLOYMENT_STATUS_BASE_URL: ${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url || '' }}
+          PRODUCTION_AUTH_REQUESTED: ${{ inputs.production_auth || false }}
           PRODUCTION_BASE_URL_OVERRIDE: ${{ github.event_name == 'workflow_dispatch' && inputs.target == 'production-smoke' && inputs.base_url || '' }}
           PRODUCTION_BASE_URL_VAR: ${{ vars.VRDEX_PRODUCTION_SMOKE_BASE_URL }}
         run: |
@@ -192,6 +214,14 @@ jobs:
           PRODUCTION_CANONICAL_BASE_URL="${PRODUCTION_BASE_URL_OVERRIDE:-${PRODUCTION_BASE_URL_VAR:-}}"
 
           if [ -z "$PRODUCTION_BASE_URL" ]; then
+            if [ "$PRODUCTION_AUTH_REQUESTED" = "true" ]; then
+              {
+                echo "## Production smoke health"
+                echo "Failed because production_auth was requested but no production base URL is configured."
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             {
               echo "## Production smoke health"
@@ -237,18 +267,28 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         id: auth_gate
         env:
+          EVENT_NAME: ${{ github.event_name }}
           PRODUCTION_AUTH_BASE_URL: ${{ steps.gate.outputs.canonical_base_url }}
+          PRODUCTION_AUTH_REQUESTED: ${{ inputs.production_auth || false }}
           PRODUCTION_AUTH_STORAGE_STATE_B64: ${{ secrets.VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64 }}
         run: |
           set -euo pipefail
 
-          if [ -z "$PRODUCTION_AUTH_BASE_URL" ] || [ -z "$PRODUCTION_AUTH_STORAGE_STATE_B64" ]; then
+          if [ "$EVENT_NAME" != "workflow_dispatch" ] || [ "$PRODUCTION_AUTH_REQUESTED" != "true" ]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             {
               echo "## Production authenticated account smoke"
-              echo "Skipped because VRDEX_PRODUCTION_SMOKE_BASE_URL or VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64 is not configured."
+              echo "Skipped because authenticated production reads are manual one-shot checks."
             } >> "$GITHUB_STEP_SUMMARY"
             exit 0
+          fi
+
+          if [ -z "$PRODUCTION_AUTH_BASE_URL" ] || [ -z "$PRODUCTION_AUTH_STORAGE_STATE_B64" ]; then
+            {
+              echo "## Production authenticated account smoke"
+              echo "Failed because production_auth was requested but VRDEX_PRODUCTION_SMOKE_BASE_URL or VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64 is not configured."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
           fi
 
           echo "enabled=true" >> "$GITHUB_OUTPUT"
@@ -258,8 +298,8 @@ jobs:
         id: auth_smoke
         env:
           PLAYWRIGHT_BASE_URL: ${{ steps.gate.outputs.canonical_base_url }}
-          PLAYWRIGHT_RECORD_VIDEO: "true"
           PLAYWRIGHT_SKIP_WEBSERVERS: "true"
+          VRDEX_PRODUCTION_AUTH_SMOKE_MODE: manual-one-shot
           VRDEX_PRODUCTION_AUTH_SMOKE_PROVIDER: ${{ vars.VRDEX_PRODUCTION_AUTH_SMOKE_PROVIDER }}
           VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64: ${{ secrets.VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64 }}
         run: pnpm test:e2e:hosted:auth-smoke
@@ -288,7 +328,7 @@ jobs:
           Captured flow:
           - hosted public route smoke checks
           - hosted deployment and server-status pages
-          - optional authenticated account readback with a pre-authenticated production test-account storage state
+          - optional manual one-shot authenticated account readback with a freshly exported production test-account storage state
           - no mutation-backed E2E helpers
 
           Run: ${RUN_URL}

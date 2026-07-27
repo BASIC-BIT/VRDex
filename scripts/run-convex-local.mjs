@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -232,10 +232,61 @@ try {
   }
 }
 
-const forwardSignal = (signal) => {
-  if (!child.killed) {
-    child.kill(signal);
+function stopReparentedLocalExecutors() {
+  if (process.platform !== "win32" || !usesLocalDeployment) {
+    return;
   }
+
+  spawnSync(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      [
+        "$target = $env:VRDEX_CONVEX_TMP_TO_STOP",
+        "$matches = @(Get-CimInstance Win32_Process | Where-Object {",
+        "  $_.Name -eq 'node.exe' -and",
+        "  $_.CommandLine -like ('*' + $target + '*local.cjs*')",
+        "})",
+        "foreach ($match in $matches) {",
+        "  Stop-Process -Id $match.ProcessId -Force -ErrorAction SilentlyContinue",
+        "}",
+      ].join("\n"),
+    ],
+    {
+      env: {
+        ...process.env,
+        VRDEX_CONVEX_TMP_TO_STOP: convexTmp,
+      },
+      stdio: "ignore",
+      windowsHide: true,
+    },
+  );
+}
+
+const forwardSignal = (signal) => {
+  if (child.killed) {
+    return;
+  }
+
+  if (process.platform === "win32" && child.pid) {
+    const result = spawnSync(
+      "taskkill.exe",
+      ["/PID", String(child.pid), "/T", "/F"],
+      {
+        stdio: "ignore",
+        windowsHide: true,
+      },
+    );
+
+    if (result.status === 0) {
+      stopReparentedLocalExecutors();
+      return;
+    }
+  }
+
+  child.kill(signal);
 };
 
 process.on("SIGINT", () => {
@@ -255,6 +306,7 @@ child.on("error", (error) => {
 
 child.on("exit", (code, signal) => {
   publicUrlWatcher?.close();
+  stopReparentedLocalExecutors();
 
   try {
     syncPublicConvexUrl();

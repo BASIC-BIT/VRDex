@@ -1,0 +1,72 @@
+import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
+
+import { beginRecentAuthChallengeMutation } from "@/lib/server/active-auth-session";
+import { convexHttpClient } from "@/lib/server/convex-http";
+import { expireAuthSessionCookies } from "@/lib/server/invalid-auth-session";
+import {
+  clearRecentAuthBindingCookie,
+  setRecentAuthBindingCookie,
+} from "@/lib/server/recent-auth-binding";
+import { recentAuthActionClassForReturnTo } from "@/lib/recent-auth";
+import { validateSignInReturnTo } from "@/lib/safe-return-to";
+
+export const dynamic = "force-dynamic";
+
+function redirect(path: string) {
+  return new Response(null, {
+    status: 303,
+    headers: {
+      "cache-control": "private, no-store",
+      location: path,
+    },
+  });
+}
+
+export async function GET(request: Request) {
+  const requestUrl = new URL(request.url);
+  const returnTo = validateSignInReturnTo(
+    requestUrl.searchParams.get("returnTo"),
+  );
+  const challengeId = crypto.randomUUID().replaceAll("-", "");
+  const actionClass = recentAuthActionClassForReturnTo(returnTo);
+  const authToken = await convexAuthNextjsToken();
+
+  if (authToken === undefined) {
+    return redirect(`/sign-in?returnTo=${encodeURIComponent(returnTo)}`);
+  }
+
+  const convex = convexHttpClient();
+  convex.setAuth(authToken);
+  const challenge = await convex.mutation(
+    beginRecentAuthChallengeMutation,
+    { actionClass, challengeId },
+  );
+
+  if (challenge.state === "invalid") {
+    return expireAuthSessionCookies(
+      redirect(`/sign-in?returnTo=${encodeURIComponent(returnTo)}`),
+    );
+  }
+
+  const response = redirect(
+    `/sign-in?reauth=1&returnTo=${encodeURIComponent(returnTo)}&challenge=${encodeURIComponent(challengeId)}`,
+  );
+  for (const prunedChallengeId of challenge.prunedChallengeIds) {
+    clearRecentAuthBindingCookie(
+      response,
+      request,
+      prunedChallengeId,
+    );
+  }
+  return setRecentAuthBindingCookie(
+    response,
+    request,
+    {
+      actionClass,
+      challengeId,
+      issuedAt: Date.now(),
+      originalSessionId: challenge.originalSessionId,
+      userId: challenge.userId,
+    },
+  );
+}

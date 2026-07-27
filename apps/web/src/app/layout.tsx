@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { ConvexAuthNextjsServerProvider } from "@convex-dev/auth/nextjs/server";
 import { IBM_Plex_Mono, Space_Grotesk } from "next/font/google";
+import { cookies } from "next/headers";
 import { ConvexClientProvider } from "./ConvexClientProvider";
 import { PostHogProvider } from "./PostHogProvider";
+import { authSessionCredentialPresent } from "@/lib/auth-session";
 import "./globals.css";
 
 const spaceGrotesk = Space_Grotesk({
@@ -30,11 +32,16 @@ const themeScript = `(() => {
   document.documentElement.style.colorScheme = theme;
 })()`;
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const credentialPresent = process.env.NEXT_PUBLIC_CONVEX_URL
+    ? authSessionCredentialPresent(
+        (await cookies()).getAll().map(({ name }) => name),
+      )
+    : false;
   const shell = (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -44,7 +51,9 @@ export default function RootLayout({
         className={`${spaceGrotesk.variable} ${ibmPlexMono.variable} antialiased`}
       >
         <PostHogProvider>
-          <ConvexClientProvider>{children}</ConvexClientProvider>
+          <ConvexClientProvider credentialPresent={credentialPresent}>
+            {children}
+          </ConvexClientProvider>
         </PostHogProvider>
       </body>
     </html>

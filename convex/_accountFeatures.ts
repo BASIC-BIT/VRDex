@@ -5,7 +5,7 @@ import {
   accountFeatureAccessFromGrants,
   type AccountFeatureAccess,
 } from "./_accountFeatureModel";
-import { requireCurrentUser } from "./accounts";
+import { activeBrowserSessionOrNull } from "./_browserSessionAuthority";
 
 export * from "./_accountFeatureModel";
 
@@ -35,7 +35,13 @@ export async function requirePrivateSeedLookupAccess(
   ctx: QueryCtx | MutationCtx,
   now = Date.now(),
 ) {
-  const user = await requireCurrentUser(ctx);
+  const activeSession = await activeBrowserSessionOrNull(ctx);
+
+  if (activeSession === null) {
+    throw new Error("A signed-in account is required.");
+  }
+
+  const { user } = activeSession;
   const access = await getAccountFeatureAccess(ctx.db, user._id, now);
 
   if (!access.canViewPrivateSeedLookup) {

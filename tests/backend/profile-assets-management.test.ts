@@ -31,6 +31,14 @@ async function seedOwnedProfile(assetCount = 2) {
       email: "media-other@example.test",
       emailVerificationTime: now,
     });
+    const ownerSessionId = await ctx.db.insert("authSessions", {
+      userId,
+      expirationTime: now + 60_000,
+    });
+    const otherSessionId = await ctx.db.insert("authSessions", {
+      userId: otherUserId,
+      expirationTime: now + 60_000,
+    });
     const profileId = await ctx.db.insert("profiles", {
       profileType: "person",
       slug: "media-owner",
@@ -89,12 +97,12 @@ async function seedOwnedProfile(assetCount = 2) {
       userId,
       assetIds,
       ownerIdentity: {
-        subject: `${userId}|web-session`,
+        subject: `${userId}|${ownerSessionId}`,
         issuer: "test",
         tokenIdentifier: `test|${userId}`,
       },
       otherIdentity: {
-        subject: `${otherUserId}|web-session`,
+        subject: `${otherUserId}|${otherSessionId}`,
         issuer: "test",
         tokenIdentifier: `test|${otherUserId}`,
       },
