@@ -9,9 +9,7 @@ import {
   type ExternalControlLevel,
   MINIMUM_COMMUNITY_CONTROL_LEVEL,
   externalControlLevelRank,
-  getActiveControlProof,
   getActiveProfileLinks,
-  getProfilesLinkedToAsset,
   linkProfileToAsset,
   removeProfileLink,
   requireControlProof,
@@ -19,8 +17,10 @@ import {
 import { approveProfileClaimForUser, getActiveProfileOwner, userOwnsProfile } from "./_profileOwnership";
 import { canReadProfile } from "./_profilePermissions";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
+import { normalizeVrchatTargetId } from "./_vrchatIdentity";
 import { createProfileSearchDocument, upsertSearchDocument } from "./_searchDocuments";
 
+const DISCORD_GUILD_ID_PATTERN = /^\d{17,20}$/;
 const externalAssetType = v.union(
   v.literal("discord_guild"),
   v.literal("vrchat_group"),
@@ -493,10 +493,22 @@ export const recordOperatorAssociation = internalMutation({
       throw claimError("WRONG_PROFILE_TYPE", profile.profileType);
     }
 
-    const assetExternalId = args.assetExternalId.trim();
+    // Normalized exactly as the claim paths normalize their targets. Recording
+    // `USR_…` or a profile URL here while `startVrchatProof` stores the
+    // lower-cased bare id would fail closed and silently: the association would
+    // never match, and the upgrade this mutation exists to enable would just
+    // never happen, with nothing to show the operator why.
+    const assetExternalId =
+      args.assetType === "discord_guild"
+        ? args.assetExternalId.trim()
+        : normalizeVrchatTargetId(args.assetExternalId, args.assetType);
 
-    if (assetExternalId.length === 0) {
+    if (!assetExternalId) {
       throw claimError("INVALID_VRCHAT_TARGET", args.assetType);
+    }
+
+    if (args.assetType === "discord_guild" && !DISCORD_GUILD_ID_PATTERN.test(assetExternalId)) {
+      throw claimError("INVALID_DISCORD_GUILD_ID");
     }
 
     const linkId = await linkProfileToAsset(ctx.db, {

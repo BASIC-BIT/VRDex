@@ -86,6 +86,20 @@ export async function approveProfileClaimForUser(
         ? "claimed_verified"
         : "claimed_unverified";
 
+  // A verified listing with no owner must not be claimable: the line above
+  // preserves `claimed_verified` regardless of the evidence behind this claim,
+  // so whoever arrived first would inherit the badge on the strength of a
+  // throwaway asset. No in-repo path produces that state today — claim state and
+  // ownership are always written in the same transaction — but the seed-import
+  // candidate schema already carries `claimed_verified`, and the deferred
+  // ownership-transfer flow introduces it the moment it revokes an owner.
+  if (
+    options.profile.claimState === "claimed_verified" &&
+    (await getActiveProfileOwner(db, options.profileId)) === null
+  ) {
+    throw claimError("PROFILE_ALREADY_OWNED", "verified_without_owner");
+  }
+
   await grantProfileOwner(db, options);
 
   if (options.profile.claimState !== targetClaimState) {

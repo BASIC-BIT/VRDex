@@ -1178,7 +1178,7 @@ describe("claiming a community with a verified guild", () => {
       await recordExternalControlProof(ctx.db, {
         userId,
         assetType: "discord_guild",
-        assetExternalId: "424242",
+        assetExternalId: "424242424242424242",
         controlLevel: "owner",
         evidenceSource: "discord_oauth",
         now,
@@ -1200,7 +1200,7 @@ describe("claiming a community with a verified guild", () => {
       (
         await asUser.mutation(api.profileConnections.claimCommunityWithVerifiedGuild, {
           profileSlug: "operator-seeded",
-          guildId: "424242",
+          guildId: "424242424242424242",
         })
       ).claimState,
       "claimed_unverified",
@@ -1209,7 +1209,7 @@ describe("claiming a community with a verified guild", () => {
     await t.mutation(internal.profileConnections.recordOperatorAssociation, {
       profileSlug: "operator-seeded",
       assetType: "discord_guild",
-      assetExternalId: "424242",
+      assetExternalId: "424242424242424242",
       assetDisplayName: "Operator Seeded HQ",
     });
 
@@ -1217,7 +1217,7 @@ describe("claiming a community with a verified guild", () => {
       (
         await asUser.mutation(api.profileConnections.claimCommunityWithVerifiedGuild, {
           profileSlug: "operator-seeded",
-          guildId: "424242",
+          guildId: "424242424242424242",
         })
       ).claimState,
       "claimed_verified",
