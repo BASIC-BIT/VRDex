@@ -139,8 +139,14 @@ Deferred:
   not a dependency of this PR.
 - `Verified`: current product analytics remove URL queries and do not allow
   session replay on account/form routes.
-- `Open research`: durable provider instructions and support posture for VRC
-  Linking.
+- `Verified`: the VRC Linking API shape is known and recorded in
+  [`vrclinking-api.md`](../backend/vrclinking-api.md). `GET /members/{guildId}`
+  returns `vrcId` and `isVerified` per Discord member, and `Guild.grpId` gives
+  the guild's linked VRChat group. Remaining blocker is credential access, not
+  contract: keys are account-scoped and member reads are guild-scoped, with no
+  published third-party server-to-server terms.
+- `Open research`: support posture and durable user-facing instructions for VRC
+  Linking, contingent on that access question.
 - `Interview later`: whether Discord person quick claim should remain an
   immediate owner grant or become review/rate-limit gated.
 - `Interview later`: the structured dispute and ownership-transfer experience.

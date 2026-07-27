@@ -93,10 +93,16 @@ seam and is no longer required for VRChat proofs to work.
 ## Path 4: VRC Linking
 
 `VRCLINKING_PROOF_ADAPTER_URL` still points at the generic adapter seam. The
-provider's user-facing contract is recorded as open research in
-[`profile-claim-journey.md`](../planning/profile-claim-journey.md), so no real
-client is implemented; the seam is left in place rather than guessing an API
-shape.
+API shape is now known and recorded in
+[`vrclinking-api.md`](../backend/vrclinking-api.md): `GET /members/{guildId}`
+with `searchBy=DiscordId` returns a member's `vrcId` and `isVerified`, which is
+the attestation VRDex would consume.
+
+No client is implemented because the blocker is access, not shape. API keys are
+minted from a logged-in VRCLinking account and member reads are guild-scoped, so
+this needs either a per-community delegated key or a partner credential, and
+there is no published ToS for third-party server-to-server use. That is a
+business decision rather than a code one.
 
 ## What an operator has to do
 
