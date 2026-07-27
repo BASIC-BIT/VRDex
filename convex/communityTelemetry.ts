@@ -1966,7 +1966,16 @@ export const recordProofCheckResult = internalMutation({
       ctx.db.get(accountId),
     ]);
 
-    if (fleet?.killSwitchEnabled || account === null || account.killSwitchEnabled) {
+    // `state` too, not just the kill switches: authorization and this mutation
+    // are separate transactions, so a concurrent 401 report or an operator
+    // moving the account to quarantined/retiring lands in that window and must
+    // not still grant verified ownership.
+    if (
+      fleet?.killSwitchEnabled ||
+      account === null ||
+      account.killSwitchEnabled ||
+      account.state !== "ready"
+    ) {
       return { state: "unauthorized" as const };
     }
 

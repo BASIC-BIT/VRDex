@@ -340,7 +340,14 @@ async function fetchAllGuilds(accessToken: string): Promise<DiscordOAuthGuild[]>
 
     const batch = (await response.json()) as DiscordOAuthGuild[];
 
-    if (!Array.isArray(batch) || batch.length === 0) {
+    // A non-array payload must not be read as "no more pages". The caller
+    // treats the result as the complete manageable set and revokes every proof
+    // absent from it, so a malformed first page would revoke all of them.
+    if (!Array.isArray(batch)) {
+      throw claimError("ADAPTER_UNAVAILABLE", "guilds_malformed_payload");
+    }
+
+    if (batch.length === 0) {
       break;
     }
 

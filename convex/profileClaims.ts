@@ -17,6 +17,9 @@ import { normalizeVrchatTargetId } from "./_vrchatIdentity";
 const DAY_MS = 86_400_000;
 // Minimum gap between delegated VRC Linking consultations for one attempt.
 const VRCLINKING_CHECK_COOLDOWN_MS = 60_000;
+// Bounds delegated provider spend that the per-attempt cooldown alone cannot:
+// one claimant creating many attempts and consulting each once.
+const MAX_OPEN_VRCLINKING_ATTEMPTS = 3;
 const DISCORD_ADMINISTRATOR_PERMISSION = BigInt(8);
 const DISCORD_GUILD_ID_PATTERN = /^\d{17,20}$/;
 const noSuitableMatchConfirmed = v.boolean();
@@ -855,6 +858,25 @@ export const startVrchatProof = mutation({
     }
 
     const now = Date.now();
+
+    // A per-attempt cooldown alone is bypassable: unlimited pending attempts,
+    // each consulted once, still spends a community's delegated VRC Linking
+    // quota five reads at a time. Cap how many a claimant may hold open.
+    if (args.targetType === "vrclinking") {
+      const openVrclinking = await ctx.db
+        .query("profileVerificationAttempts")
+        .withIndex("by_userId_state", (q) => q.eq("userId", user._id).eq("state", "pending"))
+        .collect();
+
+      if (
+        openVrclinking.filter(
+          (attempt) => attempt.targetType === "vrclinking" && attempt.expiresAt > now,
+        ).length >= MAX_OPEN_VRCLINKING_ATTEMPTS
+      ) {
+        throw claimError("PROOF_NOT_PENDING", "too_many_open_vrclinking_attempts");
+      }
+    }
+
     const pendingAttempts = await ctx.db
       .query("profileVerificationAttempts")
       .withIndex("by_profileId_userId_state_updatedAt", (q) =>
