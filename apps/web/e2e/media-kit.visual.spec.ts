@@ -215,6 +215,7 @@ test("owner oversized EXIF portrait preserves its oriented aspect ratio @fixture
   await expect.poll(() => page.evaluate(
     () => (window as typeof window & { mediaDecodeOptions?: ImageBitmapOptions }).mediaDecodeOptions,
   )).toMatchObject({
+    imageOrientation: "from-image",
     resizeWidth: 2_048,
     resizeHeight: 4_096,
     resizeQuality: "high",
@@ -233,8 +234,18 @@ test("owner oversized PNG and WebP preserve EXIF orientation @fixture", async ({
   const width = 2_400;
   const height = 1_200;
   const pixels = Buffer.alloc(width * height * 3);
-  for (let index = 0; index < pixels.length; index += 1) {
-    pixels[index] = (index * 31 + Math.floor(index / 97)) % 256;
+  const colors = {
+    bottomLeft: Buffer.from([0, 0, 255]),
+    bottomRight: Buffer.from([255, 255, 0]),
+    topLeft: Buffer.from([255, 0, 0]),
+    topRight: Buffer.from([0, 255, 0]),
+  };
+  for (let y = 0; y < height; y += 1) {
+    const rowOffset = y * width * 3;
+    const left = y < height / 2 ? colors.topLeft : colors.bottomLeft;
+    const right = y < height / 2 ? colors.topRight : colors.bottomRight;
+    pixels.fill(left, rowOffset, rowOffset + (width / 2) * 3);
+    pixels.fill(right, rowOffset + (width / 2) * 3, rowOffset + width * 3);
   }
   const source = sharp(pixels, {
     raw: { width, height, channels: 3 },
@@ -290,6 +301,47 @@ test("owner oversized PNG and WebP preserve EXIF orientation @fixture", async ({
       delete (window as typeof window & { mediaUploadAttempt?: unknown }).mediaUploadAttempt;
     });
     await page.getByLabel("Add image").setInputFiles(image);
+    const preparedPreview = page.getByRole("button", { name: "Publish" })
+      .locator("xpath=ancestor::form")
+      .locator("img");
+    await expect(preparedPreview).toBeVisible();
+    const landmarks = await preparedPreview.evaluate(async (element) => {
+      const preview = element as HTMLImageElement;
+      await preview.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = 4;
+      canvas.height = 4;
+      const context = canvas.getContext("2d");
+      if (context === null) throw new Error("Canvas context unavailable.");
+      context.drawImage(preview, 0, 0, canvas.width, canvas.height);
+      const sample = (x: number, y: number) =>
+        [...context.getImageData(x, y, 1, 1).data.slice(0, 3)];
+      return {
+        bottomLeft: sample(1, 3),
+        bottomRight: sample(3, 3),
+        topLeft: sample(1, 1),
+        topRight: sample(3, 1),
+      };
+    });
+    const expectColor = (
+      actual: number[],
+      expected: { blue: "high" | "low"; green: "high" | "low"; red: "high" | "low" },
+    ) => {
+      expect(actual).toHaveLength(3);
+      const red = actual[0]!;
+      const green = actual[1]!;
+      const blue = actual[2]!;
+      expect(
+        expected.red === "high" ? red : 255 - red,
+        `${image.mimeType}: ${JSON.stringify(landmarks)}`,
+      ).toBeGreaterThan(175);
+      expect(expected.green === "high" ? green : 255 - green).toBeGreaterThan(175);
+      expect(expected.blue === "high" ? blue : 255 - blue).toBeGreaterThan(175);
+    };
+    expectColor(landmarks.topLeft, { red: "low", green: "low", blue: "high" });
+    expectColor(landmarks.topRight, { red: "high", green: "low", blue: "low" });
+    expectColor(landmarks.bottomLeft, { red: "high", green: "high", blue: "low" });
+    expectColor(landmarks.bottomRight, { red: "low", green: "high", blue: "low" });
     await page.getByRole("button", { name: "Publish" }).click();
 
     await expect.poll(() => page.evaluate(
@@ -297,8 +349,9 @@ test("owner oversized PNG and WebP preserve EXIF orientation @fixture", async ({
         mediaDecodeOptions?: ImageBitmapOptions;
       }).mediaDecodeOptions,
     )).toMatchObject({
-      resizeWidth: height,
-      resizeHeight: width,
+      imageOrientation: image.mimeType === "image/webp" ? "none" : "from-image",
+      resizeWidth: image.mimeType === "image/webp" ? width : height,
+      resizeHeight: image.mimeType === "image/webp" ? height : width,
       resizeQuality: "high",
     });
     await expect.poll(() => page.evaluate(

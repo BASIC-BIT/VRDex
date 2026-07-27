@@ -50,7 +50,12 @@ function jpegDimensions(bytes: Uint8Array): ImageDimensions | null {
   return null;
 }
 
-function tiffOrientation(bytes: Uint8Array, payloadOffset: number, payloadEnd: number) {
+function tiffOrientation(
+  bytes: Uint8Array,
+  payloadOffset: number,
+  payloadEnd: number,
+  neutralize = false,
+) {
   let tiffOffset = payloadOffset;
   if (
     payloadOffset + 6 <= payloadEnd &&
@@ -79,7 +84,11 @@ function tiffOrientation(bytes: Uint8Array, payloadOffset: number, payloadEnd: n
       view.getUint32(entryOffset + 4, littleEndian) === 1
     ) {
       const orientation = view.getUint16(entryOffset + 8, littleEndian);
-      return orientation >= 1 && orientation <= 8 ? orientation : 1;
+      if (orientation >= 1 && orientation <= 8) {
+        if (neutralize && orientation !== 1) view.setUint16(entryOffset + 8, 1, littleEndian);
+        return orientation;
+      }
+      return 1;
     }
   }
 
@@ -212,7 +221,7 @@ function webpOrientation(bytes: Uint8Array) {
     const payloadEnd = payloadOffset + chunkLength;
     const chunkEnd = payloadEnd + (chunkLength % 2);
     if (chunkEnd > bytes.length) return 1;
-    if (chunkType === "EXIF") return tiffOrientation(bytes, payloadOffset, payloadEnd);
+    if (chunkType === "EXIF") return tiffOrientation(bytes, payloadOffset, payloadEnd, true);
     offset = chunkEnd;
   }
   return 1;
@@ -220,8 +229,10 @@ function webpOrientation(bytes: Uint8Array) {
 
 async function inspectImage(file: File): Promise<{
   animated: boolean;
+  decodeSource: Blob;
   dimensions: ImageDimensions | null;
-  swapsAxes: boolean;
+  manualOrientation: number;
+  orientation: number;
 }> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   if (
@@ -235,8 +246,10 @@ async function inspectImage(file: File): Promise<{
     const orientation = pngOrientation(bytes);
     return {
       animated: hasPngAnimation(bytes),
+      decodeSource: file,
       dimensions: { width: view.getUint32(16), height: view.getUint32(20) },
-      swapsAxes: orientation >= 5 && orientation <= 8,
+      manualOrientation: 1,
+      orientation,
     };
   }
   const jpeg = jpegDimensions(bytes);
@@ -244,9 +257,36 @@ async function inspectImage(file: File): Promise<{
   const orientation = jpeg === null ? webpOrientation(bytes) : jpegOrientation(bytes);
   return {
     animated: webp !== null && hasWebpAnimation(bytes),
+    decodeSource: webp !== null && orientation !== 1
+      ? new Blob([bytes], { type: file.type })
+      : file,
     dimensions: jpeg ?? webp,
-    swapsAxes: orientation >= 5 && orientation <= 8,
+    manualOrientation: webp !== null ? orientation : 1,
+    orientation,
   };
+}
+
+function drawOrientedBitmap(
+  context: CanvasRenderingContext2D,
+  bitmap: ImageBitmap,
+  orientation: number,
+  canvasWidth: number,
+  canvasHeight: number,
+) {
+  const swapsAxes = orientation >= 5 && orientation <= 8;
+  const sourceWidth = swapsAxes ? canvasHeight : canvasWidth;
+  const sourceHeight = swapsAxes ? canvasWidth : canvasHeight;
+  const transforms: Record<number, [number, number, number, number, number, number]> = {
+    2: [-1, 0, 0, 1, sourceWidth, 0],
+    3: [-1, 0, 0, -1, sourceWidth, sourceHeight],
+    4: [1, 0, 0, -1, 0, sourceHeight],
+    5: [0, 1, 1, 0, 0, 0],
+    6: [0, 1, -1, 0, sourceHeight, 0],
+    7: [0, -1, -1, 0, sourceHeight, sourceWidth],
+    8: [0, -1, 1, 0, 0, sourceWidth],
+  };
+  context.setTransform(...(transforms[orientation] ?? [1, 0, 0, 1, 0, 0]));
+  context.drawImage(bitmap, 0, 0, sourceWidth, sourceHeight);
 }
 
 function webpFileName(fileName: string) {
@@ -291,8 +331,11 @@ export async function prepareProfileMediaUpload(file: File): Promise<PreparedPro
   ) {
     throw new Error("Image dimensions are too large.");
   }
-  const orientedWidth = inspected.swapsAxes ? dimensions.height : dimensions.width;
-  const orientedHeight = inspected.swapsAxes ? dimensions.width : dimensions.height;
+  const swapsAxes = inspected.orientation >= 5 && inspected.orientation <= 8;
+  const manuallySwapsAxes =
+    inspected.manualOrientation >= 5 && inspected.manualOrientation <= 8;
+  const orientedWidth = swapsAxes ? dimensions.height : dimensions.width;
+  const orientedHeight = swapsAxes ? dimensions.width : dimensions.height;
   const preparedScale = Math.min(
     1,
     PROFILE_MEDIA_MAX_STORED_DIMENSION / Math.max(orientedWidth, orientedHeight),
@@ -303,9 +346,10 @@ export async function prepareProfileMediaUpload(file: File): Promise<PreparedPro
 
   let bitmap: ImageBitmap;
   try {
-    bitmap = await createImageBitmap(file, {
-      resizeWidth: preparedWidth,
-      resizeHeight: preparedHeight,
+    bitmap = await createImageBitmap(inspected.decodeSource, {
+      imageOrientation: inspected.manualOrientation === 1 ? "from-image" : "none",
+      resizeWidth: manuallySwapsAxes ? preparedHeight : preparedWidth,
+      resizeHeight: manuallySwapsAxes ? preparedWidth : preparedHeight,
       resizeQuality: "high",
     });
   } catch {
@@ -315,15 +359,25 @@ export async function prepareProfileMediaUpload(file: File): Promise<PreparedPro
   try {
     for (const scaleStep of PROFILE_MEDIA_SCALE_STEPS) {
       const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(bitmap.width * scaleStep));
-      canvas.height = Math.max(1, Math.round(bitmap.height * scaleStep));
+      canvas.width = Math.max(1, Math.round(preparedWidth * scaleStep));
+      canvas.height = Math.max(1, Math.round(preparedHeight * scaleStep));
       const context = canvas.getContext("2d");
 
       if (context === null) {
         throw new Error("Image could not be prepared for upload.");
       }
 
-      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      if (inspected.manualOrientation === 1) {
+        context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      } else {
+        drawOrientedBitmap(
+          context,
+          bitmap,
+          inspected.manualOrientation,
+          canvas.width,
+          canvas.height,
+        );
+      }
 
       const blob = await canvasToWebp(canvas, PROFILE_MEDIA_WEBP_QUALITY);
       if (blob.size <= PROFILE_MEDIA_BROWSER_UPLOAD_MAX_BYTES) {
