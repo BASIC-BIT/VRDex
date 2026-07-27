@@ -16,15 +16,39 @@ export async function GET(request: NextRequest) {
   const state = request.nextUrl.searchParams.get("state");
   const token = await convexAuthNextjsToken();
 
-  // The user declined the Discord consent screen, or Discord sent us back
-  // without the pair we need.
-  if (!code || !state) {
-    return NextResponse.redirect(new URL(withStatus("/account", "declined"), request.nextUrl.origin));
-  }
-
   if (!token) {
     return NextResponse.redirect(
       new URL(`/sign-in?returnTo=${encodeURIComponent("/account")}`, request.nextUrl.origin),
+    );
+  }
+
+  // A declined consent screen comes back with the original `state` but no
+  // `code`. Consume the row so it is not stranded, and return the user to the
+  // page they started from rather than dropping them on /account.
+  if (!code) {
+    let declinedReturnTo = "/account";
+
+    if (state) {
+      try {
+        ({ returnTo: declinedReturnTo } = await fetchAction(
+          api.discordVerification.abandonGuildVerification,
+          { state },
+          { token },
+        ));
+      } catch {
+        // An unknown or expired state is not worth surfacing: the user simply
+        // lands on their account page.
+      }
+    }
+
+    return NextResponse.redirect(
+      resolveSameOriginUrl(withStatus(declinedReturnTo, "declined"), request.nextUrl.origin),
+    );
+  }
+
+  if (!state) {
+    return NextResponse.redirect(
+      resolveSameOriginUrl(withStatus("/account", "failed"), request.nextUrl.origin),
     );
   }
 

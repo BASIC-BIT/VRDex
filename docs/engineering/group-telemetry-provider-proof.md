@@ -29,9 +29,9 @@ The four-hour run used the original memory-only interactive session and finished
 2. Exercise Request-to-Join with a consenting private group and record the pending and approved states.
 3. Exercise Invite-Only with a consenting group and record both the waiting state and accepted invitation.
 4. Record naturally occurring provider failures if they happen; never manufacture a live 429.
-5. Keep AWS-hosted sessions and fleet activation disabled until the vault-to-AWS
-   secret-transfer command ships and is reviewed. The provider-approval half of
-   this gate was cleared by BASIC on 2026-07-27; the remaining blocker is that
-   missing implementation, not a policy question.
+5. Both halves of the activation gate are cleared as of 2026-07-27: BASIC
+   accepted durable service-account sessions, and the vault-to-AWS
+   secret-transfer command (`pnpm ops:vrchat-session:transfer`) ships. AWS-hosted
+   sessions and the fleet are enabled. The stop condition below still applies.
 
 The local operating-system vault cache is a deliberate, bounded risk for VRDex-owned proof accounts. It is not evidence of a provider exemption. If VRChat objects to this use, stop proof traffic and clear the saved local session.

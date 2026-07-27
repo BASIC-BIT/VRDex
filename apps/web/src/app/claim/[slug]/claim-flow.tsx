@@ -124,7 +124,7 @@ export function ClaimFlow({
   const posthog = usePostHog();
   const [selectedMethod, setMethod] = useState<ClaimMethod | null>(
     previewContext
-      ? previewContext.hasDiscord && profile.profileType === "community"
+      ? profile.profileType === "community"
         ? "discord"
         : "vrchat"
       : null,
@@ -132,6 +132,13 @@ export function ClaimFlow({
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const statusRef = useRef<HTMLDivElement>(null);
   const completionRef = useRef<HTMLDivElement>(null);
+  // Only the person quick-claim needs Discord as a linked sign-in provider.
+  // The community path claims against a control proof recorded by the
+  // purpose-scoped OAuth round-trip, which a Google or email/password account
+  // can complete just as well — gating it on `hasDiscord` let such a user
+  // verify a server, see it in the picker, and then be unable to submit.
+  const discordNeedsLinkedAccount = profile.profileType === "person";
+  const discordMethodBlocked = discordNeedsLinkedAccount && !context?.hasDiscord;
   const verifiedGuilds = manageableGuilds ?? [];
   const discordVerifyState = discordVerify;
   const discordVerifyHref = `/api/discord/verify/start?returnTo=${encodeURIComponent(
@@ -147,7 +154,7 @@ export function ClaimFlow({
   const canUseClaimJourney = context?.ownership === "available" || isUnverifiedViewer;
   const method: ClaimMethod =
     selectedMethod ??
-    (context?.hasDiscord && profile.profileType === "community" && context.ownership === "available"
+    (profile.profileType === "community" && context?.ownership === "available"
       ? "discord"
       : "vrchat");
 
@@ -219,7 +226,7 @@ export function ClaimFlow({
       });
       setStatus({
         kind: "complete",
-        message: "Administrator access verified. This community is now yours.",
+        message: "Server control verified. This community is now yours.",
         verified: true,
       });
       captureProductEvent(posthog, "claim_completed", {
@@ -286,7 +293,7 @@ export function ClaimFlow({
     try {
       const result = await verifyDiscord({ claimRequestId: requestId });
       if ("claimState" in result) {
-        setStatus({ kind: "complete", message: "Administrator access verified. This community is now yours.", verified: true });
+        setStatus({ kind: "complete", message: "Server control verified. This community is now yours.", verified: true });
         captureProductEvent(posthog, "claim_completed", {
           method: "discord",
           outcome: "claimed_verified",
@@ -334,17 +341,17 @@ export function ClaimFlow({
   const discordMethodCard = (
     <MethodCard
       active={method === "discord"}
-      disabled={!context?.hasDiscord}
+      disabled={discordMethodBlocked}
       title={profile.profileType === "person" ? "Use linked Discord" : "Verify Discord admin"}
       onClick={() => {
-        if (context?.hasDiscord) selectMethod("discord");
+        if (!discordMethodBlocked) selectMethod("discord");
       }}
     >
       {profile.profileType === "person" ? <UserRound aria-hidden="true" className="mb-2 size-5 text-accent" /> : <Building2 aria-hidden="true" className="mb-2 size-5 text-accent" />}
       {profile.profileType === "person"
         ? "Fast access with your linked account. This claims the profile but does not verify that it represents you."
-        : "Confirm Administrator access in the community’s Discord server. Grants verified ownership."}
-      {!context?.hasDiscord ? " Link Discord from your account first." : ""}
+        : "Confirm you own, administer, or manage the community’s Discord server. Grants verified ownership."}
+      {discordMethodBlocked ? " Link Discord from your account first." : ""}
     </MethodCard>
   );
 
@@ -485,7 +492,7 @@ export function ClaimFlow({
                       </>
                     )}
                   </div>
-                  {!isUnverifiedViewer && !context.hasDiscord ? (
+                  {!isUnverifiedViewer && discordMethodBlocked ? (
                     <Link className="mt-3 inline-block text-sm underline underline-offset-4" href="/account">
                       Review sign-in methods
                     </Link>
@@ -557,7 +564,7 @@ export function ClaimFlow({
                   verifiedGuilds.length > 0 ? (
                     <Button
                       className="mt-5"
-                      disabled={status.kind === "working" || (method === "discord" && !context.hasDiscord)}
+                      disabled={status.kind === "working" || (method === "discord" && discordMethodBlocked)}
                       size="lg"
                       type="submit"
                       variant="primary"

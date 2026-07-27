@@ -98,11 +98,24 @@ API shape is now known and recorded in
 with `searchBy=DiscordId` returns a member's `vrcId` and `isVerified`, which is
 the attestation VRDex would consume.
 
-No client is implemented because the blocker is access, not shape. API keys are
-minted from a logged-in VRCLinking account and member reads are guild-scoped, so
-this needs either a per-community delegated key or a partner credential, and
-there is no published ToS for third-party server-to-server use. That is a
-business decision rather than a code one.
+A client is implemented: `workers/vrclinking-adapter` resolves a delegated
+credential reference and answers the single `GET /members/{guildId}` question,
+and community owners can register a delegation from `/account/connections`.
+
+Two things still gate the path, neither of them code:
+
+1. **The adapter is not deployed.** It needs somewhere to run with either the
+   Secrets Manager task-role policy or a mounted secret directory, and
+   `VRCLINKING_PROOF_ADAPTER_URL` pointed at it. Its README documents the
+   configuration and a local run.
+2. **No claimant-facing entry point exists yet.** The claim UI submits only
+   `vrchat_user` and `vrchat_group`, so a registered delegation cannot be
+   exercised by a member until that method is added. Register delegations
+   ahead of it if you like, but expect no member-visible effect yet.
+
+API keys are minted from a logged-in VRCLinking account and member reads are
+guild-scoped, so this needs a per-community delegated key or a partner
+credential, and there is no published ToS for third-party server-to-server use.
 
 ## What an operator has to do
 

@@ -254,10 +254,14 @@ export function ConnectionsPanel({ initialProfileSlug }: { initialProfileSlug?: 
         <section className="border-t border-border pt-6">
           <h2 className="text-xl font-semibold">VRCLinking delegation</h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
-            If your community uses VRCLinking, you can let VRDex read its Discord-to-VRChat links
-            so members can verify a VRChat account without placing a proof code. VRDex only ever
-            asks whether a given member is linked and verified.
+            If your community uses VRCLinking, you can let VRDex read its Discord-to-VRChat links.
+            VRDex only ever asks whether a given member is linked and verified.
           </p>
+          <Notice className="mt-3">
+            Not yet in use by members. The claim flow does not offer a VRCLinking method yet, so a
+            delegation saved here has no member-visible effect until it does. Saving one now is
+            preparation, not activation.
+          </Notice>
 
           {connectedGuilds.length === 0 && (vrclinkingCredentials?.length ?? 0) === 0 ? (
             <Notice className="mt-4">

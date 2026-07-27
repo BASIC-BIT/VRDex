@@ -164,8 +164,27 @@ function describeAwsError(error) {
 try {
   const current = await client.send(new GetSecretValueCommand({ SecretId: secretId }));
 
-  if (typeof current.SecretString === "string" && current.SecretString.trim().startsWith("{")) {
-    existing = JSON.parse(current.SecretString);
+  // Anything already here that is not a JSON object would be replaced wholesale
+  // by the write below. A mistyped secret id or a legacy format should stop the
+  // command, not silently destroy unrelated values.
+  if (current.SecretBinary !== undefined) {
+    fail(`${secretId} holds binary data. Refusing to overwrite it; check the secret id.`);
+  }
+
+  if (typeof current.SecretString === "string" && current.SecretString.trim().length > 0) {
+    let parsed;
+
+    try {
+      parsed = JSON.parse(current.SecretString);
+    } catch {
+      fail(`${secretId} does not hold JSON. Refusing to overwrite it; check the secret id.`);
+    }
+
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      fail(`${secretId} does not hold a JSON object. Refusing to overwrite it; check the secret id.`);
+    }
+
+    existing = parsed;
   }
 } catch (error) {
   if (error?.name === "ResourceNotFoundException") {

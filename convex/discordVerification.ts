@@ -273,6 +273,59 @@ async function exchangeCodeForAccessToken(code: string): Promise<string> {
   return payload.access_token;
 }
 
+/**
+ * Read every guild the token can see.
+ *
+ * `/users/@me/guilds` caps a page at 200 and pages with `after`, so a single
+ * request silently truncates for anyone in more guilds than that — their
+ * manageable servers past the first page would never get a control proof and
+ * could not be selected for claiming.
+ */
+async function fetchAllGuilds(accessToken: string): Promise<DiscordOAuthGuild[]> {
+  const pageSize = 200;
+  const collected: DiscordOAuthGuild[] = [];
+  let after: string | undefined;
+
+  // Bounded so a provider that ignores `after` cannot loop forever. Discord
+  // caps user guild membership well below this.
+  for (let page = 0; page < 15; page += 1) {
+    const params = new URLSearchParams({ limit: String(pageSize) });
+
+    if (after !== undefined) {
+      params.set("after", after);
+    }
+
+    const response = await fetch(
+      `${discordApiBaseUrl()}/users/@me/guilds?${params.toString()}`,
+      { headers: { authorization: `Bearer ${accessToken}` } },
+    );
+
+    if (!response.ok) {
+      throw claimError("ADAPTER_UNAVAILABLE", `guilds_${response.status}`);
+    }
+
+    const batch = (await response.json()) as DiscordOAuthGuild[];
+
+    if (!Array.isArray(batch) || batch.length === 0) {
+      break;
+    }
+
+    collected.push(...batch);
+
+    if (batch.length < pageSize) {
+      break;
+    }
+
+    after = batch[batch.length - 1]?.id;
+
+    if (after === undefined) {
+      break;
+    }
+  }
+
+  return collected;
+}
+
 async function revokeAccessToken(accessToken: string): Promise<void> {
   // Best effort: the proof is already recorded, and a lingering token is the
   // thing we are trying to avoid, so failures here must not fail the claim.
@@ -290,6 +343,22 @@ async function revokeAccessToken(accessToken: string): Promise<void> {
     // Intentionally ignored.
   }
 }
+
+/**
+ * Consume a state row for a callback that carries no `code`.
+ *
+ * Discord returns `error=access_denied` with the original `state` when a user
+ * declines consent. Ignoring it would strand the row and lose the path the user
+ * started from, so the decline is treated as a normal end to the round-trip.
+ */
+export const abandonGuildVerification = action({
+  args: { state: v.string() },
+  handler: async (ctx, args): Promise<{ returnTo: string }> => {
+    return (await ctx.runMutation(internal.discordVerification.consumeVerificationState, {
+      state: args.state,
+    })) as { returnTo: string };
+  },
+});
 
 export const completeGuildVerification = action({
   args: { code: v.string(), state: v.string() },
@@ -314,15 +383,7 @@ export const completeGuildVerification = action({
     }
 
     try {
-      const response = await fetch(`${discordApiBaseUrl()}/users/@me/guilds`, {
-        headers: { authorization: `Bearer ${accessToken}` },
-      });
-
-      if (!response.ok) {
-        throw claimError("ADAPTER_UNAVAILABLE", `guilds_${response.status}`);
-      }
-
-      const guilds = (await response.json()) as DiscordOAuthGuild[];
+      const guilds = await fetchAllGuilds(accessToken);
       const manageable = guilds.flatMap((guild) => {
         const controlLevel = discordControlLevel(guild);
 
