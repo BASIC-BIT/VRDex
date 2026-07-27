@@ -117,6 +117,15 @@ if (!skipValidation) {
 // At least 32 bytes, per the runbook. base64url keeps it shell-safe if an
 // operator ever has to move it by hand, though nothing here prints it.
 const workerApiKey = randomBytes(48).toString("base64url");
+// SHA-256 is correct here and a slow KDF would not be. This is a bearer-token
+// digest, not a password hash: the input is 48 cryptographically random bytes
+// (384 bits), so there is no guessable keyspace for a work factor to defend.
+// Argon2/bcrypt exist to slow brute force against low-entropy human-chosen
+// secrets; applying one to a random token buys nothing and costs the control
+// plane a verification round-trip on every worker request. The registration
+// contract also pins this: `registerCollectorAccount` validates the digest
+// against /^[a-f0-9]{64}$/.
+// codeql[js/insufficient-password-hash]
 const workerKeyHash = createHash("sha256").update(workerApiKey).digest("hex").toLowerCase();
 
 const {
@@ -128,9 +137,26 @@ const {
   fail("@aws-sdk/client-secrets-manager is not installed. Run pnpm install first.");
 });
 
-const client = new SecretsManagerClient({});
+// The ambient environment does not always carry a default region, and the SDK
+// reports that as a bare `Error`, so resolve it explicitly.
+const region =
+  argValue("--region")?.trim() ||
+  process.env.AWS_REGION?.trim() ||
+  process.env.AWS_DEFAULT_REGION?.trim() ||
+  "us-east-1";
+const client = new SecretsManagerClient({ region });
 let existing = {};
 let secretMissing = false;
+
+// Surfaces the SDK's own message: these are configuration and permission
+// errors, never secret material, and hiding them makes a first run
+// undiagnosable.
+function describeAwsError(error) {
+  const name = error?.name && error.name !== "Error" ? error.name : undefined;
+  const message = typeof error?.message === "string" ? error.message : undefined;
+
+  return name ?? message ?? "unknown error";
+}
 
 try {
   const current = await client.send(new GetSecretValueCommand({ SecretId: secretId }));
@@ -142,7 +168,7 @@ try {
   if (error?.name === "ResourceNotFoundException") {
     secretMissing = true;
   } else {
-    fail(`Could not read the target secret: ${error?.name ?? "unknown error"}.`);
+    fail(`Could not read the target secret (region ${region}): ${describeAwsError(error)}`);
   }
 }
 
@@ -171,7 +197,7 @@ if (!dryRun) {
         : new PutSecretValueCommand({ SecretId: secretId, SecretString: JSON.stringify(next) }),
     );
   } catch (error) {
-    fail(`Could not write the target secret: ${error?.name ?? "unknown error"}.`);
+    fail(`Could not write the target secret (region ${region}): ${describeAwsError(error)}`);
   }
 }
 
