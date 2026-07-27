@@ -125,7 +125,10 @@ const workerApiKey = randomBytes(48).toString("base64url");
 // plane a verification round-trip on every worker request. The registration
 // contract also pins this: `registerCollectorAccount` validates the digest
 // against /^[a-f0-9]{64}$/.
-// codeql[js/insufficient-password-hash]
+//
+// CodeQL flags this as js/insufficient-password-hash. That alert is dismissed
+// as a false positive in code scanning; inline suppression comments are not
+// honoured by this repository's setup, so do not add one expecting it to work.
 const workerKeyHash = createHash("sha256").update(workerApiKey).digest("hex").toLowerCase();
 
 const {

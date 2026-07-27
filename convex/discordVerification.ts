@@ -350,25 +350,3 @@ export const completeGuildVerification = action({
   },
 });
 
-/** Drop a recorded guild proof, e.g. after losing access to a server. */
-export const forgetGuildControlProof = mutation({
-  args: { guildId: v.string() },
-  handler: async (ctx, args) => {
-    const user = await requireVerifiedEmailUser(ctx);
-    const proof = await getActiveControlProof(ctx.db, user._id, "discord_guild", args.guildId);
-
-    if (proof === null) {
-      return { forgotten: false };
-    }
-
-    const now = Date.now();
-    await ctx.db.patch(proof._id, {
-      state: "revoked",
-      revokedAt: now,
-      revokedReason: "Removed by the account holder.",
-      updatedAt: now,
-    });
-
-    return { forgotten: true };
-  },
-});

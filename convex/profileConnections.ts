@@ -102,28 +102,6 @@ export const listProfileConnections = query({
   },
 });
 
-/** Other community profiles sharing an asset — one Discord can host several. */
-export const listProfilesSharingAsset = query({
-  args: { assetType: externalAssetType, assetExternalId: v.string() },
-  handler: async (ctx, args) => {
-    const links = await getProfilesLinkedToAsset(ctx.db, args.assetType, args.assetExternalId);
-    const profiles = await Promise.all(links.map((link) => ctx.db.get(link.profileId)));
-
-    return profiles.flatMap((profile) =>
-      profile === null || !canReadProfile("public", profile)
-        ? []
-        : [
-            {
-              slug: profile.slug,
-              displayName: profile.displayName,
-              profileType: profile.profileType,
-              claimState: profile.claimState,
-            },
-          ],
-    );
-  },
-});
-
 /**
  * Claim a community profile using a Discord guild the caller already proved
  * they manage. Verification happened during the OAuth round-trip, so this is a

@@ -549,6 +549,16 @@ export const createClaimedDiscordCommunityProfile = mutation({
   },
 });
 
+/**
+ * Opens a pending Discord Administrator check for `verifyDiscordCommunityAdminClaim`
+ * to resolve through the bot token.
+ *
+ * The claim UI now proves guild control during the OAuth round-trip and claims
+ * in one step, so nothing calls this today. It is kept deliberately: it and its
+ * verifier are the bot-token path, which the deferred discord-gateway work
+ * builds on for ongoing re-validation, and the claim journey still resumes any
+ * pending request this created.
+ */
 export const requestCommunityDiscordAdminClaim = mutation({
   args: {
     profileSlug: v.string(),
