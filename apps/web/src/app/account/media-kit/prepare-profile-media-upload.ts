@@ -1,3 +1,5 @@
+import { profileMediaMimeType } from "@/lib/profile-media-kit";
+
 const PROFILE_MEDIA_BROWSER_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
 const PROFILE_MEDIA_MAX_STORED_DIMENSION = 4_096;
 const PROFILE_MEDIA_MAX_SOURCE_DIMENSION = 8_192;
@@ -230,6 +232,7 @@ function webpOrientation(bytes: Uint8Array) {
 async function inspectImage(file: File): Promise<{
   animated: boolean;
   decodeSource: Blob;
+  detectedMimeType: "image/jpeg" | "image/png" | "image/webp" | null;
   dimensions: ImageDimensions | null;
   manualOrientation: number;
   orientation: number;
@@ -240,13 +243,18 @@ async function inspectImage(file: File): Promise<{
     bytes[0] === 0x89 &&
     bytes[1] === 0x50 &&
     bytes[2] === 0x4e &&
-    bytes[3] === 0x47
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
   ) {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     const orientation = pngOrientation(bytes);
     return {
       animated: hasPngAnimation(bytes),
       decodeSource: file,
+      detectedMimeType: "image/png",
       dimensions: { width: view.getUint32(16), height: view.getUint32(20) },
       manualOrientation: 1,
       orientation,
@@ -260,6 +268,11 @@ async function inspectImage(file: File): Promise<{
     decodeSource: webp !== null && orientation !== 1
       ? new Blob([bytes], { type: file.type })
       : file,
+    detectedMimeType: jpeg !== null
+      ? "image/jpeg"
+      : webp !== null
+        ? "image/webp"
+        : null,
     dimensions: jpeg ?? webp,
     manualOrientation: webp !== null ? orientation : 1,
     orientation,
@@ -317,6 +330,12 @@ export async function prepareProfileMediaUpload(file: File): Promise<PreparedPro
   }
 
   const inspected = await inspectImage(file);
+  if (
+    inspected.detectedMimeType === null ||
+    inspected.detectedMimeType !== profileMediaMimeType(file.type, file.name)
+  ) {
+    throw new Error("The file contents do not match the selected image type.");
+  }
   if (inspected.animated) {
     throw new Error("Profile media must be one valid, still image.");
   }

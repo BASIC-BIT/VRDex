@@ -170,6 +170,24 @@ test("owner oversized JPEG accepts legal marker fill bytes @fixture", async ({ p
   await expect(page.getByRole("button", { name: "Publish" })).toBeVisible();
 });
 
+test("owner oversized raster rejects a mismatched selected type @fixture", async ({ page }) => {
+  const { image } = await oversizedSyntheticPng();
+  const jpeg = await sharp(image).jpeg({ quality: 100, chromaSubsampling: "4:4:4" }).toBuffer();
+  expect(jpeg.length).toBeGreaterThan(4 * 1024 * 1024);
+
+  await page.goto("/account/media-kit");
+  await page.getByLabel("Add image").setInputFiles({
+    name: "mismatched.png",
+    mimeType: "image/png",
+    buffer: jpeg,
+  });
+
+  await expect(page.getByRole("alert")).toHaveText(
+    "The file contents do not match the selected image type.",
+  );
+  await expect(page.getByRole("button", { name: "Publish" })).toHaveCount(0);
+});
+
 test("owner oversized EXIF portrait preserves its oriented aspect ratio @fixture", async ({ page }) => {
   const source = await sharp({
     create: {
