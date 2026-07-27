@@ -6,7 +6,11 @@ import { toAuthSubject } from "./_communityAuthority";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
-import { linkProfileToAsset, recordExternalControlProof } from "./_externalControl";
+import {
+  getActiveProfileLinks,
+  linkProfileToAsset,
+  recordExternalControlProof,
+} from "./_externalControl";
 import { createClaimedDiscordProfileForUser } from "./_profileClaimCreation";
 import { approveProfileClaimForUser, getActiveProfileOwner, userOwnsProfile } from "./_profileOwnership";
 import { canReadProfile } from "./_profilePermissions";
@@ -720,6 +724,17 @@ export const recordDiscordCommunityAdminApproval = internalMutation({
     }
 
     const now = Date.now();
+    // Same rule as the OAuth path: Administrator in a server the claimant named
+    // proves they run that server, not that the server is this listing's. Read
+    // before the link below is written, and only associations somebody else put
+    // on record count — otherwise the claim corroborates itself on the retry.
+    const guildBacksThisProfile =
+      claimRequest.discordGuildId !== undefined &&
+      (await getActiveProfileLinks(ctx.db, profile._id, "discord_guild")).some(
+        (link) =>
+          link.assetExternalId === claimRequest.discordGuildId &&
+          link.linkedByUserId !== claimRequest.userId,
+      );
 
     await ctx.db.patch(claimRequest._id, {
       state: "approved",
@@ -733,9 +748,11 @@ export const recordDiscordCommunityAdminApproval = internalMutation({
       profileId: profile._id,
       userId: claimRequest.userId,
       grantedByClaimRequestId: claimRequest._id,
-      verified: true,
+      verified: guildBacksThisProfile,
       now,
-      note: "Discord Administrator permission verified by the Discord claim adapter.",
+      note: guildBacksThisProfile
+        ? "Discord Administrator permission verified by the Discord claim adapter for a server already backing this profile."
+        : "Discord Administrator permission verified by the Discord claim adapter. The server did not already back this profile, so ownership is unverified.",
     });
 
     // The bot-token path proves the same thing the OAuth round-trip does, so it

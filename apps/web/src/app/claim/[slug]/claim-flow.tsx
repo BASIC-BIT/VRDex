@@ -226,18 +226,24 @@ export function ClaimFlow({
 
       // Control was already proved during the Discord OAuth round-trip, so
       // claiming is a single step: pair the existing proof with this profile.
-      await claimWithVerifiedGuild({
+      const result = await claimWithVerifiedGuild({
         profileSlug: profile.slug,
         guildId: String(form.get("discordGuildId") ?? ""),
       });
+      // Server control is proved either way. Whether it verifies *this listing*
+      // depends on the server already being on record for it, so report what the
+      // claim actually produced rather than assuming the stronger outcome.
+      const verified = result.claimState === "claimed_verified";
       setStatus({
         kind: "complete",
-        message: "Server control verified. This community is now yours.",
-        verified: true,
+        message: verified
+          ? "Server control verified. This community is now yours."
+          : "Server control verified, and this community is now yours. It is not marked verified yet, because this server was not already on record for the listing — connect its VRChat group to finish.",
+        verified,
       });
       captureProductEvent(posthog, "claim_completed", {
         method,
-        outcome: "claimed_verified",
+        outcome: verified ? "claimed_verified" : "claimed_unverified",
         profile_type: profile.profileType,
       });
     } catch (error) {
@@ -310,10 +316,17 @@ export function ClaimFlow({
     try {
       const result = await verifyDiscord({ claimRequestId: requestId });
       if ("claimState" in result) {
-        setStatus({ kind: "complete", message: "Server control verified. This community is now yours.", verified: true });
+        const verified = result.claimState === "claimed_verified";
+        setStatus({
+          kind: "complete",
+          message: verified
+            ? "Server control verified. This community is now yours."
+            : "Server control verified, and this community is now yours. It is not marked verified yet, because this server was not already on record for the listing — connect its VRChat group to finish.",
+          verified,
+        });
         captureProductEvent(posthog, "claim_completed", {
           method: "discord",
-          outcome: "claimed_verified",
+          outcome: verified ? "claimed_verified" : "claimed_unverified",
           profile_type: profile.profileType,
         });
       } else {

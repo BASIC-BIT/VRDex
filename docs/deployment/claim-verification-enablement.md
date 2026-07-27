@@ -123,15 +123,22 @@ credential, and there is no published ToS for third-party server-to-server use.
 
 ## What an operator has to do
 
-These steps are deliberately not automated, and were not performed by the agent
-that wrote this document, because they change production configuration or
-create third-party application credentials:
+These steps change production configuration or create third-party application
+credentials, so they are deliberately not automated:
 
 1. Register the production redirect URI above (unblocks Discord claiming).
+   **Done 2026-07-27.**
 2. Decide whether to enable the bot path, and if so set `DISCORD_BOT_TOKEN` in
-   production Convex env and invite the bot to the relevant servers.
-3. Decide whether to enable collector-backed VRChat proof reading, which is
-   gated on VRChat provider approval.
+   production Convex env and invite the bot to the relevant servers. **Not
+   enabled.** The OAuth round-trip covers claiming on its own; the bot path is
+   kept for the deferred re-validation work.
+3. Decide whether to enable collector-backed VRChat proof reading. **Enabled
+   2026-07-27**, on BASIC's decision that a durable VRChat service-account
+   session is an accepted operating pattern. `terraform.tfvars` carries
+   `enable_service = true` and `desired_count = 1`, and
+   `VRDEX_GROUP_TELEMETRY_PROOF_ENABLED=true` is set on the worker. The
+   disabled-first sequence in `docs/deployment/group-telemetry-collector.md` is
+   the bring-up runbook for standing a fleet up, not the current state.
 
 Nothing else is required: the schema, functions, routes, and UI ship with the
 application deploy.

@@ -974,7 +974,10 @@ describe("claiming a community with a verified guild", () => {
       guildId: "777",
     });
 
-    assert.equal(result.claimState, "claimed_verified");
+    // Control of guild 777 is proved, but nothing says 777 is this listing's
+    // server. Granting verified on the claimant's own choice of guild would let
+    // a throwaway server take an unrelated community's listing and its badge.
+    assert.equal(result.claimState, "claimed_unverified");
 
     await t.run(async (ctx) => {
       const links = await getActiveProfileLinks(ctx.db, result.profileId, "discord_guild");
@@ -991,8 +994,10 @@ describe("claiming a community with a verified guild", () => {
       guildId: "777",
     });
 
+    // The link this claim wrote is the claimant's own assertion repeated back,
+    // so it must not corroborate the retry into a verified state.
     assert.equal(retry.claimRequestId, null);
-    assert.equal(retry.claimState, "claimed_verified");
+    assert.equal(retry.claimState, "claimed_unverified");
 
     await t.run(async (ctx) => {
       const requests = await ctx.db
@@ -1095,12 +1100,16 @@ describe("claiming a community with a verified guild", () => {
   });
 
   // The no-match creation path grants ownership without verification. Proving
-  // server control afterwards is exactly what should upgrade that profile, but
-  // an owner-present guard skipped the upgrade and left it unverified forever.
-  it("upgrades an existing unverified owner to verified", async () => {
+  // control of a server the listing already names is what upgrades that profile,
+  // and an owner-present guard used to skip the upgrade entirely.
+  it("upgrades an unverified owner when the listing already names their guild", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const seeded = await t.run(async (ctx) => {
+      const staffId = await ctx.db.insert("users", {
+        email: "staff@example.test",
+        emailVerificationTime: now,
+      });
       const userId = await ctx.db.insert("users", {
         email: "upgrade@example.test",
         emailVerificationTime: now,
@@ -1121,6 +1130,15 @@ describe("claiming a community with a verified guild", () => {
         assetExternalId: "999",
         controlLevel: "owner",
         evidenceSource: "discord_oauth",
+        now,
+      });
+      // Somebody other than the claimant put guild 999 on record for this
+      // listing. That is the association the claim is checked against.
+      await linkProfileToAsset(ctx.db, {
+        profileId,
+        assetType: "discord_guild",
+        assetExternalId: "999",
+        linkedByUserId: staffId,
         now,
       });
 

@@ -125,6 +125,14 @@ export const listProfileConnections = query({
  * Claim a community profile using a Discord guild the caller already proved
  * they manage. Verification happened during the OAuth round-trip, so this is a
  * single step: pair the existing proof with the profile and grant ownership.
+ *
+ * Control of a server is not evidence that the server is *this* listing's.
+ * Nothing on a concierge-seeded profile names its guild, so the guild id here is
+ * caller input all the way down — granting `claimed_verified` on it would let a
+ * throwaway server take an unrelated community's listing and wear its badge.
+ * Verified therefore requires the association to already be on record; without
+ * one the claim grants ownership at the same unverified level every other
+ * unproved claim does, and it upgrades once a trusted association exists.
  */
 export const claimCommunityWithVerifiedGuild = mutation({
   args: { profileSlug: v.string(), guildId: v.string() },
@@ -153,6 +161,15 @@ export const claimCommunityWithVerifiedGuild = mutation({
     }
 
     const now = Date.now();
+    // Read before the link is written, and only associations somebody else put
+    // on record count. A link this caller created — by an earlier run of this
+    // same claim, or by attaching the server themselves — is their own assertion
+    // repeated back, so treating it as corroboration would make the check
+    // self-satisfying on the second attempt.
+    const associatedGuilds = await getActiveProfileLinks(ctx.db, profile._id, "discord_guild");
+    const guildBacksThisProfile = associatedGuilds.some(
+      (link) => link.assetExternalId === args.guildId && link.linkedByUserId !== user._id,
+    );
 
     // Attaching the guild is idempotent and has to happen either way — a
     // verified owner may be claiming with a server that is not linked yet.
@@ -169,12 +186,15 @@ export const claimCommunityWithVerifiedGuild = mutation({
         now,
       });
 
-    // Beyond that there is nothing to do when this caller already owns a
-    // verified profile: a retry after a lost response, or a second call from the
-    // account UI, would otherwise pile up duplicate approved claim requests and
-    // redundant ownership and search writes. A `claimed_unverified` owner still
-    // falls through, since proving server control is exactly what upgrades that.
-    if (activeOwner !== null && profile.claimState === "claimed_verified") {
+    // Beyond that there is nothing to do when this caller already owns the
+    // profile and the claim would not change its state: a retry after a lost
+    // response, or a second call from the account UI, would otherwise pile up
+    // duplicate approved claim requests and redundant ownership and search
+    // writes. An unverified owner whose guild *is* on record still falls
+    // through, since that is exactly the upgrade this mutation exists to do.
+    const wouldUpgrade = profile.claimState !== "claimed_verified" && guildBacksThisProfile;
+
+    if (activeOwner !== null && !wouldUpgrade) {
       await linkGuild(proof._id);
 
       return {
@@ -198,7 +218,9 @@ export const claimCommunityWithVerifiedGuild = mutation({
         ? { discordGuildName: proof.assetDisplayName }
         : {}),
       evidenceSource: proof.evidenceSource,
-      evidenceSummary: proof.evidenceSummary ?? "Discord control verified through OAuth.",
+      evidenceSummary: guildBacksThisProfile
+        ? (proof.evidenceSummary ?? "Discord control verified through OAuth.")
+        : `${proof.evidenceSummary ?? "Discord control verified through OAuth."} This server was not already associated with the listing, so ownership is unverified.`,
       createdAt: now,
       updatedAt: now,
       verifiedAt: now,
@@ -207,21 +229,21 @@ export const claimCommunityWithVerifiedGuild = mutation({
 
     await linkGuild(proof._id);
 
-    // Also runs when the caller already owns the profile but it is still
-    // `claimed_unverified` — the no-match creation path grants ownership without
-    // verification, and proving server control is exactly what should upgrade
-    // it. `approveProfileClaimForUser` is idempotent for an existing owner and
-    // only advances the claim state.
-    if (activeOwner === null || profile.claimState !== "claimed_verified") {
+    // Reached with no owner, or with an owner whose profile this claim upgrades.
+    // `approveProfileClaimForUser` is idempotent for an existing owner and only
+    // advances the claim state.
+    {
       await approveProfileClaimForUser(ctx.db, {
         profile,
         profileId: profile._id,
         userId: user._id,
         grantedByClaimRequestId: claimRequestId,
-        verified: true,
+        verified: guildBacksThisProfile,
         now,
         ...(identity !== null ? { actor: toAuthSubject(identity) } : {}),
-        note: `Discord ${proof.controlLevel} access verified for guild ${args.guildId}.`,
+        note: guildBacksThisProfile
+          ? `Discord ${proof.controlLevel} access verified for guild ${args.guildId}, which already backed this profile.`
+          : `Discord ${proof.controlLevel} access verified for guild ${args.guildId}. The guild did not already back this profile, so ownership is unverified.`,
       });
     }
 

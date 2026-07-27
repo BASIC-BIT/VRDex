@@ -343,7 +343,10 @@ test("verified email account with linked Discord can claim person and community 
     // servers instead of asking for a pasted guild id.
     await page.getByLabel("Discord server").selectOption(E2E_DISCORD_GUILD_ID);
     await page.getByRole("button", { name: "Claim with this server" }).click();
-    const communityClaimed = page.getByText("Server control verified. This community is now yours.");
+    // Server control is proved either way; whether the listing is *marked*
+    // verified depends on the guild already being on record for it, which a
+    // fresh E2E fixture profile has no reason to be.
+    const communityClaimed = page.getByText(/Server control verified.{0,4} (and )?[Tt]his community is now yours/);
     const communityClaimFailed = page.getByText(
       "We could not complete that check. Nothing changed; try again or choose another method.",
     );

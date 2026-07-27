@@ -47,7 +47,14 @@ Run read-only membership inspection first with `pnpm proof:group-telemetry`. On 
    fails rather than being stored.
 5. Build `workers/group-telemetry/Dockerfile`, push the image, and configure `container_image` with its immutable `@sha256:` digest URI. Terraform rejects service enablement when that digest is absent.
 6. Apply with `enable_service=false` and `desired_count=0`. Review the task role, execution role, one-secret scope, SSM deployment gate, logs, alarms, budget, and egress-only networking.
-7. After a `go` or acceptable `adjust` and explicit provider approval, set `enable_service=true`, `desired_count=1`, and a budget alert email. Keep the task cap at two.
+7. After a `go` or acceptable `adjust`, set `enable_service=true`, `desired_count=1`, and a budget alert email. Keep the task cap at two.
+
+Steps 1-7 are the bring-up sequence for standing a fleet up, not a description of
+the current state. Production has been through them: BASIC accepted durable
+service-account sessions on 2026-07-27, the checked-in `terraform.tfvars` carries
+`enable_service = true` and `desired_count = 1`, and proof reading is on. The
+stop condition in `docs/planning/community-group-telemetry.md` still applies — if
+VRChat objects, stop the traffic and clear the saved session.
 
 The execution role reads only the assigned account secret and SSM startup gate. The application task role has no AWS data permissions. The worker receives no customer credential and cannot claim work for a different collector account ID.
 
