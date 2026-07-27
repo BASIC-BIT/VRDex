@@ -318,27 +318,59 @@ test.describe("fixture lookup smoke", () => {
       "href",
       "/claim/playwright-sparse-import?source=search",
     );
-    await expect(sparseResult.getByText("Imported profile seed", { exact: true })).toBeVisible();
+    await expect(sparseResult.getByText("Imported profile seed", { exact: true })).toHaveCount(0);
 
     await page.goto("/search?q=Sparse%20Import&view=dj");
     await expect(page.getByRole("link", { name: "Sparse Import", exact: true })).toBeVisible();
-    await expect(page.getByText("Imported profile seed / Unclaimed", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText(/Imported profile seed|Unclaimed/, { exact: true })).toHaveCount(0);
 
     await page.goto("/search?q=DJ%20Aurora&view=dj");
-    await expect(page.getByText("Community submitted", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText("Community submitted / Community submitted", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Community submitted", { exact: true })).toHaveCount(0);
   });
 
   test("lookup suggestions include authorized private seed rows", async ({ page }) => {
     await page.goto("/lookup");
     await page.getByLabel("DJ name").fill("nwinn");
 
-    const privateOption = page.getByRole("option", { name: /DJ Northstar.*Private seed.*NWinn/i });
+    const privateOption = page.getByRole("option", { name: "DJ Northstar", exact: true });
 
     await expect(privateOption).toBeVisible();
+    await expect(privateOption).not.toContainText(/Private seed|NWinn/);
     await privateOption.click();
-    await expect(page).toHaveURL(/\/search\?q=DJ%20Northstar&view=dj$/);
-    await expect(page.locator(".lookup-result-card.lookup-private-result").filter({ hasText: "DJ Northstar" })).toBeVisible();
+    await expect(page).toHaveURL((url) =>
+      url.pathname === "/search" &&
+      url.searchParams.get("q") === "DJ Northstar" &&
+      url.searchParams.get("view") === "dj",
+    );
+    const privateResult = page.locator(".lookup-result-card.ph-no-capture").filter({ hasText: "DJ Northstar" });
+    await expect(privateResult).toBeVisible();
+    await expect(privateResult).not.toContainText(/Private seed|Source|Reviewed|Freshness|Jul 9, 2026|Checked Jul 8, 2026/);
+  });
+
+  test("verified profiles use the same compact mark across profile and search views", async ({ page }) => {
+    await page.goto("/p/basicbit");
+    const profileMark = page.getByLabel("Verified profile");
+    await expect(profileMark).toBeVisible();
+    const profileBox = await profileMark.boundingBox();
+
+    await page.goto("/search?q=BASICBIT");
+    const searchMark = page.getByRole("region", { name: "Search results" }).getByLabel("Verified profile");
+    await expect(searchMark).toBeVisible();
+    const searchBox = await searchMark.boundingBox();
+
+    await page.goto("/search?q=BASICBIT&view=dj");
+    const lookupMark = page.getByLabel("Verified profile").first();
+    await expect(lookupMark).toBeVisible();
+    const lookupBox = await lookupMark.boundingBox();
+
+    expect(profileBox).not.toBeNull();
+    expect(searchBox).not.toBeNull();
+    expect(lookupBox).not.toBeNull();
+    expect(profileBox!.width).toBeLessThanOrEqual(18);
+    expect(profileBox!.width).toBe(searchBox!.width);
+    expect(profileBox!.height).toBe(searchBox!.height);
+    expect(profileBox!.width).toBe(lookupBox!.width);
+    expect(profileBox!.height).toBe(lookupBox!.height);
   });
 
   test("bulk lookup summaries dedupe overlapping public and private rows", async ({ page }) => {

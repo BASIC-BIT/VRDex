@@ -3,6 +3,7 @@ import type { QueryCtx } from "./_generated/server";
 import { getPublicProfileMediaKit } from "./_profileAssets";
 import { toProfileLookupResult } from "./_profileLookup";
 import { canReadProfile } from "./_profilePermissions";
+import { getProfileTrustLabel } from "./_profileStates";
 import { firstSafePublicImageUrl } from "./_publicFields";
 import {
   normalizeSearchQuery,
@@ -54,6 +55,7 @@ export async function projectPublicSearchResult(
 
   return {
     ...result,
+    trustLabel: getProfileTrustLabel(profile.claimState, profile.creationSource),
     ...(person === null ? {} : { person }),
     ...(profile.claimState === "unclaimed" ? { claimEligible: true } : {}),
   };

@@ -1022,6 +1022,7 @@ const discoveryResults: PublicSearchResult[] = [
     imageUrl: auroraProfileImage.imageUrl,
     profileImageUrl: auroraProfileImage.imageUrl,
     logoImageUrl: auroraPrimaryLogo.imageUrl,
+    trustLabel: "community_submitted",
     source: {
       sourceType: "community",
       label: "Community submitted",
@@ -1037,6 +1038,7 @@ const discoveryResults: PublicSearchResult[] = [
     subtitle: "Person profile",
     summary: "Software Dev | 3D Designer | VRDJ",
     imageUrl: "/seed/basicbit-avatar.png",
+    trustLabel: "claimed_verified",
     person: toProfileLookupFixture(basicBitProfile)!,
     source: {
       sourceType: "owner",
@@ -1052,6 +1054,7 @@ const discoveryResults: PublicSearchResult[] = [
     title: generatedFixtureProfiles[0]!.displayName,
     subtitle: "Person profile",
     summary: generatedFixtureProfiles[0]!.headline,
+    trustLabel: generatedFixtureProfiles[0]!.trustLabel,
     person: toProfileLookupFixture(generatedFixtureProfiles[0]!)!,
     source: {
       sourceType: "community",
@@ -1068,6 +1071,7 @@ const discoveryResults: PublicSearchResult[] = [
     title: "Afterglow Social",
     subtitle: "Community profile",
     summary: "A warm VRChat club night for music-first communities.",
+    trustLabel: "community_submitted",
     source: {
       sourceType: "community",
       label: "Community submitted",
@@ -1094,6 +1098,7 @@ const discoveryResults: PublicSearchResult[] = [
     routePath: `/p/${sparseImportedProfile.slug}`,
     title: sparseImportedProfile.displayName,
     subtitle: "Person profile",
+    trustLabel: sparseImportedProfile.trustLabel,
     person: toProfileLookupFixture(sparseImportedProfile, "Imported profile seed")!,
     source: {
       sourceType: "import",

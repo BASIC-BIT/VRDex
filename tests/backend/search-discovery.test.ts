@@ -342,6 +342,56 @@ describe("search document projection", () => {
     assert.equal(await projectPublicSearchResult(ctx, document, "BASICBIT"), null);
   });
 
+  it("projects profile verification without exposing it as provenance copy", async () => {
+    const profile = {
+      _id: "profile123",
+      slug: "basicbit",
+      displayName: "BASICBIT",
+      aliases: [],
+      tags: [],
+      genres: [],
+      outboundLinks: [],
+      claimState: "claimed_verified",
+      creationSource: "self",
+      publicationState: "published",
+      publicSurfacingState: "public",
+      profileType: "person",
+      person: { roleTags: [] },
+      updatedAt: 2,
+    } as unknown as Doc<"profiles">;
+    const document = {
+      entityType: "profile",
+      profileType: "person",
+      profileId: profile._id,
+      slug: profile.slug,
+      routePath: `/p/${profile.slug}`,
+      title: profile.displayName,
+      searchText: profile.displayName,
+      exactTokens: ["basicbit"],
+      vocabularyKeys: [],
+      trustRank: 40,
+      featuredRank: 0,
+      publicState: "public",
+      updatedAt: 1,
+    } as unknown as Doc<"searchDocuments">;
+    const queryBuilder = {
+      withIndex: () => queryBuilder,
+      collect: async () => [],
+      unique: async () => null,
+    };
+    const ctx = {
+      db: {
+        get: async () => profile,
+        query: () => queryBuilder,
+      },
+    } as unknown as QueryCtx;
+
+    const result = await projectPublicSearchResult(ctx, document, "BASICBIT");
+
+    assert.equal(result?.trustLabel, "claimed_verified");
+    assert.equal(result?.source, undefined);
+  });
+
   it("applies the result limit after dropping stale search documents", async () => {
     const hiddenProfile = {
       _id: "hiddenProfile",

@@ -14,6 +14,7 @@ import { mergeLookupSuggestions } from "./lookup-suggestion-merge";
 import { SearchViewShell } from "./search-view-shell";
 import { Card } from "@/components/ui/card";
 import { EntityImage } from "@/components/ui/entity-image";
+import { VerifiedTrustMark } from "@/components/ui/verified-trust-mark";
 import { Table, TableCell, TableFrame, TableHead, TableHeaderCell } from "@/components/ui/table";
 import { cn } from "@/lib/cn";
 import { discordCopyValue } from "@/lib/discord-link";
@@ -263,16 +264,6 @@ function ProfileAvatar({ profile }: { profile: Pick<PublicProfileLookupResult, "
       sizes="83px"
       src={profile.avatarImageUrl}
     />
-  );
-}
-
-function VerifiedTrustMark({ className, label }: { className?: string; label: string }) {
-  return (
-    <span className={cn("lookup-trust-mark", className)} aria-label={label} title={label}>
-      <svg aria-hidden="true" viewBox="0 0 16 16">
-        <path d="m4.1 8.3 2.45 2.45L12.25 5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
-      </svg>
-    </span>
   );
 }
 
@@ -603,14 +594,6 @@ function lookupIdentityStyle(profile: PublicProfileLookupResult): CSSProperties 
 function LookupIdentity({ profile }: { profile: PublicProfileLookupResult }) {
   const hasFlair = Boolean(profile.accentColor?.trim());
   const identityMeta = compactList([profile.region, profile.timezone]).join(" / ");
-  const trustLabel = profile.trustLabel === "community_submitted"
-    ? "Community submitted"
-    : profile.trustLabel === "unclaimed"
-      ? "Unclaimed"
-      : profile.trustLabel === "claimed_unverified"
-        ? "Claimed, not verified"
-        : undefined;
-
   return (
     <div
       className={cn("lookup-identity", hasFlair ? "lookup-identity--flair" : undefined)}
@@ -618,7 +601,7 @@ function LookupIdentity({ profile }: { profile: PublicProfileLookupResult }) {
     >
       <div className="lookup-avatar-wrap">
         <ProfileAvatar profile={profile} />
-        {profile.trustLabel === "claimed_verified" ? <VerifiedTrustMark className="lookup-trust-mark--avatar" label="Verified profile" /> : null}
+        {profile.trustLabel === "claimed_verified" ? <VerifiedTrustMark className="verified-trust-mark--avatar" /> : null}
       </div>
       <div className="lookup-identity-copy">
         <div className="lookup-name-row">
@@ -633,11 +616,6 @@ function LookupIdentity({ profile }: { profile: PublicProfileLookupResult }) {
           </div>
         ) : null}
         {identityMeta ? <div className="lookup-identity-meta">{identityMeta}</div> : null}
-        {profile.sourceLabel || trustLabel ? (
-          <div className="lookup-identity-meta">
-            {[...new Set(compactList([profile.sourceLabel, trustLabel]))].join(" / ")}
-          </div>
-        ) : null}
       </div>
     </div>
   );
@@ -694,63 +672,11 @@ function privateSeedGenres(candidate: PrivateSeedLookupResult): PublicProfileGen
     : [];
 }
 
-function earliestTimestamp(values: Array<number | undefined>): number | undefined {
-  const timestamps = values.filter((value): value is number => typeof value === "number");
-
-  return timestamps.length > 0 ? Math.min(...timestamps) : undefined;
-}
-
-function compactDate(timestamp: number): string {
-  return new Intl.DateTimeFormat("en-US", {
-    day: "numeric",
-    month: "short",
-    timeZone: "UTC",
-    year: "numeric",
-  }).format(timestamp);
-}
-
-function privateSeedMetadata(candidate: PrivateSeedLookupResult) {
-  const checkedValues = candidate.fields.map((field) => field.lastCheckedAt);
-  const checkedCount = checkedValues.filter((value) => typeof value === "number").length;
-  const allFieldsChecked = candidate.fields.length > 0 && checkedCount === candidate.fields.length;
-  const observedValues = candidate.fields.length > 0
-    ? candidate.fields.map((field) => field.sourceObservedAt ?? candidate.source?.observedAt)
-    : [candidate.source?.observedAt];
-  const allFieldsObserved = observedValues.length > 0 && observedValues.every(
-    (value) => typeof value === "number",
-  );
-  const acceptedFields = candidate.fields.filter((field) => field.reviewState === "accepted");
-  const allFieldsAccepted = acceptedFields.length === candidate.fields.length;
-  const reviewedAt = candidate.reviewState === "accepted" && allFieldsAccepted
-    ? candidate.reviewedAt ?? earliestTimestamp(acceptedFields.map((field) => field.reviewedAt))
-    : undefined;
-
-  return {
-    freshness: allFieldsChecked
-      ? `Checked ${compactDate(earliestTimestamp(checkedValues)!)}`
-      : checkedCount > 0
-        ? "Partially checked"
-        : allFieldsObserved
-          ? `Observed ${compactDate(earliestTimestamp(observedValues)!)}`
-          : "Unknown",
-    reviewed: reviewedAt
-      ? compactDate(reviewedAt)
-      : candidate.reviewState === "accepted" && allFieldsAccepted
-        ? "Accepted"
-        : acceptedFields.length > 0
-          ? "Partial"
-        : "Not reviewed",
-    source: candidate.source?.name ?? candidate.fields[0]?.sourceLabel ?? "Unknown",
-  };
-}
-
 function PrivateSeedIdentity({ candidate }: { candidate: PrivateSeedLookupResult }) {
   const aliases = privateFieldValue<string[]>(candidate, "aliases") ?? [];
-  const metadata = privateSeedMetadata(candidate);
 
   return (
     <div className="lookup-private-identity ph-no-capture" data-ph-no-capture>
-      <span className="lookup-private-label">Private seed</span>
       <span className="lookup-private-name">{candidate.displayName}</span>
       {aliases.length > 0 ? (
         <div className="lookup-alias-line">
@@ -758,18 +684,13 @@ function PrivateSeedIdentity({ candidate }: { candidate: PrivateSeedLookupResult
           <span className="lookup-alias-line__value">{aliases.join(" / ")}</span>
         </div>
       ) : null}
-      <dl className="lookup-private-metadata">
-        <div><dt>Source</dt><dd>{metadata.source}</dd></div>
-        <div><dt>Reviewed</dt><dd>{metadata.reviewed}</dd></div>
-        <div><dt>Freshness</dt><dd>{metadata.freshness}</dd></div>
-      </dl>
     </div>
   );
 }
 
 function PrivateSeedResultRow({ candidate }: { candidate: PrivateSeedLookupResult }) {
   return (
-    <tr className="lookup-result-row lookup-private-result ph-no-capture align-middle" data-ph-no-capture>
+    <tr className="lookup-result-row ph-no-capture align-middle" data-ph-no-capture>
       <TableCell className="lookup-name-cell px-2 py-2">
         <PrivateSeedIdentity candidate={candidate} />
       </TableCell>
@@ -786,7 +707,7 @@ function PrivateSeedResultRow({ candidate }: { candidate: PrivateSeedLookupResul
 function PrivateSeedResultCard({ candidate }: { candidate: PrivateSeedLookupResult }) {
   return (
     <Card
-      className="lookup-result-card lookup-private-result ph-no-capture grid gap-2"
+      className="lookup-result-card ph-no-capture grid gap-2"
       data-ph-no-capture
       padding="sm"
     >

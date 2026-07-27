@@ -33,9 +33,9 @@ function isPrivateSuggestion(
   return "publicationState" in profile;
 }
 
-function profileOptionLabel(profile: ProfileLookupDisplayResult): string {
+function profileOptionLabel(profile: ProfileLookupDisplayResult): string | undefined {
   if (isPrivateSuggestion(profile)) {
-    return profile.source?.name ? `Private seed - ${profile.source.name}` : "Private seed";
+    return undefined;
   }
 
   const context = [...new Set([...profile.roleTags, ...profile.tags])].slice(0, 3).join(" / ");
@@ -439,27 +439,31 @@ export function LookupSearchBox({
                     </span>
                   </button>
                 ))}
-                {suggestions.map((profile, index) => (
-                  <button
-                    className={cn(
-                      "lookup-suggestion-option",
-                      activeIndex === index ? "bg-surface-strong" : undefined,
-                    )}
-                    key={isPrivateSuggestion(profile) ? `private:${profile.id}` : `public:${profile.slug}`}
-                    type="button"
-                    role="option"
-                    aria-selected={activeIndex === index}
-                    id={`${listboxId}-${index}`}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => submitQuery(profile.displayName)}
-                  >
-                    <SuggestionAvatar profile={profile} />
-                    <span className="min-w-0">
-                      <span className="block truncate font-medium">{profile.displayName}</span>
-                      <span className="block truncate text-xs text-muted">{profileOptionLabel(profile)}</span>
-                    </span>
-                  </button>
-                ))}
+                {suggestions.map((profile, index) => {
+                  const optionLabel = profileOptionLabel(profile);
+
+                  return (
+                    <button
+                      className={cn(
+                        "lookup-suggestion-option",
+                        activeIndex === index ? "bg-surface-strong" : undefined,
+                      )}
+                      key={isPrivateSuggestion(profile) ? `private:${profile.id}` : `public:${profile.slug}`}
+                      type="button"
+                      role="option"
+                      aria-selected={activeIndex === index}
+                      id={`${listboxId}-${index}`}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => submitQuery(profile.displayName)}
+                    >
+                      <SuggestionAvatar profile={profile} />
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium">{profile.displayName}</span>
+                        {optionLabel ? <span className="block truncate text-xs text-muted">{optionLabel}</span> : null}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             ) : null}
           </div>

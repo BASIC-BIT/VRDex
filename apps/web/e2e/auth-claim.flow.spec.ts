@@ -1,6 +1,7 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 
 import { gotoFlowPage } from "./flow-navigation";
+import { captureRouteScreenshot } from "./public-routes";
 import { E2E_DISCORD_GUILD_ID } from "../src/lib/e2e-discord-fixture";
 
 test.describe.configure({ mode: "serial" });
@@ -271,20 +272,28 @@ test("verified email account with linked Discord can claim person and community 
 
     await gotoFlowPage(page, `/p/${createdSlug}`);
     await expect(page.getByRole("heading", { name: displayName })).toBeVisible(hostedActionExpectOptions);
-    await expectCurrentOrHostedLagTrustCopy(
-      profileStatusCopy(page, "Claimed"),
-      page.getByRole("heading", { name: "Claimed", exact: true }).or(page.getByText("Person profile / Claimed", { exact: true })),
-    );
+    if (process.env.PLAYWRIGHT_BASE_URL) {
+      await expectCurrentOrHostedLagTrustCopy(
+        page.getByRole("heading", { name: displayName }),
+        page.getByRole("heading", { name: "Claimed", exact: true }).or(page.getByText("Person profile / Claimed", { exact: true })),
+      );
+    } else {
+      await expect(profileStatusCopy(page, "Claimed")).toHaveCount(0);
+    }
 
     await gotoFlowPage(page, `/claim/${encodeURIComponent(createdSlug!)}`);
     await expect(page.getByText("You manage this profile, but it is not verified yet.")).toBeVisible();
     await expect(page.getByLabel("VRChat profile URL or user ID")).toBeVisible();
 
     await gotoFlowPage(page, "/account");
+    const accountProfileLink = page.getByRole("link", { name: "View profile" });
+    await expect(accountProfileLink).toHaveAttribute("href", `/p/${encodeURIComponent(createdSlug!)}`);
+    await expect(accountProfileLink).toHaveClass(/bg-accent/);
     await expect(page.getByRole("link", { name: "Verify with VRChat" })).toHaveAttribute(
       "href",
       `/claim/${encodeURIComponent(createdSlug!)}?source=account`,
     );
+    await captureRouteScreenshot(page, testInfo, "account-owned-profile");
 
     await gotoFlowPage(
       page,
@@ -317,7 +326,7 @@ test("verified email account with linked Discord can claim person and community 
       hostedActionExpectOptions,
     );
     await expectCurrentOrHostedLagTrustCopy(
-      page.getByLabel("Owner verified").or(profileStatusCopy(page, "Verified")),
+      page.getByLabel("Verified profile").or(profileStatusCopy(page, "Verified")),
       page
         .getByRole("heading", { name: "Verified owner", exact: true })
         .or(page.getByText("Community profile / Verified", { exact: true })),
@@ -404,7 +413,7 @@ test("verified email account can complete VRChat adapter claims @flow", async ({
     await gotoFlowPage(page, `/p/${vrchatPersonSlug}`);
     await expect(page.getByRole("heading", { name: `Playwright VRChat Proof ${runSuffix}` })).toBeVisible(hostedActionExpectOptions);
     await expectCurrentOrHostedLagTrustCopy(
-      page.getByLabel("Owner verified").or(profileStatusCopy(page, "Verified")),
+      page.getByLabel("Verified profile").or(profileStatusCopy(page, "Verified")),
       page.getByRole("heading", { name: "Verified owner", exact: true }).or(page.getByText("Person profile / Verified", { exact: true })),
     );
 

@@ -13,6 +13,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
 import { EntityImage } from "@/components/ui/entity-image";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
+import { VerifiedTrustMark } from "@/components/ui/verified-trust-mark";
 import { cn } from "@/lib/cn";
 import {
   FEATURED_DISCOVERY_UI_FLAG,
@@ -34,6 +35,7 @@ export type PublicSearchResult = {
   imageUrl?: string;
   profileImageUrl?: string;
   logoImageUrl?: string;
+  trustLabel?: "community_submitted" | "unclaimed" | "claimed_unverified" | "claimed_verified";
   startsAt?: number;
   source?: {
     sourceType?: string;
@@ -100,23 +102,33 @@ function ResultImage({ result }: { result: PublicSearchResult }) {
     result.logoImageUrl === result.profileImageUrl
   ) {
     return (
-      <EntityImage
-        className="size-14 rounded-card bg-[linear-gradient(135deg,var(--canvas-muted),var(--surface-raised))] text-lg text-white"
-        label={result.title}
-        sizes="56px"
-        src={primaryImageUrl}
-      />
+      <span className="relative shrink-0">
+        <EntityImage
+          className="size-14 rounded-card bg-[linear-gradient(135deg,var(--canvas-muted),var(--surface-raised))] text-lg text-white"
+          label={result.title}
+          sizes="56px"
+          src={primaryImageUrl}
+        />
+        {result.trustLabel === "claimed_verified" ? (
+          <VerifiedTrustMark className="verified-trust-mark--avatar" />
+        ) : null}
+      </span>
     );
   }
 
   return (
     <span className="grid shrink-0 grid-cols-2 gap-1">
-      <EntityImage
-        className="size-14 rounded-card bg-[linear-gradient(135deg,var(--canvas-muted),var(--surface-raised))] text-lg text-white"
-        label={result.title}
-        sizes="56px"
-        src={result.profileImageUrl}
-      />
+      <span className="relative">
+        <EntityImage
+          className="size-14 rounded-card bg-[linear-gradient(135deg,var(--canvas-muted),var(--surface-raised))] text-lg text-white"
+          label={result.title}
+          sizes="56px"
+          src={result.profileImageUrl}
+        />
+        {result.trustLabel === "claimed_verified" ? (
+          <VerifiedTrustMark className="verified-trust-mark--avatar" />
+        ) : null}
+      </span>
       <EntityImage
         className="size-14 rounded-card border border-border bg-surface-strong text-xs"
         fallback="Logo"
@@ -203,7 +215,6 @@ function SearchResultCard({ result }: { result: PublicSearchResult }) {
           {result.startsAt === undefined ? null : <ViewerLocalEventDateTime className="text-sm text-accent-strong" timestamp={result.startsAt} />}
           {result.summary ? <span className="line-clamp-2 text-sm leading-6 text-muted">{result.summary}</span> : null}
           {roleLabels.length > 0 ? <span className="text-xs text-muted">{roleLabels.join(" · ")}</span> : null}
-          {result.source ? <span className="text-xs text-muted">{result.source.label}</span> : null}
         </span>
       </TrackedDiscoveryLink>
       {result.claimEntryPath ? (
@@ -225,12 +236,17 @@ function FeaturedProfileCard({ result }: { result: PublicSearchResult }) {
       href={result.routePath}
       properties={{ entity_type: result.entityType, surface: "featured" }}
     >
-      <EntityImage
-        className="aspect-square h-auto w-full rounded-none bg-media text-4xl text-white lg:size-72"
-        label={result.title}
-        sizes="(min-width: 1024px) 288px, (min-width: 768px) 50vw, 100vw"
-        src={result.imageUrl}
-      />
+      <span className="relative">
+        <EntityImage
+          className="aspect-square h-auto w-full rounded-none bg-media text-4xl text-white lg:size-72"
+          label={result.title}
+          sizes="(min-width: 1024px) 288px, (min-width: 768px) 50vw, 100vw"
+          src={result.imageUrl}
+        />
+        {result.trustLabel === "claimed_verified" ? (
+          <VerifiedTrustMark className="verified-trust-mark--avatar" />
+        ) : null}
+      </span>
       <span className="flex min-w-0 flex-col justify-end bg-[linear-gradient(145deg,var(--background),var(--surface-raised))] p-5">
         <span className="block text-3xl font-semibold">{result.title}</span>
         {result.summary ? <span className="mt-3 line-clamp-3 block text-sm leading-6 text-white/76">{result.summary}</span> : null}
