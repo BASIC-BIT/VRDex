@@ -72,6 +72,9 @@ const profileAssetAttachMetadataArgs = {
 };
 const PROFILE_ASSET_ACCESSIBILITY_GENERATION_DAILY_LIMIT = 20;
 const PROFILE_ASSET_ACCESSIBILITY_GENERATION_COOLDOWN_MS = 5_000;
+const PROFILE_ASSET_ACCESSIBILITY_REQUEST_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const PROFILE_ASSET_ACCESSIBILITY_MODEL = /^[a-z0-9][a-z0-9._:-]{0,99}$/iu;
 
 function assertProfileMediaKitEnabled() {
   if (process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED !== "true") {
@@ -433,7 +436,7 @@ export const claimOwnedAccessibilityGeneration = mutation({
   args: {
     profileId,
     requestId: v.string(),
-    provider: v.string(),
+    provider: v.literal("openai"),
     model: v.string(),
     imageBytes: v.number(),
   },
@@ -445,7 +448,11 @@ export const claimOwnedAccessibilityGeneration = mutation({
     const requestId = args.requestId.trim();
     const provider = args.provider.trim();
     const model = args.model.trim();
-    if (!requestId || !provider || !model) {
+    if (
+      !PROFILE_ASSET_ACCESSIBILITY_REQUEST_ID.test(requestId) ||
+      provider !== "openai" ||
+      !PROFILE_ASSET_ACCESSIBILITY_MODEL.test(model)
+    ) {
       throw new Error("Accessibility generation request metadata is invalid.");
     }
     if (!Number.isSafeInteger(args.imageBytes) || args.imageBytes <= 0 || args.imageBytes > 1_500_000) {

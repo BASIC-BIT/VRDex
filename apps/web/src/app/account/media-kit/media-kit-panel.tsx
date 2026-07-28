@@ -426,7 +426,7 @@ function OtherAsset({
         </p>
         <ActionStatusMessage className="mt-2" status={status} />
       </div>
-      <Button className="col-span-2 justify-self-end sm:col-span-1" disabled={operationBusy} onClick={() => void remove()} type="button" variant="ghost">
+      <Button aria-label={`Remove ${asset.label || "Untitled image"}`} className="col-span-2 justify-self-end sm:col-span-1" disabled={operationBusy} onClick={() => void remove()} type="button" variant="ghost">
         <Trash2 aria-hidden="true" className="mr-2 size-4" />
         Remove
       </Button>
@@ -819,6 +819,7 @@ function MediaKitEditor({
               <li className="flex flex-wrap items-center justify-between gap-3 py-3" key={asset.assetId}>
                 <span className="text-sm">{asset.label || "Untitled image"}</span>
                 <Button
+                  aria-label={`Restore ${asset.label || "Untitled image"}`}
                   disabled={operationBusy}
                   id={`restore-${asset.assetId}`}
                   onClick={() => void restoreAsset(asset.assetId)}
@@ -845,7 +846,7 @@ const demoProfiles: MediaProfile[] = [
     profileType: "person",
     slug: "playwright-dj-aurora",
     displayName: "DJ Aurora",
-    activePublicAssetCount: 3,
+    activePublicAssetCount: 4,
     assets: [
     {
       assetId: "aurora-primary",
@@ -900,12 +901,36 @@ const demoProfiles: MediaProfile[] = [
       downloadUrl: "/api/e2e/fixture-assets/fixture-aurora-alt-logo?download=1",
     },
     {
+      assetId: "aurora-banner",
+      state: "active",
+      label: "Legacy banner",
+      altText: "AURORA wordmark in white over violet and cyan light.",
+      mimeType: "image/webp",
+      byteSize: 180_000,
+      sourcePreserved: false,
+      width: 1200,
+      height: 675,
+      gallery: false,
+      featured: false,
+      imageUrl: "/api/e2e/fixture-assets/fixture-aurora-primary-logo",
+      downloadUrl: "/api/e2e/fixture-assets/fixture-aurora-primary-logo?download=1",
+    },
+    {
       assetId: "aurora-removed",
       state: "deleted",
       label: "Old square mark",
       mimeType: "image/png",
       byteSize: 210_000,
       gallery: true,
+      featured: false,
+    },
+    {
+      assetId: "aurora-removed-banner",
+      state: "deleted",
+      label: "Removed banner",
+      mimeType: "image/webp",
+      byteSize: 180_000,
+      gallery: false,
       featured: false,
     },
     ],

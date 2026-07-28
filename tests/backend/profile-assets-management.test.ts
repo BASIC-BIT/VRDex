@@ -1098,6 +1098,37 @@ describe("profile media-kit owner management", () => {
     assert.equal("image" in (event ?? {}), false);
   });
 
+  it("rejects malformed accessibility generation telemetry metadata", async () => {
+    const seeded = await seedOwnedProfile(0);
+    const owner = seeded.t.withIdentity(seeded.ownerIdentity);
+    for (const args of [
+      {
+        requestId: "not-a-uuid",
+        provider: "openai" as const,
+        model: "synthetic-model",
+      },
+      {
+        requestId: crypto.randomUUID(),
+        provider: "openai" as const,
+        model: `model-${"x".repeat(100)}`,
+      },
+      {
+        requestId: crypto.randomUUID(),
+        provider: "other" as "openai",
+        model: "synthetic-model",
+      },
+    ]) {
+      await assert.rejects(
+        owner.mutation(api.profileAssets.claimOwnedAccessibilityGeneration, {
+          profileId: seeded.profileId,
+          ...args,
+          imageBytes: 1_024,
+        }),
+        /metadata|Validator/,
+      );
+    }
+  });
+
   it("enforces the rolling daily accessibility generation limit", async () => {
     const seeded = await seedOwnedProfile(0);
     const now = Date.now();

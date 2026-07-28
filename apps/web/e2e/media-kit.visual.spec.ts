@@ -42,7 +42,7 @@ test("owner media-kit editor @visual @fixture", async ({ page }, testInfo) => {
     "DJ Aurora framed by violet light and a warm orange glow.",
   );
   await expect(page.getByRole("button", { name: "Move Aurora press portrait down" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Restore" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Restore Old square mark" })).toBeVisible();
   await captureRouteScreenshot(page, testInfo, "media-kit-editor");
 });
 
@@ -56,6 +56,10 @@ test("owner repeated asset actions have distinct keyboard names @fixture", async
   await expect(second.getByRole("button", { name: "Remove Aurora wordmark" })).toBeVisible();
   await expect(first.getByRole("link", { name: "Download Aurora press portrait" })).toBeVisible();
   await expect(second.getByRole("link", { name: "Download Aurora wordmark" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Remove Old square mark" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Remove Legacy banner" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Restore Old square mark" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Restore Removed banner" })).toBeVisible();
   const replace = second.getByLabel("Replace Aurora wordmark");
   await replace.focus();
   await expect(replace).toBeFocused();
@@ -562,7 +566,7 @@ test("removed profile upload cannot overwrite a new staged upload @fixture", asy
 
 test("owner restore keeps status and focus in the active gallery @fixture", async ({ page }) => {
   await page.goto("/account/media-kit");
-  await page.getByRole("button", { name: "Restore" }).click();
+  await page.getByRole("button", { name: "Restore Old square mark" }).click();
 
   await expect(page.getByText("Restored.", { exact: true })).toBeVisible();
   await expect(page.locator("#active-aurora-removed")).toBeFocused();

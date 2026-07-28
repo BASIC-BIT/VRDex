@@ -197,24 +197,23 @@ Do not enable the new paths until the target environment has passed each item:
    downloaded MIME type and dimensions match the uploaded format while EXIF
    and location metadata are absent. Confirm owner/public projections and
    display/download routes cannot return an exact source key or source bytes.
-3. Promote `VRDEX_PROFILE_MEDIA_DIRECT_UPLOAD_ENABLED=true` to production
-   Vercel and Convex only after step 2. Without it, existing small multipart
-   uploads remain the compatibility path.
-4. For accessibility suggestions, first enable
+3. For accessibility suggestions, first enable
    `VRDEX_PROFILE_MEDIA_ACCESSIBILITY_GENERATION_ENABLED=true` in staging
    Vercel and Convex, and set a staging `OPENAI_API_KEY` plus the optional
-   `VRDEX_PROFILE_MEDIA_ACCESSIBILITY_MODEL` in Vercel. Verify owner denial,
-   request replay rejection, five-second cooldown, daily limit handling,
-   timeout behavior, low-detail and `store: false` provider configuration,
-   one-sentence/140-character output cap, preview revalidation, blank-only
-   generation, editable non-persistent output, and content-free telemetry with
-   synthetic media before promoting the same gate and production key
-   separately.
+   `VRDEX_PROFILE_MEDIA_ACCESSIBILITY_MODEL` in Vercel. Verify
+   authorized-owner success, signed-out/non-owner denial, request replay
+   rejection, five-second cooldown, daily limit handling, timeout behavior,
+   low-detail and `store: false` provider configuration, one-sentence/140-
+   character output cap, preview revalidation, blank-only generation, editable
+   non-persistent output, and content-free telemetry with synthetic media.
+4. Implement and exercise reconciliation for consumed intents whose variant
+   write/finalization did not complete, and confirm the existing 30-day
+   hard-delete policy for recoverable assets.
 5. Keep exact source keys private, inspect no real user media during smoke
    testing, and use synthetic assets only.
-6. Before sustained production use, schedule reconciliation for consumed
-   intents whose variant write/finalization did not complete and the existing
-   30-day hard-delete policy for recoverable assets.
+6. Promote each production flag and key separately only after its staging
+   evidence is accepted. Without the direct-upload flag, existing small
+   multipart uploads remain the compatibility path.
 
 ## Verification Plan
 
