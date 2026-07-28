@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomFillSync } from "node:crypto";
 import { describe, it } from "node:test";
 
 import sharp from "sharp";
@@ -87,6 +88,19 @@ describe("profile asset content validation", () => {
       assert.equal(metadata.exif, undefined);
       assert.equal(prepared.display.mimeType, "image/webp");
     }
+  });
+
+  it("keeps sanitized WebP downloads within the upload limit", async () => {
+    const pixels = Buffer.allocUnsafe(2_048 * 2_048 * 3);
+    randomFillSync(pixels);
+    const source = await sharp(pixels, {
+      raw: { width: 2_048, height: 2_048, channels: 3 },
+    }).webp({ quality: 70 }).toBuffer();
+    const prepared = await validateAndPrepareProfileAsset(new Uint8Array(source), "image/webp");
+
+    assert.ok(source.byteLength <= 12 * 1024 * 1024);
+    assert.ok(prepared.download.body.byteLength <= 12 * 1024 * 1024);
+    assert.equal((await sharp(prepared.download.body).metadata()).format, "webp");
   });
 
   it("accepts a simple bounded SVG and rejects active or external SVG content", async () => {

@@ -505,12 +505,20 @@ export async function POST(request: NextRequest, context: RouteContext) {
       contentSha256: prepared.download.contentSha256,
       width: prepared.display.width,
       height: prepared.display.height,
-      sourceMimeType: prepared.source.mimeType,
-      sourceByteSize: prepared.source.body.byteLength,
-      sourceContentSha256: prepared.source.contentSha256,
-      downloadMimeType: prepared.download.mimeType,
-      downloadByteSize: prepared.download.body.byteLength,
-      downloadContentSha256: prepared.download.contentSha256,
+      ...(intent.sourceStorageKey === undefined
+        ? {}
+        : {
+            sourceMimeType: prepared.source.mimeType,
+            sourceByteSize: prepared.source.body.byteLength,
+            sourceContentSha256: prepared.source.contentSha256,
+          }),
+      ...(intent.downloadStorageKey === undefined
+        ? {}
+        : {
+            downloadMimeType: prepared.download.mimeType,
+            downloadByteSize: prepared.download.body.byteLength,
+            downloadContentSha256: prepared.download.contentSha256,
+          }),
     });
     if (intent.quarantineStorageKey) {
       await deleteProfileAssetObjects([intent.quarantineStorageKey]).catch(() => undefined);
@@ -526,21 +534,24 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     return NextResponse.json(responseBody);
   } catch (error) {
-    await convexAdminHttpClient().mutation(internal.profileAssets.releaseUploadIntentStorageClaim, {
-      intentId: intent.intentId,
-      uploadToken,
-      processingToken,
-    }).catch(() => false);
-    const cleanupState = await convexAdminHttpClient().query(
-      internal.profileAssets.getUploadIntentStateForStorageCleanup,
-      { intentId: intent.intentId, uploadToken },
-    ).catch(() => null);
-    if (cleanupState !== null && cleanupState.state !== "consumed") {
-      await deleteProfileAssetObjects([
-        ...(intent.sourceStorageKey === undefined ? [] : [intent.sourceStorageKey]),
-        ...(intent.downloadStorageKey === undefined ? [] : [intent.downloadStorageKey]),
-        intent.storageKey,
-      ]).catch(() => undefined);
+    try {
+      const cleanupState = await convexAdminHttpClient().query(
+        internal.profileAssets.getUploadIntentStateForStorageCleanup,
+        { intentId: intent.intentId, uploadToken, processingToken },
+      ).catch(() => null);
+      if (cleanupState !== null && cleanupState.state !== "consumed") {
+        await deleteProfileAssetObjects([
+          ...(intent.sourceStorageKey === undefined ? [] : [intent.sourceStorageKey]),
+          ...(intent.downloadStorageKey === undefined ? [] : [intent.downloadStorageKey]),
+          intent.storageKey,
+        ]).catch(() => undefined);
+      }
+    } finally {
+      await convexAdminHttpClient().mutation(internal.profileAssets.releaseUploadIntentStorageClaim, {
+        intentId: intent.intentId,
+        uploadToken,
+        processingToken,
+      }).catch(() => false);
     }
     const message = error instanceof Error ? error.message : "Profile media upload failed.";
 

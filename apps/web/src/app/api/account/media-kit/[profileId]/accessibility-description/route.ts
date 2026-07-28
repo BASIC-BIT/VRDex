@@ -5,8 +5,10 @@ import { api, internal } from "@convex-generated-api";
 import { convexAdminHttpClient, convexHttpClient } from "@/lib/server/convex-http";
 import {
   generateProfileAssetAccessibilityDescription,
+  inspectAccessibilityImageDataUrl,
   isProfileAssetAccessibilityGenerationConfigured,
   parseAccessibilityImageDataUrl,
+  profileAssetAccessibilityErrorStatus,
   profileAssetAccessibilityModel,
   ProfileAssetAccessibilityProviderError,
   readProfileAssetAccessibilityRequest,
@@ -30,7 +32,7 @@ export async function POST(request: Request, context: RouteContext) {
   }
   try {
     const body = await readProfileAssetAccessibilityRequest(request);
-    const image = await parseAccessibilityImageDataUrl(body.imageDataUrl);
+    const imageEnvelope = inspectAccessibilityImageDataUrl(body.imageDataUrl);
     const requestId = typeof body.requestId === "string" ? body.requestId : "";
     const { profileId } = await context.params;
     const convex = convexHttpClient();
@@ -41,13 +43,14 @@ export async function POST(request: Request, context: RouteContext) {
       requestId,
       provider: "openai",
       model,
-      imageBytes: image.byteSize,
+      imageBytes: imageEnvelope.byteSize,
     });
     if (claim.replay) {
       return Response.json({ error: "Generation request was already used." }, { status: 409 });
     }
     const startedAt = Date.now();
     try {
+      const image = await parseAccessibilityImageDataUrl(body.imageDataUrl);
       const generated = await generateProfileAssetAccessibilityDescription(image, {
         userId: String(claim.userId),
       });
@@ -73,18 +76,9 @@ export async function POST(request: Request, context: RouteContext) {
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : "Generation failed. Try again.";
-    const status =
-      error instanceof ProfileAssetAccessibilityProviderError &&
-      error.code === "invalid_image" &&
-      message.includes("too large")
-        ? 413
-        : error instanceof ProfileAssetAccessibilityProviderError && error.code === "invalid_image"
-          ? 400
-        : message.includes("permission") || message.includes("owner")
-          ? 403
-          : message.includes("limit") || message.includes("Wait a moment")
-            ? 429
-            : 502;
-    return Response.json({ error: message }, { status });
+    return Response.json(
+      { error: message },
+      { status: profileAssetAccessibilityErrorStatus(error) },
+    );
   }
 }

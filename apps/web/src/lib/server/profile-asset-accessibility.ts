@@ -11,6 +11,12 @@ const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 type AccessibilityImage = {
   dataUrl: string;
   byteSize: number;
+  mimeType: "image/webp";
+};
+
+type AccessibilityImageEnvelope = {
+  base64: string;
+  byteSize: number;
   mimeType: "image/jpeg" | "image/png" | "image/webp";
 };
 
@@ -32,6 +38,17 @@ export function isProfileAssetAccessibilityGenerationConfigured() {
     process.env.VRDEX_PROFILE_MEDIA_ACCESSIBILITY_GENERATION_ENABLED === "true" &&
     Boolean(process.env.OPENAI_API_KEY?.trim())
   );
+}
+
+export function profileAssetAccessibilityErrorStatus(error: unknown) {
+  const message = error instanceof Error ? error.message : "";
+  if (error instanceof ProfileAssetAccessibilityProviderError && error.code === "invalid_image") {
+    return message.includes("too large") ? 413 : 400;
+  }
+  if (message.includes("request metadata is invalid")) return 400;
+  if (message.includes("permission") || message.includes("owner")) return 403;
+  if (message.includes("limit") || message.includes("Wait a moment")) return 429;
+  return 502;
 }
 
 export async function readProfileAssetAccessibilityRequest(
@@ -79,7 +96,7 @@ export async function readProfileAssetAccessibilityRequest(
   }
 }
 
-export async function parseAccessibilityImageDataUrl(value: unknown): Promise<AccessibilityImage> {
+export function inspectAccessibilityImageDataUrl(value: unknown): AccessibilityImageEnvelope {
   if (typeof value !== "string" || value.length > MAX_REQUEST_BYTES) {
     throw new ProfileAssetAccessibilityProviderError("invalid_image", "Image preview is too large.");
   }
@@ -87,17 +104,34 @@ export async function parseAccessibilityImageDataUrl(value: unknown): Promise<Ac
   if (match === null) {
     throw new ProfileAssetAccessibilityProviderError("invalid_image", "Image preview is invalid.");
   }
-  const bytes = Buffer.from(match[2]!, "base64");
-  if (bytes.byteLength === 0 || bytes.byteLength > MAX_IMAGE_BYTES) {
+  const base64 = match[2]!;
+  const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
+  const byteSize = Math.floor((base64.length * 3) / 4) - padding;
+  if (byteSize <= 0 || byteSize > MAX_IMAGE_BYTES) {
     throw new ProfileAssetAccessibilityProviderError("invalid_image", "Image preview is too large.");
   }
+  return {
+    base64,
+    byteSize,
+    mimeType: match[1]!.toLowerCase() as AccessibilityImageEnvelope["mimeType"],
+  };
+}
+
+export async function parseAccessibilityImageDataUrl(value: unknown): Promise<AccessibilityImage> {
+  const envelope = inspectAccessibilityImageDataUrl(value);
+  const bytes = Buffer.from(envelope.base64, "base64");
+  if (bytes.byteLength !== envelope.byteSize) {
+    throw new ProfileAssetAccessibilityProviderError("invalid_image", "Image preview is invalid.");
+  }
+  let sanitized: Buffer;
   try {
-    const metadata = await sharp(bytes, {
+    const pipeline = sharp(bytes, {
       animated: false,
       failOn: "warning",
       limitInputPixels: 1_024 * 1_024,
-    }).metadata();
-    const expectedFormat = match[1]!.toLowerCase().replace("image/", "").replace("jpeg", "jpg");
+    });
+    const metadata = await pipeline.metadata();
+    const expectedFormat = envelope.mimeType.replace("image/", "").replace("jpeg", "jpg");
     const detectedFormat = metadata.format?.replace("jpeg", "jpg");
     if (
       detectedFormat !== expectedFormat ||
@@ -109,13 +143,24 @@ export async function parseAccessibilityImageDataUrl(value: unknown): Promise<Ac
     ) {
       throw new Error("invalid");
     }
+    sanitized = await sharp(bytes, {
+      animated: false,
+      failOn: "warning",
+      limitInputPixels: 1_024 * 1_024,
+    })
+      .rotate()
+      .webp({ quality: 82, alphaQuality: 100 })
+      .toBuffer();
+    if (sanitized.byteLength === 0 || sanitized.byteLength > MAX_IMAGE_BYTES) {
+      throw new Error("invalid");
+    }
   } catch {
     throw new ProfileAssetAccessibilityProviderError("invalid_image", "Image preview is invalid.");
   }
   return {
-    dataUrl: value,
-    byteSize: bytes.byteLength,
-    mimeType: match[1]!.toLowerCase() as AccessibilityImage["mimeType"],
+    dataUrl: `data:image/webp;base64,${sanitized.toString("base64")}`,
+    byteSize: sanitized.byteLength,
+    mimeType: "image/webp",
   };
 }
 

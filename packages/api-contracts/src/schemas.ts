@@ -582,6 +582,17 @@ export const ApiProfileAssetUploadIntentCreateRequestSchema = z
     message: "Send originalFileName for direct uploads or sourceUrl for server-side imports.",
   })
   .superRefine((value, context) => {
+    if (
+      value.originalFileName !== undefined &&
+      value.sourceUrl === undefined &&
+      value.byteSize === undefined
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "File uploads require byteSize.",
+        path: ["byteSize"],
+      });
+    }
     const placements = value.placements ?? [];
     if (placements.includes("featured") && !placements.includes("gallery")) {
       context.addIssue({

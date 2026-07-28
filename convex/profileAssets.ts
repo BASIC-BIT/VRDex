@@ -568,10 +568,17 @@ export const getUploadIntentStateForStorageCleanup = internalQuery({
   args: {
     intentId: profileAssetUploadIntentId,
     uploadToken: v.string(),
+    processingToken: v.string(),
   },
   handler: async (ctx, args) => {
     const intent = await ctx.db.get(args.intentId);
     if (intent === null || intent.uploadToken !== args.uploadToken) {
+      return null;
+    }
+    if (intent.state === "consumed") {
+      return { state: intent.state };
+    }
+    if (intent.processingToken !== args.processingToken) {
       return null;
     }
     return { state: intent.state };
@@ -1208,13 +1215,10 @@ export const getOwnedAssetForStorage = query({
       displayName: profile.displayName,
       label: asset.label,
       storageKey: asset.storageKey,
-      sourceStorageKey: asset.sourceStorageKey,
       downloadStorageKey: asset.downloadStorageKey,
       originalFileName: asset.originalFileName,
       mimeType: asset.mimeType,
       byteSize: asset.byteSize,
-      sourceMimeType: asset.sourceMimeType,
-      sourceByteSize: asset.sourceByteSize,
       downloadMimeType: asset.downloadMimeType,
       downloadByteSize: asset.downloadByteSize,
     };

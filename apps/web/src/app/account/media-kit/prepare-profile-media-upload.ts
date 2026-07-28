@@ -3,6 +3,11 @@ import { profileMediaMimeType } from "@/lib/profile-media-kit";
 const PROFILE_MEDIA_MAX_SOURCE_DIMENSION = 8_192;
 const PROFILE_MEDIA_MAX_SOURCE_PIXELS = 32_000_000;
 const PROFILE_MEDIA_ACCESSIBILITY_PREVIEW_DIMENSION = 512;
+const PROFILE_MEDIA_BROWSER_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
+const PROFILE_MEDIA_MAX_STORED_DIMENSION = 4_096;
+const PROFILE_MEDIA_MAX_PREPARED_PIXELS = 12_000_000;
+const PROFILE_MEDIA_SCALE_STEPS = [1, 0.85, 0.7, 0.55] as const;
+const PROFILE_MEDIA_WEBP_QUALITY = 0.88;
 
 type ImageDimensions = { width: number; height: number };
 export type PreparedProfileMediaUpload = {
@@ -298,7 +303,7 @@ function drawOrientedBitmap(
   context.drawImage(bitmap, 0, 0, sourceWidth, sourceHeight);
 }
 
-function canvasToJpeg(canvas: HTMLCanvasElement) {
+function canvasToWebp(canvas: HTMLCanvasElement, quality: number) {
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((blob) => {
       if (blob === null) {
@@ -307,8 +312,13 @@ function canvasToJpeg(canvas: HTMLCanvasElement) {
       }
 
       resolve(blob);
-    }, "image/jpeg", 0.82);
+    }, "image/webp", quality);
   });
+}
+
+function webpFileName(fileName: string) {
+  const baseName = fileName.replace(/\.[^.]+$/, "") || "image";
+  return `${baseName}.webp`;
 }
 
 export async function prepareProfileMediaUpload(file: File): Promise<PreparedProfileMediaUpload> {
@@ -346,6 +356,89 @@ export async function prepareProfileMediaUpload(file: File): Promise<PreparedPro
   };
 }
 
+export async function prepareProfileMediaMultipartFallback(
+  file: File,
+): Promise<PreparedProfileMediaUpload> {
+  if (file.size <= PROFILE_MEDIA_BROWSER_UPLOAD_MAX_BYTES) {
+    return { changed: false, file };
+  }
+  if (file.type === "image/svg+xml" || file.name.toLowerCase().endsWith(".svg")) {
+    throw new Error("SVG images must be 4 MB or smaller.");
+  }
+
+  const inspected = await inspectImage(file);
+  if (
+    inspected.detectedMimeType === null ||
+    inspected.detectedMimeType !== profileMediaMimeType(file.type, file.name) ||
+    inspected.animated ||
+    inspected.dimensions === null
+  ) {
+    throw new Error("Image could not be prepared for upload.");
+  }
+  const dimensions = inspected.dimensions;
+  const swapsAxes = inspected.orientation >= 5 && inspected.orientation <= 8;
+  const manuallySwapsAxes = inspected.manualOrientation >= 5 && inspected.manualOrientation <= 8;
+  const orientedWidth = swapsAxes ? dimensions.height : dimensions.width;
+  const orientedHeight = swapsAxes ? dimensions.width : dimensions.height;
+  const preparedScale = Math.min(
+    1,
+    PROFILE_MEDIA_MAX_STORED_DIMENSION / Math.max(orientedWidth, orientedHeight),
+    Math.sqrt(PROFILE_MEDIA_MAX_PREPARED_PIXELS / (orientedWidth * orientedHeight)),
+  );
+  const preparedWidth = Math.max(1, Math.round(orientedWidth * preparedScale));
+  const preparedHeight = Math.max(1, Math.round(orientedHeight * preparedScale));
+
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(inspected.decodeSource, {
+      imageOrientation: inspected.manualOrientation === 1 ? "from-image" : "none",
+      resizeWidth: manuallySwapsAxes ? preparedHeight : preparedWidth,
+      resizeHeight: manuallySwapsAxes ? preparedWidth : preparedHeight,
+      resizeQuality: "high",
+    });
+  } catch {
+    throw new Error("Image could not be prepared for upload.");
+  }
+
+  try {
+    for (const scaleStep of PROFILE_MEDIA_SCALE_STEPS) {
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(preparedWidth * scaleStep));
+      canvas.height = Math.max(1, Math.round(preparedHeight * scaleStep));
+      const context = canvas.getContext("2d");
+      if (context === null) {
+        throw new Error("Image could not be prepared for upload.");
+      }
+      if (inspected.manualOrientation === 1) {
+        context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      } else {
+        drawOrientedBitmap(
+          context,
+          bitmap,
+          inspected.manualOrientation,
+          canvas.width,
+          canvas.height,
+        );
+      }
+      const blob = await canvasToWebp(canvas, PROFILE_MEDIA_WEBP_QUALITY);
+      if (blob.size <= PROFILE_MEDIA_BROWSER_UPLOAD_MAX_BYTES) {
+        return {
+          changed: true,
+          file: new File([blob], webpFileName(file.name), {
+            type: "image/webp",
+            lastModified: file.lastModified,
+          }),
+          width: canvas.width,
+          height: canvas.height,
+        };
+      }
+    }
+  } finally {
+    bitmap.close();
+  }
+  throw new Error("Image could not be prepared for upload.");
+}
+
 export async function createProfileMediaAccessibilityPreview(file: File) {
   const inspected = await inspectImage(file);
   const bitmap = await createImageBitmap(inspected.decodeSource, {
@@ -372,7 +465,7 @@ export async function createProfileMediaAccessibilityPreview(file: File) {
     } else {
       drawOrientedBitmap(context, bitmap, orientation, canvas.width, canvas.height);
     }
-    const blob = await canvasToJpeg(canvas);
+    const blob = await canvasToWebp(canvas, 0.82);
     return await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onerror = () => reject(new Error("Image preview could not be prepared."));

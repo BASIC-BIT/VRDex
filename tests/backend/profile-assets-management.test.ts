@@ -202,6 +202,9 @@ describe("profile media-kit owner management", () => {
     );
 
     assert.equal(ownerAsset?.storageKey, "profile-assets/test/0.png");
+    assert.equal("sourceStorageKey" in (ownerAsset ?? {}), false);
+    assert.equal("sourceMimeType" in (ownerAsset ?? {}), false);
+    assert.equal("sourceByteSize" in (ownerAsset ?? {}), false);
     assert.equal(otherAsset, null);
   });
 
@@ -298,6 +301,22 @@ describe("profile media-kit owner management", () => {
         uploadToken: intent.uploadToken,
       },
     ), false);
+    assert.deepEqual(await seeded.t.query(
+      internal.profileAssets.getUploadIntentStateForStorageCleanup,
+      {
+        intentId: intent.intentId,
+        uploadToken: intent.uploadToken,
+        processingToken: firstToken,
+      },
+    ), { state: "pending" });
+    assert.equal(await seeded.t.query(
+      internal.profileAssets.getUploadIntentStateForStorageCleanup,
+      {
+        intentId: intent.intentId,
+        uploadToken: intent.uploadToken,
+        processingToken: "processing-replay",
+      },
+    ), null);
     assert.equal(await seeded.t.mutation(internal.profileAssets.releaseUploadIntentStorageClaim, {
       intentId: intent.intentId,
       uploadToken: intent.uploadToken,
@@ -945,6 +964,7 @@ describe("profile media-kit owner management", () => {
       await seeded.t.query(internal.profileAssets.getUploadIntentStateForStorageCleanup, {
         intentId: intent.intentId,
         uploadToken: intent.uploadToken,
+        processingToken,
       }),
       { state: "consumed" },
     );
@@ -952,6 +972,7 @@ describe("profile media-kit owner management", () => {
       await seeded.t.query(internal.profileAssets.getUploadIntentStateForStorageCleanup, {
         intentId: intent.intentId,
         uploadToken: "wrong-token",
+        processingToken,
       }),
       null,
     );

@@ -16,6 +16,7 @@ import { profileMediaMimeType } from "@/lib/profile-media-kit";
 
 import {
   createProfileMediaAccessibilityPreview,
+  prepareProfileMediaMultipartFallback,
   prepareProfileMediaUpload,
   type PreparedProfileMediaUpload,
 } from "./prepare-profile-media-upload";
@@ -1051,13 +1052,13 @@ function ConnectedMediaKitPanel({
     position?: number,
     replacesAssetId?: string,
   ) => {
-    const intent = await createUploadIntent({
+    const createIntent = (uploadFile: File) => createUploadIntent({
       profileId: profileId as Id<"profiles">,
-      originalFileName: file.name,
+      originalFileName: uploadFile.name,
       mimeType:
-        profileMediaMimeType(file.type, file.name) ??
-        file.type,
-      byteSize: file.size,
+        profileMediaMimeType(uploadFile.type, uploadFile.name) ??
+        uploadFile.type,
+      byteSize: uploadFile.size,
       label: metadata.label,
       caption: metadata.caption,
       altText: metadata.altText,
@@ -1069,7 +1070,17 @@ function ConnectedMediaKitPanel({
         ? { replacesAssetId: replacesAssetId as Id<"profileAssets"> }
         : {}),
     });
+    let uploadFile = file;
+    let intent = await createIntent(uploadFile);
     try {
+      if (!intent.directUploadUrl && uploadFile.size > 4 * 1024 * 1024) {
+        await cancelUploadIntent({
+          intentId: intent.intentId,
+          uploadToken: intent.uploadToken,
+        });
+        uploadFile = (await prepareProfileMediaMultipartFallback(uploadFile)).file;
+        intent = await createIntent(uploadFile);
+      }
       if (intent.directUploadUrl) {
         const targetResponse = await fetch(intent.directUploadUrl, {
           method: "POST",
@@ -1085,7 +1096,7 @@ function ConnectedMediaKitPanel({
         }
         await uploadDirectFile(
           { url: target.url, fields: target.fields },
-          file,
+          uploadFile,
           onProgress,
         );
       }
@@ -1095,7 +1106,7 @@ function ConnectedMediaKitPanel({
         ...(!intent.directUploadUrl
           ? (() => {
               const data = new FormData();
-              data.set("file", file);
+              data.set("file", uploadFile);
               return { body: data };
             })()
           : {}),

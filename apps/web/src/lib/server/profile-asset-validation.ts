@@ -236,7 +236,9 @@ function encodeInOriginalRasterFormat(
   mimeType: SafeProfileAsset["mimeType"],
 ) {
   if (mimeType === "image/png") return pipeline.png({ compressionLevel: 9 });
-  if (mimeType === "image/webp") return pipeline.webp({ lossless: true });
+  if (mimeType === "image/webp") {
+    return pipeline.webp({ quality: 90, alphaQuality: 100, effort: 6, smartSubsample: true });
+  }
   return pipeline.jpeg({ quality: 95, mozjpeg: true });
 }
 

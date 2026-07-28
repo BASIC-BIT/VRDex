@@ -5,8 +5,10 @@ import sharp from "sharp";
 
 import {
   generateProfileAssetAccessibilityDescription,
+  inspectAccessibilityImageDataUrl,
   normalizeGeneratedAccessibilityDescription,
   parseAccessibilityImageDataUrl,
+  profileAssetAccessibilityErrorStatus,
   ProfileAssetAccessibilityProviderError,
   readProfileAssetAccessibilityRequest,
 } from "../../apps/web/src/lib/server/profile-asset-accessibility";
@@ -50,6 +52,13 @@ async function accessibilityImageDataUrl(
 }
 
 describe("profile asset accessibility generation", () => {
+  it("maps malformed request metadata to a client error", () => {
+    assert.equal(
+      profileAssetAccessibilityErrorStatus(new Error("Accessibility generation request metadata is invalid.")),
+      400,
+    );
+  });
+
   it("bounds request bodies even without a Content-Length header", async () => {
     const oversized = new Request("https://example.test/generate", {
       method: "POST",
@@ -77,7 +86,8 @@ describe("profile asset accessibility generation", () => {
 
   it("accepts bounded raster previews and rejects MIME mismatches and oversized dimensions", async () => {
     const valid = await parseAccessibilityImageDataUrl(await accessibilityImageDataUrl("png"));
-    assert.equal(valid.mimeType, "image/png");
+    assert.equal(valid.mimeType, "image/webp");
+    assert.match(valid.dataUrl, /^data:image\/webp;base64,/);
     assert.ok(valid.byteSize > 0);
 
     const jpegBody = (await accessibilityImageDataUrl("jpeg")).split(",")[1]!;
@@ -91,6 +101,27 @@ describe("profile asset accessibility generation", () => {
       parseAccessibilityImageDataUrl(await accessibilityImageDataUrl("png", 1_025, 1)),
       /Image preview is invalid/,
     );
+  });
+
+  it("inspects the bounded envelope without decoding and strips metadata before provider use", async () => {
+    const invalidImage = `data:image/png;base64,${Buffer.from("not an image").toString("base64")}`;
+    assert.equal(inspectAccessibilityImageDataUrl(invalidImage).byteSize, 12);
+    await assert.rejects(parseAccessibilityImageDataUrl(invalidImage), /invalid/);
+
+    const source = await sharp({
+      create: { width: 64, height: 48, channels: 4, background: "#66339980" },
+    })
+      .withMetadata({ exif: { IFD0: { Artist: "Private preview metadata" } } })
+      .png()
+      .toBuffer();
+    const sanitized = await parseAccessibilityImageDataUrl(
+      `data:image/png;base64,${source.toString("base64")}`,
+    );
+    const metadata = await sharp(Buffer.from(sanitized.dataUrl.split(",")[1]!, "base64")).metadata();
+
+    assert.equal(metadata.format, "webp");
+    assert.equal(metadata.exif, undefined);
+    assert.equal(metadata.hasAlpha, true);
   });
 
   it("uses the gated low-detail provider boundary without persisting image content", async () => {
