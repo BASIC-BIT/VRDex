@@ -1090,6 +1090,64 @@ describe("claiming a community with a verified guild", () => {
     });
   });
 
+  // Proofs are per verifying identity. A link references one row, and revoking
+  // that row while the same user still holds a live proof for the same asset
+  // through another Discord login must not report the connection as lost — the
+  // asset is already attached, so there is no way to rebind it from the UI.
+  it("stays verified while another live proof for the asset survives", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        email: "two-proof-link@example.test",
+        emailVerificationTime: now,
+      });
+      await seedCommunity(ctx as never, "two-proof-link", now);
+
+      return { userId, identity: await webSessionIdentity(ctx as never, userId, now) };
+    });
+    const asUser = t.withIdentity(seeded.identity);
+
+    for (const subject of ["discord-subject-a", "discord-subject-b"]) {
+      await asUser.mutation(internal.discordVerification.recordGuildControlProofs, {
+        discordUserId: subject,
+        guilds: [{ id: "777", controlLevel: "administrator" }],
+      });
+    }
+    await asUser.mutation(api.profileConnections.claimCommunityWithVerifiedGuild, {
+      profileSlug: "two-proof-link",
+      guildId: "777",
+    });
+
+    // Revoke whichever row the link happens to reference.
+    await t.run(async (ctx) => {
+      const links = await getActiveProfileLinks(ctx.db, (await ctx.db
+        .query("profiles")
+        .withIndex("by_slug", (q) => q.eq("slug", "two-proof-link"))
+        .first())!._id, "discord_guild");
+      await ctx.db.patch(links[0]!.verifiedByProofId!, { state: "revoked" });
+    });
+
+    const connections = await asUser.query(api.profileConnections.listProfileConnections, {
+      profileSlug: "two-proof-link",
+    });
+    assert.equal(connections?.connections[0]?.verified, true);
+
+    // With every proof for the asset gone, it does report unverified.
+    await t.run(async (ctx) => {
+      const proofs = await ctx.db
+        .query("externalControlProofs")
+        .withIndex("by_userId_state", (q) => q.eq("userId", seeded.userId).eq("state", "active"))
+        .collect();
+      await Promise.all(proofs.map((proof) => ctx.db.patch(proof._id, { state: "revoked" })));
+    });
+
+    const afterAll = await asUser.query(api.profileConnections.listProfileConnections, {
+      profileSlug: "two-proof-link",
+    });
+    assert.equal(afterAll?.connections[0]?.verified, false);
+  });
+
   // The link deliberately outlives its proof, so losing control of a server does
   // not silently detach it. The "Verified" label must not outlive it too.
   it("stops reporting a connection as verified once its proof lapses", async () => {

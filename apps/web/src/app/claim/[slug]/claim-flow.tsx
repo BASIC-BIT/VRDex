@@ -136,10 +136,14 @@ export function ClaimFlow({
   // VRChat attempt on its own schedule and the reactive context updates under a
   // user who never clicks again. Tracking completion only in the click handlers
   // therefore dropped the successful claims on the default production path.
-  const [seenOwnership, setSeenOwnership] = useState<string | null>(null);
+  const [seenClaimSignal, setSeenClaimSignal] = useState<string | null>(null);
   const [collectorCompletion, setCollectorCompletion] = useState<{ verified: boolean } | null>(
     null,
   );
+  // Cancelling a pending proof looks exactly like the collector resolving it —
+  // the row disappears either way — so the one thing that tells them apart is
+  // knowing the user asked for it.
+  const [cancelledPending, setCancelledPending] = useState(false);
   // Only the person quick-claim needs Discord as a linked sign-in provider.
   // The community path claims against a control proof recorded by the
   // purpose-scoped OAuth round-trip, which a Google or email/password account
@@ -189,21 +193,41 @@ export function ClaimFlow({
   // a cascading render. The collector resolves a proof on its own schedule, so
   // this transition is the only signal that a claim completed when the user
   // never clicks again.
-  if (context?.ownership !== undefined && context.ownership !== seenOwnership) {
-    const previousOwnership = seenOwnership;
+  const observedContext = context ?? null;
+  const claimSignal =
+    observedContext === null
+      ? null
+      : `${observedContext.ownership}|${observedContext.verified}|${observedContext.pendingProof === null ? "none" : "pending"}`;
 
-    setSeenOwnership(context.ownership);
+  if (observedContext !== null && claimSignal !== null && claimSignal !== seenClaimSignal) {
+    const previous = seenClaimSignal;
 
-    if (
-      previousOwnership !== null &&
-      previousOwnership !== "viewer" &&
-      context.ownership === "viewer" &&
-      collectorCompletion === null &&
-      status.kind !== "complete"
-    ) {
+    setSeenClaimSignal(claimSignal);
+
+    if (previous !== null) {
+      const [previousOwnership, , previousProof] = previous.split("|");
+      // An owner who was already `viewer` never changes ownership, so watching
+      // ownership alone never fired for them — the pending proof simply vanished
+      // and the page fell back to the verification form. The proof leaving is
+      // the signal that covers both an unowned claimant and an existing owner.
+      const becameOwner = previousOwnership !== "viewer" && observedContext.ownership === "viewer";
+      const proofResolved =
+        previousProof === "pending" && observedContext.pendingProof === null && !cancelledPending;
+
+      if (cancelledPending) {
+        setCancelledPending(false);
+      }
+
       // `status.kind === "complete"` means a handler already reported this
       // completion, so the observer must not double-count it.
-      setCollectorCompletion({ verified: context.verified === true });
+      if (
+        (becameOwner || proofResolved) &&
+        observedContext.ownership === "viewer" &&
+        collectorCompletion === null &&
+        status.kind !== "complete"
+      ) {
+        setCollectorCompletion({ verified: observedContext.verified === true });
+      }
     }
   }
 
@@ -426,6 +450,10 @@ export function ClaimFlow({
 
   async function startOver(pendingType: "claim_request" | "proof") {
     setStatus({ kind: "working", message: "Canceling this attempt…" });
+    // The pending row is about to disappear because the user asked, not because
+    // the collector resolved it; without this the observer would report a
+    // completion that did not happen.
+    setCancelledPending(true);
     try {
       await cancelPending({ profileSlug: profile.slug, pendingType });
       setStatus({ kind: "notice", message: "Attempt canceled. Choose a method to start again." });
@@ -458,7 +486,15 @@ export function ClaimFlow({
   );
 
   return (
-    <div className="grid gap-8 py-4 sm:py-8 lg:grid-cols-[minmax(0,0.72fr)_minmax(0,1.28fr)] lg:gap-12">
+    // The whole page, not the claim section alone. A claim page carries the
+    // proof code, the target ids, and — for a draft, opted-out, or suppressed
+    // profile — an identity nobody outside the account can see. Blocking one
+    // region left the summary aside recording that identity, and the next
+    // surface added outside the region would have leaked the same way.
+    <div
+      className="grid gap-8 py-4 ph-no-capture sm:py-8 lg:grid-cols-[minmax(0,0.72fr)_minmax(0,1.28fr)] lg:gap-12"
+      data-ph-no-capture
+    >
       <aside className="lg:sticky lg:top-24 lg:self-start">
         <Link className="text-sm text-muted underline underline-offset-4" href={backPath}>
           {profile.hasPublicProfile ? "Back to profile" : "Back to account"}
@@ -480,7 +516,7 @@ export function ClaimFlow({
         </div>
       </aside>
 
-      <section aria-labelledby="claim-heading" className="ph-no-capture" data-ph-no-capture>
+      <section aria-labelledby="claim-heading">
         <h1 className="text-3xl font-semibold sm:text-4xl" id="claim-heading">
           Claim {profile.displayName}
         </h1>
