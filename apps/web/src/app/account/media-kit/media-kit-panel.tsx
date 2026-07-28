@@ -295,7 +295,7 @@ function AssetEditor({
                   {asset.downloadMimeType
                     ? ` · ${asset.downloadMimeType.replace("image/", "").toUpperCase()} download · ${formatBytes(asset.downloadByteSize ?? asset.byteSize)}`
                     : ""}
-                  {` · ${asset.sourcePreserved ? "Private original" : "Display only"}`}
+                  {` · ${asset.sourcePreserved ? "Private source" : "Display only"}`}
                 </p>
               </div>
               <div className="flex gap-1">

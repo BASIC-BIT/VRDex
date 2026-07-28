@@ -50,6 +50,10 @@ type StorageProbeResult =
 const cachedClients = new Map<string, S3Client>();
 const PROFILE_ASSET_STORAGE_PROBE_KEY = "profile-assets/.vrdex-storage-probe";
 
+export function shouldCleanupFailedProfileAssetUpload(finalizationAttempted: boolean): boolean {
+  return !finalizationAttempted;
+}
+
 function vercelOidcRoleArn(): string | undefined {
   const roleArn = process.env.VRDEX_PROFILE_ASSET_ROLE_ARN;
   const normalized = roleArn?.trim();

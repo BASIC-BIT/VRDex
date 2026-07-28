@@ -40,7 +40,9 @@ Locked decision:
 Current recommendation:
 
 - cap active assets at 12 per profile and each source object at 12 MB
-- preserve the validated exact source as a private, no-store object; publish a
+- preserve the validated exact server-received source as a private, no-store
+  object; direct uploads retain the selected file bytes, while the hosted
+  compatibility fallback may first create a bounded WebP; publish a
   full-resolution metadata-sanitized artifact in the same image format and a
   bounded WebP display derivative through controlled application routes
 - strip raster metadata by decoding and re-encoding the public download, bound

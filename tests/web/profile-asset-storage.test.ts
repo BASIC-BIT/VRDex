@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   profileAssetUploadChecksum,
+  shouldCleanupFailedProfileAssetUpload,
   storedProfileAssetMatchesUpload,
 } from "../../apps/web/src/lib/server/profile-asset-storage";
 
@@ -39,5 +40,10 @@ describe("profile asset storage", () => {
       ),
       false,
     );
+  });
+
+  it("preserves objects and the claim after finalization becomes ambiguous", () => {
+    assert.equal(shouldCleanupFailedProfileAssetUpload(false), true);
+    assert.equal(shouldCleanupFailedProfileAssetUpload(true), false);
   });
 });
