@@ -4,6 +4,10 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { api } from "@convex-generated-api";
 import { appendReturnPathQuery, resolveSameOriginUrl, safeReturnPath } from "@/lib/return-path";
+import {
+  invalidAuthSessionResponse,
+  isAuthSessionInvalidError,
+} from "@/lib/server/invalid-auth-session";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +30,15 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.redirect(authorizeUrl);
   } catch (error) {
+    // A revoked or expired session is not an outage. The JWT cookie stays valid
+    // for up to an hour after revocation, so without this the guard's
+    // `AUTH_SESSION_INVALID` fell into the generic branch below and the user was
+    // told to "try again" on something retrying can never fix — and the stale
+    // cookies were never cleared.
+    if (isAuthSessionInvalidError(error)) {
+      return invalidAuthSessionResponse(returnTo);
+    }
+
     console.error(
       `Discord guild verification start failed: ${error instanceof Error ? error.message : String(error)}`,
     );

@@ -4,6 +4,10 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { api } from "@convex-generated-api";
 import { appendReturnPathQuery, resolveSameOriginUrl } from "@/lib/return-path";
+import {
+  invalidAuthSessionResponse,
+  isAuthSessionInvalidError,
+} from "@/lib/server/invalid-auth-session";
 
 export const dynamic = "force-dynamic";
 
@@ -77,6 +81,13 @@ export async function GET(request: NextRequest) {
       ),
     );
   } catch (error) {
+    // Same reasoning as the start route: a revoked session is not an outage,
+    // and sending the user back with `failed` would tell them the Discord check
+    // went wrong when the fix is to sign in again.
+    if (isAuthSessionInvalidError(error)) {
+      return invalidAuthSessionResponse("/account");
+    }
+
     console.error(
       `Discord guild verification callback failed: ${error instanceof Error ? error.message : String(error)}`,
     );

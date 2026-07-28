@@ -26,7 +26,11 @@ export type ClaimErrorCode =
   | "ADAPTER_NOT_CONFIGURED"
   | "ADAPTER_UNAVAILABLE"
   | "NOT_PROFILE_OWNER"
-  | "VERIFICATION_STATE_INVALID";
+  | "VERIFICATION_STATE_INVALID"
+  // Raised by the shared auth-session guard rather than a claim path, and
+  // rethrown untouched so session convergence still sees it. Mapped here so a
+  // claim surface says what actually happened instead of the generic fallback.
+  | "AUTH_SESSION_INVALID";
 
 export type ClaimFailureOutcome =
   | "conflict"
@@ -66,6 +70,7 @@ const CLAIM_ERROR_COPY: Record<ClaimErrorCode, string> = {
     "Verification is temporarily unavailable. Nothing changed; try again shortly.",
   NOT_PROFILE_OWNER: "You need to manage this profile before changing its connections.",
   VERIFICATION_STATE_INVALID: "That verification link expired. Start the check again.",
+  AUTH_SESSION_INVALID: "Your session is no longer valid. Sign in again to continue.",
 };
 
 const OUTCOME_BY_CODE: Record<ClaimErrorCode, ClaimFailureOutcome> = {
@@ -92,6 +97,7 @@ const OUTCOME_BY_CODE: Record<ClaimErrorCode, ClaimFailureOutcome> = {
   ADAPTER_UNAVAILABLE: "unavailable",
   NOT_PROFILE_OWNER: "conflict",
   VERIFICATION_STATE_INVALID: "expired",
+  AUTH_SESSION_INVALID: "not_verified",
 };
 
 const FALLBACK_MESSAGE =
