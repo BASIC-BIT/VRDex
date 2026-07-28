@@ -3,6 +3,8 @@ import { describe, it } from "node:test";
 
 import {
   profileAssetUploadChecksum,
+  shouldCleanupFailedProfileAssetUpload,
+  shouldInspectFailedProfileAssetUpload,
   storedProfileAssetMatchesUpload,
 } from "../../apps/web/src/lib/server/profile-asset-storage";
 
@@ -39,5 +41,20 @@ describe("profile asset storage", () => {
       ),
       false,
     );
+  });
+
+  it("cleans only a definitively pending intent owned by the processing token", () => {
+    assert.equal(shouldCleanupFailedProfileAssetUpload({ state: "pending" }), true);
+    assert.equal(shouldCleanupFailedProfileAssetUpload({ state: "consumed" }), false);
+    assert.equal(shouldCleanupFailedProfileAssetUpload({ state: "uploaded" }), false);
+    assert.equal(shouldCleanupFailedProfileAssetUpload({ state: "expired" }), false);
+    assert.equal(shouldCleanupFailedProfileAssetUpload(null), false);
+  });
+
+  it("inspects failures before finalization and definitive application failures only", () => {
+    assert.equal(shouldInspectFailedProfileAssetUpload(false, false), true);
+    assert.equal(shouldInspectFailedProfileAssetUpload(false, true), true);
+    assert.equal(shouldInspectFailedProfileAssetUpload(true, true), true);
+    assert.equal(shouldInspectFailedProfileAssetUpload(true, false), false);
   });
 });

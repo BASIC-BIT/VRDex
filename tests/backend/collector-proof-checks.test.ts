@@ -245,6 +245,61 @@ describe("collector proof check queue", () => {
 // The collector fleet polls every pending VRChat attempt against one shared
 // service-account budget, so an unbounded backlog from a single claimant is the
 // same abuse as draining a community's delegated VRC Linking quota.
+// A worker's 429 backoff is process-local, and two tasks share one collector
+// account, so the sibling would otherwise reclaim the released tail and keep
+// sending requests straight through the provider's Retry-After window.
+describe("provider rate-limit cooldown", () => {
+  it("stops serving proof work to a throttled account", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const collectorAccountId = await t.run(async (ctx) => {
+      const id = await seedCollector(ctx as never, "throttled", now);
+      await seedAttempt(ctx as never, { targetType: "vrchat_user", now });
+
+      return id;
+    });
+
+    const before = await t.mutation(internal.communityTelemetry.claimPendingProofChecks, {
+      collectorAccountId,
+      workerId: "worker-1",
+      limit: 5,
+      now: now + 1,
+    });
+    assert.equal(before.attempts.length, 1);
+
+    const recorded = await t.mutation(internal.communityTelemetry.recordProofRateLimit, {
+      collectorAccountId,
+      retryAfterMs: 120_000,
+      now: now + 2,
+    });
+    assert.equal(recorded.recorded, true);
+
+    await t.run(async (ctx) => {
+      // Released so a healthy account can take it, rather than parked.
+      const attempts = await ctx.db.query("profileVerificationAttempts").collect();
+      await ctx.db.patch(attempts[0]!._id, { lastCheckedAt: undefined });
+    });
+
+    const during = await t.mutation(internal.communityTelemetry.claimPendingProofChecks, {
+      collectorAccountId,
+      workerId: "worker-2",
+      limit: 5,
+      now: now + 3,
+    });
+    assert.deepEqual(during.attempts, []);
+
+    // The account is still `ready` — this is throughput backoff, not a trust
+    // event — so it resumes on its own once the window passes.
+    const after = await t.mutation(internal.communityTelemetry.claimPendingProofChecks, {
+      collectorAccountId,
+      workerId: "worker-2",
+      limit: 5,
+      now: now + 2 + 120_000 + 1,
+    });
+    assert.equal(after.attempts.length, 1);
+  });
+});
+
 describe("open proof attempt cap", () => {
   it("bounds new attempts per target type but still returns an existing code", async () => {
     const t = convexTest({ schema, modules });

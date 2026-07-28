@@ -28,6 +28,7 @@ import {
   ApiMeInventoryQueryParamsSchema,
   ApiMeProfilesResponseSchema,
   ApiMeResponseSchema,
+  ApiProfileAssetDirectUploadTargetResponseSchema,
   ApiProfileAssetUploadErrorResponseSchema,
   ApiProfileAssetUploadIntentCompleteResponseSchema,
   ApiProfileAssetUploadIntentCreateRequestSchema,
@@ -802,7 +803,7 @@ export const openApiSource = {
         tags: ["Assets"],
         summary: "Complete a profile asset upload intent",
         description:
-          "Uploads the image file for a direct-upload intent, or triggers the server-side source import for a sourceUrl intent. Send the one-time x-vrdex-upload-token value returned by the upload-intent creation endpoint. Do not send bearer credentials on this transport.",
+          "Uploads a multipart image on the compatibility path, completes an already-staged direct upload with an empty request, or triggers the server-side source import for a sourceUrl intent. Send the one-time x-vrdex-upload-token value returned by the upload-intent creation endpoint. Do not send bearer credentials on this transport.",
         requestParams: {
           path: ProfileAssetUploadIntentPathParamsSchema,
           header: ProfileAssetUploadTokenHeaderSchema,
@@ -844,6 +845,37 @@ export const openApiSource = {
           },
           "501": {
             description: "Profile asset storage is not configured for this deployment.",
+            content: jsonContent(ApiProfileAssetUploadErrorResponseSchema),
+          },
+        },
+      },
+    },
+    "/api/v0/profile-assets/upload-intents/{intentId}/direct-upload": {
+      post: {
+        operationId: "createProfileAssetDirectUploadTarget",
+        tags: ["Assets"],
+        summary: "Create a direct profile-media upload target",
+        description:
+          "Returns a short-lived private object-storage form target bound to the upload intent's object key, declared content type, and exact byte size. Upload the source with the returned form fields, then complete the upload intent. Do not send bearer credentials on this transport.",
+        requestParams: {
+          path: ProfileAssetUploadIntentPathParamsSchema,
+          header: ProfileAssetUploadTokenHeaderSchema,
+        },
+        responses: {
+          "200": {
+            description: "Short-lived direct upload target.",
+            content: jsonContent(ApiProfileAssetDirectUploadTargetResponseSchema),
+          },
+          "403": {
+            description: "The one-time upload token was missing.",
+            content: jsonContent(ApiProfileAssetUploadErrorResponseSchema),
+          },
+          "404": {
+            description: "The upload intent was not found, expired, already used, or the token was invalid.",
+            content: jsonContent(ApiProfileAssetUploadErrorResponseSchema),
+          },
+          "501": {
+            description: "Direct upload or profile asset storage is not configured for this deployment.",
             content: jsonContent(ApiProfileAssetUploadErrorResponseSchema),
           },
         },

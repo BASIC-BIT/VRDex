@@ -25,6 +25,8 @@ The role ARN is not a secret, but it is stored as a sensitive Vercel environment
 
 Provider-backed CI plan/apply for this stack is gated by repository variable `TERRAFORM_PROFILE_ASSETS_ENABLED=true`.
 
+The required `direct_upload_site_origin` input adds the deployment's canonical HTTPS origin to S3 CORS. BASIC BIT CI reads `TERRAFORM_PROFILE_ASSETS_SITE_ORIGIN`, defaulting to `https://vrdex.net`; self-hosted deployments must provide their own origin.
+
 Hosted staging custom environments are opt-in. Set repository variable `TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_IDS` to an HCL list such as `["env_..."]` when CI should manage staging profile asset env vars.
 
 The hosted BASIC BIT Vercel OIDC claims use the team slug `basicbit`. Do not
@@ -37,11 +39,12 @@ Before enabling that gate, apply `infra/terraform/state-mgmt` so the GitHub Acti
 ## Usage
 
 1. Apply the updated `infra/terraform/state-mgmt` bootstrap stack from a trusted local operator machine.
-2. Set GitHub repository variable `TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_IDS` if hosted staging env vars should be managed.
-3. Set GitHub repository variable `TERRAFORM_PROFILE_ASSETS_ENABLED=true`.
-4. Run the Terraform workflow for stack `profile-assets` with `apply=true`, or let the next successful `main` baseline apply it.
-5. Redeploy the Vercel production and staging environments so functions receive the new environment variables.
-6. Probe `/api/v0/profile-assets/upload-intents/probe`; a configured environment should no longer return `501`.
+2. Set GitHub repository variable `TERRAFORM_PROFILE_ASSETS_SITE_ORIGIN` to the deployment's canonical HTTPS origin.
+3. Set GitHub repository variable `TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_IDS` if hosted staging env vars should be managed.
+4. Set GitHub repository variable `TERRAFORM_PROFILE_ASSETS_ENABLED=true`.
+5. Run the Terraform workflow for stack `profile-assets` with `apply=true`, or let the next successful `main` baseline apply it.
+6. Redeploy the Vercel production and staging environments so functions receive the new environment variables.
+7. Probe `/api/v0/profile-assets/upload-intents/probe`; a configured environment should no longer return `501`.
 
 The probe is anonymous, but the standard public API rate limit and bearer-query
 rejection still apply. Use it for bounded deployment checks rather than a tight

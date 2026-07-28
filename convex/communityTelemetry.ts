@@ -819,6 +819,52 @@ export const reserveRequestBudget = internalMutation({
  * work would exit silently and leave the account `ready` for every other
  * replica to rediscover the same dead session.
  */
+/**
+ * Publish an account-wide cooldown after a provider throttled a proof read.
+ *
+ * The worker's own backoff is process-local, and the supported two-task
+ * configuration shares one collector account. Without this, the throttled task
+ * slept while its sibling immediately reclaimed the released attempts and kept
+ * sending requests straight through the provider's `Retry-After` window —
+ * `claimPendingProofChecks` only honours the shared `cooldownUntil`, which
+ * nothing on this path was setting.
+ *
+ * The account stays `ready`: this is throughput backoff, not a trust event, so
+ * work should move to another account rather than the fleet losing this one.
+ */
+export const recordProofRateLimit = internalMutation({
+  args: {
+    collectorAccountId: v.string(),
+    retryAfterMs: v.number(),
+    now: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const now = args.now ?? Date.now();
+    const accountId = ctx.db.normalizeId("collectorAccounts", args.collectorAccountId);
+
+    if (!accountId) {
+      return { recorded: false };
+    }
+
+    const account = await ctx.db.get(accountId);
+
+    if (account === null || account.state !== "ready") {
+      return { recorded: false };
+    }
+
+    // Bounded the same way the worker bounds its own sleep, so a hostile or
+    // mistaken `Retry-After` cannot park an account for an unbounded stretch.
+    const cooldownUntil = now + Math.min(Math.max(args.retryAfterMs, 1_000), 5 * 60_000);
+
+    await ctx.db.patch(account._id, {
+      cooldownUntil: Math.max(cooldownUntil, account.cooldownUntil ?? 0),
+      updatedAt: now,
+    });
+
+    return { recorded: true, cooldownUntil };
+  },
+});
+
 export const recordProofAuthFailure = internalMutation({
   args: { collectorAccountId: v.string(), now: v.optional(v.number()) },
   handler: async (ctx, args) => {

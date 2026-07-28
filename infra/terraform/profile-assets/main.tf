@@ -72,6 +72,42 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "profile_assets" {
   }
 }
 
+locals {
+  direct_upload_allowed_origins = setunion(
+    var.direct_upload_allowed_origins,
+    toset([var.direct_upload_site_origin]),
+  )
+}
+
+resource "aws_s3_bucket_cors_configuration" "profile_assets" {
+  bucket = aws_s3_bucket.profile_assets.id
+
+  cors_rule {
+    allowed_headers = ["*"]
+    allowed_methods = ["POST"]
+    allowed_origins = local.direct_upload_allowed_origins
+    expose_headers  = ["ETag"]
+    max_age_seconds = 600
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "profile_assets" {
+  bucket = aws_s3_bucket.profile_assets.id
+
+  rule {
+    id     = "expire-abandoned-quarantine-uploads"
+    status = "Enabled"
+
+    filter {
+      prefix = "profile-assets/quarantine/"
+    }
+
+    expiration {
+      days = 2
+    }
+  }
+}
+
 data "aws_iam_policy_document" "profile_assets_bucket" {
   statement {
     sid    = "DenyInsecureTransport"
@@ -160,6 +196,7 @@ data "aws_iam_policy_document" "vercel_profile_assets" {
   statement {
     sid = "ReadAndWriteProfileAssets"
     actions = [
+      "s3:DeleteObject",
       "s3:GetObject",
       "s3:PutObject",
     ]

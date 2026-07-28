@@ -84,8 +84,8 @@ Current recommendation:
 - user-provided public HTTPS image URLs should be treated as import sources; VRDex should reject private/internal destinations, copy bounded PNG/SVG/JPEG/WebP responses into managed object storage such as S3, and serve the VRDex-owned object as the canonical asset
 - one uploaded asset can fill multiple placements, such as both profile picture and primary logo
 - public UX should say `primary logo` and `additional logos` instead of `non-primary` or defaulting to `alternative logo`
-- uploaded assets can have loose labels, optional public captions and credits,
-  and an owner-authored accessibility description
+- uploaded assets can have loose labels, optional public captions, credit names
+  and safe HTTP(S) credit links, and an owner-authored accessibility description
 - PNG and SVG logos are required from day one
 - unclaimed and community-submitted profiles may carry public logos/assets, but public projections must preserve claim, source, and trust labels
 - public media-kit surfaces should support individual asset downloads and a zip of all public logos
@@ -96,15 +96,21 @@ Candidate `profileAssets` fields:
 
 - `profileId`: owning person or community profile
 - `kind`: broad asset kind such as `image` or `logo`, kept flexible enough for later expansion
-- `storageKey`: canonical managed-storage object key
+- `storageKey`: optimized display object key
+- `sourceStorageKey`: optional exact private source object key for uploads made
+  after source preservation was introduced
+- `downloadStorageKey`: optional metadata-sanitized, full-resolution download
+  object key in the uploaded image format
 - `originalFileName`: optional original upload filename
 - `sourceUrl`: optional HTTPS URL used for import-by-download
-- `mimeType`: validated stored MIME type, including PNG and SVG support for logos
-- `byteSize`: stored object size
+- `mimeType` and `byteSize`: validated optimized display type and size
+- optional source/download MIME, byte-size, and SHA-256 fields for the preserved
+  variants
 - `label`: optional loose display label
 - `caption`: optional public caption or description
 - `altText`: optional concise accessibility description
 - `credit`: optional public creator or photographer credit
+- `creditUrl`: optional public HTTP(S) credit link without embedded credentials
 - `contentSha256`: normalized-content digest used to reject duplicate uploads,
   including recoverable removed assets, without exposing it publicly
 - `width` and `height`: validated stored dimensions
@@ -124,6 +130,11 @@ Candidate placement fields can live on the profile or in a companion placement t
 - avatar appearance controls: border on/off, six-digit border color, bounded border thickness, bounded border softness, and `0..50` percent roundedness from square to circle
 
 Convex automatically provides `_id` and `_creationTime`; those are not duplicated in the schema.
+
+Owner-triggered accessibility suggestions use a separate bounded telemetry
+table. It records request id, owner/profile, provider/model, result, image byte
+count, latency, output length, and an error code. It does not store the image or
+generated description.
 
 ## Bounded Profile Appearance
 

@@ -1,6 +1,7 @@
 aws_region        = "us-east-1"
 vercel_team_slug  = "basicbit"
 vercel_project_name = "vr-dex-web"
+direct_upload_site_origin = "https://vrdex.net"
 
 # Optional override. Defaults to vrdex-profile-assets-${account_id}.
 # asset_bucket_name = "vrdex-profile-assets-123456789012"

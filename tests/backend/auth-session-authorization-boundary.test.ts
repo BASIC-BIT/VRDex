@@ -155,6 +155,10 @@ describe("browser auth-session authorization boundary", () => {
   it("inventories every Next route or server page that forwards a browser JWT to Convex", () => {
     const inventory = new Map<string, string>([
       [
+        "apps/web/src/app/api/account/media-kit/[profileId]/accessibility-description/route.ts",
+        "api.profileAssets.claimOwnedAccessibilityGeneration",
+      ],
+      [
         "apps/web/src/app/api/account/media-kit/[profileId]/assets/[assetId]/file/route.ts",
         "api.profileAssets.getOwnedAssetForStorage",
       ],

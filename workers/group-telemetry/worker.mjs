@@ -232,13 +232,24 @@ async function checkProofs() {
       // Continuing through the batch during an explicit backoff window sends
       // more requests into a throttle. Stop the batch and honour the delay.
       if (error?.category === "rate_limit") {
+        const retryAfterMs = Math.min(Math.max(error.retryAfterMs ?? 60_000, 1_000), 5 * 60_000);
+
+        // Publish the backoff account-wide *before* handing anything back. This
+        // worker's sleep is process-local, and the supported two-task setup
+        // shares one collector account — so releasing first let the sibling task
+        // reclaim these attempts and keep hammering the provider through its own
+        // `Retry-After` window. With `cooldownUntil` set, `claimPendingProofChecks`
+        // stops serving this account and the work moves to a healthy one.
+        await control
+          .send("proof_rate_limit", { retryAfterMs, now: Date.now() })
+          .catch(() => undefined);
+
         // The rest of the batch is still stamped from the claim, so hand it
-        // back before sleeping. Otherwise a throttle also parks attempts that
-        // nobody looked at for the whole cooldown. This attempt keeps its stamp:
-        // it already cost a provider request, and its cooldown is the only thing
-        // stopping another replica from immediately retrying into the throttle.
+        // back. Otherwise a throttle also parks attempts that nobody looked at
+        // for the whole cooldown. This attempt keeps its stamp: it already cost
+        // a provider request.
         await releaseUnread(pending, attempt, false);
-        await pause(Math.min(Math.max(error.retryAfterMs ?? 60_000, 1_000), 5 * 60_000));
+        await pause(retryAfterMs);
         break;
       }
 

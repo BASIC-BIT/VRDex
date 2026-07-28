@@ -117,7 +117,16 @@ function ConnectedAccountPanel({ mediaKitEnabled }: { mediaKitEnabled: boolean }
               return (
                 <li className="flex flex-wrap items-center justify-between gap-3 py-4" key={profile.profileId}>
                   <div>
-                    <Link className="font-medium underline underline-offset-4" href={profilePath}>
+                    {/* This list includes profiles that are not publicly
+                        readable — draft, suppressed, or opted out. With replay
+                        on every route their display name is the identity of a
+                        profile nobody outside the account can see, and
+                        `maskAllInputs` does not cover rendered text. */}
+                    <Link
+                      className="font-medium underline underline-offset-4"
+                      data-ph-no-capture
+                      href={profilePath}
+                    >
                       {profile.displayName}
                     </Link>
                     <p className="mt-1 text-sm text-muted">

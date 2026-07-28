@@ -422,28 +422,50 @@ describe("@vrdex/api-contracts", () => {
     ApiProfileAssetUploadIntentCreateRequestSchema.parse({
       originalFileName: "gallery.webp",
       mimeType: "image/webp",
+      byteSize: 1024,
       label: "Gallery image",
       altText: "A gallery contract test image.",
+      creditUrl: "https://example.test/artist",
       placements: ["gallery", "featured"],
     });
     ApiProfileAssetUploadIntentCreateRequestSchema.parse({
       originalFileName: "missing-alt.webp",
       mimeType: "image/webp",
+      byteSize: 1024,
       label: "Missing alt",
       placements: ["gallery"],
     });
     assert.throws(() => ApiProfileAssetUploadIntentCreateRequestSchema.parse({
       originalFileName: "missing-title.webp",
       mimeType: "image/webp",
+      byteSize: 1024,
       altText: "A gallery image without a title.",
       placements: ["gallery"],
     }), /require a title/);
     assert.throws(() => ApiProfileAssetUploadIntentCreateRequestSchema.parse({
       originalFileName: "featured-only.webp",
       mimeType: "image/webp",
+      byteSize: 1024,
       label: "Featured only",
       placements: ["featured"],
     }), /must also be a gallery item/);
+    for (const creditUrl of [
+      "javascript:alert(1)",
+      "https://user:secret@example.test/artist",
+    ]) {
+      assert.throws(() => ApiProfileAssetUploadIntentCreateRequestSchema.parse({
+        originalFileName: "unsafe-credit.webp",
+        mimeType: "image/webp",
+        byteSize: 1024,
+        label: "Unsafe credit",
+        creditUrl,
+        placements: ["gallery"],
+      }), /HTTP or HTTPS without embedded credentials/);
+    }
+    assert.throws(() => ApiProfileAssetUploadIntentCreateRequestSchema.parse({
+      originalFileName: "missing-size.webp",
+      mimeType: "image/webp",
+    }), /require byteSize/);
 
     ApiProfileAssetUploadIntentCreateResponseSchema.parse({
       profileId: "profile123",

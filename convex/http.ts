@@ -84,6 +84,14 @@ const telemetryWorker = httpAction(async (ctx, request) => {
       });
       return json(result);
     }
+    if (body.operation === "proof_rate_limit") {
+      const result = await ctx.runMutation(functions.recordProofRateLimit, {
+        collectorAccountId,
+        retryAfterMs: typeof body.retryAfterMs === "number" ? body.retryAfterMs : 60_000,
+        now,
+      });
+      return json(result);
+    }
     if (body.operation === "proof_budget") {
       const result = await ctx.runMutation(functions.reserveProofRequestBudget, {
         collectorAccountId,

@@ -132,6 +132,14 @@ export function ClaimFlow({
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const statusRef = useRef<HTMLDivElement>(null);
   const completionRef = useRef<HTMLDivElement>(null);
+  // A claim can complete without any handler running: the collector resolves a
+  // VRChat attempt on its own schedule and the reactive context updates under a
+  // user who never clicks again. Tracking completion only in the click handlers
+  // therefore dropped the successful claims on the default production path.
+  // These let the observer below cover that case exactly once, without
+  // double-counting a completion a handler already reported.
+  const reportedCompletionRef = useRef(false);
+  const seenOwnershipRef = useRef<string | null>(null);
   // Only the person quick-claim needs Discord as a linked sign-in provider.
   // The community path claims against a control proof recorded by the
   // purpose-scoped OAuth round-trip, which a Google or email/password account
@@ -176,6 +184,36 @@ export function ClaimFlow({
     if (status.kind === "complete") completionRef.current?.focus();
   }, [status]);
 
+  // Report the completion the collector produced. Only a transition observed on
+  // this page counts, so opening a profile already owned emits nothing, and the
+  // outcome is read from the resulting claim state rather than assumed verified
+  // — `recordVrchatProofVerification` deliberately leaves a claim unverified
+  // when the target was not already on record for the listing.
+  useEffect(() => {
+    const ownership = context?.ownership;
+
+    if (ownership === undefined) return;
+
+    const previous = seenOwnershipRef.current;
+    seenOwnershipRef.current = ownership;
+
+    if (
+      previous === null ||
+      previous === "viewer" ||
+      ownership !== "viewer" ||
+      reportedCompletionRef.current
+    ) {
+      return;
+    }
+
+    reportedCompletionRef.current = true;
+    captureProductEvent(posthog, "claim_completed", {
+      method: "vrchat",
+      outcome: context?.verified ? "claimed_verified" : "claimed_unverified",
+      profile_type: profile.profileType,
+    });
+  }, [context?.ownership, context?.verified, posthog, profile.profileType]);
+
   function selectMethod(nextMethod: ClaimMethod) {
     setMethod(nextMethod);
     setStatus({ kind: "idle" });
@@ -216,7 +254,9 @@ export function ClaimFlow({
           message: alreadyOwned ? "This profile is already yours." : "Profile claimed. You can manage it now.",
           verified: false,
         });
-        captureProductEvent(posthog, "claim_completed", {
+        reportedCompletionRef.current = true;
+        reportedCompletionRef.current = true;
+      captureProductEvent(posthog, "claim_completed", {
           method,
           outcome: alreadyOwned ? "already_owned" : "claimed_unverified",
           profile_type: profile.profileType,
@@ -241,6 +281,7 @@ export function ClaimFlow({
           : "Server control verified, and this community is now yours. The listing is not marked verified, which needs VRDex to have this server on record for it — contact support if it should be.",
         verified,
       });
+      reportedCompletionRef.current = true;
       captureProductEvent(posthog, "claim_completed", {
         method,
         outcome: verified ? "claimed_verified" : "claimed_unverified",
@@ -272,7 +313,9 @@ export function ClaimFlow({
             : "Ownership confirmed, and this profile is now yours. It is not marked verified yet, because this account or group was not already on record for the listing.",
           verified,
         });
-        captureProductEvent(posthog, "claim_completed", {
+        reportedCompletionRef.current = true;
+        reportedCompletionRef.current = true;
+      captureProductEvent(posthog, "claim_completed", {
           method: "vrchat",
           outcome: verified ? "claimed_verified" : "claimed_unverified",
           profile_type: profile.profileType,
@@ -286,14 +329,6 @@ export function ClaimFlow({
           kind: "complete",
           message: "Ownership confirmed. This profile is now yours.",
           verified: true,
-        });
-        // The collector resolving an attempt is the default production path, so
-        // omitting this here left the funnel recording submissions with the
-        // successful VRChat claims systematically missing.
-        captureProductEvent(posthog, "claim_completed", {
-          method: "vrchat",
-          outcome: "claimed_verified",
-          profile_type: profile.profileType,
         });
       } else if (result.state === "failed") {
         setStatus({
@@ -363,7 +398,9 @@ export function ClaimFlow({
             : "Server control verified, and this community is now yours. The listing is not marked verified, which needs VRDex to have this server on record for it — contact support if it should be.",
           verified,
         });
-        captureProductEvent(posthog, "claim_completed", {
+        reportedCompletionRef.current = true;
+        reportedCompletionRef.current = true;
+      captureProductEvent(posthog, "claim_completed", {
           method: "discord",
           outcome: verified ? "claimed_verified" : "claimed_unverified",
           profile_type: profile.profileType,
