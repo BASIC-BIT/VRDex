@@ -189,6 +189,8 @@ function AssetEditor({
   const [generating, setGenerating] = useState(false);
   const [replacing, setReplacing] = useState(false);
   const [status, setStatus] = useState<ActionStatus | null>(null);
+  const cardBusy = operationBusy || saving || generating || replacing;
+  const assetName = draft.label || asset.label || `image ${index + 1}`;
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
@@ -215,11 +217,12 @@ function AssetEditor({
   };
 
   const generate = async () => {
+    if (draft.altText?.trim()) return;
     setGenerating(true);
     setStatus(null);
     try {
       const altText = await actions.generate(profileId, asset);
-      setDraft((current) => ({ ...current, altText }));
+      setDraft((current) => current.altText?.trim() ? current : ({ ...current, altText }));
       setStatus({ kind: "success", message: "Generated." });
     } catch (error) {
       setStatus({
@@ -291,14 +294,14 @@ function AssetEditor({
                   {asset.downloadMimeType
                     ? ` · ${asset.downloadMimeType.replace("image/", "").toUpperCase()} download · ${formatBytes(asset.downloadByteSize ?? asset.byteSize)}`
                     : ""}
-                  {` · ${asset.sourcePreserved ? "Source preserved" : "Display only"}`}
+                  {` · ${asset.sourcePreserved ? "Private original" : "Display only"}`}
                 </p>
               </div>
               <div className="flex gap-1">
-                <Button aria-label={`Move ${asset.label || `image ${index + 1}`} up`} disabled={operationBusy || index === 0} onClick={() => void move(-1)} size="sm" type="button" variant="ghost">
+                <Button aria-label={`Move ${assetName} up`} disabled={cardBusy || index === 0} onClick={() => void move(-1)} size="sm" type="button" variant="ghost">
                   <ArrowUp aria-hidden="true" className="size-4" />
                 </Button>
-                <Button aria-label={`Move ${asset.label || `image ${index + 1}`} down`} disabled={operationBusy || index === count - 1} onClick={() => void move(1)} size="sm" type="button" variant="ghost">
+                <Button aria-label={`Move ${assetName} down`} disabled={cardBusy || index === count - 1} onClick={() => void move(1)} size="sm" type="button" variant="ghost">
                   <ArrowDown aria-hidden="true" className="size-4" />
                 </Button>
               </div>
@@ -307,16 +310,16 @@ function AssetEditor({
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="text-sm font-medium">
                 Title
-                <input className={inputClass} maxLength={80} onChange={(event) => setDraft({ ...draft, label: event.target.value })} value={draft.label ?? ""} />
+                <input className={inputClass} disabled={cardBusy} maxLength={80} onChange={(event) => setDraft({ ...draft, label: event.target.value })} value={draft.label ?? ""} />
               </label>
               <label className="text-sm font-medium">
                 Credit
-                <input className={inputClass} maxLength={120} onChange={(event) => setDraft({ ...draft, credit: event.target.value })} value={draft.credit ?? ""} />
+                <input className={inputClass} disabled={cardBusy} maxLength={120} onChange={(event) => setDraft({ ...draft, credit: event.target.value })} value={draft.credit ?? ""} />
               </label>
             </div>
             <label className="text-sm font-medium">
               Credit link
-              <input className={inputClass} inputMode="url" maxLength={2048} onChange={(event) => setDraft({ ...draft, creditUrl: event.target.value })} type="url" value={draft.creditUrl ?? ""} />
+              <input className={inputClass} disabled={cardBusy} inputMode="url" maxLength={2048} onChange={(event) => setDraft({ ...draft, creditUrl: event.target.value })} type="url" value={draft.creditUrl ?? ""} />
             </label>
             <div>
               <div className="flex items-center justify-between gap-3">
@@ -324,22 +327,23 @@ function AssetEditor({
                   Accessibility description
                 </label>
                 {generationEnabled ? (
-                  <Button disabled={operationBusy || generating} onClick={() => void generate()} size="sm" type="button" variant="ghost">
+                  <Button aria-label={`Generate accessibility description for ${assetName}`} disabled={cardBusy || Boolean(draft.altText?.trim())} onClick={() => void generate()} size="sm" type="button" variant="ghost">
                     {generating ? "Generating…" : "Generate"}
                   </Button>
                 ) : null}
               </div>
-              <textarea className={cn(inputClass, "min-h-20 resize-y")} id={`asset-alt-${asset.assetId}`} maxLength={180} onChange={(event) => setDraft({ ...draft, altText: event.target.value })} value={draft.altText ?? ""} />
+              <textarea className={cn(inputClass, "min-h-20 resize-y")} disabled={cardBusy} id={`asset-alt-${asset.assetId}`} maxLength={180} onChange={(event) => setDraft({ ...draft, altText: event.target.value })} value={draft.altText ?? ""} />
             </div>
             <label className="text-sm font-medium">
               Caption
-              <textarea className={cn(inputClass, "min-h-20 resize-y")} maxLength={240} onChange={(event) => setDraft({ ...draft, caption: event.target.value })} value={draft.caption ?? ""} />
+              <textarea className={cn(inputClass, "min-h-20 resize-y")} disabled={cardBusy} maxLength={240} onChange={(event) => setDraft({ ...draft, caption: event.target.value })} value={draft.caption ?? ""} />
             </label>
 
             <div className="flex flex-wrap items-center gap-2 border-t border-border pt-4">
-              <Button disabled={operationBusy} type="submit" variant="primary">{saving ? "Saving…" : "Save"}</Button>
+              <Button aria-label={`Save ${assetName}`} disabled={cardBusy} type="submit" variant="primary">{saving ? "Saving…" : "Save"}</Button>
               <Button
-                disabled={operationBusy || asset.featured}
+                aria-label={asset.featured ? `${assetName} is featured` : `Make ${assetName} featured`}
+                disabled={cardBusy || asset.featured}
                 onClick={() => {
                   void runOperation(
                     "Featured.",
@@ -353,18 +357,18 @@ function AssetEditor({
                 <Star aria-hidden="true" className="mr-2 size-4" />
                 {asset.featured ? "Featured" : "Make featured"}
               </Button>
-              <Button className="ml-auto" disabled={operationBusy} onClick={() => void remove()} type="button" variant="ghost">
+              <Button aria-label={`Remove ${assetName}`} className="ml-auto" disabled={cardBusy} onClick={() => void remove()} type="button" variant="ghost">
                 <Trash2 aria-hidden="true" className="mr-2 size-4" />
                 Remove
               </Button>
               {asset.downloadUrl ? (
-                <a className={buttonVariants({ size: "sm", variant: "secondary" })} download href={asset.downloadUrl}>
+                <a aria-label={`Download ${assetName}`} className={buttonVariants({ size: "sm", variant: "secondary" })} download href={asset.downloadUrl}>
                   Download
                 </a>
               ) : null}
-              <label className={cn(buttonVariants({ size: "sm", variant: "secondary" }), replacing || operationBusy ? "pointer-events-none opacity-60" : "cursor-pointer")}>
+              <label className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-2", cardBusy ? "pointer-events-none opacity-60" : "cursor-pointer")}>
                 {replacing ? "Replacing…" : "Replace"}
-                <input accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml" className="sr-only" disabled={replacing || operationBusy} onChange={(event) => void replace(event)} type="file" />
+                <input aria-label={`Replace ${assetName}`} accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml" className="sr-only" disabled={cardBusy} onChange={(event) => void replace(event)} type="file" />
               </label>
             </div>
             <ActionStatusMessage status={status} />
@@ -468,6 +472,7 @@ function MediaKitEditor({
   });
   const prepareRequestRef = useRef(0);
   const uploadRequestRef = useRef(0);
+  const generationRequestRef = useRef(0);
   const profileSelectRef = useRef<HTMLSelectElement>(null);
   const shouldFocusProfileRef = useRef(false);
   const selectedProfile = initialProfiles.find((item) => item.profileId === selectedId);
@@ -482,6 +487,8 @@ function MediaKitEditor({
     if (selectedProfile) return;
     prepareRequestRef.current += 1;
     uploadRequestRef.current += 1;
+    generationRequestRef.current += 1;
+    setGeneratingUpload(false);
     setUploading(false);
     setPendingFile(null);
     setPreparedUpload(null);
@@ -521,6 +528,8 @@ function MediaKitEditor({
   const selectProfile = (profileId: string) => {
     prepareRequestRef.current += 1;
     uploadRequestRef.current += 1;
+    generationRequestRef.current += 1;
+    setGeneratingUpload(false);
     setSelectedId(profileId);
     setPendingFile(null);
     setPreparedUpload(null);
@@ -544,6 +553,8 @@ function MediaKitEditor({
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file || !profile) return;
+    generationRequestRef.current += 1;
+    setGeneratingUpload(false);
     if (profileMediaMimeType(file.type, file.name) === null) {
       setUploadStatus({ kind: "error", message: "Choose a PNG, JPEG, WebP, or SVG image." });
       return;
@@ -618,20 +629,23 @@ function MediaKitEditor({
   };
 
   const generateUpload = async () => {
-    if (!pendingFile || !selectedProfile) return;
+    if (!pendingFile || !selectedProfile || uploadMetadata.altText.trim()) return;
+    const requestId = ++generationRequestRef.current;
     setGeneratingUpload(true);
     setUploadStatus(null);
     try {
       const altText = await actions.generate(selectedProfile.profileId, pendingFile);
-      setUploadMetadata((current) => ({ ...current, altText }));
+      if (generationRequestRef.current !== requestId) return;
+      setUploadMetadata((current) => current.altText.trim() ? current : ({ ...current, altText }));
       setUploadStatus({ kind: "success", message: "Generated." });
     } catch (error) {
+      if (generationRequestRef.current !== requestId) return;
       setUploadStatus({
         kind: "error",
         message: error instanceof Error ? error.message : "Generation failed. Try again.",
       });
     } finally {
-      setGeneratingUpload(false);
+      if (generationRequestRef.current === requestId) setGeneratingUpload(false);
     }
   };
 
@@ -671,7 +685,7 @@ function MediaKitEditor({
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
           <div>
             <label className="text-sm font-medium" htmlFor="media-profile">Profile</label>
-            <select className={cn(inputClass, "max-w-md")} disabled={uploading || operationBusy} id="media-profile" onChange={(event) => selectProfile(event.target.value)} ref={profileSelectRef} value={profile.profileId}>
+            <select className={cn(inputClass, "max-w-md")} disabled={uploading || generatingUpload || operationBusy} id="media-profile" onChange={(event) => selectProfile(event.target.value)} ref={profileSelectRef} value={profile.profileId}>
               {initialProfiles.map((item) => <option key={item.profileId} value={item.profileId}>{item.displayName}</option>)}
             </select>
             <p className="mt-3 text-sm text-muted">{profile.activePublicAssetCount} / 12</p>
@@ -680,10 +694,10 @@ function MediaKitEditor({
             <Link className={buttonVariants({ variant: "secondary" })} href={`/${profile.profileType === "community" ? "c" : "p"}/${profile.slug}`}>
               View profile
             </Link>
-            <label className={cn(buttonVariants({ variant: "primary" }), "cursor-pointer focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-2", !selectedProfile || uploading || profile.activePublicAssetCount >= 12 ? "pointer-events-none opacity-60" : "")}>
+            <label className={cn(buttonVariants({ variant: "primary" }), "cursor-pointer focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-2", !selectedProfile || uploading || generatingUpload || profile.activePublicAssetCount >= 12 ? "pointer-events-none opacity-60" : "")}>
               <ImagePlus aria-hidden="true" className="mr-2 size-4" />
               {uploading ? (pendingFile ? "Uploading…" : "Preparing…") : "Add image"}
-              <input accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml" className="sr-only" disabled={!selectedProfile || uploading || profile.activePublicAssetCount >= 12} onChange={chooseFile} type="file" />
+              <input accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml" className="sr-only" disabled={!selectedProfile || uploading || generatingUpload || profile.activePublicAssetCount >= 12} onChange={chooseFile} type="file" />
             </label>
           </div>
         </div>
@@ -718,20 +732,21 @@ function MediaKitEditor({
                   Accessibility description
                 </label>
                 {generationEnabled ? (
-                  <Button disabled={uploading || generatingUpload} onClick={() => void generateUpload()} size="sm" type="button" variant="ghost">
+                  <Button aria-label="Generate accessibility description for upload" disabled={uploading || generatingUpload || Boolean(uploadMetadata.altText.trim())} onClick={() => void generateUpload()} size="sm" type="button" variant="ghost">
                     {generatingUpload ? "Generating…" : "Generate"}
                   </Button>
                 ) : null}
               </div>
-              <textarea className={cn(inputClass, "min-h-20 resize-y")} id="media-upload-alt" maxLength={180} onChange={(event) => setUploadMetadata({ ...uploadMetadata, altText: event.target.value })} value={uploadMetadata.altText} />
+              <textarea className={cn(inputClass, "min-h-20 resize-y")} disabled={generatingUpload} id="media-upload-alt" maxLength={180} onChange={(event) => setUploadMetadata({ ...uploadMetadata, altText: event.target.value })} value={uploadMetadata.altText} />
             </div>
             <label className="text-sm font-medium">
               Caption
               <textarea className={cn(inputClass, "min-h-20 resize-y")} maxLength={240} onChange={(event) => setUploadMetadata({ ...uploadMetadata, caption: event.target.value })} value={uploadMetadata.caption} />
             </label>
             <div className="flex gap-2">
-              <Button disabled={uploading} type="submit" variant="primary">Publish</Button>
-              <Button disabled={uploading} onClick={() => {
+              <Button disabled={uploading || generatingUpload} type="submit" variant="primary">Publish</Button>
+              <Button disabled={uploading || generatingUpload} onClick={() => {
+                generationRequestRef.current += 1;
                 setPendingFile(null);
                 setPreparedUpload(null);
               }} type="button" variant="ghost">Cancel</Button>
@@ -943,6 +958,10 @@ function DemoMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: string
       if ((window as typeof window & { vrdexGenerationFailure?: boolean }).vrdexGenerationFailure) {
         throw new Error("Generation failed. Try again.");
       }
+      if ((window as typeof window & { vrdexGenerationSlow?: boolean }).vrdexGenerationSlow) {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        window.dispatchEvent(new Event("vrdex:media-generation-settled"));
+      }
       return "A performer stands in violet and orange light.";
     },
     replace: async (_profileId, _asset, _file, _position, onProgress) => {
@@ -1005,6 +1024,7 @@ function ConnectedMediaKitPanel({
     onProgress: (value: number) => void,
     placements: Array<"gallery" | "featured"> = ["gallery"],
     position?: number,
+    replacesAssetId?: string,
   ) => {
     const intent = await createUploadIntent({
       profileId: profileId as Id<"profiles">,
@@ -1020,6 +1040,9 @@ function ConnectedMediaKitPanel({
       creditUrl: metadata.creditUrl,
       placements,
       position,
+      ...(replacesAssetId !== undefined
+        ? { replacesAssetId: replacesAssetId as Id<"profileAssets"> }
+        : {}),
     });
     try {
       if (intent.directUploadUrl) {
@@ -1077,10 +1100,6 @@ function ConnectedMediaKitPanel({
       await uploadAsset(profileId, file, metadata, onProgress);
     },
     replace: async (profileId, asset, file, position, onProgress) => {
-      const placements: Array<"gallery" | "featured"> = [
-        ...(asset.gallery ? ["gallery" as const] : []),
-        ...(asset.featured ? ["featured" as const] : []),
-      ];
       await uploadAsset(
         profileId,
         file,
@@ -1092,14 +1111,10 @@ function ConnectedMediaKitPanel({
           creditUrl: asset.creditUrl,
         },
         onProgress,
-        placements,
+        [],
         position,
+        asset.assetId,
       );
-      await setDeleted({
-        profileId: profileId as Id<"profiles">,
-        assetId: asset.assetId as Id<"profileAssets">,
-        deleted: true,
-      });
     },
     saveMetadata: async (profileId, asset) => {
       await updateMetadata({

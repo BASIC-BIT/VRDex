@@ -679,6 +679,7 @@ export default defineSchema({
     uploadToken: v.string(),
     requestedBy: authSubject,
     targetProfileId: v.optional(v.id("profiles")),
+    replacesAssetId: v.optional(v.id("profileAssets")),
     originalFileName: v.optional(v.string()),
     sourceUrl: v.optional(v.string()),
     mimeType: v.string(),

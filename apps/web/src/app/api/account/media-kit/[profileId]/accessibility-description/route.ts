@@ -9,6 +9,7 @@ import {
   parseAccessibilityImageDataUrl,
   profileAssetAccessibilityModel,
   ProfileAssetAccessibilityProviderError,
+  readProfileAssetAccessibilityRequest,
 } from "@/lib/server/profile-asset-accessibility";
 
 export const dynamic = "force-dynamic";
@@ -27,13 +28,8 @@ export async function POST(request: Request, context: RouteContext) {
   if (authToken === undefined) {
     return Response.json({ error: "Sign in required." }, { status: 401 });
   }
-  const contentLength = Number(request.headers.get("content-length") ?? 0);
-  if (Number.isFinite(contentLength) && contentLength > 2_100_000) {
-    return Response.json({ error: "Image preview is too large." }, { status: 413 });
-  }
-
   try {
-    const body = await request.json() as { imageDataUrl?: unknown; requestId?: unknown };
+    const body = await readProfileAssetAccessibilityRequest(request);
     const image = await parseAccessibilityImageDataUrl(body.imageDataUrl);
     const requestId = typeof body.requestId === "string" ? body.requestId : "";
     const { profileId } = await context.params;
@@ -78,8 +74,12 @@ export async function POST(request: Request, context: RouteContext) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Generation failed. Try again.";
     const status =
-      error instanceof ProfileAssetAccessibilityProviderError && error.code === "invalid_image"
-        ? 400
+      error instanceof ProfileAssetAccessibilityProviderError &&
+      error.code === "invalid_image" &&
+      message.includes("too large")
+        ? 413
+        : error instanceof ProfileAssetAccessibilityProviderError && error.code === "invalid_image"
+          ? 400
         : message.includes("permission") || message.includes("owner")
           ? 403
           : message.includes("limit") || message.includes("Wait a moment")

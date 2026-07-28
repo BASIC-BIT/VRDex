@@ -5,6 +5,7 @@ import sharp from "sharp";
 const DEFAULT_MODEL = "gpt-5.6-luna";
 const MAX_IMAGE_BYTES = 1_500_000;
 const MAX_DESCRIPTION_LENGTH = 140;
+const MAX_REQUEST_BYTES = 2_100_000;
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 
 type AccessibilityImage = {
@@ -33,8 +34,53 @@ export function isProfileAssetAccessibilityGenerationConfigured() {
   );
 }
 
+export async function readProfileAssetAccessibilityRequest(
+  request: Request,
+): Promise<{ imageDataUrl?: unknown; requestId?: unknown }> {
+  const contentLengthHeader = request.headers.get("content-length");
+  if (contentLengthHeader !== null) {
+    const contentLength = Number(contentLengthHeader);
+    if (!Number.isSafeInteger(contentLength) || contentLength < 0) {
+      throw new ProfileAssetAccessibilityProviderError("invalid_image", "Image preview is invalid.");
+    }
+    if (contentLength > MAX_REQUEST_BYTES) {
+      throw new ProfileAssetAccessibilityProviderError("invalid_image", "Image preview is too large.");
+    }
+  }
+  if (request.body === null) {
+    throw new ProfileAssetAccessibilityProviderError("invalid_image", "Image preview is invalid.");
+  }
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    byteLength += value.byteLength;
+    if (byteLength > MAX_REQUEST_BYTES) {
+      await reader.cancel();
+      throw new ProfileAssetAccessibilityProviderError("invalid_image", "Image preview is too large.");
+    }
+    chunks.push(value);
+  }
+  const body = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return JSON.parse(new TextDecoder().decode(body)) as {
+      imageDataUrl?: unknown;
+      requestId?: unknown;
+    };
+  } catch {
+    throw new ProfileAssetAccessibilityProviderError("invalid_image", "Image preview is invalid.");
+  }
+}
+
 export async function parseAccessibilityImageDataUrl(value: unknown): Promise<AccessibilityImage> {
-  if (typeof value !== "string" || value.length > 2_100_000) {
+  if (typeof value !== "string" || value.length > MAX_REQUEST_BYTES) {
     throw new ProfileAssetAccessibilityProviderError("invalid_image", "Image preview is too large.");
   }
   const match = /^data:(image\/(?:jpeg|png|webp));base64,([a-z0-9+/]+={0,2})$/iu.exec(value);

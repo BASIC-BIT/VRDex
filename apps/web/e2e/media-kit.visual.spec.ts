@@ -38,12 +38,28 @@ test("owner media-kit editor @visual @fixture", async ({ page }, testInfo) => {
   await expect(page.getByRole("heading", { name: "Media kit", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Public gallery" })).toBeVisible();
   await expect(page.getByText("Aurora press portrait", { exact: true }).first()).toBeVisible();
-  await expect(page.getByLabel("Accessibility description").first()).toHaveValue(
+  await expect(page.getByLabel("Accessibility description", { exact: true }).first()).toHaveValue(
     "DJ Aurora framed by violet light and a warm orange glow.",
   );
   await expect(page.getByRole("button", { name: "Move Aurora press portrait down" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Restore" })).toBeVisible();
   await captureRouteScreenshot(page, testInfo, "media-kit-editor");
+});
+
+test("owner repeated asset actions have distinct keyboard names @fixture", async ({ page }) => {
+  await page.goto("/account/media-kit");
+  const first = page.locator('[data-asset-id="aurora-primary"]');
+  const second = page.locator('[data-asset-id="aurora-logo"]');
+  await expect(first.getByRole("button", { name: "Save Aurora press portrait" })).toBeVisible();
+  await expect(second.getByRole("button", { name: "Save Aurora wordmark" })).toBeVisible();
+  await expect(first.getByRole("button", { name: "Remove Aurora press portrait" })).toBeVisible();
+  await expect(second.getByRole("button", { name: "Remove Aurora wordmark" })).toBeVisible();
+  await expect(first.getByRole("link", { name: "Download Aurora press portrait" })).toBeVisible();
+  await expect(second.getByRole("link", { name: "Download Aurora wordmark" })).toBeVisible();
+  const replace = second.getByLabel("Replace Aurora wordmark");
+  await replace.focus();
+  await expect(replace).toBeFocused();
+  await expect(replace.locator("..")).toHaveClass(/focus-within:ring-2/);
 });
 
 test("owner upload failure stays beside the publish control @fixture", async ({ page }) => {
@@ -56,7 +72,7 @@ test("owner upload failure stays beside the publish control @fixture", async ({ 
   const publish = page.getByRole("button", { name: "Publish" });
   const uploadForm = publish.locator("xpath=ancestor::form");
   await expect(uploadForm.getByLabel("Title")).toHaveValue("synthetic");
-  await expect(uploadForm.getByLabel("Accessibility description")).not.toHaveAttribute("required");
+  await expect(uploadForm.getByLabel("Accessibility description", { exact: true })).not.toHaveAttribute("required");
 
   await publish.click();
 
@@ -77,43 +93,94 @@ test("owner upload metadata includes caption, linked credit, and editable genera
   await uploadForm.getByLabel("Caption").fill("Synthetic caption");
   await uploadForm.getByLabel("Credit", { exact: true }).fill("Example Photographer");
   await uploadForm.getByLabel("Credit link").fill("https://example.test/credit");
-  await uploadForm.getByLabel("Accessibility description").fill("Manual description");
-  const generate = uploadForm.getByRole("button", { name: "Generate" });
+  await uploadForm.getByLabel("Accessibility description", { exact: true }).fill("Manual description");
+  const generate = uploadForm.getByRole("button", {
+    name: "Generate accessibility description for upload",
+  });
+  await expect(generate).toBeDisabled();
+  await uploadForm.getByLabel("Accessibility description", { exact: true }).fill("");
   await generate.focus();
   await expect(generate).toBeFocused();
   await page.keyboard.press("Enter");
-  await expect(uploadForm.getByLabel("Accessibility description")).toHaveValue(
+  await expect(uploadForm.getByLabel("Accessibility description", { exact: true })).toHaveValue(
     "A performer stands in violet and orange light.",
   );
   await expect(uploadForm.getByText("Generated.", { exact: true })).toBeVisible();
-  await uploadForm.getByLabel("Accessibility description").fill("Edited suggestion");
+  await uploadForm.getByLabel("Accessibility description", { exact: true }).fill("Edited suggestion");
   await uploadForm.getByRole("button", { name: "Cancel" }).click();
 
   await page.getByLabel("Add image").setInputFiles(file);
   const resetForm = page.getByRole("button", { name: "Publish" }).locator("xpath=ancestor::form");
   await expect(resetForm.getByLabel("Caption")).toHaveValue("");
   await expect(resetForm.getByLabel("Credit link")).toHaveValue("");
-  await expect(resetForm.getByLabel("Accessibility description")).toHaveValue("");
+  await expect(resetForm.getByLabel("Accessibility description", { exact: true })).toHaveValue("");
 });
 
-test("owner generation failure keeps manual accessibility text @fixture", async ({ page }) => {
+test("owner generation is blank-only and preserves text on failure @fixture", async ({ page }) => {
   await page.goto("/account/media-kit");
   await page.evaluate(() => {
     (window as typeof window & { vrdexGenerationFailure?: boolean }).vrdexGenerationFailure = true;
   });
-  const asset = page.locator('[data-asset-id="aurora-primary"]');
-  const description = asset.getByLabel("Accessibility description");
+  const asset = page.locator('[data-asset-id="aurora-logo"]');
+  const description = asset.getByLabel("Accessibility description", { exact: true });
   await description.fill("Manual text stays here.");
-  await asset.getByRole("button", { name: "Generate" }).click();
+  const generate = asset.getByRole("button", {
+    name: "Generate accessibility description for Aurora wordmark",
+  });
+  await expect(generate).toBeDisabled();
+  await description.fill("");
+  await generate.click();
 
   await expect(asset.getByRole("alert")).toHaveText("Generation failed. Try again.");
-  await expect(description).toHaveValue("Manual text stays here.");
+  await expect(description).toHaveValue("");
+});
+
+test("owner upload generation locks target-changing controls @fixture", async ({ page }) => {
+  await page.goto("/account/media-kit");
+  await page.getByLabel("Add image").setInputFiles({
+    name: "generation-race.png",
+    mimeType: "image/png",
+    buffer: await smallSyntheticPng(),
+  });
+  await page.evaluate(() => {
+    (window as typeof window & { vrdexGenerationSlow?: boolean }).vrdexGenerationSlow = true;
+  });
+  const publish = page.getByRole("button", { name: "Publish" });
+  const uploadForm = publish.locator("xpath=ancestor::form");
+  await uploadForm.getByRole("button", {
+    name: "Generate accessibility description for upload",
+  }).click();
+  await expect(page.getByLabel("Profile", { exact: true })).toBeDisabled();
+  await expect(page.getByLabel("Add image")).toBeDisabled();
+  await expect(uploadForm.getByLabel("Accessibility description", { exact: true })).toBeDisabled();
+  await expect(publish).toBeDisabled();
+  await expect(uploadForm.getByRole("button", { name: "Cancel" })).toBeDisabled();
+  await expect(uploadForm.getByLabel("Accessibility description", { exact: true })).toHaveValue(
+    "A performer stands in violet and orange light.",
+  );
+});
+
+test("owner asset generation locks edits until the matching result returns @fixture", async ({ page }) => {
+  await page.goto("/account/media-kit");
+  await page.evaluate(() => {
+    (window as typeof window & { vrdexGenerationSlow?: boolean }).vrdexGenerationSlow = true;
+  });
+  const asset = page.locator('[data-asset-id="aurora-logo"]');
+  const description = asset.getByLabel("Accessibility description", { exact: true });
+  await asset.getByRole("button", {
+    name: "Generate accessibility description for Aurora wordmark",
+  }).click();
+  await expect(description).toBeDisabled();
+  await expect(asset.getByLabel("Title")).toBeDisabled();
+  await expect(asset.getByRole("button", { name: "Save Aurora wordmark" })).toBeDisabled();
+  await expect(asset.getByLabel("Replace Aurora wordmark")).toBeDisabled();
+  await expect(description).toHaveValue("A performer stands in violet and orange light.");
 });
 
 test("owner replace failure keeps the existing gallery asset @fixture", async ({ page }) => {
   await page.goto("/account/media-kit");
   const asset = page.locator('[data-asset-id="aurora-primary"]');
-  await asset.getByLabel("Replace").setInputFiles({
+  await asset.getByLabel("Replace Aurora press portrait").setInputFiles({
     name: "replacement.png",
     mimeType: "image/png",
     buffer: await smallSyntheticPng(),
@@ -521,7 +588,10 @@ test("owner preview failure can retry @fixture", async ({ page }) => {
 test("public profile media kit @visual @fixture", async ({ page }, testInfo) => {
   await page.goto("/p/playwright-dj-aurora");
   const mediaKit = page.getByRole("heading", { name: "Media kit" }).locator("xpath=ancestor::section");
-  await expect(mediaKit.getByRole("heading", { name: "Profile image" })).toHaveCount(1);
+  await expect(mediaKit.getByRole("heading", { name: "Aurora press portrait" })).toHaveCount(1);
+  await expect(
+    mediaKit.getByText("Warm-room portrait for lineups and editorial coverage.", { exact: true }),
+  ).toHaveCount(1);
   await expect(
     mediaKit.getByRole("img", { name: "DJ Aurora framed by violet light and a warm orange glow." }),
   ).toHaveCount(1);
@@ -529,8 +599,26 @@ test("public profile media kit @visual @fixture", async ({ page }, testInfo) => 
   await expect(
     mediaKit.getByRole("link", { name: "Artwork by Afterglow Studio" }),
   ).toHaveAttribute("href", "https://example.invalid/afterglow-studio");
+  await expect(
+    mediaKit.getByRole("link", { name: "https://example.invalid/aurora-source" }),
+  ).toHaveAttribute("href", "https://example.invalid/aurora-source");
+  for (const title of [
+    "Aurora press portrait",
+    "Primary logo",
+    "Square mark",
+    "Uncredited mark",
+  ]) {
+    await expect(mediaKit.getByRole("link", { name: `Download ${title}` })).toHaveCount(1);
+  }
+  const nameOnlyCredit = mediaKit.getByRole("heading", { name: "Square mark" })
+    .locator("xpath=ancestor::article");
+  await expect(nameOnlyCredit.getByText("Aurora Studio", { exact: true })).toBeVisible();
+  await expect(nameOnlyCredit.getByRole("link")).toHaveCount(1);
+  const noCredit = mediaKit.getByRole("heading", { name: "Uncredited mark" })
+    .locator("xpath=ancestor::article");
+  await expect(noCredit.getByRole("link")).toHaveCount(1);
   await expect(mediaKit.getByRole("link", { name: "Download" }).first()).toBeVisible();
   await expect(mediaKit.getByText("PNG / 180 KB", { exact: true })).toBeVisible();
-  await expect(mediaKit.locator("article")).toHaveCount(3);
+  await expect(mediaKit.locator("article")).toHaveCount(4);
   await captureRouteScreenshot(page, testInfo, "profile-media-kit");
 });

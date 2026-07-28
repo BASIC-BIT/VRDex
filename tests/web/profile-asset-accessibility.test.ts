@@ -8,6 +8,7 @@ import {
   normalizeGeneratedAccessibilityDescription,
   parseAccessibilityImageDataUrl,
   ProfileAssetAccessibilityProviderError,
+  readProfileAssetAccessibilityRequest,
 } from "../../apps/web/src/lib/server/profile-asset-accessibility";
 
 const originalEnvironment = {
@@ -49,6 +50,31 @@ async function accessibilityImageDataUrl(
 }
 
 describe("profile asset accessibility generation", () => {
+  it("bounds request bodies even without a Content-Length header", async () => {
+    const oversized = new Request("https://example.test/generate", {
+      method: "POST",
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new Uint8Array(2_100_001));
+          controller.close();
+        },
+      }),
+      duplex: "half",
+    } as RequestInit);
+    await assert.rejects(
+      readProfileAssetAccessibilityRequest(oversized),
+      /too large/,
+    );
+    await assert.rejects(
+      readProfileAssetAccessibilityRequest(new Request("https://example.test/generate", {
+        method: "POST",
+        headers: { "content-length": "invalid" },
+        body: "{}",
+      })),
+      /invalid/,
+    );
+  });
+
   it("accepts bounded raster previews and rejects MIME mismatches and oversized dimensions", async () => {
     const valid = await parseAccessibilityImageDataUrl(await accessibilityImageDataUrl("png"));
     assert.equal(valid.mimeType, "image/png");

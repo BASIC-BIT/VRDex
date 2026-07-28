@@ -802,6 +802,90 @@ describe("profile media-kit owner management", () => {
     );
   });
 
+  it("replaces an asset atomically at the active asset quota", async () => {
+    const seeded = await seedOwnedProfile(12);
+    const owner = seeded.t.withIdentity(seeded.ownerIdentity);
+    await owner.mutation(api.profileAssets.setOwnedFeaturedAsset, {
+      profileId: seeded.profileId,
+      assetId: seeded.assetIds[0]!,
+    });
+    const intent = await owner.mutation(api.profileAssets.createUploadIntentForOwnedProfile, {
+      profileId: seeded.profileId,
+      replacesAssetId: seeded.assetIds[0]!,
+      originalFileName: "replacement.png",
+      mimeType: "image/png",
+      byteSize: 128,
+      label: "Asset 1",
+      altText: "Replacement asset.",
+      placements: [],
+    });
+    const processingToken = await claimUploadIntent(seeded, intent);
+    const completed = await seeded.t.mutation(internal.profileAssets.markUploadIntentUploaded, {
+      intentId: intent.intentId,
+      uploadToken: intent.uploadToken,
+      processingToken,
+      mimeType: "image/webp",
+      byteSize: 96,
+      contentSha256: "replacement-hash",
+      width: 20,
+      height: 20,
+    });
+    const state = await seeded.t.run(async (ctx) => {
+      const assets = await ctx.db
+        .query("profileAssets")
+        .withIndex("by_profileId", (query) => query.eq("profileId", seeded.profileId))
+        .collect();
+      const gallery = await ctx.db
+        .query("profileAssetPlacements")
+        .withIndex("by_profileId_placement_state_position", (query) =>
+          query.eq("profileId", seeded.profileId).eq("placement", "gallery").eq("state", "active"),
+        )
+        .collect();
+      const featured = await ctx.db
+        .query("profileAssetPlacements")
+        .withIndex("by_profileId_placement_state_position", (query) =>
+          query.eq("profileId", seeded.profileId).eq("placement", "featured").eq("state", "active"),
+        )
+        .collect();
+      return { assets, featured, gallery };
+    });
+    const replacementId = completed.assetIds[0]!;
+    assert.equal(state.assets.filter((asset) => asset.state === "active").length, 12);
+    assert.equal(state.assets.find((asset) => asset._id === seeded.assetIds[0])?.state, "deleted");
+    assert.equal(state.gallery.find((placement) => placement.position === 0)?.assetId, replacementId);
+    assert.equal(state.featured[0]?.assetId, replacementId);
+  });
+
+  it("keeps the original active when replacement completion fails", async () => {
+    const seeded = await seedOwnedProfile(12);
+    const owner = seeded.t.withIdentity(seeded.ownerIdentity);
+    const intent = await owner.mutation(api.profileAssets.createUploadIntentForOwnedProfile, {
+      profileId: seeded.profileId,
+      replacesAssetId: seeded.assetIds[0]!,
+      originalFileName: "duplicate-replacement.png",
+      mimeType: "image/png",
+      byteSize: 128,
+      label: "Asset 1",
+      placements: [],
+    });
+    const processingToken = await claimUploadIntent(seeded, intent);
+    await assert.rejects(
+      seeded.t.mutation(internal.profileAssets.markUploadIntentUploaded, {
+        intentId: intent.intentId,
+        uploadToken: intent.uploadToken,
+        processingToken,
+        mimeType: "image/webp",
+        byteSize: 96,
+        contentSha256: "hash-1",
+        width: 20,
+        height: 20,
+      }),
+      /already exists/,
+    );
+    const original = await seeded.t.run((ctx) => ctx.db.get(seeded.assetIds[0]!));
+    assert.equal(original?.state, "active");
+  });
+
   it("persists captions, safe credit links, and preserved source/download variants", async () => {
     const seeded = await seedOwnedProfile(0);
     const owner = seeded.t.withIdentity(seeded.ownerIdentity);

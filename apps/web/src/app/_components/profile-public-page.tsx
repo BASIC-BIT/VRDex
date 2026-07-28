@@ -338,7 +338,7 @@ function MediaAssetCard({ asset, label, featured = false }: { asset: PublicProfi
         <p className="text-xs text-muted">
           {mimeLabel(downloadMimeType)} / {formatByteSize(downloadByteSize)}
         </p>
-        <a className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "mt-2 w-fit")} download href={asset.downloadUrl}>
+        <a aria-label={`Download ${asset.label ?? label}`} className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "mt-2 w-fit")} download href={asset.downloadUrl}>
           Download
         </a>
       </div>

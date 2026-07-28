@@ -253,6 +253,7 @@ export const createUploadIntentForApiProfileOwner = internalMutation({
 export const createUploadIntentForOwnedProfile = mutation({
   args: {
     profileId,
+    replacesAssetId: v.optional(v.id("profileAssets")),
     ...profileAssetUploadIntentArgs,
     ...profileAssetAttachMetadataArgs,
   },
@@ -266,10 +267,31 @@ export const createUploadIntentForOwnedProfile = mutation({
 
     const { user } = await requireActiveAuthSession(ctx);
     const now = Date.now();
-    await assertProfileAssetIntentCapacity(ctx.db, profile._id, now);
+    if (args.replacesAssetId !== undefined) {
+      const replacedAsset = await ctx.db.get(args.replacesAssetId);
+      if (
+        replacedAsset === null ||
+        replacedAsset.profileId !== profile._id ||
+        replacedAsset.state !== "active"
+      ) {
+        throw new Error("The media being replaced is no longer active.");
+      }
+      const existingReplacement = await ctx.db
+        .query("profileAssetUploadIntents")
+        .withIndex("by_targetProfileId_state_expiresAt", (query) =>
+          query.eq("targetProfileId", profile._id).eq("state", "pending").gt("expiresAt", now),
+        )
+        .filter((query) => query.eq(query.field("replacesAssetId"), args.replacesAssetId))
+        .first();
+      if (existingReplacement !== null) {
+        throw new Error("This media already has a replacement in progress.");
+      }
+    }
+    await assertProfileAssetIntentCapacity(ctx.db, profile._id, now, args.replacesAssetId === undefined ? 1 : 0);
     const intent = await createProfileAssetUploadIntentRecord(ctx.db, {
       requestedBy: apiOwnerAuthSubject(user._id),
       targetProfileId: profile._id,
+      ...(args.replacesAssetId !== undefined ? { replacesAssetId: args.replacesAssetId } : {}),
       originalFileName: args.originalFileName,
       sourceUrl: args.sourceUrl,
       mimeType: args.mimeType,

@@ -94,6 +94,7 @@ export type ProfileAssetUploadIntentCreateInput = {
   mimeType: string;
   byteSize?: number;
   targetProfileId?: Id<"profiles">;
+  replacesAssetId?: Id<"profileAssets">;
   label?: string;
   caption?: string;
   altText?: string;
@@ -148,6 +149,7 @@ export async function assertProfileAssetIntentCapacity(
   db: DatabaseReader,
   profileId: Id<"profiles">,
   now: number,
+  additionalCount = 1,
 ) {
   const openIntents = await db
     .query("profileAssetUploadIntents")
@@ -155,7 +157,8 @@ export async function assertProfileAssetIntentCapacity(
       query.eq("targetProfileId", profileId).eq("state", "pending").gt("expiresAt", now),
     )
     .collect();
-  await assertProfileAssetCapacity(db, profileId, openIntents.length + 1);
+  const reservedAdditions = openIntents.filter((intent) => intent.replacesAssetId === undefined).length;
+  await assertProfileAssetCapacity(db, profileId, reservedAdditions + additionalCount);
 }
 
 function normalizeInlineText(value: string | undefined): string | undefined {
@@ -416,6 +419,7 @@ export async function createProfileAssetUploadIntentRecord(
     uploadToken,
     requestedBy: input.requestedBy,
     ...(input.targetProfileId !== undefined ? { targetProfileId: input.targetProfileId } : {}),
+    ...(input.replacesAssetId !== undefined ? { replacesAssetId: input.replacesAssetId } : {}),
     ...(originalFileName !== undefined ? { originalFileName } : {}),
     ...(sourceUrl !== undefined ? { sourceUrl } : {}),
     mimeType,
@@ -800,6 +804,36 @@ export async function finalizeProfileAssetUploadIntentUpload(
     return { ok: true as const, assetIds: [] as Id<"profileAssets">[] };
   }
 
+  let replacementPlacements: ProfileAssetPlacement[] | undefined;
+  let replacementPosition: number | undefined;
+  if (intent.replacesAssetId !== undefined) {
+    const replacedAsset = await db.get(intent.replacesAssetId);
+    if (
+      replacedAsset === null ||
+      replacedAsset.profileId !== intent.targetProfileId ||
+      replacedAsset.state !== "active"
+    ) {
+      throw new Error("The media being replaced is no longer active.");
+    }
+    const placements = await db
+      .query("profileAssetPlacements")
+      .withIndex("by_assetId", (query) => query.eq("assetId", replacedAsset._id))
+      .collect();
+    const activePlacements = placements.filter((placement) => placement.state === "active");
+    replacementPlacements = activePlacements.map((placement) => placement.placement);
+    replacementPosition = activePlacements.find((placement) => placement.placement === "gallery")?.position;
+    await Promise.all(
+      activePlacements.map((placement) =>
+        db.patch(placement._id, { state: "deleted", updatedAt: input.now }),
+      ),
+    );
+    await db.patch(replacedAsset._id, {
+      state: "deleted",
+      deletedAt: input.now,
+      updatedAt: input.now,
+    });
+  }
+
   const assetIds = await consumeProfileAssetUploads(db, {
     profileId: intent.targetProfileId,
     requestedBy: intent.requestedBy,
@@ -812,8 +846,10 @@ export async function finalizeProfileAssetUploadIntentUpload(
         ...(intent.altText !== undefined ? { altText: intent.altText } : {}),
         ...(intent.credit !== undefined ? { credit: intent.credit } : {}),
         ...(intent.creditUrl !== undefined ? { creditUrl: intent.creditUrl } : {}),
-        placements: intent.placements ?? [],
-        ...(intent.position !== undefined ? { position: intent.position } : {}),
+        placements: replacementPlacements ?? intent.placements ?? [],
+        ...((replacementPosition ?? intent.position) !== undefined
+          ? { position: replacementPosition ?? intent.position }
+          : {}),
       },
     ],
     source: intent.source ?? "owner_authored",

@@ -74,7 +74,7 @@ Current recommendation:
 | Organization | Primary/additional logo placements and positions exist | Add gallery ordering and one featured placement |
 | Visibility | Asset visibility and active/deleted states exist | Require gallery metadata before upload; completed launch uploads are public and draft/private storage is deferred |
 | Preview and publish | Uploaded assets become public when an API intent is consumed | Choose the file and metadata before the explicit Publish action; use the public profile for the saved-state preview |
-| Replace/delete/restore | Owner-only soft-delete and restore exist | Replacement uploads at the same position before removing the prior asset; a failed replacement leaves the prior asset public |
+| Replace/delete/restore | Owner-only soft-delete and restore exist | Replacement completion atomically transfers placement/featured state and soft-deletes the prior asset; a failed replacement leaves the prior asset public |
 | Download/share | Individual controlled downloads and logo ZIP exist | `Download` returns the sanitized full-resolution original-format artifact; the stable profile page remains the share target |
 | Public presentation | Public logo cards exist | Render the ordered gallery and featured asset, not logos only |
 | Mobile and accessibility | Shared responsive primitives and profile visual coverage exist | Add labeled file input, live progress/status, keyboard reorder controls, meaningful image alternatives, mobile visuals |
@@ -108,7 +108,8 @@ Current recommendation:
    featured control selects the public lead image. New uploads append to the
    current order, and stale reorder snapshots fail without hiding newer items.
 8. Removing an asset immediately hides it from public reads but keeps a Restore
-   action. Uploading a replacement before removal avoids a broken public state.
+   action. Replacement completion atomically transfers gallery/featured
+   placement and soft-deletes the prior asset.
 9. The public profile presents the featured asset followed by the remaining
    gallery. Display images remain optimized derivatives; each `Download`
    returns the sanitized full-resolution artifact in the uploaded format.
@@ -190,10 +191,12 @@ Do not enable the new paths until the target environment has passed each item:
 2. Confirm the staging asset variables point at an isolated staging bucket and
    role rather than production storage, then enable
    `VRDEX_PROFILE_MEDIA_DIRECT_UPLOAD_ENABLED=true` in staging Vercel and
-   Convex only. Run a synthetic PNG/JPEG/WebP smoke through direct upload,
-   display, sanitized download, replacement, soft-delete, and restore. Confirm
-   the downloaded MIME type and dimensions match the uploaded format while
-   EXIF and location metadata are absent.
+   Convex only. Run synthetic PNG/JPEG/WebP and restricted-SVG smokes through
+   direct upload, display, sanitized download, replacement, soft-delete, and
+   restore. Include an active/external SVG rejection fixture. Confirm the
+   downloaded MIME type and dimensions match the uploaded format while EXIF
+   and location metadata are absent. Confirm owner/public projections and
+   display/download routes cannot return an exact source key or source bytes.
 3. Promote `VRDEX_PROFILE_MEDIA_DIRECT_UPLOAD_ENABLED=true` to production
    Vercel and Convex only after step 2. Without it, existing small multipart
    uploads remain the compatibility path.
@@ -201,8 +204,12 @@ Do not enable the new paths until the target environment has passed each item:
    `VRDEX_PROFILE_MEDIA_ACCESSIBILITY_GENERATION_ENABLED=true` in staging
    Vercel and Convex, and set a staging `OPENAI_API_KEY` plus the optional
    `VRDEX_PROFILE_MEDIA_ACCESSIBILITY_MODEL` in Vercel. Verify owner denial,
-   limit handling, timeout behavior, and content-free telemetry with synthetic
-   media before promoting the same gate and production key separately.
+   request replay rejection, five-second cooldown, daily limit handling,
+   timeout behavior, low-detail and `store: false` provider configuration,
+   one-sentence/140-character output cap, preview revalidation, blank-only
+   generation, editable non-persistent output, and content-free telemetry with
+   synthetic media before promoting the same gate and production key
+   separately.
 5. Keep exact source keys private, inspect no real user media during smoke
    testing, and use synthetic assets only.
 6. Before sustained production use, schedule reconciliation for consumed
