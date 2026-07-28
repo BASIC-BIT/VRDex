@@ -238,6 +238,16 @@ function requireCompatibleProofTarget(profile: Doc<"profiles">, targetType: Vrch
   if (targetType === "vrchat_group" && profile.profileType !== "community") {
     throw claimError("WRONG_PROFILE_TYPE", "community");
   }
+
+  // A VRC Linking attestation names a VRChat *account*, so it belongs to a
+  // person profile. The caller's lookup already resolves `vrclinking` against
+  // `"person"` and throws before reaching here, but stating it locally means the
+  // constraint survives someone editing that ternary — otherwise a community
+  // attempt would persist a `vrchat_user` asset on a community profile and
+  // violate `assetTypeAllowedForProfile`.
+  if (targetType === "vrclinking" && profile.profileType !== "person") {
+    throw claimError("WRONG_PROFILE_TYPE", "person");
+  }
 }
 
 /**

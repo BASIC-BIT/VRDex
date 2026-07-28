@@ -135,11 +135,10 @@ credentials, so they are deliberately not automated:
    kept for the deferred re-validation work.
 3. Decide whether to enable collector-backed VRChat proof reading. **Enabled
    2026-07-27**, on BASIC's decision that a durable VRChat service-account
-   session is an accepted operating pattern. The running deployment sets
-   `enable_service = true` and `desired_count = 1` in the operator's
-   `terraform.tfvars`, which is untracked — the checked-in
-   `terraform.tfvars.example` ships disabled, so a clean checkout applied as-is
-   would tear the fleet down. The disabled-first sequence in
+   session is an accepted operating pattern. The run state is checked in at
+   `infra/terraform/group-telemetry-collector/environments/production.tfvars`;
+   apply production with `-var-file=environments/production.tfvars` or the
+   defaults will take the fleet down. The disabled-first sequence in
    `docs/deployment/group-telemetry-collector.md` is the bring-up runbook for
    standing a fleet up, not a description of the current state.
 

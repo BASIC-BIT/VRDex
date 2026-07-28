@@ -287,6 +287,14 @@ export function ClaimFlow({
           message: "Ownership confirmed. This profile is now yours.",
           verified: true,
         });
+        // The collector resolving an attempt is the default production path, so
+        // omitting this here left the funnel recording submissions with the
+        // successful VRChat claims systematically missing.
+        captureProductEvent(posthog, "claim_completed", {
+          method: "vrchat",
+          outcome: "claimed_verified",
+          profile_type: profile.profileType,
+        });
       } else if (result.state === "failed") {
         setStatus({
           kind: "error",

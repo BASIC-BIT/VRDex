@@ -51,12 +51,23 @@ Run read-only membership inspection first with `pnpm proof:group-telemetry`. On 
 
 Steps 1-7 are the bring-up sequence for standing a fleet up, not a description of
 the current state. Production has been through them: BASIC accepted durable
-service-account sessions on 2026-07-27, and the running deployment sets
-`enable_service = true` and `desired_count = 1` in the operator's untracked
-`terraform.tfvars`. Only `terraform.tfvars.example` is checked in, and it ships
-disabled — applying a clean checkout as-is tears the fleet down. The stop
-condition in `docs/planning/community-group-telemetry.md` still applies: if
-VRChat objects, stop the traffic and clear the saved session.
+service-account sessions on 2026-07-27, and the fleet runs enabled.
+
+Apply production with the checked-in run state, not the defaults:
+
+```bash
+terraform apply -var-file=environments/production.tfvars
+```
+
+`environments/production.tfvars` carries only `enable_service` and
+`desired_count`. Account-specific values — image digest, secret ARN, subnets,
+security groups — stay in the operator's gitignored `terraform.tfvars`. The
+variable defaults remain disabled so a new environment is safe by default, but
+applying production without that var-file would set `desired_count = 0` and take
+the fleet down, which now also disables collector-resolved VRChat claims.
+
+The stop condition in `docs/planning/community-group-telemetry.md` still applies:
+if VRChat objects, stop the traffic and clear the saved session.
 
 The execution role reads only the assigned account secret and SSM startup gate. The application task role has no AWS data permissions. The worker receives no customer credential and cannot claim work for a different collector account ID.
 
