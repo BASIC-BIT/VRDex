@@ -237,10 +237,31 @@ async function encodeInOriginalRasterFormat(
   mimeType: SafeProfileAsset["mimeType"],
 ) {
   if (mimeType === "image/png") {
-    return await rasterPipeline(body)
+    let candidate = await rasterPipeline(body)
       .rotate()
       .png({ compressionLevel: 9 })
       .toBuffer({ resolveWithObject: true });
+    if (candidate.data.byteLength <= PROFILE_ASSET_MAX_STORED_BYTES) {
+      return candidate;
+    }
+
+    for (const quality of [100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 1]) {
+      candidate = await rasterPipeline(body)
+        .rotate()
+        .png({
+          compressionLevel: 9,
+          palette: true,
+          colours: 256,
+          quality,
+          effort: 10,
+        })
+        .toBuffer({ resolveWithObject: true });
+      if (candidate.data.byteLength <= PROFILE_ASSET_MAX_STORED_BYTES) {
+        return candidate;
+      }
+    }
+
+    throw new Error("Profile media assets must be 12 MB or smaller.");
   }
 
   const qualities = mimeType === "image/webp"
@@ -265,7 +286,7 @@ async function encodeInOriginalRasterFormat(
     }
   }
 
-  return candidate!;
+  throw new Error("Profile media assets must be 12 MB or smaller.");
 }
 
 async function prepareRaster(body: Uint8Array, mimeType: SafeProfileAsset["mimeType"]) {

@@ -131,6 +131,42 @@ describe("profile asset content validation", () => {
     assert.equal(metadata.exif, undefined);
   });
 
+  it("uses a bounded PNG palette when metadata sanitization expands an indexed upload", async () => {
+    const width = 4_400;
+    const height = 4_400;
+    const pixelCount = width * height;
+    const colorIndexes = Buffer.allocUnsafe(pixelCount);
+    const pixels = Buffer.allocUnsafe(pixelCount * 4);
+    randomFillSync(colorIndexes);
+    for (let index = 0; index < pixelCount; index += 1) {
+      const color = colorIndexes[index]! & 0x0f;
+      pixels[index * 4] = color * 17;
+      pixels[index * 4 + 1] = ((color * 5) & 0x0f) * 17;
+      pixels[index * 4 + 2] = ((color * 11) & 0x0f) * 17;
+      pixels[index * 4 + 3] = color % 3 === 0 ? 128 : 255;
+    }
+    const source = await sharp(pixels, {
+      raw: { width, height, channels: 4 },
+    }).png({ compressionLevel: 9, palette: true, colours: 16 }).toBuffer();
+    const fixedEncoding = await sharp(source)
+      .rotate()
+      .png({ compressionLevel: 9 })
+      .toBuffer();
+
+    assert.ok(source.byteLength <= PROFILE_ASSET_MAX_STORED_BYTES);
+    assert.ok(fixedEncoding.byteLength > PROFILE_ASSET_MAX_STORED_BYTES);
+
+    const prepared = await validateAndPrepareProfileAsset(new Uint8Array(source), "image/png");
+    const metadata = await sharp(prepared.download.body).metadata();
+
+    assert.ok(prepared.download.body.byteLength <= PROFILE_ASSET_MAX_STORED_BYTES);
+    assert.equal(prepared.download.mimeType, "image/png");
+    assert.equal(metadata.format, "png");
+    assert.equal(metadata.width, width);
+    assert.equal(metadata.height, height);
+    assert.equal(metadata.exif, undefined);
+  });
+
   it("accepts a simple bounded SVG and rejects active or external SVG content", async () => {
     const safe = new TextEncoder().encode(
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675"><defs><linearGradient id="g"/></defs><path fill="url(#g)" d="M0 0h10v10H0z"/></svg>',
