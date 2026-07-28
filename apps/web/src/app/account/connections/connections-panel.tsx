@@ -133,7 +133,11 @@ export function ConnectionsPanel({ initialProfileSlug }: { initialProfileSlug?: 
     <div className="grid gap-8">
       <Field>
         Profile
+        {/* Option text is not an input value, so `maskAllInputs` does not
+            cover it, and this list includes profiles that are not publicly
+            readable — draft, suppressed, or opted out. */}
         <Select
+          data-ph-no-capture
           name="profileSlug"
           value={activeSlug}
           onChange={(event) => setSelectedSlug(event.target.value)}

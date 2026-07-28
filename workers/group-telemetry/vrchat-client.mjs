@@ -110,12 +110,12 @@ export class VrchatClient {
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
     } catch (error) {
+      clearTimeout(timeout);
       if (error?.name === "AbortError") throw new VrchatProviderError("Provider request timed out.", { category: "timeout" });
       throw new VrchatProviderError("Provider request failed.", { category: "network" });
-    } finally {
-      clearTimeout(timeout);
     }
     if (!response.ok) {
+      clearTimeout(timeout);
       if (response.status === 429) this.requestCounts.rateLimited += 1;
       else if (response.status >= 500) this.requestCounts.serverError += 1;
       else this.requestCounts.clientError += 1;
@@ -126,9 +126,21 @@ export class VrchatClient {
       });
     }
     this.requestCounts.success += 1;
-    if (response.status === 204) return null;
+    if (response.status === 204) {
+      clearTimeout(timeout);
+      return null;
+    }
+    // The deadline stays armed until the body is read. `fetch` resolves on
+    // headers, so clearing it here — as the `finally` above used to — left a
+    // provider that sends headers and then stalls the body with no timeout at
+    // all: the await never settles, the worker never leaves `checkProofs`,
+    // telemetry stops, and the claimed batch stays stamped until a restart.
     try { return await response.json(); }
-    catch { throw new VrchatProviderError("Provider returned malformed JSON.", { status: response.status, category: "schema_drift" }); }
+    catch (error) {
+      if (error?.name === "AbortError") throw new VrchatProviderError("Provider request timed out.", { category: "timeout" });
+      throw new VrchatProviderError("Provider returned malformed JSON.", { status: response.status, category: "schema_drift" });
+    }
+    finally { clearTimeout(timeout); }
   }
 
   async getGroup(groupId, { maxAgeMs = 0 } = {}) {

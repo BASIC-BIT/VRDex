@@ -119,7 +119,9 @@ type VerifyAdapterResult =
   // which means we asked and the code was not there.
   | { state: "queued" }
   | {
-      claimRequestId: Id<"profileClaimRequests">;
+      // Absent when the proof only added a connection to a profile the caller
+      // already owns — no claim was requested, so no claim request exists.
+      claimRequestId: Id<"profileClaimRequests"> | undefined;
       profileId: Id<"profiles">;
       claimState: Doc<"profiles">["claimState"];
     };
@@ -180,6 +182,29 @@ async function requireLinkedDiscordAccount(ctx: Parameters<typeof getLinkedProvi
   }
 
   return account;
+}
+
+/**
+ * A hidden listing must not be claimable by slug.
+ *
+ * Every claim *query* gates on `canReadProfile`, but the mutations resolved the
+ * profile without it, so knowing or guessing the slug of an unowned draft,
+ * opted-out, or safety-suppressed profile was enough to take ownership of it —
+ * past the UI's not-found boundary and past the moderation state that hid it.
+ * An existing owner still passes: they can already see their own profile.
+ */
+function requireClaimableVisibility(
+  profile: Doc<"profiles">,
+  activeOwner: { userId: Id<"users"> } | null,
+  userId: Id<"users">,
+) {
+  if (activeOwner?.userId === userId) {
+    return;
+  }
+
+  if (!canReadProfile("public", profile)) {
+    throw claimError("PROFILE_NOT_FOUND");
+  }
 }
 
 async function getClaimableProfileBySlug(
@@ -511,6 +536,7 @@ export const claimExistingPersonWithDiscord = mutation({
       requireLinkedDiscordAccount(ctx, user._id),
     ]);
     const activeOwner = await getActiveProfileOwner(ctx.db, profile._id);
+    requireClaimableVisibility(profile, activeOwner, user._id);
 
     if (activeOwner !== null && activeOwner.userId !== user._id) {
       throw claimError("PROFILE_ALREADY_OWNED");
@@ -643,6 +669,7 @@ export const requestCommunityDiscordAdminClaim = mutation({
     }
 
     const activeOwner = await getActiveProfileOwner(ctx.db, profile._id);
+    requireClaimableVisibility(profile, activeOwner, user._id);
 
     if (activeOwner !== null && activeOwner.userId !== user._id) {
       throw claimError("PROFILE_ALREADY_OWNED");
@@ -927,6 +954,7 @@ export const startVrchatProof = mutation({
     requireCompatibleProofTarget(profile, args.targetType);
 
     const activeOwner = await getActiveProfileOwner(ctx.db, profile._id);
+    requireClaimableVisibility(profile, activeOwner, user._id);
     if (activeOwner !== null && activeOwner.userId !== user._id) {
       throw claimError("PROFILE_ALREADY_OWNED");
     }
@@ -1103,22 +1131,35 @@ export const recordVrchatProofVerification = internalMutation({
         link.linkedByUserId !== attempt.userId,
     );
 
-    const claimRequestId = await ctx.db.insert("profileClaimRequests", {
-      profileId: profile._id,
-      profileSlug: profile.slug,
-      profileType: profile.profileType,
-      requestedDisplayName: profile.displayName,
-      userId: attempt.userId,
-      method: attempt.method,
-      state: "approved",
-      vrchatTargetId: attempt.targetExternalId,
-      evidenceSource: args.evidenceSource,
-      evidenceSummary: args.evidenceSummary,
-      createdAt: now,
-      updatedAt: now,
-      verifiedAt: now,
-      reviewedAt: now,
-    });
+    // A verified owner proving control of *another* account or group is adding a
+    // connection, not claiming the profile again. Writing an approved claim
+    // request and re-running the ownership grant filled the audit trail with
+    // history asserting ownership was granted a second time, for a profile whose
+    // ownership never changed.
+    const existingOwner = await getActiveProfileOwner(ctx.db, profile._id);
+    const connectionOnly =
+      existingOwner !== null &&
+      existingOwner.userId === attempt.userId &&
+      profile.claimState === "claimed_verified";
+
+    const claimRequestId = connectionOnly
+      ? undefined
+      : await ctx.db.insert("profileClaimRequests", {
+          profileId: profile._id,
+          profileSlug: profile.slug,
+          profileType: profile.profileType,
+          requestedDisplayName: profile.displayName,
+          userId: attempt.userId,
+          method: attempt.method,
+          state: "approved",
+          vrchatTargetId: attempt.targetExternalId,
+          evidenceSource: args.evidenceSource,
+          evidenceSummary: args.evidenceSummary,
+          createdAt: now,
+          updatedAt: now,
+          verifiedAt: now,
+          reviewedAt: now,
+        });
 
     await ctx.db.patch(attempt._id, {
       state: "verified",
@@ -1127,17 +1168,19 @@ export const recordVrchatProofVerification = internalMutation({
       verifiedAt: now,
       updatedAt: now,
     });
-    await approveProfileClaimForUser(ctx.db, {
-      profile,
-      profileId: profile._id,
-      userId: attempt.userId,
-      grantedByClaimRequestId: claimRequestId,
-      verified: assetBacksThisProfile,
-      now,
-      note: assetBacksThisProfile
-        ? proofAuditNote(attempt.targetType, args.evidenceSource)
-        : `${proofAuditNote(attempt.targetType, args.evidenceSource)} The target did not already back this profile, so ownership is unverified.`,
-    });
+    if (!connectionOnly) {
+      await approveProfileClaimForUser(ctx.db, {
+        profile,
+        profileId: profile._id,
+        userId: attempt.userId,
+        ...(claimRequestId === undefined ? {} : { grantedByClaimRequestId: claimRequestId }),
+        verified: assetBacksThisProfile,
+        now,
+        note: assetBacksThisProfile
+          ? proofAuditNote(attempt.targetType, args.evidenceSource)
+          : `${proofAuditNote(attempt.targetType, args.evidenceSource)} The target did not already back this profile, so ownership is unverified.`,
+      });
+    }
 
     // Record the durable control proof and profile association so VRChat
     // targets participate in the same many-to-many link model as Discord

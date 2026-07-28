@@ -136,10 +136,10 @@ export function ClaimFlow({
   // VRChat attempt on its own schedule and the reactive context updates under a
   // user who never clicks again. Tracking completion only in the click handlers
   // therefore dropped the successful claims on the default production path.
-  // These let the observer below cover that case exactly once, without
-  // double-counting a completion a handler already reported.
-  const reportedCompletionRef = useRef(false);
-  const seenOwnershipRef = useRef<string | null>(null);
+  const [seenOwnership, setSeenOwnership] = useState<string | null>(null);
+  const [collectorCompletion, setCollectorCompletion] = useState<{ verified: boolean } | null>(
+    null,
+  );
   // Only the person quick-claim needs Discord as a linked sign-in provider.
   // The community path claims against a control proof recorded by the
   // purpose-scoped OAuth round-trip, which a Google or email/password account
@@ -184,35 +184,38 @@ export function ClaimFlow({
     if (status.kind === "complete") completionRef.current?.focus();
   }, [status]);
 
-  // Report the completion the collector produced. Only a transition observed on
-  // this page counts, so opening a profile already owned emits nothing, and the
-  // outcome is read from the resulting claim state rather than assumed verified
-  // — `recordVrchatProofVerification` deliberately leaves a claim unverified
-  // when the target was not already on record for the listing.
-  useEffect(() => {
-    const ownership = context?.ownership;
+  // Adjusting state during render is React's supported way to react to a
+  // changed query value; doing it in an effect means a synchronous setState and
+  // a cascading render. The collector resolves a proof on its own schedule, so
+  // this transition is the only signal that a claim completed when the user
+  // never clicks again.
+  if (context?.ownership !== undefined && context.ownership !== seenOwnership) {
+    const previousOwnership = seenOwnership;
 
-    if (ownership === undefined) return;
-
-    const previous = seenOwnershipRef.current;
-    seenOwnershipRef.current = ownership;
+    setSeenOwnership(context.ownership);
 
     if (
-      previous === null ||
-      previous === "viewer" ||
-      ownership !== "viewer" ||
-      reportedCompletionRef.current
+      previousOwnership !== null &&
+      previousOwnership !== "viewer" &&
+      context.ownership === "viewer" &&
+      collectorCompletion === null &&
+      status.kind !== "complete"
     ) {
-      return;
+      // `status.kind === "complete"` means a handler already reported this
+      // completion, so the observer must not double-count it.
+      setCollectorCompletion({ verified: context.verified === true });
     }
+  }
 
-    reportedCompletionRef.current = true;
+  useEffect(() => {
+    if (collectorCompletion === null) return;
+
     captureProductEvent(posthog, "claim_completed", {
       method: "vrchat",
-      outcome: context?.verified ? "claimed_verified" : "claimed_unverified",
+      outcome: collectorCompletion.verified ? "claimed_verified" : "claimed_unverified",
       profile_type: profile.profileType,
     });
-  }, [context?.ownership, context?.verified, posthog, profile.profileType]);
+  }, [collectorCompletion, posthog, profile.profileType]);
 
   function selectMethod(nextMethod: ClaimMethod) {
     setMethod(nextMethod);
@@ -254,8 +257,6 @@ export function ClaimFlow({
           message: alreadyOwned ? "This profile is already yours." : "Profile claimed. You can manage it now.",
           verified: false,
         });
-        reportedCompletionRef.current = true;
-        reportedCompletionRef.current = true;
       captureProductEvent(posthog, "claim_completed", {
           method,
           outcome: alreadyOwned ? "already_owned" : "claimed_unverified",
@@ -281,7 +282,6 @@ export function ClaimFlow({
           : "Server control verified, and this community is now yours. The listing is not marked verified, which needs VRDex to have this server on record for it — contact support if it should be.",
         verified,
       });
-      reportedCompletionRef.current = true;
       captureProductEvent(posthog, "claim_completed", {
         method,
         outcome: verified ? "claimed_verified" : "claimed_unverified",
@@ -313,8 +313,6 @@ export function ClaimFlow({
             : "Ownership confirmed, and this profile is now yours. It is not marked verified yet, because this account or group was not already on record for the listing.",
           verified,
         });
-        reportedCompletionRef.current = true;
-        reportedCompletionRef.current = true;
       captureProductEvent(posthog, "claim_completed", {
           method: "vrchat",
           outcome: verified ? "claimed_verified" : "claimed_unverified",
@@ -398,8 +396,6 @@ export function ClaimFlow({
             : "Server control verified, and this community is now yours. The listing is not marked verified, which needs VRDex to have this server on record for it — contact support if it should be.",
           verified,
         });
-        reportedCompletionRef.current = true;
-        reportedCompletionRef.current = true;
       captureProductEvent(posthog, "claim_completed", {
           method: "discord",
           outcome: verified ? "claimed_verified" : "claimed_unverified",
@@ -504,7 +500,9 @@ export function ClaimFlow({
             </Link>
           </Notice>
         ) : null}
-        {(context?.ownership === "viewer" && context.verified) || status.kind === "complete" ? (
+        {(context?.ownership === "viewer" && context.verified) ||
+        status.kind === "complete" ||
+        collectorCompletion !== null ? (
           <div
             aria-live="polite"
             className="outline-none"
@@ -517,7 +515,13 @@ export function ClaimFlow({
                 <BadgeCheck aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
                 <div>
                   <p className="font-semibold">
-                    {status.kind === "complete" ? status.message : "You already manage this profile."}
+                    {status.kind === "complete"
+                      ? status.message
+                      : collectorCompletion !== null
+                        ? collectorCompletion.verified
+                          ? "Ownership confirmed. This profile is now yours."
+                          : "Ownership confirmed, and this profile is now yours. It is not marked verified yet, because this account or group was not already on record for the listing."
+                        : "You already manage this profile."}
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <Link className={buttonVariants({ variant: "primary" })} href={completionPath}>

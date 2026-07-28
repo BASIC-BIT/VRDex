@@ -159,6 +159,16 @@ export const claimCommunityWithVerifiedGuild = mutation({
       throw claimError("PROFILE_ALREADY_OWNED");
     }
 
+    // Every claim *query* gates on public readability; this mutation did not, so
+    // knowing or guessing the slug of an unowned draft, opted-out, or suppressed
+    // community was enough to take ownership of it with any guild the caller
+    // manages — past the UI's not-found boundary and past the moderation state
+    // that hid it. An existing owner still gets through, since they can already
+    // see their own profile.
+    if (activeOwner === null && !canReadProfile("public", profile)) {
+      throw claimError("PROFILE_NOT_FOUND");
+    }
+
     const now = Date.now();
     // Read before the link is written, and only associations somebody else put
     // on record count. A link this caller created — by an earlier run of this
