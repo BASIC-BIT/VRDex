@@ -324,7 +324,7 @@ export const getClaimJourneyContext = query({
       return {
         ownership: "signed_out" as const,
         verified: false,
-        lastVerifiedProofAt: null,
+        lastVerifiedProof: null,
         emailVerified: false,
         hasDiscord: false,
         pendingClaimRequest: null,
@@ -383,9 +383,21 @@ export const getClaimJourneyContext = query({
             discordGuildName: request.discordGuildName,
           }
         : null,
-      // Only the verified terminal state is reported. `expired` and `failed`
-      // attempts are absences, not outcomes to announce.
-      lastVerifiedProofAt: settledProof?.verifiedAt ?? null,
+      // The one fact the UI needs, reported rather than inferred. Watching
+      // ownership, `verified`, and the pending row disappearing produced a wrong
+      // answer four different ways — it missed owners who were already `viewer`,
+      // announced expiries and cancellations as successes, missed a proof that
+      // resolved before the pending state ever rendered, and counted
+      // connection-only proofs as claims. An advancing timestamp here is
+      // unambiguous, and `connectionOnly` says whether ownership actually
+      // changed.
+      lastVerifiedProof:
+        settledProof?.verifiedAt === undefined
+          ? null
+          : {
+              at: settledProof.verifiedAt,
+              connectionOnly: settledProof.connectionOnly === true,
+            },
       pendingProof: proof
         ? {
             id: proof._id,
@@ -1179,6 +1191,7 @@ export const recordVrchatProofVerification = internalMutation({
 
     await ctx.db.patch(attempt._id, {
       state: "verified",
+      connectionOnly,
       evidenceSource: args.evidenceSource,
       evidenceSummary: args.evidenceSummary,
       verifiedAt: now,

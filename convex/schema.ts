@@ -1962,6 +1962,12 @@ export default defineSchema({
     updatedAt: v.number(),
     expiresAt: v.number(),
     verifiedAt: v.optional(v.number()),
+    // True when verification only recorded a control proof and link for a
+    // profile the claimant already owned verified — no ownership changed and no
+    // claim request was written. Persisted because the UI cannot reconstruct it
+    // from claim state afterwards, and reporting such a proof as a completed
+    // claim inflates the funnel with connection additions.
+    connectionOnly: v.optional(v.boolean()),
     // Paces the collector so a pending attempt is not re-read from the
     // provider on every worker pass.
     lastCheckedAt: v.optional(v.number()),

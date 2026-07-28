@@ -100,7 +100,7 @@ export function ClaimFlow({
     verified: boolean;
     pendingClaimRequest: null;
     pendingProof: null;
-    lastVerifiedProofAt?: number | null;
+    lastVerifiedProof?: { at: number; connectionOnly: boolean } | null;
   };
   profile: ClaimProfile;
   source: ClaimEntrySource;
@@ -137,14 +137,10 @@ export function ClaimFlow({
   // VRChat attempt on its own schedule and the reactive context updates under a
   // user who never clicks again. Tracking completion only in the click handlers
   // therefore dropped the successful claims on the default production path.
-  const [seenClaimSignal, setSeenClaimSignal] = useState<string | null>(null);
-  const [collectorCompletion, setCollectorCompletion] = useState<{ verified: boolean } | null>(
-    null,
-  );
-  // Cancelling a pending proof looks exactly like the collector resolving it —
-  // the row disappears either way — so the one thing that tells them apart is
-  // knowing the user asked for it.
-  const [cancelledPending, setCancelledPending] = useState(false);
+  const [seenVerifiedProofAt, setSeenVerifiedProofAt] = useState<number | null>(null);
+  const [collectorCompletion, setCollectorCompletion] = useState<
+    { verified: boolean; connectionOnly: boolean } | null
+  >(null);
   // Only the person quick-claim needs Discord as a linked sign-in provider.
   // The community path claims against a control proof recorded by the
   // purpose-scoped OAuth round-trip, which a Google or email/password account
@@ -189,61 +185,37 @@ export function ClaimFlow({
     if (status.kind === "complete") completionRef.current?.focus();
   }, [status]);
 
-  // Adjusting state during render is React's supported way to react to a
-  // changed query value; doing it in an effect means a synchronous setState and
-  // a cascading render. The collector resolves a proof on its own schedule, so
-  // this transition is the only signal that a claim completed when the user
-  // never clicks again.
   const observedContext = context ?? null;
-  const claimSignal =
-    observedContext === null
-      ? null
-      : `${observedContext.ownership}|${observedContext.verified}|${observedContext.pendingProof === null ? "none" : "pending"}|${observedContext.lastVerifiedProofAt ?? "never"}`;
 
-  if (observedContext !== null && claimSignal !== null && claimSignal !== seenClaimSignal) {
-    const previous = seenClaimSignal;
+  // The backend reports the verification as a fact; this only notices that it
+  // is new. Inferring it from ownership, `verified`, and the pending row
+  // disappearing was wrong four different ways — see `lastVerifiedProof` in
+  // `getClaimJourneyContext`. Adjusting state during render is React's
+  // supported way to react to a changed query value; an effect would mean a
+  // synchronous setState and a cascading render.
+  const verifiedProofAt = observedContext?.lastVerifiedProof?.at ?? null;
 
-    setSeenClaimSignal(claimSignal);
+  if (verifiedProofAt !== seenVerifiedProofAt) {
+    const previous = seenVerifiedProofAt;
 
-    if (previous !== null) {
-      const [previousOwnership, , previousProof, previousVerifiedAt] = previous.split("|");
-      // An owner who was already `viewer` never changes ownership, so watching
-      // ownership alone never fired for them — the pending proof simply vanished
-      // and the page fell back to the verification form. The proof leaving is
-      // the signal that covers both an unowned claimant and an existing owner.
-      //
-      // A disappearance is not by itself a success, though: the hourly expiry
-      // cron and a cancellation from another tab both remove the row. Require
-      // the attempt to have actually reached `verified`, which is what
-      // `lastVerifiedProofAt` reports.
-      const verifiedAdvanced =
-        previousVerifiedAt !== String(observedContext.lastVerifiedProofAt ?? "never");
-      const becameOwner = previousOwnership !== "viewer" && observedContext.ownership === "viewer";
-      const proofResolved =
-        previousProof === "pending" &&
-        observedContext.pendingProof === null &&
-        verifiedAdvanced &&
-        !cancelledPending;
+    setSeenVerifiedProofAt(verifiedProofAt);
 
-      if (cancelledPending) {
-        setCancelledPending(false);
-      }
-
-      // `status.kind === "complete"` means a handler already reported this
-      // completion, so the observer must not double-count it.
-      if (
-        (becameOwner || proofResolved) &&
-        observedContext.ownership === "viewer" &&
-        collectorCompletion === null &&
-        status.kind !== "complete"
-      ) {
-        setCollectorCompletion({ verified: observedContext.verified === true });
-      }
+    // Only an advance counts, and only one observed on this page: arriving at a
+    // profile whose proof completed earlier must not replay the announcement.
+    if (previous !== null && verifiedProofAt !== null && verifiedProofAt > previous) {
+      setCollectorCompletion({
+        verified: observedContext?.verified === true,
+        connectionOnly: observedContext?.lastVerifiedProof?.connectionOnly === true,
+      });
     }
   }
 
   useEffect(() => {
-    if (collectorCompletion === null) return;
+    if (collectorCompletion === null || collectorCompletion.connectionOnly) {
+      // A connection-only proof changed no ownership, so counting it as a
+      // completed claim would inflate the funnel with connection additions.
+      return;
+    }
 
     captureProductEvent(posthog, "claim_completed", {
       method: "vrchat",
@@ -467,20 +439,14 @@ export function ClaimFlow({
   async function startOver(pendingType: "claim_request" | "proof") {
     setCollectorCompletion(null);
     setStatus({ kind: "working", message: "Canceling this attempt…" });
-    // The pending row is about to disappear because the user asked, not because
-    // the collector resolved it; without this the observer would report a
-    // completion that did not happen.
-    setCancelledPending(true);
     try {
       const result = await cancelPending({ profileSlug: profile.slug, pendingType });
 
-      // Nothing was cancelled, which means the collector resolved the proof
-      // between the click and this mutation. Clearing the flag lets the observer
-      // report the real completion instead of suppressing it, and reporting
-      // "Attempt canceled" here would have asserted something that did not
-      // happen. A left-over flag would also have swallowed a later completion.
+      // Nothing was cancelled, so the collector resolved the proof between the
+      // click and this mutation. Say nothing and let the completion observer
+      // report the real outcome; "Attempt canceled" would assert something that
+      // did not happen.
       if (!result.canceled) {
-        setCancelledPending(false);
         setStatus({ kind: "idle" });
 
         return;
@@ -488,7 +454,6 @@ export function ClaimFlow({
 
       setStatus({ kind: "notice", message: "Attempt canceled. Choose a method to start again." });
     } catch (error) {
-      setCancelledPending(false);
       setStatus({ kind: "error", message: errorMessage(error) });
     }
   }
@@ -585,9 +550,11 @@ export function ClaimFlow({
                     {status.kind === "complete"
                       ? status.message
                       : collectorCompletion !== null
-                        ? collectorCompletion.verified
-                          ? "Ownership confirmed. This profile is now yours."
-                          : "Ownership confirmed, and this profile is now yours. It is not marked verified yet, because this account or group was not already on record for the listing."
+                        ? collectorCompletion.connectionOnly
+                          ? "Control confirmed. That account or group is now connected to this profile."
+                          : collectorCompletion.verified
+                            ? "Ownership confirmed. This profile is now yours."
+                            : "Ownership confirmed, and this profile is now yours. It is not marked verified yet, because this account or group was not already on record for the listing."
                         : "You already manage this profile."}
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
