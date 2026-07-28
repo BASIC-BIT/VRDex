@@ -1,6 +1,7 @@
 import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
 import { api, internal } from "@convex-generated-api";
 
+import { activeAuthSessionViewerQuery } from "@/lib/server/active-auth-session";
 import { convexAdminHttpClient, convexHttpClient } from "@/lib/server/convex-http";
 import { problem } from "@/lib/server/temporal-api";
 
@@ -13,9 +14,12 @@ export async function POST() {
   }
   const convex = convexHttpClient();
   convex.setAuth(authToken);
-  const viewer = await convex.query(api.accounts.viewer, {});
+  const viewer = await convex.query(activeAuthSessionViewerQuery, {});
+  if (viewer === null) {
+    return problem(401, "Sign in required", "Sign in to prepare VRDex Time.");
+  }
   const access = await convex.query(api.temporalParsing.getAccess, {});
-  if (viewer === null || !access.allowed || !access.emailVerified) {
+  if (!access.allowed || !access.emailVerified) {
     return problem(403, "Temporal beta access required", "Temporal parsing beta access is required.");
   }
   const admin = convexAdminHttpClient();

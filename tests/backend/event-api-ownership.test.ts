@@ -42,11 +42,15 @@ async function seedOwnedCommunity(t: ReturnType<typeof convexTest>) {
       grantedAt: NOW,
       updatedAt: NOW,
     });
+    const sessionId = await ctx.db.insert("authSessions", {
+      userId,
+      expirationTime: Date.now() + 60_000,
+    });
 
     return {
       userId,
       identity: {
-        subject: `${userId}|web-session`,
+        subject: `${userId}|${sessionId}`,
         issuer: "test",
         tokenIdentifier: `test|${userId}`,
       },

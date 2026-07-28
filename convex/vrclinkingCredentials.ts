@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 
-import { getLinkedProviderAccount, requireVerifiedEmailUser } from "./accounts";
+import { getLinkedProviderAccount } from "./accounts";
+import { requireVerifiedActiveBrowserSession } from "./_claimSession";
 import { claimError } from "./_claimErrors";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import {
@@ -97,7 +98,7 @@ export const registerCredential = mutation({
     secretRef: v.string(),
   },
   handler: async (ctx, args) => {
-    const user = await requireVerifiedEmailUser(ctx);
+    const { user } = await requireVerifiedActiveBrowserSession(ctx);
     const profile = await requireCommunityProfile(ctx.db, args.profileSlug);
 
     if (!(await userOwnsProfile(ctx.db, profile._id, user._id))) {
@@ -165,7 +166,7 @@ export const registerCredential = mutation({
 export const revokeCredential = mutation({
   args: { profileSlug: v.string(), guildId: v.string() },
   handler: async (ctx, args) => {
-    const user = await requireVerifiedEmailUser(ctx);
+    const { user } = await requireVerifiedActiveBrowserSession(ctx);
     const profile = await requireCommunityProfile(ctx.db, args.profileSlug);
 
     if (!(await userOwnsProfile(ctx.db, profile._id, user._id))) {
@@ -203,7 +204,7 @@ export const revokeCredential = mutation({
 export const listCredentials = query({
   args: { profileSlug: v.string() },
   handler: async (ctx, args) => {
-    const user = await requireVerifiedEmailUser(ctx);
+    const { user } = await requireVerifiedActiveBrowserSession(ctx);
     const profile = await requireCommunityProfile(ctx.db, args.profileSlug);
 
     if (!(await userOwnsProfile(ctx.db, profile._id, user._id))) {

@@ -1,6 +1,9 @@
 import { v } from "convex/values";
 
-import { getCurrentUser, requireVerifiedEmailUser } from "./accounts";
+import {
+  claimSessionUserOrNull,
+  requireVerifiedActiveBrowserSession,
+} from "./_claimSession";
 import { claimError } from "./_claimErrors";
 import { internal } from "./_generated/api";
 import { action, internalMutation, mutation, query } from "./_generated/server";
@@ -106,7 +109,7 @@ function createStateToken(): string {
 export const createVerificationState = internalMutation({
   args: { returnTo: v.string() },
   handler: async (ctx, args) => {
-    const user = await requireVerifiedEmailUser(ctx);
+    const { user } = await requireVerifiedActiveBrowserSession(ctx);
 
     // A crafted `returnTo` must not turn the callback into an open redirect.
     // Backslashes matter: the WHATWG URL parser normalizes them to forward
@@ -164,7 +167,7 @@ export const createVerificationState = internalMutation({
 export const consumeVerificationState = internalMutation({
   args: { state: v.string() },
   handler: async (ctx, args) => {
-    const user = await requireVerifiedEmailUser(ctx);
+    const { user } = await requireVerifiedActiveBrowserSession(ctx);
     const row = await ctx.db
       .query("discordVerificationStates")
       .withIndex("by_state", (q) => q.eq("state", args.state))
@@ -196,7 +199,7 @@ export const recordGuildControlProofs = internalMutation({
     ),
   },
   handler: async (ctx, args) => {
-    const user = await requireVerifiedEmailUser(ctx);
+    const { user } = await requireVerifiedActiveBrowserSession(ctx);
     const now = Date.now();
 
     await Promise.all(
@@ -263,7 +266,7 @@ export const recordGuildControlProofs = internalMutation({
 export const getManageableGuilds = query({
   args: {},
   handler: async (ctx) => {
-    const user = await getCurrentUser(ctx);
+    const user = await claimSessionUserOrNull(ctx);
 
     if (user === null) {
       return [];

@@ -50,6 +50,19 @@ async function seedCommunity(ctx: never, slug: string, now: number) {
   });
 }
 
+async function webSessionIdentity(ctx: never, userId: string, now: number) {
+  const db = (ctx as unknown as { db: { insert: (t: string, v: unknown) => Promise<string> } }).db;
+  // The active-session guard resolves the session row named by the subject, so
+  // a fabricated `|web-session` suffix no longer authenticates.
+  const sessionId = await db.insert("authSessions", { userId, expirationTime: now + 60_000 });
+
+  return {
+    subject: `${userId}|${sessionId}`,
+    issuer: "test",
+    tokenIdentifier: `test|${userId}`,
+  };
+}
+
 describe("Discord control level mapping", () => {
   it("ranks ownership above Administrator above Manage Server", () => {
     assert.equal(discordControlLevel({ id: "1", owner: true, permissions: "0" }), "owner");
@@ -536,11 +549,7 @@ describe("Discord guild proof reconciliation", () => {
 
       return {
         userId,
-        identity: {
-          subject: `${userId}|web-session`,
-          issuer: "test",
-          tokenIdentifier: `test|${userId}`,
-        },
+        identity: await webSessionIdentity(ctx as never, userId, now),
       };
     });
 
@@ -604,11 +613,7 @@ describe("Discord guild proof reconciliation", () => {
 
       return {
         userId,
-        identity: {
-          subject: `${userId}|web-session`,
-          issuer: "test",
-          tokenIdentifier: `test|${userId}`,
-        },
+        identity: await webSessionIdentity(ctx as never, userId, now),
       };
     });
     const asUser = t.withIdentity(seeded.identity);
@@ -666,11 +671,7 @@ describe("Discord guild proof reconciliation", () => {
 
       return {
         userId,
-        identity: {
-          subject: `${userId}|web-session`,
-          issuer: "test",
-          tokenIdentifier: `test|${userId}`,
-        },
+        identity: await webSessionIdentity(ctx as never, userId, now),
       };
     });
 
@@ -735,11 +736,7 @@ describe("Discord verification state backlog", () => {
 
       return {
         userId,
-        identity: {
-          subject: `${userId}|web-session`,
-          issuer: "test",
-          tokenIdentifier: `test|${userId}`,
-        },
+        identity: await webSessionIdentity(ctx as never, userId, now),
       };
     });
     const asCaller = t.withIdentity(seeded.identity);
@@ -789,11 +786,7 @@ describe("VRCLinking credential delegation", () => {
 
       return {
         userId,
-        identity: {
-          subject: `${userId}|web-session`,
-          issuer: "test",
-          tokenIdentifier: `test|${userId}`,
-        },
+        identity: await webSessionIdentity(ctx as never, userId, now),
       };
     });
   }
@@ -1025,11 +1018,7 @@ describe("claiming a community with a verified guild", () => {
 
       return {
         userId,
-        identity: {
-          subject: `${userId}|web-session`,
-          issuer: "test",
-          tokenIdentifier: `test|${userId}`,
-        },
+        identity: await webSessionIdentity(ctx as never, userId, now),
       };
     });
     const asUser = t.withIdentity(seeded.identity);
@@ -1115,11 +1104,7 @@ describe("claiming a community with a verified guild", () => {
 
       return {
         userId,
-        identity: {
-          subject: `${userId}|web-session`,
-          issuer: "test",
-          tokenIdentifier: `test|${userId}`,
-        },
+        identity: await webSessionIdentity(ctx as never, userId, now),
       };
     });
     const asUser = t.withIdentity(seeded.identity);
@@ -1231,11 +1216,7 @@ describe("claiming a community with a verified guild", () => {
 
       return {
         profileId,
-        identity: {
-          subject: `${userId}|web-session`,
-          issuer: "test",
-          tokenIdentifier: `test|${userId}`,
-        },
+        identity: await webSessionIdentity(ctx as never, userId, now),
       };
     });
 
@@ -1272,11 +1253,7 @@ describe("claiming a community with a verified guild", () => {
       });
 
       return {
-        identity: {
-          subject: `${userId}|web-session`,
-          issuer: "test",
-          tokenIdentifier: `test|${userId}`,
-        },
+        identity: await webSessionIdentity(ctx as never, userId, now),
       };
     });
     const asUser = t.withIdentity(seeded.identity);
@@ -1342,11 +1319,7 @@ describe("claiming a community with a verified guild", () => {
       });
 
       return {
-        identity: {
-          subject: `${intruderId}|web-session`,
-          issuer: "test",
-          tokenIdentifier: `test|${intruderId}`,
-        },
+        identity: await webSessionIdentity(ctx as never, intruderId, now),
       };
     });
 

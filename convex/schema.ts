@@ -641,6 +641,43 @@ const sharedProfileFields = {
 
 export default defineSchema({
   ...authTables,
+  users: defineTable({
+    name: v.optional(v.string()),
+    image: v.optional(v.string()),
+    email: v.optional(v.string()),
+    emailVerificationTime: v.optional(v.number()),
+    phone: v.optional(v.string()),
+    phoneVerificationTime: v.optional(v.number()),
+    isAnonymous: v.optional(v.boolean()),
+  })
+    .index("email", ["email"])
+    .index("phone", ["phone"]),
+  authRefreshTokens: authTables.authRefreshTokens.index(
+    "by_sessionId_firstUsedTime_expirationTime",
+    ["sessionId", "firstUsedTime", "expirationTime"],
+  ),
+  recentAuthChallenges: defineTable({
+    actionClass: v.union(
+      v.literal("developer_oauth_application"),
+      v.literal("developer_token"),
+      v.literal("session_revocation"),
+    ),
+    challengeId: v.string(),
+    completedAt: v.optional(v.number()),
+    completedSessionId: v.optional(v.id("authSessions")),
+    expiresAt: v.number(),
+    originalSessionId: v.id("authSessions"),
+    authenticatedSessionId: v.optional(v.id("authSessions")),
+    proofMethod: v.optional(v.literal("password")),
+    proofClaimedAt: v.optional(v.number()),
+    proofHash: v.optional(v.string()),
+    proofObservedAt: v.optional(v.number()),
+    userId: v.id("users"),
+  })
+    .index("by_challengeId", ["challengeId"])
+    .index("by_completedSessionId", ["completedSessionId"])
+    .index("by_expiresAt", ["expiresAt"])
+    .index("by_originalSessionId", ["originalSessionId"]),
   profiles: defineTable(
     v.union(
       v.object({

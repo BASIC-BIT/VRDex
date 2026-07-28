@@ -1,21 +1,14 @@
-import { getAuthUserId } from "@convex-dev/auth/server";
-
 import { claimError } from "./_claimErrors";
 
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { query } from "./_generated/server";
+import { activeBrowserSessionOrNull } from "./_browserSessionAuthority";
 
 type AccountCtx = QueryCtx | MutationCtx;
 
 export async function getCurrentUser(ctx: AccountCtx) {
-  const userId = await getAuthUserId(ctx);
-
-  if (userId === null) {
-    return null;
-  }
-
-  return await ctx.db.get(userId);
+  return (await activeBrowserSessionOrNull(ctx))?.user ?? null;
 }
 
 // These two guards are the most common claim failures — an expired session and

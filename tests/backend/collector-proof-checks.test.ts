@@ -79,6 +79,19 @@ async function seedAttempt(
   });
 }
 
+async function webSessionIdentity(ctx: never, userId: string, now: number) {
+  const db = (ctx as unknown as { db: { insert: (t: string, v: unknown) => Promise<string> } }).db;
+  // The active-session guard resolves the session row named by the subject, so
+  // a fabricated `|web-session` suffix no longer authenticates.
+  const sessionId = await db.insert("authSessions", { userId, expirationTime: now + 60_000 });
+
+  return {
+    subject: `${userId}|${sessionId}`,
+    issuer: "test",
+    tokenIdentifier: `test|${userId}`,
+  };
+}
+
 describe("collector proof check queue", () => {
   it("does not let never-stamped vrclinking attempts starve the queue", async () => {
     const t = convexTest({ schema, modules });
@@ -263,11 +276,7 @@ describe("open proof attempt cap", () => {
       }
 
       return {
-        identity: {
-          subject: `${userId}|web-session`,
-          issuer: "test",
-          tokenIdentifier: `test|${userId}`,
-        },
+        identity: await webSessionIdentity(ctx as never, userId, now),
       };
     });
     const asClaimant = t.withIdentity(seeded.identity);

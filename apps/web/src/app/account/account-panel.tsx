@@ -8,6 +8,7 @@ import { Component, type ReactNode } from "react";
 import { api } from "@convex-generated-api";
 import { buttonVariants, Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
+import { requestBrowserSignOut } from "@/lib/auth-session";
 import { cn } from "@/lib/cn";
 import { ownerProfileDestinationPath, profileClaimPath } from "@/lib/profile-claim";
 
@@ -61,10 +62,20 @@ function ConnectedAccountPanel({ mediaKitEnabled }: { mediaKitEnabled: boolean }
             <Link className={buttonVariants({ variant: "secondary" })} href="/account/privacy">Privacy controls</Link>
             <Link className={buttonVariants({ variant: "secondary" })} href="/account/connections">Connections</Link>
             <Link className={buttonVariants({ variant: "secondary" })} href="/account/appearance">Personalization</Link>
+            <Link className={buttonVariants({ variant: "secondary" })} href="/account/security">Security</Link>
             {mediaKitEnabled ? (
               <Link className={buttonVariants({ variant: "secondary" })} href="/account/media-kit">Media kit</Link>
             ) : null}
-            <Button type="button" variant="ghost" onClick={() => void signOut()}>Sign out</Button>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={async () => {
+                await requestBrowserSignOut(signOut);
+                window.location.assign("/sign-in");
+              }}
+            >
+              Sign out
+            </Button>
           </div>
         </div>
 

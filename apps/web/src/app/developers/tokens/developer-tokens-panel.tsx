@@ -3,7 +3,16 @@
 import { api } from "@convex-generated-api";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
-import { Component, type FormEvent, type ReactNode, useState } from "react";
+import { useRouter } from "next/navigation";
+import { usePostHog } from "posthog-js/react";
+import {
+  Component,
+  type FormEvent,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { buttonVariants, Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -11,6 +20,13 @@ import { Field, FieldText, Input, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { Table, TableCell, TableFrame, TableHead, TableHeaderCell } from "@/components/ui/table";
 import { cn } from "@/lib/cn";
+import {
+  RECENT_AUTH_REQUIRED_CODE,
+  browserRecentAuthDraftStorage,
+  saveRecentAuthDraft,
+  takeRecentAuthDraft,
+} from "@/lib/recent-auth";
+import { captureProductEvent } from "@/lib/posthog";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 const tokenScopes = [
@@ -54,6 +70,8 @@ function tokenStatusText(status: string) {
 }
 
 function ConnectedDeveloperTokensPanel() {
+  const router = useRouter();
+  const posthog = usePostHog();
   const { isAuthenticated, isLoading } = useConvexAuth();
   const tokens = useQuery(
     api.apiTokens.listPersonalTokens,
@@ -64,9 +82,48 @@ function ConnectedDeveloperTokensPanel() {
     isAuthenticated ? {} : "skip",
   );
   const revokeToken = useMutation(api.apiTokens.revokePersonalToken);
+  const formRef = useRef<HTMLFormElement>(null);
+  const draftRestored = useRef(false);
   const [createdTokenValue, setCreatedTokenValue] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (
+      draftRestored.current ||
+      formRef.current === null ||
+      temporalAccess === undefined
+    ) {
+      return;
+    }
+
+    draftRestored.current = true;
+    const draft = takeRecentAuthDraft(
+      browserRecentAuthDraftStorage(),
+      "developer_token",
+    );
+    if (draft === null) {
+      return;
+    }
+
+    const label = formRef.current.elements.namedItem("label");
+    const expiry = formRef.current.elements.namedItem("expiresInDays");
+    if (label instanceof HTMLInputElement && typeof draft.label === "string") {
+      label.value = draft.label;
+    }
+    if (
+      expiry instanceof HTMLSelectElement &&
+      typeof draft.expiresInDays === "string"
+    ) {
+      expiry.value = draft.expiresInDays;
+    }
+    const scopes = Array.isArray(draft.scopes) ? draft.scopes : [];
+    for (const checkbox of formRef.current.querySelectorAll<HTMLInputElement>(
+      'input[name="scope"]',
+    )) {
+      checkbox.checked = scopes.includes(checkbox.value);
+    }
+  }, [temporalAccess, tokens]);
 
   async function createToken(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -91,9 +148,40 @@ function ConnectedDeveloperTokensPanel() {
           ...(expiresAt === undefined ? {} : { expiresAt }),
         }),
       });
-      const body = (await response.json()) as { detail?: string; tokenValue?: string };
+      const body = (await response.json()) as {
+        code?: string;
+        detail?: string;
+        reauthUrl?: string;
+        tokenValue?: string;
+      };
 
       if (!response.ok || !body.tokenValue) {
+        if (
+          body.code === RECENT_AUTH_REQUIRED_CODE &&
+          body.reauthUrl !== undefined
+        ) {
+          captureProductEvent(posthog, "sensitive_action_denied", {
+            action_class: "developer_token",
+            reason: "stale",
+          });
+          captureProductEvent(posthog, "recent_auth_challenge_presented", {
+            action_class: "developer_token",
+          });
+          saveRecentAuthDraft(
+            browserRecentAuthDraftStorage(),
+            "developer_token",
+            {
+              expiresInDays: String(
+                formData.get("expiresInDays") ?? "",
+              ),
+              label,
+              scopes,
+            },
+          );
+          router.push(body.reauthUrl);
+          return;
+        }
+
         setStatus(body.detail ?? "Token creation failed.");
         return;
       }
@@ -157,7 +245,11 @@ function ConnectedDeveloperTokensPanel() {
     <div className="grid gap-5 lg:grid-cols-[0.86fr_1.2fr]">
       <Card surface="strong">
         <h2 className="text-2xl font-semibold">Create token</h2>
-        <form className="mt-5 grid gap-4" onSubmit={createToken}>
+        <form
+          className="mt-5 grid gap-4"
+          onSubmit={createToken}
+          ref={formRef}
+        >
           <Field>
             Label
             <Input name="label" placeholder="Local MCP" required />

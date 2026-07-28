@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   SESSION_REPLAY_MASKED_SELECTOR,
+  captureProductEvent,
   mirrorPrivateSeedLookupAccess,
   mirrorTemporalParsingAccess,
   sanitizeAnalyticsUrl,
@@ -11,6 +12,19 @@ import {
 } from "../../apps/web/src/lib/posthog";
 
 describe("PostHog privacy", () => {
+  it("keeps lifecycle capture a safe no-op without a configured client", () => {
+    assert.doesNotThrow(() =>
+      captureProductEvent(undefined, "auth_session_restore_completed", {
+        browser_family: "firefox",
+        deployment_category: "staging",
+        latency_bucket: "under_3s",
+        os_family: "windows",
+        outcome: "authenticated",
+        route_class: "protected",
+      }),
+    );
+  });
+
   it("removes queries and handoff tokens from captured URLs", () => {
     assert.equal(
       sanitizeAnalyticsUrl("https://vrdex.example/handoff/secret-token?step=review#fields"),

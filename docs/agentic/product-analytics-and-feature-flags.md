@@ -176,6 +176,29 @@ Initial events:
 - `lookup_submitted`
 - `private_seed_results_shown`
 
+Authentication lifecycle events are intentionally separate from product
+identity and content:
+
+- `auth_session_restore_completed`
+- `auth_session_restore_slow`
+- `auth_session_signout_requested`
+- `auth_session_state_changed`
+- `recent_auth_challenge_presented`
+- `recent_auth_challenge_completed`
+- `sensitive_action_denied`
+- `session_revocation_requested`
+- `session_revocation_started`
+- `session_revocation_completed`
+- `session_revocation_detected`
+
+Application-supplied properties use fixed deployment, browser/OS family,
+route-class, latency, transition-intent, action-class, outcome, and revocation
+scope enums only. Do not attach tokens, IDs, emails, provider payloads,
+redirects, route slugs, IP addresses, or device fingerprints. PostHog's SDK
+still supplies its standard transport envelope and person/session metadata;
+this narrower contract applies to properties supplied by VRDex. Authentication,
+account, claim, and developer routes remain outside session replay.
+
 Discovery and lookup events avoid search terms, profile slugs, private profile
 fields, raw authentication identifiers, seed values, and unsupported popularity
 claims. Revisit retention and privacy copy before broad public launch.

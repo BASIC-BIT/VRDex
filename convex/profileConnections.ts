@@ -1,7 +1,9 @@
 import { v } from "convex/values";
 
-import { getCurrentUser, requireVerifiedEmailUser } from "./accounts";
-import { toAuthSubject } from "./_communityAuthority";
+import {
+  claimSessionUserOrNull,
+  requireVerifiedActiveBrowserSession,
+} from "./_claimSession";
 import { claimError } from "./_claimErrors";
 import { internalMutation, mutation, query } from "./_generated/server";
 import {
@@ -71,7 +73,7 @@ export const listProfileConnections = query({
       return null;
     }
 
-    const user = await getCurrentUser(ctx);
+    const user = await claimSessionUserOrNull(ctx);
     const isManager = user !== null && (await userOwnsProfile(ctx.db, profile._id, user._id));
 
     if (!canReadProfile("public", profile) && !isManager) {
@@ -137,10 +139,7 @@ export const listProfileConnections = query({
 export const claimCommunityWithVerifiedGuild = mutation({
   args: { profileSlug: v.string(), guildId: v.string() },
   handler: async (ctx, args) => {
-    const [user, identity] = await Promise.all([
-      requireVerifiedEmailUser(ctx),
-      ctx.auth.getUserIdentity(),
-    ]);
+    const { subject, user } = await requireVerifiedActiveBrowserSession(ctx);
     const profile = await requireProfileFromSlug(ctx.db, args.profileSlug);
 
     if (profile.profileType !== "community") {
@@ -240,7 +239,7 @@ export const claimCommunityWithVerifiedGuild = mutation({
         grantedByClaimRequestId: claimRequestId,
         verified: guildBacksThisProfile,
         now,
-        ...(identity !== null ? { actor: toAuthSubject(identity) } : {}),
+        actor: subject,
         note: guildBacksThisProfile
           ? `Discord ${proof.controlLevel} access verified for guild ${args.guildId}, which already backed this profile.`
           : `Discord ${proof.controlLevel} access verified for guild ${args.guildId}. The guild did not already back this profile, so ownership is unverified.`,
@@ -274,7 +273,7 @@ export const addVerifiedConnection = mutation({
     linkRole: v.optional(linkRole),
   },
   handler: async (ctx, args) => {
-    const user = await requireVerifiedEmailUser(ctx);
+    const { user } = await requireVerifiedActiveBrowserSession(ctx);
     const profile = await requireProfileFromSlug(ctx.db, args.profileSlug);
 
     if (!(await userOwnsProfile(ctx.db, profile._id, user._id))) {
@@ -318,7 +317,7 @@ export const setPrimaryConnection = mutation({
     assetExternalId: v.string(),
   },
   handler: async (ctx, args) => {
-    const user = await requireVerifiedEmailUser(ctx);
+    const { user } = await requireVerifiedActiveBrowserSession(ctx);
     const profile = await requireProfileFromSlug(ctx.db, args.profileSlug);
 
     if (!(await userOwnsProfile(ctx.db, profile._id, user._id))) {
@@ -359,7 +358,7 @@ export const removeConnection = mutation({
     assetExternalId: v.string(),
   },
   handler: async (ctx, args) => {
-    const user = await requireVerifiedEmailUser(ctx);
+    const { user } = await requireVerifiedActiveBrowserSession(ctx);
     const profile = await requireProfileFromSlug(ctx.db, args.profileSlug);
 
     if (!(await userOwnsProfile(ctx.db, profile._id, user._id))) {
@@ -386,7 +385,7 @@ export const removeConnection = mutation({
 export const listAvailableConnections = query({
   args: { profileSlug: v.string() },
   handler: async (ctx, args) => {
-    const user = await getCurrentUser(ctx);
+    const user = await claimSessionUserOrNull(ctx);
 
     if (user === null) {
       return [];
