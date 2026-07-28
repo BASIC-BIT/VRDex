@@ -67,8 +67,12 @@ type PublicProfileAsset = {
   caption?: string;
   altText?: string;
   credit?: string;
+  creditUrl?: string;
   mimeType: string;
   byteSize: number;
+  downloadMimeType?: string;
+  downloadByteSize?: number;
+  sourcePreserved?: boolean;
   imageUrl: string;
   downloadUrl: string;
 };
@@ -238,6 +242,18 @@ function safeHttpsUrl(url: string): string | null {
   }
 }
 
+function safeCreditUrl(url: string | undefined): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    return ["http:", "https:"].includes(parsed.protocol) && !parsed.username && !parsed.password
+      ? parsed.href
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function formatSubmittedAt(value: number | undefined): string | null {
   if (value === undefined) {
     return null;
@@ -297,6 +313,9 @@ function mimeLabel(value: string): string {
 }
 
 function MediaAssetCard({ asset, label, featured = false }: { asset: PublicProfileAsset; label: string; featured?: boolean }) {
+  const creditUrl = safeCreditUrl(asset.creditUrl);
+  const downloadMimeType = asset.downloadMimeType ?? asset.mimeType;
+  const downloadByteSize = asset.downloadByteSize ?? asset.byteSize;
   return (
     <article className={cn("group grid overflow-hidden rounded-card border border-border bg-surface-strong text-sm transition hover:-translate-y-0.5 hover:shadow-panel", featured ? "lg:grid-cols-[minmax(0,1.35fr)_minmax(16rem,0.65fr)]" : undefined)}>
       <div className={cn("relative bg-canvas-muted", featured ? "min-h-72" : "aspect-[4/3]")}>
@@ -309,12 +328,18 @@ function MediaAssetCard({ asset, label, featured = false }: { asset: PublicProfi
       <div className="grid content-start gap-2 p-4">
         <h3 className={cn("font-medium", featured ? "text-xl" : undefined)}>{asset.label ?? label}</h3>
         {asset.caption ? <p className="leading-6 text-muted">{asset.caption}</p> : null}
-        {asset.credit ? <p className="text-xs text-muted">{asset.credit}</p> : null}
+        {creditUrl ? (
+          <a className="w-fit break-all text-xs text-muted underline underline-offset-4" href={creditUrl}>
+            {asset.credit || creditUrl}
+          </a>
+        ) : asset.credit ? (
+          <p className="text-xs text-muted">{asset.credit}</p>
+        ) : null}
         <p className="text-xs text-muted">
-          {mimeLabel(asset.mimeType)} / {formatByteSize(asset.byteSize)}
+          {mimeLabel(downloadMimeType)} / {formatByteSize(downloadByteSize)}
         </p>
         <a className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "mt-2 w-fit")} download href={asset.downloadUrl}>
-          Download {asset.label ?? label}
+          Download
         </a>
       </div>
     </article>

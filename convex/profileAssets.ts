@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
-import { internalMutation, query, mutation, type MutationCtx } from "./_generated/server";
+import { internalMutation, internalQuery, query, mutation, type MutationCtx } from "./_generated/server";
 import type { AuthSubject } from "./_communityAuthority";
 import { requireActiveAuthSession } from "./_authSessionGuard";
 import {
@@ -29,6 +29,7 @@ import {
   sanitizeProfileAssetAltText,
   sanitizeProfileAssetCaption,
   sanitizeProfileAssetCredit,
+  sanitizeProfileAssetCreditUrl,
   sanitizeProfileAssetLabel,
 } from "./_profileAssets";
 import {
@@ -65,13 +66,26 @@ const profileAssetAttachMetadataArgs = {
   caption: v.optional(v.string()),
   altText: v.optional(v.string()),
   credit: v.optional(v.string()),
+  creditUrl: v.optional(v.string()),
   placements: v.optional(v.array(profileAssetPlacement)),
   position: v.optional(v.number()),
 };
+const PROFILE_ASSET_ACCESSIBILITY_GENERATION_DAILY_LIMIT = 20;
+const PROFILE_ASSET_ACCESSIBILITY_GENERATION_COOLDOWN_MS = 5_000;
 
 function assertProfileMediaKitEnabled() {
   if (process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED !== "true") {
     throw new Error("Profile media kits are not enabled.");
+  }
+}
+
+function profileMediaDirectUploadEnabled() {
+  return process.env.VRDEX_PROFILE_MEDIA_DIRECT_UPLOAD_ENABLED === "true";
+}
+
+function assertProfileMediaAccessibilityGenerationEnabled() {
+  if (process.env.VRDEX_PROFILE_MEDIA_ACCESSIBILITY_GENERATION_ENABLED !== "true") {
+    throw new Error("Profile media accessibility generation is not enabled.");
   }
 }
 
@@ -202,6 +216,7 @@ export const createUploadIntentForApiProfileOwner = internalMutation({
       caption: args.caption,
       altText: args.altText,
       credit: args.credit,
+      creditUrl: args.creditUrl,
       placements: args.placements,
       position: args.position,
       source: "owner_authored",
@@ -226,6 +241,9 @@ export const createUploadIntentForApiProfileOwner = internalMutation({
       intentId: intent.intentId,
       uploadToken: intent.uploadToken,
       uploadUrl: `/api/v0/profile-assets/upload-intents/${intent.intentId}`,
+      ...(args.sourceUrl === undefined && profileMediaDirectUploadEnabled()
+        ? { directUploadUrl: `/api/v0/profile-assets/upload-intents/${intent.intentId}/direct-upload` }
+        : {}),
       uploadTokenHeader: "x-vrdex-upload-token",
       expiresAt: intent.expiresAt,
     };
@@ -260,6 +278,7 @@ export const createUploadIntentForOwnedProfile = mutation({
       caption: args.caption,
       altText: args.altText,
       credit: args.credit,
+      creditUrl: args.creditUrl,
       placements: args.placements ?? ["gallery"],
       position: args.position,
       source: "owner_authored",
@@ -278,6 +297,9 @@ export const createUploadIntentForOwnedProfile = mutation({
     return {
       ...intent,
       uploadUrl: `/api/v0/profile-assets/upload-intents/${intent.intentId}`,
+      ...(args.sourceUrl === undefined && profileMediaDirectUploadEnabled()
+        ? { directUploadUrl: `/api/v0/profile-assets/upload-intents/${intent.intentId}/direct-upload` }
+        : {}),
       uploadTokenHeader: "x-vrdex-upload-token",
     };
   },
@@ -377,8 +399,153 @@ export const claimUploadIntentForStorage = internalMutation({
       mimeType: intent.mimeType,
       byteSize: intent.byteSize,
       storageKey: intent.storageKey,
+      quarantineStorageKey: intent.quarantineStorageKey,
+      sourceStorageKey: intent.sourceStorageKey,
+      downloadStorageKey: intent.downloadStorageKey,
       expiresAt: intent.expiresAt,
     };
+  },
+});
+
+export const claimOwnedAccessibilityGeneration = mutation({
+  args: {
+    profileId,
+    requestId: v.string(),
+    provider: v.string(),
+    model: v.string(),
+    imageBytes: v.number(),
+  },
+  handler: async (ctx, args) => {
+    assertProfileMediaKitEnabled();
+    assertProfileMediaAccessibilityGenerationEnabled();
+    const profile = await requireOwnedAppearanceProfile(ctx, args.profileId);
+    const { user } = await requireActiveAuthSession(ctx);
+    const requestId = args.requestId.trim();
+    const provider = args.provider.trim();
+    const model = args.model.trim();
+    if (!requestId || !provider || !model) {
+      throw new Error("Accessibility generation request metadata is invalid.");
+    }
+    if (!Number.isSafeInteger(args.imageBytes) || args.imageBytes <= 0 || args.imageBytes > 1_500_000) {
+      throw new Error("Accessibility generation image is too large.");
+    }
+
+    const replay = await ctx.db
+      .query("profileAssetAccessibilityGenerationEvents")
+      .withIndex("by_requestId", (query) => query.eq("requestId", requestId))
+      .unique();
+    if (
+      replay !== null &&
+      replay.userId === user._id &&
+      replay.profileId === profile._id
+    ) {
+      return { eventId: replay._id, replay: true, userId: user._id };
+    }
+    if (replay !== null) {
+      throw new Error("Accessibility generation request is invalid.");
+    }
+
+    const now = Date.now();
+    const recent = await ctx.db
+      .query("profileAssetAccessibilityGenerationEvents")
+      .withIndex("by_userId_createdAt", (query) =>
+        query.eq("userId", user._id).gt("createdAt", now - 24 * 60 * 60 * 1_000),
+      )
+      .collect();
+    if (recent.length >= PROFILE_ASSET_ACCESSIBILITY_GENERATION_DAILY_LIMIT) {
+      throw new Error("Accessibility generation limit reached. Try again tomorrow.");
+    }
+    const latest = recent.reduce(
+      (value, event) => Math.max(value, event.createdAt),
+      0,
+    );
+    if (latest > now - PROFILE_ASSET_ACCESSIBILITY_GENERATION_COOLDOWN_MS) {
+      throw new Error("Wait a moment before generating again.");
+    }
+
+    const eventId = await ctx.db.insert("profileAssetAccessibilityGenerationEvents", {
+      requestId,
+      userId: user._id,
+      profileId: profile._id,
+      provider,
+      model,
+      result: "started",
+      imageBytes: args.imageBytes,
+      createdAt: now,
+    });
+    return { eventId, replay: false, userId: user._id };
+  },
+});
+
+export const finishAccessibilityGeneration = internalMutation({
+  args: {
+    eventId: v.id("profileAssetAccessibilityGenerationEvents"),
+    requestId: v.string(),
+    result: v.union(v.literal("succeeded"), v.literal("failed")),
+    descriptionLength: v.optional(v.number()),
+    latencyMs: v.number(),
+    errorCode: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const event = await ctx.db.get(args.eventId);
+    if (
+      event === null ||
+      event.requestId !== args.requestId ||
+      event.result !== "started"
+    ) {
+      return false;
+    }
+    await ctx.db.patch(event._id, {
+      result: args.result,
+      ...(args.descriptionLength !== undefined
+        ? { descriptionLength: Math.max(0, Math.round(args.descriptionLength)) }
+        : {}),
+      latencyMs: Math.max(0, Math.round(args.latencyMs)),
+      ...(args.errorCode !== undefined ? { errorCode: args.errorCode.slice(0, 80) } : {}),
+      completedAt: Date.now(),
+    });
+    return true;
+  },
+});
+
+export const getUploadIntentForDirectStorage = internalQuery({
+  args: {
+    intentId: profileAssetUploadIntentId,
+    uploadToken: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const intent = await ctx.db.get(args.intentId);
+    const now = Date.now();
+    if (
+      intent === null ||
+      intent.uploadToken !== args.uploadToken ||
+      intent.state !== "pending" ||
+      intent.expiresAt < now ||
+      intent.sourceUrl !== undefined ||
+      intent.quarantineStorageKey === undefined
+    ) {
+      return null;
+    }
+    return {
+      storageKey: intent.quarantineStorageKey,
+      mimeType: intent.mimeType,
+      byteSize: intent.byteSize,
+      expiresAt: intent.expiresAt,
+    };
+  },
+});
+
+export const getUploadIntentStateForStorageCleanup = internalQuery({
+  args: {
+    intentId: profileAssetUploadIntentId,
+    uploadToken: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const intent = await ctx.db.get(args.intentId);
+    if (intent === null || intent.uploadToken !== args.uploadToken) {
+      return null;
+    }
+    return { state: intent.state };
   },
 });
 
@@ -414,6 +581,12 @@ export const markUploadIntentUploaded = internalMutation({
     processingToken: v.string(),
     mimeType: v.string(),
     byteSize: v.number(),
+    sourceMimeType: v.optional(v.string()),
+    sourceByteSize: v.optional(v.number()),
+    sourceContentSha256: v.optional(v.string()),
+    downloadMimeType: v.optional(v.string()),
+    downloadByteSize: v.optional(v.number()),
+    downloadContentSha256: v.optional(v.string()),
     contentSha256: v.optional(v.string()),
     width: v.optional(v.number()),
     height: v.optional(v.number()),
@@ -516,13 +689,18 @@ export const listOwnedMediaKitProfiles = query({
             caption: asset.caption,
             altText: asset.altText,
             credit: asset.credit,
+            creditUrl: asset.creditUrl,
             mimeType: asset.mimeType,
             byteSize: asset.byteSize,
+            downloadMimeType: asset.downloadMimeType,
+            downloadByteSize: asset.downloadByteSize,
+            sourcePreserved: asset.sourceStorageKey !== undefined,
             width: asset.width,
             height: asset.height,
             gallery: galleryPosition.has(asset._id),
             featured: asset._id === featuredAssetId,
             imageUrl: `/api/account/media-kit/${encodeURIComponent(profile._id)}/assets/${encodeURIComponent(asset._id)}/file`,
+            downloadUrl: `/api/account/media-kit/${encodeURIComponent(profile._id)}/assets/${encodeURIComponent(asset._id)}/file?download=1`,
           })),
       });
     }
@@ -550,6 +728,7 @@ export const updateOwnedAssetMetadata = mutation({
     caption: v.optional(v.string()),
     altText: v.optional(v.string()),
     credit: v.optional(v.string()),
+    creditUrl: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     assertProfileMediaKitEnabled();
@@ -574,6 +753,7 @@ export const updateOwnedAssetMetadata = mutation({
       caption: sanitizeProfileAssetCaption(args.caption),
       altText,
       credit: sanitizeProfileAssetCredit(args.credit),
+      creditUrl: sanitizeProfileAssetCreditUrl(args.creditUrl),
       updatedAt: now,
     });
     await ctx.db.insert("profileAuditEvents", {
@@ -954,10 +1134,14 @@ export const getPublicAssetForStorage = query({
       displayName: profile.displayName,
       assetId: asset._id,
       label: asset.label,
+      creditUrl: asset.creditUrl,
       storageKey: asset.storageKey,
+      downloadStorageKey: asset.downloadStorageKey,
       originalFileName: asset.originalFileName,
       mimeType: asset.mimeType,
       byteSize: asset.byteSize,
+      downloadMimeType: asset.downloadMimeType,
+      downloadByteSize: asset.downloadByteSize,
     };
   },
 });
@@ -995,9 +1179,15 @@ export const getOwnedAssetForStorage = query({
       displayName: profile.displayName,
       label: asset.label,
       storageKey: asset.storageKey,
+      sourceStorageKey: asset.sourceStorageKey,
+      downloadStorageKey: asset.downloadStorageKey,
       originalFileName: asset.originalFileName,
       mimeType: asset.mimeType,
       byteSize: asset.byteSize,
+      sourceMimeType: asset.sourceMimeType,
+      sourceByteSize: asset.sourceByteSize,
+      downloadMimeType: asset.downloadMimeType,
+      downloadByteSize: asset.downloadByteSize,
     };
   },
 });

@@ -9,10 +9,15 @@ import type { GenericId } from "convex/values";
 import { ApiProfileAssetUploadIntentCompleteResponseSchema } from "@vrdex/api-contracts";
 import { api, internal } from "@convex-generated-api";
 import { convexAdminHttpClient, convexHttpClient } from "@/lib/server/convex-http";
-import { isProfileAssetStorageConfigured, putProfileAssetObject } from "@/lib/server/profile-asset-storage";
+import {
+  deleteProfileAssetObjects,
+  getProfileAssetObject,
+  isProfileAssetStorageConfigured,
+  putProfileAssetObject,
+} from "@/lib/server/profile-asset-storage";
 import {
   profileAssetMimeTypeForFile,
-  validateAndNormalizeProfileAsset,
+  validateAndPrepareProfileAsset,
 } from "@/lib/server/profile-asset-validation";
 
 export const dynamic = "force-dynamic";
@@ -148,6 +153,30 @@ async function bodyFromFileRequest(request: NextRequest): Promise<UploadBody> {
   return {
     body: new Uint8Array(await file.arrayBuffer()),
     mimeType,
+  };
+}
+
+async function bodyFromDirectUpload(input: {
+  storageKey: string | undefined;
+  mimeType: string;
+  byteSize: number;
+}): Promise<UploadBody> {
+  if (input.storageKey === undefined) {
+    throw new Error("Direct upload storage is unavailable for this upload intent.");
+  }
+  const object = await getProfileAssetObject(input.storageKey);
+  if (object === null) {
+    throw new Error("Upload the image before publishing.");
+  }
+  if (object.contentLength !== undefined && object.contentLength !== input.byteSize) {
+    throw new Error("The uploaded image size does not match the upload intent.");
+  }
+  if (normalizedContentType(object.contentType) !== input.mimeType) {
+    throw new Error("The uploaded image type does not match the upload intent.");
+  }
+  return {
+    body: object.body,
+    mimeType: normalizedContentType(object.contentType),
   };
 }
 
@@ -419,57 +448,99 @@ export async function POST(request: NextRequest, context: RouteContext) {
   }
   const intent = claim;
 
-  let objectWritten = false;
   try {
     const upload = intent.sourceUrl
       ? await bodyFromSourceUrl(intent.sourceUrl)
-      : await bodyFromFileRequest(request);
+      : request.headers.get("content-type")?.toLowerCase().includes("multipart/form-data")
+        ? await bodyFromFileRequest(request)
+        : await bodyFromDirectUpload({
+            storageKey: intent.quarantineStorageKey,
+            mimeType: intent.mimeType,
+            byteSize: intent.byteSize,
+          });
 
     validateUploadBody(upload);
-    const normalized = await validateAndNormalizeProfileAsset(upload.body, intent.mimeType);
-    assertAllowedByteSize(normalized.body.byteLength);
+    if (!intent.sourceUrl && upload.body.byteLength !== intent.byteSize) {
+      throw new Error("The uploaded image size does not match the upload intent.");
+    }
+    const prepared = await validateAndPrepareProfileAsset(upload.body, intent.mimeType);
+    assertAllowedByteSize(prepared.source.body.byteLength);
+    assertAllowedByteSize(prepared.download.body.byteLength);
+    assertAllowedByteSize(prepared.display.body.byteLength);
     const duplicate = await convexHttpClient().query(api.profileAssets.hasDuplicateAssetForUpload, {
       intentId: intent.intentId,
       uploadToken,
-      contentSha256: normalized.contentSha256,
+      contentSha256: prepared.download.contentSha256,
     });
     if (duplicate) {
       throw new Error("This image already exists in the profile media kit.");
     }
 
+    if (intent.sourceStorageKey !== undefined) {
+      await putProfileAssetObject({
+        storageKey: intent.sourceStorageKey,
+        body: prepared.source.body,
+        contentType: prepared.source.mimeType,
+        cacheControl: "private, no-store",
+      });
+    }
+    if (intent.downloadStorageKey !== undefined) {
+      await putProfileAssetObject({
+        storageKey: intent.downloadStorageKey,
+        body: prepared.download.body,
+        contentType: prepared.download.mimeType,
+      });
+    }
     await putProfileAssetObject({
       storageKey: intent.storageKey,
-      body: normalized.body,
-      contentType: normalized.mimeType,
+      body: prepared.display.body,
+      contentType: prepared.display.mimeType,
     });
-    objectWritten = true;
     const completed = await convexAdminHttpClient().mutation(internal.profileAssets.markUploadIntentUploaded, {
       intentId: intent.intentId,
       uploadToken,
       processingToken,
-      mimeType: normalized.mimeType,
-      byteSize: normalized.body.byteLength,
-      contentSha256: normalized.contentSha256,
-      width: normalized.width,
-      height: normalized.height,
+      mimeType: prepared.display.mimeType,
+      byteSize: prepared.display.body.byteLength,
+      contentSha256: prepared.download.contentSha256,
+      width: prepared.display.width,
+      height: prepared.display.height,
+      sourceMimeType: prepared.source.mimeType,
+      sourceByteSize: prepared.source.body.byteLength,
+      sourceContentSha256: prepared.source.contentSha256,
+      downloadMimeType: prepared.download.mimeType,
+      downloadByteSize: prepared.download.body.byteLength,
+      downloadContentSha256: prepared.download.contentSha256,
     });
+    if (intent.quarantineStorageKey) {
+      await deleteProfileAssetObjects([intent.quarantineStorageKey]).catch(() => undefined);
+    }
 
     const responseBody = ApiProfileAssetUploadIntentCompleteResponseSchema.parse({
       intentId: intent.intentId,
       storageKey: intent.storageKey,
-      mimeType: normalized.mimeType,
-      byteSize: normalized.body.byteLength,
+      mimeType: prepared.display.mimeType,
+      byteSize: prepared.display.body.byteLength,
       assetIds: completed.assetIds,
     });
 
     return NextResponse.json(responseBody);
   } catch (error) {
-    if (!objectWritten) {
-      await convexAdminHttpClient().mutation(internal.profileAssets.releaseUploadIntentStorageClaim, {
-        intentId: intent.intentId,
-        uploadToken,
-        processingToken,
-      }).catch(() => false);
+    await convexAdminHttpClient().mutation(internal.profileAssets.releaseUploadIntentStorageClaim, {
+      intentId: intent.intentId,
+      uploadToken,
+      processingToken,
+    }).catch(() => false);
+    const cleanupState = await convexAdminHttpClient().query(
+      internal.profileAssets.getUploadIntentStateForStorageCleanup,
+      { intentId: intent.intentId, uploadToken },
+    ).catch(() => null);
+    if (cleanupState !== null && cleanupState.state !== "consumed") {
+      await deleteProfileAssetObjects([
+        ...(intent.sourceStorageKey === undefined ? [] : [intent.sourceStorageKey]),
+        ...(intent.downloadStorageKey === undefined ? [] : [intent.downloadStorageKey]),
+        intent.storageKey,
+      ]).catch(() => undefined);
     }
     const message = error instanceof Error ? error.message : "Profile media upload failed.";
 

@@ -424,6 +424,7 @@ describe("@vrdex/api-contracts", () => {
       mimeType: "image/webp",
       label: "Gallery image",
       altText: "A gallery contract test image.",
+      creditUrl: "https://example.test/artist",
       placements: ["gallery", "featured"],
     });
     ApiProfileAssetUploadIntentCreateRequestSchema.parse({
@@ -444,6 +445,18 @@ describe("@vrdex/api-contracts", () => {
       label: "Featured only",
       placements: ["featured"],
     }), /must also be a gallery item/);
+    for (const creditUrl of [
+      "javascript:alert(1)",
+      "https://user:secret@example.test/artist",
+    ]) {
+      assert.throws(() => ApiProfileAssetUploadIntentCreateRequestSchema.parse({
+        originalFileName: "unsafe-credit.webp",
+        mimeType: "image/webp",
+        label: "Unsafe credit",
+        creditUrl,
+        placements: ["gallery"],
+      }), /HTTP or HTTPS without embedded credentials/);
+    }
 
     ApiProfileAssetUploadIntentCreateResponseSchema.parse({
       profileId: "profile123",

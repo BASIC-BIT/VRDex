@@ -10,6 +10,17 @@ variable "asset_bucket_name" {
   default     = null
 }
 
+variable "direct_upload_allowed_origins" {
+  description = "Browser origins allowed to POST one-time profile-media uploads directly to private S3."
+  type        = set(string)
+  default = [
+    "https://staging.vrdex.net",
+    "https://vrdex.net",
+    "https://www.vrdex.net",
+    "https://*.vercel.app",
+  ]
+}
+
 variable "runtime_role_name" {
   description = "IAM role name assumed by Vercel functions through OIDC for profile asset S3 access."
   type        = string

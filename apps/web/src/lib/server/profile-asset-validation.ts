@@ -29,6 +29,16 @@ type SafeProfileAsset = {
   contentSha256: string;
 };
 
+export type PreparedProfileAsset = {
+  source: {
+    body: Uint8Array;
+    mimeType: SafeProfileAsset["mimeType"];
+    contentSha256: string;
+  };
+  download: SafeProfileAsset;
+  display: SafeProfileAsset;
+};
+
 function detectedRasterMimeType(body: Uint8Array): SafeProfileAsset["mimeType"] | null {
   if (
     body.length >= 8 &&
@@ -213,12 +223,25 @@ function assertSourceDimensions(width: number, height: number) {
   }
 }
 
-async function normalizeRaster(body: Uint8Array, mimeType: SafeProfileAsset["mimeType"]) {
-  const pipeline = sharp(body, {
+function rasterPipeline(body: Uint8Array) {
+  return sharp(body, {
     animated: false,
     failOn: "warning",
     limitInputPixels: PROFILE_ASSET_MAX_SOURCE_DIMENSION ** 2,
   });
+}
+
+function encodeInOriginalRasterFormat(
+  pipeline: sharp.Sharp,
+  mimeType: SafeProfileAsset["mimeType"],
+) {
+  if (mimeType === "image/png") return pipeline.png({ compressionLevel: 9 });
+  if (mimeType === "image/webp") return pipeline.webp({ lossless: true });
+  return pipeline.jpeg({ quality: 95, mozjpeg: true });
+}
+
+async function prepareRaster(body: Uint8Array, mimeType: SafeProfileAsset["mimeType"]) {
+  const pipeline = rasterPipeline(body);
   const metadata = await pipeline.metadata();
 
   if (!metadata.width || !metadata.height || (metadata.pages ?? 1) !== 1) {
@@ -226,33 +249,39 @@ async function normalizeRaster(body: Uint8Array, mimeType: SafeProfileAsset["mim
   }
   assertSourceDimensions(metadata.width, metadata.height);
 
-  const normalized = pipeline
+  const sanitized = await encodeInOriginalRasterFormat(
+    rasterPipeline(body).rotate(),
+    mimeType,
+  ).toBuffer({ resolveWithObject: true });
+  const display = await rasterPipeline(body)
     .rotate()
     .resize({
       width: PROFILE_ASSET_MAX_STORED_DIMENSION,
       height: PROFILE_ASSET_MAX_STORED_DIMENSION,
       fit: "inside",
       withoutEnlargement: true,
-    });
-  const encoded =
-    mimeType === "image/png"
-      ? normalized.png({ compressionLevel: 9 })
-      : mimeType === "image/webp"
-        ? normalized.webp({ quality: 88 })
-        : normalized.jpeg({ quality: 90, mozjpeg: true });
-  const output = await encoded.toBuffer({ resolveWithObject: true });
+    })
+    .webp({ quality: 88 })
+    .toBuffer({ resolveWithObject: true });
 
   return {
-    body: new Uint8Array(output.data),
-    width: output.info.width,
-    height: output.info.height,
+    download: {
+      body: new Uint8Array(sanitized.data),
+      width: sanitized.info.width,
+      height: sanitized.info.height,
+    },
+    display: {
+      body: new Uint8Array(display.data),
+      width: display.info.width,
+      height: display.info.height,
+    },
   };
 }
 
-export async function validateAndNormalizeProfileAsset(
+export async function validateAndPrepareProfileAsset(
   body: Uint8Array,
   declaredMimeType: string,
-): Promise<SafeProfileAsset> {
+): Promise<PreparedProfileAsset> {
   const rasterMimeType = detectedRasterMimeType(body);
   const detectedMimeType = rasterMimeType ?? (hasSvgRoot(body) ? "image/svg+xml" : null);
 
@@ -263,16 +292,45 @@ export async function validateAndNormalizeProfileAsset(
     throw new Error("The file contents do not match the selected image type.");
   }
 
-  const normalized =
-    detectedMimeType === "image/svg+xml"
-      ? validateSafeSvg(body)
-      : await normalizeRaster(body, detectedMimeType);
-  assertSourceDimensions(normalized.width, normalized.height);
-  const contentSha256 = createHash("sha256").update(normalized.body).digest("hex");
+  const sourceContentSha256 = createHash("sha256").update(body).digest("hex");
 
-  return {
-    ...normalized,
+  if (detectedMimeType === "image/svg+xml") {
+    const sanitized = validateSafeSvg(body);
+    assertSourceDimensions(sanitized.width, sanitized.height);
+    const contentSha256 = createHash("sha256").update(sanitized.body).digest("hex");
+    const safeSvg = {
+      ...sanitized,
+      mimeType: detectedMimeType,
+      contentSha256,
+    } satisfies SafeProfileAsset;
+    return {
+      source: { body, mimeType: detectedMimeType, contentSha256: sourceContentSha256 },
+      download: safeSvg,
+      display: safeSvg,
+    };
+  }
+
+  const prepared = await prepareRaster(body, detectedMimeType);
+  const download: SafeProfileAsset = {
+    ...prepared.download,
     mimeType: detectedMimeType,
-    contentSha256,
+    contentSha256: createHash("sha256").update(prepared.download.body).digest("hex"),
   };
+  const display: SafeProfileAsset = {
+    ...prepared.display,
+    mimeType: "image/webp",
+    contentSha256: createHash("sha256").update(prepared.display.body).digest("hex"),
+  };
+  return {
+    source: { body, mimeType: detectedMimeType, contentSha256: sourceContentSha256 },
+    download,
+    display,
+  };
+}
+
+export async function validateAndNormalizeProfileAsset(
+  body: Uint8Array,
+  declaredMimeType: string,
+): Promise<SafeProfileAsset> {
+  return (await validateAndPrepareProfileAsset(body, declaredMimeType)).display;
 }

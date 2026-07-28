@@ -45,8 +45,12 @@ const auroraProfileImage = {
   label: "Profile image",
   altText: "DJ Aurora framed by violet light and a warm orange glow.",
   credit: "Artwork by Afterglow Studio",
-  mimeType: "image/png",
-  byteSize: 184_000,
+  creditUrl: "https://example.invalid/afterglow-studio",
+  mimeType: "image/webp",
+  byteSize: 92_000,
+  downloadMimeType: "image/png",
+  downloadByteSize: 184_000,
+  sourcePreserved: true,
   imageUrl: "/api/e2e/fixture-assets/fixture-aurora-profile-image",
   downloadUrl: "/api/v0/profiles/playwright-dj-aurora/assets/fixture-aurora-profile-image/file?download=1",
 };
@@ -58,6 +62,9 @@ const auroraPrimaryLogo = {
   altText: "AURORA wordmark in white over violet and cyan light.",
   mimeType: "image/svg+xml",
   byteSize: 24_000,
+  downloadMimeType: "image/svg+xml",
+  downloadByteSize: 24_000,
+  sourcePreserved: true,
   imageUrl: "/api/e2e/fixture-assets/fixture-aurora-primary-logo",
   downloadUrl: "/api/v0/profiles/playwright-dj-aurora/assets/fixture-aurora-primary-logo/file?download=1",
 };
@@ -68,6 +75,7 @@ const auroraAdditionalLogo = {
   altText: "Square Aurora monogram in warm orange light.",
   mimeType: "image/png",
   byteSize: 96_000,
+  sourcePreserved: false,
   imageUrl: "/api/e2e/fixture-assets/fixture-aurora-alt-logo",
   downloadUrl: "/api/v0/profiles/playwright-dj-aurora/assets/fixture-aurora-alt-logo/file?download=1",
 };

@@ -18,6 +18,17 @@ async function oversizedSyntheticPng() {
   return { height, image, width };
 }
 
+async function smallSyntheticPng() {
+  return await sharp({
+    create: {
+      width: 64,
+      height: 48,
+      channels: 3,
+      background: "#663399",
+    },
+  }).png().toBuffer();
+}
+
 test.beforeEach(async ({ page }) => {
   await prepareVisualPage(page);
 });
@@ -40,7 +51,7 @@ test("owner upload failure stays beside the publish control @fixture", async ({ 
   await page.getByLabel("Add image").setInputFiles({
     name: "synthetic.png",
     mimeType: "image/png",
-    buffer: Buffer.from("synthetic image"),
+    buffer: await smallSyntheticPng(),
   });
   const publish = page.getByRole("button", { name: "Publish" });
   const uploadForm = publish.locator("xpath=ancestor::form");
@@ -54,8 +65,68 @@ test("owner upload failure stays beside the publish control @fixture", async ({ 
   );
 });
 
-test("owner oversized raster is prepared before upload @fixture", async ({ page }) => {
-  const { height, image, width } = await oversizedSyntheticPng();
+test("owner upload metadata includes caption, linked credit, and editable generated text @fixture", async ({ page }) => {
+  await page.goto("/account/media-kit");
+  const file = {
+    name: "metadata.png",
+    mimeType: "image/png",
+    buffer: await smallSyntheticPng(),
+  };
+  await page.getByLabel("Add image").setInputFiles(file);
+  const uploadForm = page.getByRole("button", { name: "Publish" }).locator("xpath=ancestor::form");
+  await uploadForm.getByLabel("Caption").fill("Synthetic caption");
+  await uploadForm.getByLabel("Credit", { exact: true }).fill("Example Photographer");
+  await uploadForm.getByLabel("Credit link").fill("https://example.test/credit");
+  await uploadForm.getByLabel("Accessibility description").fill("Manual description");
+  const generate = uploadForm.getByRole("button", { name: "Generate" });
+  await generate.focus();
+  await expect(generate).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(uploadForm.getByLabel("Accessibility description")).toHaveValue(
+    "A performer stands in violet and orange light.",
+  );
+  await expect(uploadForm.getByText("Generated.", { exact: true })).toBeVisible();
+  await uploadForm.getByLabel("Accessibility description").fill("Edited suggestion");
+  await uploadForm.getByRole("button", { name: "Cancel" }).click();
+
+  await page.getByLabel("Add image").setInputFiles(file);
+  const resetForm = page.getByRole("button", { name: "Publish" }).locator("xpath=ancestor::form");
+  await expect(resetForm.getByLabel("Caption")).toHaveValue("");
+  await expect(resetForm.getByLabel("Credit link")).toHaveValue("");
+  await expect(resetForm.getByLabel("Accessibility description")).toHaveValue("");
+});
+
+test("owner generation failure keeps manual accessibility text @fixture", async ({ page }) => {
+  await page.goto("/account/media-kit");
+  await page.evaluate(() => {
+    (window as typeof window & { vrdexGenerationFailure?: boolean }).vrdexGenerationFailure = true;
+  });
+  const asset = page.locator('[data-asset-id="aurora-primary"]');
+  const description = asset.getByLabel("Accessibility description");
+  await description.fill("Manual text stays here.");
+  await asset.getByRole("button", { name: "Generate" }).click();
+
+  await expect(asset.getByRole("alert")).toHaveText("Generation failed. Try again.");
+  await expect(description).toHaveValue("Manual text stays here.");
+});
+
+test("owner replace failure keeps the existing gallery asset @fixture", async ({ page }) => {
+  await page.goto("/account/media-kit");
+  const asset = page.locator('[data-asset-id="aurora-primary"]');
+  await asset.getByLabel("Replace").setInputFiles({
+    name: "replacement.png",
+    mimeType: "image/png",
+    buffer: await smallSyntheticPng(),
+  });
+
+  await expect(asset.getByRole("alert")).toHaveText(
+    "Synthetic preview storage does not accept new files.",
+  );
+  await expect(asset.getByText("Aurora press portrait", { exact: true }).first()).toBeVisible();
+});
+
+test("owner oversized raster stays in its original format before direct upload @fixture", async ({ page }) => {
+  const { image } = await oversizedSyntheticPng();
 
   await page.goto("/account/media-kit");
   await page.evaluate(() => {
@@ -72,8 +143,8 @@ test("owner oversized raster is prepared before upload @fixture", async ({ page 
   const publish = page.getByRole("button", { name: "Publish" });
   const uploadForm = publish.locator("xpath=ancestor::form");
   await expect(uploadForm.getByLabel("Title", { exact: true })).toHaveValue("oversized-synthetic");
-  await expect(uploadForm.locator("img")).toBeVisible();
-  await expect(uploadForm.getByText(/PNG · .* → WEBP · .* · 1600 × 1600/)).toBeVisible();
+  await expect(uploadForm.getByLabel("Caption")).toBeVisible();
+  await expect(uploadForm.getByLabel("Credit link")).toBeVisible();
   await publish.click();
 
   await expect(uploadForm.getByRole("alert")).toHaveText(
@@ -82,23 +153,15 @@ test("owner oversized raster is prepared before upload @fixture", async ({ page 
   await expect.poll(() => page.evaluate(
     () => (window as typeof window & { mediaUploadAttempt?: unknown }).mediaUploadAttempt,
   )).toMatchObject({
-    name: "oversized-synthetic.webp",
-    type: "image/webp",
-    width,
-    height,
+    name: "oversized-synthetic.png",
+    type: "image/png",
+    size: image.length,
   });
-  const attempt = await page.evaluate(
-    () => (window as typeof window & {
-      mediaUploadAttempt?: { size?: number };
-    }).mediaUploadAttempt,
-  );
-  expect(attempt?.size).toBeGreaterThan(0);
-  expect(attempt?.size).toBeLessThanOrEqual(4 * 1024 * 1024);
 });
 
 test("owner oversized raster dimensions are bounded before decode @fixture", async ({ page }) => {
   const image = Buffer.alloc(4 * 1024 * 1024 + 1);
-  Buffer.from([0x89, 0x50, 0x4e, 0x47]).copy(image);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(image);
   image.writeUInt32BE(9_000, 16);
   image.writeUInt32BE(1_000, 20);
 
@@ -113,9 +176,9 @@ test("owner oversized raster dimensions are bounded before decode @fixture", asy
   await expect(page.getByRole("button", { name: "Publish" })).toHaveCount(0);
 });
 
-test("owner oversized animated rasters are rejected before conversion @fixture", async ({ page }) => {
+test("owner oversized animated rasters are rejected before upload @fixture", async ({ page }) => {
   const png = Buffer.alloc(4 * 1024 * 1024 + 1);
-  Buffer.from([0x89, 0x50, 0x4e, 0x47]).copy(png);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(png);
   png.writeUInt32BE(13, 8);
   png.write("IHDR", 12, "ascii");
   png.writeUInt32BE(1_600, 16);
@@ -188,7 +251,7 @@ test("owner oversized raster rejects a mismatched selected type @fixture", async
   await expect(page.getByRole("button", { name: "Publish" })).toHaveCount(0);
 });
 
-test("owner oversized EXIF portrait preserves its oriented aspect ratio @fixture", async ({ page }) => {
+test("owner oversized EXIF portrait uploads exact selected bytes @fixture", async ({ page }) => {
   const source = await sharp({
     create: {
       width: 8_000,
@@ -203,19 +266,6 @@ test("owner oversized EXIF portrait preserves its oriented aspect ratio @fixture
   ]);
   expect(image.length).toBe(4 * 1024 * 1024 + 1);
 
-  await page.addInitScript(() => {
-    const originalCreateImageBitmap = window.createImageBitmap.bind(window) as (
-      ...args: unknown[]
-    ) => Promise<ImageBitmap>;
-    window.createImageBitmap = ((...args: unknown[]) => {
-      if (args.length === 2) {
-        const options = args[1] as ImageBitmapOptions;
-        (window as typeof window & { mediaDecodeOptions?: ImageBitmapOptions }).mediaDecodeOptions =
-          options;
-      }
-      return originalCreateImageBitmap(...args);
-    }) as typeof window.createImageBitmap;
-  });
   await page.goto("/account/media-kit");
   await page.evaluate(() => {
     window.addEventListener("vrdex:media-upload-attempt", (event) => {
@@ -231,24 +281,15 @@ test("owner oversized EXIF portrait preserves its oriented aspect ratio @fixture
   await page.getByRole("button", { name: "Publish" }).click();
 
   await expect.poll(() => page.evaluate(
-    () => (window as typeof window & { mediaDecodeOptions?: ImageBitmapOptions }).mediaDecodeOptions,
-  )).toMatchObject({
-    imageOrientation: "from-image",
-    resizeWidth: 2_048,
-    resizeHeight: 4_096,
-    resizeQuality: "high",
-  });
-  await expect.poll(() => page.evaluate(
     () => (window as typeof window & { mediaUploadAttempt?: unknown }).mediaUploadAttempt,
   )).toMatchObject({
-    name: "exif-portrait.webp",
-    type: "image/webp",
-    width: 2_048,
-    height: 4_096,
+    name: "exif-portrait.jpg",
+    type: "image/jpeg",
+    size: image.length,
   });
 });
 
-test("owner oversized PNG and WebP preserve EXIF orientation @fixture", async ({ page }) => {
+test("owner oversized PNG and WebP remain unchanged before upload @fixture", async ({ page }) => {
   const width = 2_400;
   const height = 1_200;
   const pixels = Buffer.alloc(width * height * 3);
@@ -289,19 +330,6 @@ test("owner oversized PNG and WebP preserve EXIF orientation @fixture", async ({
     expect(image.buffer.length).toBeLessThanOrEqual(12 * 1024 * 1024);
   }
 
-  await page.addInitScript(() => {
-    const originalCreateImageBitmap = window.createImageBitmap.bind(window) as (
-      ...args: unknown[]
-    ) => Promise<ImageBitmap>;
-    window.createImageBitmap = ((...args: unknown[]) => {
-      if (args.length === 2) {
-        const options = args[1] as ImageBitmapOptions;
-        (window as typeof window & { mediaDecodeOptions?: ImageBitmapOptions }).mediaDecodeOptions =
-          options;
-      }
-      return originalCreateImageBitmap(...args);
-    }) as typeof window.createImageBitmap;
-  });
   await page.goto("/account/media-kit");
   await page.evaluate(() => {
     window.addEventListener("vrdex:media-upload-attempt", (event) => {
@@ -312,73 +340,17 @@ test("owner oversized PNG and WebP preserve EXIF orientation @fixture", async ({
 
   for (const image of images) {
     await page.evaluate(() => {
-      delete (window as typeof window & {
-        mediaDecodeOptions?: ImageBitmapOptions;
-        mediaUploadAttempt?: unknown;
-      }).mediaDecodeOptions;
       delete (window as typeof window & { mediaUploadAttempt?: unknown }).mediaUploadAttempt;
     });
     await page.getByLabel("Add image").setInputFiles(image);
-    const preparedPreview = page.getByRole("button", { name: "Publish" })
-      .locator("xpath=ancestor::form")
-      .locator("img");
-    await expect(preparedPreview).toBeVisible();
-    const landmarks = await preparedPreview.evaluate(async (element) => {
-      const preview = element as HTMLImageElement;
-      await preview.decode();
-      const canvas = document.createElement("canvas");
-      canvas.width = 4;
-      canvas.height = 4;
-      const context = canvas.getContext("2d");
-      if (context === null) throw new Error("Canvas context unavailable.");
-      context.drawImage(preview, 0, 0, canvas.width, canvas.height);
-      const sample = (x: number, y: number) =>
-        [...context.getImageData(x, y, 1, 1).data.slice(0, 3)];
-      return {
-        bottomLeft: sample(1, 3),
-        bottomRight: sample(3, 3),
-        topLeft: sample(1, 1),
-        topRight: sample(3, 1),
-      };
-    });
-    const expectColor = (
-      actual: number[],
-      expected: { blue: "high" | "low"; green: "high" | "low"; red: "high" | "low" },
-    ) => {
-      expect(actual).toHaveLength(3);
-      const red = actual[0]!;
-      const green = actual[1]!;
-      const blue = actual[2]!;
-      expect(
-        expected.red === "high" ? red : 255 - red,
-        `${image.mimeType}: ${JSON.stringify(landmarks)}`,
-      ).toBeGreaterThan(175);
-      expect(expected.green === "high" ? green : 255 - green).toBeGreaterThan(175);
-      expect(expected.blue === "high" ? blue : 255 - blue).toBeGreaterThan(175);
-    };
-    expectColor(landmarks.topLeft, { red: "low", green: "low", blue: "high" });
-    expectColor(landmarks.topRight, { red: "high", green: "low", blue: "low" });
-    expectColor(landmarks.bottomLeft, { red: "high", green: "high", blue: "low" });
-    expectColor(landmarks.bottomRight, { red: "low", green: "high", blue: "low" });
     await page.getByRole("button", { name: "Publish" }).click();
 
     await expect.poll(() => page.evaluate(
-      () => (window as typeof window & {
-        mediaDecodeOptions?: ImageBitmapOptions;
-      }).mediaDecodeOptions,
-    )).toMatchObject({
-      imageOrientation: image.mimeType === "image/webp" ? "none" : "from-image",
-      resizeWidth: image.mimeType === "image/webp" ? width : height,
-      resizeHeight: image.mimeType === "image/webp" ? height : width,
-      resizeQuality: "high",
-    });
-    await expect.poll(() => page.evaluate(
       () => (window as typeof window & { mediaUploadAttempt?: unknown }).mediaUploadAttempt,
     )).toMatchObject({
-      name: "exif-portrait.webp",
-      type: "image/webp",
-      width: height,
-      height: width,
+      name: image.name,
+      type: image.mimeType,
+      size: image.buffer.length,
     });
   }
 });
@@ -388,7 +360,7 @@ test("owner profile switch clears an unsubmitted upload @fixture", async ({ page
   await page.getByLabel("Add image").setInputFiles({
     name: "synthetic.png",
     mimeType: "image/png",
-    buffer: Buffer.from("synthetic image"),
+    buffer: await smallSyntheticPng(),
   });
   await expect(page.getByRole("button", { name: "Publish" })).toBeVisible();
 
@@ -403,7 +375,7 @@ test("removed profile cannot inherit a staged upload @fixture", async ({ page })
   await page.getByLabel("Add image").setInputFiles({
     name: "transfer.png",
     mimeType: "image/png",
-    buffer: Buffer.from("synthetic image"),
+    buffer: await smallSyntheticPng(),
   });
   await expect(page.getByRole("button", { name: "Publish" })).toBeVisible();
   const uploadForm = page.locator("form").filter({ has: page.getByRole("button", { name: "Publish" }) });
@@ -424,7 +396,7 @@ test("removed profile cannot inherit a staged upload @fixture", async ({ page })
   await page.getByLabel("Add image").setInputFiles({
     name: "last-profile.png",
     mimeType: "image/png",
-    buffer: Buffer.from("synthetic image"),
+    buffer: await smallSyntheticPng(),
   });
   await page.evaluate(() => {
     window.dispatchEvent(new CustomEvent("vrdex:toggle-media-profile", {
@@ -475,7 +447,7 @@ test("owner profile switch stays locked during upload @fixture", async ({ page }
   await page.getByLabel("Add image").setInputFiles({
     name: "slow.png",
     mimeType: "image/png",
-    buffer: Buffer.from("synthetic image"),
+    buffer: await smallSyntheticPng(),
   });
   await page.getByRole("button", { name: "Publish" }).click();
 
@@ -498,7 +470,7 @@ test("removed profile upload cannot overwrite a new staged upload @fixture", asy
   await page.getByLabel("Add image").setInputFiles({
     name: "slow.png",
     mimeType: "image/png",
-    buffer: Buffer.from("synthetic image"),
+    buffer: await smallSyntheticPng(),
   });
   await page.getByRole("button", { name: "Publish" }).click();
   await page.evaluate(() => {
@@ -510,7 +482,7 @@ test("removed profile upload cannot overwrite a new staged upload @fixture", asy
   await page.getByLabel("Add image").setInputFiles({
     name: "replacement.png",
     mimeType: "image/png",
-    buffer: Buffer.from("synthetic image"),
+    buffer: await smallSyntheticPng(),
   });
 
   await expect.poll(() => page.evaluate(
@@ -554,8 +526,11 @@ test("public profile media kit @visual @fixture", async ({ page }, testInfo) => 
     mediaKit.getByRole("img", { name: "DJ Aurora framed by violet light and a warm orange glow." }),
   ).toHaveCount(1);
   await expect(mediaKit.getByRole("img", { name: "Aurora wordmark" })).toHaveCount(1);
-  await expect(mediaKit.getByText("Artwork by Afterglow Studio", { exact: true })).toBeVisible();
-  await expect(mediaKit.getByRole("link", { name: "Download Profile image" })).toBeVisible();
+  await expect(
+    mediaKit.getByRole("link", { name: "Artwork by Afterglow Studio" }),
+  ).toHaveAttribute("href", "https://example.invalid/afterglow-studio");
+  await expect(mediaKit.getByRole("link", { name: "Download" }).first()).toBeVisible();
+  await expect(mediaKit.getByText("PNG / 180 KB", { exact: true })).toBeVisible();
   await expect(mediaKit.locator("article")).toHaveCount(3);
   await captureRouteScreenshot(page, testInfo, "profile-media-kit");
 });
