@@ -42,11 +42,16 @@ type FixturePersonProfile = Extract<PublicProfile, { profileType: "person" }> & 
 
 const auroraProfileImage = {
   assetId: "fixture-aurora-profile-image",
-  label: "Profile image",
+  label: "Aurora press portrait",
+  caption: "Warm-room portrait for lineups and editorial coverage.",
   altText: "DJ Aurora framed by violet light and a warm orange glow.",
   credit: "Artwork by Afterglow Studio",
-  mimeType: "image/png",
-  byteSize: 184_000,
+  creditUrl: "https://example.invalid/afterglow-studio",
+  mimeType: "image/webp",
+  byteSize: 92_000,
+  downloadMimeType: "image/png",
+  downloadByteSize: 184_000,
+  sourcePreserved: true,
   imageUrl: "/api/e2e/fixture-assets/fixture-aurora-profile-image",
   downloadUrl: "/api/v0/profiles/playwright-dj-aurora/assets/fixture-aurora-profile-image/file?download=1",
 };
@@ -56,8 +61,12 @@ const auroraPrimaryLogo = {
   label: "Primary logo",
   caption: "Aurora wordmark for event flyers and lineup cards.",
   altText: "AURORA wordmark in white over violet and cyan light.",
+  creditUrl: "https://example.invalid/aurora-source",
   mimeType: "image/svg+xml",
   byteSize: 24_000,
+  downloadMimeType: "image/svg+xml",
+  downloadByteSize: 24_000,
+  sourcePreserved: true,
   imageUrl: "/api/e2e/fixture-assets/fixture-aurora-primary-logo",
   downloadUrl: "/api/v0/profiles/playwright-dj-aurora/assets/fixture-aurora-primary-logo/file?download=1",
 };
@@ -66,10 +75,23 @@ const auroraAdditionalLogo = {
   assetId: "fixture-aurora-alt-logo",
   label: "Square mark",
   altText: "Square Aurora monogram in warm orange light.",
+  credit: "Aurora Studio",
   mimeType: "image/png",
   byteSize: 96_000,
+  sourcePreserved: false,
   imageUrl: "/api/e2e/fixture-assets/fixture-aurora-alt-logo",
   downloadUrl: "/api/v0/profiles/playwright-dj-aurora/assets/fixture-aurora-alt-logo/file?download=1",
+};
+
+const auroraUncreditedMedia = {
+  assetId: "fixture-aurora-uncredited-media",
+  label: "Uncredited mark",
+  altText: "Square Aurora monogram in warm orange light.",
+  mimeType: "image/png",
+  byteSize: 96_000,
+  sourcePreserved: false,
+  imageUrl: "/api/e2e/fixture-assets/fixture-aurora-alt-logo",
+  downloadUrl: "/api/v0/profiles/playwright-dj-aurora/assets/fixture-aurora-uncredited-media/file?download=1",
 };
 
 const eventPreview = {
@@ -182,8 +204,8 @@ const personProfile: FixturePersonProfile = {
     primaryLogo: auroraPrimaryLogo,
     additionalLogos: [auroraAdditionalLogo],
     logos: [auroraPrimaryLogo, auroraAdditionalLogo],
-    assets: [auroraProfileImage, auroraPrimaryLogo, auroraAdditionalLogo],
-    galleryAssets: [auroraProfileImage, auroraPrimaryLogo, auroraAdditionalLogo],
+    assets: [auroraProfileImage, auroraPrimaryLogo, auroraAdditionalLogo, auroraUncreditedMedia],
+    galleryAssets: [auroraProfileImage, auroraPrimaryLogo, auroraAdditionalLogo, auroraUncreditedMedia],
     logoZipUrl: "/api/v0/profiles/playwright-dj-aurora/logos.zip",
     compactDisplay: "profile_image",
     avatarAppearance: {

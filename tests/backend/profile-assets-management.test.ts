@@ -12,6 +12,8 @@ import {
 import schemaModule from "../../convex/schema";
 
 process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true";
+process.env.VRDEX_PROFILE_MEDIA_DIRECT_UPLOAD_ENABLED = "true";
+process.env.VRDEX_PROFILE_MEDIA_ACCESSIBILITY_GENERATION_ENABLED = "true";
 
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
@@ -200,6 +202,9 @@ describe("profile media-kit owner management", () => {
     );
 
     assert.equal(ownerAsset?.storageKey, "profile-assets/test/0.png");
+    assert.equal("sourceStorageKey" in (ownerAsset ?? {}), false);
+    assert.equal("sourceMimeType" in (ownerAsset ?? {}), false);
+    assert.equal("sourceByteSize" in (ownerAsset ?? {}), false);
     assert.equal(otherAsset, null);
   });
 
@@ -296,6 +301,22 @@ describe("profile media-kit owner management", () => {
         uploadToken: intent.uploadToken,
       },
     ), false);
+    assert.deepEqual(await seeded.t.query(
+      internal.profileAssets.getUploadIntentStateForStorageCleanup,
+      {
+        intentId: intent.intentId,
+        uploadToken: intent.uploadToken,
+        processingToken: firstToken,
+      },
+    ), { state: "pending" });
+    assert.equal(await seeded.t.query(
+      internal.profileAssets.getUploadIntentStateForStorageCleanup,
+      {
+        intentId: intent.intentId,
+        uploadToken: intent.uploadToken,
+        processingToken: "processing-replay",
+      },
+    ), null);
     assert.equal(await seeded.t.mutation(internal.profileAssets.releaseUploadIntentStorageClaim, {
       intentId: intent.intentId,
       uploadToken: intent.uploadToken,
@@ -797,6 +818,430 @@ describe("profile media-kit owner management", () => {
     assert.equal(
       restoredGallery.some((placement) => placement.placement === "gallery" && placement.state === "active"),
       true,
+    );
+  });
+
+  it("treats malformed direct-upload intent IDs as missing", async () => {
+    const seeded = await seedOwnedProfile(0);
+    assert.equal(await seeded.t.query(internal.profileAssets.getUploadIntentForDirectStorage, {
+      intentId: "not-a-convex-id",
+      uploadToken: "synthetic-token",
+    }), null);
+  });
+
+  it("replaces an asset atomically at the active asset quota", async () => {
+    const seeded = await seedOwnedProfile(12);
+    const owner = seeded.t.withIdentity(seeded.ownerIdentity);
+    await owner.mutation(api.profileAssets.setOwnedFeaturedAsset, {
+      profileId: seeded.profileId,
+      assetId: seeded.assetIds[0]!,
+    });
+    const intent = await owner.mutation(api.profileAssets.createUploadIntentForOwnedProfile, {
+      profileId: seeded.profileId,
+      replacesAssetId: seeded.assetIds[0]!,
+      originalFileName: "replacement.png",
+      mimeType: "image/png",
+      byteSize: 128,
+      label: "Asset 1",
+      altText: "Replacement asset.",
+      placements: [],
+    });
+    await owner.mutation(api.profileAssets.updateOwnedAssetMetadata, {
+      profileId: seeded.profileId,
+      assetId: seeded.assetIds[0]!,
+      label: "Current title",
+      caption: "Current caption",
+      altText: "Current description.",
+      credit: "Current credit",
+      creditUrl: "https://example.com/current-credit",
+    });
+    const processingToken = await claimUploadIntent(seeded, intent);
+    const completed = await seeded.t.mutation(internal.profileAssets.markUploadIntentUploaded, {
+      intentId: intent.intentId,
+      uploadToken: intent.uploadToken,
+      processingToken,
+      mimeType: "image/webp",
+      byteSize: 96,
+      contentSha256: "replacement-hash",
+      width: 20,
+      height: 20,
+    });
+    const state = await seeded.t.run(async (ctx) => {
+      const assets = await ctx.db
+        .query("profileAssets")
+        .withIndex("by_profileId", (query) => query.eq("profileId", seeded.profileId))
+        .collect();
+      const gallery = await ctx.db
+        .query("profileAssetPlacements")
+        .withIndex("by_profileId_placement_state_position", (query) =>
+          query.eq("profileId", seeded.profileId).eq("placement", "gallery").eq("state", "active"),
+        )
+        .collect();
+      const featured = await ctx.db
+        .query("profileAssetPlacements")
+        .withIndex("by_profileId_placement_state_position", (query) =>
+          query.eq("profileId", seeded.profileId).eq("placement", "featured").eq("state", "active"),
+        )
+        .collect();
+      return { assets, featured, gallery };
+    });
+    const replacementId = completed.assetIds[0]!;
+    assert.equal(state.assets.filter((asset) => asset.state === "active").length, 12);
+    assert.equal(state.assets.find((asset) => asset._id === seeded.assetIds[0])?.state, "deleted");
+    const replacement = state.assets.find((asset) => asset._id === replacementId);
+    assert.equal(replacement?.label, "Current title");
+    assert.equal(replacement?.caption, "Current caption");
+    assert.equal(replacement?.altText, "Current description.");
+    assert.equal(replacement?.credit, "Current credit");
+    assert.equal(replacement?.creditUrl, "https://example.com/current-credit");
+    assert.equal(state.gallery.find((placement) => placement.position === 0)?.assetId, replacementId);
+    assert.equal(state.featured[0]?.assetId, replacementId);
+  });
+
+  it("rechecks the media-kit kill switch before finalizing a replacement", async () => {
+    const seeded = await seedOwnedProfile(1);
+    const owner = seeded.t.withIdentity(seeded.ownerIdentity);
+    const intent = await owner.mutation(api.profileAssets.createUploadIntentForOwnedProfile, {
+      profileId: seeded.profileId,
+      replacesAssetId: seeded.assetIds[0]!,
+      originalFileName: "disabled-replacement.png",
+      mimeType: "image/png",
+      byteSize: 128,
+      label: "Replacement",
+      placements: [],
+    });
+    const processingToken = await claimUploadIntent(seeded, intent);
+    const previous = process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED;
+    delete process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED;
+
+    try {
+      await assert.rejects(
+        seeded.t.mutation(internal.profileAssets.markUploadIntentUploaded, {
+          intentId: intent.intentId,
+          uploadToken: intent.uploadToken,
+          processingToken,
+          mimeType: "image/webp",
+          byteSize: 96,
+          contentSha256: "disabled-replacement-hash",
+          width: 20,
+          height: 20,
+        }),
+        /not enabled/,
+      );
+    } finally {
+      process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = previous ?? "true";
+    }
+    const original = await seeded.t.run((ctx) => ctx.db.get(seeded.assetIds[0]!));
+    assert.equal(original?.state, "active");
+  });
+
+  it("keeps the original active when replacement completion fails", async () => {
+    const seeded = await seedOwnedProfile(12);
+    const owner = seeded.t.withIdentity(seeded.ownerIdentity);
+    const intent = await owner.mutation(api.profileAssets.createUploadIntentForOwnedProfile, {
+      profileId: seeded.profileId,
+      replacesAssetId: seeded.assetIds[0]!,
+      originalFileName: "duplicate-replacement.png",
+      mimeType: "image/png",
+      byteSize: 128,
+      label: "Asset 1",
+      placements: [],
+    });
+    const processingToken = await claimUploadIntent(seeded, intent);
+    await assert.rejects(
+      seeded.t.mutation(internal.profileAssets.markUploadIntentUploaded, {
+        intentId: intent.intentId,
+        uploadToken: intent.uploadToken,
+        processingToken,
+        mimeType: "image/webp",
+        byteSize: 96,
+        contentSha256: "hash-1",
+        width: 20,
+        height: 20,
+      }),
+      /already exists/,
+    );
+    const original = await seeded.t.run((ctx) => ctx.db.get(seeded.assetIds[0]!));
+    assert.equal(original?.state, "active");
+  });
+
+  it("persists captions, safe credit links, and preserved source/download variants", async () => {
+    const seeded = await seedOwnedProfile(0);
+    const owner = seeded.t.withIdentity(seeded.ownerIdentity);
+    const intent = await owner.mutation(api.profileAssets.createUploadIntentForOwnedProfile, {
+      profileId: seeded.profileId,
+      originalFileName: "press portrait.png",
+      mimeType: "image/png",
+      byteSize: 512,
+      label: "Press portrait",
+      caption: "Synthetic launch caption.",
+      credit: "Example Photographer",
+      creditUrl: "https://example.test/photographer",
+      placements: ["gallery", "featured"],
+    });
+    const directTarget = await seeded.t.query(
+      internal.profileAssets.getUploadIntentForDirectStorage,
+      { intentId: intent.intentId, uploadToken: intent.uploadToken },
+    );
+    assert.match(directTarget?.storageKey ?? "", /^profile-assets\/quarantine\//);
+    const processingToken = await claimUploadIntent(seeded, intent);
+    const completed = await seeded.t.mutation(internal.profileAssets.markUploadIntentUploaded, {
+      intentId: intent.intentId,
+      uploadToken: intent.uploadToken,
+      processingToken,
+      mimeType: "image/webp",
+      byteSize: 256,
+      contentSha256: "sanitized-download-hash",
+      sourceMimeType: "image/png",
+      sourceByteSize: 512,
+      sourceContentSha256: "private-source-hash",
+      downloadMimeType: "image/png",
+      downloadByteSize: 480,
+      downloadContentSha256: "sanitized-download-hash",
+      width: 400,
+      height: 300,
+    });
+    const profiles = await owner.query(api.profileAssets.listOwnedMediaKitProfiles, {});
+    const asset = profiles?.[0]?.assets.find((candidate) => candidate.assetId === completed.assetIds[0]);
+
+    assert.equal(asset?.caption, "Synthetic launch caption.");
+    assert.equal(asset?.credit, "Example Photographer");
+    assert.equal(asset?.creditUrl, "https://example.test/photographer");
+    assert.equal(asset?.mimeType, "image/webp");
+    assert.equal(asset?.downloadMimeType, "image/png");
+    assert.equal(asset?.downloadByteSize, 480);
+    assert.equal(asset?.sourcePreserved, true);
+    assert.match(asset?.downloadUrl ?? "", /\?download=1$/);
+
+    const publicAsset = await seeded.t.query(api.profileAssets.getPublicAssetForStorage, {
+      slug: "media-owner",
+      assetId: completed.assetIds[0]!,
+    });
+    assert.equal("sourceStorageKey" in (publicAsset ?? {}), false);
+    assert.equal("sourceMimeType" in (publicAsset ?? {}), false);
+    assert.equal(publicAsset?.downloadMimeType, "image/png");
+    assert.deepEqual(
+      await seeded.t.query(internal.profileAssets.getUploadIntentStateForStorageCleanup, {
+        intentId: intent.intentId,
+        uploadToken: intent.uploadToken,
+        processingToken,
+      }),
+      { state: "consumed" },
+    );
+    assert.equal(
+      await seeded.t.query(internal.profileAssets.getUploadIntentStateForStorageCleanup, {
+        intentId: intent.intentId,
+        uploadToken: "wrong-token",
+        processingToken,
+      }),
+      null,
+    );
+  });
+
+  it("accepts every optional credit combination and rejects unsafe credit links", async () => {
+    const seeded = await seedOwnedProfile(1);
+    const owner = seeded.t.withIdentity(seeded.ownerIdentity);
+
+    await owner.mutation(api.profileAssets.updateOwnedAssetMetadata, {
+      profileId: seeded.profileId,
+      assetId: seeded.assetIds[0]!,
+      label: "Credit combinations",
+      creditUrl: "http://example.test/credit",
+    });
+    let profiles = await owner.query(api.profileAssets.listOwnedMediaKitProfiles, {});
+    assert.equal(profiles?.[0]?.assets[0]?.credit, undefined);
+    assert.equal(profiles?.[0]?.assets[0]?.creditUrl, "http://example.test/credit");
+
+    await owner.mutation(api.profileAssets.updateOwnedAssetMetadata, {
+      profileId: seeded.profileId,
+      assetId: seeded.assetIds[0]!,
+      label: "Credit combinations",
+      credit: "Example",
+      creditUrl: "",
+    });
+    profiles = await owner.query(api.profileAssets.listOwnedMediaKitProfiles, {});
+    assert.equal(profiles?.[0]?.assets[0]?.credit, "Example");
+    assert.equal(profiles?.[0]?.assets[0]?.creditUrl, undefined);
+
+    for (const creditUrl of [
+      "javascript:alert(1)",
+      "ftp://example.test/file",
+      "https://user:password@example.test/",
+      "not a URL",
+    ]) {
+      await assert.rejects(
+        owner.mutation(api.profileAssets.updateOwnedAssetMetadata, {
+          profileId: seeded.profileId,
+          assetId: seeded.assetIds[0]!,
+          label: "Credit combinations",
+          creditUrl,
+        }),
+        /Credit links/,
+      );
+    }
+  });
+
+  it("keeps direct upload and accessibility generation behind separate rollout flags", async () => {
+    const seeded = await seedOwnedProfile(0);
+    const owner = seeded.t.withIdentity(seeded.ownerIdentity);
+    const previousDirectUpload = process.env.VRDEX_PROFILE_MEDIA_DIRECT_UPLOAD_ENABLED;
+    const previousGeneration = process.env.VRDEX_PROFILE_MEDIA_ACCESSIBILITY_GENERATION_ENABLED;
+    delete process.env.VRDEX_PROFILE_MEDIA_DIRECT_UPLOAD_ENABLED;
+    delete process.env.VRDEX_PROFILE_MEDIA_ACCESSIBILITY_GENERATION_ENABLED;
+
+    try {
+      const intent = await owner.mutation(api.profileAssets.createUploadIntentForOwnedProfile, {
+        profileId: seeded.profileId,
+        originalFileName: "compatibility.png",
+        mimeType: "image/png",
+        byteSize: 128,
+        label: "Compatibility upload",
+      });
+      assert.equal(intent.directUploadUrl, undefined);
+      await assert.rejects(
+        owner.mutation(api.profileAssets.claimOwnedAccessibilityGeneration, {
+          profileId: seeded.profileId,
+          requestId: crypto.randomUUID(),
+          provider: "openai",
+          model: "synthetic-model",
+          imageBytes: 1_024,
+        }),
+        /not enabled/,
+      );
+    } finally {
+      process.env.VRDEX_PROFILE_MEDIA_DIRECT_UPLOAD_ENABLED = previousDirectUpload ?? "true";
+      process.env.VRDEX_PROFILE_MEDIA_ACCESSIBILITY_GENERATION_ENABLED =
+        previousGeneration ?? "true";
+    }
+  });
+
+  it("authorizes, rate-limits, and records content-free accessibility generation telemetry", async () => {
+    const seeded = await seedOwnedProfile(0);
+    const owner = seeded.t.withIdentity(seeded.ownerIdentity);
+    const requestId = crypto.randomUUID();
+
+    await assert.rejects(
+      seeded.t.withIdentity(seeded.otherIdentity).mutation(
+        api.profileAssets.claimOwnedAccessibilityGeneration,
+        {
+          profileId: seeded.profileId,
+          requestId,
+          provider: "openai",
+          model: "synthetic-model",
+          imageBytes: 1_024,
+        },
+      ),
+      /Only the profile owner/,
+    );
+    const claim = await owner.mutation(api.profileAssets.claimOwnedAccessibilityGeneration, {
+      profileId: seeded.profileId,
+      requestId,
+      provider: "openai",
+      model: "synthetic-model",
+      imageBytes: 1_024,
+    });
+    assert.equal(claim.replay, false);
+    const replay = await owner.mutation(api.profileAssets.claimOwnedAccessibilityGeneration, {
+      profileId: seeded.profileId,
+      requestId,
+      provider: "openai",
+      model: "synthetic-model",
+      imageBytes: 1_024,
+    });
+    assert.equal(replay.replay, true);
+    assert.equal(replay.eventId, claim.eventId);
+    await assert.rejects(
+      owner.mutation(api.profileAssets.claimOwnedAccessibilityGeneration, {
+        profileId: seeded.profileId,
+        requestId: crypto.randomUUID(),
+        provider: "openai",
+        model: "synthetic-model",
+        imageBytes: 1_024,
+      }),
+      /Wait a moment/,
+    );
+
+    assert.equal(
+      await seeded.t.mutation(internal.profileAssets.finishAccessibilityGeneration, {
+        eventId: claim.eventId,
+        requestId,
+        result: "succeeded",
+        descriptionLength: 52,
+        latencyMs: 321,
+      }),
+      true,
+    );
+    const event = await seeded.t.run(async (ctx) => await ctx.db.get(claim.eventId));
+    assert.equal(event?.result, "succeeded");
+    assert.equal(event?.descriptionLength, 52);
+    assert.equal(event?.latencyMs, 321);
+    assert.equal("description" in (event ?? {}), false);
+    assert.equal("image" in (event ?? {}), false);
+  });
+
+  it("rejects malformed accessibility generation telemetry metadata", async () => {
+    const seeded = await seedOwnedProfile(0);
+    const owner = seeded.t.withIdentity(seeded.ownerIdentity);
+    for (const args of [
+      {
+        requestId: "not-a-uuid",
+        provider: "openai" as const,
+        model: "synthetic-model",
+      },
+      {
+        requestId: crypto.randomUUID(),
+        provider: "openai" as const,
+        model: `model-${"x".repeat(100)}`,
+      },
+      {
+        requestId: crypto.randomUUID(),
+        provider: "other" as "openai",
+        model: "synthetic-model",
+      },
+    ]) {
+      await assert.rejects(
+        owner.mutation(api.profileAssets.claimOwnedAccessibilityGeneration, {
+          profileId: seeded.profileId,
+          ...args,
+          imageBytes: 1_024,
+        }),
+        /metadata|Validator/,
+      );
+    }
+  });
+
+  it("enforces the rolling daily accessibility generation limit", async () => {
+    const seeded = await seedOwnedProfile(0);
+    const now = Date.now();
+    await seeded.t.run(async (ctx) => {
+      for (let index = 0; index < 20; index += 1) {
+        await ctx.db.insert("profileAssetAccessibilityGenerationEvents", {
+          requestId: `prior-${index}`,
+          userId: seeded.userId,
+          profileId: seeded.profileId,
+          provider: "openai",
+          model: "synthetic-model",
+          result: "failed",
+          imageBytes: 1_024,
+          errorCode: "provider",
+          createdAt: now - 10_000 - index,
+          completedAt: now - 9_000 - index,
+        });
+      }
+    });
+
+    await assert.rejects(
+      seeded.t.withIdentity(seeded.ownerIdentity).mutation(
+        api.profileAssets.claimOwnedAccessibilityGeneration,
+        {
+          profileId: seeded.profileId,
+          requestId: crypto.randomUUID(),
+          provider: "openai",
+          model: "synthetic-model",
+          imageBytes: 1_024,
+        },
+      ),
+      /limit reached/,
     );
   });
 });

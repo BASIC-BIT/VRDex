@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
+import { randomFillSync } from "node:crypto";
 import { describe, it } from "node:test";
 
 import sharp from "sharp";
 
 import {
+  PROFILE_ASSET_MAX_STORED_BYTES,
   PROFILE_ASSET_MAX_STORED_DIMENSION,
+  validateAndPrepareProfileAsset,
   validateAndNormalizeProfileAsset,
 } from "../../apps/web/src/lib/server/profile-asset-validation";
 
@@ -25,7 +28,7 @@ describe("profile asset content validation", () => {
     );
   });
 
-  it("re-encodes raster uploads, strips metadata, and bounds stored dimensions", async () => {
+  it("preserves the private source, strips download metadata, and bounds the WebP display", async () => {
     const source = await sharp({
       create: {
         width: 5_000,
@@ -38,14 +41,142 @@ describe("profile asset content validation", () => {
       .jpeg()
       .toBuffer();
 
-    const normalized = await validateAndNormalizeProfileAsset(new Uint8Array(source), "image/jpeg");
-    const metadata = await sharp(normalized.body).metadata();
+    const prepared = await validateAndPrepareProfileAsset(new Uint8Array(source), "image/jpeg");
+    const downloadMetadata = await sharp(prepared.download.body).metadata();
+    const displayMetadata = await sharp(prepared.display.body).metadata();
 
-    assert.equal(normalized.mimeType, "image/jpeg");
-    assert.equal(normalized.width, PROFILE_ASSET_MAX_STORED_DIMENSION);
-    assert.equal(normalized.height, 2_048);
+    assert.deepEqual(prepared.source.body, new Uint8Array(source));
+    assert.equal(prepared.source.mimeType, "image/jpeg");
+    assert.match(prepared.source.contentSha256, /^[a-f0-9]{64}$/);
+    assert.equal(prepared.download.mimeType, "image/jpeg");
+    assert.equal(prepared.download.width, 5_000);
+    assert.equal(prepared.download.height, 2_500);
+    assert.equal(downloadMetadata.exif, undefined);
+    assert.equal(downloadMetadata.orientation, undefined);
+    assert.match(prepared.download.contentSha256, /^[a-f0-9]{64}$/);
+    assert.equal(prepared.display.mimeType, "image/webp");
+    assert.equal(prepared.display.width, PROFILE_ASSET_MAX_STORED_DIMENSION);
+    assert.equal(prepared.display.height, 2_048);
+    assert.equal(displayMetadata.format, "webp");
+    assert.equal(displayMetadata.exif, undefined);
+    assert.notEqual(prepared.display.contentSha256, prepared.download.contentSha256);
+  });
+
+  it("keeps sanitized downloads in the uploaded raster format", async () => {
+    const inputs = [
+      {
+        mimeType: "image/png",
+        body: await sharp({
+          create: { width: 48, height: 32, channels: 4, background: "#663399" },
+        }).withMetadata({ exif: { IFD0: { Artist: "Private PNG metadata" } } }).png().toBuffer(),
+      },
+      {
+        mimeType: "image/webp",
+        body: await sharp({
+          create: { width: 48, height: 32, channels: 4, background: "#663399" },
+        }).withMetadata({ exif: { IFD0: { Artist: "Private WebP metadata" } } }).webp().toBuffer(),
+      },
+    ] as const;
+
+    for (const input of inputs) {
+      const prepared = await validateAndPrepareProfileAsset(
+        new Uint8Array(input.body),
+        input.mimeType,
+      );
+      const metadata = await sharp(prepared.download.body).metadata();
+      assert.equal(prepared.download.mimeType, input.mimeType);
+      assert.equal(metadata.format, input.mimeType.replace("image/", ""));
+      assert.equal(metadata.exif, undefined);
+      assert.equal(prepared.display.mimeType, "image/webp");
+    }
+  });
+
+  it("keeps sanitized WebP downloads within the upload limit", async () => {
+    const pixels = Buffer.allocUnsafe(2_048 * 2_048 * 3);
+    randomFillSync(pixels);
+    const source = await sharp(pixels, {
+      raw: { width: 2_048, height: 2_048, channels: 3 },
+    }).webp({ quality: 70 }).toBuffer();
+    const prepared = await validateAndPrepareProfileAsset(new Uint8Array(source), "image/webp");
+
+    assert.ok(source.byteLength <= 12 * 1024 * 1024);
+    assert.ok(prepared.download.body.byteLength <= 12 * 1024 * 1024);
+    assert.equal((await sharp(prepared.download.body).metadata()).format, "webp");
+  });
+
+  it("reduces JPEG encoding quality when metadata sanitization would exceed the upload limit", async () => {
+    const width = 4_096;
+    const height = 4_096;
+    const pixels = Buffer.allocUnsafe(width * height * 3);
+    randomFillSync(pixels);
+    const source = await sharp(pixels, {
+      raw: { width, height, channels: 3 },
+    }).jpeg({ quality: 70 }).toBuffer();
+    const fixedQualityDownload = await sharp(source)
+      .rotate()
+      .jpeg({ quality: 95, mozjpeg: true })
+      .toBuffer();
+    const fixedQualityDisplay = await sharp(source)
+      .rotate()
+      .resize({
+        width: PROFILE_ASSET_MAX_STORED_DIMENSION,
+        height: PROFILE_ASSET_MAX_STORED_DIMENSION,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .webp({ quality: 88 })
+      .toBuffer();
+
+    assert.ok(source.byteLength <= PROFILE_ASSET_MAX_STORED_BYTES);
+    assert.ok(fixedQualityDownload.byteLength > PROFILE_ASSET_MAX_STORED_BYTES);
+    assert.ok(fixedQualityDisplay.byteLength > PROFILE_ASSET_MAX_STORED_BYTES);
+
+    const prepared = await validateAndPrepareProfileAsset(new Uint8Array(source), "image/jpeg");
+    const metadata = await sharp(prepared.download.body).metadata();
+
+    assert.ok(prepared.download.body.byteLength <= PROFILE_ASSET_MAX_STORED_BYTES);
+    assert.ok(prepared.display.body.byteLength <= PROFILE_ASSET_MAX_STORED_BYTES);
+    assert.equal(prepared.download.mimeType, "image/jpeg");
+    assert.equal(metadata.format, "jpeg");
+    assert.equal(metadata.width, width);
+    assert.equal(metadata.height, height);
     assert.equal(metadata.exif, undefined);
-    assert.match(normalized.contentSha256, /^[a-f0-9]{64}$/);
+  });
+
+  it("uses a bounded PNG palette when metadata sanitization expands an indexed upload", async () => {
+    const width = 4_400;
+    const height = 4_400;
+    const pixelCount = width * height;
+    const colorIndexes = Buffer.allocUnsafe(pixelCount);
+    const pixels = Buffer.allocUnsafe(pixelCount * 4);
+    randomFillSync(colorIndexes);
+    for (let index = 0; index < pixelCount; index += 1) {
+      const color = colorIndexes[index]! & 0x0f;
+      pixels[index * 4] = color * 17;
+      pixels[index * 4 + 1] = ((color * 5) & 0x0f) * 17;
+      pixels[index * 4 + 2] = ((color * 11) & 0x0f) * 17;
+      pixels[index * 4 + 3] = color % 3 === 0 ? 128 : 255;
+    }
+    const source = await sharp(pixels, {
+      raw: { width, height, channels: 4 },
+    }).png({ compressionLevel: 9, palette: true, colours: 16 }).toBuffer();
+    const fixedEncoding = await sharp(source)
+      .rotate()
+      .png({ compressionLevel: 9 })
+      .toBuffer();
+
+    assert.ok(source.byteLength <= PROFILE_ASSET_MAX_STORED_BYTES);
+    assert.ok(fixedEncoding.byteLength > PROFILE_ASSET_MAX_STORED_BYTES);
+
+    const prepared = await validateAndPrepareProfileAsset(new Uint8Array(source), "image/png");
+    const metadata = await sharp(prepared.download.body).metadata();
+
+    assert.ok(prepared.download.body.byteLength <= PROFILE_ASSET_MAX_STORED_BYTES);
+    assert.equal(prepared.download.mimeType, "image/png");
+    assert.equal(metadata.format, "png");
+    assert.equal(metadata.width, width);
+    assert.equal(metadata.height, height);
+    assert.equal(metadata.exif, undefined);
   });
 
   it("accepts a simple bounded SVG and rejects active or external SVG content", async () => {

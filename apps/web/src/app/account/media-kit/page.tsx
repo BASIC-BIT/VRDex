@@ -34,7 +34,15 @@ export default async function MediaKitPage({
           <h1 className="text-4xl font-semibold tracking-[-0.04em] sm:text-5xl">Media kit</h1>
         </header>
 
-        <MediaKitPanel demoMode={demoMode} initialProfileSlug={initialProfileSlug} />
+        <MediaKitPanel
+          demoMode={demoMode}
+          generationEnabled={
+            demoMode ||
+            (process.env.VRDEX_PROFILE_MEDIA_ACCESSIBILITY_GENERATION_ENABLED === "true" &&
+              Boolean(process.env.OPENAI_API_KEY?.trim()))
+          }
+          initialProfileSlug={initialProfileSlug}
+        />
       </PageContainer>
     </PageShell>
   );
