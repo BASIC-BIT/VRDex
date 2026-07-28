@@ -128,7 +128,11 @@ These steps change production configuration or create third-party application
 credentials, so they are deliberately not automated:
 
 1. Register the production redirect URI above (unblocks Discord claiming).
-   **Done 2026-07-27.**
+   **Reported done by BASIC on 2026-07-27**, in session. Not independently
+   verified from the repo — nothing here can read the Discord Developer Portal.
+   If guild verification returns `failed` for every attempt, re-check this
+   first: without the redirect URI Discord rejects the code exchange after
+   consent, which looks identical to a provider outage.
 2. Decide whether to enable the bot path, and if so set `DISCORD_BOT_TOKEN` in
    production Convex env and invite the bot to the relevant servers. **Not
    enabled.** The OAuth round-trip covers claiming on its own; the bot path is
