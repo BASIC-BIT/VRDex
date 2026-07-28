@@ -116,14 +116,26 @@ describe("profile asset content validation", () => {
       .rotate()
       .jpeg({ quality: 95, mozjpeg: true })
       .toBuffer();
+    const fixedQualityDisplay = await sharp(source)
+      .rotate()
+      .resize({
+        width: PROFILE_ASSET_MAX_STORED_DIMENSION,
+        height: PROFILE_ASSET_MAX_STORED_DIMENSION,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .webp({ quality: 88 })
+      .toBuffer();
 
     assert.ok(source.byteLength <= PROFILE_ASSET_MAX_STORED_BYTES);
     assert.ok(fixedQualityDownload.byteLength > PROFILE_ASSET_MAX_STORED_BYTES);
+    assert.ok(fixedQualityDisplay.byteLength > PROFILE_ASSET_MAX_STORED_BYTES);
 
     const prepared = await validateAndPrepareProfileAsset(new Uint8Array(source), "image/jpeg");
     const metadata = await sharp(prepared.download.body).metadata();
 
     assert.ok(prepared.download.body.byteLength <= PROFILE_ASSET_MAX_STORED_BYTES);
+    assert.ok(prepared.display.body.byteLength <= PROFILE_ASSET_MAX_STORED_BYTES);
     assert.equal(prepared.download.mimeType, "image/jpeg");
     assert.equal(metadata.format, "jpeg");
     assert.equal(metadata.width, width);

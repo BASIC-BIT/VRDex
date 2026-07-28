@@ -289,6 +289,31 @@ async function encodeInOriginalRasterFormat(
   throw new Error("Profile media assets must be 12 MB or smaller.");
 }
 
+async function encodeDisplayRaster(body: Uint8Array) {
+  for (const quality of [88, 70, 50, 30, 10, 1]) {
+    const candidate = await rasterPipeline(body)
+      .rotate()
+      .resize({
+        width: PROFILE_ASSET_MAX_STORED_DIMENSION,
+        height: PROFILE_ASSET_MAX_STORED_DIMENSION,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .webp({
+        quality,
+        alphaQuality: quality,
+        effort: 4,
+        smartSubsample: true,
+      })
+      .toBuffer({ resolveWithObject: true });
+    if (candidate.data.byteLength <= PROFILE_ASSET_MAX_STORED_BYTES) {
+      return candidate;
+    }
+  }
+
+  throw new Error("Profile media assets must be 12 MB or smaller.");
+}
+
 async function prepareRaster(body: Uint8Array, mimeType: SafeProfileAsset["mimeType"]) {
   const pipeline = rasterPipeline(body);
   const metadata = await pipeline.metadata();
@@ -299,16 +324,7 @@ async function prepareRaster(body: Uint8Array, mimeType: SafeProfileAsset["mimeT
   assertSourceDimensions(metadata.width, metadata.height);
 
   const sanitized = await encodeInOriginalRasterFormat(body, mimeType);
-  const display = await rasterPipeline(body)
-    .rotate()
-    .resize({
-      width: PROFILE_ASSET_MAX_STORED_DIMENSION,
-      height: PROFILE_ASSET_MAX_STORED_DIMENSION,
-      fit: "inside",
-      withoutEnlargement: true,
-    })
-    .webp({ quality: 88 })
-    .toBuffer({ resolveWithObject: true });
+  const display = await encodeDisplayRaster(body);
 
   return {
     download: {
