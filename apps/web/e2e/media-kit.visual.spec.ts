@@ -43,6 +43,11 @@ test("owner media-kit editor @visual @fixture", async ({ page }, testInfo) => {
   );
   await expect(page.getByRole("button", { name: "Move Aurora press portrait down" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Restore Old square mark" })).toBeVisible();
+  const mediaImages = page.locator("main img");
+  await expect(mediaImages).toHaveCount(4);
+  await mediaImages.evaluateAll(async (images) => {
+    await Promise.all(images.map(async (image) => await image.decode()));
+  });
   await captureRouteScreenshot(page, testInfo, "media-kit-editor");
 });
 
