@@ -4,6 +4,7 @@ import {
   claimSessionUserOrNull,
   requireVerifiedActiveBrowserSession,
 } from "./_claimSession";
+import { boundedFetch } from "./_boundedFetch";
 import { claimError } from "./_claimErrors";
 import { internal } from "./_generated/api";
 import { action, internalMutation, mutation, query } from "./_generated/server";
@@ -342,29 +343,9 @@ export const startGuildVerification = action({
  * forces the user through the whole OAuth round-trip again. `fetch` resolves on
  * headers, so clearing the timer around the fetch alone bounds nothing.
  */
-async function discordFetch(
-  url: string,
-  init: RequestInit = {},
-  timeoutMs = 10_000,
-): Promise<{ ok: boolean; status: number; body: unknown }> {
-  const controller = new AbortController();
-  const deadline = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const response = await fetch(url, { ...init, signal: controller.signal });
-    // Read the body inside the deadline. `fetch` resolves on headers, so a
-    // provider that then stalls the body would otherwise hang unbounded, and
-    // every early return without a read would leave the timer armed.
-    const body = await response.json().catch(() => undefined);
-
-    return { ok: response.ok, status: response.status, body };
-  } finally {
-    clearTimeout(deadline);
-  }
-}
 
 async function exchangeCodeForAccessToken(code: string): Promise<string> {
-  const response = await discordFetch(`${discordApiBaseUrl()}/oauth2/token`, {
+  const response = await boundedFetch(`${discordApiBaseUrl()}/oauth2/token`, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -411,7 +392,7 @@ async function fetchAllGuilds(accessToken: string): Promise<DiscordOAuthGuild[]>
       params.set("after", after);
     }
 
-    const response = await discordFetch(
+    const response = await boundedFetch(
       `${discordApiBaseUrl()}/users/@me/guilds?${params.toString()}`,
       { headers: { authorization: `Bearer ${accessToken}` } },
     );
@@ -457,7 +438,7 @@ async function fetchAllGuilds(accessToken: string): Promise<DiscordOAuthGuild[]>
  * never asked about it".
  */
 async function fetchCurrentDiscordUserId(accessToken: string): Promise<string> {
-  const response = await discordFetch(`${discordApiBaseUrl()}/users/@me`, {
+  const response = await boundedFetch(`${discordApiBaseUrl()}/users/@me`, {
     headers: { authorization: `Bearer ${accessToken}` },
   });
 
@@ -481,7 +462,7 @@ async function revokeAccessToken(accessToken: string): Promise<void> {
     // Bounded too: this runs after the proofs are recorded, so a hang here
     // would strand a completed verification behind a request whose only job is
     // best-effort cleanup.
-    await discordFetch(`${discordApiBaseUrl()}/oauth2/token/revoke`, {
+    await boundedFetch(`${discordApiBaseUrl()}/oauth2/token/revoke`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({

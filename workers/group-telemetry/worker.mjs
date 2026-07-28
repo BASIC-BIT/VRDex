@@ -240,15 +240,23 @@ async function checkProofs() {
         // reclaim these attempts and keep hammering the provider through its own
         // `Retry-After` window. With `cooldownUntil` set, `claimPendingProofChecks`
         // stops serving this account and the work moves to a healthy one.
-        await control
+        const cooldown = await control
           .send("proof_rate_limit", { retryAfterMs, now: Date.now() })
-          .catch(() => undefined);
+          .catch(() => null);
 
-        // The rest of the batch is still stamped from the claim, so hand it
-        // back. Otherwise a throttle also parks attempts that nobody looked at
-        // for the whole cooldown. This attempt keeps its stamp: it already cost
-        // a provider request.
-        await releaseUnread(pending, attempt, false);
+        // Only release once the shared cooldown is actually recorded. Releasing
+        // on a failed publish is worse than not releasing: the tail becomes
+        // immediately reclaimable while the account still reads `ready`, so a
+        // sibling task picks it straight up and keeps issuing provider requests
+        // through the `Retry-After` window. Holding the stamps parks the work
+        // for one cooldown instead, which is the lesser harm.
+        if (cooldown?.recorded === true) {
+          // The rest of the batch is still stamped from the claim, so hand it
+          // back. Otherwise a throttle also parks attempts that nobody looked
+          // at for the whole cooldown. This attempt keeps its stamp: it already
+          // cost a provider request.
+          await releaseUnread(pending, attempt, false);
+        }
         await pause(retryAfterMs);
         break;
       }

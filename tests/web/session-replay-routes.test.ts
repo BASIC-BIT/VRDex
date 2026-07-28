@@ -47,6 +47,25 @@ describe("session replay route blocking", () => {
     });
   }
 
+  // Private data also renders on *public* routes, where a layout cannot reach
+  // it: seed suggestions on `/` and `/search`, and the private worker section of
+  // the event editor. Those need the marker on the component, and this pins the
+  // ones that have it so a refactor cannot quietly drop it.
+  const COMPONENT_BLOCKED = [
+    "apps/web/src/app/_components/lookup-search-box.tsx",
+    "apps/web/src/app/events/event-editor-form.tsx",
+  ] as const;
+
+  for (const file of COMPONENT_BLOCKED) {
+    it(`keeps the private region in ${file.split("/").pop()} blocked`, () => {
+      assert.match(
+        fs.readFileSync(path.join(process.cwd(), file), "utf8"),
+        /data-ph-no-capture/,
+        `${file} renders non-public data on a public route and must block it`,
+      );
+    });
+  }
+
   // The selector the layouts rely on has to stay the one PostHog is configured
   // to block; renaming it in one place and not the other fails silently.
   it("uses the configured block selector", async () => {

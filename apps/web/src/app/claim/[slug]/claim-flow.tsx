@@ -255,6 +255,10 @@ export function ClaimFlow({
   function selectMethod(nextMethod: ClaimMethod) {
     setMethod(nextMethod);
     setStatus({ kind: "idle" });
+    // The form stays mounted after a collector-resolved completion, so without
+    // this the latch from the first proof rejects every later transition: a
+    // second proof would keep showing the first result and emit no event.
+    setCollectorCompletion(null);
     captureProductEvent(posthog, "claim_method_selected", {
       method: nextMethod,
       profile_type: profile.profileType,
@@ -268,6 +272,7 @@ export function ClaimFlow({
       method,
       profile_type: profile.profileType,
     });
+    setCollectorCompletion(null);
     setStatus({
       kind: "working",
       message: method === "vrchat" ? "Creating your proof code…" : "Checking Discord access…",
@@ -460,6 +465,7 @@ export function ClaimFlow({
   }
 
   async function startOver(pendingType: "claim_request" | "proof") {
+    setCollectorCompletion(null);
     setStatus({ kind: "working", message: "Canceling this attempt…" });
     // The pending row is about to disappear because the user asked, not because
     // the collector resolved it; without this the observer would report a

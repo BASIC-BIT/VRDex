@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 
 import { getLinkedProviderAccount } from "./accounts";
+import { boundedFetch } from "./_boundedFetch";
 import { claimError } from "./_claimErrors";
 import {
   claimSessionUserOrNull,
@@ -490,7 +491,7 @@ function proofAdapterHeaders(): Record<string, string> {
 
 async function fetchDiscordJson<T>(path: string): Promise<T> {
   const baseUrl = optionalEnv("DISCORD_API_BASE_URL") ?? "https://discord.com/api/v10";
-  const response = await fetch(`${baseUrl}${path}`, {
+  const response = await boundedFetch(`${baseUrl}${path}`, {
     headers: {
       authorization: `Bot ${requiredEnv("DISCORD_BOT_TOKEN")}`,
     },
@@ -500,7 +501,7 @@ async function fetchDiscordJson<T>(path: string): Promise<T> {
     throw claimError("ADAPTER_UNAVAILABLE", `discord_${response.status}`);
   }
 
-  return (await response.json()) as T;
+  return response.body as T;
 }
 
 async function verifyDiscordAdministratorPermission(discordGuildId: string, discordUserId: string) {
@@ -1378,7 +1379,7 @@ export const verifyVrchatProofViaAdapter = action({
       });
     }
 
-    const response = await fetch(adapterUrl, {
+    const response = await boundedFetch(adapterUrl, {
       method: "POST",
       headers: proofAdapterHeaders(),
       body: JSON.stringify({
@@ -1421,7 +1422,7 @@ export const verifyVrchatProofViaAdapter = action({
       return { state: "unavailable" as const };
     }
 
-    const result = (await response.json()) as ProofAdapterResponse;
+    const result = (response.body ?? {}) as ProofAdapterResponse;
 
     if (result.verified !== true) {
       return { state: "pending" as const };

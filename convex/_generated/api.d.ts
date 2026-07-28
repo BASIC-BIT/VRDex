@@ -20,6 +20,7 @@ import type * as _authRedirects from "../_authRedirects.js";
 import type * as _authSession from "../_authSession.js";
 import type * as _authSessionGuard from "../_authSessionGuard.js";
 import type * as _billing from "../_billing.js";
+import type * as _boundedFetch from "../_boundedFetch.js";
 import type * as _browserSessionAuthority from "../_browserSessionAuthority.js";
 import type * as _claimErrors from "../_claimErrors.js";
 import type * as _claimSession from "../_claimSession.js";
@@ -130,6 +131,7 @@ declare const fullApi: ApiFromModules<{
   _authSession: typeof _authSession;
   _authSessionGuard: typeof _authSessionGuard;
   _billing: typeof _billing;
+  _boundedFetch: typeof _boundedFetch;
   _browserSessionAuthority: typeof _browserSessionAuthority;
   _claimErrors: typeof _claimErrors;
   _claimSession: typeof _claimSession;
