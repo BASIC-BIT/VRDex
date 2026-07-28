@@ -170,6 +170,8 @@ function AssetEditor({
   operationBusy,
   runOperation,
   onRemoved,
+  onReplacementStarted,
+  onReplacementSettled,
   onReplaced,
 }: {
   asset: MediaAsset;
@@ -185,7 +187,9 @@ function AssetEditor({
     setStatus: (status: ActionStatus | null) => void,
   ) => Promise<boolean>;
   onRemoved: (assetId: string) => void;
-  onReplaced: (assetId: string) => void;
+  onReplacementStarted: (profileId: string) => void;
+  onReplacementSettled: (profileId: string) => void;
+  onReplaced: (profileId: string, assetId: string) => void;
 }) {
   const [draft, setDraft] = useState(asset);
   const [saving, setSaving] = useState(false);
@@ -250,13 +254,14 @@ function AssetEditor({
       return;
     }
     setReplacing(true);
+    onReplacementStarted(profileId);
     setStatus({ kind: "progress", message: "Preparing…" });
     try {
       const prepared = await prepareProfileMediaUpload(file);
       const replacementAssetId = await actions.replace(profileId, asset, prepared.file, index, (value) => {
         setStatus({ kind: "progress", message: `Uploading ${Math.round(value * 100)}%` });
       });
-      onReplaced(replacementAssetId);
+      onReplaced(profileId, replacementAssetId);
     } catch (error) {
       setStatus({
         kind: "error",
@@ -264,6 +269,7 @@ function AssetEditor({
       });
     } finally {
       setReplacing(false);
+      onReplacementSettled(profileId);
     }
   };
 
@@ -460,6 +466,7 @@ function MediaKitEditor({
   const [generatingUpload, setGeneratingUpload] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [operationBusy, setOperationBusy] = useState(false);
+  const [replacingProfileId, setReplacingProfileId] = useState<string | null>(null);
   const [galleryStatus, setGalleryStatus] = useState<ActionStatus | null>(null);
   const [removedStatus, setRemovedStatus] = useState<ActionStatus | null>(null);
   const [focusRestoreAssetId, setFocusRestoreAssetId] = useState<string | null>(null);
@@ -479,6 +486,8 @@ function MediaKitEditor({
   const profileSelectRef = useRef<HTMLSelectElement>(null);
   const shouldFocusProfileRef = useRef(false);
   const selectedProfile = initialProfiles.find((item) => item.profileId === selectedId);
+  const selectedProfileIdRef = useRef<string | null>(selectedProfile?.profileId ?? null);
+  selectedProfileIdRef.current = selectedProfile?.profileId ?? null;
   const profile = selectedProfile ?? initialProfiles[0];
   const activeAssets = profile?.assets.filter((asset) => asset.state === "active" && asset.gallery) ?? [];
   const otherActiveAssets = profile?.assets.filter((asset) => asset.state === "active" && !asset.gallery) ?? [];
@@ -631,7 +640,12 @@ function MediaKitEditor({
     }
   };
 
-  const replacedAsset = (assetId: string) => {
+  const replacementSettled = (profileId: string) => {
+    setReplacingProfileId((current) => current === profileId ? null : current);
+  };
+
+  const replacedAsset = (profileId: string, assetId: string) => {
+    if (selectedProfileIdRef.current !== profileId) return;
     setGalleryStatus({ kind: "success", message: "Replaced." });
     setFocusActiveAssetId(assetId);
   };
@@ -693,7 +707,7 @@ function MediaKitEditor({
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
           <div>
             <label className="text-sm font-medium" htmlFor="media-profile">Profile</label>
-            <select className={cn(inputClass, "max-w-md")} disabled={uploading || generatingUpload || operationBusy} id="media-profile" onChange={(event) => selectProfile(event.target.value)} ref={profileSelectRef} value={profile.profileId}>
+            <select className={cn(inputClass, "max-w-md")} disabled={uploading || generatingUpload || operationBusy || replacingProfileId !== null} id="media-profile" onChange={(event) => selectProfile(event.target.value)} ref={profileSelectRef} value={profile.profileId}>
               {initialProfiles.map((item) => <option key={item.profileId} value={item.profileId}>{item.displayName}</option>)}
             </select>
             <p className="mt-3 text-sm text-muted">{profile.activePublicAssetCount} / 12</p>
@@ -787,8 +801,10 @@ function MediaKitEditor({
                 index={index}
                 key={asset.assetId}
                 onRemoved={setFocusRestoreAssetId}
+                onReplacementSettled={replacementSettled}
+                onReplacementStarted={setReplacingProfileId}
                 onReplaced={replacedAsset}
-                operationBusy={operationBusy}
+                operationBusy={operationBusy || replacingProfileId !== null}
                 profileId={profile.profileId}
                 runOperation={runOperation}
               />
@@ -1000,7 +1016,11 @@ function DemoMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: string
     },
     replace: async (profileId, asset, file, _position, onProgress) => {
       onProgress(0.5);
-      if (file.name === "successful-replacement.png") {
+      if (file.name === "successful-replacement.png" || file.name === "slow-replacement.png") {
+        if (file.name === "slow-replacement.png") {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          window.dispatchEvent(new Event("vrdex:media-replacement-settled"));
+        }
         const replacementAssetId = `${asset.assetId}-replacement`;
         setProfiles((items) => items.map((profile) => profile.profileId === profileId
           ? {

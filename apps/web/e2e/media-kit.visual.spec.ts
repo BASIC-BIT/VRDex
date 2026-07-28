@@ -208,6 +208,47 @@ test("owner replacement restores status and focus to the new asset @fixture", as
   await expect(page.locator("#active-aurora-logo-replacement")).toBeFocused();
 });
 
+test("owner profile switch stays locked during replacement @fixture", async ({ page }) => {
+  await page.goto("/account/media-kit");
+  await page.getByLabel("Replace Aurora wordmark").setInputFiles({
+    name: "slow-replacement.png",
+    mimeType: "image/png",
+    buffer: await smallSyntheticPng(),
+  });
+
+  await expect(page.getByLabel("Profile", { exact: true })).toBeDisabled();
+  await expect(page.getByText("Replaced.", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Profile", { exact: true })).toBeEnabled();
+  await expect(page.getByLabel("Profile", { exact: true })).toHaveValue("demo-profile");
+});
+
+test("removed profile replacement cannot report success on the fallback profile @fixture", async ({ page }) => {
+  await page.goto("/account/media-kit");
+  await page.evaluate(() => {
+    (window as typeof window & { mediaReplacementSettled?: boolean }).mediaReplacementSettled = false;
+    window.addEventListener("vrdex:media-replacement-settled", () => {
+      (window as typeof window & { mediaReplacementSettled?: boolean }).mediaReplacementSettled = true;
+    }, { once: true });
+  });
+  await page.getByLabel("Replace Aurora wordmark").setInputFiles({
+    name: "slow-replacement.png",
+    mimeType: "image/png",
+    buffer: await smallSyntheticPng(),
+  });
+  await page.evaluate(() => {
+    window.dispatchEvent(new CustomEvent("vrdex:toggle-media-profile", {
+      detail: { profileId: "demo-profile", present: false },
+    }));
+  });
+
+  await expect(page.getByLabel("Profile", { exact: true })).toHaveValue("demo-community");
+  await expect.poll(() => page.evaluate(
+    () => (window as typeof window & { mediaReplacementSettled?: boolean }).mediaReplacementSettled,
+  )).toBe(true);
+  await expect(page.getByText("Replaced.", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Profile", { exact: true })).toBeEnabled();
+});
+
 test("owner oversized raster stays in its original format before direct upload @fixture", async ({ page }) => {
   const { image } = await oversizedSyntheticPng();
 
