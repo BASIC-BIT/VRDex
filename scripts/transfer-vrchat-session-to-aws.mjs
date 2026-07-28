@@ -128,8 +128,17 @@ if (!skipValidation) {
     // Persist rotation locally too. Writing only to AWS would leave the vault
     // holding pre-rotation cookies, so the next local run would validate an
     // already-superseded session.
-    if (refreshed.authCookie !== stored.authCookie ||
-        refreshed.twoFactorAuthCookie !== stored.twoFactorAuthCookie) {
+    //
+    // Never on a dry run, though. A dry run skips the AWS write, so saving the
+    // rotated cookies here would leave the vault ahead of Secrets Manager: the
+    // deployed collector keeps presenting the superseded session and can fall
+    // into `auth_required` purely because an operator rehearsed the transfer as
+    // the runbook tells them to.
+    if (
+      !dryRun &&
+      (refreshed.authCookie !== stored.authCookie ||
+        refreshed.twoFactorAuthCookie !== stored.twoFactorAuthCookie)
+    ) {
       await sessionStore.save(accountAlias, refreshed);
     }
 

@@ -455,9 +455,23 @@ export function ClaimFlow({
     // completion that did not happen.
     setCancelledPending(true);
     try {
-      await cancelPending({ profileSlug: profile.slug, pendingType });
+      const result = await cancelPending({ profileSlug: profile.slug, pendingType });
+
+      // Nothing was cancelled, which means the collector resolved the proof
+      // between the click and this mutation. Clearing the flag lets the observer
+      // report the real completion instead of suppressing it, and reporting
+      // "Attempt canceled" here would have asserted something that did not
+      // happen. A left-over flag would also have swallowed a later completion.
+      if (!result.canceled) {
+        setCancelledPending(false);
+        setStatus({ kind: "idle" });
+
+        return;
+      }
+
       setStatus({ kind: "notice", message: "Attempt canceled. Choose a method to start again." });
     } catch (error) {
+      setCancelledPending(false);
       setStatus({ kind: "error", message: errorMessage(error) });
     }
   }

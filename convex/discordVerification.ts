@@ -333,8 +333,38 @@ export const startGuildVerification = action({
   },
 });
 
+/**
+ * `fetch` with a deadline that stays armed until the body has been read.
+ *
+ * Every Discord call here is made after `completeGuildVerification` has already
+ * consumed the single-use state, so a provider that sends headers and then
+ * stalls the body blocks the callback until the action runtime gives up and
+ * forces the user through the whole OAuth round-trip again. `fetch` resolves on
+ * headers, so clearing the timer around the fetch alone bounds nothing.
+ */
+async function discordFetch(
+  url: string,
+  init: RequestInit = {},
+  timeoutMs = 10_000,
+): Promise<{ ok: boolean; status: number; body: unknown }> {
+  const controller = new AbortController();
+  const deadline = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    // Read the body inside the deadline. `fetch` resolves on headers, so a
+    // provider that then stalls the body would otherwise hang unbounded, and
+    // every early return without a read would leave the timer armed.
+    const body = await response.json().catch(() => undefined);
+
+    return { ok: response.ok, status: response.status, body };
+  } finally {
+    clearTimeout(deadline);
+  }
+}
+
 async function exchangeCodeForAccessToken(code: string): Promise<string> {
-  const response = await fetch(`${discordApiBaseUrl()}/oauth2/token`, {
+  const response = await discordFetch(`${discordApiBaseUrl()}/oauth2/token`, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -350,7 +380,7 @@ async function exchangeCodeForAccessToken(code: string): Promise<string> {
     throw claimError("ADAPTER_UNAVAILABLE", `token_exchange_${response.status}`);
   }
 
-  const payload = (await response.json()) as DiscordTokenResponse;
+  const payload = (response.body ?? {}) as DiscordTokenResponse;
 
   if (typeof payload.access_token !== "string" || payload.access_token.length === 0) {
     throw claimError("ADAPTER_UNAVAILABLE", "token_exchange_missing_token");
@@ -381,7 +411,7 @@ async function fetchAllGuilds(accessToken: string): Promise<DiscordOAuthGuild[]>
       params.set("after", after);
     }
 
-    const response = await fetch(
+    const response = await discordFetch(
       `${discordApiBaseUrl()}/users/@me/guilds?${params.toString()}`,
       { headers: { authorization: `Bearer ${accessToken}` } },
     );
@@ -390,7 +420,7 @@ async function fetchAllGuilds(accessToken: string): Promise<DiscordOAuthGuild[]>
       throw claimError("ADAPTER_UNAVAILABLE", `guilds_${response.status}`);
     }
 
-    const batch = (await response.json()) as DiscordOAuthGuild[];
+    const batch = response.body as DiscordOAuthGuild[];
 
     // A non-array payload must not be read as "no more pages". The caller
     // treats the result as the complete manageable set and revokes every proof
@@ -427,7 +457,7 @@ async function fetchAllGuilds(accessToken: string): Promise<DiscordOAuthGuild[]>
  * never asked about it".
  */
 async function fetchCurrentDiscordUserId(accessToken: string): Promise<string> {
-  const response = await fetch(`${discordApiBaseUrl()}/users/@me`, {
+  const response = await discordFetch(`${discordApiBaseUrl()}/users/@me`, {
     headers: { authorization: `Bearer ${accessToken}` },
   });
 
@@ -435,7 +465,7 @@ async function fetchCurrentDiscordUserId(accessToken: string): Promise<string> {
     throw claimError("ADAPTER_UNAVAILABLE", `identity_${response.status}`);
   }
 
-  const payload = (await response.json()) as { id?: unknown };
+  const payload = (response.body ?? {}) as { id?: unknown };
 
   if (typeof payload.id !== "string" || payload.id.length === 0) {
     throw claimError("ADAPTER_UNAVAILABLE", "identity_malformed_payload");
@@ -448,7 +478,10 @@ async function revokeAccessToken(accessToken: string): Promise<void> {
   // Best effort: the proof is already recorded, and a lingering token is the
   // thing we are trying to avoid, so failures here must not fail the claim.
   try {
-    await fetch(`${discordApiBaseUrl()}/oauth2/token/revoke`, {
+    // Bounded too: this runs after the proofs are recorded, so a hang here
+    // would strand a completed verification behind a request whose only job is
+    // best-effort cleanup.
+    await discordFetch(`${discordApiBaseUrl()}/oauth2/token/revoke`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
