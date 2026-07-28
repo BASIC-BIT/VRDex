@@ -194,11 +194,11 @@ test("auth session browser coverage is bounded to its positive matrix", async ()
 });
 
 test("deployed auth checks separate recurring staging from manual production", async () => {
-  const source = await readFile(
+  const deployedHealthSource = await readFile(
     ".github/workflows/deployed-health.yml",
     "utf8",
   );
-  const workflow = parseYaml(source) as {
+  const workflow = parseYaml(deployedHealthSource) as {
     on?: {
       workflow_dispatch?: {
         inputs?: Record<string, { default?: boolean; type?: string }>;
@@ -207,6 +207,7 @@ test("deployed auth checks separate recurring staging from manual production", a
     jobs?: Record<
       string,
       {
+        if?: string;
         steps?: Array<{
           env?: Record<string, string>;
           name?: string;
@@ -230,11 +231,49 @@ test("deployed auth checks separate recurring staging from manual production", a
     },
   );
 
+  const hostedDataFlow = workflow.jobs?.["hosted-data-flow"];
+  assert.ok(hostedDataFlow);
+  assert.doesNotMatch(hostedDataFlow.if ?? "", /event_name == 'push'/);
+
   const stagingStep = workflow.jobs?.["hosted-data-flow"]?.steps?.find(
     (step) => step.name === "Run recurring staging auth session contract",
   );
   assert.ok(stagingStep);
   assert.equal(stagingStep.run, "pnpm test:e2e:hosted:auth-session");
+
+  const stagingDeploySource = await readFile(
+    ".github/workflows/staging-deploy.yml",
+    "utf8",
+  );
+  const stagingDeploy = parseYaml(stagingDeploySource) as {
+    jobs?: Record<
+      string,
+      {
+        steps?: Array<{
+          env?: Record<string, string>;
+          name?: string;
+          run?: string;
+        }>;
+      }
+    >;
+  };
+  const stagingDeploySteps = stagingDeploy.jobs?.["deploy-staging"]?.steps ?? [];
+  const deployIndex = stagingDeploySteps.findIndex(
+    (step) => step.name === "Deploy Vercel staging",
+  );
+  const postDeployAuthIndex = stagingDeploySteps.findIndex(
+    (step) => step.name === "Run recurring staging auth session contract",
+  );
+  assert.ok(deployIndex >= 0);
+  assert.ok(postDeployAuthIndex > deployIndex);
+  assert.equal(
+    stagingDeploySteps[postDeployAuthIndex]?.run,
+    "pnpm test:e2e:hosted:auth-session",
+  );
+  assert.equal(
+    stagingDeploySteps[postDeployAuthIndex]?.env?.PLAYWRIGHT_BASE_URL,
+    "${{ steps.gate.outputs.hosted_base_url }}",
+  );
 
   const productionConfigurationGate = workflow.jobs?.["production-smoke"]?.steps?.find(
     (step) => step.name === "Check production smoke configuration",

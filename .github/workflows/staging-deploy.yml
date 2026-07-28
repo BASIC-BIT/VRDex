@@ -172,6 +172,17 @@ jobs:
           VRDEX_E2E_RUN_ID: staging-deploy-${{ github.run_id }}-${{ github.run_attempt }}
         run: pnpm test:e2e:hosted
 
+      - name: Run recurring staging auth session contract
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ steps.gate.outputs.hosted_base_url }}
+          PLAYWRIGHT_RECORD_VIDEO: "true"
+          PLAYWRIGHT_SKIP_WEBSERVERS: "true"
+          VRDEX_ENABLE_E2E_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
+          VRDEX_E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
+          VRDEX_E2E_RUN_ID: staging-auth-session-${{ github.run_id }}-${{ github.run_attempt }}
+        run: pnpm test:e2e:hosted:auth-session
+
       - name: Upload staging deploy artifacts
         if: always() && steps.gate.outputs.enabled == 'true'
         uses: actions/upload-artifact@v7

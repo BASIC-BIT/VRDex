@@ -186,14 +186,17 @@ The final `PR Verification Report` job runs after the Playwright and Storybook j
 
 The `Deployed Health Checks` workflow runs after merges to `main`, after successful GitHub deployment status events for production deployments, on a daily schedule, and through manual dispatch. It has two independent checks:
 
-- `Hosted Data Flow Health` uses `VRDEX_HOSTED_E2E_BASE_URL` and `VRDEX_HOSTED_E2E_BROWSER_TOKEN` to run the mutation-backed hosted flow against a dev/staging target.
+- `Hosted Data Flow Health` uses `VRDEX_HOSTED_E2E_BASE_URL` and `VRDEX_HOSTED_E2E_BROWSER_TOKEN` to run scheduled or manually dispatched mutation-backed hosted flow checks against a dev/staging target.
 - `Production Smoke Health` uses the production deployment status URL when the workflow was triggered by a successful production deployment, otherwise `VRDEX_PRODUCTION_SMOKE_BASE_URL`, to run read-only public route smoke against production.
 
 Manual dispatch can run `all`, `staging-mutation`, or `production-smoke`. The optional `base_url` override applies only when dispatching a single selected target. The deployed health workflow uploads artifacts and fails the workflow on test failure, but it does not create GitHub issues automatically.
 
-The recurring staging lane can also run the auth-session contract when
-`VRDEX_HOSTED_E2E_AUTH_HELPERS=true`. It uses only disposable
-`@e2e.vrdex.local` accounts and the staging helper boundary.
+The merge-triggered `Staging Deploy` workflow runs the auth-session contract
+after the matching Convex and Vercel staging deployment is live. Scheduled and
+manually dispatched staging health can repeat the same contract when
+`VRDEX_HOSTED_E2E_AUTH_HELPERS=true`. Both paths use only disposable
+`@e2e.vrdex.local` accounts and the staging helper boundary. A direct `main`
+push does not start staging health against the previous deployment.
 
 Production authenticated smoke is a separate manual one-shot option. Supply a
 fresh base64-encoded Playwright storage state for the disposable production

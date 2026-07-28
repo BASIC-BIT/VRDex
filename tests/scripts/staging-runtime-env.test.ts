@@ -178,12 +178,20 @@ test("staging deploy parses and audits main before provider mutation", () => {
   const vercelDeployIndex = steps.findIndex(
     (step) => step.name === "Deploy Vercel staging",
   );
+  const authSessionIndex = steps.findIndex(
+    (step) => step.name === "Run recurring staging auth session contract",
+  );
   const auditStep = steps[auditIndex];
 
   assert.ok(auditIndex >= 0);
   assert.ok(convexDeployIndex > auditIndex);
   assert.ok(fixtureIndex > convexDeployIndex);
   assert.ok(vercelDeployIndex > fixtureIndex);
+  assert.ok(authSessionIndex > vercelDeployIndex);
+  assert.equal(
+    steps[authSessionIndex]?.run,
+    "pnpm test:e2e:hosted:auth-session",
+  );
   assert.equal(auditStep?.env?.VERCEL_TOKEN, "${{ secrets.VERCEL_TOKEN }}");
   assert.match(auditStep?.run ?? "", /env ls staging --format=json/);
   assert.match(auditStep?.run ?? "", /--require-developer-credentials/);
