@@ -155,16 +155,51 @@ GitHub Actions repository settings for the optional authenticated smoke:
 
 The lane remains skipped unless both `VRDEX_PRODUCTION_SMOKE_BASE_URL` and `VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64` are configured. Do not store OAuth credentials in CI, and do not enable production mutation helper routes for this check.
 
-Generate Convex Auth JWT keys through a non-printing command path and set them with stdin, because PEM values begin with dashes and can be parsed as CLI options when passed as positional arguments. For production, use `pnpm exec convex env set --prod JWT_PRIVATE_KEY` and `pnpm exec convex env set --prod JWKS` with the values piped through stdin.
+### Setting secret values without corrupting them
 
-PowerShell example after key generation has populated process-local variables:
+Do not pipe a secret into `convex env set` from PowerShell. A PowerShell pipeline
+between native commands round-trips the payload through its string pipeline and
+appends a platform newline, so the stored value gains a trailing `\r`. The value
+still looks correct in the dashboard and in `convex env get`, and most consumers
+tolerate it, but any provider that compares the secret byte-for-byte rejects it.
+
+This is not hypothetical. On 2026-07-28 production `AUTH_GOOGLE_SECRET` held a
+35-character secret plus a trailing `\r`. Google sign-in failed at the token
+exchange with `invalid_client` for weeks while consent, Discord, and staging all
+worked, because the OAuth authorize step never sends the client secret.
+
+Pass single-line secrets as a positional argument instead, from Git Bash so that
+`$(...)` strips trailing newlines:
+
+```bash
+SECRET=$(python -c "import json,sys;print(json.load(open(sys.argv[1]))['web']['client_secret'],end='')" ./client_secret.json)
+pnpm exec convex env set AUTH_GOOGLE_SECRET "$SECRET"
+```
+
+Always verify after writing a secret. `len` must equal the provider's documented
+length and `CR` must be `0`:
+
+```bash
+pnpm exec convex env get AUTH_GOOGLE_SECRET | python -c "
+import sys
+b = sys.stdin.buffer.read().rstrip(b'\n')
+print('CR=%d len=%d' % (b.count(b'\r'), len(b)))"
+```
+
+PEM values are the one case that needs stdin, because they begin with dashes and
+would otherwise parse as CLI options. Use `cmd /c` redirection rather than a
+PowerShell pipe, since `cmd` redirects bytes verbatim:
 
 ```powershell
 $env:CONVEX_DEPLOYMENT="prod:superb-pig-954"
-node -e "process.stdout.write(process.env.VRDEX_JWT_PRIVATE_KEY)" | pnpm exec convex env set --prod JWT_PRIVATE_KEY
-node -e "process.stdout.write(process.env.VRDEX_JWKS)" | pnpm exec convex env set --prod JWKS
-Remove-Item Env:\VRDEX_JWT_PRIVATE_KEY, Env:\VRDEX_JWKS -ErrorAction SilentlyContinue
+node -e "require('fs').writeFileSync(process.argv[1], process.env.VRDEX_JWT_PRIVATE_KEY)" $env:TEMP\k.pem
+cmd /c "pnpm exec convex env set --prod JWT_PRIVATE_KEY < $env:TEMP\k.pem"
+Remove-Item $env:TEMP\k.pem, Env:\VRDEX_JWT_PRIVATE_KEY, Env:\VRDEX_JWKS -ErrorAction SilentlyContinue
 ```
+
+Apply the same `CR=0` verification to `JWT_PRIVATE_KEY` and `JWKS`. A trailing
+`\r` on those two is currently harmless, so check the byte count rather than
+assuming a working deployment proves a clean value.
 
 Manual fallback if the workflow is unavailable:
 

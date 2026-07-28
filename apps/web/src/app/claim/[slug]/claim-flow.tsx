@@ -100,6 +100,7 @@ export function ClaimFlow({
     verified: boolean;
     pendingClaimRequest: null;
     pendingProof: null;
+    lastVerifiedProofAt?: number | null;
   };
   profile: ClaimProfile;
   source: ClaimEntrySource;
@@ -197,7 +198,7 @@ export function ClaimFlow({
   const claimSignal =
     observedContext === null
       ? null
-      : `${observedContext.ownership}|${observedContext.verified}|${observedContext.pendingProof === null ? "none" : "pending"}`;
+      : `${observedContext.ownership}|${observedContext.verified}|${observedContext.pendingProof === null ? "none" : "pending"}|${observedContext.lastVerifiedProofAt ?? "never"}`;
 
   if (observedContext !== null && claimSignal !== null && claimSignal !== seenClaimSignal) {
     const previous = seenClaimSignal;
@@ -205,14 +206,24 @@ export function ClaimFlow({
     setSeenClaimSignal(claimSignal);
 
     if (previous !== null) {
-      const [previousOwnership, , previousProof] = previous.split("|");
+      const [previousOwnership, , previousProof, previousVerifiedAt] = previous.split("|");
       // An owner who was already `viewer` never changes ownership, so watching
       // ownership alone never fired for them — the pending proof simply vanished
       // and the page fell back to the verification form. The proof leaving is
       // the signal that covers both an unowned claimant and an existing owner.
+      //
+      // A disappearance is not by itself a success, though: the hourly expiry
+      // cron and a cancellation from another tab both remove the row. Require
+      // the attempt to have actually reached `verified`, which is what
+      // `lastVerifiedProofAt` reports.
+      const verifiedAdvanced =
+        previousVerifiedAt !== String(observedContext.lastVerifiedProofAt ?? "never");
       const becameOwner = previousOwnership !== "viewer" && observedContext.ownership === "viewer";
       const proofResolved =
-        previousProof === "pending" && observedContext.pendingProof === null && !cancelledPending;
+        previousProof === "pending" &&
+        observedContext.pendingProof === null &&
+        verifiedAdvanced &&
+        !cancelledPending;
 
       if (cancelledPending) {
         setCancelledPending(false);

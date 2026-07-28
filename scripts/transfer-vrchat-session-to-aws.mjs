@@ -112,7 +112,22 @@ if (stored === undefined) {
 
 // Pushing a dead cookie into Secrets Manager would leave the fleet failing
 // authentication with no local signal, so confirm it still works first.
-if (!skipValidation) {
+//
+// Not on a dry run, though, and not because validation is slow: VRChat applies
+// `Set-Cookie` during validation, so validating *rotates the live session*. A
+// rehearsal that rotates and then writes the result nowhere leaves both the
+// vault and Secrets Manager holding a superseded cookie, and the running
+// collector can reach `auth_required` purely because an operator did the
+// rehearsal the runbook asks for. A dry run must not touch provider state.
+if (dryRun && !skipValidation) {
+  process.stdout.write(
+    "Dry run: skipping session validation, because validating applies any cookie " +
+      "rotation VRChat returns and a dry run has nowhere to persist it. " +
+      "Re-run without --dry-run to validate and transfer in one step.\n\n",
+  );
+}
+
+if (!skipValidation && !dryRun) {
   const login = new VrchatOperatorLogin({
     userAgent,
     accountAlias,
@@ -128,16 +143,9 @@ if (!skipValidation) {
     // Persist rotation locally too. Writing only to AWS would leave the vault
     // holding pre-rotation cookies, so the next local run would validate an
     // already-superseded session.
-    //
-    // Never on a dry run, though. A dry run skips the AWS write, so saving the
-    // rotated cookies here would leave the vault ahead of Secrets Manager: the
-    // deployed collector keeps presenting the superseded session and can fall
-    // into `auth_required` purely because an operator rehearsed the transfer as
-    // the runbook tells them to.
     if (
-      !dryRun &&
-      (refreshed.authCookie !== stored.authCookie ||
-        refreshed.twoFactorAuthCookie !== stored.twoFactorAuthCookie)
+      refreshed.authCookie !== stored.authCookie ||
+      refreshed.twoFactorAuthCookie !== stored.twoFactorAuthCookie
     ) {
       await sessionStore.save(accountAlias, refreshed);
     }
@@ -279,7 +287,7 @@ process.stdout.write(
       ? "Dry run: no secret was written."
       : `${secretMissing ? "Created" : "Updated"} secret ${secretId} in ${region}.`,
     `Service account:      ${stored.userId}`,
-    `Session validated:    ${skipValidation ? "skipped" : "yes"}`,
+    `Session validated:    ${skipValidation || dryRun ? "skipped" : "yes"}`,
     `Two-factor cookie:    ${stored.twoFactorAuthCookie === undefined ? "absent" : "included"}`,
     `Preserved keys:       ${preservedKeys.length === 0 ? "(none)" : preservedKeys.join(", ")}`,
     "",

@@ -39,7 +39,12 @@ VRChat and VRCLinking proof-code verification:
 
 - `VRCHAT_PROOF_ADAPTER_URL`: POST endpoint for VRChat user/group proof checks
 - `VRCLINKING_PROOF_ADAPTER_URL`: POST endpoint for VRCLinking proof checks
-- `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`: optional bearer token sent to both proof adapters
+- `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`: **required** whenever either adapter URL
+  is set, and must match the value the adapter itself requires. Convex refuses
+  to call an adapter without it rather than sending an unauthenticated request
+  that the adapter would answer with a 401 — which the claim path reads as the
+  non-terminal `unavailable`, so the claim would stall with the
+  misconfiguration reported nowhere.
 
 Proof adapters receive JSON with `targetType`, `targetExternalId`, `proofCode`, and safe profile context. They must return JSON with `verified`, `evidenceSource`, and `evidenceSummary`.
 

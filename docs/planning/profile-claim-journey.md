@@ -21,7 +21,9 @@ Locked decision:
 
 Current recommendation:
 
-- Lead with VRChat proof for people because it grants verified ownership.
+- Lead with VRChat proof for people because it is the strongest control
+  evidence available. Note that control of a target is not by itself verified
+  ownership of a listing — see the trust transition below.
 - Keep the existing Discord person path as a secondary quick claim and state
   plainly that it grants owner control without verified-owner status.
 - Lead with Discord Administrator verification for communities, with VRChat
@@ -37,10 +39,19 @@ Current recommendation:
   backend does not prove that the Discord identity belongs to the represented
   person.
 - Discord community claims verify owner or Administrator permission for the
-  supplied guild before granting `claimed_verified` authority.
-- VRChat user and group proof attempts issue a one-time code, expire after 24
-  hours, and grant `claimed_verified` authority after the configured adapter
-  confirms the proof.
+  supplied guild, and VRChat user and group proof attempts issue a one-time
+  code that expires after 24 hours. Both grant owner control once the proof
+  succeeds.
+- **They grant `claimed_verified` only when the proved target is already
+  associated with the listing by somebody other than the claimant.** Proving
+  control of a server or group shows the claimant runs *that asset*; it does not
+  show the asset is the one the listing represents, and the target id comes from
+  the claimant. Without an independent association the claim grants
+  `claimed_unverified`, and upgrades later once one exists.
+- `profileConnections:recordOperatorAssociation` is the writer that records such
+  an association. It is internal, run with the deployment key, and deliberately
+  has no self-service surface — self-service is what the rule exists to rule
+  out. See `docs/deployment/claim-verification-enablement.md`.
 - VRC Linking uses the same proof-attempt substrate but a separate configured
   adapter and evidence source.
 - Claim requests and verification attempts persist in Convex, but the previous

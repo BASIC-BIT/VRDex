@@ -323,6 +323,7 @@ export const getClaimJourneyContext = query({
       return {
         ownership: "signed_out" as const,
         verified: false,
+        lastVerifiedProofAt: null,
         emailVerified: false,
         hasDiscord: false,
         pendingClaimRequest: null,
@@ -355,6 +356,17 @@ export const getClaimJourneyContext = query({
     ]);
     const request = pendingRequests;
     const proof = pendingProofs;
+    // The most recent attempt that has already settled. A pending proof simply
+    // disappearing is not evidence it succeeded — the hourly expiry cron and a
+    // cancellation from another tab both remove it — so the UI needs the
+    // terminal state to tell a completion from either of those.
+    const settledProof = await ctx.db
+      .query("profileVerificationAttempts")
+      .withIndex("by_profileId_userId_state_updatedAt", (q) =>
+        q.eq("profileId", profile._id).eq("userId", user._id).eq("state", "verified"),
+      )
+      .order("desc")
+      .first();
 
     return {
       ownership:
@@ -370,6 +382,9 @@ export const getClaimJourneyContext = query({
             discordGuildName: request.discordGuildName,
           }
         : null,
+      // Only the verified terminal state is reported. `expired` and `failed`
+      // attempts are absences, not outcomes to announce.
+      lastVerifiedProofAt: settledProof?.verifiedAt ?? null,
       pendingProof: proof
         ? {
             id: proof._id,
