@@ -42,8 +42,11 @@ describe("profile asset storage", () => {
     );
   });
 
-  it("preserves objects and the claim after finalization becomes ambiguous", () => {
-    assert.equal(shouldCleanupFailedProfileAssetUpload(false), true);
-    assert.equal(shouldCleanupFailedProfileAssetUpload(true), false);
+  it("cleans only a definitively pending intent owned by the processing token", () => {
+    assert.equal(shouldCleanupFailedProfileAssetUpload({ state: "pending" }), true);
+    assert.equal(shouldCleanupFailedProfileAssetUpload({ state: "consumed" }), false);
+    assert.equal(shouldCleanupFailedProfileAssetUpload({ state: "uploaded" }), false);
+    assert.equal(shouldCleanupFailedProfileAssetUpload({ state: "expired" }), false);
+    assert.equal(shouldCleanupFailedProfileAssetUpload(null), false);
   });
 });

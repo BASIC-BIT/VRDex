@@ -300,6 +300,28 @@ test("owner oversized raster dimensions are bounded before decode @fixture", asy
   await expect(page.getByRole("button", { name: "Publish" })).toHaveCount(0);
 });
 
+test("owner direct upload accepts the server pixel limit without browser decoding @fixture", async ({ page }) => {
+  const image = Buffer.alloc(128);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(image);
+  image.writeUInt32BE(8_192, 16);
+  image.writeUInt32BE(8_192, 20);
+
+  await page.goto("/account/media-kit");
+  await page.getByLabel("Add image").setInputFiles({
+    name: "server-limit.png",
+    mimeType: "image/png",
+    buffer: image,
+  });
+  const publish = page.getByRole("button", { name: "Publish" });
+  const uploadForm = publish.locator("xpath=ancestor::form");
+  await expect(uploadForm.getByLabel("Title", { exact: true })).toHaveValue("server-limit");
+  await publish.click();
+
+  await expect(page.getByRole("alert")).toHaveText(
+    "Synthetic preview storage does not accept new files.",
+  );
+});
+
 test("owner oversized animated rasters are rejected before upload @fixture", async ({ page }) => {
   const png = Buffer.alloc(4 * 1024 * 1024 + 1);
   Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(png);
