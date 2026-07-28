@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, query, mutation, type MutationCtx } from "./_generated/server";
@@ -78,7 +78,7 @@ const PROFILE_ASSET_ACCESSIBILITY_MODEL = /^[a-z0-9][a-z0-9._:-]{0,99}$/iu;
 
 function assertProfileMediaKitEnabled() {
   if (process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED !== "true") {
-    throw new Error("Profile media kits are not enabled.");
+    throw new ConvexError("Profile media kits are not enabled.");
   }
 }
 

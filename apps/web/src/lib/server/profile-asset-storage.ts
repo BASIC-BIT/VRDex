@@ -56,6 +56,13 @@ export function shouldCleanupFailedProfileAssetUpload(
   return cleanupState?.state === "pending";
 }
 
+export function shouldInspectFailedProfileAssetUpload(
+  finalizationAttempted: boolean,
+  finalizationFailedDefinitively: boolean,
+): boolean {
+  return !finalizationAttempted || finalizationFailedDefinitively;
+}
+
 function vercelOidcRoleArn(): string | undefined {
   const roleArn = process.env.VRDEX_PROFILE_ASSET_ROLE_ARN;
   const normalized = roleArn?.trim();

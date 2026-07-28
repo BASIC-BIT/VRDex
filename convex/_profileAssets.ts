@@ -1,4 +1,4 @@
-import type { GenericId } from "convex/values";
+import { ConvexError, type GenericId } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
@@ -752,11 +752,11 @@ export async function finalizeProfileAssetUploadIntentUpload(
     intent.uploadToken !== input.uploadToken ||
     intent.processingToken !== input.processingToken
   ) {
-    throw new Error("Profile media upload intent was not found.");
+    throw new ConvexError("Profile media upload intent was not found.");
   }
 
   if (intent.state !== "pending" || intent.expiresAt < input.now) {
-    throw new Error("Profile media upload intent is no longer pending.");
+    throw new ConvexError("Profile media upload intent is no longer pending.");
   }
 
   if (
@@ -768,7 +768,7 @@ export async function finalizeProfileAssetUploadIntentUpload(
         intent.requestedBy.subject as Id<"users">,
       )))
   ) {
-    throw new Error("You do not have permission to update this profile.");
+    throw new ConvexError("You do not have permission to update this profile.");
   }
 
   if (intent.targetProfileId !== undefined && input.contentSha256 !== undefined) {
@@ -777,7 +777,7 @@ export async function finalizeProfileAssetUploadIntentUpload(
       .withIndex("by_profileId", (query) => query.eq("profileId", intent.targetProfileId!))
       .collect();
     if (existingAssets.some((asset) => asset.contentSha256 === input.contentSha256)) {
-      throw new Error("This image already exists in the profile media kit.");
+      throw new ConvexError("This image already exists in the profile media kit.");
     }
   }
 
@@ -816,7 +816,7 @@ export async function finalizeProfileAssetUploadIntentUpload(
       replacedAsset.profileId !== intent.targetProfileId ||
       replacedAsset.state !== "active"
     ) {
-      throw new Error("The media being replaced is no longer active.");
+      throw new ConvexError("The media being replaced is no longer active.");
     }
     const placements = await db
       .query("profileAssetPlacements")
