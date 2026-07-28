@@ -46,7 +46,7 @@ test("owner media-kit editor @visual @fixture", async ({ page }, testInfo) => {
   const mediaImages = page.locator("main img");
   await expect(mediaImages).toHaveCount(4);
   await mediaImages.evaluateAll(async (images) => {
-    await Promise.all(images.map(async (image) => await image.decode()));
+    await Promise.all(images.map(async (image) => await (image as HTMLImageElement).decode()));
   });
   await captureRouteScreenshot(page, testInfo, "media-kit-editor");
 });
