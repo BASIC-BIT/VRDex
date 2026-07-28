@@ -821,6 +821,14 @@ describe("profile media-kit owner management", () => {
     );
   });
 
+  it("treats malformed direct-upload intent IDs as missing", async () => {
+    const seeded = await seedOwnedProfile(0);
+    assert.equal(await seeded.t.query(internal.profileAssets.getUploadIntentForDirectStorage, {
+      intentId: "not-a-convex-id",
+      uploadToken: "synthetic-token",
+    }), null);
+  });
+
   it("replaces an asset atomically at the active asset quota", async () => {
     const seeded = await seedOwnedProfile(12);
     const owner = seeded.t.withIdentity(seeded.ownerIdentity);
@@ -873,6 +881,43 @@ describe("profile media-kit owner management", () => {
     assert.equal(state.assets.find((asset) => asset._id === seeded.assetIds[0])?.state, "deleted");
     assert.equal(state.gallery.find((placement) => placement.position === 0)?.assetId, replacementId);
     assert.equal(state.featured[0]?.assetId, replacementId);
+  });
+
+  it("rechecks the media-kit kill switch before finalizing a replacement", async () => {
+    const seeded = await seedOwnedProfile(1);
+    const owner = seeded.t.withIdentity(seeded.ownerIdentity);
+    const intent = await owner.mutation(api.profileAssets.createUploadIntentForOwnedProfile, {
+      profileId: seeded.profileId,
+      replacesAssetId: seeded.assetIds[0]!,
+      originalFileName: "disabled-replacement.png",
+      mimeType: "image/png",
+      byteSize: 128,
+      label: "Replacement",
+      placements: [],
+    });
+    const processingToken = await claimUploadIntent(seeded, intent);
+    const previous = process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED;
+    delete process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED;
+
+    try {
+      await assert.rejects(
+        seeded.t.mutation(internal.profileAssets.markUploadIntentUploaded, {
+          intentId: intent.intentId,
+          uploadToken: intent.uploadToken,
+          processingToken,
+          mimeType: "image/webp",
+          byteSize: 96,
+          contentSha256: "disabled-replacement-hash",
+          width: 20,
+          height: 20,
+        }),
+        /not enabled/,
+      );
+    } finally {
+      process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = previous ?? "true";
+    }
+    const original = await seeded.t.run((ctx) => ctx.db.get(seeded.assetIds[0]!));
+    assert.equal(original?.state, "active");
   });
 
   it("keeps the original active when replacement completion fails", async () => {

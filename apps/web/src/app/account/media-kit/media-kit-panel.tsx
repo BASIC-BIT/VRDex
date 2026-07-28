@@ -65,7 +65,7 @@ type EditorActions = {
     file: File,
     position: number,
     onProgress: (value: number) => void,
-  ) => Promise<void>;
+  ) => Promise<string>;
   saveMetadata: (profileId: string, asset: MediaAsset) => Promise<void>;
   reorder: (profileId: string, assetIds: string[]) => Promise<void>;
   feature: (profileId: string, assetId: string | null) => Promise<void>;
@@ -170,6 +170,7 @@ function AssetEditor({
   operationBusy,
   runOperation,
   onRemoved,
+  onReplaced,
 }: {
   asset: MediaAsset;
   index: number;
@@ -184,6 +185,7 @@ function AssetEditor({
     setStatus: (status: ActionStatus | null) => void,
   ) => Promise<boolean>;
   onRemoved: (assetId: string) => void;
+  onReplaced: (assetId: string) => void;
 }) {
   const [draft, setDraft] = useState(asset);
   const [saving, setSaving] = useState(false);
@@ -251,10 +253,10 @@ function AssetEditor({
     setStatus({ kind: "progress", message: "Preparing…" });
     try {
       const prepared = await prepareProfileMediaUpload(file);
-      await actions.replace(profileId, asset, prepared.file, index, (value) => {
+      const replacementAssetId = await actions.replace(profileId, asset, prepared.file, index, (value) => {
         setStatus({ kind: "progress", message: `Uploading ${Math.round(value * 100)}%` });
       });
-      setStatus({ kind: "success", message: "Replaced." });
+      onReplaced(replacementAssetId);
     } catch (error) {
       setStatus({
         kind: "error",
@@ -629,6 +631,11 @@ function MediaKitEditor({
     }
   };
 
+  const replacedAsset = (assetId: string) => {
+    setGalleryStatus({ kind: "success", message: "Replaced." });
+    setFocusActiveAssetId(assetId);
+  };
+
   const generateUpload = async () => {
     if (!pendingFile || !selectedProfile || uploadMetadata.altText.trim()) return;
     const requestId = ++generationRequestRef.current;
@@ -780,6 +787,7 @@ function MediaKitEditor({
                 index={index}
                 key={asset.assetId}
                 onRemoved={setFocusRestoreAssetId}
+                onReplaced={replacedAsset}
                 operationBusy={operationBusy}
                 profileId={profile.profileId}
                 runOperation={runOperation}
@@ -990,8 +998,22 @@ function DemoMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: string
       }
       return "A performer stands in violet and orange light.";
     },
-    replace: async (_profileId, _asset, _file, _position, onProgress) => {
+    replace: async (profileId, asset, file, _position, onProgress) => {
       onProgress(0.5);
+      if (file.name === "successful-replacement.png") {
+        const replacementAssetId = `${asset.assetId}-replacement`;
+        setProfiles((items) => items.map((profile) => profile.profileId === profileId
+          ? {
+              ...profile,
+              assets: profile.assets.map((current) =>
+                current.assetId === asset.assetId
+                  ? { ...current, assetId: replacementAssetId }
+                  : current,
+              ),
+            }
+          : profile));
+        return replacementAssetId;
+      }
       throw new Error("Synthetic preview storage does not accept new files.");
     },
     saveMetadata: async (profileId, updated) => {
@@ -1136,7 +1158,7 @@ function ConnectedMediaKitPanel({
       await uploadAsset(profileId, file, metadata, onProgress);
     },
     replace: async (profileId, asset, file, position, onProgress) => {
-      await uploadAsset(
+      const replacementAssetId = await uploadAsset(
         profileId,
         file,
         {
@@ -1151,6 +1173,10 @@ function ConnectedMediaKitPanel({
         position,
         asset.assetId,
       );
+      if (!replacementAssetId) {
+        throw new Error("Replace failed. Try again.");
+      }
+      return replacementAssetId;
     },
     saveMetadata: async (profileId, asset) => {
       await updateMetadata({

@@ -539,11 +539,15 @@ export const finishAccessibilityGeneration = internalMutation({
 
 export const getUploadIntentForDirectStorage = internalQuery({
   args: {
-    intentId: profileAssetUploadIntentId,
+    intentId: v.string(),
     uploadToken: v.string(),
   },
   handler: async (ctx, args) => {
-    const intent = await ctx.db.get(args.intentId);
+    const intentId = ctx.db.normalizeId("profileAssetUploadIntents", args.intentId);
+    if (intentId === null) {
+      return null;
+    }
+    const intent = await ctx.db.get(intentId);
     const now = Date.now();
     if (
       intent === null ||
@@ -629,7 +633,7 @@ export const markUploadIntentUploaded = internalMutation({
   },
   handler: async (ctx, args) => {
     const intent = await ctx.db.get(args.intentId);
-    if (requestsGalleryPlacement(intent?.placements)) {
+    if (requestsGalleryPlacement(intent?.placements) || intent?.replacesAssetId !== undefined) {
       assertProfileMediaKitEnabled();
     }
     const now = Date.now();

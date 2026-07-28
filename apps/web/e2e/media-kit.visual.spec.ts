@@ -196,6 +196,18 @@ test("owner replace failure keeps the existing gallery asset @fixture", async ({
   await expect(asset.getByText("Aurora press portrait", { exact: true }).first()).toBeVisible();
 });
 
+test("owner replacement restores status and focus to the new asset @fixture", async ({ page }) => {
+  await page.goto("/account/media-kit");
+  await page.getByLabel("Replace Aurora wordmark").setInputFiles({
+    name: "successful-replacement.png",
+    mimeType: "image/png",
+    buffer: await smallSyntheticPng(),
+  });
+
+  await expect(page.getByText("Replaced.", { exact: true })).toBeVisible();
+  await expect(page.locator("#active-aurora-logo-replacement")).toBeFocused();
+});
+
 test("owner oversized raster stays in its original format before direct upload @fixture", async ({ page }) => {
   const { image } = await oversizedSyntheticPng();
 

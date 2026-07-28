@@ -1,4 +1,3 @@
-import type { GenericId } from "convex/values";
 import { NextResponse } from "next/server";
 
 import { internal } from "@convex-generated-api";
@@ -33,7 +32,7 @@ export async function POST(request: Request, context: RouteContext) {
   const intent = await convexAdminHttpClient().query(
     internal.profileAssets.getUploadIntentForDirectStorage,
     {
-      intentId: intentId as GenericId<"profileAssetUploadIntents">,
+      intentId,
       uploadToken,
     },
   );
