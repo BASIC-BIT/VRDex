@@ -846,6 +846,15 @@ describe("profile media-kit owner management", () => {
       altText: "Replacement asset.",
       placements: [],
     });
+    await owner.mutation(api.profileAssets.updateOwnedAssetMetadata, {
+      profileId: seeded.profileId,
+      assetId: seeded.assetIds[0]!,
+      label: "Current title",
+      caption: "Current caption",
+      altText: "Current description.",
+      credit: "Current credit",
+      creditUrl: "https://example.com/current-credit",
+    });
     const processingToken = await claimUploadIntent(seeded, intent);
     const completed = await seeded.t.mutation(internal.profileAssets.markUploadIntentUploaded, {
       intentId: intent.intentId,
@@ -879,6 +888,12 @@ describe("profile media-kit owner management", () => {
     const replacementId = completed.assetIds[0]!;
     assert.equal(state.assets.filter((asset) => asset.state === "active").length, 12);
     assert.equal(state.assets.find((asset) => asset._id === seeded.assetIds[0])?.state, "deleted");
+    const replacement = state.assets.find((asset) => asset._id === replacementId);
+    assert.equal(replacement?.label, "Current title");
+    assert.equal(replacement?.caption, "Current caption");
+    assert.equal(replacement?.altText, "Current description.");
+    assert.equal(replacement?.credit, "Current credit");
+    assert.equal(replacement?.creditUrl, "https://example.com/current-credit");
     assert.equal(state.gallery.find((placement) => placement.position === 0)?.assetId, replacementId);
     assert.equal(state.featured[0]?.assetId, replacementId);
   });

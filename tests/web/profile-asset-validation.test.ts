@@ -5,6 +5,7 @@ import { describe, it } from "node:test";
 import sharp from "sharp";
 
 import {
+  PROFILE_ASSET_MAX_STORED_BYTES,
   PROFILE_ASSET_MAX_STORED_DIMENSION,
   validateAndPrepareProfileAsset,
   validateAndNormalizeProfileAsset,
@@ -101,6 +102,33 @@ describe("profile asset content validation", () => {
     assert.ok(source.byteLength <= 12 * 1024 * 1024);
     assert.ok(prepared.download.body.byteLength <= 12 * 1024 * 1024);
     assert.equal((await sharp(prepared.download.body).metadata()).format, "webp");
+  });
+
+  it("reduces JPEG encoding quality when metadata sanitization would exceed the upload limit", async () => {
+    const width = 4_096;
+    const height = 4_096;
+    const pixels = Buffer.allocUnsafe(width * height * 3);
+    randomFillSync(pixels);
+    const source = await sharp(pixels, {
+      raw: { width, height, channels: 3 },
+    }).jpeg({ quality: 70 }).toBuffer();
+    const fixedQualityDownload = await sharp(source)
+      .rotate()
+      .jpeg({ quality: 95, mozjpeg: true })
+      .toBuffer();
+
+    assert.ok(source.byteLength <= PROFILE_ASSET_MAX_STORED_BYTES);
+    assert.ok(fixedQualityDownload.byteLength > PROFILE_ASSET_MAX_STORED_BYTES);
+
+    const prepared = await validateAndPrepareProfileAsset(new Uint8Array(source), "image/jpeg");
+    const metadata = await sharp(prepared.download.body).metadata();
+
+    assert.ok(prepared.download.body.byteLength <= PROFILE_ASSET_MAX_STORED_BYTES);
+    assert.equal(prepared.download.mimeType, "image/jpeg");
+    assert.equal(metadata.format, "jpeg");
+    assert.equal(metadata.width, width);
+    assert.equal(metadata.height, height);
+    assert.equal(metadata.exif, undefined);
   });
 
   it("accepts a simple bounded SVG and rejects active or external SVG content", async () => {

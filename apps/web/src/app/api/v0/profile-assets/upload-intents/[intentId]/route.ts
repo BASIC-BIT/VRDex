@@ -17,6 +17,7 @@ import {
   shouldCleanupFailedProfileAssetUpload,
 } from "@/lib/server/profile-asset-storage";
 import {
+  PROFILE_ASSET_MAX_STORED_BYTES,
   profileAssetMimeTypeForFile,
   validateAndPrepareProfileAsset,
 } from "@/lib/server/profile-asset-validation";
@@ -34,7 +35,7 @@ type UploadBody = {
   mimeType: string;
 };
 
-const PROFILE_ASSET_UPLOAD_MAX_BYTES = 12 * 1024 * 1024;
+const PROFILE_ASSET_UPLOAD_MAX_BYTES = PROFILE_ASSET_MAX_STORED_BYTES;
 const FILE_UPLOAD_REQUEST_MAX_BYTES = PROFILE_ASSET_UPLOAD_MAX_BYTES + 64 * 1024;
 const PROFILE_ASSET_MIME_TYPES = new Set(["image/png", "image/svg+xml", "image/jpeg", "image/webp"]);
 const SOURCE_URL_MAX_REDIRECTS = 5;

@@ -5,6 +5,7 @@ import sharp from "sharp";
 
 export const PROFILE_ASSET_MAX_SOURCE_DIMENSION = 8_192;
 export const PROFILE_ASSET_MAX_STORED_DIMENSION = 4_096;
+export const PROFILE_ASSET_MAX_STORED_BYTES = 12 * 1024 * 1024;
 
 export function profileAssetMimeTypeForFile(fileType: string, fileName: string): string {
   const contentType = fileType.split(";")[0]!.trim().toLowerCase();
@@ -231,15 +232,40 @@ function rasterPipeline(body: Uint8Array) {
   });
 }
 
-function encodeInOriginalRasterFormat(
-  pipeline: sharp.Sharp,
+async function encodeInOriginalRasterFormat(
+  body: Uint8Array,
   mimeType: SafeProfileAsset["mimeType"],
 ) {
-  if (mimeType === "image/png") return pipeline.png({ compressionLevel: 9 });
-  if (mimeType === "image/webp") {
-    return pipeline.webp({ quality: 90, alphaQuality: 100, effort: 6, smartSubsample: true });
+  if (mimeType === "image/png") {
+    return await rasterPipeline(body)
+      .rotate()
+      .png({ compressionLevel: 9 })
+      .toBuffer({ resolveWithObject: true });
   }
-  return pipeline.jpeg({ quality: 95, mozjpeg: true });
+
+  const qualities = mimeType === "image/webp"
+    ? [90, 80, 70, 60, 50, 40, 30, 20, 10, 5, 1]
+    : [95, 90, 85, 80, 70, 60, 50, 40, 30, 20, 10, 5, 1];
+  let candidate:
+    | Awaited<ReturnType<ReturnType<typeof rasterPipeline>["toBuffer"]>>
+    | undefined;
+
+  for (const quality of qualities) {
+    candidate = mimeType === "image/webp"
+      ? await rasterPipeline(body)
+        .rotate()
+        .webp({ quality, alphaQuality: 100, effort: 6, smartSubsample: true })
+        .toBuffer({ resolveWithObject: true })
+      : await rasterPipeline(body)
+        .rotate()
+        .jpeg({ quality, mozjpeg: true })
+        .toBuffer({ resolveWithObject: true });
+    if (candidate.data.byteLength <= PROFILE_ASSET_MAX_STORED_BYTES) {
+      return candidate;
+    }
+  }
+
+  return candidate!;
 }
 
 async function prepareRaster(body: Uint8Array, mimeType: SafeProfileAsset["mimeType"]) {
@@ -251,10 +277,7 @@ async function prepareRaster(body: Uint8Array, mimeType: SafeProfileAsset["mimeT
   }
   assertSourceDimensions(metadata.width, metadata.height);
 
-  const sanitized = await encodeInOriginalRasterFormat(
-    rasterPipeline(body).rotate(),
-    mimeType,
-  ).toBuffer({ resolveWithObject: true });
+  const sanitized = await encodeInOriginalRasterFormat(body, mimeType);
   const display = await rasterPipeline(body)
     .rotate()
     .resize({

@@ -806,6 +806,9 @@ export async function finalizeProfileAssetUploadIntentUpload(
 
   let replacementPlacements: ProfileAssetPlacement[] | undefined;
   let replacementPosition: number | undefined;
+  let replacementMetadata:
+    | Pick<Doc<"profileAssets">, "label" | "caption" | "altText" | "credit" | "creditUrl">
+    | undefined;
   if (intent.replacesAssetId !== undefined) {
     const replacedAsset = await db.get(intent.replacesAssetId);
     if (
@@ -820,6 +823,13 @@ export async function finalizeProfileAssetUploadIntentUpload(
       .withIndex("by_assetId", (query) => query.eq("assetId", replacedAsset._id))
       .collect();
     const activePlacements = placements.filter((placement) => placement.state === "active");
+    replacementMetadata = {
+      label: replacedAsset.label,
+      caption: replacedAsset.caption,
+      altText: replacedAsset.altText,
+      credit: replacedAsset.credit,
+      creditUrl: replacedAsset.creditUrl,
+    };
     replacementPlacements = activePlacements.map((placement) => placement.placement);
     replacementPosition = activePlacements.find((placement) => placement.placement === "gallery")?.position;
     await Promise.all(
@@ -834,6 +844,7 @@ export async function finalizeProfileAssetUploadIntentUpload(
     });
   }
 
+  const uploadMetadata = replacementMetadata ?? intent;
   const assetIds = await consumeProfileAssetUploads(db, {
     profileId: intent.targetProfileId,
     requestedBy: intent.requestedBy,
@@ -841,11 +852,11 @@ export async function finalizeProfileAssetUploadIntentUpload(
       {
         intentId: intent._id,
         uploadToken: input.uploadToken,
-        ...(intent.label !== undefined ? { label: intent.label } : {}),
-        ...(intent.caption !== undefined ? { caption: intent.caption } : {}),
-        ...(intent.altText !== undefined ? { altText: intent.altText } : {}),
-        ...(intent.credit !== undefined ? { credit: intent.credit } : {}),
-        ...(intent.creditUrl !== undefined ? { creditUrl: intent.creditUrl } : {}),
+        ...(uploadMetadata.label !== undefined ? { label: uploadMetadata.label } : {}),
+        ...(uploadMetadata.caption !== undefined ? { caption: uploadMetadata.caption } : {}),
+        ...(uploadMetadata.altText !== undefined ? { altText: uploadMetadata.altText } : {}),
+        ...(uploadMetadata.credit !== undefined ? { credit: uploadMetadata.credit } : {}),
+        ...(uploadMetadata.creditUrl !== undefined ? { creditUrl: uploadMetadata.creditUrl } : {}),
         placements: replacementPlacements ?? intent.placements ?? [],
         ...((replacementPosition ?? intent.position) !== undefined
           ? { position: replacementPosition ?? intent.position }
