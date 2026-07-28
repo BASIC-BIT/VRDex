@@ -256,16 +256,20 @@ data "aws_iam_policy_document" "github_actions_terraform" {
       "s3:GetLifecycleConfiguration",
       "s3:GetReplicationConfiguration",
       "s3:ListBucket",
+      "s3:PutBucketCORS",
       "s3:PutBucketPolicy",
       "s3:PutBucketTagging",
       "s3:PutBucketPublicAccessBlock",
       "s3:PutBucketOwnershipControls",
       "s3:PutEncryptionConfiguration",
+      "s3:PutLifecycleConfiguration",
+      "s3:DeleteBucketCORS",
       "s3:DeleteBucketPolicy",
       "s3:DeleteBucketTagging",
       "s3:DeleteBucketPublicAccessBlock",
       "s3:DeleteBucketOwnershipControls",
       "s3:DeleteBucketEncryption",
+      "s3:DeleteLifecycleConfiguration",
     ]
 
     resources = [local.profile_asset_bucket_arn]
