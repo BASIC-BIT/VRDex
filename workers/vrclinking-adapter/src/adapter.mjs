@@ -1,3 +1,5 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
+
 import { SecretResolutionError } from "./secret-resolver.mjs";
 import { VrclinkingProviderError } from "./vrclinking-client.mjs";
 
@@ -13,14 +15,13 @@ const MAX_DELEGATIONS = 5;
 /**
  * The one secret name a delegation for `guildId` may point at.
  *
- * Convex enforces this when an operator registers a delegation, but the bearer
- * token in front of this adapter is a single shared credential: a caller who
- * holds it can post straight here and skip that check entirely. Since the
- * deployment role can read every delegated tenant secret, an unbound reference
- * would let such a caller spend another community's VRCLinking key against a
- * guild of their choosing. The rule has to hold on both sides of the boundary,
- * so it is repeated rather than delegated — and the two must stay in step with
- * `isSecretRefForGuild` in `convex/vrclinkingCredentials.ts`.
+ * A shape check, not an authorization one — the names are derived from the
+ * guild id, so a caller who reaches this endpoint constructs a matching pair as
+ * easily as VRDex does. It stays because it rejects malformed and traversal
+ * references cheaply; the authorization is `verifyCapability` below.
+ *
+ * Must stay in step with `isSecretRefForGuild` in
+ * `convex/vrclinkingCredentials.ts`.
  */
 function isSecretRefForGuild(secretRef, guildId) {
   const name = `vrdex/vrclinking/${guildId}`;
@@ -33,6 +34,55 @@ function isSecretRefForGuild(secretRef, guildId) {
   return new RegExp(
     `^arn:aws:secretsmanager:[a-z0-9-]{1,32}:\\d{12}:secret:${name}(-[A-Za-z0-9]{6})?$`,
   ).test(secretRef);
+}
+
+/**
+ * Whether VRDex actually authorized this delegation for this request.
+ *
+ * The shared bearer token in front of this adapter authenticates the channel,
+ * not the request: once it leaks, a caller can name any guild, and the
+ * name-shape check above cannot tell them apart from VRDex. The capability is
+ * signed with a key the bearer token does not carry, so a direct caller cannot
+ * construct one — and it expires, so a captured request is worth minutes rather
+ * than until the key rotates.
+ *
+ * Must stay in step with `convex/_delegationCapability.ts`, which mints these.
+ */
+export function verifyCapability(delegation, { now = Date.now(), key = capabilityKey() } = {}) {
+  const { guildId, secretRef, expiresAt, capability } = delegation;
+
+  if (typeof capability !== "string" || typeof expiresAt !== "number") {
+    return false;
+  }
+
+  if (!Number.isFinite(expiresAt) || expiresAt <= now) {
+    return false;
+  }
+
+  const expected = createHmac("sha256", key)
+    .update(`${guildId}\n${secretRef}\n${expiresAt}`)
+    .digest("hex");
+
+  // Length-checked first: `timingSafeEqual` throws on a mismatch rather than
+  // returning false.
+  return (
+    capability.length === expected.length &&
+    timingSafeEqual(Buffer.from(capability), Buffer.from(expected))
+  );
+}
+
+function capabilityKey() {
+  const value = process.env.VRDEX_VRCLINKING_CAPABILITY_KEY?.trim();
+
+  // Required, and never defaulted. An adapter that accepts unsigned
+  // delegations is the state this exists to prevent, and a check that
+  // disappears when a variable is unset looks enforced in review and is not in
+  // production.
+  if (!value) {
+    throw new Error("VRDEX_VRCLINKING_CAPABILITY_KEY must be set.");
+  }
+
+  return value;
 }
 
 export function validateRequest(body) {
@@ -61,7 +111,8 @@ export function validateRequest(body) {
       typeof delegation?.guildId === "string" &&
       DISCORD_SNOWFLAKE_PATTERN.test(delegation.guildId) &&
       typeof delegation?.secretRef === "string" &&
-      isSecretRefForGuild(delegation.secretRef, delegation.guildId),
+      isSecretRefForGuild(delegation.secretRef, delegation.guildId) &&
+      verifyCapability(delegation),
   );
 
   if (usable.length === 0) {

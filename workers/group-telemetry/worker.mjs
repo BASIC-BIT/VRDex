@@ -278,11 +278,17 @@ while (!stopping) {
       { requirePayload: true },
     );
     controlFailures = 0;
+    // Proofs first. Telemetry is continuous and a deferred batch is picked up
+    // next window none the worse; a proof attempt expires after 24 hours. With
+    // a low `requests_per_minute`, a permanently-due integration drained every
+    // fresh window here before proofs were reached, so an attempt could get no
+    // provider read at all in its whole lifetime and expire unchecked.
+    const proofCount = stopping ? 0 : await checkProofs();
+
     for (const assignment of assignments) {
       if (stopping) break;
       await collect(assignment);
     }
-    const proofCount = stopping ? 0 : await checkProofs();
     await pause(assignments.length > 0 || proofCount > 0 ? 1_000 : 10_000);
   } catch {
     controlFailures += 1;

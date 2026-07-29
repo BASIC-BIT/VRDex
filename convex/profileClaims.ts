@@ -2,6 +2,7 @@ import { v } from "convex/values";
 
 import { getLinkedProviderAccount } from "./accounts";
 import { boundedFetch } from "./_boundedFetch";
+import { signDelegation } from "./_delegationCapability";
 import { claimError } from "./_claimErrors";
 import {
   claimSessionUserOrNull,
@@ -484,11 +485,38 @@ export const cancelClaimJourneyPending = mutation({
  * an absent VRChat adapter means "the collector has this", not "broken".
  */
 function proofAdapterUrl(targetType: VrchatTargetType): string | null {
-  if (targetType === "vrclinking") {
-    return requiredEnv("VRCLINKING_PROOF_ADAPTER_URL");
+  const configured =
+    targetType === "vrclinking"
+      ? requiredEnv("VRCLINKING_PROOF_ADAPTER_URL")
+      : (optionalEnv("VRCHAT_PROOF_ADAPTER_URL") ?? null);
+
+  return configured === null ? null : requireSecureAdapterUrl(configured);
+}
+
+/**
+ * Every request to an adapter carries the shared bearer token, the claimant's
+ * Discord identity, and tenant secret references. A hand-edited or typo'd
+ * `http://` endpoint puts all of that on the wire in the clear, and this
+ * boundary previously accepted any string. Plain HTTP is allowed only for a
+ * loopback stub, matching the rule the adapter's own provider client enforces.
+ */
+function requireSecureAdapterUrl(value: string): string {
+  let parsed;
+
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw claimError("ADAPTER_UNAVAILABLE", "adapter_url_invalid");
   }
 
-  return optionalEnv("VRCHAT_PROOF_ADAPTER_URL") ?? null;
+  // `[::1]` is loopback too, and `URL` keeps the brackets in `hostname`.
+  const isLoopback = ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname);
+
+  if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && isLoopback)) {
+    throw claimError("ADAPTER_UNAVAILABLE", "adapter_url_insecure");
+  }
+
+  return value;
 }
 
 /**
@@ -810,6 +838,22 @@ export const recordDiscordCommunityAdminApproval = internalMutation({
       });
 
       throw claimError("PROFILE_NOT_FOUND");
+    }
+
+    // Another claimant won while this request was out at Discord. Letting
+    // `approveProfileClaimForUser` throw rolled the whole mutation back, so the
+    // request stayed pending and every retry repeated the provider calls to
+    // fail on the same conflict. Settle it here instead, as the proof path
+    // does.
+    if (currentOwner !== null && currentOwner.userId !== claimRequest.userId) {
+      await ctx.db.patch(claimRequest._id, {
+        state: "rejected",
+        evidenceSummary: "Another claimant took ownership before this request was verified.",
+        reviewedAt: now,
+        updatedAt: now,
+      });
+
+      throw claimError("PROFILE_ALREADY_OWNED");
     }
 
     // Same rule as the OAuth path: Administrator in a server the claimant named
@@ -1449,6 +1493,20 @@ export const verifyVrchatProofViaAdapter = action({
       });
     }
 
+    // Signed here rather than in the reservation mutation: the capability is
+    // short-lived and bound to this request, and the cooldown above can still
+    // deny a reservation that was already made.
+    const signedDelegations =
+      delegationContext === null
+        ? []
+        : await Promise.all(
+            delegationContext.delegations.map(async ({ guildId, secretRef }) => ({
+              guildId,
+              secretRef,
+              ...(await signDelegation(guildId, secretRef)),
+            })),
+          );
+
     const adapterRequest = {
       method: "POST",
       headers: proofAdapterHeaders(),
@@ -1466,10 +1524,7 @@ export const verifyVrchatProofViaAdapter = action({
             }
           : {
               discordUserId: delegationContext.discordUserId,
-              delegations: delegationContext.delegations.map(({ guildId, secretRef }) => ({
-                guildId,
-                secretRef,
-              })),
+              delegations: signedDelegations,
             }),
       }),
     };

@@ -45,6 +45,16 @@ VRChat and VRCLinking proof-code verification:
   that the adapter would answer with a 401 — which the claim path reads as the
   non-terminal `unavailable`, so the claim would stall with the
   misconfiguration reported nowhere.
+- `VRCLINKING_ADAPTER_CAPABILITY_KEY`: **required** whenever
+  `VRCLINKING_PROOF_ADAPTER_URL` is set. Signs the per-delegation capability the
+  adapter verifies as `VRDEX_VRCLINKING_CAPABILITY_KEY`. Keep it a different
+  value from the bearer token: the bearer token authenticates the channel, and
+  this authorizes the individual guild, so a leak of the first must not confer
+  the second.
+
+Adapter URLs must use `https`, or `http` only on loopback for a local stub.
+Every request carries the bearer token, the claimant's Discord id, and tenant
+secret references.
 
 Proof adapters receive JSON with `targetType`, `targetExternalId`, `proofCode`, and safe profile context. They must return JSON with `verified`, `evidenceSource`, and `evidenceSummary`.
 

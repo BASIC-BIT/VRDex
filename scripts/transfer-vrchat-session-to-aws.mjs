@@ -235,37 +235,13 @@ if (typeof existing.vrchatUserId === "string" && existing.vrchatUserId !== store
   );
 }
 
-// Reading the secret proves nothing about writing it. A role with
-// GetSecretValue and no PutSecretValue got all the way past validation — which
-// rotates the live session — before failing, leaving the deployed collector
-// authenticating with cookies this command had already superseded. Prove the
-// write path first: an unchanged Put for a secret that exists, and the creation
-// itself for one that does not.
-//
-// A dry run writes nothing at all, so it cannot prove this and does not try.
-const secretCreated = secretMissing && !dryRun;
-
-if (!dryRun) {
-  try {
-    await client.send(
-      secretMissing
-        ? new CreateSecretCommand({
-            Name: secretId,
-            Description: "VRDex group telemetry collector session and worker key.",
-            SecretString: JSON.stringify({}),
-          })
-        : new PutSecretValueCommand({
-            SecretId: secretId,
-            SecretString: JSON.stringify(existing),
-          }),
-    );
-  } catch (error) {
-    fail(`Cannot write the target secret (region ${region}): ${describeAwsError(error)}`);
-  }
-
-  // It exists now either way, so the real write below is always a Put.
-  secretMissing = false;
-}
+// Deliberately no write probe here. Rewriting the payload to prove the
+// permission promotes the snapshot read a moment ago to the current version, so
+// two operators transferring the same secret can undo each other: one deploys
+// refreshed cookies, the other's probe restores the superseded pair. Reading
+// still cannot prove the write will succeed, so the guarantee is made on the
+// other side instead — a rotated session is persisted somewhere durable before
+// this command exits on a failed write. See the recovery path below.
 
 // Pushing a dead cookie into Secrets Manager would leave the fleet failing
 // authentication with no local signal, so confirm it still works first.
@@ -359,13 +335,37 @@ const next = buildSessionSecretPayload(existing, {
 });
 
 if (!dryRun) {
-  // Always a Put: the preflight above created the secret if it did not exist.
   try {
     await client.send(
-      new PutSecretValueCommand({ SecretId: secretId, SecretString: JSON.stringify(next) }),
+      secretMissing
+        ? new CreateSecretCommand({
+            Name: secretId,
+            Description: "VRDex group telemetry collector session and worker key.",
+            SecretString: JSON.stringify(next),
+          })
+        : new PutSecretValueCommand({ SecretId: secretId, SecretString: JSON.stringify(next) }),
     );
   } catch (error) {
-    fail(`Could not write the target secret (region ${region}): ${describeAwsError(error)}`);
+    // Validation has already rotated the live session, so the cookies in `next`
+    // are the only working pair that exists. Exiting now with the vault write
+    // also having failed would leave them in process memory alone and walk the
+    // running collector into `auth_required`. Retry the vault before giving up.
+    if (localSaveFailure !== undefined) {
+      try {
+        await sessionStore.save(accountAlias, stored);
+        localSaveFailure = undefined;
+      } catch (retryError) {
+        localSaveFailure = retryError?.message ?? "unknown error";
+      }
+    }
+
+    fail(
+      `Could not write the target secret (region ${region}): ${describeAwsError(error)}\n` +
+        (localSaveFailure === undefined
+          ? "The rotated session is saved locally; fix the permission and re-run with --skip-validation."
+          : `The rotated session could not be saved locally either (${localSaveFailure}). ` +
+            "Re-run the login bootstrap to establish a fresh session."),
+    );
   }
 }
 
@@ -375,7 +375,7 @@ process.stdout.write(
   [
     dryRun
       ? "Dry run: no secret was written."
-      : `${secretCreated ? "Created" : "Updated"} secret ${secretId} in ${region}.`,
+      : `${secretMissing ? "Created" : "Updated"} secret ${secretId} in ${region}.`,
     `Service account:      ${stored.userId}`,
     `Session validated:    ${skipValidation || dryRun ? "skipped" : "yes"}`,
     ...(localSaveFailure === undefined

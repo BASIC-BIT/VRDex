@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import { describe, it } from "node:test";
 
 import { validateRequest, verifyLinkage } from "./adapter.mjs";
@@ -11,7 +12,27 @@ const OTHER_VRC_ID = "usr_99999999-8888-7777-6666-555555555555";
 const GUILD_ID = "123456789012345671";
 // The adapter accepts only the one reference name provisioned for that guild;
 // see `isSecretRefForGuild` in adapter.mjs.
-const DELEGATION = { guildId: GUILD_ID, secretRef: `secret://vrdex/vrclinking/${GUILD_ID}` };
+const CAPABILITY_KEY = "playwright-capability-key";
+process.env.VRDEX_VRCLINKING_CAPABILITY_KEY = CAPABILITY_KEY;
+
+/** Mints what `convex/_delegationCapability.ts` mints, for the fixtures below. */
+function signDelegation(guildId, secretRef, expiresAt) {
+  return {
+    guildId,
+    secretRef,
+    expiresAt,
+    capability: createHmac("sha256", CAPABILITY_KEY)
+      .update(`${guildId}\n${secretRef}\n${expiresAt}`)
+      .digest("hex"),
+  };
+}
+
+const FAR_FUTURE = Date.UTC(2099, 0, 1);
+const DELEGATION = signDelegation(
+  GUILD_ID,
+  `secret://vrdex/vrclinking/${GUILD_ID}`,
+  FAR_FUTURE,
+);
 
 function baseBody(overrides = {}) {
   return {
@@ -27,10 +48,13 @@ const resolveSecret = async () => "token";
 
 describe("adapter request validation", () => {
   it("accepts a well-formed request and caps delegation fan-out", () => {
-    const many = Array.from({ length: 9 }, (_, index) => ({
-      guildId: `1234567890123456${index}`,
-      secretRef: `secret://vrdex/vrclinking/1234567890123456${index}`,
-    }));
+    const many = Array.from({ length: 9 }, (_, index) =>
+      signDelegation(
+        `1234567890123456${index}`,
+        `secret://vrdex/vrclinking/1234567890123456${index}`,
+        FAR_FUTURE,
+      ),
+    );
     const result = validateRequest(baseBody({ delegations: many }));
 
     assert.equal(result.ok, true);
@@ -46,24 +70,47 @@ describe("adapter request validation", () => {
     assert.equal(validateRequest(baseBody({ delegations: [{ guildId: 1 }] })).error, "no_delegations");
   });
 
+  // The name check below is shape, not authorization: secret names are derived
+  // from the guild id, so a caller holding the shared bearer token constructs a
+  // matching pair as easily as VRDex does. Only the signature, made with a key
+  // that token does not carry, tells the two apart.
+  it("rejects a delegation without a valid, unexpired capability", () => {
+    const secretRef = `secret://vrdex/vrclinking/${GUILD_ID}`;
+    const unsigned = { guildId: GUILD_ID, secretRef };
+    const forged = { ...DELEGATION, capability: "0".repeat(64) };
+    const expired = signDelegation(GUILD_ID, secretRef, Date.UTC(2020, 0, 1));
+    // A capability for one guild must not carry another: the signature covers
+    // the pair, so swapping the guild id invalidates it.
+    const swapped = { ...DELEGATION, guildId: "999999999999999999" };
+
+    for (const delegation of [unsigned, forged, expired, swapped]) {
+      assert.equal(validateRequest(baseBody({ delegations: [delegation] })).error, "no_delegations");
+    }
+
+    assert.equal(validateRequest(baseBody()).ok, true);
+  });
+
   // Convex refuses to register a reference that does not name the guild it is
   // for, but the bearer token in front of this adapter is one shared
   // credential: a caller holding it posts straight here and never passes that
   // check. Since the deployment role can read every delegated tenant secret, an
   // unbound reference would spend another community's key.
   it("rejects a secret reference that does not name its own guild", () => {
-    const foreign = {
-      guildId: GUILD_ID,
-      secretRef: "secret://vrdex/vrclinking/999999999999999999",
-    };
-    const traversal = {
-      guildId: GUILD_ID,
-      secretRef: `secret://vrdex/vrclinking/${GUILD_ID}/../other`,
-    };
-    const arn = {
-      guildId: GUILD_ID,
-      secretRef: `arn:aws:secretsmanager:us-east-1:123456789012:secret:vrdex/vrclinking/${GUILD_ID}-AbCdEf`,
-    };
+    const foreign = signDelegation(
+      GUILD_ID,
+      "secret://vrdex/vrclinking/999999999999999999",
+      FAR_FUTURE,
+    );
+    const traversal = signDelegation(
+      GUILD_ID,
+      `secret://vrdex/vrclinking/${GUILD_ID}/../other`,
+      FAR_FUTURE,
+    );
+    const arn = signDelegation(
+      GUILD_ID,
+      `arn:aws:secretsmanager:us-east-1:123456789012:secret:vrdex/vrclinking/${GUILD_ID}-AbCdEf`,
+      FAR_FUTURE,
+    );
 
     assert.equal(validateRequest(baseBody({ delegations: [foreign] })).error, "no_delegations");
     assert.equal(validateRequest(baseBody({ delegations: [traversal] })).error, "no_delegations");

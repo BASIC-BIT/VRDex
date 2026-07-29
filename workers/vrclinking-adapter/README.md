@@ -56,6 +56,7 @@ outcome: the user's claim did not fail, we could not ask.
 | Variable | Purpose |
 | --- | --- |
 | `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN` | Required. Shared secret with Convex; must match the Convex env of the same name. |
+| `VRDEX_VRCLINKING_CAPABILITY_KEY` | Required. Signing key for per-delegation capabilities; must match Convex's `VRCLINKING_ADAPTER_CAPABILITY_KEY`. Keep it distinct from the bearer token — the point is that a leaked bearer token cannot mint one. |
 | `PORT` | Listen port, default `8080`. |
 | `VRDEX_VRCLINKING_ENABLE_AWS_SECRETS` | Set `true` to resolve `arn:aws:secretsmanager:…` references through the task role. |
 | `VRDEX_VRCLINKING_SECRET_DIR` | Directory backing `secret://<name>` references. Used for local runs and as a file-mounted alternative to Secrets Manager. |
@@ -67,6 +68,13 @@ At least one secret backend must be configured or every request resolves to
 Secrets are named `vrdex/vrclinking/<guildId>` — Convex only accepts a delegation
 whose reference names the guild it is for, so provision the secret under that
 name (or the matching Secrets Manager ARN) before the operator registers it.
+
+That naming rule is a shape check on both sides, not authorization: the names
+are derived from the guild id, so anyone who reaches this endpoint can construct
+a matching pair. Each delegation therefore also carries a short-lived capability
+signed with `VRDEX_VRCLINKING_CAPABILITY_KEY`, which the bearer token does not
+carry — so a leaked bearer token alone cannot make this adapter spend a
+community's key.
 
 ## Running locally
 

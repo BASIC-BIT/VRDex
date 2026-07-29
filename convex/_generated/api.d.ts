@@ -27,6 +27,7 @@ import type * as _claimSession from "../_claimSession.js";
 import type * as _communityAuthority from "../_communityAuthority.js";
 import type * as _communityTelemetry from "../_communityTelemetry.js";
 import type * as _communityTelemetryPublic from "../_communityTelemetryPublic.js";
+import type * as _delegationCapability from "../_delegationCapability.js";
 import type * as _discordTimestamps from "../_discordTimestamps.js";
 import type * as _eventCalendarImports from "../_eventCalendarImports.js";
 import type * as _eventDiscordExport from "../_eventDiscordExport.js";
@@ -138,6 +139,7 @@ declare const fullApi: ApiFromModules<{
   _communityAuthority: typeof _communityAuthority;
   _communityTelemetry: typeof _communityTelemetry;
   _communityTelemetryPublic: typeof _communityTelemetryPublic;
+  _delegationCapability: typeof _delegationCapability;
   _discordTimestamps: typeof _discordTimestamps;
   _eventCalendarImports: typeof _eventCalendarImports;
   _eventDiscordExport: typeof _eventDiscordExport;
