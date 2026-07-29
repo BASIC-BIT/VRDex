@@ -15,6 +15,20 @@ function withStatus(path: string, status: string, count?: number): string {
   return appendReturnPathQuery(path, { discordVerify: status, discordGuilds: count });
 }
 
+/**
+ * Where the round-trip started, recovered from an invalid-session error.
+ *
+ * The single-use state row is the only record of it, and by the time a revoked
+ * session surfaces the actions have either consumed that row or refused to.
+ * Both attach it to the error so sign-in can return the user to the claim they
+ * were part-way through; `invalidAuthSessionSignInPath` validates the value.
+ */
+function carriedReturnTo(error: unknown): string {
+  const carried = (error as { data?: { returnTo?: unknown } }).data?.returnTo;
+
+  return typeof carried === "string" ? carried : "/account";
+}
+
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
   const state = request.nextUrl.searchParams.get("state");
@@ -52,7 +66,7 @@ export async function GET(request: NextRequest) {
         // in place; the successful-code branch below clears them, and a
         // declined one is no different.
         if (isAuthSessionInvalidError(error)) {
-          return invalidAuthSessionRedirectResponse(request, "/account");
+          return invalidAuthSessionRedirectResponse(request, carriedReturnTo(error));
         }
 
         // An unknown or expired state is not worth surfacing: the user simply
@@ -94,15 +108,7 @@ export async function GET(request: NextRequest) {
     // and sending the user back with `failed` would tell them the Discord check
     // went wrong when the fix is to sign in again.
     if (isAuthSessionInvalidError(error)) {
-      // The action carries `returnTo` on the error because it has already
-      // consumed the single-use state row, so nothing else still knows where
-      // the user started. `invalidAuthSessionSignInPath` validates it.
-      const carried = (error as { data?: { returnTo?: unknown } }).data?.returnTo;
-
-      return invalidAuthSessionRedirectResponse(
-        request,
-        typeof carried === "string" ? carried : "/account",
-      );
+      return invalidAuthSessionRedirectResponse(request, carriedReturnTo(error));
     }
 
     console.error(

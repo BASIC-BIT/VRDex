@@ -180,11 +180,31 @@ export const createVerificationState = internalMutation({
 export const consumeVerificationState = internalMutation({
   args: { state: v.string() },
   handler: async (ctx, args) => {
-    const { user } = await requireVerifiedActiveBrowserSession(ctx);
+    // Read before the session guard so a revoked session can still be told
+    // where the round-trip started. The row is not consumed and nothing is
+    // returned on that path — the destination travels on the error, and
+    // `invalidAuthSessionSignInPath` validates it before redirecting. Without
+    // this a user whose session lapsed while they sat on the consent screen
+    // signs in again and lands on `/account` instead of the claim they were
+    // part-way through.
     const row = await ctx.db
       .query("discordVerificationStates")
       .withIndex("by_state", (q) => q.eq("state", args.state))
       .first();
+    let user;
+
+    try {
+      ({ user } = await requireVerifiedActiveBrowserSession(ctx));
+    } catch (error) {
+      if (isAuthSessionInvalidError(error) && row !== null && row.expiresAt > Date.now()) {
+        throw new ConvexError({
+          ...(error.data as Record<string, unknown>),
+          returnTo: row.returnTo,
+        });
+      }
+
+      throw error;
+    }
 
     if (row === null || row.userId !== user._id || row.expiresAt <= Date.now()) {
       throw claimError("VERIFICATION_STATE_INVALID");

@@ -94,6 +94,10 @@ export function createAdapterServer({ resolveSecret, getGuildMemberByDiscordId, 
         verified: result.verified,
         evidenceSource: result.evidenceSource,
         evidenceSummary: result.evidenceSummary,
+        // Which delegations were actually asked. The control plane stamps its
+        // operator-visible "last queried" from this, so dropping it here left
+        // every consulted key reporting "Not used yet".
+        consultedDelegationIndexes: result.consultedDelegationIndexes ?? [],
         ...(result.matchedGuildId === undefined
           ? {}
           : {

@@ -22,6 +22,10 @@ const localConvexEnvNames = [
   "VRCHAT_PROOF_ADAPTER_URL",
   "VRCLINKING_PROOF_ADAPTER_URL",
   "VRCHAT_PROOF_ADAPTER_BEARER_TOKEN",
+  // Convex functions read deployment env, not the web server's process env, so
+  // omitting this made a local VRCLinking attempt throw in `signDelegation`
+  // even with the key configured for Playwright.
+  "VRCLINKING_ADAPTER_CAPABILITY_KEY",
 ];
 const localDeploymentName = process.env.CONVEX_LOCAL_DEPLOYMENT_NAME || "anonymous-agent";
 const localCloudPort = process.env.CONVEX_LOCAL_CLOUD_PORT || "3210";
