@@ -114,6 +114,7 @@ Development/staging Convex env names:
 - `JWT_PRIVATE_KEY`: Convex Auth RS256 private key, generated for the shared development deployment and never printed
 - `JWKS`: Convex Auth public key set matching `JWT_PRIVATE_KEY`
 - `DISCORD_API_BASE_URL`: optional hosted adapter stub base URL, usually `https://staging.vrdex.net/api/e2e/adapters/discord`
+- `DISCORD_OAUTH_AUTHORIZE_URL`: optional consent-screen override, for pointing the OAuth round-trip at a stub instead of Discord. Defaults to `https://discord.com/oauth2/authorize`. The browser follows it carrying the `state` that authorizes the round-trip, so it must be https unless it is loopback
 - `DISCORD_BOT_TOKEN`: staging-only adapter token matching the hosted app environment
 - `VRCHAT_PROOF_ADAPTER_URL`: optional hosted adapter stub URL, usually `https://staging.vrdex.net/api/e2e/adapters/vrchat-proof`
 - `VRCLINKING_PROOF_ADAPTER_URL`: optional hosted adapter stub URL, usually `https://staging.vrdex.net/api/e2e/adapters/vrchat-proof`

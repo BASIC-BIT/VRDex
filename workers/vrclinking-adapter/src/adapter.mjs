@@ -188,7 +188,9 @@ export async function verifyLinkage({
     let member;
 
     try {
-      member = await getGuildMemberByDiscordId(delegation.guildId, request.discordUserId, token);
+      member = await getGuildMemberByDiscordId(delegation.guildId, request.discordUserId, token, {
+        remainingMs: deadline - now(),
+      });
     } catch (error) {
       const reason = error instanceof VrclinkingProviderError ? error.reason : "provider_error";
 

@@ -1471,10 +1471,18 @@ export const verifyVrchatProofViaAdapter = action({
     const reservation = (await ctx.runMutation(internal.profileClaims.reserveAdapterCheck, {
       attemptId: args.attemptId,
       cooldownMs: ADAPTER_CHECK_COOLDOWN_MS,
-    })) as { granted: boolean };
+    })) as { granted: boolean; state: Doc<"profileVerificationAttempts">["state"] | null };
 
     if (!reservation.granted) {
-      return { state: "pending" as const };
+      // A denial can mean "too soon" or "already settled". Only the first is
+      // pending; reporting the second as pending contradicts the completion the
+      // observer is showing.
+      return {
+        state:
+          reservation.state === null || reservation.state === "pending"
+            ? ("pending" as const)
+            : reservation.state,
+      };
     }
 
     // VRC Linking answers from a community's delegated credential rather than
@@ -1649,19 +1657,23 @@ export const reserveAdapterCheck = internalMutation({
   handler: async (ctx, args) => {
     const attempt = await ctx.db.get(args.attemptId);
 
+    // Reports the state it saw, not just the refusal. The collector can settle
+    // the attempt between the action's first read and this reservation, and
+    // answering a flat "pending" there told the claimant the code was not found
+    // on a page the observer was already showing as complete.
     if (attempt === null || attempt.state !== "pending") {
-      return { granted: false };
+      return { granted: false, state: attempt?.state ?? null };
     }
 
     const now = Date.now();
 
     if (attempt.lastCheckedAt !== undefined && attempt.lastCheckedAt > now - args.cooldownMs) {
-      return { granted: false };
+      return { granted: false, state: attempt.state };
     }
 
     await ctx.db.patch(args.attemptId, { lastCheckedAt: now });
 
-    return { granted: true };
+    return { granted: true, state: attempt.state };
   },
 });
 

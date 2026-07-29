@@ -171,14 +171,21 @@ export function createVrclinkingClient({
    * page after the first. Stopping at page one would report a linked claimant as
    * unlinked, which is a real negative the claimant cannot do anything about.
    */
-  return async function getGuildMemberByDiscordId(guildId, discordUserId, token) {
+  return async function getGuildMemberByDiscordId(guildId, discordUserId, token, options = {}) {
     // One deadline for the whole lookup, not one per request. Per-request
     // timers bound nothing useful when a lookup pages up to five times, and the
     // old one stopped covering the response body entirely — `fetch` resolves on
     // headers, so a provider that sent headers and then stalled the body left
     // the read with no deadline at all.
+    //
+    // Capped by whatever the caller has left in its own budget. Checking the
+    // fan-out deadline only before starting a lookup bounded nothing once the
+    // lookup was running: one that began just inside the budget could stall for
+    // its full timeout, spending provider quota well after the control plane
+    // had abandoned the request.
+    const budgetMs = Math.max(1, Math.min(timeoutMs, options.remainingMs ?? timeoutMs));
     const controller = new AbortController();
-    const deadline = setTimeout(() => controller.abort(), timeoutMs);
+    const deadline = setTimeout(() => controller.abort(), budgetMs);
 
     try {
       return await search(guildId, discordUserId, token, controller);
