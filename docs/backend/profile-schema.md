@@ -169,7 +169,19 @@ Convex Auth provides the `users` and `authAccounts` tables used by account and p
 
 `profileVerificationAttempts` stores proof-code attempts for external proof readers. Attempts have a proof code, target type, target external id, state, expiry, and optional evidence summary.
 
-The first automated proof reader is an adapter action configured by `VRCHAT_PROOF_ADAPTER_URL`; it avoids hard-coding guessed VRChat or VRCLinking API behavior into the product backend.
+Proof reading is split by target type:
+
+- `vrchat_user` and `vrchat_group` attempts are read by the collector fleet on
+  its own schedule. `VRCHAT_PROOF_ADAPTER_URL` is optional and deliberately
+  unset in production; with no adapter configured, a manual "check now" reports
+  `queued` rather than failing.
+- `vrclinking` attempts have no collector path at all. They require
+  `VRCLINKING_PROOF_ADAPTER_URL`, because the answer comes from a community's
+  delegated key rather than from a posted code.
+
+Both adapters exist so provider behaviour is not hard-coded into the product
+backend. See `docs/backend/profile-access-and-claims.md` for the claim rules
+and `docs/deployment/group-telemetry-collector.md` for the fleet.
 
 ## External Control Proofs And Profile Links
 

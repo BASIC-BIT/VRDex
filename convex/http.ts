@@ -47,13 +47,29 @@ const telemetryWorker = httpAction(async (ctx, request) => {
   if (!body || typeof body.operation !== "string" || typeof body.workerId !== "string") {
     return json({ error: "invalid_request" }, 400);
   }
+  // Re-read after the body, not only before it. The first check happens before
+  // an attacker-controlled read of unbounded length, so a request authenticated
+  // with a superseded key could hold its body open across a rotation and then
+  // act — stamping attempts into cooldown, spending the replacement account's
+  // shared budget, releasing claims. This shrinks that window to the gap
+  // between here and the dispatch below; the operations that change ownership
+  // or account state re-check the digest inside their own transaction, which is
+  // the only place it can be closed completely.
+  const currentAuthorization = await ctx.runQuery(functions.collectorWorkerAuthorization, {
+    collectorAccountId: collectorAccountId as never,
+  });
+  if (!currentAuthorization || !safeEqual(currentAuthorization.workerKeyHash, presentedHash)) {
+    return json({ error: "unauthorized" }, 401);
+  }
+  if (!currentAuthorization.enabled) return json({ error: "collector_disabled" }, 423);
+
   // The worker reports the VRChat identity recorded in its own secret. Pairing
   // one collector id with another account's secret ARN otherwise started a task
   // that read as A while filing every result under B — the key check cannot see
   // that, because both halves are individually valid.
   if (
     typeof body.vrchatUserId === "string" &&
-    body.vrchatUserId !== authorizationRecord.vrchatUserId
+    body.vrchatUserId !== currentAuthorization.vrchatUserId
   ) {
     return json({ error: "collector_identity_mismatch" }, 401);
   }
