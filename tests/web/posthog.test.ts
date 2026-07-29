@@ -157,8 +157,30 @@ describe("PostHog privacy", () => {
   // `save_campaign_params` stores the first page a person ever landed on as a
   // `$set_once` person property. For a recipient who arrives via their handoff
   // link, that is the live token, kept forever.
+  //
+  // posthog-js nests these inside `properties` at runtime. Modelling them at
+  // the event root was the whole reason this leak survived a passing test, so
+  // both placements are covered.
   it("redacts the initial landing URL recorded as a person property", () => {
-    const event = sanitizePostHogEvent({
+    const nested = sanitizePostHogEvent({
+      properties: {
+        $set_once: {
+          $initial_current_url: "https://vrdex.example/handoff/secret-token",
+          $initial_referrer: "https://vrdex.example/claim/private-profile",
+        },
+        $set: { $current_url: "https://vrdex.example/handoff/secret-token" },
+      },
+    });
+
+    assert.deepEqual(nested!.properties!.$set_once, {
+      $initial_current_url: "https://vrdex.example/handoff/redacted",
+      $initial_referrer: "https://vrdex.example/claim/redacted",
+    });
+    assert.deepEqual(nested!.properties!.$set, {
+      $current_url: "https://vrdex.example/handoff/redacted",
+    });
+
+    const rootLevel = sanitizePostHogEvent({
       properties: {},
       $set_once: {
         $initial_current_url: "https://vrdex.example/handoff/secret-token",
@@ -166,7 +188,7 @@ describe("PostHog privacy", () => {
       },
     });
 
-    assert.deepEqual(event!.$set_once, {
+    assert.deepEqual(rootLevel!.$set_once, {
       $initial_current_url: "https://vrdex.example/handoff/redacted",
       $initial_referrer: "https://vrdex.example/claim/redacted",
     });

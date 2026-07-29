@@ -457,7 +457,12 @@ export function ClaimFlow({
       } else {
         setStatus({
           kind: "error",
-          message: "Administrator access was not found. Check the server and your role, then start again.",
+          message:
+            result.reason === "already_owned"
+              ? "Someone else claimed this community while the check was running."
+              : result.reason === "not_claimable"
+                ? "This listing is no longer available to claim."
+                : "Administrator access was not found. Check the server and your role, then start again.",
         });
         if (result.state === "rejected") {
           captureProductEvent(posthog, "claim_failed", {

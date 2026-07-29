@@ -132,7 +132,12 @@ type VerifyAdapterResult =
       connectionOnly: boolean;
     };
 type DiscordAdminAdapterResult =
-  | { state: Doc<"profileClaimRequests">["state"] }
+  | {
+      state: Doc<"profileClaimRequests">["state"];
+      // Why it was refused, when it was not "we checked Discord and you are not
+      // an administrator". The claimant can act on the difference.
+      reason?: "not_claimable" | "already_owned";
+    }
   | {
       profileId: Id<"profiles">;
       claimState: Doc<"profiles">["claimState"];
@@ -837,7 +842,10 @@ export const recordDiscordCommunityAdminApproval = internalMutation({
         updatedAt: now,
       });
 
-      throw claimError("PROFILE_NOT_FOUND");
+      // Returned, not thrown. A throw rolls this mutation back, taking the
+      // patch with it, so the request would stay pending and every retry would
+      // repeat the Discord calls to reach the same dead end.
+      return { state: "rejected" as const, reason: "not_claimable" as const };
     }
 
     // Another claimant won while this request was out at Discord. Letting
@@ -853,7 +861,8 @@ export const recordDiscordCommunityAdminApproval = internalMutation({
         updatedAt: now,
       });
 
-      throw claimError("PROFILE_ALREADY_OWNED");
+      // Same reason as above: throwing would roll the rejection back.
+      return { state: "rejected" as const, reason: "already_owned" as const };
     }
 
     // Same rule as the OAuth path: Administrator in a server the claimant named
@@ -1230,6 +1239,23 @@ export const recordVrchatProofVerification = internalMutation({
 
     const existingOwner = await getActiveProfileOwner(ctx.db, profile._id);
     const ownedByClaimant = existingOwner !== null && existingOwner.userId === attempt.userId;
+
+    // Another claimant won while this attempt was out at the adapter. Left to
+    // `approveProfileClaimForUser`, the throw rolls the whole mutation back, so
+    // the attempt stays pending and retries keep spending delegated provider
+    // calls until it expires — and `vrclinking` attempts have no collector
+    // wrapper to settle them. The collector's own conflict handling stays for
+    // the batch path; this covers the direct one.
+    if (existingOwner !== null && !ownedByClaimant) {
+      await ctx.db.patch(attempt._id, {
+        state: "failed",
+        evidenceSource: args.evidenceSource,
+        evidenceSummary: "Another claimant took ownership before this proof resolved.",
+        updatedAt: now,
+      });
+
+      return { state: "failed" as const };
+    }
 
     // Attempts stay pending for a day, so the claimability check at the start
     // cannot speak for a moderation decision taken after it. A listing made

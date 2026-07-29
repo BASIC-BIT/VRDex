@@ -146,11 +146,25 @@ export function sanitizePostHogEvent<T extends CapturedEvent>(event: T): T {
     event.properties = sanitizePostHogProperties(event.properties);
   }
 
-  for (const bucket of ["$set", "$set_once"] as const) {
-    const values = event[bucket];
+  // Person properties live *inside* `properties` at runtime, not at the event
+  // root. Reading them from the root left `$initial_current_url` untouched, so
+  // the first view of `/handoff/<token>` pinned the live bearer token to the
+  // person record as a persistent property — the one place redaction matters
+  // most, since it outlives the event.
+  //
+  // The root is still swept: posthog-js has carried these at both levels across
+  // versions, and sanitizing an absent bucket costs nothing.
+  for (const container of [event, event.properties] as const) {
+    if (container === undefined) {
+      continue;
+    }
 
-    if (values !== undefined) {
-      event[bucket] = sanitizePostHogProperties(values);
+    for (const bucket of ["$set", "$set_once"] as const) {
+      const values = container[bucket];
+
+      if (values !== undefined && typeof values === "object" && values !== null) {
+        container[bucket] = sanitizePostHogProperties(values as Record<string, unknown>);
+      }
     }
   }
 

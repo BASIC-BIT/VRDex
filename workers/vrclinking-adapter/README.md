@@ -89,11 +89,16 @@ if you need AWS-backed secrets; the file backend below needs nothing.
 mkdir -p /tmp/vrclinking-secrets/vrdex/vrclinking
 printf 'my-token' > /tmp/vrclinking-secrets/vrdex/vrclinking/100000000000000001
 VRCHAT_PROOF_ADAPTER_BEARER_TOKEN=dev-token \
+VRDEX_VRCLINKING_CAPABILITY_KEY=dev-capability-key \
 VRDEX_VRCLINKING_SECRET_DIR=/tmp/vrclinking-secrets \
 node workers/vrclinking-adapter/src/server.mjs
 ```
 
-Then point Convex at it with `VRCLINKING_PROOF_ADAPTER_URL=http://127.0.0.1:8080`.
+Then point Convex at it with `VRCLINKING_PROOF_ADAPTER_URL=http://127.0.0.1:8080`,
+`VRCHAT_PROOF_ADAPTER_BEARER_TOKEN=dev-token`, and
+`VRCLINKING_ADAPTER_CAPABILITY_KEY=dev-capability-key`. All three have to match
+or the adapter answers every request with `no_delegations` — plain `http` is
+accepted here only because this is loopback.
 
 ## Deployment
 
