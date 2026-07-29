@@ -188,7 +188,19 @@ async function checkProofs() {
       break;
     }
 
-    const reservation = await control.send("proof_budget", { requestCount: 1, now });
+    let reservation;
+
+    try {
+      reservation = await control.send("proof_budget", { requestCount: 1, now });
+    } catch (error) {
+      // A timeout or a 5xx here still leaves the whole batch stamped by the
+      // claim, so walking away parks live attempts for a full cooldown after no
+      // provider request was made — and a run of control-plane failures can
+      // keep them unpolled until they expire. This attempt goes back too:
+      // nothing was read for it.
+      await releaseUnread(pending, attempt);
+      throw error;
+    }
 
     if (!reservation?.granted) {
       await releaseUnread(pending, attempt);
@@ -268,7 +280,16 @@ async function checkProofs() {
       continue;
     }
 
-    await control.send("proof_result", { attemptId: attempt.attemptId, found, now: Date.now() });
+    try {
+      await control.send("proof_result", { attemptId: attempt.attemptId, found, now: Date.now() });
+    } catch (error) {
+      // Same reasoning as the budget call: the untouched tail must not sit out
+      // a cooldown for a control-plane failure. This attempt keeps its stamp —
+      // it already cost a provider request, and re-reading it immediately would
+      // spend another for the same answer.
+      await releaseUnread(pending, attempt, false);
+      throw error;
+    }
   }
 
   return pending.length;

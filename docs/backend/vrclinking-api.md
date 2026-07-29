@@ -171,6 +171,16 @@ the existing `{ verified, evidenceSource, evidenceSummary }` contract with
 `evidenceSource: "vrclinking"`. A match requires `isVerified === true` **and**
 `vrcId` equal to the claimed account.
 
+A positive result must additionally carry `matchedDelegationIndex` — the
+position in the `delegations` array that answered — and may carry
+`matchedGuildId`. Convex re-reads that delegation before accepting the
+attestation, checking it is still active, still holds the reference the answer
+came from, and still has a live control proof behind it; a positive naming no
+delegation, or an index outside the batch, is refused as unavailable rather than
+granted. Every response also carries `consultedDelegationIndexes`, the
+delegations a provider question actually reached, which is what the
+operator-visible "last queried" stamp is written from.
+
 ## Trust posture
 
 A VRCLinking attestation is a different signal from our own proof code: it is a

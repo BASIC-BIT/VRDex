@@ -1632,6 +1632,16 @@ export const verifyVrchatProofViaAdapter = action({
             (delegation) => delegation.guildId === result.matchedGuildId,
           );
 
+    // A `vrclinking` positive is only as good as the delegation it came from,
+    // so it has to name one. Without this, an adapter that returned the bare
+    // `{ verified, evidenceSource, evidenceSummary }` shape — or an index
+    // outside the batch — skipped the re-check below entirely and granted the
+    // claim on nothing. The contract in `docs/backend/vrclinking-api.md`
+    // requires the match metadata; this enforces it.
+    if (attemptContext.attempt.targetType === "vrclinking" && matched === undefined) {
+      return { state: "unavailable" as const };
+    }
+
     if (matched !== undefined) {
       // Re-checked, not just stamped. The owner can revoke the delegation, or
       // repoint it at a different key, between the reservation and this
