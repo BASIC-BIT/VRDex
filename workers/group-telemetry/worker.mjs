@@ -41,14 +41,13 @@ const control = new TelemetryControlClient({
 const provider = new VrchatClient({ authCookie: secret.authCookie, twoFactorAuthCookie: secret.twoFactorAuthCookie, userAgent: requiredEnv("VRDEX_GROUP_TELEMETRY_USER_AGENT") });
 const accountBudget = new RequestBudget(Number(process.env.VRDEX_GROUP_TELEMETRY_REQUESTS_PER_MINUTE ?? 30));
 /**
- * Proof reads get a share of each window, not all of it.
+ * Fast local guard for the proof share.
  *
- * Running proofs before telemetry is right — a proof expires in 24 hours and a
- * deferred telemetry batch does not — but "first" became "instead of" once the
- * pending backlog exceeded a window's worth: attempts become eligible again
- * after their cooldown, so a sustained backlog drained every new minute on
- * proof reads and deferred every integration indefinitely. Half the window
- * bounds that without giving up the ordering.
+ * Advisory only: this counter is per process, and the supported two-task setup
+ * has two of them, each entitled to half. The ceiling that actually holds is
+ * the `proof:account:<id>` scope in `reserveProofRequestBudget`, which every
+ * replica shares. This just avoids claiming a batch the shared reservation is
+ * about to refuse.
  */
 const proofBudget = new RequestBudget(Math.max(1, Math.floor(accountBudget.limit / 2)));
 const integrationBudgets = new Map();

@@ -1000,6 +1000,20 @@ export const reserveProofRequestBudget = internalMutation({
     const scopes = [
       { scopeKey: "global", limit: fleet?.globalRequestsPerMinute ?? 30 },
       { scopeKey: `account:${account._id}`, limit: account.requestsPerMinute },
+      // Proofs get half the account's window, and the ceiling lives here rather
+      // than in the worker: a process-local counter bounds one replica, and the
+      // supported two-task setup — or a rolling restart — has two of them, each
+      // entitled to half and collectively taking all of it. This scope is
+      // shared, so the share holds however many workers are running.
+      //
+      // The share exists because proof reads run before telemetry: a proof
+      // expires in 24 hours and a deferred telemetry batch does not, but a
+      // backlog larger than one window would otherwise defer every integration
+      // indefinitely.
+      {
+        scopeKey: `proof:account:${account._id}`,
+        limit: Math.max(1, Math.floor(account.requestsPerMinute / 2)),
+      },
     ];
     const counters = await Promise.all(scopes.map(async (scope) => ({
       ...scope,

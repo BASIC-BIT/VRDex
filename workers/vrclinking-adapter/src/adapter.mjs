@@ -277,6 +277,19 @@ export async function verifyLinkage({
       continue;
     }
 
+    // The provider returned this exact member, so its attestation fields have
+    // to be readable. A missing or non-boolean `isVerified`, or a `vrcId` that
+    // is not a VRChat id, is schema drift — reporting it as a definitive
+    // non-match would leave every check telling the claimant their link was not
+    // found when the provider never made a usable statement about it.
+    if (
+      typeof member.isVerified !== "boolean" ||
+      (member.isVerified && !VRCHAT_USER_ID_PATTERN.test(String(member.vrcId ?? "")))
+    ) {
+      failures.push("schema_drift");
+      continue;
+    }
+
     if (member.isVerified === true && member.vrcId === request.targetExternalId) {
       return {
         verified: true,

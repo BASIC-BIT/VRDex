@@ -462,6 +462,13 @@ export const cancelClaimJourneyPending = mutation({
       throw claimError("PROFILE_NOT_FOUND");
     }
 
+    // Same gate as every other claim endpoint, and for the same reason: a
+    // hidden listing answered `{ canceled: false }` while an unused slug threw
+    // `PROFILE_NOT_FOUND`, which tells a prober the listing exists. An owner
+    // still gets through — they can already see their own.
+    const activeOwner = await getActiveProfileOwner(ctx.db, profile._id);
+    requireClaimableVisibility(profile, activeOwner, user._id);
+
     const now = Date.now();
 
     if (args.pendingType === "claim_request") {
