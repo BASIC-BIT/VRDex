@@ -325,6 +325,69 @@ describe("profile claim lifecycle", () => {
     assert.equal(attempt?.evidenceSource, "vrclinking");
   });
 
+  // Attempts stay pending for a day, so the claimability check at the start
+  // cannot speak for a moderation decision taken after it.
+  it("refuses a proof for a listing suppressed while it was pending", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const { attemptId, profileId } = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        email: "proof-suppressed@example.test",
+        emailVerificationTime: now,
+      });
+      const profileId = await ctx.db.insert("profiles", {
+        profileType: "person",
+        slug: "proof-suppressed",
+        displayName: "Proof Suppressed",
+        sortName: "proof suppressed",
+        aliases: [],
+        tags: [],
+        claimState: "unclaimed",
+        publicationState: "published",
+        // Suppressed after the attempt was created, which is the whole point.
+        publicSurfacingState: "suppressed",
+        creationSource: "self",
+        person: { roleTags: [] },
+        updatedAt: now,
+      });
+      const attemptId = await ctx.db.insert("profileVerificationAttempts", {
+        profileId,
+        userId,
+        method: "vrchat_user_proof",
+        targetType: "vrchat_user",
+        targetExternalId: "usr_5e7adcef-c7f4-4df1-b4e6-e86fb529ac09",
+        proofCode: "VRDEX-ONE-TIME",
+        state: "pending",
+        createdAt: now,
+        updatedAt: now,
+        expiresAt: now + 60_000,
+      });
+
+      return { attemptId, profileId };
+    });
+
+    const result = await t.mutation(internal.profileClaims.recordVrchatProofVerification, {
+      attemptId,
+      evidenceSource: "vrchat_api",
+      evidenceSummary: "Proof code was found after the listing was suppressed.",
+    });
+
+    // Settled, not thrown: the collector treats anything but an ownership
+    // conflict as retryable, so throwing would have it retry until expiry.
+    assert.deepEqual(result, { state: "failed" });
+
+    const { attempt, owners } = await t.run(async (ctx) => ({
+      attempt: await ctx.db.get(attemptId),
+      owners: await ctx.db
+        .query("profileOwners")
+        .withIndex("by_profileId_state", (q) => q.eq("profileId", profileId))
+        .collect(),
+    }));
+
+    assert.equal(attempt?.state, "failed");
+    assert.equal(owners.length, 0);
+  });
+
   it("reports the settled outcome instead of failing a replayed proof", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();

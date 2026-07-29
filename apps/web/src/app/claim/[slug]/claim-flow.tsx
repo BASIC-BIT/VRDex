@@ -173,9 +173,14 @@ export function ClaimFlow({
   const isVerifiedViewer = context?.ownership === "viewer" && context.verified;
   const canUseClaimJourney =
     context?.ownership === "available" || isUnverifiedViewer || isVerifiedViewer;
+  // The OAuth round-trip remounts this component with no selection, so the
+  // fallback is what an owner returning from Discord verification lands on. An
+  // existing unverified owner picked Discord to get here; dropping them back on
+  // the VRChat proof hides the server picker they just verified a server for.
   const method: ClaimMethod =
     selectedMethod ??
-    (profile.profileType === "community" && context?.ownership === "available"
+    (profile.profileType === "community" &&
+    (context?.ownership === "available" || discordVerify === "verified")
       ? "discord"
       : "vrchat");
 
@@ -358,14 +363,12 @@ export function ClaimFlow({
               : "Ownership confirmed, and this profile is now yours. It is not marked verified yet, because this account or group was not already on record for the listing.",
           verified,
         });
-
-        if (!connectionOnly) {
-          captureProductEvent(posthog, "claim_completed", {
-            method: "vrchat",
-            outcome: verified ? "claimed_verified" : "claimed_unverified",
-            profile_type: profile.profileType,
-          });
-        }
+        // No `claim_completed` here. This same verification advances
+        // `lastVerifiedProof`, so the observer below emits it — from the
+        // backend's own classification, and for background collector
+        // resolutions too. Emitting in both places counted every
+        // adapter-resolved claim twice, and PostHog has no dedupe key to
+        // collapse them.
       } else if (result.state === "verified") {
         // The collector fleet resolves attempts on its own schedule, so it may
         // have landed the verdict between render and this click. Reporting the

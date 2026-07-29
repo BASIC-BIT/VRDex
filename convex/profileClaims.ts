@@ -1165,6 +1165,28 @@ export const recordVrchatProofVerification = internalMutation({
       throw claimError("PROFILE_NOT_FOUND");
     }
 
+    const existingOwner = await getActiveProfileOwner(ctx.db, profile._id);
+    const ownedByClaimant = existingOwner !== null && existingOwner.userId === attempt.userId;
+
+    // Attempts stay pending for a day, so the claimability check at the start
+    // cannot speak for a moderation decision taken after it. A listing made
+    // draft, opted out, or safety-suppressed in that window must not still hand
+    // itself over because a proof was already in flight.
+    //
+    // Settled rather than thrown: the collector's caller only treats an
+    // ownership conflict as terminal, so throwing would have it retry an
+    // attempt that can never succeed until it expires.
+    if (!ownedByClaimant && !canReadProfile("public", profile)) {
+      await ctx.db.patch(attempt._id, {
+        state: "failed",
+        evidenceSource: args.evidenceSource,
+        evidenceSummary: "The listing stopped being claimable before this proof resolved.",
+        updatedAt: now,
+      });
+
+      return { state: "failed" as const };
+    }
+
     // Same rule as the Discord paths, and for the same reason. Placing a proof
     // code in a VRChat group's description proves the claimant administers that
     // group; it says nothing about whether the group is the one this listing
@@ -1193,8 +1215,6 @@ export const recordVrchatProofVerification = internalMutation({
     // the listing does not name cannot upgrade either — nothing about the
     // profile changes — so that is a connection too. Only a proof that actually
     // upgrades is a claim.
-    const existingOwner = await getActiveProfileOwner(ctx.db, profile._id);
-    const ownedByClaimant = existingOwner !== null && existingOwner.userId === attempt.userId;
     const upgradesClaimState =
       profile.claimState !== "claimed_verified" && assetBacksThisProfile;
     const connectionOnly = ownedByClaimant && !upgradesClaimState;
