@@ -148,6 +148,7 @@ describe("collector proof check queue", () => {
       collectorAccountId: seeded.impostor,
       attemptId,
       found: true,
+      workerKeyHash: "a".repeat(64),
       now: now + 2,
     });
     assert.equal(impostorResult.state, "unauthorized");
@@ -161,6 +162,7 @@ describe("collector proof check queue", () => {
       collectorAccountId: seeded.claimant,
       attemptId,
       found: true,
+      workerKeyHash: "a".repeat(64),
       now: now + 3,
     });
     assert.equal(claimantResult.state, "verified");
@@ -198,6 +200,42 @@ describe("collector proof check queue", () => {
       collectorAccountId,
       attemptId,
       found: true,
+      workerKeyHash: "a".repeat(64),
+      now: now + 2,
+    });
+
+    assert.equal(result.state, "unauthorized");
+    await t.run(async (ctx) => {
+      assert.equal((await ctx.db.get(attemptId))?.state, "pending");
+    });
+  });
+
+  // The HTTP layer authenticates before it reads the request body, so a caller
+  // can hold that body open across a re-registration. Rotation has to
+  // supersede the verdict, or a replaced key still grants ownership.
+  it("refuses a verdict carrying a superseded worker key", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const collectorAccountId = await t.run(async (ctx) => {
+      const id = await seedCollector(ctx as never, "rotated", now);
+      await seedAttempt(ctx as never, { targetType: "vrchat_user", now });
+
+      return id;
+    });
+    const claimed = await t.mutation(internal.communityTelemetry.claimPendingProofChecks, {
+      collectorAccountId,
+      workerId: "worker-rotated",
+      limit: 1,
+      now: now + 1,
+    });
+    const attemptId = claimed.attempts[0]!.attemptId;
+
+    const result = await t.mutation(internal.communityTelemetry.recordProofCheckResult, {
+      collectorAccountId,
+      attemptId,
+      found: true,
+      // The digest the seeded account no longer holds.
+      workerKeyHash: "b".repeat(64),
       now: now + 2,
     });
 

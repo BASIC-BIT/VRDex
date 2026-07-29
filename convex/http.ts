@@ -108,6 +108,9 @@ const telemetryWorker = httpAction(async (ctx, request) => {
         collectorAccountId,
         attemptId: body.attemptId as never,
         found: body.found,
+        // Checked again inside the mutation: this was authenticated before the
+        // body was read, and a rotation in that window must not still grant.
+        workerKeyHash: presentedHash,
         now,
       });
       return json(result);

@@ -2012,6 +2012,11 @@ export const recordProofCheckResult = internalMutation({
     collectorAccountId: v.string(),
     attemptId: v.id("profileVerificationAttempts"),
     found: v.boolean(),
+    // The key digest this request authenticated with. `http.ts` checks it
+    // before reading the body, so a caller holding the body open across a key
+    // rotation could still land a verdict on a credential that no longer
+    // exists. Re-checked at the point the verdict actually grants ownership.
+    workerKeyHash: v.string(),
     now: v.number(),
   },
   handler: async (ctx, args) => {
@@ -2078,7 +2083,12 @@ export const recordProofCheckResult = internalMutation({
       fleet?.killSwitchEnabled ||
       account === null ||
       account.killSwitchEnabled ||
-      account.state !== "ready"
+      account.state !== "ready" ||
+      // Rotation supersedes anything in flight. `http.ts` authenticated this
+      // request before reading its body, so a caller holding that body open
+      // across a re-registration could otherwise land a verdict — and grant
+      // ownership — on a key an operator had already replaced.
+      account.workerKeyHash !== args.workerKeyHash
     ) {
       return { state: "unauthorized" as const };
     }

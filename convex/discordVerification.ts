@@ -33,6 +33,8 @@ function hasControlCharacter(value: string): boolean {
 
   return false;
 }
+// Discord user and guild ids are both snowflakes.
+const DISCORD_SNOWFLAKE_PATTERN = /^\d{17,20}$/;
 const DISCORD_ADMINISTRATOR_PERMISSION = BigInt(8);
 const DISCORD_MANAGE_GUILD_PERMISSION = BigInt(32);
 
@@ -611,7 +613,12 @@ async function fetchCurrentDiscordUserId(accessToken: string): Promise<string> {
 
   const payload = (response.body ?? {}) as { id?: unknown };
 
-  if (typeof payload.id !== "string" || payload.id.length === 0) {
+  // A snowflake, not merely a nonempty string. This becomes the
+  // `evidenceSubjectId` every proof is recorded under, and reconciliation only
+  // revokes proofs whose subject matches the identity verifying now — so proofs
+  // filed under a bogus id would be unreachable by the very check meant to take
+  // them away, and stay usable for claims and delegations until they expire.
+  if (typeof payload.id !== "string" || !DISCORD_SNOWFLAKE_PATTERN.test(payload.id)) {
     throw claimError("ADAPTER_UNAVAILABLE", "identity_malformed_payload");
   }
 

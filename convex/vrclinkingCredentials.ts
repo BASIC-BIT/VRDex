@@ -154,9 +154,16 @@ export const registerCredential = mutation({
     const sameGuild = existing.find((row) => row.guildId === guildId);
 
     if (sameGuild !== undefined) {
+      // A replacement is a different key. Carrying the old one's audit history
+      // forward made the Connections page attribute its queries and matches to
+      // a credential that has answered nothing — the operator's only way to
+      // tell a working delegation from an untested one.
       await ctx.db.patch(sameGuild._id, {
         secretRef,
         delegatedByUserId: user._id,
+        lastConsultedAt: undefined,
+        lastUsedAt: undefined,
+        lastResultSummary: undefined,
         updatedAt: now,
       });
 
