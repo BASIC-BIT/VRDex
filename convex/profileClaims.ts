@@ -1633,10 +1633,20 @@ export const verifyVrchatProofViaAdapter = action({
           );
 
     if (matched !== undefined) {
-      await ctx.runMutation(internal.vrclinkingCredentials.recordCredentialUse, {
+      // Re-checked, not just stamped. The owner can revoke the delegation, or
+      // repoint it at a different key, between the reservation and this
+      // response — and the delegator's own control proof can lapse in the same
+      // window. Accepting the verdict anyway would let a revoked credential
+      // grant ownership.
+      const use = (await ctx.runMutation(internal.vrclinkingCredentials.recordCredentialUse, {
         credentialId: matched.credentialId,
+        secretRef: matched.secretRef,
         resultSummary: "Confirmed a VRC Linking identity attestation.",
-      });
+      })) as { accepted: boolean };
+
+      if (!use.accepted) {
+        return { state: "unavailable" as const };
+      }
     }
 
     return await ctx.runMutation(internal.profileClaims.recordVrchatProofVerification, {

@@ -359,10 +359,38 @@ export const recordCredentialConsultations = internalMutation({
 export const recordCredentialUse = internalMutation({
   args: {
     credentialId: v.id("communityVrclinkingCredentials"),
+    // The reference this attestation was actually obtained with. An owner can
+    // revoke or repoint the delegation while the adapter is answering, and a
+    // verdict from the superseded key must not be accepted on the new one's
+    // behalf — nor stamp `lastUsedAt` as though the new key had answered.
+    secretRef: v.string(),
     resultSummary: v.string(),
   },
   handler: async (ctx, args) => {
+    const credential = await ctx.db.get(args.credentialId);
+
+    if (
+      credential === null ||
+      credential.state !== "active" ||
+      credential.secretRef !== args.secretRef
+    ) {
+      return { accepted: false };
+    }
+
+    // The delegation is only as good as the delegator's current control of the
+    // guild, which the selection checked and which can also lapse inside this
+    // window.
+    const proof = await getActiveControlProof(
+      ctx.db,
+      credential.delegatedByUserId,
+      "discord_guild",
+      credential.guildId,
+    );
     const now = Date.now();
+
+    if (proof === null || (proof.revalidateAfter !== undefined && proof.revalidateAfter <= now)) {
+      return { accepted: false };
+    }
 
     await ctx.db.patch(args.credentialId, {
       lastRotatedAt: now,
@@ -371,5 +399,7 @@ export const recordCredentialUse = internalMutation({
       lastResultSummary: args.resultSummary.slice(0, 300),
       updatedAt: now,
     });
+
+    return { accepted: true };
   },
 });
