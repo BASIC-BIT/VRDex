@@ -219,10 +219,18 @@ function requireClaimableVisibility(
   }
 }
 
+/**
+ * Resolve a slug the caller may claim, or refuse in a way that says nothing.
+ *
+ * Takes the viewer because the visibility gate has to run before anything else
+ * can answer a question about the profile — including its type. Returns the
+ * owner it had to read anyway, so callers do not read it twice.
+ */
 async function getClaimableProfileBySlug(
   ctx: Parameters<typeof getProfileBySlug>[0],
   slug: string,
   expectedProfileType: "person" | "community",
+  userId: Id<"users">,
 ) {
   const validation = validateProfileSlug(slug);
 
@@ -236,11 +244,18 @@ async function getClaimableProfileBySlug(
     throw claimError("PROFILE_NOT_FOUND");
   }
 
+  // Before the type check, not after. `WRONG_PROFILE_TYPE` for a mismatched
+  // method and `PROFILE_NOT_FOUND` for a matching one told a prober both that a
+  // hidden listing exists and what type it is — which the public query refuses
+  // to answer. An owner still gets through; they can already see their own.
+  const activeOwner = await getActiveProfileOwner(ctx, profile._id);
+  requireClaimableVisibility(profile, activeOwner, userId);
+
   if (profile.profileType !== expectedProfileType) {
     throw claimError("WRONG_PROFILE_TYPE", expectedProfileType);
   }
 
-  return profile;
+  return { profile, activeOwner };
 }
 
 function requireNoSuitableMatchConfirmed(confirmed: boolean) {
@@ -574,12 +589,10 @@ export const claimExistingPersonWithDiscord = mutation({
   },
   handler: async (ctx, args) => {
     const { subject, user } = await requireVerifiedActiveBrowserSession(ctx);
-    const [profile, discordAccount] = await Promise.all([
-      getClaimableProfileBySlug(ctx.db, args.profileSlug, "person"),
+    const [{ profile, activeOwner }, discordAccount] = await Promise.all([
+      getClaimableProfileBySlug(ctx.db, args.profileSlug, "person", user._id),
       requireLinkedDiscordAccount(ctx, user._id),
     ]);
-    const activeOwner = await getActiveProfileOwner(ctx.db, profile._id);
-    requireClaimableVisibility(profile, activeOwner, user._id);
 
     if (activeOwner !== null && activeOwner.userId !== user._id) {
       throw claimError("PROFILE_ALREADY_OWNED");
@@ -702,17 +715,14 @@ export const requestCommunityDiscordAdminClaim = mutation({
   },
   handler: async (ctx, args) => {
     const { user } = await requireVerifiedActiveBrowserSession(ctx);
-    const [profile, discordAccount] = await Promise.all([
-      getClaimableProfileBySlug(ctx.db, args.profileSlug, "community"),
+    const [{ profile, activeOwner }, discordAccount] = await Promise.all([
+      getClaimableProfileBySlug(ctx.db, args.profileSlug, "community", user._id),
       requireLinkedDiscordAccount(ctx, user._id),
     ]);
     const discordGuildId = args.discordGuildId.trim();
     if (!DISCORD_GUILD_ID_PATTERN.test(discordGuildId)) {
       throw claimError("INVALID_DISCORD_GUILD_ID");
     }
-
-    const activeOwner = await getActiveProfileOwner(ctx.db, profile._id);
-    requireClaimableVisibility(profile, activeOwner, user._id);
 
     if (activeOwner !== null && activeOwner.userId !== user._id) {
       throw claimError("PROFILE_ALREADY_OWNED");
@@ -1028,15 +1038,14 @@ export const startVrchatProof = mutation({
   },
   handler: async (ctx, args) => {
     const { user } = await requireVerifiedActiveBrowserSession(ctx);
-    const profile = await getClaimableProfileBySlug(
+    const { profile, activeOwner } = await getClaimableProfileBySlug(
       ctx.db,
       args.profileSlug,
       args.targetType === "vrchat_group" ? "community" : "person",
+      user._id,
     );
     requireCompatibleProofTarget(profile, args.targetType);
 
-    const activeOwner = await getActiveProfileOwner(ctx.db, profile._id);
-    requireClaimableVisibility(profile, activeOwner, user._id);
     if (activeOwner !== null && activeOwner.userId !== user._id) {
       throw claimError("PROFILE_ALREADY_OWNED");
     }

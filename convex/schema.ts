@@ -2061,6 +2061,20 @@ export default defineSchema({
     .index("by_state", ["state"])
     .index("by_expiresAt", ["expiresAt"])
     .index("by_userId_createdAt", ["userId", "createdAt"]),
+  // When the newest applied OAuth reconciliation for one Discord identity read
+  // that identity's guilds.
+  //
+  // Overlapping callbacks can land out of order, and the proof rows alone
+  // cannot order them: a result with no manageable guilds writes no proof and
+  // revokes nothing, so it leaves no trace for a later-arriving older result to
+  // lose against — which is exactly the case where that older result would
+  // resurrect access Discord had just reported as gone.
+  discordVerificationWatermarks: defineTable({
+    userId: v.id("users"),
+    discordUserId: v.string(),
+    observedAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_userId_discordUserId", ["userId", "discordUserId"]),
   // Many-to-many association between a profile and an external asset. One
   // community may hold several Discord guilds and VRChat groups (one marked
   // `primary`), and one guild may back several community profiles.

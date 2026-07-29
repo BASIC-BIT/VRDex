@@ -218,32 +218,47 @@ export const recordGuildControlProofs = internalMutation({
     const { user } = await requireVerifiedActiveBrowserSession(ctx);
     const now = Date.now();
 
-    // Every Discord proof for this user, in any state, so a revoked row still
-    // counts as evidence that a reconciliation ran.
     const discordProofs = await ctx.db
       .query("externalControlProofs")
       .withIndex("by_userId_assetType_assetExternalId", (q) =>
         q.eq("userId", user._id).eq("assetType", "discord_guild"),
       )
       .collect();
-    // Same subject rule as the reconciliation below: a second Discord account's
-    // round-trip says nothing about this one's ordering.
-    const lastApplied = discordProofs
-      .filter(
-        (proof) =>
-          proof.evidenceSubjectId === undefined ||
-          proof.evidenceSubjectId === args.discordUserId,
-      )
-      .reduce((latest, proof) => Math.max(latest, proof.updatedAt), 0);
 
     // Two callbacks for the same identity can overlap, and Discord's answer can
     // change between their reads. Without an ordering check the last one to
     // arrive wins, so an older response listing a guild could land after a
     // newer one revoked it and reactivate the proof with a fresh 30-day window
     // — access Discord no longer reports, still good for claims and
-    // delegations. The newer result already stands; drop this one.
-    if (args.observedAt < lastApplied) {
+    // delegations.
+    //
+    // The watermark is its own row rather than being inferred from the proofs,
+    // because the case that matters most leaves no proof behind: a result with
+    // no manageable guilds writes nothing and, on a first verification, revokes
+    // nothing either. An older result arriving after it would find no trace to
+    // lose against and would create the very access the newer read said was
+    // gone. Per identity, since a second Discord account's round-trip says
+    // nothing about this one's ordering.
+    const watermark = await ctx.db
+      .query("discordVerificationWatermarks")
+      .withIndex("by_userId_discordUserId", (q) =>
+        q.eq("userId", user._id).eq("discordUserId", args.discordUserId),
+      )
+      .unique();
+
+    if (watermark !== null && args.observedAt < watermark.observedAt) {
       return { recorded: 0, revoked: 0, superseded: true };
+    }
+
+    if (watermark === null) {
+      await ctx.db.insert("discordVerificationWatermarks", {
+        userId: user._id,
+        discordUserId: args.discordUserId,
+        observedAt: args.observedAt,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.patch(watermark._id, { observedAt: args.observedAt, updatedAt: now });
     }
 
     await Promise.all(

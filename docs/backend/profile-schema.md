@@ -4,7 +4,9 @@
 
 This doc captures the durable profile schema foundation from `#9` through `#13`, plus later extensions in `#20`, `#22`, `#23`, `#25`, `#26`, `#30`, `#31`, `#32`, `#33`, `#82`, `#90`, the DJ lookup genre slice, and the first file-backed media-kit and bounded appearance slices.
 
-The implemented schema is intentionally narrow. It establishes one shared `profiles` table for people and communities plus first-slice account ownership, claim request, verification attempt, field visibility, media asset, and bounded appearance tables without introducing normalized link tables or advanced moderation workflows.
+The implemented schema is intentionally narrow. It establishes one shared `profiles` table for people and communities plus first-slice account ownership, claim request, verification attempt, field visibility, media asset, and bounded appearance tables, without advanced moderation workflows.
+
+One normalized link table now exists: `#200` added `profileExternalLinks` and `externalControlProofs` for the claim verification platform. See [External Control Proofs And Profile Links](#external-control-proofs-and-profile-links). That is a deliberate exception to the "no normalized link tables" posture above, and it is scoped to external assets — Discord servers, VRChat groups, and VRChat accounts. Aliases, authored blocks, and outbound links remain inline.
 
 ## Locked Decisions
 
@@ -169,6 +171,56 @@ Convex Auth provides the `users` and `authAccounts` tables used by account and p
 
 The first automated proof reader is an adapter action configured by `VRCHAT_PROOF_ADAPTER_URL`; it avoids hard-coding guessed VRChat or VRCLinking API behavior into the product backend.
 
+## External Control Proofs And Profile Links
+
+`#200` splits two things a claim used to conflate: whether somebody controls an
+external asset, and which profile that asset stands for. They are separate
+because proving you administer a Discord server says nothing about which
+community listing that server represents.
+
+`externalControlProofs` records the first — durable evidence that a user
+controls an asset:
+
+- `userId`, `assetType` (`discord_guild` | `vrchat_group` | `vrchat_user`), `assetExternalId`
+- `controlLevel`: `manager` | `administrator` | `owner` | `self`
+- `state`: `"active" | "revoked"`, with `revokedAt` and `revokedReason`
+- `evidenceSource` and `evidenceSummary`: how control was shown
+- `evidenceSubjectId`: which external identity produced the evidence. A user may
+  verify through more than one Discord account, and a result is only
+  authoritative about the guilds of the identity that produced it
+- `verifiedAt`, `revalidateAfter`, `lastRevalidatedAt`: proofs expire. A lapsed
+  proof stops backing claims and delegations without deleting the record
+
+`profileExternalLinks` records the second — a many-to-many association between a
+profile and an asset:
+
+- `profileId`, `assetType`, `assetExternalId`, optional `assetDisplayName`
+- `linkRole`: `primary` | `secondary`. One community may hold several servers and
+  groups; one of each kind is primary
+- `state`: `"active" | "removed"`
+- `linkedByUserId`: absent when an operator seeded the association rather than a
+  claimant asserting it
+- `verifiedByProofId`: the control proof that backed the link when it was made
+
+The trust rule between them: a proof alone grants `claimed_unverified`
+ownership. `claimed_verified` additionally requires an active link recorded by
+somebody other than the claimant — otherwise a claim corroborates itself, and
+any asset could verify any listing.
+
+Links deliberately outlive proofs. A community that stops being administered by
+its original claimant keeps its association; what lapses is the authority to act
+on it.
+
+Supporting tables from the same slice:
+
+- `communityVrclinkingCredentials`: a community's delegated VRCLinking key,
+  stored as a `secretRef` only — never the key itself — bound to the guild it is
+  for, with rotation and consultation stamps
+- `discordVerificationStates`: single-use OAuth round-trip state
+- `discordVerificationWatermarks`: per Discord identity, when the newest applied
+  reconciliation read that identity's guilds, so overlapping callbacks landing
+  out of order cannot resurrect revoked access
+
 ## Reviewed Seed Import Staging Tables
 
 Current recommendation:
@@ -243,6 +295,11 @@ Deploy-time migrations use `@convex-dev/migrations` and are run by `migrations:r
 - `profileOwners.by_userId_state`: account profile ownership lookup
 - `profileClaimRequests.by_profileId_state`: profile claim review lookup
 - `profileVerificationAttempts.by_state_expiresAt`: pending proof attempt expiry scans
+- `externalControlProofs.by_userId_assetType_assetExternalId`: one user's proof for a given asset, in any state
+- `externalControlProofs.by_assetType_assetExternalId_state`: who currently proves control of an asset
+- `externalControlProofs.by_state_revalidateAfter`: revalidation sweeps
+- `profileExternalLinks.by_profileId_assetType_state`: a profile's active connections, primary first
+- `profileExternalLinks.by_assetType_assetExternalId_state`: which profiles an asset backs
 
 ## Implementation Boundaries
 

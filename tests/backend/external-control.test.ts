@@ -710,6 +710,35 @@ describe("Discord guild proof reconciliation", () => {
         null,
       );
     });
+
+    // The case with no proof rows to order against: a first verification that
+    // finds no manageable guilds writes nothing and revokes nothing. An older
+    // read arriving afterwards must still lose, or it creates the access the
+    // newer one said was gone.
+    const emptyObservedAt = Date.now() + 10_000;
+
+    await asUser.mutation(internal.discordVerification.recordGuildControlProofs, {
+      observedAt: emptyObservedAt,
+      discordUserId: "discord-subject-empty",
+      guilds: [],
+    });
+
+    const afterEmpty = await asUser.mutation(
+      internal.discordVerification.recordGuildControlProofs,
+      {
+        observedAt: emptyObservedAt - 1_000,
+        discordUserId: "discord-subject-empty",
+        guilds: [{ id: "777", name: "Already Gone", controlLevel: "owner" }],
+      },
+    );
+
+    assert.equal(afterEmpty.superseded, true);
+    await t.run(async (ctx) => {
+      assert.equal(
+        await getActiveControlProof(ctx.db, seeded.userId, "discord_guild", "777"),
+        null,
+      );
+    });
   });
 
   // One VRDex account may manage servers through more than one Discord login.
