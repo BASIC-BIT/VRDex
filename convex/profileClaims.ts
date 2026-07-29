@@ -14,6 +14,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import {
+  getActiveControlProof,
   getActiveProfileLinks,
   linkProfileToAsset,
   recordExternalControlProof,
@@ -1189,8 +1190,44 @@ export const recordVrchatProofVerification = internalMutation({
     attemptId: v.id("profileVerificationAttempts"),
     evidenceSource: v.union(v.literal("vrchat_api"), v.literal("vrclinking"), v.literal("manual")),
     evidenceSummary: v.string(),
+    // The delegation a VRC Linking attestation came from, re-validated here so
+    // the check and the ownership grant are one transaction. Checking it in a
+    // separate mutation left a window in which the owner could revoke or
+    // repoint the delegation and the grant would still land on its say-so.
+    vrclinkingDelegation: v.optional(
+      v.object({
+        credentialId: v.id("communityVrclinkingCredentials"),
+        secretRef: v.string(),
+      }),
+    ),
   },
   handler: async (ctx, args) => {
+    if (args.vrclinkingDelegation !== undefined) {
+      const credential = await ctx.db.get(args.vrclinkingDelegation.credentialId);
+
+      if (
+        credential === null ||
+        credential.state !== "active" ||
+        credential.secretRef !== args.vrclinkingDelegation.secretRef
+      ) {
+        return { state: "unavailable" as const };
+      }
+
+      const proof = await getActiveControlProof(
+        ctx.db,
+        credential.delegatedByUserId,
+        "discord_guild",
+        credential.guildId,
+      );
+
+      if (
+        proof === null ||
+        (proof.revalidateAfter !== undefined && proof.revalidateAfter <= Date.now())
+      ) {
+        return { state: "unavailable" as const };
+      }
+    }
+
     const attempt = await ctx.db.get(args.attemptId);
 
     if (attempt === null) {
@@ -1672,6 +1709,15 @@ export const verifyVrchatProofViaAdapter = action({
       attemptId: args.attemptId,
       evidenceSource: result.evidenceSource ?? proofEvidenceSourceForTarget(attemptContext.attempt.targetType),
       evidenceSummary: result.evidenceSummary ?? "Proof code was found by the configured adapter.",
+      // Re-validated inside that mutation, atomically with the grant.
+      ...(matched === undefined
+        ? {}
+        : {
+            vrclinkingDelegation: {
+              credentialId: matched.credentialId,
+              secretRef: matched.secretRef,
+            },
+          }),
     });
   },
 });
