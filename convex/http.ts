@@ -67,8 +67,13 @@ const telemetryWorker = httpAction(async (ctx, request) => {
   // one collector id with another account's secret ARN otherwise started a task
   // that read as A while filing every result under B — the key check cannot see
   // that, because both halves are individually valid.
+  // Required, not merely checked when offered. Accepting its absence left the
+  // whole mispairing open to any worker that simply did not send it — a stale
+  // task mid-rollout, or a custom one — which is the same hole with an easier
+  // key. Workers refuse to start without it, so a request without one is not a
+  // worker this control plane should be serving.
   if (
-    typeof body.vrchatUserId === "string" &&
+    typeof body.vrchatUserId !== "string" ||
     body.vrchatUserId !== currentAuthorization.vrchatUserId
   ) {
     return json({ error: "collector_identity_mismatch" }, 401);

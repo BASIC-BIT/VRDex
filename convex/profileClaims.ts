@@ -1622,12 +1622,18 @@ export const verifyVrchatProofViaAdapter = action({
     }
 
     if (attemptContext.attempt.expiresAt <= Date.now()) {
-      await ctx.runMutation(internal.profileClaims.recordVrchatProofFailure, {
+      // `recordVrchatProofFailure` reports the state it found rather than
+      // overwriting a settled one, so use its answer: the collector can verify
+      // this attempt in the same window, and announcing `expired` over its
+      // grant would tell the claimant they had run out of time for a claim that
+      // had just succeeded.
+      const failure = (await ctx.runMutation(internal.profileClaims.recordVrchatProofFailure, {
         attemptId: args.attemptId,
         evidenceSource: proofEvidenceSourceForTarget(attemptContext.attempt.targetType),
         evidenceSummary: "The proof attempt expired before adapter verification completed.",
-      });
-      return { state: "expired" as const };
+      })) as { state: Doc<"profileVerificationAttempts">["state"] };
+
+      return { state: failure.state };
     }
 
     const result = (response.body ?? {}) as ProofAdapterResponse;
