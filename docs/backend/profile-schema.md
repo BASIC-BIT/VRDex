@@ -183,7 +183,12 @@ controls an asset:
 
 - `userId`, `assetType` (`discord_guild` | `vrchat_group` | `vrchat_user`), `assetExternalId`
 - `controlLevel`: `manager` | `administrator` | `owner` | `self`
-- `state`: `"active" | "revoked"`, with `revokedAt` and `revokedReason`
+- `state`: `"active" | "stale" | "revoked"`. `revoked` is a decision — Discord
+  reported the access gone, or an operator withdrew it — and carries `revokedAt`
+  and `revokedReason`. `stale` is only the passage of time: the revalidation
+  sweep marks a proof whose `revalidateAfter` has passed, and re-verifying
+  restores it to `active`. Both stop backing claims and delegations; only
+  `revoked` says anything happened
 - `evidenceSource` and `evidenceSummary`: how control was shown
 - `evidenceSubjectId`: which external identity produced the evidence. A user may
   verify through more than one Discord account, and a result is only

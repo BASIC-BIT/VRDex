@@ -27,6 +27,28 @@ const schema = (
   schemaModule as unknown as { default?: typeof schemaModule }
 ).default ?? schemaModule;
 
+/**
+ * Reserve a generation and apply a reconciliation with it, as the OAuth action
+ * does. Ordering tests call the two mutations directly instead, so they can
+ * choose which generation arrives when.
+ */
+async function recordGuilds(
+  asUser: { mutation: (fn: never, args: never) => Promise<unknown> },
+  discordUserId: string,
+  guilds: { id: string; name?: string; controlLevel: "manager" | "administrator" | "owner" }[],
+) {
+  const { generation } = (await asUser.mutation(
+    internal.discordVerification.reserveGuildVerificationGeneration as never,
+    { discordUserId } as never,
+  )) as { generation: number };
+
+  return (await asUser.mutation(internal.discordVerification.recordGuildControlProofs as never, {
+    discordUserId,
+    generation,
+    guilds,
+  } as never)) as { recorded: number; revoked: number; superseded: boolean };
+}
+
 const ADMINISTRATOR = String(1 << 3);
 const MANAGE_GUILD = String(1 << 5);
 const SEND_MESSAGES = String(1 << 11);
@@ -575,13 +597,7 @@ describe("Discord guild proof reconciliation", () => {
       });
     });
 
-    await t
-      .withIdentity(seeded.identity)
-      .mutation(internal.discordVerification.recordGuildControlProofs, {
-        observedAt: Date.now(),
-        discordUserId: "discord-subject-a",
-        guilds: [{ id: "111", name: "Still Managed", controlLevel: "owner" }],
-      });
+    await recordGuilds(t.withIdentity(seeded.identity), "discord-subject-a", [{ id: "111", name: "Still Managed", controlLevel: "owner" }]);
 
     await t.run(async (ctx) => {
       assert.notEqual(
@@ -620,19 +636,13 @@ describe("Discord guild proof reconciliation", () => {
     const asUser = t.withIdentity(seeded.identity);
 
     for (const discordUserId of ["discord-subject-a", "discord-subject-b"]) {
-      await asUser.mutation(internal.discordVerification.recordGuildControlProofs, {
-        observedAt: Date.now(),
-        discordUserId,
-        guilds: [{ id: "999", name: "Shared Server", controlLevel: "administrator" }],
-      });
+      await recordGuilds(asUser, discordUserId, [
+        { id: "999", name: "Shared Server", controlLevel: "administrator" },
+      ]);
     }
 
     // B loses access. A still runs the server, so the guild must stay proved.
-    await asUser.mutation(internal.discordVerification.recordGuildControlProofs, {
-      observedAt: Date.now(),
-      discordUserId: "discord-subject-b",
-      guilds: [],
-    });
+    await recordGuilds(asUser, "discord-subject-b", []);
 
     await t.run(async (ctx) => {
       const rows = await ctx.db
@@ -676,32 +686,33 @@ describe("Discord guild proof reconciliation", () => {
       return { userId, identity: await webSessionIdentity(ctx as never, userId, now) };
     });
     const asUser = t.withIdentity(seeded.identity);
-    // Both reads started before either landed; the slower one read the guild as
-    // still manageable.
-    const staleObservedAt = Date.now();
+    const guild = [
+      { id: "555", name: "Losing Access", controlLevel: "administrator" as const },
+    ];
+    // Both callbacks reserve before reading, so the order they were issued in is
+    // fixed here rather than by whichever finishes first. Driven directly
+    // instead of through the helper so the older one can arrive last.
+    const first = (await asUser.mutation(
+      internal.discordVerification.reserveGuildVerificationGeneration,
+      { discordUserId: "discord-subject-a" },
+    )) as { generation: number };
+    const second = (await asUser.mutation(
+      internal.discordVerification.reserveGuildVerificationGeneration,
+      { discordUserId: "discord-subject-a" },
+    )) as { generation: number };
 
+    // The newer read saw the access gone and lands first.
     await asUser.mutation(internal.discordVerification.recordGuildControlProofs, {
-      observedAt: staleObservedAt,
       discordUserId: "discord-subject-a",
-      guilds: [{ id: "555", name: "Losing Access", controlLevel: "administrator" }],
-    });
-
-    // The newer read saw the access gone and revoked it.
-    await asUser.mutation(internal.discordVerification.recordGuildControlProofs, {
-      observedAt: staleObservedAt + 1_000,
-      discordUserId: "discord-subject-a",
+      generation: second.generation,
       guilds: [],
     });
 
     // The slow callback finally arrives carrying the older read.
-    const superseded = await asUser.mutation(
+    const superseded = (await asUser.mutation(
       internal.discordVerification.recordGuildControlProofs,
-      {
-        observedAt: staleObservedAt,
-        discordUserId: "discord-subject-a",
-        guilds: [{ id: "555", name: "Losing Access", controlLevel: "administrator" }],
-      },
-    );
+      { discordUserId: "discord-subject-a", generation: first.generation, guilds: guild },
+    )) as { superseded: boolean };
 
     assert.equal(superseded.superseded, true);
     await t.run(async (ctx) => {
@@ -711,26 +722,33 @@ describe("Discord guild proof reconciliation", () => {
       );
     });
 
-    // The case with no proof rows to order against: a first verification that
-    // finds no manageable guilds writes nothing and revokes nothing. An older
-    // read arriving afterwards must still lose, or it creates the access the
-    // newer one said was gone.
-    const emptyObservedAt = Date.now() + 10_000;
+    // Nothing to order against in the rows themselves: a first verification
+    // finding no manageable guilds writes nothing and revokes nothing. The
+    // older read arriving afterwards must still lose, or it creates the access
+    // the newer one said was gone.
+    const emptyFirst = (await asUser.mutation(
+      internal.discordVerification.reserveGuildVerificationGeneration,
+      { discordUserId: "discord-subject-empty" },
+    )) as { generation: number };
+    const emptySecond = (await asUser.mutation(
+      internal.discordVerification.reserveGuildVerificationGeneration,
+      { discordUserId: "discord-subject-empty" },
+    )) as { generation: number };
 
     await asUser.mutation(internal.discordVerification.recordGuildControlProofs, {
-      observedAt: emptyObservedAt,
       discordUserId: "discord-subject-empty",
+      generation: emptySecond.generation,
       guilds: [],
     });
 
-    const afterEmpty = await asUser.mutation(
+    const afterEmpty = (await asUser.mutation(
       internal.discordVerification.recordGuildControlProofs,
       {
-        observedAt: emptyObservedAt - 1_000,
         discordUserId: "discord-subject-empty",
+        generation: emptyFirst.generation,
         guilds: [{ id: "777", name: "Already Gone", controlLevel: "owner" }],
       },
-    );
+    )) as { superseded: boolean };
 
     assert.equal(afterEmpty.superseded, true);
     await t.run(async (ctx) => {
@@ -759,21 +777,9 @@ describe("Discord guild proof reconciliation", () => {
       };
     });
 
-    await t
-      .withIdentity(seeded.identity)
-      .mutation(internal.discordVerification.recordGuildControlProofs, {
-        observedAt: Date.now(),
-        discordUserId: "discord-subject-a",
-        guilds: [{ id: "111", name: "From Login A", controlLevel: "owner" }],
-      });
+    await recordGuilds(t.withIdentity(seeded.identity), "discord-subject-a", [{ id: "111", name: "From Login A", controlLevel: "owner" }]);
 
-    await t
-      .withIdentity(seeded.identity)
-      .mutation(internal.discordVerification.recordGuildControlProofs, {
-        observedAt: Date.now(),
-        discordUserId: "discord-subject-b",
-        guilds: [{ id: "222", name: "From Login B", controlLevel: "owner" }],
-      });
+    await recordGuilds(t.withIdentity(seeded.identity), "discord-subject-b", [{ id: "222", name: "From Login B", controlLevel: "owner" }]);
 
     await t.run(async (ctx) => {
       assert.notEqual(
@@ -788,13 +794,7 @@ describe("Discord guild proof reconciliation", () => {
 
     // The same identity re-verifying without guild 111 is still authoritative
     // about its own guilds, so that one does get revoked.
-    await t
-      .withIdentity(seeded.identity)
-      .mutation(internal.discordVerification.recordGuildControlProofs, {
-        observedAt: Date.now(),
-        discordUserId: "discord-subject-a",
-        guilds: [],
-      });
+    await recordGuilds(t.withIdentity(seeded.identity), "discord-subject-a", []);
 
     await t.run(async (ctx) => {
       assert.equal(
@@ -1205,12 +1205,7 @@ describe("claiming a community with a verified guild", () => {
     const asUser = t.withIdentity(seeded.identity);
 
     for (const subject of ["discord-subject-a", "discord-subject-b"]) {
-      await asUser.mutation(internal.discordVerification.recordGuildControlProofs, {
-        observedAt: Date.now(),
-        observedAt: Date.now(),
-        discordUserId: subject,
-        guilds: [{ id: "777", controlLevel: "administrator" }],
-      });
+      await recordGuilds(asUser, subject, [{ id: "777", controlLevel: "administrator" }]);
     }
     await asUser.mutation(api.profileConnections.claimCommunityWithVerifiedGuild, {
       profileSlug: "two-proof-link",
@@ -1315,14 +1310,7 @@ describe("claiming a community with a verified guild", () => {
     // Re-verifying must refresh the row the link already points at. Inserting a
     // replacement instead left every link referencing the dead row, so a
     // successfully re-verified connection read as unverified forever.
-    await t.withIdentity(seeded.identity).mutation(
-      internal.discordVerification.recordGuildControlProofs,
-      {
-        observedAt: Date.now(),
-        discordUserId: "discord-subject-a",
-        guilds: [{ id: "888", controlLevel: "administrator" }],
-      },
-    );
+    await recordGuilds(t.withIdentity(seeded.identity), "discord-subject-a", [{ id: "888", controlLevel: "administrator" }]);
 
     const afterReverify = await asUser.query(api.profileConnections.listProfileConnections, {
       profileSlug: "lapsing-connection",

@@ -140,6 +140,11 @@ export function validateRequest(body) {
  */
 export async function verifyLinkage({ request, resolveSecret, getGuildMemberByDiscordId }) {
   const failures = [];
+  // Which delegations were actually asked. The control plane stamps an
+  // operator-visible "last queried" from this, so guessing — every selected
+  // delegation, stamped before the request — wrote audit history for keys that
+  // were never tested, and hid keys that never had been.
+  const consultedIndexes = [];
   // Whether any delegation was actually asked. One broken credential alongside
   // a working one is still a real answer, so it must not be reported as "we
   // could not consult anything".
@@ -176,6 +181,7 @@ export async function verifyLinkage({ request, resolveSecret, getGuildMemberByDi
     }
 
     consulted = true;
+    consultedIndexes.push(index);
 
     if (member === null || member === undefined) {
       continue;
@@ -191,6 +197,7 @@ export async function verifyLinkage({ request, resolveSecret, getGuildMemberByDi
         // Index, not just the guild id: two communities may delegate for the
         // same guild, and the control plane must stamp the one that answered.
         matchedDelegationIndex: index,
+        consultedDelegationIndexes: consultedIndexes,
         evidenceSummary: `VRCLinking reports a verified link for this Discord account in guild ${delegation.guildId}.`,
       };
     }
@@ -211,6 +218,7 @@ export async function verifyLinkage({ request, resolveSecret, getGuildMemberByDi
     evidenceSummary: unavailable
       ? "VRCLinking could not be consulted for any delegated server."
       : "VRCLinking does not report a verified link for this Discord account.",
+    consultedDelegationIndexes: consultedIndexes,
     ...(unavailable ? { unavailable: true } : {}),
   };
 }

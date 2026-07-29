@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 
 import {
   claimSessionUserOrNull,
@@ -196,12 +196,50 @@ export const consumeVerificationState = internalMutation({
   },
 });
 
+/**
+ * Reserve the next reconciliation generation for one Discord identity.
+ *
+ * Called before the guild read, so the order two overlapping callbacks were
+ * issued in is fixed by a counter this mutation increments rather than by two
+ * workers' clocks. Convex serializes conflicting mutations, so two callers
+ * cannot draw the same number.
+ */
+export const reserveGuildVerificationGeneration = internalMutation({
+  args: { discordUserId: v.string() },
+  handler: async (ctx, args) => {
+    const { user } = await requireVerifiedActiveBrowserSession(ctx);
+    const now = Date.now();
+    const watermark = await ctx.db
+      .query("discordVerificationWatermarks")
+      .withIndex("by_userId_discordUserId", (q) =>
+        q.eq("userId", user._id).eq("discordUserId", args.discordUserId),
+      )
+      .unique();
+
+    if (watermark === null) {
+      await ctx.db.insert("discordVerificationWatermarks", {
+        userId: user._id,
+        discordUserId: args.discordUserId,
+        issuedGeneration: 1,
+        appliedGeneration: 0,
+        updatedAt: now,
+      });
+
+      return { generation: 1 };
+    }
+
+    const generation = watermark.issuedGeneration + 1;
+    await ctx.db.patch(watermark._id, { issuedGeneration: generation, updatedAt: now });
+
+    return { generation };
+  },
+});
+
 export const recordGuildControlProofs = internalMutation({
   args: {
     discordUserId: v.string(),
-    // When the provider read that produced `guilds` began, captured before the
-    // Discord calls rather than on arrival here.
-    observedAt: v.number(),
+    // From `reserveGuildVerificationGeneration`, drawn before the guild read.
+    generation: v.number(),
     guilds: v.array(
       v.object({
         id: v.string(),
@@ -239,6 +277,10 @@ export const recordGuildControlProofs = internalMutation({
     // lose against and would create the very access the newer read said was
     // gone. Per identity, since a second Discord account's round-trip says
     // nothing about this one's ordering.
+    //
+    // Ordered by the reserved generation, not by a timestamp: two workers'
+    // clocks can tie or run backwards, and this decides whether revoked access
+    // comes back.
     const watermark = await ctx.db
       .query("discordVerificationWatermarks")
       .withIndex("by_userId_discordUserId", (q) =>
@@ -246,20 +288,18 @@ export const recordGuildControlProofs = internalMutation({
       )
       .unique();
 
-    if (watermark !== null && args.observedAt < watermark.observedAt) {
+    // No row means the reservation never happened — a caller that skipped it,
+    // or a row removed since. Refuse rather than apply an unordered result.
+    if (watermark === null || args.generation <= watermark.appliedGeneration) {
       return { recorded: 0, revoked: 0, superseded: true };
     }
 
-    if (watermark === null) {
-      await ctx.db.insert("discordVerificationWatermarks", {
-        userId: user._id,
-        discordUserId: args.discordUserId,
-        observedAt: args.observedAt,
-        updatedAt: now,
-      });
-    } else {
-      await ctx.db.patch(watermark._id, { observedAt: args.observedAt, updatedAt: now });
-    }
+    await ctx.db.patch(watermark._id, {
+      appliedGeneration: args.generation,
+      // A reservation this mutation is applying is by definition issued.
+      issuedGeneration: Math.max(watermark.issuedGeneration, args.generation),
+      updatedAt: now,
+    });
 
     await Promise.all(
       args.guilds.map((guild) =>
@@ -569,11 +609,13 @@ export const completeGuildVerification = action({
     }
 
     try {
-      // Stamped before the reads, not after. It is what those reads describe,
-      // and it is how a slow round-trip is recognised as superseded by a faster
-      // one that started later.
-      const observedAt = Date.now();
       const discordUserId = await fetchCurrentDiscordUserId(accessToken);
+      // Reserved before the guild read, so two overlapping callbacks are
+      // ordered by the counter they drew rather than by their workers' clocks.
+      const { generation } = (await ctx.runMutation(
+        internal.discordVerification.reserveGuildVerificationGeneration,
+        { discordUserId },
+      )) as { generation: number };
       const guilds = await fetchAllGuilds(accessToken);
       const manageable = guilds.flatMap((guild) => {
         const controlLevel = discordControlLevel(guild);
@@ -591,7 +633,7 @@ export const completeGuildVerification = action({
 
       await ctx.runMutation(internal.discordVerification.recordGuildControlProofs, {
         discordUserId,
-        observedAt,
+        generation,
         guilds: manageable,
       });
 
@@ -602,7 +644,11 @@ export const completeGuildVerification = action({
       // their stale auth cookies intact instead of reaching
       // `invalidAuthSessionResponse` in the callback route.
       if (isAuthSessionInvalidError(error)) {
-        throw error;
+        // Carrying `returnTo` with it. The single-use state row is already
+        // consumed by this point, so it is the only surviving record of where
+        // the user started; without it they sign in again and land on
+        // `/account` instead of the claim they were part-way through.
+        throw new ConvexError({ ...(error.data as Record<string, unknown>), returnTo });
       }
 
       return { status: "failed", returnTo, verifiedGuildCount: 0 };

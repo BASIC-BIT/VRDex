@@ -165,6 +165,12 @@ type ProofAdapterResponse = {
   matchedGuildId?: string;
   /** Index into the delegations sent; unambiguous when guilds repeat. */
   matchedDelegationIndex?: number;
+  /**
+   * Indexes the adapter actually put a provider question to. Not the same as
+   * the delegations sent: it stops at the first match, and a credential whose
+   * secret would not resolve was never asked.
+   */
+  consultedDelegationIndexes?: number[];
 };
 
 function optionalEnv(name: string): string | undefined {
@@ -1494,18 +1500,6 @@ export const verifyVrchatProofViaAdapter = action({
       }
     }
 
-    if (delegationContext !== null) {
-      // Past the cooldown gate, so these references really are going out. This
-      // is the stamp an operator sees, which is why it is here and not with the
-      // rotation cursor above: a key denied by the cooldown, or skipped as
-      // ineligible, was never sent anywhere and must not report otherwise.
-      await ctx.runMutation(internal.vrclinkingCredentials.recordCredentialConsultations, {
-        credentialIds: delegationContext.delegations.map(
-          (delegation) => delegation.credentialId,
-        ),
-      });
-    }
-
     // Signed here rather than in the reservation mutation: the capability is
     // short-lived and bound to this request, and the cooldown above can still
     // deny a reservation that was already made.
@@ -1573,6 +1567,26 @@ export const verifyVrchatProofViaAdapter = action({
     }
 
     const result = (response.body ?? {}) as ProofAdapterResponse;
+
+    // Stamped from what the adapter says it asked, and only after it answers.
+    // Stamping every selected delegation before the request wrote "last queried"
+    // for keys a DNS failure meant were never sent, and for keys after the
+    // first match, which the adapter never reaches — so the operator's audit
+    // trail showed tested keys that had never been tested, and hid the ones
+    // that genuinely never had.
+    if (delegationContext !== null && Array.isArray(result.consultedDelegationIndexes)) {
+      const consulted = result.consultedDelegationIndexes
+        .map((index) => delegationContext.delegations[index]?.credentialId)
+        .filter((credentialId): credentialId is Id<"communityVrclinkingCredentials"> =>
+          credentialId !== undefined,
+        );
+
+      if (consulted.length > 0) {
+        await ctx.runMutation(internal.vrclinkingCredentials.recordCredentialConsultations, {
+          credentialIds: consulted,
+        });
+      }
+    }
 
     if (result.verified !== true) {
       // The collector polls the same attempt this action is asking the adapter

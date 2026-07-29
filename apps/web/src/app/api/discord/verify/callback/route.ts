@@ -94,7 +94,15 @@ export async function GET(request: NextRequest) {
     // and sending the user back with `failed` would tell them the Discord check
     // went wrong when the fix is to sign in again.
     if (isAuthSessionInvalidError(error)) {
-      return invalidAuthSessionRedirectResponse(request, "/account");
+      // The action carries `returnTo` on the error because it has already
+      // consumed the single-use state row, so nothing else still knows where
+      // the user started. `invalidAuthSessionSignInPath` validates it.
+      const carried = (error as { data?: { returnTo?: unknown } }).data?.returnTo;
+
+      return invalidAuthSessionRedirectResponse(
+        request,
+        typeof carried === "string" ? carried : "/account",
+      );
     }
 
     console.error(

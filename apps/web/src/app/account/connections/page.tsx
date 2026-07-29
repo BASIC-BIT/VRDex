@@ -3,15 +3,26 @@ import Link from "next/link";
 import { ConnectionsPanel } from "./connections-panel";
 import { buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Notice } from "@/components/ui/notice";
+import { parseDiscordVerifyStatus } from "@/lib/profile-claim";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 
 export default async function ConnectionsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ profileSlug?: string | string[] }>;
+  searchParams: Promise<{ profileSlug?: string | string[]; discordVerify?: string | string[] }>;
 }) {
-  const requestedSlug = (await searchParams).profileSlug;
+  const params = await searchParams;
+  const requestedSlug = params.profileSlug;
   const initialProfileSlug = Array.isArray(requestedSlug) ? requestedSlug[0] : requestedSlug;
+  // This page is the `returnTo` for its own "Verify Discord servers" link, so
+  // it is where a declined or failed round-trip lands. Without reading the
+  // outcome the user came back to an unchanged page with nothing to say the
+  // check had not worked.
+  const rawDiscordVerify = params.discordVerify;
+  const discordVerify = parseDiscordVerifyStatus(
+    Array.isArray(rawDiscordVerify) ? rawDiscordVerify[0] : rawDiscordVerify,
+  );
 
   return (
     <PageShell className="py-10">
@@ -35,6 +46,14 @@ export default async function ConnectionsPage({
             represent. Connecting is separate from claiming: proving you administer a server does
             not by itself say which community it stands for.
           </p>
+          {discordVerify === null || discordVerify === "verified" ? null : (
+            <Notice className="mt-6" variant={discordVerify === "declined" ? "info" : "error"}>
+              {discordVerify === "declined"
+                ? "You cancelled the Discord check. Nothing changed."
+                : "That Discord check could not finish. Nothing changed; try again."}
+            </Notice>
+          )}
+
           <div className="mt-8">
             <ConnectionsPanel initialProfileSlug={initialProfileSlug} />
           </div>
