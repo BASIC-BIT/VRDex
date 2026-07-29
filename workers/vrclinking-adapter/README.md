@@ -22,15 +22,41 @@ provider contract and the delegation model.
   "targetType": "vrclinking",
   "discordUserId": "123456789012345678",
   "targetExternalId": "usr_…",              // the VRChat account being claimed
-  "delegations": [{ "guildId": "…", "secretRef": "secret://…" }]
+  "delegations": [
+    {
+      "guildId": "…",
+      "secretRef": "secret://vrdex/vrclinking/<guildId>",
+      "expiresAt": 1767225600000,           // ms epoch; short-lived
+      "capability": "<64 hex chars>"        // HMAC-SHA256 over
+                                            // `guildId\nsecretRef\nexpiresAt`
+    }
+  ]
 }
 ```
 
-Responds with the shared proof-adapter contract:
+A delegation missing `expiresAt` or carrying an absent, expired, or unverifiable
+`capability` is dropped, and a request left with none answers `no_delegations`.
+The signing key is `VRDEX_VRCLINKING_CAPABILITY_KEY` here and
+`VRCLINKING_ADAPTER_CAPABILITY_KEY` in Convex — the same value, and a different
+one from the bearer token.
+
+Responds with:
 
 ```jsonc
-{ "verified": true, "evidenceSource": "vrclinking", "evidenceSummary": "…" }
+{
+  "verified": true,
+  "evidenceSource": "vrclinking",
+  "evidenceSummary": "…",
+  "matchedDelegationIndex": 0,              // required on a positive result
+  "matchedGuildId": "…",                    // optional
+  "consultedDelegationIndexes": [0]         // delegations actually asked
+}
 ```
+
+`matchedDelegationIndex` is not optional on a positive: Convex re-reads that
+delegation before accepting the attestation and refuses a positive that names
+none. `consultedDelegationIndexes` is what the operator-visible "last queried"
+stamp is written from, and is present on negative responses too.
 
 `GET /healthz` returns `{ "status": "ok" }`.
 

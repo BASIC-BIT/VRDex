@@ -159,11 +159,24 @@ Constraints enforced in `vrclinkingCredentials.ts`:
 ## What VRDex asks the adapter
 
 The `VRCLINKING_PROOF_ADAPTER_URL` seam is the credential boundary. Convex sends
-the guild, the Discord user id, the claimed VRChat id, and the `secretRef` — no
-token — and the adapter answers the narrow question:
+the Discord user id, the claimed VRChat id, and per delegation the `guildId`,
+the `secretRef`, an `expiresAt`, and a `capability` — no token — and the adapter
+answers the narrow question:
 
 > Does VRCLinking report this Discord user as linked to this VRChat account in
 > this guild, and is that link verified?
+
+The `capability` is an HMAC-SHA256 over `guildId\nsecretRef\nexpiresAt`, hex
+encoded, minted by `convex/_delegationCapability.ts` and verified by the
+adapter. It exists because the bearer token authenticates the channel rather
+than the request: secret names are derived from the guild id, so a caller
+holding that token could otherwise name any guild and have the adapter spend
+that community's key. The signing key is a second, separate secret —
+`VRCLINKING_ADAPTER_CAPABILITY_KEY` in Convex and
+`VRDEX_VRCLINKING_CAPABILITY_KEY` in the adapter, same value — so leaking the
+bearer token does not confer the ability to mint one. Both sides refuse to
+start or sign without it, and a delegation lacking a valid, unexpired
+capability is dropped before any secret is resolved.
 
 The adapter resolves the secret, calls
 `GET /members/{guildId}?search=<discordUserId>&searchBy=DiscordId`, and returns
@@ -198,10 +211,14 @@ something outside the codebase:
 1. **Deploying the adapter.** It needs somewhere to run with either the Secrets
    Manager task-role policy or a mounted secret directory, and
    `VRCLINKING_PROOF_ADAPTER_URL` in Convex pointed at it.
-   `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN` must be set to the same value on both
-   sides — the adapter refuses to start without it and Convex refuses to call
-   an adapter without it. Its README documents the configuration and a local
-   run.
+   Two secrets must match across the boundary, and both sides refuse to start
+   or call without them:
+   - `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`, the same name on both sides.
+   - the capability signing key — `VRCLINKING_ADAPTER_CAPABILITY_KEY` in Convex,
+     `VRDEX_VRCLINKING_CAPABILITY_KEY` in the adapter. Keep it a different value
+     from the bearer token; that separation is the whole point of it.
+
+   Its README documents the configuration and a local run.
 2. **Putting a real key in the secret store** and recording its reference
    against a community.
 3. **Talking to VRCLinking** about third-party server-to-server use, which has
