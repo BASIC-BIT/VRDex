@@ -1159,16 +1159,22 @@ export const recordVrchatProofVerification = internalMutation({
         link.linkedByUserId !== attempt.userId,
     );
 
-    // A verified owner proving control of *another* account or group is adding a
-    // connection, not claiming the profile again. Writing an approved claim
+    // An existing owner proving control of *another* account or group is adding
+    // a connection, not claiming the profile again. Writing an approved claim
     // request and re-running the ownership grant filled the audit trail with
     // history asserting ownership was granted a second time, for a profile whose
     // ownership never changed.
+    //
+    // The test is "can this proof change anything", not "is the owner already
+    // verified". An owner sitting at `claimed_unverified` who proves a target
+    // the listing does not name cannot upgrade either — nothing about the
+    // profile changes — so that is a connection too. Only a proof that actually
+    // upgrades is a claim.
     const existingOwner = await getActiveProfileOwner(ctx.db, profile._id);
-    const connectionOnly =
-      existingOwner !== null &&
-      existingOwner.userId === attempt.userId &&
-      profile.claimState === "claimed_verified";
+    const ownedByClaimant = existingOwner !== null && existingOwner.userId === attempt.userId;
+    const upgradesClaimState =
+      profile.claimState !== "claimed_verified" && assetBacksThisProfile;
+    const connectionOnly = ownedByClaimant && !upgradesClaimState;
 
     const claimRequestId = connectionOnly
       ? undefined

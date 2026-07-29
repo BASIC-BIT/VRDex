@@ -24,8 +24,42 @@ const CONTROL_LEVEL_LABELS: Record<string, string> = {
   self: "You",
 };
 
-export function ConnectionsPanel({ initialProfileSlug }: { initialProfileSlug?: string }) {
-  const ownedProfiles = useQuery(api.profilePrivacy.listOwnedPrivacyProfilesForAccount);
+/**
+ * Injected data for the Playwright fixture route, mirroring `ClaimFlow`'s
+ * `previewContext`. The visual loop the UI rule requires needs this surface
+ * rendered deterministically without an account or a live backend.
+ */
+export type ConnectionsPreview = {
+  ownedProfiles: { slug: string; displayName: string; profileType: "person" | "community" }[];
+  connections: {
+    id: string;
+    assetType: AssetType;
+    assetExternalId: string;
+    assetDisplayName?: string;
+    linkRole: "primary" | "secondary";
+    verified: boolean;
+  }[];
+  available: {
+    assetType: AssetType;
+    assetExternalId: string;
+    assetDisplayName?: string;
+    controlLevel: string;
+  }[];
+  credentials: { guildId: string; lastUsedAt?: number; lastConsultedAt?: number }[];
+};
+
+export function ConnectionsPanel({
+  initialProfileSlug,
+  preview,
+}: {
+  initialProfileSlug?: string;
+  preview?: ConnectionsPreview;
+}) {
+  const queriedOwnedProfiles = useQuery(
+    api.profilePrivacy.listOwnedPrivacyProfilesForAccount,
+    preview ? "skip" : {},
+  );
+  const ownedProfiles = preview?.ownedProfiles ?? queriedOwnedProfiles;
   const [selectedSlug, setSelectedSlug] = useState(initialProfileSlug ?? "");
   // `initialProfileSlug` comes from a query parameter, so it may name a profile
   // the viewer does not own or one that does not exist. Constrain it to the
@@ -35,21 +69,28 @@ export function ConnectionsPanel({ initialProfileSlug }: { initialProfileSlug?: 
     (ownedProfiles?.some((profile) => profile.slug === selectedSlug) ? selectedSlug : "") ||
     ownedProfiles?.[0]?.slug ||
     "";
-  const connections = useQuery(
+  const queriedConnections = useQuery(
     api.profileConnections.listProfileConnections,
-    activeSlug ? { profileSlug: activeSlug } : "skip",
+    activeSlug && !preview ? { profileSlug: activeSlug } : "skip",
   );
-  const available = useQuery(
+  const connections = preview
+    ? { isManager: true, connections: preview.connections }
+    : queriedConnections;
+  const queriedAvailable = useQuery(
     api.profileConnections.listAvailableConnections,
-    activeSlug ? { profileSlug: activeSlug } : "skip",
+    activeSlug && !preview ? { profileSlug: activeSlug } : "skip",
   );
+  const available = preview?.available ?? queriedAvailable;
   const activeProfileType = ownedProfiles?.find((profile) => profile.slug === activeSlug)?.profileType;
   // Community-only: the handler rejects person profiles outright, which would
   // fail the whole page rather than just this section.
-  const vrclinkingCredentials = useQuery(
+  const queriedCredentials = useQuery(
     api.vrclinkingCredentials.listCredentials,
-    activeSlug && activeProfileType === "community" ? { profileSlug: activeSlug } : "skip",
+    activeSlug && activeProfileType === "community" && !preview
+      ? { profileSlug: activeSlug }
+      : "skip",
   );
+  const vrclinkingCredentials = preview?.credentials ?? queriedCredentials;
   const registerCredential = useMutation(api.vrclinkingCredentials.registerCredential);
   const revokeCredential = useMutation(api.vrclinkingCredentials.revokeCredential);
   const addConnection = useMutation(api.profileConnections.addVerifiedConnection);

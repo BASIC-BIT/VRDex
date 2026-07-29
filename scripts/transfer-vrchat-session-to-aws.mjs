@@ -110,71 +110,12 @@ if (stored === undefined) {
   fail(`No saved VRChat session exists for ${accountAlias}. Run the login bootstrap first.`);
 }
 
-// Pushing a dead cookie into Secrets Manager would leave the fleet failing
-// authentication with no local signal, so confirm it still works first.
-//
-// Not on a dry run, though, and not because validation is slow: VRChat applies
-// `Set-Cookie` during validation, so validating *rotates the live session*. A
-// rehearsal that rotates and then writes the result nowhere leaves both the
-// vault and Secrets Manager holding a superseded cookie, and the running
-// collector can reach `auth_required` purely because an operator did the
-// rehearsal the runbook asks for. A dry run must not touch provider state.
-if (dryRun && !skipValidation) {
-  process.stdout.write(
-    "Dry run: skipping session validation, because validating applies any cookie " +
-      "rotation VRChat returns and a dry run has nowhere to persist it. " +
-      "Re-run without --dry-run to validate and transfer in one step.\n\n",
-  );
-}
-
-if (!skipValidation && !dryRun) {
-  const login = new VrchatOperatorLogin({
-    userAgent,
-    accountAlias,
-    expectedUserId: stored.userId,
-  });
-
-  try {
-    // Validation applies any `Set-Cookie` the provider returns and hands back
-    // the refreshed session. Discarding it would write the pre-rotation cookies
-    // and deploy a credential that is already stale.
-    const refreshed = (await login.validateSession(stored)) ?? stored;
-
-    // Persist rotation locally too. Writing only to AWS would leave the vault
-    // holding pre-rotation cookies, so the next local run would validate an
-    // already-superseded session.
-    if (
-      refreshed.authCookie !== stored.authCookie ||
-      refreshed.twoFactorAuthCookie !== stored.twoFactorAuthCookie
-    ) {
-      await sessionStore.save(accountAlias, refreshed);
-    }
-
-    stored = refreshed;
-  } catch (error) {
-    fail(
-      `The saved session for ${accountAlias} did not validate against VRChat (${error?.message ?? "unknown error"}). ` +
-        "Refresh it with the login bootstrap before transferring.",
-    );
-  }
-}
-
-// At least 32 bytes, per the runbook. base64url keeps it shell-safe if an
-// operator ever has to move it by hand, though nothing here prints it.
-const workerApiKey = randomBytes(48).toString("base64url");
-// SHA-256 is correct here and a slow KDF would not be. This is a bearer-token
-// digest, not a password hash: the input is 48 cryptographically random bytes
-// (384 bits), so there is no guessable keyspace for a work factor to defend.
-// Argon2/bcrypt exist to slow brute force against low-entropy human-chosen
-// secrets; applying one to a random token buys nothing and costs the control
-// plane a verification round-trip on every worker request. The registration
-// contract also pins this: `registerCollectorAccount` validates the digest
-// against /^[a-f0-9]{64}$/.
-//
-// CodeQL flags this as js/insufficient-password-hash. That alert is dismissed
-// as a false positive in code scanning; inline suppression comments are not
-// honoured by this repository's setup, so do not add one expecting it to work.
-const workerKeyHash = createHash("sha256").update(workerApiKey).digest("hex").toLowerCase();
+// AWS first, deliberately. Validating the session below applies whatever
+// `Set-Cookie` VRChat returns, which supersedes the cookies the running
+// collector holds — so it must not happen until the target secret has been
+// read and its shape checked. Rotating and then failing on a wrong secret id,
+// region, or missing permission would leave production authenticating with a
+// cookie this command already invalidated.
 
 const {
   SecretsManagerClient,
@@ -256,6 +197,72 @@ if (secretMissing && !explicitRegion) {
       "Pass --region (or set AWS_REGION) to confirm where it should be created.",
   );
 }
+
+// Pushing a dead cookie into Secrets Manager would leave the fleet failing
+// authentication with no local signal, so confirm it still works first.
+//
+// Not on a dry run, though, and not because validation is slow: VRChat applies
+// `Set-Cookie` during validation, so validating *rotates the live session*. A
+// rehearsal that rotates and then writes the result nowhere leaves both the
+// vault and Secrets Manager holding a superseded cookie, and the running
+// collector can reach `auth_required` purely because an operator did the
+// rehearsal the runbook asks for. A dry run must not touch provider state.
+if (dryRun && !skipValidation) {
+  process.stdout.write(
+    "Dry run: skipping session validation, because validating applies any cookie " +
+      "rotation VRChat returns and a dry run has nowhere to persist it. " +
+      "Re-run without --dry-run to validate and transfer in one step.\n\n",
+  );
+}
+
+if (!skipValidation && !dryRun) {
+  const login = new VrchatOperatorLogin({
+    userAgent,
+    accountAlias,
+    expectedUserId: stored.userId,
+  });
+
+  try {
+    // Validation applies any `Set-Cookie` the provider returns and hands back
+    // the refreshed session. Discarding it would write the pre-rotation cookies
+    // and deploy a credential that is already stale.
+    const refreshed = (await login.validateSession(stored)) ?? stored;
+
+    // Persist rotation locally too. Writing only to AWS would leave the vault
+    // holding pre-rotation cookies, so the next local run would validate an
+    // already-superseded session.
+    if (
+      refreshed.authCookie !== stored.authCookie ||
+      refreshed.twoFactorAuthCookie !== stored.twoFactorAuthCookie
+    ) {
+      await sessionStore.save(accountAlias, refreshed);
+    }
+
+    stored = refreshed;
+  } catch (error) {
+    fail(
+      `The saved session for ${accountAlias} did not validate against VRChat (${error?.message ?? "unknown error"}). ` +
+        "Refresh it with the login bootstrap before transferring.",
+    );
+  }
+}
+
+// At least 32 bytes, per the runbook. base64url keeps it shell-safe if an
+// operator ever has to move it by hand, though nothing here prints it.
+const workerApiKey = randomBytes(48).toString("base64url");
+// SHA-256 is correct here and a slow KDF would not be. This is a bearer-token
+// digest, not a password hash: the input is 48 cryptographically random bytes
+// (384 bits), so there is no guessable keyspace for a work factor to defend.
+// Argon2/bcrypt exist to slow brute force against low-entropy human-chosen
+// secrets; applying one to a random token buys nothing and costs the control
+// plane a verification round-trip on every worker request. The registration
+// contract also pins this: `registerCollectorAccount` validates the digest
+// against /^[a-f0-9]{64}$/.
+//
+// CodeQL flags this as js/insufficient-password-hash. That alert is dismissed
+// as a false positive in code scanning; inline suppression comments are not
+// honoured by this repository's setup, so do not add one expecting it to work.
+const workerKeyHash = createHash("sha256").update(workerApiKey).digest("hex").toLowerCase();
 
 const next = buildSessionSecretPayload(existing, {
   workerApiKey,

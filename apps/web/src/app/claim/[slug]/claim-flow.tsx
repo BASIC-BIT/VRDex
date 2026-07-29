@@ -287,18 +287,28 @@ export function ClaimFlow({
       // depends on the server already being on record for it, so report what the
       // claim actually produced rather than assuming the stronger outcome.
       const verified = result.claimState === "claimed_verified";
+      // A null claim request means the mutation attached the server and changed
+      // no ownership — this caller already owned the profile. Counting that as a
+      // completed claim inflates the funnel with connection additions.
+      const connectionOnly = result.claimRequestId === null;
+
       setStatus({
         kind: "complete",
-        message: verified
-          ? "Server control verified. This community is now yours."
-          : "Server control verified, and this community is now yours. The listing is not marked verified, which needs VRDex to have this server on record for it — contact support if it should be.",
+        message: connectionOnly
+          ? "Server control verified. That server is now connected to this profile."
+          : verified
+            ? "Server control verified. This community is now yours."
+            : "Server control verified, and this community is now yours. The listing is not marked verified, which needs VRDex to have this server on record for it — contact support if it should be.",
         verified,
       });
-      captureProductEvent(posthog, "claim_completed", {
-        method,
-        outcome: verified ? "claimed_verified" : "claimed_unverified",
-        profile_type: profile.profileType,
-      });
+
+      if (!connectionOnly) {
+        captureProductEvent(posthog, "claim_completed", {
+          method,
+          outcome: verified ? "claimed_verified" : "claimed_unverified",
+          profile_type: profile.profileType,
+        });
+      }
     } catch (error) {
       setStatus({ kind: "error", message: errorMessage(error) });
       captureProductEvent(posthog, "claim_failed", {
@@ -335,11 +345,13 @@ export function ClaimFlow({
         // have landed the verdict between render and this click. Reporting the
         // stale "we could not find the code yet" for an attempt that already
         // succeeded told users their completed claim had failed.
-        setStatus({
-          kind: "complete",
-          message: "Ownership confirmed. This profile is now yours.",
-          verified: true,
-        });
+        //
+        // Deliberately no `complete` status here: the action returns only the
+        // attempt state, so this branch cannot tell a verified listing from one
+        // the backend left `claimed_unverified`, and a `complete` status takes
+        // precedence over the observer that does know. Clear the working state
+        // and let `lastVerifiedProof` report the real outcome.
+        setStatus({ kind: "idle" });
       } else if (result.state === "failed") {
         setStatus({
           kind: "error",
