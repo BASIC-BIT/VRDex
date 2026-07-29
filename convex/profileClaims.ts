@@ -1585,6 +1585,30 @@ export const verifyVrchatProofViaAdapter = action({
       }),
     };
 
+    /**
+     * The attempt's current state when the collector settled it mid-call,
+     * otherwise the caller's own outcome.
+     *
+     * A configured `VRCHAT_PROOF_ADAPTER_URL` does not stop the collector fleet
+     * polling the same attempts, so it can grant ownership while this request
+     * is in flight. Reporting the adapter's answer from the pre-call snapshot
+     * then told the claimant the check had failed for a claim that had already
+     * succeeded — an error and a `claim_failed` event beside the completion the
+     * observer was showing.
+     */
+    const settledOr = async <T extends string>(fallback: T) => {
+      const settled = (await ctx.runQuery(internal.profileClaims.getVerificationAttemptForAdapter, {
+        attemptId: args.attemptId,
+      })) as { attempt: Doc<"profileVerificationAttempts"> } | null;
+
+      return {
+        state:
+          settled === null || settled.attempt.state === "pending"
+            ? fallback
+            : settled.attempt.state,
+      };
+    };
+
     // A refused connection, a DNS failure, or a deadline that fires mid-request
     // is "we could not ask", which is exactly what `unavailable` reports. Left
     // to throw, the claimant saw a generic failure for a question the adapter
@@ -1594,7 +1618,7 @@ export const verifyVrchatProofViaAdapter = action({
     try {
       response = await boundedFetch(adapterUrl, adapterRequest);
     } catch {
-      return { state: "unavailable" as const };
+      return await settledOr("unavailable" as const);
     }
 
     if (attemptContext.attempt.expiresAt <= Date.now()) {
@@ -1612,7 +1636,7 @@ export const verifyVrchatProofViaAdapter = action({
     // Reading the missing field as a negative told the claimant the code was
     // not found when the adapter never actually said anything.
     if (response.ok && typeof result.verified !== "boolean") {
-      return { state: "unavailable" as const };
+      return await settledOr("unavailable" as const);
     }
 
     // Stamped from what the adapter says it asked, and only after it answers.
@@ -1646,24 +1670,11 @@ export const verifyVrchatProofViaAdapter = action({
     // `unavailable` check here without also making the adapter emit one — it
     // does not.
     if (!response.ok) {
-      return { state: "unavailable" as const };
+      return await settledOr("unavailable" as const);
     }
 
     if (result.verified !== true) {
-      // The collector polls the same attempt this action is asking the adapter
-      // about, so it can settle it while that call is in flight. Reporting the
-      // adapter's negative would tell the claimant the code was not found on a
-      // page the observer is simultaneously showing as complete.
-      const settled = (await ctx.runQuery(internal.profileClaims.getVerificationAttemptForAdapter, {
-        attemptId: args.attemptId,
-      })) as { attempt: Doc<"profileVerificationAttempts"> } | null;
-
-      return {
-        state:
-          settled === null || settled.attempt.state === "pending"
-            ? ("pending" as const)
-            : settled.attempt.state,
-      };
+      return await settledOr("pending" as const);
     }
 
     // Only the delegation the adapter says answered gets the operator-visible
@@ -1685,7 +1696,7 @@ export const verifyVrchatProofViaAdapter = action({
     // claim on nothing. The contract in `docs/backend/vrclinking-api.md`
     // requires the match metadata; this enforces it.
     if (attemptContext.attempt.targetType === "vrclinking" && matched === undefined) {
-      return { state: "unavailable" as const };
+      return await settledOr("unavailable" as const);
     }
 
     if (matched !== undefined) {
@@ -1701,7 +1712,7 @@ export const verifyVrchatProofViaAdapter = action({
       })) as { accepted: boolean };
 
       if (!use.accepted) {
-        return { state: "unavailable" as const };
+        return await settledOr("unavailable" as const);
       }
     }
 
