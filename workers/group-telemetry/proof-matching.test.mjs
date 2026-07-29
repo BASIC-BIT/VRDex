@@ -7,6 +7,7 @@ import {
   normalizeProofText,
   proofSurfaceFields,
 } from "./proof-matching.mjs";
+import { RequestBudget } from "./runtime.mjs";
 
 const CODE = "VRDEX-AB12CD34EF56";
 
@@ -46,5 +47,27 @@ describe("VRChat proof matching", () => {
   it("reads group descriptions and user bios from the right fields", () => {
     assert.deepEqual(proofSurfaceFields("vrchat_group"), ["description", "name"]);
     assert.deepEqual(proofSurfaceFields("vrchat_user"), ["bio", "statusDescription"]);
+  });
+});
+
+// Proof reads run before telemetry because a proof expires in 24 hours and a
+// deferred telemetry batch does not. That ordering only holds if it stays an
+// ordering: with a backlog larger than one window, taking the whole budget
+// would defer every integration indefinitely.
+describe("request budget sharing", () => {
+  it("leaves half the window after the proof share is spent", () => {
+    const now = Date.now();
+    const account = new RequestBudget(30);
+    const proofs = new RequestBudget(Math.max(1, Math.floor(account.limit / 2)));
+
+    for (let index = 0; index < 15; index += 1) {
+      assert.equal(proofs.retryAfterMs(1, now), 0);
+      account.tryConsume(1, now);
+      proofs.tryConsume(1, now);
+    }
+
+    // Proofs are done for this window; telemetry still has the other half.
+    assert.ok(proofs.retryAfterMs(1, now) > 0);
+    assert.equal(account.remaining(now), 15);
   });
 });

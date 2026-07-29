@@ -26,6 +26,10 @@ export class RequestBudget {
     for (let index = 0; index < count; index += 1) this.requests.push(now);
     return true;
   }
+  remaining(now = Date.now()) {
+    this.requests = this.requests.filter((timestamp) => timestamp > now - this.windowMs);
+    return Math.max(0, this.limit - this.requests.length);
+  }
   retryAfterMs(count = 1, now = Date.now()) {
     this.requests = this.requests.filter((timestamp) => timestamp > now - this.windowMs);
     if (count > this.limit) return this.windowMs;

@@ -40,6 +40,17 @@ const control = new TelemetryControlClient({
 });
 const provider = new VrchatClient({ authCookie: secret.authCookie, twoFactorAuthCookie: secret.twoFactorAuthCookie, userAgent: requiredEnv("VRDEX_GROUP_TELEMETRY_USER_AGENT") });
 const accountBudget = new RequestBudget(Number(process.env.VRDEX_GROUP_TELEMETRY_REQUESTS_PER_MINUTE ?? 30));
+/**
+ * Proof reads get a share of each window, not all of it.
+ *
+ * Running proofs before telemetry is right — a proof expires in 24 hours and a
+ * deferred telemetry batch does not — but "first" became "instead of" once the
+ * pending backlog exceeded a window's worth: attempts become eligible again
+ * after their cooldown, so a sustained backlog drained every new minute on
+ * proof reads and deferred every integration indefinitely. Half the window
+ * bounds that without giving up the ordering.
+ */
+const proofBudget = new RequestBudget(Math.max(1, Math.floor(accountBudget.limit / 2)));
 const integrationBudgets = new Map();
 const attempts = new Map();
 let stopping = false;
@@ -165,6 +176,9 @@ async function releaseUnread(batch, from, includeFrom = true) {
 async function checkProofs() {
   const claimNow = Date.now();
   if (accountBudget.retryAfterMs(1, claimNow) > 0) return 0;
+  // Leave the rest of the window for telemetry. Claiming a batch we cannot read
+  // would park it in cooldown for nothing.
+  if (proofBudget.retryAfterMs(1, claimNow) > 0) return 0;
 
   const { attempts: pending = [] } = await control.send(
     "proof_claim",
@@ -191,7 +205,7 @@ async function checkProofs() {
     //
     // Released either way: the claim stamped the whole batch, so leaving
     // without releasing holds unread attempts in cooldown.
-    if (accountBudget.retryAfterMs(1, now) > 0) {
+    if (accountBudget.retryAfterMs(1, now) > 0 || proofBudget.retryAfterMs(1, now) > 0) {
       await releaseUnread(pending, attempt);
       break;
     }
@@ -216,6 +230,7 @@ async function checkProofs() {
     }
 
     accountBudget.tryConsume(1, now);
+    proofBudget.tryConsume(1, now);
 
     let found = false;
     try {
