@@ -1695,12 +1695,16 @@ export const verifyVrchatProofViaAdapter = action({
     // Index first: two communities may delegate for the same guild, and
     // matching on guild id alone would stamp whichever was listed first rather
     // than the delegation that actually answered.
+    // Index only. The guild-id fallback picked the first delegation for that
+    // guild, and one guild may back several community profiles — so with two
+    // credential rows for it in the same batch, a response whose actual
+    // credential was revoked mid-flight could validate the unrelated
+    // still-active row and grant on the superseded answer. The contract in
+    // `docs/backend/vrclinking-api.md` requires the index.
     const matched =
       typeof result.matchedDelegationIndex === "number"
         ? delegationContext?.delegations[result.matchedDelegationIndex]
-        : delegationContext?.delegations.find(
-            (delegation) => delegation.guildId === result.matchedGuildId,
-          );
+        : undefined;
 
     // A `vrclinking` positive is only as good as the delegation it came from,
     // so it has to name one. Without this, an adapter that returned the bare

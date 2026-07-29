@@ -766,6 +766,40 @@ describe("Discord guild proof reconciliation", () => {
         null,
       );
     });
+
+    // A superseded result still revokes. Dropping it whole lost the revocation
+    // it had observed when the newer callback then died, leaving the proof
+    // usable until its own revalidation deadline; revoking on an older read can
+    // only take away access that read saw as gone, and a newer result restores
+    // anything still held.
+    const revokeSubject = "discord-subject-revoke";
+    await recordGuilds(asUser, revokeSubject, [
+      { id: "888", name: "Losing It", controlLevel: "owner" },
+    ]);
+
+    const stale = (await asUser.mutation(
+      internal.discordVerification.reserveGuildVerificationGeneration,
+      { discordUserId: revokeSubject },
+    )) as { generation: number };
+    await asUser.mutation(internal.discordVerification.reserveGuildVerificationGeneration, {
+      discordUserId: revokeSubject,
+    });
+
+    // The older callback lands while the newer reservation is still
+    // outstanding, carrying a read that no longer lists the guild.
+    const suppressed = (await asUser.mutation(
+      internal.discordVerification.recordGuildControlProofs,
+      { discordUserId: revokeSubject, generation: stale.generation, guilds: [] },
+    )) as { superseded: boolean; revoked: number };
+
+    assert.equal(suppressed.superseded, true);
+    assert.equal(suppressed.revoked, 1);
+    await t.run(async (ctx) => {
+      assert.equal(
+        await getActiveControlProof(ctx.db, seeded.userId, "discord_guild", "888"),
+        null,
+      );
+    });
   });
 
   // One VRDex account may manage servers through more than one Discord login.

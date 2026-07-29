@@ -1014,6 +1014,14 @@ export const reserveProofRequestBudget = internalMutation({
         scopeKey: `proof:account:${account._id}`,
         limit: Math.max(1, Math.floor(account.requestsPerMinute / 2)),
       },
+      // And the same share of the fleet-wide window. Per-account halves do not
+      // add up to a fleet-wide half: two accounts each spending their allowed
+      // half exhaust a global limit that is not twice an account's, and
+      // telemetry — which reserves against `global` too — is deferred again.
+      {
+        scopeKey: "proof:global",
+        limit: Math.max(1, Math.floor((fleet?.globalRequestsPerMinute ?? 30) / 2)),
+      },
     ];
     const counters = await Promise.all(scopes.map(async (scope) => ({
       ...scope,

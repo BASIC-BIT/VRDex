@@ -44,20 +44,30 @@ export function appendReturnPathQuery(
   path: string,
   params: Record<string, string | number | undefined>,
 ): string {
-  const entries = Object.entries(params).flatMap(([key, value]) =>
-    value === undefined ? [] : [`${key}=${encodeURIComponent(String(value))}`],
-  );
-
-  if (entries.length === 0) {
-    return path;
-  }
-
   const hashIndex = path.indexOf("#");
   const base = hashIndex >= 0 ? path.slice(0, hashIndex) : path;
   const hash = hashIndex >= 0 ? path.slice(hashIndex) : "";
-  const separator = base.includes("?") ? "&" : "?";
+  const queryIndex = base.indexOf("?");
+  const pathname = queryIndex >= 0 ? base.slice(0, queryIndex) : base;
+  const existing = new URLSearchParams(queryIndex >= 0 ? base.slice(queryIndex + 1) : "");
 
-  return `${base}${separator}${entries.join("&")}${hash}`;
+  // Replace, never append. These parameters are the callback's own statement
+  // about what happened, and the pages that read them take the first value —
+  // so a crafted `returnTo` already carrying `discordVerify=verified` kept
+  // showing success after the callback appended `failed`. Deleting first also
+  // covers an `undefined` value: the caller is saying this outcome does not
+  // apply, and a stale one from the return path must not stand in for it.
+  for (const [key, value] of Object.entries(params)) {
+    existing.delete(key);
+
+    if (value !== undefined) {
+      existing.append(key, String(value));
+    }
+  }
+
+  const query = existing.toString();
+
+  return `${pathname}${query.length === 0 ? "" : `?${query}`}${hash}`;
 }
 
 /**

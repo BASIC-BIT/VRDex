@@ -350,23 +350,30 @@ export const recordGuildControlProofs = internalMutation({
       watermark.issuedGeneration > watermark.appliedGeneration &&
       watermark.issuedAt > now - RESERVATION_ABANDONED_MS;
 
-    if (reservationOutstanding && args.generation < watermark.issuedGeneration) {
-      return { recorded: 0, revoked: 0, superseded: true };
-    }
+    // Superseded results still revoke; they just do not grant.
+    //
+    // Discarding them outright lost real information: if the newer callback
+    // then died, nothing retried this one and a revocation it had observed
+    // stayed unapplied until the proof's own revalidation deadline. Revoking on
+    // an older read is safe in a way that granting is not — it can only remove
+    // access that read saw as gone, and the newer result restores anything it
+    // finds still held. So the direction that can only take access away is
+    // allowed through, and the direction that hands it out is not.
+    const superseded =
+      (reservationOutstanding && args.generation < watermark.issuedGeneration) ||
+      args.generation <= watermark.appliedGeneration;
 
-    if (args.generation <= watermark.appliedGeneration) {
-      return { recorded: 0, revoked: 0, superseded: true };
+    if (!superseded) {
+      // `issuedGeneration` is already at least this value — the guard above
+      // refuses anything below it — so only the applied cursor moves.
+      await ctx.db.patch(watermark._id, {
+        appliedGeneration: args.generation,
+        updatedAt: now,
+      });
     }
-
-    // `issuedGeneration` is already at least this value — the guard above
-    // refuses anything below it — so only the applied cursor moves.
-    await ctx.db.patch(watermark._id, {
-      appliedGeneration: args.generation,
-      updatedAt: now,
-    });
 
     await Promise.all(
-      args.guilds.map((guild) =>
+      (superseded ? [] : args.guilds).map((guild) =>
         recordExternalControlProof(ctx.db, {
           userId: user._id,
           assetType: "discord_guild",
@@ -413,7 +420,11 @@ export const recordGuildControlProofs = internalMutation({
       ),
     );
 
-    return { recorded: args.guilds.length, revoked: revoked.length, superseded: false };
+    return {
+      recorded: superseded ? 0 : args.guilds.length,
+      revoked: revoked.length,
+      superseded,
+    };
   },
 });
 

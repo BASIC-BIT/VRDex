@@ -67,6 +67,32 @@ describe("return path safety", () => {
     assert.equal(resolved.hash, "#step-2");
   });
 
+  // These parameters are the callback's statement about what happened, and the
+  // pages that read them take the first value. Appending let a crafted
+  // `returnTo` carrying `discordVerify=verified` keep showing success after the
+  // callback reported a failure.
+  it("replaces a status the return path already carried", () => {
+    assert.equal(
+      appendReturnPathQuery("/claim/foo?discordVerify=verified", { discordVerify: "failed" }),
+      "/claim/foo?discordVerify=failed",
+    );
+    // The callback always names both of its parameters, so an omitted count
+    // clears a crafted one rather than leaving it to be read as this outcome's.
+    assert.equal(
+      appendReturnPathQuery("/claim/foo?source=profile&discordVerify=verified&discordGuilds=9", {
+        discordVerify: "declined",
+        discordGuilds: undefined,
+      }),
+      "/claim/foo?source=profile&discordVerify=declined",
+    );
+
+    const resolved = new URL(
+      appendReturnPathQuery("/claim/foo?discordVerify=verified", { discordVerify: "failed" }),
+      "https://vrdex.net",
+    );
+    assert.deepEqual(resolved.searchParams.getAll("discordVerify"), ["failed"]);
+  });
+
   it("omits undefined parameters and leaves the path untouched when empty", () => {
     assert.equal(
       appendReturnPathQuery("/claim/foo", { discordVerify: "failed", discordGuilds: undefined }),
