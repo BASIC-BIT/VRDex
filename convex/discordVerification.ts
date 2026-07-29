@@ -96,12 +96,21 @@ export function discordControlLevel(guild: DiscordOAuthGuild): ExternalControlLe
     return "owner";
   }
 
+  // A guild whose permissions cannot be read is not a guild the user lacks
+  // access to. Reconciliation treats absence from the manageable list as
+  // positive evidence that control was lost, so returning null for a malformed
+  // value would revoke a working proof on the strength of a statement Discord
+  // never actually made. Fail the whole round-trip instead.
+  if (typeof guild.permissions !== "string" || !/^\d+$/.test(guild.permissions)) {
+    throw claimError("ADAPTER_UNAVAILABLE", "discord_guild_permissions_malformed");
+  }
+
   let permissions: bigint;
 
   try {
-    permissions = BigInt(guild.permissions ?? "0");
+    permissions = BigInt(guild.permissions);
   } catch {
-    return null;
+    throw claimError("ADAPTER_UNAVAILABLE", "discord_guild_permissions_malformed");
   }
 
   if ((permissions & DISCORD_ADMINISTRATOR_PERMISSION) !== BigInt(0)) {
@@ -691,13 +700,21 @@ export const completeGuildVerification = action({
             ];
       });
 
-      await ctx.runMutation(internal.discordVerification.recordGuildControlProofs, {
-        discordUserId,
-        generation,
-        guilds: manageable,
-      });
+      const recorded = (await ctx.runMutation(
+        internal.discordVerification.recordGuildControlProofs,
+        { discordUserId, generation, guilds: manageable },
+      )) as { superseded: boolean };
 
-      return { status: "verified", returnTo, verifiedGuildCount: manageable.length };
+      // Nothing was written, so nothing was verified. Reporting success anyway
+      // sent the user back with `discordVerify=verified` and a guild count in
+      // front of an empty server picker — and if the newer round-trip that
+      // superseded this one then failed, the state they were told about would
+      // never arrive.
+      if (recorded.superseded) {
+        return { status: "failed" as const, returnTo, verifiedGuildCount: 0 };
+      }
+
+      return { status: "verified" as const, returnTo, verifiedGuildCount: manageable.length };
     } catch (error) {
       // A session revoked while the Discord round-trip was in flight is not a
       // provider failure. Translating it to `failed` sends the user back with

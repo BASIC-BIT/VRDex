@@ -143,9 +143,25 @@ export function createVrclinkingClient({
         return match;
       }
 
+      // An empty page is a real end of results, whatever the metadata says.
+      if (payload.results.length === 0) {
+        return null;
+      }
+
       const totalPages = Number(payload.totalPages);
 
-      if (payload.results.length === 0 || !Number.isFinite(totalPages) || page >= totalPages) {
+      // `totalPages` is required by the response contract, and a nonempty page
+      // without it says nothing about whether more rows exist. Reading that as
+      // "no match" made every check a false negative for a claimant whose id
+      // sits on a later page, and reported a schema problem as a definitive
+      // answer about them.
+      if (!Number.isInteger(totalPages) || totalPages < 1) {
+        throw new VrclinkingProviderError("Provider response had no usable page count.", {
+          reason: "schema_drift",
+        });
+      }
+
+      if (page >= totalPages) {
         return null;
       }
     }

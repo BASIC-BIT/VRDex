@@ -16,6 +16,41 @@ const MAX_DELEGATIONS = 5;
 const DEFAULT_FAN_OUT_BUDGET_MS = 8_000;
 
 /**
+ * Reject once the budget is spent, whatever the underlying work does.
+ *
+ * The AWS SDK carries its own retries and no cancellation seam here, so this
+ * bounds how long the fan-out waits rather than the call itself. That is the
+ * part that matters: a resolution nobody is waiting for cannot delay the next
+ * delegation or outlive the caller's request.
+ */
+function withDeadline(work, remainingMs) {
+  if (remainingMs <= 0) {
+    return Promise.reject(
+      new SecretResolutionError("Fan-out budget spent before resolution.", {
+        reason: "resolution_timeout",
+      }),
+    );
+  }
+
+  let timer;
+
+  return Promise.race([
+    work.finally(() => clearTimeout(timer)),
+    new Promise((_resolve, reject) => {
+      timer = setTimeout(
+        () =>
+          reject(
+            new SecretResolutionError("Secret resolution exceeded the fan-out budget.", {
+              reason: "resolution_timeout",
+            }),
+          ),
+        remainingMs,
+      );
+    }),
+  ]);
+}
+
+/**
  * The one secret name a delegation for `guildId` may point at.
  *
  * A shape check, not an authorization one — the names are derived from the
@@ -177,12 +212,24 @@ export async function verifyLinkage({
     let token;
 
     try {
-      token = await resolveSecret(delegation.secretRef);
+      // Bounded too. Secrets Manager stalling or retrying is outside the
+      // provider lookup's own deadline, so an unbounded resolution here ran
+      // past the fan-out budget and past the caller's timeout, and the lookup
+      // that followed spent provider quota on an answer nobody could receive.
+      token = await withDeadline(resolveSecret(delegation.secretRef), deadline - now());
     } catch (error) {
       failures.push(
         error instanceof SecretResolutionError ? error.reason : "secret_resolution_failed",
       );
       continue;
+    }
+
+    // Re-checked after resolution, not only before it: a slow resolve can spend
+    // the whole budget on its own, and the lookup below must not start on a
+    // deadline that has already passed.
+    if (now() >= deadline) {
+      failures.push("fan_out_deadline");
+      break;
     }
 
     let member;

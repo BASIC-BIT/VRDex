@@ -94,8 +94,17 @@ describe("Discord control level mapping", () => {
 
   it("rejects members without a management permission", () => {
     assert.equal(discordControlLevel({ id: "4", permissions: SEND_MESSAGES }), null);
-    assert.equal(discordControlLevel({ id: "5" }), null);
-    assert.equal(discordControlLevel({ id: "6", permissions: "not-a-number" }), null);
+  });
+
+  // "We could not read this" is not "you do not manage this". Reconciliation
+  // reads absence from the manageable list as evidence that control was lost,
+  // so a malformed entry would revoke a working proof.
+  it("refuses to guess at a guild whose permissions are unreadable", () => {
+    assert.throws(() => discordControlLevel({ id: "5" }), /ADAPTER_UNAVAILABLE|permissions/);
+    assert.throws(
+      () => discordControlLevel({ id: "6", permissions: "not-a-number" }),
+      /ADAPTER_UNAVAILABLE|permissions/,
+    );
   });
 
   it("treats all three Discord management tiers as clearing the community bar", () => {
