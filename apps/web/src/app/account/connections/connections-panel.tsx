@@ -162,9 +162,12 @@ export function ConnectionsPanel({
     `/account/connections?profileSlug=${activeSlug}`,
   )}`;
   const activeProfile = ownedProfiles.find((profile) => profile.slug === activeSlug);
-  // A delegation only makes sense for a Discord server already connected here.
+  // A delegation only makes sense for a Discord server already connected here,
+  // and only one whose control proof is still live: links deliberately outlive
+  // their proofs, and `registerCredential` rejects an unproved server outright.
+  // Offering it in the picker only produces an error on submit.
   const connectedGuilds = (connections?.connections ?? []).filter(
-    (connection) => connection.assetType === "discord_guild",
+    (connection) => connection.assetType === "discord_guild" && connection.verified,
   );
   const guildLabel = (guildId: string) =>
     connectedGuilds.find((connection) => connection.assetExternalId === guildId)
@@ -191,7 +194,7 @@ export function ConnectionsPanel({
         </Select>
         <FieldText>
           A community can hold several Discord servers and VRChat groups. One of each kind is the
-          primary, which is the one shown first on the public profile.
+          primary.
         </FieldText>
       </Field>
 

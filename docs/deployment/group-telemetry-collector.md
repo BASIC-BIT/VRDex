@@ -32,9 +32,14 @@ Run read-only membership inspection first with `pnpm proof:group-telemetry`. On 
 3. Transfer the session with `pnpm ops:vrchat-session:transfer -- --secret-id
    <arn>`. It re-validates the saved alias-scoped session against VRChat,
    generates a 48-byte `workerApiKey`, writes only `workerApiKey`, `authCookie`,
-   and `twoFactorAuthCookie` into the named secret, and prints just the
-   lowercase SHA-256 digest for registration. No secret value is printed, passed
-   as a process argument, or written to disk. Add `--dry-run` to rehearse.
+   `twoFactorAuthCookie`, and `vrchatUserId` into the named secret, and prints
+   just the lowercase SHA-256 digest for registration. No secret value is
+   printed, passed as a process argument, or written to disk. `vrchatUserId` is
+   not a secret: it records which collector account the secret belongs to, so a
+   later transfer refuses an alias paired with another account's secret id
+   rather than deploying the wrong session under it. Add `--dry-run` to
+   rehearse; a dry run writes nothing, and so also skips the validation that
+   would rotate the live session.
    Do not hand-extract cookies or store the password or TOTP seed.
 4. Register the account with the digest printed by step 3 — never the key itself:
 

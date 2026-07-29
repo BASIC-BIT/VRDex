@@ -82,6 +82,23 @@ describe("PostHog privacy", () => {
     assert.equal(meta!.data.href, "https://vrdex.example/handoff/redacted");
   });
 
+  // The array above is the batched form. `posthog-js` normally sends one record
+  // per `$snapshot` event, and handling only the array meant the sanitizer did
+  // nothing at all in a real browser.
+  it("redacts the URL in a single unbatched snapshot record", () => {
+    const event = sanitizePostHogEvent({
+      properties: {
+        $snapshot_data: {
+          type: 4,
+          data: { href: "https://vrdex.example/handoff/secret-token", width: 1280 },
+        },
+      },
+    });
+    const meta = event!.properties!.$snapshot_data as { data: { href?: string } };
+
+    assert.equal(meta.data.href, "https://vrdex.example/handoff/redacted");
+  });
+
   // The recorder emits its own `$url_changed` custom record on SPA navigation
   // when `capture_pageview` is off, carrying path and query. Narrowing the
   // walker to the meta record alone silently stopped covering it.

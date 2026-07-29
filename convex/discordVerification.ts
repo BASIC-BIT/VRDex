@@ -4,6 +4,7 @@ import {
   claimSessionUserOrNull,
   requireVerifiedActiveBrowserSession,
 } from "./_claimSession";
+import { isAuthSessionInvalidError } from "./_authSessionGuard";
 import { boundedFetch } from "./_boundedFetch";
 import { claimError } from "./_claimErrors";
 import { internal } from "./_generated/api";
@@ -537,7 +538,15 @@ export const completeGuildVerification = action({
       });
 
       return { status: "verified", returnTo, verifiedGuildCount: manageable.length };
-    } catch {
+    } catch (error) {
+      // A session revoked while the Discord round-trip was in flight is not a
+      // provider failure. Translating it to `failed` sends the user back with
+      // their stale auth cookies intact instead of reaching
+      // `invalidAuthSessionResponse` in the callback route.
+      if (isAuthSessionInvalidError(error)) {
+        throw error;
+      }
+
       return { status: "failed", returnTo, verifiedGuildCount: 0 };
     } finally {
       await revokeAccessToken(accessToken);

@@ -55,48 +55,54 @@ const RRWEB_CUSTOM_EVENT_TYPE = 5;
  * player cannot fetch.
  */
 function sanitizeSnapshotData(value: unknown): unknown {
-  if (!Array.isArray(value)) {
-    return value;
+  // `posthog-js` sends one rrweb record per `$snapshot` event, and batches into
+  // an array only when it flushes several at once. Handling the array alone
+  // meant the single-record form — the normal one — passed straight through,
+  // so this sanitizer did nothing in a real browser.
+  if (Array.isArray(value)) {
+    return value.map(sanitizeSnapshotRecord);
   }
 
-  return value.map((record) => {
-    if (record === null || typeof record !== "object") {
-      return record;
-    }
+  return sanitizeSnapshotRecord(value);
+}
 
-    const { type, data } = record as { type?: unknown; data?: unknown };
-
-    if (data === null || typeof data !== "object") {
-      return record;
-    }
-
-    if (type === RRWEB_META_EVENT_TYPE) {
-      const href = (data as { href?: unknown }).href;
-
-      return typeof href === "string"
-        ? { ...record, data: { ...data, href: sanitizeAnalyticsUrl(href) } }
-        : record;
-    }
-
-    if (type === RRWEB_CUSTOM_EVENT_TYPE) {
-      const payload = (data as { payload?: unknown }).payload;
-
-      if (payload === null || typeof payload !== "object") {
-        return record;
-      }
-
-      const href = (payload as { href?: unknown }).href;
-
-      return typeof href === "string"
-        ? {
-            ...record,
-            data: { ...data, payload: { ...payload, href: sanitizeAnalyticsUrl(href) } },
-          }
-        : record;
-    }
-
+function sanitizeSnapshotRecord(record: unknown): unknown {
+  if (record === null || typeof record !== "object") {
     return record;
-  });
+  }
+
+  const { type, data } = record as { type?: unknown; data?: unknown };
+
+  if (data === null || typeof data !== "object") {
+    return record;
+  }
+
+  if (type === RRWEB_META_EVENT_TYPE) {
+    const href = (data as { href?: unknown }).href;
+
+    return typeof href === "string"
+      ? { ...record, data: { ...data, href: sanitizeAnalyticsUrl(href) } }
+      : record;
+  }
+
+  if (type === RRWEB_CUSTOM_EVENT_TYPE) {
+    const payload = (data as { payload?: unknown }).payload;
+
+    if (payload === null || typeof payload !== "object") {
+      return record;
+    }
+
+    const href = (payload as { href?: unknown }).href;
+
+    return typeof href === "string"
+      ? {
+          ...record,
+          data: { ...data, payload: { ...payload, href: sanitizeAnalyticsUrl(href) } },
+        }
+      : record;
+  }
+
+  return record;
 }
 
 export function sanitizePostHogProperties(properties: Record<string, unknown>) {

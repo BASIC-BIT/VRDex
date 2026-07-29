@@ -222,6 +222,51 @@ if (secretMissing && !explicitRegion) {
   );
 }
 
+// Which collector account this secret belongs to. Validation below proves the
+// session is live, but it takes `expectedUserId` from the session itself, so it
+// cannot notice that alias A has been paired with account B's secret id. Left
+// unchecked, that pairing deploys A's cookies under an identity Convex and the
+// ECS task still resolve as B.
+if (typeof existing.vrchatUserId === "string" && existing.vrchatUserId !== stored.userId) {
+  fail(
+    `${secretId} holds the session for ${existing.vrchatUserId}, but ` +
+      `${accountAlias} is ${stored.userId}. Check the alias and the secret id; ` +
+      "refusing to transfer one account's session into another's secret.",
+  );
+}
+
+// Reading the secret proves nothing about writing it. A role with
+// GetSecretValue and no PutSecretValue got all the way past validation — which
+// rotates the live session — before failing, leaving the deployed collector
+// authenticating with cookies this command had already superseded. Prove the
+// write path first: an unchanged Put for a secret that exists, and the creation
+// itself for one that does not.
+//
+// A dry run writes nothing at all, so it cannot prove this and does not try.
+const secretCreated = secretMissing && !dryRun;
+
+if (!dryRun) {
+  try {
+    await client.send(
+      secretMissing
+        ? new CreateSecretCommand({
+            Name: secretId,
+            Description: "VRDex group telemetry collector session and worker key.",
+            SecretString: JSON.stringify({}),
+          })
+        : new PutSecretValueCommand({
+            SecretId: secretId,
+            SecretString: JSON.stringify(existing),
+          }),
+    );
+  } catch (error) {
+    fail(`Cannot write the target secret (region ${region}): ${describeAwsError(error)}`);
+  }
+
+  // It exists now either way, so the real write below is always a Put.
+  secretMissing = false;
+}
+
 // Pushing a dead cookie into Secrets Manager would leave the fleet failing
 // authentication with no local signal, so confirm it still works first.
 //
@@ -310,18 +355,14 @@ const next = buildSessionSecretPayload(existing, {
   workerApiKey,
   authCookie: stored.authCookie,
   twoFactorAuthCookie: stored.twoFactorAuthCookie,
+  vrchatUserId: stored.userId,
 });
 
 if (!dryRun) {
+  // Always a Put: the preflight above created the secret if it did not exist.
   try {
     await client.send(
-      secretMissing
-        ? new CreateSecretCommand({
-            Name: secretId,
-            Description: "VRDex group telemetry collector session and worker key.",
-            SecretString: JSON.stringify(next),
-          })
-        : new PutSecretValueCommand({ SecretId: secretId, SecretString: JSON.stringify(next) }),
+      new PutSecretValueCommand({ SecretId: secretId, SecretString: JSON.stringify(next) }),
     );
   } catch (error) {
     fail(`Could not write the target secret (region ${region}): ${describeAwsError(error)}`);
@@ -334,7 +375,7 @@ process.stdout.write(
   [
     dryRun
       ? "Dry run: no secret was written."
-      : `${secretMissing ? "Created" : "Updated"} secret ${secretId} in ${region}.`,
+      : `${secretCreated ? "Created" : "Updated"} secret ${secretId} in ${region}.`,
     `Service account:      ${stored.userId}`,
     `Session validated:    ${skipValidation || dryRun ? "skipped" : "yes"}`,
     ...(localSaveFailure === undefined

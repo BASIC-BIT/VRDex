@@ -4,7 +4,7 @@
 // fields" rule is directly testable: the runbook requires that transferring a
 // session never disturbs anything else an operator keeps in that secret.
 
-const SESSION_FIELDS = ["workerApiKey", "authCookie", "twoFactorAuthCookie"];
+const SESSION_FIELDS = ["workerApiKey", "authCookie", "twoFactorAuthCookie", "vrchatUserId"];
 
 export function sessionSecretFields() {
   return [...SESSION_FIELDS];
@@ -14,11 +14,17 @@ export function sessionSecretFields() {
  * Merge a validated session and a freshly generated worker key into whatever
  * the secret already holds.
  *
- * Only `workerApiKey`, `authCookie`, and `twoFactorAuthCookie` are written.
- * `twoFactorAuthCookie` is removed when the session has none, so a stale cookie
- * from a previous account cannot linger and be sent alongside a new session.
+ * Only the session fields are written. `twoFactorAuthCookie` is removed when
+ * the session has none, so a stale cookie from a previous account cannot linger
+ * and be sent alongside a new session.
+ *
+ * `vrchatUserId` is recorded so a later transfer can tell which collector
+ * account this secret belongs to. It is not a secret, and it is the only thing
+ * that catches an alias paired with the wrong `--secret-id`: without it, the
+ * session validates against itself and the wrong account's cookies are
+ * deployed under an identity Convex and ECS still believe is someone else.
  */
-export function buildSessionSecretPayload(existing, { workerApiKey, authCookie, twoFactorAuthCookie }) {
+export function buildSessionSecretPayload(existing, { workerApiKey, authCookie, twoFactorAuthCookie, vrchatUserId }) {
   if (typeof workerApiKey !== "string" || workerApiKey.length < 32) {
     throw new Error("workerApiKey must be at least 32 characters.");
   }
@@ -27,8 +33,12 @@ export function buildSessionSecretPayload(existing, { workerApiKey, authCookie, 
     throw new Error("authCookie is malformed.");
   }
 
+  if (typeof vrchatUserId !== "string" || vrchatUserId.length === 0) {
+    throw new Error("vrchatUserId is required.");
+  }
+
   const base = existing && typeof existing === "object" && !Array.isArray(existing) ? existing : {};
-  const next = { ...base, workerApiKey, authCookie };
+  const next = { ...base, workerApiKey, authCookie, vrchatUserId };
 
   if (typeof twoFactorAuthCookie === "string" && twoFactorAuthCookie.length >= 8) {
     next.twoFactorAuthCookie = twoFactorAuthCookie;

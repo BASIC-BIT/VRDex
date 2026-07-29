@@ -10,6 +10,7 @@ import {
 const KEY = "k".repeat(48);
 const AUTH = "authcookievalue";
 const TWO_FACTOR = "twofactorcookievalue";
+const USER_ID = "usr_11111111-2222-3333-4444-555555555555";
 
 describe("session secret payload", () => {
   it("replaces only the session fields and preserves everything else", () => {
@@ -23,6 +24,7 @@ describe("session secret payload", () => {
       workerApiKey: KEY,
       authCookie: AUTH,
       twoFactorAuthCookie: TWO_FACTOR,
+      vrchatUserId: USER_ID,
     });
 
     assert.equal(next.workerApiKey, KEY);
@@ -38,7 +40,7 @@ describe("session secret payload", () => {
   it("clears a stale two-factor cookie when the new session has none", () => {
     const next = buildSessionSecretPayload(
       { twoFactorAuthCookie: "stale-cookie-value", other: 1 },
-      { workerApiKey: KEY, authCookie: AUTH },
+      { workerApiKey: KEY, authCookie: AUTH, vrchatUserId: USER_ID },
     );
 
     assert.equal("twoFactorAuthCookie" in next, false);
@@ -47,7 +49,7 @@ describe("session secret payload", () => {
 
   it("handles an absent or malformed existing secret", () => {
     for (const existing of [undefined, null, "not-json", []]) {
-      const next = buildSessionSecretPayload(existing, { workerApiKey: KEY, authCookie: AUTH });
+      const next = buildSessionSecretPayload(existing, { workerApiKey: KEY, authCookie: AUTH, vrchatUserId: USER_ID });
       assert.equal(next.workerApiKey, KEY);
       assert.deepEqual(preservedSecretKeys(existing), []);
     }
@@ -55,7 +57,7 @@ describe("session secret payload", () => {
 
   it("refuses a short worker key or malformed auth cookie", () => {
     assert.throws(
-      () => buildSessionSecretPayload({}, { workerApiKey: "short", authCookie: AUTH }),
+      () => buildSessionSecretPayload({}, { workerApiKey: "short", authCookie: AUTH, vrchatUserId: USER_ID }),
       /at least 32/,
     );
     assert.throws(
@@ -64,11 +66,21 @@ describe("session secret payload", () => {
     );
   });
 
-  it("names exactly the three fields the runbook allows", () => {
+  it("names exactly the fields the runbook allows", () => {
     assert.deepEqual(sessionSecretFields(), [
       "workerApiKey",
       "authCookie",
       "twoFactorAuthCookie",
+      "vrchatUserId",
     ]);
+  });
+
+  // The recorded identity is what catches an alias paired with another
+  // account's secret id, so it cannot be optional.
+  it("requires the VRChat user id", () => {
+    assert.throws(
+      () => buildSessionSecretPayload({}, { workerApiKey: KEY, authCookie: AUTH }),
+      /vrchatUserId is required/,
+    );
   });
 });

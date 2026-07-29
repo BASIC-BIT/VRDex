@@ -144,9 +144,12 @@ Constraints enforced in `vrclinkingCredentials.ts`:
   adapter resolves whatever it is given through its own IAM role, so accepting
   arbitrary well-formed names would let the owner of one guild register another
   tenant's reference and have VRDex spend that tenant's key;
-- `secretRef` is returned by exactly one internal query (`getAdapterContext`),
-  consumed by the action
-  that calls the adapter, and never by a client-facing query;
+- `secretRef` leaves the table through exactly one internal function,
+  the mutation `reserveAdapterDelegations`, consumed by the action that calls
+  the adapter and never by a client-facing query. A mutation rather than a query
+  because selecting delegations and advancing their rotation cursor have to be
+  one transaction — concurrent attempts reading a stale cursor all pick the same
+  few communities;
 - every consultation stamps `lastConsultedAt`, and a consultation that produced
   the match additionally stamps `lastUsedAt` and a short result summary. Both are
   surfaced under the profile's connections, so an operator can tell a key that

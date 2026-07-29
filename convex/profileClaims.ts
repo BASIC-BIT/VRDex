@@ -793,6 +793,25 @@ export const recordDiscordCommunityAdminApproval = internalMutation({
     }
 
     const now = Date.now();
+
+    // Same recheck the VRChat proof path does, and needed more here: these
+    // requests never expire, so a claimant can sit on one until after
+    // moderation has made the listing draft, opted out, or suppressed and then
+    // verify. The check at request time cannot speak for a decision taken
+    // after it.
+    const currentOwner = await getActiveProfileOwner(ctx.db, profile._id);
+
+    if (currentOwner?.userId !== claimRequest.userId && !canReadProfile("public", profile)) {
+      await ctx.db.patch(claimRequest._id, {
+        state: "rejected",
+        evidenceSummary: "The listing stopped being claimable before this request was verified.",
+        reviewedAt: now,
+        updatedAt: now,
+      });
+
+      throw claimError("PROFILE_NOT_FOUND");
+    }
+
     // Same rule as the OAuth path: Administrator in a server the claimant named
     // proves they run that server, not that the server is this listing's. Read
     // before the link below is written, and only associations somebody else put
@@ -1488,7 +1507,20 @@ export const verifyVrchatProofViaAdapter = action({
     const result = (response.body ?? {}) as ProofAdapterResponse;
 
     if (result.verified !== true) {
-      return { state: "pending" as const };
+      // The collector polls the same attempt this action is asking the adapter
+      // about, so it can settle it while that call is in flight. Reporting the
+      // adapter's negative would tell the claimant the code was not found on a
+      // page the observer is simultaneously showing as complete.
+      const settled = (await ctx.runQuery(internal.profileClaims.getVerificationAttemptForAdapter, {
+        attemptId: args.attemptId,
+      })) as { attempt: Doc<"profileVerificationAttempts"> } | null;
+
+      return {
+        state:
+          settled === null || settled.attempt.state === "pending"
+            ? ("pending" as const)
+            : settled.attempt.state,
+      };
     }
 
     // Only the delegation the adapter says answered gets the operator-visible
