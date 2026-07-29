@@ -228,6 +228,20 @@ async function checkProofs() {
 
     if (!reservation?.granted) {
       await releaseUnread(pending, attempt);
+      // Honour the window the control plane named. Without it the loop's short
+      // idle sleep reclaimed the same attempts seconds later and repeated the
+      // denied reservation until the minute rolled over — and at a share of
+      // zero, forever. `retryAt` is absolute; clamp so a bad value cannot park
+      // the worker.
+      const retryAfterMs = Math.min(
+        Math.max((reservation?.retryAt ?? 0) - Date.now(), 0),
+        60_000,
+      );
+
+      if (retryAfterMs > 0) {
+        await pause(retryAfterMs);
+      }
+
       break;
     }
 

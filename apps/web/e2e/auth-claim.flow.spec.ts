@@ -175,7 +175,21 @@ async function recordGuildControlProof(
   return true;
 }
 
+/**
+ * Accept the pre-branch trust copy only where the target may not carry this
+ * branch yet.
+ *
+ * A local run is always this branch, so accepting either state there would let
+ * the exact regression these assertions exist for — an unrelated guild or
+ * VRChat account labelled `Verified` rather than merely `Claimed` — pass
+ * silently. Hosted runs keep the tolerance because staging can lag the branch.
+ */
 async function expectCurrentOrHostedLagTrustCopy(currentCopy: Locator, hostedLagCopy: Locator) {
+  if (!process.env.PLAYWRIGHT_BASE_URL) {
+    await expect(currentCopy).toBeVisible(hostedActionExpectOptions);
+    return;
+  }
+
   await expect(currentCopy.or(hostedLagCopy).first()).toBeVisible(hostedActionExpectOptions);
 }
 

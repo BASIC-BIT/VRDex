@@ -162,6 +162,7 @@ const explicitRegion =
 const region = explicitRegion || "us-east-1";
 const client = new SecretsManagerClient({ region });
 let existing = {};
+let existingRaw = "";
 let secretMissing = false;
 
 // Surfaces the SDK's own message: these are configuration and permission
@@ -198,6 +199,9 @@ try {
     }
 
     existing = parsed;
+    // Kept verbatim: the re-read before writing compares against exactly what
+    // was there, and a reserialized copy would differ on formatting alone.
+    existingRaw = current.SecretString;
   }
 } catch (error) {
   if (error?.name === "ResourceNotFoundException") {
@@ -386,6 +390,29 @@ const next = buildSessionSecretPayload(existing, {
   twoFactorAuthCookie: stored.twoFactorAuthCookie,
   vrchatUserId: stored.userId,
 });
+
+// The snapshot this payload was built from was read before validation, which
+// takes as long as VRChat takes. Another operator transferring the same secret
+// in that window — or editing a preserved field — would be silently overwritten
+// by a whole-object write, and their rotated cookies lost. Re-read and compare
+// rather than merge: two live sessions for one account is not something to
+// reconcile automatically.
+if (!dryRun && !secretMissing) {
+  let current;
+
+  try {
+    current = await client.send(new GetSecretValueCommand({ SecretId: secretId }));
+  } catch (error) {
+    fail(`Could not re-read the target secret before writing (region ${region}): ${describeAwsError(error)}`);
+  }
+
+  if ((current.SecretString ?? "") !== existingRaw) {
+    fail(
+      `${secretId} changed while this transfer was validating, so writing would discard that change. ` +
+        "Nothing was written. Re-run the transfer; the session this run rotated is saved locally.",
+    );
+  }
+}
 
 if (!dryRun) {
   try {
