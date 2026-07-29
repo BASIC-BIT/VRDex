@@ -47,6 +47,16 @@ const telemetryWorker = httpAction(async (ctx, request) => {
   if (!body || typeof body.operation !== "string" || typeof body.workerId !== "string") {
     return json({ error: "invalid_request" }, 400);
   }
+  // The worker reports the VRChat identity recorded in its own secret. Pairing
+  // one collector id with another account's secret ARN otherwise started a task
+  // that read as A while filing every result under B — the key check cannot see
+  // that, because both halves are individually valid.
+  if (
+    typeof body.vrchatUserId === "string" &&
+    body.vrchatUserId !== authorizationRecord.vrchatUserId
+  ) {
+    return json({ error: "collector_identity_mismatch" }, 401);
+  }
   const now = Date.now();
   try {
     if (body.operation === "claim") {
@@ -92,6 +102,7 @@ const telemetryWorker = httpAction(async (ctx, request) => {
       const result = await ctx.runMutation(functions.recordProofRateLimit, {
         collectorAccountId,
         retryAfterMs: typeof body.retryAfterMs === "number" ? body.retryAfterMs : 60_000,
+        workerKeyHash: presentedHash,
         now,
       });
       return json(result);

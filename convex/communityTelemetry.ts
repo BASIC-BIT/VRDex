@@ -836,6 +836,10 @@ export const recordProofRateLimit = internalMutation({
   args: {
     collectorAccountId: v.string(),
     retryAfterMs: v.number(),
+    // The digest this request authenticated with, as for the proof-result and
+    // auth-failure paths: a request holding its body open across a rotation
+    // must not put the recovered account into cooldown.
+    workerKeyHash: v.string(),
     now: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -848,7 +852,11 @@ export const recordProofRateLimit = internalMutation({
 
     const account = await ctx.db.get(accountId);
 
-    if (account === null || account.state !== "ready") {
+    if (
+      account === null ||
+      account.state !== "ready" ||
+      account.workerKeyHash !== args.workerKeyHash
+    ) {
       return { recorded: false };
     }
 
@@ -1902,6 +1910,12 @@ export const collectorWorkerAuthorization = internalQuery({
     if (!account) return null;
     return {
       workerKeyHash: account.workerKeyHash,
+      // Not a secret — it is the account this collector is registered as, and
+      // the worker compares it against the identity recorded in its own secret.
+      // Without that comparison, pairing one collector id with another
+      // account's secret ARN starts a task that reads as A while every result
+      // is filed under B.
+      vrchatUserId: account.vrchatUserId,
       enabled: account.state === "ready" && !account.killSwitchEnabled,
     };
   },

@@ -306,6 +306,7 @@ describe("provider rate-limit cooldown", () => {
     assert.equal(before.attempts.length, 1);
 
     const recorded = await t.mutation(internal.communityTelemetry.recordProofRateLimit, {
+      workerKeyHash: "a".repeat(64),
       collectorAccountId,
       retryAfterMs: 120_000,
       now: now + 2,

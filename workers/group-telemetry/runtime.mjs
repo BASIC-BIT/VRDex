@@ -53,10 +53,14 @@ export function pollId(integrationId, observedAt) {
 }
 
 export class TelemetryControlClient {
-  constructor({ endpoint, collectorAccountId, workerApiKey, workerId = `collector-${randomUUID()}`, fetcher = fetch }) {
+  constructor({ endpoint, collectorAccountId, workerApiKey, vrchatUserId, workerId = `collector-${randomUUID()}`, fetcher = fetch }) {
     this.endpoint = endpoint;
     this.collectorAccountId = collectorAccountId;
     this.workerApiKey = workerApiKey;
+    // The identity recorded in this worker's own secret. The control plane
+    // rejects the request when it does not match the collector the account id
+    // names, so a mismatched secret/collector pairing cannot do work.
+    this.vrchatUserId = vrchatUserId;
     this.workerId = workerId;
     this.fetcher = fetcher;
   }
@@ -68,7 +72,12 @@ export class TelemetryControlClient {
     const response = await this.fetcher(this.endpoint, {
       method: "POST",
       headers: { authorization: `Bearer ${this.workerApiKey}`, "content-type": "application/json", "x-vrdex-collector-account": this.collectorAccountId },
-      body: JSON.stringify({ operation, workerId: this.workerId, ...body }),
+      body: JSON.stringify({
+        operation,
+        workerId: this.workerId,
+        ...(this.vrchatUserId === undefined ? {} : { vrchatUserId: this.vrchatUserId }),
+        ...body,
+      }),
       signal: AbortSignal.timeout(timeoutMs),
     });
     let payload = {};

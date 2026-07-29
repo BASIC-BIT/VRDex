@@ -16,6 +16,13 @@ function loadSecret() {
   if (typeof value.workerApiKey !== "string" || value.workerApiKey.length < 32) throw new Error("Account secret workerApiKey is invalid.");
   if (typeof value.authCookie !== "string" || value.authCookie.length < 8) throw new Error("Account secret authCookie is invalid.");
   if (value.twoFactorAuthCookie !== undefined && (typeof value.twoFactorAuthCookie !== "string" || value.twoFactorAuthCookie.length < 8)) throw new Error("Account secret twoFactorAuthCookie is invalid.");
+  // Which VRChat account these cookies belong to. Sent with every control-plane
+  // call and compared against the registered collector, so pairing one
+  // collector id with another account's secret cannot start a task that reads
+  // as A while filing everything under B.
+  if (typeof value.vrchatUserId !== "string" || !/^usr_[A-Za-z0-9-]{8,120}$/.test(value.vrchatUserId)) {
+    throw new Error("Account secret vrchatUserId is missing or invalid. Re-run the session transfer.");
+  }
   return value;
 }
 
@@ -28,6 +35,7 @@ const control = new TelemetryControlClient({
   endpoint: new URL("/telemetry/worker", requiredEnv("VRDEX_GROUP_TELEMETRY_CONVEX_SITE_URL")).href,
   collectorAccountId: requiredEnv("VRDEX_GROUP_TELEMETRY_COLLECTOR_ACCOUNT_ID"),
   workerApiKey: secret.workerApiKey,
+  vrchatUserId: secret.vrchatUserId,
   workerId: process.env.VRDEX_GROUP_TELEMETRY_WORKER_ID,
 });
 const provider = new VrchatClient({ authCookie: secret.authCookie, twoFactorAuthCookie: secret.twoFactorAuthCookie, userAgent: requiredEnv("VRDEX_GROUP_TELEMETRY_USER_AGENT") });
