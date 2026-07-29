@@ -272,18 +272,22 @@ async function checkProofs() {
 
 while (!stopping) {
   try {
-    const { assignments = [] } = await control.send(
-      "claim",
-      { limit: 10, now: Date.now() },
-      { requirePayload: true },
-    );
-    controlFailures = 0;
-    // Proofs first. Telemetry is continuous and a deferred batch is picked up
-    // next window none the worse; a proof attempt expires after 24 hours. With
-    // a low `requests_per_minute`, a permanently-due integration drained every
-    // fresh window here before proofs were reached, so an attempt could get no
-    // provider read at all in its whole lifetime and expire unchecked.
+    // Proofs first, and before the claim rather than merely before `collect()`.
+    // Telemetry is continuous and a deferred batch is picked up next window
+    // none the worse; a proof attempt expires after 24 hours, so with a low
+    // `requests_per_minute` a permanently-due integration could drain every
+    // fresh window before proofs were reached.
+    //
+    // Claiming first would also hold five-minute leases across a proof
+    // `Retry-After`, which can sleep for minutes: the fencing tokens go stale
+    // while the work sits in hand, so repeated proof throttling would leave
+    // those integrations unpolled anyway.
     const proofCount = stopping ? 0 : await checkProofs();
+    const { assignments = [] } = stopping
+      ? { assignments: [] }
+      : await control.send("claim", { limit: 10, now: Date.now() }, { requirePayload: true });
+
+    controlFailures = 0;
 
     for (const assignment of assignments) {
       if (stopping) break;

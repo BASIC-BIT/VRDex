@@ -61,6 +61,7 @@ import type * as _publicFields from "../_publicFields.js";
 import type * as _publicSearch from "../_publicSearch.js";
 import type * as _recentAuthProof from "../_recentAuthProof.js";
 import type * as _searchDocuments from "../_searchDocuments.js";
+import type * as _secureUrl from "../_secureUrl.js";
 import type * as _seedAccess from "../_seedAccess.js";
 import type * as _seedHandoffs from "../_seedHandoffs.js";
 import type * as _seedImportValidators from "../_seedImportValidators.js";
@@ -173,6 +174,7 @@ declare const fullApi: ApiFromModules<{
   _publicSearch: typeof _publicSearch;
   _recentAuthProof: typeof _recentAuthProof;
   _searchDocuments: typeof _searchDocuments;
+  _secureUrl: typeof _secureUrl;
   _seedAccess: typeof _seedAccess;
   _seedHandoffs: typeof _seedHandoffs;
   _seedImportValidators: typeof _seedImportValidators;

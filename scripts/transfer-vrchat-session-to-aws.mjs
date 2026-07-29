@@ -20,6 +20,7 @@ import { VrchatOperatorLogin } from "../workers/group-telemetry/vrchat-login.mjs
 import {
   buildSessionSecretPayload,
   preservedSecretKeys,
+  sessionSecretFields,
 } from "../workers/group-telemetry/session-secret-payload.mjs";
 
 const USAGE = `Usage:
@@ -39,6 +40,9 @@ Required environment:
 Options:
   --secret-id <id>       Target secret ARN or name (required)
   --region <region>      AWS region; defaults to AWS_REGION, then us-east-1
+  --expect-user-id <id>  Confirm which collector account this secret is for.
+                         Required once when migrating a secret written before
+                         the id was recorded in it.
   --skip-validation      Do not re-check the session against VRChat first
   --dry-run              Do everything except write the secret
   --help                 Show this message
@@ -84,7 +88,7 @@ if (process.argv.includes("--help")) {
 // rotated the live VRChat session and wrote a production secret. Reject unknown
 // options before anything is read or written.
 const BOOLEAN_FLAGS = new Set(["--skip-validation", "--dry-run", "--help"]);
-const VALUE_FLAGS = new Set(["--secret-id", "--region"]);
+const VALUE_FLAGS = new Set(["--secret-id", "--region", "--expect-user-id"]);
 
 for (const arg of process.argv.slice(2)) {
   // Not an option: the value belonging to the flag before it. `argValue`
@@ -227,11 +231,33 @@ if (secretMissing && !explicitRegion) {
 // cannot notice that alias A has been paired with account B's secret id. Left
 // unchecked, that pairing deploys A's cookies under an identity Convex and the
 // ECS task still resolve as B.
-if (typeof existing.vrchatUserId === "string" && existing.vrchatUserId !== stored.userId) {
+const expectUserId = argValue("--expect-user-id")?.trim();
+
+if (expectUserId !== undefined && expectUserId !== stored.userId) {
   fail(
-    `${secretId} holds the session for ${existing.vrchatUserId}, but ` +
-      `${accountAlias} is ${stored.userId}. Check the alias and the secret id; ` +
-      "refusing to transfer one account's session into another's secret.",
+    `--expect-user-id says ${expectUserId}, but ${accountAlias} is ${stored.userId}. ` +
+      "Check the alias and the secret id.",
+  );
+}
+
+if (typeof existing.vrchatUserId === "string") {
+  if (existing.vrchatUserId !== stored.userId) {
+    fail(
+      `${secretId} holds the session for ${existing.vrchatUserId}, but ` +
+        `${accountAlias} is ${stored.userId}. Check the alias and the secret id; ` +
+        "refusing to transfer one account's session into another's secret.",
+    );
+  }
+} else if (sessionSecretFields().some((field) => field in existing) && expectUserId === undefined) {
+  // A secret written before `vrchatUserId` existed. It holds a session but says
+  // nothing about whose, so there is nothing to compare and the check above
+  // would wave the pairing through — which is exactly the mistake it exists to
+  // catch. Make the operator state the identity once, on this migration only;
+  // after that the secret carries it.
+  fail(
+    `${secretId} holds a session but no vrchatUserId, so this transfer cannot confirm it ` +
+      `belongs to ${accountAlias}. Re-run with --expect-user-id ${stored.userId} if that ` +
+      "pairing is correct; the value is recorded so this is asked only once.",
   );
 }
 

@@ -5,6 +5,7 @@ import {
   requireVerifiedActiveBrowserSession,
 } from "./_claimSession";
 import { isAuthSessionInvalidError } from "./_authSessionGuard";
+import { requireSecureOutboundUrl } from "./_secureUrl";
 import { boundedFetch } from "./_boundedFetch";
 import { claimError } from "./_claimErrors";
 import { internal } from "./_generated/api";
@@ -62,12 +63,22 @@ function requiredEnv(name: string): string {
 }
 
 function discordApiBaseUrl(): string {
-  return (optionalEnv("DISCORD_API_BASE_URL") ?? "https://discord.com/api/v10").replace(/\/$/, "");
+  // The token exchange posts `AUTH_DISCORD_SECRET` and the authorization code
+  // here, and every call after it carries the access token.
+  return requireSecureOutboundUrl(
+    optionalEnv("DISCORD_API_BASE_URL") ?? "https://discord.com/api/v10",
+    "discord_api_url",
+  ).replace(/\/$/, "");
 }
 
 function discordAuthorizeBaseUrl(): string {
-  // Overridable so hosted E2E can point the consent step at a local stub.
-  return (optionalEnv("DISCORD_OAUTH_AUTHORIZE_URL") ?? "https://discord.com/oauth2/authorize")
+  // Overridable so hosted E2E can point the consent step at a local stub. The
+  // user's browser follows this one, so a plaintext consent page would put the
+  // round-trip — and the `state` that authorizes it — on the wire in the clear.
+  return requireSecureOutboundUrl(
+    optionalEnv("DISCORD_OAUTH_AUTHORIZE_URL") ?? "https://discord.com/oauth2/authorize",
+    "discord_authorize_url",
+  )
     .replace(/\/$/, "");
 }
 

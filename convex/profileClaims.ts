@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { getLinkedProviderAccount } from "./accounts";
 import { boundedFetch } from "./_boundedFetch";
 import { signDelegation } from "./_delegationCapability";
+import { requireSecureOutboundUrl } from "./_secureUrl";
 import { claimError } from "./_claimErrors";
 import {
   claimSessionUserOrNull,
@@ -495,33 +496,7 @@ function proofAdapterUrl(targetType: VrchatTargetType): string | null {
       ? requiredEnv("VRCLINKING_PROOF_ADAPTER_URL")
       : (optionalEnv("VRCHAT_PROOF_ADAPTER_URL") ?? null);
 
-  return configured === null ? null : requireSecureAdapterUrl(configured);
-}
-
-/**
- * Every request to an adapter carries the shared bearer token, the claimant's
- * Discord identity, and tenant secret references. A hand-edited or typo'd
- * `http://` endpoint puts all of that on the wire in the clear, and this
- * boundary previously accepted any string. Plain HTTP is allowed only for a
- * loopback stub, matching the rule the adapter's own provider client enforces.
- */
-function requireSecureAdapterUrl(value: string): string {
-  let parsed;
-
-  try {
-    parsed = new URL(value);
-  } catch {
-    throw claimError("ADAPTER_UNAVAILABLE", "adapter_url_invalid");
-  }
-
-  // `[::1]` is loopback too, and `URL` keeps the brackets in `hostname`.
-  const isLoopback = ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname);
-
-  if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && isLoopback)) {
-    throw claimError("ADAPTER_UNAVAILABLE", "adapter_url_insecure");
-  }
-
-  return value;
+  return configured === null ? null : requireSecureOutboundUrl(configured, "adapter_url");
 }
 
 /**
@@ -539,7 +514,10 @@ function proofAdapterHeaders(): Record<string, string> {
 }
 
 async function fetchDiscordJson<T>(path: string): Promise<T> {
-  const baseUrl = optionalEnv("DISCORD_API_BASE_URL") ?? "https://discord.com/api/v10";
+  const baseUrl = requireSecureOutboundUrl(
+    optionalEnv("DISCORD_API_BASE_URL") ?? "https://discord.com/api/v10",
+    "discord_api_url",
+  );
   const response = await boundedFetch(`${baseUrl}${path}`, {
     headers: {
       authorization: `Bot ${requiredEnv("DISCORD_BOT_TOKEN")}`,
