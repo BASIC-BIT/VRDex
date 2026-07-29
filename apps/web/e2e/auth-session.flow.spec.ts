@@ -134,7 +134,44 @@ async function setSessionState(
   await expect(response).toBeOK();
 }
 
+/**
+ * The invalidated-session cases below hand the page a dead session and then ask
+ * it to refresh. The app notices that on its own and navigates to `/sign-in`,
+ * which tears down the execution context an in-flight `page.evaluate` is
+ * running in — the behaviour under test arriving early, not a failure. The
+ * `page.goto` below already tolerates the same redirect for the same reason.
+ */
+function isNavigationAbort(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return (
+    error.message.includes("The operation was aborted") ||
+    error.message.includes("Execution context was destroyed") ||
+    error.message.includes("net::ERR_ABORTED") ||
+    error.message.includes("NS_BINDING_ABORTED")
+  );
+}
+
 async function forceRefresh(page: Page) {
+  // Bounded: a genuine hang still fails rather than retrying forever, and the
+  // assertions on the result are unchanged either way — the endpoint must
+  // refuse the refresh and no browser credentials may survive it.
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await evaluateRefresh(page);
+    } catch (error) {
+      if (attempt >= 2 || !isNavigationAbort(error)) {
+        throw error;
+      }
+
+      await page.waitForLoadState("domcontentloaded");
+    }
+  }
+}
+
+async function evaluateRefresh(page: Page) {
   return await page.evaluate(async () => {
     const response = await fetch("/api/auth", {
       method: "POST",
@@ -429,13 +466,10 @@ for (const state of [
 
       await authenticated.page.goto("/account").catch((error: unknown) => {
         const expectedRedirectAbort =
-          error instanceof Error &&
-          (error.message.includes("net::ERR_ABORTED") ||
-            error.message.includes("NS_BINDING_ABORTED") ||
-            (error.message.includes(
-              "is interrupted by another navigation to",
-            ) &&
-              error.message.includes("/sign-in?returnTo=")));
+          isNavigationAbort(error) ||
+          (error instanceof Error &&
+            error.message.includes("is interrupted by another navigation to") &&
+            error.message.includes("/sign-in?returnTo="));
         if (!expectedRedirectAbort) {
           throw error;
         }
