@@ -2078,6 +2078,11 @@ export default defineSchema({
     discordUserId: v.string(),
     issuedGeneration: v.number(),
     appliedGeneration: v.number(),
+    // When `issuedGeneration` was drawn. A reservation whose callback dies
+    // without applying would otherwise suppress every earlier reader forever,
+    // so an outstanding one stops counting once it is older than a round-trip
+    // could plausibly take.
+    issuedAt: v.number(),
     updatedAt: v.number(),
   }).index("by_userId_discordUserId", ["userId", "discordUserId"]),
   // Many-to-many association between a profile and an external asset. One

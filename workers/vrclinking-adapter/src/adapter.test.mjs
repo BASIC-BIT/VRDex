@@ -78,12 +78,16 @@ describe("adapter request validation", () => {
     const secretRef = `secret://vrdex/vrclinking/${GUILD_ID}`;
     const unsigned = { guildId: GUILD_ID, secretRef };
     const forged = { ...DELEGATION, capability: "0".repeat(64) };
+    // 64 characters, but not 64 bytes. `timingSafeEqual` throws on unequal
+    // buffer lengths, and `validateRequest` runs outside the server's
+    // per-request `try`, so this took the process down.
+    const wideCharacters = { ...DELEGATION, capability: "é".repeat(64) };
     const expired = signDelegation(GUILD_ID, secretRef, Date.UTC(2020, 0, 1));
     // A capability for one guild must not carry another: the signature covers
     // the pair, so swapping the guild id invalidates it.
     const swapped = { ...DELEGATION, guildId: "999999999999999999" };
 
-    for (const delegation of [unsigned, forged, expired, swapped]) {
+    for (const delegation of [unsigned, forged, wideCharacters, expired, swapped]) {
       assert.equal(validateRequest(baseBody({ delegations: [delegation] })).error, "no_delegations");
     }
 

@@ -18,6 +18,14 @@ import {
 } from "./_externalControl";
 
 const STATE_TTL_MS = 10 * 60_000;
+/**
+ * How long an unapplied reservation keeps its claim on ordering.
+ *
+ * Long enough to cover a slow OAuth round-trip, short enough that a callback
+ * that died does not permanently silence every earlier reader — including one
+ * that observed a revocation and would otherwise never get to apply it.
+ */
+const RESERVATION_ABANDONED_MS = 2 * 60_000;
 /** Outstanding OAuth round-trips one account may hold at once. */
 const MAX_OPEN_VERIFICATION_STATES = 5;
 
@@ -253,6 +261,7 @@ export const reserveGuildVerificationGeneration = internalMutation({
         discordUserId: args.discordUserId,
         issuedGeneration: 1,
         appliedGeneration: 0,
+        issuedAt: now,
         updatedAt: now,
       });
 
@@ -260,7 +269,7 @@ export const reserveGuildVerificationGeneration = internalMutation({
     }
 
     const generation = watermark.issuedGeneration + 1;
-    await ctx.db.patch(watermark._id, { issuedGeneration: generation, updatedAt: now });
+    await ctx.db.patch(watermark._id, { issuedGeneration: generation, issuedAt: now, updatedAt: now });
 
     return { generation };
   },
@@ -319,15 +328,29 @@ export const recordGuildControlProofs = internalMutation({
       )
       .unique();
 
+    // No row means the reservation never happened — a caller that skipped it,
+    // or a row removed since. Refuse rather than apply an unordered result.
+    if (watermark === null) {
+      return { recorded: 0, revoked: 0, superseded: true };
+    }
+
     // Against the newest *reservation*, not only the newest applied result. A
     // callback that reserved after Discord removed access may still be reading
     // when an older one arrives; letting the older one land would reactivate
     // the proof and leave a window in which a concurrent claim takes ownership
     // on access that is already gone. Only the newest reader may write.
     //
-    // No row means the reservation never happened — a caller that skipped it,
-    // or a row removed since. Refuse rather than apply an unordered result.
-    if (watermark === null || args.generation < watermark.issuedGeneration) {
+    // Unless that newer reader never came back. A reservation whose callback
+    // died would otherwise suppress every earlier result forever, so a
+    // revocation that one of them observed would never be applied and the proof
+    // would stay usable until its own revalidation deadline. Past the window a
+    // round-trip could plausibly take, an outstanding reservation stops
+    // counting.
+    const reservationOutstanding =
+      watermark.issuedGeneration > watermark.appliedGeneration &&
+      watermark.issuedAt > now - RESERVATION_ABANDONED_MS;
+
+    if (reservationOutstanding && args.generation < watermark.issuedGeneration) {
       return { recorded: 0, revoked: 0, superseded: true };
     }
 
@@ -582,17 +605,25 @@ async function fetchAllGuilds(accessToken: string): Promise<DiscordOAuthGuild[]>
     collected.push(...batch);
 
     if (batch.length < pageSize) {
-      break;
+      return collected;
     }
 
-    after = batch[batch.length - 1]?.id;
+    const next = batch[batch.length - 1]?.id;
 
-    if (after === undefined) {
-      break;
+    // A cursor that does not move means the provider ignored `after` and served
+    // the same page again. The caller reads this list as the complete
+    // manageable set and revokes every proof missing from it, so returning a
+    // truncated-but-plausible list would revoke real access. Same for running
+    // out of pages below: an incomplete answer must not look like a complete
+    // one.
+    if (next === undefined || next === after) {
+      throw claimError("ADAPTER_UNAVAILABLE", "guilds_pagination_stalled");
     }
+
+    after = next;
   }
 
-  return collected;
+  throw claimError("ADAPTER_UNAVAILABLE", "guilds_pagination_unbounded");
 }
 
 /**
@@ -694,6 +725,15 @@ export const completeGuildVerification = action({
       )) as { generation: number };
       const guilds = await fetchAllGuilds(accessToken);
       const manageable = guilds.flatMap((guild) => {
+        // Before anything is recorded against it. The mutation's validator only
+        // asks for a string, so a non-snowflake id would become an active
+        // `discord_guild` control proof for something that is not a guild — and
+        // `claimCommunityWithVerifiedGuild` grants ownership against exactly
+        // such a proof.
+        if (typeof guild.id !== "string" || !DISCORD_SNOWFLAKE_PATTERN.test(guild.id)) {
+          throw claimError("ADAPTER_UNAVAILABLE", "discord_guild_id_malformed");
+        }
+
         const controlLevel = discordControlLevel(guild);
 
         return controlLevel === null || controlLevel === "self"

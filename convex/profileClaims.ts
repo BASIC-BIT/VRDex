@@ -1571,6 +1571,13 @@ export const verifyVrchatProofViaAdapter = action({
 
     const result = (response.body ?? {}) as ProofAdapterResponse;
 
+    // A 200 with an empty, truncated, or non-JSON body is not a verdict.
+    // Reading the missing field as a negative told the claimant the code was
+    // not found when the adapter never actually said anything.
+    if (response.ok && typeof result.verified !== "boolean") {
+      return { state: "unavailable" as const };
+    }
+
     // Stamped from what the adapter says it asked, and only after it answers.
     // Stamping every selected delegation before the request wrote "last queried"
     // for keys a DNS failure meant were never sent, and for keys after the

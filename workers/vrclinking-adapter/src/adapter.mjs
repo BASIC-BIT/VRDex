@@ -89,7 +89,16 @@ function isSecretRefForGuild(secretRef, guildId) {
 export function verifyCapability(delegation, { now = Date.now(), key = capabilityKey() } = {}) {
   const { guildId, secretRef, expiresAt, capability } = delegation;
 
-  if (typeof capability !== "string" || typeof expiresAt !== "number") {
+  // Shape-checked before any byte comparison. A 64-character string of
+  // non-ASCII produces a UTF-8 buffer of a different byte length, and
+  // `timingSafeEqual` throws on that — out of `validateRequest`, which the
+  // server calls outside its per-request `try`, so an authenticated caller
+  // could take the process down with one malformed field.
+  if (typeof capability !== "string" || !/^[a-f0-9]{64}$/.test(capability)) {
+    return false;
+  }
+
+  if (typeof expiresAt !== "number") {
     return false;
   }
 
@@ -101,12 +110,9 @@ export function verifyCapability(delegation, { now = Date.now(), key = capabilit
     .update(`${guildId}\n${secretRef}\n${expiresAt}`)
     .digest("hex");
 
-  // Length-checked first: `timingSafeEqual` throws on a mismatch rather than
-  // returning false.
-  return (
-    capability.length === expected.length &&
-    timingSafeEqual(Buffer.from(capability), Buffer.from(expected))
-  );
+  // Both are now known to be 64 hex characters, so the buffers match in length
+  // and `timingSafeEqual` cannot throw.
+  return timingSafeEqual(Buffer.from(capability), Buffer.from(expected));
 }
 
 function capabilityKey() {
