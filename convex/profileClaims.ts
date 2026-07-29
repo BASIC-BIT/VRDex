@@ -1569,15 +1569,6 @@ export const verifyVrchatProofViaAdapter = action({
       return { state: "expired" as const };
     }
 
-    // Covers the adapter's "could not consult anything" case too: it maps that
-    // to a 503 rather than a 200 body flag, precisely so "we could not ask
-    // anyone" never reaches the claimant as "we asked and the code was not
-    // there". Do not add a body-level `unavailable` check here without also
-    // making the adapter emit one — it does not.
-    if (!response.ok) {
-      return { state: "unavailable" as const };
-    }
-
     const result = (response.body ?? {}) as ProofAdapterResponse;
 
     // Stamped from what the adapter says it asked, and only after it answers.
@@ -1598,6 +1589,18 @@ export const verifyVrchatProofViaAdapter = action({
           credentialIds: consulted,
         });
       }
+    }
+
+    // Read after the stamping above, not before it. The adapter maps "could not
+    // consult anything" to a 503 rather than a body flag — precisely so "we
+    // could not ask anyone" never reaches the claimant as "we asked and the
+    // code was not there" — but that response still names the delegations that
+    // did answer, with a rejected key or a rate limit. Returning first left
+    // exactly those reporting as never queried. Do not add a body-level
+    // `unavailable` check here without also making the adapter emit one — it
+    // does not.
+    if (!response.ok) {
+      return { state: "unavailable" as const };
     }
 
     if (result.verified !== true) {

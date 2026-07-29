@@ -308,16 +308,26 @@ export const recordGuildControlProofs = internalMutation({
       )
       .unique();
 
+    // Against the newest *reservation*, not only the newest applied result. A
+    // callback that reserved after Discord removed access may still be reading
+    // when an older one arrives; letting the older one land would reactivate
+    // the proof and leave a window in which a concurrent claim takes ownership
+    // on access that is already gone. Only the newest reader may write.
+    //
     // No row means the reservation never happened — a caller that skipped it,
     // or a row removed since. Refuse rather than apply an unordered result.
-    if (watermark === null || args.generation <= watermark.appliedGeneration) {
+    if (watermark === null || args.generation < watermark.issuedGeneration) {
       return { recorded: 0, revoked: 0, superseded: true };
     }
 
+    if (args.generation <= watermark.appliedGeneration) {
+      return { recorded: 0, revoked: 0, superseded: true };
+    }
+
+    // `issuedGeneration` is already at least this value — the guard above
+    // refuses anything below it — so only the applied cursor moves.
     await ctx.db.patch(watermark._id, {
       appliedGeneration: args.generation,
-      // A reservation this mutation is applying is by definition issued.
-      issuedGeneration: Math.max(watermark.issuedGeneration, args.generation),
       updatedAt: now,
     });
 
