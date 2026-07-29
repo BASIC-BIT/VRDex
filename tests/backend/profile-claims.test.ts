@@ -325,7 +325,7 @@ describe("profile claim lifecycle", () => {
     assert.equal(attempt?.evidenceSource, "vrclinking");
   });
 
-  it("rejects replay after a proof has granted ownership", async () => {
+  it("reports the settled outcome instead of failing a replayed proof", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const { attemptId, profileId } = await t.run(async (ctx) => {
@@ -363,19 +363,26 @@ describe("profile claim lifecycle", () => {
       return { attemptId, profileId };
     });
 
-    await t.mutation(internal.profileClaims.recordVrchatProofVerification, {
+    const first = await t.mutation(internal.profileClaims.recordVrchatProofVerification, {
       attemptId,
       evidenceSource: "vrchat_api",
       evidenceSummary: "Synthetic verified proof.",
     });
-    await assert.rejects(
-      t.mutation(internal.profileClaims.recordVrchatProofVerification, {
-        attemptId,
-        evidenceSource: "vrchat_api",
-        evidenceSummary: "Synthetic replay.",
-      }),
-      /PROOF_NOT_PENDING/,
+    // The collector fleet polls the same attempt an adapter action is checking,
+    // so it can settle it mid-flight. Throwing here reported an error for a
+    // click whose ownership grant had already succeeded, so the replay has to
+    // hand back what the first pass produced — without granting again.
+    const replay = await t.mutation(internal.profileClaims.recordVrchatProofVerification, {
+      attemptId,
+      evidenceSource: "vrchat_api",
+      evidenceSummary: "Synthetic replay.",
+    });
+
+    assert.deepEqual(
+      { claimState: replay.claimState, connectionOnly: replay.connectionOnly },
+      { claimState: first.claimState, connectionOnly: first.connectionOnly },
     );
+    assert.equal(replay.claimRequestId, undefined);
 
     const owners = await t.run(async (ctx) =>
       ctx.db

@@ -31,7 +31,18 @@ export async function boundedFetch(
 
   try {
     const response = await fetch(url, { ...init, signal: controller.signal });
-    const body = await response.json().catch(() => undefined);
+    // The optional body covers a genuinely empty or malformed response. An
+    // abort is not that: a provider that returns headers and then stalls would
+    // otherwise surface as a successful empty response, which the proof path
+    // reads as "we asked and the code was not there" rather than "we could not
+    // finish asking".
+    const body = await response.json().catch((error: unknown) => {
+      if (controller.signal.aborted) {
+        throw error;
+      }
+
+      return undefined;
+    });
 
     return { ok: response.ok, status: response.status, body };
   } finally {

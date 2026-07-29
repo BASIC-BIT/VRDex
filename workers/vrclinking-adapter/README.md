@@ -75,7 +75,11 @@ than through a workspace filter. Install its one optional dependency first only
 if you need AWS-backed secrets; the file backend below needs nothing.
 
 ```bash
-mkdir -p /tmp/vrclinking-secrets && printf 'my-token' > /tmp/vrclinking-secrets/community-a
+# The file has to sit at the reference Convex accepts for that guild:
+# secret://vrdex/vrclinking/<guildId>. A flat name resolves to nothing and
+# every request comes back unavailable.
+mkdir -p /tmp/vrclinking-secrets/vrdex/vrclinking
+printf 'my-token' > /tmp/vrclinking-secrets/vrdex/vrclinking/100000000000000001
 VRCHAT_PROOF_ADAPTER_BEARER_TOKEN=dev-token \
 VRDEX_VRCLINKING_SECRET_DIR=/tmp/vrclinking-secrets \
 node workers/vrclinking-adapter/src/server.mjs

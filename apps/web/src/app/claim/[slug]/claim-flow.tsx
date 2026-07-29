@@ -137,7 +137,13 @@ export function ClaimFlow({
   // VRChat attempt on its own schedule and the reactive context updates under a
   // user who never clicks again. Tracking completion only in the click handlers
   // therefore dropped the successful claims on the default production path.
-  const [seenVerifiedProofAt, setSeenVerifiedProofAt] = useState<number | null>(null);
+  // `undefined` means no snapshot has been observed yet, which is a different
+  // thing from `null` ("observed, and this account has no verified proof").
+  // Collapsing the two suppressed the announcement for the case that matters
+  // most: an account whose *first* collector proof resolves goes null → stamp.
+  const [seenVerifiedProofAt, setSeenVerifiedProofAt] = useState<number | null | undefined>(
+    undefined,
+  );
   const [collectorCompletion, setCollectorCompletion] = useState<
     { verified: boolean; connectionOnly: boolean } | null
   >(null);
@@ -193,7 +199,11 @@ export function ClaimFlow({
   // `getClaimJourneyContext`. Adjusting state during render is React's
   // supported way to react to a changed query value; an effect would mean a
   // synchronous setState and a cascading render.
-  const verifiedProofAt = observedContext?.lastVerifiedProof?.at ?? null;
+  // A loading or skipped query is not a snapshot. Reading it as "no verified
+  // proof" would make the first loaded value look like an advance and replay
+  // the announcement for a proof that completed before this page opened.
+  const verifiedProofAt =
+    observedContext === null ? undefined : (observedContext.lastVerifiedProof?.at ?? null);
 
   if (verifiedProofAt !== seenVerifiedProofAt) {
     const previous = seenVerifiedProofAt;
@@ -202,7 +212,12 @@ export function ClaimFlow({
 
     // Only an advance counts, and only one observed on this page: arriving at a
     // profile whose proof completed earlier must not replay the announcement.
-    if (previous !== null && verifiedProofAt !== null && verifiedProofAt > previous) {
+    if (
+      previous !== undefined &&
+      verifiedProofAt !== undefined &&
+      verifiedProofAt !== null &&
+      (previous === null || verifiedProofAt > previous)
+    ) {
       setCollectorCompletion({
         verified: observedContext?.verified === true,
         connectionOnly: observedContext?.lastVerifiedProof?.connectionOnly === true,
@@ -328,18 +343,29 @@ export function ClaimFlow({
         // target is the one this listing represents, so report the state the
         // claim actually reached.
         const verified = result.claimState === "claimed_verified";
+        // The backend classifies a proof that changed no ownership — an existing
+        // owner proving another account or group — as connection-only. Reading
+        // it as a fresh claim announced ownership the profile never changed
+        // hands over, and counted a connection addition in the claim funnel.
+        const connectionOnly = result.connectionOnly === true;
+
         setStatus({
           kind: "complete",
-          message: verified
-            ? "Ownership verified. This profile is now yours."
-            : "Ownership confirmed, and this profile is now yours. It is not marked verified yet, because this account or group was not already on record for the listing.",
+          message: connectionOnly
+            ? "Control verified. That account is now connected to this profile."
+            : verified
+              ? "Ownership verified. This profile is now yours."
+              : "Ownership confirmed, and this profile is now yours. It is not marked verified yet, because this account or group was not already on record for the listing.",
           verified,
         });
-      captureProductEvent(posthog, "claim_completed", {
-          method: "vrchat",
-          outcome: verified ? "claimed_verified" : "claimed_unverified",
-          profile_type: profile.profileType,
-        });
+
+        if (!connectionOnly) {
+          captureProductEvent(posthog, "claim_completed", {
+            method: "vrchat",
+            outcome: verified ? "claimed_verified" : "claimed_unverified",
+            profile_type: profile.profileType,
+          });
+        }
       } else if (result.state === "verified") {
         // The collector fleet resolves attempts on its own schedule, so it may
         // have landed the verdict between render and this click. Reporting the

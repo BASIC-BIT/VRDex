@@ -8,7 +8,10 @@ import { VrclinkingProviderError, createVrclinkingClient } from "./vrclinking-cl
 const DISCORD_ID = "123456789012345678";
 const VRC_ID = "usr_11111111-2222-3333-4444-555555555555";
 const OTHER_VRC_ID = "usr_99999999-8888-7777-6666-555555555555";
-const DELEGATION = { guildId: "12345678901234567", secretRef: "secret://community-a" };
+const GUILD_ID = "123456789012345671";
+// The adapter accepts only the one reference name provisioned for that guild;
+// see `isSecretRefForGuild` in adapter.mjs.
+const DELEGATION = { guildId: GUILD_ID, secretRef: `secret://vrdex/vrclinking/${GUILD_ID}` };
 
 function baseBody(overrides = {}) {
   return {
@@ -26,7 +29,7 @@ describe("adapter request validation", () => {
   it("accepts a well-formed request and caps delegation fan-out", () => {
     const many = Array.from({ length: 9 }, (_, index) => ({
       guildId: `1234567890123456${index}`,
-      secretRef: `secret://c${index}`,
+      secretRef: `secret://vrdex/vrclinking/1234567890123456${index}`,
     }));
     const result = validateRequest(baseBody({ delegations: many }));
 
@@ -41,6 +44,34 @@ describe("adapter request validation", () => {
     assert.equal(validateRequest(baseBody({ targetExternalId: "grp_x" })).error, "invalid_target_external_id");
     assert.equal(validateRequest(baseBody({ delegations: [] })).error, "no_delegations");
     assert.equal(validateRequest(baseBody({ delegations: [{ guildId: 1 }] })).error, "no_delegations");
+  });
+
+  // Convex refuses to register a reference that does not name the guild it is
+  // for, but the bearer token in front of this adapter is one shared
+  // credential: a caller holding it posts straight here and never passes that
+  // check. Since the deployment role can read every delegated tenant secret, an
+  // unbound reference would spend another community's key.
+  it("rejects a secret reference that does not name its own guild", () => {
+    const foreign = {
+      guildId: GUILD_ID,
+      secretRef: "secret://vrdex/vrclinking/999999999999999999",
+    };
+    const traversal = {
+      guildId: GUILD_ID,
+      secretRef: `secret://vrdex/vrclinking/${GUILD_ID}/../other`,
+    };
+    const arn = {
+      guildId: GUILD_ID,
+      secretRef: `arn:aws:secretsmanager:us-east-1:123456789012:secret:vrdex/vrclinking/${GUILD_ID}-AbCdEf`,
+    };
+
+    assert.equal(validateRequest(baseBody({ delegations: [foreign] })).error, "no_delegations");
+    assert.equal(validateRequest(baseBody({ delegations: [traversal] })).error, "no_delegations");
+    assert.equal(
+      validateRequest(baseBody({ delegations: [{ ...DELEGATION, guildId: "nope" }] })).error,
+      "no_delegations",
+    );
+    assert.equal(validateRequest(baseBody({ delegations: [arn] })).ok, true);
   });
 });
 
@@ -149,7 +180,10 @@ describe("linkage verification", () => {
     const twoDelegations = validateRequest(
       baseBody({
         delegations: [
-          { guildId: "11111111111111111", secretRef: "secret://broken" },
+          {
+          guildId: "11111111111111111",
+          secretRef: "secret://vrdex/vrclinking/11111111111111111",
+        },
           DELEGATION,
         ],
       }),

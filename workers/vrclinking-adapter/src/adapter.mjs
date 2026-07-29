@@ -4,10 +4,36 @@ import { VrclinkingProviderError } from "./vrclinking-client.mjs";
 // VRChat user ids are the only claim target this adapter attests.
 const VRCHAT_USER_ID_PATTERN =
   /^usr_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const DISCORD_USER_ID_PATTERN = /^\d{17,20}$/;
+// Discord user and guild ids are both snowflakes.
+const DISCORD_SNOWFLAKE_PATTERN = /^\d{17,20}$/;
 // Bounds provider calls per request so one claim cannot fan out across every
 // delegation VRDex holds.
 const MAX_DELEGATIONS = 5;
+
+/**
+ * The one secret name a delegation for `guildId` may point at.
+ *
+ * Convex enforces this when an operator registers a delegation, but the bearer
+ * token in front of this adapter is a single shared credential: a caller who
+ * holds it can post straight here and skip that check entirely. Since the
+ * deployment role can read every delegated tenant secret, an unbound reference
+ * would let such a caller spend another community's VRCLinking key against a
+ * guild of their choosing. The rule has to hold on both sides of the boundary,
+ * so it is repeated rather than delegated — and the two must stay in step with
+ * `isSecretRefForGuild` in `convex/vrclinkingCredentials.ts`.
+ */
+function isSecretRefForGuild(secretRef, guildId) {
+  const name = `vrdex/vrclinking/${guildId}`;
+
+  if (secretRef === `secret://${name}`) {
+    return true;
+  }
+
+  // Secrets Manager appends a six-character suffix to the name in the ARN.
+  return new RegExp(
+    `^arn:aws:secretsmanager:[a-z0-9-]{1,32}:\\d{12}:secret:${name}(-[A-Za-z0-9]{6})?$`,
+  ).test(secretRef);
+}
 
 export function validateRequest(body) {
   if (!body || typeof body !== "object") {
@@ -18,7 +44,7 @@ export function validateRequest(body) {
     return { ok: false, error: "unsupported_target_type" };
   }
 
-  if (typeof body.discordUserId !== "string" || !DISCORD_USER_ID_PATTERN.test(body.discordUserId)) {
+  if (typeof body.discordUserId !== "string" || !DISCORD_SNOWFLAKE_PATTERN.test(body.discordUserId)) {
     return { ok: false, error: "invalid_discord_user_id" };
   }
 
@@ -32,7 +58,10 @@ export function validateRequest(body) {
   const delegations = Array.isArray(body.delegations) ? body.delegations : [];
   const usable = delegations.filter(
     (delegation) =>
-      typeof delegation?.guildId === "string" && typeof delegation?.secretRef === "string",
+      typeof delegation?.guildId === "string" &&
+      DISCORD_SNOWFLAKE_PATTERN.test(delegation.guildId) &&
+      typeof delegation?.secretRef === "string" &&
+      isSecretRefForGuild(delegation.secretRef, delegation.guildId),
   );
 
   if (usable.length === 0) {

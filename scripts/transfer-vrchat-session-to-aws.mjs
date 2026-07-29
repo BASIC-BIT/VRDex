@@ -215,6 +215,8 @@ if (dryRun && !skipValidation) {
   );
 }
 
+let localSaveFailure;
+
 if (!skipValidation && !dryRun) {
   const login = new VrchatOperatorLogin({
     userAgent,
@@ -231,11 +233,21 @@ if (!skipValidation && !dryRun) {
     // Persist rotation locally too. Writing only to AWS would leave the vault
     // holding pre-rotation cookies, so the next local run would validate an
     // already-superseded session.
+    //
+    // Not fatal, though. VRChat has already rotated the live session by this
+    // point, so aborting on a locked keychain would leave the rotated cookies
+    // in neither destination and walk the running collector into
+    // `auth_required`. Getting them into Secrets Manager is what keeps the
+    // fleet alive; the vault copy is a convenience for the next local run.
     if (
       refreshed.authCookie !== stored.authCookie ||
       refreshed.twoFactorAuthCookie !== stored.twoFactorAuthCookie
     ) {
-      await sessionStore.save(accountAlias, refreshed);
+      try {
+        await sessionStore.save(accountAlias, refreshed);
+      } catch (error) {
+        localSaveFailure = error?.message ?? "unknown error";
+      }
     }
 
     stored = refreshed;
@@ -259,9 +271,15 @@ const workerApiKey = randomBytes(48).toString("base64url");
 // contract also pins this: `registerCollectorAccount` validates the digest
 // against /^[a-f0-9]{64}$/.
 //
-// CodeQL flags this as js/insufficient-password-hash. That alert is dismissed
-// as a false positive in code scanning; inline suppression comments are not
-// honoured by this repository's setup, so do not add one expecting it to work.
+// CodeQL flags this as js/insufficient-password-hash, and will keep doing so:
+// inline suppression comments are not honoured by this repository's setup, and
+// the alert re-appears as "new" on any commit that touches this file, failing
+// the PR check until an operator dismisses it as a false positive in code
+// scanning. Do not swap in a KDF to silence it. `convex/http.ts` verifies a
+// presented worker key by hashing it on every request in the Convex runtime,
+// which has Web Crypto and no scrypt; the only KDF available there is PBKDF2,
+// which would add a derivation per request to defend a keyspace that does not
+// exist.
 const workerKeyHash = createHash("sha256").update(workerApiKey).digest("hex").toLowerCase();
 
 const next = buildSessionSecretPayload(existing, {
@@ -295,6 +313,13 @@ process.stdout.write(
       : `${secretMissing ? "Created" : "Updated"} secret ${secretId} in ${region}.`,
     `Service account:      ${stored.userId}`,
     `Session validated:    ${skipValidation || dryRun ? "skipped" : "yes"}`,
+    ...(localSaveFailure === undefined
+      ? []
+      : [
+          `Local vault:          NOT updated (${localSaveFailure}). ` +
+            "The cookies above are deployed but the vault still holds the pre-rotation " +
+            "pair; re-run the login bootstrap before the next local transfer.",
+        ]),
     `Two-factor cookie:    ${stored.twoFactorAuthCookie === undefined ? "absent" : "included"}`,
     `Preserved keys:       ${preservedKeys.length === 0 ? "(none)" : preservedKeys.join(", ")}`,
     "",

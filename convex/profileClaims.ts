@@ -125,6 +125,10 @@ type VerifyAdapterResult =
       claimRequestId: Id<"profileClaimRequests"> | undefined;
       profileId: Id<"profiles">;
       claimState: Doc<"profiles">["claimState"];
+      // The backend's own classification, rather than something the caller
+      // reconstructs. A missing claim request is one symptom of it, but a proof
+      // replayed after the collector already settled it has no request either.
+      connectionOnly: boolean;
     };
 type DiscordAdminAdapterResult =
   | { state: Doc<"profileClaimRequests">["state"] }
@@ -1128,6 +1132,25 @@ export const recordVrchatProofVerification = internalMutation({
     }
 
     if (attempt.state !== "pending") {
+      // The collector fleet polls the same attempt the adapter action is
+      // verifying, so it can settle it while that fetch is in flight. Throwing
+      // reported an error for a click whose ownership grant had already
+      // succeeded, so report the settled outcome instead.
+      if (attempt.state === "verified") {
+        const settled = await ctx.db.get(attempt.profileId);
+
+        if (settled === null) {
+          throw claimError("PROFILE_NOT_FOUND");
+        }
+
+        return {
+          claimRequestId: undefined,
+          profileId: settled._id,
+          claimState: settled.claimState,
+          connectionOnly: attempt.connectionOnly === true,
+        };
+      }
+
       throw claimError("PROOF_NOT_PENDING");
     }
 
@@ -1258,6 +1281,7 @@ export const recordVrchatProofVerification = internalMutation({
       claimRequestId,
       profileId: profile._id,
       claimState: updatedProfile?.claimState ?? profile.claimState,
+      connectionOnly,
     };
   },
 });
@@ -1398,7 +1422,7 @@ export const verifyVrchatProofViaAdapter = action({
       });
     }
 
-    const response = await boundedFetch(adapterUrl, {
+    const adapterRequest = {
       method: "POST",
       headers: proofAdapterHeaders(),
       body: JSON.stringify({
@@ -1421,7 +1445,19 @@ export const verifyVrchatProofViaAdapter = action({
               })),
             }),
       }),
-    });
+    };
+
+    // A refused connection, a DNS failure, or a deadline that fires mid-request
+    // is "we could not ask", which is exactly what `unavailable` reports. Left
+    // to throw, the claimant saw a generic failure for a question the adapter
+    // never answered.
+    let response;
+
+    try {
+      response = await boundedFetch(adapterUrl, adapterRequest);
+    } catch {
+      return { state: "unavailable" as const };
+    }
 
     if (attemptContext.attempt.expiresAt <= Date.now()) {
       await ctx.runMutation(internal.profileClaims.recordVrchatProofFailure, {

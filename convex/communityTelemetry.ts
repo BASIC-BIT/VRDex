@@ -2016,7 +2016,29 @@ export const recordProofCheckResult = internalMutation({
 
     // A verdict is only accepted from the collector this attempt was served to.
     // Without this, any authorized worker key could assert `found` for any
-    // pending attempt and mint verified ownership without reading VRChat.
+    // pending attempt and mint ownership without reading VRChat.
+    //
+    // What this does not do — and cannot: a single compromised worker key can
+    // still call `claimProofBatch` to have an attempt served to itself and then
+    // report `found` on it. The fleet is a trusted oracle by construction; the
+    // control plane has no independent view of VRChat to check a verdict
+    // against, so no check inside this mutation can make one credential's word
+    // less than its word. The bounds that do exist are elsewhere:
+    //
+    //   - It cannot invent attempts. Only a signed-in account can start one,
+    //     for a profile it is claiming, so a leaked key can forge the *reading*
+    //     of a proof, never the claimant.
+    //   - It cannot reach `claimed_verified`. That needs the target already
+    //     linked to the profile by somebody other than the claimant
+    //     (`assetBacksThisProfile` in `recordVrchatProofVerification`), which
+    //     no worker key can produce.
+    //   - Operators can revoke it: per-account and fleet kill switches are
+    //     re-read below, account state is checked, and the key is stored only
+    //     as a digest so rotation is a single re-registration.
+    //
+    // Closing the residual gap means multi-party attestation — a verdict from a
+    // collector account other than the one served — which doubles provider load
+    // for every proof. That is a product decision, not a fix to make here.
     if (attempt.lastCheckedByCollectorAccountId !== accountId) {
       return { state: "unauthorized" as const };
     }
