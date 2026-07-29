@@ -5,6 +5,7 @@ import {
   requireVerifiedActiveBrowserSession,
 } from "./_claimSession";
 import { claimError } from "./_claimErrors";
+import type { Id } from "./_generated/dataModel";
 import { internalMutation, mutation, query } from "./_generated/server";
 import {
   type ExternalAssetType,
@@ -50,6 +51,29 @@ async function requireProfileFromSlug(db: Parameters<typeof getProfileBySlug>[0]
 
   if (profile === null) {
     throw claimError("PROFILE_NOT_FOUND");
+  }
+
+  return profile;
+}
+
+/**
+ * Resolve a slug for an owner-only mutation, refusing in a way that says
+ * nothing about listings the public cannot see.
+ *
+ * `NOT_PROFILE_OWNER` for a hidden slug and `PROFILE_NOT_FOUND` for an unused
+ * one told a prober that a draft, opted-out, or suppressed listing exists. A
+ * publicly readable profile is different: its existence is not a secret, so a
+ * non-owner still gets the accurate `NOT_PROFILE_OWNER` there.
+ */
+async function requireOwnedProfileFromSlug(
+  db: Parameters<typeof getProfileBySlug>[0],
+  slug: string,
+  userId: Id<"users">,
+) {
+  const profile = await requireProfileFromSlug(db, slug);
+
+  if (!(await userOwnsProfile(db, profile._id, userId))) {
+    throw claimError(canReadProfile("public", profile) ? "NOT_PROFILE_OWNER" : "PROFILE_NOT_FOUND");
   }
 
   return profile;
@@ -327,11 +351,7 @@ export const addVerifiedConnection = mutation({
   },
   handler: async (ctx, args) => {
     const { user } = await requireVerifiedActiveBrowserSession(ctx);
-    const profile = await requireProfileFromSlug(ctx.db, args.profileSlug);
-
-    if (!(await userOwnsProfile(ctx.db, profile._id, user._id))) {
-      throw claimError("NOT_PROFILE_OWNER");
-    }
+    const profile = await requireOwnedProfileFromSlug(ctx.db, args.profileSlug, user._id);
 
     if (!assetTypeAllowedForProfile(args.assetType, profile.profileType)) {
       throw claimError("WRONG_PROFILE_TYPE");
@@ -371,11 +391,7 @@ export const setPrimaryConnection = mutation({
   },
   handler: async (ctx, args) => {
     const { user } = await requireVerifiedActiveBrowserSession(ctx);
-    const profile = await requireProfileFromSlug(ctx.db, args.profileSlug);
-
-    if (!(await userOwnsProfile(ctx.db, profile._id, user._id))) {
-      throw claimError("NOT_PROFILE_OWNER");
-    }
+    const profile = await requireOwnedProfileFromSlug(ctx.db, args.profileSlug, user._id);
 
     const existing = (await getActiveProfileLinks(ctx.db, profile._id, args.assetType)).find(
       (link) => link.assetExternalId === args.assetExternalId,
@@ -412,11 +428,7 @@ export const removeConnection = mutation({
   },
   handler: async (ctx, args) => {
     const { user } = await requireVerifiedActiveBrowserSession(ctx);
-    const profile = await requireProfileFromSlug(ctx.db, args.profileSlug);
-
-    if (!(await userOwnsProfile(ctx.db, profile._id, user._id))) {
-      throw claimError("NOT_PROFILE_OWNER");
-    }
+    const profile = await requireOwnedProfileFromSlug(ctx.db, args.profileSlug, user._id);
 
     const now = Date.now();
     const linkId = await removeProfileLink(

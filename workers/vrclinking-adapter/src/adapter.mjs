@@ -194,6 +194,18 @@ export async function verifyLinkage({
     } catch (error) {
       const reason = error instanceof VrclinkingProviderError ? error.reason : "provider_error";
 
+      // A rejected token, a rate limit, or a malformed payload all mean
+      // VRCLinking received the request and answered it, so the key was
+      // genuinely queried and the operator's "last queried" stamp should say
+      // so. Only failures that never reached the provider — a network error, a
+      // timeout, our own page cap — leave it untouched.
+      if (
+        error instanceof VrclinkingProviderError &&
+        ["credential_rejected", "rate_limited", "provider_error", "schema_drift"].includes(reason)
+      ) {
+        consultedIndexes.push(index);
+      }
+
       // A rejected token is stale by definition. Leaving it cached makes a key
       // rotation take the full cache TTL to take effect, and every attempt in
       // that window burns the claimant's cooldown for nothing.

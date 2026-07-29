@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { getLinkedProviderAccount } from "./accounts";
 import { requireVerifiedActiveBrowserSession } from "./_claimSession";
 import { claimError } from "./_claimErrors";
+import type { Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import {
   MINIMUM_COMMUNITY_CONTROL_LEVEL,
@@ -10,6 +11,7 @@ import {
   requireControlProof,
 } from "./_externalControl";
 import { userOwnsProfile } from "./_profileOwnership";
+import { canReadProfile } from "./_profilePermissions";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 
 // Mirrors the collector account rule: credentials live in the operator secret
@@ -60,9 +62,21 @@ function isSecretRefForGuild(value: string, guildId: string): boolean {
   ).test(value);
 }
 
-async function requireCommunityProfile(
+/**
+ * Resolve a community profile the caller owns.
+ *
+ * Ownership and public readability are settled before the type check, and
+ * before anything is returned. Answering `WRONG_PROFILE_TYPE` for a hidden
+ * person and `NOT_PROFILE_OWNER` for a hidden community, while an unused slug
+ * answered `PROFILE_NOT_FOUND`, told a prober both that a draft, opted-out, or
+ * suppressed listing exists and what type it is. A publicly readable profile is
+ * different: its existence is not a secret, so a non-owner still gets the
+ * accurate refusal there.
+ */
+async function requireOwnedCommunityProfile(
   db: Parameters<typeof getProfileBySlug>[0],
   slug: string,
+  userId: Id<"users">,
 ) {
   const validation = validateProfileSlug(slug);
 
@@ -74,6 +88,10 @@ async function requireCommunityProfile(
 
   if (profile === null) {
     throw claimError("PROFILE_NOT_FOUND");
+  }
+
+  if (!(await userOwnsProfile(db, profile._id, userId))) {
+    throw claimError(canReadProfile("public", profile) ? "NOT_PROFILE_OWNER" : "PROFILE_NOT_FOUND");
   }
 
   if (profile.profileType !== "community") {
@@ -99,11 +117,7 @@ export const registerCredential = mutation({
   },
   handler: async (ctx, args) => {
     const { user } = await requireVerifiedActiveBrowserSession(ctx);
-    const profile = await requireCommunityProfile(ctx.db, args.profileSlug);
-
-    if (!(await userOwnsProfile(ctx.db, profile._id, user._id))) {
-      throw claimError("NOT_PROFILE_OWNER");
-    }
+    const profile = await requireOwnedCommunityProfile(ctx.db, args.profileSlug, user._id);
 
     const guildId = args.guildId.trim();
 
@@ -167,11 +181,7 @@ export const revokeCredential = mutation({
   args: { profileSlug: v.string(), guildId: v.string() },
   handler: async (ctx, args) => {
     const { user } = await requireVerifiedActiveBrowserSession(ctx);
-    const profile = await requireCommunityProfile(ctx.db, args.profileSlug);
-
-    if (!(await userOwnsProfile(ctx.db, profile._id, user._id))) {
-      throw claimError("NOT_PROFILE_OWNER");
-    }
+    const profile = await requireOwnedCommunityProfile(ctx.db, args.profileSlug, user._id);
 
     const active = await ctx.db
       .query("communityVrclinkingCredentials")
@@ -205,11 +215,7 @@ export const listCredentials = query({
   args: { profileSlug: v.string() },
   handler: async (ctx, args) => {
     const { user } = await requireVerifiedActiveBrowserSession(ctx);
-    const profile = await requireCommunityProfile(ctx.db, args.profileSlug);
-
-    if (!(await userOwnsProfile(ctx.db, profile._id, user._id))) {
-      return [];
-    }
+    const profile = await requireOwnedCommunityProfile(ctx.db, args.profileSlug, user._id);
 
     const active = await ctx.db
       .query("communityVrclinkingCredentials")

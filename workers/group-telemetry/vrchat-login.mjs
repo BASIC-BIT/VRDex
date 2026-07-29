@@ -87,6 +87,12 @@ export class VrchatOperatorLogin {
     apiBaseUrl = DEFAULT_API_BASE_URL,
     fetcher = fetch,
     timeoutMs = 10 * 60_000,
+    // Per-request bound, distinct from `timeoutMs` above, which is how long an
+    // operator has to answer a login challenge. Without it a provider that
+    // returns headers and then stalls the body hangs the command forever —
+    // after `Set-Cookie` has already superseded the live session, so killing
+    // the process leaves production holding cookies VRChat has retired.
+    requestTimeoutMs = 20_000,
   }) {
     if (typeof userAgent !== "string" || userAgent.trim().length < 8) throw new Error("An identifying VRChat User-Agent is required.");
     if (expectedUserId !== undefined && !/^usr_[A-Za-z0-9-]{8,120}$/.test(expectedUserId)) {
@@ -101,6 +107,7 @@ export class VrchatOperatorLogin {
     this.apiBaseUrl = apiBaseUrl.replace(/\/$/, "");
     this.fetcher = fetcher;
     this.timeoutMs = timeoutMs;
+    this.requestTimeoutMs = requestTimeoutMs;
     this.cookies = new Map();
     this.pendingCredentials = undefined;
     this.server = undefined;
@@ -149,14 +156,30 @@ export class VrchatOperatorLogin {
       }
       this.cookies.set(name, value);
     }
+    // One deadline across the request *and* the body read. `fetch` resolves on
+    // headers, so bounding only the request left a provider that sent headers
+    // and then stalled the body hanging here — after `applySessionCookies`
+    // below had already taken whatever rotation it sent, which is exactly when
+    // hanging is most expensive.
+    const controller = new AbortController();
+    const deadline = setTimeout(() => controller.abort(), this.requestTimeoutMs);
     let response;
+    let body;
+
     try {
-      response = await this.providerRequest("/auth/user", { headers: { cookie: this.cookieHeader() } });
+      response = await this.providerRequest("/auth/user", {
+        headers: { cookie: this.cookieHeader() },
+        signal: controller.signal,
+      });
+      applySessionCookies(this.cookies, setCookieHeaders(response));
+      body = await response.json().catch(() => ({}));
     } catch (cause) {
+      // Not `clearable`: the session was never rejected, so the caller's
+      // rotated-cookie recovery path should still save what it holds.
       throw new VrchatSessionValidationError("VRChat session validation could not reach the provider.", { cause });
+    } finally {
+      clearTimeout(deadline);
     }
-    applySessionCookies(this.cookies, setCookieHeaders(response));
-    const body = await response.json().catch(() => ({}));
     if (response.status !== 200) {
       throw new VrchatSessionValidationError(`VRChat session validation failed (${response.status}).`, {
         status: response.status,
