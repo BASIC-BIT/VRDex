@@ -45,7 +45,16 @@ export async function GET(request: NextRequest) {
           { state },
           { token },
         ));
-      } catch {
+      } catch (error) {
+        // A session revoked or expired while the user sat on Discord's consent
+        // screen still leaves a cached JWT that made `token` truthy above, so
+        // it surfaces here. Redirecting past it leaves the stale auth cookies
+        // in place; the successful-code branch below clears them, and a
+        // declined one is no different.
+        if (isAuthSessionInvalidError(error)) {
+          return invalidAuthSessionResponse("/account");
+        }
+
         // An unknown or expired state is not worth surfacing: the user simply
         // lands on their account page.
       }

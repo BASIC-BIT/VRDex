@@ -237,13 +237,21 @@ export const listCredentials = query({
 const MAX_ADAPTER_DELEGATIONS = 5;
 
 /**
- * Delegation context for a VRC Linking proof attempt: the claimant's Discord
- * identity plus the guilds VRDex may ask about on their behalf.
+ * Reserve the delegations for one VRC Linking proof attempt: the claimant's
+ * Discord identity plus the guilds VRDex may ask about on their behalf.
  *
  * Internal only — this is the single place `secretRef` leaves the table, and it
  * goes to the action that forwards it to the adapter.
+ *
+ * A mutation because selecting and stamping have to be one step. Reading the
+ * rotation head in a query and advancing it afterwards let every concurrent
+ * attempt select the same oldest few delegations, which is the opposite of the
+ * fair rotation the cursor exists to provide: it concentrates provider calls
+ * and quota on a handful of communities while the rest go untried. Convex
+ * serializes conflicting mutations, so the cursor a second caller reads here
+ * has already moved.
  */
-export const getAdapterContext = internalQuery({
+export const reserveAdapterDelegations = internalMutation({
   args: { userId: v.id("users") },
   handler: async (ctx, args) => {
     const discordAccount = await getLinkedProviderAccount(ctx, args.userId, "discord");
@@ -295,6 +303,21 @@ export const getAdapterContext = internalQuery({
       usable.push(row);
     }
 
+    // Advance the cursor for every row this pass looked at, in the same
+    // transaction that chose them. Rotation only — being looked at is not being
+    // consulted, so the operator-visible stamp happens later, once a provider
+    // call is actually going out.
+    //
+    // Ineligible rows are stamped too. They sort by `lastRotatedAt` like
+    // everything else, so leaving them unstamped pins them permanently at the
+    // head of the index and, once there are more of them than the scan window,
+    // no usable delegation is ever reached again.
+    await Promise.all(
+      [...usable.map((row) => row._id), ...skipped].map((credentialId) =>
+        ctx.db.patch(credentialId, { lastRotatedAt: now }),
+      ),
+    );
+
     return {
       discordUserId: discordAccount.providerAccountId,
       delegations: usable.map((row) => ({
@@ -302,33 +325,7 @@ export const getAdapterContext = internalQuery({
         guildId: row.guildId,
         secretRef: row.secretRef,
       })),
-      // Ineligible rows still have to advance in the rotation. They sort by
-      // `lastRotatedAt` like everything else, so leaving them unstamped pins
-      // them permanently at the head of the index and, once there are more of
-      // them than the scan window, no usable delegation is ever reached again.
-      skippedCredentialIds: skipped,
     };
-  },
-});
-
-/**
- * Advance the selection cursor for every row a selection pass considered.
- *
- * Rotation-only, and separate from the operator-visible record on purpose: a
- * row is stamped here for having been looked at, which includes rows skipped as
- * ineligible and rows selected for a request that the cooldown then denied.
- * Neither was sent anywhere, so neither may claim to have been consulted.
- */
-export const recordCredentialRotation = internalMutation({
-  args: { credentialIds: v.array(v.id("communityVrclinkingCredentials")) },
-  handler: async (ctx, args) => {
-    const now = Date.now();
-
-    await Promise.all(
-      args.credentialIds.map((credentialId) =>
-        ctx.db.patch(credentialId, { lastRotatedAt: now }),
-      ),
-    );
   },
 });
 

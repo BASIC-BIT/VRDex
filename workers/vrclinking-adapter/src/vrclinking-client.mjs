@@ -150,9 +150,15 @@ export function createVrclinkingClient({
       }
     }
 
-    // Exhausting the bound without a match is indistinguishable from no match
-    // for the claimant, and the page cap is ours rather than the provider's.
-    return null;
+    // Reaching here means the provider said more pages remain and our own cap
+    // stopped the search, which is not the same as the provider running out of
+    // rows. Returning null would tell a claimant whose id sits past the cap
+    // that they are not linked — a real negative they cannot act on — so report
+    // it as a provider failure and let the caller answer "unavailable".
+    throw new VrclinkingProviderError(
+      "Search reached the page bound before finding an exact match.",
+      { reason: "search_incomplete" },
+    );
   }
 
   /**

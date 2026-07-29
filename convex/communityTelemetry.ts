@@ -1970,7 +1970,16 @@ export const claimPendingProofChecks = internalMutation({
           (attempt.lastCheckedAt === undefined ||
             attempt.lastCheckedAt <= args.now - PROOF_CHECK_COOLDOWN_MS),
       )
-      .sort((left, right) => (left.lastCheckedAt ?? 0) - (right.lastCheckedAt ?? 0))
+      // Creation order breaks the tie, and has to. Never-checked rows all carry
+      // the same `?? 0`, and `scannedFlat` holds every `vrchat_user` row before
+      // every `vrchat_group` one; a stable sort over equal keys therefore
+      // handed each batch nothing but user proofs, and under sustained
+      // user-proof traffic group proofs could sit unpolled until they expired.
+      .sort(
+        (left, right) =>
+          (left.lastCheckedAt ?? 0) - (right.lastCheckedAt ?? 0) ||
+          left._creationTime - right._creationTime,
+      )
       .slice(0, limit);
 
     await Promise.all(

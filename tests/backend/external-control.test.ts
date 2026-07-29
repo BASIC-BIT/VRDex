@@ -993,7 +993,7 @@ describe("VRCLinking credential delegation", () => {
       return userId;
     });
 
-    const context = await t.query(internal.vrclinkingCredentials.getAdapterContext, {
+    const context = await t.mutation(internal.vrclinkingCredentials.reserveAdapterDelegations, {
       userId: claimantId,
     });
 
@@ -1001,7 +1001,16 @@ describe("VRCLinking credential delegation", () => {
       context?.delegations.map((delegation) => delegation.guildId),
       [liveGuild],
     );
-    assert.equal(context?.skippedCredentialIds.length, 1);
+
+    // Selecting stamps the rotation cursor in the same transaction, for the
+    // ineligible row too — left unstamped it pins the head of the index and no
+    // usable delegation is ever reached again.
+    const rotated = await t.run(async (ctx) =>
+      (await ctx.db.query("communityVrclinkingCredentials").collect()).filter(
+        (row) => row.lastRotatedAt !== undefined,
+      ),
+    );
+    assert.equal(rotated.length, 2);
   });
 });
 

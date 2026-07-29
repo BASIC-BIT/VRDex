@@ -283,6 +283,28 @@ describe("VRCLinking client", () => {
 
   // The provider search is fuzzy and paginated, so the exact id can land past
   // page one. Stopping at the first page reports a linked claimant as unlinked.
+  // Our page cap is not the provider's. Reading it as "no match" tells a
+  // claimant whose id sits past page five that they are not linked.
+  it("reports an incomplete search when the page cap is reached", async () => {
+    const get = createVrclinkingClient({
+      baseUrl: "https://provider.test/api",
+      fetcher: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          totalPages: 40,
+          results: [{ id: "999999999999999999", vrcId: OTHER_VRC_ID, isVerified: true }],
+        }),
+      }),
+    });
+
+    await assert.rejects(get("guild", DISCORD_ID, "t"), (error) => {
+      assert.ok(error instanceof VrclinkingProviderError);
+      assert.equal(error.reason, "search_incomplete");
+      return true;
+    });
+  });
+
   it("pages until the exact id is found or the pages run out", async () => {
     const pages = [];
     const get = createVrclinkingClient({

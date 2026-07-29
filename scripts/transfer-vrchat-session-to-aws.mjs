@@ -79,6 +79,30 @@ if (process.argv.includes("--help")) {
   process.exit(0);
 }
 
+// A mistyped safety flag is the dangerous kind of typo here: `--dryrun` or
+// `--dry-run=true` both left `dryRun` false, so a command meant as a rehearsal
+// rotated the live VRChat session and wrote a production secret. Reject unknown
+// options before anything is read or written.
+const BOOLEAN_FLAGS = new Set(["--skip-validation", "--dry-run", "--help"]);
+const VALUE_FLAGS = new Set(["--secret-id", "--region"]);
+
+for (const arg of process.argv.slice(2)) {
+  // Not an option: the value belonging to the flag before it. `argValue`
+  // already refuses to read a flag as a value.
+  if (!arg.startsWith("--")) continue;
+
+  const name = arg.split("=")[0];
+
+  if (BOOLEAN_FLAGS.has(name)) {
+    if (arg !== name) fail(`${name} does not take a value.`);
+    continue;
+  }
+
+  if (!VALUE_FLAGS.has(name)) {
+    fail(`Unknown option ${name}.\n\n${USAGE}`);
+  }
+}
+
 const secretId = argValue("--secret-id")?.trim();
 const dryRun = process.argv.includes("--dry-run");
 const skipValidation = process.argv.includes("--skip-validation");

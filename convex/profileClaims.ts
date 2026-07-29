@@ -1379,30 +1379,18 @@ export const verifyVrchatProofViaAdapter = action({
     // and the delegations VRDex may consult. Only secret *references* travel.
     const delegationContext =
       attemptContext.attempt.targetType === "vrclinking"
-        ? ((await ctx.runQuery(internal.vrclinkingCredentials.getAdapterContext, {
+        ? // Selecting and stamping are one transaction, so the rotation cursor
+          // has already advanced for every row this pass considered — including
+          // ones skipped as ineligible, and including a request the cooldown
+          // below then denies. Neither was sent anywhere, which is why this is
+          // separate from the operator-visible "was queried" stamp.
+          ((await ctx.runMutation(internal.vrclinkingCredentials.reserveAdapterDelegations, {
             userId: attemptContext.attempt.userId,
           })) as {
             discordUserId: string;
             delegations: { credentialId: Id<"communityVrclinkingCredentials">; guildId: string; secretRef: string }[];
-            skippedCredentialIds: Id<"communityVrclinkingCredentials">[];
           } | null)
         : null;
-
-    if (delegationContext !== null) {
-      // Advance the selection cursor for every row this pass looked at, before
-      // anything can short-circuit. Skipped rows must advance or they pin the
-      // head of the index forever, and a denied cooldown or a throwing fetch
-      // must not leave the selected ones unstamped either. This is rotation
-      // only — the operator-visible "was queried" stamp happens once a provider
-      // call is actually going out, and the audit stamp only for the delegation
-      // that answered.
-      await ctx.runMutation(internal.vrclinkingCredentials.recordCredentialRotation, {
-        credentialIds: [
-          ...delegationContext.delegations.map((delegation) => delegation.credentialId),
-          ...delegationContext.skippedCredentialIds,
-        ],
-      });
-    }
 
     // No linked Discord account, or no community has delegated a credential:
     // either way there is nothing to ask. Short-circuit rather than posting the
