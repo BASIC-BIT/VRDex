@@ -25,12 +25,72 @@ const PRIVATE_ROUTE_GROUPS = [
   "account",
   "claim",
   "developers",
+  // Authoring only — `/events/new` and `/events/[slug]/edit`. The public event
+  // page is `/e/[slug]`.
+  "events",
   "handoff",
   "lookup",
   "oauth",
+  // The parser echoes the user's expression back as model-derived clarification
+  // and failure text.
+  "time",
+] as const;
+
+/**
+ * Route groups whose pages render nothing the public cannot already see.
+ *
+ * Listed rather than assumed: the check below requires every route group to
+ * appear in exactly one of these two lists, so a new one cannot be added
+ * without someone deciding which it is. Naming a group here is that decision,
+ * and it is the failure mode this file exists to prevent — five leaks reached
+ * review one surface at a time, and each fix covered only the surface reported.
+ */
+const PUBLIC_ROUTE_GROUPS = [
+  "auth",
+  "c",
+  "deployment",
+  "discover",
+  "discovery",
+  "e",
+  "l",
+  "p",
+  // Fixture routes, and 404 in production unless explicitly enabled.
+  "playwright",
+  "privacy",
+  "search",
+  "sign-in",
+  "submit",
+  "w",
 ] as const;
 
 describe("session replay route blocking", () => {
+  // The list above only helps for routes somebody remembered to add to it.
+  // `/time` and the event editor were both missed, and both leaked. Every route
+  // group that renders a page has to be classified one way or the other before
+  // it can ship.
+  it("classifies every route group as private or public", () => {
+    const groups = fs
+      .readdirSync(appRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      // Next.js private folders are not routable.
+      .filter((entry) => !entry.name.startsWith("_"))
+      // Route handlers, not rendered pages: nothing for replay to capture.
+      .filter((entry) =>
+        fs.existsSync(path.join(appRoot, entry.name, "page.tsx")) ||
+        fs
+          .readdirSync(path.join(appRoot, entry.name), { recursive: true })
+          .some((child) => String(child).endsWith("page.tsx")),
+      )
+      .map((entry) => entry.name);
+    const classified = new Set<string>([...PRIVATE_ROUTE_GROUPS, ...PUBLIC_ROUTE_GROUPS]);
+
+    assert.deepEqual(
+      groups.filter((group) => !classified.has(group)),
+      [],
+      "add the route group to PRIVATE_ROUTE_GROUPS (with a blocking layout) or to PUBLIC_ROUTE_GROUPS",
+    );
+  });
+
   for (const group of PRIVATE_ROUTE_GROUPS) {
     it(`blocks /${group} from replay at the layout`, () => {
       const layoutPath = path.join(appRoot, group, "layout.tsx");
@@ -48,13 +108,10 @@ describe("session replay route blocking", () => {
   }
 
   // Private data also renders on *public* routes, where a layout cannot reach
-  // it: seed suggestions on `/` and `/search`, and the private worker section of
-  // the event editor. Those need the marker on the component, and this pins the
-  // ones that have it so a refactor cannot quietly drop it.
-  const COMPONENT_BLOCKED = [
-    "apps/web/src/app/_components/lookup-search-box.tsx",
-    "apps/web/src/app/events/event-editor-form.tsx",
-  ] as const;
+  // it: seed suggestions on `/` and `/search`. Those need the marker on the
+  // component, and this pins the ones that have it so a refactor cannot quietly
+  // drop it.
+  const COMPONENT_BLOCKED = ["apps/web/src/app/_components/lookup-search-box.tsx"] as const;
 
   for (const file of COMPONENT_BLOCKED) {
     it(`keeps the private region in ${file.split("/").pop()} blocked`, () => {

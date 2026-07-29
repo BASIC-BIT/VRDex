@@ -818,11 +818,12 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
       )}
 
       {event === undefined ? null : (
-        // The section's own copy calls this private: worker runtime, task id,
-        // status reasons, artifact labels and URLs, and the output-account key.
-        // It renders on `/events/[slug]/edit`, a route no blocking layout
-        // covers, and `maskAllInputs` does not reach rendered text.
-        <Card className="grid gap-4 ph-no-capture" data-ph-no-capture padding="sm" surface="dashed">
+        // Private — worker runtime, task id, status reasons, artifact labels and
+        // URLs, and the output-account key — as is the VRCDN output card above
+        // it. Both are covered by `app/events/layout.tsx` rather than marked
+        // here: marking one card at a time is exactly how the card above kept
+        // leaking after this one was fixed.
+        <Card className="grid gap-4" padding="sm" surface="dashed">
           <div>
             <h3 className="text-xl font-semibold tracking-[-0.03em]">Worker status</h3>
             <p className="mt-2 text-xs leading-5 text-muted">Private event-media status for the selected output account.</p>
