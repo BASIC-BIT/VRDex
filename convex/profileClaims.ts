@@ -26,8 +26,9 @@ import { createProfileSearchDocument, upsertSearchDocument } from "./_searchDocu
 import { normalizeVrchatTargetId } from "./_vrchatIdentity";
 
 const DAY_MS = 86_400_000;
-// Minimum gap between delegated VRC Linking consultations for one attempt.
-const VRCLINKING_CHECK_COOLDOWN_MS = 60_000;
+// Minimum gap between adapter-backed checks of one attempt, whatever the
+// target type: they all spend somebody's provider quota.
+const ADAPTER_CHECK_COOLDOWN_MS = 60_000;
 // Bounds provider spend that the per-attempt cooldown alone cannot: one
 // claimant creating many attempts and having each consulted once. Applies to
 // every proof target — the collector fleet polls `vrchat_user`/`vrchat_group`
@@ -1456,16 +1457,35 @@ export const verifyVrchatProofViaAdapter = action({
     if (adapterUrl === null) {
       return { state: "queued" as const };
     }
+
+    // Every adapter-backed check spends somebody's provider quota, and a
+    // negative leaves the attempt pending, so an unthrottled caller could drain
+    // it by retrying. Reserved atomically, so concurrent callers and a throwing
+    // fetch cannot both slip through.
+    //
+    // For every target type, not only VRCLinking: a configured
+    // `VRCHAT_PROOF_ADAPTER_URL` was reachable on every click. And before the
+    // delegation selection below, which patches `lastRotatedAt` across the
+    // credential pool — a denied caller was still generating cross-tenant
+    // writes and reordering other communities' delegations for free.
+    const reservation = (await ctx.runMutation(internal.profileClaims.reserveAdapterCheck, {
+      attemptId: args.attemptId,
+      cooldownMs: ADAPTER_CHECK_COOLDOWN_MS,
+    })) as { granted: boolean };
+
+    if (!reservation.granted) {
+      return { state: "pending" as const };
+    }
+
     // VRC Linking answers from a community's delegated credential rather than
     // from a proof code, so that path carries the claimant's Discord identity
     // and the delegations VRDex may consult. Only secret *references* travel.
     const delegationContext =
       attemptContext.attempt.targetType === "vrclinking"
         ? // Selecting and stamping are one transaction, so the rotation cursor
-          // has already advanced for every row this pass considered — including
-          // ones skipped as ineligible, and including a request the cooldown
-          // below then denies. Neither was sent anywhere, which is why this is
-          // separate from the operator-visible "was queried" stamp.
+          // has already advanced for every row this pass considered, including
+          // ones skipped as ineligible. Neither was sent anywhere, which is why
+          // this is separate from the operator-visible "was queried" stamp.
           ((await ctx.runMutation(internal.vrclinkingCredentials.reserveAdapterDelegations, {
             userId: attemptContext.attempt.userId,
           })) as {
@@ -1482,22 +1502,6 @@ export const verifyVrchatProofViaAdapter = action({
       (delegationContext === null || delegationContext.delegations.length === 0)
     ) {
       return { state: "unavailable" as const };
-    }
-
-    // Each consultation spends community-provided VRCLinking quota across up to
-    // five delegations, and a negative leaves the attempt pending, so an
-    // unthrottled caller could drain an operator's quota by retrying. Reserved
-    // atomically before the fetch, not stamped after it, so concurrent callers
-    // and a throwing fetch cannot both slip through.
-    if (attemptContext.attempt.targetType === "vrclinking") {
-      const reservation = (await ctx.runMutation(internal.profileClaims.reserveVrclinkingCheck, {
-        attemptId: args.attemptId,
-        cooldownMs: VRCLINKING_CHECK_COOLDOWN_MS,
-      })) as { granted: boolean };
-
-      if (!reservation.granted) {
-        return { state: "pending" as const };
-      }
     }
 
     // Signed here rather than in the reservation mutation: the capability is
@@ -1633,14 +1637,14 @@ export const verifyVrchatProofViaAdapter = action({
 });
 
 /**
- * Claim the right to consult delegated credentials for one attempt.
+ * Claim the right to run one adapter-backed check of an attempt.
  *
  * Checking a timestamp in the action and stamping it after the fetch leaves a
  * window where concurrent callers all pass, and a fetch that throws never
  * stamps at all. Reserving inside a mutation makes the check and the stamp one
  * atomic step, so the cooldown holds under both.
  */
-export const reserveVrclinkingCheck = internalMutation({
+export const reserveAdapterCheck = internalMutation({
   args: { attemptId: v.id("profileVerificationAttempts"), cooldownMs: v.number() },
   handler: async (ctx, args) => {
     const attempt = await ctx.db.get(args.attemptId);

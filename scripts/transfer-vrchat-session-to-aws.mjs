@@ -20,7 +20,6 @@ import { VrchatOperatorLogin } from "../workers/group-telemetry/vrchat-login.mjs
 import {
   buildSessionSecretPayload,
   preservedSecretKeys,
-  sessionSecretFields,
 } from "../workers/group-telemetry/session-secret-payload.mjs";
 
 const USAGE = `Usage:
@@ -248,14 +247,16 @@ if (typeof existing.vrchatUserId === "string") {
         "refusing to transfer one account's session into another's secret.",
     );
   }
-} else if (sessionSecretFields().some((field) => field in existing) && expectUserId === undefined) {
-  // A secret written before `vrchatUserId` existed. It holds a session but says
-  // nothing about whose, so there is nothing to compare and the check above
-  // would wave the pairing through — which is exactly the mistake it exists to
-  // catch. Make the operator state the identity once, on this migration only;
-  // after that the secret carries it.
+} else if (!secretMissing && expectUserId === undefined) {
+  // The secret exists but says nothing about whose it is: written before
+  // `vrchatUserId`, or pre-provisioned empty. Either way the check above has
+  // nothing to compare and would wave the pairing through — exactly the mistake
+  // it exists to catch. Emptiness is not evidence of being unclaimed; an empty
+  // secret is just as likely to be account B's, already wired into that
+  // collector's configuration. Make the operator state the identity once; after
+  // that the secret carries it.
   fail(
-    `${secretId} holds a session but no vrchatUserId, so this transfer cannot confirm it ` +
+    `${secretId} does not record a vrchatUserId, so this transfer cannot confirm it ` +
       `belongs to ${accountAlias}. Re-run with --expect-user-id ${stored.userId} if that ` +
       "pairing is correct; the value is recorded so this is asked only once.",
   );

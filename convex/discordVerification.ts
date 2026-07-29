@@ -428,6 +428,36 @@ export const getManageableGuilds = query({
   },
 });
 
+/**
+ * Where a pending round-trip started, without consuming or authenticating it.
+ *
+ * The callback can arrive with no usable session at all — the refresh failed
+ * while the user was on Discord's consent screen — and the state row is then
+ * the only surviving record of the claim they were completing. Sending them
+ * through sign-in to `/account` loses it.
+ *
+ * Deliberately unauthenticated, and deliberately narrow: `state` is a
+ * single-use random token the caller already holds, and this returns only the
+ * same-origin path it was issued for, which `validateSignInReturnTo` checks
+ * again before any redirect. Nothing is consumed, so the real callback still
+ * works.
+ */
+export const peekVerificationReturnTo = query({
+  args: { state: v.string() },
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("discordVerificationStates")
+      .withIndex("by_state", (q) => q.eq("state", args.state))
+      .first();
+
+    if (row === null || row.expiresAt <= Date.now()) {
+      return { returnTo: null };
+    }
+
+    return { returnTo: row.returnTo };
+  },
+});
+
 export const startGuildVerification = action({
   args: { returnTo: v.string() },
   handler: async (ctx, args): Promise<{ authorizeUrl: string }> => {

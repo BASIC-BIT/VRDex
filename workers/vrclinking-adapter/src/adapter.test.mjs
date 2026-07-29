@@ -90,6 +90,43 @@ describe("adapter request validation", () => {
     assert.equal(validateRequest(baseBody()).ok, true);
   });
 
+  // Convex abandons the adapter request at ten seconds. Five sequential
+  // lookups with their own timeouts can outlast that, so a match found after
+  // the caller gave up is unusable and every provider call past that point
+  // spends another community's quota for nothing.
+  it("stops the fan-out when the request budget is spent", async () => {
+    const asked = [];
+    let clock = 0;
+    const request = validateRequest(
+      baseBody({
+        delegations: [0, 1, 2].map((offset) =>
+          signDelegation(
+            `12345678901234${567 + offset}`,
+            `secret://vrdex/vrclinking/12345678901234${567 + offset}`,
+            FAR_FUTURE,
+          ),
+        ),
+      }),
+    ).request;
+
+    const result = await verifyLinkage({
+      request,
+      resolveSecret,
+      deadlineMs: 8_000,
+      now: () => clock,
+      getGuildMemberByDiscordId: async (guildId) => {
+        asked.push(guildId);
+        clock += 5_000;
+        return null;
+      },
+    });
+
+    // Two lookups fit; the third would start past the budget.
+    assert.equal(asked.length, 2);
+    assert.equal(result.verified, false);
+    assert.deepEqual(result.consultedDelegationIndexes, [0, 1]);
+  });
+
   // Convex refuses to register a reference that does not name the guild it is
   // for, but the bearer token in front of this adapter is one shared
   // credential: a caller holding it posts straight here and never passes that

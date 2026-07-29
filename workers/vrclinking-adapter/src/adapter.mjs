@@ -11,6 +11,9 @@ const DISCORD_SNOWFLAKE_PATTERN = /^\d{17,20}$/;
 // Bounds provider calls per request so one claim cannot fan out across every
 // delegation VRDex holds.
 const MAX_DELEGATIONS = 5;
+// Convex abandons the adapter request at ten seconds. Stopping short of that
+// keeps the fan-out inside the window whose answer can still be used.
+const DEFAULT_FAN_OUT_BUDGET_MS = 8_000;
 
 /**
  * The one secret name a delegation for `guildId` may point at.
@@ -138,7 +141,19 @@ export function validateRequest(body) {
  * member's other fields are deliberately not echoed back: the control plane
  * receives a boolean and a summary naming only the guild.
  */
-export async function verifyLinkage({ request, resolveSecret, getGuildMemberByDiscordId }) {
+export async function verifyLinkage({
+  request,
+  resolveSecret,
+  getGuildMemberByDiscordId,
+  // One end-to-end budget for the whole fan-out, shorter than the caller's
+  // deadline. Each lookup carries its own timeout, so five slow delegations
+  // could run well past the point Convex abandoned the request: the match in
+  // the fifth could never arrive, and the provider quota of every community
+  // after the caller gave up was spent for nothing.
+  deadlineMs = DEFAULT_FAN_OUT_BUDGET_MS,
+  now = () => Date.now(),
+}) {
+  const deadline = now() + deadlineMs;
   const failures = [];
   // Which delegations were actually asked. The control plane stamps an
   // operator-visible "last queried" from this, so guessing — every selected
@@ -151,6 +166,14 @@ export async function verifyLinkage({ request, resolveSecret, getGuildMemberByDi
   let consulted = false;
 
   for (const [index, delegation] of request.delegations.entries()) {
+    // Out of budget. Reported as a failure rather than a silent stop: if
+    // nothing was consulted this becomes `unavailable`, which is the honest
+    // answer — "we ran out of time" is not "VRCLinking says no".
+    if (now() >= deadline) {
+      failures.push("fan_out_deadline");
+      break;
+    }
+
     let token;
 
     try {

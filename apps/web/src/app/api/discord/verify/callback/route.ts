@@ -1,11 +1,12 @@
 import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
-import { fetchAction } from "convex/nextjs";
+import { fetchAction, fetchQuery } from "convex/nextjs";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { api } from "@convex-generated-api";
 import { appendReturnPathQuery, resolveSameOriginUrl } from "@/lib/return-path";
 import {
   invalidAuthSessionRedirectResponse,
+  invalidAuthSessionSignInPath,
   isAuthSessionInvalidError,
 } from "@/lib/server/invalid-auth-session";
 
@@ -35,8 +36,22 @@ export async function GET(request: NextRequest) {
   const token = await convexAuthNextjsToken();
 
   if (!token) {
+    // No session at all — the refresh failed while the user was on Discord's
+    // consent screen. The state row still knows where they started, and losing
+    // it here would send them through sign-in to `/account` instead of the
+    // claim they were completing. Read-only and unconsumed, so the round-trip
+    // still works if they sign back in.
+    const pending = state
+      ? await fetchQuery(api.discordVerification.peekVerificationReturnTo, { state }).catch(
+          () => ({ returnTo: null }),
+        )
+      : { returnTo: null };
+
     return NextResponse.redirect(
-      new URL(`/sign-in?returnTo=${encodeURIComponent("/account")}`, request.nextUrl.origin),
+      new URL(
+        invalidAuthSessionSignInPath(pending.returnTo ?? "/account"),
+        request.nextUrl.origin,
+      ),
     );
   }
 
