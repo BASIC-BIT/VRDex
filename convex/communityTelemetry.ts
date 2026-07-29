@@ -962,6 +962,20 @@ export const releaseProofChecks = internalMutation({
  * against the same counters the telemetry path uses, and re-checks the stop
  * switches so a kill switch halts proof reads too.
  */
+/**
+ * How much of a per-minute window proof reads may take.
+ *
+ * Half, but never so much that a telemetry poll cannot fit: one poll reserves
+ * two requests atomically, and proofs run first, so a share that left one
+ * request behind spent it and deferred that poll every window. At the supported
+ * 2-RPM minimum this is zero — a budget that small serves one workload, and the
+ * one with leases and live integrations wins. Proofs resume as soon as the
+ * account's limit is raised.
+ */
+export function proofShareOf(requestsPerMinute: number): number {
+  return Math.max(0, Math.min(Math.floor(requestsPerMinute / 2), requestsPerMinute - 2));
+}
+
 export const reserveProofRequestBudget = internalMutation({
   args: {
     collectorAccountId: v.string(),
@@ -1012,16 +1026,13 @@ export const reserveProofRequestBudget = internalMutation({
       // indefinitely.
       {
         scopeKey: `proof:account:${account._id}`,
-        limit: Math.max(1, Math.floor(account.requestsPerMinute / 2)),
+        limit: proofShareOf(account.requestsPerMinute),
       },
       // And the same share of the fleet-wide window. Per-account halves do not
       // add up to a fleet-wide half: two accounts each spending their allowed
       // half exhaust a global limit that is not twice an account's, and
       // telemetry — which reserves against `global` too — is deferred again.
-      {
-        scopeKey: "proof:global",
-        limit: Math.max(1, Math.floor((fleet?.globalRequestsPerMinute ?? 30) / 2)),
-      },
+      { scopeKey: "proof:global", limit: proofShareOf(fleet?.globalRequestsPerMinute ?? 30) },
     ];
     const counters = await Promise.all(scopes.map(async (scope) => ({
       ...scope,

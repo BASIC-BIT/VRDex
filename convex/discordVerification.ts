@@ -359,9 +359,17 @@ export const recordGuildControlProofs = internalMutation({
     // access that read saw as gone, and the newer result restores anything it
     // finds still held. So the direction that can only take access away is
     // allowed through, and the direction that hands it out is not.
+    // Only while nothing newer has actually landed, though. Once a newer
+    // generation has applied, this older list is not merely incomplete about
+    // what it grants — it is wrong about what it takes away, and revoking from
+    // it would remove a guild the newer read had just confirmed.
+    const outrun = args.generation <= watermark.appliedGeneration;
     const superseded =
-      (reservationOutstanding && args.generation < watermark.issuedGeneration) ||
-      args.generation <= watermark.appliedGeneration;
+      outrun || (reservationOutstanding && args.generation < watermark.issuedGeneration);
+
+    if (outrun) {
+      return { recorded: 0, revoked: 0, superseded: true };
+    }
 
     if (!superseded) {
       // `issuedGeneration` is already at least this value — the guard above

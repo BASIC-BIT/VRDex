@@ -5,6 +5,7 @@ import { convexTest } from "convex-test";
 
 import { api, internal } from "../../convex/_generated/api";
 import schemaModule from "../../convex/schema";
+import { proofShareOf } from "../../convex/communityTelemetry";
 
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
@@ -393,5 +394,21 @@ describe("open proof attempt cap", () => {
     // Re-requesting an attempt that already exists is a read, not new polling
     // work, so the cap must not lock a claimant out of their own proof code.
     assert.equal((await start(0)).proofCode, first.proofCode);
+  });
+});
+
+
+// Proofs run before telemetry, so their share has to leave room for a poll:
+// one reserves two requests atomically, and a share that left a single request
+// behind spent it and deferred that poll every window.
+describe("proof budget share", () => {
+  it("never takes the capacity an atomic telemetry poll needs", () => {
+    assert.equal(proofShareOf(30), 15);
+    assert.equal(proofShareOf(6), 3);
+    assert.equal(proofShareOf(4), 2);
+    // At the supported minimum the budget serves one workload, and the one
+    // holding leases and live integrations is the one that gets it.
+    assert.equal(proofShareOf(3), 1);
+    assert.equal(proofShareOf(2), 0);
   });
 });

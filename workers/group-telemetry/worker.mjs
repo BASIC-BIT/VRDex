@@ -47,9 +47,12 @@ const accountBudget = new RequestBudget(Number(process.env.VRDEX_GROUP_TELEMETRY
  * has two of them, each entitled to half. The ceiling that actually holds is
  * the `proof:account:<id>` scope in `reserveProofRequestBudget`, which every
  * replica shares. This just avoids claiming a batch the shared reservation is
- * about to refuse.
+ * about to refuse, so it mirrors `proofShareOf` there — including leaving room
+ * for an atomic telemetry poll.
  */
-const proofBudget = new RequestBudget(Math.max(1, Math.floor(accountBudget.limit / 2)));
+const proofBudget = new RequestBudget(
+  Math.max(1, Math.min(Math.floor(accountBudget.limit / 2), accountBudget.limit - 2)),
+);
 const integrationBudgets = new Map();
 const attempts = new Map();
 let stopping = false;
