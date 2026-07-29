@@ -178,6 +178,26 @@ export class VrchatOperatorLogin {
     };
   }
 
+  /**
+   * The cookies this instance currently holds, including any rotation VRChat
+   * applied during a validation that then failed.
+   *
+   * `validateSession` applies `Set-Cookie` before it checks the status or parses
+   * the body, so a 200 with a truncated payload supersedes the caller's session
+   * and then throws — leaving the only working pair here and nowhere else.
+   * Callers that can persist it should, unless the failure was an
+   * authentication one, where the rotated pair is dead too.
+   */
+  currentSessionCookies() {
+    const authCookie = this.cookies.get("auth");
+
+    if (typeof authCookie !== "string") {
+      return undefined;
+    }
+
+    return { authCookie, twoFactorAuthCookie: this.cookies.get("twoFactorAuth") };
+  }
+
   async authenticate(username, password, factorKind, code) {
     if (username || password) this.pendingCredentials = { username, password };
     const credentials = this.pendingCredentials;

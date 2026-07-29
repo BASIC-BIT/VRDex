@@ -199,6 +199,9 @@ export const consumeVerificationState = internalMutation({
 export const recordGuildControlProofs = internalMutation({
   args: {
     discordUserId: v.string(),
+    // When the provider read that produced `guilds` began, captured before the
+    // Discord calls rather than on arrival here.
+    observedAt: v.number(),
     guilds: v.array(
       v.object({
         id: v.string(),
@@ -214,6 +217,34 @@ export const recordGuildControlProofs = internalMutation({
   handler: async (ctx, args) => {
     const { user } = await requireVerifiedActiveBrowserSession(ctx);
     const now = Date.now();
+
+    // Every Discord proof for this user, in any state, so a revoked row still
+    // counts as evidence that a reconciliation ran.
+    const discordProofs = await ctx.db
+      .query("externalControlProofs")
+      .withIndex("by_userId_assetType_assetExternalId", (q) =>
+        q.eq("userId", user._id).eq("assetType", "discord_guild"),
+      )
+      .collect();
+    // Same subject rule as the reconciliation below: a second Discord account's
+    // round-trip says nothing about this one's ordering.
+    const lastApplied = discordProofs
+      .filter(
+        (proof) =>
+          proof.evidenceSubjectId === undefined ||
+          proof.evidenceSubjectId === args.discordUserId,
+      )
+      .reduce((latest, proof) => Math.max(latest, proof.updatedAt), 0);
+
+    // Two callbacks for the same identity can overlap, and Discord's answer can
+    // change between their reads. Without an ordering check the last one to
+    // arrive wins, so an older response listing a guild could land after a
+    // newer one revoked it and reactivate the proof with a fresh 30-day window
+    // — access Discord no longer reports, still good for claims and
+    // delegations. The newer result already stands; drop this one.
+    if (args.observedAt < lastApplied) {
+      return { recorded: 0, revoked: 0, superseded: true };
+    }
 
     await Promise.all(
       args.guilds.map((guild) =>
@@ -244,13 +275,9 @@ export const recordGuildControlProofs = internalMutation({
     // predating this field have no recorded subject, so they reconcile against
     // whoever verifies next — the same behaviour they had when written.
     const manageable = new Set(args.guilds.map((guild) => guild.id));
-    const existing = await ctx.db
-      .query("externalControlProofs")
-      .withIndex("by_userId_state", (q) => q.eq("userId", user._id).eq("state", "active"))
-      .collect();
-    const revoked = existing.filter(
+    const revoked = discordProofs.filter(
       (proof) =>
-        proof.assetType === "discord_guild" &&
+        proof.state === "active" &&
         (proof.evidenceSubjectId === undefined ||
           proof.evidenceSubjectId === args.discordUserId) &&
         !manageable.has(proof.assetExternalId),
@@ -267,7 +294,7 @@ export const recordGuildControlProofs = internalMutation({
       ),
     );
 
-    return { recorded: args.guilds.length, revoked: revoked.length };
+    return { recorded: args.guilds.length, revoked: revoked.length, superseded: false };
   },
 });
 
@@ -527,6 +554,10 @@ export const completeGuildVerification = action({
     }
 
     try {
+      // Stamped before the reads, not after. It is what those reads describe,
+      // and it is how a slow round-trip is recognised as superseded by a faster
+      // one that started later.
+      const observedAt = Date.now();
       const discordUserId = await fetchCurrentDiscordUserId(accessToken);
       const guilds = await fetchAllGuilds(accessToken);
       const manageable = guilds.flatMap((guild) => {
@@ -545,6 +576,7 @@ export const completeGuildVerification = action({
 
       await ctx.runMutation(internal.discordVerification.recordGuildControlProofs, {
         discordUserId,
+        observedAt,
         guilds: manageable,
       });
 

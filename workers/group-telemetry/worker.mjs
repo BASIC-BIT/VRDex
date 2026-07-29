@@ -174,24 +174,28 @@ async function checkProofs() {
     }
     const now = Date.now();
 
-    if (!accountBudget.tryConsume(1, now)) {
-      // Same reason as the shared-budget denial below: the claim stamped the
-      // whole batch, so leaving without releasing holds unread attempts in
-      // cooldown. Telemetry polling can drain the local budget between the
-      // initial check and this point.
+    // Checked without consuming. The process-local counter is only a fast
+    // guard — replicas on the same service account, and restarts mid-window,
+    // each start from zero, so the shared reservation is what actually bounds
+    // the rate. Spending a local slot before that reservation charged the
+    // account for a request that never went out, once per loop, so a run of
+    // shared denials could leave it unable to use the window it finally got.
+    //
+    // Released either way: the claim stamped the whole batch, so leaving
+    // without releasing holds unread attempts in cooldown.
+    if (accountBudget.retryAfterMs(1, now) > 0) {
       await releaseUnread(pending, attempt);
       break;
     }
 
-    // The process-local counter above is only a fast local guard. Replicas on
-    // the same service account, and restarts mid-window, each start from zero,
-    // so the shared reservation is what actually bounds the account's rate.
     const reservation = await control.send("proof_budget", { requestCount: 1, now });
 
     if (!reservation?.granted) {
       await releaseUnread(pending, attempt);
       break;
     }
+
+    accountBudget.tryConsume(1, now);
 
     let found = false;
     try {

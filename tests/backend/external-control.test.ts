@@ -578,6 +578,7 @@ describe("Discord guild proof reconciliation", () => {
     await t
       .withIdentity(seeded.identity)
       .mutation(internal.discordVerification.recordGuildControlProofs, {
+        observedAt: Date.now(),
         discordUserId: "discord-subject-a",
         guilds: [{ id: "111", name: "Still Managed", controlLevel: "owner" }],
       });
@@ -620,6 +621,7 @@ describe("Discord guild proof reconciliation", () => {
 
     for (const discordUserId of ["discord-subject-a", "discord-subject-b"]) {
       await asUser.mutation(internal.discordVerification.recordGuildControlProofs, {
+        observedAt: Date.now(),
         discordUserId,
         guilds: [{ id: "999", name: "Shared Server", controlLevel: "administrator" }],
       });
@@ -627,6 +629,7 @@ describe("Discord guild proof reconciliation", () => {
 
     // B loses access. A still runs the server, so the guild must stay proved.
     await asUser.mutation(internal.discordVerification.recordGuildControlProofs, {
+      observedAt: Date.now(),
       discordUserId: "discord-subject-b",
       guilds: [],
     });
@@ -657,6 +660,58 @@ describe("Discord guild proof reconciliation", () => {
     );
   });
 
+  // Two callbacks for the same identity can overlap, and Discord's answer can
+  // change between their reads. Without an ordering check the last one to
+  // arrive wins, so an older response could reactivate a guild a newer one just
+  // revoked — with a fresh 30-day window on access Discord no longer reports.
+  it("ignores a verification result the newer one already superseded", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        email: "overlapping-callbacks@example.test",
+        emailVerificationTime: now,
+      });
+
+      return { userId, identity: await webSessionIdentity(ctx as never, userId, now) };
+    });
+    const asUser = t.withIdentity(seeded.identity);
+    // Both reads started before either landed; the slower one read the guild as
+    // still manageable.
+    const staleObservedAt = Date.now();
+
+    await asUser.mutation(internal.discordVerification.recordGuildControlProofs, {
+      observedAt: staleObservedAt,
+      discordUserId: "discord-subject-a",
+      guilds: [{ id: "555", name: "Losing Access", controlLevel: "administrator" }],
+    });
+
+    // The newer read saw the access gone and revoked it.
+    await asUser.mutation(internal.discordVerification.recordGuildControlProofs, {
+      observedAt: staleObservedAt + 1_000,
+      discordUserId: "discord-subject-a",
+      guilds: [],
+    });
+
+    // The slow callback finally arrives carrying the older read.
+    const superseded = await asUser.mutation(
+      internal.discordVerification.recordGuildControlProofs,
+      {
+        observedAt: staleObservedAt,
+        discordUserId: "discord-subject-a",
+        guilds: [{ id: "555", name: "Losing Access", controlLevel: "administrator" }],
+      },
+    );
+
+    assert.equal(superseded.superseded, true);
+    await t.run(async (ctx) => {
+      assert.equal(
+        await getActiveControlProof(ctx.db, seeded.userId, "discord_guild", "555"),
+        null,
+      );
+    });
+  });
+
   // One VRDex account may manage servers through more than one Discord login.
   // A result from the second login is only complete about the second login's
   // guilds, so it must not revoke what the first one proved.
@@ -678,6 +733,7 @@ describe("Discord guild proof reconciliation", () => {
     await t
       .withIdentity(seeded.identity)
       .mutation(internal.discordVerification.recordGuildControlProofs, {
+        observedAt: Date.now(),
         discordUserId: "discord-subject-a",
         guilds: [{ id: "111", name: "From Login A", controlLevel: "owner" }],
       });
@@ -685,6 +741,7 @@ describe("Discord guild proof reconciliation", () => {
     await t
       .withIdentity(seeded.identity)
       .mutation(internal.discordVerification.recordGuildControlProofs, {
+        observedAt: Date.now(),
         discordUserId: "discord-subject-b",
         guilds: [{ id: "222", name: "From Login B", controlLevel: "owner" }],
       });
@@ -705,6 +762,7 @@ describe("Discord guild proof reconciliation", () => {
     await t
       .withIdentity(seeded.identity)
       .mutation(internal.discordVerification.recordGuildControlProofs, {
+        observedAt: Date.now(),
         discordUserId: "discord-subject-a",
         guilds: [],
       });
@@ -1119,6 +1177,8 @@ describe("claiming a community with a verified guild", () => {
 
     for (const subject of ["discord-subject-a", "discord-subject-b"]) {
       await asUser.mutation(internal.discordVerification.recordGuildControlProofs, {
+        observedAt: Date.now(),
+        observedAt: Date.now(),
         discordUserId: subject,
         guilds: [{ id: "777", controlLevel: "administrator" }],
       });
@@ -1228,7 +1288,11 @@ describe("claiming a community with a verified guild", () => {
     // successfully re-verified connection read as unverified forever.
     await t.withIdentity(seeded.identity).mutation(
       internal.discordVerification.recordGuildControlProofs,
-      { discordUserId: "discord-subject-a", guilds: [{ id: "888", controlLevel: "administrator" }] },
+      {
+        observedAt: Date.now(),
+        discordUserId: "discord-subject-a",
+        guilds: [{ id: "888", controlLevel: "administrator" }],
+      },
     );
 
     const afterReverify = await asUser.query(api.profileConnections.listProfileConnections, {

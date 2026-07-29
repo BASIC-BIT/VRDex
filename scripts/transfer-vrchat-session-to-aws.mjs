@@ -323,9 +323,35 @@ if (!skipValidation && !dryRun) {
 
     stored = refreshed;
   } catch (error) {
+    // Validation applies `Set-Cookie` before it checks the status or parses the
+    // body, so a 200 whose payload is truncated has already superseded the
+    // saved session and then thrown — the only working pair would exist
+    // nowhere. Not on a `clearable` failure: VRChat rejected the session
+    // outright there, so the rotated pair is dead too and saving it would
+    // overwrite a recoverable session with an unusable one.
+    let rescued = "";
+
+    if (!error?.clearable) {
+      const rotated = login.currentSessionCookies();
+
+      if (
+        rotated !== undefined &&
+        (rotated.authCookie !== stored.authCookie ||
+          rotated.twoFactorAuthCookie !== stored.twoFactorAuthCookie)
+      ) {
+        try {
+          await sessionStore.save(accountAlias, { ...stored, ...rotated });
+          rescued = " VRChat rotated the session during the failed check; the new cookies were saved locally.";
+        } catch (saveError) {
+          rescued = ` VRChat rotated the session during the failed check and it could not be saved locally (${saveError?.message ?? "unknown error"}).`;
+        }
+      }
+    }
+
     fail(
       `The saved session for ${accountAlias} did not validate against VRChat (${error?.message ?? "unknown error"}). ` +
-        "Refresh it with the login bootstrap before transferring.",
+        "Refresh it with the login bootstrap before transferring." +
+        rescued,
     );
   }
 }

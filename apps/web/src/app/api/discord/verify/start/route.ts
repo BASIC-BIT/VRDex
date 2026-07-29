@@ -5,7 +5,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { api } from "@convex-generated-api";
 import { appendReturnPathQuery, resolveSameOriginUrl, safeReturnPath } from "@/lib/return-path";
 import {
-  invalidAuthSessionResponse,
+  invalidAuthSessionRedirectResponse,
   isAuthSessionInvalidError,
 } from "@/lib/server/invalid-auth-session";
 
@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
     // told to "try again" on something retrying can never fix — and the stale
     // cookies were never cleared.
     if (isAuthSessionInvalidError(error)) {
-      return invalidAuthSessionResponse(returnTo);
+      return invalidAuthSessionRedirectResponse(request, returnTo);
     }
 
     console.error(

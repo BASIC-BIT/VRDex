@@ -110,6 +110,11 @@ export function createAdapterServer({ resolveSecret, getGuildMemberByDiscordId, 
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const bearerToken = requiredEnv("VRCHAT_PROOF_ADAPTER_BEARER_TOKEN");
+  // Same reason as the bearer token: without it the process starts, `/healthz`
+  // reports success, and the first real delegation throws out of
+  // `validateRequest` — outside the handler's `try` — so orchestration marks a
+  // broken configuration healthy and then watches it crash on traffic.
+  requiredEnv("VRDEX_VRCLINKING_CAPABILITY_KEY");
   const secretDir = process.env.VRDEX_VRCLINKING_SECRET_DIR?.trim();
   let awsClient;
 

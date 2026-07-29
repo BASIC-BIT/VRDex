@@ -177,8 +177,31 @@ export const claimCommunityWithVerifiedGuild = mutation({
     const { subject, user } = await requireVerifiedActiveBrowserSession(ctx);
     const profile = await requireProfileFromSlug(ctx.db, args.profileSlug);
 
+    // Visibility first, before anything that could answer a question about the
+    // profile. Every claim *query* gates on public readability; this mutation
+    // did not, so knowing or guessing the slug of an unowned draft, opted-out,
+    // or suppressed community was enough to take ownership of it with any guild
+    // the caller manages — past the UI's not-found boundary and past the
+    // moderation state that hid it.
+    //
+    // Ordered ahead of the type and proof checks, not merely present: those
+    // throw distinct structured codes, so a hidden community answered
+    // `CONTROL_NOT_VERIFIED` and a hidden person `WRONG_PROFILE_TYPE`, while a
+    // slug that does not exist answered `PROFILE_NOT_FOUND`. That difference is
+    // the existence and type of a listing the public query deliberately hides.
+    // An existing owner still gets through, since they can already see it.
+    const activeOwner = await getActiveProfileOwner(ctx.db, profile._id);
+
+    if (activeOwner?.userId !== user._id && !canReadProfile("public", profile)) {
+      throw claimError("PROFILE_NOT_FOUND");
+    }
+
     if (profile.profileType !== "community") {
       throw claimError("WRONG_PROFILE_TYPE");
+    }
+
+    if (activeOwner !== null && activeOwner.userId !== user._id) {
+      throw claimError("PROFILE_ALREADY_OWNED");
     }
 
     const proof = await requireControlProof(
@@ -188,21 +211,6 @@ export const claimCommunityWithVerifiedGuild = mutation({
       args.guildId,
       MINIMUM_COMMUNITY_CONTROL_LEVEL,
     );
-    const activeOwner = await getActiveProfileOwner(ctx.db, profile._id);
-
-    if (activeOwner !== null && activeOwner.userId !== user._id) {
-      throw claimError("PROFILE_ALREADY_OWNED");
-    }
-
-    // Every claim *query* gates on public readability; this mutation did not, so
-    // knowing or guessing the slug of an unowned draft, opted-out, or suppressed
-    // community was enough to take ownership of it with any guild the caller
-    // manages — past the UI's not-found boundary and past the moderation state
-    // that hid it. An existing owner still gets through, since they can already
-    // see their own profile.
-    if (activeOwner === null && !canReadProfile("public", profile)) {
-      throw claimError("PROFILE_NOT_FOUND");
-    }
 
     const now = Date.now();
     // Read before the link is written, and only associations somebody else put

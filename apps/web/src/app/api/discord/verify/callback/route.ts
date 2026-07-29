@@ -5,7 +5,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { api } from "@convex-generated-api";
 import { appendReturnPathQuery, resolveSameOriginUrl } from "@/lib/return-path";
 import {
-  invalidAuthSessionResponse,
+  invalidAuthSessionRedirectResponse,
   isAuthSessionInvalidError,
 } from "@/lib/server/invalid-auth-session";
 
@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
         // in place; the successful-code branch below clears them, and a
         // declined one is no different.
         if (isAuthSessionInvalidError(error)) {
-          return invalidAuthSessionResponse("/account");
+          return invalidAuthSessionRedirectResponse(request, "/account");
         }
 
         // An unknown or expired state is not worth surfacing: the user simply
@@ -94,7 +94,7 @@ export async function GET(request: NextRequest) {
     // and sending the user back with `failed` would tell them the Discord check
     // went wrong when the fix is to sign in again.
     if (isAuthSessionInvalidError(error)) {
-      return invalidAuthSessionResponse("/account");
+      return invalidAuthSessionRedirectResponse(request, "/account");
     }
 
     console.error(
