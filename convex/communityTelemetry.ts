@@ -866,7 +866,12 @@ export const recordProofRateLimit = internalMutation({
 });
 
 export const recordProofAuthFailure = internalMutation({
-  args: { collectorAccountId: v.string(), now: v.optional(v.number()) },
+  args: {
+    collectorAccountId: v.string(),
+    // The digest this request authenticated with, checked again here.
+    workerKeyHash: v.string(),
+    now: v.optional(v.number()),
+  },
   handler: async (ctx, args) => {
     const now = args.now ?? Date.now();
     const accountId = ctx.db.normalizeId("collectorAccounts", args.collectorAccountId);
@@ -880,7 +885,15 @@ export const recordProofAuthFailure = internalMutation({
     // Only a `ready` account moves to `auth_required`. An operator may have
     // quarantined or retired it between the request being authorized and this
     // mutation running, and a 401 report must not overwrite that decision.
-    if (account === null || account.state !== "ready") {
+    //
+    // A rotated key is the same case: the 401 this reports was against the
+    // superseded credential, so applying it would quarantine an account the
+    // operator has just recovered and drop every integration assigned to it.
+    if (
+      account === null ||
+      account.state !== "ready" ||
+      account.workerKeyHash !== args.workerKeyHash
+    ) {
       return { recorded: false };
     }
 

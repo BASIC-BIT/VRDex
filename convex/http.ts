@@ -80,6 +80,10 @@ const telemetryWorker = httpAction(async (ctx, request) => {
     if (body.operation === "proof_auth_failure") {
       const result = await ctx.runMutation(functions.recordProofAuthFailure, {
         collectorAccountId,
+        // Same reason as `proof_result`: a request authenticated with the old
+        // key could otherwise finish after a rotation and quarantine the
+        // account an operator has just recovered.
+        workerKeyHash: presentedHash,
         now,
       });
       return json(result);
@@ -113,6 +117,7 @@ const telemetryWorker = httpAction(async (ctx, request) => {
         workerKeyHash: presentedHash,
         now,
       });
+
       return json(result);
     }
     const common = {

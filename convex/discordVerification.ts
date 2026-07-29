@@ -598,8 +598,13 @@ async function fetchAllGuilds(accessToken: string): Promise<DiscordOAuthGuild[]>
       throw claimError("ADAPTER_UNAVAILABLE", "guilds_malformed_payload");
     }
 
+    // A complete answer that happens to be empty: no guilds at all, or a
+    // membership count that lands exactly on a page boundary. `return`, not
+    // `break` — falling through to the cap error below would fail the callback
+    // for a user with no guilds, and worse, refuse to reconcile the proofs of
+    // one who has just left every guild they had.
     if (batch.length === 0) {
-      break;
+      return collected;
     }
 
     collected.push(...batch);

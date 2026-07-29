@@ -1585,15 +1585,17 @@ export const verifyVrchatProofViaAdapter = action({
     // trail showed tested keys that had never been tested, and hid the ones
     // that genuinely never had.
     if (delegationContext !== null && Array.isArray(result.consultedDelegationIndexes)) {
+      // Carrying the reference each was consulted through, so a delegation
+      // replaced while the adapter was answering is not stamped as though the
+      // new key had been the one asked.
       const consulted = result.consultedDelegationIndexes
-        .map((index) => delegationContext.delegations[index]?.credentialId)
-        .filter((credentialId): credentialId is Id<"communityVrclinkingCredentials"> =>
-          credentialId !== undefined,
-        );
+        .map((index) => delegationContext.delegations[index])
+        .filter((delegation) => delegation !== undefined)
+        .map(({ credentialId, secretRef }) => ({ credentialId, secretRef }));
 
       if (consulted.length > 0) {
         await ctx.runMutation(internal.vrclinkingCredentials.recordCredentialConsultations, {
-          credentialIds: consulted,
+          consulted,
         });
       }
     }

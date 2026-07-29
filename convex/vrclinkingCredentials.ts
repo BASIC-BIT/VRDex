@@ -350,14 +350,35 @@ export const reserveAdapterDelegations = internalMutation({
  * operator's audit trail should not fill with other communities' proofs.
  */
 export const recordCredentialConsultations = internalMutation({
-  args: { credentialIds: v.array(v.id("communityVrclinkingCredentials")) },
+  args: {
+    // Paired with the reference each was consulted through. An owner can
+    // replace or revoke a delegation while the adapter is answering, and
+    // stamping the row by id alone made the *replacement* key look queried when
+    // only the superseded one was ever sent.
+    consulted: v.array(
+      v.object({
+        credentialId: v.id("communityVrclinkingCredentials"),
+        secretRef: v.string(),
+      }),
+    ),
+  },
   handler: async (ctx, args) => {
     const now = Date.now();
 
     await Promise.all(
-      args.credentialIds.map((credentialId) =>
-        ctx.db.patch(credentialId, { lastConsultedAt: now }),
-      ),
+      args.consulted.map(async ({ credentialId, secretRef }) => {
+        const credential = await ctx.db.get(credentialId);
+
+        if (
+          credential === null ||
+          credential.state !== "active" ||
+          credential.secretRef !== secretRef
+        ) {
+          return;
+        }
+
+        await ctx.db.patch(credentialId, { lastConsultedAt: now });
+      }),
     );
   },
 });
