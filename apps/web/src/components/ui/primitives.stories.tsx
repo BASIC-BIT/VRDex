@@ -96,6 +96,8 @@ export const Buttons: Story = {
           <Button variant="secondary">Secondary</Button>
           <Button variant="surface">Surface</Button>
           <Button variant="ghost">Ghost</Button>
+          <Button variant="dangerGhost">Danger ghost</Button>
+          <Button variant="danger">Danger</Button>
           <Button disabled variant="primary">Disabled</Button>
         </div>
         <div className="rounded-panel bg-canvas p-5">

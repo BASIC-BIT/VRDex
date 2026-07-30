@@ -12,6 +12,10 @@ import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/pa
 import { Table, TableCell, TableFrame, TableHead, TableHeaderCell } from "@/components/ui/table";
 import { cn } from "@/lib/cn";
 import { safeImageBackground } from "@/lib/safe-image";
+import {
+  avatarFrameStyle,
+  type AvatarAppearance,
+} from "@/lib/avatar-appearance";
 import { EventWatchSurface } from "./event-watch-surface";
 import {
   ViewerLocalEventDateTime,
@@ -59,6 +63,7 @@ export type PublicEventPreview = {
   bannerImageUrl?: string;
   thumbnailImageUrl?: string;
   communityImageUrl?: string;
+  communityAvatarAppearance?: AvatarAppearance;
   source: {
     sourceType: EventSourceType;
     label: string;
@@ -109,6 +114,7 @@ export type PublicEvent = Omit<PublicEventPreview, "worlds"> & {
     roleLabel: string;
     trustLabel: ProfileTrustLabel;
     imageUrl?: string;
+    avatarAppearance?: AvatarAppearance;
     source: {
       sourceType: EventSourceType;
       label: string;
@@ -127,6 +133,7 @@ export type PublicEvent = Omit<PublicEventPreview, "worlds"> & {
       displayName: string;
       trustLabel: ProfileTrustLabel;
       imageUrl?: string;
+      avatarAppearance?: AvatarAppearance;
     };
     source: {
       sourceType: EventSourceType;
@@ -163,7 +170,15 @@ function initialsFor(name: string): string {
   return initials || "V";
 }
 
-function EntityImage({ imageUrl, label }: { imageUrl?: string; label: string }) {
+function EntityImage({
+  appearance,
+  imageUrl,
+  label,
+}: {
+  appearance?: AvatarAppearance;
+  imageUrl?: string;
+  label: string;
+}) {
   const imageStyle = safeImageBackground(imageUrl, eventEntityImageOverlay);
 
   return (
@@ -173,7 +188,7 @@ function EntityImage({ imageUrl, label }: { imageUrl?: string; label: string }) 
         "flex size-14 flex-none items-center justify-center overflow-hidden rounded-control border border-accent/20 bg-cover bg-center text-xs font-semibold text-accent-strong",
         imageStyle ? "bg-media" : "bg-accent/10",
       )}
-      style={imageStyle}
+      style={appearance ? avatarFrameStyle(imageStyle, appearance) : imageStyle}
     >
       {imageStyle ? null : initialsFor(label)}
     </span>
@@ -330,7 +345,7 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
               <div className="mt-5 grid gap-3 text-sm">
                 {event.communitySlug ? (
                   <Link className={cn(actionCardVariants({ variant: "accent" }), "flex items-center gap-3")} href={`/c/${event.communitySlug}`}>
-                    <EntityImage imageUrl={event.communityImageUrl} label={event.communityName ?? "Community profile"} />
+                    <EntityImage appearance={event.communityAvatarAppearance} imageUrl={event.communityImageUrl} label={event.communityName ?? "Community profile"} />
                     <span className="min-w-0">
                       <span className={actionLabelClassName}>
                         {event.communityName ?? "Community profile"}
@@ -425,7 +440,7 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
             ) : (
               event.participants.map((participant) => (
                 <Link className={cn(actionCardVariants({ padding: "lg", variant: "accent" }), "flex items-center gap-3")} href={`/p/${participant.slug}`} key={participant.slug}>
-                  <EntityImage imageUrl={participant.imageUrl} label={participant.displayName} />
+                  <EntityImage appearance={participant.avatarAppearance} imageUrl={participant.imageUrl} label={participant.displayName} />
                   <span className="min-w-0">
                     <span className="block text-lg font-semibold tracking-[-0.03em] text-accent-strong underline decoration-accent/45 underline-offset-4 group-hover:decoration-accent">
                       {participant.displayName}

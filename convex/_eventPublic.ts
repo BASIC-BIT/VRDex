@@ -6,6 +6,10 @@ import { visibleProfileField } from "./_profileFieldVisibility";
 import { canReadProfile } from "./_profilePermissions";
 import { getProfileTrustLabel } from "./_profileStates";
 import { safePublicMediaUrl } from "./_vrcdnLinks";
+import {
+  getPublicProfileMediaKit,
+  type PublicProfileAvatarAppearance,
+} from "./_profileAssets";
 
 const EVENT_PREVIEW_DEFAULT_LIMIT = 6;
 const EVENT_ASSOCIATION_LIMIT = 80;
@@ -25,6 +29,8 @@ type PublicEventMediaLinkPresentation = "open" | "copy";
 export type PublicEventRecord = {
   event: Doc<"events">;
   community?: Doc<"profiles">;
+  communityImageUrl?: string;
+  communityAvatarAppearance?: PublicProfileAvatarAppearance;
   mediaProgram?: Doc<"eventMediaPrograms">;
   mediaOutputs?: Doc<"eventMediaOutputs">[];
   worlds: Array<{ association: Doc<"eventWorlds">; world: Doc<"worlds"> }>;
@@ -35,11 +41,15 @@ export type PublicEventRecord = {
 type PublicEventParticipantRecord = {
   association: Doc<"eventParticipants">;
   profile: Doc<"profiles">;
+  imageUrl?: string;
+  avatarAppearance?: PublicProfileAvatarAppearance;
 };
 
 type PublicEventSlotRecord = {
   slot: Doc<"eventSlots">;
   profile?: Doc<"profiles">;
+  imageUrl?: string;
+  avatarAppearance?: PublicProfileAvatarAppearance;
 };
 
 export type PublicEventPreview = {
@@ -56,6 +66,7 @@ export type PublicEventPreview = {
   bannerImageUrl?: string;
   thumbnailImageUrl?: string;
   communityImageUrl?: string;
+  communityAvatarAppearance?: PublicProfileAvatarAppearance;
   source: {
     sourceType: PublicEventSourceType;
     label: string;
@@ -106,6 +117,7 @@ export type PublicEvent = PublicEventPreview & {
     roleLabel: string;
     trustLabel: "community_submitted" | "unclaimed" | "claimed_unverified" | "claimed_verified";
     imageUrl?: string;
+    avatarAppearance?: PublicProfileAvatarAppearance;
     source: {
       sourceType: PublicEventSourceType;
       label: string;
@@ -124,6 +136,7 @@ export type PublicEvent = PublicEventPreview & {
       displayName: string;
       trustLabel: "community_submitted" | "unclaimed" | "claimed_unverified" | "claimed_verified";
       imageUrl?: string;
+      avatarAppearance?: PublicProfileAvatarAppearance;
     };
     source: {
       sourceType: PublicEventSourceType;
@@ -222,7 +235,9 @@ export function toPublicEventPreviewFromRecord(record: PublicEventRecord): Publi
   const posterImageUrl = safeHttpsUrl(event.posterImageUrl);
   const bannerImageUrl = firstSafeHttpsUrl(event.bannerImageUrl, event.posterImageUrl);
   const thumbnailImageUrl = firstSafeHttpsUrl(event.thumbnailImageUrl, event.posterImageUrl, event.bannerImageUrl);
-  const communityImageUrl = community === undefined ? undefined : publicProfileCardImage(community);
+  const communityImageUrl =
+    record.communityImageUrl ??
+    (community === undefined ? undefined : publicProfileCardImage(community));
 
   return {
     ...optionalField("slug", event.slug),
@@ -249,6 +264,7 @@ export function toPublicEventPreviewFromRecord(record: PublicEventRecord): Publi
     ...optionalField("bannerImageUrl", bannerImageUrl),
     ...optionalField("thumbnailImageUrl", thumbnailImageUrl),
     ...optionalField("communityImageUrl", communityImageUrl),
+    ...optionalField("communityAvatarAppearance", record.communityAvatarAppearance),
   };
 }
 
@@ -287,9 +303,9 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
         ...optionalField("heroImageUrl", heroImageUrl),
       };
     }),
-    participants: record.participants.map(({ association, profile }) => {
+    participants: record.participants.map(({ association, avatarAppearance, imageUrl: projectedImageUrl, profile }) => {
       const sourceUrl = safeHttpsUrl(association.sourceUrl);
-      const imageUrl = publicProfileCardImage(profile);
+      const imageUrl = projectedImageUrl ?? publicProfileCardImage(profile);
 
       return {
         slug: profile.slug,
@@ -297,6 +313,7 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
         roleLabel: association.roleLabel,
         trustLabel: getProfileTrustLabel(profile.claimState, profile.creationSource),
         ...optionalField("imageUrl", imageUrl),
+        ...optionalField("avatarAppearance", avatarAppearance),
         source: {
           sourceType: association.sourceType,
           label: association.sourceLabel,
@@ -306,9 +323,11 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
     }),
     slots: record.slots
       .sort((first, second) => first.slot.startAt - second.slot.startAt || first.slot.position - second.slot.position)
-      .map(({ profile, slot }) => {
+      .map(({ avatarAppearance, imageUrl: projectedImageUrl, profile, slot }) => {
         const sourceUrl = safeHttpsUrl(slot.sourceUrl);
-        const imageUrl = profile === undefined ? undefined : publicProfileCardImage(profile);
+        const imageUrl =
+          projectedImageUrl ??
+          (profile === undefined ? undefined : publicProfileCardImage(profile));
 
         return {
           position: slot.position,
@@ -325,6 +344,7 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
                   displayName: profile.displayName,
                   trustLabel: getProfileTrustLabel(profile.claimState, profile.creationSource),
                   ...optionalField("imageUrl", imageUrl),
+                  ...optionalField("avatarAppearance", avatarAppearance),
                 },
               }),
           source: {
@@ -380,7 +400,11 @@ async function getPublicEventWorldRecords(db: DatabaseReader, event: Doc<"events
   );
 }
 
-async function getPublicEventParticipantRecords(db: DatabaseReader, event: Doc<"events">) {
+async function getPublicEventParticipantRecords(
+  db: DatabaseReader,
+  event: Doc<"events">,
+  options: { includeMediaKit?: boolean } = {},
+) {
   const associations = await db
     .query("eventParticipants")
     .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
@@ -399,14 +423,32 @@ async function getPublicEventParticipantRecords(db: DatabaseReader, event: Doc<"
         return null;
       }
 
-      return { association, profile };
+      if (options.includeMediaKit === false) {
+        return {
+          association,
+          profile,
+          imageUrl: publicProfileCardImage(profile),
+        };
+      }
+
+      const mediaKit = await getPublicProfileMediaKit(db, profile);
+      return {
+        association,
+        profile,
+        imageUrl: mediaKit.profileImage?.imageUrl ?? publicProfileCardImage(profile),
+        avatarAppearance: mediaKit.avatarAppearance,
+      };
     }),
   );
 
   return records.filter((record): record is PublicEventParticipantRecord => record !== null);
 }
 
-async function getPublicEventSlotRecords(db: DatabaseReader, event: Doc<"events">) {
+async function getPublicEventSlotRecords(
+  db: DatabaseReader,
+  event: Doc<"events">,
+  options: { includeMediaKit?: boolean } = {},
+) {
   const slots = await db
     .query("eventSlots")
     .withIndex("by_eventId_reviewState_startAt", (query) =>
@@ -430,7 +472,21 @@ async function getPublicEventSlotRecords(db: DatabaseReader, event: Doc<"events"
         return { slot };
       }
 
-      return { slot, profile };
+      if (options.includeMediaKit === false) {
+        return {
+          slot,
+          profile,
+          imageUrl: publicProfileCardImage(profile),
+        };
+      }
+
+      const mediaKit = await getPublicProfileMediaKit(db, profile);
+      return {
+        slot,
+        profile,
+        imageUrl: mediaKit.profileImage?.imageUrl ?? publicProfileCardImage(profile),
+        avatarAppearance: mediaKit.avatarAppearance,
+      };
     }),
   );
 
@@ -489,6 +545,7 @@ async function getPublicEventMediaRecord(db: DatabaseReader, event: Doc<"events"
 async function getPublicEventRecord(
   db: DatabaseReader,
   event: Doc<"events">,
+  options: { includeAssociationMediaKits?: boolean } = {},
 ): Promise<PublicEventRecord | null> {
   if (event.publicationState !== "published") {
     return null;
@@ -497,12 +554,33 @@ async function getPublicEventRecord(
   const [community, worlds, participants, slots, media] = await Promise.all([
     getPublishedCommunity(db, event),
     getPublicEventWorldRecords(db, event),
-    getPublicEventParticipantRecords(db, event),
-    getPublicEventSlotRecords(db, event),
+    getPublicEventParticipantRecords(db, event, {
+      includeMediaKit: options.includeAssociationMediaKits,
+    }),
+    getPublicEventSlotRecords(db, event, {
+      includeMediaKit: options.includeAssociationMediaKits,
+    }),
     getPublicEventMediaRecord(db, event),
   ]);
 
-  return { event, worlds, participants, slots, ...media, ...optionalField("community", community) };
+  const communityMediaKit = community === undefined
+    ? undefined
+    : await getPublicProfileMediaKit(db, community);
+
+  return {
+    event,
+    worlds,
+    participants,
+    slots,
+    ...media,
+    ...optionalField("community", community),
+    ...optionalField(
+      "communityImageUrl",
+      communityMediaKit?.profileImage?.imageUrl ??
+        (community === undefined ? undefined : publicProfileCardImage(community)),
+    ),
+    ...optionalField("communityAvatarAppearance", communityMediaKit?.avatarAppearance),
+  };
 }
 
 export async function getPublicEventBySlug(
@@ -528,15 +606,24 @@ export async function getPublicEventPreviews(
     1,
     Math.min(options.limit ?? EVENT_PREVIEW_DEFAULT_LIMIT, EVENT_PREVIEW_MAX_LIMIT),
   );
+  const selectedEvents = events
+    .filter(
+      (event) =>
+        event.publicationState === "published" &&
+        (now === undefined || eventEndsAt(event) >= now),
+    )
+    .sort((first, second) => first.startAt - second.startAt)
+    .slice(0, limit);
   const records = (
-    await Promise.all(events.map((event) => getPublicEventRecord(db, event)))
+    await Promise.all(
+      selectedEvents.map((event) =>
+        getPublicEventRecord(db, event, { includeAssociationMediaKits: false }),
+      ),
+    )
   ).filter((record): record is PublicEventRecord => record !== null);
 
   return records
-    .filter(({ event }) => now === undefined || eventEndsAt(event) >= now)
-    .sort((first, second) => first.event.startAt - second.event.startAt)
-    .map(toPublicEventPreviewFromRecord)
-    .slice(0, limit);
+    .map(toPublicEventPreviewFromRecord);
 }
 
 export async function getPublicCommunityHostedEvents(

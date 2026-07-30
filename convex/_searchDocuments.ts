@@ -5,6 +5,7 @@ import type { toProfileLookupResult } from "./_profileLookup";
 import { visibleProfileField, visibleProfileList } from "./_profileFieldVisibility";
 import { firstSafeHttpsUrl, optionalField, safeHttpsUrl } from "./_publicFields";
 import { canReadProfile } from "./_profilePermissions";
+import type { ProfileTrustLabel } from "./_profileStates";
 import { getProfileBySlug } from "./_profileSlugs";
 import {
   collectVocabularyKeys,
@@ -25,6 +26,8 @@ export type PublicSearchResult = {
   imageUrl?: string;
   profileImageUrl?: string;
   logoImageUrl?: string;
+  avatarAppearance?: PublicProfileMediaKit["avatarAppearance"];
+  trustLabel?: ProfileTrustLabel;
   source?: {
     sourceType: Doc<"searchDocuments">["sourceType"];
     label: string;
@@ -456,6 +459,9 @@ export function toPublicSearchResult(
     ...optionalField("imageUrl", imageUrl),
     ...optionalField("profileImageUrl", profileImageUrl),
     ...optionalField("logoImageUrl", logoImageUrl),
+    ...(document.entityType === "profile" && mediaKit
+      ? { avatarAppearance: mediaKit.avatarAppearance }
+      : {}),
     ...optionalField("startsAt", document.startsAt),
     source:
       document.sourceType && document.sourceLabel

@@ -6,10 +6,12 @@ import Link from "next/link";
 import { Component, type ReactNode } from "react";
 
 import { api } from "@convex-generated-api";
-import { buttonVariants, Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
+import { VerifiedTrustMark } from "@/components/ui/verified-trust-mark";
 import { cn } from "@/lib/cn";
 import { ownerProfileDestinationPath, profileClaimPath } from "@/lib/profile-claim";
+import { AccountSignOutControl } from "./sign-out-control";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 const clerkConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
@@ -17,7 +19,7 @@ const clerkConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 function ConnectedAccountPanel({ mediaKitEnabled }: { mediaKitEnabled: boolean }) {
   const viewer = useQuery(api.accounts.viewer);
   const ownedProfiles = useQuery(api.profilePrivacy.listOwnedPrivacyProfilesForAccount);
-  const { openUserProfile, signOut } = useClerk();
+  const { openUserProfile } = useClerk();
 
   if (viewer === undefined || ownedProfiles === undefined) {
     return <p className="text-sm text-muted">Loading account…</p>;
@@ -65,15 +67,7 @@ function ConnectedAccountPanel({ mediaKitEnabled }: { mediaKitEnabled: boolean }
             {mediaKitEnabled ? (
               <Link className={buttonVariants({ variant: "secondary" })} href="/account/media-kit">Media kit</Link>
             ) : null}
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => {
-                void signOut({ redirectUrl: "/sign-in" });
-              }}
-            >
-              Sign out
-            </Button>
+            <AccountSignOutControl />
           </div>
         </div>
 
@@ -124,7 +118,7 @@ function ConnectedAccountPanel({ mediaKitEnabled }: { mediaKitEnabled: boolean }
 
               return (
                 <li className="flex flex-wrap items-center justify-between gap-3 py-4" key={profile.profileId}>
-                  <div>
+                  <div className="flex items-center gap-2">
                     {/* This list includes profiles that are not publicly
                         readable — draft, suppressed, or opted out. With replay
                         on every route their display name is the identity of a
@@ -137,26 +131,31 @@ function ConnectedAccountPanel({ mediaKitEnabled }: { mediaKitEnabled: boolean }
                     >
                       {profile.displayName}
                     </Link>
-                    <p className="mt-1 text-sm text-muted">
-                      {profile.claimState === "claimed_verified" ? "Verified owner" : "Owner · Verification available"}
-                    </p>
+                    {profile.claimState === "claimed_verified" ? <VerifiedTrustMark /> : null}
                   </div>
-                  {profile.claimState === "claimed_unverified" ? (
-                    <Link
-                      className={buttonVariants({ size: "sm", variant: "secondary" })}
-                      href={profileClaimPath(profile.slug, "account")}
-                    >
-                      Verify with VRChat
-                    </Link>
-                  ) : null}
-                  {mediaKitEnabled ? (
-                    <Link
-                      className={buttonVariants({ size: "sm", variant: "secondary" })}
-                      href={`/account/media-kit?profile=${encodeURIComponent(profile.slug)}`}
-                    >
-                      Manage media
-                    </Link>
-                  ) : null}
+                  <div className="flex flex-wrap gap-2">
+                    {profile.hasPublicProfile ? (
+                      <Link className={buttonVariants({ size: "sm", variant: "primary" })} href={profilePath}>
+                        View profile
+                      </Link>
+                    ) : null}
+                    {profile.claimState === "claimed_unverified" ? (
+                      <Link
+                        className={buttonVariants({ size: "sm", variant: "secondary" })}
+                        href={profileClaimPath(profile.slug, "account")}
+                      >
+                        Verify with VRChat
+                      </Link>
+                    ) : null}
+                    {mediaKitEnabled ? (
+                      <Link
+                        className={buttonVariants({ size: "sm", variant: "secondary" })}
+                        href={`/account/media-kit?profile=${encodeURIComponent(profile.slug)}`}
+                      >
+                        Manage media
+                      </Link>
+                    ) : null}
+                  </div>
                 </li>
               );
             })}

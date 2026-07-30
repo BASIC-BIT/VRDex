@@ -44,7 +44,32 @@ describe("profile claim lifecycle", () => {
         publicationState: "draft_private",
         publicSurfacingState: "opted_out",
         creationSource: "concierge",
+        avatarImageUrl: "https://example.invalid/private-claim-target.png",
         person: { roleTags: [] },
+        updatedAt: now,
+      });
+      const profileImageAssetId = await ctx.db.insert("profileAssets", {
+        profileId,
+        storageKey: "profiles/private-claim-target/profile-image.png",
+        mimeType: "image/png",
+        byteSize: 1_024,
+        visibility: "public",
+        source: "owner_authored",
+        uploadedBy: {
+          tokenIdentifier: `test|${clerkUserId}`,
+          issuer: "test",
+          subject: clerkUserId,
+        },
+        uploadedAt: now,
+        state: "active",
+        updatedAt: now,
+      });
+      await ctx.db.insert("profileAssetPlacements", {
+        profileId,
+        assetId: profileImageAssetId,
+        placement: "profile_image",
+        position: 0,
+        state: "active",
         updatedAt: now,
       });
       await ctx.db.insert("profileOwners", {
@@ -92,6 +117,10 @@ describe("profile claim lifecycle", () => {
     assert.equal(ownerResult?.hasPublicProfile, false);
     assert.equal(ownerResult?.profileId, seeded.profileId);
     assert.equal(ownerResult?.slug, "private-claim-target");
+    assert.equal(
+      ownerResult?.avatarImageUrl,
+      "https://example.invalid/private-claim-target.png",
+    );
 
     const ownerJourney = await t.withIdentity(seeded.ownerIdentity).query(api.profileClaims.getClaimJourneyContext, {
       profileSlug: "private-claim-target",

@@ -522,6 +522,19 @@ body {
   width: 100%;
 }
 
+.lookup-avatar.lookup-avatar--logo,
+.lookup-suggestion-avatar.lookup-avatar--logo {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.lookup-avatar.lookup-avatar--logo img,
+.lookup-suggestion-avatar.lookup-avatar--logo img {
+  object-fit: contain;
+}
+
 .lookup-avatar-wrap {
   display: inline-flex;
   flex: 0 0 auto;
@@ -618,7 +631,7 @@ body {
   right: 0;
 }
 
-.lookup-trust-mark {
+.verified-trust-mark {
   align-items: center;
   background: color-mix(in srgb, var(--accent) 16%, var(--surface-strong));
   border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
@@ -630,12 +643,12 @@ body {
   width: 1.05rem;
 }
 
-.lookup-trust-mark svg {
+.verified-trust-mark svg {
   height: 0.68rem;
   width: 0.68rem;
 }
 
-.lookup-trust-mark--avatar {
+.verified-trust-mark--avatar {
   bottom: -0.16rem;
   box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 20%, transparent);
   position: absolute;
@@ -1255,22 +1268,10 @@ body {
   border-color: color-mix(in srgb, var(--border) 88%, var(--foreground) 10%);
 }
 
-.lookup-private-result {
-  background: color-mix(in srgb, var(--accent) 6%, var(--surface-strong));
-}
-
 .lookup-private-identity {
   display: grid;
   gap: 0.28rem;
   min-width: 0;
-}
-
-.lookup-private-label {
-  color: var(--accent-strong);
-  font-family: var(--font-ibm-plex-mono), monospace;
-  font-size: 0.64rem;
-  font-weight: 700;
-  text-transform: uppercase;
 }
 
 .lookup-private-name {
@@ -1278,30 +1279,6 @@ body {
   font-size: 0.95rem;
   font-weight: 700;
   overflow-wrap: anywhere;
-}
-
-.lookup-private-metadata {
-  color: var(--muted);
-  display: flex;
-  flex-wrap: wrap;
-  font-family: var(--font-ibm-plex-mono), monospace;
-  font-size: 0.62rem;
-  gap: 0.3rem 0.7rem;
-  margin: 0.2rem 0 0;
-}
-
-.lookup-private-metadata > div {
-  display: flex;
-  gap: 0.25rem;
-}
-
-.lookup-private-metadata dt {
-  color: color-mix(in srgb, var(--muted) 82%, var(--foreground));
-  font-weight: 700;
-}
-
-.lookup-private-metadata dd {
-  margin: 0;
 }
 
 .lookup-name-cell {
