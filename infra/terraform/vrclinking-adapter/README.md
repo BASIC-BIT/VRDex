@@ -166,6 +166,7 @@ Secrets Manager — Secrets Manager is the same source the adapter loads from, s
 request built from it tests the adapter against itself and passes either way:
 
 ```bash
+FUNCTION_URL=$(terraform -chdir=infra/terraform/vrclinking-adapter output -raw function_url)
 BEARER=$(pnpm exec convex env get --prod VRCHAT_PROOF_ADAPTER_BEARER_TOKEN)
 printf 'header = "authorization: Bearer %s"\n' "$BEARER" |
   curl -K - -s -o /dev/null -w '%{http_code}\n' -X POST "$FUNCTION_URL" \

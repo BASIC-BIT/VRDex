@@ -151,7 +151,7 @@ Current stacks:
 - `infra/terraform/profile-assets`: private S3 asset bucket, Vercel OIDC IAM role, and hosted profile asset env vars
 - `infra/terraform/docs-site`: hosted docs Vercel project/domain and Route 53 DNS
 - `infra/terraform/restream-worker`: validation-only hosted worker benchmark foundation; CI validates it but does not plan or apply it
-- `infra/terraform/vrclinking-adapter`: VRCLinking proof adapter Lambda, Function URL, execution role, and log group. Deployed and live; CI validates but does not plan it, because planning needs the built artifact and the two shared-secret ARNs. Applied manually with `-var-file=environments/production.tfvars`, which is mandatory — see the stack README
+- `infra/terraform/vrclinking-adapter`: VRCLinking proof adapter Lambda, Function URL, execution role, and log group. Deployed and live; CI validates but does not plan it, because planning needs the built artifact and the shared-secret ARN. Applied manually with `-var-file=environments/production.tfvars`, which is mandatory — see the stack README
 
 Keep stack state, plans, local provider caches, and `terraform.tfvars` uncommitted.
 

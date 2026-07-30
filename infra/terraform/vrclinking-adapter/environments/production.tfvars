@@ -2,7 +2,7 @@
 #
 # Same split as `group-telemetry-collector/environments/production.tfvars`: the
 # enable state is not account-specific and belongs in the repository, while the
-# two shared-secret ARNs are and stay in the operator's gitignored
+# shared-secret ARN is and stays in the operator's gitignored
 # `terraform.tfvars`. A clean checkout that applied only the checked-in
 # configuration would set `enable_service = false` and tear down a live claim
 # path.
