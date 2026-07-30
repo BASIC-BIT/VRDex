@@ -39,13 +39,33 @@ A secret Terraform creates has its value in the state file.
 pnpm ops:package-vrclinking-adapter
 cd infra/terraform/vrclinking-adapter
 terraform init
-terraform apply -var enable_service=true
+terraform apply -var-file=environments/production.tfvars
 ```
+
+The two shared-secret ARNs come from the operator's gitignored
+`terraform.tfvars`; `environments/production.tfvars` carries only the enable
+state, so a clean checkout cannot tear the function down by applying defaults.
 
 Then set the `function_url` output as `VRCLINKING_PROOF_ADAPTER_URL` in Convex,
 alongside `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN` and
 `VRCLINKING_ADAPTER_CAPABILITY_KEY` holding the same values as the two secrets
-above.
+above. Convex is given the base URL — the adapter answers `GET /healthz` and
+`POST` on any path.
+
+Verify with an unauthenticated `GET /healthz` (expect `{"status":"ok"}`) and an
+unauthenticated `POST /` (expect `401`). A `403` carrying an AWS-shaped error
+body means the resource policy is incomplete and the handler never ran.
+
+## Why the URL needs two permissions
+
+AWS began requiring both `lambda:InvokeFunctionUrl` and `lambda:InvokeFunction`
+on function URLs in October 2025. `aws_lambda_function_url` creates only the
+first, so a stack with just that answers every request `403
+AccessDeniedException`. The second is granted with `invoked_via_function_url`,
+which is what stops `Principal = "*"` from also handing every AWS principal a
+direct `Invoke` that would bypass the bearer token and capability check
+entirely. That argument needs provider 6.28.0 or newer, which is why this stack
+pins `~> 6.28` where the others pin `~> 5.0`.
 
 ## Bounds worth knowing
 

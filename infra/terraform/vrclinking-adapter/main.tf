@@ -20,7 +20,7 @@ data "aws_region" "current" {}
 # community an operator action instead of a Terraform change — the guild binding
 # is enforced in code, where it can see which guild the request is for.
 locals {
-  secret_arn_pattern = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:${var.secret_name_prefix}*"
+  secret_arn_pattern = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:${var.secret_name_prefix}*"
 }
 
 data "aws_iam_policy_document" "assume" {
@@ -78,8 +78,9 @@ resource "aws_cloudwatch_log_group" "adapter" {
 resource "aws_lambda_function" "adapter" {
   count = local.enabled
 
-  function_name    = var.name_prefix
-  role             = aws_iam_role.adapter.arn
+  function_name = var.name_prefix
+  role          = aws_iam_role.adapter.arn
+  # Matches the `node >=24 <25` the adapter's package declares.
   runtime          = "nodejs24.x"
   handler          = "workers/vrclinking-adapter/src/lambda.handler"
   filename         = var.source_zip_path
@@ -120,4 +121,31 @@ resource "aws_lambda_function_url" "adapter" {
 
   function_name      = aws_lambda_function.adapter[0].function_name
   authorization_type = "NONE"
+}
+
+# `authorization_type = "NONE"` alone returns 403 — the URL is only reachable if
+# the resource policy grants anonymous access. Since October 2025 that means both
+# actions below, not just `InvokeFunctionUrl`; a URL with only the first is
+# rejected before the handler runs.
+resource "aws_lambda_permission" "function_url" {
+  count = local.enabled
+
+  statement_id           = "AllowFunctionUrlInvoke"
+  action                 = "lambda:InvokeFunctionUrl"
+  function_name          = aws_lambda_function.adapter[0].function_name
+  principal              = "*"
+  function_url_auth_type = "NONE"
+}
+
+# `invoked_via_function_url` is what keeps `Principal = "*"` from also granting
+# every AWS principal a direct `Invoke`, which would sidestep the bearer token
+# and capability check the URL path enforces.
+resource "aws_lambda_permission" "function_url_invoke" {
+  count = local.enabled
+
+  statement_id             = "AllowFunctionUrlInvokeFunction"
+  action                   = "lambda:InvokeFunction"
+  function_name            = aws_lambda_function.adapter[0].function_name
+  principal                = "*"
+  invoked_via_function_url = true
 }

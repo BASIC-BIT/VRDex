@@ -10,9 +10,13 @@ terraform {
   }
 
   required_providers {
+    # 6.28 or newer, unlike the `~> 5.0` the other stacks pin. AWS began
+    # requiring `lambda:InvokeFunction` on function URLs in October 2025, and
+    # `invoked_via_function_url` — the only way to grant it without also
+    # handing direct `Invoke` to every AWS principal — landed in 6.28.0.
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = "~> 6.28"
     }
   }
 }

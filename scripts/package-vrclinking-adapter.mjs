@@ -20,8 +20,8 @@ const stageRoot = path.join(repoRoot, "artifacts", "vrclinking-adapter-stage");
 const stagedAdapter = path.join(stageRoot, "workers", "vrclinking-adapter");
 const outputZip = path.join(repoRoot, "artifacts", "vrclinking-adapter.zip");
 
-function run(command, args, cwd) {
-  execFileSync(command, args, { cwd, stdio: "inherit" });
+function run(command, args, cwd, options = {}) {
+  execFileSync(command, args, { cwd, stdio: "inherit", ...options });
 }
 
 rmSync(stageRoot, { force: true, recursive: true });
@@ -38,18 +38,29 @@ cpSync(path.join(adapterDir, "src"), path.join(stagedAdapter, "src"), {
   filter: (source) => !source.endsWith(".test.mjs"),
 });
 
-run("npm", ["ci", "--omit=dev", "--no-audit", "--no-fund"], stagedAdapter);
+// On Windows npm is a `.cmd` shim, which needs a shell: the extensionless name
+// does not resolve, and Node refuses to spawn `.cmd` directly.
+run("npm", ["ci", "--omit=dev", "--no-audit", "--no-fund"], stagedAdapter, {
+  shell: process.platform === "win32",
+});
 
 rmSync(outputZip, { force: true });
 
-// `zip` on POSIX, PowerShell's Compress-Archive on Windows. Both preserve the
+// `zip` on POSIX, Windows' bundled bsdtar otherwise. Both write the
 // `workers/vrclinking-adapter/src/lambda.mjs` path the handler string names.
+//
+// Not PowerShell's Compress-Archive: on Windows PowerShell 5.1 it writes zip
+// entries with backslash separators, so Lambda's Linux extraction produces one
+// file literally named `workers\vrclinking-adapter\src\lambda.mjs` and the
+// handler cannot be found.
 if (process.platform === "win32") {
-  run("powershell", [
-    "-NoProfile",
-    "-Command",
-    `Compress-Archive -Path '${stageRoot}\\*' -DestinationPath '${outputZip}' -Force`,
-  ], repoRoot);
+  run(path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe"), [
+    "--format",
+    "zip",
+    "-cf",
+    outputZip,
+    "workers",
+  ], stageRoot);
 } else {
   run("zip", ["-qr", outputZip, "."], stageRoot);
 }
