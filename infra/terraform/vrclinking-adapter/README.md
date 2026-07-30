@@ -97,9 +97,8 @@ NEW_BEARER=$(openssl rand -hex 32)
 NEW_CAPABILITY=$(openssl rand -hex 32)
 [ "$NEW_BEARER" != "$NEW_CAPABILITY" ] || { echo "regenerate: values must differ"; exit 1; }
 
-# Both writes land before anything else moves. Secrets Manager keeps the
-# previous version as AWSPREVIOUS, so if the second write fails the first is
-# revertable with `update-secret-version-stage`.
+# Both writes land before anything else moves, so a failure here has not yet
+# touched the fleet or Convex.
 aws secretsmanager put-secret-value --secret-id vrdex/vrclinking/bearer-token \
   --secret-string "$NEW_BEARER"
 aws secretsmanager put-secret-value --secret-id vrdex/vrclinking/capability-key \
@@ -122,20 +121,20 @@ the adapter is strictly ahead of the control plane, so nothing is authorized
 against a stale key. Reversing the order leaves old Lambda values paired with new
 Convex ones for as long as any container stays warm.
 
-If it stops partway, roll the secrets back rather than pressing on — the pair
-has to match across the boundary, and Secrets Manager still holds the previous
-version of each:
+**If it stops partway, re-run the whole script.** Do not try to roll back. The
+script is idempotent by construction — it writes both secrets, recycles, then
+writes both Convex values, in that order — so re-running it from the top is
+correct from *any* partial state, and the only cost is a second pair of random
+values. There is no failure point where a fresh run leaves you worse off.
 
-```bash
-aws secretsmanager update-secret-version-stage \
-  --secret-id vrdex/vrclinking/bearer-token --version-stage AWSCURRENT \
-  --move-to-version-id "$(aws secretsmanager list-secret-version-ids \
-      --secret-id vrdex/vrclinking/bearer-token \
-      --query 'Versions[?contains(VersionStages, `AWSPREVIOUS`)].VersionId' --output text)"
-```
+Rolling back is the harder path and the one that goes wrong: it has to restore
+both `AWSCURRENT` stages together (reverting one leaves the same mismatched pair
+the failure created) and unwind whichever Convex variables were already written,
+which is per-failure-point bookkeeping that has to be right under pressure.
+Rolling forward has one instruction.
 
-Then re-run the recycle in step 2 so no container is left on the abandoned
-value, and confirm with `GET /healthz` before retrying.
+Confirm with `GET /healthz` — a 500 means bootstrap rejected what it read, which
+is the signature of a mismatched or half-written pair.
 
 A delegated community credential is cheaper to rotate but not instant: the
 resolver caches each token for five minutes per warm container, so `put-secret-
