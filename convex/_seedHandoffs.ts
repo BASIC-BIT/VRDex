@@ -183,6 +183,37 @@ function genreSlug(value: string): string {
     .replace(/^-+|-+$/g, "") || "genre";
 }
 
+/**
+ * Genre provenance for a seed source. Only a concierge handoff, where the owner
+ * confirmed the fields themselves, may claim `owner_selected`.
+ */
+function genreSourceForSeedSource(
+  sourceType: Doc<"seedImportBatches">["sourceType"] | undefined,
+): NonNullable<PersonProfile["genres"]>[number]["source"] {
+  switch (sourceType) {
+    case undefined:
+      return "owner_selected";
+    case "partner":
+      return "partner_import";
+    case "community":
+      return "community_submitted";
+    default:
+      return "manual_review";
+  }
+}
+
+function linkSourceForSeedSource(
+  sourceType: Doc<"seedImportBatches">["sourceType"] | undefined,
+): NonNullable<PersonProfile["outboundLinks"]>[number]["source"] {
+  switch (sourceType) {
+    case undefined:
+    case "partner":
+      return "partner_provided";
+    default:
+      return "reviewed";
+  }
+}
+
 function visibilityKeyForSeedField(fieldKey: string) {
   if (fieldKey === "person.pronouns") {
     return "personPronouns" as const;
@@ -208,6 +239,13 @@ export type SeedFieldPatchOptions = {
    * profile erases content the import never proposed to replace.
    */
   clearUnselectedFields?: boolean;
+  /**
+   * Provenance stamped on converted genres and links. The concierge default
+   * (`owner_selected` / `partner_provided`) describes a profile its owner just
+   * confirmed. Publication of an unclaimed imported profile must not claim owner
+   * selection, so it derives provenance from the batch's source type instead.
+   */
+  sourceType?: Doc<"seedImportBatches">["sourceType"];
 };
 
 export function buildConciergeProfileFieldPatch(
@@ -217,6 +255,8 @@ export function buildConciergeProfileFieldPatch(
 ): Partial<PersonProfile> {
   const fieldVisibilitySource = options?.fieldVisibilitySource ?? "private";
   const clearUnselectedFields = options?.clearUnselectedFields ?? profile !== undefined;
+  const genreSource = genreSourceForSeedSource(options?.sourceType);
+  const linkSource = linkSourceForSeedSource(options?.sourceType);
   const patch: Partial<PersonProfile> = {};
   const fieldVisibility: NonNullable<PersonProfile["fieldVisibility"]> = {
     ...(profile?.fieldVisibility ?? {}),
@@ -297,8 +337,8 @@ export function buildConciergeProfileFieldPatch(
         patch.genres = (value as string[]).map((displayName) => ({
           slug: genreSlug(displayName),
           displayName,
-          source: "owner_selected" as const,
-          confidence: "high" as const,
+          source: genreSource,
+          confidence: options?.sourceType === undefined ? ("high" as const) : ("medium" as const),
           explicit: false,
         }));
         break;
@@ -312,7 +352,7 @@ export function buildConciergeProfileFieldPatch(
       case "outboundLinks":
         patch.outboundLinks = (value as Array<Record<string, unknown>>).map((link) => ({
           ...(link as Omit<NonNullable<PersonProfile["outboundLinks"]>[number], "source">),
-          source: "partner_provided" as const,
+          source: linkSource,
         }));
         break;
       case "person.pronouns":

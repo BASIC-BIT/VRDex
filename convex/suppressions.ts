@@ -94,6 +94,30 @@ export const requestProfileSuppression = mutation({
  * that profile public even though the request was accepted. Name/type identity is
  * therefore re-resolved here.
  */
+/**
+ * Whether a slug-matched profile is actually the one a request names.
+ *
+ * A request with no stored name or type carries no further identity to disagree
+ * with, so the slug is taken at face value.
+ */
+function suppressionIdentityAgrees(
+  request: Doc<"profileSuppressionRequests">,
+  profile: Doc<"profiles">,
+): boolean {
+  if (request.profileType !== undefined && request.profileType !== profile.profileType) {
+    return false;
+  }
+
+  if (
+    request.displayName !== undefined &&
+    createProfileSortName(request.displayName) !== createProfileSortName(profile.displayName)
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
 async function resolveSuppressionTargets(
   db: MutationCtx["db"],
   request: Doc<"profileSuppressionRequests">,
@@ -107,7 +131,11 @@ async function resolveSuppressionTargets(
   const bySlug =
     request.profileSlug === undefined ? null : await getProfileBySlug(db, request.profileSlug);
 
-  if (bySlug !== null) {
+  // A pre-claim request can record a slug before any profile holds it, and someone
+  // else — possibly of the other profile type — may acquire it before acceptance.
+  // Only trust a slug match that agrees with the request's stored identity;
+  // otherwise fall through to the name/type lookup for the intended profile.
+  if (bySlug !== null && suppressionIdentityAgrees(request, bySlug)) {
     return [bySlug];
   }
 

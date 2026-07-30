@@ -1,5 +1,6 @@
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
+import { createProfileSortName } from "./_profileSubmissions";
 
 export type SuppressionIdentity = {
   profileId?: Id<"profiles">;
@@ -60,8 +61,13 @@ export async function hasAcceptedSuppression(
   // Pre-claim requests carry no profile id or slug, so they can only be matched
   // on the name/type identity and there is no index for that. Accepted requests
   // are the small set of people who asked not to be listed, so scanning is fine.
+  //
+  // Canonicalized with createProfileSortName, the same function the acceptance
+  // resolver uses. Trim-and-lowercase alone would treat "DJ Exámple" and
+  // "DJ Example" as different identities here while acceptance treats them as the
+  // same, letting a spelling variant publish past an accepted safety request.
   const normalizedNames = new Set(
-    identity.displayNames.map((name) => name.trim().toLocaleLowerCase()).filter(Boolean),
+    identity.displayNames.map((name) => createProfileSortName(name)).filter(Boolean),
   );
 
   if (normalizedNames.size === 0) {
@@ -76,7 +82,7 @@ export async function hasAcceptedSuppression(
   return acceptedRequests.some(
     (request) =>
       request.displayName !== undefined &&
-      normalizedNames.has(request.displayName.trim().toLocaleLowerCase()) &&
+      normalizedNames.has(createProfileSortName(request.displayName)) &&
       (request.profileType === undefined || request.profileType === identity.profileType),
   );
 }

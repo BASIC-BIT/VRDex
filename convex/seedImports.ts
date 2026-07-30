@@ -674,6 +674,7 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
     const publishFieldPatchOptions = {
       fieldVisibilitySource: "reviewed" as const,
       clearUnselectedFields: false,
+      sourceType: batch.sourceType,
     };
 
     const publicSurfacing = {
@@ -882,15 +883,13 @@ export const bulkPublishBatch = internalMutation({
       throw new Error("Bulk publishing requires a reason recording the source permission.");
     }
 
-    if (!canBulkApproveSeedImportBatch(batch.reviewState)) {
-      throw new Error(
-        `Batch review state "${batch.reviewState}" is an explicit review decision. Move it with seedImports:setBatchReviewState before bulk publishing.`,
-      );
-    }
-
     const now = args.now ?? Date.now();
     const reviewer = await actorFromArgs(ctx, args.reviewer);
-    const limit = Math.max(1, Math.min(args.limit ?? 25, 200));
+    // ponytail: capped at 50 because --accept-fields patches every field of every
+    // candidate in this page and then rescans them in the queue and publish gates,
+    // all in one Convex transaction. Split field acceptance into its own paged
+    // mutation if batches ever need larger pages.
+    const limit = Math.max(1, Math.min(args.limit ?? 25, 50));
 
     // Batch-level prerequisites and the run's audit note. The note is written on
     // the first page of a run (no cursor yet) regardless of whether the
@@ -902,8 +901,9 @@ export const bulkPublishBatch = internalMutation({
       (batch.publicationPolicy ?? "private_only") !== "reviewed_publication_allowed";
 
     // Prerequisites are only relaxed on the first page. Restoring private_only or
-    // un-approving the batch mid-run is the kill switch, so a later page must stop
-    // rather than quietly re-enable publication and keep going.
+    // changing the review state mid-run is the kill switch, so a later page stops
+    // rather than quietly re-enabling publication. Checked before the explicit-state
+    // validation below so a mid-run rejection reports a halt instead of throwing.
     if (!isFirstPage && needsPrerequisites) {
       return {
         externalBatchId: batch.externalBatchId,
@@ -914,6 +914,12 @@ export const bulkPublishBatch = internalMutation({
         isDone: true as const,
         haltedByPolicyChange: true as const,
       };
+    }
+
+    if (!canBulkApproveSeedImportBatch(batch.reviewState)) {
+      throw new Error(
+        `Batch review state "${batch.reviewState}" is an explicit review decision. Move it with seedImports:setBatchReviewState before bulk publishing.`,
+      );
     }
 
     if (isFirstPage) {

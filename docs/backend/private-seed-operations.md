@@ -224,10 +224,11 @@ default.
 request. It changes nothing on its own.
 
 `suppressions:resolveProfileSuppression` is the operator side. Accepting a
-request sets the named profile to `publicSurfacingState: "opted_out"`, records a
-`suppression_accepted` audit event, and reindexes the profile so discovery drops
-it. This is both the retraction path for an already-public profile and what makes
-the accepted-suppression publication guard reachable.
+request sets every matching profile to `publicSurfacingState: "opted_out"`,
+records a `suppression_accepted` audit event, and reindexes the profile so it
+drops out of search results. This is both the retraction path for an
+already-public profile and what makes the accepted-suppression publication guard
+reachable.
 
 ```powershell
 pnpm exec convex run --prod suppressions:resolveProfileSuppression `
@@ -238,11 +239,24 @@ Notes:
 
 - `state` accepts `under_review`, `accepted`, or `rejected`. Only `accepted`
   changes a profile.
-- A pre-claim request with no profile id or slug has no profile to change. It is
-  still recorded as accepted, which blocks future seed publication for that
-  name and profile type.
+- Identity is re-resolved **at acceptance time**, not at request time: profile id,
+  then slug, then display name and profile type. A pre-claim request filed before
+  its profile existed therefore still retracts a profile that was published in
+  between, and acceptance can affect more than one profile — the return value is
+  `appliedToProfileIds`.
+- A slug match is only trusted when the request's stored display name and profile
+  type agree with it, since a slug recorded before any profile held it can be
+  acquired by someone else in the meantime.
+- If nothing matches, the request is still recorded as accepted, which blocks
+  future seed publication for that name and profile type.
 - Accepting sets `opted_out`, not `suppressed`. `suppressed` stays reserved for
-  moderation action rather than a request someone made about themselves.
+  moderation action rather than a request someone made about themselves, and an
+  already-`suppressed` profile keeps that state.
+- Known limitation: retraction removes the profile from search results but does
+  **not** reconcile `vocabularyTerms`. Nothing in the codebase decrements
+  vocabulary usage, so a tag or genre contributed by a retracted profile can
+  still appear in discovery vocabulary with its usage count. Reference-counted
+  vocabulary is a separate change.
 
 ## Lookup Grants
 
