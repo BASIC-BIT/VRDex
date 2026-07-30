@@ -177,13 +177,17 @@ async function recordGuildControlProof(
 }
 
 /**
- * Accept the pre-branch trust copy only where the target may not carry this
- * branch yet.
+ * Whether the hosted target is running exactly this revision.
  *
- * A local run is always this branch, so accepting either state there would let
- * the exact regression these assertions exist for — an unrelated guild or
- * VRChat account labelled `Verified` rather than merely `Claimed` — pass
- * silently. Hosted runs keep the tolerance because staging can lag the branch.
+ * A local run is always this branch, so accepting either trust state there
+ * would let the exact regression these assertions exist for — an unrelated
+ * guild or VRChat account labelled `Verified` rather than merely `Claimed` —
+ * pass silently. Hosted runs keep a tolerance because staging can lag.
+ *
+ * Note what this can and cannot tell apart: staging only ever deploys `main`,
+ * so the comparison matches on `main` and on nothing else. Every feature branch
+ * takes the tolerant path regardless of whether it is actually behind staging,
+ * which is why that path has to accept the current state too.
  */
 async function hostedTargetRunsCurrentRevision(request: APIRequestContext) {
   if (!process.env.PLAYWRIGHT_BASE_URL) {
@@ -210,29 +214,26 @@ async function expectCurrentOrHostedLagTrustState(
     return;
   }
 
-  // GITHUB_SHA is the pull request's own commit, which never matches a shared
-  // staging target, so this branch runs for every PR regardless of what staging is
-  // actually serving. Both trust states are therefore legitimate here: the
-  // pre-branch indicator while a target still lags, and its absence once the target
-  // carries the change that removed it. Require one of them rather than the older
-  // one specifically, or every PR fails the moment staging catches up.
-  const laggingTrustState = hostedLagCopy
-    .or(page.getByLabel("Owner verified"))
-    .or(page.getByLabel("Verified profile"))
-    .first();
+  // Shared staging may render a pre-branch trust state *or* the current one.
+  //
+  // Accepting only the pre-branch states made this unpassable on every feature
+  // branch: the revision check matches on main alone, so a branch that has
+  // merged main lands here and is then asserted against behaviour its own base
+  // no longer has. Staging can be behind this branch, which is what the
+  // tolerance is for — but it can equally be level with it, and that is not a
+  // failure.
+  await expect(async () => {
+    const lagState = hostedLagCopy
+      .or(page.getByLabel("Owner verified"))
+      .or(page.getByLabel("Verified profile"));
 
-  // Deliberately short. The indicator is server-rendered, so a target that still
-  // has it shows it immediately; waiting longer only burns the test's 60s budget
-  // once per call on targets that have already caught up.
-  try {
-    await laggingTrustState.waitFor({ state: "visible", timeout: 2_000 });
-    return;
-  } catch {
-    // Fall through to the current-revision invariant below.
-  }
+    if ((await lagState.count()) > 0) {
+      return;
+    }
 
-  await expect(profileStatusCopy(page, "Claimed")).toHaveCount(0);
-  await expect(page.getByLabel("Verified profile")).toHaveCount(0);
+    expect(await profileStatusCopy(page, "Claimed").count()).toBe(0);
+    expect(await page.getByLabel("Verified profile").count()).toBe(0);
+  }).toPass(hostedActionExpectOptions);
 }
 
 async function hostedTargetHasClaimJourney(page: Page, headingName: string) {

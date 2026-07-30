@@ -78,9 +78,10 @@ export function classifySecretRef(secretRef) {
 /**
  * Resolve a secret reference to a VRCLinking token.
  *
- * `arn:aws:secretsmanager:…` uses Secrets Manager through the task role.
- * `secret://<name>` reads `<name>` from `secretDir`, which keeps local and test
- * runs off AWS entirely.
+ * `arn:aws:secretsmanager:…` always uses Secrets Manager through the task role.
+ * `secret://<name>` reads `<name>` from `secretDir` when one is configured,
+ * which keeps local and test runs off AWS entirely, and otherwise resolves the
+ * same name through Secrets Manager.
  */
 export function createSecretResolver({ secretDir, awsClient, cacheTtlMs = 300_000, clock = Date.now } = {}) {
   const cache = new Map();
@@ -92,17 +93,28 @@ export function createSecretResolver({ secretDir, awsClient, cacheTtlMs = 300_00
    * `credential_rejected` for the rest of the TTL while the adapter replays the
    * old token — and every one of those attempts burns the claimant's cooldown.
    */
-  resolveSecret.invalidate = function invalidate(secretRef) {
+  resolveSecret.invalidate = function invalidate(secretRef, generation) {
     const classified = classifySecretRef(secretRef);
 
     if (classified.kind !== "invalid") {
-      cache.delete(classified.id);
+      cache.delete(cacheKey(classified.id, generation));
     }
   };
 
   return resolveSecret;
 
-  async function resolveSecret(secretRef) {
+  // Keyed by reference *and* generation. A community replacing its key keeps the
+  // same guild-derived reference — the reference is a pure function of the guild
+  // id — so a reference-only key let a warm container answer a claim reserved
+  // against the *new* credential row with the token it had cached for the old
+  // one. That verdict then passed both the row-id and reference rechecks and was
+  // attributed to the replacement. The generation is a cache key, not a
+  // credential: forging one costs a cache miss and a fresh read, nothing more.
+  function cacheKey(id, generation) {
+    return generation === undefined ? id : `${id}#${generation}`;
+  }
+
+  async function resolveSecret(secretRef, generation) {
     const classified = classifySecretRef(secretRef);
 
     if (classified.kind === "invalid") {
@@ -111,20 +123,21 @@ export function createSecretResolver({ secretDir, awsClient, cacheTtlMs = 300_00
       });
     }
 
-    const cached = cache.get(classified.id);
+    const key = cacheKey(classified.id, generation);
+    const cached = cache.get(key);
     if (cached !== undefined && cached.expiresAt > clock()) {
       return cached.token;
     }
 
     let raw;
 
-    if (classified.kind === "local") {
-      if (!secretDir) {
-        throw new SecretResolutionError("No local secret directory is configured.", {
-          reason: "unsupported_reference",
-        });
-      }
-
+    // `secret://<name>` names a secret; it does not pick a backend. With a
+    // secret directory it is a file, and on AWS it is a Secrets Manager name,
+    // which `GetSecretValue` accepts wherever it accepts an ARN. Treating the
+    // named form as file-only made every community that registered one — the
+    // form the account UI and `docs/backend/vrclinking-api.md` both document —
+    // unresolvable on Lambda, where there is no secret directory.
+    if (classified.kind === "local" && secretDir) {
       const resolvedPath = path.resolve(secretDir, classified.id);
 
       // Defence in depth alongside the reference pattern check.
@@ -141,7 +154,7 @@ export function createSecretResolver({ secretDir, awsClient, cacheTtlMs = 300_00
       }
     } else {
       if (!awsClient) {
-        throw new SecretResolutionError("No Secrets Manager client is configured.", {
+        throw new SecretResolutionError("No secret backend can resolve this reference.", {
           reason: "unsupported_reference",
         });
       }
@@ -155,7 +168,7 @@ export function createSecretResolver({ secretDir, awsClient, cacheTtlMs = 300_00
     }
 
     const token = extractToken(raw);
-    cache.set(classified.id, { token, expiresAt: clock() + cacheTtlMs });
+    cache.set(key, { token, expiresAt: clock() + cacheTtlMs });
 
     return token;
   }

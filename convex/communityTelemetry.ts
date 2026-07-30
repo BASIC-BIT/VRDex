@@ -2162,12 +2162,17 @@ export const recordProofCheckResult = internalMutation({
       return { state: "pending" as const };
     }
 
+    // Annotated rather than inferred: this mutation and `profileClaims` refer to
+    // each other through the generated `internal` handle, and letting the
+    // compiler chase that makes both `any`.
+    let outcome: { claimState: string } | { state: string; reason?: string };
+
     try {
-      await ctx.runMutation(internal.profileClaims.recordVrchatProofVerification, {
+      outcome = (await ctx.runMutation(internal.profileClaims.recordVrchatProofVerification, {
         attemptId: attempt._id,
         evidenceSource: "vrchat_api",
         evidenceSummary: "Proof code was found on the VRChat target by the collector.",
-      });
+      })) as { claimState: string } | { state: string; reason?: string };
     } catch (error) {
       // Only an ownership conflict is terminal. Another claimant won between
       // this attempt being issued and its code being found, and retrying cannot
@@ -2191,6 +2196,20 @@ export const recordProofCheckResult = internalMutation({
       });
 
       return { state: "already_owned" as const };
+    }
+
+    // The races the verifier *settles* rather than throws — another claimant
+    // winning, or the listing ceasing to be claimable while the proof was in
+    // flight — never reach the catch above, so reporting `verified` regardless
+    // told the collector a claim had been granted while the attempt row read
+    // `failed`. Settling rather than throwing is deliberate there: a throw would
+    // have the collector retry an attempt that can never succeed. Reading the
+    // result is what makes that choice safe.
+    if (!("claimState" in outcome)) {
+      return {
+        state:
+          outcome.reason === "already_owned" ? ("already_owned" as const) : ("not_granted" as const),
+      };
     }
 
     return { state: "verified" as const };

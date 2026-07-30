@@ -169,6 +169,57 @@ describe("collector proof check queue", () => {
     assert.equal(claimantResult.state, "verified");
   });
 
+  // `recordVrchatProofVerification` settles an ownership race rather than
+  // throwing, deliberately — a throw would have the collector retry an attempt
+  // that can never succeed. The catch in `recordProofCheckResult` therefore
+  // never sees it, so reporting `verified` regardless told the worker a claim
+  // had been granted while the attempt row read `failed`.
+  it("reports a lost ownership race to the collector rather than a false success", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const collectorAccountId = await t.run(async (ctx) => {
+      const id = await seedCollector(ctx as never, "race", now);
+      await seedAttempt(ctx as never, { targetType: "vrchat_user", now });
+
+      return id;
+    });
+    const claimed = await t.mutation(internal.communityTelemetry.claimPendingProofChecks, {
+      collectorAccountId,
+      workerId: "worker-race",
+      limit: 1,
+      now: now + 1,
+    });
+    const attemptId = claimed.attempts[0]!.attemptId;
+
+    // Somebody else takes the profile while the code is being looked for.
+    await t.run(async (ctx) => {
+      const attempt = await ctx.db.get(attemptId);
+      const rivalId = await ctx.db.insert("users", {
+        email: `rival-${Math.random()}@example.test`,
+        emailVerificationTime: now,
+      });
+      await ctx.db.insert("profileOwners", {
+        profileId: attempt!.profileId,
+        userId: rivalId,
+        roleKey: "owner",
+        state: "active",
+        grantedAt: now + 1,
+        updatedAt: now + 1,
+      });
+    });
+
+    const result = await t.mutation(internal.communityTelemetry.recordProofCheckResult, {
+      collectorAccountId,
+      attemptId,
+      found: true,
+      workerKeyHash: "a".repeat(64),
+      now: now + 2,
+    });
+
+    assert.equal(result.state, "already_owned");
+    assert.equal((await t.run(async (ctx) => await ctx.db.get(attemptId)))?.state, "failed");
+  });
+
   // An emergency stop that halts reads but still accepts in-flight verdicts is
   // not a stop: the fleet would keep granting verified ownership.
   it("refuses a verdict once the fleet kill switch is on", async () => {

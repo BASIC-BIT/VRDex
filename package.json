@@ -48,6 +48,7 @@
     "preproof:group-telemetry": "node scripts/guard-main-worktree.mjs",
     "proof:group-telemetry": "node --env-file-if-exists=.env.local scripts/prove-vrchat-group-telemetry.mjs",
     "preops:vrchat-session:transfer": "node scripts/guard-main-worktree.mjs",
+    "ops:package-vrclinking-adapter": "node scripts/package-vrclinking-adapter.mjs",
     "ops:vrchat-session:transfer": "node --env-file-if-exists=.env.local scripts/transfer-vrchat-session-to-aws.mjs",
     "preproof:restream:control": "node scripts/guard-main-worktree.mjs",
     "proof:restream:control": "node --import tsx scripts/restream-control-demo.ts",

@@ -3,7 +3,12 @@ import { createHmac } from "node:crypto";
 import { describe, it } from "node:test";
 
 import { validateRequest, verifyLinkage } from "./adapter.mjs";
-import { SecretResolutionError, classifySecretRef, extractToken } from "./secret-resolver.mjs";
+import {
+  SecretResolutionError,
+  classifySecretRef,
+  createSecretResolver,
+  extractToken,
+} from "./secret-resolver.mjs";
 import { VrclinkingProviderError, createVrclinkingClient } from "./vrclinking-client.mjs";
 
 const DISCORD_ID = "123456789012345678";
@@ -94,6 +99,42 @@ describe("adapter request validation", () => {
     assert.equal(validateRequest(baseBody()).ok, true);
   });
 
+  // Every index the control plane gets back is resolved against the batch it
+  // sent, so dropping an entry must not renumber the survivors. It used to: a
+  // match on the second delegation was reported as index 0, and Convex then
+  // re-checked and stamped the first. Where the credential that answered had
+  // been revoked mid-flight, the unrelated still-active row passed the re-check
+  // in its place and the claim was granted on a revoked answer.
+  it("reports the index a delegation had in the request, not after filtering", async () => {
+    const goodGuild = "12345678901234599";
+    const valid = signDelegation(
+      goodGuild,
+      `secret://vrdex/vrclinking/${goodGuild}`,
+      FAR_FUTURE,
+    );
+    const dropped = { ...DELEGATION, capability: "f".repeat(64) };
+    const validated = validateRequest(baseBody({ delegations: [dropped, valid] }));
+
+    assert.equal(validated.ok, true);
+    assert.equal(validated.request.delegations.length, 1);
+    assert.equal(validated.request.delegations[0].requestIndex, 1);
+
+    const result = await verifyLinkage({
+      request: validated.request,
+      resolveSecret,
+      getGuildMemberByDiscordId: async () => ({
+        id: DISCORD_ID,
+        vrcId: VRC_ID,
+        isVerified: true,
+      }),
+    });
+
+    assert.equal(result.verified, true);
+    assert.equal(result.matchedDelegationIndex, 1);
+    assert.equal(result.matchedGuildId, goodGuild);
+    assert.deepEqual(result.consultedDelegationIndexes, [1]);
+  });
+
   // Convex abandons the adapter request at ten seconds. Five sequential
   // lookups with their own timeouts can outlast that, so a match found after
   // the caller gave up is unusable and every provider call past that point
@@ -159,7 +200,11 @@ describe("adapter request validation", () => {
       validateRequest(baseBody({ delegations: [{ ...DELEGATION, guildId: "nope" }] })).error,
       "no_delegations",
     );
-    assert.equal(validateRequest(baseBody({ delegations: [arn] })).ok, true);
+    // The ARN form is no longer accepted at either end. Its pattern allowed any
+    // region and account while the execution role reads only its own, so a
+    // cross-account reference registered cleanly and then failed every
+    // resolution as `unavailable` with nothing naming the cause.
+    assert.equal(validateRequest(baseBody({ delegations: [arn] })).error, "no_delegations");
   });
 });
 
@@ -253,6 +298,28 @@ describe("linkage verification", () => {
     assert.equal(result.unavailable, true);
   });
 
+  // Drift in the member's own fields, rather than in the response envelope. The
+  // guard for it existed, but `consulted` was already set by the time it ran —
+  // so with drift on the only delegation the caller got a 200 negative and the
+  // claimant was told no server confirmed their account, off a response that
+  // never made a readable statement either way.
+  it("treats an unreadable member attestation as unavailable, not a negative", async () => {
+    for (const member of [
+      { id: DISCORD_ID, vrcId: VRC_ID },
+      { id: DISCORD_ID, vrcId: VRC_ID, isVerified: "yes" },
+      { id: DISCORD_ID, vrcId: "not-a-vrchat-id", isVerified: true },
+    ]) {
+      const result = await verifyLinkage({
+        request,
+        resolveSecret,
+        getGuildMemberByDiscordId: async () => member,
+      });
+
+      assert.equal(result.verified, false, JSON.stringify(member));
+      assert.equal(result.unavailable, true, JSON.stringify(member));
+    }
+  });
+
   it("treats a member who is simply absent as a plain negative", async () => {
     const result = await verifyLinkage({
       request,
@@ -330,6 +397,34 @@ describe("secret references", () => {
     assert.equal(classifySecretRef("secret://../../etc/passwd").kind, "invalid");
     assert.equal(classifySecretRef("https://example.test/token").kind, "invalid");
     assert.equal(classifySecretRef(undefined).kind, "invalid");
+  });
+
+  // The deployed Lambda has an AWS client and no secret directory. Reading
+  // `secret://` as file-only there made every community that registered the
+  // named form — the form `/account/connections` and the guild-binding check
+  // both accept — permanently unresolvable, surfacing as a 503 rather than as a
+  // configuration error anyone would think to look at.
+  it("resolves a named reference through Secrets Manager when no secret directory is configured", async () => {
+    const asked = [];
+    const resolve = createSecretResolver({
+      awsClient: {
+        getSecretValue: async (secretId) => {
+          asked.push(secretId);
+          return { SecretString: "provider-token" };
+        },
+      },
+    });
+
+    assert.equal(await resolve("secret://vrdex/vrclinking/123456789012345678"), "provider-token");
+    assert.deepEqual(asked, ["vrdex/vrclinking/123456789012345678"]);
+  });
+
+  it("still refuses a named reference when neither backend is configured", async () => {
+    const resolve = createSecretResolver({});
+
+    await assert.rejects(() => resolve("secret://vrdex/vrclinking/123456789012345678"), {
+      reason: "unsupported_reference",
+    });
   });
 });
 
@@ -470,5 +565,50 @@ describe("VRCLinking client", () => {
     assert.equal(seenUrl.includes("searchBy=DiscordId"), true);
     assert.equal(seenUrl.includes(DISCORD_ID), true);
     assert.equal(seenHeaders.authorization, "Bearer tok");
+  });
+});
+
+describe("resolver cache generations", () => {
+  // Every version of a delegation derives the same guild-scoped reference, so a
+  // reference-only cache key let a warm container answer a claim reserved
+  // against a replacement row with the token it had cached for the row that
+  // replacement superseded — and that verdict then passed both the row-id and
+  // reference rechecks on the control plane.
+  it("does not serve a replaced credential's token to its replacement", async () => {
+    let reads = 0;
+    const resolve = createSecretResolver({
+      awsClient: {
+        getSecretValue: async () => {
+          reads += 1;
+          return { SecretString: `token-${reads}` };
+        },
+      },
+    });
+    const ref = "secret://vrdex/vrclinking/123456789012345678";
+
+    assert.equal(await resolve(ref, 1), "token-1");
+    assert.equal(await resolve(ref, 1), "token-1", "same generation is still cached");
+    assert.equal(await resolve(ref, 2), "token-2", "a new generation must re-read");
+    assert.equal(reads, 2);
+  });
+
+  it("invalidates only the generation whose token the provider rejected", async () => {
+    let reads = 0;
+    const resolve = createSecretResolver({
+      awsClient: {
+        getSecretValue: async () => {
+          reads += 1;
+          return { SecretString: `token-${reads}` };
+        },
+      },
+    });
+    const ref = "secret://vrdex/vrclinking/123456789012345678";
+
+    await resolve(ref, 1);
+    await resolve(ref, 2);
+    resolve.invalidate(ref, 1);
+
+    assert.equal(await resolve(ref, 2), "token-2", "untouched");
+    assert.equal(await resolve(ref, 1), "token-3", "re-read after invalidation");
   });
 });

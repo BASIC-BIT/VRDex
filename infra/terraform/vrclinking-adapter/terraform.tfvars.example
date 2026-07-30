@@ -1,0 +1,27 @@
+# Copy to terraform.tfvars and fill in. The secret must already exist; this stack
+# reads it, it does not create it — a secret Terraform creates has its value in
+# the state file.
+#
+# One object holding both values, written together:
+#
+#   aws secretsmanager create-secret --name vrdex/vrclinking/shared \
+#     --secret-string "$(node -e 'const c=require("node:crypto");
+#       process.stdout.write(JSON.stringify({
+#         bearerToken: c.randomBytes(32).toString("hex"),
+#         capabilityKey: c.randomBytes(32).toString("hex"),
+#       }))')"
+#
+# Two separate values inside it. The bearer token authenticates the channel and
+# the capability key authorizes an individual guild, so reusing one for both
+# makes the second check decorative — the adapter refuses to start if they match.
+#
+# One secret rather than two because two cannot be written atomically: a cold
+# start landing between the writes would cache a new bearer against an old
+# capability key and hold that pair for its container's life.
+
+shared_secret_arn = "arn:aws:secretsmanager:us-east-1:000000000000:secret:vrdex/vrclinking/shared-AbCdEf"
+
+# Leave `enable_service` out of this file. It defaults to false so a new
+# environment is safe by default, and production supplies it through
+# `-var-file=environments/production.tfvars`, which Terraform does NOT auto-load.
+# Setting it here instead would apply to every workspace using this file.

@@ -119,6 +119,7 @@ Development/staging Convex env names:
 - `VRCHAT_PROOF_ADAPTER_URL`: optional hosted adapter stub URL, usually `https://staging.vrdex.net/api/e2e/adapters/vrchat-proof`
 - `VRCLINKING_PROOF_ADAPTER_URL`: optional hosted adapter stub URL, usually `https://staging.vrdex.net/api/e2e/adapters/vrchat-proof`
 - `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`: staging-only adapter token matching the hosted app environment
+- `VRCLINKING_ADAPTER_CAPABILITY_KEY`: staging-only capability signing key, and a different value from the bearer token. Required alongside the two above, not optional with them: `getClaimJourneyContext` hides the VRCLinking method unless all three are set, so omitting this one leaves the method invisible and the hosted stub unexercised — with nothing reporting a misconfiguration, because hiding is the designed behaviour
 
 The browser-facing token stays in the web host and GitHub Actions as `VRDEX_E2E_BROWSER_TOKEN` / `VRDEX_HOSTED_E2E_BROWSER_TOKEN`; it is not needed by Convex.
 
@@ -133,12 +134,37 @@ Production Convex Auth env names:
 - `JWKS`: Convex Auth public key set matching `JWT_PRIVATE_KEY`
 - `AWS_SES_REGION`, `AWS_SES_FROM_EMAIL`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY`: production SES sender configuration for email/password verification
 
-Profile claiming needs no additional production Convex environment variables.
-Discord community verification reuses `AUTH_DISCORD_ID`, `AUTH_DISCORD_SECRET`,
-and `SITE_URL` through a purpose-scoped OAuth round-trip; it requires only that
+Discord community verification needs no additional production Convex environment
+variables. It reuses `AUTH_DISCORD_ID`, `AUTH_DISCORD_SECRET`, and `SITE_URL`
+through a purpose-scoped OAuth round-trip; it requires only that
 `https://vrdex.net/api/discord/verify/callback` is registered as a redirect URI
-on the production Discord application. The optional bot and collector paths, and
-the exact operator steps, are documented in
+on the production Discord application.
+
+The VRCLinking claim method needs three, and `getClaimJourneyContext` hides the
+method unless **all three** are present — a deployment holding only some of them
+offers nothing, rather than offering a method that throws:
+
+- `VRCLINKING_PROOF_ADAPTER_URL`: the Function URL output by
+  `infra/terraform/vrclinking-adapter`
+- `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`: the `bearerToken` field of the shared
+  secret. Also read by the generic VRChat proof adapter seam, so a deployment
+  running both rotates both together
+- `VRCLINKING_ADAPTER_CAPABILITY_KEY`: the `capabilityKey` field of the same
+  secret, and necessarily a different value from the bearer token — the adapter
+  refuses to start if they match
+
+Both come from **one** Secrets Manager object, `vrdex/vrclinking/shared`, holding
+`{ "bearerToken": …, "capabilityKey": … }`. One object rather than two because
+two cannot be written atomically, and a cold start landing between the writes
+would cache a mismatched pair for its container's life. Provisioning two
+single-value secrets instead leaves no ARN for Terraform to take, and pointing
+the stack at one of them fails every cold start.
+
+Setting these does not by itself make a claim completable: a community must also
+delegate a credential, and until one has, the method is offered and every
+attempt returns `unavailable`. The stack README carries the deployment and
+rotation sequence. The optional bot and collector paths, and the exact operator
+steps, are documented in
 [`claim-verification-enablement.md`](./claim-verification-enablement.md).
 
 Session durations are code-owned rather than dashboard-owned. See

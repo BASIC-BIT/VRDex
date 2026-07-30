@@ -195,6 +195,13 @@ export type DiscoveryAnalyticsSurface =
   | "active_worlds"
   | "featured_picks";
 
+/**
+ * Which claim path an event came from. A closed set, not the raw target type:
+ * `vrclinking` is one method the claimant picks, even though it produces a
+ * `vrchat_user` asset just as the direct proof does.
+ */
+export type ClaimAnalyticsMethod = "discord" | "vrchat" | "vrclinking";
+
 type ProductAnalyticsEvents = {
   auth_session_restore_completed: {
     browser_family?: "chromium" | "firefox" | "other" | "safari";
@@ -255,20 +262,20 @@ type ProductAnalyticsEvents = {
     source: "account" | "profile" | "search";
   };
   claim_method_selected: {
-    method: "discord" | "vrchat";
+    method: ClaimAnalyticsMethod;
     profile_type: "person" | "community";
   };
   claim_submitted: {
-    method: "discord" | "vrchat";
+    method: ClaimAnalyticsMethod;
     profile_type: "person" | "community";
   };
   claim_completed: {
-    method: "discord" | "vrchat";
+    method: ClaimAnalyticsMethod;
     outcome: "already_owned" | "claimed_unverified" | "claimed_verified";
     profile_type: "person" | "community";
   };
   claim_failed: {
-    method: "discord" | "vrchat";
+    method: ClaimAnalyticsMethod;
     outcome: "conflict" | "expired" | "not_verified" | "unavailable" | "unknown";
     profile_type: "person" | "community";
   };
