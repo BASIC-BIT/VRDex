@@ -333,8 +333,7 @@ export const retractProfilesForSuppression = internalMutation({
         if (updated !== null) {
           await upsertSearchDocument(ctx.db, createProfileSearchDocument(updated));
           await ctx.scheduler.runAfter(0, internal.suppressions.reindexWorldsCreditingProfile, {
-            profileType: updated.profileType,
-            profileSlug: updated.slug,
+            profiles: [{ profileType: updated.profileType, profileSlug: updated.slug }],
           });
         }
 
@@ -377,8 +376,15 @@ export const retractProfilesForSuppression = internalMutation({
  */
 export const reindexWorldsCreditingProfile = internalMutation({
   args: {
-    profileType: v.union(v.literal("person"), v.literal("community")),
-    profileSlug: v.string(),
+    // A list, so one scan can cover a whole page of published profiles. Scanning
+    // the worlds table once per profile would mean hundreds of identical
+    // full-table scans for a large batch.
+    profiles: v.array(
+      v.object({
+        profileType: v.union(v.literal("person"), v.literal("community")),
+        profileSlug: v.string(),
+      }),
+    ),
     cursor: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -390,11 +396,16 @@ export const reindexWorldsCreditingProfile = internalMutation({
       .paginate({ numItems: WORLD_REINDEX_PAGE_SIZE, cursor: args.cursor ?? null });
     let reindexed = 0;
 
+    const wanted = new Set(
+      args.profiles.map((profile) => `${profile.profileType}:${profile.profileSlug}`),
+    );
+
     for (const world of worlds.page) {
       const creditsProfile = world.creatorAttributions.some(
         (attribution) =>
-          attribution.profileSlug === args.profileSlug &&
-          attribution.profileType === args.profileType,
+          attribution.profileSlug !== undefined &&
+          attribution.profileType !== undefined &&
+          wanted.has(`${attribution.profileType}:${attribution.profileSlug}`),
       );
 
       if (!creditsProfile) {
@@ -408,8 +419,7 @@ export const reindexWorldsCreditingProfile = internalMutation({
 
     if (!worlds.isDone) {
       await ctx.scheduler.runAfter(0, internal.suppressions.reindexWorldsCreditingProfile, {
-        profileType: args.profileType,
-        profileSlug: args.profileSlug,
+        profiles: args.profiles,
         cursor: worlds.continueCursor,
       });
     }

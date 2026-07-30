@@ -318,6 +318,8 @@ Unlike the other migrations it is **not** part of `migrations:runAll`, because p
 pnpm exec convex run --prod migrations:runPublishGatedProfiles
 ```
 
+That runner executes `backfillProfilePublicSurfacingState` first. A legacy profile with no `publicSurfacingState` would otherwise be skipped while the publication migration's cursor advanced, and running the backfill afterwards cannot make a completed migration revisit it.
+
 Deploy-time migrations use `@convex-dev/migrations` and are run by `migrations:runAll` after production function deploys when `CONVEX_DEPLOY_KEY` is configured.
 
 ## Initial Indexes

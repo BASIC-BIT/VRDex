@@ -129,14 +129,19 @@ export const publishGatedProfiles = migrations.define({
       // Worlds crediting this slug hid the attribution while the profile was not
       // publicly readable; rebuild them now that it is.
       await ctx.scheduler.runAfter(0, internal.suppressions.reindexWorldsCreditingProfile, {
-        profileType: published.profileType,
-        profileSlug: published.slug,
+        profiles: [{ profileType: published.profileType, profileSlug: published.slug }],
       });
     }
   },
 });
 
-export const runPublishGatedProfiles = migrations.runner(internal.migrations.publishGatedProfiles);
+// Runs the surfacing backfill first. A legacy profile with no publicSurfacingState
+// would be skipped by publishGatedProfiles while its migration cursor advanced, and
+// running the backfill afterwards cannot make a completed migration revisit it.
+export const runPublishGatedProfiles = migrations.runner([
+  internal.migrations.backfillProfilePublicSurfacingState,
+  internal.migrations.publishGatedProfiles,
+]);
 
 // Deliberately not in runAll: this publishes profiles publicly, which is
 // outward-facing and not cleanly reversible. An operator triggers it when they

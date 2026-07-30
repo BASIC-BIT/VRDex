@@ -2149,14 +2149,17 @@ export default defineSchema({
     receivedAt: v.number(),
     sourceObservedAt: v.optional(v.number()),
     publicationPolicy: v.optional(seedImportPublicationPolicyValidator),
-    // Written once, never overwritten: the durable record of why publication was
-    // authorized. `notes` is a mutable review buffer and cannot hold this.
-    publicationAuthorization: v.optional(
-      v.object({
-        reason: v.string(),
-        authorizedBy: v.optional(authSubject),
-        authorizedAt: v.number(),
-      }),
+    // Append-only: the durable record of each time publication was authorized.
+    // `notes` is a mutable review buffer and cannot hold this, and a batch can be
+    // revoked to private_only and later reauthorized with a new reason.
+    publicationAuthorizations: v.optional(
+      v.array(
+        v.object({
+          reason: v.string(),
+          authorizedBy: v.optional(authSubject),
+          authorizedAt: v.number(),
+        }),
+      ),
     ),
     importedBy: v.optional(authSubject),
     reviewState: seedImportBatchReviewStateValidator,

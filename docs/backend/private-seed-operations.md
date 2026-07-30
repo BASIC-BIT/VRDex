@@ -229,8 +229,9 @@ pnpm ops:seed-publish -- `
   --prod
 ```
 
-- `--reason` is required and is recorded on the batch as `publicationAuthorization`,
-  which is written once and never overwritten. It is the durable record of the
+- `--reason` is required and is recorded on the batch in
+  `publicationAuthorizations`, an append-only list so a batch revoked to
+  `private_only` and later reauthorized keeps a record for each authorization. It is the durable record of the
   operator asserting the source permits public listing. The reason is also appended
   to `notes`, but `notes` is a mutable review buffer and is not the record of
   authorization.

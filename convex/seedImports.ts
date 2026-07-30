@@ -80,12 +80,12 @@ function appendBatchNote(existing: string | undefined, entry: string): string | 
 }
 
 /**
- * The immutable publication-authorization record, written only the first time a
- * batch is authorized.
+ * Append a publication-authorization record.
  *
- * Kept out of `notes`, which any later `setBatchReviewState` call can replace and
- * which `appendBatchNote` trims oldest-first, so a still-public batch cannot lose
- * the only record of why publication was permitted.
+ * Append-only rather than write-once: a batch can be revoked to `private_only` and
+ * later reauthorized with a new reason, and each authorization needs its own
+ * durable record. Kept out of `notes`, which any later `setBatchReviewState` call
+ * can replace and which `appendBatchNote` trims oldest-first.
  */
 function publicationAuthorizationPatch(
   batch: Doc<"seedImportBatches">,
@@ -93,16 +93,24 @@ function publicationAuthorizationPatch(
   actor: { tokenIdentifier: string; issuer: string; subject: string; displayName?: string } | undefined,
   now: number,
 ) {
-  if (batch.publicationAuthorization !== undefined) {
+  const existing = batch.publicationAuthorizations ?? [];
+  const latest = existing[existing.length - 1];
+
+  // Skip an exact repeat, so paging a bulk run does not append the same record
+  // once per page.
+  if (latest !== undefined && latest.reason === reason && latest.authorizedAt === now) {
     return {};
   }
 
   return {
-    publicationAuthorization: {
-      reason,
-      ...optionalValue("authorizedBy", actor),
-      authorizedAt: now,
-    },
+    publicationAuthorizations: [
+      ...existing,
+      {
+        reason,
+        ...optionalValue("authorizedBy", actor),
+        authorizedAt: now,
+      },
+    ],
   };
 }
 
@@ -535,14 +543,11 @@ export const matchCandidateToProfile = internalMutation({
     // the by_profileId index unable to see it: publishing another candidate into the
     // same profile would expose this one's private destination, and acceptance would
     // then fail because the invitation's profile no longer matches its candidate.
-    if (
-      await hasLiveHandoffInvitation(
-        ctx,
-        candidate._id,
-        candidate.matchedProfileId,
-        args.now ?? Date.now(),
-      )
-    ) {
+    // Only this candidate's own invitations. Including the matched profile's would
+    // stop candidate A unmatching from a profile whose invitation belongs to
+    // candidate B, even though unmatching removes that conflict rather than
+    // creating one. The profile-indexed check stays at the publication gates.
+    if (await hasLiveHandoffInvitation(ctx, candidate._id, undefined, args.now ?? Date.now())) {
       throw new Error(
         "This candidate has a live handoff invitation. Revoke it with seedHandoffs:revokeInvitation before changing its match.",
       );
@@ -926,13 +931,6 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
       recordVocabularyTerms(ctx.db, vocabularyForProfile(profile), now),
     ]);
 
-    // A world crediting this slug hid the attribution while the profile was not
-    // publicly readable, so its search document needs rebuilding now that it is.
-    await ctx.scheduler.runAfter(0, internal.suppressions.reindexWorldsCreditingProfile, {
-      profileType: profile.profileType,
-      profileSlug: profile.slug,
-    });
-
     await ctx.db.patch(candidate._id, {
       publishedProfileId: profileId,
       publishedAt: now,
@@ -947,6 +945,10 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
       candidateId: candidate._id,
       profileId,
       slug: profile.slug,
+      // Returned rather than scheduled here so a bulk page can coalesce every
+      // published profile into a single worlds scan. A world crediting this slug
+      // hid the attribution while the profile was not publicly readable.
+      reindexKey: { profileType: profile.profileType, profileSlug: profile.slug },
     };
   }
 }
@@ -957,7 +959,17 @@ export const publishQueuedCandidate = internalMutation({
     reviewer: v.optional(seedImportAuthSubjectValidator),
     now: v.optional(v.number()),
   },
-  handler: async (ctx, args) => await publishCandidate(ctx, args),
+  handler: async (ctx, args) => {
+    const result = await publishCandidate(ctx, args);
+
+    if (result.published && result.alreadyPublished === false && result.reindexKey !== undefined) {
+      await ctx.scheduler.runAfter(0, internal.suppressions.reindexWorldsCreditingProfile, {
+        profiles: [result.reindexKey],
+      });
+    }
+
+    return result;
+  },
 });
 
 async function resolveBatch(
@@ -1174,6 +1186,10 @@ export const bulkPublishBatch = internalMutation({
 
     let published = 0;
     const skipped: Array<{ externalCandidateId: string; blockers: string[] }> = [];
+    const reindexKeys: Array<{
+      profileType: Doc<"profiles">["profileType"];
+      profileSlug: string;
+    }> = [];
 
     for (const candidate of page) {
       if (args.acceptFields === true) {
@@ -1236,12 +1252,23 @@ export const bulkPublishBatch = internalMutation({
 
       if (publishResult.published) {
         published += 1;
+
+        if (publishResult.reindexKey !== undefined) {
+          reindexKeys.push(publishResult.reindexKey);
+        }
       } else {
         skipped.push({
           externalCandidateId: candidate.externalCandidateId,
           blockers: publishResult.blockers,
         });
       }
+    }
+
+    // One scan for the whole page rather than one per published profile.
+    if (reindexKeys.length > 0) {
+      await ctx.scheduler.runAfter(0, internal.suppressions.reindexWorldsCreditingProfile, {
+        profiles: reindexKeys,
+      });
     }
 
     return {

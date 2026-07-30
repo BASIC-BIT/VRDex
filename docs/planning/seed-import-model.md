@@ -30,6 +30,9 @@ Current recommendation:
 - Imported fields are not owner-confirmed unless the owner actually confirms them.
 - Partner-provided data must not bypass owner visibility controls after claim.
 - Publication defaults should be safe and reviewed.
+- Publication is an explicit per-batch operator decision with a recorded reason,
+  never a default; see
+  [Publication](../backend/private-seed-operations.md#publication).
 
 ## Domain Objects
 
@@ -46,7 +49,11 @@ Suggested fields:
 - `sourceContact` optional internal owner for the import relationship
 - `receivedAt`
 - `sourceObservedAt` optional source-provided snapshot or as-of time
-- `publicationPolicy`: new permissioned JSON imports are always `private_only`
+- `publicationPolicy`: new permissioned JSON imports are always `private_only`; an
+  operator relaxes it to `reviewed_publication_allowed` to permit publication
+- `publicationAuthorizations` append-only records of each publication
+  authorization, each holding the operator's reason, actor, and timestamp; kept
+  separate from `notes`, which is a mutable review buffer
 - `importedBy`
 - `reviewState`: `draft`, `ready_for_review`, `approved`, `rejected`, `superseded`
 - `reviewedBy` optional reviewer metadata
@@ -73,6 +80,9 @@ Suggested fields:
 - `reviewNote` optional internal note
 - `publicationQueuedBy` optional reviewer metadata when the queue marker is set
 - `publicationQueuedAt` optional queue marker timestamp
+- `publishedProfileId` optional public profile created or promoted by publication
+- `publishedAt` optional publication timestamp
+- `publishedBy` optional operator who published it
 - `createdAt`
 - `updatedAt`
 
