@@ -13,7 +13,7 @@ const DISCORD_SNOWFLAKE_PATTERN = /^\d{17,20}$/;
 const MAX_DELEGATIONS = 5;
 // Convex abandons the adapter request at ten seconds. Stopping short of that
 // keeps the fan-out inside the window whose answer can still be used.
-const DEFAULT_FAN_OUT_BUDGET_MS = 8_000;
+export const DEFAULT_FAN_OUT_BUDGET_MS = 8_000;
 
 /**
  * Reject once the budget is spent, whatever the underlying work does.

@@ -20,7 +20,7 @@ import { handleAdapterRequest, MAX_BODY_BYTES } from "./handler.mjs";
  */
 let deps = resolveAdapterDeps().catch((error) => error);
 
-export async function handler(event) {
+export async function handler(event, context) {
   const resolved = await deps;
 
   if (resolved instanceof Error) {
@@ -58,6 +58,13 @@ export async function handler(event) {
     path,
     authorization,
     rawBody,
+    // Read *after* the bootstrap await above, so a cold start that spent part
+    // of this invocation resolving secrets shortens the fan-out rather than
+    // handing it a budget the platform will not honour. Absent on a direct
+    // test invocation, where the fan-out falls back to its own default.
+    ...(typeof context?.getRemainingTimeInMillis === "function"
+      ? { remainingMs: context.getRemainingTimeInMillis() }
+      : {}),
     ...resolved,
   });
 

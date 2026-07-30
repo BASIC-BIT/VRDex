@@ -109,3 +109,38 @@ describe("adapter transport contract", () => {
     assert.equal(result.status, 405);
   });
 });
+
+// The fan-out's own budget assumes a whole invocation is ahead of it. After a
+// cold start has spent part of one resolving secrets that is false, and with
+// the function timeout deliberately below Convex's deadline the margin is thin:
+// a provider call could be started that Lambda kills before its answer returns,
+// spending a community's quota and the claimant's reserved cooldown for a
+// verdict nobody receives.
+describe("fan-out budget", () => {
+  it("spends nothing when the invocation has no time left", async () => {
+    let asked = 0;
+    const result = await call({
+      remainingMs: 100,
+      getGuildMemberByDiscordId: async () => {
+        asked += 1;
+        return { id: DISCORD_ID, vrcId: VRC_ID, isVerified: true };
+      },
+    });
+
+    assert.equal(asked, 0);
+    // Not a negative: nothing was consulted, so the honest answer is that the
+    // question could not be put — the control plane reads 503 as "unavailable"
+    // and leaves the attempt pending.
+    assert.equal(result.status, 503);
+    assert.equal(result.payload.verified, false);
+  });
+
+  it("still answers when the invocation has room, and without a platform context", async () => {
+    for (const overrides of [{ remainingMs: 8_000 }, {}]) {
+      const result = await call(overrides);
+
+      assert.equal(result.status, 200);
+      assert.equal(result.payload.verified, true);
+    }
+  });
+});
