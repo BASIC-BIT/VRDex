@@ -65,11 +65,18 @@ When `VRDEX_HOSTED_E2E_AUTH_HELPERS=true`,
 on-demand preview workflow also creates a separate random Convex E2E secret. It enables
 the auth helper only on the named Convex preview and injects the matching helper
 flags, generated Convex secret, and repository browser token only into the
-matching Vercel preview. This supports temporary verified accounts and reviewed
-OAuth clients for hosted MCP compatibility evidence without enabling the helper
-on shared staging or production. The workflow also generates a preview-only
-preview Clerk configuration and binds `SITE_URL` to the concrete Vercel
-deployment URL after deployment. Separate per-preview runtime material supplies the API token pepper,
+matching Vercel preview. This supports reviewed OAuth clients for hosted MCP compatibility evidence
+without enabling the helper on shared staging or production. The workflow binds
+`SITE_URL` to the concrete Vercel deployment URL after deployment.
+
+**It does not generate any Clerk configuration, and preview sign-in does not
+work on its own.** Clerk is an external prerequisite: a preview needs an
+instance, its keys on the Vercel preview, and `CLERK_JWT_ISSUER_DOMAIN`
+inherited from the Convex project's preview environment-variable defaults.
+Until #226 wires hosted E2E auth to Clerk testing tokens, the authenticated
+preview flows this lane once supported — temporary verified accounts in
+particular — are unavailable, and the generated-credential path for the MCP
+OAuth smoke is disabled with a summary explaining why. Separate per-preview runtime material supplies the API token pepper,
 OAuth client-secret and refresh-token peppers, and OAuth access-token signing
 key needed by developer credential and client-credentials flows. The token route
 uses the dedicated preview capability described above instead of an admin key.
@@ -284,9 +291,14 @@ Repository settings for the authenticated lane:
 - `VRDEX_PRODUCTION_AUTH_SMOKE_PROVIDER` is retired: the account page no longer renders linked providers, because Clerk shows them only inside its own profile modal. The smoke asserts the management affordance instead of a provider label
 - secret `VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64`: base64-encoded Playwright `storageState` JSON from a dedicated production test account that has completed OAuth sign-in
 
-This smoke does not enable production E2E helpers, does not mutate data, and does not store OAuth provider passwords in CI. It checks that the pre-authenticated production account can load `/account`, sees a sign-out control, and has at least one linked OAuth provider. Refresh the storage-state secret by manually signing in as the dedicated test account and exporting Playwright storage state before the session expires or after OAuth/provider/callback changes.
+This smoke does not enable production E2E helpers, does not mutate data, and does not store OAuth provider passwords in CI. It checks that the pre-authenticated production account can load `/account`, sees a sign-out control, and reaches the sign-in management affordance. Refresh the storage-state secret by manually signing in as the dedicated test account and exporting Playwright storage state before the session expires or after Clerk configuration changes.
 
-This lane validates the signed-in production account path and linked-provider rendering. It is not a full automated provider-login robot; provider credential entry and fresh OAuth consent should remain manual or use a provider-approved non-interactive test-account mechanism.
+This lane validates the signed-in production account path only. It deliberately
+does **not** verify provider linkage: Clerk renders linked providers inside its
+own profile modal, and driving a vendor modal from a production smoke would be
+brittle. Do not cite this lane as evidence that provider linking works. It is
+also not a full automated provider-login robot; credential entry and fresh
+consent remain manual or use a provider-approved non-interactive mechanism.
 
 ## Validation
 
