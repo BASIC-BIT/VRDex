@@ -13,7 +13,7 @@ import { CopyValueRow } from "@/components/ui/copy-value-row";
 import { EntityImage } from "@/components/ui/entity-image";
 import { Field, FieldText, Input, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
-import { captureProductEvent } from "@/lib/posthog";
+import { captureProductEvent, type ClaimAnalyticsMethod } from "@/lib/posthog";
 import { claimErrorMessage, claimFailureOutcome } from "@/lib/claim-errors";
 import { cn } from "@/lib/cn";
 import {
@@ -102,11 +102,16 @@ export function ClaimFlow({
   previewContext?: {
     emailVerified: boolean;
     hasDiscord: boolean;
+    vrclinkingConfigured?: boolean;
     ownership: "available" | "viewer" | "other";
     verified: boolean;
     pendingClaimRequest: null;
     pendingProof: null;
-    lastVerifiedProof?: { at: number; connectionOnly: boolean } | null;
+    lastVerifiedProof?: {
+      at: number;
+      connectionOnly: boolean;
+      targetType: "vrclinking" | "vrchat_user" | "vrchat_group";
+    } | null;
   };
   profile: ClaimProfile;
   source: ClaimEntrySource;
@@ -151,7 +156,7 @@ export function ClaimFlow({
     undefined,
   );
   const [collectorCompletion, setCollectorCompletion] = useState<
-    { verified: boolean; connectionOnly: boolean } | null
+    { verified: boolean; connectionOnly: boolean; method: ClaimAnalyticsMethod } | null
   >(null);
   // Only the person quick-claim needs Discord as a linked sign-in provider.
   // The community path claims against a control proof recorded by the
@@ -163,7 +168,11 @@ export function ClaimFlow({
   // VRCLinking answers from the claimant's Discord identity, so a linked
   // Discord account is not optional here the way it is for the community path.
   const vrclinkingMethodBlocked = !context?.hasDiscord;
-  const vrclinkingAvailable = profile.profileType === "person";
+  // Hidden, not disabled, where the deployment has no adapter: a disabled card
+  // reads as "you are missing something" when the answer is that this
+  // environment cannot consult VRCLinking at all.
+  const vrclinkingAvailable =
+    profile.profileType === "person" && context?.vrclinkingConfigured === true;
   const verifiedGuilds = manageableGuilds ?? [];
   const discordVerifyState = discordVerify;
   const discordVerifyHref = `/api/discord/verify/start?returnTo=${encodeURIComponent(
@@ -236,6 +245,8 @@ export function ClaimFlow({
       setCollectorCompletion({
         verified: observedContext?.verified === true,
         connectionOnly: observedContext?.lastVerifiedProof?.connectionOnly === true,
+        method:
+          observedContext?.lastVerifiedProof?.targetType === "vrclinking" ? "vrclinking" : "vrchat",
       });
     }
   }
@@ -248,7 +259,7 @@ export function ClaimFlow({
     }
 
     captureProductEvent(posthog, "claim_completed", {
-      method: "vrchat",
+      method: collectorCompletion.method,
       outcome: collectorCompletion.verified ? "claimed_verified" : "claimed_unverified",
       profile_type: profile.profileType,
     });
@@ -296,7 +307,7 @@ export function ClaimFlow({
           targetExternalId: String(form.get("targetExternalId") ?? ""),
         });
 
-        await checkProof(started.attemptId);
+        await checkProof(started.attemptId, "vrclinking");
         return;
       }
 
@@ -368,8 +379,21 @@ export function ClaimFlow({
     }
   }
 
-  async function checkProof(attemptId: Id<"profileVerificationAttempts">) {
-    setStatus({ kind: "working", message: "Checking for your proof code…" });
+  // `proofMethod`, not the `method` state: this runs from the pending panel
+  // after a reload, where nothing has been selected, and it settles the same
+  // journey whose selected/submitted events already carry a method. Reporting
+  // every terminal event as `vrchat` split each VRCLinking journey across two
+  // methods and made method-level funnels wrong for both.
+  async function checkProof(
+    attemptId: Id<"profileVerificationAttempts">,
+    proofMethod: ClaimAnalyticsMethod = "vrchat",
+  ) {
+    const viaVrclinking = proofMethod === "vrclinking";
+
+    setStatus({
+      kind: "working",
+      message: viaVrclinking ? "Asking VRCLinking…" : "Checking for your proof code…",
+    });
     try {
       const result = await verifyVrchat({ attemptId });
       if ("claimState" in result) {
@@ -413,11 +437,12 @@ export function ClaimFlow({
       } else if (result.state === "failed") {
         setStatus({
           kind: "error",
-          message:
-            "This verification attempt was rejected. Start again to get a new code.",
+          message: viaVrclinking
+            ? "No linked server confirmed that VRChat account for you. Start again to try another method."
+            : "This verification attempt was rejected. Start again to get a new code.",
         });
         captureProductEvent(posthog, "claim_failed", {
-          method: "vrchat",
+          method: proofMethod,
           outcome: "not_verified",
           profile_type: profile.profileType,
         });
@@ -443,13 +468,17 @@ export function ClaimFlow({
                 message: result.state === "expired"
                   ? "This proof code expired. Start again to get a new code."
                   : result.state === "unavailable"
-                    ? "VRChat verification is temporarily unavailable. Your proof is still pending; try again shortly."
-                  : "We could not find the proof code yet. Check where you placed it, then try again.",
+                    ? viaVrclinking
+                      ? "VRCLinking could not be reached. Your attempt is still pending; try again shortly."
+                      : "VRChat verification is temporarily unavailable. Your proof is still pending; try again shortly."
+                    : viaVrclinking
+                      ? "No linked server has confirmed that VRChat account yet. Try again shortly, or use another method."
+                      : "We could not find the proof code yet. Check where you placed it, then try again.",
               },
         );
         if (outcome !== null) {
           captureProductEvent(posthog, "claim_failed", {
-            method: "vrchat",
+            method: proofMethod,
             outcome,
             profile_type: profile.profileType,
           });
@@ -458,7 +487,7 @@ export function ClaimFlow({
     } catch (error) {
       setStatus({ kind: "error", message: errorMessage(error) });
       captureProductEvent(posthog, "claim_failed", {
-        method: "vrchat",
+        method: proofMethod,
         outcome: outcomeForError(error),
         profile_type: profile.profileType,
       });
@@ -715,7 +744,7 @@ export function ClaimFlow({
                   <Button
                     disabled={status.kind === "working"}
                     variant="primary"
-                    onClick={() => void checkProof(context.pendingProof!.id)}
+                    onClick={() => void checkProof(context.pendingProof!.id, "vrclinking")}
                   >
                     Check again
                   </Button>
@@ -766,13 +795,19 @@ export function ClaimFlow({
                   </legend>
                   {/* An unverified community owner (created through the no-match
                       path) can upgrade to verified by proving Discord server
-                      control, so both methods must stay reachable for them. A
-                      person profile only ever has the VRChat method to offer an
-                      existing owner — the Discord person claim would just report
-                      the ownership they already hold. */}
-                  <div className={cn("mt-4 grid gap-3", (isUnverifiedViewer || isVerifiedViewer) && profile.profileType === "person" ? undefined : "sm:grid-cols-2")}>
+                      control, so both methods must stay reachable for them. For
+                      an existing person owner the Discord claim is the one
+                      method with nothing to offer — it would just report the
+                      ownership they already hold — while VRChat and VRCLinking
+                      both prove control and both count as an upgrade. Leaving
+                      VRCLinking out of this branch stranded exactly the owners
+                      the quick-claim path creates unverified. */}
+                  <div className={cn("mt-4 grid gap-3", (isUnverifiedViewer || isVerifiedViewer) && profile.profileType === "person" && !vrclinkingAvailable ? undefined : "sm:grid-cols-2")}>
                     {(isUnverifiedViewer || isVerifiedViewer) && profile.profileType === "person" ? (
-                      vrchatMethodCard
+                      <>
+                        {vrchatMethodCard}
+                        {vrclinkingAvailable ? vrclinkingMethodCard : null}
+                      </>
                     ) : (
                       <>
                         {profile.profileType === "person" ? vrchatMethodCard : discordMethodCard}

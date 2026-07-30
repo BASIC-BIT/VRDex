@@ -200,7 +200,7 @@ export type DiscoveryAnalyticsSurface =
  * `vrclinking` is one method the claimant picks, even though it produces a
  * `vrchat_user` asset just as the direct proof does.
  */
-type ClaimAnalyticsMethod = "discord" | "vrchat" | "vrclinking";
+export type ClaimAnalyticsMethod = "discord" | "vrchat" | "vrclinking";
 
 type ProductAnalyticsEvents = {
   auth_session_restore_completed: {

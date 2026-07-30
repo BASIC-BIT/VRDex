@@ -78,9 +78,10 @@ export function classifySecretRef(secretRef) {
 /**
  * Resolve a secret reference to a VRCLinking token.
  *
- * `arn:aws:secretsmanager:…` uses Secrets Manager through the task role.
- * `secret://<name>` reads `<name>` from `secretDir`, which keeps local and test
- * runs off AWS entirely.
+ * `arn:aws:secretsmanager:…` always uses Secrets Manager through the task role.
+ * `secret://<name>` reads `<name>` from `secretDir` when one is configured,
+ * which keeps local and test runs off AWS entirely, and otherwise resolves the
+ * same name through Secrets Manager.
  */
 export function createSecretResolver({ secretDir, awsClient, cacheTtlMs = 300_000, clock = Date.now } = {}) {
   const cache = new Map();
@@ -118,13 +119,13 @@ export function createSecretResolver({ secretDir, awsClient, cacheTtlMs = 300_00
 
     let raw;
 
-    if (classified.kind === "local") {
-      if (!secretDir) {
-        throw new SecretResolutionError("No local secret directory is configured.", {
-          reason: "unsupported_reference",
-        });
-      }
-
+    // `secret://<name>` names a secret; it does not pick a backend. With a
+    // secret directory it is a file, and on AWS it is a Secrets Manager name,
+    // which `GetSecretValue` accepts wherever it accepts an ARN. Treating the
+    // named form as file-only made every community that registered one — the
+    // form the account UI and `docs/backend/vrclinking-api.md` both document —
+    // unresolvable on Lambda, where there is no secret directory.
+    if (classified.kind === "local" && secretDir) {
       const resolvedPath = path.resolve(secretDir, classified.id);
 
       // Defence in depth alongside the reference pattern check.
@@ -141,7 +142,7 @@ export function createSecretResolver({ secretDir, awsClient, cacheTtlMs = 300_00
       }
     } else {
       if (!awsClient) {
-        throw new SecretResolutionError("No Secrets Manager client is configured.", {
+        throw new SecretResolutionError("No secret backend can resolve this reference.", {
           reason: "unsupported_reference",
         });
       }

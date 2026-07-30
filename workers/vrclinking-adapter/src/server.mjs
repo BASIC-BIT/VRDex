@@ -37,7 +37,7 @@ async function readBody(request) {
  * with the Lambda entry point, so the two cannot drift.
  */
 export function createAdapterServer({ resolveSecret, getGuildMemberByDiscordId, bearerToken }) {
-  return createServer(async (request, response) => {
+  const server = createServer(async (request, response) => {
     let rawBody = "";
 
     if (request.method === "POST") {
@@ -62,6 +62,18 @@ export function createAdapterServer({ resolveSecret, getGuildMemberByDiscordId, 
 
     return json(response, status, payload);
   });
+
+  // The bearer check lives in `handleAdapterRequest`, which needs the parsed
+  // body, so an unauthenticated caller gets to occupy a connection until its
+  // body arrives. `MAX_BODY_BYTES` bounds how much memory that costs but not
+  // how long it takes, so a client trickling a declared body could hold
+  // connections open indefinitely. These deadlines are the bound; duplicating
+  // the token comparison out here to answer sooner would give the protocol two
+  // copies of the check it exists to keep in one place.
+  server.headersTimeout = 5_000;
+  server.requestTimeout = 10_000;
+
+  return server;
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
@@ -71,4 +83,15 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   server.listen(port, () => {
     console.log(`vrclinking-adapter listening on ${port}`);
   });
+
+  // An orchestrator's SIGTERM otherwise hits Node's default handling and exits
+  // immediately, dropping a claim mid-provider-lookup along with its response.
+  // `server.close` stops accepting and lets in-flight requests finish; the
+  // timer is the ceiling on how long that is allowed to take.
+  for (const signal of ["SIGTERM", "SIGINT"]) {
+    process.on(signal, () => {
+      server.close(() => process.exit(0));
+      setTimeout(() => process.exit(0), 10_000).unref();
+    });
+  }
 }

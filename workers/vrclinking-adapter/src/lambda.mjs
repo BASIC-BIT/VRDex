@@ -15,14 +15,22 @@ import { handleAdapterRequest, MAX_BODY_BYTES } from "./handler.mjs";
  *
  * Built once per container, not per invocation, so the secret resolver's cache
  * and the AWS client survive between warm calls. A configuration fault rejects
- * every request rather than throwing an unhandled error.
+ * every request rather than throwing an unhandled error, and is retried rather
+ * than cached — see the handler.
  */
-const deps = resolveAdapterDeps().catch((error) => error);
+let deps = resolveAdapterDeps().catch((error) => error);
 
 export async function handler(event) {
   const resolved = await deps;
 
   if (resolved instanceof Error) {
+    // Only a *successful* bootstrap is worth caching. A transient Secrets
+    // Manager failure at cold start would otherwise poison this container for
+    // its whole lifetime — every later invocation answering
+    // `adapter_misconfigured` long after AWS recovered, and with reserved
+    // concurrency a few such containers produce intermittent 500s that look
+    // like a configuration fault rather than a blip.
+    deps = resolveAdapterDeps().catch((error) => error);
     console.error(`vrclinking-adapter misconfigured: ${resolved.message}`);
 
     return respond(500, { error: "adapter_misconfigured" });

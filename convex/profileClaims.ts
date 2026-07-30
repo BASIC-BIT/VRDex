@@ -361,6 +361,7 @@ export const getClaimJourneyContext = query({
         lastVerifiedProof: null,
         emailVerified: false,
         hasDiscord: false,
+        vrclinkingConfigured: false,
         pendingClaimRequest: null,
         pendingProof: null,
       };
@@ -385,7 +386,10 @@ export const getClaimJourneyContext = query({
         .withIndex("by_profileId_userId_state_updatedAt", (q) =>
           q.eq("profileId", profile._id).eq("userId", user._id).eq("state", "pending"),
         )
-        .filter((q) => q.neq(q.field("targetType"), "vrclinking"))
+        // VRCLinking attempts were excluded here while nothing in the browser
+        // could create one. The claim form now can, and hiding them left a
+        // claimant with a pending attempt looking at the method picker again —
+        // no status, no retry, no way to cancel.
         .order("desc")
         .first(),
     ]);
@@ -409,6 +413,11 @@ export const getClaimJourneyContext = query({
       verified: profile.claimState === "claimed_verified",
       emailVerified: user.email !== undefined && user.emailVerificationTime !== undefined,
       hasDiscord: discordAccount !== null,
+      // Whether the deployment can consult VRCLinking at all. The Terraform
+      // stack defaults disabled, so in any environment without an adapter
+      // deployed, offering the method on profile type alone hands the claimant
+      // a choice that reaches `requiredEnv` in `proofAdapterUrl` and throws.
+      vrclinkingConfigured: optionalEnv("VRCLINKING_PROOF_ADAPTER_URL") !== undefined,
       pendingClaimRequest: request
         ? {
             id: request._id,
@@ -431,6 +440,11 @@ export const getClaimJourneyContext = query({
           : {
               at: settledProof.verifiedAt,
               connectionOnly: settledProof.connectionOnly === true,
+              // Which method actually settled it. The browser cannot infer this
+              // — a collector or the VRCLinking adapter may resolve an attempt
+              // long after the page that started it — and the completion event
+              // is attributed from it.
+              targetType: settledProof.targetType,
             },
       pendingProof: proof
         ? {

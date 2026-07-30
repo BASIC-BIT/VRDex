@@ -3,7 +3,12 @@ import { createHmac } from "node:crypto";
 import { describe, it } from "node:test";
 
 import { validateRequest, verifyLinkage } from "./adapter.mjs";
-import { SecretResolutionError, classifySecretRef, extractToken } from "./secret-resolver.mjs";
+import {
+  SecretResolutionError,
+  classifySecretRef,
+  createSecretResolver,
+  extractToken,
+} from "./secret-resolver.mjs";
 import { VrclinkingProviderError, createVrclinkingClient } from "./vrclinking-client.mjs";
 
 const DISCORD_ID = "123456789012345678";
@@ -330,6 +335,34 @@ describe("secret references", () => {
     assert.equal(classifySecretRef("secret://../../etc/passwd").kind, "invalid");
     assert.equal(classifySecretRef("https://example.test/token").kind, "invalid");
     assert.equal(classifySecretRef(undefined).kind, "invalid");
+  });
+
+  // The deployed Lambda has an AWS client and no secret directory. Reading
+  // `secret://` as file-only there made every community that registered the
+  // named form — the form `/account/connections` and the guild-binding check
+  // both accept — permanently unresolvable, surfacing as a 503 rather than as a
+  // configuration error anyone would think to look at.
+  it("resolves a named reference through Secrets Manager when no secret directory is configured", async () => {
+    const asked = [];
+    const resolve = createSecretResolver({
+      awsClient: {
+        getSecretValue: async (secretId) => {
+          asked.push(secretId);
+          return { SecretString: "provider-token" };
+        },
+      },
+    });
+
+    assert.equal(await resolve("secret://vrdex/vrclinking/123456789012345678"), "provider-token");
+    assert.deepEqual(asked, ["vrdex/vrclinking/123456789012345678"]);
+  });
+
+  it("still refuses a named reference when neither backend is configured", async () => {
+    const resolve = createSecretResolver({});
+
+    await assert.rejects(() => resolve("secret://vrdex/vrclinking/123456789012345678"), {
+      reason: "unsupported_reference",
+    });
   });
 });
 

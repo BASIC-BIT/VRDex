@@ -128,10 +128,11 @@ accepted here only because this is loopback.
 
 ## Deployment
 
-Not deployed by this repo yet. It needs somewhere to run with either the
-Secrets Manager task-role policy (mirroring
-`infra/terraform/group-telemetry-collector/main.tf`) or a mounted secret
-directory, and `VRCLINKING_PROOF_ADAPTER_URL` in Convex pointed at it.
+`infra/terraform/vrclinking-adapter` deploys this as a Lambda behind a Function
+URL, with the Secrets Manager execution-role policy it needs; that stack's
+README carries the sequence and what stays outside Terraform. `server.mjs` and
+the Dockerfile remain for local runs and for anyone hosting the container
+themselves, which needs a mounted secret directory or its own task role.
 
 ## Tests
 
