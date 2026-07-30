@@ -13,6 +13,11 @@ output "role_arn" {
   value       = aws_iam_role.adapter.arn
 }
 
+output "shared_secret_arn" {
+  description = "The shared-secret object the rotation runbook writes. An identifier, not a value — the secret itself is never in Terraform state."
+  value       = var.shared_secret_arn
+}
+
 output "delegated_secret_arn_pattern" {
   description = "The only Secrets Manager names the adapter can read. Provision each community's credential under this prefix."
   value       = local.secret_arn_pattern

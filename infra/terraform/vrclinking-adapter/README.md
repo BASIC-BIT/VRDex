@@ -99,6 +99,15 @@ observe, so none of that arises.
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
+cd infra/terraform/vrclinking-adapter
+
+# 0. From the stack, not hard-coded. `name_prefix` and `shared_secret_arn` are
+#    both variables, and a deployment that overrode either would otherwise write
+#    the live secret and then fail to recycle the function that reads it —
+#    exiting under `set -e` with old containers on the old pair and every later
+#    cold start on the new one.
+FUNCTION=$(terraform output -raw function_name)
+SECRET=$(terraform output -raw shared_secret_arn)
 
 # 1. One write, both values. There is no window in which the adapter can read a
 #    half-rotated pair, so this either happens or it does not.
@@ -107,14 +116,14 @@ NEW=$(node -e 'const c=require("node:crypto");
     bearerToken: c.randomBytes(32).toString("hex"),
     capabilityKey: c.randomBytes(32).toString("hex"),
   }))')
-aws secretsmanager put-secret-value --secret-id vrdex/vrclinking/shared --secret-string "$NEW"
+aws secretsmanager put-secret-value --secret-id "$SECRET" --secret-string "$NEW"
 
 # 2. Force every warm container to re-bootstrap. A configuration update replaces
 #    them; the ARN is unchanged, so this is the no-op edit that does it.
 aws lambda update-function-configuration \
-  --function-name vrdex-vrclinking-adapter \
+  --function-name "$FUNCTION" \
   --description "rotated $(date -u +%Y-%m-%dT%H:%M:%SZ)" >/dev/null
-aws lambda wait function-updated --function-name vrdex-vrclinking-adapter
+aws lambda wait function-updated --function-name "$FUNCTION"
 
 # 3. Only then point Convex at the new values. `--prod` is not optional: without
 #    it these write the development deployment, and the script would recycle
@@ -173,7 +182,8 @@ still signed with the old key and rejected under the new one. Compare both
 halves directly rather than inferring one from the other:
 
 ```bash
-SHARED=$(aws secretsmanager get-secret-value --secret-id vrdex/vrclinking/shared \
+SHARED=$(aws secretsmanager get-secret-value \
+  --secret-id "$(terraform -chdir=infra/terraform/vrclinking-adapter output -raw shared_secret_arn)" \
   --query SecretString --output text)
 for pair in "bearerToken:VRCHAT_PROOF_ADAPTER_BEARER_TOKEN" \
             "capabilityKey:VRCLINKING_ADAPTER_CAPABILITY_KEY"; do
