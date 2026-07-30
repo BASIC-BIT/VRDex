@@ -1167,8 +1167,9 @@ describe("VRCLinking credential delegation", () => {
       await ctx.db.insert("discordVerificationWatermarks", {
         userId,
         discordUserId: "discord-claimant",
-        issuedGeneration: 0,
-        appliedGeneration: 0,
+        issuedGeneration: 1,
+        appliedGeneration: 1,
+        appliedAt: now,
         issuedAt: now,
         updatedAt: now,
       });

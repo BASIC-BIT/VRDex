@@ -376,6 +376,7 @@ export const recordGuildControlProofs = internalMutation({
       // refuses anything below it — so only the applied cursor moves.
       await ctx.db.patch(watermark._id, {
         appliedGeneration: args.generation,
+        appliedAt: now,
         updatedAt: now,
       });
     }

@@ -2061,6 +2061,11 @@ export default defineSchema({
     discordUserId: v.string(),
     issuedGeneration: v.number(),
     appliedGeneration: v.number(),
+    // Stamped only when a reconciliation actually lands, unlike `updatedAt`,
+    // which `reserveGuildVerificationGeneration` bumps before the guild read.
+    // Selecting the current Discord identity needs a success-only timestamp, or
+    // a reservation that then failed would outrank a completed verification.
+    appliedAt: v.optional(v.number()),
     // When `issuedGeneration` was drawn. A reservation whose callback dies
     // without applying would otherwise suppress every earlier reader forever,
     // so an outstanding one stops counting once it is older than a round-trip

@@ -221,8 +221,11 @@ export const linkDiscordAccountByEmail = mutation({
     await ctx.db.insert("discordVerificationWatermarks", {
       userId: user._id,
       discordUserId: providerAccountId,
-      issuedGeneration: 0,
-      appliedGeneration: 0,
+      issuedGeneration: 1,
+      appliedGeneration: 1,
+      // Stands in for a completed round-trip, so it needs the success stamp the
+      // current-identity selection ranks on.
+      appliedAt: now,
       issuedAt: now,
       updatedAt: now,
     });

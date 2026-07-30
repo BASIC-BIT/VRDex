@@ -56,8 +56,12 @@ export async function getLinkedProviderAccount(
 
   // One user can verify more than one Discord account, and the verification code
   // keeps a watermark per `(userId, discordUserId)` without marking any of them
-  // current. Index order would then hand back an arbitrary — possibly stale —
-  // account, so pick the most recently updated one deterministically.
+  // current. Index order would hand back an arbitrary account, so pick
+  // deterministically — and only from verifications that actually completed.
+  //
+  // Ranking on `updatedAt` is not enough: `reserveGuildVerificationGeneration`
+  // bumps it before reading guilds, so an attempt that then failed would outrank
+  // a good one. `appliedAt` is written only once reconciliation lands.
   const watermarks = await ctx.db
     .query("discordVerificationWatermarks")
     .withIndex("by_userId_discordUserId", (query) => query.eq("userId", userId))
@@ -65,9 +69,11 @@ export async function getLinkedProviderAccount(
 
   const current = watermarks.reduce<(typeof watermarks)[number] | null>(
     (latest, watermark) =>
-      latest === null || watermark.updatedAt > latest.updatedAt
-        ? watermark
-        : latest,
+      watermark.appliedAt === undefined
+        ? latest
+        : latest === null || watermark.appliedAt > (latest.appliedAt ?? 0)
+          ? watermark
+          : latest,
     null,
   );
 
