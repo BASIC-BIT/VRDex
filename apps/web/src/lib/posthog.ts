@@ -8,6 +8,12 @@ const URL_PROPERTY_NAMES = new Set([
   "$pathname",
   "$referrer",
   "$initial_referrer",
+  // `save_campaign_params`/`save_referrer` default on, so posthog-js records
+  // the first page a person ever landed on as a `$set_once` person property.
+  // For someone whose first VRDex page is their handoff link — which is how
+  // recipients discover the product — that stored value is the live token.
+  "$initial_current_url",
+  "$initial_pathname",
 ]);
 
 export function sanitizeAnalyticsUrl(value: string): string {
@@ -28,6 +34,77 @@ export function sanitizeAnalyticsUrl(value: string): string {
   }
 }
 
+const RRWEB_META_EVENT_TYPE = 4;
+const RRWEB_CUSTOM_EVENT_TYPE = 5;
+
+/**
+ * Rewrite the page URLs a replay recording carries alongside the DOM.
+ *
+ * Session replay ships rrweb records inside `$snapshot_data`, and two of them
+ * hold a raw page URL of their own: the meta record (`type: 4`), which is what
+ * the replay player shows as the recording's address, and the recorder's
+ * `$url_changed` custom record (`type: 5`), which it emits on SPA navigation
+ * when `capture_pageview` is off. Redacting the event-level URL properties
+ * touches neither, so with replay on every route a handoff token in the path
+ * would still reach PostHog even though the page DOM is blocked from capture.
+ *
+ * Deliberately not every `href` in the payload. The DOM snapshot is full of
+ * them — stylesheet links, `<use href="#id">`, `data:` favicons — and
+ * `sanitizeAnalyticsUrl` is built for page URLs: it drops the query and
+ * fragment, which would rewrite a query-keyed stylesheet into one the replay
+ * player cannot fetch.
+ */
+function sanitizeSnapshotData(value: unknown): unknown {
+  // `posthog-js` sends one rrweb record per `$snapshot` event, and batches into
+  // an array only when it flushes several at once. Handling the array alone
+  // meant the single-record form — the normal one — passed straight through,
+  // so this sanitizer did nothing in a real browser.
+  if (Array.isArray(value)) {
+    return value.map(sanitizeSnapshotRecord);
+  }
+
+  return sanitizeSnapshotRecord(value);
+}
+
+function sanitizeSnapshotRecord(record: unknown): unknown {
+  if (record === null || typeof record !== "object") {
+    return record;
+  }
+
+  const { type, data } = record as { type?: unknown; data?: unknown };
+
+  if (data === null || typeof data !== "object") {
+    return record;
+  }
+
+  if (type === RRWEB_META_EVENT_TYPE) {
+    const href = (data as { href?: unknown }).href;
+
+    return typeof href === "string"
+      ? { ...record, data: { ...data, href: sanitizeAnalyticsUrl(href) } }
+      : record;
+  }
+
+  if (type === RRWEB_CUSTOM_EVENT_TYPE) {
+    const payload = (data as { payload?: unknown }).payload;
+
+    if (payload === null || typeof payload !== "object") {
+      return record;
+    }
+
+    const href = (payload as { href?: unknown }).href;
+
+    return typeof href === "string"
+      ? {
+          ...record,
+          data: { ...data, payload: { ...payload, href: sanitizeAnalyticsUrl(href) } },
+        }
+      : record;
+  }
+
+  return record;
+}
+
 export function sanitizePostHogProperties(properties: Record<string, unknown>) {
   const sanitized = { ...properties };
 
@@ -38,20 +115,75 @@ export function sanitizePostHogProperties(properties: Record<string, unknown>) {
     }
   }
 
+  if (sanitized.$snapshot_data !== undefined) {
+    sanitized.$snapshot_data = sanitizeSnapshotData(sanitized.$snapshot_data);
+  }
+
   return sanitized;
 }
 
-export function isSessionReplayAllowedPathname(pathname: string): boolean {
-  return pathname === "/" ||
-    pathname === "/search" ||
-    pathname === "/discover" ||
-    pathname === "/discovery" ||
-    pathname === "/upcoming" ||
-    pathname.startsWith("/p/") ||
-    pathname.startsWith("/c/") ||
-    pathname.startsWith("/e/") ||
-    pathname.startsWith("/worlds/");
+type CapturedEvent = {
+  properties?: Record<string, unknown>;
+  $set?: Record<string, unknown>;
+  $set_once?: Record<string, unknown>;
+} | null;
+
+/**
+ * Redaction hook for every outgoing event.
+ *
+ * This must be `before_send`, not `sanitize_properties`. posthog-js
+ * short-circuits `$snapshot` events before the `sanitize_properties` hook runs,
+ * so session-replay payloads were never passed through it — and replay is the
+ * one thing that carries a raw page URL of its own, in the rrweb meta record.
+ * `sanitize_properties` is also deprecated in favour of this hook.
+ */
+export function sanitizePostHogEvent<T extends CapturedEvent>(event: T): T {
+  if (event === null) {
+    return event;
+  }
+
+  if (event.properties !== undefined) {
+    event.properties = sanitizePostHogProperties(event.properties);
+  }
+
+  // Person properties live *inside* `properties` at runtime, not at the event
+  // root. Reading them from the root left `$initial_current_url` untouched, so
+  // the first view of `/handoff/<token>` pinned the live bearer token to the
+  // person record as a persistent property — the one place redaction matters
+  // most, since it outlives the event.
+  //
+  // The root is still swept: posthog-js has carried these at both levels across
+  // versions, and sanitizing an absent bucket costs nothing.
+  for (const container of [event, event.properties] as const) {
+    if (container === undefined) {
+      continue;
+    }
+
+    for (const bucket of ["$set", "$set_once"] as const) {
+      const values = container[bucket];
+
+      if (values !== undefined && typeof values === "object" && values !== null) {
+        container[bucket] = sanitizePostHogProperties(values as Record<string, unknown>);
+      }
+    }
+  }
+
+  return event;
 }
+
+/**
+ * Session replay runs on every route by product decision (2026-07-27),
+ * superseding the earlier public-routes-only allowlist.
+ *
+ * Replay stays safe through masking rather than route exclusion:
+ * `maskAllInputs` redacts every input value (passwords, OTP codes, VRChat and
+ * Discord identifiers typed into claim forms), and regions marked
+ * `data-ph-no-capture` — notably the whole claim journey section — are blocked
+ * from capture entirely. URL properties are still sanitized by
+ * `sanitizeAnalyticsUrl`, so handoff tokens and claim slugs never reach
+ * PostHog. Removing either protection would leak credentials into replays.
+ */
+export const SESSION_REPLAY_MASKED_SELECTOR = "[data-ph-no-capture]";
 
 export type DiscoveryAnalyticsSurface =
   | "featured"

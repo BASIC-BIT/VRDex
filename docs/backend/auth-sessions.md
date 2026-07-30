@@ -138,8 +138,10 @@ Application-supplied properties are typed coarse enums only. They contain no
 token, provider payload, email, user ID, session ID, redirect URL, route slug,
 IP address, or account secret. PostHog may still add its standard SDK envelope
 and person/session metadata; the application URL sanitizer removes queries and
-fragments and normalizes token-bearing paths. Session replay remains disabled
-on sign-in, account, claim, and developer surfaces.
+fragments and normalizes token-bearing paths. Session replay records every
+route, and the account, claim, and developer surfaces are blocked from capture
+by route-level layouts rather than by not recording at all — see
+`docs/agentic/product-analytics-and-feature-flags.md`.
 
 Token refresh failures remain server errors until the auth library exposes a
 sanitized reason hook; never log raw JWTs or refresh tokens.

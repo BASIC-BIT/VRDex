@@ -320,7 +320,12 @@ function ConnectedSignInForm({
           </div>
 
           {status.kind === "verify-email" ? (
-            <Notice>Check {status.email} for a verification code.</Notice>
+            // Replay records every route and `maskAllInputs` covers input
+            // values only, so an address rendered as text needs the masking
+            // marker explicitly.
+            <Notice>
+              Check <span data-ph-no-capture>{status.email}</span> for a verification code.
+            </Notice>
           ) : null}
 
           {status.kind === "error" ? <Notice variant="error">{status.message}</Notice> : null}

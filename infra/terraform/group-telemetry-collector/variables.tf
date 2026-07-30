@@ -105,7 +105,7 @@ variable "account_secret_arn" {
 variable "user_agent" {
   description = "Identifying application/version/contact User-Agent."
   type        = string
-  default     = "VRDexGroupTelemetry/1.0 (contact: operators@vrdex.net)"
+  default     = "VRDexGroupTelemetry/1.0 (contact: basic@basicbit.net)"
 }
 
 variable "requests_per_minute" {

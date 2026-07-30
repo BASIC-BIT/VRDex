@@ -9,6 +9,7 @@ import schemaModule from "../../convex/schema";
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/profileClaims.ts": () => import("../../convex/profileClaims"),
+  "../../convex/vrclinkingCredentials.ts": () => import("../../convex/vrclinkingCredentials"),
 };
 const schema = (
   schemaModule as unknown as { default?: typeof schemaModule }
@@ -324,7 +325,70 @@ describe("profile claim lifecycle", () => {
     assert.equal(attempt?.evidenceSource, "vrclinking");
   });
 
-  it("rejects replay after a proof has granted ownership", async () => {
+  // Attempts stay pending for a day, so the claimability check at the start
+  // cannot speak for a moderation decision taken after it.
+  it("refuses a proof for a listing suppressed while it was pending", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const { attemptId, profileId } = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        email: "proof-suppressed@example.test",
+        emailVerificationTime: now,
+      });
+      const profileId = await ctx.db.insert("profiles", {
+        profileType: "person",
+        slug: "proof-suppressed",
+        displayName: "Proof Suppressed",
+        sortName: "proof suppressed",
+        aliases: [],
+        tags: [],
+        claimState: "unclaimed",
+        publicationState: "published",
+        // Suppressed after the attempt was created, which is the whole point.
+        publicSurfacingState: "suppressed",
+        creationSource: "self",
+        person: { roleTags: [] },
+        updatedAt: now,
+      });
+      const attemptId = await ctx.db.insert("profileVerificationAttempts", {
+        profileId,
+        userId,
+        method: "vrchat_user_proof",
+        targetType: "vrchat_user",
+        targetExternalId: "usr_5e7adcef-c7f4-4df1-b4e6-e86fb529ac09",
+        proofCode: "VRDEX-ONE-TIME",
+        state: "pending",
+        createdAt: now,
+        updatedAt: now,
+        expiresAt: now + 60_000,
+      });
+
+      return { attemptId, profileId };
+    });
+
+    const result = await t.mutation(internal.profileClaims.recordVrchatProofVerification, {
+      attemptId,
+      evidenceSource: "vrchat_api",
+      evidenceSummary: "Proof code was found after the listing was suppressed.",
+    });
+
+    // Settled, not thrown: the collector treats anything but an ownership
+    // conflict as retryable, so throwing would have it retry until expiry.
+    assert.deepEqual(result, { state: "failed" });
+
+    const { attempt, owners } = await t.run(async (ctx) => ({
+      attempt: await ctx.db.get(attemptId),
+      owners: await ctx.db
+        .query("profileOwners")
+        .withIndex("by_profileId_state", (q) => q.eq("profileId", profileId))
+        .collect(),
+    }));
+
+    assert.equal(attempt?.state, "failed");
+    assert.equal(owners.length, 0);
+  });
+
+  it("reports the settled outcome instead of failing a replayed proof", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const { attemptId, profileId } = await t.run(async (ctx) => {
@@ -362,19 +426,26 @@ describe("profile claim lifecycle", () => {
       return { attemptId, profileId };
     });
 
-    await t.mutation(internal.profileClaims.recordVrchatProofVerification, {
+    const first = await t.mutation(internal.profileClaims.recordVrchatProofVerification, {
       attemptId,
       evidenceSource: "vrchat_api",
       evidenceSummary: "Synthetic verified proof.",
     });
-    await assert.rejects(
-      t.mutation(internal.profileClaims.recordVrchatProofVerification, {
-        attemptId,
-        evidenceSource: "vrchat_api",
-        evidenceSummary: "Synthetic replay.",
-      }),
-      /Only pending verification attempts can be approved/,
+    // The collector fleet polls the same attempt an adapter action is checking,
+    // so it can settle it mid-flight. Throwing here reported an error for a
+    // click whose ownership grant had already succeeded, so the replay has to
+    // hand back what the first pass produced — without granting again.
+    const replay = await t.mutation(internal.profileClaims.recordVrchatProofVerification, {
+      attemptId,
+      evidenceSource: "vrchat_api",
+      evidenceSummary: "Synthetic replay.",
+    });
+
+    assert.deepEqual(
+      { claimState: replay.claimState, connectionOnly: replay.connectionOnly },
+      { claimState: first.claimState, connectionOnly: first.connectionOnly },
     );
+    assert.equal(replay.claimRequestId, undefined);
 
     const owners = await t.run(async (ctx) =>
       ctx.db
@@ -465,5 +536,85 @@ describe("profile claim lifecycle", () => {
     });
     const claimRequest = await t.run(async (ctx) => await ctx.db.get(seeded.claimRequestId));
     assert.equal(claimRequest?.state, "rejected");
+  });
+
+  // The bot-token path proves the same thing the OAuth round-trip does, so it
+  // has to leave the same durable record. Without it the guild is verified but
+  // absent from the connection model, and nothing can delegate for it.
+  it("records a control proof and profile link when the bot token approves", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const guildId = "123456789012345678";
+    const seeded = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        email: "bot-approval@example.test",
+        emailVerificationTime: now,
+      });
+      const profileId = await ctx.db.insert("profiles", {
+        profileType: "community",
+        slug: "bot-approval",
+        displayName: "Bot Approval",
+        sortName: "bot approval",
+        aliases: [],
+        tags: [],
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "public",
+        creationSource: "self",
+        community: { categoryTags: [] },
+        updatedAt: now,
+      });
+      const claimRequestId = await ctx.db.insert("profileClaimRequests", {
+        profileId,
+        profileSlug: "bot-approval",
+        profileType: "community",
+        requestedDisplayName: "Bot Approval",
+        userId,
+        method: "discord_community_admin",
+        state: "pending",
+        discordGuildId: guildId,
+        // Caller-supplied label from the request step. It must never become the
+        // durable name — an admin of a real server could otherwise present it
+        // under any name they liked.
+        discordGuildName: "Totally Not A Scam Server",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      return { userId, profileId, claimRequestId };
+    });
+
+    await t.mutation(internal.profileClaims.recordDiscordCommunityAdminApproval, {
+      claimRequestId: seeded.claimRequestId,
+      evidenceSummary: "Administrator permission confirmed by the Discord bot.",
+      discordUserId: "discord-subject-bot",
+      guildName: "Bot Approval HQ",
+    });
+
+    await t.run(async (ctx) => {
+      const proofs = await ctx.db
+        .query("externalControlProofs")
+        .withIndex("by_userId_state", (q) => q.eq("userId", seeded.userId).eq("state", "active"))
+        .collect();
+      assert.equal(proofs.length, 1);
+      assert.equal(proofs[0]?.assetExternalId, guildId);
+      assert.equal(proofs[0]?.evidenceSource, "discord_bot");
+      assert.equal(proofs[0]?.controlLevel, "administrator");
+      // Bound to the identity the bot actually checked, so a later OAuth
+      // round-trip by a different Discord account cannot revoke it.
+      assert.equal(proofs[0]?.evidenceSubjectId, "discord-subject-bot");
+      assert.equal(proofs[0]?.assetDisplayName, "Bot Approval HQ");
+
+      const links = await ctx.db
+        .query("profileExternalLinks")
+        .withIndex("by_profileId_state", (q) =>
+          q.eq("profileId", seeded.profileId).eq("state", "active"),
+        )
+        .collect();
+      assert.equal(links.length, 1);
+      assert.equal(links[0]?.assetExternalId, guildId);
+      assert.equal(links[0]?.assetDisplayName, "Bot Approval HQ");
+      assert.equal(links[0]?.verifiedByProofId, proofs[0]?._id);
+    });
   });
 });

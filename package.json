@@ -47,6 +47,8 @@
     "check:restream:local": "node --import tsx scripts/restream-local-validation.ts check",
     "preproof:group-telemetry": "node scripts/guard-main-worktree.mjs",
     "proof:group-telemetry": "node --env-file-if-exists=.env.local scripts/prove-vrchat-group-telemetry.mjs",
+    "preops:vrchat-session:transfer": "node scripts/guard-main-worktree.mjs",
+    "ops:vrchat-session:transfer": "node --env-file-if-exists=.env.local scripts/transfer-vrchat-session-to-aws.mjs",
     "preproof:restream:control": "node scripts/guard-main-worktree.mjs",
     "proof:restream:control": "node --import tsx scripts/restream-control-demo.ts",
     "preproof:restream:live-control": "node scripts/guard-main-worktree.mjs",
@@ -143,6 +145,10 @@
     "test:scripts": "node --import tsx --test tests/scripts/**/*.test.ts",
     "pretest:discord-gateway": "node scripts/guard-main-worktree.mjs",
     "test:discord-gateway": "pnpm --filter @vrdex/discord-gateway test",
+    "pretest:group-telemetry": "node scripts/guard-main-worktree.mjs",
+    "test:group-telemetry": "node --test workers/group-telemetry/*.test.mjs",
+    "pretest:vrclinking-adapter": "node scripts/guard-main-worktree.mjs",
+    "test:vrclinking-adapter": "node --test workers/vrclinking-adapter/src/*.test.mjs",
     "pretypecheck:api-contracts": "node scripts/guard-main-worktree.mjs",
     "typecheck:api-contracts": "pnpm --filter @vrdex/api-contracts typecheck",
     "pretypecheck:vrdex-mcp": "node scripts/guard-main-worktree.mjs",
@@ -170,14 +176,13 @@
     "preverify:api-mcp-rollout:external": "node scripts/guard-main-worktree.mjs",
     "verify:api-mcp-rollout:external": "pnpm verify:api-contracts && pnpm verify:vrdex-mcp && pnpm verify:docs && pnpm check:api-mcp-rollout -- --require-ready",
     "preverify": "node scripts/guard-main-worktree.mjs",
-    "verify": "pnpm verify:api-contracts && pnpm verify:vrdex-mcp && pnpm verify:docs && pnpm verify:web && pnpm check:backend:generated && pnpm typecheck:backend && pnpm test:backend && pnpm test:temporal-runtime && pnpm test:temporal-inference",
+    "verify": "pnpm verify:api-contracts && pnpm verify:vrdex-mcp && pnpm verify:docs && pnpm verify:web && pnpm check:backend:generated && pnpm typecheck:backend && pnpm test:backend && pnpm test:group-telemetry && pnpm test:vrclinking-adapter && pnpm test:temporal-runtime && pnpm test:temporal-inference",
     "prepare": "husky"
   },
   "lint-staged": {
     "**/*.{md,mdx}": "markdownlint-cli2 --fix",
     "apps/web/**/*.{js,jsx,ts,tsx,mjs,cjs}": "pnpm --filter web exec eslint --fix --max-warnings=0"
   },
-
   "devDependencies": {
     "@types/node": "^24.10.5",
     "convex": "^1.32.0",
@@ -195,7 +200,8 @@
     "@aws-sdk/client-ses": "^3.1055.0",
     "@convex-dev/auth": "^0.0.92",
     "@convex-dev/migrations": "^0.3.4",
-    "@vrdex/temporal-runtime": "workspace:*"
+    "@vrdex/temporal-runtime": "workspace:*",
+    "@aws-sdk/client-secrets-manager": "^3.1055.0"
   },
   "optionalDependencies": {
     "keytar": "7.9.0"

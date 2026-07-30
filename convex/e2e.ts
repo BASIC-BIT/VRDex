@@ -2,6 +2,7 @@ import { v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, mutation, type MutationCtx } from "./_generated/server";
+import { recordExternalControlProof } from "./_externalControl";
 import { findAvailableProfileSlug, getProfileBySlug } from "./_profileSlugs";
 import { sanitizeCommunitySubmissionProfileInput } from "./_profileSubmissions";
 import { createProfileSearchDocument, upsertSearchDocument } from "./_searchDocuments";
@@ -73,12 +74,21 @@ async function deleteE2eProfile(ctx: MutationCtx, profile: Doc<"profiles">) {
     throw new Error("Only E2E-created profiles can be cleaned up by this helper.");
   }
 
-  const [searchDocuments, auditEvents, owners, claimRequests, verificationAttempts] = await Promise.all([
+  const [searchDocuments, auditEvents, owners, claimRequests, verificationAttempts, externalLinks, vrclinkingCredentials] = await Promise.all([
     ctx.db.query("searchDocuments").withIndex("by_profileId", (query) => query.eq("profileId", profile._id)).collect(),
     ctx.db.query("profileAuditEvents").withIndex("by_profileId_createdAt", (query) => query.eq("profileId", profile._id)).collect(),
     ctx.db.query("profileOwners").withIndex("by_profileId_state", (query) => query.eq("profileId", profile._id)).collect(),
     ctx.db.query("profileClaimRequests").withIndex("by_profileId_state", (query) => query.eq("profileId", profile._id)).collect(),
     ctx.db.query("profileVerificationAttempts").withIndex("by_profileId_state", (query) => query.eq("profileId", profile._id)).collect(),
+    // Created when a community claim pairs a control proof with the profile.
+    // Every state, not just `active`: `removeConnection` leaves `removed` rows
+    // behind, and filtering to active left them dangling against a deleted
+    // profile on every shared-staging run.
+    ctx.db.query("profileExternalLinks").withIndex("by_profileId_state", (query) => query.eq("profileId", profile._id)).collect(),
+    // Nothing else deletes these, and a row that outlives its profile cannot
+    // be revoked (revocation resolves the profile by slug) or listed, while
+    // still consuming a slot in the adapter selection window forever.
+    ctx.db.query("communityVrclinkingCredentials").withIndex("by_communityProfileId_state", (query) => query.eq("communityProfileId", profile._id)).collect(),
   ]);
 
   await Promise.all([
@@ -87,6 +97,8 @@ async function deleteE2eProfile(ctx: MutationCtx, profile: Doc<"profiles">) {
     ...owners.map((owner) => ctx.db.delete(owner._id)),
     ...claimRequests.map((claimRequest) => ctx.db.delete(claimRequest._id)),
     ...verificationAttempts.map((attempt) => ctx.db.delete(attempt._id)),
+    ...externalLinks.map((link) => ctx.db.delete(link._id)),
+    ...vrclinkingCredentials.map((credential) => ctx.db.delete(credential._id)),
     ctx.db.delete(profile._id),
   ]);
 }
@@ -106,12 +118,17 @@ async function cleanupE2eUserByEmail(ctx: MutationCtx, email: string) {
 
   await cleanupE2eDeveloperCredentials(ctx, user._id);
 
-  const [accounts, sessions, claimRequests, verificationAttempts, profileOwners] = await Promise.all([
+  const [accounts, sessions, claimRequests, verificationAttempts, profileOwners, controlProofs] = await Promise.all([
     ctx.db.query("authAccounts").withIndex("userIdAndProvider", (query) => query.eq("userId", user._id)).collect(),
     ctx.db.query("authSessions").withIndex("userId", (query) => query.eq("userId", user._id)).collect(),
     ctx.db.query("profileClaimRequests").withIndex("by_userId_state", (query) => query.eq("userId", user._id)).collect(),
     ctx.db.query("profileVerificationAttempts").withIndex("by_userId_state", (query) => query.eq("userId", user._id)).collect(),
     ctx.db.query("profileOwners").withIndex("by_userId_state", (query) => query.eq("userId", user._id)).collect(),
+    // Seeded by the claim flow through the record-guild-proof helper; without
+    // this, every shared-staging run leaves a dangling proof behind. Every
+    // state, not just `active`: OAuth reconciliation revokes rows and the
+    // hourly sweep marks them stale, and both survived an active-only filter.
+    ctx.db.query("externalControlProofs").withIndex("by_userId_assetType_assetExternalId", (query) => query.eq("userId", user._id)).collect(),
   ]);
   const verificationCodes = await Promise.all(
     accounts.map((account) => ctx.db.query("authVerificationCodes").withIndex("accountId", (query) => query.eq("accountId", account._id)).collect()),
@@ -126,6 +143,7 @@ async function cleanupE2eUserByEmail(ctx: MutationCtx, email: string) {
     ...claimRequests.map((claimRequest) => ctx.db.delete(claimRequest._id)),
     ...verificationAttempts.map((attempt) => ctx.db.delete(attempt._id)),
     ...profileOwners.map((owner) => ctx.db.delete(owner._id)),
+    ...controlProofs.map((proof) => ctx.db.delete(proof._id)),
     ...accounts.map((account) => ctx.db.delete(account._id)),
     ...sessions.map((session) => ctx.db.delete(session._id)),
     ctx.db.delete(user._id),
@@ -261,6 +279,49 @@ export const linkDiscordAccountByEmail = mutation({
     });
 
     return { linked: true };
+  },
+});
+
+/**
+ * Seed a verified Discord guild control proof, standing in for the OAuth
+ * round-trip that hosted runs cannot perform against real Discord.
+ */
+export const recordGuildControlProofByEmail = mutation({
+  args: {
+    secret: v.string(),
+    email: v.string(),
+    guildId: v.string(),
+    guildName: v.optional(v.string()),
+    controlLevel: v.optional(
+      v.union(v.literal("manager"), v.literal("administrator"), v.literal("owner")),
+    ),
+  },
+  handler: async (ctx, args) => {
+    requireE2eAuthHelper(args.secret);
+
+    const user = await userByEmail(ctx, normalizeE2eEmail(args.email));
+
+    if (user === null) {
+      throw new Error("E2E user not found.");
+    }
+
+    const guildId = args.guildId.trim();
+    if (!guildId) {
+      throw new Error("Discord guild id is required.");
+    }
+
+    const proofId = await recordExternalControlProof(ctx.db, {
+      userId: user._id,
+      assetType: "discord_guild",
+      assetExternalId: guildId,
+      ...(args.guildName !== undefined ? { assetDisplayName: args.guildName } : {}),
+      controlLevel: args.controlLevel ?? "administrator",
+      evidenceSource: "discord_oauth",
+      evidenceSummary: "Seeded by the E2E helper.",
+      now: Date.now(),
+    });
+
+    return { proofId };
   },
 });
 

@@ -446,6 +446,11 @@ export function LookupSearchBox({
                       activeIndex === index ? "bg-surface-strong" : undefined,
                     )}
                     key={isPrivateSuggestion(profile) ? `private:${profile.id}` : `public:${profile.slug}`}
+                    // Private seed suggestions are people and communities that
+                    // are deliberately absent from public discovery, rendered
+                    // here as ordinary button text on public routes — so a route
+                    // layout cannot cover them and `maskAllInputs` does not.
+                    {...(isPrivateSuggestion(profile) ? { "data-ph-no-capture": true } : {})}
                     type="button"
                     role="option"
                     aria-selected={activeIndex === index}

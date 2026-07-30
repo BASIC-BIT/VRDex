@@ -732,7 +732,11 @@ function MediaKitEditor({
         {!pendingFile ? <ActionStatusMessage className="mt-3" status={uploadStatus} /> : null}
         {selectedProfile && pendingFile ? (
           <form className="mt-4 grid gap-4 border-t border-border pt-4" onSubmit={publishUpload}>
-            <p className="text-sm font-medium">{pendingFile.name}</p>
+            {/* A local filename can carry anything the uploader's disk does.
+                `maskAllInputs` covers the file input, not this rendered text. */}
+            <p className="text-sm font-medium" data-ph-no-capture>
+              {pendingFile.name}
+            </p>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="text-sm font-medium">
                 Title

@@ -13,6 +13,24 @@ export const RECENT_AUTH_MAX_AGE_MS = 15 * MINUTE_MS;
 export const AUTH_SESSION_INVALID_CODE = "AUTH_SESSION_INVALID";
 export const RECENT_AUTH_REQUIRED_CODE = "RECENT_AUTH_REQUIRED";
 
+/**
+ * Whether an error is the structured "sign in again" signal.
+ *
+ * The web layer turns this into `invalidAuthSessionResponse`, which clears the
+ * stale auth cookies. Anything that catches broadly on a path that can raise it
+ * has to let it through, or the user is told the operation failed and keeps
+ * cookies that will fail the same way next time.
+ */
+export function isAuthSessionInvalidError(error: unknown): error is ConvexError<{ code: string }> {
+  return (
+    error instanceof ConvexError &&
+    typeof error.data === "object" &&
+    error.data !== null &&
+    "code" in error.data &&
+    error.data.code === AUTH_SESSION_INVALID_CODE
+  );
+}
+
 type AuthSessionCtx = QueryCtx | MutationCtx;
 type AuthSessionRecord = Pick<
   Doc<"authSessions">,

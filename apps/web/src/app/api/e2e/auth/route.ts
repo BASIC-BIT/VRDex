@@ -71,6 +71,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(result);
   }
 
+  if (action === "record-guild-proof") {
+    const guildId = typeof body.guildId === "string" ? body.guildId : "";
+    const guildName = typeof body.guildName === "string" ? body.guildName : undefined;
+    const result = await convexClient().mutation(api.e2e.recordGuildControlProofByEmail, {
+      secret: convexSecret,
+      email,
+      guildId,
+      ...(guildName !== undefined ? { guildName } : {}),
+    });
+
+    return NextResponse.json(result);
+  }
+
   if (action === "set-session-state") {
     const state =
       body.state === "absolute_expired" ||

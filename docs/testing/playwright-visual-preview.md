@@ -155,6 +155,9 @@ Hosted adapter E2E additionally requires `VRDEX_ENABLE_E2E_ADAPTER_HELPERS=true`
 - `VRCHAT_PROOF_ADAPTER_URL=<hosted app URL>/api/e2e/adapters/vrchat-proof`
 - `VRCLINKING_PROOF_ADAPTER_URL=<hosted app URL>/api/e2e/adapters/vrchat-proof`
 - `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN=<staging-only adapter token>`
+- `VRCLINKING_ADAPTER_CAPABILITY_KEY=<staging-only signing key>` — signs the
+  per-delegation capability the VRCLinking adapter verifies as
+  `VRDEX_VRCLINKING_CAPABILITY_KEY`. Keep it distinct from the bearer token
 
 GitHub Actions only runs hosted extended profile, auth, adapter, and developer-credential flows when repository variables `VRDEX_HOSTED_E2E_EXTENDED_PROFILE_FLOW=true`, `VRDEX_HOSTED_E2E_AUTH_HELPERS=true`, `VRDEX_HOSTED_E2E_ADAPTER_HELPERS=true`, and `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true` are set. Keep the optional variables unset until the matching hosted app and Convex capabilities are configured.
 

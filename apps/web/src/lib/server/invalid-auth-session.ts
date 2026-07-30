@@ -75,10 +75,21 @@ export function invalidAuthSessionResponse(returnTo: string) {
   return expireAuthSessionCookies(response);
 }
 
-export function invalidAuthSessionRedirectResponse(request: Request) {
+/**
+ * The browser-navigation counterpart to `invalidAuthSessionResponse`.
+ *
+ * That one answers a fetch with 401 JSON, which is right for the developer
+ * APIs. A route the user reaches by following a link — the Discord OAuth start
+ * and callback — has to send them somewhere instead, or they land on a raw JSON
+ * document. Both clear the cookies either way.
+ *
+ * `returnTo` falls back to the query parameter when not given, so
+ * `/auth/session-invalid` can keep calling it with a request alone.
+ */
+export function invalidAuthSessionRedirectResponse(request: Request, returnTo?: string) {
   const requestUrl = new URL(request.url);
   const signInUrl = invalidAuthSessionSignInPath(
-    requestUrl.searchParams.get("returnTo") ?? "/account",
+    returnTo ?? requestUrl.searchParams.get("returnTo") ?? "/account",
   );
   const response = new Response(null, {
     status: 303,

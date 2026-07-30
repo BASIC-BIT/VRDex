@@ -98,6 +98,20 @@ describe("browser auth-session authorization boundary", () => {
         ],
       ],
       [
+        // Purpose-scoped Discord OAuth round-trip: every action here reads the
+        // browser session before it exchanges a code or touches Discord.
+        "convex/discordVerification.ts",
+        [
+          // Name the guarded mutations the actions call, not just the guard
+          // helper: the helper appears in this file's internalMutations, so a
+          // marker on it alone would be satisfied by a string that is not on
+          // the path an action takes before it reaches Discord.
+          "internal.discordVerification.consumeVerificationState",
+          "internal.discordVerification.createVerificationState",
+          "requireVerifiedActiveBrowserSession(ctx)",
+        ],
+      ],
+      [
         "convex/profileClaims.ts",
         [
           "internal.profileClaims.getDiscordCommunityClaimForAdapter",
@@ -155,6 +169,14 @@ describe("browser auth-session authorization boundary", () => {
       [
         "apps/web/src/app/api/developer/tokens/route.ts",
         "api.apiTokens.createPersonalToken",
+      ],
+      [
+        "apps/web/src/app/api/discord/verify/callback/route.ts",
+        "api.discordVerification.completeGuildVerification",
+      ],
+      [
+        "apps/web/src/app/api/discord/verify/start/route.ts",
+        "api.discordVerification.startGuildVerification",
       ],
       [
         "apps/web/src/app/api/time/parse/[continuationToken]/route.ts",

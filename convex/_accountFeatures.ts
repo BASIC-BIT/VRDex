@@ -5,7 +5,7 @@ import {
   accountFeatureAccessFromGrants,
   type AccountFeatureAccess,
 } from "./_accountFeatureModel";
-import { activeBrowserSessionOrNull } from "./_browserSessionAuthority";
+import { requireClaimSession } from "./_claimSession";
 
 export * from "./_accountFeatureModel";
 
@@ -35,13 +35,10 @@ export async function requirePrivateSeedLookupAccess(
   ctx: QueryCtx | MutationCtx,
   now = Date.now(),
 ) {
-  const activeSession = await activeBrowserSessionOrNull(ctx);
-
-  if (activeSession === null) {
-    throw new Error("A signed-in account is required.");
-  }
-
-  const { user } = activeSession;
+  // Structured, not a plain `Error`: Convex redacts plain messages on
+  // production deployments, so this surfaced to the browser as one generic
+  // string with nothing the UI could act on.
+  const { user } = await requireClaimSession(ctx);
   const access = await getAccountFeatureAccess(ctx.db, user._id, now);
 
   if (!access.canViewPrivateSeedLookup) {

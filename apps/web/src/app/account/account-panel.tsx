@@ -38,11 +38,20 @@ function ConnectedAccountPanel({ mediaKitEnabled }: { mediaKitEnabled: boolean }
     <div>
       <section className="grid gap-8 border-t border-border py-8 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.7fr)]">
         <div>
-          <h2 className="text-2xl font-semibold">{viewer.user.name ?? viewer.user.email ?? "Your details"}</h2>
+          {/*
+            Session replay records every route, and `maskAllInputs` only covers
+            input values — a name or email rendered as ordinary text would be
+            captured verbatim. `data-ph-no-capture` is the configured
+            `maskTextSelector`, so marking the elements that render identity
+            keeps the recording useful while masking the identity itself.
+          */}
+          <h2 className="text-2xl font-semibold" data-ph-no-capture>
+            {viewer.user.name ?? viewer.user.email ?? "Your details"}
+          </h2>
           <dl className="mt-4 grid gap-2 text-sm">
             <div className="flex flex-wrap items-baseline gap-x-3">
               <dt className="text-muted">Email</dt>
-              <dd>{viewer.user.email ?? "Not provided"}</dd>
+              <dd data-ph-no-capture>{viewer.user.email ?? "Not provided"}</dd>
             </div>
             <div className="flex flex-wrap items-baseline gap-x-3">
               <dt className="text-muted">Status</dt>
@@ -51,6 +60,7 @@ function ConnectedAccountPanel({ mediaKitEnabled }: { mediaKitEnabled: boolean }
           </dl>
           <div className="mt-5 flex flex-wrap gap-2">
             <Link className={buttonVariants({ variant: "secondary" })} href="/account/privacy">Privacy controls</Link>
+            <Link className={buttonVariants({ variant: "secondary" })} href="/account/connections">Connections</Link>
             <Link className={buttonVariants({ variant: "secondary" })} href="/account/appearance">Personalization</Link>
             <Link className={buttonVariants({ variant: "secondary" })} href="/account/security">Security</Link>
             {mediaKitEnabled ? (
@@ -107,7 +117,16 @@ function ConnectedAccountPanel({ mediaKitEnabled }: { mediaKitEnabled: boolean }
               return (
                 <li className="flex flex-wrap items-center justify-between gap-3 py-4" key={profile.profileId}>
                   <div>
-                    <Link className="font-medium underline underline-offset-4" href={profilePath}>
+                    {/* This list includes profiles that are not publicly
+                        readable — draft, suppressed, or opted out. With replay
+                        on every route their display name is the identity of a
+                        profile nobody outside the account can see, and
+                        `maskAllInputs` does not cover rendered text. */}
+                    <Link
+                      className="font-medium underline underline-offset-4"
+                      data-ph-no-capture
+                      href={profilePath}
+                    >
                       {profile.displayName}
                     </Link>
                     <p className="mt-1 text-sm text-muted">

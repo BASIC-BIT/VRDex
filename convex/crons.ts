@@ -25,6 +25,15 @@ crons.hourly(
   {},
 );
 
+// Hourly rather than daily: proofs revalidate on one shared 30-day window and
+// arrive in bursts, so a daily pass let the tail stay active past its window.
+crons.hourly(
+  "mark overdue external control proofs stale",
+  { minuteUTC: 15 },
+  internal.profileConnections.markOverdueControlProofsStale,
+  {},
+);
+
 crons.interval(
   "expire abandoned recent authentication challenges",
   { minutes: 10 },

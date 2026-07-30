@@ -374,7 +374,7 @@ describe("profile ownership helpers", () => {
     const conflictingOwnerDb = createOwnerDb([{ ...existingOwner, userId: "otherUser" }]);
     await assert.rejects(
       () => grantProfileOwner(conflictingOwnerDb.db as never, { profileId, userId, now: 2 }),
-      /already has an active owner/,
+      /PROFILE_ALREADY_OWNED/,
     );
   });
 
@@ -521,7 +521,7 @@ describe("profile ownership helpers", () => {
           verified: false,
           now: 3,
         }),
-      /already has an active owner/,
+      /PROFILE_ALREADY_OWNED/,
     );
     assert.equal(tables.profileOwners.length, 1);
     assert.equal(tables.profiles[0]?._id, profileId);
