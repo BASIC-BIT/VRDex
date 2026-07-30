@@ -3,7 +3,7 @@ import { claimError } from "./_claimErrors";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { query } from "./_generated/server";
-import { currentUserOrNull } from "./_identity";
+import { currentUserOrNull, identityEmailVerified } from "./_identity";
 
 type AccountCtx = QueryCtx | MutationCtx;
 
@@ -28,7 +28,9 @@ export async function requireCurrentUser(ctx: AccountCtx) {
 export async function requireVerifiedEmailUser(ctx: AccountCtx) {
   const user = await requireCurrentUser(ctx);
 
-  if (user.email === undefined || user.emailVerificationTime === undefined) {
+  // Checks the Clerk claim rather than the mirrored `emailVerificationTime`, so a
+  // stale row cannot satisfy this guard. See `identityEmailVerified`.
+  if (user.email === undefined || !(await identityEmailVerified(ctx))) {
     throw claimError("EMAIL_NOT_VERIFIED");
   }
 

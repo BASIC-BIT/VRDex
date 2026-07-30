@@ -24,31 +24,27 @@ const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 const clerkConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 const convex = convexUrl ? new ConvexReactClient(convexUrl) : null;
 const PROVISION_RETRY_CEILING_MS = 8_000;
-// After this many consecutive failures the gate gives up and renders anyway.
-const PROVISION_ATTEMPT_LIMIT = 3;
 
 /**
  * Provisions the VRDex `users` row for a Clerk identity, and holds authenticated
  * children until it exists.
  *
  * Provisioning on demand keeps Clerk as the only identity source without a
- * webhook to expose, verify, and make replay-safe. But it cannot be
- * fire-and-forget: a brand-new identity's children mount first, and any query
- * behind `requireUser` throws while the row is missing. `developer-tokens-panel`
- * is the concrete case — its `temporalParsing.getAccess` query throws, and the
- * panel's error boundary latches on "temporarily unavailable" even after the row
- * appears.
+ * webhook to expose, verify, and make replay-safe. It cannot be entirely
+ * fire-and-forget though: a brand-new identity's children mount first, and any
+ * query behind `requireUser` throws while the row is missing.
+ * `developer-tokens-panel` is the concrete case — its `temporalParsing.getAccess`
+ * query throws, and the panel's error boundary latches on "temporarily
+ * unavailable" even after the row appears.
  *
- * Gating on `viewer` rather than on the mutation means Convex reactivity opens
- * the gate as soon as the row lands, and an existing user waits only for a query
- * that authenticated pages already make.
- *
- * Provisioning also re-runs whenever Clerk's identity changes, not only when the
- * row is missing. Clerk's profile modal can change the primary email without
- * remounting this provider, and a changed address arrives unverified: syncing
- * only on absence would leave a stale `emailVerificationTime` behind and let a
- * client-side navigation into a claim flow pass the verified-email requirement on
- * an address Clerk no longer vouches for.
+ * What this gate deliberately does *not* do is enforce verification freshness.
+ * An earlier revision tried, holding children until the row matched Clerk's
+ * current identity, and it could not be made sound: a provisioning outage, a
+ * token minted before a profile change, or any caller that is not this browser
+ * all defeat a client-side gate. That invariant lives on the server instead —
+ * `identityEmailVerified` reads the claim out of the token Convex just validated,
+ * so the guards do not trust this component at all. Re-syncing here is
+ * best-effort mirroring of display fields, and safe to fail.
  */
 function ProvisionedChildren({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useConvexAuth();
@@ -56,16 +52,11 @@ function ProvisionedChildren({ children }: { children: ReactNode }) {
   const ensureCurrentUser = useMutation(api.users.ensureCurrentUser);
   const viewer = useQuery(api.accounts.viewer, isAuthenticated ? {} : "skip");
   const [retry, setRetry] = useState(0);
-  // Keyed by identity rather than a bare flag, so giving up on one identity does
-  // not permanently suppress retries after a later profile change.
-  const [failedIdentity, setFailedIdentity] = useState<string | null>(null);
   const retryTimer = useRef<number | undefined>(undefined);
-  // Render state, not a ref: the gate below has to re-evaluate when a sync
-  // completes, and a ref would release children without a re-render.
-  const [syncedIdentity, setSyncedIdentity] = useState<string | null>(null);
+  const syncedIdentity = useRef<string | null>(null);
 
   const provisioned = viewer !== undefined && viewer !== null;
-  // Changes when Clerk's profile does, so an email change resyncs.
+  // Changes when Clerk's profile does, so an email or name edit is mirrored.
   const identitySignature = user
     ? [
         user.id,
@@ -75,15 +66,12 @@ function ProvisionedChildren({ children }: { children: ReactNode }) {
       ].join("|")
     : null;
 
-  const gaveUp =
-    failedIdentity !== null && failedIdentity === identitySignature;
-
   useEffect(() => {
     if (!isAuthenticated) {
       return;
     }
 
-    if (gaveUp || (provisioned && identitySignature === syncedIdentity)) {
+    if (provisioned && identitySignature === syncedIdentity.current) {
       return;
     }
 
@@ -92,7 +80,7 @@ function ProvisionedChildren({ children }: { children: ReactNode }) {
     void ensureCurrentUser({})
       .then(() => {
         if (!cancelled) {
-          setSyncedIdentity(identitySignature);
+          syncedIdentity.current = identitySignature;
         }
       })
       .catch(() => {
@@ -100,13 +88,10 @@ function ProvisionedChildren({ children }: { children: ReactNode }) {
           return;
         }
 
-        // Nothing else would retry a transient failure while the layout stays
-        // mounted, which would leave the account permanently unusable.
-        if (retry + 1 >= PROVISION_ATTEMPT_LIMIT) {
-          setFailedIdentity(identitySignature);
-          return;
-        }
-
+        // Retried because nothing else would while the layout stays mounted, and
+        // a row that never appears leaves the account unusable. Unbounded on
+        // purpose: this retry no longer gates rendering, so it cannot strand the
+        // app, and giving up would silently stop mirroring profile changes.
         retryTimer.current = window.setTimeout(
           () => setRetry((attempt) => attempt + 1),
           Math.min(PROVISION_RETRY_CEILING_MS, 500 * 2 ** retry),
@@ -121,29 +106,12 @@ function ProvisionedChildren({ children }: { children: ReactNode }) {
         retryTimer.current = undefined;
       }
     };
-  }, [
-    ensureCurrentUser,
-    gaveUp,
-    identitySignature,
-    isAuthenticated,
-    provisioned,
-    retry,
-    syncedIdentity,
-  ]);
+  }, [ensureCurrentUser, identitySignature, isAuthenticated, provisioned, retry]);
 
-  // Releasing on `provisioned` alone was not enough. After a primary-email change
-  // the row still exists, so children would render — and a claim could reach the
-  // backend on the previously verified state — while `ensureCurrentUser` was still
-  // clearing `emailVerificationTime`. Hold until the row exists *and* the current
-  // Clerk identity has been synchronised.
-  const identitySettled =
-    identitySignature !== null && syncedIdentity === identitySignature;
-
-  // Give up rather than blank the app forever. This provider wraps public pages
-  // too, so a provisioning outage would otherwise leave a signed-in visitor with
-  // nothing at all — worse than letting account-dependent surfaces fall back to
-  // their own error states while everything else keeps working.
-  if (isAuthenticated && !gaveUp && !(provisioned && identitySettled)) {
+  // Only the row's absence gates rendering, and only until it appears. This
+  // provider wraps public pages too, so gating on anything longer-lived risks
+  // blanking the whole app for a signed-in visitor.
+  if (isAuthenticated && viewer === null) {
     return null;
   }
 

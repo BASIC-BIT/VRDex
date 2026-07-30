@@ -64,6 +64,24 @@ export async function requireUser(ctx: IdentityCtx) {
 }
 
 /**
+ * Whether Clerk vouches for the current identity's email, read from the token
+ * Convex just validated.
+ *
+ * Deliberately not `users.emailVerificationTime`. That column is mirrored by
+ * `ensureUser` from the client, so it can lag: a primary-email change arrives
+ * unverified, and any client-side gate meant to close that window can be defeated
+ * by a provisioning outage, a stale token, or simply a request that does not come
+ * from the browser. Reading the claim makes the check independent of all of it —
+ * a token asserting a verified address is either present or it is not, and Clerk
+ * will not mint one for an address it no longer vouches for.
+ */
+export async function identityEmailVerified(ctx: IdentityCtx) {
+  const identity = await ctx.auth.getUserIdentity();
+
+  return identity !== null && identity.emailVerified === true;
+}
+
+/**
  * Provisioning happens on demand from `users:ensureCurrentUser` rather than a
  * Clerk webhook: no endpoint to expose, no signature to verify, and no replay
  * or retry semantics to get wrong. Idempotent, so a concurrent duplicate call

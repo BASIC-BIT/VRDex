@@ -107,11 +107,13 @@ Convex preset. Templates do not carry across instances, so development,
 staging, and production each need their own.
 
 **The template must emit an `email_verified` claim.** Convex maps it to
-`identity.emailVerified`, which is the only thing `ensureUser` can use to stamp
-`emailVerificationTime`. Without it every provisioned user looks unverified and
-`requireVerifiedEmailUser` rejects claim-level actions with
-`EMAIL_NOT_VERIFIED` — a failure that looks like a claim bug rather than a
-template gap. The development template in use emits:
+`identity.emailVerified`, and the claim guards read it directly through
+`identityEmailVerified` — the token Convex just validated is the authority, not
+the `emailVerificationTime` column, which is only a mirrored copy and can lag a
+profile change. Without the claim, every request looks unverified and
+`requireVerifiedEmailUser` rejects claim-level actions with `EMAIL_NOT_VERIFIED`
+— a failure that looks like a claim bug rather than a template gap. The
+development template in use emits:
 
 ```json
 {

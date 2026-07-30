@@ -1,7 +1,7 @@
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 
-import { currentUserOrNull, requireUser } from "./_identity";
+import { currentUserOrNull, identityEmailVerified, requireUser } from "./_identity";
 import { toAuthSubject } from "./_communityAuthority";
 
 type BrowserSessionCtx = MutationCtx | QueryCtx;
@@ -55,7 +55,9 @@ export async function requireActiveVerifiedEmailUser(
 ): Promise<Doc<"users">> {
   const { user } = await requireUser(ctx);
 
-  if (user.email === undefined || user.emailVerificationTime === undefined) {
+  // Same reasoning as `accounts.requireVerifiedEmailUser`: the Clerk claim is
+  // authoritative, the mirrored timestamp can lag.
+  if (user.email === undefined || !(await identityEmailVerified(ctx))) {
     throw new Error(
       "A verified email address is required before claim-level actions.",
     );
