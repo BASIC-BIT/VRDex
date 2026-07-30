@@ -162,9 +162,12 @@ pins `~> 6.28` where the others pin `~> 5.0`.
 
 - `reserved_concurrency` caps how much of a community's VRCLinking quota a burst
   of concurrent claims can spend.
-- `timeout_seconds` (15) sits above the adapter's own 8s fan-out budget and
-  above Convex's 10s request deadline, so the function is never the thing that
-  cuts a request short — the adapter stops itself first, and Convex gives up
-  before the function does.
+- `timeout_seconds` (9) sits above the adapter's own 8s fan-out budget and
+  *below* Convex's 10s request deadline. Do not raise it. Above 10 the function
+  outlives its caller: a cold start resolves two secrets before the fan-out
+  budget begins, unbounded, so a slow Secrets Manager read can push provider
+  calls past the point Convex abandoned the request — spending a community's
+  quota and the claimant's reserved cooldown on a verdict nobody can receive.
+  The ceiling being under the caller's deadline is what makes that unreachable.
 - The execution role can read every delegated credential. Attach nothing else to
   it.

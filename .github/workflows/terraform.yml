@@ -227,9 +227,21 @@ jobs:
             requires_ses_domain: "false"
             requires_profile_assets_enabled: "false"
             requires_upstash: "false"
-          # Plan-only, like the collector. Applying uploads a Lambda package
-          # that has to be built first, and enabling it is an operator decision
-          # paired with provisioning the delegated credentials it reads.
+          # Validate-only, not plan-only. `plan: "false"` makes the plan gate
+          # exit before touching remote state, so CI never sees a create or a
+          # destroy on this stack — do not read the flags below as a plan.
+          #
+          # Planning needs two things CI does not have: the Lambda zip, which
+          # `filebase64sha256` reads at plan time and which is gitignored, and
+          # the two shared-secret ARNs, which are required variables with no
+          # default. Turning `plan` on without both fails every run rather than
+          # catching anything. Enabling it means building the artifact in this
+          # job and adding the ARNs as repository variables — they are
+          # identifiers rather than secrets, but they are account-specific, so
+          # that is an operator decision, not a workflow edit.
+          #
+          # Until then `terraform plan` before a production apply is a manual
+          # step, and the stack README makes the `-var-file` mandatory for it.
           - name: vrclinking-adapter
             path: infra/terraform/vrclinking-adapter
             backend: "true"

@@ -25,6 +25,7 @@ import { canReadProfile } from "./_profilePermissions";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { createProfileSearchDocument, upsertSearchDocument } from "./_searchDocuments";
 import { normalizeVrchatTargetId } from "./_vrchatIdentity";
+import { vrclinkingSecretRef } from "./_vrclinkingSecretRef";
 
 const DAY_MS = 86_400_000;
 // Minimum gap between adapter-backed checks of one attempt, whatever the
@@ -1266,10 +1267,15 @@ export const recordVrchatProofVerification = internalMutation({
     if (args.vrclinkingDelegation !== undefined) {
       const credential = await ctx.db.get(args.vrclinkingDelegation.credentialId);
 
+      // Derived, matching selection and `recordCredentialUse`. Reading the
+      // stored value here rejected any row registered before the ARN form was
+      // retired — and rejecting at this point is the worst of the three: the
+      // provider call is already spent and the match already found, so the
+      // claimant is told `unavailable` after a verification that succeeded.
       if (
         credential === null ||
         credential.state !== "active" ||
-        credential.secretRef !== args.vrclinkingDelegation.secretRef
+        vrclinkingSecretRef(credential.guildId) !== args.vrclinkingDelegation.secretRef
       ) {
         return { state: "unavailable" as const };
       }

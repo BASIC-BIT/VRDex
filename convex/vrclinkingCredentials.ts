@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { getLinkedProviderAccount } from "./accounts";
 import { requireVerifiedActiveBrowserSession } from "./_claimSession";
 import { claimError } from "./_claimErrors";
+import { vrclinkingSecretName, vrclinkingSecretRef } from "./_vrclinkingSecretRef";
 import type { Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import {
@@ -41,14 +42,8 @@ const DISCORD_GUILD_ID_PATTERN = /^\d{17,20}$/;
  * control of removes the choice: the only reference they can register is the one
  * an operator provisioned for their own server.
  */
-function secretNameForGuild(guildId: string): string {
-  return `vrdex/vrclinking/${guildId}`;
-}
-
-/** The one reference a delegation for `guildId` resolves to. */
-function secretRefForGuild(guildId: string): string {
-  return `secret://${secretNameForGuild(guildId)}`;
-}
+const secretNameForGuild = vrclinkingSecretName;
+const secretRefForGuild = vrclinkingSecretRef;
 
 /**
  * One accepted form: the name.
