@@ -42,9 +42,17 @@ terraform init
 terraform apply -var-file=environments/production.tfvars
 ```
 
-The two shared-secret ARNs come from the operator's gitignored
-`terraform.tfvars`; `environments/production.tfvars` carries only the enable
-state, so a clean checkout cannot tear the function down by applying defaults.
+**`-var-file=environments/production.tfvars` is mandatory on every production
+plan and apply.** Terraform auto-loads `terraform.tfvars` but not files under
+`environments/`, and `enable_service` defaults to `false` — so a plain
+`terraform apply` against production state plans **deletion of the live function
+and its URL**, even though the ARNs it needs are auto-loaded. Read every plan
+before applying; `1 to add, 1 to change` is routine, any `to destroy` on this
+stack is not.
+
+The two shared-secret ARNs are the account-specific half and live in the
+operator's gitignored `terraform.tfvars`. `environments/production.tfvars`
+carries only the enable state, which is not account-specific.
 
 Then set the `function_url` output as `VRCLINKING_PROOF_ADAPTER_URL` in Convex,
 alongside `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN` and
@@ -55,6 +63,50 @@ above. Convex is given the base URL — the adapter answers `GET /healthz` and
 Verify with an unauthenticated `GET /healthz` (expect `{"status":"ok"}`) and an
 unauthenticated `POST /` (expect `401`). A `403` carrying an AWS-shaped error
 body means the resource policy is incomplete and the handler never ran.
+
+## Secrets, and rotating them
+
+| Secret | Owner | Read by |
+| --- | --- | --- |
+| `vrdex/vrclinking/bearer-token` | VRDex operator | The adapter at cold start; Convex holds the same value as `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN` |
+| `vrdex/vrclinking/capability-key` | VRDex operator | The adapter at cold start; Convex holds the same value as `VRCLINKING_ADAPTER_CAPABILITY_KEY` |
+| `vrdex/vrclinking/<guildId>` | The delegating community | The adapter only, per request, through the execution role |
+
+The two shared secrets must hold **different values** — the capability signature
+is only meaningful while its key is unknown to whoever holds the bearer token,
+and the adapter refuses to start if they match.
+
+Rotation has an ordering hazard: `resolveAdapterDeps` reads both shared secrets
+once per container and caches them for that container's life, so a warm
+environment keeps serving the old pair after Secrets Manager and Convex have
+moved on. Recycle the fleet explicitly rather than waiting it out:
+
+```bash
+# 1. New values, both secrets, in place before either side switches.
+aws secretsmanager put-secret-value --secret-id vrdex/vrclinking/bearer-token \
+  --secret-string "$(openssl rand -hex 32)"
+aws secretsmanager put-secret-value --secret-id vrdex/vrclinking/capability-key \
+  --secret-string "$(openssl rand -hex 32)"
+
+# 2. Force every warm container to re-bootstrap. A configuration update replaces
+#    them; the ARNs are unchanged, so this is the no-op edit that does it.
+aws lambda update-function-configuration \
+  --function-name vrdex-vrclinking-adapter \
+  --description "rotated $(date -u +%Y-%m-%d)"
+aws lambda wait function-updated --function-name vrdex-vrclinking-adapter
+
+# 3. Only then point Convex at the new values.
+pnpm exec convex env set VRCHAT_PROOF_ADAPTER_BEARER_TOKEN "$NEW_BEARER"
+pnpm exec convex env set VRCLINKING_ADAPTER_CAPABILITY_KEY "$NEW_CAPABILITY"
+```
+
+Between steps 2 and 3 every claim fails with `401`, which is the safe direction:
+the adapter is strictly ahead of the control plane, so nothing is authorized
+against a stale key. Reversing the order leaves old Lambda values paired with new
+Convex ones for as long as any container stays warm.
+
+A delegated community credential needs none of this — it is read per request and
+never cached across one, so `put-secret-value` alone takes effect.
 
 ## Why the URL needs two permissions
 

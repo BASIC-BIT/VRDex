@@ -836,7 +836,7 @@ export function ClaimFlow({
                       <FieldText>
                         VRDex asks the communities that have delegated a VRCLinking credential whether
                         your Discord account is linked to this VRChat account and verified. It receives a
-                        yes or no and the name of the community that answered — nothing else.
+                        yes or no and which server answered — nothing else.
                       </FieldText>
                     </Field>
                   ) : method === "vrchat" ? (

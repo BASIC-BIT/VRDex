@@ -19,8 +19,14 @@ data "aws_region" "current" {}
 # Granting the prefix rather than an enumerated list keeps onboarding a
 # community an operator action instead of a Terraform change — the guild binding
 # is enforced in code, where it can see which guild the request is for.
+#
+# Not a variable: `secretNameForGuild` in `convex/vrclinkingCredentials.ts` and
+# `isSecretRefForGuild` in the adapter both hard-code this prefix, so overriding
+# it here would only move the IAM grant away from the one shape the application
+# accepts — every delegation would then be denied rather than relocated.
 locals {
-  secret_arn_pattern = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:${var.secret_name_prefix}*"
+  secret_name_prefix = "vrdex/vrclinking/"
+  secret_arn_pattern = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:${local.secret_name_prefix}*"
 }
 
 data "aws_iam_policy_document" "assume" {

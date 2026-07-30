@@ -72,10 +72,24 @@ export async function resolveAdapterDeps() {
   // on every request, and required here rather than there: discovering it is
   // missing on first traffic is the failure this whole function exists to
   // avoid.
-  process.env.VRDEX_VRCLINKING_CAPABILITY_KEY = await sharedSecret(
+  const capabilityKey = await sharedSecret(
     "VRDEX_VRCLINKING_CAPABILITY_KEY",
     "VRDEX_VRCLINKING_CAPABILITY_SECRET_ARN",
   );
+
+  // The capability exists to be unknown to whoever holds the bearer token. Point
+  // both at one value and that stops being true: a leaked token is then also the
+  // HMAC key, so its holder can mint capabilities for guessed guild ids and
+  // spend every delegated credential the execution role can reach. Refusing to
+  // start is the only place this is catchable — the two are indistinguishable
+  // once a request arrives.
+  if (bearerToken === capabilityKey) {
+    throw new Error(
+      "The bearer token and capability key must be different values; the capability check is decorative otherwise.",
+    );
+  }
+
+  process.env.VRDEX_VRCLINKING_CAPABILITY_KEY = capabilityKey;
 
   // `!secretDir`, not `=== undefined`: a templated-but-unset deployment
   // variable arrives as an empty string, which would leave the guard passing on

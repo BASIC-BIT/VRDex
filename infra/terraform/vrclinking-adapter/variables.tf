@@ -22,16 +22,6 @@ variable "source_zip_path" {
   default     = "../../../artifacts/vrclinking-adapter.zip"
 }
 
-# The secrets themselves are provisioned outside this stack — one per
-# participating community, created by an operator when that community delegates.
-# The stack grants read access to the name prefix rather than to a list, so
-# onboarding a community is not a Terraform change.
-variable "secret_name_prefix" {
-  description = "Secrets Manager name prefix the adapter may read. Every delegation reference must live under it."
-  type        = string
-  default     = "vrdex/vrclinking/"
-}
-
 variable "bearer_token_secret_arn" {
   description = "Secrets Manager ARN holding the shared adapter bearer token. Must match Convex's VRCHAT_PROOF_ADAPTER_BEARER_TOKEN."
   type        = string

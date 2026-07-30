@@ -9,10 +9,12 @@
 #
 # Two separate values. The bearer token authenticates the channel and the
 # capability key authorizes an individual guild, so reusing one for both makes
-# the second check decorative.
+# the second check decorative — the adapter refuses to start if they match.
 
 bearer_token_secret_arn   = "arn:aws:secretsmanager:us-east-1:000000000000:secret:vrdex/vrclinking/bearer-token-AbCdEf"
 capability_key_secret_arn = "arn:aws:secretsmanager:us-east-1:000000000000:secret:vrdex/vrclinking/capability-key-AbCdEf"
 
-# Defaults to false so the stack can be planned before VRCLinking is turned on.
-enable_service = false
+# Leave `enable_service` out of this file. It defaults to false so a new
+# environment is safe by default, and production supplies it through
+# `-var-file=environments/production.tfvars`, which Terraform does NOT auto-load.
+# Setting it here instead would apply to every workspace using this file.
