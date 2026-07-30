@@ -264,9 +264,10 @@ pnpm ops:seed-publish -- `
   `publishedProfileId`, so an interrupted run resumes, and a retry of the same
   authorization does not append a duplicate record.
 - Re-importing the exact same permissioned payload stays idempotent after a batch
-  has been authorized. Adding *new* candidates to an already-authorized batch is
-  rejected, since they would inherit an authorization they were never reviewed
-  under — import those as a new batch.
+  has been authorized. Adding *new* candidates to a batch that has **ever** been
+  authorized is rejected, including one since revoked to `private_only`: a later
+  reauthorization would otherwise publish them under authorization records that
+  never described them. Import additions as a new batch.
 - Preview reads are bounded: candidate rows are capped at 2,000 and field stats
   are sampled from the first 50 candidates, because field stats need one query per
   candidate. The preview reports when either is truncated. Publication itself is

@@ -276,8 +276,11 @@ export const importPermissionedJsonBatch = internalMutation({
       // exact re-import of the same rows should stay idempotent. Adding *new*
       // candidates to an already-authorized batch is still rejected, since those
       // would inherit an authorization they were never reviewed under.
-      const authorizedForPublication =
-        (existingBatch.publicationPolicy ?? "private_only") === "reviewed_publication_allowed";
+      // Keyed on authorization *history*, not current policy. A batch revoked back
+      // to private_only still carries authorization records that describe the
+      // contents they approved, and a later reauthorization would publish anything
+      // appended in between under records that never covered it.
+      const authorizedForPublication = (existingBatch.publicationAuthorizations ?? []).length > 0;
 
       const existingCandidates = await ctx.db
         .query("seedImportCandidateProfiles")
