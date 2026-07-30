@@ -390,9 +390,15 @@ jobs:
               OAUTH_ENABLED=true
               OAUTH_SOURCE=configured-repository-secret
             elif [ "$MCP_HOSTED_E2E_AUTH_HELPERS" = "true" ] && [ "$MCP_HOSTED_E2E_DEVELOPER_CREDENTIALS" = "true" ] && [ -n "$MCP_HOSTED_E2E_BROWSER_TOKEN" ]; then
-              OAUTH_ENABLED=true
-              OAUTH_SOURCE=generated-e2e-smoke-client
-              GENERATE_OAUTH_CREDENTIALS=true
+              # The generator signs up by driving the removed email/password form
+              # and posts to the deleted /api/e2e/auth route, so it cannot produce
+              # credentials against Clerk. Skip with a reason rather than failing
+              # on a missing selector. Re-enable with #226.
+              {
+                echo "## Hosted MCP smoke health"
+                echo ""
+                echo "Hosted MCP Inspector OAuth was requested but the generated-credential path is disabled: prepare-mcp-oauth-smoke-credentials.ts still drives the removed Convex Auth sign-in form. Configure VRDEX_MCP_OAUTH_CLIENT_ID plus VRDEX_MCP_OAUTH_CLIENT_SECRET, or VRDEX_MCP_INSPECTOR_OAUTH_TOKEN, until the generator is ported to Clerk testing credentials (#226)."
+              } >> "$GITHUB_STEP_SUMMARY"
             else
               {
                 echo "## Hosted MCP smoke health"

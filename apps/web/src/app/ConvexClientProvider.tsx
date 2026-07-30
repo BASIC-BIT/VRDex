@@ -55,7 +55,9 @@ function ProvisionedChildren({ children }: { children: ReactNode }) {
   const viewer = useQuery(api.accounts.viewer, isAuthenticated ? {} : "skip");
   const [retry, setRetry] = useState(0);
   const retryTimer = useRef<number | undefined>(undefined);
-  const syncedIdentity = useRef<string | null>(null);
+  // Render state, not a ref: the gate below has to re-evaluate when a sync
+  // completes, and a ref would release children without a re-render.
+  const [syncedIdentity, setSyncedIdentity] = useState<string | null>(null);
 
   const provisioned = viewer !== undefined && viewer !== null;
   // Changes when Clerk's profile does, so an email change resyncs.
@@ -73,7 +75,7 @@ function ProvisionedChildren({ children }: { children: ReactNode }) {
       return;
     }
 
-    if (provisioned && identitySignature === syncedIdentity.current) {
+    if (provisioned && identitySignature === syncedIdentity) {
       return;
     }
 
@@ -82,7 +84,7 @@ function ProvisionedChildren({ children }: { children: ReactNode }) {
     void ensureCurrentUser({})
       .then(() => {
         if (!cancelled) {
-          syncedIdentity.current = identitySignature;
+          setSyncedIdentity(identitySignature);
         }
       })
       .catch(() => {
@@ -106,9 +108,24 @@ function ProvisionedChildren({ children }: { children: ReactNode }) {
         retryTimer.current = undefined;
       }
     };
-  }, [ensureCurrentUser, identitySignature, isAuthenticated, provisioned, retry]);
+  }, [
+    ensureCurrentUser,
+    identitySignature,
+    isAuthenticated,
+    provisioned,
+    retry,
+    syncedIdentity,
+  ]);
 
-  if (isAuthenticated && !provisioned) {
+  // Releasing on `provisioned` alone was not enough. After a primary-email change
+  // the row still exists, so children would render — and a claim could reach the
+  // backend on the previously verified state — while `ensureCurrentUser` was still
+  // clearing `emailVerificationTime`. Hold until the row exists *and* the current
+  // Clerk identity has been synchronised.
+  const identitySettled =
+    identitySignature !== null && syncedIdentity === identitySignature;
+
+  if (isAuthenticated && !(provisioned && identitySettled)) {
     return null;
   }
 
