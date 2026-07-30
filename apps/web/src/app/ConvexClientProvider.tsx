@@ -108,10 +108,15 @@ function ProvisionedChildren({ children }: { children: ReactNode }) {
     };
   }, [ensureCurrentUser, identitySignature, isAuthenticated, provisioned, retry]);
 
-  // Only the row's absence gates rendering, and only until it appears. This
-  // provider wraps public pages too, so gating on anything longer-lived risks
-  // blanking the whole app for a signed-in visitor.
-  if (isAuthenticated && viewer === null) {
+  // Waits for the query to resolve, not just for a known-absent row. On a new
+  // identity's first render `viewer` is still `undefined`, and letting children
+  // mount there is the race this gate exists to close — `temporalParsing.getAccess`
+  // would reach `requireUser` before the row lands and latch its error boundary.
+  //
+  // Bounded by a single Convex query that authenticated pages already issue, so it
+  // costs a round-trip rather than stranding anyone. Public pages are unaffected:
+  // an anonymous visitor never enters this branch.
+  if (isAuthenticated && (viewer === undefined || viewer === null)) {
     return null;
   }
 

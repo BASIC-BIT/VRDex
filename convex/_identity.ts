@@ -21,11 +21,20 @@ export function isUnauthenticatedError(
 
 /**
  * Clerk is the session authority, so there is no VRDex session record to
- * validate. A token that Convex accepted is by definition unexpired and
- * unrevoked — Clerk refuses to mint a new one for a revoked session, and the
- * `convex` JWT template's one-hour lifetime bounds how long an already-issued
- * token stays usable. `users` remains the identity spine every other table
- * points at, keyed to Clerk by `clerkUserId`.
+ * validate. `users` remains the identity spine every other table points at,
+ * keyed to Clerk by `clerkUserId`.
+ *
+ * Revocation is eventually consistent, and that is a real change from the
+ * Convex Auth design this replaced. Revoking a Clerk session stops it minting
+ * *new* tokens, but an already-issued Convex JWT stays valid until it expires:
+ * Convex validates the signature and expiry locally and cannot introspect
+ * Clerk from a query or mutation. So a holder of a stolen token keeps access
+ * for up to the `convex` template's lifetime after the session is revoked,
+ * where deleting a VRDex session row used to cut it immediately.
+ *
+ * The template lifetime is therefore the revocation window, and it is the knob
+ * to turn — see `docs/backend/auth-sessions.md`. Do not assume a validated
+ * token implies a live session.
  */
 async function clerkUserIdOrNull(ctx: IdentityCtx) {
   const identity = await ctx.auth.getUserIdentity();

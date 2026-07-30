@@ -58,10 +58,31 @@ middleware, because Clerk performs all of it.
 | JWT lifetime reaching Convex | The `convex` JWT template, currently 1 hour |
 | Preview/staging isolation | Separate Clerk instance, keys, and Convex deployment |
 
-A token Convex accepts is by definition unexpired and unrevoked, so server code
-has no session row to consult. An unauthenticated request — no token, an expired
-one, or one for a revoked session — is a single case, and the middleware
-redirects it to `/sign-in`.
+Server code has no session row to consult: an unauthenticated request — no
+token, or an expired one — is a single case, and the middleware redirects it to
+`/sign-in`.
+
+### Revocation is eventually consistent
+
+This is a deliberate regression from the previous design, and it should be
+understood before relying on revocation.
+
+Convex validates a JWT's signature and expiry locally. It cannot introspect
+Clerk from a query or mutation, so revoking a Clerk session stops that session
+minting *new* tokens but does not invalidate one already issued. A stolen token
+therefore keeps working until it expires, where deleting a VRDex `authSessions`
+row used to end access immediately.
+
+**The `convex` JWT template's lifetime is the revocation window.** It is
+currently one hour, which is a long time to hold a stolen token. Shorten it on
+each Clerk instance to tighten the window — the cost is more frequent token
+refreshes, which `ConvexProviderWithClerk` handles transparently. Treat any
+change here as a security decision, not a performance one.
+
+Sensitive operations do not currently re-check revocation. Adding that would
+require an action calling Clerk's Backend API, which queries and mutations
+cannot do; the confirmations described below are about accidental clicks and are
+explicitly not a defence against a live attacker.
 
 ## Connected accounts
 
