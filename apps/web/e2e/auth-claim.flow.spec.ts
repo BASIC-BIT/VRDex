@@ -210,8 +210,13 @@ async function expectCurrentOrHostedLagTrustState(
     return;
   }
 
+  // Shared staging may still render either of the pre-branch trust states.
+  // Exact-current deployments take the strict branch above instead.
   await expect(
-    hostedLagCopy.or(page.getByLabel("Verified profile")).first(),
+    hostedLagCopy
+      .or(page.getByLabel("Owner verified"))
+      .or(page.getByLabel("Verified profile"))
+      .first(),
   ).toBeVisible(hostedActionExpectOptions);
 }
 
