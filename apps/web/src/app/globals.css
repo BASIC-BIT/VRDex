@@ -522,6 +522,19 @@ body {
   width: 100%;
 }
 
+.lookup-avatar.lookup-avatar--logo,
+.lookup-suggestion-avatar.lookup-avatar--logo {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.lookup-avatar.lookup-avatar--logo img,
+.lookup-suggestion-avatar.lookup-avatar--logo img {
+  object-fit: contain;
+}
+
 .lookup-avatar-wrap {
   display: inline-flex;
   flex: 0 0 auto;

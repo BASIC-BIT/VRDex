@@ -264,7 +264,7 @@ function ProfileAvatar({ profile }: { profile: Pick<PublicProfileLookupResult, "
     return (
       <EntityImage
         alt=""
-        className="lookup-avatar rounded-none bg-transparent"
+        className="lookup-avatar lookup-avatar--logo"
         imageClassName="object-contain"
         label={profile.displayName}
         sizes="83px"

@@ -60,7 +60,7 @@ function SuggestionAvatar({ profile }: { profile: ProfileLookupDisplayResult }) 
     return (
       <EntityImage
         alt=""
-        className="lookup-suggestion-avatar rounded-none bg-transparent"
+        className="lookup-suggestion-avatar lookup-avatar--logo"
         imageClassName="object-contain"
         label={profile.displayName}
         sizes="38px"

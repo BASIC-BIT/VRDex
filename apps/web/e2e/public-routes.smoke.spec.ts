@@ -379,6 +379,42 @@ test.describe("fixture lookup smoke", () => {
     await expect(privateResult).not.toContainText(/Private seed|Source|Reviewed|Freshness|Jul 9, 2026|Checked Jul 8, 2026/);
   });
 
+  test("logo-only DJ suggestions stay contained and unframed", async ({ page }) => {
+    await page.route("**/lookup/suggest?q=logo-only", async (route) => {
+      await route.fulfill({
+        contentType: "application/json",
+        json: {
+          privateResults: [],
+          results: [{
+            aliases: [],
+            avatarImageKind: "logo",
+            avatarImageUrl: "/seed/fixture-avatar-luma.svg",
+            displayName: "Logo Only",
+            genres: [],
+            outboundLinks: [],
+            profilePath: "/p/logo-only",
+            roleTags: ["DJ"],
+            slug: "logo-only",
+            tags: [],
+            trustLabel: "claimed_unverified",
+          }],
+          viewerAccess: { allowed: false, source: "signed_out" },
+        },
+      });
+    });
+
+    await page.goto("/search?view=dj");
+    await page.getByLabel("DJ name").fill("logo-only");
+    const option = page.getByRole("option", { name: /Logo Only/ });
+    const logo = option.locator(".lookup-avatar--logo");
+
+    await expect(option).toBeVisible();
+    await expect(logo).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(logo).toHaveCSS("border-top-width", "0px");
+    await expect(logo).toHaveCSS("border-radius", "0px");
+    await expect(logo.locator("img")).toHaveCSS("object-fit", "contain");
+  });
+
   test("verified profiles use the same compact mark across profile and search views", async ({ page }, testInfo) => {
     await page.goto("/p/basicbit");
     const profileMark = page.getByLabel("Verified profile");
