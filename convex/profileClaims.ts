@@ -5,6 +5,7 @@ import { boundedFetch } from "./_boundedFetch";
 import { signDelegation } from "./_delegationCapability";
 import { requireSecureOutboundUrl } from "./_secureUrl";
 import { claimError } from "./_claimErrors";
+import { identityEmailVerified } from "./_identity";
 import {
   claimSessionUserOrNull,
   requireClaimSession,
@@ -413,7 +414,17 @@ export const getClaimJourneyContext = query({
       ownership:
         owner === null ? ("available" as const) : owner.userId === user._id ? ("viewer" as const) : ("other" as const),
       verified: profile.claimState === "claimed_verified",
-      emailVerified: user.email !== undefined && user.emailVerificationTime !== undefined,
+      // Same source as the gate this display leads into. Every action the claim
+      // journey offers goes through `requireVerifiedActiveBrowserSession`, which
+      // reads the token claim, so reporting the mirrored column here could invite
+      // the user into an action the server then refuses — `ensureUser` mirrors
+      // from the client and does not re-run on a token refresh, so an email change
+      // leaves the column saying "verified" for an address Clerk dropped.
+      //
+      // `temporalParsing.getAccess` deliberately still reports the column: its
+      // gate is the mirrored one too, for the internalMutation paths that have no
+      // browser token. Each display matches its own gate.
+      emailVerified: user.email !== undefined && (await identityEmailVerified(ctx)),
       hasDiscord: discordAccount !== null,
       pendingClaimRequest: request
         ? {
