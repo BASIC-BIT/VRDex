@@ -160,7 +160,10 @@ export type SeedImportPublicationBlocker =
 type SeedImportPublicationCandidate = Pick<
   Doc<"seedImportCandidateProfiles">,
   "reviewState" | "publicationState" | "claimState" | "matchedProfileId" | "proposedSlug"
-> & { proposedDisplayName?: string };
+> & {
+  proposedDisplayName?: string;
+  profileType?: Doc<"seedImportCandidateProfiles">["profileType"];
+};
 
 type SeedImportPublicationField = Pick<
   Doc<"seedImportCandidateFields">,
@@ -1313,6 +1316,16 @@ export function getSeedImportPublicationBlockers(args: {
 
   if (args.hasLiveHandoffInvitation === true) {
     blockers.add("live_handoff_invitation_blocks_publication");
+  }
+
+  // Also checked here, not only at publish: queueing mutates the candidate's
+  // publication state, so a community candidate would be moved out of the private
+  // draft/review lookup and then merely skipped at publish.
+  if (
+    args.candidate.profileType !== undefined &&
+    args.candidate.profileType !== "person"
+  ) {
+    blockers.add("candidate_profile_type_unsupported");
   }
 
   if (

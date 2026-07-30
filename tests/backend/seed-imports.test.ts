@@ -233,6 +233,16 @@ describe("seed import review and publication guards", () => {
     ]));
   });
 
+  it("blocks a community candidate at the queue gate, not just at publish", () => {
+    const blockers = getSeedImportPublicationBlockers({
+      batch: approvedBatch,
+      candidate: { ...acceptedCandidate, profileType: "community" as const },
+      fields: acceptedPublicFields,
+    });
+
+    assert.ok(blockers.includes("candidate_profile_type_unsupported"));
+  });
+
   it("blocks a slug collision only when creating a new profile", () => {
     const slugCollisionProfile = {
       _id: "profile_collision" as Id<"profiles">,

@@ -308,6 +308,7 @@ It only touches profiles that are `draft_private` **and** `public`, which is the
 - `suppressed` profiles, which are a moderation state rather than a default.
 - Profiles with an accepted `profileSuppressionRequests` row, which records someone asking not to be listed. All three request shapes are checked (profile id, slug, and pre-claim name/type), not just slug.
 - Claimed profiles, because publication of an owned profile is the owner's decision.
+- Profiles with a live concierge handoff invitation. The migration bypasses both publication gates, so it repeats their handoff check: an invitation can reuse a legacy `draft_private` profile whose surfacing state is still `public`, and publishing it would expose the profile while its private review link is live.
 
 Known limitation: there is currently **no** owner-facing control that changes `publicationState` or `publicSurfacingState`. `profilePrivacy:updateFieldVisibility` controls individual field visibility only. An owner who accepts a concierge handoff therefore has no self-service path to publish their profile, and needs an operator. That gap is not addressed here.
 

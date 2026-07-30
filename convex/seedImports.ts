@@ -477,6 +477,8 @@ export const matchCandidateToProfile = internalMutation({
       throw new Error("Seed import candidate not found.");
     }
 
+    requireUnpublishedCandidate(candidate);
+
     if (args.matchedProfileId !== undefined) {
       const profile = await ctx.db.get(args.matchedProfileId);
 

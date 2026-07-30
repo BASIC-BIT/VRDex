@@ -8,6 +8,7 @@ import {
   upsertSearchDocument,
   vocabularyForProfile,
 } from "./_searchDocuments";
+import { isLiveHandoffInvitation } from "./_seedHandoffs";
 import { hasAcceptedSuppression } from "./_suppressions";
 import { recordVocabularyTerms } from "./_vocabulary";
 
@@ -65,6 +66,8 @@ export const runBackfillProfilePublicSurfacingState = migrations.runner(
  * - Any profile with an accepted `profileSuppressionRequests` row, which is the
  *   record of someone asking not to be listed.
  * - Claimed profiles, since publication of an owned profile is the owner's call.
+ * - Profiles with a live concierge handoff invitation, whose recipient is holding
+ *   a private review link.
  */
 export const publishGatedProfiles = migrations.define({
   table: "profiles",
@@ -74,6 +77,21 @@ export const publishGatedProfiles = migrations.define({
     }
 
     if (profile.publicationState !== "draft_private" || profile.publicSurfacingState !== "public") {
+      return;
+    }
+
+    // The migration bypasses both publication gates, so it repeats their live
+    // handoff check: an invitation can reuse a legacy draft_private profile whose
+    // surfacing state is still public, and publishing it would expose the profile
+    // while its private review link is live.
+    const activeInvitations = await ctx.db
+      .query("seedHandoffInvitations")
+      .withIndex("by_profileId_state", (query) =>
+        query.eq("profileId", profile._id).eq("state", "active"),
+      )
+      .collect();
+
+    if (activeInvitations.some((invitation) => isLiveHandoffInvitation(invitation, Date.now()))) {
       return;
     }
 
