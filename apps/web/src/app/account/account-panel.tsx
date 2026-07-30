@@ -87,6 +87,14 @@ function ConnectedAccountPanel({ mediaKitEnabled }: { mediaKitEnabled: boolean }
             className="mt-4"
             type="button"
             variant="secondary"
+            // Opens Clerk's full profile surface, which also exposes account
+            // deletion when the instance allows it. VRDex has no reconciliation
+            // for a deleted Clerk identity (#227): the `users` and `profileOwners`
+            // rows would survive under an unreachable `clerkUserId`, and
+            // re-registering provisions a different user that cannot manage them.
+            // Self-service deletion must stay disabled on every Clerk instance
+            // until #227 lands. That is an instance setting — Clerk's Backend API
+            // does not expose it, so it cannot be asserted from here.
             onClick={() => openUserProfile()}
           >
             Manage sign-in methods

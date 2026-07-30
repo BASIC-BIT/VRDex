@@ -145,6 +145,20 @@ development template in use emits:
 }
 ```
 
+### Required instance setting: disable self-service account deletion
+
+The account page opens Clerk's full profile surface, which exposes account
+deletion when the instance permits it. VRDex cannot yet reconcile a deleted
+Clerk identity (#227): the `users` and `profileOwners` rows survive under a
+`clerkUserId` nobody can authenticate as, previously issued developer tokens
+keep working, and re-registering produces a different Clerk subject that cannot
+manage the original profiles.
+
+**Turn off "Allow users to delete their accounts" on every Clerk instance**
+— development, staging, and production — until #227 lands. Clerk's Backend API
+does not expose this setting, so it cannot be asserted by a check script; it has
+to be verified by hand per instance.
+
 ## Cutover: retire the Convex Auth rows before the first sign-in
 
 `clerkUserId` is optional so the first deploy does not reject rows created under

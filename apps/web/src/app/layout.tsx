@@ -52,15 +52,15 @@ export default async function RootLayout({
     </html>
   );
 
-  // `ClerkProvider` throws without a publishable key, which would take the whole
-  // app down rather than just sign-in. Mirroring the existing
-  // NEXT_PUBLIC_CONVEX_URL treatment keeps public routes — profiles, search,
-  // events — renderable in environments with no Clerk credentials, which is what
-  // lets the public Playwright suites run without auth secrets.
-  if (
-    !process.env.NEXT_PUBLIC_CONVEX_URL ||
-    !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
-  ) {
+  // Gated on the Clerk key alone, independently of Convex. `ClerkProvider` throws
+  // without a publishable key, which would take the whole app down rather than
+  // just sign-in — that is why public routes stay renderable in environments with
+  // no Clerk credentials, and what lets the public Playwright suites run without
+  // auth secrets. But a shell-only preview may carry Clerk credentials while
+  // deliberately omitting NEXT_PUBLIC_CONVEX_URL, and `/sign-in` renders `<SignIn>`
+  // whenever the key exists; tying the two together made those routes throw on a
+  // missing Clerk context. `ConvexClientProvider` degrades on its own.
+  if (!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) {
     return shell;
   }
 
