@@ -15,6 +15,9 @@ import {
 import { seedImportAuthSubjectValidator as authSubjectValidator } from "./_seedImportValidators";
 
 const profileType = v.union(v.literal("person"), v.literal("community"));
+
+const PROFILE_RETRACTION_PAGE_SIZE = 20;
+const WORLD_REINDEX_PAGE_SIZE = 25;
 const suppressionRequestType = v.union(
   v.literal("owner_opt_out"),
   v.literal("pre_claim_safety"),
@@ -116,58 +119,82 @@ function suppressionIdentityAgrees(
 }
 
 /**
- * Every profile an accepted request should retract.
+ * One page of the profiles an accepted request should retract.
  *
- * Resolved at acceptance time, not at request time. A pre-claim request may be
- * filed before any profile exists and then have a matching profile published
- * before an operator gets to it; resolving only the stored id or slug would leave
- * that profile public even though the request was accepted. Name/type identity is
- * therefore re-resolved here.
+ * Identity is resolved at acceptance time rather than request time: a pre-claim
+ * request may be filed before any profile exists and then have a matching profile
+ * published before an operator gets to it. An id or slug target is a single
+ * profile; a name-only request can match many namesakes, so that path pages.
  */
-async function resolveSuppressionTargets(
+async function resolveSuppressionTargetPage(
   db: MutationCtx["db"],
   request: Doc<"profileSuppressionRequests">,
-): Promise<Doc<"profiles">[]> {
-  const byId = request.profileId === undefined ? null : await db.get(request.profileId);
+  cursor: string | undefined,
+): Promise<{ profiles: Doc<"profiles">[]; isDone: boolean; continueCursor?: string }> {
+  if (cursor === undefined) {
+    const byId = request.profileId === undefined ? null : await db.get(request.profileId);
 
-  if (byId !== null) {
-    return [byId];
-  }
+    if (byId !== null) {
+      return { profiles: [byId], isDone: true };
+    }
 
-  const bySlug =
-    request.profileSlug === undefined ? null : await getProfileBySlug(db, request.profileSlug);
+    const bySlug =
+      request.profileSlug === undefined ? null : await getProfileBySlug(db, request.profileSlug);
 
-  // A pre-claim request can record a slug before any profile holds it, and someone
-  // else — possibly of the other profile type — may acquire it before acceptance.
-  // Only trust a slug match that agrees with the request's stored identity;
-  // otherwise fall through to the name/type lookup for the intended profile.
-  if (bySlug !== null && suppressionIdentityAgrees(request, bySlug)) {
-    return [bySlug];
+    // A pre-claim request can record a slug before any profile holds it, and someone
+    // else may acquire it before acceptance. Only trust a slug match that agrees
+    // with the request's stored identity; otherwise fall through to name and type.
+    if (bySlug !== null && suppressionIdentityAgrees(request, bySlug)) {
+      return { profiles: [bySlug], isDone: true };
+    }
   }
 
   if (request.displayName === undefined) {
-    return [];
+    return { profiles: [], isDone: true };
   }
 
+  // Namesake resolution pages over one profile type at a time. The cursor encodes
+  // which type is in progress so a request with no stored type still covers both.
   const sortName = createProfileSortName(request.displayName);
-  const profileTypes =
-    request.profileType === undefined
-      ? (["person", "community"] as const)
-      : ([request.profileType] as const);
-  const matches: Doc<"profiles">[] = [];
+  const [encodedType, innerCursor] = decodeSuppressionCursor(cursor, request.profileType);
+  const result = await db
+    .query("profiles")
+    .withIndex("by_profileType_sortName", (query) =>
+      query.eq("profileType", encodedType).eq("sortName", sortName),
+    )
+    .paginate({ numItems: PROFILE_RETRACTION_PAGE_SIZE, cursor: innerCursor });
 
-  for (const type of profileTypes) {
-    matches.push(
-      ...(await db
-        .query("profiles")
-        .withIndex("by_profileType_sortName", (query) =>
-          query.eq("profileType", type).eq("sortName", sortName),
-        )
-        .collect()),
-    );
+  if (!result.isDone) {
+    return {
+      profiles: result.page,
+      isDone: false,
+      continueCursor: `${encodedType}:${result.continueCursor}`,
+    };
   }
 
-  return matches;
+  const shouldContinueToCommunity =
+    request.profileType === undefined && encodedType === "person";
+
+  return {
+    profiles: result.page,
+    isDone: !shouldContinueToCommunity,
+    ...(shouldContinueToCommunity ? { continueCursor: "community:" } : {}),
+  };
+}
+
+function decodeSuppressionCursor(
+  cursor: string | undefined,
+  requestedType: Doc<"profiles">["profileType"] | undefined,
+): [Doc<"profiles">["profileType"], string | null] {
+  if (cursor === undefined) {
+    return [requestedType ?? "person", null];
+  }
+
+  const separator = cursor.indexOf(":");
+  const type = cursor.slice(0, separator) === "community" ? "community" : "person";
+  const inner = cursor.slice(separator + 1);
+
+  return [type, inner === "" ? null : inner];
 }
 
 /**
@@ -201,28 +228,71 @@ export const resolveProfileSuppression = internalMutation({
     const now = args.now ?? Date.now();
     const actor = args.actor ?? (await activeBrowserSessionSubjectOrNull(ctx))?.subject;
 
+    // Required, and persisted on the request itself. A pre-claim request that
+    // matches no profile yet writes no audit event, so without this an accepted
+    // request could block publication with no record of who decided that.
+    if (actor === undefined) {
+      throw new Error(
+        "Resolving a suppression request requires an operator identity. Pass actor when calling outside a browser session.",
+      );
+    }
+
     await ctx.db.patch(request._id, {
       state: args.state,
       ...optionalValue("resolutionNote", optionalText(args.resolutionNote, 1_000)),
+      resolvedBy: actor,
+      resolvedAt: now,
       updatedAt: now,
     });
 
     if (args.state !== "accepted") {
-      return {
-        requestId: request._id,
-        state: args.state,
-        appliedToProfileIds: [] as Id<"profiles">[],
-      };
+      return { requestId: request._id, state: args.state, retractionScheduled: false as const };
     }
 
-    const targets = await resolveSuppressionTargets(ctx.db, request);
-    const applied: Id<"profiles">[] = [];
+    // Retraction is scheduled, not inline. A common name can resolve to many
+    // profiles, and an oversized transaction would roll back the acceptance itself,
+    // leaving the request unaccepted and every profile public. Acceptance already
+    // blocks new publication through hasAcceptedSuppression, so the retraction of
+    // existing profiles can safely land in a later pass.
+    await ctx.scheduler.runAfter(0, internal.suppressions.retractProfilesForSuppression, {
+      requestId: request._id,
+    });
 
-    for (const profile of targets) {
+    return { requestId: request._id, state: args.state, retractionScheduled: true as const };
+  },
+});
+
+/**
+ * Opt out every profile an accepted request covers, in pages.
+ *
+ * Split out of `resolveProfileSuppression` so acceptance is durable regardless of
+ * how many profiles share the requested name. Reschedules itself while pages
+ * remain.
+ */
+export const retractProfilesForSuppression = internalMutation({
+  args: {
+    requestId: v.id("profileSuppressionRequests"),
+    cursor: v.optional(v.string()),
+    now: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const request = await ctx.db.get(args.requestId);
+
+    if (request === null || request.state !== "accepted") {
+      return { retracted: 0, isDone: true as const };
+    }
+
+    const now = args.now ?? Date.now();
+    const page = await resolveSuppressionTargetPage(ctx.db, request, args.cursor);
+    let retracted = 0;
+
+    for (const profile of page.profiles) {
       // An existing moderation suppression outranks a later opt-out. Both hide the
       // profile, but downgrading would destroy the distinct moderation state and
       // its reason; the request is still accepted and audited.
-      if (profile.publicSurfacingState !== "suppressed") {
+      const alreadySuppressed = profile.publicSurfacingState === "suppressed";
+
+      if (!alreadySuppressed) {
         await ctx.db.patch(profile._id, {
           publicSurfacingState: "opted_out",
           publicSurfacingUpdatedAt: now,
@@ -237,41 +307,37 @@ export const resolveProfileSuppression = internalMutation({
 
         if (updated !== null) {
           await upsertSearchDocument(ctx.db, createProfileSearchDocument(updated));
-          // Scheduled rather than inline: the cascade is unbounded in principle, and
-          // an oversized transaction would roll back the acceptance itself, leaving a
-          // safety request unaccepted and the profile public. Retraction of the
-          // profile must land even if the cascade needs many passes.
           await ctx.scheduler.runAfter(0, internal.suppressions.reindexWorldsCreditingProfile, {
             profileType: updated.profileType,
             profileSlug: updated.slug,
           });
         }
 
-        applied.push(profile._id);
+        retracted += 1;
       }
 
       await ctx.db.insert("profileAuditEvents", {
         profileId: profile._id,
         action: "suppression_accepted",
-        ...optionalValue("actor", actor),
+        ...optionalValue("actor", request.resolvedBy),
         sourceType: "moderator",
-        note:
-          profile.publicSurfacingState === "suppressed"
-            ? "Suppression request accepted; existing moderation suppression left in place."
-            : "Profile opted out of public surfacing by accepted suppression request.",
+        note: alreadySuppressed
+          ? "Suppression request accepted; existing moderation suppression left in place."
+          : "Profile opted out of public surfacing by accepted suppression request.",
         createdAt: now,
       });
     }
 
-    return {
-      requestId: request._id,
-      state: args.state,
-      appliedToProfileIds: applied,
-    };
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.suppressions.retractProfilesForSuppression, {
+        requestId: request._id,
+        ...optionalValue("cursor", page.continueCursor),
+      });
+    }
+
+    return { retracted, isDone: page.isDone };
   },
 });
-
-const WORLD_REINDEX_PAGE_SIZE = 25;
 
 /**
  * Rebuild search documents for worlds crediting a retracted profile, in pages.
@@ -291,34 +357,38 @@ export const reindexWorldsCreditingProfile = internalMutation({
     cursor: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const credits = await ctx.db
-      .query("worldProfileCredits")
-      .withIndex("by_profileType_profileSlug", (query) =>
-        query.eq("profileType", args.profileType).eq("profileSlug", args.profileSlug),
-      )
+    // Paged over worlds rather than worldProfileCredits: nothing in the codebase
+    // writes that table, so a reverse-index lookup would silently find nothing.
+    // creatorAttributions lives on the world row and has no index, hence the scan.
+    const worlds = await ctx.db
+      .query("worlds")
       .paginate({ numItems: WORLD_REINDEX_PAGE_SIZE, cursor: args.cursor ?? null });
+    let reindexed = 0;
 
-    const worldIds = [...new Set(credits.page.map((credit) => credit.worldId))];
+    for (const world of worlds.page) {
+      const creditsProfile = world.creatorAttributions.some(
+        (attribution) =>
+          attribution.profileSlug === args.profileSlug &&
+          attribution.profileType === args.profileType,
+      );
 
-    for (const worldId of worldIds) {
-      const world = await ctx.db.get(worldId);
-
-      if (world === null) {
+      if (!creditsProfile) {
         continue;
       }
 
       const hiddenProfileKeys = await getHiddenWorldAttributionProfileKeys(ctx.db, world);
       await upsertSearchDocument(ctx.db, createWorldSearchDocument(world, { hiddenProfileKeys }));
+      reindexed += 1;
     }
 
-    if (!credits.isDone) {
+    if (!worlds.isDone) {
       await ctx.scheduler.runAfter(0, internal.suppressions.reindexWorldsCreditingProfile, {
         profileType: args.profileType,
         profileSlug: args.profileSlug,
-        cursor: credits.continueCursor,
+        cursor: worlds.continueCursor,
       });
     }
 
-    return { reindexed: worldIds.length, isDone: credits.isDone };
+    return { reindexed, isDone: worlds.isDone };
   },
 });

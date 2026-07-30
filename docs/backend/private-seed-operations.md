@@ -243,7 +243,7 @@ reachable.
 
 ```powershell
 pnpm exec convex run --prod suppressions:resolveProfileSuppression `
-  '{"requestId":"<request-id>","state":"accepted","resolutionNote":"Handled over DM."}'
+  '{"requestId":"<request-id>","state":"accepted","resolutionNote":"Handled over DM.","actor":{"tokenIdentifier":"operator:vrdex","issuer":"vrdex","subject":"suppression-review","displayName":"VRDex operator"}}'
 ```
 
 Notes:
@@ -263,10 +263,17 @@ Notes:
 - Accepting sets `opted_out`, not `suppressed`. `suppressed` stays reserved for
   moderation action rather than a request someone made about themselves, and an
   already-`suppressed` profile keeps that state.
-- Retraction schedules a paged rebuild of the search documents of any world that
-  credits the profile, so searching the retracted name stops surfacing its world
-  associations. The rebuild is scheduled rather than inline so a profile credited
-  on many worlds cannot roll back the acceptance itself.
+- Acceptance itself only writes the request: `state`, `resolutionNote`,
+  `resolvedBy`, and `resolvedAt`. The actual profile retraction and the world
+  search rebuild are scheduled and paged. That ordering is deliberate — acceptance
+  already blocks new publication through the suppression guard, so it must land
+  durably even if a common name resolves to many profiles or a profile is credited
+  on many worlds. An oversized transaction would otherwise roll the acceptance
+  back and leave everything public.
+- An operator identity is required. `resolveProfileSuppression` throws without
+  `actor` and no browser session, because a pre-claim request matching no profile
+  writes no audit event, and an accepted request must never block publication with
+  no record of who decided it.
 - Known limitation: an event stores `communityName` directly, and both the event
   search document and the public event page deliberately fall back to that stored
   name when the linked profile is not publicly readable. Retracting a community

@@ -2123,6 +2123,8 @@ export default defineSchema({
     requesterContact: v.optional(v.string()),
     requesterNote: v.optional(v.string()),
     resolutionNote: v.optional(v.string()),
+    resolvedBy: v.optional(authSubject),
+    resolvedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
