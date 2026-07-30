@@ -202,6 +202,33 @@ function genreSourceForSeedSource(
   }
 }
 
+/**
+ * Genre confidence for a converted field.
+ *
+ * Concierge handoffs keep `high`: the owner just confirmed those fields.
+ * Publication carries the field's reviewed confidence through instead of
+ * flattening it, mapping `owner_confirmed` down to `high` since an unclaimed
+ * imported profile cannot claim owner confirmation.
+ */
+function genreConfidenceForSeedField(
+  fieldConfidence: Doc<"seedImportCandidateFields">["confidence"],
+  sourceType: Doc<"seedImportBatches">["sourceType"] | undefined,
+): NonNullable<PersonProfile["genres"]>[number]["confidence"] {
+  if (sourceType === undefined) {
+    return "high";
+  }
+
+  switch (fieldConfidence) {
+    case "low":
+      return "low";
+    case "high":
+    case "owner_confirmed":
+      return "high";
+    default:
+      return "medium";
+  }
+}
+
 function linkSourceForSeedSource(
   sourceType: Doc<"seedImportBatches">["sourceType"] | undefined,
 ): NonNullable<PersonProfile["outboundLinks"]>[number]["source"] {
@@ -338,7 +365,7 @@ export function buildConciergeProfileFieldPatch(
           slug: genreSlug(displayName),
           displayName,
           source: genreSource,
-          confidence: options?.sourceType === undefined ? ("high" as const) : ("medium" as const),
+          confidence: genreConfidenceForSeedField(field.confidence, options?.sourceType),
           explicit: false,
         }));
         break;

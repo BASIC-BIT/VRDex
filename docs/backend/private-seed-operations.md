@@ -138,6 +138,12 @@ Publish behavior worth knowing:
   with no slug at all.
 - A person candidate matched to a community profile is blocked with
   `matched_profile_type_mismatch` rather than attempting a cross-type write.
+- Slug collision is checked on the derived base slug as well as an explicit
+  `proposedSlug`. A candidate whose name normalizes onto an existing profile is
+  blocked with `slug_collision_blocks_publication` rather than silently getting a
+  suffixed slug, so two profiles for the same person need a deliberate
+  `seedImports:matchCandidateToProfile` call. Genuinely distinct people sharing a
+  name also surface here and need the same explicit decision.
 - Published profiles carry no `sourceAttribution`. That field makes the public
   serializer render a profile as `Community submitted`, which would be false
   provenance for an operator import; `creationSource: "import"` records the real
@@ -252,11 +258,13 @@ Notes:
 - Accepting sets `opted_out`, not `suppressed`. `suppressed` stays reserved for
   moderation action rather than a request someone made about themselves, and an
   already-`suppressed` profile keeps that state.
-- Known limitation: retraction removes the profile from search results but does
-  **not** reconcile `vocabularyTerms`. Nothing in the codebase decrements
-  vocabulary usage, so a tag or genre contributed by a retracted profile can
-  still appear in discovery vocabulary with its usage count. Reference-counted
-  vocabulary is a separate change.
+- Retraction also rebuilds the search documents of any world that credits the
+  profile, so searching the retracted name stops surfacing its world
+  associations.
+- Known limitation: retraction does **not** reconcile `vocabularyTerms`. Nothing
+  in the codebase decrements vocabulary usage, so a tag or genre contributed by a
+  retracted profile can still appear in discovery vocabulary with its usage count.
+  Reference-counted vocabulary is a separate change.
 
 ## Lookup Grants
 

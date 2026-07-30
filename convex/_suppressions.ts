@@ -51,9 +51,22 @@ export async function hasAcceptedSuppression(
       .withIndex("by_profileSlug_state", (query) =>
         query.eq("profileSlug", slug).eq("state", "accepted"),
       )
-      .take(1);
+      .collect();
 
-    if (bySlug.length > 0) {
+    // A slug-only request may have recorded a slug before any profile held it, so
+    // a match alone does not mean the request covers whoever holds it now. The
+    // same agreement check the acceptance resolver applies is used here, or an
+    // unrelated slug owner would stay blocked from publication indefinitely.
+    const coversThisIdentity = bySlug.some(
+      (request) =>
+        (request.profileType === undefined || request.profileType === identity.profileType) &&
+        (request.displayName === undefined ||
+          identity.displayNames.some(
+            (name) => createProfileSortName(name) === createProfileSortName(request.displayName as string),
+          )),
+    );
+
+    if (coversThisIdentity) {
       return true;
     }
   }

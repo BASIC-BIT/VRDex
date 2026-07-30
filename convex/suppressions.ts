@@ -5,7 +5,12 @@ import { internalMutation, mutation, type MutationCtx } from "./_generated/serve
 import { activeBrowserSessionSubjectOrNull } from "./_browserSessionAuthority";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { createProfileSortName, normalizeProfileInlineText } from "./_profileSubmissions";
-import { createProfileSearchDocument, upsertSearchDocument } from "./_searchDocuments";
+import {
+  createProfileSearchDocument,
+  createWorldSearchDocument,
+  getHiddenWorldAttributionProfileKeys,
+  upsertSearchDocument,
+} from "./_searchDocuments";
 import { seedImportAuthSubjectValidator as authSubjectValidator } from "./_seedImportValidators";
 
 const profileType = v.union(v.literal("person"), v.literal("community"));
@@ -86,14 +91,39 @@ export const requestProfileSuppression = mutation({
 });
 
 /**
- * Every profile an accepted request should retract.
+ * Rebuild search documents for worlds that credit this profile.
  *
- * Resolved at acceptance time, not at request time. A pre-claim request may be
- * filed before any profile exists and then have a matching profile published
- * before an operator gets to it; resolving only the stored id or slug would leave
- * that profile public even though the request was accepted. Name/type identity is
- * therefore re-resolved here.
+ * The public world projection filters hidden attributions dynamically, but a
+ * world's stored search document keeps the profile's display name in `searchText`
+ * and `exactTokens` until something rebuilds it. Without this, searching the
+ * opted-out identity still surfaces its world associations.
  */
+async function reindexWorldsCreditingProfile(
+  db: MutationCtx["db"],
+  profile: Doc<"profiles">,
+) {
+  const credits = await db
+    .query("worldProfileCredits")
+    .withIndex("by_profileType_profileSlug", (query) =>
+      query.eq("profileType", profile.profileType).eq("profileSlug", profile.slug),
+    )
+    .collect();
+  const worldIds = [...new Set(credits.map((credit) => credit.worldId))];
+
+  for (const worldId of worldIds) {
+    const world = await db.get(worldId);
+
+    if (world === null) {
+      continue;
+    }
+
+    const hiddenProfileKeys = await getHiddenWorldAttributionProfileKeys(db, world);
+    await upsertSearchDocument(db, createWorldSearchDocument(world, { hiddenProfileKeys }));
+  }
+
+  return worldIds.length;
+}
+
 /**
  * Whether a slug-matched profile is actually the one a request names.
  *
@@ -118,6 +148,15 @@ function suppressionIdentityAgrees(
   return true;
 }
 
+/**
+ * Every profile an accepted request should retract.
+ *
+ * Resolved at acceptance time, not at request time. A pre-claim request may be
+ * filed before any profile exists and then have a matching profile published
+ * before an operator gets to it; resolving only the stored id or slug would leave
+ * that profile public even though the request was accepted. Name/type identity is
+ * therefore re-resolved here.
+ */
 async function resolveSuppressionTargets(
   db: MutationCtx["db"],
   request: Doc<"profileSuppressionRequests">,
@@ -231,6 +270,7 @@ export const resolveProfileSuppression = internalMutation({
 
         if (updated !== null) {
           await upsertSearchDocument(ctx.db, createProfileSearchDocument(updated));
+          await reindexWorldsCreditingProfile(ctx.db, updated);
         }
 
         applied.push(profile._id);

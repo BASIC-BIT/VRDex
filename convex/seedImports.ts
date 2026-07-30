@@ -31,7 +31,12 @@ import {
   seedImportFieldReviewStateValidator,
   seedImportPublicationPolicyValidator,
 } from "./_seedImportValidators";
-import { findAvailableProfileSlug, getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
+import {
+  findAvailableProfileSlug,
+  getProfileBySlug,
+  toProfileSlug,
+  validateProfileSlug,
+} from "./_profileSlugs";
 
 const reviewNoteValidator = v.optional(v.string());
 
@@ -629,8 +634,15 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
         : undefined;
     const matchedProfile =
       candidate.matchedProfileId === undefined ? null : await ctx.db.get(candidate.matchedProfileId);
+    // Collision is checked on the derived base slug too, not just an explicit
+    // proposedSlug. Otherwise a candidate with no slug whose name normalizes onto
+    // an existing profile silently allocates a suffixed slug and creates a second
+    // public profile for the same person instead of asking the operator to match.
+    const derivedBaseSlug = toProfileSlug(candidate.proposedDisplayName);
+    const collisionSlug =
+      validProposedSlug ?? (derivedBaseSlug.ok ? derivedBaseSlug.slug : undefined);
     const slugCollisionProfile =
-      validProposedSlug === undefined ? null : await getProfileBySlug(ctx.db, validProposedSlug);
+      collisionSlug === undefined ? null : await getProfileBySlug(ctx.db, collisionSlug);
     const targetSlug =
       matchedProfile?.slug ??
       (await findAvailableProfileSlug(ctx.db, validProposedSlug ?? candidate.proposedDisplayName));
