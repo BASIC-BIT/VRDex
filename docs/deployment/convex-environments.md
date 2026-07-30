@@ -20,7 +20,7 @@ Current recommendation: define environment variable names and target scopes in d
 
 GitHub Actions secret names:
 
-- `CONVEX_DEPLOY_KEY_PREVIEW`: preview deployment key used by PR Vercel previews that need same-branch backend functions
+- `CONVEX_DEPLOY_KEY_PREVIEW`: preview deployment key used by on-demand Vercel previews that need same-branch backend functions
 - `CONVEX_DEPLOY_KEY_DEV`: development deployment key
 - `CONVEX_DEPLOY_KEY_PROD`: production deployment key used by the main-branch deploy workflow
 
@@ -34,24 +34,26 @@ Local ignored env names:
 
 ## Pull Request Preview Backends
 
-Baseline Checks deploys Vercel PR previews after local lint, type, docs,
-contract, backend, and visual checks pass. When `CONVEX_DEPLOY_KEY_PREVIEW` is
-configured, the Vercel preview job first creates or updates a Convex preview
+PR preview backends are created only by the manual `On-Demand Vercel Preview`
+workflow. Baseline Checks no longer deploys Vercel previews or Convex preview
+backends. When `CONVEX_DEPLOY_KEY_PREVIEW` is
+configured, the preview deploy job first creates or updates a Convex preview
 deployment named for the PR with `convex deploy --preview-create` and builds the
 web app with that preview Convex URL. The project-level
 `CONVEX_DEPLOY_KEY_PREVIEW` remains in GitHub Actions and is never injected into
-Vercel.
+Vercel. A pull request with no requested preview has no `pr-<number>` Convex
+deployment.
 
-The `Hosted MCP Preview Smoke` job always runs `pnpm smoke:mcp-compat` against
-the Vercel preview `/mcp` endpoint when the preview URL exists. CI passes that
+The `Hosted MCP Preview Smoke` job runs `pnpm smoke:mcp-compat` against
+the Vercel preview `/mcp` endpoint in that same on-demand run. CI passes that
 target through `VRDEX_MCP_SMOKE_URL`; local runs can use
-`pnpm smoke:mcp-compat -- --hosted-url <preview-/mcp-url>`. That keeps anonymous
-hosted Streamable HTTP, OAuth metadata, and bearer-challenge behavior covered
-even before a branch-specific backend is configured. Dynamic Client Registration
-and data-backed `vrdex_search` plus `search`/`fetch` alias checks are enabled
-only when `CONVEX_DEPLOY_KEY_PREVIEW` provisions the same-branch Convex preview
-backend; otherwise, the job records that DCR and data-backed public reads were
-not smoked against same-branch backend functions.
+`pnpm smoke:mcp-compat -- --hosted-url <preview-/mcp-url>`. The job is
+fail-closed: it requires both a preview deployment URL and a same-branch Convex
+preview backend, so a pass covers anonymous hosted Streamable HTTP, OAuth
+metadata, bearer challenges, Dynamic Client Registration, and data-backed
+`vrdex_search` plus `search`/`fetch` alias checks together. When
+`CONVEX_DEPLOY_KEY_PREVIEW` is absent the job fails and names that prerequisite
+rather than reporting reduced coverage as green.
 
 Use the manual `Deployed Health Checks` workflow target `hosted-mcp-smoke` when
 DCR/CIMD evidence needs to come from a staging, production-like, or otherwise
@@ -61,7 +63,8 @@ Convex-backed target. Pass the target `/mcp` URL as `base_url` and enable the
 Do not use production deploy keys for PR previews. Preview deployments are for
 schema/function compatibility and hosted smoke validation before merge.
 
-For DCR and CIMD preview smoke, Baseline Checks enables a narrow persistence
+For DCR and CIMD preview smoke, the `On-Demand Vercel Preview` workflow
+(`.github/workflows/vercel-preview-deploy.yml`) enables a narrow persistence
 bridge with `VRDEX_DEPLOYMENT_ENV=preview`,
 `VRDEX_ENABLE_PREVIEW_PERSISTENCE_BRIDGE=true`, and a random
 `VRDEX_PREVIEW_PERSISTENCE_SECRET` shared only with the matching Vercel
@@ -111,6 +114,7 @@ Development/staging Convex env names:
 - `JWT_PRIVATE_KEY`: Convex Auth RS256 private key, generated for the shared development deployment and never printed
 - `JWKS`: Convex Auth public key set matching `JWT_PRIVATE_KEY`
 - `DISCORD_API_BASE_URL`: optional hosted adapter stub base URL, usually `https://staging.vrdex.net/api/e2e/adapters/discord`
+- `DISCORD_OAUTH_AUTHORIZE_URL`: optional consent-screen override, for pointing the OAuth round-trip at a stub instead of Discord. Defaults to `https://discord.com/oauth2/authorize`. The browser follows it carrying the `state` that authorizes the round-trip, so it must be https unless it is loopback
 - `DISCORD_BOT_TOKEN`: staging-only adapter token matching the hosted app environment
 - `VRCHAT_PROOF_ADAPTER_URL`: optional hosted adapter stub URL, usually `https://staging.vrdex.net/api/e2e/adapters/vrchat-proof`
 - `VRCLINKING_PROOF_ADAPTER_URL`: optional hosted adapter stub URL, usually `https://staging.vrdex.net/api/e2e/adapters/vrchat-proof`
@@ -129,6 +133,14 @@ Production Convex Auth env names:
 - `JWKS`: Convex Auth public key set matching `JWT_PRIVATE_KEY`
 - `AWS_SES_REGION`, `AWS_SES_FROM_EMAIL`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY`: production SES sender configuration for email/password verification
 
+Profile claiming needs no additional production Convex environment variables.
+Discord community verification reuses `AUTH_DISCORD_ID`, `AUTH_DISCORD_SECRET`,
+and `SITE_URL` through a purpose-scoped OAuth round-trip; it requires only that
+`https://vrdex.net/api/discord/verify/callback` is registered as a redirect URI
+on the production Discord application. The optional bot and collector paths, and
+the exact operator steps, are documented in
+[`claim-verification-enablement.md`](./claim-verification-enablement.md).
+
 Session durations are code-owned rather than dashboard-owned. See
 [`docs/backend/auth-sessions.md`](../backend/auth-sessions.md). Do not add
 `AUTH_SESSION_TOTAL_DURATION_MS` or `AUTH_SESSION_INACTIVE_DURATION_MS` as
@@ -144,16 +156,51 @@ GitHub Actions repository settings for the optional authenticated smoke:
 
 The lane remains skipped unless both `VRDEX_PRODUCTION_SMOKE_BASE_URL` and `VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64` are configured. Do not store OAuth credentials in CI, and do not enable production mutation helper routes for this check.
 
-Generate Convex Auth JWT keys through a non-printing command path and set them with stdin, because PEM values begin with dashes and can be parsed as CLI options when passed as positional arguments. For production, use `pnpm exec convex env set --prod JWT_PRIVATE_KEY` and `pnpm exec convex env set --prod JWKS` with the values piped through stdin.
+### Setting secret values without corrupting them
 
-PowerShell example after key generation has populated process-local variables:
+Do not pipe a secret into `convex env set` from PowerShell. A PowerShell pipeline
+between native commands round-trips the payload through its string pipeline and
+appends a platform newline, so the stored value gains a trailing `\r`. The value
+still looks correct in the dashboard and in `convex env get`, and most consumers
+tolerate it, but any provider that compares the secret byte-for-byte rejects it.
+
+This is not hypothetical. On 2026-07-28 production `AUTH_GOOGLE_SECRET` held a
+35-character secret plus a trailing `\r`. Google sign-in failed at the token
+exchange with `invalid_client` for weeks while consent, Discord, and staging all
+worked, because the OAuth authorize step never sends the client secret.
+
+Pass single-line secrets as a positional argument instead, from Git Bash so that
+`$(...)` strips trailing newlines:
+
+```bash
+SECRET=$(python -c "import json,sys;print(json.load(open(sys.argv[1]))['web']['client_secret'],end='')" ./client_secret.json)
+pnpm exec convex env set AUTH_GOOGLE_SECRET "$SECRET"
+```
+
+Always verify after writing a secret. `len` must equal the provider's documented
+length and `CR` must be `0`:
+
+```bash
+pnpm exec convex env get AUTH_GOOGLE_SECRET | python -c "
+import sys
+b = sys.stdin.buffer.read().rstrip(b'\n')
+print('CR=%d len=%d' % (b.count(b'\r'), len(b)))"
+```
+
+PEM values are the one case that needs stdin, because they begin with dashes and
+would otherwise parse as CLI options. Use `cmd /c` redirection rather than a
+PowerShell pipe, since `cmd` redirects bytes verbatim:
 
 ```powershell
 $env:CONVEX_DEPLOYMENT="prod:superb-pig-954"
-node -e "process.stdout.write(process.env.VRDEX_JWT_PRIVATE_KEY)" | pnpm exec convex env set --prod JWT_PRIVATE_KEY
-node -e "process.stdout.write(process.env.VRDEX_JWKS)" | pnpm exec convex env set --prod JWKS
-Remove-Item Env:\VRDEX_JWT_PRIVATE_KEY, Env:\VRDEX_JWKS -ErrorAction SilentlyContinue
+node -e "require('fs').writeFileSync(process.argv[1], process.env.VRDEX_JWT_PRIVATE_KEY)" $env:TEMP\k.pem
+cmd /c "pnpm exec convex env set --prod JWT_PRIVATE_KEY < $env:TEMP\k.pem"
+Remove-Item $env:TEMP\k.pem, Env:\VRDEX_JWT_PRIVATE_KEY, Env:\VRDEX_JWKS -ErrorAction SilentlyContinue
 ```
+
+Apply the same `CR=0` verification to `JWT_PRIVATE_KEY` and `JWKS`. A trailing
+`\r` on those two is currently harmless, so check the byte count rather than
+assuming a working deployment proves a clean value.
 
 Manual fallback if the workflow is unavailable:
 

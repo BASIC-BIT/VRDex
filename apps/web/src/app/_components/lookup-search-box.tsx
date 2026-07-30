@@ -508,31 +508,34 @@ export function LookupSearchBox({
                     </span>
                   </button>
                 ))}
-                {suggestions.map((profile, index) => {
-                  const optionLabel = profileOptionLabel(profile);
-
-                  return (
-                    <button
-                      className={cn(
-                        "lookup-suggestion-option",
-                        activeIndex === index ? "bg-surface-strong" : undefined,
-                      )}
-                      key={isPrivateSuggestion(profile) ? `private:${profile.id}` : `public:${profile.slug}`}
-                      type="button"
-                      role="option"
-                      aria-selected={activeIndex === index}
-                      id={`${listboxId}-${index}`}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => submitQuery(profile.displayName)}
-                    >
-                      <SuggestionAvatar profile={profile} />
-                      <span className="min-w-0">
-                        <span className="block truncate font-medium">{profile.displayName}</span>
-                        {optionLabel ? <span className="block truncate text-xs text-muted">{optionLabel}</span> : null}
-                      </span>
-                    </button>
-                  );
-                })}
+                {suggestions.map((profile, index) => (
+                  <button
+                    className={cn(
+                      "lookup-suggestion-option",
+                      activeIndex === index ? "bg-surface-strong" : undefined,
+                    )}
+                    key={isPrivateSuggestion(profile) ? `private:${profile.id}` : `public:${profile.slug}`}
+                    // Private seed suggestions are people and communities that
+                    // are deliberately absent from public discovery, rendered
+                    // here as ordinary button text on public routes — so a route
+                    // layout cannot cover them and `maskAllInputs` does not.
+                    {...(isPrivateSuggestion(profile) ? { "data-ph-no-capture": true } : {})}
+                    type="button"
+                    role="option"
+                    aria-selected={activeIndex === index}
+                    id={`${listboxId}-${index}`}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => submitQuery(profile.displayName)}
+                  >
+                    <SuggestionAvatar profile={profile} />
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium">{profile.displayName}</span>
+                      {profileOptionLabel(profile) ? (
+                        <span className="block truncate text-xs text-muted">{profileOptionLabel(profile)}</span>
+                      ) : null}
+                    </span>
+                  </button>
+                ))}
               </div>
             ) : null}
           </div>

@@ -1,5 +1,5 @@
 import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
-import { api, internal } from "@convex-generated-api";
+import { internal } from "@convex-generated-api";
 import {
   isOAuthClientMetadataDocumentUrl,
   OAUTH_CONSENT_TRANSACTION_TTL_MS,
@@ -10,6 +10,7 @@ import {
   checkApiRateLimit,
   clientIpForRequest,
 } from "@/lib/server/api-rate-limit";
+import { activeAuthSessionViewerQuery } from "@/lib/server/active-auth-session";
 import { recordApiRateLimitBlockedEvent } from "@/lib/server/api-rate-limit-events";
 import { convexAdminHttpClient, convexHttpClient } from "@/lib/server/convex-http";
 import {
@@ -160,10 +161,12 @@ export async function GET(request: Request) {
   const userConvex = convexHttpClient();
 
   userConvex.setAuth(authToken);
-  const viewer = await userConvex.query(api.accounts.viewer, {});
+  const viewer = await userConvex.query(activeAuthSessionViewerQuery, {});
 
   if (viewer === null) {
-    return oauthAuthorizeProblemRedirect(request, "server_error");
+    const redirectTo = `${new URL(request.url).pathname}${new URL(request.url).search}`;
+
+    return redirectResponse(new URL(`/sign-in?redirectTo=${encodeURIComponent(redirectTo)}`, oauthIssuerUrl(request)).toString());
   }
 
   const client = await convexAdminHttpClient().query(internal.oauthApps.resolveAuthorizationClient, {

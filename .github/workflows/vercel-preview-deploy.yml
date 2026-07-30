@@ -31,16 +31,26 @@ permissions:
   issues: write
   pull-requests: read
 
+# Workflow scope, not job scope. Two jobs sharing one group with
+# cancel-in-progress, both eligible to start, can reverse-cancel: a newer deploy
+# acquires the group and is then killed by an older run's newly eligible smoke,
+# discarding the most recent human request. At workflow scope a newer request
+# cancels the entire older run, which is the intended behaviour.
+concurrency:
+  group: on-demand-vercel-preview-${{ inputs.pull_number }}
+  cancel-in-progress: true
+
 jobs:
   deploy-preview:
     name: Deploy On-Demand Preview
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    concurrency:
-      group: on-demand-vercel-preview-${{ inputs.pull_number }}
-      cancel-in-progress: true
     outputs:
+      convex_preview_enabled: ${{ steps.convex-preview-gate.outputs.enabled }}
+      convex_preview_url: ${{ steps.convex-preview.outputs.convex_url }}
       deployment_url: ${{ steps.deploy.outputs.url }}
+      head_sha: ${{ steps.pr.outputs.head_sha }}
+      pr_number: ${{ steps.pr.outputs.pr_number }}
 
     steps:
       - name: Resolve pull request
@@ -111,22 +121,157 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 24
+          cache: pnpm
 
-      - name: Deploy Vercel preview
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Pull Vercel preview environment
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: pnpm dlx vercel@54.4.1 pull --yes --environment=preview --token "$VERCEL_TOKEN"
+
+      - name: Check Convex preview deploy key
+        id: convex-preview-gate
+        env:
+          CONVEX_DEPLOY_KEY_PREVIEW: ${{ secrets.CONVEX_DEPLOY_KEY_PREVIEW }}
+        run: |
+          if [ -z "$CONVEX_DEPLOY_KEY_PREVIEW" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## Convex preview deploy"
+              echo "Skipped because CONVEX_DEPLOY_KEY_PREVIEW is not configured."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy Convex preview functions
+        if: steps.convex-preview-gate.outputs.enabled == 'true'
+        id: convex-preview
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_PREVIEW }}
+          PREVIEW_NAME: pr-${{ steps.pr.outputs.pr_number }}
+        run: pnpm exec convex deploy --yes --typecheck=enable --preview-create "$PREVIEW_NAME" --cmd "node scripts/write-convex-preview-output.mjs" --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL
+
+      - name: Configure Convex preview runtime and smoke fixture
+        if: steps.convex-preview.outputs.convex_url != ''
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_PREVIEW }}
+          HOSTED_E2E_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
+          HOSTED_E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
+          HOSTED_E2E_DEVELOPER_CREDENTIALS: ${{ vars.VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS }}
+          PREVIEW_NAME: pr-${{ steps.pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          bridge_secret=$(openssl rand -hex 32)
+          echo "::add-mask::$bridge_secret"
+          echo "VRDEX_PREVIEW_PERSISTENCE_SECRET=$bridge_secret" >> "$GITHUB_ENV"
+          printf '%s' preview | pnpm exec convex env set --preview-name "$PREVIEW_NAME" VRDEX_DEPLOYMENT_ENV
+          printf '%s' true | pnpm exec convex env set --preview-name "$PREVIEW_NAME" VRDEX_ENABLE_PREVIEW_PERSISTENCE_BRIDGE
+          printf '%s' true | pnpm exec convex env set --preview-name "$PREVIEW_NAME" VRDEX_ENABLE_HOSTED_SMOKE_FIXTURE
+          printf '%s' "$bridge_secret" | pnpm exec convex env set --preview-name "$PREVIEW_NAME" VRDEX_PREVIEW_PERSISTENCE_SECRET
+
+          preview_e2e_auth_enabled=false
+          if [ "$HOSTED_E2E_AUTH_HELPERS" = "true" ] && [ "$HOSTED_E2E_DEVELOPER_CREDENTIALS" = "true" ] && [ -n "$HOSTED_E2E_BROWSER_TOKEN" ]; then
+            e2e_convex_secret=$(openssl rand -hex 32)
+            node scripts/generate-convex-auth-preview-keys.mjs
+            node scripts/generate-preview-developer-runtime-secrets.mjs
+            jwt_private_key=$(<.tmp-gh-artifacts/convex-auth-preview/jwt-private-key)
+            jwks=$(<.tmp-gh-artifacts/convex-auth-preview/jwks.json)
+            echo "::add-mask::$e2e_convex_secret"
+            echo "::add-mask::$jwt_private_key"
+            echo "::add-mask::$jwks"
+            echo "VRDEX_PREVIEW_E2E_CONVEX_SECRET=$e2e_convex_secret" >> "$GITHUB_ENV"
+            printf '%s' true | pnpm exec convex env set --preview-name "$PREVIEW_NAME" VRDEX_ENABLE_E2E_HELPERS
+            printf '%s' true | pnpm exec convex env set --preview-name "$PREVIEW_NAME" VRDEX_ENABLE_E2E_AUTH_HELPERS
+            printf '%s' true | pnpm exec convex env set --preview-name "$PREVIEW_NAME" VRDEX_ENABLE_PREVIEW_OAUTH_TOKEN_BRIDGE
+            printf '%s' "$e2e_convex_secret" | pnpm exec convex env set --preview-name "$PREVIEW_NAME" VRDEX_E2E_CONVEX_SECRET
+            printf '%s' "$jwt_private_key" | pnpm exec convex env set --preview-name "$PREVIEW_NAME" JWT_PRIVATE_KEY
+            printf '%s' "$jwks" | pnpm exec convex env set --preview-name "$PREVIEW_NAME" JWKS
+            preview_e2e_auth_enabled=true
+          else
+            printf '%s' false | pnpm exec convex env set --preview-name "$PREVIEW_NAME" VRDEX_ENABLE_E2E_HELPERS
+            printf '%s' false | pnpm exec convex env set --preview-name "$PREVIEW_NAME" VRDEX_ENABLE_E2E_AUTH_HELPERS
+            printf '%s' false | pnpm exec convex env set --preview-name "$PREVIEW_NAME" VRDEX_ENABLE_PREVIEW_OAUTH_TOKEN_BRIDGE
+          fi
+          echo "VRDEX_PREVIEW_E2E_AUTH_ENABLED=$preview_e2e_auth_enabled" >> "$GITHUB_ENV"
+
+          pnpm exec convex run --preview-name "$PREVIEW_NAME" hostedSmokeFixtures:ensurePublicSearchFixture
+
+      - name: Use Convex preview URL for Vercel build
+        if: steps.convex-preview.outputs.convex_url != ''
+        env:
+          CONVEX_PREVIEW_URL: ${{ steps.convex-preview.outputs.convex_url }}
+        run: |
+          echo "NEXT_PUBLIC_CONVEX_URL=$CONVEX_PREVIEW_URL" >> "$GITHUB_ENV"
+          echo "CONVEX_URL=$CONVEX_PREVIEW_URL" >> "$GITHUB_ENV"
+
+      - name: Build Vercel preview output
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: pnpm dlx vercel@54.4.1 build --target=preview --token "$VERCEL_TOKEN"
+
+      - name: Deploy Vercel preview output
         id: deploy
         env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_PREVIEW }}
+          CONVEX_PREVIEW_URL: ${{ steps.convex-preview.outputs.convex_url }}
           HEAD_REF: ${{ steps.pr.outputs.head_ref }}
           HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          PREVIEW_NAME: pr-${{ steps.pr.outputs.pr_number }}
+          VRDEX_E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
           set -euo pipefail
-          deployment_url=$(pnpm dlx vercel@54.4.1 deploy --target=preview --yes --token "$VERCEL_TOKEN" | tail -n 1)
+          deploy_args=(deploy --prebuilt --target=preview --token "$VERCEL_TOKEN")
+          if [ -n "$CONVEX_PREVIEW_URL" ]; then
+            : "${VRDEX_PREVIEW_PERSISTENCE_SECRET:?Preview persistence secret was not configured.}"
+            deploy_args+=(
+              --env "CONVEX_URL=$CONVEX_PREVIEW_URL"
+              --env "VRDEX_DEPLOYMENT_ENV=preview"
+              --env "VRDEX_ENABLE_PREVIEW_PERSISTENCE_BRIDGE=true"
+              --env "VRDEX_PREVIEW_PERSISTENCE_SECRET=$VRDEX_PREVIEW_PERSISTENCE_SECRET"
+            )
+          fi
+          if [ "${VRDEX_PREVIEW_E2E_AUTH_ENABLED:-false}" = "true" ]; then
+            : "${VRDEX_PREVIEW_E2E_CONVEX_SECRET:?Preview E2E Convex secret was not configured.}"
+            : "${VRDEX_E2E_BROWSER_TOKEN:?Preview E2E browser token was not configured.}"
+            api_token_pepper=$(<.tmp-gh-artifacts/preview-developer-runtime/api-token-pepper)
+            oauth_access_token_signing_key=$(<.tmp-gh-artifacts/preview-developer-runtime/oauth-access-token-signing-key)
+            oauth_client_secret_pepper=$(<.tmp-gh-artifacts/preview-developer-runtime/oauth-client-secret-pepper)
+            oauth_refresh_token_pepper=$(<.tmp-gh-artifacts/preview-developer-runtime/oauth-refresh-token-pepper)
+            echo "::add-mask::$api_token_pepper"
+            echo "::add-mask::$oauth_access_token_signing_key"
+            echo "::add-mask::$oauth_client_secret_pepper"
+            echo "::add-mask::$oauth_refresh_token_pepper"
+            deploy_args+=(
+              --env "VRDEX_ENABLE_E2E_HELPERS=true"
+              --env "VRDEX_ENABLE_E2E_AUTH_HELPERS=true"
+              --env "VRDEX_E2E_BROWSER_TOKEN=$VRDEX_E2E_BROWSER_TOKEN"
+              --env "VRDEX_E2E_CONVEX_SECRET=$VRDEX_PREVIEW_E2E_CONVEX_SECRET"
+              --env "VRDEX_API_TOKEN_PEPPER=$api_token_pepper"
+              --env "VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY=$oauth_access_token_signing_key"
+              --env "VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID=vrdex-pr-$PR_NUMBER"
+              --env "VRDEX_OAUTH_CLIENT_SECRET_PEPPER=$oauth_client_secret_pepper"
+              --env "VRDEX_OAUTH_REFRESH_TOKEN_PEPPER=$oauth_refresh_token_pepper"
+            )
+          fi
+          deployment_url=$(pnpm dlx vercel@54.4.1 "${deploy_args[@]}" | tail -n 1)
           if [ -z "$deployment_url" ]; then
             echo "Vercel preview deployment did not return a URL." >&2
             exit 1
+          fi
+          if [ "${VRDEX_PREVIEW_E2E_AUTH_ENABLED:-false}" = "true" ]; then
+            printf '%s' "$deployment_url" | pnpm exec convex env set --preview-name "$PREVIEW_NAME" SITE_URL
           fi
 
           echo "url=$deployment_url" >> "$GITHUB_OUTPUT"
@@ -139,8 +284,11 @@ jobs:
             echo "- Deployment check page: $deployment_url/deployment"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # Non-fatal: a live preview must not be reported as a failed deploy just
+      # because the comment API call did not land.
       - name: Post preview comment
         if: success()
+        continue-on-error: true
         uses: actions/github-script@v9
         env:
           COMMENT_ID: ${{ inputs.comment_id }}
@@ -155,12 +303,16 @@ jobs:
             const issue_number = Number(process.env.PR_NUMBER);
             const deploymentUrl = process.env.DEPLOYMENT_URL;
 
+            const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`;
             const body = [
               marker,
               "## On-demand Vercel preview",
               `Branch \`${process.env.HEAD_REF}\`.`,
               `Preview URL: ${deploymentUrl}`,
               `Deployment check page: ${deploymentUrl}/deployment`,
+              "",
+              `Hosted MCP preview smoke runs after this deploy in the same run: ${runUrl}`,
+              "This workflow is dispatched, so its jobs do not appear as pull request status checks. Open the run to read the smoke result.",
               "",
               "Comment `@vrdex preview` or `/vercel-preview` on this pull request for a fresh deployment.",
             ].join("\n");
@@ -246,4 +398,185 @@ jobs:
               } catch (error) {
                 core.warning(`Unable to add failure reaction: ${error}`);
               }
+            }
+
+  hosted-mcp-preview-smoke:
+    name: Hosted MCP Preview Smoke
+    needs: [deploy-preview]
+    # Gate on a real deployment URL rather than the aggregate job result, so a
+    # deploy that succeeded but whose comment step failed is still smoked, and a
+    # deploy that produced no URL is correctly skipped.
+    if: ${{ !cancelled() && needs.deploy-preview.outputs.deployment_url != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.deploy-preview.outputs.head_sha }}
+
+      - name: Check hosted MCP smoke target
+        id: gate
+        env:
+          CONVEX_PREVIEW_ENABLED: ${{ needs.deploy-preview.outputs.convex_preview_enabled }}
+          CONVEX_PREVIEW_URL: ${{ needs.deploy-preview.outputs.convex_preview_url }}
+          DEPLOYMENT_URL: ${{ needs.deploy-preview.outputs.deployment_url }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$DEPLOYMENT_URL" ]; then
+            {
+              echo "## Hosted MCP preview smoke"
+              echo "Failed because the Vercel preview deployment URL is unavailable."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          if [ "$CONVEX_PREVIEW_ENABLED" != "true" ] || [ -z "$CONVEX_PREVIEW_URL" ]; then
+            {
+              echo "## Hosted MCP preview smoke"
+              echo "Failed because a same-branch Convex preview backend is unavailable."
+              echo ""
+              echo "Set repository secret CONVEX_DEPLOY_KEY_PREVIEW so this smoke covers data-backed public reads, Dynamic Client Registration, and Client ID Metadata Document authorization."
+              echo "Target was $DEPLOYMENT_URL/mcp."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          echo "mcp_url=$DEPLOYMENT_URL/mcp" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Hosted MCP preview smoke"
+            echo "Running hosted MCP preview smoke with data-backed public reads, Dynamic Client Registration, and Client ID Metadata Document authorization against a same-branch Convex preview backend."
+            echo ""
+            echo "Target is $DEPLOYMENT_URL/mcp."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run hosted MCP smoke
+        env:
+          VRDEX_MCP_SMOKE_CONTINUE_ON_FAILURE: "true"
+          VRDEX_MCP_SMOKE_CIMD: "true"
+          VRDEX_MCP_SMOKE_DCR: "true"
+          VRDEX_MCP_SMOKE_DATA: "true"
+          VRDEX_MCP_SMOKE_URL: ${{ steps.gate.outputs.mcp_url }}
+        run: pnpm smoke:mcp-compat
+
+      # This workflow is dispatched, so its jobs never appear as pull request status
+      # checks. Without this step a failed smoke is invisible on the pull request,
+      # sitting under an already-posted success comment for the deploy.
+      - name: Report smoke failure on pull request
+        if: failure() && needs.deploy-preview.outputs.pr_number != ''
+        uses: actions/github-script@v9
+        env:
+          COMMENT_ID: ${{ inputs.comment_id }}
+          DEPLOYMENT_URL: ${{ needs.deploy-preview.outputs.deployment_url }}
+          PR_NUMBER: ${{ needs.deploy-preview.outputs.pr_number }}
+        with:
+          script: |
+            const marker = "<!-- on-demand-vercel-preview-smoke-failure-comment -->";
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = Number(process.env.PR_NUMBER);
+            const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`;
+            const body = [
+              marker,
+              "## Hosted MCP preview smoke failed",
+              `Target: ${process.env.DEPLOYMENT_URL}/mcp`,
+              `Workflow logs: ${runUrl}`,
+              "",
+              "The preview deployed, so the preview comment above is still accurate. Hosted MCP evidence for this commit is failing: data-backed public reads, Dynamic Client Registration, or Client ID Metadata Document authorization did not pass.",
+            ].join("\n");
+
+            try {
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner,
+                repo,
+                issue_number,
+                per_page: 100,
+              });
+              const existing = comments.find(
+                (comment) => comment.user?.type === "Bot" && comment.body?.includes(marker),
+              );
+
+              if (existing) {
+                await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+              } else {
+                await github.rest.issues.createComment({ owner, repo, issue_number, body });
+              }
+            } catch (error) {
+              core.warning(`Unable to post smoke failure comment: ${error}`);
+            }
+
+            const commentId = Number(process.env.COMMENT_ID || "0");
+            if (commentId > 0) {
+              try {
+                await github.rest.reactions.createForIssueComment({
+                  owner,
+                  repo,
+                  comment_id: commentId,
+                  content: "confused",
+                });
+              } catch (error) {
+                core.warning(`Unable to add smoke failure reaction: ${error}`);
+              }
+            }
+
+      # A passing rerun must retire the failure comment above, or the pull request
+      # keeps showing a stale failure that points at an older run.
+      - name: Clear prior smoke failure comment
+        if: success() && needs.deploy-preview.outputs.pr_number != ''
+        uses: actions/github-script@v9
+        env:
+          DEPLOYMENT_URL: ${{ needs.deploy-preview.outputs.deployment_url }}
+          PR_NUMBER: ${{ needs.deploy-preview.outputs.pr_number }}
+        with:
+          script: |
+            const marker = "<!-- on-demand-vercel-preview-smoke-failure-comment -->";
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = Number(process.env.PR_NUMBER);
+            const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`;
+
+            try {
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner,
+                repo,
+                issue_number,
+                per_page: 100,
+              });
+              const existing = comments.find(
+                (comment) => comment.user?.type === "Bot" && comment.body?.includes(marker),
+              );
+
+              if (!existing) {
+                return;
+              }
+
+              const body = [
+                marker,
+                "## Hosted MCP preview smoke passed",
+                `Target: ${process.env.DEPLOYMENT_URL}/mcp`,
+                `Workflow logs: ${runUrl}`,
+                "",
+                "A later run passed, so the earlier smoke failure recorded in this comment is resolved.",
+              ].join("\n");
+
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } catch (error) {
+              core.warning(`Unable to clear smoke failure comment: ${error}`);
             }

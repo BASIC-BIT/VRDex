@@ -5,6 +5,7 @@ import sharp from "sharp";
 
 export const PROFILE_ASSET_MAX_SOURCE_DIMENSION = 8_192;
 export const PROFILE_ASSET_MAX_STORED_DIMENSION = 4_096;
+export const PROFILE_ASSET_MAX_STORED_BYTES = 12 * 1024 * 1024;
 
 export function profileAssetMimeTypeForFile(fileType: string, fileName: string): string {
   const contentType = fileType.split(";")[0]!.trim().toLowerCase();
@@ -27,6 +28,16 @@ type SafeProfileAsset = {
   width: number;
   height: number;
   contentSha256: string;
+};
+
+export type PreparedProfileAsset = {
+  source: {
+    body: Uint8Array;
+    mimeType: SafeProfileAsset["mimeType"];
+    contentSha256: string;
+  };
+  download: SafeProfileAsset;
+  display: SafeProfileAsset;
 };
 
 function detectedRasterMimeType(body: Uint8Array): SafeProfileAsset["mimeType"] | null {
@@ -213,12 +224,98 @@ function assertSourceDimensions(width: number, height: number) {
   }
 }
 
-async function normalizeRaster(body: Uint8Array, mimeType: SafeProfileAsset["mimeType"]) {
-  const pipeline = sharp(body, {
+function rasterPipeline(body: Uint8Array) {
+  return sharp(body, {
     animated: false,
     failOn: "warning",
     limitInputPixels: PROFILE_ASSET_MAX_SOURCE_DIMENSION ** 2,
   });
+}
+
+async function encodeInOriginalRasterFormat(
+  body: Uint8Array,
+  mimeType: SafeProfileAsset["mimeType"],
+) {
+  if (mimeType === "image/png") {
+    let candidate = await rasterPipeline(body)
+      .rotate()
+      .png({ compressionLevel: 9 })
+      .toBuffer({ resolveWithObject: true });
+    if (candidate.data.byteLength <= PROFILE_ASSET_MAX_STORED_BYTES) {
+      return candidate;
+    }
+
+    for (const quality of [100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 1]) {
+      candidate = await rasterPipeline(body)
+        .rotate()
+        .png({
+          compressionLevel: 9,
+          palette: true,
+          colours: 256,
+          quality,
+          effort: 10,
+        })
+        .toBuffer({ resolveWithObject: true });
+      if (candidate.data.byteLength <= PROFILE_ASSET_MAX_STORED_BYTES) {
+        return candidate;
+      }
+    }
+
+    throw new Error("Profile media assets must be 12 MB or smaller.");
+  }
+
+  const qualities = mimeType === "image/webp"
+    ? [90, 80, 70, 60, 50, 40, 30, 20, 10, 5, 1]
+    : [95, 90, 85, 80, 70, 60, 50, 40, 30, 20, 10, 5, 1];
+  let candidate:
+    | Awaited<ReturnType<ReturnType<typeof rasterPipeline>["toBuffer"]>>
+    | undefined;
+
+  for (const quality of qualities) {
+    candidate = mimeType === "image/webp"
+      ? await rasterPipeline(body)
+        .rotate()
+        .webp({ quality, alphaQuality: 100, effort: 6, smartSubsample: true })
+        .toBuffer({ resolveWithObject: true })
+      : await rasterPipeline(body)
+        .rotate()
+        .jpeg({ quality, mozjpeg: true })
+        .toBuffer({ resolveWithObject: true });
+    if (candidate.data.byteLength <= PROFILE_ASSET_MAX_STORED_BYTES) {
+      return candidate;
+    }
+  }
+
+  throw new Error("Profile media assets must be 12 MB or smaller.");
+}
+
+async function encodeDisplayRaster(body: Uint8Array) {
+  for (const quality of [88, 70, 50, 30, 10, 1]) {
+    const candidate = await rasterPipeline(body)
+      .rotate()
+      .resize({
+        width: PROFILE_ASSET_MAX_STORED_DIMENSION,
+        height: PROFILE_ASSET_MAX_STORED_DIMENSION,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .webp({
+        quality,
+        alphaQuality: quality,
+        effort: 4,
+        smartSubsample: true,
+      })
+      .toBuffer({ resolveWithObject: true });
+    if (candidate.data.byteLength <= PROFILE_ASSET_MAX_STORED_BYTES) {
+      return candidate;
+    }
+  }
+
+  throw new Error("Profile media assets must be 12 MB or smaller.");
+}
+
+async function prepareRaster(body: Uint8Array, mimeType: SafeProfileAsset["mimeType"]) {
+  const pipeline = rasterPipeline(body);
   const metadata = await pipeline.metadata();
 
   if (!metadata.width || !metadata.height || (metadata.pages ?? 1) !== 1) {
@@ -226,33 +323,27 @@ async function normalizeRaster(body: Uint8Array, mimeType: SafeProfileAsset["mim
   }
   assertSourceDimensions(metadata.width, metadata.height);
 
-  const normalized = pipeline
-    .rotate()
-    .resize({
-      width: PROFILE_ASSET_MAX_STORED_DIMENSION,
-      height: PROFILE_ASSET_MAX_STORED_DIMENSION,
-      fit: "inside",
-      withoutEnlargement: true,
-    });
-  const encoded =
-    mimeType === "image/png"
-      ? normalized.png({ compressionLevel: 9 })
-      : mimeType === "image/webp"
-        ? normalized.webp({ quality: 88 })
-        : normalized.jpeg({ quality: 90, mozjpeg: true });
-  const output = await encoded.toBuffer({ resolveWithObject: true });
+  const sanitized = await encodeInOriginalRasterFormat(body, mimeType);
+  const display = await encodeDisplayRaster(body);
 
   return {
-    body: new Uint8Array(output.data),
-    width: output.info.width,
-    height: output.info.height,
+    download: {
+      body: new Uint8Array(sanitized.data),
+      width: sanitized.info.width,
+      height: sanitized.info.height,
+    },
+    display: {
+      body: new Uint8Array(display.data),
+      width: display.info.width,
+      height: display.info.height,
+    },
   };
 }
 
-export async function validateAndNormalizeProfileAsset(
+export async function validateAndPrepareProfileAsset(
   body: Uint8Array,
   declaredMimeType: string,
-): Promise<SafeProfileAsset> {
+): Promise<PreparedProfileAsset> {
   const rasterMimeType = detectedRasterMimeType(body);
   const detectedMimeType = rasterMimeType ?? (hasSvgRoot(body) ? "image/svg+xml" : null);
 
@@ -263,16 +354,45 @@ export async function validateAndNormalizeProfileAsset(
     throw new Error("The file contents do not match the selected image type.");
   }
 
-  const normalized =
-    detectedMimeType === "image/svg+xml"
-      ? validateSafeSvg(body)
-      : await normalizeRaster(body, detectedMimeType);
-  assertSourceDimensions(normalized.width, normalized.height);
-  const contentSha256 = createHash("sha256").update(normalized.body).digest("hex");
+  const sourceContentSha256 = createHash("sha256").update(body).digest("hex");
 
-  return {
-    ...normalized,
+  if (detectedMimeType === "image/svg+xml") {
+    const sanitized = validateSafeSvg(body);
+    assertSourceDimensions(sanitized.width, sanitized.height);
+    const contentSha256 = createHash("sha256").update(sanitized.body).digest("hex");
+    const safeSvg = {
+      ...sanitized,
+      mimeType: detectedMimeType,
+      contentSha256,
+    } satisfies SafeProfileAsset;
+    return {
+      source: { body, mimeType: detectedMimeType, contentSha256: sourceContentSha256 },
+      download: safeSvg,
+      display: safeSvg,
+    };
+  }
+
+  const prepared = await prepareRaster(body, detectedMimeType);
+  const download: SafeProfileAsset = {
+    ...prepared.download,
     mimeType: detectedMimeType,
-    contentSha256,
+    contentSha256: createHash("sha256").update(prepared.download.body).digest("hex"),
   };
+  const display: SafeProfileAsset = {
+    ...prepared.display,
+    mimeType: "image/webp",
+    contentSha256: createHash("sha256").update(prepared.display.body).digest("hex"),
+  };
+  return {
+    source: { body, mimeType: detectedMimeType, contentSha256: sourceContentSha256 },
+    download,
+    display,
+  };
+}
+
+export async function validateAndNormalizeProfileAsset(
+  body: Uint8Array,
+  declaredMimeType: string,
+): Promise<SafeProfileAsset> {
+  return (await validateAndPrepareProfileAsset(body, declaredMimeType)).display;
 }

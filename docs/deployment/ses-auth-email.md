@@ -39,9 +39,36 @@ VRChat and VRCLinking proof-code verification:
 
 - `VRCHAT_PROOF_ADAPTER_URL`: POST endpoint for VRChat user/group proof checks
 - `VRCLINKING_PROOF_ADAPTER_URL`: POST endpoint for VRCLinking proof checks
-- `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`: optional bearer token sent to both proof adapters
+- `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`: **required** whenever either adapter URL
+  is set, and must match the value the adapter itself requires. Convex refuses
+  to call an adapter without it rather than sending an unauthenticated request
+  that the adapter would answer with a 401 — which the claim path reads as the
+  non-terminal `unavailable`, so the claim would stall with the
+  misconfiguration reported nowhere.
+- `VRCLINKING_ADAPTER_CAPABILITY_KEY`: **required** whenever
+  `VRCLINKING_PROOF_ADAPTER_URL` is set. Signs the per-delegation capability the
+  adapter verifies as `VRDEX_VRCLINKING_CAPABILITY_KEY`. Keep it a different
+  value from the bearer token: the bearer token authenticates the channel, and
+  this authorizes the individual guild, so a leak of the first must not confer
+  the second.
 
-Proof adapters receive JSON with `targetType`, `targetExternalId`, `proofCode`, and safe profile context. They must return JSON with `verified`, `evidenceSource`, and `evidenceSummary`.
+Adapter URLs must use `https`, or `http` only on loopback for a local stub.
+Every request carries the bearer token.
+
+The two adapters receive different payloads, and an implementation written
+against the wrong one waits for fields it never gets:
+
+- `VRCHAT_PROOF_ADAPTER_URL` receives `targetType` (`vrchat_user` or
+  `vrchat_group`), `targetExternalId`, `proofCode`, and safe profile context.
+  It answers whether the code is present on that target.
+- `VRCLINKING_PROOF_ADAPTER_URL` receives `targetType: "vrclinking"`,
+  `targetExternalId`, `discordUserId`, and a `delegations` array of
+  `{ guildId, secretRef, expiresAt, capability }`. It receives no proof code
+  and no profile context — it answers from a delegated key, so neither is of
+  any use to it. See `docs/backend/vrclinking-api.md` for the delegation
+  contract and what a positive result must carry back.
+
+Both return JSON with `verified`, `evidenceSource`, and `evidenceSummary`.
 
 ## Sandbox Note
 

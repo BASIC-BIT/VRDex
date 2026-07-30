@@ -1,5 +1,6 @@
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
+import { claimError } from "./_claimErrors";
 import type { AuthSubject } from "./_communityAuthority";
 import { requireProfileClaimStateTransition } from "./_profileStates";
 
@@ -58,7 +59,7 @@ export async function grantProfileOwner(db: DatabaseWriter, options: GrantProfil
       return existingOwner._id;
     }
 
-    throw new Error("This profile already has an active owner.");
+    throw claimError("PROFILE_ALREADY_OWNED");
   }
 
   return await db.insert("profileOwners", {
@@ -84,6 +85,25 @@ export async function approveProfileClaimForUser(
       : options.verified
         ? "claimed_verified"
         : "claimed_unverified";
+
+  // A verified listing with no owner must not be claimable: the line above
+  // preserves `claimed_verified` regardless of the evidence behind this claim,
+  // so whoever arrived first would inherit the badge on the strength of a
+  // throwaway asset. No in-repo path produces that state today — claim state and
+  // ownership are always written in the same transaction — but the seed-import
+  // candidate schema already carries `claimed_verified`, and the deferred
+  // ownership-transfer flow introduces it the moment it revokes an owner.
+  if (
+    options.profile.claimState === "claimed_verified" &&
+    (await getActiveProfileOwner(db, options.profileId)) === null
+  ) {
+    // Its own code, not `PROFILE_ALREADY_OWNED`. The collector path catches that
+    // one specifically and settles the attempt as "claimed by someone else" —
+    // which is the opposite of this condition, where nobody owns the profile.
+    // A distinct code makes that catch rethrow, which is right for something
+    // retrying cannot resolve and support has to look at.
+    throw claimError("PROFILE_STATE_UNSUPPORTED", "verified_without_owner");
+  }
 
   await grantProfileOwner(db, options);
 

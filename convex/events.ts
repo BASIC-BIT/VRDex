@@ -1,4 +1,3 @@
-import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
@@ -16,9 +15,10 @@ import {
   isSameAuthSubject,
   subjectHasAnyCommunityCapability,
   subjectHasCommunityCapability,
-  toAuthSubject,
   type AuthSubject,
 } from "./_communityAuthority";
+import { requireActiveAuthSession } from "./_authSessionGuard";
+import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import {
   apiWriteAuditActorKindValidator,
   recordApiWriteAuditEvent,
@@ -265,20 +265,7 @@ function boundedLimit(value: number | undefined, fallback: number, max: number):
 }
 
 async function requireAuthenticatedSubject(ctx: MutationCtx | QueryCtx) {
-  const identity = await ctx.auth.getUserIdentity();
-
-  if (identity === null || typeof identity !== "object") {
-    throw new Error("Event changes require a signed-in user.");
-  }
-
-  return toAuthSubject(
-    identity as {
-      tokenIdentifier: string;
-      issuer: string;
-      subject: string;
-      name?: string;
-    },
-  );
+  return (await requireActiveBrowserSessionSubject(ctx)).subject;
 }
 
 function optionalTrimmedText(input: string | undefined, fieldName: string, maxLength: number): string | undefined {
@@ -1095,7 +1082,7 @@ async function getEditableEventBySlug(
     throw new Error("Event was not found.");
   }
 
-  if (!(await canUpdateEvent(ctx.db, event, subject, await getAuthUserId(ctx)))) {
+  if (!(await canUpdateEvent(ctx.db, event, subject, (await requireActiveAuthSession(ctx)).userId))) {
     throw new Error("You do not have permission to update this event.");
   }
 
@@ -1119,7 +1106,7 @@ async function getMediaManageableEventBySlug(
     throw new Error("Event was not found.");
   }
 
-  if (!(await canManageEventMedia(ctx.db, event, subject, await getAuthUserId(ctx)))) {
+  if (!(await canManageEventMedia(ctx.db, event, subject, (await requireActiveAuthSession(ctx)).userId))) {
     throw new Error("You do not have permission to control event media.");
   }
 
@@ -1143,7 +1130,7 @@ async function getOperationsReadableEventBySlug(
     throw new Error("Event was not found.");
   }
 
-  if (!(await canViewEventOperations(ctx.db, event, subject, await getAuthUserId(ctx)))) {
+  if (!(await canViewEventOperations(ctx.db, event, subject, (await requireActiveAuthSession(ctx)).userId))) {
     throw new Error("You do not have permission to view event operations.");
   }
 
@@ -2168,7 +2155,7 @@ export const updateCommunityEvent = mutation({
   },
   handler: async (ctx, args) => {
     const subject = await requireAuthenticatedSubject(ctx);
-    const userId = await getAuthUserId(ctx);
+    const { userId } = await requireActiveAuthSession(ctx);
     const validation = validateEventSlug(args.currentSlug);
 
     if (!validation.ok) {

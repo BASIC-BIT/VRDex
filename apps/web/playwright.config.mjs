@@ -71,6 +71,8 @@ const localE2eHelperEnv = hostedBaseURL
       VRCHAT_PROOF_ADAPTER_URL: process.env.VRCHAT_PROOF_ADAPTER_URL ?? `${baseURL}/api/e2e/adapters/vrchat-proof`,
       VRCLINKING_PROOF_ADAPTER_URL: process.env.VRCLINKING_PROOF_ADAPTER_URL ?? `${baseURL}/api/e2e/adapters/vrchat-proof`,
       VRCHAT_PROOF_ADAPTER_BEARER_TOKEN: process.env.VRCHAT_PROOF_ADAPTER_BEARER_TOKEN ?? "local-proof-adapter-token",
+      VRCLINKING_ADAPTER_CAPABILITY_KEY:
+        process.env.VRCLINKING_ADAPTER_CAPABILITY_KEY ?? "local-vrclinking-capability-key",
     };
 
 if (!hostedBaseURL) {

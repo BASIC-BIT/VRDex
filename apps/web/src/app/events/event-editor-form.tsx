@@ -818,6 +818,11 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
       )}
 
       {event === undefined ? null : (
+        // Private — worker runtime, task id, status reasons, artifact labels and
+        // URLs, and the output-account key — as is the VRCDN output card above
+        // it. Both are covered by `app/events/layout.tsx` rather than marked
+        // here: marking one card at a time is exactly how the card above kept
+        // leaking after this one was fixed.
         <Card className="grid gap-4" padding="sm" surface="dashed">
           <div>
             <h3 className="text-xl font-semibold tracking-[-0.03em]">Worker status</h3>

@@ -43,11 +43,6 @@ const REPORT_ROWS = [
     job: "storybook-image-diff",
     label: "Storybook image diff",
   },
-  {
-    job: "vercel-preview",
-    label: "Vercel preview",
-    optional: true,
-  },
 ];
 
 function escapeTableCell(value) {
@@ -134,26 +129,13 @@ function buildReport({
   const rows = REPORT_ROWS.map((row) => {
     const job = needs[row.job] || {};
     const artifact = row.artifact ? artifactByName.get(row.artifact) : null;
-    const deploymentUrl =
-      row.job === "vercel-preview" ? job.outputs?.["deployment-url"] || "" : "";
     const optionalWasSkipped =
-      row.optional &&
-      job.result === "success" &&
-      ((row.artifact && !artifact) ||
-        (row.job === "vercel-preview" && !deploymentUrl));
+      row.optional && job.result === "success" && row.artifact && !artifact;
     const result = optionalWasSkipped ? "skipped" : job.result || "unknown";
 
     let evidence = "Not generated";
     if (artifact) {
       evidence = `[Open artifact](${artifactUrl({ artifact, owner, repo, runId })})`;
-    } else if (deploymentUrl) {
-      const links = [
-        `[Open preview](${deploymentUrl})`,
-        `[Deployment check](${deploymentUrl}/deployment)`,
-      ];
-      const convexUrl = job.outputs?.["convex-preview-url"];
-      if (convexUrl) links.push(`[Convex preview](${convexUrl})`);
-      evidence = links.join(" · ");
     } else if (result === "skipped") {
       evidence = "Not configured";
     }

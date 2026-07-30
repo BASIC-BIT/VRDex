@@ -52,6 +52,24 @@ PLAYWRIGHT_BASE_URL=https://vrdex.net PLAYWRIGHT_SKIP_WEBSERVERS=true pnpm test:
 
 The local Playwright suite starts a local Convex backend and Next dev server by default.
 
+The focused authentication matrix is:
+
+```powershell
+pnpm test:e2e:auth-session-matrix
+```
+
+It positively selects the auth-session contract and runs serially in
+Chromium, Firefox, and WebKit. The restart assertion closes the first
+persistent browser profile and launches the same profile again; it does not
+simulate restart by copying cookies into a fresh context.
+
+Before an authentication-sensitive release, manually check the ordinary
+remembered-session and explicit-sign-out paths in current Firefox and Safari
+with default privacy settings. Repeat in Firefox Strict Tracking Protection
+when practical. Record the browser versions and settings used. Private
+browsing, extensions, containers, enterprise policy, and Playwright WebKit are
+separate environments; do not claim coverage for one from results in another.
+
 Setting `PLAYWRIGHT_BASE_URL` switches Playwright to hosted mode and disables local web servers.
 
 Local webserver runs set token-gated E2E helper defaults so `pnpm test:e2e` includes the mutation-backed `@flow` journey without additional env setup.
@@ -137,6 +155,9 @@ Hosted adapter E2E additionally requires `VRDEX_ENABLE_E2E_ADAPTER_HELPERS=true`
 - `VRCHAT_PROOF_ADAPTER_URL=<hosted app URL>/api/e2e/adapters/vrchat-proof`
 - `VRCLINKING_PROOF_ADAPTER_URL=<hosted app URL>/api/e2e/adapters/vrchat-proof`
 - `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN=<staging-only adapter token>`
+- `VRCLINKING_ADAPTER_CAPABILITY_KEY=<staging-only signing key>` — signs the
+  per-delegation capability the VRCLinking adapter verifies as
+  `VRDEX_VRCLINKING_CAPABILITY_KEY`. Keep it distinct from the bearer token
 
 GitHub Actions only runs hosted extended profile, auth, adapter, and developer-credential flows when repository variables `VRDEX_HOSTED_E2E_EXTENDED_PROFILE_FLOW=true`, `VRDEX_HOSTED_E2E_AUTH_HELPERS=true`, `VRDEX_HOSTED_E2E_ADAPTER_HELPERS=true`, and `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true` are set. Keep the optional variables unset until the matching hosted app and Convex capabilities are configured.
 
@@ -164,7 +185,7 @@ The optional `Playwright Hosted Data Flow` job runs on pull requests only when b
 
 When configured, the job runs `pnpm test:e2e:hosted` with `PLAYWRIGHT_BASE_URL`, `PLAYWRIGHT_SKIP_WEBSERVERS=true`, `PLAYWRIGHT_RECORD_VIDEO=true`, and a GitHub Actions run-scoped `VRDEX_E2E_RUN_ID`. Extended profile, auth, adapter, and developer-credential flows skip unless `VRDEX_HOSTED_E2E_EXTENDED_PROFILE_FLOW`, `VRDEX_HOSTED_E2E_AUTH_HELPERS`, `VRDEX_HOSTED_E2E_ADAPTER_HELPERS`, and `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS` are explicitly set to `true`.
 
-The final `PR Verification Report` job runs after the Playwright, Storybook, and Vercel preview jobs. It collates their results, artifact links, deployment URLs, and changed visual baselines into one marker-based PR comment that is updated in place. Changed baselines appear as a complete inline image gallery inside a collapsed details section so reviewers can inspect every snapshot without filling the default PR view. The producer jobs do not write PR comments. The report job also removes legacy per-job comments when it first runs on an existing pull request.
+The final `PR Verification Report` job runs after the Playwright and Storybook jobs. It collates their results, artifact links, and changed visual baselines into one marker-based PR comment that is updated in place. Changed baselines appear as a complete inline image gallery inside a collapsed details section so reviewers can inspect every snapshot without filling the default PR view. The producer jobs do not write PR comments. The report job also removes legacy per-job comments when it first runs on an existing pull request.
 
 The `Deployed Health Checks` workflow runs after merges to `main`, after successful GitHub deployment status events for production deployments, on a daily schedule, and through manual dispatch. It has two independent checks:
 
@@ -172,5 +193,19 @@ The `Deployed Health Checks` workflow runs after merges to `main`, after success
 - `Production Smoke Health` uses the production deployment status URL when the workflow was triggered by a successful production deployment, otherwise `VRDEX_PRODUCTION_SMOKE_BASE_URL`, to run read-only public route smoke against production.
 
 Manual dispatch can run `all`, `staging-mutation`, or `production-smoke`. The optional `base_url` override applies only when dispatching a single selected target. The deployed health workflow uploads artifacts and fails the workflow on test failure, but it does not create GitHub issues automatically.
+
+The recurring staging lane can also run the auth-session contract when
+`VRDEX_HOSTED_E2E_AUTH_HELPERS=true`. It uses only disposable
+`@e2e.vrdex.local` accounts and the staging helper boundary.
+
+Production authenticated smoke is a separate manual one-shot option. Supply a
+fresh base64-encoded Playwright storage state for the disposable production
+test account, select `production_auth`, and discard the state after the run.
+The runner performs no business/domain mutation; normal authentication refresh
+rotation may still occur. Its dedicated configuration disables traces,
+screenshots, video, and reports, and prints only one of:
+`missing_state`, `configuration_missing`, `auth_state_rejected`, `transport_failure`,
+`server_failure`, or `passed`. Do not enable it on schedules or upload its
+output as an artifact.
 
 Current hosted mutation target: `https://staging.vrdex.net`, backed by the shared Convex development deployment. The deployed health workflow run `26695304658` passed `staging-mutation` after the Vercel staging custom domain was configured.

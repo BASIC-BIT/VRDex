@@ -1,6 +1,7 @@
 import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
-import { api, internal } from "@convex-generated-api";
+import { internal } from "@convex-generated-api";
 
+import { activeAuthSessionViewerQuery } from "@/lib/server/active-auth-session";
 import { convexAdminHttpClient, convexHttpClient } from "@/lib/server/convex-http";
 import { redirectUriWithOAuthResult } from "@/lib/server/oauth-authorization-request";
 import {
@@ -80,13 +81,12 @@ export async function POST(request: Request) {
   const convex = convexHttpClient();
   convex.setAuth(authToken);
 
-  const viewer = await convex.query(api.accounts.viewer, {});
+  const viewer = await convex.query(activeAuthSessionViewerQuery, {});
 
   if (viewer === null) {
-    return Response.json(
-      { error: "invalid_request", error_description: "The OAuth consent transaction is invalid or expired." },
-      { headers: { "cache-control": "no-store", pragma: "no-cache" }, status: 400 },
-    );
+    const redirectTo = `/oauth/authorize/review?transaction=${encodeURIComponent(transaction)}`;
+
+    return redirectResponse(new URL(`/sign-in?redirectTo=${encodeURIComponent(redirectTo)}`, request.url).toString());
   }
 
   const code = decision === "approve" ? createOAuthAuthorizationCodeValue() : undefined;

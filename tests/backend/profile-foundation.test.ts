@@ -374,7 +374,7 @@ describe("profile ownership helpers", () => {
     const conflictingOwnerDb = createOwnerDb([{ ...existingOwner, userId: "otherUser" }]);
     await assert.rejects(
       () => grantProfileOwner(conflictingOwnerDb.db as never, { profileId, userId, now: 2 }),
-      /already has an active owner/,
+      /PROFILE_ALREADY_OWNED/,
     );
   });
 
@@ -521,7 +521,7 @@ describe("profile ownership helpers", () => {
           verified: false,
           now: 3,
         }),
-      /already has an active owner/,
+      /PROFILE_ALREADY_OWNED/,
     );
     assert.equal(tables.profileOwners.length, 1);
     assert.equal(tables.profiles[0]?._id, profileId);
@@ -1249,7 +1249,7 @@ describe("profile media kit asset helpers", () => {
         mimeType: "image/svg+xml",
         now: Date.UTC(2026, 5, 15),
       }),
-      "profile-assets/2026-06-15/abcdef0123456789abcdef01/aurora-logo.svg",
+      "profile-assets/2026-06-15/abcdef0123456789abcdef01/aurora-logo/display.svg",
     );
     assert.equal(
       createProfileAssetStorageKey({
@@ -1257,7 +1257,7 @@ describe("profile media kit asset helpers", () => {
         mimeType: "image/png",
         now: Date.UTC(2026, 5, 15),
       }),
-      "profile-assets/2026-06-15/abcdef0123456789abcdef01/asset.png",
+      "profile-assets/2026-06-15/abcdef0123456789abcdef01/asset/display.webp",
     );
   });
 
@@ -1581,7 +1581,7 @@ describe("profile media kit asset helpers", () => {
     assert.deepEqual(mediaKit.avatarAppearance, preference.avatarAppearance);
   });
 
-  it("projects gallery order, featured media, and accessible public metadata", async () => {
+  it("projects gallery order, featured media, and optional public metadata", async () => {
     const profile = {
       _id: "profile-gallery",
       slug: "dj-aurora",
@@ -1601,7 +1601,7 @@ describe("profile media kit asset helpers", () => {
       ...first,
       _id: "asset-second",
       label: "Wordmark",
-      altText: "Aurora wordmark.",
+      altText: undefined,
     } as Doc<"profileAssets">;
     const unplaced = {
       ...first,
@@ -1640,5 +1640,6 @@ describe("profile media kit asset helpers", () => {
     assert.equal(mediaKit.featuredAsset?.assetId, first._id);
     assert.equal(mediaKit.featuredAsset?.altText, "DJ Aurora under violet stage light.");
     assert.equal(mediaKit.featuredAsset?.credit, "Photo by Example");
+    assert.equal(mediaKit.galleryAssets[0]?.altText, undefined);
   });
 });

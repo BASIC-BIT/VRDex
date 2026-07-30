@@ -5,18 +5,29 @@ import { Card } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
 import { BrandLink, PageContainer, PageShell } from "@/components/ui/page-shell";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
+import {
+  isReauthenticationRequest,
+  recentAuthActionClassForReturnTo,
+  validRecentAuthChallengeId,
+} from "@/lib/recent-auth";
 import { validateSignInReturnTo } from "@/lib/safe-return-to";
 
 export default async function SignInPage({
   searchParams,
 }: {
   searchParams: Promise<{
+    challenge?: string | string[];
+    reauth?: string | string[];
     redirectTo?: string | string[];
     returnTo?: string | string[];
   }>;
 }) {
   const params = await searchParams;
   const returnTo = validateSignInReturnTo(params.returnTo ?? params.redirectTo);
+  const challengeId = validRecentAuthChallengeId(params.challenge);
+  const reauthenticate =
+    isReauthenticationRequest(params.reauth) && challengeId !== null;
+  const actionClass = recentAuthActionClassForReturnTo(returnTo);
 
   return (
     <PageShell className="flex py-6 sm:py-8">
@@ -30,14 +41,21 @@ export default async function SignInPage({
           <section aria-labelledby="sign-in-heading" className="w-full max-w-md">
             <header className="text-center">
               <h1 id="sign-in-heading" className="text-3xl font-semibold sm:text-4xl">
-                Sign in
+                {reauthenticate ? "Sign in again" : "Sign in"}
               </h1>
-              <p className="mt-2 text-sm leading-6 text-muted">Manage your VRDex profile and events.</p>
+              {!reauthenticate ? (
+                <p className="mt-2 text-sm leading-6 text-muted">Manage your VRDex profile and events.</p>
+              ) : null}
             </header>
 
             <Card className="mt-6" padding="lg" surface="strong">
               <Suspense fallback={<Notice>Loading sign-in options...</Notice>}>
-                <SignInForm returnTo={returnTo} />
+                <SignInForm
+                  actionClass={actionClass}
+                  challengeId={challengeId}
+                  reauthenticate={reauthenticate}
+                  returnTo={returnTo}
+                />
               </Suspense>
             </Card>
           </section>

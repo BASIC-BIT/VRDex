@@ -46,6 +46,30 @@ Terraform also manages the `featured-discovery` feature flag. It is inactive
 with a zero-percent rollout so the unfinished Featured module stays hidden by
 default while remaining available for deliberate product review.
 
+## Authentication session health
+
+Terraform declares the `Authentication session health` dashboard and six
+insights for restore outcomes, latency buckets, slow restores,
+authenticated-to-anonymous transition intent, deployment category, and
+browser family. These are aggregate health views; they must not include
+tokens, user/account/session identifiers, emails, redirect URLs, or route
+slugs.
+
+This repository change does not import, plan, or apply production PostHog
+state. An owner must run the documented import/plan/apply workflow after the
+application event deployment is live. Treat the first 14 complete production
+days as the baseline. Owner action: on 2026-08-10, or 14 complete days after
+production deployment if later, record daily sample volume, authenticated
+restore failure share, slow-restore share, and challenge completion share.
+Review the proposed hard-liveness warning of at least three slow restores in
+15 minutes only when at least ten restores completed in that window, then
+activate or revise it from the observed baseline. Alert resources are not
+activated by this PR.
+
+If the provider cannot manage a desired PostHog alert, dashboard, or insight,
+record the exact manual configuration and its URL in the owner follow-up
+instead of silently introducing configuration drift.
+
 ## State Backend
 
 Terraform state for this stack is stored in the S3 backend declared in `versions.tf`:

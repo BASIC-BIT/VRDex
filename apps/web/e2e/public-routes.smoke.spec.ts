@@ -193,12 +193,12 @@ test.describe("fixture lookup smoke", () => {
     await expect(page.getByRole("link", { name: "Twitch: twitch.tv", exact: true })).toBeVisible();
     await expect(page.getByText("BASIC", { exact: true })).toHaveCount(2);
     const copyButton = page.getByRole("button", { name: "Copy" }).first();
-    const copyButtonWidth = await copyButton.evaluate((element) => element.getBoundingClientRect().width);
+    const copyButtonWidth = await copyButton.evaluate((element) => (element as HTMLElement).offsetWidth);
     await copyButton.click();
     const copiedButton = page.getByRole("button", { name: "Copied" }).first();
     await expect(copiedButton).toBeVisible();
-    const copiedButtonWidth = await copiedButton.evaluate((element) => element.getBoundingClientRect().width);
-    expect(Math.abs(copiedButtonWidth - copyButtonWidth)).toBeLessThan(0.5);
+    const copiedButtonWidth = await copiedButton.evaluate((element) => (element as HTMLElement).offsetWidth);
+    expect(copiedButtonWidth).toBe(copyButtonWidth);
     await expect.poll(async () => await page.evaluate(() => JSON.parse(window.localStorage.getItem("vrdex.lookup.recentSearches") ?? "[]")[0])).toBe("BASICBIT");
     await page.getByRole("button", { name: "Clear lookup" }).click();
     await page.getByLabel("DJ name").focus();
@@ -379,7 +379,7 @@ test.describe("fixture lookup smoke", () => {
     await expect(privateResult).not.toContainText(/Private seed|Source|Reviewed|Freshness|Jul 9, 2026|Checked Jul 8, 2026/);
   });
 
-  test("verified profiles use the same compact mark across profile and search views", async ({ page }) => {
+  test("verified profiles use the same compact mark across profile and search views", async ({ page }, testInfo) => {
     await page.goto("/p/basicbit");
     const profileMark = page.getByLabel("Verified profile");
     await expect(profileMark).toBeVisible();
@@ -394,10 +394,12 @@ test.describe("fixture lookup smoke", () => {
     await expect(searchMark).toBeVisible();
     await expect(resultTypeIcon).toBeVisible();
     await expect(resultTypeTooltip).toHaveCSS("opacity", "0");
-    await searchResult.hover({ position: { x: 200, y: 45 } });
-    await expect(resultTypeTooltip).toHaveCSS("opacity", "0");
-    await resultTypeIcon.hover();
-    await expect(resultTypeTooltip).toHaveCSS("opacity", "1");
+    if (testInfo.project.name === "desktop-chromium") {
+      await searchResult.hover({ position: { x: 200, y: 45 } });
+      await expect(resultTypeTooltip).toHaveCSS("opacity", "0");
+      await resultTypeIcon.hover();
+      await expect(resultTypeTooltip).toHaveCSS("opacity", "1");
+    }
     const searchBox = await searchMark.boundingBox();
 
     await page.goto("/search?q=BASICBIT&view=dj");

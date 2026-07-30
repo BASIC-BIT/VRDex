@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 
 import { mutation } from "./_generated/server";
-import { toAuthSubject } from "./_communityAuthority";
+import { activeBrowserSessionSubjectOrNull } from "./_browserSessionAuthority";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { normalizeProfileInlineText } from "./_profileSubmissions";
 
@@ -36,15 +36,7 @@ export const requestProfileSuppression = mutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    const identity = await ctx.auth.getUserIdentity();
-    const requester = identity
-      ? toAuthSubject({
-          tokenIdentifier: identity.tokenIdentifier,
-          issuer: identity.issuer,
-          subject: identity.subject,
-          name: identity.name,
-        })
-      : undefined;
+    const requester = (await activeBrowserSessionSubjectOrNull(ctx))?.subject;
     const slugValidation = args.profileSlug ? validateProfileSlug(args.profileSlug) : undefined;
 
     if (slugValidation && !slugValidation.ok) {

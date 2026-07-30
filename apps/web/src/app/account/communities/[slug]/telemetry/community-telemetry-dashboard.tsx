@@ -270,8 +270,13 @@ function CommunityTelemetryDashboardContent({
       .filter((point) => point.sessionId === inspectedSession._id && point.observedAt >= cutoff)
       .map((point) => ({ at: point.observedAt, value: point.population, state: point.coverageState }))
     : [];
+  // Owner-only operational data end to end: the collector service-account
+  // identity, VRChat group and world ids, instance session ids, and per-session
+  // population. `maskAllInputs` covers input values, not rendered text, so with
+  // replay on every route this whole surface is blocked from capture rather
+  // than masked field by field — nothing here is worth recording.
   return (
-    <div className="grid gap-8">
+    <div className="grid gap-8 ph-no-capture" data-ph-no-capture>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-sm text-muted">{data.integration.vrchatGroupId}</p>

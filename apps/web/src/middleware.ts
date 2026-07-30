@@ -63,6 +63,14 @@ export default function middleware(request: NextRequest, event: NextFetchEvent) 
     return preflightResponse;
   }
 
+  if (
+    request.nextUrl.pathname === "/auth/reauth/complete" ||
+    request.nextUrl.pathname === "/auth/reauth/fail" ||
+    request.nextUrl.pathname === "/auth/session-converge"
+  ) {
+    return NextResponse.next();
+  }
+
   return authMiddleware(request, event);
 }
 

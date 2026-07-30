@@ -1,6 +1,5 @@
 import { v } from "convex/values";
 
-import { toAuthSubject } from "./_communityAuthority";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   internalMutation,
@@ -25,7 +24,10 @@ import {
   selectHandoffFields,
 } from "./_seedHandoffs";
 import { seedImportAuthSubjectValidator } from "./_seedImportValidators";
-import { getCurrentUser, requireVerifiedEmailUser } from "./accounts";
+import {
+  activeBrowserSessionOrNull,
+  requireActiveBrowserSessionSubject,
+} from "./_browserSessionAuthority";
 
 type PersonProfile = Extract<Doc<"profiles">, { profileType: "person" }>;
 
@@ -231,7 +233,7 @@ export const previewInvitation = query({
     }
 
     if (invitation.state === "accepted") {
-      const viewer = await getCurrentUser(ctx);
+      const viewer = (await activeBrowserSessionOrNull(ctx))?.user ?? null;
       if (!canRevealAcceptedHandoffDestination(invitation.acceptedByUserId, viewer?._id)) {
         return { state: "accepted" as const };
       }
@@ -357,11 +359,20 @@ export const acceptInvitation = mutation({
     selectedFieldIds: v.array(v.id("seedImportCandidateFields")),
   },
   handler: async (ctx, args) => {
-    const [user, identity, invitation] = await Promise.all([
-      requireVerifiedEmailUser(ctx),
-      ctx.auth.getUserIdentity(),
+    const [activeSession, invitation] = await Promise.all([
+      requireActiveBrowserSessionSubject(ctx),
       getInvitationByToken(ctx, args.token),
     ]);
+    const { subject: actor, user } = activeSession;
+
+    if (
+      user.email === undefined ||
+      user.emailVerificationTime === undefined
+    ) {
+      throw new Error(
+        "A verified email address is required before claim-level actions.",
+      );
+    }
 
     if (invitation === null) {
       throw new Error("Handoff invitation is unavailable.");
@@ -429,7 +440,6 @@ export const acceptInvitation = mutation({
       updatedAt: now,
       reviewedAt: now,
     });
-    const actor = identity === null ? undefined : toAuthSubject(identity);
     const siblingInvitations = await ctx.db
       .query("seedHandoffInvitations")
       .withIndex("by_candidateId_state", (query) =>
@@ -444,7 +454,7 @@ export const acceptInvitation = mutation({
       grantedByClaimRequestId: claimRequestId,
       verified: false,
       now,
-      ...(actor !== undefined ? { actor } : {}),
+      actor,
       note: "Private concierge handoff granted claimed-unverified owner authority.",
     });
 
@@ -453,7 +463,7 @@ export const acceptInvitation = mutation({
         ctx.db.patch(field._id, {
           confidence: "owner_confirmed",
           reviewState: "accepted",
-          ...(actor !== undefined ? { reviewedBy: actor } : {}),
+          reviewedBy: actor,
           reviewedAt: now,
           reviewNote: "Confirmed by the owner during private handoff acceptance.",
           updatedAt: now,
@@ -476,7 +486,7 @@ export const acceptInvitation = mutation({
         .map((sibling) =>
           ctx.db.patch(sibling._id, {
             state: "revoked",
-            ...(actor !== undefined ? { revokedBy: actor } : {}),
+            revokedBy: actor,
             revokedAt: now,
             revokeReason: "Superseded when another invitation for this candidate was accepted.",
             updatedAt: now,

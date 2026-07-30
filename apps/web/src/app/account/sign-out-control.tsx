@@ -4,6 +4,7 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { useEffect, useId, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { requestBrowserSignOut } from "@/lib/auth-session";
 
 type SignOutControlProps = {
   signOut: () => Promise<void>;
@@ -122,5 +123,12 @@ export function SignOutControl({ signOut }: SignOutControlProps) {
 export function AccountSignOutControl() {
   const { signOut } = useAuthActions();
 
-  return <SignOutControl signOut={signOut} />;
+  return (
+    <SignOutControl
+      signOut={async () => {
+        await requestBrowserSignOut(signOut);
+        window.location.assign("/sign-in");
+      }}
+    />
+  );
 }

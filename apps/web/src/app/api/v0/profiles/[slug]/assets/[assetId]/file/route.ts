@@ -12,7 +12,16 @@ type RouteContext = {
   }>;
 };
 
-function extensionForMimeType(mimeType: string): string {
+function extensionForMimeType(mimeType: string, originalFileName?: string): string {
+  const originalExtension = originalFileName?.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1];
+  if (
+    (mimeType === "image/jpeg" && (originalExtension === "jpg" || originalExtension === "jpeg")) ||
+    (mimeType === "image/png" && originalExtension === "png") ||
+    (mimeType === "image/webp" && originalExtension === "webp") ||
+    (mimeType === "image/svg+xml" && originalExtension === "svg")
+  ) {
+    return originalExtension;
+  }
   if (mimeType === "image/svg+xml") {
     return "svg";
   }
@@ -51,17 +60,20 @@ export async function GET(request: Request, context: RouteContext) {
     return Response.json({ error: "Asset not found." }, { status: 404 });
   }
 
-  const object = await getProfileAssetObject(asset.storageKey);
+  const url = new URL(request.url);
+  const download = url.searchParams.get("download") === "1";
+  const storageKey = download ? asset.downloadStorageKey ?? asset.storageKey : asset.storageKey;
+  const mimeType = download ? asset.downloadMimeType ?? asset.mimeType : asset.mimeType;
+  const object = await getProfileAssetObject(storageKey);
 
   if (object === null) {
     return Response.json({ error: "Stored asset not found." }, { status: 404 });
   }
 
-  const url = new URL(request.url);
-  const download = url.searchParams.get("download") === "1";
-  const baseName = safeFileName(asset.originalFileName ?? asset.label ?? `${asset.displayName} logo`);
-  const hasExtension = /\.[a-z0-9]+$/i.test(baseName);
-  const fileName = hasExtension ? baseName : `${baseName}.${extensionForMimeType(asset.mimeType)}`;
+  const baseName = safeFileName(
+    asset.originalFileName ?? asset.label ?? `${asset.displayName} media`,
+  ).replace(/\.[a-z0-9]+$/i, "");
+  const fileName = `${baseName}.${extensionForMimeType(mimeType, asset.originalFileName)}`;
   const body = object.body.buffer.slice(
     object.body.byteOffset,
     object.body.byteOffset + object.body.byteLength,
@@ -73,7 +85,7 @@ export async function GET(request: Request, context: RouteContext) {
       "content-disposition": `${download ? "attachment" : "inline"}; filename="${fileName}"`,
       "content-length": String(object.contentLength ?? object.body.byteLength),
       "content-security-policy": "sandbox; default-src 'none'; img-src 'none'; script-src 'none'; object-src 'none'",
-      "content-type": object.contentType,
+      "content-type": mimeType,
       "x-content-type-options": "nosniff",
     },
   });

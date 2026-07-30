@@ -1,6 +1,15 @@
 # Vercel preview deployment
 
-This is the first hosted deployment path for `apps/web`. It is intentionally narrow: get a live Vercel URL for every pull request and keep unsafe public states locked. Production hardening belongs here only after an explicit follow-up issue owns it.
+This is the first hosted deployment path for `apps/web`. It is intentionally narrow: get a live Vercel URL for a pull request when someone asks for one, and keep unsafe public states locked. Production hardening belongs here only after an explicit follow-up issue owns it.
+
+Preview deploys are manual. Two independent paths could create one, and both are closed:
+
+- GitHub Actions. Nothing in `Baseline Checks` deploys to Vercel, and no `push` or `pull_request` event triggers a preview. A preview exists only after a human requests it, as described in [On-demand preview deploy](#on-demand-preview-deploy).
+- The Vercel Git integration. `apps/web/vercel.json` sets `git.deploymentEnabled` to `{ "**": false, "main": true }`, so pushing a commit to any branch other than `main` creates no automatic Vercel deployment. `main` is listed explicitly because Vercel deploys a branch when it matches at least one `true` rule, and production hosting depends on the Git integration for `main`.
+
+Two caveats on the Git-integration control. Vercel reads `vercel.json` from the commit being pushed, so a branch that does not yet carry this setting still auto-deploys until it picks the change up from `main`. And `git.deploymentEnabled` governs the Git integration only; it does not affect `vercel deploy` from the CLI, which is how the on-demand workflow and `staging-deploy.yml` deploy.
+
+Dashboard-side state is not verifiable from this repository. If the Vercel project also has preview deployments or branch tracking configured in its dashboard settings, reconcile them with the setting above so the in-repo file stays the source of truth.
 
 ## Vercel project
 
@@ -21,7 +30,7 @@ Run Vercel CLI commands from the repository root once the project root directory
 
 Current recommendation: keep repository Actions variables and secrets reproducible through checked-in workflows/docs first, and provider APIs or CLI scripts where practical. Secret values still belong in GitHub/Vercel/Convex secret stores, but their names, scopes, and recreation path should be documented here.
 
-The PR workflow deploys a Vercel preview only when all three repository secrets exist:
+The on-demand preview workflow deploys a Vercel preview only when all three repository secrets exist:
 
 - `VERCEL_TOKEN`
 - `VERCEL_ORG_ID`
@@ -31,7 +40,7 @@ The workflow can also deploy a matching Convex preview backend when this optiona
 
 - `CONVEX_DEPLOY_KEY_PREVIEW`
 
-If any are missing, the `Vercel Preview` job passes and writes a step summary explaining that deployment is skipped. This keeps baseline CI green before the hosted project is linked, while making the missing live-deploy blocker explicit.
+If any of the three Vercel secrets is missing, the run fails and names the missing secrets instead of deploying partially. Because the preview is requested explicitly, failing loudly is the correct signal; there is no longer a baseline job that needs to stay green before the hosted project is linked.
 
 `VERCEL_TOKEN` must be a Vercel account access token created from Vercel account settings. The local Vercel CLI session token from `auth.json` is not accepted by `vercel --token` in GitHub Actions and should not be stored as this secret.
 
@@ -53,7 +62,7 @@ broader internal operations remain unavailable from the preview web runtime.
 When `VRDEX_HOSTED_E2E_AUTH_HELPERS=true`,
 `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true`, and the
 `VRDEX_HOSTED_E2E_BROWSER_TOKEN` repository secret are all present, that same
-non-fork PR workflow also creates a separate random Convex E2E secret. It enables
+on-demand preview workflow also creates a separate random Convex E2E secret. It enables
 the auth helper only on the named Convex preview and injects the matching helper
 flags, generated Convex secret, and repository browser token only into the
 matching Vercel preview. This supports temporary verified accounts and reviewed
@@ -71,17 +80,22 @@ that preview.
 
 ## On-demand preview deploy
 
-The `Vercel Preview` job above runs inside `Baseline Checks` for every non-fork pull request commit. Two extra workflows add a second, lighter path for when a reviewer or an agent wants a preview URL without waiting for a full baseline run:
+This is the only path that deploys a Vercel preview. Two workflows implement it:
 
 - `.github/workflows/vercel-preview-comment.yml` listens for `issue_comment` and dispatches the deploy when a pull request comment contains `@vrdex preview` or `/vercel-preview`. It requires an `author_association` of `OWNER`, `MEMBER`, or `COLLABORATOR`, and refuses fork branches and non-open pull requests.
 - `.github/workflows/vercel-preview-deploy.yml` performs the deploy. Its only triggers are `workflow_dispatch` and `workflow_call`, so it cannot fire on `push` or `pull_request`. The `workflow_call` interface exposes a `deployment_url` output so a calling workflow can capture the link.
 
-This path reuses the existing `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID` repository secrets and adds no new ones. If any of the three is missing, the run fails and names the missing secrets instead of deploying partially.
+So a preview deploy happens only when a person comments `@vrdex preview` or `/vercel-preview` on a pull request, or runs the `On-Demand Vercel Preview` workflow from the Actions tab or `gh workflow run`. Pushing another commit to a pull request does not redeploy; request a fresh preview when you want one to match new commits.
 
-It differs from the `Baseline Checks` preview in two ways:
+This path reuses the existing `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID` repository secrets and adds no new ones.
 
-- It runs `pnpm dlx vercel@54.4.1 deploy --target=preview --yes`, so Vercel builds remotely from the project's own Preview environment variables instead of uploading prebuilt output.
-- It does not create a `pr-<number>` Convex preview backend and injects no preview persistence, E2E, or developer-runtime values. Use the `Baseline Checks` preview when a review needs a per-pull-request Convex backend.
+The deploy job runs the full preview pipeline: `vercel pull`, the optional `pr-<number>` Convex preview backend with its runtime flags and smoke fixture, a local `vercel build`, and `vercel deploy --prebuilt` with the preview-only environment values. The local prebuilt build is what lets the Convex preview URL reach the client bundle through `NEXT_PUBLIC_CONVEX_URL`; a remote Vercel build would use the project's own Preview environment instead.
+
+### Hosted MCP preview smoke
+
+`.github/workflows/vercel-preview-deploy.yml` also runs the `Hosted MCP Preview Smoke` job after a successful deploy. It targets `<deployment-url>/mcp` and is fail-closed: it requires both a deployment URL and a same-branch Convex preview backend, so a pass covers data-backed public reads, Dynamic Client Registration, and Client ID Metadata Document authorization.
+
+Because this workflow is dispatched rather than triggered by `pull_request`, its jobs do not appear as pull request status checks, so a failure cannot turn the pull request red. Two things compensate. The preview comment links the workflow run so the smoke result stays one click from the pull request. And when the smoke fails, the smoke job posts its own `Hosted MCP preview smoke failed` comment on the pull request and reacts `confused` to the requesting comment, so a failure is never silent even though the preview deploy itself succeeded. A later passing run rewrites that same comment in place to `Hosted MCP preview smoke passed`, so a stale failure never outlives the run that cleared it.
 
 ## Web environment
 
@@ -220,6 +234,14 @@ GitHub Actions uses these repository settings for hosted mutation health:
 - variable `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true`: optional; keep unset until staging has the developer token, OAuth app, and OAuth token endpoints under test
 - secret `VRDEX_HOSTED_E2E_BROWSER_TOKEN`
 
+`VRDEX_HOSTED_E2E_BROWSER_TOKEN` is a staging-only shared secret that authorizes
+the bounded E2E helper routes; it is not a user or provider credential. A
+repository administrator owns it. Store it only as the GitHub Actions
+repository secret and the matching Vercel staging
+`VRDEX_E2E_BROWSER_TOKEN`. Rotate it by replacing the Vercel value first, then
+the GitHub secret, and rerun staging deployment. Revoke it by disabling the
+hosted auth-helper variable and removing both stored values.
+
 The `Staging Deploy` workflow runs after `Baseline Checks` succeeds on `main` and can also be run manually. It requires these settings:
 
 - secret `CONVEX_DEPLOY_KEY_DEV`: deploys functions/schema to `scrupulous-corgi-247`
@@ -289,4 +311,4 @@ After a preview deployment, visit:
 - `/deployment` for Vercel environment and commit metadata
 - `/submit` to confirm signed-out users are routed to sign in before writing
 
-The PR workflow posts a `Vercel Preview Deployment` comment with both the preview URL and `/deployment` URL once Vercel secrets are configured.
+The on-demand preview workflow posts an `On-demand Vercel preview` comment with the preview URL, the `/deployment` URL, and a link to the workflow run that carries the hosted MCP smoke result.

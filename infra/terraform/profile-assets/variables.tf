@@ -10,6 +10,27 @@ variable "asset_bucket_name" {
   default     = null
 }
 
+variable "direct_upload_allowed_origins" {
+  description = "Additional browser origins allowed to POST one-time profile-media uploads directly to private S3."
+  type        = set(string)
+  default = [
+    "https://staging.vrdex.net",
+    "https://vrdex.net",
+    "https://www.vrdex.net",
+    "https://*.vercel.app",
+  ]
+}
+
+variable "direct_upload_site_origin" {
+  description = "Canonical browser origin for this VRDex deployment. It is always included in direct-upload CORS."
+  type        = string
+
+  validation {
+    condition     = can(regex("^https://[^/]+$", var.direct_upload_site_origin))
+    error_message = "direct_upload_site_origin must be one HTTPS origin without a path."
+  }
+}
+
 variable "runtime_role_name" {
   description = "IAM role name assumed by Vercel functions through OIDC for profile asset S3 access."
   type        = string

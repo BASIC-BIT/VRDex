@@ -3,7 +3,16 @@
 import { api } from "@convex-generated-api";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
-import { Component, type FormEvent, type ReactNode, useState } from "react";
+import { useRouter } from "next/navigation";
+import { usePostHog } from "posthog-js/react";
+import {
+  Component,
+  type FormEvent,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { buttonVariants, Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -11,6 +20,15 @@ import { Field, FieldText, Input, Select, Textarea } from "@/components/ui/field
 import { Notice } from "@/components/ui/notice";
 import { Table, TableCell, TableFrame, TableHead, TableHeaderCell } from "@/components/ui/table";
 import { cn } from "@/lib/cn";
+import {
+  RECENT_AUTH_REQUIRED_CODE,
+  browserRecentAuthDraftStorage,
+  isRecentAuthRequiredError,
+  reauthenticationPath,
+  saveRecentAuthDraft,
+  takeRecentAuthDraft,
+} from "@/lib/recent-auth";
+import { captureProductEvent } from "@/lib/posthog";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 const oauthScopes = [
@@ -68,6 +86,8 @@ function ownerText(
 }
 
 function ConnectedOAuthAppsPanel() {
+  const router = useRouter();
+  const posthog = usePostHog();
   const { isAuthenticated, isLoading } = useConvexAuth();
   const applications = useQuery(
     api.oauthApps.listPersonalApplications,
@@ -78,11 +98,58 @@ function ConnectedOAuthAppsPanel() {
     isAuthenticated ? {} : "skip",
   );
   const revokeApplication = useMutation(api.oauthApps.revokePersonalApplication);
+  const formRef = useRef<HTMLFormElement>(null);
+  const draftRestored = useRef(false);
   const [clientType, setClientType] = useState("public");
   const [createdClientSecret, setCreatedClientSecret] = useState<string | null>(null);
   const [createdClientId, setCreatedClientId] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (draftRestored.current || formRef.current === null) {
+      return;
+    }
+
+    draftRestored.current = true;
+    const draft = takeRecentAuthDraft(
+      browserRecentAuthDraftStorage(),
+      "developer_oauth_application",
+    );
+    if (draft === null) {
+      return;
+    }
+
+    for (const fieldName of [
+      "displayName",
+      "ownerCommunitySlug",
+      "redirectUris",
+      "description",
+      "docsUrl",
+      "privacyUrl",
+    ] as const) {
+      const control = formRef.current.elements.namedItem(fieldName);
+      const value = draft[fieldName];
+      if (
+        (control instanceof HTMLInputElement ||
+          control instanceof HTMLSelectElement ||
+          control instanceof HTMLTextAreaElement) &&
+        typeof value === "string"
+      ) {
+        control.value = value;
+      }
+    }
+
+    if (typeof draft.clientType === "string") {
+      setClientType(draft.clientType);
+    }
+    const scopes = Array.isArray(draft.scopes) ? draft.scopes : [];
+    for (const checkbox of formRef.current.querySelectorAll<HTMLInputElement>(
+      'input[name="scope"]',
+    )) {
+      checkbox.checked = scopes.includes(checkbox.value);
+    }
+  }, [applications, ownershipOptions]);
 
   async function createApplication(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -114,10 +181,43 @@ function ConnectedOAuthAppsPanel() {
       const body = (await response.json()) as {
         application?: { clientId?: string };
         clientSecretValue?: string;
+        code?: string;
         detail?: string;
+        reauthUrl?: string;
       };
 
       if (!response.ok || !body.application?.clientId) {
+        if (
+          body.code === RECENT_AUTH_REQUIRED_CODE &&
+          body.reauthUrl !== undefined
+        ) {
+          captureProductEvent(posthog, "sensitive_action_denied", {
+            action_class: "developer_oauth_application",
+            reason: "stale",
+          });
+          captureProductEvent(posthog, "recent_auth_challenge_presented", {
+            action_class: "developer_oauth_application",
+          });
+          saveRecentAuthDraft(
+            browserRecentAuthDraftStorage(),
+            "developer_oauth_application",
+            {
+              clientType: selectedClientType,
+              description: String(formData.get("description") ?? ""),
+              displayName: String(formData.get("displayName") ?? ""),
+              docsUrl: String(formData.get("docsUrl") ?? ""),
+              ownerCommunitySlug: String(
+                formData.get("ownerCommunitySlug") ?? "",
+              ),
+              privacyUrl: String(formData.get("privacyUrl") ?? ""),
+              redirectUris: String(formData.get("redirectUris") ?? ""),
+              scopes: formData.getAll("scope").map(String),
+            },
+          );
+          router.push(body.reauthUrl);
+          return;
+        }
+
         setStatus(body.detail ?? "OAuth app creation failed.");
         return;
       }
@@ -184,7 +284,11 @@ function ConnectedOAuthAppsPanel() {
     <div className="grid gap-5 lg:grid-cols-[0.9fr_1.2fr]">
       <Card surface="strong">
         <h2 className="text-2xl font-semibold">Create app</h2>
-        <form className="mt-5 grid gap-4" onSubmit={createApplication}>
+        <form
+          className="mt-5 grid gap-4"
+          onSubmit={createApplication}
+          ref={formRef}
+        >
           <Field>
             App name
             <Input name="displayName" placeholder="Local MCP client" required />
@@ -357,7 +461,31 @@ function ConnectedOAuthAppsPanel() {
                                 reason: "Revoked from OAuth app dashboard.",
                               });
                               setStatus("OAuth app revoked.");
-                            } catch {
+                            } catch (error) {
+                              if (isRecentAuthRequiredError(error)) {
+                                captureProductEvent(
+                                  posthog,
+                                  "sensitive_action_denied",
+                                  {
+                                    action_class:
+                                      "developer_oauth_application",
+                                    reason: "stale",
+                                  },
+                                );
+                                captureProductEvent(
+                                  posthog,
+                                  "recent_auth_challenge_presented",
+                                  {
+                                    action_class:
+                                      "developer_oauth_application",
+                                  },
+                                );
+                                router.push(
+                                  reauthenticationPath("/developers/apps"),
+                                );
+                                return;
+                              }
+
                               setStatus("OAuth app revocation failed.");
                             } finally {
                               setIsSubmitting(false);

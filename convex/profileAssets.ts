@@ -1,9 +1,13 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 
-import { getCurrentUser, requireCurrentUser } from "./accounts";
 import type { Doc, Id } from "./_generated/dataModel";
-import { internalMutation, query, mutation, type MutationCtx } from "./_generated/server";
+import { internalMutation, internalQuery, query, mutation, type MutationCtx } from "./_generated/server";
 import type { AuthSubject } from "./_communityAuthority";
+import { requireActiveAuthSession } from "./_authSessionGuard";
+import {
+  activeBrowserSessionOrNull,
+  requireActiveBrowserSessionSubject,
+} from "./_browserSessionAuthority";
 import {
   normalizeProfilePublicSectionOrder,
   toPublicProfileAppearance,
@@ -25,6 +29,7 @@ import {
   sanitizeProfileAssetAltText,
   sanitizeProfileAssetCaption,
   sanitizeProfileAssetCredit,
+  sanitizeProfileAssetCreditUrl,
   sanitizeProfileAssetLabel,
 } from "./_profileAssets";
 import {
@@ -61,13 +66,29 @@ const profileAssetAttachMetadataArgs = {
   caption: v.optional(v.string()),
   altText: v.optional(v.string()),
   credit: v.optional(v.string()),
+  creditUrl: v.optional(v.string()),
   placements: v.optional(v.array(profileAssetPlacement)),
   position: v.optional(v.number()),
 };
+const PROFILE_ASSET_ACCESSIBILITY_GENERATION_DAILY_LIMIT = 20;
+const PROFILE_ASSET_ACCESSIBILITY_GENERATION_COOLDOWN_MS = 5_000;
+const PROFILE_ASSET_ACCESSIBILITY_REQUEST_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const PROFILE_ASSET_ACCESSIBILITY_MODEL = /^[a-z0-9][a-z0-9._:-]{0,99}$/iu;
 
 function assertProfileMediaKitEnabled() {
   if (process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED !== "true") {
-    throw new Error("Profile media kits are not enabled.");
+    throw new ConvexError("Profile media kits are not enabled.");
+  }
+}
+
+function profileMediaDirectUploadEnabled() {
+  return process.env.VRDEX_PROFILE_MEDIA_DIRECT_UPLOAD_ENABLED === "true";
+}
+
+function assertProfileMediaAccessibilityGenerationEnabled() {
+  if (process.env.VRDEX_PROFILE_MEDIA_ACCESSIBILITY_GENERATION_ENABLED !== "true") {
+    throw new Error("Profile media accessibility generation is not enabled.");
   }
 }
 
@@ -75,18 +96,8 @@ function requestsGalleryPlacement(placements: Array<"profile_image" | "banner" |
   return placements?.some((placement) => placement === "gallery" || placement === "featured") ?? false;
 }
 
-function optionalIdentityDisplayName(name: string | undefined): string | undefined {
-  const trimmed = name?.trim();
-
-  if (!trimmed) {
-    return undefined;
-  }
-
-  return trimmed.slice(0, 120);
-}
-
 async function requireOwnedAppearanceProfile(ctx: MutationCtx, requestedProfileId: Id<"profiles">) {
-  const user = await requireCurrentUser(ctx);
+  const { user } = await requireActiveAuthSession(ctx);
   const profile = await ctx.db.get(requestedProfileId);
 
   if (profile === null) {
@@ -171,23 +182,11 @@ async function patchProfileDisplayPreference(
 export const createUploadIntent = internalMutation({
   args: profileAssetUploadIntentArgs,
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-
-    if (identity === null) {
-      throw new Error("Profile media uploads require a signed-in user.");
-    }
-
+    const { subject } = await requireActiveBrowserSessionSubject(ctx);
     const now = Date.now();
-    const displayName = optionalIdentityDisplayName(identity.name);
-    const requestedBy = {
-      tokenIdentifier: identity.tokenIdentifier,
-      issuer: identity.issuer,
-      subject: identity.subject,
-      ...(displayName !== undefined ? { displayName } : {}),
-    };
 
     return await createProfileAssetUploadIntentRecord(ctx.db, {
-      requestedBy,
+      requestedBy: subject,
       ...args,
       now,
     });
@@ -220,6 +219,7 @@ export const createUploadIntentForApiProfileOwner = internalMutation({
       caption: args.caption,
       altText: args.altText,
       credit: args.credit,
+      creditUrl: args.creditUrl,
       placements: args.placements,
       position: args.position,
       source: "owner_authored",
@@ -244,6 +244,9 @@ export const createUploadIntentForApiProfileOwner = internalMutation({
       intentId: intent.intentId,
       uploadToken: intent.uploadToken,
       uploadUrl: `/api/v0/profile-assets/upload-intents/${intent.intentId}`,
+      ...(args.sourceUrl === undefined && profileMediaDirectUploadEnabled()
+        ? { directUploadUrl: `/api/v0/profile-assets/upload-intents/${intent.intentId}/direct-upload` }
+        : {}),
       uploadTokenHeader: "x-vrdex-upload-token",
       expiresAt: intent.expiresAt,
     };
@@ -253,6 +256,7 @@ export const createUploadIntentForApiProfileOwner = internalMutation({
 export const createUploadIntentForOwnedProfile = mutation({
   args: {
     profileId,
+    replacesAssetId: v.optional(v.id("profileAssets")),
     ...profileAssetUploadIntentArgs,
     ...profileAssetAttachMetadataArgs,
   },
@@ -264,12 +268,33 @@ export const createUploadIntentForOwnedProfile = mutation({
       throw new Error("Claim this profile before adding media.");
     }
 
-    const user = await requireCurrentUser(ctx);
+    const { user } = await requireActiveAuthSession(ctx);
     const now = Date.now();
-    await assertProfileAssetIntentCapacity(ctx.db, profile._id, now);
+    if (args.replacesAssetId !== undefined) {
+      const replacedAsset = await ctx.db.get(args.replacesAssetId);
+      if (
+        replacedAsset === null ||
+        replacedAsset.profileId !== profile._id ||
+        replacedAsset.state !== "active"
+      ) {
+        throw new Error("The media being replaced is no longer active.");
+      }
+      const existingReplacement = await ctx.db
+        .query("profileAssetUploadIntents")
+        .withIndex("by_targetProfileId_state_expiresAt", (query) =>
+          query.eq("targetProfileId", profile._id).eq("state", "pending").gt("expiresAt", now),
+        )
+        .filter((query) => query.eq(query.field("replacesAssetId"), args.replacesAssetId))
+        .first();
+      if (existingReplacement !== null) {
+        throw new Error("This media already has a replacement in progress.");
+      }
+    }
+    await assertProfileAssetIntentCapacity(ctx.db, profile._id, now, args.replacesAssetId === undefined ? 1 : 0);
     const intent = await createProfileAssetUploadIntentRecord(ctx.db, {
       requestedBy: apiOwnerAuthSubject(user._id),
       targetProfileId: profile._id,
+      ...(args.replacesAssetId !== undefined ? { replacesAssetId: args.replacesAssetId } : {}),
       originalFileName: args.originalFileName,
       sourceUrl: args.sourceUrl,
       mimeType: args.mimeType,
@@ -278,6 +303,7 @@ export const createUploadIntentForOwnedProfile = mutation({
       caption: args.caption,
       altText: args.altText,
       credit: args.credit,
+      creditUrl: args.creditUrl,
       placements: args.placements ?? ["gallery"],
       position: args.position,
       source: "owner_authored",
@@ -296,6 +322,9 @@ export const createUploadIntentForOwnedProfile = mutation({
     return {
       ...intent,
       uploadUrl: `/api/v0/profile-assets/upload-intents/${intent.intentId}`,
+      ...(args.sourceUrl === undefined && profileMediaDirectUploadEnabled()
+        ? { directUploadUrl: `/api/v0/profile-assets/upload-intents/${intent.intentId}/direct-upload` }
+        : {}),
       uploadTokenHeader: "x-vrdex-upload-token",
     };
   },
@@ -308,7 +337,7 @@ export const cancelOwnedUploadIntent = mutation({
   },
   handler: async (ctx, args) => {
     assertProfileMediaKitEnabled();
-    const user = await requireCurrentUser(ctx);
+    const { user } = await requireActiveAuthSession(ctx);
     const intent = await ctx.db.get(args.intentId);
 
     if (
@@ -395,8 +424,168 @@ export const claimUploadIntentForStorage = internalMutation({
       mimeType: intent.mimeType,
       byteSize: intent.byteSize,
       storageKey: intent.storageKey,
+      quarantineStorageKey: intent.quarantineStorageKey,
+      sourceStorageKey: intent.sourceStorageKey,
+      downloadStorageKey: intent.downloadStorageKey,
       expiresAt: intent.expiresAt,
     };
+  },
+});
+
+export const claimOwnedAccessibilityGeneration = mutation({
+  args: {
+    profileId,
+    requestId: v.string(),
+    provider: v.literal("openai"),
+    model: v.string(),
+    imageBytes: v.number(),
+  },
+  handler: async (ctx, args) => {
+    assertProfileMediaKitEnabled();
+    assertProfileMediaAccessibilityGenerationEnabled();
+    const profile = await requireOwnedAppearanceProfile(ctx, args.profileId);
+    const { user } = await requireActiveAuthSession(ctx);
+    const requestId = args.requestId.trim();
+    const provider = args.provider.trim();
+    const model = args.model.trim();
+    if (
+      !PROFILE_ASSET_ACCESSIBILITY_REQUEST_ID.test(requestId) ||
+      provider !== "openai" ||
+      !PROFILE_ASSET_ACCESSIBILITY_MODEL.test(model)
+    ) {
+      throw new Error("Accessibility generation request metadata is invalid.");
+    }
+    if (!Number.isSafeInteger(args.imageBytes) || args.imageBytes <= 0 || args.imageBytes > 1_500_000) {
+      throw new Error("Accessibility generation image is too large.");
+    }
+
+    const replay = await ctx.db
+      .query("profileAssetAccessibilityGenerationEvents")
+      .withIndex("by_requestId", (query) => query.eq("requestId", requestId))
+      .unique();
+    if (
+      replay !== null &&
+      replay.userId === user._id &&
+      replay.profileId === profile._id
+    ) {
+      return { eventId: replay._id, replay: true, userId: user._id };
+    }
+    if (replay !== null) {
+      throw new Error("Accessibility generation request is invalid.");
+    }
+
+    const now = Date.now();
+    const recent = await ctx.db
+      .query("profileAssetAccessibilityGenerationEvents")
+      .withIndex("by_userId_createdAt", (query) =>
+        query.eq("userId", user._id).gt("createdAt", now - 24 * 60 * 60 * 1_000),
+      )
+      .collect();
+    if (recent.length >= PROFILE_ASSET_ACCESSIBILITY_GENERATION_DAILY_LIMIT) {
+      throw new Error("Accessibility generation limit reached. Try again tomorrow.");
+    }
+    const latest = recent.reduce(
+      (value, event) => Math.max(value, event.createdAt),
+      0,
+    );
+    if (latest > now - PROFILE_ASSET_ACCESSIBILITY_GENERATION_COOLDOWN_MS) {
+      throw new Error("Wait a moment before generating again.");
+    }
+
+    const eventId = await ctx.db.insert("profileAssetAccessibilityGenerationEvents", {
+      requestId,
+      userId: user._id,
+      profileId: profile._id,
+      provider,
+      model,
+      result: "started",
+      imageBytes: args.imageBytes,
+      createdAt: now,
+    });
+    return { eventId, replay: false, userId: user._id };
+  },
+});
+
+export const finishAccessibilityGeneration = internalMutation({
+  args: {
+    eventId: v.id("profileAssetAccessibilityGenerationEvents"),
+    requestId: v.string(),
+    result: v.union(v.literal("succeeded"), v.literal("failed")),
+    descriptionLength: v.optional(v.number()),
+    latencyMs: v.number(),
+    errorCode: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const event = await ctx.db.get(args.eventId);
+    if (
+      event === null ||
+      event.requestId !== args.requestId ||
+      event.result !== "started"
+    ) {
+      return false;
+    }
+    await ctx.db.patch(event._id, {
+      result: args.result,
+      ...(args.descriptionLength !== undefined
+        ? { descriptionLength: Math.max(0, Math.round(args.descriptionLength)) }
+        : {}),
+      latencyMs: Math.max(0, Math.round(args.latencyMs)),
+      ...(args.errorCode !== undefined ? { errorCode: args.errorCode.slice(0, 80) } : {}),
+      completedAt: Date.now(),
+    });
+    return true;
+  },
+});
+
+export const getUploadIntentForDirectStorage = internalQuery({
+  args: {
+    intentId: v.string(),
+    uploadToken: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const intentId = ctx.db.normalizeId("profileAssetUploadIntents", args.intentId);
+    if (intentId === null) {
+      return null;
+    }
+    const intent = await ctx.db.get(intentId);
+    const now = Date.now();
+    if (
+      intent === null ||
+      intent.uploadToken !== args.uploadToken ||
+      intent.state !== "pending" ||
+      intent.expiresAt < now ||
+      intent.sourceUrl !== undefined ||
+      intent.quarantineStorageKey === undefined
+    ) {
+      return null;
+    }
+    return {
+      storageKey: intent.quarantineStorageKey,
+      mimeType: intent.mimeType,
+      byteSize: intent.byteSize,
+      expiresAt: intent.expiresAt,
+    };
+  },
+});
+
+export const getUploadIntentStateForStorageCleanup = internalQuery({
+  args: {
+    intentId: profileAssetUploadIntentId,
+    uploadToken: v.string(),
+    processingToken: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const intent = await ctx.db.get(args.intentId);
+    if (intent === null || intent.uploadToken !== args.uploadToken) {
+      return null;
+    }
+    if (intent.state === "consumed") {
+      return { state: intent.state };
+    }
+    if (intent.processingToken !== args.processingToken) {
+      return null;
+    }
+    return { state: intent.state };
   },
 });
 
@@ -432,13 +621,19 @@ export const markUploadIntentUploaded = internalMutation({
     processingToken: v.string(),
     mimeType: v.string(),
     byteSize: v.number(),
+    sourceMimeType: v.optional(v.string()),
+    sourceByteSize: v.optional(v.number()),
+    sourceContentSha256: v.optional(v.string()),
+    downloadMimeType: v.optional(v.string()),
+    downloadByteSize: v.optional(v.number()),
+    downloadContentSha256: v.optional(v.string()),
     contentSha256: v.optional(v.string()),
     width: v.optional(v.number()),
     height: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const intent = await ctx.db.get(args.intentId);
-    if (requestsGalleryPlacement(intent?.placements)) {
+    if (requestsGalleryPlacement(intent?.placements) || intent?.replacesAssetId !== undefined) {
       assertProfileMediaKitEnabled();
     }
     const now = Date.now();
@@ -477,11 +672,12 @@ export const listOwnedMediaKitProfiles = query({
   args: {},
   handler: async (ctx) => {
     assertProfileMediaKitEnabled();
-    const user = await getCurrentUser(ctx);
+    const activeSession = await activeBrowserSessionOrNull(ctx);
 
-    if (user === null) {
+    if (activeSession === null) {
       return null;
     }
+    const { user } = activeSession;
 
     const owners = await ctx.db
       .query("profileOwners")
@@ -533,13 +729,18 @@ export const listOwnedMediaKitProfiles = query({
             caption: asset.caption,
             altText: asset.altText,
             credit: asset.credit,
+            creditUrl: asset.creditUrl,
             mimeType: asset.mimeType,
             byteSize: asset.byteSize,
+            downloadMimeType: asset.downloadMimeType,
+            downloadByteSize: asset.downloadByteSize,
+            sourcePreserved: asset.sourceStorageKey !== undefined,
             width: asset.width,
             height: asset.height,
             gallery: galleryPosition.has(asset._id),
             featured: asset._id === featuredAssetId,
             imageUrl: `/api/account/media-kit/${encodeURIComponent(profile._id)}/assets/${encodeURIComponent(asset._id)}/file`,
+            downloadUrl: `/api/account/media-kit/${encodeURIComponent(profile._id)}/assets/${encodeURIComponent(asset._id)}/file?download=1`,
           })),
       });
     }
@@ -567,11 +768,12 @@ export const updateOwnedAssetMetadata = mutation({
     caption: v.optional(v.string()),
     altText: v.optional(v.string()),
     credit: v.optional(v.string()),
+    creditUrl: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     assertProfileMediaKitEnabled();
     const { profile, asset } = await requireOwnedAsset(ctx, args.profileId, args.assetId);
-    const user = await requireCurrentUser(ctx);
+    const { user } = await requireActiveAuthSession(ctx);
     const now = Date.now();
     const label = sanitizeProfileAssetLabel(args.label);
     const altText = sanitizeProfileAssetAltText(args.altText);
@@ -582,15 +784,16 @@ export const updateOwnedAssetMetadata = mutation({
     if (
       asset.state === "active" &&
       placements.some((placement) => placement.state === "active" && placement.placement === "gallery") &&
-      (label === undefined || altText === undefined)
+      label === undefined
     ) {
-      throw new Error("Gallery images require a title and accessibility description.");
+      throw new Error("Gallery images require a title.");
     }
     await ctx.db.patch(asset._id, {
       label,
       caption: sanitizeProfileAssetCaption(args.caption),
       altText,
       credit: sanitizeProfileAssetCredit(args.credit),
+      creditUrl: sanitizeProfileAssetCreditUrl(args.creditUrl),
       updatedAt: now,
     });
     await ctx.db.insert("profileAuditEvents", {
@@ -613,7 +816,7 @@ export const reorderOwnedGallery = mutation({
   handler: async (ctx, args) => {
     assertProfileMediaKitEnabled();
     const profile = await requireOwnedAppearanceProfile(ctx, args.profileId);
-    const user = await requireCurrentUser(ctx);
+    const { user } = await requireActiveAuthSession(ctx);
     const uniqueIds = [...new Set(args.assetIds)];
     if (uniqueIds.length !== args.assetIds.length || uniqueIds.length > PROFILE_ASSET_MAX_ACTIVE_COUNT) {
       throw new Error("Gallery order is invalid.");
@@ -627,11 +830,10 @@ export const reorderOwnedGallery = mutation({
       assets.some(
         (asset) =>
           asset === null ||
-          sanitizeProfileAssetLabel(asset.label) === undefined ||
-          sanitizeProfileAssetAltText(asset.altText) === undefined,
+          sanitizeProfileAssetLabel(asset.label) === undefined,
       )
     ) {
-      throw new Error("Gallery images require a title and accessibility description.");
+      throw new Error("Gallery images require a title.");
     }
 
     const existing = await ctx.db
@@ -684,7 +886,7 @@ export const setOwnedFeaturedAsset = mutation({
   handler: async (ctx, args) => {
     assertProfileMediaKitEnabled();
     const profile = await requireOwnedAppearanceProfile(ctx, args.profileId);
-    const user = await requireCurrentUser(ctx);
+    const { user } = await requireActiveAuthSession(ctx);
     if (args.assetId !== null) {
       const asset = await ctx.db.get(args.assetId);
       if (asset === null || asset.profileId !== profile._id || asset.state !== "active") {
@@ -696,10 +898,9 @@ export const setOwnedFeaturedAsset = mutation({
         .collect();
       if (
         !placements.some((placement) => placement.state === "active" && placement.placement === "gallery") ||
-        sanitizeProfileAssetLabel(asset.label) === undefined ||
-        sanitizeProfileAssetAltText(asset.altText) === undefined
+        sanitizeProfileAssetLabel(asset.label) === undefined
       ) {
-        throw new Error("Featured media must be an accessible public gallery item.");
+        throw new Error("Featured media must be a titled public gallery item.");
       }
     }
 
@@ -742,7 +943,7 @@ export const setOwnedAssetDeleted = mutation({
   handler: async (ctx, args) => {
     assertProfileMediaKitEnabled();
     const { profile, asset } = await requireOwnedAsset(ctx, args.profileId, args.assetId);
-    const user = await requireCurrentUser(ctx);
+    const { user } = await requireActiveAuthSession(ctx);
     const now = Date.now();
     const assetPlacements = await ctx.db
       .query("profileAssetPlacements")
@@ -752,10 +953,9 @@ export const setOwnedAssetDeleted = mutation({
     if (!args.deleted && asset.state !== "active") {
       if (
         wasGalleryAsset &&
-        (sanitizeProfileAssetLabel(asset.label) === undefined ||
-          sanitizeProfileAssetAltText(asset.altText) === undefined)
+        sanitizeProfileAssetLabel(asset.label) === undefined
       ) {
-        throw new Error("Gallery images require a title and accessibility description.");
+        throw new Error("Gallery images require a title.");
       }
       await assertProfileAssetIntentCapacity(ctx.db, profile._id, now);
     }
@@ -804,11 +1004,12 @@ export const setOwnedAssetDeleted = mutation({
 export const listOwnedAppearanceProfiles = query({
   args: {},
   handler: async (ctx) => {
-    const user = await getCurrentUser(ctx);
+    const activeSession = await activeBrowserSessionOrNull(ctx);
 
-    if (user === null) {
+    if (activeSession === null) {
       return null;
     }
+    const { user } = activeSession;
 
     const owners = await ctx.db
       .query("profileOwners")
@@ -973,10 +1174,14 @@ export const getPublicAssetForStorage = query({
       displayName: profile.displayName,
       assetId: asset._id,
       label: asset.label,
+      creditUrl: asset.creditUrl,
       storageKey: asset.storageKey,
+      downloadStorageKey: asset.downloadStorageKey,
       originalFileName: asset.originalFileName,
       mimeType: asset.mimeType,
       byteSize: asset.byteSize,
+      downloadMimeType: asset.downloadMimeType,
+      downloadByteSize: asset.downloadByteSize,
     };
   },
 });
@@ -988,15 +1193,15 @@ export const getOwnedAssetForStorage = query({
   },
   handler: async (ctx, args) => {
     assertProfileMediaKitEnabled();
-    const user = await getCurrentUser(ctx);
+    const activeSession = await activeBrowserSessionOrNull(ctx);
     const profileId = ctx.db.normalizeId("profiles", args.profileId);
     const assetId = ctx.db.normalizeId("profileAssets", args.assetId);
 
     if (
-      user === null ||
+      activeSession === null ||
       profileId === null ||
       assetId === null ||
-      !(await userOwnsProfile(ctx.db, profileId, user._id))
+      !(await userOwnsProfile(ctx.db, profileId, activeSession.userId))
     ) {
       return null;
     }
@@ -1014,9 +1219,12 @@ export const getOwnedAssetForStorage = query({
       displayName: profile.displayName,
       label: asset.label,
       storageKey: asset.storageKey,
+      downloadStorageKey: asset.downloadStorageKey,
       originalFileName: asset.originalFileName,
       mimeType: asset.mimeType,
       byteSize: asset.byteSize,
+      downloadMimeType: asset.downloadMimeType,
+      downloadByteSize: asset.downloadByteSize,
     };
   },
 });

@@ -61,6 +61,34 @@ function setCookieHeaders(response) {
   return combined ? [combined] : [];
 }
 
+/** Whether a `Set-Cookie` header is the provider clearing that cookie. */
+function isCookieDeletion(header, value) {
+  if (value === "") {
+    return true;
+  }
+
+  const attributes = header.split(";").slice(1);
+
+  for (const attribute of attributes) {
+    const [rawName, rawValue = ""] = attribute.split("=");
+    const name = rawName.trim().toLowerCase();
+
+    if (name === "max-age" && Number(rawValue.trim()) <= 0) {
+      return true;
+    }
+
+    if (name === "expires") {
+      const expires = Date.parse(rawValue.trim());
+
+      if (Number.isFinite(expires) && expires <= Date.now()) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 function applySessionCookies(target, headers) {
   for (const header of headers) {
     const pair = header.split(";", 1)[0];
@@ -68,7 +96,18 @@ function applySessionCookies(target, headers) {
     if (separator <= 0) continue;
     const name = pair.slice(0, separator).trim();
     const value = pair.slice(separator + 1).trim();
-    if ((name === "auth" || name === "twoFactorAuth") && value) target.set(name, value);
+    if (name !== "auth" && name !== "twoFactorAuth") continue;
+
+    // A cleared cookie is an instruction, not a no-op. Ignoring the deletion
+    // left the previous value in the map, so the session reported as refreshed
+    // still carried a two-factor cookie the provider had just retired — and the
+    // transfer wrote it into Secrets Manager for every collector restart.
+    if (isCookieDeletion(header, value)) {
+      target.delete(name);
+      continue;
+    }
+
+    target.set(name, value);
   }
 }
 
@@ -87,6 +126,12 @@ export class VrchatOperatorLogin {
     apiBaseUrl = DEFAULT_API_BASE_URL,
     fetcher = fetch,
     timeoutMs = 10 * 60_000,
+    // Per-request bound, distinct from `timeoutMs` above, which is how long an
+    // operator has to answer a login challenge. Without it a provider that
+    // returns headers and then stalls the body hangs the command forever —
+    // after `Set-Cookie` has already superseded the live session, so killing
+    // the process leaves production holding cookies VRChat has retired.
+    requestTimeoutMs = 20_000,
   }) {
     if (typeof userAgent !== "string" || userAgent.trim().length < 8) throw new Error("An identifying VRChat User-Agent is required.");
     if (expectedUserId !== undefined && !/^usr_[A-Za-z0-9-]{8,120}$/.test(expectedUserId)) {
@@ -101,6 +146,7 @@ export class VrchatOperatorLogin {
     this.apiBaseUrl = apiBaseUrl.replace(/\/$/, "");
     this.fetcher = fetcher;
     this.timeoutMs = timeoutMs;
+    this.requestTimeoutMs = requestTimeoutMs;
     this.cookies = new Map();
     this.pendingCredentials = undefined;
     this.server = undefined;
@@ -149,14 +195,30 @@ export class VrchatOperatorLogin {
       }
       this.cookies.set(name, value);
     }
+    // One deadline across the request *and* the body read. `fetch` resolves on
+    // headers, so bounding only the request left a provider that sent headers
+    // and then stalled the body hanging here — after `applySessionCookies`
+    // below had already taken whatever rotation it sent, which is exactly when
+    // hanging is most expensive.
+    const controller = new AbortController();
+    const deadline = setTimeout(() => controller.abort(), this.requestTimeoutMs);
     let response;
+    let body;
+
     try {
-      response = await this.providerRequest("/auth/user", { headers: { cookie: this.cookieHeader() } });
+      response = await this.providerRequest("/auth/user", {
+        headers: { cookie: this.cookieHeader() },
+        signal: controller.signal,
+      });
+      applySessionCookies(this.cookies, setCookieHeaders(response));
+      body = await response.json().catch(() => ({}));
     } catch (cause) {
+      // Not `clearable`: the session was never rejected, so the caller's
+      // rotated-cookie recovery path should still save what it holds.
       throw new VrchatSessionValidationError("VRChat session validation could not reach the provider.", { cause });
+    } finally {
+      clearTimeout(deadline);
     }
-    applySessionCookies(this.cookies, setCookieHeaders(response));
-    const body = await response.json().catch(() => ({}));
     if (response.status !== 200) {
       throw new VrchatSessionValidationError(`VRChat session validation failed (${response.status}).`, {
         status: response.status,
@@ -176,6 +238,26 @@ export class VrchatOperatorLogin {
       authCookie: this.cookies.get("auth"),
       twoFactorAuthCookie: this.cookies.get("twoFactorAuth"),
     };
+  }
+
+  /**
+   * The cookies this instance currently holds, including any rotation VRChat
+   * applied during a validation that then failed.
+   *
+   * `validateSession` applies `Set-Cookie` before it checks the status or parses
+   * the body, so a 200 with a truncated payload supersedes the caller's session
+   * and then throws — leaving the only working pair here and nowhere else.
+   * Callers that can persist it should, unless the failure was an
+   * authentication one, where the rotated pair is dead too.
+   */
+  currentSessionCookies() {
+    const authCookie = this.cookies.get("auth");
+
+    if (typeof authCookie !== "string") {
+      return undefined;
+    }
+
+    return { authCookie, twoFactorAuthCookie: this.cookies.get("twoFactorAuth") };
   }
 
   async authenticate(username, password, factorKind, code) {

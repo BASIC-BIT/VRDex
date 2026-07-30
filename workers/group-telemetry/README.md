@@ -12,4 +12,8 @@ Required environment after the real-provider and explicit provider-approval depl
 
 Optional `VRDEX_GROUP_TELEMETRY_REQUESTS_PER_MINUTE` defaults to 30. Global, account, and integration kill switches in the control plane stop claims. ECS desired count is the live infrastructure stop; the SSM value prevents a disabled task revision from starting and is re-read when tasks restart.
 
-The worker exits on any authenticated provider 401. The local login bootstrap can refresh the alias-scoped operating-system vault session, but this slice intentionally has no vault-to-AWS transfer command. Keep the hosted service disabled until VRChat explicitly approves durable service-account sessions and that secret-safe transfer path is implemented. Passwords and TOTP seeds are never worker inputs or vault records.
+The worker exits on any authenticated provider 401. The local login bootstrap refreshes the alias-scoped operating-system vault session, and `pnpm ops:vrchat-session:transfer` moves that validated session into the account's AWS Secrets Manager secret without printing it.
+
+Both halves of the deployment gate are now cleared: BASIC accepted durable service-account sessions as an operating pattern on 2026-07-27, and the vault-to-AWS transfer command ships. The fleet is enabled. Passwords and TOTP seeds are never worker inputs or vault records.
+
+Recovery after a 401 is the same path: re-run the login bootstrap with `--fresh-login`, re-run the transfer, then re-register the account so the credential generation increments and the task restarts.

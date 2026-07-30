@@ -1,4 +1,4 @@
-import type { GenericId } from "convex/values";
+import { ConvexError, type GenericId } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
@@ -13,6 +13,7 @@ export const PROFILE_ASSET_LABEL_MAX_LENGTH = 80;
 export const PROFILE_ASSET_CAPTION_MAX_LENGTH = 240;
 export const PROFILE_ASSET_ALT_TEXT_MAX_LENGTH = 180;
 export const PROFILE_ASSET_CREDIT_MAX_LENGTH = 120;
+export const PROFILE_ASSET_CREDIT_URL_MAX_LENGTH = 2_048;
 export const PROFILE_ASSET_MAX_ACTIVE_COUNT = 12;
 
 export const DEFAULT_PROFILE_AVATAR_APPEARANCE = {
@@ -38,8 +39,12 @@ export type PublicProfileAsset = {
   caption?: string;
   altText?: string;
   credit?: string;
+  creditUrl?: string;
   mimeType: string;
   byteSize: number;
+  downloadMimeType?: string;
+  downloadByteSize?: number;
+  sourcePreserved: boolean;
   imageUrl: string;
   downloadUrl: string;
 };
@@ -75,6 +80,7 @@ export type ProfileAssetUploadInput = {
   caption?: string;
   altText?: string;
   credit?: string;
+  creditUrl?: string;
   placements: ProfileAssetPlacement[];
   position?: number;
 };
@@ -88,10 +94,12 @@ export type ProfileAssetUploadIntentCreateInput = {
   mimeType: string;
   byteSize?: number;
   targetProfileId?: Id<"profiles">;
+  replacesAssetId?: Id<"profileAssets">;
   label?: string;
   caption?: string;
   altText?: string;
   credit?: string;
+  creditUrl?: string;
   placements?: ProfileAssetPlacement[];
   position?: number;
   source?: Doc<"profileAssets">["source"];
@@ -101,16 +109,15 @@ export type ProfileAssetUploadIntentCreateInput = {
 function validateProfileAssetGalleryPlacements(
   placements: ProfileAssetPlacement[] | undefined,
   label: string | undefined,
-  altText: string | undefined,
 ) {
   if (placements?.includes("featured") && !placements.includes("gallery")) {
     throw new Error("Featured media must also be a gallery item.");
   }
   if (
     placements?.some((placement) => placement === "gallery" || placement === "featured") &&
-    (label === undefined || altText === undefined)
+    label === undefined
   ) {
-    throw new Error("Gallery images require a title and accessibility description.");
+    throw new Error("Gallery images require a title.");
   }
 }
 
@@ -142,6 +149,7 @@ export async function assertProfileAssetIntentCapacity(
   db: DatabaseReader,
   profileId: Id<"profiles">,
   now: number,
+  additionalCount = 1,
 ) {
   const openIntents = await db
     .query("profileAssetUploadIntents")
@@ -149,7 +157,8 @@ export async function assertProfileAssetIntentCapacity(
       query.eq("targetProfileId", profileId).eq("state", "pending").gt("expiresAt", now),
     )
     .collect();
-  await assertProfileAssetCapacity(db, profileId, openIntents.length + 1);
+  const reservedAdditions = openIntents.filter((intent) => intent.replacesAssetId === undefined).length;
+  await assertProfileAssetCapacity(db, profileId, reservedAdditions + additionalCount);
 }
 
 function normalizeInlineText(value: string | undefined): string | undefined {
@@ -218,6 +227,30 @@ export function sanitizeProfileAssetCredit(value: string | undefined): string | 
   }
 
   return credit;
+}
+
+export function sanitizeProfileAssetCreditUrl(value: string | undefined): string | undefined {
+  const creditUrl = normalizeInlineText(value);
+
+  if (creditUrl === undefined) {
+    return undefined;
+  }
+  if (creditUrl.length > PROFILE_ASSET_CREDIT_URL_MAX_LENGTH) {
+    throw new Error(`Credit links must be ${PROFILE_ASSET_CREDIT_URL_MAX_LENGTH} characters or fewer.`);
+  }
+
+  try {
+    const url = new URL(creditUrl);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) {
+      throw new Error("Credit links must use HTTP or HTTPS without embedded credentials.");
+    }
+    return url.href;
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("Credit links")) {
+      throw error;
+    }
+    throw new Error("Credit links must be valid HTTP or HTTPS URLs.");
+  }
 }
 
 function normalizeHexColor(value: string): string {
@@ -332,7 +365,26 @@ export function createProfileAssetStorageKey(input: {
   const extension = input.mimeType === "image/svg+xml" ? "svg" : input.mimeType.split("/")[1] ?? "bin";
   const name = safeStorageName(input.originalFileName).replace(/\.[a-z0-9]+$/i, "").replace(/-+$/g, "");
 
-  return `profile-assets/${new Date(input.now).toISOString().slice(0, 10)}/${input.token.slice(0, 24)}/${name}.${extension}`;
+  return `profile-assets/${new Date(input.now).toISOString().slice(0, 10)}/${input.token.slice(0, 24)}/${name}/display.${input.mimeType === "image/svg+xml" ? "svg" : "webp"}`;
+}
+
+export function createProfileAssetVariantStorageKeys(input: {
+  token: string;
+  originalFileName?: string;
+  mimeType: string;
+  now: number;
+}) {
+  const extension = input.mimeType === "image/svg+xml" ? "svg" : input.mimeType.split("/")[1] ?? "bin";
+  const name = safeStorageName(input.originalFileName).replace(/\.[a-z0-9]+$/i, "").replace(/-+$/g, "");
+  const date = new Date(input.now).toISOString().slice(0, 10);
+  const prefix = `profile-assets/${date}/${input.token.slice(0, 24)}/${name}`;
+
+  return {
+    storageKey: `${prefix}/display.${input.mimeType === "image/svg+xml" ? "svg" : "webp"}`,
+    quarantineStorageKey: `profile-assets/quarantine/${date}/${input.token.slice(0, 24)}/source.${extension}`,
+    sourceStorageKey: `${prefix}/source.${extension}`,
+    downloadStorageKey: `${prefix}/download.${extension}`,
+  };
 }
 
 export async function createProfileAssetUploadIntentRecord(
@@ -349,7 +401,7 @@ export async function createProfileAssetUploadIntentRecord(
   const mimeType = normalizeProfileAssetMimeType(input.mimeType);
   const byteSize = validateProfileAssetByteSize(input.byteSize ?? 1);
   const uploadToken = createUploadToken();
-  const storageKey = createProfileAssetStorageKey({
+  const storageKeys = createProfileAssetVariantStorageKeys({
     token: uploadToken,
     originalFileName,
     mimeType,
@@ -359,22 +411,25 @@ export async function createProfileAssetUploadIntentRecord(
   const caption = sanitizeProfileAssetCaption(input.caption);
   const altText = sanitizeProfileAssetAltText(input.altText);
   const credit = sanitizeProfileAssetCredit(input.credit);
+  const creditUrl = sanitizeProfileAssetCreditUrl(input.creditUrl);
   const position = validateProfileAssetPosition(input.position);
-  validateProfileAssetGalleryPlacements(input.placements, label, altText);
+  validateProfileAssetGalleryPlacements(input.placements, label);
   const expiresAt = input.now + PROFILE_ASSET_UPLOAD_INTENT_TTL_MS;
   const intentId = await db.insert("profileAssetUploadIntents", {
     uploadToken,
     requestedBy: input.requestedBy,
     ...(input.targetProfileId !== undefined ? { targetProfileId: input.targetProfileId } : {}),
+    ...(input.replacesAssetId !== undefined ? { replacesAssetId: input.replacesAssetId } : {}),
     ...(originalFileName !== undefined ? { originalFileName } : {}),
     ...(sourceUrl !== undefined ? { sourceUrl } : {}),
     mimeType,
     byteSize,
-    storageKey,
+    ...storageKeys,
     ...(label !== undefined ? { label } : {}),
     ...(caption !== undefined ? { caption } : {}),
     ...(altText !== undefined ? { altText } : {}),
     ...(credit !== undefined ? { credit } : {}),
+    ...(creditUrl !== undefined ? { creditUrl } : {}),
     ...(input.placements !== undefined ? { placements: input.placements } : {}),
     ...(position !== undefined ? { position } : {}),
     ...(input.source !== undefined ? { source: input.source } : {}),
@@ -388,7 +443,7 @@ export async function createProfileAssetUploadIntentRecord(
   return {
     intentId,
     uploadToken,
-    storageKey,
+    ...storageKeys,
     expiresAt,
   };
 }
@@ -422,8 +477,12 @@ function toPublicAsset(profile: Doc<"profiles">, asset: Doc<"profileAssets">): P
     ...(asset.caption !== undefined ? { caption: asset.caption } : {}),
     ...(asset.altText !== undefined ? { altText: asset.altText } : {}),
     ...(asset.credit !== undefined ? { credit: asset.credit } : {}),
+    ...(asset.creditUrl !== undefined ? { creditUrl: asset.creditUrl } : {}),
     mimeType: asset.mimeType,
     byteSize: asset.byteSize,
+    ...(asset.downloadMimeType !== undefined ? { downloadMimeType: asset.downloadMimeType } : {}),
+    ...(asset.downloadByteSize !== undefined ? { downloadByteSize: asset.downloadByteSize } : {}),
+    sourcePreserved: asset.sourceStorageKey !== undefined,
     imageUrl: publicProfileAssetImageUrl(profile.slug, asset._id),
     downloadUrl: publicProfileAssetDownloadUrl(profile.slug, asset._id),
   };
@@ -485,9 +544,7 @@ export async function getPublicProfileMediaKit(
   const additionalLogos = additionalLogoAssets.map((asset) => toPublicAsset(profile, asset));
   const logos = primaryLogo ? [primaryLogo, ...additionalLogos] : additionalLogos;
   const galleryAssets = placedAssets(assetsById, sortedPlacements, "gallery").filter(
-    (asset) =>
-      sanitizeProfileAssetLabel(asset.label) !== undefined &&
-      sanitizeProfileAssetAltText(asset.altText) !== undefined,
+    (asset) => sanitizeProfileAssetLabel(asset.label) !== undefined,
   );
   const featuredCandidate = firstPlacedAsset(assetsById, sortedPlacements, "featured");
   const featuredAsset = galleryAssets.find((asset) => asset._id === featuredCandidate?._id);
@@ -555,18 +612,32 @@ export async function consumeProfileAssetUploads(
     const caption = sanitizeProfileAssetCaption(upload.caption);
     const altText = sanitizeProfileAssetAltText(upload.altText);
     const credit = sanitizeProfileAssetCredit(upload.credit);
-    validateProfileAssetGalleryPlacements(upload.placements, label, altText);
+    const creditUrl = sanitizeProfileAssetCreditUrl(upload.creditUrl);
+    validateProfileAssetGalleryPlacements(upload.placements, label);
     const assetId = await db.insert("profileAssets", {
       profileId: input.profileId,
       storageKey: intent.storageKey,
+      ...(intent.sourceStorageKey !== undefined && intent.sourceContentSha256 !== undefined
+        ? { sourceStorageKey: intent.sourceStorageKey }
+        : {}),
+      ...(intent.downloadStorageKey !== undefined && intent.downloadContentSha256 !== undefined
+        ? { downloadStorageKey: intent.downloadStorageKey }
+        : {}),
       ...(intent.originalFileName !== undefined ? { originalFileName: intent.originalFileName } : {}),
       ...(intent.sourceUrl !== undefined ? { sourceUrl: intent.sourceUrl } : {}),
       mimeType: intent.mimeType,
       byteSize: intent.byteSize,
+      ...(intent.sourceMimeType !== undefined ? { sourceMimeType: intent.sourceMimeType } : {}),
+      ...(intent.sourceByteSize !== undefined ? { sourceByteSize: intent.sourceByteSize } : {}),
+      ...(intent.sourceContentSha256 !== undefined ? { sourceContentSha256: intent.sourceContentSha256 } : {}),
+      ...(intent.downloadMimeType !== undefined ? { downloadMimeType: intent.downloadMimeType } : {}),
+      ...(intent.downloadByteSize !== undefined ? { downloadByteSize: intent.downloadByteSize } : {}),
+      ...(intent.downloadContentSha256 !== undefined ? { downloadContentSha256: intent.downloadContentSha256 } : {}),
       ...(label !== undefined ? { label } : {}),
       ...(caption !== undefined ? { caption } : {}),
       ...(altText !== undefined ? { altText } : {}),
       ...(credit !== undefined ? { credit } : {}),
+      ...(creditUrl !== undefined ? { creditUrl } : {}),
       ...(intent.contentSha256 !== undefined ? { contentSha256: intent.contentSha256 } : {}),
       ...(intent.width !== undefined ? { width: intent.width } : {}),
       ...(intent.height !== undefined ? { height: intent.height } : {}),
@@ -662,6 +733,12 @@ export async function finalizeProfileAssetUploadIntentUpload(
     processingToken: string;
     mimeType: string;
     byteSize: number;
+    sourceMimeType?: string;
+    sourceByteSize?: number;
+    sourceContentSha256?: string;
+    downloadMimeType?: string;
+    downloadByteSize?: number;
+    downloadContentSha256?: string;
     contentSha256?: string;
     width?: number;
     height?: number;
@@ -675,11 +752,11 @@ export async function finalizeProfileAssetUploadIntentUpload(
     intent.uploadToken !== input.uploadToken ||
     intent.processingToken !== input.processingToken
   ) {
-    throw new Error("Profile media upload intent was not found.");
+    throw new ConvexError("Profile media upload intent was not found.");
   }
 
   if (intent.state !== "pending" || intent.expiresAt < input.now) {
-    throw new Error("Profile media upload intent is no longer pending.");
+    throw new ConvexError("Profile media upload intent is no longer pending.");
   }
 
   if (
@@ -691,7 +768,7 @@ export async function finalizeProfileAssetUploadIntentUpload(
         intent.requestedBy.subject as Id<"users">,
       )))
   ) {
-    throw new Error("You do not have permission to update this profile.");
+    throw new ConvexError("You do not have permission to update this profile.");
   }
 
   if (intent.targetProfileId !== undefined && input.contentSha256 !== undefined) {
@@ -700,13 +777,19 @@ export async function finalizeProfileAssetUploadIntentUpload(
       .withIndex("by_profileId", (query) => query.eq("profileId", intent.targetProfileId!))
       .collect();
     if (existingAssets.some((asset) => asset.contentSha256 === input.contentSha256)) {
-      throw new Error("This image already exists in the profile media kit.");
+      throw new ConvexError("This image already exists in the profile media kit.");
     }
   }
 
   await db.patch(intent._id, {
     mimeType: normalizeProfileAssetMimeType(input.mimeType),
     byteSize: validateProfileAssetByteSize(input.byteSize),
+    ...(input.sourceMimeType !== undefined ? { sourceMimeType: normalizeProfileAssetMimeType(input.sourceMimeType) } : {}),
+    ...(input.sourceByteSize !== undefined ? { sourceByteSize: validateProfileAssetByteSize(input.sourceByteSize) } : {}),
+    ...(input.sourceContentSha256 !== undefined ? { sourceContentSha256: input.sourceContentSha256 } : {}),
+    ...(input.downloadMimeType !== undefined ? { downloadMimeType: normalizeProfileAssetMimeType(input.downloadMimeType) } : {}),
+    ...(input.downloadByteSize !== undefined ? { downloadByteSize: validateProfileAssetByteSize(input.downloadByteSize) } : {}),
+    ...(input.downloadContentSha256 !== undefined ? { downloadContentSha256: input.downloadContentSha256 } : {}),
     ...(input.contentSha256 !== undefined ? { contentSha256: input.contentSha256 } : {}),
     ...(input.width !== undefined ? { width: input.width } : {}),
     ...(input.height !== undefined ? { height: input.height } : {}),
@@ -721,6 +804,47 @@ export async function finalizeProfileAssetUploadIntentUpload(
     return { ok: true as const, assetIds: [] as Id<"profileAssets">[] };
   }
 
+  let replacementPlacements: ProfileAssetPlacement[] | undefined;
+  let replacementPosition: number | undefined;
+  let replacementMetadata:
+    | Pick<Doc<"profileAssets">, "label" | "caption" | "altText" | "credit" | "creditUrl">
+    | undefined;
+  if (intent.replacesAssetId !== undefined) {
+    const replacedAsset = await db.get(intent.replacesAssetId);
+    if (
+      replacedAsset === null ||
+      replacedAsset.profileId !== intent.targetProfileId ||
+      replacedAsset.state !== "active"
+    ) {
+      throw new ConvexError("The media being replaced is no longer active.");
+    }
+    const placements = await db
+      .query("profileAssetPlacements")
+      .withIndex("by_assetId", (query) => query.eq("assetId", replacedAsset._id))
+      .collect();
+    const activePlacements = placements.filter((placement) => placement.state === "active");
+    replacementMetadata = {
+      label: replacedAsset.label,
+      caption: replacedAsset.caption,
+      altText: replacedAsset.altText,
+      credit: replacedAsset.credit,
+      creditUrl: replacedAsset.creditUrl,
+    };
+    replacementPlacements = activePlacements.map((placement) => placement.placement);
+    replacementPosition = activePlacements.find((placement) => placement.placement === "gallery")?.position;
+    await Promise.all(
+      activePlacements.map((placement) =>
+        db.patch(placement._id, { state: "deleted", updatedAt: input.now }),
+      ),
+    );
+    await db.patch(replacedAsset._id, {
+      state: "deleted",
+      deletedAt: input.now,
+      updatedAt: input.now,
+    });
+  }
+
+  const uploadMetadata = replacementMetadata ?? intent;
   const assetIds = await consumeProfileAssetUploads(db, {
     profileId: intent.targetProfileId,
     requestedBy: intent.requestedBy,
@@ -728,12 +852,15 @@ export async function finalizeProfileAssetUploadIntentUpload(
       {
         intentId: intent._id,
         uploadToken: input.uploadToken,
-        ...(intent.label !== undefined ? { label: intent.label } : {}),
-        ...(intent.caption !== undefined ? { caption: intent.caption } : {}),
-        ...(intent.altText !== undefined ? { altText: intent.altText } : {}),
-        ...(intent.credit !== undefined ? { credit: intent.credit } : {}),
-        placements: intent.placements ?? [],
-        ...(intent.position !== undefined ? { position: intent.position } : {}),
+        ...(uploadMetadata.label !== undefined ? { label: uploadMetadata.label } : {}),
+        ...(uploadMetadata.caption !== undefined ? { caption: uploadMetadata.caption } : {}),
+        ...(uploadMetadata.altText !== undefined ? { altText: uploadMetadata.altText } : {}),
+        ...(uploadMetadata.credit !== undefined ? { credit: uploadMetadata.credit } : {}),
+        ...(uploadMetadata.creditUrl !== undefined ? { creditUrl: uploadMetadata.creditUrl } : {}),
+        placements: replacementPlacements ?? intent.placements ?? [],
+        ...((replacementPosition ?? intent.position) !== undefined
+          ? { position: replacementPosition ?? intent.position }
+          : {}),
       },
     ],
     source: intent.source ?? "owner_authored",

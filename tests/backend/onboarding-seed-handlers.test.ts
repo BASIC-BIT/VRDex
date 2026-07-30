@@ -100,24 +100,33 @@ describe("private seed Convex handlers", () => {
 
     await assert.rejects(
       t.query(api.seedAccess.lookupPeople, { query: "DJ", limit: 5 }),
-      /signed-in account/,
+      /SIGN_IN_REQUIRED/,
     );
   });
 
   it("supports single-character private lookup for an authorized account", async () => {
     const t = convexTest({ schema, modules });
     await importCandidate(t);
-    const userId = await t.run((ctx) => ctx.db.insert("users", { name: "Seed lookup operator" }));
-    await t.run((ctx) => ctx.db.insert("accountFeatureGrants", {
-      userId,
-      feature: "super_admin",
-      state: "active",
-      grantedBy: actor,
-      grantedAt: NOW,
-      updatedAt: NOW,
-    }));
+    const identity = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        name: "Seed lookup operator",
+      });
+      await ctx.db.insert("accountFeatureGrants", {
+        userId,
+        feature: "super_admin",
+        state: "active",
+        grantedBy: actor,
+        grantedAt: NOW,
+        updatedAt: NOW,
+      });
+      const sessionId = await ctx.db.insert("authSessions", {
+        userId,
+        expirationTime: Date.now() + 60_000,
+      });
+      return { subject: `${userId}|${sessionId}` };
+    });
 
-    const results = await t.withIdentity({ subject: userId }).query(
+    const results = await t.withIdentity(identity).query(
       api.seedAccess.lookupPeople,
       { query: "D", limit: 5 },
     );
@@ -201,20 +210,25 @@ describe("private seed Convex handlers", () => {
       createdBy: actor,
       now: liveNow,
     });
-    const userId = await t.run(async (ctx) => {
+    const identity = await t.run(async (ctx) => {
       await ctx.db.patch(candidate.batchId, {
         reviewState: "rejected",
         updatedAt: liveNow + 1,
       });
-      return await ctx.db.insert("users", {
+      const userId = await ctx.db.insert("users", {
         name: "Verified recipient",
         email: "recipient@example.invalid",
         emailVerificationTime: NOW,
       });
+      const sessionId = await ctx.db.insert("authSessions", {
+        userId,
+        expirationTime: Date.now() + 60_000,
+      });
+      return { subject: `${userId}|${sessionId}` };
     });
 
     await assert.rejects(
-      t.withIdentity({ subject: userId }).mutation(api.seedHandoffs.acceptInvitation, {
+      t.withIdentity(identity).mutation(api.seedHandoffs.acceptInvitation, {
         token,
         selectedFieldIds: [],
       }),
@@ -245,20 +259,25 @@ describe("private seed Convex handlers", () => {
       createdBy: actor,
       now: liveNow,
     });
-    const userId = await t.run(async (ctx) => {
+    const identity = await t.run(async (ctx) => {
       await ctx.db.patch(fieldId, {
         reviewState: "rejected",
         updatedAt: liveNow + 1,
       });
-      return await ctx.db.insert("users", {
+      const userId = await ctx.db.insert("users", {
         name: "Verified recipient",
         email: "recipient@example.invalid",
         emailVerificationTime: NOW,
       });
+      const sessionId = await ctx.db.insert("authSessions", {
+        userId,
+        expirationTime: Date.now() + 60_000,
+      });
+      return { subject: `${userId}|${sessionId}` };
     });
 
     await assert.rejects(
-      t.withIdentity({ subject: userId }).mutation(api.seedHandoffs.acceptInvitation, {
+      t.withIdentity(identity).mutation(api.seedHandoffs.acceptInvitation, {
         token,
         selectedFieldIds: [fieldId],
       }),
@@ -327,13 +346,21 @@ describe("private seed Convex handlers", () => {
       createdBy: actor,
       now: NOW,
     });
-    const { acceptingUserId, otherUserId } = await t.run(async (ctx) => {
+    const { acceptingIdentity, otherIdentity } = await t.run(async (ctx) => {
       const acceptingUserId = await ctx.db.insert("users", {
         name: "Accepting user",
         email: "accepting@example.invalid",
         emailVerificationTime: NOW,
       });
       const otherUserId = await ctx.db.insert("users", { name: "Other user" });
+      const acceptingSessionId = await ctx.db.insert("authSessions", {
+        userId: acceptingUserId,
+        expirationTime: Date.now() + 60_000,
+      });
+      const otherSessionId = await ctx.db.insert("authSessions", {
+        userId: otherUserId,
+        expirationTime: Date.now() + 60_000,
+      });
       const profileId = await ctx.db.insert("profiles", privateProfile("claimed_unverified"));
       const invitation = await ctx.db.query("seedHandoffInvitations").first();
       if (invitation === null) {
@@ -346,7 +373,14 @@ describe("private seed Convex handlers", () => {
         acceptedAt: NOW,
         updatedAt: NOW,
       });
-      return { acceptingUserId, otherUserId };
+      return {
+        acceptingIdentity: {
+          subject: `${acceptingUserId}|${acceptingSessionId}`,
+        },
+        otherIdentity: {
+          subject: `${otherUserId}|${otherSessionId}`,
+        },
+      };
     });
 
     assert.deepEqual(
@@ -354,13 +388,13 @@ describe("private seed Convex handlers", () => {
       { state: "accepted" },
     );
     assert.deepEqual(
-      await t.withIdentity({ subject: otherUserId }).query(
+      await t.withIdentity(otherIdentity).query(
         api.seedHandoffs.previewInvitation,
         { token },
       ),
       { state: "accepted" },
     );
-    const accepted = await t.withIdentity({ subject: acceptingUserId }).query(
+    const accepted = await t.withIdentity(acceptingIdentity).query(
       api.seedHandoffs.previewInvitation,
       { token },
     );

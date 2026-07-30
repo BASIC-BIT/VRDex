@@ -1,5 +1,4 @@
-import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { ConvexError, v } from "convex/values";
 
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -20,6 +19,7 @@ import {
   vrchatGroupVisibilityValidator,
 } from "./_communityTelemetry";
 import { subjectHasCommunityCapability, toAuthSubject } from "./_communityAuthority";
+import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import { getPublicCommunityTelemetry } from "./_communityTelemetryPublic";
 import { canReadProfile } from "./_profilePermissions";
 import { userOwnsProfile } from "./_profileOwnership";
@@ -40,11 +40,7 @@ const aggregateInstanceValidator = v.object({
 });
 
 async function requireSubject(ctx: MutationCtx | QueryCtx) {
-  const identity = await ctx.auth.getUserIdentity();
-  if (identity === null || typeof identity !== "object") {
-    throw new Error("Community telemetry requires a signed-in user.");
-  }
-  return toAuthSubject(identity as { tokenIdentifier: string; issuer: string; subject: string; name?: string });
+  return (await requireActiveBrowserSessionSubject(ctx)).subject;
 }
 
 async function requireCommunityCapability(
@@ -59,8 +55,8 @@ async function requireCommunityCapability(
     "manage_integrations",
   );
   if (delegatedAllowed) return subject;
-  const userId = await getAuthUserId(ctx);
-  if (userId && await userOwnsProfile(ctx.db, communityProfileId, userId)) return subject;
+  const { userId } = await requireActiveBrowserSessionSubject(ctx);
+  if (await userOwnsProfile(ctx.db, communityProfileId, userId)) return subject;
   throw new Error("You do not have permission to manage this community integration.");
 }
 
@@ -810,6 +806,255 @@ export const reserveRequestBudget = internalMutation({
       if (counter) await ctx.db.patch(counter._id, { windowStartedAt, requestCount: nextCount, updatedAt: now });
       else await ctx.db.insert("collectorRequestBudgetCounters", { scopeKey, windowStartedAt, requestCount: nextCount, updatedAt: now });
     }
+    return { granted: true, retryAt: undefined, reason: undefined };
+  },
+});
+
+/**
+ * Mark a collector account as needing re-authentication after a proof read
+ * returned an authenticated 401.
+ *
+ * The telemetry path routes 401s through `recordPollFailure`, which requires a
+ * lease. Proof checks have none, so without this a worker that only had proof
+ * work would exit silently and leave the account `ready` for every other
+ * replica to rediscover the same dead session.
+ */
+/**
+ * Publish an account-wide cooldown after a provider throttled a proof read.
+ *
+ * The worker's own backoff is process-local, and the supported two-task
+ * configuration shares one collector account. Without this, the throttled task
+ * slept while its sibling immediately reclaimed the released attempts and kept
+ * sending requests straight through the provider's `Retry-After` window —
+ * `claimPendingProofChecks` only honours the shared `cooldownUntil`, which
+ * nothing on this path was setting.
+ *
+ * The account stays `ready`: this is throughput backoff, not a trust event, so
+ * work should move to another account rather than the fleet losing this one.
+ */
+export const recordProofRateLimit = internalMutation({
+  args: {
+    collectorAccountId: v.string(),
+    retryAfterMs: v.number(),
+    // The digest this request authenticated with, as for the proof-result and
+    // auth-failure paths: a request holding its body open across a rotation
+    // must not put the recovered account into cooldown.
+    workerKeyHash: v.string(),
+    now: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const now = args.now ?? Date.now();
+    const accountId = ctx.db.normalizeId("collectorAccounts", args.collectorAccountId);
+
+    if (!accountId) {
+      return { recorded: false };
+    }
+
+    const account = await ctx.db.get(accountId);
+
+    if (
+      account === null ||
+      account.state !== "ready" ||
+      account.workerKeyHash !== args.workerKeyHash
+    ) {
+      return { recorded: false };
+    }
+
+    // Bounded the same way the worker bounds its own sleep, so a hostile or
+    // mistaken `Retry-After` cannot park an account for an unbounded stretch.
+    const cooldownUntil = now + Math.min(Math.max(args.retryAfterMs, 1_000), 5 * 60_000);
+
+    await ctx.db.patch(account._id, {
+      cooldownUntil: Math.max(cooldownUntil, account.cooldownUntil ?? 0),
+      updatedAt: now,
+    });
+
+    return { recorded: true, cooldownUntil };
+  },
+});
+
+export const recordProofAuthFailure = internalMutation({
+  args: {
+    collectorAccountId: v.string(),
+    // The digest this request authenticated with, checked again here.
+    workerKeyHash: v.string(),
+    now: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const now = args.now ?? Date.now();
+    const accountId = ctx.db.normalizeId("collectorAccounts", args.collectorAccountId);
+
+    if (!accountId) {
+      return { recorded: false };
+    }
+
+    const account = await ctx.db.get(accountId);
+
+    // Only a `ready` account moves to `auth_required`. An operator may have
+    // quarantined or retired it between the request being authorized and this
+    // mutation running, and a 401 report must not overwrite that decision.
+    //
+    // A rotated key is the same case: the 401 this reports was against the
+    // superseded credential, so applying it would quarantine an account the
+    // operator has just recovered and drop every integration assigned to it.
+    if (
+      account === null ||
+      account.state !== "ready" ||
+      account.workerKeyHash !== args.workerKeyHash
+    ) {
+      return { recorded: false };
+    }
+
+    await applyCollectorAccountState(ctx, account, "auth_required", now, "provider_401");
+
+    return { recorded: true };
+  },
+});
+
+/**
+ * Hand back proof attempts that were claimed but never read.
+ *
+ * `claimPendingProofChecks` stamps the whole batch up front. If the shared
+ * budget denies the very first read, every remaining attempt would otherwise
+ * sit in cooldown having been looked at by nobody.
+ */
+export const releaseProofChecks = internalMutation({
+  args: {
+    collectorAccountId: v.string(),
+    attemptIds: v.array(v.id("profileVerificationAttempts")),
+  },
+  handler: async (ctx, args) => {
+    const accountId = ctx.db.normalizeId("collectorAccounts", args.collectorAccountId);
+
+    if (!accountId) {
+      return { released: 0 };
+    }
+
+    const attempts = await Promise.all(args.attemptIds.map((id) => ctx.db.get(id)));
+    const releasable = attempts.filter(
+      (attempt) =>
+        attempt !== null &&
+        attempt.state === "pending" &&
+        // Only unwind this collector's own claim.
+        attempt.lastCheckedByCollectorAccountId === accountId,
+    );
+
+    await Promise.all(
+      releasable.map((attempt) =>
+        ctx.db.patch(attempt!._id, {
+          lastCheckedAt: undefined,
+          lastCheckedByCollectorAccountId: undefined,
+        }),
+      ),
+    );
+
+    return { released: releasable.length };
+  },
+});
+
+/**
+ * Reserve provider requests for a proof read against the shared budget.
+ *
+ * Proof checks are not lease-scoped, so `reserveRequestBudget` does not apply,
+ * but a process-local counter is not a budget: two tasks on one service
+ * account, or a task that restarts mid-window, each start from zero and can
+ * collectively exceed the account's configured rate. This reserves centrally
+ * against the same counters the telemetry path uses, and re-checks the stop
+ * switches so a kill switch halts proof reads too.
+ */
+/**
+ * How much of a per-minute window proof reads may take.
+ *
+ * Half, but never so much that a telemetry poll cannot fit: one poll reserves
+ * two requests atomically, and proofs run first, so a share that left one
+ * request behind spent it and deferred that poll every window. At the supported
+ * 2-RPM minimum this is zero — a budget that small serves one workload, and the
+ * one with leases and live integrations wins. Proofs resume as soon as the
+ * account's limit is raised.
+ */
+export function proofShareOf(requestsPerMinute: number): number {
+  return Math.max(0, Math.min(Math.floor(requestsPerMinute / 2), requestsPerMinute - 2));
+}
+
+export const reserveProofRequestBudget = internalMutation({
+  args: {
+    collectorAccountId: v.string(),
+    requestCount: v.number(),
+    now: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const now = args.now ?? Date.now();
+    const requestCount = Math.floor(args.requestCount);
+
+    if (!Number.isFinite(args.requestCount) || requestCount < 1 || requestCount > 10) {
+      throw new Error("Provider request reservation is malformed.");
+    }
+
+    const accountId = ctx.db.normalizeId("collectorAccounts", args.collectorAccountId);
+
+    if (!accountId) {
+      return { granted: false, retryAt: now + 60_000, reason: "unavailable" as const };
+    }
+
+    const account = await ctx.db.get(accountId);
+    const fleet = await ctx.db
+      .query("collectorFleetSettings")
+      .withIndex("by_key", (q) => q.eq("key", "global"))
+      .first();
+
+    if (
+      !account || account.state !== "ready" || account.killSwitchEnabled ||
+      fleet?.killSwitchEnabled || (account.cooldownUntil ?? 0) > now
+    ) {
+      return { granted: false, retryAt: now + 60_000, reason: "unavailable" as const };
+    }
+
+    const windowStartedAt = Math.floor(now / 60_000) * 60_000;
+    const retryAt = windowStartedAt + 60_000;
+    const scopes = [
+      { scopeKey: "global", limit: fleet?.globalRequestsPerMinute ?? 30 },
+      { scopeKey: `account:${account._id}`, limit: account.requestsPerMinute },
+      // Proofs get half the account's window, and the ceiling lives here rather
+      // than in the worker: a process-local counter bounds one replica, and the
+      // supported two-task setup — or a rolling restart — has two of them, each
+      // entitled to half and collectively taking all of it. This scope is
+      // shared, so the share holds however many workers are running.
+      //
+      // The share exists because proof reads run before telemetry: a proof
+      // expires in 24 hours and a deferred telemetry batch does not, but a
+      // backlog larger than one window would otherwise defer every integration
+      // indefinitely.
+      {
+        scopeKey: `proof:account:${account._id}`,
+        limit: proofShareOf(account.requestsPerMinute),
+      },
+      // And the same share of the fleet-wide window. Per-account halves do not
+      // add up to a fleet-wide half: two accounts each spending their allowed
+      // half exhaust a global limit that is not twice an account's, and
+      // telemetry — which reserves against `global` too — is deferred again.
+      { scopeKey: "proof:global", limit: proofShareOf(fleet?.globalRequestsPerMinute ?? 30) },
+    ];
+    const counters = await Promise.all(scopes.map(async (scope) => ({
+      ...scope,
+      counter: await ctx.db
+        .query("collectorRequestBudgetCounters")
+        .withIndex("by_scopeKey", (q) => q.eq("scopeKey", scope.scopeKey))
+        .first(),
+    })));
+    const exhausted = counters.find(({ counter, limit }) =>
+      (counter?.windowStartedAt === windowStartedAt ? counter.requestCount : 0) + requestCount > limit,
+    );
+
+    if (exhausted) {
+      return { granted: false, retryAt, reason: "budget_exhausted" as const };
+    }
+
+    for (const { scopeKey, counter } of counters) {
+      const nextCount = (counter?.windowStartedAt === windowStartedAt ? counter.requestCount : 0) + requestCount;
+      if (counter) await ctx.db.patch(counter._id, { windowStartedAt, requestCount: nextCount, updatedAt: now });
+      else await ctx.db.insert("collectorRequestBudgetCounters", { scopeKey, windowStartedAt, requestCount: nextCount, updatedAt: now });
+    }
+
     return { granted: true, retryAt: undefined, reason: undefined };
   },
 });
@@ -1698,7 +1943,256 @@ export const collectorWorkerAuthorization = internalQuery({
     if (!account) return null;
     return {
       workerKeyHash: account.workerKeyHash,
+      // Not a secret — it is the account this collector is registered as, and
+      // the worker compares it against the identity recorded in its own secret.
+      // Without that comparison, pairing one collector id with another
+      // account's secret ARN starts a task that reads as A while every result
+      // is filed under B.
+      vrchatUserId: account.vrchatUserId,
       enabled: account.state === "ready" && !account.killSwitchEnabled,
     };
+  },
+});
+
+const PROOF_CHECK_COOLDOWN_MS = 5 * 60_000;
+const PROOF_CHECK_SCAN_LIMIT = 100;
+
+/**
+ * Hand the collector a batch of pending VRChat proof attempts to look for.
+ *
+ * Ordered by `lastCheckedAt` ascending so untouched attempts go first and the
+ * rest rotate, and stamped on claim so a batch is not immediately re-served.
+ * Only the target id and proof code leave the control plane.
+ */
+export const claimPendingProofChecks = internalMutation({
+  args: {
+    collectorAccountId: v.string(),
+    workerId: v.string(),
+    limit: v.optional(v.number()),
+    now: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const accountId = ctx.db.normalizeId("collectorAccounts", args.collectorAccountId);
+    if (!accountId) return { attempts: [] };
+    const account = await ctx.db.get(accountId);
+    // `cooldownUntil` too, matching `reserveRequestBudget` and
+    // `reserveProofRequestBudget`. Provider backoff leaves `state: "ready"`, so
+    // checking state alone kept serving proof work to an account that is
+    // supposed to be standing down — and stamped those attempts into their own
+    // cooldown on the way.
+    if (
+      !account ||
+      account.state !== "ready" ||
+      account.killSwitchEnabled ||
+      (account.cooldownUntil ?? 0) > args.now
+    ) {
+      return { attempts: [] };
+    }
+
+    const fleet = await ctx.db
+      .query("collectorFleetSettings")
+      .withIndex("by_key", (q) => q.eq("key", "global"))
+      .first();
+    if (fleet?.killSwitchEnabled) return { attempts: [] };
+
+    const limit = Math.max(1, Math.min(args.limit ?? 5, 25));
+    // Select collector-eligible target types through the index. Scanning all
+    // pending attempts and filtering afterwards let vrclinking rows, which are
+    // never stamped, hold the head of the window permanently and starve the
+    // queue once enough of them existed.
+    const scanned = await Promise.all(
+      (["vrchat_user", "vrchat_group"] as const).map((targetType) =>
+        ctx.db
+          .query("profileVerificationAttempts")
+          .withIndex("by_state_targetType_lastCheckedAt", (q) =>
+            q.eq("state", "pending").eq("targetType", targetType),
+          )
+          .take(PROOF_CHECK_SCAN_LIMIT),
+      ),
+    );
+    // Expired rows sit in this index until the hourly sweeper clears them, and
+    // never-checked ones sort to the head, so a backlog of them could fill the
+    // scan window and starve live attempts. Settle the ones this scan trips
+    // over so they leave the pending index immediately rather than accumulating.
+    const scannedFlat = scanned.flat();
+    await Promise.all(
+      scannedFlat
+        .filter((attempt) => attempt.expiresAt <= args.now)
+        .map((attempt) =>
+          ctx.db.patch(attempt._id, { state: "expired", updatedAt: args.now }),
+        ),
+    );
+
+    const due = scannedFlat
+      .filter(
+        (attempt) =>
+          attempt.expiresAt > args.now &&
+          (attempt.lastCheckedAt === undefined ||
+            attempt.lastCheckedAt <= args.now - PROOF_CHECK_COOLDOWN_MS),
+      )
+      // Creation order breaks the tie, and has to. Never-checked rows all carry
+      // the same `?? 0`, and `scannedFlat` holds every `vrchat_user` row before
+      // every `vrchat_group` one; a stable sort over equal keys therefore
+      // handed each batch nothing but user proofs, and under sustained
+      // user-proof traffic group proofs could sit unpolled until they expired.
+      .sort(
+        (left, right) =>
+          (left.lastCheckedAt ?? 0) - (right.lastCheckedAt ?? 0) ||
+          left._creationTime - right._creationTime,
+      )
+      .slice(0, limit);
+
+    await Promise.all(
+      due.map((attempt) =>
+        ctx.db.patch(attempt._id, {
+          lastCheckedAt: args.now,
+          lastCheckedByCollectorAccountId: accountId,
+        }),
+      ),
+    );
+
+    return {
+      attempts: due.map((attempt) => ({
+        attemptId: attempt._id,
+        targetType: attempt.targetType,
+        targetExternalId: attempt.targetExternalId,
+        proofCode: attempt.proofCode,
+      })),
+    };
+  },
+});
+
+/**
+ * Record a collector proof check. A negative result is not a failure: the owner
+ * may simply not have posted the code yet, so the attempt stays pending until
+ * it expires.
+ */
+export const recordProofCheckResult = internalMutation({
+  args: {
+    collectorAccountId: v.string(),
+    attemptId: v.id("profileVerificationAttempts"),
+    found: v.boolean(),
+    // The key digest this request authenticated with. `http.ts` checks it
+    // before reading the body, so a caller holding the body open across a key
+    // rotation could still land a verdict on a credential that no longer
+    // exists. Re-checked at the point the verdict actually grants ownership.
+    workerKeyHash: v.string(),
+    now: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const accountId = ctx.db.normalizeId("collectorAccounts", args.collectorAccountId);
+    if (!accountId) return { state: "unauthorized" as const };
+
+    const attempt = await ctx.db.get(args.attemptId);
+    if (attempt === null || attempt.state !== "pending") {
+      return { state: "not_pending" as const };
+    }
+
+    // A verdict is only accepted from the collector this attempt was served to.
+    // Without this, any authorized worker key could assert `found` for any
+    // pending attempt and mint ownership without reading VRChat.
+    //
+    // What this does not do — and cannot: a single compromised worker key can
+    // still call `claimProofBatch` to have an attempt served to itself and then
+    // report `found` on it. The fleet is a trusted oracle by construction; the
+    // control plane has no independent view of VRChat to check a verdict
+    // against, so no check inside this mutation can make one credential's word
+    // less than its word. The bounds that do exist are elsewhere:
+    //
+    //   - It cannot invent attempts. Only a signed-in account can start one,
+    //     for a profile it is claiming, so a leaked key can forge the *reading*
+    //     of a proof, never the claimant.
+    //   - It cannot reach `claimed_verified`. That needs the target already
+    //     linked to the profile by somebody other than the claimant
+    //     (`assetBacksThisProfile` in `recordVrchatProofVerification`), which
+    //     no worker key can produce.
+    //   - Operators can revoke it: per-account and fleet kill switches are
+    //     re-read below, account state is checked, and the key is stored only
+    //     as a digest so rotation is a single re-registration.
+    //
+    // Closing the residual gap means multi-party attestation — a verdict from a
+    // collector account other than the one served — which doubles provider load
+    // for every proof. That is a product decision, not a fix to make here.
+    if (attempt.lastCheckedByCollectorAccountId !== accountId) {
+      return { state: "unauthorized" as const };
+    }
+
+    // Re-check the stop switches here rather than trusting the batch that was
+    // issued earlier. A kill switch flipped mid-flight must prevent new
+    // verified ownership, otherwise the emergency stop only stops reads while
+    // in-flight verdicts keep granting.
+    const [fleet, account] = await Promise.all([
+      ctx.db
+        .query("collectorFleetSettings")
+        .withIndex("by_key", (q) => q.eq("key", "global"))
+        .first(),
+      ctx.db.get(accountId),
+    ]);
+
+    // `state` too, not just the kill switches: authorization and this mutation
+    // are separate transactions, so a concurrent 401 report or an operator
+    // moving the account to quarantined/retiring lands in that window and must
+    // not still grant verified ownership.
+    //
+    // Deliberately not `cooldownUntil`, which the claim path does check. That
+    // is provider backoff — a throughput signal, not a trust one. This verdict
+    // was obtained from a read that was authorized when it happened, so
+    // discarding it would throw away real work and send the attempt back to
+    // pending for no safety gain.
+    if (
+      fleet?.killSwitchEnabled ||
+      account === null ||
+      account.killSwitchEnabled ||
+      account.state !== "ready" ||
+      // Rotation supersedes anything in flight. `http.ts` authenticated this
+      // request before reading its body, so a caller holding that body open
+      // across a re-registration could otherwise land a verdict — and grant
+      // ownership — on a key an operator had already replaced.
+      account.workerKeyHash !== args.workerKeyHash
+    ) {
+      return { state: "unauthorized" as const };
+    }
+
+    if (attempt.expiresAt <= args.now) {
+      await ctx.db.patch(attempt._id, { state: "expired", updatedAt: args.now });
+      return { state: "expired" as const };
+    }
+
+    if (!args.found) {
+      return { state: "pending" as const };
+    }
+
+    try {
+      await ctx.runMutation(internal.profileClaims.recordVrchatProofVerification, {
+        attemptId: attempt._id,
+        evidenceSource: "vrchat_api",
+        evidenceSummary: "Proof code was found on the VRChat target by the collector.",
+      });
+    } catch (error) {
+      // Only an ownership conflict is terminal. Another claimant won between
+      // this attempt being issued and its code being found, and retrying cannot
+      // change that, so settle it. Anything else — a transient failure while
+      // writing ownership, audit, link, or search rows — must propagate, or a
+      // valid proof would be marked failed for a condition that will clear.
+      const code =
+        error instanceof ConvexError && typeof error.data === "object" && error.data !== null
+          ? (error.data as { code?: unknown }).code
+          : undefined;
+
+      if (code !== "PROFILE_ALREADY_OWNED") {
+        throw error;
+      }
+
+      await ctx.db.patch(attempt._id, {
+        state: "failed",
+        evidenceSource: "vrchat_api",
+        evidenceSummary: "This profile was claimed by someone else before the proof was found.",
+        updatedAt: args.now,
+      });
+
+      return { state: "already_owned" as const };
+    }
+
+    return { state: "verified" as const };
   },
 });
