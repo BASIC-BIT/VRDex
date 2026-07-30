@@ -149,6 +149,13 @@ jobs:
 
           echo "enabled=true" >> "$GITHUB_OUTPUT"
 
+      # This evaluates `convex/auth.config.ts`, which reads
+      # CLERK_JWT_ISSUER_DOMAIN on any hosted deployment, so the variable must
+      # already exist on a newly created preview. The CLI cannot seed it — there
+      # is no `--env` on `convex deploy`, and `convex env set` needs the
+      # deployment to exist — so it has to come from the project's preview
+      # environment-variable defaults in the Convex dashboard. See
+      # docs/deployment/convex-environments.md.
       - name: Deploy Convex preview functions
         if: steps.convex-preview-gate.outputs.enabled == 'true'
         id: convex-preview
@@ -269,10 +276,10 @@ jobs:
           fi
           if [ "${VRDEX_PREVIEW_E2E_AUTH_ENABLED:-false}" = "true" ]; then
             printf '%s' "$deployment_url" | pnpm exec convex env set --preview-name "$PREVIEW_NAME" SITE_URL
+            # Redundant on the create path, which seeds it via `--env`, but keeps
+            # an existing preview in sync when the secret rotates.
             if [ -n "${CLERK_JWT_ISSUER_DOMAIN:-}" ]; then
               printf '%s' "$CLERK_JWT_ISSUER_DOMAIN" | pnpm exec convex env set --preview-name "$PREVIEW_NAME" CLERK_JWT_ISSUER_DOMAIN
-            else
-              echo "CLERK_JWT_ISSUER_DOMAIN is not configured; preview authenticated routes will reject every token." >&2
             fi
           fi
 

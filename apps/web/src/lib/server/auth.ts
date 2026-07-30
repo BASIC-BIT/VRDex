@@ -71,11 +71,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+/**
+ * True for either code meaning "this request is not signed in".
+ *
+ * Convex's `requireClaimSession` maps `_identity`'s `UNAUTHENTICATED` to the
+ * browser-facing `SIGN_IN_REQUIRED`, so a route that only recognised the former
+ * would miss every claim-path failure — the Discord callback in particular,
+ * which uses this to decide whether to return the user through sign-in with
+ * their `returnTo` intact rather than dropping them on a generic failure.
+ */
 export function isUnauthenticatedError(error: unknown) {
   return (
     isRecord(error) &&
     isRecord(error.data) &&
-    error.data.code === UNAUTHENTICATED_CODE
+    (error.data.code === UNAUTHENTICATED_CODE ||
+      error.data.code === "SIGN_IN_REQUIRED")
   );
 }
 

@@ -102,6 +102,18 @@ The hosted SES baseline is documented in `docs/deployment/ses-auth-email.md` and
 
 Hosted mutation-backed Playwright runs use only the shared development/staging target. Do not enable these helpers in production.
 
+### Preview deployments need a project-level default
+
+`convex/auth.config.ts` reads `CLERK_JWT_ISSUER_DOMAIN` on every hosted
+deployment, and `convex deploy --preview-create` evaluates it while creating the
+deployment. Nothing in CI can set the variable first: `convex deploy` has no
+`--env` flag, and `convex env set` needs a deployment that already exists.
+
+Set `CLERK_JWT_ISSUER_DOMAIN` as a **preview environment-variable default** on
+the Convex project, from the dashboard's project settings. New previews then
+inherit it at creation. Without it, `Deploy Convex preview functions` fails
+before any Vercel step runs.
+
 Development/staging Convex env names:
 
 - `VRDEX_ENABLE_E2E_HELPERS=true`
@@ -154,7 +166,7 @@ The production authenticated smoke lane does not require Convex E2E helpers and 
 GitHub Actions repository settings for the optional authenticated smoke:
 
 - variable `VRDEX_PRODUCTION_SMOKE_BASE_URL=https://vrdex.net`: required so auth cookies target the stable public production domain
-- optional variable `VRDEX_PRODUCTION_AUTH_SMOKE_PROVIDER`: expected linked provider, usually `discord` or `google`; if unset, the smoke accepts either provider
+- `VRDEX_PRODUCTION_AUTH_SMOKE_PROVIDER` is retired: the account page no longer renders linked providers, because Clerk shows them only inside its own profile modal. The smoke asserts the management affordance instead of a provider label
 - secret `VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64`: base64-encoded Playwright `storageState` JSON from a dedicated production test account
 
 The lane remains skipped unless both `VRDEX_PRODUCTION_SMOKE_BASE_URL` and `VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64` are configured. Do not store OAuth credentials in CI, and do not enable production mutation helper routes for this check.

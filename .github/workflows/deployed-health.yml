@@ -300,7 +300,6 @@ jobs:
           PLAYWRIGHT_BASE_URL: ${{ steps.gate.outputs.canonical_base_url }}
           PLAYWRIGHT_SKIP_WEBSERVERS: "true"
           VRDEX_PRODUCTION_AUTH_SMOKE_MODE: manual-one-shot
-          VRDEX_PRODUCTION_AUTH_SMOKE_PROVIDER: ${{ vars.VRDEX_PRODUCTION_AUTH_SMOKE_PROVIDER }}
           VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64: ${{ secrets.VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64 }}
         run: pnpm test:e2e:hosted:auth-smoke
 
