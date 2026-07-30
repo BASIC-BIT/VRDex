@@ -355,7 +355,9 @@ test("verified email account with linked Discord can claim person and community 
       await expectCurrentOrHostedLagTrustState(
         page,
         request,
-        page.getByRole("heading", { name: "Claimed", exact: true }).or(page.getByText("Person profile / Claimed", { exact: true })),
+        profileStatusCopy(page, "Claimed").or(
+          page.getByText("Person profile / Claimed", { exact: true }),
+        ),
       );
     } else {
       await expect(profileStatusCopy(page, "Claimed")).toHaveCount(0);

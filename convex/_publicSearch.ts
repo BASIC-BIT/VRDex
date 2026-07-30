@@ -24,6 +24,16 @@ export function publicSearchLookupAvatarUrl(
   return firstSafePublicImageUrl(result.imageUrl, result.profileImageUrl);
 }
 
+export function publicSearchLookupUsesLogo(
+  result: Pick<PublicSearchResult, "imageUrl" | "logoImageUrl" | "profileImageUrl">,
+): boolean {
+  return (
+    result.logoImageUrl !== undefined &&
+    result.imageUrl === result.logoImageUrl &&
+    result.logoImageUrl !== result.profileImageUrl
+  );
+}
+
 function boundedLimit(value: number | undefined, fallback: number, max: number): number {
   return Math.max(1, Math.min(value ?? fallback, max));
 }
@@ -47,7 +57,9 @@ export async function projectPublicSearchResult(
   const result = toPublicSearchResult(document, searchText, mediaKit);
   const person = toProfileLookupResult(profile, {
     avatarImageUrl: publicSearchLookupAvatarUrl(result),
-    avatarAppearance: mediaKit.avatarAppearance,
+    ...(publicSearchLookupUsesLogo(result)
+      ? {}
+      : { avatarAppearance: mediaKit.avatarAppearance }),
     sourceLabel: result.source?.label,
   });
 

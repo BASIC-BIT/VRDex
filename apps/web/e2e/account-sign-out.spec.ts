@@ -42,7 +42,7 @@ test("failed sign-out stays open, explains the failure, and can be retried", asy
   const dialog = page.getByRole("dialog", { name: "Sign out?" });
   await dialog.getByRole("button", { name: "Sign out" }).click();
 
-  await expect(dialog.getByRole("alert")).toHaveText("We couldn’t sign you out. Try again.");
+  await expect(dialog.getByRole("alert")).toHaveText("Try again.");
   await expect(dialog.getByRole("button", { name: "Sign out" })).toBeEnabled();
   await expect(dialog.getByRole("button", { name: "Cancel" })).toBeEnabled();
   await expect(page.getByLabel("Sign-out attempts")).toHaveText("Attempts: 1");

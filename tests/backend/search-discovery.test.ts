@@ -6,6 +6,7 @@ import type { QueryCtx } from "../../convex/_generated/server";
 import {
   projectPublicSearchResult,
   publicSearchLookupAvatarUrl,
+  publicSearchLookupUsesLogo,
   searchPublicDocuments,
 } from "../../convex/_publicSearch";
 import { toProfileLookupResult } from "../../convex/_profileLookup";
@@ -606,12 +607,23 @@ describe("search document projection", () => {
   });
 
   it("keeps the configured compact-display image ahead of the profile-image fallback", () => {
+    const compactLogoResult = {
+      imageUrl: "/api/v0/profiles/basicbit/assets/compact-logo/file",
+      logoImageUrl: "/api/v0/profiles/basicbit/assets/compact-logo/file",
+      profileImageUrl: "/api/v0/profiles/basicbit/assets/profile-image/file",
+    };
+
     assert.equal(
-      publicSearchLookupAvatarUrl({
-        imageUrl: "/api/v0/profiles/basicbit/assets/compact-logo/file",
-        profileImageUrl: "/api/v0/profiles/basicbit/assets/profile-image/file",
-      }),
+      publicSearchLookupAvatarUrl(compactLogoResult),
       "/api/v0/profiles/basicbit/assets/compact-logo/file",
+    );
+    assert.equal(publicSearchLookupUsesLogo(compactLogoResult), true);
+    assert.equal(
+      publicSearchLookupUsesLogo({
+        ...compactLogoResult,
+        imageUrl: compactLogoResult.profileImageUrl,
+      }),
+      false,
     );
   });
 

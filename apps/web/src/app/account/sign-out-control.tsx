@@ -58,7 +58,7 @@ export function SignOutControl({ signOut }: SignOutControlProps) {
       await signOut();
       setIsOpen(false);
     } catch {
-      setError("We couldn’t sign you out. Try again.");
+      setError("Try again.");
     } finally {
       requestPendingRef.current = false;
       setIsPending(false);
