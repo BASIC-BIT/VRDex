@@ -308,7 +308,7 @@ It only touches profiles that are `draft_private` **and** `public`, which is the
 - `suppressed` profiles, which are a moderation state rather than a default.
 - Profiles with an accepted `profileSuppressionRequests` row, which records someone asking not to be listed. All three request shapes are checked (profile id, slug, and pre-claim name/type), not just slug.
 - Claimed profiles, because publication of an owned profile is the owner's decision.
-- Profiles with a live concierge handoff invitation. The migration bypasses both publication gates, so it repeats their handoff check: an invitation can reuse a legacy `draft_private` profile whose surfacing state is still `public`, and publishing it would expose the profile while its private review link is live.
+- Profiles with a live concierge handoff invitation, which are instead marked `opted_out` with reason `Concierge handoff invitation pending.` A bare skip would advance the migration cursor, leaving a profile whose invitation later expires stuck at `draft_private` with no record of why; `opted_out` is the same state `seedHandoffs` writes on a prepared concierge profile, and the ordinary publication and suppression paths govern it from there. The migration bypasses both publication gates, so it repeats their handoff check: an invitation can reuse a legacy `draft_private` profile whose surfacing state is still `public`, and publishing it would expose the profile while its private review link is live.
 
 Known limitation: there is currently **no** owner-facing control that changes `publicationState` or `publicSurfacingState`. `profilePrivacy:updateFieldVisibility` controls individual field visibility only. An owner who accepts a concierge handoff therefore has no self-service path to publish their profile, and needs an operator. That gap is not addressed here.
 
@@ -317,6 +317,14 @@ Unlike the other migrations it is **not** part of `migrations:runAll`, because p
 ```powershell
 pnpm exec convex run --prod migrations:runPublishGatedProfiles
 ```
+
+Follow it with one world search rebuild, which covers every attribution that became visible and records world vocabulary with it:
+
+```powershell
+pnpm exec convex run --prod search:rebuildWorldSearchDocuments
+```
+
+The migration deliberately does not reindex worlds per row; that would mean one full `worlds` scan per migrated profile.
 
 That runner executes `backfillProfilePublicSurfacingState` first. A legacy profile with no `publicSurfacingState` would otherwise be skipped while the publication migration's cursor advanced, and running the backfill afterwards cannot make a completed migration revisit it.
 

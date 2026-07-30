@@ -92,6 +92,20 @@ export const publishGatedProfiles = migrations.define({
       .collect();
 
     if (activeInvitations.some((invitation) => isLiveHandoffInvitation(invitation, Date.now()))) {
+      // Recorded as an explicit opt-out rather than skipped. A bare return advances
+      // the migration cursor, so a profile whose invitation later expires would stay
+      // draft_private forever with no record of why. opted_out is the same state
+      // seedHandoffs writes on a prepared concierge profile, and the ordinary
+      // publication and suppression paths govern it from there.
+      const now = Date.now();
+
+      await ctx.db.patch(profile._id, {
+        publicSurfacingState: "opted_out",
+        publicSurfacingUpdatedAt: now,
+        publicSurfacingReason: "Concierge handoff invitation pending.",
+        updatedAt: now,
+      });
+
       return;
     }
 
@@ -126,11 +140,6 @@ export const publishGatedProfiles = migrations.define({
         recordVocabularyTerms(ctx.db, vocabularyForProfile(published), now),
       ]);
 
-      // Worlds crediting this slug hid the attribution while the profile was not
-      // publicly readable; rebuild them now that it is.
-      await ctx.scheduler.runAfter(0, internal.suppressions.reindexWorldsCreditingProfile, {
-        profiles: [{ profileType: published.profileType, profileSlug: published.slug }],
-      });
     }
   },
 });
@@ -138,6 +147,14 @@ export const publishGatedProfiles = migrations.define({
 // Runs the surfacing backfill first. A legacy profile with no publicSurfacingState
 // would be skipped by publishGatedProfiles while its migration cursor advanced, and
 // running the backfill afterwards cannot make a completed migration revisit it.
+// Runs the surfacing backfill first: a legacy profile with no publicSurfacingState
+// would be skipped by publishGatedProfiles while its cursor advanced, and running
+// the backfill afterwards cannot make a completed migration revisit it.
+//
+// This deliberately does not reindex worlds per row. Scheduling one reindex per
+// migrated profile would mean a full worlds scan each; run
+// `search:rebuildWorldSearchDocuments` once afterwards instead, which covers every
+// newly visible attribution and records world vocabulary with it.
 export const runPublishGatedProfiles = migrations.runner([
   internal.migrations.backfillProfilePublicSurfacingState,
   internal.migrations.publishGatedProfiles,

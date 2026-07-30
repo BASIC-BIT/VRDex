@@ -95,10 +95,15 @@ function publicationAuthorizationPatch(
 ) {
   const existing = batch.publicationAuthorizations ?? [];
   const latest = existing[existing.length - 1];
+  const alreadyAuthorized =
+    (batch.publicationPolicy ?? "private_only") === "reviewed_publication_allowed";
 
-  // Skip an exact repeat, so paging a bulk run does not append the same record
-  // once per page.
-  if (latest !== undefined && latest.reason === reason && latest.authorizedAt === now) {
+  // A no-op when the batch is already authorized under the same reason. Timestamps
+  // cannot identify a retry -- a caller that times out and retries without `now`
+  // gets a fresh Date.now() -- so the current policy plus the reason is the signal.
+  // A genuine reauthorization after a revoke has a private_only policy to relax and
+  // therefore still appends.
+  if (alreadyAuthorized && latest !== undefined && latest.reason === reason) {
     return {};
   }
 
@@ -256,11 +261,18 @@ export const importPermissionedJsonBatch = internalMutation({
         existingBatch.sourceType !== normalized.sourceType ||
         existingBatch.sourceContact !== normalized.sourceContact ||
         existingBatch.receivedAt !== normalized.receivedAt ||
-        existingBatch.sourceObservedAt !== normalized.sourceObservedAt ||
-        existingBatch.publicationPolicy !== "private_only"
+        existingBatch.sourceObservedAt !== normalized.sourceObservedAt
       ) {
         throw new Error("Seed import batch metadata does not match the existing batch.");
       }
+
+      // publicationPolicy is deliberately excluded from the metadata comparison
+      // above: a batch may have been relaxed for publication since import, and an
+      // exact re-import of the same rows should stay idempotent. Adding *new*
+      // candidates to an already-authorized batch is still rejected, since those
+      // would inherit an authorization they were never reviewed under.
+      const authorizedForPublication =
+        (existingBatch.publicationPolicy ?? "private_only") === "reviewed_publication_allowed";
 
       const existingCandidates = await ctx.db
         .query("seedImportCandidateProfiles")
@@ -293,6 +305,13 @@ export const importPermissionedJsonBatch = internalMutation({
       const candidates = normalized.candidates.filter(
         (candidate) => !existingCandidateIds.has(candidate.externalCandidateId),
       );
+
+      if (authorizedForPublication && candidates.length > 0) {
+        throw new Error(
+          "This batch is already authorized for publication. Import new candidates as a new batch instead of appending to an authorized one.",
+        );
+      }
+
       const result = await createSeedImportCandidateDocuments(
         ctx.db,
         existingBatch._id,

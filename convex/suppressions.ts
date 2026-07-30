@@ -11,7 +11,9 @@ import {
   createWorldSearchDocument,
   getHiddenWorldAttributionProfileKeys,
   upsertSearchDocument,
+  vocabularyForWorld,
 } from "./_searchDocuments";
+import { recordVocabularyTerms } from "./_vocabulary";
 import { seedImportAuthSubjectValidator as authSubjectValidator } from "./_seedImportValidators";
 
 const profileType = v.union(v.literal("person"), v.literal("community"));
@@ -309,6 +311,10 @@ export const retractProfilesForSuppression = internalMutation({
 
     const now = args.now ?? Date.now();
     const page = await resolveSuppressionTargetPage(ctx.db, request, args.cursor);
+    const reindexKeys: Array<{
+      profileType: Doc<"profiles">["profileType"];
+      profileSlug: string;
+    }> = [];
     let retracted = 0;
 
     for (const profile of page.profiles) {
@@ -332,9 +338,7 @@ export const retractProfilesForSuppression = internalMutation({
 
         if (updated !== null) {
           await upsertSearchDocument(ctx.db, createProfileSearchDocument(updated));
-          await ctx.scheduler.runAfter(0, internal.suppressions.reindexWorldsCreditingProfile, {
-            profiles: [{ profileType: updated.profileType, profileSlug: updated.slug }],
-          });
+          reindexKeys.push({ profileType: updated.profileType, profileSlug: updated.slug });
         }
 
         retracted += 1;
@@ -349,6 +353,13 @@ export const retractProfilesForSuppression = internalMutation({
           ? "Suppression request accepted; existing moderation suppression left in place."
           : "Profile opted out of public surfacing by accepted suppression request.",
         createdAt: now,
+      });
+    }
+
+    // One scan for the whole page rather than one per retracted profile.
+    if (reindexKeys.length > 0) {
+      await ctx.scheduler.runAfter(0, internal.suppressions.reindexWorldsCreditingProfile, {
+        profiles: reindexKeys,
       });
     }
 
@@ -386,8 +397,10 @@ export const reindexWorldsCreditingProfile = internalMutation({
       }),
     ),
     cursor: v.optional(v.string()),
+    now: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    const now = args.now ?? Date.now();
     // Paged over worlds rather than worldProfileCredits: nothing in the codebase
     // writes that table, so a reverse-index lookup would silently find nothing.
     // creatorAttributions lives on the world row and has no index, hence the scan.
@@ -413,7 +426,13 @@ export const reindexWorldsCreditingProfile = internalMutation({
       }
 
       const hiddenProfileKeys = await getHiddenWorldAttributionProfileKeys(ctx.db, world);
-      await upsertSearchDocument(ctx.db, createWorldSearchDocument(world, { hiddenProfileKeys }));
+      // Vocabulary alongside the search document, matching
+      // search:rebuildWorldSearchDocuments. A creator role that was excluded while
+      // the profile was private would otherwise stay missing from discovery facets.
+      await Promise.all([
+        upsertSearchDocument(ctx.db, createWorldSearchDocument(world, { hiddenProfileKeys })),
+        recordVocabularyTerms(ctx.db, vocabularyForWorld(world, { hiddenProfileKeys }), now),
+      ]);
       reindexed += 1;
     }
 
@@ -421,6 +440,7 @@ export const reindexWorldsCreditingProfile = internalMutation({
       await ctx.scheduler.runAfter(0, internal.suppressions.reindexWorldsCreditingProfile, {
         profiles: args.profiles,
         cursor: worlds.continueCursor,
+        now,
       });
     }
 
