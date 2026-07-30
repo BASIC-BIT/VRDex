@@ -1,0 +1,18 @@
+# Copy to terraform.tfvars and fill in. Both ARNs must already exist; this stack
+# reads them, it does not create them — a secret Terraform creates has its value
+# in the state file.
+#
+#   aws secretsmanager create-secret --name vrdex/vrclinking/bearer-token \
+#     --secret-string "$(openssl rand -hex 32)"
+#   aws secretsmanager create-secret --name vrdex/vrclinking/capability-key \
+#     --secret-string "$(openssl rand -hex 32)"
+#
+# Two separate values. The bearer token authenticates the channel and the
+# capability key authorizes an individual guild, so reusing one for both makes
+# the second check decorative.
+
+bearer_token_secret_arn   = "arn:aws:secretsmanager:us-east-1:000000000000:secret:vrdex/vrclinking/bearer-token-AbCdEf"
+capability_key_secret_arn = "arn:aws:secretsmanager:us-east-1:000000000000:secret:vrdex/vrclinking/capability-key-AbCdEf"
+
+# Defaults to false so the stack can be planned before VRCLinking is turned on.
+enable_service = false

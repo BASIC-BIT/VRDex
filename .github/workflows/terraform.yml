@@ -227,6 +227,22 @@ jobs:
             requires_ses_domain: "false"
             requires_profile_assets_enabled: "false"
             requires_upstash: "false"
+          # Plan-only, like the collector. Applying uploads a Lambda package
+          # that has to be built first, and enabling it is an operator decision
+          # paired with provisioning the delegated credentials it reads.
+          - name: vrclinking-adapter
+            path: infra/terraform/vrclinking-adapter
+            backend: "true"
+            plan: "false"
+            auto_apply: "false"
+            manual_apply: "false"
+            requires_aws: "false"
+            requires_vercel: "false"
+            requires_posthog: "false"
+            requires_posthog_public_key: "false"
+            requires_ses_domain: "false"
+            requires_profile_assets_enabled: "false"
+            requires_upstash: "false"
 
     steps:
       - name: Checkout

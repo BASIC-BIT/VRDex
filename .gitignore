@@ -28,6 +28,8 @@ artifacts/restream-worker-benchmark/
 artifacts/restream-worker-benchmark-matrix/
 artifacts/restream-worker-live-control-benchmark/
 artifacts/group-telemetry-proof/
+artifacts/vrclinking-adapter.zip
+artifacts/vrclinking-adapter-stage/
 .env
 .env.local
 .terraform/

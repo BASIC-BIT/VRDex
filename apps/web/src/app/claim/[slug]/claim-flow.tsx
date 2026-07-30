@@ -4,7 +4,7 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { usePostHog } from "posthog-js/react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { BadgeCheck, Building2, ShieldCheck, UserRound } from "lucide-react";
+import { BadgeCheck, Building2, Link2, ShieldCheck, UserRound } from "lucide-react";
 
 import { api } from "@convex-generated-api";
 import type { Id } from "../../../../../../convex/_generated/dataModel";
@@ -24,7 +24,13 @@ import {
 } from "@/lib/profile-claim";
 
 type ProfileType = "person" | "community";
-type ClaimMethod = "discord" | "vrchat";
+/**
+ * `vrclinking` is person-only: it attests that the claimant's Discord identity
+ * is linked to the VRChat account being claimed, which is a statement about a
+ * person rather than about a community. `requireCompatibleProofTarget` enforces
+ * the same rule server-side.
+ */
+type ClaimMethod = "discord" | "vrchat" | "vrclinking";
 type ClaimProfile = {
   avatarImageUrl?: string;
   displayName: string;
@@ -154,6 +160,10 @@ export function ClaimFlow({
   // verify a server, see it in the picker, and then be unable to submit.
   const discordNeedsLinkedAccount = profile.profileType === "person";
   const discordMethodBlocked = discordNeedsLinkedAccount && !context?.hasDiscord;
+  // VRCLinking answers from the claimant's Discord identity, so a linked
+  // Discord account is not optional here the way it is for the community path.
+  const vrclinkingMethodBlocked = !context?.hasDiscord;
+  const vrclinkingAvailable = profile.profileType === "person";
   const verifiedGuilds = manageableGuilds ?? [];
   const discordVerifyState = discordVerify;
   const discordVerifyHref = `/api/discord/verify/start?returnTo=${encodeURIComponent(
@@ -267,10 +277,29 @@ export function ClaimFlow({
     setCollectorCompletion(null);
     setStatus({
       kind: "working",
-      message: method === "vrchat" ? "Creating your proof code…" : "Checking Discord access…",
+      message:
+        method === "vrchat"
+          ? "Creating your proof code…"
+          : method === "vrclinking"
+            ? "Asking VRCLinking…"
+            : "Checking Discord access…",
     });
 
     try {
+      // No code to post: the answer comes from a community's delegated key, so
+      // the attempt is opened and consulted in one step rather than handing the
+      // claimant something to go and do.
+      if (method === "vrclinking") {
+        const started = await startVrchatProof({
+          profileSlug: profile.slug,
+          targetType: "vrclinking",
+          targetExternalId: String(form.get("targetExternalId") ?? ""),
+        });
+
+        await checkProof(started.attemptId);
+        return;
+      }
+
       if (method === "vrchat") {
         await startVrchatProof({
           profileSlug: profile.slug,
@@ -510,6 +539,21 @@ export function ClaimFlow({
       Match a one-time code on your VRChat {profile.profileType === "person" ? "profile" : "group"}. Grants ownership.
     </MethodCard>
   );
+  const vrclinkingMethodCard = (
+    <MethodCard
+      active={method === "vrclinking"}
+      disabled={vrclinkingMethodBlocked}
+      title="Use VRCLinking"
+      onClick={() => {
+        if (!vrclinkingMethodBlocked) selectMethod("vrclinking");
+      }}
+    >
+      <Link2 aria-hidden="true" className="mb-2 size-5 text-accent" />
+      Ask a community that already links your Discord and VRChat accounts, instead of posting a
+      code. Grants ownership.
+      {vrclinkingMethodBlocked ? " Link Discord from your account first." : ""}
+    </MethodCard>
+  );
   const discordMethodCard = (
     <MethodCard
       active={method === "discord"}
@@ -651,7 +695,36 @@ export function ClaimFlow({
 
         {canUseClaimJourney && context?.emailVerified && status.kind !== "complete" ? (
           <>
-            {context.pendingProof && !context.pendingProof.expired ? (
+            {context.pendingProof &&
+            !context.pendingProof.expired &&
+            context.pendingProof.targetType === "vrclinking" ? (
+              // No proof code to show: this attempt is answered by a delegated
+              // credential, not by something the claimant posts. Showing the
+              // code panel would hand them a task that does nothing.
+              <div className="mt-8 rounded-card border border-border bg-surface p-5">
+                <h2 className="text-xl font-semibold">Waiting on VRCLinking</h2>
+                <p className="mt-2 text-sm leading-6 text-muted">
+                  No community that has delegated a credential reported your Discord account as
+                  linked to this VRChat account yet. If you have just linked it, check again in a
+                  minute.
+                </p>
+                <p className="mt-2 break-all text-sm text-muted">
+                  {context.pendingProof.targetExternalId}
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Button
+                    disabled={status.kind === "working"}
+                    variant="primary"
+                    onClick={() => void checkProof(context.pendingProof!.id)}
+                  >
+                    Check again
+                  </Button>
+                  <Button disabled={status.kind === "working"} variant="ghost" onClick={() => void startOver("proof")}>
+                    Start over
+                  </Button>
+                </div>
+              </div>
+            ) : context.pendingProof && !context.pendingProof.expired ? (
               <div className="mt-8 rounded-card border border-border bg-surface p-5">
                 <h2 className="text-xl font-semibold">Finish your VRChat proof</h2>
                 <p className="mt-2 text-sm leading-6 text-muted">
@@ -704,6 +777,7 @@ export function ClaimFlow({
                       <>
                         {profile.profileType === "person" ? vrchatMethodCard : discordMethodCard}
                         {profile.profileType === "person" ? discordMethodCard : vrchatMethodCard}
+                        {vrclinkingAvailable ? vrclinkingMethodCard : null}
                       </>
                     )}
                   </div>
@@ -715,7 +789,22 @@ export function ClaimFlow({
                 </fieldset>
 
                 <div className="mt-6 border-t border-border pt-6">
-                  {method === "vrchat" ? (
+                  {method === "vrclinking" ? (
+                    <Field>
+                      VRChat profile URL or user ID
+                      <Input
+                        autoComplete="off"
+                        name="targetExternalId"
+                        placeholder="https://vrchat.com/home/user/usr_…"
+                        required
+                      />
+                      <FieldText>
+                        VRDex asks the communities that have delegated a VRCLinking credential whether
+                        your Discord account is linked to this VRChat account and verified. It receives a
+                        yes or no and the name of the community that answered — nothing else.
+                      </FieldText>
+                    </Field>
+                  ) : method === "vrchat" ? (
                     <Field>
                       {profile.profileType === "person" ? "VRChat profile URL or user ID" : "VRChat group URL or group ID"}
                       <Input
@@ -775,16 +864,27 @@ export function ClaimFlow({
                     </Notice>
                   )}
                   {method === "vrchat" ||
+                  method === "vrclinking" ||
                   profile.profileType !== "community" ||
                   verifiedGuilds.length > 0 ? (
                     <Button
                       className="mt-5"
-                      disabled={status.kind === "working" || (method === "discord" && discordMethodBlocked)}
+                      disabled={
+                        status.kind === "working" ||
+                        (method === "discord" && discordMethodBlocked) ||
+                        (method === "vrclinking" && vrclinkingMethodBlocked)
+                      }
                       size="lg"
                       type="submit"
                       variant="primary"
                     >
-                      {method === "vrchat" ? "Create proof code" : profile.profileType === "community" ? "Claim with this server" : "Claim with Discord"}
+                      {method === "vrclinking"
+                        ? "Check VRCLinking"
+                        : method === "vrchat"
+                          ? "Create proof code"
+                          : profile.profileType === "community"
+                            ? "Claim with this server"
+                            : "Claim with Discord"}
                     </Button>
                   ) : null}
                 </div>
