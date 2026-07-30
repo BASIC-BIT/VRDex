@@ -221,8 +221,11 @@ async function expectCurrentOrHostedLagTrustState(
     .or(page.getByLabel("Verified profile"))
     .first();
 
+  // Deliberately short. The indicator is server-rendered, so a target that still
+  // has it shows it immediately; waiting longer only burns the test's 60s budget
+  // once per call on targets that have already caught up.
   try {
-    await laggingTrustState.waitFor({ state: "visible", timeout: 10_000 });
+    await laggingTrustState.waitFor({ state: "visible", timeout: 2_000 });
     return;
   } catch {
     // Fall through to the current-revision invariant below.
