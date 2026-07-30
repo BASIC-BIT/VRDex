@@ -6,7 +6,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { createProfileSortName } from "./_profileSubmissions";
 import { createProfileSearchDocument, upsertSearchDocument, vocabularyForProfile } from "./_searchDocuments";
-import { buildConciergeProfileFieldPatch } from "./_seedHandoffs";
+import { buildConciergeProfileFieldPatch, isLiveHandoffInvitation } from "./_seedHandoffs";
 import { hasAcceptedSuppression } from "./_suppressions";
 import { recordVocabularyTerms } from "./_vocabulary";
 import {
@@ -83,6 +83,43 @@ async function actorFromArgs(
   }
 
   return (await activeBrowserSessionSubjectOrNull(ctx))?.subject;
+}
+
+/**
+ * Whether a live concierge handoff invitation is outstanding for this candidate.
+ *
+ * Publishing while someone holds a private review link would break the promise
+ * that invitation was sent under, and queueing also moves the candidate out of the
+ * states `previewInvitation` and `acceptInvitation` accept, invalidating the link.
+ */
+/**
+ * The manual publication path writes public data, so it enforces the same
+ * operator-identity contract as bulkPublishBatch rather than trusting a CLI
+ * wrapper to supply one.
+ */
+function requireOperatorIdentity<T>(actor: T | undefined, action: string): T {
+  if (actor === undefined) {
+    throw new Error(
+      `${action} requires an operator identity. Pass an actor when calling outside a browser session.`,
+    );
+  }
+
+  return actor;
+}
+
+async function hasLiveHandoffInvitation(
+  ctx: Pick<QueryCtx, "db">,
+  candidateId: Id<"seedImportCandidateProfiles">,
+  now: number,
+) {
+  const invitations = await ctx.db
+    .query("seedHandoffInvitations")
+    .withIndex("by_candidateId_state", (query) =>
+      query.eq("candidateId", candidateId).eq("state", "active"),
+    )
+    .collect();
+
+  return invitations.some((invitation) => isLiveHandoffInvitation(invitation, now));
 }
 
 async function getCandidateFields(ctx: Pick<QueryCtx, "db">, candidateId: Id<"seedImportCandidateProfiles">) {
@@ -518,6 +555,11 @@ async function queueCandidate(ctx: MutationCtx, args: QueueCandidateArgs) {
       slugCollisionProfile,
       hasInvalidProposedSlug: proposedSlugValidation !== undefined && !proposedSlugValidation.ok,
       hasAcceptedSuppressionRequest: suppressed,
+      hasLiveHandoffInvitation: await hasLiveHandoffInvitation(
+        ctx,
+        candidate._id,
+        args.now ?? Date.now(),
+      ),
     });
 
     if (blockers.length > 0) {
@@ -528,7 +570,10 @@ async function queueCandidate(ctx: MutationCtx, args: QueueCandidateArgs) {
     }
 
     const now = args.now ?? Date.now();
-    const reviewer = await actorFromArgs(ctx, args.reviewer);
+    const reviewer = requireOperatorIdentity(
+      await actorFromArgs(ctx, args.reviewer),
+      "Queueing a seed import candidate for publication",
+    );
 
     await ctx.db.patch(candidate._id, {
       publicationState: "published_unclaimed",
@@ -591,7 +636,10 @@ export const setBatchPublicationPolicy = internalMutation({
     }
 
     const now = args.now ?? Date.now();
-    const reviewer = await actorFromArgs(ctx, args.reviewer);
+    const reviewer = requireOperatorIdentity(
+      await actorFromArgs(ctx, args.reviewer),
+      "Changing a seed import batch publication policy",
+    );
     const previousPolicy = batch.publicationPolicy ?? "private_only";
 
     await ctx.db.patch(batch._id, {
@@ -701,6 +749,11 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
       ...optionalValue("acceptedRequests", args.acceptedRequests),
     });
 
+    const publisher = requireOperatorIdentity(
+      await actorFromArgs(ctx, args.reviewer),
+      "Publishing a seed import candidate",
+    );
+
     // Fields are loaded before the gate so publish-time field review states are
     // re-checked. Filtering to accepted alone would silently drop a field moved
     // back to needs_correction and publish the profile anyway.
@@ -714,6 +767,12 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
       slugCollisionProfile,
       hasInvalidProposedSlug: proposedSlugValidation !== undefined && !proposedSlugValidation.ok,
       hasAcceptedSuppressionRequest: suppressed,
+      // Rechecked here: an invitation can be created between queueing and publish.
+      hasLiveHandoffInvitation: await hasLiveHandoffInvitation(
+        ctx,
+        candidate._id,
+        args.now ?? Date.now(),
+      ),
     });
 
     if (blockers.length > 0) {
@@ -801,6 +860,7 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
     await ctx.db.patch(candidate._id, {
       publishedProfileId: profileId,
       publishedAt: now,
+      publishedBy: publisher,
       matchedProfileId: profileId,
       updatedAt: now,
     });

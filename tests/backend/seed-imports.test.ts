@@ -429,6 +429,36 @@ describe("seed import publish guards", () => {
     );
   });
 
+  it("blocks a display name outside public profile bounds", () => {
+    for (const proposedDisplayName of ["x", "y".repeat(120)]) {
+      assert.ok(
+        getSeedImportPublishBlockers({
+          batch: publishableBatch,
+          candidate: { ...queuedCandidate, proposedDisplayName },
+        }).includes("display_name_outside_public_limits"),
+        `expected "${proposedDisplayName.slice(0, 12)}" to be blocked`,
+      );
+    }
+
+    assert.deepEqual(
+      getSeedImportPublishBlockers({
+        batch: publishableBatch,
+        candidate: { ...queuedCandidate, proposedDisplayName: "DJ Example" },
+      }),
+      [],
+    );
+  });
+
+  it("blocks publication while a live handoff invitation exists", () => {
+    assert.ok(
+      getSeedImportPublishBlockers({
+        batch: publishableBatch,
+        candidate: queuedCandidate,
+        hasLiveHandoffInvitation: true,
+      }).includes("live_handoff_invitation_blocks_publication"),
+    );
+  });
+
   it("rechecks field review states at publish time", () => {
     const blockers = getSeedImportPublishBlockers({
       batch: publishableBatch,

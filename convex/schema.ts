@@ -2178,6 +2178,7 @@ export default defineSchema({
     publicationQueuedAt: v.optional(v.number()),
     publishedProfileId: v.optional(v.id("profiles")),
     publishedAt: v.optional(v.number()),
+    publishedBy: v.optional(authSubject),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

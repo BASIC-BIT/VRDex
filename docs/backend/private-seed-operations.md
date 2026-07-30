@@ -108,6 +108,11 @@ Publishing a private batch takes three deliberate steps. Each one re-checks the
 gates, so a policy change or a suppression request between steps stops the
 publish.
 
+All three mutations require an operator identity and reject a call with no `actor`
+and no browser session; `publishQueuedCandidate` records it as `publishedBy` on the
+candidate. `seedImports:bulkPublishBatch` enforces the same contract, so no path
+can publish as an unknown operator.
+
 1. **Relax the batch policy.** `seedImports:setBatchPublicationPolicy` moves a
    batch from `private_only` to `reviewed_publication_allowed`. A `reviewNote`
    is required and is recorded on the batch, because this is the record of the
@@ -138,6 +143,14 @@ Publish behavior worth knowing:
   with no slug at all.
 - A person candidate matched to a community profile is blocked with
   `matched_profile_type_mismatch` rather than attempting a cross-type write.
+- A candidate whose proposed display name falls outside the public bounds (2-80
+  characters) is blocked with `display_name_outside_public_limits`. Seed
+  normalization allows up to 160 and no minimum.
+- A candidate with a live concierge handoff invitation is blocked with
+  `live_handoff_invitation_blocks_publication`. Publishing while someone holds a
+  private review link would break the promise that link was sent under, and
+  queueing would invalidate the link. Revoke the invitation first with
+  `seedHandoffs:revokeInvitation` if publication is genuinely intended.
 - Accepted fields are also checked against the public profile bounds the rest of
   the app enforces (8 aliases of 60 characters, a 600-character bio, and so on).
   Private seed staging is deliberately more permissive so a source can be captured
@@ -288,8 +301,9 @@ Notes:
 - An operator identity is required. `resolveProfileSuppression` throws without
   `actor` and no browser session, because a pre-claim request matching no profile
   writes no audit event, and an accepted request must never block publication with
-  no record of who decided it. `seedImports:bulkPublishBatch` enforces the same
-  rule, so a direct `convex run` cannot publish as an unknown operator.
+  no record of who decided it. Re-accepting an already-accepted request is a no-op
+  rather than an error, so a retry after a timeout does not overwrite the original
+  resolver or duplicate audit rows.
 - Known limitation: an event stores `communityName` directly, and both the event
   search document and the public event page deliberately fall back to that stored
   name when the linked profile is not publicly readable. Retracting a community

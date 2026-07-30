@@ -237,12 +237,26 @@ export const resolveProfileSuppression = internalMutation({
       );
     }
 
-    // Acceptance is terminal. Leaving it would remove the request from the
-    // publication guard without restoring profiles the scheduled job already
-    // opted out, and a change mid-retraction would strand part of a namesake set
-    // because later pages stop once the request is no longer accepted. Reversing a
-    // retraction is a deliberate re-publication, not a state edit.
-    if (request.state === "accepted" && args.state !== "accepted") {
+    // Acceptance is terminal in both directions.
+    //
+    // Leaving `accepted` would drop the request from the publication guard without
+    // restoring profiles the scheduled job already opted out, and a change made
+    // mid-retraction would strand part of a namesake set because later pages stop
+    // once the request is no longer accepted.
+    //
+    // Re-accepting is a no-op rather than an error, so a retry after a client
+    // timeout is safe: rewriting the row would overwrite the original resolver and
+    // timestamp, and rescheduling would duplicate the audit rows.
+    if (request.state === "accepted") {
+      if (args.state === "accepted") {
+        return {
+          requestId: request._id,
+          state: "accepted" as const,
+          retractionScheduled: false as const,
+          alreadyAccepted: true as const,
+        };
+      }
+
       throw new Error(
         "An accepted suppression request cannot be reopened. Re-publish the profile deliberately instead.",
       );

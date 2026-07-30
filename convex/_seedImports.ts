@@ -4,6 +4,8 @@ import type { AuthSubject } from "./_communityAuthority";
 import {
   PROFILE_ALIAS_MAX_COUNT,
   PROFILE_ALIAS_MAX_LENGTH,
+  PROFILE_DISPLAY_NAME_MAX_LENGTH,
+  PROFILE_DISPLAY_NAME_MIN_LENGTH,
   PROFILE_SUBTYPE_MAX_LENGTH,
   PROFILE_TAG_MAX_COUNT,
   PROFILE_TAG_MAX_LENGTH,
@@ -151,12 +153,14 @@ export type SeedImportPublicationBlocker =
   | "candidate_not_queued_for_publication"
   | "candidate_profile_type_unsupported"
   | "matched_profile_type_mismatch"
-  | "field_exceeds_public_profile_limits";
+  | "field_exceeds_public_profile_limits"
+  | "display_name_outside_public_limits"
+  | "live_handoff_invitation_blocks_publication";
 
 type SeedImportPublicationCandidate = Pick<
   Doc<"seedImportCandidateProfiles">,
   "reviewState" | "publicationState" | "claimState" | "matchedProfileId" | "proposedSlug"
->;
+> & { proposedDisplayName?: string };
 
 type SeedImportPublicationField = Pick<
   Doc<"seedImportCandidateFields">,
@@ -1088,6 +1092,20 @@ export function exceedsPublicProfileLimits(
 }
 
 /**
+ * Whether a proposed display name is outside the bounds the public profile paths
+ * enforce. Seed normalization allows up to 160 characters and no minimum, so a
+ * name valid in staging can be invalid as a public profile.
+ */
+export function displayNameOutsidePublicLimits(displayName: string): boolean {
+  const normalized = displayName.trim();
+
+  return (
+    normalized.length < PROFILE_DISPLAY_NAME_MIN_LENGTH ||
+    normalized.length > PROFILE_DISPLAY_NAME_MAX_LENGTH
+  );
+}
+
+/**
  * Field-level review and safety gates.
  *
  * Shared by the queue-time and publish-time gates: field review states can change
@@ -1144,6 +1162,7 @@ export function getSeedImportPublishBlockers(args: {
   matchedProfile?: (SeedImportPublicationProfile & { profileType?: Doc<"profiles">["profileType"] }) | null;
   hasInvalidProposedSlug?: boolean;
   hasAcceptedSuppressionRequest?: boolean;
+  hasLiveHandoffInvitation?: boolean;
   slugCollisionProfile?: SeedImportPublicationProfile | null;
 }): SeedImportPublicationBlocker[] {
   const blockers = new Set<SeedImportPublicationBlocker>();
@@ -1216,6 +1235,17 @@ export function getSeedImportPublishBlockers(args: {
     blockers.add("suppression_request_blocks_publication");
   }
 
+  if (args.hasLiveHandoffInvitation === true) {
+    blockers.add("live_handoff_invitation_blocks_publication");
+  }
+
+  if (
+    args.candidate.proposedDisplayName !== undefined &&
+    displayNameOutsidePublicLimits(args.candidate.proposedDisplayName)
+  ) {
+    blockers.add("display_name_outside_public_limits");
+  }
+
   for (const blocker of getSeedImportFieldBlockers(args.fields ?? [])) {
     blockers.add(blocker);
   }
@@ -1230,6 +1260,7 @@ export function getSeedImportPublicationBlockers(args: {
   matchedProfile?: SeedImportPublicationProfile | null;
   hasInvalidProposedSlug?: boolean;
   hasAcceptedSuppressionRequest?: boolean;
+  hasLiveHandoffInvitation?: boolean;
   slugCollisionProfile?: SeedImportPublicationProfile | null;
 }): SeedImportPublicationBlocker[] {
   const blockers = new Set<SeedImportPublicationBlocker>();
@@ -1278,6 +1309,17 @@ export function getSeedImportPublicationBlockers(args: {
 
   if (args.hasAcceptedSuppressionRequest === true) {
     blockers.add("suppression_request_blocks_publication");
+  }
+
+  if (args.hasLiveHandoffInvitation === true) {
+    blockers.add("live_handoff_invitation_blocks_publication");
+  }
+
+  if (
+    args.candidate.proposedDisplayName !== undefined &&
+    displayNameOutsidePublicLimits(args.candidate.proposedDisplayName)
+  ) {
+    blockers.add("display_name_outside_public_limits");
   }
 
   // Create-only, matching the publish gate: a deliberate match merges into the
