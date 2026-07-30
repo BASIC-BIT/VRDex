@@ -1200,10 +1200,14 @@ export function getSeedImportPublishBlockers(args: {
     }
   }
 
+  // Only when creating a new profile. A deliberate match merges into the matched
+  // profile and keeps its existing slug, so the colliding slug is never written --
+  // blocking there would strand the exact same-name case that
+  // matchCandidateToProfile exists to resolve.
   if (
+    (args.matchedProfile === null || args.matchedProfile === undefined) &&
     args.slugCollisionProfile !== null &&
-    args.slugCollisionProfile !== undefined &&
-    args.slugCollisionProfile._id !== args.candidate.matchedProfileId
+    args.slugCollisionProfile !== undefined
   ) {
     blockers.add("slug_collision_blocks_publication");
   }

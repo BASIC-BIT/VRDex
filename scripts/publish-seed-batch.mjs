@@ -79,6 +79,12 @@ function printPreview(preview) {
   console.log(`  fields:                ${preview.fieldCount}`);
   console.log(`  field review:          ${JSON.stringify(preview.fieldReviewStates)}`);
 
+  if (preview.candidateCountComplete === false) {
+    console.log(
+      `  note: candidate counts truncated at ${preview.candidateCount}; the batch holds more.`,
+    );
+  }
+
   if (preview.fieldStatsComplete === false) {
     console.log(
       `  note: field counts sampled from the first ${preview.fieldStatsSampledCandidates} of ${preview.candidateCount} candidates.`,

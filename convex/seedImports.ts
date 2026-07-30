@@ -40,7 +40,8 @@ import {
 
 const reviewNoteValidator = v.optional(v.string());
 
-const PREVIEW_FIELD_SAMPLE_CANDIDATES = 250;
+const PREVIEW_FIELD_SAMPLE_CANDIDATES = 50;
+const PREVIEW_CANDIDATE_READ_CAP = 2_000;
 
 function optionalValue<T>(key: string, value: T | undefined): Record<string, T> {
   return value === undefined ? {} : { [key]: value };
@@ -814,10 +815,13 @@ export const previewBatchPublication = internalQuery({
       throw new Error("Seed import batch not found.");
     }
 
+    // Both reads are capped. An import may carry thousands of candidates with tens
+    // of fields each, and a preview that blows the query's read limit would block
+    // publishing rather than inform it.
     const candidates = await ctx.db
       .query("seedImportCandidateProfiles")
       .withIndex("by_batchId", (query) => query.eq("batchId", batch._id))
-      .collect();
+      .take(PREVIEW_CANDIDATE_READ_CAP);
 
     const tally = (values: string[]) =>
       values.reduce<Record<string, number>>((counts, value) => {
@@ -825,9 +829,7 @@ export const previewBatchPublication = internalQuery({
         return counts;
       }, {});
 
-    // Field stats need one query per candidate, so they are sampled rather than
-    // exhaustive: an import may carry thousands of candidates, and a preview that
-    // blows the query's read limit would block publishing instead of informing it.
+    // Field stats need one query per candidate, so they are sampled.
     const fieldStatsSampleSize = Math.min(candidates.length, PREVIEW_FIELD_SAMPLE_CANDIDATES);
     const fieldReviewStates: string[] = [];
 
@@ -842,6 +844,7 @@ export const previewBatchPublication = internalQuery({
       batchReviewState: batch.reviewState,
       publicationPolicy: batch.publicationPolicy ?? "private_only",
       candidateCount: candidates.length,
+      candidateCountComplete: candidates.length < PREVIEW_CANDIDATE_READ_CAP,
       candidateReviewStates: tally(candidates.map((candidate) => candidate.reviewState)),
       candidatePublicationStates: tally(candidates.map((candidate) => candidate.publicationState)),
       candidateProfileTypes: tally(candidates.map((candidate) => candidate.profileType)),

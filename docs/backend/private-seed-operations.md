@@ -144,11 +144,13 @@ Publish behavior worth knowing:
   verbatim, so an oversized field is reported as
   `field_exceeds_public_profile_limits` rather than written to a public profile.
 - Slug collision is checked on the derived base slug as well as an explicit
-  `proposedSlug`. A candidate whose name normalizes onto an existing profile is
-  blocked with `slug_collision_blocks_publication` rather than silently getting a
-  suffixed slug, so two profiles for the same person need a deliberate
-  `seedImports:matchCandidateToProfile` call. Genuinely distinct people sharing a
-  name also surface here and need the same explicit decision.
+  `proposedSlug`, but **only when creating a new profile**. A candidate whose name
+  normalizes onto an existing profile is blocked with
+  `slug_collision_blocks_publication` rather than silently getting a suffixed slug.
+  Resolve it with `seedImports:matchCandidateToProfile`: a matched candidate merges
+  into the matched profile and keeps its slug, so the collision no longer applies.
+  Genuinely distinct people sharing a name surface here too and need the same
+  explicit decision.
 - Published profiles carry no `sourceAttribution`. That field makes the public
   serializer render a profile as `Community submitted`, which would be false
   provenance for an operator import; `creationSource: "import"` records the real
@@ -219,9 +221,10 @@ pnpm ops:seed-publish -- `
   publish rather than being skipped as `candidate_already_queued_for_publication`.
 - Re-running is safe. Already-published candidates are excluded by
   `publishedProfileId`, so an interrupted run resumes.
-- Preview field counts are sampled from the first 250 candidates, because field
-  stats need one query per candidate. The preview says so when it samples;
-  candidate counts are always exact.
+- Preview reads are bounded: candidate rows are capped at 2,000 and field stats
+  are sampled from the first 50 candidates, because field stats need one query per
+  candidate. The preview reports when either is truncated. Publication itself is
+  unaffected — it pages over the whole batch.
 - The final report tallies skipped candidates by blocker and lists their
   external candidate ids, so a partial success is actionable rather than silent.
 
@@ -253,8 +256,11 @@ Notes:
 - Identity is re-resolved **at acceptance time**, not at request time: profile id,
   then slug, then display name and profile type. A pre-claim request filed before
   its profile existed therefore still retracts a profile that was published in
-  between, and acceptance can affect more than one profile — the return value is
-  `appliedToProfileIds`.
+  between, and acceptance can affect more than one profile.
+- The mutation returns `{ requestId, state, retractionScheduled }`. It does not
+  return retracted profile ids, because retraction runs asynchronously. Observe
+  completion through the profiles' `publicSurfacingState` or their
+  `suppression_accepted` rows in `profileAuditEvents`.
 - A slug match is only trusted when the request's stored display name and profile
   type agree with it, since a slug recorded before any profile held it can be
   acquired by someone else in the meantime.

@@ -232,11 +232,21 @@ Implemented in [#117](https://github.com/BASIC-BIT/VRDex/issues/117):
 - queue-only publication guard and marker
 - backend helper tests for fake fixture creation and publication blockers
 
-Deferred after [#117](https://github.com/BASIC-BIT/VRDex/issues/117):
+Implemented after [#117](https://github.com/BASIC-BIT/VRDex/issues/117):
 
-- real partner import tooling
+- real partner import tooling (`pnpm ops:seed-import:json`)
+- profile creation and merge on publication, plus public profile, search, and
+  vocabulary surfacing of published candidate data
+- bulk publication driver (`pnpm ops:seed-publish`)
+
+Publication is gated on an operator explicitly relaxing the batch's
+`publicationPolicy`; see
+[Publication](../backend/private-seed-operations.md#publication) for the
+authoritative workflow.
+
+Still deferred:
+
 - reviewer UI
 - public reviewer-facing APIs
 - owner claim/handoff confirmation for imported fields
-- actual profile creation, merge, or overwrite behavior
-- public profile/search/API surfacing of imported candidate data
+- community candidate publication (person candidates only today)
