@@ -1162,6 +1162,29 @@ export const startVrchatProof = mutation({
       throw claimError("TOO_MANY_OPEN_PROOFS", args.targetType);
     }
 
+    // The open-attempt cap alone does not bound an adapter-backed target. It
+    // counts `pending` rows, cancelling makes a row `failed`, and the adapter
+    // cooldown lives on the attempt — so submit, consult, "Start over", repeat
+    // spends a delegated community's provider quota as fast as the claimant can
+    // click, with `MAX_OPEN_PROOF_ATTEMPTS` never reached. Rate-limiting
+    // creation is what closes that: the loop can only turn as often as a single
+    // attempt could be re-checked.
+    if (args.targetType === "vrclinking") {
+      const previous = await ctx.db
+        .query("profileVerificationAttempts")
+        .withIndex("by_userId_targetType_createdAt", (q) =>
+          q
+            .eq("userId", user._id)
+            .eq("targetType", args.targetType)
+            .gt("createdAt", now - ADAPTER_CHECK_COOLDOWN_MS),
+        )
+        .first();
+
+      if (previous !== null) {
+        throw claimError("ADAPTER_COOLDOWN", args.targetType);
+      }
+    }
+
     const attemptId = await ctx.db.insert("profileVerificationAttempts", {
       profileId: profile._id,
       userId: user._id,

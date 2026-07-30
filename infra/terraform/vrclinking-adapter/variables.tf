@@ -53,7 +53,16 @@ variable "reserved_concurrency" {
 variable "timeout_seconds" {
   description = "Function timeout. Must exceed the adapter's own 8s fan-out budget and stay under Convex's 10s request deadline."
   type        = number
-  default     = 15
+  # 9, not 15: the description has always named both bounds and the default only
+  # honoured one of them. Above 10 the function outlives the caller, and the
+  # fan-out budget is not the only thing inside the window — a cold start
+  # resolves two secrets first, unbounded, so a slow or retrying Secrets Manager
+  # read could push the provider calls past the point Convex abandoned the
+  # request. Those calls still spend a community's quota and still consume the
+  # claimant's reserved cooldown, with no verdict able to reach anyone. Keeping
+  # the ceiling under Convex's deadline makes that unreachable rather than
+  # merely unlikely.
+  default = 9
 }
 
 variable "tags" {

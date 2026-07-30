@@ -604,6 +604,20 @@ describe("profile claim lifecycle", () => {
       });
     assert.equal(canceled.canceled, true);
     assert.equal((await t.run(async (ctx) => await ctx.db.get(seeded.attemptId)))?.state, "failed");
+
+    // Cancelling frees the open-attempt slot at once, and a new attempt carries
+    // no adapter cooldown of its own, so submit → consult → "Start over" would
+    // otherwise loop as fast as the claimant can click and spend a delegated
+    // community's provider quota without ever reaching MAX_OPEN_PROOF_ATTEMPTS.
+    await assert.rejects(
+      () =>
+        t.withIdentity(seeded.identity).mutation(api.profileClaims.startVrchatProof, {
+          profileSlug: "vrclinking-cancel",
+          targetType: "vrclinking",
+          targetExternalId: "usr_e2e00000-0000-4000-8000-000000000003",
+        }),
+      /ADAPTER_COOLDOWN/,
+    );
   });
 
   // The bot-token path proves the same thing the OAuth round-trip does, so it

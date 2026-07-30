@@ -28,9 +28,18 @@ Current recommendation:
   plainly that it grants owner control without verified-owner status.
 - Lead with Discord Administrator verification for communities, with VRChat
   group proof as the alternative.
-- Keep VRC Linking support in the backend adapter seam, but remove it from the
+- ~~Keep VRC Linking support in the backend adapter seam, but remove it from the
   core UI until its user-facing provider contract and instructions are
-  verified.
+  verified.~~ **Superseded 2026-07-30 (BASIC).** VRCLinking is offered on the
+  claim form for person profiles, gated on its three adapter variables being
+  configured rather than on the provider contract being settled. What changed
+  the calculus: nothing user-facing depends on that contract. The claimant
+  enters a VRChat id and gets a yes or no — there are no instructions to follow
+  and nothing to do on VRCLinking's side, which is the whole appeal of the
+  method over a proof code. The genuinely unresolved item is the absence of
+  published third-party server-to-server terms, and that is an operator risk
+  that no amount of UI research resolves. See
+  [`vrclinking-api.md`](../backend/vrclinking-api.md).
 
 ## Verified Current Behavior
 
@@ -142,7 +151,8 @@ Deferred:
 - claim support/admin tooling and notification delivery;
 - OAuth-provider configuration changes;
 - production mutations or real-account verification;
-- a user-facing VRC Linking path until provider behavior is verified.
+- ~~a user-facing VRC Linking path until provider behavior is verified.~~
+  Shipped 2026-07-30; see the superseded recommendation above.
 
 ## Research Checklist
 
@@ -163,8 +173,10 @@ Deferred:
   the guild's linked VRChat group. Remaining blocker is credential access, not
   contract: keys are account-scoped and member reads are guild-scoped, with no
   published third-party server-to-server terms.
-- `Open research`: support posture and durable user-facing instructions for VRC
-  Linking, contingent on that access question.
+- `Closed`: support posture and durable user-facing instructions for VRC
+  Linking. There turned out to be no user-facing instructions to write — the
+  claimant enters a VRChat id and the answer comes from a delegated credential —
+  so the question reduced to the operator-side access one recorded above.
 - `Interview later`: whether Discord person quick claim should remain an
   immediate owner grant or become review/rate-limit gated.
 - `Interview later`: the structured dispute and ownership-transfer experience.

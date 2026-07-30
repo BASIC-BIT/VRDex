@@ -45,6 +45,11 @@ function secretNameForGuild(guildId: string): string {
   return `vrdex/vrclinking/${guildId}`;
 }
 
+/** The one reference a delegation for `guildId` resolves to. */
+function secretRefForGuild(guildId: string): string {
+  return `secret://${secretNameForGuild(guildId)}`;
+}
+
 /**
  * One accepted form: the name.
  *
@@ -336,7 +341,14 @@ export const reserveAdapterDelegations = internalMutation({
       delegations: usable.map((row) => ({
         credentialId: row._id,
         guildId: row.guildId,
-        secretRef: row.secretRef,
+        // Derived, not read back. The reference is a pure function of the guild
+        // id, so the stored string carries no information — and a deployment
+        // upgraded from when the ARN form was accepted still holds rows in that
+        // shape. Emitting them verbatim meant the adapter dropped every one,
+        // leaving those communities listed as delegated while silently
+        // answering nothing. Deriving here retires the old rows without a
+        // migration, and `recordCredentialUse` re-checks the same value.
+        secretRef: secretRefForGuild(row.guildId),
       })),
     };
   },
@@ -397,10 +409,14 @@ export const recordCredentialUse = internalMutation({
   handler: async (ctx, args) => {
     const credential = await ctx.db.get(args.credentialId);
 
+    // Compared against the derived reference, matching what selection sent.
+    // Reading the stored string here would reject any row registered before the
+    // ARN form was retired, which is exactly the population deriving on read
+    // exists to keep working.
     if (
       credential === null ||
       credential.state !== "active" ||
-      credential.secretRef !== args.secretRef
+      secretRefForGuild(credential.guildId) !== args.secretRef
     ) {
       return { accepted: false };
     }

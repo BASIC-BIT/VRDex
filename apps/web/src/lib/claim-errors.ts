@@ -20,6 +20,7 @@ export type ClaimErrorCode =
   | "PROOF_EXPIRED"
   | "PROOF_NOT_PENDING"
   | "TOO_MANY_OPEN_PROOFS"
+  | "ADAPTER_COOLDOWN"
   | "PROOF_NOT_FOUND_YET"
   | "LINK_NOT_FOUND"
   | "LINK_ALREADY_EXISTS"
@@ -60,6 +61,8 @@ const CLAIM_ERROR_COPY: Record<ClaimErrorCode, string> = {
   PROOF_NOT_PENDING: "This verification attempt is already resolved.",
   TOO_MANY_OPEN_PROOFS:
     "You already have the maximum number of verification attempts open for this method. Finish or cancel one from its claim page, or wait for it to expire, then try again.",
+  ADAPTER_COOLDOWN:
+    "You checked VRCLinking very recently. Wait about a minute before starting another check.",
   PROOF_NOT_FOUND_YET:
     "We could not find the proof code yet. Check where you placed it, then try again.",
   LINK_NOT_FOUND: "That connection is no longer attached to this profile.",
@@ -90,6 +93,7 @@ const OUTCOME_BY_CODE: Record<ClaimErrorCode, ClaimFailureOutcome> = {
   PROOF_EXPIRED: "expired",
   PROOF_NOT_PENDING: "conflict",
   TOO_MANY_OPEN_PROOFS: "conflict",
+  ADAPTER_COOLDOWN: "conflict",
   PROOF_NOT_FOUND_YET: "not_verified",
   LINK_NOT_FOUND: "unknown",
   LINK_ALREADY_EXISTS: "conflict",

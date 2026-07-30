@@ -133,12 +133,29 @@ Production Convex Auth env names:
 - `JWKS`: Convex Auth public key set matching `JWT_PRIVATE_KEY`
 - `AWS_SES_REGION`, `AWS_SES_FROM_EMAIL`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY`: production SES sender configuration for email/password verification
 
-Profile claiming needs no additional production Convex environment variables.
-Discord community verification reuses `AUTH_DISCORD_ID`, `AUTH_DISCORD_SECRET`,
-and `SITE_URL` through a purpose-scoped OAuth round-trip; it requires only that
+Discord community verification needs no additional production Convex environment
+variables. It reuses `AUTH_DISCORD_ID`, `AUTH_DISCORD_SECRET`, and `SITE_URL`
+through a purpose-scoped OAuth round-trip; it requires only that
 `https://vrdex.net/api/discord/verify/callback` is registered as a redirect URI
-on the production Discord application. The optional bot and collector paths, and
-the exact operator steps, are documented in
+on the production Discord application.
+
+The VRCLinking claim method needs three, and `getClaimJourneyContext` hides the
+method unless **all three** are present — a deployment holding only some of them
+offers nothing, rather than offering a method that throws:
+
+- `VRCLINKING_PROOF_ADAPTER_URL`: the Function URL output by
+  `infra/terraform/vrclinking-adapter`
+- `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`: the same value the adapter reads from
+  `vrdex/vrclinking/bearer-token`
+- `VRCLINKING_ADAPTER_CAPABILITY_KEY`: the same value the adapter reads from
+  `vrdex/vrclinking/capability-key`, and necessarily a different value from the
+  bearer token — the adapter refuses to start if they match
+
+Setting these does not by itself make a claim completable: a community must also
+delegate a credential, and until one has, the method is offered and every
+attempt returns `unavailable`. The stack README carries the deployment and
+rotation sequence. The optional bot and collector paths, and the exact operator
+steps, are documented in
 [`claim-verification-enablement.md`](./claim-verification-enablement.md).
 
 Session durations are code-owned rather than dashboard-owned. See
