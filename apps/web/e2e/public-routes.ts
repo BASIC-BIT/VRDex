@@ -246,12 +246,13 @@ export async function expectSubmitPage(page: Page) {
 }
 
 export async function expectSignInPage(page: Page) {
+  // Only the heading belongs to VRDex now. The provider buttons and the
+  // email/password fields are rendered by Clerk's own `<SignIn />`, and asserting
+  // a vendor's DOM would break on any upstream markup change. Which of Clerk's UI
+  // or the unconfigured-environment notice appears depends on whether the
+  // environment has Clerk credentials, so neither is asserted here; the callers
+  // that care about reaching this page already check the URL.
   await expect(page.getByRole("heading", { name: "Sign in", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Continue with Discord" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Use email and password" })).toBeVisible();
-  await expect(page.getByLabel("Email")).toHaveCount(0);
-  await expect(page.getByLabel("Password")).toHaveCount(0);
 }
 
 async function expectProtectedRouteRedirect(page: Page, returnTo: string) {
