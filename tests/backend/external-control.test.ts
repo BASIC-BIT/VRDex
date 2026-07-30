@@ -1157,6 +1157,64 @@ describe("VRCLinking credential delegation", () => {
     assert.equal(use.accepted, true);
   });
 
+  // Every row for a guild derives the same guild-scoped reference, so sending
+  // one per row made the adapter repeat an identical lookup — spending that
+  // community's quota once per row and, at five rows, filling the entire
+  // fan-out with a single server while a guild that could actually attest the
+  // claimant waited for a cooldown-limited retry.
+  it("sends one delegation per guild even when several profiles delegate it", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const guildId = "42345678901234567";
+    const first = await seedOwnedCommunity(t, "delegation-dup-a", now);
+    const second = await seedOwnedCommunity(t, "delegation-dup-b", now);
+
+    for (const [seeded, slug] of [
+      [first, "delegation-dup-a"],
+      [second, "delegation-dup-b"],
+    ] as const) {
+      await t.run(async (ctx) => {
+        await recordExternalControlProof(ctx.db, {
+          userId: seeded.userId,
+          assetType: "discord_guild",
+          assetExternalId: guildId,
+          controlLevel: "owner",
+          evidenceSource: "discord_oauth",
+          now,
+        });
+      });
+
+      await t.withIdentity(seeded.identity).mutation(api.vrclinkingCredentials.registerCredential, {
+        profileSlug: slug,
+        guildId,
+        secretRef: `secret://vrdex/vrclinking/${guildId}`,
+      });
+    }
+
+    const claimantId = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        email: "dup-claimant@example.test",
+        emailVerificationTime: now,
+      });
+      await ctx.db.insert("authAccounts", {
+        userId,
+        provider: "discord",
+        providerAccountId: "discord-dup-claimant",
+      });
+
+      return userId;
+    });
+
+    const reserved = await t.mutation(internal.vrclinkingCredentials.reserveAdapterDelegations, {
+      userId: claimantId,
+    });
+
+    assert.deepEqual(
+      reserved?.delegations.map((delegation: { guildId: string }) => delegation.guildId),
+      [guildId],
+    );
+  });
+
   // Selection sorts by `lastConsultedAt`, so a delegation that is skipped but
   // never stamped stays at the head of the index forever. Once there are more
   // of those than the scan window, no usable delegation is reachable again.

@@ -279,10 +279,15 @@ export async function verifyLinkage({
       continue;
     }
 
-    consulted = true;
+    // The audit stamp records that this delegation's credential was spent on a
+    // provider call, which is true whatever came back. `consulted` is a
+    // different claim — that the provider made a statement this adapter can
+    // read — and is set below, once that is actually known.
     consultedIndexes.push(index);
 
     if (member === null || member === undefined) {
+      // A usable answer: the provider looked and reports no such linked member.
+      consulted = true;
       continue;
     }
 
@@ -298,6 +303,13 @@ export async function verifyLinkage({
       failures.push("schema_drift");
       continue;
     }
+
+    // Only now. Setting this before the check above made the drift branch
+    // decorative: with drift on the only delegation, `failures` was non-empty
+    // but `consulted` was already true, so the caller got a 200 negative and
+    // the claimant was told no server confirmed their account — the exact
+    // outcome the check exists to prevent.
+    consulted = true;
 
     if (member.isVerified === true && member.vrcId === request.targetExternalId) {
       return {

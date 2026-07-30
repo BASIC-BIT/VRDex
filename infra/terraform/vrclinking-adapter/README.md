@@ -64,6 +64,10 @@ Verify with an unauthenticated `GET /healthz` (expect `{"status":"ok"}`) and an
 unauthenticated `POST /` (expect `401`). A `403` carrying an AWS-shaped error
 body means the resource policy is incomplete and the handler never ran.
 
+`/healthz` proves the function booted and resolved both secrets to non-empty
+values that differ. It says nothing about whether those values match what Convex
+holds — see the rotation section for the check that does.
+
 ## Secrets, and rotating them
 
 | Secret | Owner | Read by |
@@ -136,8 +140,12 @@ aws secretsmanager put-secret-value --secret-id vrdex/vrclinking/capability-key 
 recycle
 
 # 3. Only then point Convex at the new values.
-pnpm exec convex env set VRCHAT_PROOF_ADAPTER_BEARER_TOKEN "$NEW_BEARER"
-pnpm exec convex env set VRCLINKING_ADAPTER_CAPABILITY_KEY "$NEW_CAPABILITY"
+#    `--prod` is not optional here. Without it these write the *development*
+#    deployment, and the script would recycle production Lambda onto the new
+#    pair while production Convex kept the old one — every command succeeding
+#    and every production claim unauthorized.
+pnpm exec convex env set --prod VRCHAT_PROOF_ADAPTER_BEARER_TOKEN "$NEW_BEARER"
+pnpm exec convex env set --prod VRCLINKING_ADAPTER_CAPABILITY_KEY "$NEW_CAPABILITY"
 ```
 
 Between steps 2 and 3 every claim fails with `401`, which is the safe direction:
@@ -157,8 +165,29 @@ the failure created) and unwind whichever Convex variables were already written,
 which is per-failure-point bookkeeping that has to be right under pressure.
 Rolling forward has one instruction.
 
-Confirm with `GET /healthz` — a 500 means bootstrap rejected what it read, which
-is the signature of a mismatched or half-written pair.
+Confirming a rotation takes an authenticated request, not `/healthz`. Health is
+a bootstrap check only: it says the adapter resolved two non-empty values that
+differ from each other. A pair where one side rotated and the other did not
+satisfies all of that and still answers `401` to every real request, so a
+green `/healthz` after a partial rotation is exactly as green as after a clean
+one.
+
+The check that distinguishes them sends the bearer Convex now holds. A `401`
+means the two sides disagree:
+
+```bash
+BEARER=$(aws secretsmanager get-secret-value --secret-id vrdex/vrclinking/bearer-token \
+  --query SecretString --output text)
+printf 'header = "authorization: Bearer %s"\n' "$BEARER" |
+  curl -K - -s -o /dev/null -w '%{http_code}\n' -X POST "$FUNCTION_URL" \
+    -H 'content-type: application/json' -d '{}'
+# 400 unsupported_target_type = the bearer matches; the body is deliberately junk.
+# 401 = the adapter and Secrets Manager disagree, so the rotation is half-applied.
+```
+
+Verifying the capability key needs a signed delegation, which is more apparatus
+than a rotation check warrants — the bearer check above catches the case this
+script can actually produce, since both values move together or neither does.
 
 A delegated community credential is cheaper to rotate but not instant: the
 resolver caches each token for five minutes per warm container, so `put-secret-

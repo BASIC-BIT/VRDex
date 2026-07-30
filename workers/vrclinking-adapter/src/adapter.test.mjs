@@ -298,6 +298,28 @@ describe("linkage verification", () => {
     assert.equal(result.unavailable, true);
   });
 
+  // Drift in the member's own fields, rather than in the response envelope. The
+  // guard for it existed, but `consulted` was already set by the time it ran —
+  // so with drift on the only delegation the caller got a 200 negative and the
+  // claimant was told no server confirmed their account, off a response that
+  // never made a readable statement either way.
+  it("treats an unreadable member attestation as unavailable, not a negative", async () => {
+    for (const member of [
+      { id: DISCORD_ID, vrcId: VRC_ID },
+      { id: DISCORD_ID, vrcId: VRC_ID, isVerified: "yes" },
+      { id: DISCORD_ID, vrcId: "not-a-vrchat-id", isVerified: true },
+    ]) {
+      const result = await verifyLinkage({
+        request,
+        resolveSecret,
+        getGuildMemberByDiscordId: async () => member,
+      });
+
+      assert.equal(result.verified, false, JSON.stringify(member));
+      assert.equal(result.unavailable, true, JSON.stringify(member));
+    }
+  });
+
   it("treats a member who is simply absent as a plain negative", async () => {
     const result = await verifyLinkage({
       request,

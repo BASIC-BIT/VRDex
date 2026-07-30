@@ -295,10 +295,25 @@ export const reserveAdapterDelegations = internalMutation({
     const now = Date.now();
     const usable = [];
     const skipped = [];
+    // One guild may back several community profiles, and every row for it
+    // derives the same guild-scoped reference — so sending each one made the
+    // adapter repeat an identical `/members/<guildId>` lookup, spending that
+    // community's quota once per row and, with five rows, filling the whole
+    // fan-out with a single server while a guild that could actually attest the
+    // claimant waited for a cooldown-limited retry.
+    const seenGuilds = new Set<string>();
 
     for (const row of candidates) {
       if (usable.length >= MAX_ADAPTER_DELEGATIONS) {
         break;
+      }
+
+      // Stamped, not skipped: `lastRotatedAt` is the selection cursor, and a
+      // duplicate left unstamped pins the head of the index exactly like an
+      // ineligible row does.
+      if (seenGuilds.has(row.guildId)) {
+        skipped.push(row._id);
+        continue;
       }
 
       const proof = await getActiveControlProof(
@@ -313,6 +328,7 @@ export const reserveAdapterDelegations = internalMutation({
         continue;
       }
 
+      seenGuilds.add(row.guildId);
       usable.push(row);
     }
 
