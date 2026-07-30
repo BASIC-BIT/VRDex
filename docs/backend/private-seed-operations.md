@@ -334,11 +334,15 @@ Notes:
   no record of who decided it. Re-accepting an already-accepted request is a no-op
   rather than an error, so a retry after a timeout does not overwrite the original
   resolver or duplicate audit rows.
-- Known limitation: an event stores `communityName` directly, and both the event
-  search document and the public event page deliberately fall back to that stored
-  name when the linked profile is not publicly readable. Retracting a community
-  profile therefore does not remove its name from events it hosts. Suppressing
-  that fallback needs a decision about what an event should display instead.
+- Known limitation: events keep denormalized identity strings that survive
+  retraction. An event stores `communityName` directly, and both the event search
+  document and the public event page deliberately fall back to it when the linked
+  profile is not publicly readable; an `eventSlots` row likewise keeps a
+  `displayLabel` that is commonly the performer's exact name, still emitted by
+  `toPublicEvent` when the linked profile becomes unreadable. Retracting a profile
+  therefore does not remove its name from events it hosts or performs at.
+  Suppressing either needs a decision about what an event should display instead,
+  which is public copy and needs owner sign-off.
 - Known limitation: neither retraction nor publication reconciles
   `vocabularyTerms`. `recordVocabularyTerms` only ever increments, so a tag or
   genre contributed by a retracted profile keeps its usage count, and a creator

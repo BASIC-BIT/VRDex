@@ -68,20 +68,31 @@ export async function hasAcceptedSuppression(
       )
       .collect();
 
-    // A slug-only request may have recorded a slug before any profile held it, so
-    // a match alone does not mean the request covers whoever holds it now. The
-    // same agreement check the acceptance resolver applies is used here, or an
-    // unrelated slug owner would stay blocked from publication indefinitely.
-    const coversThisIdentity = bySlug.some(
-      (request) =>
-        (request.profileType === undefined || request.profileType === identity.profileType) &&
-        (request.displayName === undefined ||
-          identity.displayNames.some(
-            (name) => createProfileSortName(name) === createProfileSortName(request.displayName as string),
-          )),
-    );
+    for (const request of bySlug) {
+      if (request.profileType !== undefined && request.profileType !== identity.profileType) {
+        continue;
+      }
 
-    if (coversThisIdentity) {
+      if (
+        request.displayName !== undefined &&
+        !identity.displayNames.some(
+          (name) => createProfileSortName(name) === createProfileSortName(request.displayName as string),
+        )
+      ) {
+        continue;
+      }
+
+      // A request targeting a profile that still exists is about that profile, not
+      // whoever else the slug now resolves to. Without this, a distinct namesake
+      // allocating `alex-2` would still be blocked by checking the occupied base
+      // slug `alex` -- the name scan below already preserves such namesakes, and
+      // the two paths must agree.
+      if (request.profileId !== undefined && !targetedProfileIds.has(request.profileId)) {
+        if ((await db.get(request.profileId)) !== null) {
+          continue;
+        }
+      }
+
       return true;
     }
   }
