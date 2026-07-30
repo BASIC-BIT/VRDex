@@ -213,12 +213,20 @@ $env:CONVEX_DEPLOYMENT="dev:scrupulous-corgi-247"; $env:CONVEX_SELF_HOSTED_URL="
 
 ## Custom Domains
 
-Current recommendation: keep client API traffic on the Convex cloud URL unless a separate API custom domain is configured, and use readable Convex Cloud HTTP Actions domains for Auth callback URLs.
+Current recommendation: keep client API traffic on the Convex cloud URL unless a separate API custom domain is configured, and use readable Convex Cloud HTTP Actions domains for the HTTP Actions the app still serves.
 
 - development/staging Convex API: `https://scrupulous-corgi-247.convex.cloud`
-- development/staging Convex HTTP Actions and Auth callbacks: `https://db.staging.vrdex.net`
+- development/staging Convex HTTP Actions: `https://db.staging.vrdex.net`
 - production Convex API: `https://superb-pig-954.convex.cloud`
-- production Convex HTTP Actions and Auth callbacks: `https://db.vrdex.net`
+- production Convex HTTP Actions: `https://db.vrdex.net`
+
+**Convex no longer serves sign-in callbacks.** `convex/http.ts` dropped
+`/api/auth/*` when Clerk replaced Convex Auth, so the OAuth redirect URIs below
+that name `db.vrdex.net/api/auth/callback/...` are historical. Following them
+during cutover would point a Google or Discord client at a 404. Register Clerk's
+callback URLs on those OAuth clients instead — Clerk's dashboard shows the exact
+values per instance — and keep the custom domains only for the HTTP Actions the
+app still uses.
 
 Convex Cloud custom domains are configured from each deployment's dashboard settings and require a Convex Pro plan. Do not create Route 53 records alone; Convex must first provide the deployment-specific DNS records and certificate binding.
 
@@ -230,14 +238,15 @@ Staging HTTP Actions domain bootstrap, started 2026-06-15:
    - `db.staging.vrdex.net CNAME convex.domains`
    - `_convex_domains.db.staging.vrdex.net TXT scrupulous-corgi-247`
 4. Wait for Convex certificate/domain status to become active.
-5. Add staging OAuth redirect URIs for both providers:
-   - `https://db.staging.vrdex.net/api/auth/callback/discord`
-   - `https://db.staging.vrdex.net/api/auth/callback/google`
-6. Keep the legacy `https://scrupulous-corgi-247.convex.site/api/auth/callback/...` redirects until the custom callback host is verified in end-to-end sign-in.
+5. Historical, do not follow: staging OAuth redirect URIs used to be
+   `https://db.staging.vrdex.net/api/auth/callback/{discord,google}`. Those
+   routes no longer exist. Point the staging OAuth clients at the staging Clerk
+   instance's callback URLs.
+6. Historical: the legacy `convex.site/api/auth/callback/...` redirects are also gone with Convex Auth.
 7. Override the staging deployment's `CONVEX_SITE_URL` to `https://db.staging.vrdex.net` in the Convex custom domain settings.
 8. Rerun staging auth smoke checks from `https://staging.vrdex.net/sign-in`.
 
-Current status: `db.staging.vrdex.net` is configured and verified for the staging deployment, Google and Discord both allow the new callback URLs, and staging `CONVEX_SITE_URL` is selected as `https://db.staging.vrdex.net`.
+Current status: `db.staging.vrdex.net` is configured and verified for the staging deployment and staging `CONVEX_SITE_URL` is selected as `https://db.staging.vrdex.net`. The Convex-hosted sign-in callbacks it once served are gone; staging sign-in runs through the staging Clerk instance.
 
 Production HTTP Actions domain bootstrap, completed 2026-06-16:
 
@@ -247,14 +256,15 @@ Production HTTP Actions domain bootstrap, completed 2026-06-16:
    - `db.vrdex.net CNAME convex.domains`
    - `_convex_domains.db.vrdex.net TXT superb-pig-954`
 4. Wait for Route 53 to report the change as `INSYNC` and for Convex certificate/domain status to become active.
-5. Add production OAuth redirect URIs for each configured provider:
-   - `https://db.vrdex.net/api/auth/callback/google`
-   - `https://db.vrdex.net/api/auth/callback/discord`
-6. Keep the legacy `https://superb-pig-954.convex.site/api/auth/callback/...` redirects until the custom callback host is verified in end-to-end sign-in.
+5. Historical, do not follow: production OAuth redirect URIs used to be
+   `https://db.vrdex.net/api/auth/callback/{google,discord}`. Those routes no
+   longer exist. Point the production OAuth clients at the production Clerk
+   instance's callback URLs.
+6. Historical: the legacy `convex.site/api/auth/callback/...` redirects are also gone with Convex Auth.
 7. Select `https://db.vrdex.net` as the production deployment's canonical `CONVEX_SITE_URL`.
 8. Rerun production auth smoke checks from `https://vrdex.net/sign-in`.
 
-Current production status: `db.vrdex.net` is configured and verified for the production deployment, Google and Discord allow the new callback URLs, production `CONVEX_SITE_URL` is selected as `https://db.vrdex.net`, and Google and Discord sign-in from `https://vrdex.net/sign-in` return to an authenticated `/account` session.
+Current production status: `db.vrdex.net` is configured and verified for the production deployment and production `CONVEX_SITE_URL` is selected as `https://db.vrdex.net`. Sign-in no longer runs through it: the Convex auth callbacks were removed with Convex Auth, and production sign-in is pending the Clerk cutover.
 
 ## Notes
 
