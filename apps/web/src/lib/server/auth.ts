@@ -25,20 +25,47 @@ export async function convexAuthToken() {
   return (await getToken({ template: "convex" })) ?? undefined;
 }
 
+type Viewer = {
+  user: {
+    id: Id<"users">;
+    name?: string;
+    email?: string;
+    emailVerified: boolean;
+    image?: string;
+  };
+} | null;
+
 export const viewerQuery = makeFunctionReference<
   "query",
   Record<string, never>,
-  | {
-      user: {
-        id: Id<"users">;
-        name?: string;
-        email?: string;
-        emailVerified: boolean;
-        image?: string;
-      };
-    }
-  | null
+  Viewer
 >("accounts:viewer");
+
+const ensureCurrentUserMutation = makeFunctionReference<
+  "mutation",
+  Record<string, never>,
+  { id: Id<"users"> }
+>("users:ensureCurrentUser");
+
+/**
+ * Resolves the viewer for a server route, provisioning the `users` row first.
+ *
+ * The client-side effect that normally provisions has not necessarily run: a
+ * brand-new Clerk identity can be redirected straight into a server route — the
+ * OAuth authorize endpoint being the case that matters — where a missing row
+ * would read as "not signed in" and bounce back to sign-in indefinitely.
+ *
+ * `ensureCurrentUser` is idempotent and skips the write when nothing changed, so
+ * calling it on this path costs an indexed lookup rather than a write.
+ */
+export async function ensureViewer(client: {
+  mutation: (reference: typeof ensureCurrentUserMutation, args: Record<string, never>) => Promise<{ id: Id<"users"> }>;
+  query: (reference: typeof viewerQuery, args: Record<string, never>) => Promise<Viewer>;
+}): Promise<Viewer> {
+  await client.mutation(ensureCurrentUserMutation, {});
+
+  return await client.query(viewerQuery, {});
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;

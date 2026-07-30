@@ -155,12 +155,16 @@ Current recommendation:
 
 ## Ownership And Claim Tables
 
-Convex Auth provides the `users` and `authAccounts` tables used by account and provider-link flows.
+Clerk provides authentication. `users` is VRDex's own table and remains the
+identity spine every `v.id("users")` foreign key points at; `clerkUserId` links a
+row to its Clerk identity. There is no `authAccounts` table — connected sign-in
+providers live in Clerk. See
+[`auth-sessions.md`](./auth-sessions.md).
 
 `profileOwners` stores durable profile authority:
 
 - `profileId`: profile receiving ownership
-- `userId`: Convex Auth user that owns the profile
+- `userId`: VRDex user that owns the profile
 - `roleKey`: currently the singleton literal `owner`
 - `state`: `"active" | "revoked"`
 - `grantedByClaimRequestId`: optional claim request that granted ownership

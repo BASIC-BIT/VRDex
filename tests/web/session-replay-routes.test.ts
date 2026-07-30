@@ -59,6 +59,7 @@ const PUBLIC_ROUTE_GROUPS = [
   "privacy",
   "search",
   "sign-in",
+  "sign-up",
   "submit",
   "w",
 ] as const;

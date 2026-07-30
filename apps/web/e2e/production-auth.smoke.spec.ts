@@ -24,16 +24,19 @@ function readStorageState() {
     throw new Error("VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64 must decode to a Playwright storageState JSON object.");
   }
 
+  // Clerk owns the session cookies now. Its session cookie is `__session`, with
+  // `__client_uat` alongside it on production instances; the two `__convexAuth`
+  // cookies this used to require no longer exist.
   const currentAuthCookies = parsed.cookies.filter(
     (cookie) =>
-      cookie.name.includes("__convexAuth") &&
+      (cookie.name === "__session" || cookie.name.startsWith("__clerk")) &&
       typeof cookie.expires === "number" &&
       cookie.expires > Date.now() / 1_000,
   );
 
-  if (currentAuthCookies.length < 2) {
+  if (currentAuthCookies.length === 0) {
     throw new Error(
-      "The production auth smoke state is missing current VRDex session cookies; export a fresh one-shot state.",
+      "The production auth smoke state is missing a current Clerk session cookie; export a fresh one-shot state.",
     );
   }
 
@@ -68,7 +71,7 @@ test.describe("production authenticated account smoke @production-auth-one-shot"
     }
     await expect(page.getByRole("heading", { name: "Not signed in" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
-    await expect(page.getByText("Sign-in methods", { exact: true })).toBeVisible();
+    await expect(page.getByText("Sign-in and security", { exact: true })).toBeVisible();
     await expect(page.getByText("No sign-in methods linked.", { exact: true })).toHaveCount(0);
 
     if (expectedProvider) {

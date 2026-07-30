@@ -106,6 +106,22 @@ The Clerk instance needs a JWT template named exactly `convex`, from Clerk's
 Convex preset. Templates do not carry across instances, so development,
 staging, and production each need their own.
 
+**The template must emit an `email_verified` claim.** Convex maps it to
+`identity.emailVerified`, which is the only thing `ensureUser` can use to stamp
+`emailVerificationTime`. Without it every provisioned user looks unverified and
+`requireVerifiedEmailUser` rejects claim-level actions with
+`EMAIL_NOT_VERIFIED` — a failure that looks like a claim bug rather than a
+template gap. The development template in use emits:
+
+```json
+{
+  "email": "{{user.primary_email_address}}",
+  "email_verified": "{{user.email_verified}}",
+  "name": "{{user.full_name}}",
+  "picture": "{{user.image_url}}"
+}
+```
+
 Verify every secret after writing it, per
 [`convex-environments.md`](../deployment/convex-environments.md). A trailing
 `\r` in a Convex environment variable is invisible in both the dashboard and

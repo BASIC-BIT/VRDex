@@ -642,8 +642,15 @@ export default defineSchema({
   // Clerk owns authentication and sessions. `users` stays the VRDex identity
   // spine that every other table's `v.id("users")` points at; `clerkUserId` is
   // the only link back to the auth provider.
+  //
+  // Optional deliberately, as the first half of a two-phase change. Rows created
+  // under Convex Auth have no `clerkUserId`, and a required field would make
+  // schema validation reject them on the very first deploy — before the
+  // functions that could clean them up are even installed. `ensureUser` always
+  // sets it, and a row without one simply never matches the index, so it can
+  // authenticate nobody. Tighten to `v.string()` once the legacy rows are gone.
   users: defineTable({
-    clerkUserId: v.string(),
+    clerkUserId: v.optional(v.string()),
     name: v.optional(v.string()),
     image: v.optional(v.string()),
     email: v.optional(v.string()),

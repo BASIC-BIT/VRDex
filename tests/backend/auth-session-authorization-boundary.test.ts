@@ -170,7 +170,7 @@ describe("browser auth-session authorization boundary", () => {
         "apps/web/src/app/oauth/authorize/review/page.tsx",
         "api.oauthConsentTransactions.get",
       ],
-      ["apps/web/src/app/oauth/authorize/route.ts", "viewerQuery"],
+      ["apps/web/src/app/oauth/authorize/route.ts", "ensureViewer"],
     ]);
     const browserJwtFiles = filesBelow(webAppRoot, [".ts", ".tsx"])
       .filter((file) =>
@@ -183,7 +183,7 @@ describe("browser auth-session authorization boundary", () => {
 
     for (const [file, guardedCall] of inventory) {
       assert.match(source(file), new RegExp(guardedCall.replaceAll(".", "\\.")));
-      if (guardedCall === "viewerQuery") {
+      if (guardedCall === "viewerQuery" || guardedCall === "ensureViewer") {
         assert.match(source(file), /if \(viewer === null\)/);
       }
     }

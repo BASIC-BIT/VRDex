@@ -76,16 +76,6 @@ export async function ensureUser(ctx: MutationCtx) {
     throw new ConvexError({ code: UNAUTHENTICATED_CODE });
   }
 
-  const profile = {
-    clerkUserId: identity.subject,
-    name: identity.name ?? undefined,
-    image: identity.pictureUrl ?? undefined,
-    email: identity.email ?? undefined,
-    // The schema stores a verification *time* while Clerk asserts a boolean, so
-    // stamp on first observation and leave the original timestamp alone.
-    emailVerificationTime: identity.emailVerified === true ? Date.now() : undefined,
-  };
-
   const existing = await ctx.db
     .query("users")
     .withIndex("clerkUserId", (query) =>
@@ -93,17 +83,47 @@ export async function ensureUser(ctx: MutationCtx) {
     )
     .unique();
 
+  // The schema stores a verification *time* while Clerk asserts a boolean. Keep
+  // the original timestamp while the address stays verified, but clear it the
+  // moment Clerk stops vouching for the address — a changed primary email
+  // arrives unverified, and the claim guards check only that an email and a
+  // timestamp exist, so a preserved timestamp would let an unverified address
+  // satisfy claim-level verification.
+  const emailVerified = identity.emailVerified === true;
+  const emailUnchanged =
+    existing !== null && existing.email === (identity.email ?? undefined);
+  const emailVerificationTime = !emailVerified
+    ? undefined
+    : emailUnchanged && existing.emailVerificationTime !== undefined
+      ? existing.emailVerificationTime
+      : Date.now();
+
+  const profile = {
+    clerkUserId: identity.subject,
+    name: identity.name ?? undefined,
+    image: identity.pictureUrl ?? undefined,
+    email: identity.email ?? undefined,
+    emailVerificationTime,
+  };
+
   if (existing === null) {
     const userId = await ctx.db.insert("users", profile);
 
     return (await ctx.db.get(userId))!;
   }
 
-  await ctx.db.patch(existing._id, {
-    ...profile,
-    emailVerificationTime:
-      existing.emailVerificationTime ?? profile.emailVerificationTime,
-  });
+  // Called on every authenticated request path, so skip the write when nothing
+  // actually changed rather than churning the document.
+  const unchanged =
+    existing.clerkUserId === profile.clerkUserId &&
+    existing.name === profile.name &&
+    existing.image === profile.image &&
+    existing.email === profile.email &&
+    existing.emailVerificationTime === profile.emailVerificationTime;
+
+  if (!unchanged) {
+    await ctx.db.patch(existing._id, profile);
+  }
 
   return (await ctx.db.get(existing._id))!;
 }

@@ -10,7 +10,7 @@ import {
   checkApiRateLimit,
   clientIpForRequest,
 } from "@/lib/server/api-rate-limit";
-import { viewerQuery } from "@/lib/server/auth";
+import { ensureViewer } from "@/lib/server/auth";
 import { recordApiRateLimitBlockedEvent } from "@/lib/server/api-rate-limit-events";
 import { convexAdminHttpClient, convexHttpClient } from "@/lib/server/convex-http";
 import {
@@ -161,7 +161,7 @@ export async function GET(request: Request) {
   const userConvex = convexHttpClient();
 
   userConvex.setAuth(authToken);
-  const viewer = await userConvex.query(viewerQuery, {});
+  const viewer = await ensureViewer(userConvex);
 
   if (viewer === null) {
     const redirectTo = `${new URL(request.url).pathname}${new URL(request.url).search}`;
