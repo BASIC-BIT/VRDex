@@ -1,5 +1,6 @@
 import { SignIn } from "@clerk/nextjs";
 
+import { Notice } from "@/components/ui/notice";
 import { BrandLink, PageContainer, PageShell } from "@/components/ui/page-shell";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { validateSignInReturnTo } from "@/lib/safe-return-to";
@@ -35,10 +36,17 @@ export default async function SignInPage({
             </header>
 
             <div className="mt-6 flex justify-center">
-              <SignIn
-                fallbackRedirectUrl={returnTo}
-                signUpFallbackRedirectUrl={returnTo}
-              />
+              {process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ? (
+                <SignIn
+                  fallbackRedirectUrl={returnTo}
+                  signUpFallbackRedirectUrl={returnTo}
+                />
+              ) : (
+                <Notice className="py-5 leading-7" variant="dashed">
+                  Clerk is not configured in this environment, so sign-in is
+                  disabled.
+                </Notice>
+              )}
             </div>
           </section>
         </div>

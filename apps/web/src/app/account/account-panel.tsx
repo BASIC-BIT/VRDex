@@ -12,6 +12,7 @@ import { cn } from "@/lib/cn";
 import { ownerProfileDestinationPath, profileClaimPath } from "@/lib/profile-claim";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+const clerkConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 
 function ConnectedAccountPanel({ mediaKitEnabled }: { mediaKitEnabled: boolean }) {
   const viewer = useQuery(api.accounts.viewer);
@@ -179,7 +180,10 @@ class AccountPanelErrorBoundary extends Component<{ children: ReactNode }, { has
 }
 
 export function AccountPanel({ mediaKitEnabled }: { mediaKitEnabled: boolean }) {
-  if (!convexUrl) {
+  // `useClerk()` inside the connected panel asserts a ClerkProvider ancestor, and
+  // the provider is only mounted when Clerk has credentials. Bail out here rather
+  // than making that hook conditional.
+  if (!convexUrl || !clerkConfigured) {
     return (
       <Notice className="leading-7" variant="dashed">
         Account details are temporarily unavailable. Try again shortly.

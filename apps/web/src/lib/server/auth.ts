@@ -12,6 +12,14 @@ export const UNAUTHENTICATED_CODE = "UNAUTHENTICATED";
  * the `applicationID` in `convex/auth.config.ts`.
  */
 export async function convexAuthToken() {
+  // `auth()` throws when `clerkMiddleware` did not run, which is the case in
+  // environments with no Clerk credentials because the middleware is gated on
+  // them. Callers already treat `undefined` as unauthenticated and answer 401,
+  // so failing closed here beats surfacing a Clerk configuration error.
+  if (!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) {
+    return undefined;
+  }
+
   const { getToken } = await auth();
 
   return (await getToken({ template: "convex" })) ?? undefined;

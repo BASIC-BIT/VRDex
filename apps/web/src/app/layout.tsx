@@ -52,7 +52,15 @@ export default async function RootLayout({
     </html>
   );
 
-  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
+  // `ClerkProvider` throws without a publishable key, which would take the whole
+  // app down rather than just sign-in. Mirroring the existing
+  // NEXT_PUBLIC_CONVEX_URL treatment keeps public routes — profiles, search,
+  // events — renderable in environments with no Clerk credentials, which is what
+  // lets the public Playwright suites run without auth secrets.
+  if (
+    !process.env.NEXT_PUBLIC_CONVEX_URL ||
+    !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+  ) {
     return shell;
   }
 

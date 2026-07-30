@@ -7,7 +7,11 @@ import {
   protectedRouteSignInPath,
 } from "./lib/protected-route-redirect";
 
-const authMiddleware = process.env.NEXT_PUBLIC_CONVEX_URL
+// Both are required: `clerkMiddleware` cannot resolve a session without Clerk
+// credentials, and protecting routes it cannot evaluate would lock everyone out.
+const authMiddleware =
+  process.env.NEXT_PUBLIC_CONVEX_URL &&
+  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
   ? clerkMiddleware(async (auth, request) => {
       const { pathname, search } = request.nextUrl;
       const allowFixtureDemos =
