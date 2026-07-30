@@ -58,6 +58,26 @@ if (isProductionVercel) {
   }
 }
 
+// Clerk is the auth provider. Missing keys would build cleanly and then fail at
+// runtime with nobody able to sign in, so fail the build instead. Convex-side
+// CLERK_JWT_ISSUER_DOMAIN is enforced separately by the Convex CLI, which
+// requires it on every hosted deployment (see convex/auth.config.ts).
+if (isVercel && requireConvexUrl) {
+  for (const name of ["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "CLERK_SECRET_KEY"]) {
+    if (!process.env[name]?.trim()) {
+      errors.push(`${name} is required when Convex is configured.`);
+    }
+  }
+
+  const publishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim();
+
+  if (publishableKey && isProductionVercel && publishableKey.startsWith("pk_test_")) {
+    errors.push(
+      "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY must use a live Clerk instance (pk_live_) for production builds.",
+    );
+  }
+}
+
 if (isProductionVercel) {
   const rateLimitStore = process.env.VRDEX_RATE_LIMIT_STORE?.trim().toLowerCase();
 
