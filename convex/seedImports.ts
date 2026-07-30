@@ -131,13 +131,6 @@ async function actorFromArgs(
 }
 
 /**
- * Whether a live concierge handoff invitation is outstanding for this candidate.
- *
- * Publishing while someone holds a private review link would break the promise
- * that invitation was sent under, and queueing also moves the candidate out of the
- * states `previewInvitation` and `acceptInvitation` accept, invalidating the link.
- */
-/**
  * The manual publication path writes public data, so it enforces the same
  * operator-identity contract as bulkPublishBatch rather than trusting a CLI
  * wrapper to supply one.
@@ -152,6 +145,13 @@ function requireOperatorIdentity<T>(actor: T | undefined, action: string): T {
   return actor;
 }
 
+/**
+ * Whether a live concierge handoff invitation is outstanding for this candidate.
+ *
+ * Publishing while someone holds a private review link would break the promise
+ * that invitation was sent under, and queueing also moves the candidate out of the
+ * states `previewInvitation` and `acceptInvitation` accept, invalidating the link.
+ */
 async function hasLiveHandoffInvitation(
   ctx: Pick<QueryCtx, "db">,
   candidateId: Id<"seedImportCandidateProfiles">,
@@ -642,7 +642,10 @@ async function queueCandidate(ctx: MutationCtx, args: QueueCandidateArgs) {
     // name-only request happened to record.
     const suppressed = await hasAcceptedSuppression(ctx.db, {
       ...optionalValue("profileId", matchedProfile?._id),
-      slugs: [collisionSlug],
+      // The matched profile's own slug too: publish uses it as targetSlug, so a
+      // slug-only suppression naming it would queue the candidate here and then
+      // reject it at publish, stranding it for every bulk retry.
+      slugs: [collisionSlug, ...(matchedProfile === null ? [] : [matchedProfile.slug])],
       displayNames: [
         candidate.proposedDisplayName,
         ...(matchedProfile === null ? [] : [matchedProfile.displayName]),
