@@ -79,6 +79,15 @@ variable "timeout_seconds" {
   # the ceiling under Convex's deadline makes that unreachable rather than
   # merely unlikely.
   default = 9
+
+  # Enforced, not just described. A README warning does not constrain the input,
+  # and the failure it prevents is silent — the overrun spends a community's
+  # quota and the claimant's cooldown on a verdict nobody can receive, so
+  # nothing surfaces to say the value was wrong.
+  validation {
+    condition     = var.timeout_seconds > 8 && var.timeout_seconds < 10
+    error_message = "timeout_seconds must exceed the adapter's 8s fan-out budget and stay under Convex's 10s request deadline."
+  }
 }
 
 variable "tags" {
