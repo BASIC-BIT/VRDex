@@ -293,6 +293,11 @@ function SearchResultCard({ result }: { result: PublicSearchResult }) {
 }
 
 function FeaturedProfileCard({ result }: { result: PublicSearchResult }) {
+  const imageIsLogo =
+    Boolean(result.logoImageUrl) &&
+    result.imageUrl === result.logoImageUrl &&
+    result.logoImageUrl !== result.profileImageUrl;
+
   return (
     <TrackedDiscoveryLink
       className="group grid h-full min-h-72 min-w-0 overflow-hidden rounded-hero border border-border bg-canvas text-white shadow-hero lg:grid-cols-[18rem_minmax(0,1fr)]"
@@ -301,13 +306,24 @@ function FeaturedProfileCard({ result }: { result: PublicSearchResult }) {
       properties={{ entity_type: result.entityType, surface: "featured" }}
     >
       <span className="relative">
-        <ProfileAvatarImage
-          appearance={result.avatarAppearance}
-          className="aspect-square h-auto w-full rounded-none bg-media text-4xl text-white lg:size-72"
-          label={result.title}
-          sizes="(min-width: 1024px) 288px, (min-width: 768px) 50vw, 100vw"
-          src={result.imageUrl}
-        />
+        {imageIsLogo ? (
+          <EntityImage
+            className="aspect-square h-auto w-full rounded-none border border-border bg-surface-strong text-4xl lg:size-72"
+            fallback="Logo"
+            imageClassName="!object-contain p-4"
+            label={`${result.title} logo`}
+            sizes="(min-width: 1024px) 288px, (min-width: 768px) 50vw, 100vw"
+            src={result.imageUrl}
+          />
+        ) : (
+          <ProfileAvatarImage
+            appearance={result.avatarAppearance}
+            className="aspect-square h-auto w-full rounded-none bg-media text-4xl text-white lg:size-72"
+            label={result.title}
+            sizes="(min-width: 1024px) 288px, (min-width: 768px) 50vw, 100vw"
+            src={result.imageUrl}
+          />
+        )}
         {result.trustLabel === "claimed_verified" ? (
           <VerifiedTrustMark className="verified-trust-mark--avatar" />
         ) : null}

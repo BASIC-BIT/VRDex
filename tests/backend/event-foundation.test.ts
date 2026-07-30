@@ -452,7 +452,7 @@ describe("Discord timestamp helpers", () => {
 });
 
 describe("public event projection", () => {
-  function createEmptyEventAssociationDb() {
+  function createEmptyEventAssociationDb(onQuery: (table: string) => void = () => {}) {
     const indexedQuery = {
       take: async () => [],
       filter: () => indexedQuery,
@@ -463,7 +463,10 @@ describe("public event projection", () => {
 
     return {
       get: async () => null,
-      query: () => query,
+      query: (table: string) => {
+        onQuery(table);
+        return query;
+      },
     } as unknown as DatabaseReader;
   }
 
@@ -909,7 +912,12 @@ describe("public event projection", () => {
           updatedAt: now,
         }) as unknown as Doc<"events">,
     );
-    const db = createEmptyEventAssociationDb();
+    let mediaProgramQueries = 0;
+    const db = createEmptyEventAssociationDb((table) => {
+      if (table === "eventMediaPrograms") {
+        mediaProgramQueries += 1;
+      }
+    });
 
     const defaultPreviews = await getPublicEventPreviews(db, events, { now });
     const expandedPreviews = await getPublicEventPreviews(db, events, { now, limit: 8 });
@@ -917,6 +925,7 @@ describe("public event projection", () => {
     assert.equal(defaultPreviews.length, 6);
     assert.equal(expandedPreviews.length, 8);
     assert.equal(expandedPreviews[7]?.title, "Afterglow Harbor 8");
+    assert.equal(mediaProgramQueries, 14);
   });
 
   it("does not hydrate participant media kits for compact previews", async () => {

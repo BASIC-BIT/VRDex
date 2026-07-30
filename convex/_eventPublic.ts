@@ -606,19 +606,24 @@ export async function getPublicEventPreviews(
     1,
     Math.min(options.limit ?? EVENT_PREVIEW_DEFAULT_LIMIT, EVENT_PREVIEW_MAX_LIMIT),
   );
+  const selectedEvents = events
+    .filter(
+      (event) =>
+        event.publicationState === "published" &&
+        (now === undefined || eventEndsAt(event) >= now),
+    )
+    .sort((first, second) => first.startAt - second.startAt)
+    .slice(0, limit);
   const records = (
     await Promise.all(
-      events.map((event) =>
+      selectedEvents.map((event) =>
         getPublicEventRecord(db, event, { includeAssociationMediaKits: false }),
       ),
     )
   ).filter((record): record is PublicEventRecord => record !== null);
 
   return records
-    .filter(({ event }) => now === undefined || eventEndsAt(event) >= now)
-    .sort((first, second) => first.event.startAt - second.event.startAt)
-    .map(toPublicEventPreviewFromRecord)
-    .slice(0, limit);
+    .map(toPublicEventPreviewFromRecord);
 }
 
 export async function getPublicCommunityHostedEvents(

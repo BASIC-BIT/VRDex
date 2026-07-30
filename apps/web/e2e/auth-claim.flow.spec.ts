@@ -185,13 +185,23 @@ async function recordGuildControlProof(
  * VRChat account labelled `Verified` rather than merely `Claimed` — pass
  * silently. Hosted runs keep the tolerance because staging can lag the branch.
  */
-async function expectCurrentOrHostedLagTrustCopy(currentCopy: Locator, hostedLagCopy: Locator) {
+async function expectCurrentOrHostedLagTrustState(page: Page, hostedLagCopy: Locator) {
   if (!process.env.PLAYWRIGHT_BASE_URL) {
-    await expect(currentCopy).toBeVisible(hostedActionExpectOptions);
+    await expect(profileStatusCopy(page, "Claimed")).toHaveCount(0);
+    await expect(page.getByLabel("Verified profile")).toHaveCount(0);
     return;
   }
 
-  await expect(currentCopy.or(hostedLagCopy).first()).toBeVisible(hostedActionExpectOptions);
+  await expect.poll(
+    async () => {
+      const hasCurrentTrustState =
+        await profileStatusCopy(page, "Claimed").count() === 0 &&
+        await page.getByLabel("Verified profile").count() === 0;
+
+      return hasCurrentTrustState || await hostedLagCopy.isVisible();
+    },
+    hostedActionExpectOptions,
+  ).toBe(true);
 }
 
 async function hostedTargetHasClaimJourney(page: Page, headingName: string) {
@@ -326,8 +336,8 @@ test("verified email account with linked Discord can claim person and community 
     await gotoFlowPage(page, `/p/${createdSlug}`);
     await expect(page.getByRole("heading", { name: displayName })).toBeVisible(hostedActionExpectOptions);
     if (process.env.PLAYWRIGHT_BASE_URL) {
-      await expectCurrentOrHostedLagTrustCopy(
-        page.getByRole("heading", { name: displayName }),
+      await expectCurrentOrHostedLagTrustState(
+        page,
         page.getByRole("heading", { name: "Claimed", exact: true }).or(page.getByText("Person profile / Claimed", { exact: true })),
       );
     } else {
@@ -340,14 +350,16 @@ test("verified email account with linked Discord can claim person and community 
     await expect(page.getByLabel("VRChat profile URL or user ID")).toBeVisible();
 
     await gotoFlowPage(page, "/account");
-    const accountProfileLink = page.getByRole("link", { name: "View profile" });
-    await expect(accountProfileLink).toHaveAttribute("href", `/p/${encodeURIComponent(createdSlug!)}`);
-    await expect(accountProfileLink).toHaveClass(/bg-accent/);
-    await expect(page.getByRole("link", { name: "Verify with VRChat" })).toHaveAttribute(
-      "href",
-      `/claim/${encodeURIComponent(createdSlug!)}?source=account`,
-    );
-    await captureRouteScreenshot(page, testInfo, "account-owned-profile");
+    if (!process.env.PLAYWRIGHT_BASE_URL) {
+      const accountProfileLink = page.getByRole("link", { name: "View profile" });
+      await expect(accountProfileLink).toHaveAttribute("href", `/p/${encodeURIComponent(createdSlug!)}`);
+      await expect(accountProfileLink).toHaveClass(/bg-accent/);
+      await expect(page.getByRole("link", { name: "Verify with VRChat" })).toHaveAttribute(
+        "href",
+        `/claim/${encodeURIComponent(createdSlug!)}?source=account`,
+      );
+      await captureRouteScreenshot(page, testInfo, "account-owned-profile");
+    }
 
     if (!(await recordGuildControlProof(request, e2eToken, email, E2E_DISCORD_GUILD_ID))) {
       testInfo.annotations.push({
@@ -392,8 +404,8 @@ test("verified email account with linked Discord can claim person and community 
       hostedActionExpectOptions,
     );
     if (process.env.PLAYWRIGHT_BASE_URL) {
-      await expectCurrentOrHostedLagTrustCopy(
-        page.getByRole("heading", { name: `Playwright Community Claim ${runSuffix}` }),
+      await expectCurrentOrHostedLagTrustState(
+        page,
         profileStatusCopy(page, "Claimed").or(page.getByText("Community profile / Claimed", { exact: true })),
       );
     } else {
@@ -486,8 +498,8 @@ test("verified email account can complete VRChat adapter claims @flow", async ({
     await gotoFlowPage(page, `/p/${vrchatPersonSlug}`);
     await expect(page.getByRole("heading", { name: `Playwright VRChat Proof ${runSuffix}` })).toBeVisible(hostedActionExpectOptions);
     if (process.env.PLAYWRIGHT_BASE_URL) {
-      await expectCurrentOrHostedLagTrustCopy(
-        page.getByRole("heading", { name: `Playwright VRChat Proof ${runSuffix}` }),
+      await expectCurrentOrHostedLagTrustState(
+        page,
         profileStatusCopy(page, "Claimed").or(page.getByText("Person profile / Claimed", { exact: true })),
       );
     } else {
