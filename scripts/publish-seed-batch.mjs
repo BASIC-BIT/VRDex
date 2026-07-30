@@ -171,6 +171,13 @@ function main() {
 
     console.log(`  published ${publishedTotal}, skipped ${skipped.length}`);
 
+    if (page.haltedByPolicyChange) {
+      console.log(
+        "  halted: the batch policy or review state changed mid-run, so publication stopped.",
+      );
+      break;
+    }
+
     if (page.isDone) {
       break;
     }

@@ -283,7 +283,10 @@ export function buildConciergeProfileFieldPatch(
     switch (field.fieldKey) {
       case "aliases":
         patch.aliases = value as string[];
-        if (profile !== undefined) {
+        // Only cleared under concierge semantics, where the accepted selection is
+        // the whole profile. Publication must not wipe search-only handles and old
+        // spellings that the import never proposed to replace.
+        if (profile !== undefined && clearUnselectedFields) {
           patch.searchAliases = [];
         }
         break;

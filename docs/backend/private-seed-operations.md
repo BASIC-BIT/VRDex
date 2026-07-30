@@ -121,8 +121,11 @@ publish.
 
 Publish behavior worth knowing:
 
-- Only `accepted` candidate fields are copied. Unreviewed and rejected fields
-  are dropped.
+- An `unreviewed` field **blocks** the candidate with `field_unreviewed` rather
+  than being skipped, at both the queue and publish gates. Every field must be
+  reviewed before that candidate can publish; use `--accept-fields` for a trusted
+  source. `rejected` fields alone are simply not copied.
+- Only `accepted` fields are copied onto the profile.
 - Each copied field keeps its reviewed `visibility`. Publication uses the shared
   seed field mapper in `reviewed` mode; the concierge handoff path uses the same
   mapper in `private` mode, which forces every field private. Publishing with the
@@ -198,6 +201,9 @@ pnpm ops:seed-publish -- `
 - Batches already marked `rejected` or `superseded` are refused. Those are review
   decisions; move them with `seedImports:setBatchReviewState` first if that is
   genuinely intended.
+- Restoring `private_only` or un-approving the batch mid-run is a working kill
+  switch. Prerequisites are relaxed only on the first page, so a later page stops
+  and returns `haltedByPolicyChange` instead of re-enabling publication.
 - Candidates already queued through the manual workflow proceed straight to
   publish rather than being skipped as `candidate_already_queued_for_publication`.
 - Re-running is safe. Already-published candidates are excluded by

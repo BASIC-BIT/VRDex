@@ -80,7 +80,7 @@ export const publishGatedProfiles = migrations.define({
     const suppressed = await hasAcceptedSuppression(ctx.db, {
       profileId: profile._id,
       slug: profile.slug,
-      displayName: profile.displayName,
+      displayNames: [profile.displayName],
       profileType: profile.profileType,
     });
 

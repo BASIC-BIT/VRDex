@@ -637,7 +637,12 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
     const suppressed = await hasAcceptedSuppression(ctx.db, {
       ...optionalValue("profileId", matchedProfile?._id),
       slug: targetSlug,
-      displayName: candidate.proposedDisplayName,
+      // Both names: a name-only pre-claim request may name the existing profile
+      // rather than whatever the candidate proposes to call it.
+      displayNames: [
+        candidate.proposedDisplayName,
+        ...(matchedProfile === null ? [] : [matchedProfile.displayName]),
+      ],
       profileType: candidate.profileType,
     });
 
@@ -896,7 +901,22 @@ export const bulkPublishBatch = internalMutation({
       batch.reviewState !== "approved" ||
       (batch.publicationPolicy ?? "private_only") !== "reviewed_publication_allowed";
 
-    if (isFirstPage || needsPrerequisites) {
+    // Prerequisites are only relaxed on the first page. Restoring private_only or
+    // un-approving the batch mid-run is the kill switch, so a later page must stop
+    // rather than quietly re-enable publication and keep going.
+    if (!isFirstPage && needsPrerequisites) {
+      return {
+        externalBatchId: batch.externalBatchId,
+        processed: 0,
+        published: 0,
+        skipped: [] as Array<{ externalCandidateId: string; blockers: string[] }>,
+        nextCursor: null,
+        isDone: true as const,
+        haltedByPolicyChange: true as const,
+      };
+    }
+
+    if (isFirstPage) {
       await ctx.db.patch(batch._id, {
         ...(needsPrerequisites
           ? {
@@ -906,15 +926,13 @@ export const bulkPublishBatch = internalMutation({
               reviewedAt: now,
             }
           : {}),
-        ...(isFirstPage
-          ? optionalValue(
-              "notes",
-              appendBatchNote(
-                batch.notes,
-                `Bulk publish by ${reviewer?.displayName ?? reviewer?.subject ?? "unknown operator"}: ${reason}`,
-              ),
-            )
-          : {}),
+        ...optionalValue(
+          "notes",
+          appendBatchNote(
+            batch.notes,
+            `Bulk publish by ${reviewer?.displayName ?? reviewer?.subject ?? "unknown operator"}: ${reason}`,
+          ),
+        ),
         updatedAt: now,
       });
     }
@@ -963,10 +981,12 @@ export const bulkPublishBatch = internalMutation({
       // publish; re-queueing it would only return
       // candidate_already_queued_for_publication and strand it.
       if (candidate.publicationState !== "published_unclaimed") {
+        // No reviewNote: queueCandidate writes it to the candidate's own
+        // reviewNote, so passing the batch-wide reason would destroy per-candidate
+        // review context. The reason is recorded on the batch instead.
         const queueResult = await queueCandidate(ctx, {
           candidateId: candidate._id,
           ...optionalValue("reviewer", reviewer),
-          reviewNote: reason,
           now,
         });
 

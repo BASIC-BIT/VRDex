@@ -4,7 +4,13 @@ import type { DatabaseReader } from "./_generated/server";
 export type SuppressionIdentity = {
   profileId?: Id<"profiles">;
   slug?: string;
-  displayName: string;
+  /**
+   * Every name this publication could surface. A candidate matched to an existing
+   * profile has two: its own proposed name and the matched profile's current
+   * display name. A name-only pre-claim request may match either, so both are
+   * checked.
+   */
+  displayNames: string[];
   profileType: Doc<"profiles">["profileType"];
 };
 
@@ -54,7 +60,14 @@ export async function hasAcceptedSuppression(
   // Pre-claim requests carry no profile id or slug, so they can only be matched
   // on the name/type identity and there is no index for that. Accepted requests
   // are the small set of people who asked not to be listed, so scanning is fine.
-  const normalizedName = identity.displayName.trim().toLocaleLowerCase();
+  const normalizedNames = new Set(
+    identity.displayNames.map((name) => name.trim().toLocaleLowerCase()).filter(Boolean),
+  );
+
+  if (normalizedNames.size === 0) {
+    return false;
+  }
+
   const acceptedRequests = await db
     .query("profileSuppressionRequests")
     .withIndex("by_state_createdAt", (query) => query.eq("state", "accepted"))
@@ -63,7 +76,7 @@ export async function hasAcceptedSuppression(
   return acceptedRequests.some(
     (request) =>
       request.displayName !== undefined &&
-      request.displayName.trim().toLocaleLowerCase() === normalizedName &&
+      normalizedNames.has(request.displayName.trim().toLocaleLowerCase()) &&
       (request.profileType === undefined || request.profileType === identity.profileType),
   );
 }

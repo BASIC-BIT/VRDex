@@ -405,6 +405,37 @@ describe("seed handoff helpers", () => {
     });
   });
 
+  it("keeps reviewed visibility and existing content in publication mode", () => {
+    const publicAlias = seedField({ visibility: "public", reviewState: "accepted" });
+    const existingProfile = {
+      profileType: "person",
+      aliases: ["Old Alias"],
+      searchAliases: ["old-handle"],
+      tags: ["house"],
+      bio: "Existing bio",
+      person: { roleTags: ["DJ"] },
+      fieldVisibility: { tags: "unlisted" },
+    } as never;
+
+    const conciergePatch = buildConciergeProfileFieldPatch([publicAlias], existingProfile);
+    const publishPatch = buildConciergeProfileFieldPatch([publicAlias], existingProfile, {
+      fieldVisibilitySource: "reviewed",
+      clearUnselectedFields: false,
+    });
+
+    // Concierge mode: everything private, and unselected fields are wiped.
+    assert.equal(conciergePatch.fieldVisibility?.aliases, "private");
+    assert.deepEqual(conciergePatch.tags, []);
+    assert.deepEqual(conciergePatch.searchAliases, []);
+
+    // Publication mode: reviewed visibility, nothing unproposed touched.
+    assert.equal(publishPatch.fieldVisibility?.aliases, "public");
+    assert.equal(publishPatch.tags, undefined);
+    assert.equal(publishPatch.bio, undefined);
+    assert.equal(publishPatch.searchAliases, undefined);
+    assert.equal(publishPatch.fieldVisibility?.tags, "unlisted");
+  });
+
   it("rejects handoff fields withdrawn during review", () => {
     for (const reviewState of ["rejected", "needs_correction"] as const) {
       const field = seedField({ reviewState });
