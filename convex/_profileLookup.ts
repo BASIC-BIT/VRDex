@@ -78,6 +78,7 @@ export function toProfileLookupResult(
   profile: Doc<"profiles">,
   options: {
     avatarImageUrl?: string;
+    avatarImageKind?: "logo" | "profile";
     avatarAppearance?: PublicProfileAvatarAppearance;
     sourceLabel?: string;
   } = {},
@@ -109,6 +110,7 @@ export function toProfileLookupResult(
     ...(headline === undefined ? {} : { headline }),
     ...(bio === undefined ? {} : { bio }),
     ...(avatarImageUrl === undefined ? {} : { avatarImageUrl }),
+    ...(options.avatarImageKind === undefined ? {} : { avatarImageKind: options.avatarImageKind }),
     ...(options.avatarAppearance === undefined ? {} : { avatarAppearance: options.avatarAppearance }),
     ...(region === undefined ? {} : { region }),
     ...(timezone === undefined ? {} : { timezone }),

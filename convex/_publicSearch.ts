@@ -55,11 +55,11 @@ export async function projectPublicSearchResult(
 
   const mediaKit = await getPublicProfileMediaKit(ctx.db, profile);
   const result = toPublicSearchResult(document, searchText, mediaKit);
+  const usesLogo = publicSearchLookupUsesLogo(result);
   const person = toProfileLookupResult(profile, {
     avatarImageUrl: publicSearchLookupAvatarUrl(result),
-    ...(publicSearchLookupUsesLogo(result)
-      ? {}
-      : { avatarAppearance: mediaKit.avatarAppearance }),
+    avatarImageKind: usesLogo ? "logo" : "profile",
+    ...(usesLogo ? {} : { avatarAppearance: mediaKit.avatarAppearance }),
     sourceLabel: result.source?.label,
   });
 

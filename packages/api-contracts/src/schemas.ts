@@ -258,6 +258,7 @@ export const PublicSearchEntityTypeSchema = z
 
 export const PublicSearchResultSchema = z
   .object({
+    avatarAppearance: PublicProfileAvatarAppearanceSchema.optional(),
     entityType: PublicSearchEntityTypeSchema,
     imageUrl: absoluteOrRootRelativeUrl.optional(),
     logoImageUrl: absoluteOrRootRelativeUrl.optional(),
@@ -271,6 +272,7 @@ export const PublicSearchResultSchema = z
     subtitle: z.string().optional(),
     summary: z.string().optional(),
     title: z.string().min(1),
+    trustLabel: TrustLabelSchema.optional(),
   })
   .passthrough()
   .meta({
@@ -352,20 +354,20 @@ export const PublicEventWorldSummarySchema = z
 
 export const PublicEventPreviewSchema = z
   .object({
-    bannerImageUrl: absoluteUrl.optional(),
-    communityImageUrl: absoluteUrl.optional(),
+    bannerImageUrl: absoluteOrRootRelativeUrl.optional(),
+    communityImageUrl: absoluteOrRootRelativeUrl.optional(),
     communityName: z.string().optional(),
     communitySlug: slug.optional(),
     doorsOpenAt: timestampMs.optional(),
     endAt: timestampMs.optional(),
     participantCount: z.number().int().nonnegative().optional(),
-    posterImageUrl: absoluteUrl.optional(),
+    posterImageUrl: absoluteOrRootRelativeUrl.optional(),
     slug: slug.optional(),
     slotCount: z.number().int().nonnegative().optional(),
     source: PublicEventSourceSchema,
     startAt: timestampMs,
     summary: z.string().optional(),
-    thumbnailImageUrl: absoluteUrl.optional(),
+    thumbnailImageUrl: absoluteOrRootRelativeUrl.optional(),
     timezone: z.string().optional(),
     title: z.string().min(1),
     worlds: z.array(PublicEventWorldSummarySchema).optional(),

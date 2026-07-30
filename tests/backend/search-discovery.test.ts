@@ -604,6 +604,10 @@ describe("search document projection", () => {
       toProfileLookupResult(profile, { avatarAppearance })?.avatarAppearance,
       avatarAppearance,
     );
+    assert.equal(
+      toProfileLookupResult(profile, { avatarImageKind: "profile" })?.avatarImageKind,
+      "profile",
+    );
   });
 
   it("keeps the configured compact-display image ahead of the profile-image fallback", () => {

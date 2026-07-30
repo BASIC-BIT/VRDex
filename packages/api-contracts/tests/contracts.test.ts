@@ -185,11 +185,19 @@ describe("@vrdex/api-contracts", () => {
       type: "community",
       results: [
         {
+          avatarAppearance: {
+            borderColor: "#67e8f9",
+            borderEnabled: true,
+            borderSoftnessPx: 12,
+            borderWidthPx: 4,
+            radiusPercent: 18,
+          },
           entityType: "profile",
           profileType: "community",
           slug: "afterglow",
           routePath: "/c/afterglow",
           title: "Afterglow",
+          trustLabel: "claimed_verified",
           source: { sourceType: "community", label: "Community submitted" },
           score: 42,
         },
@@ -200,6 +208,7 @@ describe("@vrdex/api-contracts", () => {
       id: "event_123",
       slug: "afterglow-night",
       title: "Afterglow Night",
+      communityImageUrl: "/api/v0/profiles/afterglow/assets/avatar/file",
       startAt: 1770000000000,
       source: { sourceType: "manual", label: "Owner-authored" },
       watchSurfaceEnabled: false,

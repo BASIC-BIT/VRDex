@@ -13,6 +13,7 @@ import { LookupSearchBox } from "./lookup-search-box";
 import { mergeLookupSuggestions } from "./lookup-suggestion-merge";
 import { SearchViewShell } from "./search-view-shell";
 import { Card } from "@/components/ui/card";
+import { EntityImage } from "@/components/ui/entity-image";
 import { ProfileAvatarImage } from "@/components/ui/profile-avatar-image";
 import { VerifiedTrustMark } from "@/components/ui/verified-trust-mark";
 import { Table, TableCell, TableFrame, TableHead, TableHeaderCell } from "@/components/ui/table";
@@ -71,6 +72,7 @@ export type PublicProfileLookupResult = {
   headline?: OptionalPublicText;
   bio?: OptionalPublicText;
   avatarImageUrl?: OptionalPublicText;
+  avatarImageKind?: "logo" | "profile";
   avatarAppearance?: AvatarAppearance;
   accentColor?: OptionalPublicText;
   secondaryColor?: OptionalPublicText;
@@ -257,7 +259,20 @@ function ExternalIcon({ className }: { className?: string }) {
   );
 }
 
-function ProfileAvatar({ profile }: { profile: Pick<PublicProfileLookupResult, "avatarAppearance" | "avatarImageUrl" | "displayName"> }) {
+function ProfileAvatar({ profile }: { profile: Pick<PublicProfileLookupResult, "avatarAppearance" | "avatarImageKind" | "avatarImageUrl" | "displayName"> }) {
+  if (profile.avatarImageKind === "logo") {
+    return (
+      <EntityImage
+        alt=""
+        className="lookup-avatar rounded-none bg-transparent"
+        imageClassName="object-contain"
+        label={profile.displayName}
+        sizes="83px"
+        src={profile.avatarImageUrl}
+      />
+    );
+  }
+
   return (
     <ProfileAvatarImage
       alt=""

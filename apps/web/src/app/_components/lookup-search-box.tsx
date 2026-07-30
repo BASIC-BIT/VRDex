@@ -56,6 +56,19 @@ function SuggestionAvatar({ profile }: { profile: ProfileLookupDisplayResult }) 
     );
   }
 
+  if (profile.avatarImageKind === "logo") {
+    return (
+      <EntityImage
+        alt=""
+        className="lookup-suggestion-avatar rounded-none bg-transparent"
+        imageClassName="object-contain"
+        label={profile.displayName}
+        sizes="38px"
+        src={profile.avatarImageUrl}
+      />
+    );
+  }
+
   return (
     <ProfileAvatarImage
       alt=""
