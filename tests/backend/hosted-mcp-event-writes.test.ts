@@ -6,6 +6,7 @@ import { convexTest } from "convex-test";
 import { internal } from "../../convex/_generated/api";
 import schemaModule from "../../convex/schema";
 
+import { newClerkUserId } from "./_clerkTestIdentity";
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/events.ts": () => import("../../convex/events"),
@@ -27,7 +28,9 @@ function isMcpWriteDenied(error: unknown) {
 
 async function seedCommunityOwner(t: ReturnType<typeof convexTest>, suffix: string) {
   return t.run(async (ctx) => {
+    const clerkUserId = newClerkUserId();
     const userId = await ctx.db.insert("users", {
+      clerkUserId: clerkUserId,
       name: `Community Owner ${suffix}`,
       email: `owner-${suffix}@example.com`,
       emailVerificationTime: NOW,

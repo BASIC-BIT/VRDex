@@ -3,12 +3,12 @@ import { claimError } from "./_claimErrors";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { query } from "./_generated/server";
-import { activeBrowserSessionOrNull } from "./_browserSessionAuthority";
+import { currentUserOrNull } from "./_identity";
 
 type AccountCtx = QueryCtx | MutationCtx;
 
 export async function getCurrentUser(ctx: AccountCtx) {
-  return (await activeBrowserSessionOrNull(ctx))?.user ?? null;
+  return await currentUserOrNull(ctx);
 }
 
 // These two guards are the most common claim failures — an expired session and
@@ -35,17 +35,31 @@ export async function requireVerifiedEmailUser(ctx: AccountCtx) {
   return user;
 }
 
+/**
+ * Clerk owns which providers a user can sign in with, and that list is not
+ * readable from a query or mutation without a network call. Claiming never
+ * wanted sign-in provenance anyway — it wants a Discord identity VRDex has
+ * itself verified — so this reads VRDex's own verification watermark instead of
+ * a provider account table. `providerAccountId` is preserved as the field name
+ * because every caller reads only that.
+ */
 export async function getLinkedProviderAccount(
   ctx: AccountCtx,
   userId: Id<"users">,
   provider: string,
 ) {
-  const accounts = await ctx.db
-    .query("authAccounts")
-    .withIndex("userIdAndProvider", (query) => query.eq("userId", userId).eq("provider", provider))
-    .take(1);
+  if (provider !== "discord") {
+    return null;
+  }
 
-  return accounts[0] ?? null;
+  const watermark = await ctx.db
+    .query("discordVerificationWatermarks")
+    .withIndex("by_userId_discordUserId", (query) => query.eq("userId", userId))
+    .first();
+
+  return watermark === null
+    ? null
+    : { providerAccountId: watermark.discordUserId };
 }
 
 export const viewer = query({
@@ -57,11 +71,8 @@ export const viewer = query({
       return null;
     }
 
-    const linkedAccounts = await ctx.db
-      .query("authAccounts")
-      .withIndex("userIdAndProvider", (query) => query.eq("userId", user._id))
-      .collect();
-
+    // Connected sign-in methods are rendered by Clerk's own account UI, so this
+    // no longer reports them.
     return {
       user: {
         id: user._id,
@@ -70,11 +81,6 @@ export const viewer = query({
         emailVerified: user.emailVerificationTime !== undefined,
         image: user.image,
       },
-      linkedProviders: linkedAccounts.map((account) => ({
-        provider: account.provider,
-        providerAccountId: account.providerAccountId,
-        emailVerified: account.emailVerified !== undefined,
-      })),
     };
   },
 });

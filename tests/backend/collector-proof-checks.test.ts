@@ -7,6 +7,7 @@ import { api, internal } from "../../convex/_generated/api";
 import schemaModule from "../../convex/schema";
 import { proofShareOf } from "../../convex/communityTelemetry";
 
+import { newClerkUserId } from "./_clerkTestIdentity";
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/communityTelemetry.ts": () => import("../../convex/communityTelemetry"),
@@ -46,7 +47,9 @@ async function seedAttempt(
   const db = (ctx as unknown as {
     db: { insert: (t: string, v: unknown) => Promise<string> };
   }).db;
+  const clerkUserId = newClerkUserId();
   const userId = await db.insert("users", {
+    clerkUserId: clerkUserId,
     email: `${targetType}-${Math.round(now)}-${Math.random()}@example.test`,
     emailVerificationTime: now,
   });
@@ -80,16 +83,22 @@ async function seedAttempt(
   });
 }
 
-async function webSessionIdentity(ctx: never, userId: string, now: number) {
-  const db = (ctx as unknown as { db: { insert: (t: string, v: unknown) => Promise<string> } }).db;
-  // The active-session guard resolves the session row named by the subject, so
-  // a fabricated `|web-session` suffix no longer authenticates.
-  const sessionId = await db.insert("authSessions", { userId, expirationTime: now + 60_000 });
+async function webSessionIdentity(ctx: never, userId: string) {
+  const db = (ctx as unknown as {
+    db: { get: (id: string) => Promise<{ clerkUserId: string } | null> };
+  }).db;
+  // Clerk owns sessions, so the subject is the user's Clerk id; read it back
+  // rather than fabricating a session row that no longer exists.
+  const user = await db.get(userId);
+
+  if (user === null) {
+    throw new Error("Seeded user was not found.");
+  }
 
   return {
-    subject: `${userId}|${sessionId}`,
+    subject: user.clerkUserId,
     issuer: "test",
-    tokenIdentifier: `test|${userId}`,
+    tokenIdentifier: `test|${user.clerkUserId}`,
   };
 }
 
@@ -348,7 +357,9 @@ describe("open proof attempt cap", () => {
       const db = (ctx as unknown as {
         db: { insert: (table: string, value: unknown) => Promise<string> };
       }).db;
+      const clerkUserId2 = newClerkUserId();
       const userId = await db.insert("users", {
+        clerkUserId: clerkUserId2,
         email: "capped@example.test",
         emailVerificationTime: now,
       });
@@ -371,7 +382,7 @@ describe("open proof attempt cap", () => {
       }
 
       return {
-        identity: await webSessionIdentity(ctx as never, userId, now),
+        identity: await webSessionIdentity(ctx as never, userId),
       };
     });
     const asClaimant = t.withIdentity(seeded.identity);

@@ -34,12 +34,8 @@ function relative(absolutePath: string) {
 
 describe("browser auth-session authorization boundary", () => {
   it("centralizes raw Convex browser identity access in reviewed auth modules", () => {
-    const approvedGetAuthUserId = new Set([
-      "convex/_authSessionGuard.ts",
-      "convex/accountSessions.ts",
-      "convex/recentAuthChallenges.ts",
-    ]);
     const approvedIdentityReads = new Set([
+      "convex/_identity.ts",
       "convex/_browserSessionAuthority.ts",
     ]);
 
@@ -66,7 +62,6 @@ describe("browser auth-session authorization boundary", () => {
   it("prevents eligible modules from bypassing the active-session guard through account helpers", () => {
     const approvedLegacyAccountAuthority = new Set([
       "convex/accounts.ts",
-      "convex/accountSessions.ts",
       "convex/apiTokens.ts",
       "convex/oauthApps.ts",
     ]);
@@ -82,7 +77,7 @@ describe("browser auth-session authorization boundary", () => {
       ) {
         assert.ok(
           approvedLegacyAccountAuthority.has(name),
-          `${name} must authorize browser work through requireActiveAuthSession`,
+          `${name} must authorize browser work through requireUser`,
         );
       }
     }
@@ -90,13 +85,6 @@ describe("browser auth-session authorization boundary", () => {
 
   it("guards every browser-authenticated Convex action before external work", () => {
     const actionInventory = new Map<string, string[]>([
-      [
-        "convex/accountSessions.ts",
-        [
-          "internal.accountSessions.authorizeAndBeginOwnedSessionRevocation",
-          "requireRecentAuthSession(ctx)",
-        ],
-      ],
       [
         // Purpose-scoped Discord OAuth round-trip: every action here reads the
         // browser session before it exchanges a code or touches Discord.
@@ -117,13 +105,6 @@ describe("browser auth-session authorization boundary", () => {
           "internal.profileClaims.getDiscordCommunityClaimForAdapter",
           "internal.profileClaims.getVerificationAttemptForAdapter",
           "requireVerifiedActiveBrowserSession(ctx)",
-        ],
-      ],
-      [
-        "convex/recentAuthPassword.ts",
-        [
-          "internal.recentAuthChallenges.validatePasswordVerification",
-          "internal.recentAuthChallenges.verifyPassword",
         ],
       ],
     ]);
@@ -148,7 +129,7 @@ describe("browser auth-session authorization boundary", () => {
 
     assert.doesNotMatch(
       contents,
-      /getAuthUserId|ctx\.auth\.getUserIdentity|requireActiveAuthSession|convexAuthNextjsToken/,
+      /getAuthUserId|ctx\.auth\.getUserIdentity|requireUser|convexAuthToken/,
     );
   });
 
@@ -180,52 +161,20 @@ describe("browser auth-session authorization boundary", () => {
       ],
       [
         "apps/web/src/app/api/time/parse/[continuationToken]/route.ts",
-        "activeAuthSessionViewerQuery",
+        "viewerQuery",
       ],
-      [
-        "apps/web/src/app/api/time/parse/route.ts",
-        "activeAuthSessionViewerQuery",
-      ],
-      [
-        "apps/web/src/app/api/time/prewarm/route.ts",
-        "activeAuthSessionViewerQuery",
-      ],
-      [
-        "apps/web/src/app/auth/reauth/cancel/route.ts",
-        "cancelRecentAuthChallengeMutation",
-      ],
-      [
-        "apps/web/src/app/auth/reauth/complete/route.ts",
-        "activeAuthSessionViewerQuery",
-      ],
-      [
-        "apps/web/src/app/auth/reauth/fail/route.ts",
-        "failRecentAuthChallengeMutation",
-      ],
-      [
-        "apps/web/src/app/auth/reauth/start/route.ts",
-        "beginRecentAuthChallengeMutation",
-      ],
-      [
-        "apps/web/src/app/auth/session-converge/route.ts",
-        "activeAuthSessionViewerQuery",
-      ],
-      [
-        "apps/web/src/app/oauth/authorize/consent/route.ts",
-        "activeAuthSessionViewerQuery",
-      ],
+      ["apps/web/src/app/api/time/parse/route.ts", "viewerQuery"],
+      ["apps/web/src/app/api/time/prewarm/route.ts", "viewerQuery"],
+      ["apps/web/src/app/oauth/authorize/consent/route.ts", "viewerQuery"],
       [
         "apps/web/src/app/oauth/authorize/review/page.tsx",
         "api.oauthConsentTransactions.get",
       ],
-      [
-        "apps/web/src/app/oauth/authorize/route.ts",
-        "activeAuthSessionViewerQuery",
-      ],
+      ["apps/web/src/app/oauth/authorize/route.ts", "viewerQuery"],
     ]);
     const browserJwtFiles = filesBelow(webAppRoot, [".ts", ".tsx"])
       .filter((file) =>
-        fs.readFileSync(file, "utf8").includes("convexAuthNextjsToken"),
+        fs.readFileSync(file, "utf8").includes("convexAuthToken"),
       )
       .map(relative)
       .sort();
@@ -234,7 +183,7 @@ describe("browser auth-session authorization boundary", () => {
 
     for (const [file, guardedCall] of inventory) {
       assert.match(source(file), new RegExp(guardedCall.replaceAll(".", "\\.")));
-      if (guardedCall === "activeAuthSessionViewerQuery") {
+      if (guardedCall === "viewerQuery") {
         assert.match(source(file), /if \(viewer === null\)/);
       }
     }

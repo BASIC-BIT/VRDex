@@ -1,19 +1,19 @@
-import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
+import { convexAuthToken } from "@/lib/server/auth";
 import { fetchAction } from "convex/nextjs";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { api } from "@convex-generated-api";
 import { appendReturnPathQuery, resolveSameOriginUrl, safeReturnPath } from "@/lib/return-path";
 import {
-  invalidAuthSessionRedirectResponse,
-  isAuthSessionInvalidError,
-} from "@/lib/server/invalid-auth-session";
+  unauthenticatedRedirectResponse,
+  isUnauthenticatedError,
+} from "@/lib/server/auth";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   const returnTo = safeReturnPath(request.nextUrl.searchParams.get("returnTo"));
-  const token = await convexAuthNextjsToken();
+  const token = await convexAuthToken();
 
   if (!token) {
     return NextResponse.redirect(
@@ -35,8 +35,8 @@ export async function GET(request: NextRequest) {
     // `AUTH_SESSION_INVALID` fell into the generic branch below and the user was
     // told to "try again" on something retrying can never fix — and the stale
     // cookies were never cleared.
-    if (isAuthSessionInvalidError(error)) {
-      return invalidAuthSessionRedirectResponse(request, returnTo);
+    if (isUnauthenticatedError(error)) {
+      return unauthenticatedRedirectResponse(request, returnTo);
     }
 
     console.error(

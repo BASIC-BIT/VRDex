@@ -17,6 +17,7 @@ import {
   requireControlProof,
 } from "../../convex/_externalControl";
 
+import { newClerkUserId } from "./_clerkTestIdentity";
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/profileConnections.ts": () => import("../../convex/profileConnections"),
@@ -72,16 +73,23 @@ async function seedCommunity(ctx: never, slug: string, now: number) {
   });
 }
 
-async function webSessionIdentity(ctx: never, userId: string, now: number) {
-  const db = (ctx as unknown as { db: { insert: (t: string, v: unknown) => Promise<string> } }).db;
-  // The active-session guard resolves the session row named by the subject, so
-  // a fabricated `|web-session` suffix no longer authenticates.
-  const sessionId = await db.insert("authSessions", { userId, expirationTime: now + 60_000 });
+async function webSessionIdentity(ctx: never, userId: string) {
+  const db = (ctx as unknown as {
+    db: { get: (id: string) => Promise<{ clerkUserId: string } | null> };
+  }).db;
+  // Clerk owns sessions, so the subject is the user's Clerk id and there is no
+  // session row to fabricate. Read it back rather than guessing, so the
+  // identity always resolves to this exact `users` row.
+  const user = await db.get(userId);
+
+  if (user === null) {
+    throw new Error("Seeded user was not found.");
+  }
 
   return {
-    subject: `${userId}|${sessionId}`,
+    subject: user.clerkUserId,
     issuer: "test",
-    tokenIdentifier: `test|${userId}`,
+    tokenIdentifier: `test|${user.clerkUserId}`,
   };
 }
 
@@ -121,7 +129,9 @@ describe("profile external links", () => {
     const now = Date.now();
 
     await t.run(async (ctx) => {
+      const clerkUserId = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId,
         email: "links@example.test",
         emailVerificationTime: now,
       });
@@ -169,7 +179,9 @@ describe("profile external links", () => {
     const now = Date.now();
 
     await t.run(async (ctx) => {
+      const clerkUserId2 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId2,
         email: "relink@example.test",
         emailVerificationTime: now,
       });
@@ -206,7 +218,9 @@ describe("profile external links", () => {
     const now = Date.now();
 
     await t.run(async (ctx) => {
+      const clerkUserId3 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId3,
         email: "relink-secondary@example.test",
         emailVerificationTime: now,
       });
@@ -244,11 +258,15 @@ describe("profile external links", () => {
     const now = Date.now();
 
     await t.run(async (ctx) => {
+      const clerkUserId4 = newClerkUserId();
       const owner = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId4,
         email: "resurrect-owner@example.test",
         emailVerificationTime: now,
       });
+      const clerkUserId5 = newClerkUserId();
       const other = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId5,
         email: "resurrect-other@example.test",
         emailVerificationTime: now,
       });
@@ -296,7 +314,9 @@ describe("profile external links", () => {
     const now = Date.now();
 
     await t.run(async (ctx) => {
+      const clerkUserId6 = newClerkUserId();
       const owner = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId6,
         email: "operator-survives@example.test",
         emailVerificationTime: now,
       });
@@ -328,7 +348,9 @@ describe("profile external links", () => {
     const now = Date.now();
 
     await t.run(async (ctx) => {
+      const clerkUserId7 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId7,
         email: "remove@example.test",
         emailVerificationTime: now,
       });
@@ -358,7 +380,9 @@ describe("profile external links", () => {
     const now = Date.now();
 
     await t.run(async (ctx) => {
+      const clerkUserId8 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId8,
         email: "shared@example.test",
         emailVerificationTime: now,
       });
@@ -392,7 +416,9 @@ describe("external control proofs", () => {
     const now = Date.now();
 
     await t.run(async (ctx) => {
+      const clerkUserId9 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId9,
         email: "proof@example.test",
         emailVerificationTime: now,
       });
@@ -433,7 +459,9 @@ describe("external control proofs", () => {
     const now = Date.now();
 
     await t.run(async (ctx) => {
+      const clerkUserId10 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId10,
         email: "overdue@example.test",
         emailVerificationTime: now,
       });
@@ -483,7 +511,9 @@ describe("external control proofs", () => {
     const now = Date.now();
 
     await t.run(async (ctx) => {
+      const clerkUserId11 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId11,
         email: "weak@example.test",
         emailVerificationTime: now,
       });
@@ -515,7 +545,9 @@ describe("control proof revalidation", () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const userId = await t.run(async (ctx) => {
+      const clerkUserId12 = newClerkUserId();
       const id = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId12,
         email: "overdue@example.test",
         emailVerificationTime: now,
       });
@@ -573,14 +605,16 @@ describe("Discord guild proof reconciliation", () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const seeded = await t.run(async (ctx) => {
+      const clerkUserId13 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId13,
         email: "reconcile@example.test",
         emailVerificationTime: now,
       });
 
       return {
         userId,
-        identity: await webSessionIdentity(ctx as never, userId, now),
+        identity: await webSessionIdentity(ctx as never, userId),
       };
     });
 
@@ -632,14 +666,16 @@ describe("Discord guild proof reconciliation", () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const seeded = await t.run(async (ctx) => {
+      const clerkUserId14 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId14,
         email: "shared-guild@example.test",
         emailVerificationTime: now,
       });
 
       return {
         userId,
-        identity: await webSessionIdentity(ctx as never, userId, now),
+        identity: await webSessionIdentity(ctx as never, userId),
       };
     });
     const asUser = t.withIdentity(seeded.identity);
@@ -687,12 +723,14 @@ describe("Discord guild proof reconciliation", () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const seeded = await t.run(async (ctx) => {
+      const clerkUserId15 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId15,
         email: "overlapping-callbacks@example.test",
         emailVerificationTime: now,
       });
 
-      return { userId, identity: await webSessionIdentity(ctx as never, userId, now) };
+      return { userId, identity: await webSessionIdentity(ctx as never, userId) };
     });
     const asUser = t.withIdentity(seeded.identity);
     const guild = [
@@ -809,14 +847,16 @@ describe("Discord guild proof reconciliation", () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const seeded = await t.run(async (ctx) => {
+      const clerkUserId16 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId16,
         email: "two-logins@example.test",
         emailVerificationTime: now,
       });
 
       return {
         userId,
-        identity: await webSessionIdentity(ctx as never, userId, now),
+        identity: await webSessionIdentity(ctx as never, userId),
       };
     });
 
@@ -859,14 +899,16 @@ describe("Discord verification state backlog", () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const seeded = await t.run(async (ctx) => {
+      const clerkUserId17 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId17,
         email: "state-spam@example.test",
         emailVerificationTime: now,
       });
 
       return {
         userId,
-        identity: await webSessionIdentity(ctx as never, userId, now),
+        identity: await webSessionIdentity(ctx as never, userId),
       };
     });
     const asCaller = t.withIdentity(seeded.identity);
@@ -900,7 +942,9 @@ describe("Discord verification state backlog", () => {
 describe("VRCLinking credential delegation", () => {
   async function seedOwnedCommunity(t: ReturnType<typeof convexTest>, slug: string, now: number) {
     return await t.run(async (ctx) => {
+      const clerkUserId18 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId18,
         email: `${slug}@example.test`,
         emailVerificationTime: now,
       });
@@ -916,7 +960,7 @@ describe("VRCLinking credential delegation", () => {
 
       return {
         userId,
-        identity: await webSessionIdentity(ctx as never, userId, now),
+        identity: await webSessionIdentity(ctx as never, userId),
       };
     });
   }
@@ -1110,14 +1154,21 @@ describe("VRCLinking credential delegation", () => {
       );
       await ctx.db.patch(proof!._id, { revalidateAfter: now - 1 });
 
+      const clerkUserId19 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId19,
         email: "rotation-claimant@example.test",
         emailVerificationTime: now,
       });
-      await ctx.db.insert("authAccounts", {
+      // A linked Discord identity is now VRDex's own verification watermark
+      // rather than a sign-in provider account.
+      await ctx.db.insert("discordVerificationWatermarks", {
         userId,
-        provider: "discord",
-        providerAccountId: "discord-claimant",
+        discordUserId: "discord-claimant",
+        issuedGeneration: 0,
+        appliedGeneration: 0,
+        issuedAt: now,
+        updatedAt: now,
       });
 
       return userId;
@@ -1149,7 +1200,9 @@ describe("claiming a community with a verified guild", () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const seeded = await t.run(async (ctx) => {
+      const clerkUserId20 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId20,
         email: "claimer@example.test",
         emailVerificationTime: now,
       });
@@ -1157,7 +1210,7 @@ describe("claiming a community with a verified guild", () => {
 
       return {
         userId,
-        identity: await webSessionIdentity(ctx as never, userId, now),
+        identity: await webSessionIdentity(ctx as never, userId),
       };
     });
     const asUser = t.withIdentity(seeded.identity);
@@ -1237,13 +1290,15 @@ describe("claiming a community with a verified guild", () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const seeded = await t.run(async (ctx) => {
+      const clerkUserId21 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId21,
         email: "two-proof-link@example.test",
         emailVerificationTime: now,
       });
       await seedCommunity(ctx as never, "two-proof-link", now);
 
-      return { userId, identity: await webSessionIdentity(ctx as never, userId, now) };
+      return { userId, identity: await webSessionIdentity(ctx as never, userId) };
     });
     const asUser = t.withIdentity(seeded.identity);
 
@@ -1290,7 +1345,9 @@ describe("claiming a community with a verified guild", () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const seeded = await t.run(async (ctx) => {
+      const clerkUserId22 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId22,
         email: "lapsing@example.test",
         emailVerificationTime: now,
       });
@@ -1298,7 +1355,7 @@ describe("claiming a community with a verified guild", () => {
 
       return {
         userId,
-        identity: await webSessionIdentity(ctx as never, userId, now),
+        identity: await webSessionIdentity(ctx as never, userId),
       };
     });
     const asUser = t.withIdentity(seeded.identity);
@@ -1369,11 +1426,15 @@ describe("claiming a community with a verified guild", () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const seeded = await t.run(async (ctx) => {
+      const clerkUserId23 = newClerkUserId();
       const staffId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId23,
         email: "staff@example.test",
         emailVerificationTime: now,
       });
+      const clerkUserId24 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId24,
         email: "upgrade@example.test",
         emailVerificationTime: now,
       });
@@ -1407,7 +1468,7 @@ describe("claiming a community with a verified guild", () => {
 
       return {
         profileId,
-        identity: await webSessionIdentity(ctx as never, userId, now),
+        identity: await webSessionIdentity(ctx as never, userId),
       };
     });
 
@@ -1429,7 +1490,9 @@ describe("claiming a community with a verified guild", () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const seeded = await t.run(async (ctx) => {
+      const clerkUserId25 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId25,
         email: "operator-seeded@example.test",
         emailVerificationTime: now,
       });
@@ -1444,7 +1507,7 @@ describe("claiming a community with a verified guild", () => {
       });
 
       return {
-        identity: await webSessionIdentity(ctx as never, userId, now),
+        identity: await webSessionIdentity(ctx as never, userId),
       };
     });
     const asUser = t.withIdentity(seeded.identity);
@@ -1483,11 +1546,15 @@ describe("claiming a community with a verified guild", () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const seeded = await t.run(async (ctx) => {
+      const clerkUserId26 = newClerkUserId();
       const ownerId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId26,
         email: "first@example.test",
         emailVerificationTime: now,
       });
+      const clerkUserId27 = newClerkUserId();
       const intruderId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId27,
         email: "second@example.test",
         emailVerificationTime: now,
       });

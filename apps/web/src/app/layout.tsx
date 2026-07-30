@@ -1,10 +1,8 @@
 import type { Metadata } from "next";
-import { ConvexAuthNextjsServerProvider } from "@convex-dev/auth/nextjs/server";
+import { ClerkProvider } from "@clerk/nextjs";
 import { IBM_Plex_Mono, Space_Grotesk } from "next/font/google";
-import { cookies } from "next/headers";
 import { ConvexClientProvider } from "./ConvexClientProvider";
 import { PostHogProvider } from "./PostHogProvider";
-import { authSessionCredentialPresent } from "@/lib/auth-session";
 import "./globals.css";
 
 const spaceGrotesk = Space_Grotesk({
@@ -37,11 +35,6 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const credentialPresent = process.env.NEXT_PUBLIC_CONVEX_URL
-    ? authSessionCredentialPresent(
-        (await cookies()).getAll().map(({ name }) => name),
-      )
-    : false;
   const shell = (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -51,7 +44,7 @@ export default async function RootLayout({
         className={`${spaceGrotesk.variable} ${ibmPlexMono.variable} antialiased`}
       >
         <PostHogProvider>
-          <ConvexClientProvider credentialPresent={credentialPresent}>
+          <ConvexClientProvider>
             {children}
           </ConvexClientProvider>
         </PostHogProvider>
@@ -63,5 +56,5 @@ export default async function RootLayout({
     return shell;
   }
 
-  return <ConvexAuthNextjsServerProvider>{shell}</ConvexAuthNextjsServerProvider>;
+  return <ClerkProvider>{shell}</ClerkProvider>;
 }

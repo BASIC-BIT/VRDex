@@ -1,183 +1,113 @@
 # App authentication sessions
 
-Status: `Current recommendation` implemented for new sessions.
+Status: `Current recommendation` implemented.
 
-This contract covers first-party VRDex web sessions created through Discord,
-Google, or email/password. Provider access-token expiry is not the VRDex app
-session lifetime. The browser stores VRDex's refresh credential in an
-HTTP-only cookie; bearer tokens must not be moved to `localStorage` by
-application code.
+Clerk is VRDex's authentication and session authority. It owns sign-in, sign-up,
+connected accounts, session lifetime, and session revocation. VRDex owns
+authorization: what a signed-in user may do with profiles, claims, media,
+developer credentials, and the public API.
+
+Convex trusts Clerk through one setting — `convex/auth.config.ts` names the
+Clerk issuer as `domain` and `convex` as `applicationID`, matching the `convex`
+JWT template on the Clerk instance.
+
+## Identity model
+
+`users` remains the VRDex identity spine. Every other table's `v.id("users")`
+foreign key points at it, and `clerkUserId` is its only link to the auth
+provider.
+
+Rows are provisioned on demand: the first authenticated page load calls
+`users:ensureCurrentUser`, which inserts or refreshes the row from the Clerk
+identity. There is no Clerk webhook — no endpoint to expose, no signature to
+verify, and no replay or retry semantics to get wrong. The mutation is
+idempotent, so repeat calls refresh rather than duplicate.
+
+Convex code resolves identity through `convex/_identity.ts`:
+
+| Helper | Use |
+| --- | --- |
+| `requireUser(ctx)` | Returns `{ user, userId }`, throws `UNAUTHENTICATED` |
+| `currentUserOrNull(ctx)` | Returns the row or `null` |
+| `ensureUser(ctx)` | Idempotent provisioning from the Clerk identity |
+| `isUnauthenticatedError(error)` | Recognises the thrown code |
+
+Claim-level and account-level code uses `convex/_browserSessionAuthority.ts`,
+which sits on those helpers and adds the `authSubject` shape.
+
+`tests/backend/auth-session-authorization-boundary.test.ts` enforces the
+boundary: only `_identity.ts` and `_browserSessionAuthority.ts` may read
+`ctx.auth.getUserIdentity()` directly, the Convex HTTP router must stay free of
+browser-session authority, and every Next route forwarding a browser JWT to
+Convex must be inventoried.
 
 ## Session contract
 
-| Boundary | Contract |
+Session lifetime is Clerk's, configured on the Clerk instance rather than in
+this repository. VRDex does not reproduce the previous hand-rolled contract —
+there is no VRDex session record, no refresh-token tree, and no silent-refresh
+middleware, because Clerk performs all of it.
+
+| Boundary | Owner |
 | --- | --- |
-| JWT access token | 1 hour |
-| Inactivity timeout | 30 days since the latest successful refresh |
-| Remembered browser cookie | 30 days, renewed when tokens rotate |
-| Absolute lifetime | 90 days from sign-in |
-| Silent refresh | Middleware refreshes near JWT expiry and rotates the one-time refresh token |
-| Explicit sign-out | Deletes the current backend session and its refresh-token tree, then clears browser state |
-| Refresh-token reuse | Reuse outside the library's concurrency window invalidates the affected refresh-token subtree |
-| Sensitive actions | Credential issuance, OAuth app creation/revocation, and remote session revocation require authentication within the last 15 minutes |
-| Preview/staging | Separate Convex deployment, issuer, signing keys, callback host, cookies, and accounts from production |
+| Session lifetime and inactivity timeout | Clerk instance settings |
+| Token refresh and rotation | Clerk, via `ConvexProviderWithClerk` |
+| Session inventory and device list | Clerk, surfaced by `<UserProfile />` |
+| Session revocation | Clerk; a revoked session mints no further tokens |
+| Sign-out | Clerk `signOut()`, which clears its own cookies |
+| JWT lifetime reaching Convex | The `convex` JWT template, currently 1 hour |
+| Preview/staging isolation | Separate Clerk instance, keys, and Convex deployment |
 
-The cookie remains host-only with `Secure`, `HttpOnly`, `SameSite=Lax`, and
-`Path=/` on hosted HTTPS origins. No `Domain` attribute is set, so a session
-for `vrdex.net` is not sent to generated Vercel previews, `staging.vrdex.net`,
-or `db.vrdex.net`. OAuth callbacks use the Convex HTTP Actions host, then return
-an application code to the web origin; provider tokens do not become web
-session cookies.
+A token Convex accepts is by definition unexpired and unrevoked, so server code
+has no session row to consult. An unauthenticated request — no token, an expired
+one, or one for a revoked session — is a single case, and the middleware
+redirects it to `/sign-in`.
 
-## Why this is explicit
+## Connected accounts
 
-`@convex-dev/auth` 0.0.92 defaults backend sessions to 30 days total, refresh
-tokens to 30 days of inactivity, and JWTs to 1 hour. Its Next.js middleware
-defaults auth cookies to browser-session cookies unless `cookieConfig.maxAge`
-is supplied. A browser restart could therefore discard the server-readable
-refresh token while the backend session was still active.
+A user may sign in with email, Google, or Discord, and link additional providers
+from Clerk's account UI even when the provider email addresses differ. That is
+the capability the previous verified-email matching could not express.
 
-VRDex sets both sides explicitly:
+Provider linkage is Clerk state and is not readable from a Convex query or
+mutation without a network call. Claiming therefore does not consult sign-in
+provenance: `getLinkedProviderAccount` in `convex/accounts.ts` reads VRDex's own
+`discordVerificationWatermarks`, written by the purpose-scoped Discord OAuth
+round-trip in `convex/discordVerification.ts`.
 
-- `convex/_authSession.ts` owns backend JWT, inactivity, and absolute limits.
-- `apps/web/src/lib/auth-session.ts` owns the matching browser cookie limit and
-  sanitized lifecycle classification.
-- `apps/web/src/middleware.ts` supplies the remembered-cookie configuration.
+The practical effect: claiming a profile with Discord requires completing that
+verification round-trip, not merely having signed in with Discord. That is the
+evidence a claim actually depends on, and it decouples claiming from whichever
+provider a user happened to sign in with.
 
-Changing one duration requires changing the matching constants and tests
-together. Existing backend session records keep the expiration time written
-when they were created; the 90-day cap applies to sessions created after the
-backend change deploys.
+## Sensitive actions
 
-## Recent authentication
+Consequential browser actions — API token creation, OAuth application creation,
+and OAuth application revocation — show a confirmation immediately before the
+write. Cancelling performs no write.
 
-Recent authentication is a non-sliding 15-minute window measured from
-successful completion of a server-side challenge and bound to the replacement
-VRDex session. An ordinary active session remains valid for routine use after
-that window. Sensitive browser operations fail closed with the typed
-`RECENT_AUTH_REQUIRED` code. The original secret-producing request is never
-stored or replayed automatically.
+Confirmations prevent accidental clicks. They are not a security boundary: an
+attacker controlling an active session can dismiss them. Authorization checks on
+each mutation, plus Clerk-side session revocation, remain the boundary. This
+trade-off is deliberate and replaces the previous recent-authentication step-up,
+which Discord- and Google-only accounts could not complete at all.
 
-The current step-up method is email/password only. Discord and Google remain
-ordinary sign-in methods, but ordinary OAuth sign-in cannot satisfy the
-recent-auth guard because the installed auth stack does not bind provider
-freshness to the resulting VRDex session. Password step-up verifies the exact
-original session, consumes a one-time proof, atomically creates and binds one
-replacement session, and deletes the original session and refresh-token tree.
-Concurrent tabs converge on that replacement. Because this is a full
-reauthentication, the replacement begins a new 90-day absolute lifetime.
+## Configuration
 
-Developer forms may keep a bounded non-secret draft in `sessionStorage` across
-that redirect; token values, client secrets, passwords, and bearer credentials
-are never included.
+Clerk instances are separate per environment. Required values:
 
-Missing, deleted, expired, malformed, or wrong-user sessions return the
-ordinary invalid-session result rather than masquerading as a step-up
-challenge. Machine-authenticated API and OAuth token endpoints keep their own
-bearer-token authorization contract.
+| Variable | Where | Notes |
+| --- | --- | --- |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | web | Public; encodes the Frontend API host |
+| `CLERK_SECRET_KEY` | web, server-side only | |
+| `CLERK_JWT_ISSUER_DOMAIN` | Convex deployment | Read by `convex/auth.config.ts` |
 
-## Revocation and account lifecycle
+The Clerk instance needs a JWT template named exactly `convex`, from Clerk's
+Convex preset. Templates do not carry across instances, so development,
+staging, and production each need their own.
 
-`/account/security` lists active sessions without tokens, provider payloads,
-IP addresses, or fingerprint-derived device names. It shows session creation,
-latest refresh activity, absolute expiry, and which session is current.
-
-Normal sign-out revokes only the current session. Revoking another session,
-all other sessions, or every session requires recent authentication. A
-revoked browser may keep an already-minted JWT for up to one hour, so every
-browser-session-authenticated backend entry point must use the centralized
-active-session guard before protected work. The static guard-coverage test
-prevents an unguarded query, mutation, action, or browser API route from being
-added silently. A global active-session subscription clears browser state when
-remote revocation is detected, including while the user is away from the
-security page.
-
-Single-session revocation deletes the session record in the request
-transaction, making its refresh tokens unusable immediately. Refresh-token
-history is then deleted in bounded batches so a long rotation history cannot
-make revocation exceed Convex transaction limits.
-
-Global revocation, account deletion, and security-sensitive linked-account
-changes must delete all `authSessions` and `authRefreshTokens` for the account.
-
-Removing or revoking a Discord or Google grant does not silently extend third-
-party access. It also must not sign a user out merely because an optional
-provider API token expired. Require provider reauthorization only for a feature
-that actually needs fresh provider access. Account access continues through
-another linked method when policy allows it.
-
-Broader step-up coverage remains separate work. Billing, account deletion,
-ownership transfer, and sign-in-method changes should require a recent
-authentication timestamp when those product actions are introduced, even when
-the ordinary session is valid.
-
-## Deployment and key rotation
-
-Keep `SITE_URL`, `CONVEX_SITE_URL`, `JWT_PRIVATE_KEY`, and `JWKS` deployment-
-scoped. Preview callbacks must never mint production sessions. Vercel
-deployment URLs should not be used as the production smoke base URL.
-
-Rotating the Convex Auth signing key can invalidate JWTs that have at most one
-hour remaining. Treat rotation as an owner action: stage the new key pair,
-deploy consistently, monitor refresh failures, and expect silent refresh to
-mint a new JWT when the existing refresh session remains valid. Do not rotate
-provider credentials or Convex keys as part of an application PR.
-
-## Observability
-
-The client emits a fixed authentication lifecycle taxonomy:
-
-- restore completion and a once-per-tab slow-restore signal;
-- coarse authenticated/anonymous state changes and explicit current-tab
-  sign-out intent;
-- recent-auth challenge presentation and completion;
-- sensitive-action denial;
-- session-revocation request, completion, and remote-revocation detection.
-
-Application-supplied properties are typed coarse enums only. They contain no
-token, provider payload, email, user ID, session ID, redirect URL, route slug,
-IP address, or account secret. PostHog may still add its standard SDK envelope
-and person/session metadata; the application URL sanitizer removes queries and
-fragments and normalizes token-bearing paths. Session replay records every
-route, and the account, claim, and developer surfaces are blocked from capture
-by route-level layouts rather than by not recording at all — see
-`docs/agentic/product-analytics-and-feature-flags.md`.
-
-Token refresh failures remain server errors until the auth library exposes a
-sanitized reason hook; never log raw JWTs or refresh tokens.
-
-## Verification
-
-Clock-controlled tests cover active, inactivity-expired, absolute-expired,
-revoked, recent-auth boundary, ownership mismatch, and deletion
-classifications. Browser coverage retains:
-
-- persistent cookie attributes and browser restart;
-- silent refresh and rotation;
-- cold client state after a deployment/reload;
-- concurrent tabs and explicit sign-out;
-- inactivity and absolute expiry;
-- invalid or revoked refresh sessions;
-- transient failure without destructive client-state clearing.
-
-The required auth matrix positively selects only the auth-session contract and
-runs it in Playwright Chromium, Firefox, and WebKit. WebKit is useful engine
-coverage but is not a claim about testing desktop or mobile Safari itself.
-
-Recurring hosted auth coverage runs only against the disposable staging
-account helpers. Production authenticated checks are manual one-shot,
-no-business-mutation reads with a freshly exported disposable account state.
-Their dedicated Playwright configuration disables traces, screenshots, video,
-HTML reports, and uploaded test artifacts; workflow output is limited to a
-fixed result classification.
-
-Production inspection is read-only and sanitized. Compare aggregate session
-durations, active/expired counts, and environment variable names; never export
-user records or token identifiers into issue or PR evidence.
-
-## Upstream references
-
-- [Convex Auth configuration](https://github.com/get-convex/convex-auth/blob/7fcda87ead1918f5b537e1e423698209f1d48747/src/server/types.ts)
-- [Convex Auth session implementation](https://github.com/get-convex/convex-auth/blob/7fcda87ead1918f5b537e1e423698209f1d48747/src/server/implementation/sessions.ts)
-- [Convex Auth refresh-token implementation](https://github.com/get-convex/convex-auth/blob/7fcda87ead1918f5b537e1e423698209f1d48747/src/server/implementation/refreshTokens.ts)
-- [Convex Auth Next.js cookie options](https://github.com/get-convex/convex-auth/blob/7fcda87ead1918f5b537e1e423698209f1d48747/src/nextjs/server/cookies.ts)
+Verify every secret after writing it, per
+[`convex-environments.md`](../deployment/convex-environments.md). A trailing
+`\r` in a Convex environment variable is invisible in both the dashboard and
+`convex env get`, and one in `AUTH_GOOGLE_SECRET` broke production Google
+sign-in while consent, Discord, and staging all kept working.

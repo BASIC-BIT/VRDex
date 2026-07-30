@@ -6,6 +6,7 @@ import { convexTest } from "convex-test";
 import { api, internal } from "../../convex/_generated/api";
 import schemaModule from "../../convex/schema";
 
+import { newClerkUserId } from "./_clerkTestIdentity";
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/_communityAuthority.ts": () => import("../../convex/_communityAuthority"),
@@ -23,15 +24,13 @@ const identity = {
 async function seedCommunity(t: ReturnType<typeof convexTest>) {
   return t.run(async (ctx) => {
     const now = Date.now();
+    const clerkUserId = newClerkUserId();
     const userId = await ctx.db.insert("users", {
+      clerkUserId: clerkUserId,
       email: "telemetry-review@example.test",
       emailVerificationTime: now,
     });
-    const sessionId = await ctx.db.insert("authSessions", {
-      userId,
-      expirationTime: now + 60_000,
-    });
-    identity.subject = `${userId}|${sessionId}`;
+    identity.subject = clerkUserId;
     const communityProfileId = await ctx.db.insert("profiles", {
       slug: "faceless",
       displayName: "The Faceless",

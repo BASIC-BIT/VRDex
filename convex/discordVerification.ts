@@ -4,7 +4,7 @@ import {
   claimSessionUserOrNull,
   requireVerifiedActiveBrowserSession,
 } from "./_claimSession";
-import { isAuthSessionInvalidError } from "./_authSessionGuard";
+import { isUnauthenticatedError } from "./_identity";
 import { requireSecureOutboundUrl } from "./_secureUrl";
 import { boundedFetch } from "./_boundedFetch";
 import { claimError } from "./_claimErrors";
@@ -215,7 +215,7 @@ export const consumeVerificationState = internalMutation({
     try {
       ({ user } = await requireVerifiedActiveBrowserSession(ctx));
     } catch (error) {
-      if (isAuthSessionInvalidError(error) && row !== null && row.expiresAt > Date.now()) {
+      if (isUnauthenticatedError(error) && row !== null && row.expiresAt > Date.now()) {
         throw new ConvexError({
           ...(error.data as Record<string, unknown>),
           returnTo: row.returnTo,
@@ -791,7 +791,7 @@ export const completeGuildVerification = action({
       // provider failure. Translating it to `failed` sends the user back with
       // their stale auth cookies intact instead of reaching
       // `invalidAuthSessionResponse` in the callback route.
-      if (isAuthSessionInvalidError(error)) {
+      if (isUnauthenticatedError(error)) {
         // Carrying `returnTo` with it. The single-use state row is already
         // consumed by this point, so it is the only surviving record of where
         // the user started; without it they sign in again and land on

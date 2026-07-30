@@ -1,4 +1,4 @@
-import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
+import { convexAuthToken } from "@/lib/server/auth";
 import { internal } from "@convex-generated-api";
 import {
   isOAuthClientMetadataDocumentUrl,
@@ -10,7 +10,7 @@ import {
   checkApiRateLimit,
   clientIpForRequest,
 } from "@/lib/server/api-rate-limit";
-import { activeAuthSessionViewerQuery } from "@/lib/server/active-auth-session";
+import { viewerQuery } from "@/lib/server/auth";
 import { recordApiRateLimitBlockedEvent } from "@/lib/server/api-rate-limit-events";
 import { convexAdminHttpClient, convexHttpClient } from "@/lib/server/convex-http";
 import {
@@ -150,7 +150,7 @@ export async function GET(request: Request) {
     return oauthAuthorizeProblemRedirect(request, "invalid_client_metadata");
   }
 
-  const authToken = await convexAuthNextjsToken();
+  const authToken = await convexAuthToken();
 
   if (authToken === undefined) {
     const redirectTo = `${new URL(request.url).pathname}${new URL(request.url).search}`;
@@ -161,7 +161,7 @@ export async function GET(request: Request) {
   const userConvex = convexHttpClient();
 
   userConvex.setAuth(authToken);
-  const viewer = await userConvex.query(activeAuthSessionViewerQuery, {});
+  const viewer = await userConvex.query(viewerQuery, {});
 
   if (viewer === null) {
     const redirectTo = `${new URL(request.url).pathname}${new URL(request.url).search}`;

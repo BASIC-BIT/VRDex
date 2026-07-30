@@ -17,7 +17,7 @@ import {
   subjectHasCommunityCapability,
   type AuthSubject,
 } from "./_communityAuthority";
-import { requireActiveAuthSession } from "./_authSessionGuard";
+import { requireUser } from "./_identity";
 import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import {
   apiWriteAuditActorKindValidator,
@@ -1082,7 +1082,7 @@ async function getEditableEventBySlug(
     throw new Error("Event was not found.");
   }
 
-  if (!(await canUpdateEvent(ctx.db, event, subject, (await requireActiveAuthSession(ctx)).userId))) {
+  if (!(await canUpdateEvent(ctx.db, event, subject, (await requireUser(ctx)).userId))) {
     throw new Error("You do not have permission to update this event.");
   }
 
@@ -1106,7 +1106,7 @@ async function getMediaManageableEventBySlug(
     throw new Error("Event was not found.");
   }
 
-  if (!(await canManageEventMedia(ctx.db, event, subject, (await requireActiveAuthSession(ctx)).userId))) {
+  if (!(await canManageEventMedia(ctx.db, event, subject, (await requireUser(ctx)).userId))) {
     throw new Error("You do not have permission to control event media.");
   }
 
@@ -1130,7 +1130,7 @@ async function getOperationsReadableEventBySlug(
     throw new Error("Event was not found.");
   }
 
-  if (!(await canViewEventOperations(ctx.db, event, subject, (await requireActiveAuthSession(ctx)).userId))) {
+  if (!(await canViewEventOperations(ctx.db, event, subject, (await requireUser(ctx)).userId))) {
     throw new Error("You do not have permission to view event operations.");
   }
 
@@ -2155,7 +2155,7 @@ export const updateCommunityEvent = mutation({
   },
   handler: async (ctx, args) => {
     const subject = await requireAuthenticatedSubject(ctx);
-    const { userId } = await requireActiveAuthSession(ctx);
+    const { userId } = await requireUser(ctx);
     const validation = validateEventSlug(args.currentSlug);
 
     if (!validation.ok) {

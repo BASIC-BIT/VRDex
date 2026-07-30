@@ -68,9 +68,8 @@ flags, generated Convex secret, and repository browser token only into the
 matching Vercel preview. This supports temporary verified accounts and reviewed
 OAuth clients for hosted MCP compatibility evidence without enabling the helper
 on shared staging or production. The workflow also generates a preview-only
-Convex Auth RS256 key pair, stores the private key and public JWKS only on that
-Convex preview, and binds `SITE_URL` to the concrete Vercel deployment URL after
-deployment. Separate per-preview runtime material supplies the API token pepper,
+preview Clerk configuration and binds `SITE_URL` to the concrete Vercel
+deployment URL after deployment. Separate per-preview runtime material supplies the API token pepper,
 OAuth client-secret and refresh-token peppers, and OAuth access-token signing
 key needed by developer credential and client-credentials flows. The token route
 uses the dedicated preview capability described above instead of an admin key.
@@ -104,7 +103,7 @@ Set these in the Vercel project as needed:
 - `NEXT_PUBLIC_CONVEX_URL`: optional for a shell-only preview; set to the hosted Convex deployment URL for live backend reads.
 - `CONVEX_ADMIN_TOKEN`: server-only Convex admin/deploy token for route handlers that call internal Convex functions, currently needed by developer credential inventory API routes.
 - `VRDEX_REQUIRE_CONVEX_URL=true`: optional; use when previews must fail instead of showing missing-backend states.
-- `NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY=false`: legacy flag; auth-backed submissions now rely on Convex Auth configuration.
+- `NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY=false`: legacy flag; auth-backed submissions now rely on Clerk configuration.
 - `NEXT_PUBLIC_POSTHOG_KEY`: optional public PostHog project key; BASIC BIT hosted deployments should set this through `infra/terraform/vercel` for PostHog project `447783`.
 - `NEXT_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com`: optional PostHog ingestion host; also managed through `infra/terraform/vercel` for hosted deployments.
 
@@ -214,7 +213,7 @@ This command intentionally does not manage the Redis variables. Those remain
 owned by `infra/terraform/rate-limit-redis` so the Upstash database, endpoint,
 token, and Vercel bindings stay one Terraform state boundary.
 
-The Convex client URL is separate from the Convex Auth callback host. Staging Auth callbacks use `https://db.staging.vrdex.net`; the Convex HTTP Actions custom domain is verified, both OAuth providers include the callback URL, and deployment `scrupulous-corgi-247` selects it as `CONVEX_SITE_URL`.
+Convex no longer serves auth callbacks on staging either. The HTTP Actions custom domain `https://db.staging.vrdex.net` remains verified and `scrupulous-corgi-247` selects it as `CONVEX_SITE_URL`; sign-in runs through the staging Clerk instance.
 
 Current ownership: staging E2E helper variables and non-Redis developer runtime
 variables are bootstrap-managed Vercel settings; the checked-in bootstrap above
@@ -265,16 +264,15 @@ Production Vercel hosting uses the same `vr-dex-web` project with the production
 Production must set the same API/OAuth/MCP runtime variables for any enabled
 developer API, OAuth issuer, or hosted MCP surface.
 
-The Convex client URL remains separate from the Convex Auth callback host. Production Auth callbacks use `https://db.vrdex.net`, and deployment `superb-pig-954` selects that URL as its canonical `CONVEX_SITE_URL`.
+Convex no longer serves auth callbacks. Clerk hosts sign-in, and `CONVEX_SITE_URL` on `superb-pig-954` stays `https://db.vrdex.net` for the HTTP Actions the app still uses.
 
-Current production auth status:
+Production auth status, pending cutover:
 
-- Google OAuth app `VRDex Production` is published and allows `https://db.vrdex.net/api/auth/callback/google`.
-- Google sign-in from `https://vrdex.net/sign-in` returns to an authenticated `https://vrdex.net/account` session.
-- Discord OAuth app `VRDex` uses client ID `1516492492189466625` and allows `https://db.vrdex.net/api/auth/callback/discord`.
-- Discord sign-in from `https://vrdex.net/sign-in` returns to an authenticated `https://vrdex.net/account` session.
-- Convex production includes `JWT_PRIVATE_KEY` and matching `JWKS`, required for Convex Auth to mint web session cookies after OAuth callbacks.
-- App sessions use the explicit remembered-session contract in [`docs/backend/auth-sessions.md`](../backend/auth-sessions.md): 30 days of inactivity, a 90-day absolute cap for newly created sessions, and one-hour JWT rotation.
+- Clerk is the sign-in provider. The production Clerk instance needs its own `convex` JWT template, its own keys, and its own Google and Discord OAuth credentials pointed at Clerk's callback URLs.
+- The existing Google and Discord OAuth clients are reused by repointing their redirect URIs at Clerk. Do not delete them — the Discord client is also used by community verification, which is independent of sign-in.
+- `CLERK_JWT_ISSUER_DOMAIN` on Convex must match the issuer of that template.
+- `JWT_PRIVATE_KEY` and `JWKS` are retired; Clerk signs tokens now.
+- Session lifetime is Clerk's, documented in [`docs/backend/auth-sessions.md`](../backend/auth-sessions.md). The previous 30-day inactivity / 90-day cap contract is not reproduced.
 
 ### Production authenticated account smoke
 

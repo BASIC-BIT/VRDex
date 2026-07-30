@@ -5,7 +5,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { getAccountFeatureAccess } from "./_accountFeatures";
 import { getCurrentUser, requireCurrentUser } from "./accounts";
-import { requireRecentAuthSession } from "./_authSessionGuard";
+import { requireUser } from "./_identity";
 import {
   apiRouteClassValidator,
   apiScopeValidator,
@@ -265,7 +265,7 @@ export const createPersonalToken = mutation({
     expiresAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const { user } = await requireRecentAuthSession(ctx);
+    const { user } = await requireUser(ctx);
 
     return await createUserOwnedToken(ctx, { ...args, ownerUserId: user._id });
   },

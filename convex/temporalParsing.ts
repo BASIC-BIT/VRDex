@@ -10,7 +10,7 @@ import {
 } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import { getAccountFeatureAccess } from "./_accountFeatures";
-import { requireActiveAuthSession } from "./_authSessionGuard";
+import { requireUser } from "./_identity";
 import { requireActiveVerifiedEmailUser } from "./_browserSessionAuthority";
 
 const JOB_TTL_MS = 15 * 60_000;
@@ -327,7 +327,7 @@ export const acquirePrewarmLease = internalMutation({
 export const getAccess = query({
   args: {},
   handler: async (ctx) => {
-    const { user } = await requireActiveAuthSession(ctx);
+    const { user } = await requireUser(ctx);
     const access = await getAccountFeatureAccess(ctx.db, user._id);
     const preference = await ctx.db
       .query("temporalParsingPreferences")

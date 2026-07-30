@@ -108,11 +108,9 @@ Development/staging Convex env names:
 - `VRDEX_E2E_CONVEX_SECRET`: non-empty sentinel also configured in the hosted app environment
 - `VRDEX_ENABLE_E2E_AUTH_HELPERS=true`: optional, only when hosted auth/claim E2E is intentionally enabled
 - `VRDEX_ENABLE_E2E_ADAPTER_HELPERS=true`: optional, only when hosted adapter E2E is intentionally enabled
-- `SITE_URL=https://staging.vrdex.net`: required by Convex Auth OAuth and email/password redirects back to the hosted web app
-- `AUTH_DISCORD_ID` and `AUTH_DISCORD_SECRET`: staging Discord OAuth application credentials; the Discord redirect URI must include the active staging Convex Auth callback URL
-- `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET`: staging Google OAuth application credentials; the Google redirect URI must include the active staging Convex Auth callback URL
-- `JWT_PRIVATE_KEY`: Convex Auth RS256 private key, generated for the shared development deployment and never printed
-- `JWKS`: Convex Auth public key set matching `JWT_PRIVATE_KEY`
+- `CLERK_JWT_ISSUER_DOMAIN`: staging Clerk Frontend API origin, read by `convex/auth.config.ts`
+- `SITE_URL=https://staging.vrdex.net`: builds the Discord verification callback URL
+- `AUTH_DISCORD_ID` and `AUTH_DISCORD_SECRET`: staging Discord credentials for the purpose-scoped community-verification round-trip. These are **not** sign-in credentials — Clerk holds those — but `convex/discordVerification.ts` still requires them
 - `DISCORD_API_BASE_URL`: optional hosted adapter stub base URL, usually `https://staging.vrdex.net/api/e2e/adapters/discord`
 - `DISCORD_OAUTH_AUTHORIZE_URL`: optional consent-screen override, for pointing the OAuth round-trip at a stub instead of Discord. Defaults to `https://discord.com/oauth2/authorize`. The browser follows it carrying the `state` that authorizes the round-trip, so it must be https unless it is loopback
 - `DISCORD_BOT_TOKEN`: staging-only adapter token matching the hosted app environment
@@ -124,18 +122,23 @@ The browser-facing token stays in the web host and GitHub Actions as `VRDEX_E2E_
 
 The shared development deployment `scrupulous-corgi-247` is the current hosted E2E backend for Vercel `staging`. The `Staging Deploy` GitHub Actions workflow deploys Convex development functions with `CONVEX_DEPLOY_KEY_DEV` before deploying Vercel `staging` and running hosted data-flow health.
 
-Production Convex Auth env names:
+Production Convex auth env names:
 
-- `SITE_URL=https://vrdex.net`: required by Convex Auth OAuth and email/password redirects back to the hosted web app
-- `AUTH_DISCORD_ID` and `AUTH_DISCORD_SECRET`: production Discord OAuth application credentials; the Discord redirect URI must include the active production Convex Auth callback URL
-- `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET`: production Google OAuth application credentials; the Google redirect URI must include the active production Convex Auth callback URL
-- `JWT_PRIVATE_KEY`: Convex Auth RS256 private key, generated for the production deployment and never printed
-- `JWKS`: Convex Auth public key set matching `JWT_PRIVATE_KEY`
-- `AWS_SES_REGION`, `AWS_SES_FROM_EMAIL`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY`: production SES sender configuration for email/password verification
+- `CLERK_JWT_ISSUER_DOMAIN=https://<clerk-frontend-api>`: production Clerk Frontend API origin, read by `convex/auth.config.ts`. Must match the issuer of the `convex` JWT template on the production Clerk instance
+- `SITE_URL=https://vrdex.net`: builds the Discord verification callback URL
+- `AUTH_DISCORD_ID` and `AUTH_DISCORD_SECRET`: production Discord credentials for the purpose-scoped community-verification round-trip. Still required by `convex/discordVerification.ts`; they are no longer sign-in credentials
+
+Retired when Clerk replaced Convex Auth, and safe to delete from every Convex
+deployment once the cutover is verified:
+
+- `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET`: Google sign-in now runs through Clerk. Do not delete the Google OAuth *client* — point it at Clerk's callback URL instead
+- `JWT_PRIVATE_KEY` and `JWKS`: Convex Auth signed its own tokens; Clerk signs them now
+- `AWS_SES_REGION`, `AWS_SES_FROM_EMAIL`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`: these sent email/password verification codes. Clerk sends its own, so they are unused **unless** another feature adopts SES — check before deleting
 
 Profile claiming needs no additional production Convex environment variables.
-Discord community verification reuses `AUTH_DISCORD_ID`, `AUTH_DISCORD_SECRET`,
-and `SITE_URL` through a purpose-scoped OAuth round-trip; it requires only that
+Discord community verification uses `AUTH_DISCORD_ID`, `AUTH_DISCORD_SECRET`,
+and `SITE_URL` through a purpose-scoped OAuth round-trip independent of sign-in;
+it requires only that
 `https://vrdex.net/api/discord/verify/callback` is registered as a redirect URI
 on the production Discord application. The optional bot and collector paths, and
 the exact operator steps, are documented in

@@ -1,0 +1,91 @@
+import { auth } from "@clerk/nextjs/server";
+import { makeFunctionReference } from "convex/server";
+
+import type { Id } from "../../../../../convex/_generated/dataModel";
+import { validateSignInReturnTo } from "../safe-return-to";
+
+export const UNAUTHENTICATED_CODE = "UNAUTHENTICATED";
+
+/**
+ * Server-side Convex credential, replacing Convex Auth's own token helper. The
+ * template name must match the `convex` JWT template on the Clerk instance and
+ * the `applicationID` in `convex/auth.config.ts`.
+ */
+export async function convexAuthToken() {
+  const { getToken } = await auth();
+
+  return (await getToken({ template: "convex" })) ?? undefined;
+}
+
+export const viewerQuery = makeFunctionReference<
+  "query",
+  Record<string, never>,
+  | {
+      user: {
+        id: Id<"users">;
+        name?: string;
+        email?: string;
+        emailVerified: boolean;
+        image?: string;
+      };
+    }
+  | null
+>("accounts:viewer");
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+export function isUnauthenticatedError(error: unknown) {
+  return (
+    isRecord(error) &&
+    isRecord(error.data) &&
+    error.data.code === UNAUTHENTICATED_CODE
+  );
+}
+
+export function signInPath(returnTo: string) {
+  return `/sign-in?returnTo=${encodeURIComponent(validateSignInReturnTo(returnTo))}`;
+}
+
+/**
+ * Clerk owns the session cookies, so unlike the Convex Auth version these no
+ * longer expire anything — a request that fails to authenticate simply has no
+ * usable token, and Clerk clears its own cookies on sign-out or revocation.
+ */
+export function unauthenticatedResponse(returnTo: string) {
+  return Response.json(
+    {
+      code: UNAUTHENTICATED_CODE,
+      detail: "Sign in to continue.",
+      signInUrl: signInPath(returnTo),
+      status: 401,
+      title: "Sign in required",
+      type: "about:blank",
+    },
+    { status: 401, headers: { "cache-control": "private, no-store" } },
+  );
+}
+
+/**
+ * Browser-navigation counterpart to `unauthenticatedResponse`. Routes the user
+ * follows a link into — the Discord OAuth start and callback — must redirect
+ * rather than answer with raw JSON.
+ */
+export function unauthenticatedRedirectResponse(
+  request: Request,
+  returnTo?: string,
+) {
+  const requestUrl = new URL(request.url);
+  const target = signInPath(
+    returnTo ?? requestUrl.searchParams.get("returnTo") ?? "/account",
+  );
+
+  return new Response(null, {
+    status: 303,
+    headers: {
+      "cache-control": "private, no-store",
+      location: new URL(target, requestUrl).toString(),
+    },
+  });
+}
