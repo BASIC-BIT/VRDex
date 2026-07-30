@@ -33,6 +33,13 @@ enforced in code, where it can see which guild a given request is for.
 The shared secret is also created outside this stack and passed in by ARN. A
 secret Terraform creates has its value in the state file.
 
+Both are assumed to use the AWS-managed Secrets Manager key, which needs no
+explicit grant. If any of them is encrypted with a customer-managed key, list
+that key in `kms_key_arns` — `GetSecretValue` then also requires `kms:Decrypt`,
+and without it the stack deploys with valid ARNs and answers
+`adapter_misconfigured` on every cold start, or reports every delegated
+consultation as unavailable.
+
 ## Deploy
 
 ```bash
@@ -159,10 +166,28 @@ printf 'header = "authorization: Bearer %s"\n' "$BEARER" |
 # 401 = they disagree, so the rotation is half-applied.
 ```
 
-This covers the bearer only. The capability key cannot be checked without minting
-a signed delegation, which is more apparatus than a rotation check warrants — and
-since both values now move in one write, a bearer that matches means the
-capability key does too.
+That covers the bearer. It says nothing about the capability key: the adapter's
+two values now move in one write, but **Convex's do not** — step 3 is two
+commands, and if the second fails the bearer matches while every delegation is
+still signed with the old key and rejected under the new one. Compare both
+halves directly rather than inferring one from the other:
+
+```bash
+SHARED=$(aws secretsmanager get-secret-value --secret-id vrdex/vrclinking/shared \
+  --query SecretString --output text)
+for pair in "bearerToken:VRCHAT_PROOF_ADAPTER_BEARER_TOKEN" \
+            "capabilityKey:VRCLINKING_ADAPTER_CAPABILITY_KEY"; do
+  node -e '
+    const [field, name, shared, live] = process.argv.slice(1);
+    process.stdout.write(`${name}: ${JSON.parse(shared)[field] === live ? "match" : "MISMATCH"}\n`);
+  ' "${pair%%:*}" "${pair#*:}" "$SHARED" "$(pnpm exec convex env get --prod "${pair#*:}")"
+done
+unset SHARED
+```
+
+Both must say `match`. A plain comparison rather than a signed request, because
+both sides are readable to whoever is running the rotation — minting a delegation
+to prove the same thing would be more apparatus for less certainty.
 
 ### Rotating a community's delegated credential
 

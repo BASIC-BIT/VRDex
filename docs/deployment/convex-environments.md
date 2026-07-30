@@ -146,11 +146,19 @@ offers nothing, rather than offering a method that throws:
 
 - `VRCLINKING_PROOF_ADAPTER_URL`: the Function URL output by
   `infra/terraform/vrclinking-adapter`
-- `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`: the same value the adapter reads from
-  `vrdex/vrclinking/bearer-token`
-- `VRCLINKING_ADAPTER_CAPABILITY_KEY`: the same value the adapter reads from
-  `vrdex/vrclinking/capability-key`, and necessarily a different value from the
-  bearer token — the adapter refuses to start if they match
+- `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`: the `bearerToken` field of the shared
+  secret. Also read by the generic VRChat proof adapter seam, so a deployment
+  running both rotates both together
+- `VRCLINKING_ADAPTER_CAPABILITY_KEY`: the `capabilityKey` field of the same
+  secret, and necessarily a different value from the bearer token — the adapter
+  refuses to start if they match
+
+Both come from **one** Secrets Manager object, `vrdex/vrclinking/shared`, holding
+`{ "bearerToken": …, "capabilityKey": … }`. One object rather than two because
+two cannot be written atomically, and a cold start landing between the writes
+would cache a mismatched pair for its container's life. Provisioning two
+single-value secrets instead leaves no ARN for Terraform to take, and pointing
+the stack at one of them fails every cold start.
 
 Setting these does not by itself make a claim completable: a community must also
 delegate a credential, and until one has, the method is offered and every

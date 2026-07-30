@@ -37,6 +37,17 @@ variable "shared_secret_arn" {
   }
 }
 
+# Empty is correct for the AWS-managed Secrets Manager key, which needs no
+# explicit grant. A customer-managed key does: `GetSecretValue` on a secret
+# encrypted with one also requires `kms:Decrypt`, and without it the stack
+# deploys with valid ARNs and then answers `adapter_misconfigured` on every cold
+# start, or reports every delegated consultation as unavailable.
+variable "kms_key_arns" {
+  description = "Customer-managed KMS key ARNs encrypting the shared secret or any delegated credential. Leave empty when they use the AWS-managed Secrets Manager key."
+  type        = list(string)
+  default     = []
+}
+
 variable "provider_base_url" {
   description = "VRCLinking API base URL. Override only to point at a stub; https is required unless it is loopback."
   type        = string

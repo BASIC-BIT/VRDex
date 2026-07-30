@@ -50,6 +50,26 @@ data "aws_iam_policy_document" "runtime" {
     ]
   }
 
+  # Only when a customer-managed key is in play. `GetSecretValue` on a secret
+  # encrypted with one also needs `kms:Decrypt`; the AWS-managed Secrets Manager
+  # key needs no grant, so an empty list emits no statement rather than a
+  # wildcard nobody asked for.
+  dynamic "statement" {
+    for_each = length(var.kms_key_arns) > 0 ? [1] : []
+
+    content {
+      sid       = "DecryptCustomerManagedSecrets"
+      actions   = ["kms:Decrypt"]
+      resources = var.kms_key_arns
+
+      condition {
+        test     = "StringEquals"
+        variable = "kms:ViaService"
+        values   = ["secretsmanager.${data.aws_region.current.region}.amazonaws.com"]
+      }
+    }
+  }
+
   statement {
     sid = "Logs"
     actions = [
