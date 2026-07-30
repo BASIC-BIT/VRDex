@@ -10,9 +10,10 @@ import { api } from "@convex-generated-api";
 import type { Id } from "../../../../../../convex/_generated/dataModel";
 import { buttonVariants, Button } from "@/components/ui/button";
 import { CopyValueRow } from "@/components/ui/copy-value-row";
-import { EntityImage } from "@/components/ui/entity-image";
+import { ProfileAvatarImage } from "@/components/ui/profile-avatar-image";
 import { Field, FieldText, Input, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
+import type { AvatarAppearance } from "@/lib/avatar-appearance";
 import { captureProductEvent, type ClaimAnalyticsMethod } from "@/lib/posthog";
 import { claimErrorMessage, claimFailureOutcome } from "@/lib/claim-errors";
 import { cn } from "@/lib/cn";
@@ -33,6 +34,7 @@ type ProfileType = "person" | "community";
 type ClaimMethod = "discord" | "vrchat" | "vrclinking";
 type ClaimProfile = {
   avatarImageUrl?: string;
+  avatarAppearance?: AvatarAppearance;
   displayName: string;
   hasPublicProfile: boolean;
   profileId?: string;
@@ -630,8 +632,9 @@ export function ClaimFlow({
           {profile.hasPublicProfile ? "Back to profile" : "Back to account"}
         </Link>
         <div className="mt-5 rounded-card border border-border bg-surface p-5">
-          <EntityImage
+          <ProfileAvatarImage
             alt=""
+            appearance={profile.avatarAppearance}
             className="size-16 rounded-card"
             label={profile.displayName}
             src={profile.avatarImageUrl}

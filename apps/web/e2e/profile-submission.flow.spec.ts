@@ -78,7 +78,10 @@ test("profile submission writes through to public profile and discovery @flow", 
 
     await profileLink.click();
     await expect(page.getByRole("heading", { name: displayName })).toBeVisible();
-    await expect(page.getByText(/Community submitted/).first()).toBeVisible();
+    if (!process.env.PLAYWRIGHT_BASE_URL) {
+      await expect(page.getByText(/Community submitted/)).toHaveCount(0);
+    }
+    await expect(page.getByLabel("Verified profile")).toHaveCount(0);
     await captureRouteScreenshot(page, testInfo, "profile-submission-flow-profile");
 
     await gotoFlowPage(page, `/search?q=${encodeURIComponent(displayName)}`);

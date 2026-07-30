@@ -452,7 +452,7 @@ describe("Discord timestamp helpers", () => {
 });
 
 describe("public event projection", () => {
-  function createEmptyEventAssociationDb() {
+  function createEmptyEventAssociationDb(onQuery: (table: string) => void = () => {}) {
     const indexedQuery = {
       take: async () => [],
       filter: () => indexedQuery,
@@ -463,7 +463,10 @@ describe("public event projection", () => {
 
     return {
       get: async () => null,
-      query: () => query,
+      query: (table: string) => {
+        onQuery(table);
+        return query;
+      },
     } as unknown as DatabaseReader;
   }
 
@@ -592,12 +595,31 @@ describe("public event projection", () => {
       updatedAt: now,
     } as unknown as Doc<"eventSlots">;
 
+    const avatarAppearance = {
+      borderEnabled: true,
+      borderColor: "#67e8f9",
+      borderWidthPx: 4,
+      borderSoftnessPx: 12,
+      radiusPercent: 18,
+    };
     const publicEvent = toPublicEvent({
       event,
       community,
+      communityImageUrl: "https://example.invalid/community-media-kit.png",
+      communityAvatarAppearance: avatarAppearance,
       worlds: [{ association: worldAssociation, world }],
-      participants: [{ association: participant, profile: person }],
-      slots: [{ slot, profile: person }],
+      participants: [{
+        association: participant,
+        profile: person,
+        imageUrl: "https://example.invalid/dj-aurora-media-kit.png",
+        avatarAppearance,
+      }],
+      slots: [{
+        slot,
+        profile: person,
+        imageUrl: "https://example.invalid/dj-aurora-media-kit.png",
+        avatarAppearance,
+      }],
     });
 
     assert.notEqual(publicEvent, null);
@@ -607,15 +629,18 @@ describe("public event projection", () => {
     assert.equal(publicEvent?.thumbnailImageUrl, "https://example.invalid/card.png");
     assert.equal(publicEvent?.authoredBannerImageUrl, "https://example.invalid/banner.png");
     assert.equal(publicEvent?.authoredThumbnailImageUrl, "https://example.invalid/card.png");
-    assert.equal(publicEvent?.communityImageUrl, "https://example.invalid/community-avatar.png");
+    assert.equal(publicEvent?.communityImageUrl, "https://example.invalid/community-media-kit.png");
+    assert.deepEqual(publicEvent?.communityAvatarAppearance, avatarAppearance);
     assert.equal(publicEvent?.watchSurfaceEnabled, true);
     assert.equal(publicEvent?.mediaLinks.length, 1);
     assert.equal(publicEvent?.worlds[0]?.heroImageUrl, "https://example.invalid/world-hero.png");
     assert.equal(publicEvent?.worlds[0]?.displayName, "Neon Harbor");
     assert.equal(publicEvent?.participants[0]?.displayName, "DJ Aurora");
-    assert.equal(publicEvent?.participants[0]?.imageUrl, "https://example.invalid/dj-aurora.png");
+    assert.equal(publicEvent?.participants[0]?.imageUrl, "https://example.invalid/dj-aurora-media-kit.png");
+    assert.deepEqual(publicEvent?.participants[0]?.avatarAppearance, avatarAppearance);
     assert.equal(publicEvent?.slots[0]?.displayLabel, "DJ Aurora");
-    assert.equal(publicEvent?.slots[0]?.performer?.imageUrl, "https://example.invalid/dj-aurora.png");
+    assert.equal(publicEvent?.slots[0]?.performer?.imageUrl, "https://example.invalid/dj-aurora-media-kit.png");
+    assert.deepEqual(publicEvent?.slots[0]?.performer?.avatarAppearance, avatarAppearance);
     assert.equal(publicEvent?.slots[0]?.discord.shortTime, "<t:1779710400:t>");
     assert.equal("url" in publicEvent!.source, false);
   });
@@ -887,7 +912,12 @@ describe("public event projection", () => {
           updatedAt: now,
         }) as unknown as Doc<"events">,
     );
-    const db = createEmptyEventAssociationDb();
+    let mediaProgramQueries = 0;
+    const db = createEmptyEventAssociationDb((table) => {
+      if (table === "eventMediaPrograms") {
+        mediaProgramQueries += 1;
+      }
+    });
 
     const defaultPreviews = await getPublicEventPreviews(db, events, { now });
     const expandedPreviews = await getPublicEventPreviews(db, events, { now, limit: 8 });
@@ -895,5 +925,70 @@ describe("public event projection", () => {
     assert.equal(defaultPreviews.length, 6);
     assert.equal(expandedPreviews.length, 8);
     assert.equal(expandedPreviews[7]?.title, "Afterglow Harbor 8");
+    assert.equal(mediaProgramQueries, 14);
+  });
+
+  it("does not hydrate participant media kits for compact previews", async () => {
+    const now = Date.UTC(2026, 4, 24, 12, 0, 0);
+    const event = {
+      _id: "event123",
+      slug: "afterglow-harbor",
+      title: "Afterglow Harbor",
+      sortTitle: "afterglow harbor",
+      startAt: now + 3_600_000,
+      sourceType: "community",
+      sourceLabel: "Community listing",
+      publicationState: "published",
+      updatedAt: now,
+    } as unknown as Doc<"events">;
+    const participant = {
+      _id: "participant123",
+      eventId: event._id,
+      personProfileId: "profile123",
+      roleLabel: "DJ",
+      sourceType: "community",
+      sourceLabel: "Fixture lineup",
+      confirmationState: "confirmed",
+      updatedAt: now,
+    } as unknown as Doc<"eventParticipants">;
+    const profile = {
+      _id: participant.personProfileId,
+      profileType: "person",
+      slug: "dj-aurora",
+      displayName: "DJ Aurora",
+      sortName: "dj aurora",
+      aliases: [],
+      tags: [],
+      claimState: "claimed_verified",
+      publicationState: "published",
+      publicSurfacingState: "public",
+      creationSource: "self",
+      avatarImageUrl: "https://example.invalid/dj-aurora.png",
+      person: { roleTags: [] },
+      updatedAt: now,
+    } as unknown as Doc<"profiles">;
+    const queriedTables: string[] = [];
+    const db = {
+      get: async (id: string) => id === profile._id ? profile : null,
+      query: (table: string) => {
+        queriedTables.push(table);
+        const records = table === "eventParticipants" ? [participant] : [];
+        const indexedQuery = {
+          filter: () => indexedQuery,
+          take: async () => records,
+        };
+
+        return {
+          withIndex: () => indexedQuery,
+        };
+      },
+    } as unknown as DatabaseReader;
+
+    const previews = await getPublicEventPreviews(db, [event], { now });
+
+    assert.equal(previews[0]?.participantCount, 1);
+    assert.equal(queriedTables.includes("profileAssets"), false);
+    assert.equal(queriedTables.includes("profileAssetPlacements"), false);
+    assert.equal(queriedTables.includes("profileAssetDisplayPreferences"), false);
   });
 });

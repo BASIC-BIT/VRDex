@@ -4065,6 +4065,33 @@ components:
     PublicSearchResult:
       type: object
       properties:
+        avatarAppearance:
+          type: object
+          properties:
+            borderColor:
+              type: string
+            borderEnabled:
+              type: boolean
+            borderSoftnessPx:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            borderWidthPx:
+              type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+            radiusPercent:
+              type: integer
+              minimum: 0
+              maximum: 50
+          required:
+            - borderColor
+            - borderEnabled
+            - borderSoftnessPx
+            - borderWidthPx
+            - radiusPercent
+          additionalProperties: {}
+          description: Bounded public avatar presentation hints.
         entityType:
           type: string
           enum:
@@ -4133,6 +4160,14 @@ components:
         title:
           type: string
           minLength: 1
+        trustLabel:
+          type: string
+          enum:
+            - community_submitted
+            - unclaimed
+            - claimed_unverified
+            - claimed_verified
+          description: The public trust and claim state shown for the profile.
       required:
         - entityType
         - routePath
@@ -5611,11 +5646,36 @@ components:
       type: object
       properties:
         bannerImageUrl:
-          type: string
-          format: uri
+          $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+        communityAvatarAppearance:
+          type: object
+          properties:
+            borderColor:
+              type: string
+            borderEnabled:
+              type: boolean
+            borderSoftnessPx:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            borderWidthPx:
+              type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+            radiusPercent:
+              type: integer
+              minimum: 0
+              maximum: 50
+          required:
+            - borderColor
+            - borderEnabled
+            - borderSoftnessPx
+            - borderWidthPx
+            - radiusPercent
+          additionalProperties: {}
+          description: Bounded public avatar presentation hints.
         communityImageUrl:
-          type: string
-          format: uri
+          $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
         communityName:
           type: string
         communitySlug:
@@ -5635,8 +5695,7 @@ components:
           minimum: 0
           maximum: 9007199254740991
         posterImageUrl:
-          type: string
-          format: uri
+          $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
         slug:
           type: string
           minLength: 1
@@ -5675,8 +5734,7 @@ components:
         summary:
           type: string
         thumbnailImageUrl:
-          type: string
-          format: uri
+          $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
         timezone:
           type: string
         title:
@@ -5709,11 +5767,36 @@ components:
       type: object
       properties:
         bannerImageUrl:
-          type: string
-          format: uri
+          $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+        communityAvatarAppearance:
+          type: object
+          properties:
+            borderColor:
+              type: string
+            borderEnabled:
+              type: boolean
+            borderSoftnessPx:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            borderWidthPx:
+              type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+            radiusPercent:
+              type: integer
+              minimum: 0
+              maximum: 50
+          required:
+            - borderColor
+            - borderEnabled
+            - borderSoftnessPx
+            - borderWidthPx
+            - radiusPercent
+          additionalProperties: {}
+          description: Bounded public avatar presentation hints.
         communityImageUrl:
-          type: string
-          format: uri
+          $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
         communityName:
           type: string
         communitySlug:
@@ -5733,8 +5816,7 @@ components:
           minimum: 0
           maximum: 9007199254740991
         posterImageUrl:
-          type: string
-          format: uri
+          $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
         slug:
           type: string
           minLength: 1
@@ -5773,8 +5855,7 @@ components:
         summary:
           type: string
         thumbnailImageUrl:
-          type: string
-          format: uri
+          $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
         timezone:
           type: string
         title:
@@ -6253,6 +6334,33 @@ components:
         nextEvent:
           type: object
           properties:
+            communityAvatarAppearance:
+              type: object
+              properties:
+                borderColor:
+                  type: string
+                borderEnabled:
+                  type: boolean
+                borderSoftnessPx:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                borderWidthPx:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                radiusPercent:
+                  type: integer
+                  minimum: 0
+                  maximum: 50
+              required:
+                - borderColor
+                - borderEnabled
+                - borderSoftnessPx
+                - borderWidthPx
+                - radiusPercent
+              additionalProperties: {}
+              description: Bounded public avatar presentation hints.
             communityName:
               type: string
             communitySlug:

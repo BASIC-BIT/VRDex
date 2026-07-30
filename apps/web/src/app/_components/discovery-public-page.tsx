@@ -1,4 +1,10 @@
 import Link from "next/link";
+import {
+  CalendarDays,
+  Globe2,
+  UserRound,
+  UsersRound,
+} from "lucide-react";
 
 import {
   DiscoveryFeatureGate,
@@ -12,7 +18,10 @@ import { ViewerLocalEventDateTime } from "./viewer-local-event-times";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
 import { EntityImage } from "@/components/ui/entity-image";
+import { ProfileAvatarImage } from "@/components/ui/profile-avatar-image";
+import type { AvatarAppearance } from "@/lib/avatar-appearance";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
+import { VerifiedTrustMark } from "@/components/ui/verified-trust-mark";
 import { cn } from "@/lib/cn";
 import {
   FEATURED_DISCOVERY_UI_FLAG,
@@ -34,6 +43,8 @@ export type PublicSearchResult = {
   imageUrl?: string;
   profileImageUrl?: string;
   logoImageUrl?: string;
+  avatarAppearance?: AvatarAppearance;
+  trustLabel?: "community_submitted" | "unclaimed" | "claimed_unverified" | "claimed_verified";
   startsAt?: number;
   source?: {
     sourceType?: string;
@@ -75,6 +86,38 @@ function entityLabel(result: PublicSearchResult): string {
   return result.entityType === "event" ? "Event" : "World";
 }
 
+function entityIcon(result: PublicSearchResult) {
+  if (result.entityType === "profile") {
+    return result.profileType === "community"
+      ? <UsersRound aria-hidden="true" className="size-4.5" strokeWidth={1.8} />
+      : <UserRound aria-hidden="true" className="size-4.5" strokeWidth={1.8} />;
+  }
+
+  return result.entityType === "event"
+    ? <CalendarDays aria-hidden="true" className="size-4.5" strokeWidth={1.8} />
+    : <Globe2 aria-hidden="true" className="size-4.5" strokeWidth={1.8} />;
+}
+
+function EntityTypeIcon({ result }: { result: PublicSearchResult }) {
+  const label = entityLabel(result);
+
+  return (
+    <span
+      aria-label={label}
+      className="group/type relative inline-flex size-7 shrink-0 items-center justify-center rounded-control text-muted transition-colors hover:text-accent-strong"
+      role="img"
+    >
+      {entityIcon(result)}
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute top-full right-0 z-10 mt-1.5 rounded-control border border-border bg-surface-strong px-2 py-1 text-xs font-medium whitespace-nowrap text-foreground opacity-0 shadow-panel transition-opacity group-hover/type:opacity-100 group-focus-visible:opacity-100"
+      >
+        {label}
+      </span>
+    </span>
+  );
+}
+
 function resultSubtitle(result: PublicSearchResult): string | undefined {
   const subtitle = result.subtitle?.trim();
 
@@ -93,12 +136,7 @@ function ResultImage({ result }: { result: PublicSearchResult }) {
     ? result.profileImageUrl ?? result.imageUrl
     : result.imageUrl;
 
-  if (
-    result.entityType !== "profile" ||
-    !result.logoImageUrl ||
-    !result.profileImageUrl ||
-    result.logoImageUrl === result.profileImageUrl
-  ) {
+  if (result.entityType !== "profile") {
     return (
       <EntityImage
         className="size-14 rounded-card bg-[linear-gradient(135deg,var(--canvas-muted),var(--surface-raised))] text-lg text-white"
@@ -109,14 +147,54 @@ function ResultImage({ result }: { result: PublicSearchResult }) {
     );
   }
 
+  if (
+    !result.logoImageUrl ||
+    !result.profileImageUrl ||
+    result.logoImageUrl === result.profileImageUrl
+  ) {
+    const imageIsLogoOnly = !result.profileImageUrl && Boolean(result.logoImageUrl);
+
+    return (
+      <span className="relative shrink-0">
+        {imageIsLogoOnly ? (
+          <EntityImage
+            className="size-14 rounded-card border border-border bg-surface-strong text-xs"
+            fallback="Logo"
+            imageClassName="!object-contain p-1"
+            label={`${result.title} logo`}
+            sizes="56px"
+            src={primaryImageUrl}
+          />
+        ) : (
+          <ProfileAvatarImage
+            appearance={result.avatarAppearance}
+            className="size-14 rounded-card bg-[linear-gradient(135deg,var(--canvas-muted),var(--surface-raised))] text-lg text-white"
+            label={result.title}
+            sizes="56px"
+            src={primaryImageUrl}
+          />
+        )}
+        {result.trustLabel === "claimed_verified" ? (
+          <VerifiedTrustMark className="verified-trust-mark--avatar" />
+        ) : null}
+      </span>
+    );
+  }
+
   return (
     <span className="grid shrink-0 grid-cols-2 gap-1">
-      <EntityImage
-        className="size-14 rounded-card bg-[linear-gradient(135deg,var(--canvas-muted),var(--surface-raised))] text-lg text-white"
-        label={result.title}
-        sizes="56px"
-        src={result.profileImageUrl}
-      />
+      <span className="relative">
+        <ProfileAvatarImage
+          appearance={result.avatarAppearance}
+          className="size-14 rounded-card bg-[linear-gradient(135deg,var(--canvas-muted),var(--surface-raised))] text-lg text-white"
+          label={result.title}
+          sizes="56px"
+          src={result.profileImageUrl}
+        />
+        {result.trustLabel === "claimed_verified" ? (
+          <VerifiedTrustMark className="verified-trust-mark--avatar" />
+        ) : null}
+      </span>
       <EntityImage
         className="size-14 rounded-card border border-border bg-surface-strong text-xs"
         fallback="Logo"
@@ -195,15 +273,12 @@ function SearchResultCard({ result }: { result: PublicSearchResult }) {
             <span className="min-w-0 text-xl font-semibold group-hover:text-accent-strong">
               {result.title}
             </span>
-            <span className="shrink-0 text-xs font-medium text-muted">
-              {entityLabel(result)}
-            </span>
+            <EntityTypeIcon result={result} />
           </span>
           {subtitle ? <span className="text-sm text-muted">{subtitle}</span> : null}
           {result.startsAt === undefined ? null : <ViewerLocalEventDateTime className="text-sm text-accent-strong" timestamp={result.startsAt} />}
           {result.summary ? <span className="line-clamp-2 text-sm leading-6 text-muted">{result.summary}</span> : null}
           {roleLabels.length > 0 ? <span className="text-xs text-muted">{roleLabels.join(" · ")}</span> : null}
-          {result.source ? <span className="text-xs text-muted">{result.source.label}</span> : null}
         </span>
       </TrackedDiscoveryLink>
       {result.claimEntryPath ? (
@@ -218,6 +293,11 @@ function SearchResultCard({ result }: { result: PublicSearchResult }) {
 }
 
 function FeaturedProfileCard({ result }: { result: PublicSearchResult }) {
+  const imageIsLogo =
+    Boolean(result.logoImageUrl) &&
+    result.imageUrl === result.logoImageUrl &&
+    result.logoImageUrl !== result.profileImageUrl;
+
   return (
     <TrackedDiscoveryLink
       className="group grid h-full min-h-72 min-w-0 overflow-hidden rounded-hero border border-border bg-canvas text-white shadow-hero lg:grid-cols-[18rem_minmax(0,1fr)]"
@@ -225,12 +305,29 @@ function FeaturedProfileCard({ result }: { result: PublicSearchResult }) {
       href={result.routePath}
       properties={{ entity_type: result.entityType, surface: "featured" }}
     >
-      <EntityImage
-        className="aspect-square h-auto w-full rounded-none bg-media text-4xl text-white lg:size-72"
-        label={result.title}
-        sizes="(min-width: 1024px) 288px, (min-width: 768px) 50vw, 100vw"
-        src={result.imageUrl}
-      />
+      <span className="relative">
+        {imageIsLogo ? (
+          <EntityImage
+            className="aspect-square h-auto w-full rounded-none border border-border bg-surface-strong text-4xl lg:size-72"
+            fallback="Logo"
+            imageClassName="!object-contain p-4"
+            label={`${result.title} logo`}
+            sizes="(min-width: 1024px) 288px, (min-width: 768px) 50vw, 100vw"
+            src={result.imageUrl}
+          />
+        ) : (
+          <ProfileAvatarImage
+            appearance={result.avatarAppearance}
+            className="aspect-square h-auto w-full rounded-none bg-media text-4xl text-white lg:size-72"
+            label={result.title}
+            sizes="(min-width: 1024px) 288px, (min-width: 768px) 50vw, 100vw"
+            src={result.imageUrl}
+          />
+        )}
+        {result.trustLabel === "claimed_verified" ? (
+          <VerifiedTrustMark className="verified-trust-mark--avatar" />
+        ) : null}
+      </span>
       <span className="flex min-w-0 flex-col justify-end bg-[linear-gradient(145deg,var(--background),var(--surface-raised))] p-5">
         <span className="block text-3xl font-semibold">{result.title}</span>
         {result.summary ? <span className="mt-3 line-clamp-3 block text-sm leading-6 text-white/76">{result.summary}</span> : null}

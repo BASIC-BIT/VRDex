@@ -6,6 +6,7 @@ import type { QueryCtx } from "../../convex/_generated/server";
 import {
   projectPublicSearchResult,
   publicSearchLookupAvatarUrl,
+  publicSearchLookupUsesLogo,
   searchPublicDocuments,
 } from "../../convex/_publicSearch";
 import { toProfileLookupResult } from "../../convex/_profileLookup";
@@ -342,6 +343,56 @@ describe("search document projection", () => {
     assert.equal(await projectPublicSearchResult(ctx, document, "BASICBIT"), null);
   });
 
+  it("projects profile verification without exposing it as provenance copy", async () => {
+    const profile = {
+      _id: "profile123",
+      slug: "basicbit",
+      displayName: "BASICBIT",
+      aliases: [],
+      tags: [],
+      genres: [],
+      outboundLinks: [],
+      claimState: "claimed_verified",
+      creationSource: "self",
+      publicationState: "published",
+      publicSurfacingState: "public",
+      profileType: "person",
+      person: { roleTags: [] },
+      updatedAt: 2,
+    } as unknown as Doc<"profiles">;
+    const document = {
+      entityType: "profile",
+      profileType: "person",
+      profileId: profile._id,
+      slug: profile.slug,
+      routePath: `/p/${profile.slug}`,
+      title: profile.displayName,
+      searchText: profile.displayName,
+      exactTokens: ["basicbit"],
+      vocabularyKeys: [],
+      trustRank: 40,
+      featuredRank: 0,
+      publicState: "public",
+      updatedAt: 1,
+    } as unknown as Doc<"searchDocuments">;
+    const queryBuilder = {
+      withIndex: () => queryBuilder,
+      collect: async () => [],
+      unique: async () => null,
+    };
+    const ctx = {
+      db: {
+        get: async () => profile,
+        query: () => queryBuilder,
+      },
+    } as unknown as QueryCtx;
+
+    const result = await projectPublicSearchResult(ctx, document, "BASICBIT");
+
+    assert.equal(result?.trustLabel, "claimed_verified");
+    assert.equal(result?.source, undefined);
+  });
+
   it("applies the result limit after dropping stale search documents", async () => {
     const hiddenProfile = {
       _id: "hiddenProfile",
@@ -505,13 +556,78 @@ describe("search document projection", () => {
     assert.equal(result?.avatarImageUrl, "/api/profile-assets/basicbit");
   });
 
-  it("keeps the configured compact-display image ahead of the profile-image fallback", () => {
+  it("preserves avatar appearance through public search and lookup projections", () => {
+    const avatarAppearance = {
+      borderEnabled: true,
+      borderColor: "#67e8f9",
+      borderWidthPx: 4,
+      borderSoftnessPx: 12,
+      radiusPercent: 18,
+    };
+    const profile = {
+      slug: "basicbit",
+      displayName: "BASICBIT",
+      aliases: [],
+      tags: [],
+      genres: [],
+      claimState: "claimed_verified",
+      creationSource: "self",
+      profileType: "person",
+      person: { roleTags: ["VRDJ"] },
+      outboundLinks: [],
+    } as unknown as Doc<"profiles">;
+    const document = {
+      entityType: "profile",
+      profileType: "person",
+      slug: "basicbit",
+      routePath: "/p/basicbit",
+      title: "BASICBIT",
+      searchText: "BASICBIT",
+      exactTokens: ["basicbit"],
+      vocabularyKeys: [],
+      trustRank: 40,
+      featuredRank: 40,
+      publicState: "public",
+      updatedAt: 1,
+    } as unknown as Doc<"searchDocuments">;
+    const mediaKit = {
+      additionalLogos: [],
+      assets: [],
+      avatarAppearance,
+      compactDisplay: "profile_image" as const,
+      galleryAssets: [],
+      logos: [],
+    };
+
+    assert.deepEqual(toPublicSearchResult(document, "", mediaKit).avatarAppearance, avatarAppearance);
+    assert.deepEqual(
+      toProfileLookupResult(profile, { avatarAppearance })?.avatarAppearance,
+      avatarAppearance,
+    );
     assert.equal(
-      publicSearchLookupAvatarUrl({
-        imageUrl: "/api/v0/profiles/basicbit/assets/compact-logo/file",
-        profileImageUrl: "/api/v0/profiles/basicbit/assets/profile-image/file",
-      }),
+      toProfileLookupResult(profile, { avatarImageKind: "profile" })?.avatarImageKind,
+      "profile",
+    );
+  });
+
+  it("keeps the configured compact-display image ahead of the profile-image fallback", () => {
+    const compactLogoResult = {
+      imageUrl: "/api/v0/profiles/basicbit/assets/compact-logo/file",
+      logoImageUrl: "/api/v0/profiles/basicbit/assets/compact-logo/file",
+      profileImageUrl: "/api/v0/profiles/basicbit/assets/profile-image/file",
+    };
+
+    assert.equal(
+      publicSearchLookupAvatarUrl(compactLogoResult),
       "/api/v0/profiles/basicbit/assets/compact-logo/file",
+    );
+    assert.equal(publicSearchLookupUsesLogo(compactLogoResult), true);
+    assert.equal(
+      publicSearchLookupUsesLogo({
+        ...compactLogoResult,
+        imageUrl: compactLogoResult.profileImageUrl,
+      }),
+      false,
     );
   });
 

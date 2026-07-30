@@ -12,6 +12,8 @@ export const buttonVariants = cva(
         secondary: "border border-border bg-surface-strong !text-foreground hover:border-border-strong hover:bg-surface-elevated",
         surface: "border border-border bg-surface !text-foreground hover:border-border-strong hover:bg-surface-strong",
         ghost: "!text-foreground hover:bg-surface-strong",
+        danger: "bg-danger !text-inverse hover:brightness-110",
+        dangerGhost: "!text-danger hover:bg-danger/10",
         inverse: "border border-white/25 bg-white/12 !text-white hover:bg-white/20",
         inversePrimary: "bg-white !text-inverse hover:bg-white/90",
       },
