@@ -373,15 +373,15 @@ const workerApiKey = randomBytes(48).toString("base64url");
 // contract also pins this: `registerCollectorAccount` validates the digest
 // against /^[a-f0-9]{64}$/.
 //
-// CodeQL flags this as js/insufficient-password-hash, and will keep doing so:
-// inline suppression comments are not honoured by this repository's setup, and
-// the alert re-appears as "new" on any commit that touches this file, failing
-// the PR check until an operator dismisses it as a false positive in code
-// scanning. Do not swap in a KDF to silence it. `convex/http.ts` verifies a
-// presented worker key by hashing it on every request in the Convex runtime,
-// which has Web Crypto and no scrypt; the only KDF available there is PBKDF2,
-// which would add a derivation per request to defend a keyspace that does not
-// exist.
+// CodeQL flags this as js/insufficient-password-hash. Alert 23 is dismissed as
+// a false positive; inline suppression comments are not honoured by this
+// repository's setup, so if a future commit surfaces it again as a new alert,
+// dismiss it rather than changing the code.
+//
+// Do not swap in a KDF to silence it. `convex/http.ts` verifies a presented
+// worker key by hashing it on every request in the Convex runtime, which has
+// Web Crypto and no scrypt; the only KDF available there is PBKDF2, which would
+// add a derivation per request to defend a keyspace that does not exist.
 const workerKeyHash = createHash("sha256").update(workerApiKey).digest("hex").toLowerCase();
 
 const next = buildSessionSecretPayload(existing, {
