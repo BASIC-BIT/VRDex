@@ -183,6 +183,31 @@ Per deployment, before anyone signs in:
 4. Recreate the `accountFeatureGrants` row against the new user id.
 5. Once no legacy rows remain anywhere, tighten `clerkUserId` to `v.string()`.
 
+### Stored auth subjects do not survive the issuer change
+
+`toAuthSubject` persists `tokenIdentifier`, `issuer`, and `subject`, and two
+places compare them exactly: `communityAuthorities` is indexed by
+`subjectTokenIdentifier` (`_communityAuthority.ts`), and a standalone event
+authorizes its original submitter through `isSameAuthSubject`
+(`events.ts`). Changing the trusted issuer changes every one of those values,
+so those records stop matching their owners — delegated community staff lose
+their capabilities, and the submitter of an event with no community owner can
+no longer edit it.
+
+Setting `clerkUserId` does not help: these rows key on the token identifier,
+not on `users._id`, and nothing can derive which Clerk subject corresponds to a
+Convex Auth one. They have to be re-granted after the first Clerk sign-in.
+
+Production held 0 `events` and 0 `communityAuthorities` rows on 2026-07-30, so
+there is nothing to migrate there. **Check both counts per deployment before
+cutover** — staging in particular may hold rows — and re-grant rather than
+attempt a rewrite:
+
+```bash
+pnpm exec convex data communityAuthorities --limit 5
+pnpm exec convex data events --limit 5
+```
+
 Doing step 3 before step 2 is not fatal — it leaves a duplicate legacy row and an
 orphaned grant, both fixable by hand — but it costs a manual reconciliation that
 the ordering above avoids.

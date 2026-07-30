@@ -67,13 +67,27 @@ export async function getLinkedProviderAccount(
     .withIndex("by_userId_discordUserId", (query) => query.eq("userId", userId))
     .collect();
 
+  // `appliedAt` is newer than the table, so a row written before it existed has
+  // none even when its `appliedGeneration` proves reconciliation succeeded.
+  // Requiring the field outright would strip person-claim and VRC Linking access
+  // from every already-verified user until they redid OAuth. Fall back to
+  // `updatedAt` for those, and treat a row with neither as never completed.
+  const completedAt = (watermark: (typeof watermarks)[number]) =>
+    watermark.appliedAt ??
+    (watermark.appliedGeneration > 0 ? watermark.updatedAt : undefined);
+
   const current = watermarks.reduce<(typeof watermarks)[number] | null>(
-    (latest, watermark) =>
-      watermark.appliedAt === undefined
-        ? latest
-        : latest === null || watermark.appliedAt > (latest.appliedAt ?? 0)
-          ? watermark
-          : latest,
+    (latest, watermark) => {
+      const candidate = completedAt(watermark);
+
+      if (candidate === undefined) {
+        return latest;
+      }
+
+      return latest === null || candidate > (completedAt(latest) ?? 0)
+        ? watermark
+        : latest;
+    },
     null,
   );
 
