@@ -373,8 +373,10 @@ describe("profile claim lifecycle", () => {
     });
 
     // Settled, not thrown: the collector treats anything but an ownership
-    // conflict as retryable, so throwing would have it retry until expiry.
-    assert.deepEqual(result, { state: "failed" });
+    // conflict as retryable, so throwing would have it retry until expiry. The
+    // reason travels with it so the claim page does not report a listing that
+    // moved underneath the attempt as a failed attestation.
+    assert.deepEqual(result, { state: "failed", reason: "not_claimable" });
 
     const { attempt, owners } = await t.run(async (ctx) => ({
       attempt: await ctx.db.get(attemptId),

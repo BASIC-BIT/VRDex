@@ -1352,7 +1352,11 @@ export const recordVrchatProofVerification = internalMutation({
         updatedAt: now,
       });
 
-      return { state: "failed" as const };
+      // Named, like the Discord claim path. Unnamed, the browser could not tell
+      // this from a real negative, so a claimant who lost a race was told no
+      // server had confirmed their account — when the attestation may well have
+      // matched and only the listing moved underneath it.
+      return { state: "failed" as const, reason: "already_owned" as const };
     }
 
     // Attempts stay pending for a day, so the claimability check at the start
@@ -1371,7 +1375,7 @@ export const recordVrchatProofVerification = internalMutation({
         updatedAt: now,
       });
 
-      return { state: "failed" as const };
+      return { state: "failed" as const, reason: "not_claimable" as const };
     }
 
     // Same rule as the Discord paths, and for the same reason. Placing a proof

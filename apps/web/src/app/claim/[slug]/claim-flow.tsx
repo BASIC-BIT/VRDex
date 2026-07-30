@@ -435,15 +435,30 @@ export function ClaimFlow({
         // and let `lastVerifiedProof` report the real outcome.
         setStatus({ kind: "idle" });
       } else if (result.state === "failed") {
+        // A lost ownership race and a listing that stopped being claimable both
+        // settle as `failed`, and neither is a negative attestation — the match
+        // may have been found and the listing simply moved underneath it.
+        // Reporting them as "no server confirmed your account" blamed the
+        // claimant's linkage for something it had nothing to do with.
+        const raced =
+          "reason" in result && (result.reason === "already_owned" || result.reason === "not_claimable");
+
         setStatus({
           kind: "error",
-          message: viaVrclinking
-            ? "No linked server confirmed that VRChat account for you. Start again to try another method."
-            : "This verification attempt was rejected. Start again to get a new code.",
+          message: raced
+            ? result.reason === "already_owned"
+              ? "This profile already has an active owner."
+              : "This listing is no longer available to claim."
+            : viaVrclinking
+              ? "No linked server confirmed that VRChat account for you. Start again to try another method."
+              : "This verification attempt was rejected. Start again to get a new code.",
         });
         captureProductEvent(posthog, "claim_failed", {
           method: proofMethod,
-          outcome: "not_verified",
+          // A lost race is a conflict, not a failed attestation. Counting it as
+          // `not_verified` would read as VRCLinking rejecting claimants it
+          // never actually rejected.
+          outcome: raced ? "conflict" : "not_verified",
           profile_type: profile.profileType,
         });
       } else {
